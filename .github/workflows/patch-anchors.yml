@@ -1,0 +1,34 @@
+name: patch-anchors
+
+# Catches an upstream ds4_agent.c rework BEFORE it silently drops users to Raw:
+# the agent patch finds its insertion points by exact source anchors, so if
+# antirez moves them, dstudio --check-anchors fails and this workflow goes red.
+#
+# Runs on macOS — the platform DStudio is built and used on (clang, Metal engine);
+# that's the environment whose patch behaviour we actually want to verify.
+on:
+  schedule:
+    - cron: '17 6 * * 1'           # weekly, Monday ~06:17 UTC
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/dstudio.c'            # the JSONL_EDITS anchor table lives here
+      - '.github/workflows/patch-anchors.yml'
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate the embedded page header (dstudio.c includes it)
+        run: make src/page_data.h
+
+      - name: Build the standalone anchor checker (no webview, no Metal)
+        run: cc -O2 -std=gnu11 -D_GNU_SOURCE -o dstudio-check src/dstudio.c
+
+      - name: Clone upstream antirez/ds4 (latest main)
+        run: git clone --depth 1 https://github.com/antirez/ds4.git /tmp/ds4
+
+      - name: Check the jsonl patch anchors against upstream ds4_agent.c
+        run: ./dstudio-check --check-anchors /tmp/ds4
