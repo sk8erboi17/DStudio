@@ -1743,12 +1743,50 @@
 
     .onboard__lan-url:hover { text-decoration: underline; }
 
+    .onboard__panel[hidden] { display: none; }
+
+    .onboard__connect {
+      margin-top: 0.8rem;
+    }
+
+    .onboard__connect-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.4rem;
+    }
+
+    .onboard__lan-input {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-family: var(--font-mono);
+      font-size: 0.86rem;
+      padding: 0.58rem 0.68rem;
+      border: 1px solid var(--border-2);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    .onboard__lan-input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .onboard__lan-msg {
+      min-height: 1rem;
+      margin-top: 0.45rem;
+      color: var(--danger);
+      font-size: 0.76rem;
+    }
+
     @media (max-width: 620px) {
       .onboard__hero { flex-direction: column; }
       .onboard__net { align-items: stretch; width: 100%; }
       .onboard__seg { width: 100%; }
       .onboard__seg-b { flex: 1; }
       .onboard__lan-url { max-width: none; text-align: left; }
+      .onboard__connect-row { flex-direction: column; align-items: stretch; }
     }
 
     .onboard__sec {
@@ -2909,62 +2947,78 @@
             <button type="button" id="onboard-net-local" class="onboard__seg-b on" role="radio" aria-checked="true">Local</button>
             <button type="button" id="onboard-net-lan" class="onboard__seg-b" role="radio" aria-checked="false">LAN</button>
           </div>
-          <button type="button" id="onboard-lan-url" class="onboard__lan-url" title="Copy LAN URL" hidden></button>
         </div>
       </div>
 
-      <section class="onboard__sec">
-        <div class="onboard__status">
-          <span class="onboard__status-k">Engine</span>
-          <span id="onboard-conn" class="conn conn--unknown">checking…</span>
-          <button type="button" id="onboard-check" class="btn btn--sm">Recheck</button>
-        </div>
-        <p class="onboard__note">The engine is optional here: continue into the app, then download a model or point DStudio at a ds4 folder when you need generation.</p>
-      </section>
-
-      <section class="onboard__sec">
-        <h3>Folders</h3>
-        <p class="onboard__note">Where the engine and this interface live. Edit a path and it is checked instantly.</p>
-        <div class="onboard__path">
-          <label class="onboard__path-l" for="onboard-ds4dir">Engine <small>(ds4 — binaries &amp; model)</small></label>
-          <div class="onboard__path-row">
-            <input type="text" id="onboard-ds4dir" class="onboard__path-in" spellcheck="false" autocomplete="off" placeholder="/Users/you/Documents/dev/ds4">
-            <span id="onboard-ds4dir-badge" class="path-badge"></span>
-            <button type="button" id="onboard-ds4dir-browse-btn" class="btn btn--sm" title="Browse folders">Browse…</button>
+      <div id="onboard-local-panel" class="onboard__panel">
+        <section class="onboard__sec">
+          <div class="onboard__status">
+            <span class="onboard__status-k">Engine</span>
+            <span id="onboard-conn" class="conn conn--unknown">checking…</span>
+            <button type="button" id="onboard-check" class="btn btn--sm">Recheck</button>
           </div>
-          <p class="path-msg" id="onboard-ds4dir-msg"></p>
-          <div id="onboard-ds4dir-browse" class="fsfinder" hidden></div>
+          <p class="onboard__note">The engine is optional here: continue into the app, then download a model or point DStudio at a ds4 folder when you need generation.</p>
+        </section>
+
+        <section class="onboard__sec">
+          <h3>Folders</h3>
+          <p class="onboard__note">Where the engine and this interface live. Edit a path and it is checked instantly.</p>
+          <div class="onboard__path">
+            <label class="onboard__path-l" for="onboard-ds4dir">Engine <small>(ds4 — binaries &amp; model)</small></label>
+            <div class="onboard__path-row">
+              <input type="text" id="onboard-ds4dir" class="onboard__path-in" spellcheck="false" autocomplete="off" placeholder="/Users/you/Documents/dev/ds4">
+              <span id="onboard-ds4dir-badge" class="path-badge"></span>
+              <button type="button" id="onboard-ds4dir-browse-btn" class="btn btn--sm" title="Browse folders">Browse…</button>
+            </div>
+            <p class="path-msg" id="onboard-ds4dir-msg"></p>
+            <div id="onboard-ds4dir-browse" class="fsfinder" hidden></div>
+          </div>
+        </section>
+
+        <section class="onboard__sec" id="onboard-model-sec">
+          <h3>Model</h3>
+          <p class="onboard__note" id="onboard-model-note">Optional for onboarding — the GGUF weights live in the engine folder.</p>
+          <div class="onboard__models" id="onboard-models"></div>
+        </section>
+
+        <section class="onboard__sec">
+          <h3>Context size</h3>
+          <p class="onboard__note">How much the model keeps in mind per session. 64k is a good default; raise it for long agent or design work (DeepSeek V4 goes up to 1M).</p>
+          <select id="onboard-ctx" class="onboard__ctx" aria-label="Context size (tokens)">
+            <option value="8192">8k tokens</option>
+            <option value="16384">16k tokens</option>
+            <option value="32768">32k tokens</option>
+            <option value="65536">64k tokens</option>
+            <option value="131072">128k tokens</option>
+            <option value="262144">256k tokens</option>
+            <option value="524288">512k tokens</option>
+            <option value="1048576">1M tokens</option>
+          </select>
+        </section>
+
+        <details class="onboard__sec onboard__how">
+          <summary>Good to know</summary>
+          <p class="onboard__note" style="margin-top:.5rem"><strong>Thinking &amp; model</strong> — pick them per chat from the composer; in agent and design they restart the engine. <strong>Agent output</strong> stays structured via a small reversible patch built at launch (the <code>ds4-agent</code> source is never modified — Settings → <em>Raw</em> runs it stock). <strong>Network</strong> is localhost-only by default; switch LAN above to connect this machine to a DStudio host on the same network. Everything else lives in Settings (⚙).</p>
+        </details>
+
+        <div class="dialog__actions">
+          <button type="button" id="onboard-start" class="btn btn--primary">Start</button>
         </div>
-      </section>
+      </div>
 
-      <section class="onboard__sec" id="onboard-model-sec">
-        <h3>Model</h3>
-        <p class="onboard__note" id="onboard-model-note">Optional for onboarding — the GGUF weights live in the engine folder.</p>
-        <div class="onboard__models" id="onboard-models"></div>
-      </section>
-
-      <section class="onboard__sec">
-        <h3>Context size</h3>
-        <p class="onboard__note">How much the model keeps in mind per session. 64k is a good default; raise it for long agent or design work (DeepSeek V4 goes up to 1M).</p>
-        <select id="onboard-ctx" class="onboard__ctx" aria-label="Context size (tokens)">
-          <option value="8192">8k tokens</option>
-          <option value="16384">16k tokens</option>
-          <option value="32768">32k tokens</option>
-          <option value="65536">64k tokens</option>
-          <option value="131072">128k tokens</option>
-          <option value="262144">256k tokens</option>
-          <option value="524288">512k tokens</option>
-          <option value="1048576">1M tokens</option>
-        </select>
-      </section>
-
-      <details class="onboard__sec onboard__how">
-        <summary>Good to know</summary>
-        <p class="onboard__note" style="margin-top:.5rem"><strong>Thinking &amp; model</strong> — pick them per chat from the composer; in agent and design they restart the engine. <strong>Agent output</strong> stays structured via a small reversible patch built at launch (the <code>ds4-agent</code> source is never modified — Settings → <em>Raw</em> runs it stock). <strong>Network</strong> is localhost-only by default; switch LAN above to show the address for other devices. Everything else lives in Settings (⚙).</p>
-      </details>
-
-      <div class="dialog__actions">
-        <button type="button" id="onboard-start" class="btn btn--primary">Start</button>
+      <div id="onboard-lan-panel" class="onboard__panel" hidden>
+        <section class="onboard__sec">
+          <h3>Connect to LAN</h3>
+          <p class="onboard__note">Enter the LAN address shown by the Mac running DStudio.</p>
+          <label class="onboard__connect">
+            <span class="onboard__path-l" for="onboard-lan-address">LAN address</span>
+            <div class="onboard__connect-row">
+              <input type="text" id="onboard-lan-address" class="onboard__lan-input" spellcheck="false" autocomplete="off" placeholder="192.168.1.207:5500">
+              <button type="button" id="onboard-lan-connect" class="btn btn--primary">Connect</button>
+            </div>
+          </label>
+          <p class="onboard__lan-msg" id="onboard-lan-msg"></p>
+        </section>
       </div>
     </div>
   </dialog>
@@ -6751,12 +6805,16 @@
 
     const Onboarding = (() => {
       // Bump to force everyone through the onboarding once more.
-      const ONBOARD_VERSION = 5;
+      const ONBOARD_VERSION = 6;
       let dialog;
       let connEl;
       let netLocalBtn;
       let netLanBtn;
-      let lanUrlBtn;
+      let localPanel;
+      let lanPanel;
+      let lanAddressInput;
+      let lanConnectBtn;
+      let lanMsg;
       let lastDs4Ok = false; // gate model downloads: the weights land in the engine folder
       let selectedGguf = null; // the GGUF the user picked to run (relative path)
       let runningModel = '';   // the model currently loaded (status.modelFile)
@@ -6771,18 +6829,20 @@
         connEl = qs('#onboard-conn');
         netLocalBtn = qs('#onboard-net-local');
         netLanBtn = qs('#onboard-net-lan');
-        lanUrlBtn = qs('#onboard-lan-url');
+        localPanel = qs('#onboard-local-panel');
+        lanPanel = qs('#onboard-lan-panel');
+        lanAddressInput = qs('#onboard-lan-address');
+        lanConnectBtn = qs('#onboard-lan-connect');
+        lanMsg = qs('#onboard-lan-msg');
 
         const helpBtn = qs('#btn-help');
         if (helpBtn) on(helpBtn, 'click', show); // button removed: first-run only
         on(qs('#onboard-check'), 'click', check);
-        on(netLocalBtn, 'click', () => setNetwork(false));
-        on(netLanBtn, 'click', () => setNetwork(true));
-        on(lanUrlBtn, 'click', async () => {
-          const url = lanUrlBtn.dataset.url || '';
-          if (!url) return;
-          try { await navigator.clipboard.writeText(url); toast('LAN URL copied', 'info'); }
-          catch { toast('Copy failed.', 'error'); }
+        on(netLocalBtn, 'click', () => setOnboardMode('local'));
+        on(netLanBtn, 'click', () => setOnboardMode('lan'));
+        on(lanConnectBtn, 'click', connectLanAddress);
+        on(lanAddressInput, 'keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); connectLanAddress(); }
         });
         // Start: if the user picked a model different from the one running, launch it.
         on(qs('#onboard-start'), 'click', async () => {
@@ -6817,17 +6877,22 @@
         // Any close (Esc or Start) still marks this onboarding version as seen.
         on(dialog, 'close', () => Store.setSettings({ onboarded: true, onboardedVersion: ONBOARD_VERSION }));
 
-        if (Store.getSettings().onboardedVersion !== ONBOARD_VERSION) show();
+        const lanClientLanding = location.hash === '#lanClient';
+        if (lanClientLanding) {
+          Store.setSettings({ onboarded: true, onboardedVersion: ONBOARD_VERSION });
+          try { history.replaceState(null, '', location.pathname); } catch { /* ignore */ }
+        }
+        if (!lanClientLanding && Store.getSettings().onboardedVersion !== ONBOARD_VERSION) show();
       }
 
       function show() {
         if (dialog.open) return;
         dialog.showModal();
+        setOnboardMode('local');
         const ctx = qs('#onboard-ctx');
         if (ctx) ctx.value = String(Store.getSettings().ctxSize ?? 65536);
         renderModels(); // immediate paint from cached state; loadPaths refreshes it
         check();
-        syncNetwork();
         loadPaths();
         loadGgufs();    // scan the engine folder for the actual .gguf files
       }
@@ -6837,7 +6902,7 @@
         let st;
         try { st = await Engine.status(); } catch { return; }
         applyModelStatus(st);
-        paintNetwork(!!st.lan, st.lanAddr || '');
+        if (st.lanAddr && lanAddressInput && !lanAddressInput.value) lanAddressInput.value = st.lanAddr;
         PATHS.forEach((pcfg) => {
           const inp = qs('#' + pcfg.input);
           if (inp && !inp.value) inp.value = st[pcfg.cur] || '';
@@ -6990,51 +7055,43 @@
         if (pcfg.key === 'ds4dir') { refreshModels(); loadGgufs(); }
       }
 
-      function paintNetwork(lan, lanAddr) {
-        if (netLocalBtn) {
-          netLocalBtn.classList.toggle('on', !lan);
-          netLocalBtn.setAttribute('aria-checked', lan ? 'false' : 'true');
-        }
-        if (netLanBtn) {
-          netLanBtn.classList.toggle('on', !!lan);
-          netLanBtn.setAttribute('aria-checked', lan ? 'true' : 'false');
-        }
-        const url = lan && lanAddr ? `http://${lanAddr}` : '';
-        if (lanUrlBtn) {
-          lanUrlBtn.hidden = !url;
-          lanUrlBtn.textContent = url;
-          lanUrlBtn.dataset.url = url;
-        }
+      function setOnboardMode(mode) {
+        const lan = mode === 'lan';
+        netLocalBtn.classList.toggle('on', !lan);
+        netLocalBtn.setAttribute('aria-checked', lan ? 'false' : 'true');
+        netLanBtn.classList.toggle('on', lan);
+        netLanBtn.setAttribute('aria-checked', lan ? 'true' : 'false');
+        localPanel.hidden = lan;
+        lanPanel.hidden = !lan;
+        if (lan) setTimeout(() => lanAddressInput?.focus(), 0);
       }
 
-      async function syncNetwork() {
-        try {
-          const st = await Engine.status();
-          paintNetwork(!!st.lan, st.lanAddr || '');
-        } catch {
-          paintNetwork(false, '');
-        }
+      function normalizeLanAddress(raw) {
+        let value = String(raw || '').trim();
+        if (!value) throw new Error('Insert the LAN address shown on the Mac.');
+        if (!/^https?:\/\//i.test(value)) value = `http://${value}`;
+        let url;
+        try { url = new URL(value); }
+        catch { throw new Error('Use an address like 192.168.1.207:5500.'); }
+        if (!url.hostname) throw new Error('Use an address like 192.168.1.207:5500.');
+        if (!url.port) url.port = '5500';
+        url.pathname = '/';
+        url.search = '';
+        url.hash = 'lanClient';
+        return url.toString();
       }
 
-      async function setNetwork(enable) {
-        if (netLocalBtn) netLocalBtn.disabled = true;
-        if (netLanBtn) netLanBtn.disabled = true;
+      function connectLanAddress() {
+        let url;
         try {
-          const r = await Engine.setLan(enable);
-          if (!r || !r.ok) {
-            toast(r?.error || 'Could not change network access', 'error');
-            await syncNetwork();
-            return;
-          }
-          paintNetwork(!!r.lan, r.lanAddr || '');
-          if (enable && r.lanAddr) toast(`LAN: ${r.lanAddr}`, 'info');
-        } catch {
-          toast('Could not reach the launcher', 'error');
-          await syncNetwork();
-        } finally {
-          if (netLocalBtn) netLocalBtn.disabled = false;
-          if (netLanBtn) netLanBtn.disabled = false;
+          url = normalizeLanAddress(lanAddressInput.value);
+        } catch (e) {
+          if (lanMsg) lanMsg.textContent = e.message || 'Invalid LAN address.';
+          return;
         }
+        if (lanMsg) lanMsg.textContent = '';
+        Store.setSettings({ onboarded: true, onboardedVersion: ONBOARD_VERSION });
+        window.location.href = url;
       }
 
       function paintPath(pcfg, state, message) {
