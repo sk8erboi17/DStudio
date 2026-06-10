@@ -6442,11 +6442,17 @@
         }
       }
       async function syncLan() {
-        paintLan(false, '');                 // optimistic default while we ask serve
         try { const st = await Engine.status(); paintLan(!!st.lan, st.lanAddr || ''); }
-        catch { /* leave OFF if the launcher is unreachable */ }
+        catch {
+          if (f.lan.value === 'on') {
+            f.lanUrl.textContent = 'LAN status unavailable - reopen Settings or run /remote again.';
+            f.lanUrl.dataset.url = '';
+            f.lanAddr.hidden = false;
+          }
+        }
       }
       async function toggleLan(enable) {
+        paintLan(enable, '');
         try {
           const r = await Engine.setLan(enable);
           if (!r || !r.ok) { toast(r?.error || 'Could not change network access', 'error'); syncLan(); return; }
