@@ -341,12 +341,20 @@ static int  g_in_fd  = -1;   /* agent stdin (write) */
 static int  g_out_fd = -1;   /* child stdout (read)  */
 static int  g_err_fd = -1;   /* child stderr (read)  */
 
-/* Shared client state (chat history), so all devices on the LAN see the same
- * conversations. An opaque JSON blob the page reads/merges/writes; persisted to
- * disk. rev bumps on every write → clients poll it cheaply to spot changes. */
+/* Local client state (chat history). An opaque JSON blob the page reads/merges/
+ * writes; persisted to disk. rev bumps on every write → browser tabs poll it
+ * cheaply to spot changes. Non-loopback LAN clients are not allowed to reach
+ * this store; only the explicit /remote share is public. */
 static char  *g_store = NULL;
 static size_t g_store_len = 0;
 static long   g_store_rev = 0;
+
+/* /remote share: one chat intentionally exposed to LAN clients. It is separate
+ * from the local workspace, sidebar, settings and full conversation store. */
+static int    g_remote_enabled = 0;
+static char  *g_remote_chat = NULL;      /* raw JSON chat snapshot */
+static size_t g_remote_chat_len = 0;
+static long   g_remote_rev = 0;
 
 /* loading progress */
 static int  g_load_pct = 0;
@@ -992,6 +1000,25 @@ static int lan_status(char *addr, size_t addrsz) {
     char ip[INET_ADDRSTRLEN];
     if (lan_ip(ip, sizeof ip)) snprintf(addr, addrsz, "%s:%d", ip, g_http_port);
     return on;
+}
+
+static int rebind_http_listener(const char *want) {
+    if (!strcmp(g_bind_host, want)) return 1;
+    char old[64];
+    snprintf(old, sizeof old, "%s", g_bind_host);
+    if (g_srv_fd >= 0) close(g_srv_fd);
+    int nf = open_listener(want, g_http_port);
+    if (nf < 0) {
+        g_srv_fd = open_listener(old, g_http_port);
+        if (g_srv_fd < 0) {
+            g_srv_fd = open_listener("127.0.0.1", g_http_port);
+            snprintf(g_bind_host, sizeof g_bind_host, "127.0.0.1");
+        }
+        return 0;
+    }
+    g_srv_fd = nf;
+    snprintf(g_bind_host, sizeof g_bind_host, "%s", want);
+    return 1;
 }
 
 /* ==================== loading progress ==================== */
@@ -4216,35 +4243,26 @@ static void api_set_webdir(int fd, const char *body) {
 }
 
 /* Network toggle: enable=true rebinds the HTTP listener to 0.0.0.0 (reachable on
- * the LAN), enable=false back to 127.0.0.1 (localhost only). Rebinds the socket
- * live — same port — and returns the LAN address. LAN is OFF by default; this
- * POST is behind the anti-CSRF header like every other mutating route. */
+ * the LAN), enable=false back to 127.0.0.1 (localhost only). Non-loopback clients
+ * are still router-limited to /remote and its small API; the full app remains
+ * local-only. This POST is behind the anti-CSRF header like other mutating routes. */
 static void api_lan(int fd, const char *body) {
     int enable = json_get_bool(body, "enable");
     const char *want = enable ? "0.0.0.0" : "127.0.0.1";
     char addr[80], out[200];
     if (strcmp(g_bind_host, want)) {
-        char old[64];
-        snprintf(old, sizeof old, "%s", g_bind_host);
-        if (g_srv_fd >= 0) close(g_srv_fd);
-        int nf = open_listener(want, g_http_port);  /* port now free: old listener closed */
-        if (nf < 0) {
-            /* couldn't bind the new host — restore a working listener (localhost
-             * always binds) so the app stays reachable, and report the failure. */
-            g_srv_fd = open_listener(old, g_http_port);
-            if (g_srv_fd < 0) { g_srv_fd = open_listener("127.0.0.1", g_http_port); snprintf(g_bind_host, sizeof g_bind_host, "127.0.0.1"); }
+        if (!rebind_http_listener(want)) {
             send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"could not rebind the listener\"}");
             return;
         }
-        g_srv_fd = nf;
-        snprintf(g_bind_host, sizeof g_bind_host, "%s", want);
         if (enable) {
             char ip[INET_ADDRSTRLEN] = "";
             lan_ip(ip, sizeof ip);
-            printf("\n  !  LAN ENABLED from Settings (%s:%d): reachable from other hosts on the network.\n",
+            printf("\n  !  LAN ENABLED from Settings (%s:%d): non-local clients can open only /remote.\n",
                    ip[0] ? ip : "0.0.0.0", g_http_port);
-            printf("     The agent/design RUN shell commands and modify files on THIS machine.\n\n");
+            printf("     The full DStudio app, workspace, settings and store remain loopback-only.\n\n");
         } else {
+            if (g_remote_enabled) { g_remote_enabled = 0; g_remote_rev++; }
             printf("DStudio: LAN disabled — localhost only again.\n");
         }
         /* The engine STAYS on 127.0.0.1: serve reverse-proxies /v1 to it, so LAN
@@ -4730,6 +4748,189 @@ static char *json_get_string_alloc(const char *body, const char *key) {
     return b.ptr ? b.ptr : strdup("");
 }
 
+static int remote_json_ok(const char *body, size_t len) {
+    size_t i = 0;
+    while (i < len && isspace((unsigned char)body[i])) i++;
+    return i < len && body[i] == '{';
+}
+
+static void remote_ensure_empty_chat(void) {
+    if (g_remote_chat) return;
+    const char *empty = "{\"id\":\"remote\",\"title\":\"Remote\",\"model\":\"\",\"settings\":{},\"messages\":[]}";
+    g_remote_chat = strdup(empty);
+    if (g_remote_chat) g_remote_chat_len = strlen(empty);
+}
+
+static void remote_addr_url(char *addr, size_t addrsz, char *url, size_t urlsz) {
+    int on = lan_status(addr, addrsz);
+    if (on && addr[0]) snprintf(url, urlsz, "http://%s/remote", addr);
+    else url[0] = '\0';
+}
+
+static void api_remote_status(int fd) {
+    char addr[80], url[128];
+    remote_addr_url(addr, sizeof addr, url, sizeof url);
+    json_dyn_buf out = {0};
+    if (!json_dyn_puts(&out, "{\"ok\":true,\"enabled\":") ||
+        !json_dyn_puts(&out, g_remote_enabled ? "true" : "false") ||
+        !json_dyn_printf(&out, ",\"rev\":%ld,\"lan\":", g_remote_rev) ||
+        !json_dyn_puts(&out, strcmp(g_bind_host, "127.0.0.1") ? "true" : "false") ||
+        !json_dyn_puts(&out, ",\"lanAddr\":") ||
+        !json_dyn_put_escaped(&out, addr) ||
+        !json_dyn_puts(&out, ",\"url\":") ||
+        !json_dyn_put_escaped(&out, url) ||
+        !json_dyn_puts(&out, "}")) {
+        free(out.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false}");
+        return;
+    }
+    send_json(fd, "200 OK", out.ptr);
+    free(out.ptr);
+}
+
+static void api_remote_control(int fd, const char *body) {
+    int enable = json_get_bool(body, "enable");
+    if (enable) {
+        if (!rebind_http_listener("0.0.0.0")) {
+            send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"could not rebind the listener\"}");
+            return;
+        }
+        remote_ensure_empty_chat();
+        g_remote_enabled = 1;
+        g_remote_rev++;
+        char ip[INET_ADDRSTRLEN] = "";
+        lan_ip(ip, sizeof ip);
+        printf("\n  !  REMOTE CHAT ENABLED (%s:%d/remote): LAN clients are limited to /remote.\n\n",
+               ip[0] ? ip : "0.0.0.0", g_http_port);
+    } else {
+        g_remote_enabled = 0;
+        g_remote_rev++;
+        printf("DStudio: remote chat disabled.\n");
+    }
+    api_remote_status(fd);
+}
+
+static void api_remote_chat_get(int fd) {
+    char addr[80], url[128];
+    remote_addr_url(addr, sizeof addr, url, sizeof url);
+    json_dyn_buf out = {0};
+    int ok = json_dyn_puts(&out, "{\"ok\":true,\"enabled\":") &&
+             json_dyn_puts(&out, g_remote_enabled ? "true" : "false") &&
+             json_dyn_printf(&out, ",\"rev\":%ld,\"url\":", g_remote_rev) &&
+             json_dyn_put_escaped(&out, url) &&
+             json_dyn_puts(&out, ",\"chat\":");
+    if (ok && g_remote_chat && g_remote_chat_len) ok = json_dyn_putn(&out, g_remote_chat, g_remote_chat_len);
+    else if (ok) ok = json_dyn_puts(&out, "null");
+    if (ok) ok = json_dyn_puts(&out, "}");
+    if (!ok) {
+        free(out.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false}");
+        return;
+    }
+    send_json(fd, "200 OK", out.ptr);
+    free(out.ptr);
+}
+
+static void api_remote_chat_set(int fd, char *body, size_t len) {
+    if (!g_remote_enabled) {
+        free(body);
+        send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"remote chat is not enabled\"}");
+        return;
+    }
+    if (!remote_json_ok(body, len)) {
+        free(body);
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"remote chat must be a JSON object\"}");
+        return;
+    }
+    free(g_remote_chat);
+    g_remote_chat = body;
+    g_remote_chat_len = len;
+    g_remote_rev++;
+    char out[64];
+    snprintf(out, sizeof out, "{\"ok\":true,\"rev\":%ld}", g_remote_rev);
+    send_json(fd, "200 OK", out);
+}
+
+static const char REMOTE_PAGE[] =
+"<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+"<title>DStudio Remote</title><style>"
+":root{color-scheme:dark;--bg:#070809;--panel:#111317;--line:#2b3038;--text:#f4f5f7;--muted:#969ca6;--accent:#8fb7ff}"
+"*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif}"
+".app{min-height:100vh;display:flex;flex-direction:column}.top{height:58px;display:flex;align-items:center;gap:12px;padding:0 18px;border-bottom:1px solid var(--line);background:#0b0c0f}"
+".mark{width:24px;height:24px;border-radius:50%;display:inline-block;background:radial-gradient(circle at 50% 50%,#dbe8ff 0 14%,transparent 15%),conic-gradient(from 20deg,var(--accent) 0 14%,transparent 14% 25%,var(--accent) 25% 39%,transparent 39% 50%,var(--accent) 50% 64%,transparent 64% 75%,var(--accent) 75% 89%,transparent 89%)}"
+".brand{font-weight:650}.tag{font-size:12px;color:var(--accent);border:1px solid #315386;border-radius:999px;padding:2px 8px}.status{margin-left:auto;color:var(--muted);font-size:13px}"
+".messages{flex:1;overflow:auto;padding:28px 16px 120px}.empty{max-width:760px;margin:20vh auto 0;color:var(--muted);text-align:center}"
+".msg{max-width:920px;margin:0 auto 24px}.msg.user{display:flex;flex-direction:column;align-items:flex-end}.start{display:flex;align-items:center;gap:8px;color:var(--muted);font:12px ui-monospace,monospace;margin-bottom:7px}.msg.user .start{justify-content:flex-end}"
+".bubble{white-space:pre-wrap;overflow-wrap:anywhere}.msg.user .bubble{max-width:min(760px,88vw);background:#233044;border-radius:18px;padding:12px 16px}.msg.assistant .bubble{font-size:17px;color:#f0f1f4}"
+".composer{position:fixed;left:0;right:0;bottom:0;padding:14px 16px 18px;background:linear-gradient(180deg,rgba(7,8,9,0),#070809 22%)}"
+".bar{max-width:920px;margin:auto;display:flex;align-items:flex-end;gap:10px;border:1px solid var(--line);border-radius:18px;padding:8px;background:#090a0c}"
+"textarea{flex:1;min-height:42px;max-height:160px;resize:none;background:transparent;border:0;color:var(--text);font:inherit;outline:0;padding:8px}button{width:42px;height:42px;border:0;border-radius:13px;background:var(--accent);color:#07101e;font-size:20px;font-weight:700;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}"
+"</style></head><body><div class=\"app\"><header class=\"top\"><span class=\"mark\"></span><span class=\"brand\">DStudio</span><span class=\"tag\">Remote</span><span id=\"status\" class=\"status\">Connecting...</span></header><main id=\"messages\" class=\"messages\"></main><form id=\"form\" class=\"composer\"><div class=\"bar\"><textarea id=\"input\" placeholder=\"Write a message...\" rows=\"1\"></textarea><button id=\"send\" type=\"submit\">&#8593;</button></div></form></div>"
+"<script>"
+"const $=s=>document.querySelector(s);let chat=null,rev=-1,busy=false,saveTimer=null;"
+"const uid=()=>crypto.randomUUID?crypto.randomUUID():('m_'+Date.now().toString(36)+Math.random().toString(36).slice(2));"
+"function setStatus(t){$('#status').textContent=t||''}"
+"function start(role){const d=document.createElement('div');d.className='start';d.innerHTML='<span class=\"mark\"></span><span>'+(role==='user'?'You':'DStudio')+'</span>';return d}"
+"function render(){const box=$('#messages');box.innerHTML='';if(!chat){const p=document.createElement('p');p.className='empty';p.textContent='Remote chat is not active. Run /remote on the host.';box.append(p);return}for(const m of chat.messages||[]){if(m.role!=='user'&&m.role!=='assistant')continue;const a=document.createElement('article');a.className='msg '+(m.role==='user'?'user':'assistant');const b=document.createElement('div');b.className='bubble';b.textContent=m.content||'';a.append(start(m.role),b);box.append(a)}box.scrollTop=box.scrollHeight}"
+"async function load(){try{const j=await (await fetch('/api/remote/chat',{cache:'no-store'})).json();if(!j.enabled){chat=null;rev=j.rev;setStatus('Waiting for /remote');render();return}if(j.rev!==rev){chat=j.chat||{title:'Remote',settings:{},messages:[]};rev=j.rev;setStatus(chat.title||'Remote');render()}}catch(e){setStatus('Disconnected')}}"
+"async function save(){if(!chat)return;const j=await (await fetch('/api/remote/chat',{method:'POST',headers:{'X-Requested-With':'ds4web','Content-Type':'application/json'},body:JSON.stringify(chat)})).json();if(typeof j.rev==='number')rev=j.rev}"
+"function queueSave(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(()=>{}),600)}"
+"function sse(block,a){for(const line of block.split('\\n')){if(!line.startsWith('data:'))continue;const data=line.slice(5).trim();if(!data||data==='[DONE]')continue;try{const j=JSON.parse(data);const d=(j.choices&&j.choices[0]&&j.choices[0].delta)||{};const t=d.content||d.reasoning_content||d.reasoning||'';if(t){a.content+=t;render();queueSave()}}catch{}}}"
+"async function stream(res,a){const reader=res.body.getReader();const dec=new TextDecoder();let buf='';for(;;){const x=await reader.read();if(x.done)break;buf+=dec.decode(x.value,{stream:true});const parts=buf.split('\\n\\n');buf=parts.pop()||'';for(const p of parts)sse(p,a)}if(buf)sse(buf,a)}"
+"async function send(text){if(!chat||busy||!text.trim())return;busy=true;$('#send').disabled=true;chat.messages=chat.messages||[];chat.messages.push({id:uid(),role:'user',content:text.trim(),createdAt:Date.now()});const a={id:uid(),role:'assistant',content:'',createdAt:Date.now(),streaming:true};chat.messages.push(a);render();await save().catch(()=>{});try{const msgs=[];const sys=chat.settings&&chat.settings.systemPrompt;if(sys)msgs.push({role:'system',content:sys});for(const m of chat.messages){if(m.role==='user'||(m.role==='assistant'&&m.content&&!m.streaming))msgs.push({role:m.role,content:m.content})}const body={model:chat.model||'ds4',messages:msgs,stream:true,temperature:(chat.settings&&chat.settings.temperature)||0.6};if(chat.settings&&chat.settings.maxTokens)body.max_tokens=chat.settings.maxTokens;const res=await fetch('/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!res.ok)throw new Error('HTTP '+res.status);await stream(res,a)}catch(e){a.content+=(a.content?'\\n\\n':'')+'[Remote error: '+(e.message||e)+']'}finally{delete a.streaming;busy=false;$('#send').disabled=false;await save().catch(()=>{});render()}}"
+"$('#form').addEventListener('submit',e=>{e.preventDefault();const i=$('#input');const t=i.value;i.value='';send(t)});$('#input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#form').requestSubmit()}});"
+"load();setInterval(()=>{if(!busy)load()},1500);"
+"</script></body></html>";
+
+static void serve_remote_page(int fd, int head_only) {
+    send_response(fd, "200 OK", "text/html; charset=utf-8", REMOTE_PAGE, strlen(REMOTE_PAGE), head_only);
+}
+
+static int client_is_loopback(int fd) {
+    struct sockaddr_storage ss;
+#ifdef _WIN32
+    int slen = (int)sizeof ss;
+#else
+    socklen_t slen = sizeof ss;
+#endif
+    if (getpeername(fd, (struct sockaddr *)&ss, &slen) != 0) return 0;
+    if (ss.ss_family == AF_INET) {
+        struct sockaddr_in *sin = (struct sockaddr_in *)&ss;
+        uint32_t ip = ntohl(sin->sin_addr.s_addr);
+        return (ip >> 24) == 127;
+    }
+#ifdef AF_INET6
+    if (ss.ss_family == AF_INET6) {
+        struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&ss;
+        return IN6_IS_ADDR_LOOPBACK(&sin6->sin6_addr);
+    }
+#endif
+    return 0;
+}
+
+static int path_eq_clean(const char *path, const char *want) {
+    size_t n = strcspn(path, "?");
+    return strlen(want) == n && !strncmp(path, want, n);
+}
+
+static int lan_root_path(const char *path) {
+    return path_eq_clean(path, "/") || path_eq_clean(path, "/index.html");
+}
+
+static int remote_page_path(const char *path) {
+    return path_eq_clean(path, "/remote") || path_eq_clean(path, "/remote/") ||
+           path_eq_clean(path, "/remote/index.html");
+}
+
+static int lan_public_path_allowed(const char *method, const char *path) {
+    int get = !strcmp(method, "GET") || !strcmp(method, "HEAD");
+    if (get && (remote_page_path(path) || lan_root_path(path))) return 1;
+    if (get && (path_eq_clean(path, "/api/remote/status") || path_eq_clean(path, "/api/remote/chat"))) return 1;
+    if (!strcmp(method, "POST") && path_eq_clean(path, "/api/remote/chat")) return 1;
+    if (!strcmp(method, "POST") && g_remote_enabled && path_eq_clean(path, "/v1/chat/completions")) return 1;
+    return 0;
+}
+
 static int web_url_ok(const char *url) {
     return url && (!strncmp(url, "http://", 7) || !strncmp(url, "https://", 8));
 }
@@ -5031,6 +5232,44 @@ static void handle_connection(int fd) {
     char method[8] = {0}, path[1024] = {0};
     if (sscanf(req, "%7s %1023s", method, path) != 2) { send_text(fd, "400 Bad Request", "bad request\n", 0); close(fd); return; }
     sanitize(method); sanitize(path);
+    int head_only_req = !strcmp(method, "HEAD");
+    int local_client = client_is_loopback(fd);
+
+    if (!local_client && !lan_public_path_allowed(method, path)) {
+        send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"LAN clients can only use /remote\"}");
+        close(fd);
+        return;
+    }
+
+    if ((!strcmp(method, "GET") || head_only_req) &&
+        (remote_page_path(path) || (!local_client && lan_root_path(path)))) {
+        serve_remote_page(fd, head_only_req);
+        close(fd);
+        return;
+    }
+
+    /* POST /api/remote/chat carries the exposed remote conversation and can be
+     * larger than BODY_MAX, like the local store. It is separate from /api/store. */
+    if (!strcmp(method, "POST") && path_eq_clean(path, "/api/remote/chat")) {
+        if (!header_has(req, header_len, "x-requested-with: ds4web")) {
+            send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}"); close(fd); return;
+        }
+        if (clen < 0 || clen > 8L * 1024 * 1024) { send_text(fd, "413 Payload Too Large", "remote chat too large\n", 0); close(fd); return; }
+        char *buf = malloc((size_t)clen + 1);
+        if (!buf) { send_json(fd, "500 Internal Server Error", "{\"ok\":false}"); close(fd); return; }
+        size_t have = got - header_len; if (have > (size_t)clen) have = (size_t)clen;
+        memcpy(buf, req + header_len, have);
+        size_t off = have, left = (size_t)clen - have;
+        while (left > 0) {
+            ssize_t n = recv(fd, buf + off, left, 0);
+            if (n <= 0) break;
+            off += (size_t)n; left -= (size_t)n;
+        }
+        buf[off] = '\0';
+        api_remote_chat_set(fd, buf, off);
+        close(fd);
+        return;
+    }
 
     /* /v1 paths → reverse-proxy to the LOCAL engine (the page talks to serve
      * same-origin for the OpenAI API). The relay child streams the response and
@@ -5099,6 +5338,7 @@ static void handle_connection(int fd) {
         else if (!strcmp(path, "/api/webdir"))       { api_set_webdir(fd, body); }
         else if (!strcmp(path, "/api/web-search"))   { api_web_search(fd, body); }
         else if (!strcmp(path, "/api/lan"))          { api_lan(fd, body); }
+        else if (!strcmp(path, "/api/remote"))       { api_remote_control(fd, body); }
         else if (!strcmp(path, "/api/wipe"))         { api_wipe(fd); }
         else { send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"unknown endpoint\"}"); status = 404; }
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/store")) {
@@ -5106,6 +5346,10 @@ static void handle_connection(int fd) {
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/storerev")) {
         char out[48]; snprintf(out, sizeof out, "{\"rev\":%ld}", g_store_rev);  /* cheap poll */
         send_json(fd, "200 OK", out);
+    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/remote/status")) {
+        api_remote_status(fd);
+    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/remote/chat")) {
+        api_remote_chat_get(fd);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/status")) {
         api_status(fd);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/doctor")) {
@@ -5143,6 +5387,8 @@ static void handle_connection(int fd) {
         api_build_file(fd, path, head_only);
     } else if (!head_only && strcmp(method, "GET") != 0) {
         send_text(fd, "405 Method Not Allowed", "method not allowed\n", 0); status = 405;
+    } else if (remote_page_path(path)) {
+        serve_remote_page(fd, head_only);
     } else if (!strcmp(path, "/") || !strcmp(path, "/index.html")) {
         size_t len = 0;
         char *page = read_page(&len);
@@ -5239,7 +5485,7 @@ int main(int argc, char **argv)
     g_abuf = malloc(65536);
     g_acap = g_abuf ? 65536 : 0;
 
-    store_load();   /* shared chat history (so all LAN devices see the same chats) */
+    store_load();   /* local browser history; LAN clients get only the explicit /remote chat */
 
     /* Crash-clean: if a previous launch died with the ds4_agent.c source
      * still patched, restore it from the .bak before anything else. */
@@ -5248,11 +5494,8 @@ int main(int argc, char **argv)
     int lan = strcmp(g_bind_host, "127.0.0.1") != 0;
     printf("DStudio: http://%s:%d  (page %s, ds4 %s)\n", g_bind_host, port, PAGE_PATH, g_ds4_dir);
     if (lan) {
-        printf("\n  !  BOUND ON THE LAN (%s): the app is reachable from other hosts on the network.\n", g_bind_host);
-        printf("     Anyone on the LAN can use the chat AND start the agent OR the design,\n");
-        printf("     which RUN shell commands (bash) and modify files on THIS machine\n");
-        printf("     as your user: it is a network RCE. The anti-CSRF header stops a\n");
-        printf("     browser from another origin, NOT a direct attacker via curl.\n");
+        printf("\n  !  BOUND ON THE LAN (%s): non-local clients are limited to /remote.\n", g_bind_host);
+        printf("     The full app, workspace, settings, store, agent and design APIs stay loopback-only.\n");
         printf("     To go back to localhost only:  DS4UI_HOST=127.0.0.1 ./dstudio\n\n");
     }
 

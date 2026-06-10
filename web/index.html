@@ -810,6 +810,13 @@
       font-style: italic;
     }
 
+    .web-searching-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 0.7rem;
+      max-width: var(--msg-maxw);
+    }
+
     .web-searching::before {
       content: '';
       width: 0.62rem;
@@ -824,6 +831,42 @@
       70% { box-shadow: 0 0 0 9px rgba(157, 190, 255, 0); }
       100% { box-shadow: 0 0 0 0 rgba(157, 190, 255, 0); }
     }
+
+    .web-trace {
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+      max-width: min(100%, 44rem);
+      border-left: 1px solid var(--border-2);
+      padding-left: 0.85rem;
+      color: var(--text-2);
+      font-size: 0.82rem;
+    }
+
+    .web-trace__row {
+      display: grid;
+      grid-template-columns: 0.7rem minmax(0, 1fr);
+      gap: 0.55rem;
+      align-items: start;
+    }
+
+    .web-trace__dot {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      margin-top: 0.45rem;
+      background: var(--border-2);
+    }
+
+    .web-trace__row[data-state="active"] .web-trace__dot {
+      background: var(--accent-2);
+      box-shadow: 0 0 0 4px var(--accent-soft);
+    }
+
+    .web-trace__row[data-state="done"] .web-trace__dot { background: var(--ok); }
+    .web-trace__row[data-state="error"] .web-trace__dot { background: var(--danger); }
+    .web-trace__label { color: var(--text); }
+    .web-trace__detail { color: var(--muted); overflow-wrap: anywhere; }
 
     /* ==================== Reasoning block (mockup style .think-block) ====================
        Left border + serif italic header, no dashed box. */
@@ -3009,7 +3052,7 @@
       <div id="onboard-lan-panel" class="onboard__panel" hidden>
         <section class="onboard__sec">
           <h3>Connect to LAN</h3>
-          <p class="onboard__note">Enter the LAN address shown by the Mac running DStudio.</p>
+          <p class="onboard__note">Enter the LAN address shown by the Mac running DStudio. This opens only the shared Remote chat.</p>
           <label class="onboard__connect">
             <span class="onboard__path-l" for="onboard-lan-address">LAN address</span>
             <div class="onboard__connect-row">
@@ -3098,12 +3141,12 @@
             <p class="set-help"><strong>Structured</strong> gives the cleanest chat — tool calls, results and reasoning are parsed and folded — via a small, reversible patch applied to ds4-agent when the engine builds. <strong>Raw</strong> runs the stock ds4-agent untouched and the UI parses its plain text instead: lower fidelity, but nothing in the upstream code is modified. The raw fallback also kicks in automatically if the patch ever fails to apply.</p>
           </label>
           <label class="field">
-            <span>Network access <small class="field-note">open this app from other devices on your Wi-Fi</small></span>
+            <span>Network access <small class="field-note">open Remote chat from other devices on your Wi-Fi</small></span>
             <select id="set-lan" aria-label="Network access (LAN)">
               <option value="off">Localhost only (recommended)</option>
               <option value="on">Enable on the LAN</option>
             </select>
-            <p class="set-help"><strong>Localhost only</strong> keeps the app reachable from this Mac alone. <strong>Enable on the LAN</strong> lets other devices on the same network open it at the address below — but anyone on the LAN can then start the agent or design, which run shell commands and edit files on <strong>this</strong> machine. Turn it off when you're done.</p>
+            <p class="set-help"><strong>Localhost only</strong> keeps everything reachable from this Mac alone. <strong>Enable on the LAN</strong> publishes only <code>/remote</code>; the full app, workspace, settings, chat list, agent and design stay local to this machine.</p>
             <div class="set-lan-addr" id="set-lan-addr" hidden>
               <span class="set-lan-addr__k">Open on another device</span>
               <button type="button" id="set-lan-url" class="set-lan-addr__v" title="Copy"></button>
@@ -3114,9 +3157,9 @@
         <section class="set-grp">
           <div class="set-eye">Data</div>
           <div class="field">
-            <span>Conversations <small class="field-note">removes every conversation on all devices</small></span>
+            <span>Conversations <small class="field-note">removes every local conversation</small></span>
             <button type="button" id="set-clear-all" class="btn btn--danger-outline">Clear all conversations</button>
-            <p class="set-help">Wipes the chat / agent / design history here <strong>and</strong> from the shared store (so other devices on the LAN clear too), plus the on-disk model cache (KV) when the engine is idle. This cannot be undone.</p>
+            <p class="set-help">Wipes the chat / agent / design history on this machine, plus the on-disk model cache (KV) when the engine is idle. This cannot be undone.</p>
           </div>
         </section>
       </div>
@@ -4088,7 +4131,7 @@
     const Store = (() => {
       const state = {
         chats: [],
-        deleted: [],   // tombstones {id, at} so deletes propagate across LAN devices
+        deleted: [],   // tombstones {id, at} so deletes propagate across local browser tabs
         settings: { ...DEFAULT_SETTINGS },
         // Active conversation PER MODE: each tab has its own sidebar and its
         // own active one. sidebarMode follows the current tab (server→'chat').
@@ -4175,7 +4218,7 @@
 
       function persistChatsNow() {
         persistChatsDebounced.cancel();
-        pushChatsDebounced();   // also mirror to the shared server store (LAN sync)
+        pushChatsDebounced();   // also mirror to the local server-backed store
         if (writeKey(STORAGE_KEYS.chats, serializeChats())) return;
         if (shedReasoning() && writeKey(STORAGE_KEYS.chats, serializeChats())) return;
         if (shedTranscripts() && writeKey(STORAGE_KEYS.chats, serializeChats())) return;
@@ -4187,16 +4230,16 @@
 
       const persistChatsDebounced = debounce(() => persistChatsNow(), PERSIST_CHATS_DEBOUNCE_MS);
 
-      // ---- Shared store sync (so every device on the LAN shares one history) ----
-      // The conversation list lives on serve; each device MERGES (never replaces)
-      // by id, newest updatedAt wins, with tombstones so deletes propagate. Active
-      // selection and settings stay device-local.
+      // ---- Local server-backed store sync ----
+      // The conversation list lives on serve for this machine; browser tabs MERGE
+      // (never replace) by id, newest updatedAt wins, with tombstones so deletes
+      // propagate. Active selection and settings stay browser-local.
       let serverRev = -1;
       let syncReady = false;   // don't push to the server until the first merge ran
       const TOMB_TTL = 60 * 24 * 3600 * 1000; // forget tombstones after 60 days
 
-      // Only conversations with real content are shared — an empty "New chat"
-      // placeholder is transient and per-device, never pushed.
+      // Only conversations with real content are mirrored — an empty "New chat"
+      // placeholder is transient and per-browser, never pushed.
       const hasContent = (c) => (c.messages?.length || 0) > 0 || !!(c.transcript && c.transcript.length);
       const serializeShared = () =>
         JSON.stringify({ v: SCHEMA_VERSION, chats: state.chats.filter(hasContent), deleted: state.deleted });
@@ -4221,16 +4264,15 @@
       }
 
       const pushChatsDebounced = debounce(() => {
-        if (!syncReady) return;   // never overwrite the shared store before the first merge
+        if (!syncReady) return;   // never overwrite the server store before the first merge
         Engine.putStore(serializeShared())
           .then((r) => { if (r && typeof r.rev === 'number') serverRev = r.rev; })
           .catch(() => { /* offline / no launcher: localStorage already has it */ });
       }, 700);
 
-      // After merging the shared store, land EACH mode (chat / agent / design) on
+      // After merging the server store, land EACH mode (chat / agent / design) on
       // its current conversation — the latest one with content — instead of the
-      // empty "New chat" placeholder a fresh device opens on. So a phone joining
-      // the LAN shows the same live conversations the Mac is on. setActiveChat is
+      // empty "New chat" placeholder a fresh browser tab opens on. setActiveChat is
       // the universal switch (re-renders chat via Messages, agent/design via
       // AgentView), so this works in all three modes.
       function landOnLatest() {
@@ -4249,7 +4291,7 @@
         }
       }
 
-      // Pull the shared store and merge it in. push=true seeds/reconciles the server
+      // Pull the server store and merge it in. push=true seeds/reconciles the server
       // with our merged result; landCurrent=true (at boot) lands on the live chat.
       async function syncFromServer(push, landCurrent) {
         let res;
@@ -4277,7 +4319,7 @@
         if (typeof rev === 'number' && rev !== serverRev) await syncFromServer(false);
       }
 
-      // "Clear all conversations": wipe the shared store (+ the KV cache when the
+      // "Clear all conversations": wipe the local server store (+ the KV cache when the
       // engine is idle) AND this device's local history, then start fresh.
       async function clearAll() {
         let kvCleared = false;
@@ -4834,6 +4876,7 @@
           m.content || '', m.reasoning || '', m.finishReason || '',
           m.error?.message || '', m.usage ? JSON.stringify(m.usage) : '',
           m.sources ? JSON.stringify(m.sources) : '',
+          m.webTrace ? JSON.stringify(m.webTrace) : '',
           chat?.model || '',
         ].join('\u0003');
       }
@@ -4862,7 +4905,7 @@
         }
 
         if (m.webSearching) {
-          article.append(el('div', { class: 'web-searching', text: 'webSearching' }));
+          article.append(buildWebSearching(m.webTrace));
           return article;
         }
 
@@ -4888,16 +4931,32 @@
       function buildMessageStart(role) {
         const start = el('div', { class: `msg__start msg__start--${role}` });
         const logo = el('span', { class: 'msg__logo', 'aria-hidden': 'true' });
-        if (role === 'assistant') {
-          const src = qs('.brand-logo')?.src;
-          if (src) logo.append(el('img', { src, alt: '' }));
-          else logo.textContent = 'D';
-          start.append(logo, el('span', { text: 'DStudio' }));
-        } else {
-          logo.textContent = 'Y';
-          start.append(logo, el('span', { text: 'You' }));
-        }
+        const src = qs('.brand-logo')?.src;
+        if (src) logo.append(el('img', { src, alt: '' }));
+        else logo.textContent = 'D';
+        start.append(logo, el('span', { text: role === 'assistant' ? 'DStudio' : 'You' }));
         return start;
+      }
+
+      function buildWebSearching(trace = []) {
+        const wrap = el('div', { class: 'web-searching-wrap' });
+        wrap.append(el('div', { class: 'web-searching', text: 'webSearching' }));
+        const rows = (trace || []).filter(Boolean);
+        if (rows.length) {
+          const box = el('div', { class: 'web-trace', 'aria-label': 'Web search pipeline' });
+          rows.slice(0, 12).forEach((step) => {
+            const row = el('div', { class: 'web-trace__row', 'data-state': step.state || 'pending' }, [
+              el('span', { class: 'web-trace__dot', 'aria-hidden': 'true' }),
+              el('div', {}, [
+                el('div', { class: 'web-trace__label', text: step.label || 'Step' }),
+                step.detail ? el('div', { class: 'web-trace__detail', text: step.detail }) : null,
+              ].filter(Boolean)),
+            ]);
+            box.append(row);
+          });
+          wrap.append(box);
+        }
+        return wrap;
       }
 
       function sourceHost(url) {
@@ -5320,23 +5379,57 @@
         return { source, score, matched };
       }
 
-      async function searchWithPlan(userText, settings) {
+      function planTraceDetail(plan) {
+        const bits = [];
+        if (plan.intent) bits.push(`intent: ${plan.intent}`);
+        if (plan.mustMatch?.length) bits.push(`preserve: ${plan.mustMatch.join(', ')}`);
+        if (plan.queries?.length) bits.push(`queries: ${plan.queries.join(' | ')}`);
+        return bits.join(' · ') || 'planner returned the fallback query set';
+      }
+
+      function emitSearchTrace(onTrace, steps) {
+        if (typeof onTrace === 'function') onTrace(steps.map((s) => ({ ...s })));
+      }
+
+      async function searchWithPlan(userText, settings, onTrace) {
+        let trace = [
+          { label: 'Plan search', detail: 'Extract exact entities, preserve unknown terms, build query candidates.', state: 'active' },
+        ];
+        emitSearchTrace(onTrace, trace);
         const plan = await planWebSearch(userText, settings);
+        trace = [
+          { label: 'Plan search', detail: planTraceDetail(plan), state: 'done' },
+        ];
+        const querySteps = plan.queries.map((query) => ({ label: 'Search query', detail: query, state: 'pending' }));
+        emitSearchTrace(onTrace, [...trace, ...querySteps]);
         const byUrl = new Map();
         const errors = [];
         let order = 0;
-        for (const query of plan.queries) {
+        for (let i = 0; i < plan.queries.length; i++) {
+          const query = plan.queries[i];
+          querySteps[i].state = 'active';
+          emitSearchTrace(onTrace, [...trace, ...querySteps]);
           let res;
           try {
             res = await Engine.webSearch(query);
           } catch (e) {
             errors.push(e?.message || 'Web search failed');
+            querySteps[i].state = 'error';
+            querySteps[i].detail = `${query} -> ${e?.message || 'Web search failed'}`;
+            emitSearchTrace(onTrace, [...trace, ...querySteps]);
             continue;
           }
           if (!res?.ok) {
             errors.push(res?.error || 'Web search failed');
+            querySteps[i].state = 'error';
+            querySteps[i].detail = `${query} -> ${res?.error || 'Web search failed'}`;
+            emitSearchTrace(onTrace, [...trace, ...querySteps]);
             continue;
           }
+          const count = (res.sources || []).filter((s) => s?.url).length;
+          querySteps[i].state = 'done';
+          querySteps[i].detail = `${query} -> ${count} result${count === 1 ? '' : 's'}`;
+          emitSearchTrace(onTrace, [...trace, ...querySteps]);
           for (const source of res.sources || []) {
             if (!source?.url) continue;
             const key = source.url.replace(/#.*$/, '').replace(/\/$/, '').toLowerCase();
@@ -5348,6 +5441,16 @@
           .sort((a, b) => b.score - a.score);
         const exact = ranked.filter((r) => r.matched).map((r) => r.source);
         const sources = (plan.requireExact ? exact : ranked.map((r) => r.source)).slice(0, 3);
+        const rankDetail = ranked.slice(0, 5)
+          .map((r) => `${webSourceHost(r.source.url) || 'source'} ${Math.round(r.score)}${r.matched ? '' : ' no-exact'}`)
+          .join(' | ');
+        trace = [
+          ...trace,
+          ...querySteps,
+          { label: 'Rank results', detail: rankDetail || 'No rankable results returned.', state: ranked.length ? 'done' : 'error' },
+          { label: 'Selected sources', detail: sources.map((s) => webSourceHost(s.url) || s.url).join(', ') || 'None', state: sources.length ? 'done' : 'error' },
+        ];
+        emitSearchTrace(onTrace, trace);
         if (!sources.length) {
           const exactMsg = plan.mustMatch.length ? ` matching ${plan.mustMatch.map((t) => `"${t}"`).join(', ')}` : '';
           throw new Error(errors[0] || `Web search returned no usable sources${exactMsg}.`);
@@ -5368,12 +5471,20 @@
         }
         const searchMsg = Store.mkMessage('assistant', '');
         searchMsg.webSearching = true;
+        searchMsg.webTrace = [
+          { label: 'Web Search pipeline', detail: 'Waiting to plan exact search terms.', state: 'active' },
+        ];
         Store.appendMessage(chat.id, searchMsg);
         Messages.renderChat(chat);
         toast('Searching the web...', 'info');
         let webResult;
+        const updateTrace = (trace) => {
+          searchMsg.webTrace = trace;
+          Store.patchMessage(chat.id, searchMsg.id, { webTrace: trace });
+          Messages.renderChat(chat);
+        };
         try {
-          webResult = await searchWithPlan(userMsg.content, settings);
+          webResult = await searchWithPlan(userMsg.content, settings, updateTrace);
         } catch (e) {
           Store.commitMessage(chat.id, searchMsg.id, {
             webSearching: false,
@@ -5426,6 +5537,7 @@
           userMsg = Store.appendMessage(chat.id, Store.mkMessage('user', t));
           Store.maybeAutoTitle(chat.id);
         }
+        if (chat.remote) RemoteShare.publishDebounced(chat);
 
         Messages.renderChat(chat);
         pendingPreflight.add(chat.id);
@@ -5447,6 +5559,7 @@
         asst.streaming = true;
         if (userMsg?.web?.sources?.length) asst.sources = userMsg.web.sources;
         Store.appendMessage(chat.id, asst);
+        if (chat.remote) RemoteShare.publishDebounced(chat);
 
         const view = Messages.beginAssistant(asst);
         const holdback = createContentHoldback();
@@ -5481,6 +5594,7 @@
                 view.appendReasoning(ev.text);
                 updateRate();
                 Store.patchMessage(chat.id, asst.id, { content, reasoning });
+                if (chat.remote) RemoteShare.publishDebounced(chat);
                 break;
 
               case 'content': {
@@ -5500,6 +5614,7 @@
                 }
                 updateRate();
                 Store.patchMessage(chat.id, asst.id, { content, reasoning });
+                if (chat.remote) RemoteShare.publishDebounced(chat);
                 break;
               }
 
@@ -5552,6 +5667,7 @@
             error,
             sources: asst.sources,
           });
+          if (chat.remote) RemoteShare.publish(chat).catch(() => {});
           if (!error) Store.setConnection('ok');
           Store.setChatStreaming(chat.id, null);
 
@@ -5577,7 +5693,11 @@
         sendMessage(null, { regenerate: true });
       }
 
-      return { sendMessage, abortStream, regenerateLast };
+      function handleSlashCommand(text) {
+        return RemoteShare.handleCommand(text);
+      }
+
+      return { sendMessage, abortStream, regenerateLast, handleSlashCommand };
     })();
 
     /* ==================== UI: composer ==================== */
@@ -5672,6 +5792,12 @@
         }
         const aid = Store.getActiveChat()?.id;
         if (aid && Store.isChatStreaming(aid)) return; // anti double-send on the same chat
+        if (/^\/remote\b/i.test(text)) {
+          input.value = '';
+          autogrow();
+          Chat.handleSlashCommand(text).catch((e) => toast(e?.message || 'Remote command failed', 'error'));
+          return;
+        }
         input.value = '';
         autogrow();
         Chat.sendMessage(text);
@@ -5696,6 +5822,7 @@
           ];
         }
         return [ // chat: prompt shortcuts (ds4-server takes no slash commands)
+          { cmd: '/remote', icon: 'panel', desc: 'Share this chat on the LAN at /remote', run: 'send' },
           { cmd: '/explain', icon: 'code', desc: 'Explain selected code or a file', tpl: 'Explain what this code does, step by step:\n', run: 'fill' },
           { cmd: '/refactor', icon: 'refine', desc: 'Rewrite a snippet cleanly', tpl: 'Refactor this cleanly, keeping the behavior:\n', run: 'fill' },
           { cmd: '/debug', icon: 'bug', desc: 'Find and fix a problem', tpl: 'Find and fix the bug in this:\n', run: 'fill' },
@@ -6251,11 +6378,11 @@
         });
         on(f.system, 'change', () => Store.setSettings({ systemPrompt: f.system.value }));
 
-        // Clear all conversations (local + shared store + KV when idle).
+        // Clear all conversations (local store + KV when idle).
         on(qs('#set-clear-all'), 'click', () => {
           askConfirm({
             title: 'Clear all conversations?',
-            body: 'This removes every chat, agent and design conversation here AND from the shared store (so other devices on the LAN clear too), plus the on-disk model cache (KV) if the engine is idle. This cannot be undone.',
+            body: 'This removes every local chat, agent and design conversation here, plus the on-disk model cache (KV) if the engine is idle. This cannot be undone.',
             cta: 'Clear everything',
           }).then(async (yes) => {
             if (!yes) return;
@@ -6308,7 +6435,7 @@
       // so read it from /api/status rather than persisting a UI flag.
       function paintLan(lan, lanAddr) {
         f.lan.value = lan ? 'on' : 'off';
-        const url = lanAddr ? `http://${lanAddr}` : '';
+        const url = lanAddr ? `http://${lanAddr}/remote` : '';
         if (lan && url) {
           f.lanUrl.textContent = url;
           f.lanUrl.dataset.url = url;
@@ -6327,10 +6454,7 @@
           const r = await Engine.setLan(enable);
           if (!r || !r.ok) { toast(r?.error || 'Could not change network access', 'error'); syncLan(); return; }
           paintLan(!!r.lan, r.lanAddr || '');
-          toast(enable ? (r.lanAddr ? `On the LAN at ${r.lanAddr}` : 'Enabled on the LAN') : 'Localhost only', enable ? 'warn' : 'info');
-          // The chat engine rebinds to the LAN too (so other devices reach the
-          // model, not just the page) → it restarts and re-maps the model.
-          if (r.engineRestart) toast('Restarting the engine for the network change…', 'info');
+          toast(enable ? (r.lanAddr ? `Remote available at http://${r.lanAddr}/remote` : 'Remote LAN enabled') : 'Localhost only', enable ? 'info' : 'info');
         } catch {
           toast('Could not reach the launcher', 'error');
           syncLan();
@@ -7075,9 +7199,9 @@
         catch { throw new Error('Use an address like 192.168.1.207:5500.'); }
         if (!url.hostname) throw new Error('Use an address like 192.168.1.207:5500.');
         if (!url.port) url.port = '5500';
-        url.pathname = '/';
+        url.pathname = '/remote';
         url.search = '';
-        url.hash = 'lanClient';
+        url.hash = '';
         return url.toString();
       }
 
@@ -7230,7 +7354,31 @@
         return r.json();
       }
 
-      // Shared chat store (so all LAN devices see the same conversations).
+      async function remoteStatus() {
+        const r = await fetch('/api/remote/status', { signal: AbortSignal.timeout(3000) });
+        if (!r.ok) throw new Error('remote/status ' + r.status);
+        return r.json();
+      }
+      async function remoteControl(enable) {
+        const r = await fetch('/api/remote', { method: 'POST', headers: H, body: JSON.stringify({ enable }) });
+        return r.json();
+      }
+      async function remoteChatGet() {
+        const r = await fetch('/api/remote/chat', { signal: AbortSignal.timeout(3000) });
+        if (!r.ok) throw new Error('remote/chat ' + r.status);
+        return r.json();
+      }
+      async function remoteChatPut(chat) {
+        const r = await fetch('/api/remote/chat', {
+          method: 'POST',
+          headers: H,
+          body: JSON.stringify(chat),
+        });
+        return r.json();
+      }
+
+      // Local server-backed chat store (same machine/browser tabs). LAN clients
+      // cannot reach it; /remote uses the separate remoteChat endpoints above.
       async function getStore() {
         const r = await fetch('/api/store', { signal: AbortSignal.timeout(5000) });
         if (!r.ok) throw new Error('store ' + r.status);
@@ -7240,7 +7388,7 @@
         const r = await fetch('/api/store', { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' }, body: blob });
         return r.json();              // { ok, rev }
       }
-      async function wipe() {         // clear the shared store (+ KV when the engine is idle)
+      async function wipe() {         // clear the local server store (+ KV when the engine is idle)
         const r = await fetch('/api/wipe', { method: 'POST', headers: H });
         return r.json();              // { ok, kvCleared }
       }
@@ -7285,7 +7433,114 @@
         return r.text();
       }
 
-      return { status, doctor, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setDs4Dir, setWebDir, webSearch, ggufs, skills, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, setLan, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
+      return { status, doctor, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setDs4Dir, setWebDir, webSearch, ggufs, skills, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
+    })();
+
+    /* ==================== Remote LAN chat ==================== */
+    const RemoteShare = (() => {
+      let pollTimer = null;
+
+      function snapshot(chat) {
+        const settings = Store.getSettings();
+        return {
+          id: chat.id,
+          title: chat.title || 'Remote',
+          model: chat.model || settings.model || '',
+          settings: {
+            temperature: settings.temperature,
+            maxTokens: settings.maxTokens,
+            systemPrompt: settings.systemPrompt || '',
+          },
+          messages: (chat.messages || [])
+            .filter((m) => (m.role === 'user' || m.role === 'assistant') && !m.webSearching)
+            .map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content || '',
+              createdAt: m.createdAt || Date.now(),
+              streaming: !!m.streaming,
+              sources: m.sources || undefined,
+            })),
+          updatedAt: Date.now(),
+        };
+      }
+
+      async function publish(chat = Store.getActiveChat()) {
+        if (!chat?.remote) return null;
+        const r = await Engine.remoteChatPut(snapshot(chat));
+        if (r?.ok && typeof r.rev === 'number') Store.setChatMeta(chat.id, { remoteRev: r.rev });
+        return r;
+      }
+
+      const publishDebounced = debounce((chat) => {
+        publish(chat).catch(() => {});
+      }, 600);
+
+      async function enable() {
+        const chat = Store.ensureActiveChat();
+        const r = await Engine.remoteControl(true);
+        if (!r?.ok) {
+          toast(r?.error || 'Could not enable remote chat', 'error');
+          return false;
+        }
+        const put = await Engine.remoteChatPut(snapshot(chat));
+        if (!put?.ok) {
+          toast(put?.error || 'Could not publish the remote chat', 'error');
+          return false;
+        }
+        const url = r.url || (r.lanAddr ? `http://${r.lanAddr}/remote` : '/remote');
+        Store.setChatMeta(chat.id, { remote: true, remoteUrl: url, remoteRev: put.rev });
+        startPolling();
+        toast(`Remote chat: ${url}`, 'info');
+        return true;
+      }
+
+      async function disable() {
+        const r = await Engine.remoteControl(false);
+        const chat = Store.getActiveChat();
+        if (chat?.remote) Store.setChatMeta(chat.id, { remote: false });
+        toast(r?.ok ? 'Remote chat disabled' : (r?.error || 'Could not disable remote chat'), r?.ok ? 'info' : 'error');
+        return !!r?.ok;
+      }
+
+      async function status() {
+        const r = await Engine.remoteStatus();
+        const chat = Store.getActiveChat();
+        const url = chat?.remoteUrl || r.url || (r.lanAddr ? `http://${r.lanAddr}/remote` : '/remote');
+        toast(r.enabled ? `Remote chat: ${url}` : 'Remote chat is off. Run /remote to share this chat.', r.enabled ? 'info' : 'warn');
+        return r;
+      }
+
+      async function handleCommand(text) {
+        const cmd = String(text || '').trim().toLowerCase();
+        if (!/^\/remote\b/.test(cmd)) return false;
+        if (/\boff\b|\bdisable\b|\bstop\b/.test(cmd)) return disable();
+        if (/\bstatus\b|\burl\b/.test(cmd)) return status().then(() => true);
+        return enable();
+      }
+
+      async function pullActive() {
+        const chat = Store.getActiveChat();
+        if (!chat?.remote || Store.isChatStreaming(chat.id)) return;
+        let r;
+        try { r = await Engine.remoteChatGet(); } catch { return; }
+        if (!r?.enabled || !r.chat || r.rev === chat.remoteRev) return;
+        Store.setChatMeta(chat.id, {
+          title: r.chat.title || chat.title,
+          messages: Array.isArray(r.chat.messages) ? r.chat.messages : chat.messages,
+          remoteRev: r.rev,
+          remoteUrl: r.url || chat.remoteUrl,
+        });
+        if (Store.getActiveChat()?.id === chat.id) Messages.renderChat(Store.getChat(chat.id));
+      }
+
+      function startPolling() {
+        if (pollTimer) return;
+        pollTimer = setInterval(pullActive, 1500);
+      }
+
+      Store.subscribe('activeChat', startPolling);
+      return { handleCommand, publish, publishDebounced, startPolling };
     })();
 
     /* ==================== Doctor: first-run/preflight ==================== */
@@ -11378,6 +11633,7 @@
     AppShortcuts.mount(); // ⌘/Ctrl N · 1/2/3 · , · Esc
     Onboarding.mount();
     Doctor.mount();
+    RemoteShare.startPolling();
 
     // Chat switch → re-render of the message list (only in chat mode: in
     // agent/design #messages is hidden and AgentView handles the title).
@@ -11390,8 +11646,8 @@
     // Populate the models from the server (non-blocking).
     Settings.refreshModels();
 
-    // Shared chat history across LAN devices: merge the server store at boot and
-    // LAND on the current conversation (chat/agent/design), then keep it fresh
+    // Local server-backed history: merge the server store at boot and LAND on
+    // the current conversation (chat/agent/design), then keep it fresh
     // (poll the cheap rev endpoint; refresh when the tab is focused).
     Store.syncFromServer(true, true);
     setInterval(() => Store.pollStore(), 4000);
