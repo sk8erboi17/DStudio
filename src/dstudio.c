@@ -714,6 +714,16 @@ static void cstr_copy(char *dst, size_t dstsz, const char *src) {
     dst[n] = '\0';
 }
 
+static int path_join(char *dst, size_t dstsz, const char *dir, const char *name) {
+    if (!dstsz) return 0;
+    int n = snprintf(dst, dstsz, "%s/%s", dir ? dir : "", name ? name : "");
+    if (n < 0 || (size_t)n >= dstsz) {
+        dst[0] = '\0';
+        return 0;
+    }
+    return 1;
+}
+
 /* ==================== model / kv / port ==================== */
 
 static const char *model_rel(int uncensored) { return uncensored ? MODEL_UNC : MODEL_STD; }
@@ -792,7 +802,7 @@ static int any_gguf_present(void) {
             const char *dot = strrchr(e->d_name, '.');
             if (!dot || strcmp(dot, ".gguf")) continue;
             char full[2300];
-            snprintf(full, sizeof full, "%s/%s", dir, e->d_name);
+            if (!path_join(full, sizeof full, dir, e->d_name)) continue;
             struct stat st;
             if (stat(full, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) {
                 closedir(d);
@@ -814,7 +824,10 @@ static int executable_on_path(const char *name) {
         if (colon) *colon = '\0';
         if (p[0]) {
             char full[PATH_MAX];
-            snprintf(full, sizeof full, "%s/%s", p, name);
+            if (!path_join(full, sizeof full, p, name)) {
+                p = colon ? colon + 1 : NULL;
+                continue;
+            }
             if (access(full, X_OK) == 0) return 1;
         }
         p = colon ? colon + 1 : NULL;

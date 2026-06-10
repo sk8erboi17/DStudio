@@ -132,6 +132,7 @@ app.o: $(APP) $(APP_DEPS)
 
 $(BIN): dstudio.o app.o $(BIN_DEPS)
 	$(APPCXX) dstudio.o app.o $(APP_LDFLAGS) -o $@
+ifeq ($(UNAME),Darwin)
 	@# custom icon in the resource fork; does not touch data fork or signature (see above)
 	@cp $(ICNS) .icontmp.icns 2>/dev/null && sips -i .icontmp.icns >/dev/null 2>&1 \
 	  && DeRez -only icns .icontmp.icns > .icontmp.rsrc 2>/dev/null \
@@ -140,6 +141,7 @@ $(BIN): dstudio.o app.o $(BIN_DEPS)
 	  && echo "icon applied to $@" \
 	  || echo "icon not applied (macOS tools missing?)"; \
 	  rm -f .icontmp.icns .icontmp.rsrc
+endif
 
 run: $(BIN)
 	./$(BIN) $(PORT) $(DS4_DIR)
