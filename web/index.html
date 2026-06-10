@@ -721,6 +721,48 @@
       contain-intrinsic-size: 120px;
     }
 
+    .msg__start {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.45rem;
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-family: var(--font-mono);
+    }
+
+    .msg__logo {
+      width: 1.45rem;
+      height: 1.45rem;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--accent-2);
+      font-size: 0.68rem;
+      font-weight: 700;
+      overflow: hidden;
+    }
+
+    .msg__logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .msg__start--user {
+      justify-content: flex-end;
+      color: var(--text-2);
+    }
+
+    .msg__start--user .msg__logo {
+      background: var(--accent-soft);
+      color: var(--accent-2);
+    }
+
     .msg--user {
       background: var(--accent-dim);
       align-self: flex-end;
@@ -756,6 +798,31 @@
     .placeholder {
       color: var(--muted);
       font-style: italic;
+    }
+
+    .web-searching {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      color: var(--muted);
+      font-family: var(--serif);
+      font-size: 0.98rem;
+      font-style: italic;
+    }
+
+    .web-searching::before {
+      content: '';
+      width: 0.62rem;
+      height: 0.62rem;
+      border-radius: 50%;
+      background: var(--accent-2);
+      box-shadow: 0 0 0 0 rgba(157, 190, 255, 0.4);
+      animation: websearch-pulse 1.25s ease-out infinite;
+    }
+
+    @keyframes websearch-pulse {
+      70% { box-shadow: 0 0 0 9px rgba(157, 190, 255, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(157, 190, 255, 0); }
     }
 
     /* ==================== Reasoning block (mockup style .think-block) ====================
@@ -1610,10 +1677,78 @@
       letter-spacing: 0.2px;
     }
 
+    .onboard__hero {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .onboard__intro {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
     .onboard__sub {
       color: var(--muted);
       font-size: 0.85rem;
-      margin-bottom: 1rem;
+      margin-bottom: 0;
+    }
+
+    .onboard__net {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.45rem;
+      flex: 0 0 auto;
+    }
+
+    .onboard__seg {
+      display: inline-flex;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--surface);
+    }
+
+    .onboard__seg-b {
+      border: 0;
+      border-radius: 7px;
+      padding: 0.34rem 0.68rem;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+
+    .onboard__seg-b.on {
+      background: var(--surface-2);
+      color: var(--text);
+      box-shadow: inset 0 0 0 1px var(--border-2);
+    }
+
+    .onboard__lan-url {
+      max-width: 15rem;
+      border: 0;
+      background: transparent;
+      color: var(--accent-2);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      text-align: right;
+      cursor: pointer;
+      overflow-wrap: anywhere;
+    }
+
+    .onboard__lan-url:hover { text-decoration: underline; }
+
+    @media (max-width: 620px) {
+      .onboard__hero { flex-direction: column; }
+      .onboard__net { align-items: stretch; width: 100%; }
+      .onboard__seg { width: 100%; }
+      .onboard__seg-b { flex: 1; }
+      .onboard__lan-url { max-width: none; text-align: left; }
     }
 
     .onboard__sec {
@@ -2764,8 +2899,19 @@
 
   <dialog id="onboard-dialog" class="dialog dialog--wide" aria-label="Getting started">
     <div class="onboard">
-      <h2>Welcome to DStudio</h2>
-      <p class="onboard__sub">Local chat, agent and design for DeepSeek V4 — everything runs on your Mac.</p>
+      <div class="onboard__hero">
+        <div class="onboard__intro">
+          <h2>Welcome to DStudio</h2>
+          <p class="onboard__sub">Local chat, agent and design for DeepSeek V4. Start now; add a model or engine folder later.</p>
+        </div>
+        <div class="onboard__net" aria-label="Network access">
+          <div class="onboard__seg" role="radiogroup" aria-label="Open DStudio locally or on the LAN">
+            <button type="button" id="onboard-net-local" class="onboard__seg-b on" role="radio" aria-checked="true">Local</button>
+            <button type="button" id="onboard-net-lan" class="onboard__seg-b" role="radio" aria-checked="false">LAN</button>
+          </div>
+          <button type="button" id="onboard-lan-url" class="onboard__lan-url" title="Copy LAN URL" hidden></button>
+        </div>
+      </div>
 
       <section class="onboard__sec">
         <div class="onboard__status">
@@ -2773,7 +2919,7 @@
           <span id="onboard-conn" class="conn conn--unknown">checking…</span>
           <button type="button" id="onboard-check" class="btn btn--sm">Recheck</button>
         </div>
-        <p class="onboard__note">The engine starts automatically when DStudio launches — the on-disk KV cache survives restarts. Not connected yet? Click Recheck.</p>
+        <p class="onboard__note">The engine is optional here: continue into the app, then download a model or point DStudio at a ds4 folder when you need generation.</p>
       </section>
 
       <section class="onboard__sec">
@@ -2793,7 +2939,7 @@
 
       <section class="onboard__sec" id="onboard-model-sec">
         <h3>Model</h3>
-        <p class="onboard__note" id="onboard-model-note">The GGUF weights live in the engine folder.</p>
+        <p class="onboard__note" id="onboard-model-note">Optional for onboarding — the GGUF weights live in the engine folder.</p>
         <div class="onboard__models" id="onboard-models"></div>
       </section>
 
@@ -2814,7 +2960,7 @@
 
       <details class="onboard__sec onboard__how">
         <summary>Good to know</summary>
-        <p class="onboard__note" style="margin-top:.5rem"><strong>Thinking &amp; model</strong> — pick them per chat from the composer; in agent and design they restart the engine. <strong>Agent output</strong> stays structured via a small reversible patch built at launch (the <code>ds4-agent</code> source is never modified — Settings → <em>Raw</em> runs it stock). <strong>Network</strong> is localhost-only by default; enable LAN access in Settings. Everything else lives in Settings (⚙).</p>
+        <p class="onboard__note" style="margin-top:.5rem"><strong>Thinking &amp; model</strong> — pick them per chat from the composer; in agent and design they restart the engine. <strong>Agent output</strong> stays structured via a small reversible patch built at launch (the <code>ds4-agent</code> source is never modified — Settings → <em>Raw</em> runs it stock). <strong>Network</strong> is localhost-only by default; switch LAN above to show the address for other devices. Everything else lives in Settings (⚙).</p>
       </details>
 
       <div class="dialog__actions">
@@ -3048,6 +3194,7 @@
     const HEALTH_TTL_MS = 15_000;
     const HEALTH_TIMEOUT_MS = 2_000;
     const MODELS_TIMEOUT_MS = 4_000;
+    const WEB_SEARCH_PLAN_TIMEOUT_MS = 12_000;
 
     const PERSIST_CHATS_DEBOUNCE_MS = 750;
     const PERSIST_SETTINGS_DEBOUNCE_MS = 300;
@@ -4411,15 +4558,15 @@
         return ok;
       }
 
-      function buildBody({ model, messages, temperature, maxTokens, thinkLevel }) {
+      function buildBody({ model, messages, temperature, maxTokens, thinkLevel, stream = true }) {
         const off = thinkLevel === 'off';
         const body = {
           model,
           messages,
-          stream: true,
-          stream_options: { include_usage: true },
+          stream,
           think: !off, // native ds4 parameter, always explicit
         };
+        if (stream) body.stream_options = { include_usage: true };
         // Above zero, ds4 exposes only two real levels: high and max.
         if (!off) body.reasoning_effort = thinkLevel === 'max' ? 'max' : 'high';
         if (typeof temperature === 'number') body.temperature = temperature;
@@ -4528,7 +4675,19 @@
         }
       }
 
-      return { getModels, invalidateHealth, checkHealth, streamChat };
+      async function completeText(req, signal) {
+        const res = await fetch(`${baseUrl()}/v1/chat/completions`, {
+          method: 'POST',
+          signal,
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(buildBody({ ...req, stream: false })),
+        });
+        if (!res.ok) throw new Error(await readErrorMessage(res));
+        const json = await res.json();
+        return json?.choices?.[0]?.message?.content ?? '';
+      }
+
+      return { getModels, invalidateHealth, checkHealth, streamChat, completeText };
     })();
 
     /* ==================== UI: messages ==================== */
@@ -4617,6 +4776,7 @@
       function messageKey(m, chat, isLastAssistant) {
         return [
           m.role, m.streaming ? 's' : '', isLastAssistant ? 'last' : '',
+          m.webSearching ? 'webSearching' : '',
           m.content || '', m.reasoning || '', m.finishReason || '',
           m.error?.message || '', m.usage ? JSON.stringify(m.usage) : '',
           m.sources ? JSON.stringify(m.sources) : '',
@@ -4640,8 +4800,15 @@
           'data-id': m.id,
         });
 
+        article.append(buildMessageStart(m.role));
+
         if (m.role === 'user') {
           article.append(el('div', { class: 'msg__content', text: m.content }));
+          return article;
+        }
+
+        if (m.webSearching) {
+          article.append(el('div', { class: 'web-searching', text: 'webSearching' }));
           return article;
         }
 
@@ -4662,6 +4829,21 @@
         if (meta) article.append(meta);
         article.append(buildActions(isLastAssistant));
         return article;
+      }
+
+      function buildMessageStart(role) {
+        const start = el('div', { class: `msg__start msg__start--${role}` });
+        const logo = el('span', { class: 'msg__logo', 'aria-hidden': 'true' });
+        if (role === 'assistant') {
+          const src = qs('.brand-logo')?.src;
+          if (src) logo.append(el('img', { src, alt: '' }));
+          else logo.textContent = 'D';
+          start.append(logo, el('span', { text: 'DStudio' }));
+        } else {
+          logo.textContent = 'Y';
+          start.append(logo, el('span', { text: 'You' }));
+        }
+        return start;
       }
 
       function sourceHost(url) {
@@ -4750,6 +4932,7 @@
       function beginAssistant(msg) {
         // Create the bubble immediately in the current view (if it is the active chat).
         const initial = el('article', { class: 'msg msg--assistant msg--streaming', 'data-id': msg.id });
+        initial.append(buildMessageStart('assistant'));
         initial.append(el('div', { class: 'msg__content md' }));
         inner.append(initial);
         scrollToBottom(root);
@@ -4948,15 +5131,22 @@
         return String(s || '').replace(/\s+/g, ' ').trim().slice(0, max);
       }
 
-      function buildWebContext(query, sources) {
+      function buildWebContext(query, sources, plan) {
         const clean = (sources || []).filter((s) => s?.url).slice(0, 3);
         if (!clean.length) return '';
         const lines = [
           '[Web search context]',
           'Current web excerpts retrieved for this user request. Use only when relevant. Cite supported current claims with source numbers like [1].',
           `User query: ${query}`,
-          '',
         ];
+        if (plan?.mustMatch?.length) {
+          lines.push(
+            `Exact user terms to preserve: ${plan.mustMatch.join(', ')}`,
+            'Do not autocorrect those terms unless a source explicitly says they are an alias or typo.',
+          );
+        }
+        if (plan?.queries?.length) lines.push(`Search queries used: ${plan.queries.join(' | ')}`);
+        lines.push('');
         clean.forEach((s, i) => {
           lines.push(
             `[${i + 1}] ${compactText(s.title, 180) || s.url}`,
@@ -4967,6 +5157,148 @@
         });
         lines.push('[/Web search context]');
         return lines.join('\n');
+      }
+
+      function stripJsonFence(text) {
+        const raw = String(text || '').trim();
+        const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        if (fenced) return fenced[1].trim();
+        const start = raw.indexOf('{');
+        const end = raw.lastIndexOf('}');
+        return start >= 0 && end > start ? raw.slice(start, end + 1) : raw;
+      }
+
+      function uniqueStrings(values, limit = 6) {
+        const seen = new Set();
+        const out = [];
+        for (const value of values || []) {
+          const s = String(value || '').replace(/\s+/g, ' ').trim();
+          const key = s.toLowerCase();
+          if (!s || seen.has(key)) continue;
+          seen.add(key);
+          out.push(s);
+          if (out.length >= limit) break;
+        }
+        return out;
+      }
+
+      function normalizeSearchPlan(plan, userText) {
+        const obj = plan && typeof plan === 'object' ? plan : {};
+        const entity = String(obj.entity || '').replace(/\s+/g, ' ').trim();
+        const mustMatch = uniqueStrings([...(Array.isArray(obj.mustMatch) ? obj.mustMatch : []), entity]
+          .filter((x) => String(x).trim().length >= 2), 4);
+        const exactQueries = mustMatch.flatMap((t) => [`"${t}"`, t]);
+        const queries = uniqueStrings([...exactQueries, ...(Array.isArray(obj.queries) ? obj.queries : []), userText], 4);
+        return {
+          intent: String(obj.intent || 'web_lookup').slice(0, 80),
+          entity,
+          mustMatch,
+          queries,
+          requireExact: mustMatch.length > 0,
+        };
+      }
+
+      function fallbackSearchPlan(userText) {
+        const quoted = String(userText).match(/["'“”‘’]([^"'“”‘’]{2,})["'“”‘’]/);
+        const tokens = String(userText).match(/\b[a-z0-9][a-z0-9._-]{2,}\b/gi) || [];
+        const entity = (quoted?.[1] || tokens.find((t) => /[a-z]/i.test(t)) || userText).trim();
+        const terms = entity && entity.length < 80 ? [entity] : [];
+        return normalizeSearchPlan({ intent: 'fallback', entity, mustMatch: terms, queries: [`"${entity}"`, entity, userText] }, userText);
+      }
+
+      async function planWebSearch(userText, settings) {
+        const messages = [
+          {
+            role: 'system',
+            content: [
+              'You are DStudio web search planner.',
+              'Return strict JSON only. No markdown.',
+              'Preserve unknown names, products, brands, domains, handles, and typos exactly as typed.',
+              'Never autocorrect an unknown term before search.',
+              'Generate exact-match queries first, then broader queries only if useful.',
+              'Schema: {"intent":"entity_lookup|news|docs|general","entity":"main exact entity or empty","mustMatch":["exact terms that search results should contain"],"queries":["search query 1","search query 2","search query 3"]}.',
+            ].join('\n'),
+          },
+          { role: 'user', content: `User message:\n${userText}` },
+        ];
+        try {
+          const text = await Api.completeText({
+            model: settings.model,
+            messages,
+            temperature: 0,
+            maxTokens: 420,
+            thinkLevel: 'off',
+          }, AbortSignal.timeout(WEB_SEARCH_PLAN_TIMEOUT_MS));
+          return normalizeSearchPlan(JSON.parse(stripJsonFence(text)), userText);
+        } catch {
+          return fallbackSearchPlan(userText);
+        }
+      }
+
+      function webSourceHost(url) {
+        try { return new URL(url).hostname.replace(/^www\./, '').toLowerCase(); }
+        catch { return ''; }
+      }
+
+      function scoreWebSource(source, plan, order) {
+        const title = String(source.title || '').toLowerCase();
+        const url = String(source.url || '').toLowerCase();
+        const host = webSourceHost(source.url);
+        const content = String(source.content || '').toLowerCase();
+        let score = 100 - order;
+        let matched = plan.mustMatch.length === 0;
+        for (const rawTerm of plan.mustMatch) {
+          const term = rawTerm.toLowerCase();
+          if (!term) continue;
+          const compact = term.replace(/\s+/g, '');
+          const hostHit = host.includes(compact) || host.includes(term);
+          const titleHit = title.includes(term);
+          const urlHit = url.includes(term) || url.includes(compact);
+          const contentHit = content.includes(term);
+          if (hostHit || titleHit || urlHit || contentHit) matched = true;
+          if (hostHit) score += 36;
+          if (urlHit) score += 24;
+          if (titleHit) score += 18;
+          if (contentHit) score += 6;
+          if (host === `${compact}.com`) score += 30;
+        }
+        if (plan.requireExact && !matched) score -= 160;
+        return { source, score, matched };
+      }
+
+      async function searchWithPlan(userText, settings) {
+        const plan = await planWebSearch(userText, settings);
+        const byUrl = new Map();
+        const errors = [];
+        let order = 0;
+        for (const query of plan.queries) {
+          let res;
+          try {
+            res = await Engine.webSearch(query);
+          } catch (e) {
+            errors.push(e?.message || 'Web search failed');
+            continue;
+          }
+          if (!res?.ok) {
+            errors.push(res?.error || 'Web search failed');
+            continue;
+          }
+          for (const source of res.sources || []) {
+            if (!source?.url) continue;
+            const key = source.url.replace(/#.*$/, '').replace(/\/$/, '').toLowerCase();
+            if (!byUrl.has(key)) byUrl.set(key, { ...source, _order: order++ });
+          }
+        }
+        const ranked = [...byUrl.values()]
+          .map((source) => scoreWebSource(source, plan, source._order || 0))
+          .sort((a, b) => b.score - a.score);
+        const exact = ranked.filter((r) => r.matched).map((r) => r.source);
+        const sources = (plan.requireExact ? exact : ranked.map((r) => r.source)).slice(0, 3);
+        if (!sources.length) {
+          const exactMsg = plan.mustMatch.length ? ` matching ${plan.mustMatch.map((t) => `"${t}"`).join(', ')}` : '';
+          throw new Error(errors[0] || `Web search returned no usable sources${exactMsg}.`);
+        }
+        return { plan, sources };
       }
 
       async function ensureWebContext(chat, userMsg, settings) {
@@ -4980,23 +5312,26 @@
           if (!ok) return false;
           Store.setSettings({ webSearchBrowserAllowed: true });
         }
+        const searchMsg = Store.mkMessage('assistant', '');
+        searchMsg.webSearching = true;
+        Store.appendMessage(chat.id, searchMsg);
+        Messages.renderChat(chat);
         toast('Searching the web...', 'info');
-        let res;
+        let webResult;
         try {
-          res = await Engine.webSearch(userMsg.content);
+          webResult = await searchWithPlan(userMsg.content, settings);
         } catch (e) {
-          res = { ok: false, error: e?.message || 'Web search failed' };
-        }
-        if (!res?.ok) {
-          const msg = Store.mkMessage('assistant', '');
-          msg.finishReason = 'error';
-          msg.error = { message: res?.error || 'Web search failed' };
-          Store.appendMessage(chat.id, msg);
+          Store.commitMessage(chat.id, searchMsg.id, {
+            webSearching: false,
+            finishReason: 'error',
+            error: { message: e?.message || 'Web search failed' },
+          });
           Messages.renderChat(chat);
           return false;
         }
-        const sources = (res.sources || []).filter((s) => s?.url).slice(0, 3);
-        const context = buildWebContext(userMsg.content, sources);
+        Store.removeMessage(chat.id, searchMsg.id);
+        const sources = (webResult.sources || []).filter((s) => s?.url).slice(0, 3);
+        const context = buildWebContext(userMsg.content, sources, webResult.plan);
         if (!context) {
           const msg = Store.mkMessage('assistant', '');
           msg.finishReason = 'error';
@@ -5005,7 +5340,7 @@
           Messages.renderChat(chat);
           return false;
         }
-        const web = { query: userMsg.content, sources, context };
+        const web = { query: userMsg.content, plan: webResult.plan, sources, context };
         Object.assign(userMsg, { web });
         Store.patchMessage(chat.id, userMsg.id, { web });
         return true;
@@ -6416,9 +6751,12 @@
 
     const Onboarding = (() => {
       // Bump to force everyone through the onboarding once more.
-      const ONBOARD_VERSION = 4;
+      const ONBOARD_VERSION = 5;
       let dialog;
       let connEl;
+      let netLocalBtn;
+      let netLanBtn;
+      let lanUrlBtn;
       let lastDs4Ok = false; // gate model downloads: the weights land in the engine folder
       let selectedGguf = null; // the GGUF the user picked to run (relative path)
       let runningModel = '';   // the model currently loaded (status.modelFile)
@@ -6431,10 +6769,21 @@
       function mount() {
         dialog = qs('#onboard-dialog');
         connEl = qs('#onboard-conn');
+        netLocalBtn = qs('#onboard-net-local');
+        netLanBtn = qs('#onboard-net-lan');
+        lanUrlBtn = qs('#onboard-lan-url');
 
         const helpBtn = qs('#btn-help');
         if (helpBtn) on(helpBtn, 'click', show); // button removed: first-run only
         on(qs('#onboard-check'), 'click', check);
+        on(netLocalBtn, 'click', () => setNetwork(false));
+        on(netLanBtn, 'click', () => setNetwork(true));
+        on(lanUrlBtn, 'click', async () => {
+          const url = lanUrlBtn.dataset.url || '';
+          if (!url) return;
+          try { await navigator.clipboard.writeText(url); toast('LAN URL copied', 'info'); }
+          catch { toast('Copy failed.', 'error'); }
+        });
         // Start: if the user picked a model different from the one running, launch it.
         on(qs('#onboard-start'), 'click', async () => {
           if (selectedGguf) Store.setSettings({ modelGguf: selectedGguf });  // persist the pick
@@ -6478,6 +6827,7 @@
         if (ctx) ctx.value = String(Store.getSettings().ctxSize ?? 65536);
         renderModels(); // immediate paint from cached state; loadPaths refreshes it
         check();
+        syncNetwork();
         loadPaths();
         loadGgufs();    // scan the engine folder for the actual .gguf files
       }
@@ -6487,6 +6837,7 @@
         let st;
         try { st = await Engine.status(); } catch { return; }
         applyModelStatus(st);
+        paintNetwork(!!st.lan, st.lanAddr || '');
         PATHS.forEach((pcfg) => {
           const inp = qs('#' + pcfg.input);
           if (inp && !inp.value) inp.value = st[pcfg.cur] || '';
@@ -6637,6 +6988,53 @@
         }
         // A new engine folder may hold different GGUFs → re-scan + re-check.
         if (pcfg.key === 'ds4dir') { refreshModels(); loadGgufs(); }
+      }
+
+      function paintNetwork(lan, lanAddr) {
+        if (netLocalBtn) {
+          netLocalBtn.classList.toggle('on', !lan);
+          netLocalBtn.setAttribute('aria-checked', lan ? 'false' : 'true');
+        }
+        if (netLanBtn) {
+          netLanBtn.classList.toggle('on', !!lan);
+          netLanBtn.setAttribute('aria-checked', lan ? 'true' : 'false');
+        }
+        const url = lan && lanAddr ? `http://${lanAddr}` : '';
+        if (lanUrlBtn) {
+          lanUrlBtn.hidden = !url;
+          lanUrlBtn.textContent = url;
+          lanUrlBtn.dataset.url = url;
+        }
+      }
+
+      async function syncNetwork() {
+        try {
+          const st = await Engine.status();
+          paintNetwork(!!st.lan, st.lanAddr || '');
+        } catch {
+          paintNetwork(false, '');
+        }
+      }
+
+      async function setNetwork(enable) {
+        if (netLocalBtn) netLocalBtn.disabled = true;
+        if (netLanBtn) netLanBtn.disabled = true;
+        try {
+          const r = await Engine.setLan(enable);
+          if (!r || !r.ok) {
+            toast(r?.error || 'Could not change network access', 'error');
+            await syncNetwork();
+            return;
+          }
+          paintNetwork(!!r.lan, r.lanAddr || '');
+          if (enable && r.lanAddr) toast(`LAN: ${r.lanAddr}`, 'info');
+        } catch {
+          toast('Could not reach the launcher', 'error');
+          await syncNetwork();
+        } finally {
+          if (netLocalBtn) netLocalBtn.disabled = false;
+          if (netLanBtn) netLanBtn.disabled = false;
+        }
       }
 
       function paintPath(pcfg, state, message) {
