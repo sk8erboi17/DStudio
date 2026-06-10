@@ -16,6 +16,7 @@
 #define DS4_WEBVIEW_H
 
 #include <stdlib.h>
+#include <string.h>
 
 typedef void *webview_t;
 
@@ -276,7 +277,89 @@ static void webview_run(webview_t handle) {
 typedef struct {
     GtkWidget *window;
     GtkWidget *webview;
+    GtkWidget *titlebar;
 } ds4_wv;
+
+static void ds4_install_linux_chrome_css(void) {
+    GtkCssProvider *css = gtk_css_provider_new();
+    static const char data[] =
+        "headerbar.ds4-titlebar {"
+        "  min-height: 34px;"
+        "  padding: 0 10px;"
+        "  border: 0;"
+        "  border-bottom: 1px solid #272727;"
+        "  box-shadow: none;"
+        "  background-image: none;"
+        "}"
+        "headerbar.ds4-titlebar.ds4-dark {"
+        "  background: #161616;"
+        "  color: #ededed;"
+        "  border-bottom-color: #272727;"
+        "}"
+        "headerbar.ds4-titlebar.ds4-light {"
+        "  background: #f5f5f6;"
+        "  color: #18181b;"
+        "  border-bottom-color: #dedee3;"
+        "}"
+        "headerbar.ds4-titlebar button.titlebutton {"
+        "  min-width: 16px;"
+        "  min-height: 16px;"
+        "  margin: 0 4px;"
+        "  padding: 0;"
+        "  border: 0;"
+        "  border-radius: 999px;"
+        "  box-shadow: none;"
+        "  background: rgba(255,255,255,0.16);"
+        "  background-image: none;"
+        "  color: transparent;"
+        "}"
+        "headerbar.ds4-titlebar button.titlebutton image {"
+        "  opacity: 0;"
+        "}"
+        "headerbar.ds4-titlebar button.titlebutton.close {"
+        "  background: #ff5f57;"
+        "}"
+        "headerbar.ds4-titlebar button.titlebutton.minimize {"
+        "  background: #febc2e;"
+        "}"
+        "headerbar.ds4-titlebar button.titlebutton.maximize {"
+        "  background: #28c840;"
+        "}"
+        "headerbar.ds4-titlebar button.titlebutton:hover {"
+        "  box-shadow: inset 0 0 0 999px rgba(255,255,255,0.16);"
+        "}";
+
+    gtk_css_provider_load_from_data(css, data, -1, NULL);
+    GdkScreen *screen = gdk_screen_get_default();
+    if (screen) {
+        gtk_style_context_add_provider_for_screen(
+            screen, GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    }
+    g_object_unref(css);
+}
+
+static void ds4_apply_linux_titlebar_theme(ds4_wv *w, gboolean light) {
+    if (!w || !w->titlebar) return;
+    GtkStyleContext *ctx = gtk_widget_get_style_context(w->titlebar);
+    if (light) {
+        gtk_style_context_remove_class(ctx, "ds4-dark");
+        gtk_style_context_add_class(ctx, "ds4-light");
+    } else {
+        gtk_style_context_remove_class(ctx, "ds4-light");
+        gtk_style_context_add_class(ctx, "ds4-dark");
+    }
+}
+
+static void ds4_on_linux_theme_message(WebKitUserContentManager *manager,
+                                       WebKitJavascriptResult *result,
+                                       gpointer user_data) {
+    (void)manager;
+    ds4_wv *w = (ds4_wv *)user_data;
+    JSCValue *value = webkit_javascript_result_get_js_value(result);
+    char *theme = value ? jsc_value_to_string(value) : NULL;
+    ds4_apply_linux_titlebar_theme(w, theme && !strcmp(theme, "light"));
+    g_free(theme);
+}
 
 static GdkPixbuf *ds4_load_logo_pixbuf(void) {
     GdkPixbuf *pb = NULL;
@@ -300,6 +383,7 @@ static webview_t webview_create(int width, int height, const char *title) {
     g_set_application_name("DStudio");
     gdk_set_program_class(DS4_LINUX_APP_ID);
     gtk_init_check(0, NULL);
+    ds4_install_linux_chrome_css();
     /* Linux/Windows look (my call): prefer the dark theme so the window
      * decorations (the WM/GTK title bar with its close/min/max buttons)
      * render dark and match the app's black UI, instead of a light bar. */
@@ -310,6 +394,13 @@ static webview_t webview_create(int width, int height, const char *title) {
     gtk_window_set_title(GTK_WINDOW(w->window), title);
     gtk_window_set_default_size(GTK_WINDOW(w->window), width, height);
     gtk_window_set_icon_name(GTK_WINDOW(w->window), DS4_LINUX_APP_ID);
+    w->titlebar = gtk_header_bar_new();
+    gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(w->titlebar), TRUE);
+    gtk_header_bar_set_decoration_layout(GTK_HEADER_BAR(w->titlebar), "close,minimize,maximize:");
+    gtk_header_bar_set_custom_title(GTK_HEADER_BAR(w->titlebar), gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
+    gtk_style_context_add_class(gtk_widget_get_style_context(w->titlebar), "ds4-titlebar");
+    ds4_apply_linux_titlebar_theme(w, FALSE);
+    gtk_window_set_titlebar(GTK_WINDOW(w->window), w->titlebar);
     /* Window icon (taskbar / alt-tab / WM title bar) from the embedded logo:
      * the PNG bytes are baked into logo_data.h, decoded into a pixbuf at runtime
      * — same logo as the macOS .icns, no asset file needed. (macOS sets its icon
@@ -323,6 +414,11 @@ static webview_t webview_create(int width, int height, const char *title) {
         }
     }
     w->webview = webkit_web_view_new();
+    WebKitUserContentManager *manager =
+        webkit_web_view_get_user_content_manager(WEBKIT_WEB_VIEW(w->webview));
+    g_signal_connect(manager, "script-message-received::ds4Theme",
+                     G_CALLBACK(ds4_on_linux_theme_message), w);
+    webkit_user_content_manager_register_script_message_handler(manager, "ds4Theme");
     gtk_container_add(GTK_CONTAINER(w->window), w->webview);
     g_signal_connect(w->window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
     return (webview_t)w;
