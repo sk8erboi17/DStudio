@@ -4897,19 +4897,19 @@
           'data-id': m.id,
         });
 
-        article.append(buildMessageStart(m.role));
-
         if (m.role === 'user') {
           article.append(el('div', { class: 'msg__content', text: m.content }));
           return article;
         }
+
+        article.append(buildMessageStart(m.role));
 
         if (m.webSearching) {
           article.append(buildWebSearching(m.webTrace));
           return article;
         }
 
-        if (m.reasoning) article.append(buildThinking(m.reasoning, false));
+        if (m.reasoning) article.append(buildThinking(m.reasoning));
 
         const content = el('div', { class: 'msg__content md' });
         if (m.content) {
@@ -4988,15 +4988,14 @@
         return wrap;
       }
 
-      function buildThinking(text, open) {
-        const details = el('details', { class: 'thinking' });
-        details.open = open;
+      function buildThinking(text) {
+        const details = el('div', { class: 'thinking' });
         // Render the reasoning as markdown (so LaTeX → MathML, code, lists
         // show up) — the model often puts real math in its thinking. dataset.raw
         // tracks the source for cheap change-detection while streaming.
         const body = el('div', { class: 'thinking__body md' });
         setMarkdown(body, text || '');
-        details.append(el('summary', { text: 'Reasoning' }), body);
+        details.append(el('div', { class: 'thinking__cap', text: 'Reasoning' }), body);
         return details;
       }
 
@@ -5055,7 +5054,6 @@
         // (chat switch and return) — generation continues in the background.
         let fullContent = msg.content || '';
         let fullReasoning = '';
-        let collapsed = false;
         let rate = 0; // live tokens/sec, shown while generating (replaces the caret)
         let raf = 0;
 
@@ -5068,7 +5066,7 @@
           if (fullReasoning) {
             let thinkingEl = article.querySelector('.thinking');
             if (!thinkingEl) {
-              thinkingEl = buildThinking('', !collapsed);
+              thinkingEl = buildThinking('');
               article.prepend(thinkingEl);
             }
             const body = thinkingEl.querySelector('.thinking__body');
@@ -5076,7 +5074,6 @@
               setMarkdown(body, fullReasoning);
               body.scrollTop = body.scrollHeight;
             }
-            if (collapsed) thinkingEl.open = false;
           }
           const content = article.querySelector('.msg__content');
           if (content) {
@@ -5100,7 +5097,6 @@
           appendReasoning(delta) { fullReasoning += delta; schedule(); },
           setContent(fullText) { fullContent = fullText; schedule(); },
           setRate(r) { rate = r; schedule(); },
-          collapseThinking() { collapsed = true; schedule(); },
           repaint() { schedule(); }, // re-attach after a chat re-render
           finalize() {
             if (raf) { cancelAnimationFrame(raf); raf = 0; }
@@ -5607,7 +5603,6 @@
                 if (part.content) {
                   if (!sawContent) {
                     sawContent = true;
-                    view.collapseThinking(); // the reasoning collapses when the answer begins
                   }
                   content += part.content;
                   view.setContent(content);
@@ -6436,11 +6431,13 @@
       function paintLan(lan, lanAddr) {
         f.lan.value = lan ? 'on' : 'off';
         const url = lanAddr ? `http://${lanAddr}/remote` : '';
-        if (lan && url) {
-          f.lanUrl.textContent = url;
+        if (lan) {
+          f.lanUrl.textContent = url || 'LAN enabled - run /remote, then open http://<this Mac IP>:5500/remote';
           f.lanUrl.dataset.url = url;
           f.lanAddr.hidden = false;
         } else {
+          f.lanUrl.textContent = '';
+          f.lanUrl.dataset.url = '';
           f.lanAddr.hidden = true;
         }
       }
