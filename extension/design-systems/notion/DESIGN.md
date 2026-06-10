@@ -1,6 +1,10 @@
 ---
 name: Notion
 description: Warm, editorial, human. Off-white paper, near-black ink, a friendly accent, serif accents and emoji-as-identity. Calm document-first software.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/notion
 ---
 
 # DESIGN SYSTEM: Notion

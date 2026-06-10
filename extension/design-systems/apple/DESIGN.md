@@ -1,6 +1,10 @@
 ---
 name: Apple
 description: Refined, spacious, deferential. Huge calm headlines, lots of whitespace, system blue used sparingly, content-forward. Premium through restraint and clarity.
+ds4_category: web-ui-prototype
+ds4_local_mode: native
+ds4_output_kinds: image-brief
+ds4_upstream: dstudio/apple
 ---
 
 # DESIGN SYSTEM: Apple

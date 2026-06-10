@@ -3,6 +3,10 @@ name: slide-deck
 description: A presentation — fixed 1920×1080 slides with arrow-key navigation, one idea per slide, print-to-PDF friendly.
 modes: [design]
 when_to_use: The user wants a deck, presentation, pitch, keynote, or slides.
+ds4_category: deck-document
+ds4_local_mode: native
+ds4_output_kinds: deck
+ds4_upstream: dstudio/slide-deck
 ---
 
 # SKILL: slide-deck

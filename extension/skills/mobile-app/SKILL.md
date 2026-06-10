@@ -3,6 +3,10 @@ name: mobile-app
 description: Mobile app screens rendered inside a realistic phone frame (390×844), thumb-first, with a real navigation model and per-screen states.
 modes: [design]
 when_to_use: The user wants mobile app screens, an iOS/Android prototype, or "an app".
+ds4_category: web-ui-prototype
+ds4_local_mode: native
+ds4_output_kinds: html
+ds4_upstream: dstudio/mobile-app
 ---
 
 # SKILL: mobile-app

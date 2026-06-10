@@ -1,6 +1,10 @@
 ---
 name: Playful
 description: Friendly and gamified — rounded everything, bright saturated colors, chunky shadows, bouncy motion, big mascot energy. Encouraging, fun, approachable (Duolingo-ish).
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/playful
 ---
 
 # DESIGN SYSTEM: Playful

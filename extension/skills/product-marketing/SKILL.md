@@ -2,6 +2,10 @@
 name: product-marketing
 description: Foundation brief: capture the product, audience, ICP, positioning, brand voice and proof. Create/read it FIRST; every copy/SEO/CRO task references it.
 modes: [marketing]
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/product-marketing
 ---
 
 # Product Marketing Context

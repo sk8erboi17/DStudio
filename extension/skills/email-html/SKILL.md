@@ -3,6 +3,10 @@ name: email-html
 description: A table-based HTML email that survives Gmail, Outlook and Apple Mail — inline styles, no flexbox/grid, bulletproof buttons.
 modes: [design]
 when_to_use: The user wants an HTML email, newsletter, campaign, or transactional message.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: image-brief
+ds4_upstream: dstudio/email-html
 ---
 
 # SKILL: email-html

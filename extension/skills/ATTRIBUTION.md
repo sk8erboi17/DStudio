@@ -28,4 +28,15 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-The design skills, craft packs and design systems are DStudio's own.
+Some design skills and design systems are imported from **Open Design** by
+Nexu under the Apache License 2.0 and adapted for DStudio/DS4 with local-first
+metadata. See `../../THIRD_PARTY_NOTICES.md` and
+`../../third_party/open-design/LICENSE`.
+
+Some imported Open Design skill packs carry their own upstream license files
+inside the pack directory. Those files are retained in place and remain
+applicable to the corresponding pack content.
+
+Craft packs and DStudio-authored design skills/design systems remain DStudio's own
+unless a pack carries a `ds4_upstream` field or an included license file saying
+otherwise.

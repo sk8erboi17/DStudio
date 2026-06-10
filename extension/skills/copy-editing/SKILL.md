@@ -2,6 +2,10 @@
 name: copy-editing
 description: Tighten and sharpen existing copy: clarity, specificity, voice, cut the fluff.
 modes: [marketing]
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/copy-editing
 ---
 
 # Copy Editing

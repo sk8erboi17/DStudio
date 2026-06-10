@@ -2,6 +2,10 @@
 name: signup
 description: Optimize signup/registration flows: fields, friction, social auth, value-first, error states.
 modes: [marketing]
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/signup
 ---
 
 # Signup Flow CRO

@@ -1,6 +1,10 @@
 ---
 name: Stripe
 description: Light, professional, trustworthy. Indigo/violet on white, generous whitespace, soft shadows, subtle gradients — polished fintech credibility.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/stripe
 ---
 
 # DESIGN SYSTEM: Stripe

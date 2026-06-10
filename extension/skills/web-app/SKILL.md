@@ -3,6 +3,10 @@ name: web-app
 description: Turn a static design (HTML/CSS/JS) into a real, runnable web app — Django (Python) backend wired to the design's frontend. Build it so `runserver` works, end to end.
 modes: [build]
 when_to_use: Building an actual web application from a design — a Django + HTML/CSS/JS app, with models, views, templates, forms, auth and a runnable result. Used by Build mode (design → agent handoff) and on demand via skill(web-app).
+ds4_category: web-ui-prototype
+ds4_local_mode: native
+ds4_output_kinds: image-brief
+ds4_upstream: dstudio/web-app
 ---
 
 # SKILL: web-app

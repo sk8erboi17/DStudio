@@ -1,6 +1,10 @@
 ---
 name: Terminal
 description: Retro CRT terminal — monospace everything, phosphor green (or amber) on near-black, scanline texture, blocky cursor. Hacker/console aesthetic, all type.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/terminal
 ---
 
 # DESIGN SYSTEM: Terminal

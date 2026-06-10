@@ -3,6 +3,10 @@ name: blog
 description: A reading experience — an article or blog index where typography, measure and rhythm do the work. Optimized for finishing the piece, not decoration.
 modes: [design]
 when_to_use: The user wants a blog, article, post, essay, editorial page, or a writing-first reading layout.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: image-brief
+ds4_upstream: dstudio/blog
 ---
 
 # SKILL: blog

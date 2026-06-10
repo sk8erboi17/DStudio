@@ -2,6 +2,10 @@
 name: schema
 description: Add structured data (JSON-LD) for rich results — Article, Product, FAQ, Organization, Breadcrumb.
 modes: [marketing]
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: image-brief
+ds4_upstream: dstudio/schema
 ---
 
 # Schema Markup

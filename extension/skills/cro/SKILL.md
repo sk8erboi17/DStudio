@@ -2,6 +2,10 @@
 name: cro
 description: Conversion-rate optimization: diagnose and fix pages/forms so more visitors take the action.
 modes: [marketing]
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/cro
 ---
 
 # Conversion Rate Optimization (CRO)

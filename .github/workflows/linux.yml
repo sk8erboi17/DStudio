@@ -1,0 +1,80 @@
+name: linux
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'web/index.html'
+      - 'assets/logo.png'
+      - 'Makefile'
+      - '.github/workflows/linux.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            curl \
+            file \
+            git \
+            nodejs \
+            pkg-config \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev
+
+      - name: Build Linux binary
+        run: make clean && make CC=gcc CXX=g++ STRICT_WARNINGS=1
+
+      - name: Run checks
+        run: make check CC=gcc CXX=g++ STRICT_WARNINGS=1
+
+      - name: Smoke HTTP server
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/antirez/ds4.git ../ds4
+          DS4UI_NO_WINDOW=1 ./dstudio 5598 ../ds4 >linux-smoke.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          ok=0
+          for _ in $(seq 1 30); do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "::error title=Linux smoke failed::DStudio exited before serving"
+              cat linux-smoke.log
+              exit 1
+            fi
+            if curl -fsS http://127.0.0.1:5598/ >/dev/null; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error title=Linux smoke failed::DStudio did not return HTTP 200"
+            cat linux-smoke.log
+            exit 1
+          fi
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          trap - EXIT
+
+      - name: Package Linux binary
+        run: |
+          mkdir -p dist/DStudio-linux-x64
+          cp dstudio dist/DStudio-linux-x64/
+          cp README.md LICENSE dist/DStudio-linux-x64/
+          tar -C dist -czf dist/DStudio-linux-x64.tar.gz DStudio-linux-x64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: DStudio-linux-x64
+          path: dist/DStudio-linux-x64.tar.gz

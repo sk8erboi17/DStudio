@@ -3,6 +3,10 @@ name: data-table
 description: A serious data table — sortable, filterable, paginated, with row selection, bulk actions, sticky header, and every state (loading/empty/error/dense) rendered.
 modes: [design]
 when_to_use: The user wants a data table, grid, list view, records/admin table, or "a table of <things>" with real interaction.
+ds4_category: data-visualization
+ds4_local_mode: native
+ds4_output_kinds: html
+ds4_upstream: dstudio/data-table
 ---
 
 # SKILL: data-table

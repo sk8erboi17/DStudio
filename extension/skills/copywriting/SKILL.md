@@ -2,6 +2,10 @@
 name: copywriting
 description: Write or rewrite persuasive site copy — headlines, value prop, CTAs, hero, feature/pricing copy — clear and conversion-driven.
 modes: [marketing]
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/copywriting
 ---
 
 # Copywriting

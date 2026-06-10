@@ -72,7 +72,7 @@ static void      webview_run(webview_t w);
     [a addButtonWithTitle:@"OK"];
     [a addButtonWithTitle:@"Cancel"];
     NSTextField *tf = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 260, 24)];
-    tf.stringValue = defaultText ?: @"";
+    tf.stringValue = defaultText ? defaultText : @"";
     a.accessoryView = tf;
     completionHandler([a runModal] == NSAlertFirstButtonReturn ? tf.stringValue : nil);
 }
@@ -317,8 +317,136 @@ static void webview_run(webview_t handle) {
     gtk_main();
 }
 
+/* ============================ Windows ============================ */
+#elif defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <shlobj.h>
+#include <wrl.h>
+#include "WebView2.h"
+
+typedef struct {
+    HWND hwnd;
+    ICoreWebView2Controller *controller;
+    ICoreWebView2 *webview;
+    char pending_url[1024];
+} ds4_wv;
+
+static void ds4_wv_resize(ds4_wv *w) {
+    if (!w || !w->controller) return;
+    RECT bounds;
+    GetClientRect(w->hwnd, &bounds);
+    w->controller->put_Bounds(bounds);
+}
+
+static LRESULT CALLBACK ds4_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    ds4_wv *w = (ds4_wv *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    switch (msg) {
+    case WM_SIZE:
+        ds4_wv_resize(w);
+        return 0;
+    case WM_CLOSE:
+        DestroyWindow(hwnd);
+        return 0;
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
+    default:
+        return DefWindowProc(hwnd, msg, wp, lp);
+    }
+}
+
+static wchar_t *ds4_utf8_to_wide(const char *s) {
+    int n = MultiByteToWideChar(CP_UTF8, 0, s ? s : "", -1, NULL, 0);
+    wchar_t *w = (wchar_t *)calloc((size_t)n, sizeof(wchar_t));
+    if (!w) return NULL;
+    MultiByteToWideChar(CP_UTF8, 0, s ? s : "", -1, w, n);
+    return w;
+}
+
+static void ds4_init_webview2(ds4_wv *w) {
+    wchar_t user_data[MAX_PATH];
+    PWSTR local = NULL;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, NULL, &local))) {
+        swprintf(user_data, MAX_PATH, L"%ls\\DStudio\\WebView2", local);
+        CoTaskMemFree(local);
+    } else {
+        swprintf(user_data, MAX_PATH, L".\\DStudio-WebView2");
+    }
+    CreateCoreWebView2EnvironmentWithOptions(
+        NULL, user_data, NULL,
+        Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
+            [w](HRESULT result, ICoreWebView2Environment *env) -> HRESULT {
+                if (FAILED(result) || !env) return result;
+                env->CreateCoreWebView2Controller(
+                    w->hwnd,
+                    Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+                        [w](HRESULT result, ICoreWebView2Controller *controller) -> HRESULT {
+                            if (FAILED(result) || !controller) return result;
+                            w->controller = controller;
+                            w->controller->AddRef();
+                            controller->get_CoreWebView2(&w->webview);
+                            ds4_wv_resize(w);
+                            if (w->pending_url[0]) {
+                                wchar_t *url = ds4_utf8_to_wide(w->pending_url);
+                                if (url) { w->webview->Navigate(url); free(url); }
+                            }
+                            return S_OK;
+                        }).Get());
+                return S_OK;
+            }).Get());
+}
+
+static webview_t webview_create(int width, int height, const char *title) {
+    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    HINSTANCE inst = GetModuleHandle(NULL);
+    WNDCLASSA wc;
+    memset(&wc, 0, sizeof wc);
+    wc.lpfnWndProc = ds4_wndproc;
+    wc.hInstance = inst;
+    wc.lpszClassName = "DStudioWindow";
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    RegisterClassA(&wc);
+
+    ds4_wv *w = (ds4_wv *)calloc(1, sizeof(ds4_wv));
+    RECT r = {0, 0, width, height};
+    AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
+    w->hwnd = CreateWindowExA(0, wc.lpszClassName, title ? title : "DS4",
+                              WS_OVERLAPPEDWINDOW,
+                              CW_USEDEFAULT, CW_USEDEFAULT,
+                              r.right - r.left, r.bottom - r.top,
+                              NULL, NULL, inst, NULL);
+    SetWindowLongPtr(w->hwnd, GWLP_USERDATA, (LONG_PTR)w);
+    ds4_init_webview2(w);
+    return (webview_t)w;
+}
+
+static void webview_navigate(webview_t handle, const char *url) {
+    ds4_wv *w = (ds4_wv *)handle;
+    snprintf(w->pending_url, sizeof w->pending_url, "%s", url ? url : "");
+    if (w->webview) {
+        wchar_t *u = ds4_utf8_to_wide(w->pending_url);
+        if (u) { w->webview->Navigate(u); free(u); }
+    }
+}
+
+static void webview_run(webview_t handle) {
+    ds4_wv *w = (ds4_wv *)handle;
+    ShowWindow(w->hwnd, SW_SHOW);
+    UpdateWindow(w->hwnd);
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0) > 0) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+    if (w->webview) w->webview->Release();
+    if (w->controller) w->controller->Release();
+    CoUninitialize();
+}
+
 #else
-#error "webview.h: unsupported platform (macOS or Linux required)"
+#error "webview.h: unsupported platform (macOS, Linux, or Windows required)"
 #endif
 
 #endif /* DS4_WEBVIEW_H */

@@ -3,6 +3,10 @@ name: pricing
 description: A pricing page — 2-4 plan tiers compared at a glance, one recommended, with a value-framed feature matrix and FAQ that removes the last objection.
 modes: [design]
 when_to_use: The user wants a pricing page, plans/tiers comparison, or "how much does it cost" screen.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/pricing
 ---
 
 # SKILL: pricing

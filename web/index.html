@@ -266,7 +266,7 @@
     .btn--send svg { display: block; width: 16px; height: 16px; }
     #btn-stop {                      /* match the send button so the row doesn't jump */
       width: 32px; height: 30px; border-radius: 9px; padding: 0;
-      display: grid; place-items: center; flex-shrink: 0; font-size: 11px;
+      display: grid; place-items: center; flex-shrink: 0;
     }
 
     .btn:disabled {
@@ -717,6 +717,8 @@
       border-radius: var(--radius-lg);
       padding: 0.75rem 1rem;
       line-height: 1.55;
+      content-visibility: auto;
+      contain-intrinsic-size: 120px;
     }
 
     .msg--user {
@@ -765,6 +767,8 @@
       border-radius: 0;
       background: transparent;
       padding-left: 15px;
+      content-visibility: auto;
+      contain-intrinsic-size: 140px;
     }
 
     .thinking summary {
@@ -913,36 +917,64 @@
     :root[data-theme="light"] .hl .hl-type { color: #8a6d00; }
 
     /* ==================== Message meta and actions ==================== */
-    /* Working-folder picker (redesigned): breadcrumb + subfolder browser. */
-    .wd-dialog { width: min(480px, 92vw); }
-    .wd-note { font-size: 0.82rem; color: var(--muted); line-height: 1.55; margin: 0.2rem 0 0.8rem; }
-    .wd-browser { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 0.8rem; background: var(--inset); }
-    .wd-pathbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--surface); }
-    .wd-upbtn { width: 26px; height: 24px; border: 1px solid var(--border-2); border-radius: 7px; background: transparent; color: var(--text-2); cursor: pointer; flex-shrink: 0; }
-    .wd-upbtn:hover { border-color: var(--accent); color: var(--accent-2); }
-    .wd-path { font-family: var(--font-mono); font-size: 11.5px; color: var(--accent-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-    .wd-search {
-      width: 100%; box-sizing: border-box; margin: 6px 0; padding: 7px 10px;
-      background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
-      color: var(--text); font: inherit; font-size: 0.85rem;
-    }
-    .wd-search:focus { outline: none; border-color: var(--accent); }
-    .wd-list { max-height: 200px; overflow-y: auto; padding: 4px; }
-    .wd-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 9px; background: none; border: none; border-radius: 7px; color: var(--text-2); font-size: 13px; text-align: left; cursor: pointer; }
-    .wd-item:hover { background: var(--surface-2); color: var(--text); }
-    .wd-item .ic { opacity: 0.75; flex-shrink: 0; }
-    .wd-empty { padding: 10px; font-size: 12px; color: var(--faint); }
-    /* Design requires an EMPTY folder: live warning + disabled Start. */
-    .wd-warn { font-size: 0.8rem; color: var(--warn); line-height: 1.5; margin: -0.3rem 0 0.8rem; }
-    #workdir-go:disabled { opacity: 0.45; cursor: not-allowed; }
-    .wd-newbtn { margin-left: auto; flex-shrink: 0; padding: 3px 9px; font-size: 11.5px;
-      border: 1px solid var(--border-2); border-radius: 7px; background: transparent;
-      color: var(--text-2); cursor: pointer; white-space: nowrap; }
+    /* Working-folder picker: one shared modal for agent, design and attach. */
+    .wd-dialog { width: min(620px, 94vw); padding: 0; border: 1px solid var(--border-2);
+      border-radius: 20px; background: linear-gradient(180deg, var(--surface), #121215);
+      box-shadow: 0 34px 80px rgba(0, 0, 0, 0.55); overflow: hidden; }
+    .wd-dialog::backdrop { background: rgba(0, 0, 0, 0.62); backdrop-filter: blur(2px); }
+    .wd-form { padding: 0; display: flex; flex-direction: column; gap: 0; }
+    .wd-head { display: flex; gap: 14px; align-items: flex-start; padding: 22px 24px 18px; }
+    .wd-badge { width: 36px; height: 36px; border-radius: 11px; flex: 0 0 auto; display: grid; place-items: center;
+      background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent-2);
+      border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent); }
+    .wd-htext { flex: 1; min-width: 0; }
+    .wd-title { font-family: var(--serif); font-weight: 500; font-size: 23px; color: var(--text); letter-spacing: 0; margin: 0 0 5px; }
+    .wd-note { font-size: 13px; line-height: 1.55; color: var(--muted); margin: 0; }
+    .wd-note strong { color: var(--text-2); font-weight: 500; }
+    .wd-browser { margin: 0 24px; border: 1px solid var(--border-2); border-radius: 14px; background: var(--inset); overflow: hidden; }
+    .wd-crumbs { display: flex; align-items: center; gap: 2px; padding: 9px 10px; border-bottom: 1px solid var(--border);
+      background: var(--surface-2); overflow-x: auto; scrollbar-width: none; }
+    .wd-crumbs::-webkit-scrollbar { display: none; }
+    .wd-crumb { display: inline-flex; align-items: center; flex: 0 0 auto; background: none; border: none; cursor: pointer;
+      font-family: var(--font-mono); font-size: 12px; color: var(--muted); padding: 5px 7px; border-radius: 7px; transition: 0.12s; }
+    .wd-crumb:hover { background: var(--border); color: var(--text); }
+    .wd-crumb.cur { color: var(--accent-2); background: color-mix(in srgb, var(--accent) 16%, transparent); cursor: default; }
+    .wd-sep { color: var(--faint); font-family: var(--font-mono); font-size: 12px; flex: 0 0 auto; user-select: none; }
+    .wd-newbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+      border: 1px solid var(--border-2); border-radius: 8px; background: transparent; color: var(--text-2);
+      font-family: inherit; font-size: 12px; padding: 5px 11px; cursor: pointer; transition: 0.12s; white-space: nowrap; }
     .wd-newbtn:hover { border-color: var(--accent); color: var(--accent-2); }
-    /* Readable selected-folder line (no cramped text box). */
-    .wd-current { font-family: var(--font-mono); font-size: 12px; color: var(--accent-2);
-      background: var(--inset); border: 1px solid var(--border); border-radius: 8px;
-      padding: 8px 10px; word-break: break-all; line-height: 1.4; }
+    .wd-filter { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .wd-filter svg { color: var(--faint); flex: 0 0 auto; }
+    .wd-search { flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: var(--text);
+      font: inherit; font-size: 13.5px; padding: 0; }
+    .wd-search::placeholder { color: var(--faint); }
+    .wd-filter kbd { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); background: var(--surface-2);
+      border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+    .wd-list { max-height: 248px; overflow-y: auto; padding: 6px; }
+    .wd-item { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 40px; padding: 9px 10px;
+      background: none; border: none; border-radius: 9px; color: var(--text-2); font-size: 13.5px; text-align: left;
+      cursor: pointer; transition: 0.12s; }
+    .wd-item:hover { background: var(--surface-2); color: var(--text); }
+    .wd-item .ic { color: var(--muted); flex: 0 0 auto; transition: 0.12s; }
+    .wd-item:hover .ic { color: var(--text-2); }
+    .wd-item .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wd-item .into { color: var(--faint); flex: 0 0 auto; opacity: 0; transition: 0.12s; }
+    .wd-item:hover .into { opacity: 1; }
+    .wd-empty { padding: 26px; text-align: center; color: var(--faint); font-size: 13px; }
+    .wd-warn { font-size: 0.8rem; color: var(--warn); line-height: 1.5; margin: 10px 24px 0; }
+    #workdir-go:disabled { opacity: 0.45; cursor: not-allowed; }
+    .wd-target { display: flex; align-items: center; gap: 11px; margin: 14px 24px 0; padding: 11px 14px;
+      border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+    .wd-target-ic { color: var(--accent); flex: 0 0 auto; }
+    .wd-current { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12px; color: var(--text-2);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wd-current b { color: var(--text); font-weight: 500; }
+    .wd-scope { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; font-size: 11px; color: var(--muted); }
+    .wd-scope-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); }
+    .wd-foot { display: flex; align-items: center; gap: 12px; padding: 16px 24px 20px; margin-top: 16px; border-top: 1px solid var(--border); }
+    .wd-foot-note { flex: 1; display: flex; align-items: flex-start; gap: 8px; font-size: 11.5px; color: var(--faint); line-height: 1.5; }
+    .wd-foot-note svg { flex: 0 0 auto; margin-top: 1px; color: var(--warn); }
     .wd-newrow { display: flex; gap: 6px; padding: 6px; }
     .wd-newrow input { flex: 1; font-family: var(--font-mono); font-size: 12px; }
 
@@ -1195,6 +1227,14 @@
       border: 1px solid var(--border-2); border-radius: 20px;
       padding: 22px; box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5);
     }
+    .build-asks[data-kind="question"] {
+      background: transparent;
+      border: 0;
+      box-shadow: none;
+      border-radius: 0;
+      padding: 0;
+    }
+    .build-asks[data-kind="question"] .qform { max-width: var(--msg-maxw); }
     .ba-head { display: flex; gap: 13px; align-items: flex-start; padding: 0 2px 16px; }
     .ba-badge { width: 30px; height: 30px; border-radius: 9px; flex: 0 0 auto; display: grid; place-items: center;
       background: var(--accent-soft); color: var(--accent-2); border: 1px solid var(--accent-dim); }
@@ -2035,6 +2075,7 @@
     .todos-card li.done { color: var(--muted); }
 
     .todos-card li.doing { color: var(--text); }
+    .todos-card li.stopped { color: var(--muted); }
 
     /* Circular status icon (agent mockup style): done = accent check,
        in progress = accent ring, pending = faint circle. */
@@ -2049,6 +2090,7 @@
     }
     .todos-card li.done .tick { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-2); }
     .todos-card li.doing .tick { border-color: var(--accent); color: var(--accent); }
+    .todos-card li.stopped .tick { border-color: var(--border-2); color: var(--muted); }
 
     .artifact-card {
       display: flex;
@@ -2088,6 +2130,7 @@
       gap: 0.75rem;
       padding-bottom: 1rem;
     }
+    .agent-live-tail { display: contents; }
 
     .agent-banner {
       background: var(--surface);
@@ -2150,6 +2193,8 @@
       border-radius: var(--radius-lg);
       padding: 0.7rem 0.9rem;
       line-height: 1.55;
+      content-visibility: auto;
+      contain-intrinsic-size: 96px;
     }
 
     .seg--user {
@@ -2415,7 +2460,7 @@
             <div class="cbar-grp cbar-grp--end">
               <span class="cbar-meta" id="composer-meta"></span>
               <button type="submit" id="btn-send" class="btn btn--primary btn--send" aria-label="Send" title="Send (Enter)"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V4M4 8l4-4 4 4"/></svg></button>
-              <button type="button" id="btn-stop" class="btn btn--danger" hidden aria-label="Stop" title="Stop">■</button>
+              <button type="button" id="btn-stop" class="btn btn--danger btn--send" hidden aria-label="Stop generation" title="Stop generation"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.1"/></svg></button>
             </div>
         </form>
       </footer>
@@ -2516,24 +2561,41 @@
   </dialog>
 
   <dialog id="workdir-dialog" class="dialog wd-dialog" aria-label="Working directory">
-    <form method="dialog" class="settings">
-      <h2 id="workdir-title">Start the agent</h2>
-      <p class="wd-note" id="workdir-note">The agent can <strong>read, modify files and run commands</strong> in the chosen folder — that is the security boundary. Pick a project folder.</p>
+    <form method="dialog" class="wd-form">
+      <div class="wd-head">
+        <div class="wd-badge" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 4.5L9 2l5.5 2.5v4.2c0 3.4-2.3 5.8-5.5 7.3-3.2-1.5-5.5-3.9-5.5-7.3z"></path><path d="M6.7 8.8l1.7 1.7 3-3.4"></path></svg>
+        </div>
+        <div class="wd-htext">
+          <h2 id="workdir-title" class="wd-title">Start the agent</h2>
+          <p class="wd-note" id="workdir-note">The agent can <strong>read, modify files and run commands</strong> in the chosen folder — that is the security boundary. Pick a project folder.</p>
+        </div>
+      </div>
       <div class="wd-browser">
-        <div class="wd-pathbar">
-          <button type="button" id="wd-up" class="wd-upbtn" title="Parent folder">↑</button>
-          <span id="wd-path" class="wd-path">…</span>
+        <div class="wd-crumbs" id="wd-crumbs" aria-label="Current folder">
+          <button type="button" class="wd-crumb cur">…</button>
           <button type="button" id="wd-newfolder" class="wd-newbtn" title="Create a new folder here">+ New folder</button>
         </div>
-        <input type="text" id="wd-search" class="wd-search" placeholder="Filter folders…" spellcheck="false" autocomplete="off" aria-label="Filter folders">
+        <div class="wd-filter">
+          <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6.5" cy="6.5" r="4.2"></circle><path d="M9.8 9.8L13 13"></path></svg>
+          <input type="text" id="wd-search" class="wd-search" placeholder="Filter folders…" spellcheck="false" autocomplete="off" aria-label="Filter folders">
+          <kbd id="wd-filter-kbd">⌘F</kbd>
+        </div>
         <div class="wd-list" id="wd-list" role="listbox" aria-label="Subfolders"></div>
       </div>
       <p class="wd-warn" id="wd-warn" hidden></p>
-      <div class="field">
-        <span id="workdir-label">Working directory</span>
+      <div class="wd-target">
+        <span class="wd-target-ic" aria-hidden="true">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5l1.3-1.4h3.1l1.1 1.4H14v7.4a.7.7 0 0 1-.7.7H2.7a.7.7 0 0 1-.7-.7z"></path></svg>
+        </span>
         <div id="workdir-current" class="wd-current" title="The folder that will be used">…</div>
+        <span class="wd-scope"><span class="wd-scope-dot"></span><span id="workdir-label">agent scope</span></span>
       </div>
-      <div class="dialog__actions">
+      <div class="wd-foot">
+        <div class="wd-foot-note">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.2l6 10.6H2z"></path><path d="M8 6.5v3"></path><circle cx="8" cy="11.4" r=".5" fill="currentColor" stroke="none"></circle></svg>
+          <span id="workdir-foot-note">Shell commands still ask for approval before running.</span>
+        </div>
         <button type="button" id="workdir-cancel" class="btn">Cancel</button>
         <button type="button" id="workdir-go" class="btn btn--primary">Start agent</button>
       </div>
@@ -3650,6 +3712,28 @@
       return html;
     }
 
+    const MD_CACHE_MAX = 700;
+    const mdCache = new Map();
+    function renderMarkdownCached(src) {
+      const raw = String(src ?? '');
+      const hit = mdCache.get(raw);
+      if (hit !== undefined) {
+        mdCache.delete(raw);
+        mdCache.set(raw, hit);
+        return hit;
+      }
+      const html = renderMarkdown(raw);
+      mdCache.set(raw, html);
+      if (mdCache.size > MD_CACHE_MAX) mdCache.delete(mdCache.keys().next().value);
+      return html;
+    }
+    function setMarkdown(el, raw) {
+      raw = String(raw ?? '');
+      if (el.dataset.raw === raw) return;
+      el.dataset.raw = raw;
+      el.innerHTML = renderMarkdownCached(raw);
+    }
+
     /* ==================== Store ==================== */
     // Central state + minimal pub/sub + localStorage persistence.
     // The only point that touches localStorage; the UIs read the state and
@@ -4315,6 +4399,7 @@
       // user switches chat and comes back, the re-rendered bubble is reconnected
       // to the still-running stream.
       const liveViews = new Map();
+      const messageNodes = new Map(); // msgId -> {key,node}; keeps long chats cheap to revisit
 
       function mount(rootEl, h) {
         root = rootEl;
@@ -4363,8 +4448,16 @@
         }
 
         const lastAssistant = chat.messages.findLast((m) => m.role === 'assistant');
+        const keep = new Set();
         for (const m of chat.messages) {
-          inner.append(buildMessage(m, chat, m === lastAssistant));
+          keep.add(m.id);
+          inner.append(buildMessageCached(m, chat, m === lastAssistant));
+        }
+        if (messageNodes.size > 900) {
+          for (const id of messageNodes.keys()) {
+            if (!keep.has(id) && !liveViews.has(id)) messageNodes.delete(id);
+            if (messageNodes.size <= 700) break;
+          }
         }
         scrollToBottom(root);
         updateScrollBtn();
@@ -4374,6 +4467,25 @@
         for (const m of chat.messages) {
           if (m.streaming) liveViews.get(m.id)?.repaint();
         }
+      }
+
+      function messageKey(m, chat, isLastAssistant) {
+        return [
+          m.role, m.streaming ? 's' : '', isLastAssistant ? 'last' : '',
+          m.content || '', m.reasoning || '', m.finishReason || '',
+          m.error?.message || '', m.usage ? JSON.stringify(m.usage) : '',
+          chat?.model || '',
+        ].join('\u0003');
+      }
+
+      function buildMessageCached(m, chat, isLastAssistant) {
+        if (m.streaming) return buildMessage(m, chat, isLastAssistant);
+        const key = messageKey(m, chat, isLastAssistant);
+        const cached = messageNodes.get(m.id);
+        if (cached && cached.key === key) return cached.node;
+        const node = buildMessage(m, chat, isLastAssistant);
+        messageNodes.set(m.id, { key, node });
+        return node;
       }
 
       function buildMessage(m, chat, isLastAssistant) {
@@ -4391,7 +4503,7 @@
 
         const content = el('div', { class: 'msg__content md' });
         if (m.content) {
-          content.innerHTML = renderMarkdown(m.content);
+          setMarkdown(content, m.content);
         } else if (!m.streaming && m.finishReason !== 'error') {
           // Streaming with no content: no placeholder, the ▍ cursor
           // (::after of .msg--streaming) indicates it is generating.
@@ -4412,8 +4524,7 @@
         // show up) — the model often puts real math in its thinking. dataset.raw
         // tracks the source for cheap change-detection while streaming.
         const body = el('div', { class: 'thinking__body md' });
-        body.innerHTML = renderMarkdown(text || '');
-        body.dataset.raw = text || '';
+        setMarkdown(body, text || '');
         details.append(el('summary', { text: 'Reasoning' }), body);
         return details;
       }
@@ -4489,9 +4600,8 @@
               article.prepend(thinkingEl);
             }
             const body = thinkingEl.querySelector('.thinking__body');
-            if (body && body.dataset.raw !== fullReasoning) {
-              body.dataset.raw = fullReasoning;
-              body.innerHTML = renderMarkdown(fullReasoning);
+            if (body) {
+              setMarkdown(body, fullReasoning);
               body.scrollTop = body.scrollHeight;
             }
             if (collapsed) thinkingEl.open = false;
@@ -4500,7 +4610,7 @@
           if (content) {
             const ph = content.querySelector('.placeholder');
             if (ph) ph.remove();
-            if (fullContent) content.innerHTML = renderMarkdown(fullContent);
+            if (fullContent) setMarkdown(content, fullContent);
           }
           // Live generation speed, in place of the old blinking caret.
           let rateEl = article.querySelector('.msg__rate');
@@ -4864,7 +4974,14 @@
         });
         on(input, 'input', () => { autogrow(); updateSlash(); });
         on(input, 'blur', () => setTimeout(closeSlash, 150)); // let a click land first
-        on(stopBtn, 'click', () => Chat.abortStream());
+        on(stopBtn, 'click', () => {
+          if (agentMode) {
+            if (Switcher.buildPlanActive && Switcher.buildPlanActive()) Switcher.buildPlanCancel();
+            AgentView.stopLiveGeneration();
+            return;
+          }
+          Chat.abortStream();
+        });
 
         Store.subscribe('streaming', onStreamingChange);
         Store.subscribe('activeChat', onStreamingChange);
@@ -4880,14 +4997,15 @@
       let curMode = 'server';
       let skillCache = null;     // [{id,name,description,modes}] from /api/skills (design)
       let userSkillCache = null; // [{id,name,description}] from /api/user-skills (agent)
-      let userSkillSelEl = null; // the live agent skill <select>, refreshed after editing
       let dsCache = null;        // [{id,name,description}] from /api/design-systems
       let agentBusy = false;
+      let questionMode = false;
 
       function submit() {
         const text = input.value.trim();
         if (!text) return;
         if (agentMode) {
+          if (questionMode) return;
           // During a build the engine is busy but you can still TYPE — the message is queued as a
           // follow-up (or answers a follow-up's clarification). So don't block on agentBusy then.
           const building = Switcher.buildPlanActive && Switcher.buildPlanActive();
@@ -4993,6 +5111,8 @@
         input.disabled = streaming;
         sendBtn.hidden = streaming;
         stopBtn.hidden = !streaming;
+        stopBtn.setAttribute('aria-label', 'Stop response');
+        stopBtn.title = 'Stop response';
         if (!streaming) input.focus();
       }
 
@@ -5004,6 +5124,8 @@
         stopBtn.hidden = true;
         input.disabled = false;
         sendBtn.hidden = false;
+        sendBtn.disabled = false;
+        questionMode = false;
         input.placeholder =
           mode === 'agent' ? 'Ask the agent… (edits files and runs commands in the working dir)'
           : mode === 'design' ? 'Describe the design… (the preview updates with every version)'
@@ -5109,7 +5231,7 @@
           cbarPop.append(manage);
 
           const bm = Store.getSettings().buildMode;
-          const bon = (bm === true || bm === 'plan' || bm === 'auto' || bm === 'on');
+          const bon = bm === 'plan';
           cbarPop.append(cdrop({ cap: 'Build', ariaLabel: 'Build mode',
             title: 'Build mode — turn it on, then tell the agent what to build; it interviews you, proposes the pages + style, then builds one page at a time.',
             value: bon ? 'on' : 'off',
@@ -5134,47 +5256,10 @@
         on(wdBtn, 'click', () => { closeGear(); Switcher.changeWorkdir(); });
         cbarPop.append(wdBtn);
       }
-      // Populate a skill <select> with the packs that apply to the current mode
-      // (agent/design), reflecting the persisted choice. "No skill" = charter only.
-      function buildSkillOptions(sel) {
-        sel.replaceChildren();
-        sel.append(el('option', { value: '', text: 'Skill: none' }));
-        const cur = (Store.getSettings().skillByMode || {})[curMode] || '';
-        (skillCache || []).filter((s) => !s.modes || s.modes.includes(curMode)).forEach((s) => {
-          const o = el('option', { value: s.id, text: 'Skill: ' + (s.name || s.id) });
-          if (s.id === cur) o.selected = true;
-          sel.append(o);
-        });
-        if (cur && !(skillCache || []).some((s) => s.id === cur)) {
-          const o = el('option', { value: cur, text: 'Skill: ' + cur });
-          o.selected = true; sel.append(o);
-        }
-      }
       async function loadSkills() {
         try { const r = await Engine.skills(); skillCache = (r && r.skills) || []; }
         catch { skillCache = skillCache || []; }
         rebuildGearIfOpen();
-      }
-      // User-skill <select> (agent mode): "none" + the user's own skills.
-      // The AGENT gear skill picker: the shipped skills that apply to the agent/build
-      // (e.g. web-app) PLUS the user's own skills. Selecting one injects it at restart.
-      function buildUserSkillOptions(sel) {
-        sel.replaceChildren();
-        sel.append(el('option', { value: '', text: 'Skill: none' }));
-        const cur = (Store.getSettings().skillByMode || {}).agent || '';
-        const seen = new Set();
-        const add = (s) => {
-          if (!s.id || seen.has(s.id)) return; seen.add(s.id);
-          const o = el('option', { value: s.id, text: 'Skill: ' + (s.name || s.id) });
-          if (s.id === cur) o.selected = true;
-          sel.append(o);
-        };
-        (skillCache || []).filter((s) => s.modes && (s.modes.includes('agent') || s.modes.includes('build'))).forEach(add);
-        (userSkillCache || []).forEach(add);
-        if (cur && !seen.has(cur)) {
-          const o = el('option', { value: cur, text: 'Skill: ' + cur });
-          o.selected = true; sel.append(o);
-        }
       }
       async function loadUserSkills() {
         try { const r = await Engine.userSkills(); userSkillCache = (r && r.skills) || []; }
@@ -5190,21 +5275,6 @@
       function invalidateUserSkills() {
         userSkillCache = null;
         loadUserSkills();
-      }
-      // Design-system <select> (design mode): "default" + the brand packs.
-      function buildDsOptions(sel) {
-        sel.replaceChildren();
-        sel.append(el('option', { value: '', text: 'Style: default' }));
-        const cur = Store.getSettings().designSystem || '';
-        (dsCache || []).forEach((s) => {
-          const o = el('option', { value: s.id, text: 'Style: ' + (s.name || s.id) });
-          if (s.id === cur) o.selected = true;
-          sel.append(o);
-        });
-        if (cur && !(dsCache || []).some((s) => s.id === cur)) {
-          const o = el('option', { value: cur, text: 'Style: ' + cur });
-          o.selected = true; sel.append(o);
-        }
       }
       async function loadDs() {
         try { const r = await Engine.designSystems(); dsCache = (r && r.designSystems) || []; }
@@ -5314,15 +5384,26 @@
       }
 
       const DEFAULT_AGENT_PH = 'Write a message… (Enter to send, Shift+Enter for a new line)';
+      const QUESTION_AGENT_PH = 'Answer the question above to continue…';
       function setAgentBusy(b) {
         if (!agentMode) return;
         agentBusy = b;
         // During a build the field stays OPEN even while the engine works — what you type is
         // queued as a follow-up (handled after the current page), so it must not be disabled.
         const building = Switcher.buildPlanActive && Switcher.buildPlanActive();
-        input.disabled = b && !building;
-        input.placeholder = building ? 'Queue a follow-up — handled after the current page…' : DEFAULT_AGENT_PH;
+        input.disabled = questionMode || (b && !building);
+        input.placeholder = questionMode ? QUESTION_AGENT_PH
+          : building ? 'Queue a follow-up — handled after the current page…' : DEFAULT_AGENT_PH;
+        sendBtn.hidden = b;
+        sendBtn.disabled = questionMode;
+        stopBtn.hidden = !b;
+        stopBtn.setAttribute('aria-label', building ? 'Stop build' : (curMode === 'design' ? 'Stop designer' : 'Stop agent'));
+        stopBtn.title = building ? 'Stop build' : (curMode === 'design' ? 'Stop designer' : 'Stop agent');
         if (!input.disabled && !b) input.focus();
+      }
+      function setQuestionMode(active) {
+        questionMode = !!active;
+        setAgentBusy(agentBusy);
       }
 
       // Chat: a compact token count (optional context readout). Empty until a
@@ -5389,7 +5470,7 @@
         if (host) { if (host._keyh) { document.removeEventListener('keydown', host._keyh); host._keyh = null; } host.replaceChildren(); host.hidden = true; }
       }
 
-      return { mount, setMode, setAgentBusy, invalidateUserSkills, showBuildAsk, hideBuildAsk };
+      return { mount, setMode, setAgentBusy, setQuestionMode, invalidateUserSkills, showBuildAsk, hideBuildAsk };
     })();
 
     /* ==================== UI: settings ==================== */
@@ -6399,6 +6480,21 @@
         });
         return r.json();
       }
+      async function designEvents(since = 0) {
+        const r = await fetch('/api/design/events?since=' + encodeURIComponent(String(since)), { signal: AbortSignal.timeout(5000) });
+        if (!r.ok) throw new Error('design/events ' + r.status);
+        return r.json();
+      }
+      async function designState() {
+        const r = await fetch('/api/design/state', { signal: AbortSignal.timeout(5000) });
+        if (!r.ok) throw new Error('design/state ' + r.status);
+        return r.json();
+      }
+      async function designArtifacts() {
+        const r = await fetch('/api/design/artifacts', { signal: AbortSignal.timeout(5000) });
+        if (!r.ok) throw new Error('design/artifacts ' + r.status);
+        return r.json();
+      }
 
       // Build mode (planned): the driver persists plan.md / STYLE.md into the build
       // workspace and reads the file list back to track progress from disk.
@@ -6417,7 +6513,125 @@
         return r.text();
       }
 
-      return { status, start, agentSend, agentInterrupt, agentPoll, designSession, designClean, designImport, fsList, fsMkdir, setDs4Dir, setWebDir, ggufs, skills, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, setLan, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
+      return { status, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setDs4Dir, setWebDir, ggufs, skills, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, setLan, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
+    })();
+
+    /* ==================== DesignRuntime: event-sourced design state ==================== */
+    const DesignRuntime = (() => {
+      const RS = String.fromCharCode(0x1e);
+      let timer = null;
+      let state = {
+        seq: 0,
+        phase: 'idle',
+        currentRun: '',
+        todos: null,
+        question: null,
+        artifacts: [],
+        currentArtifactId: '',
+        currentArtifactEntry: '',
+        lastCheck: null,
+        activity: [],
+      };
+      const subs = new Set();
+      const notify = () => subs.forEach((fn) => { try { fn(state); } catch { /* ignore */ } });
+      const pushActivity = (text, kind = 'runtime') => {
+        if (!text) return;
+        state.activity = [...state.activity, { t: kind, text: String(text).slice(0, 140) }].slice(-12);
+      };
+      function applyEvent(ev) {
+        if (!ev || typeof ev !== 'object') return false;
+        const type = ev.type || '';
+        const payload = ev.payload && typeof ev.payload === 'object' ? ev.payload : ev;
+        if (Number.isFinite(ev.seq) && ev.seq > state.seq) state.seq = ev.seq;
+        if (ev.run_id) state.currentRun = ev.run_id;
+        if (type === 'run_started') { state.phase = 'building'; state.question = null; pushActivity('Started design run', 'run'); }
+        else if (type === 'run_done') { state.phase = payload.phase === 'waiting_user' ? 'waiting_user' : 'idle'; pushActivity('Run finished', 'run'); }
+        else if (type === 'todos_updated' || type === 'todos') {
+          const todos = Array.isArray(payload.todos) ? payload.todos : Array.isArray(ev.todos) ? ev.todos : null;
+          if (todos) state.todos = todos;
+          state.phase = payload.hasInProgress ? 'building' : state.phase;
+        } else if (type === 'question_asked' || type === 'question') {
+          state.question = { id: payload.id || ev.id || 'question', title: payload.title || ev.title || 'Question', questions: payload.questions || ev.questions || [] };
+          state.phase = 'waiting_user';
+          pushActivity(state.question.title, 'question');
+        } else if (type === 'tool_call') {
+          pushActivity(payload.name || ev.name || 'Tool call', 'tool');
+        } else if (type === 'file_written') {
+          pushActivity((payload.op || 'wrote') + ' ' + (payload.path || ''), 'file');
+        } else if (type === 'artifact_checked' || type === 'artifact_check') {
+          state.lastCheck = payload.entry ? payload : ev;
+          pushActivity('Artifact check: ' + (payload.status || ev.status || 'done'), 'check');
+        } else if (type === 'artifact_registered' || type === 'artifact') {
+          const artifact = payload.manifest || ev.manifest || payload;
+          if (artifact && (artifact.artifactId || artifact.entry || ev.entry)) {
+            const id = artifact.artifactId || payload.artifactId || '';
+            const entry = artifact.entry || payload.entry || ev.entry || '';
+            state.currentArtifactId = id;
+            state.currentArtifactEntry = entry;
+            if (!state.artifacts.some((a) => (id && a.artifactId === id) || (!id && a.entry === entry))) {
+              state.artifacts = [...state.artifacts, artifact];
+            }
+            state.phase = 'artifact_ready';
+            pushActivity('Registered artifact ' + entry, 'artifact');
+          }
+        } else if (type === 'proposal_created' || type === 'proposal') {
+          state.phase = 'waiting_user';
+          pushActivity('Proposed design directions', 'proposal');
+        }
+        return true;
+      }
+      function ingestText(delta) {
+        if (!delta || delta.indexOf(RS) < 0) return;
+        let changed = false;
+        let i = 0;
+        while (i < delta.length) {
+          const rs = delta.indexOf(RS, i);
+          if (rs < 0) break;
+          const nl = delta.indexOf('\n', rs + 1);
+          if (nl < 0) break;
+          try { changed = applyEvent(JSON.parse(delta.slice(rs + 1, nl))) || changed; } catch { /* partial/legacy */ }
+          i = nl + 1;
+        }
+        if (changed) notify();
+      }
+      async function refresh() {
+        try {
+          const res = await Engine.designEvents(state.seq || 0);
+          let changed = false;
+          (res.events || []).forEach((ev) => { changed = applyEvent(ev) || changed; });
+          if (changed) notify();
+        } catch { /* best effort */ }
+      }
+      async function hydrate() {
+        try {
+          const s = await Engine.designState();
+          if (s && s.state) {
+            state.seq = Number(s.state.seq || 0);
+            state.phase = s.state.phase || 'idle';
+            state.todos = Array.isArray(s.state.todos) ? s.state.todos : state.todos;
+            state.currentArtifactId = s.state.currentArtifactId || '';
+            state.currentArtifactEntry = s.state.currentArtifactEntry || '';
+          }
+          const a = await Engine.designArtifacts().catch(() => null);
+          if (a && Array.isArray(a.artifacts)) state.artifacts = a.artifacts;
+          notify();
+        } catch { /* ignore */ }
+        refresh();
+      }
+      function start() {
+        stop();
+        hydrate();
+        timer = setInterval(refresh, 1000);
+      }
+      function stop() {
+        if (timer) clearInterval(timer);
+        timer = null;
+      }
+      return {
+        start, stop, refresh, ingestText,
+        getState: () => state,
+        subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
+      };
     })();
 
     /* ==================== AgentView: view of the agent session ==================== */
@@ -6437,10 +6651,11 @@
       let text = '';
       let timer = null;
       let working = false;
-      let buildLastMarker = ''; // last §REQUEST_DESIGN handled (avoid re-triggering)
       let viewMode = 'agent'; // 'agent' | 'design': only changes banner and welcome
       let maxPhaseReached = 0; // high-water mark of the stepper (does not regress within the turn)
       let currentProposal = null; // {directions, lockedTag} from the {type:'proposal'} event (Stage B)
+      let activeQuestionKey = null;
+      let activeQuestionRenderSeen = false;
 
       // History per conversation: `convId` is the DISPLAYED conversation,
       // `liveConvId` the one bound to the engine buffer (where poll deltas
@@ -6454,6 +6669,7 @@
       let spinnerConvId = null; // conv with the "generating" placeholder in the sidebar
       let epoch = 0;           // invalidates the async sync/poll of a closed view
       let activeView = false;  // true between start() and stop()
+      let liveTail = null;     // live assistant/build tail rendered without rebuilding history
 
       // Engine service lines (KV sessions): they are not model prose,
       // they should be rendered as muted notes (kind 'sys'). EXACT patterns of the
@@ -6477,6 +6693,11 @@
           if (conv.id === convId) return;
           openConversation(conv);
         });
+        DesignRuntime.subscribe(() => {
+          if (!activeView || viewMode !== 'design') return;
+          if (genEl && genEl.parentNode) syncGeneratingScreen(genEl, true);
+          else render();
+        });
       }
 
       /** Shows a conversation: the persisted RAW transcript is reconstructed
@@ -6487,6 +6708,7 @@
         if (conv.id !== convId) {
           if (Switcher.buildPlanInterviewing && Switcher.buildPlanInterviewing()) Switcher.buildPlanCancel();
           else Composer.hideBuildAsk && Composer.hideBuildAsk();
+          hideActiveQuestion();
         }
         convId = conv.id;
         // Switching conversation leaves the canvas takeover, if open.
@@ -6494,7 +6716,10 @@
         text = conv.transcript || '';
         maxPhaseReached = 0;
         currentProposal = null;
+        activeQuestionKey = null;
         staleNotice = false;
+        clearLiveTail();
+        liveTailStartHint = null;
         view.replaceChildren();
         inner = el('div', { class: 'agent-inner' });
         view.append(inner);
@@ -6762,6 +6987,13 @@
       // ---- Generating screen (design stage 3, mockup): live progress from
       // the current turn's todos/tool events; indeterminate before any event.
       function latestTurnEvents() {
+        if (viewMode === 'design') {
+          const rt = DesignRuntime.getState();
+          if ((Array.isArray(rt.todos) && rt.todos.length) || (Array.isArray(rt.activity) && rt.activity.length)) {
+            const last = (rt.activity || []).slice(-1)[0];
+            return { todos: rt.todos, lastTool: last ? last.text : null, activity: rt.activity || [] };
+          }
+        }
         let todos = null;
         let lastTool = null;
         const activity = []; // chronological live feed: thinking + tool actions
@@ -7023,6 +7255,9 @@
         activeView = false;
         if (streamAbort) { streamAbort.abort(); streamAbort = null; }
         if (timer) { clearInterval(timer); timer = null; }
+        clearLiveTail();
+        liveTailStartHint = null;
+        hideActiveQuestion();
         working = false;
         syncSpinner();
         document.body.classList.remove('design-staged'); // the composer comes back
@@ -7038,6 +7273,8 @@
         working = false;
         turnArtifact = null;
         pendingCmd = null;
+        clearLiveTail();
+        liveTailStartHint = null;
         Composer.setAgentBusy(false);
         syncSpinner();
         if (activeView) render();
@@ -7112,6 +7349,7 @@
       function processRes(res) {
         if (res.base > since) since = res.base; // buffer truncated by the server: realign (rare)
         const delta = res.text || '';
+        const beforeTextLen = text.length;
         // During a planned-Build drive the HARNESS drives the engine (Engine.agentSend, not
         // AgentView.send), so liveConvId stays null and the deltas below would be discarded — the
         // build console (lastActivity/loadedPacks read `text`) would then show a FROZEN line while
@@ -7121,6 +7359,7 @@
         const buildDriving = Store.getSettings().buildMode === 'plan' && _bsd && _bsd.phase === 'drive' && !_bsd.done && !_bsd.paused;
         if (delta) {
           since = res.len;
+          if (viewMode === 'design') DesignRuntime.ingestText(delta);
           // Deltas land ONLY in the LIVE conversation (persisted in the
           // Store); the view updates only if I am looking at it. If the live
           // one was deleted (or absent), the delta belongs to no one:
@@ -7132,12 +7371,19 @@
             bindSessionSha(delta, liveConvId);
             if (liveConvId === convId) text += delta;
           } else if (buildDriving) {
+            if (liveTailStartHint == null) liveTailStartHint = beforeTextLen;
             text += delta;   // build drive: no live conv is bound — surface the engine's real output
           }
         }
         const wasWorking = working;
         working = res.working;
-        if ((delta && (liveConvId === convId || buildDriving)) || wasWorking !== working) render();
+        const liveVisible = delta && (liveConvId === convId || buildDriving);
+        if (liveVisible || wasWorking !== working) {
+          const fast = liveVisible && working && !(wasWorking && !working) &&
+            scheduleLiveTail(buildDriving, buildDriving);
+          if (!fast) render();
+        }
+        if (!working) liveTailStartHint = null;
         Composer.setAgentBusy(working);
         syncSpinner();
 
@@ -7357,7 +7603,7 @@
       // The Build "console": the status banner + a STACK of pages (done ✓ / in progress / to do)
       // + a live line of what it's doing now + a Stop button. Replaces the bare working text so
       // a long Flash turn shows real, growing feedback instead of looking stuck.
-      function buildConsole(bs, text, working) {
+      function buildConsole(bs, text, working, activityText = text) {
         const wrap = el('div', { class: 'build-console' });
         if (Array.isArray(bs.plan) && bs.plan.length) {
           const list = el('div', { class: 'bc-pages' });
@@ -7371,7 +7617,7 @@
           });
           wrap.append(list);
         }
-        const act = lastActivity(text);
+        const act = lastActivity(activityText);
         const fallback = bs.sub === 'followup' ? 'Applying your follow-up…'
           : bs.sub === 'wire' ? 'Wiring the page into Django…' : 'Designing the page…';
         wrap.append(el('div', { class: 'bc-now' }, [
@@ -7383,7 +7629,7 @@
         const baseSkill = bs.sub === 'wire' ? ((Store.getSettings().skillByMode || {}).agent || '') : '';
         const bits = [];
         if (baseSkill) bits.push('skill: ' + baseSkill);
-        loadedPacks(text).forEach((p) => bits.push(p));
+        loadedPacks(activityText).forEach((p) => bits.push(p));
         wrap.append(el('div', { class: 'bc-skills' }, [
           el('span', { class: 'bc-skills-eye', text: 'USING' }),
           el('span', { text: bits.length ? bits.join('  ·  ') : (bs.sub === 'wire' ? 'agent' : 'designer (no skill yet)') }),
@@ -7410,8 +7656,190 @@
         return wrap;
       }
 
+      function appendAgentPart(host, partText, { partIdx = 0, lastRealUser = -1, inBuildRun = false, inBuildDrive = false, todoCards = null } = {}) {
+        let hadOutput = false; // text/artifact/proposal = "real" design output
+        const segs = [...segmentAgent(partText)];
+        // Design (mockups): the WORK NARRATION (prose interleaved with
+        // tools/edits, self-review checklists…) is not conversation. Any
+        // prose BEFORE the turn's last work event folds into a collapsed
+        // "Work log"; only the closing reply stays as a bubble.
+        let lastWork = -1;
+        segs.forEach((sg, i) => {
+          if (sg.kind === 'artifact' || sg.kind === 'tool_call' ||
+              sg.kind === 'tool_result' || sg.kind === 'tool_text' || sg.kind === 'todos') lastWork = i;
+        });
+        let worklog = null;
+        const worklogAdd = (text) => {
+          if (!worklog) {
+            worklog = el('details', { class: 'thinking worklog' });
+            worklog.append(el('summary', { text: 'Work log' }));
+            host.append(worklog);
+          }
+          const box = el('div', { class: 'thinking__body md' });
+          setMarkdown(box, text);
+          worklog.append(box);
+        };
+        // One tool action = ONE fold (call as label, result as body):
+        // the result attaches to the fold of the call just rendered.
+        let openToolFold = null, openDiff = null;
+        segs.forEach((seg, segIdx) => {
+          if (seg.kind !== 'tool_call' && seg.kind !== 'tool_result') { openToolFold = null; openDiff = null; }
+          if (seg.kind === 'reasoning') {
+            if (seg.text.trim()) {
+              const rb = el('div', { class: 'thinking__body md' });
+              setMarkdown(rb, seg.text);
+              // Agent (and any build drive): the reasoning is the live narration of what the
+              // model is doing — show it ALWAYS, NOT inside a collapsible block. Same serif
+              // caption, same muted font/colour as before; only the click-to-collapse is gone.
+              // Design mockups keep the fold (there the rendered design is the deliverable).
+              if (viewMode === 'agent' || inBuildDrive) {
+                host.append(el('div', { class: 'thinking' }, [
+                  el('div', { class: 'thinking__cap', text: 'Reasoning' }), rb,
+                ]));
+              } else {
+                const d = el('details', { class: 'thinking' });
+                d.append(el('summary', { text: 'Reasoning' }), rb);
+                host.append(d);
+              }
+            }
+          } else if (seg.kind === 'qform') {
+            const answered = partIdx < lastRealUser || answeredForms.has(seg.json);
+            if (viewMode === 'agent' && !inBuildRun && !answered) {
+              showActiveQuestion(seg);
+              host.append(el('div', { class: 'seg seg--sys', text: 'Clarification requested' }));
+            } else {
+              host.append(buildQForm(seg, partIdx < lastRealUser));
+            }
+          } else if (seg.kind === 'question') {
+            const qseg = questionEventFormSeg(seg.ev);
+            const answered = partIdx < lastRealUser || answeredForms.has(qseg.json);
+            if (viewMode === 'agent' && !inBuildRun && !answered) {
+              showActiveQuestion(qseg);
+              host.append(el('div', { class: 'seg seg--sys', text: 'Clarification requested' }));
+            } else {
+              host.append(buildQForm(qseg, partIdx < lastRealUser));
+            }
+          } else if (seg.kind === 'todos') {
+            // In planned Build the authoritative progress is the BuildDriver
+            // console above, gated by disk/artifact/wiring state. The model's
+            // todo_write card is only its private checklist and can go stale.
+            if (!inBuildRun) {
+              const card = buildTodosCard(seg.ev.todos);
+              if (card) { host.append(card); if (todoCards) todoCards.push(card); }
+            }
+          } else if (seg.kind === 'artifact') {
+            host.append(buildArtifactCard(seg.ev)); hadOutput = true;
+          } else if (seg.kind === 'proposal') {
+            host.append(buildProposal(seg.ev)); hadOutput = true;
+          } else if (seg.kind === 'tool_call') {
+            if (seg.ev.name === 'question') return;
+            // File edits/writes/deletes render as a colored +/- diff (ds4-agent's terminal
+            // style); other tools fold as before. Design mockups stay tool-quiet — EXCEPT a
+            // build drive, where seeing the page files written/edited IS the feedback.
+            const fileOp = DIFF_TOOLS.has(seg.ev.name);
+            if (viewMode !== 'design') {
+              if (fileOp) { openDiff = buildDiffCard(seg.ev); host.append(openDiff); }
+              else { openToolFold = buildToolFold(seg.ev); host.append(openToolFold); }
+            } else if (inBuildDrive && fileOp) {
+              openDiff = buildDiffCard(seg.ev); host.append(openDiff);
+            }
+          } else if (seg.kind === 'tool_result') {
+            if (seg.ev.name === 'question') return;
+            if (openDiff) { attachDiffResult(openDiff, seg.ev); openDiff = null; }
+            else if (viewMode !== 'design') {
+              if (openToolFold) { attachToolOutput(openToolFold, seg.ev); openToolFold = null; }
+              else host.append(buildResultFold(seg.ev));
+            }
+          } else if (seg.kind === 'tool_text') {
+            // Raw fallback: a 🛠 line with no structured event — show it in the
+            // same tool-fold style, summary only (no parsed output body).
+            if (viewMode !== 'design') {
+              const d = el('details', { class: 'thinking toolfold' });
+              d.append(el('summary', { text: seg.text || 'tool' }));
+              host.append(d);
+            }
+          } else if (seg.kind === 'compact') {
+            host.append(buildCompactCard(seg.ev));
+          } else if (seg.kind === 'sys') {
+            host.append(el('div', { class: 'seg seg--sys', text: seg.text }));
+          } else if (seg.text && seg.text.trim()) {
+            if (segIdx < lastWork) {
+              worklogAdd(seg.text); // work narration → collapsed log
+            } else {
+              const box = el('div', { class: 'seg seg--text md' });
+              setMarkdown(box, seg.text);
+              host.append(box); hadOutput = true;
+            }
+          }
+        });
+        // Actions below the AI response (design): only if a design already
+        // exists and the turn produced substantial output.
+        if (viewMode === 'design' && hadOutput && DesignPreview.getState &&
+            DesignPreview.getState().hasArtifact) {
+          host.append(buildMsgActions());
+        }
+      }
+
+      function clearLiveTail() {
+        if (liveTail?.raf) cancelAnimationFrame(liveTail.raf);
+        liveTail = null;
+      }
+
+      let liveTailStartHint = null;
+      function currentLiveTailStart(inBuildDrive) {
+        if (!working || !(convId === liveConvId || inBuildDrive)) return null;
+        if (inBuildDrive && liveTailStartHint != null) return liveTailStartHint;
+        const end = text.lastIndexOf(U_CLOSE);
+        return end < 0 ? null : end + U_CLOSE.length;
+      }
+
+      function paintLiveTail() {
+        if (!liveTail || !liveTail.el) return;
+        liveTail.el.replaceChildren();
+        const todoCards = [];
+        appendAgentPart(liveTail.el, text.slice(liveTail.start), {
+          inBuildRun: liveTail.inBuildRun,
+          inBuildDrive: liveTail.inBuildDrive,
+          todoCards,
+        });
+        for (let i = 0; i < todoCards.length - 1; i++) todoCards[i].remove();
+        if (working && !liveTail.inBuildDrive) {
+          liveTail.el.append(el('div', { class: 'agent-working',
+            text: viewMode === 'design' ? 'The design agent is working' : 'The agent is working' }));
+        }
+      }
+
+      function mountLiveTail(start, inBuildRun, inBuildDrive) {
+        liveTail = { start, inBuildRun, inBuildDrive, raf: 0, el: el('div', { class: 'agent-live-tail' }) };
+        inner.append(liveTail.el);
+        paintLiveTail();
+      }
+
+      function scheduleLiveTail(inBuildRun, inBuildDrive) {
+        if (!liveTail || !activeView || !inner) return false;
+        const start = currentLiveTailStart(inBuildDrive);
+        if (start == null || start !== liveTail.start) return false;
+        liveTail.inBuildRun = inBuildRun;
+        liveTail.inBuildDrive = inBuildDrive;
+        if (liveTail.raf) return true;
+        liveTail.raf = requestAnimationFrame(() => {
+          if (!liveTail) return;
+          liveTail.raf = 0;
+          const stick = isNearBottom(view);
+          if (inBuildDrive) {
+            const bs = Store.getSettings().buildState;
+            const old = inner.querySelector('.build-console');
+            if (bs && old) old.replaceWith(buildConsole(bs, text, working, text.slice(liveTail.start)));
+          }
+          paintLiveTail();
+          if (stick) scrollToBottom(view);
+        });
+        return true;
+      }
+
       function render() {
         const stick = isNearBottom(view);
+        if (viewMode !== 'agent') hideActiveQuestion();
         // FAST PATH while the design Generating screen is up: refresh it IN PLACE
         // without rebuilding `inner`. The old code cleared `inner` (detaching genEl)
         // then re-appended it every poll — detach+reattach RESTARTS a node's CSS
@@ -7440,7 +7868,13 @@
         // no dependency on a cached flag) and suppress them: show the live transcript (the model's
         // narration + the files it writes) plus a build-status line, so progress is VISIBLE.
         const _bs = Store.getSettings().buildState;
-        const inBuildDrive = Store.getSettings().buildMode === 'plan' && _bs && _bs.phase === 'drive' && !_bs.done && !_bs.paused;
+        const inBuildRun = Store.getSettings().buildMode === 'plan' && _bs && _bs.phase === 'drive' && !_bs.paused;
+        const inBuildDrive = inBuildRun && !_bs.done;
+        const trackQuestionCard = viewMode === 'agent' && !inBuildRun && !inBuildDrive;
+        if (trackQuestionCard) activeQuestionRenderSeen = false;
+        else hideActiveQuestion();
+        const liveStart = currentLiveTailStart(inBuildDrive);
+        const renderSource = liveStart == null ? text : text.slice(0, liveStart);
         const stagedBrief = curPhase === 'brief' && !hasContent && !inBuildDrive;
         const stagedQ = curPhase === 'questions' && !inBuildDrive;
         // The Generating screen shows only on the LIVE (currently generating)
@@ -7504,11 +7938,12 @@
           }
         }
 
+        clearLiveTail();
         const todoCards = []; // only the last todo_write is the "live" card
         let firstUser = true;
         // With no visible content (only chips/sys/service events, e.g. the
         // /new of a just-created conv) ONLY the welcome is shown, clean.
-        const parts = hasContent ? [...splitUserTurns(text)] : [];
+        const parts = hasContent ? [...splitUserTurns(renderSource)] : [];
         const lastRealUser = lastRealUserIdx(parts); // qforms before it are answered
         for (let partIdx = 0; partIdx < parts.length; partIdx++) {
           const part = parts[partIdx];
@@ -7518,6 +7953,11 @@
               // Slash command (KV sessions): a mute chip, not a message —
               // and it does not consume the TASK's "first turn".
               inner.append(el('div', { class: 'seg seg--cmd', text: ut }));
+              continue;
+            }
+            if (questionAnswerBody(ut) !== null) {
+              inner.append(el('div', { class: 'seg seg--cmd', text: 'Clarification answered' }));
+              firstUser = false;
               continue;
             }
             if (ut) {
@@ -7539,111 +7979,15 @@
             }
             firstUser = false;
           } else {
-            let hadOutput = false; // text/artifact/proposal = "real" design output
-            const segs = [...segmentAgent(part.text)];
-            // Design (mockups): the WORK NARRATION (prose interleaved with
-            // tools/edits, self-review checklists…) is not conversation. Any
-            // prose BEFORE the turn's last work event folds into a collapsed
-            // "Work log"; only the closing reply stays as a bubble.
-            let lastWork = -1;
-            segs.forEach((sg, i) => {
-              if (sg.kind === 'artifact' || sg.kind === 'tool_call' ||
-                  sg.kind === 'tool_result' || sg.kind === 'tool_text' || sg.kind === 'todos') lastWork = i;
-            });
-            let worklog = null;
-            const worklogAdd = (text) => {
-              if (!worklog) {
-                worklog = el('details', { class: 'thinking worklog' });
-                worklog.append(el('summary', { text: 'Work log' }));
-                inner.append(worklog);
-              }
-              const box = el('div', { class: 'thinking__body md' });
-              box.innerHTML = renderMarkdown(text);
-              worklog.append(box);
-            };
-            // One tool action = ONE fold (call as label, result as body):
-            // the result attaches to the fold of the call just rendered.
-            let openToolFold = null, openDiff = null;
-            segs.forEach((seg, segIdx) => {
-              if (seg.kind !== 'tool_call' && seg.kind !== 'tool_result') { openToolFold = null; openDiff = null; }
-              if (seg.kind === 'reasoning') {
-                if (seg.text.trim()) {
-                  const rb = el('div', { class: 'thinking__body md' });
-                  rb.innerHTML = renderMarkdown(seg.text);
-                  // Agent (and any build drive): the reasoning is the live narration of what the
-                  // model is doing — show it ALWAYS, NOT inside a collapsible block. Same serif
-                  // caption, same muted font/colour as before; only the click-to-collapse is gone.
-                  // Design mockups keep the fold (there the rendered design is the deliverable).
-                  if (viewMode === 'agent' || inBuildDrive) {
-                    inner.append(el('div', { class: 'thinking' }, [
-                      el('div', { class: 'thinking__cap', text: 'Reasoning' }), rb,
-                    ]));
-                  } else {
-                    const d = el('details', { class: 'thinking' });
-                    d.append(el('summary', { text: 'Reasoning' }), rb);
-                    inner.append(d);
-                  }
-                }
-              } else if (seg.kind === 'qform') {
-                inner.append(buildQForm(seg, partIdx < lastRealUser));
-              } else if (seg.kind === 'todos') {
-                const card = buildTodosCard(seg.ev.todos);
-                if (card) { inner.append(card); todoCards.push(card); }
-              } else if (seg.kind === 'artifact') {
-                inner.append(buildArtifactCard(seg.ev)); hadOutput = true;
-              } else if (seg.kind === 'proposal') {
-                inner.append(buildProposal(seg.ev)); hadOutput = true;
-              } else if (seg.kind === 'tool_call') {
-                // File edits/writes/deletes render as a colored +/- diff (ds4-agent's terminal
-                // style); other tools fold as before. Design mockups stay tool-quiet — EXCEPT a
-                // build drive, where seeing the page files written/edited IS the feedback.
-                const fileOp = DIFF_TOOLS.has(seg.ev.name);
-                if (viewMode !== 'design') {
-                  if (fileOp) { openDiff = buildDiffCard(seg.ev); inner.append(openDiff); }
-                  else { openToolFold = buildToolFold(seg.ev); inner.append(openToolFold); }
-                } else if (inBuildDrive && fileOp) {
-                  openDiff = buildDiffCard(seg.ev); inner.append(openDiff);
-                }
-              } else if (seg.kind === 'tool_result') {
-                if (openDiff) { attachDiffResult(openDiff, seg.ev); openDiff = null; }
-                else if (viewMode !== 'design') {
-                  if (openToolFold) { attachToolOutput(openToolFold, seg.ev); openToolFold = null; }
-                  else inner.append(buildResultFold(seg.ev));
-                }
-              } else if (seg.kind === 'tool_text') {
-                // Raw fallback: a 🛠 line with no structured event — show it in the
-                // same tool-fold style, summary only (no parsed output body).
-                if (viewMode !== 'design') {
-                  const d = el('details', { class: 'thinking toolfold' });
-                  d.append(el('summary', { text: seg.text || 'tool' }));
-                  inner.append(d);
-                }
-              } else if (seg.kind === 'compact') {
-                inner.append(buildCompactCard(seg.ev));
-              } else if (seg.kind === 'sys') {
-                inner.append(el('div', { class: 'seg seg--sys', text: seg.text }));
-              } else if (seg.text && seg.text.trim()) {
-                if (segIdx < lastWork) {
-                  worklogAdd(seg.text); // work narration → collapsed log
-                } else {
-                  const box = el('div', { class: 'seg seg--text md' });
-                  box.innerHTML = renderMarkdown(seg.text);
-                  inner.append(box); hadOutput = true;
-                }
-              }
-            });
-            // Actions below the AI response (design): only if a design already
-            // exists and the turn produced substantial output.
-            if (viewMode === 'design' && hadOutput && DesignPreview.getState &&
-                DesignPreview.getState().hasArtifact) {
-              inner.append(buildMsgActions());
-            }
+            appendAgentPart(inner, part.text, { partIdx, lastRealUser, inBuildRun, inBuildDrive, todoCards });
           }
         }
         // The todo-card is LIVE: each todo_write replaces the previous one
         // (a single updated card, not the history).
         for (let i = 0; i < todoCards.length - 1; i++) todoCards[i].remove();
-        if (working && !inBuildDrive) inner.append(el('div', { class: 'agent-working', text: viewMode === 'design' ? 'The design agent is working' : 'The agent is working' }));
+        if (trackQuestionCard && !activeQuestionRenderSeen) hideActiveQuestion();
+        if (liveStart != null) mountLiveTail(liveStart, inBuildRun, inBuildDrive);
+        else if (working && !inBuildDrive) inner.append(el('div', { class: 'agent-working', text: viewMode === 'design' ? 'The design agent is working' : 'The agent is working' }));
         if (stick) scrollToBottom(view);
       }
 
@@ -7681,9 +8025,10 @@
         const ul = el('ul');
         for (const t of todos) {
           const status = t?.status === 'completed' ? 'done'
-            : t?.status === 'in_progress' ? 'doing' : '';
+            : t?.status === 'in_progress' ? 'doing'
+            : t?.status === 'stopped' ? 'stopped' : '';
           const li = el('li', { class: status }, [
-            el('span', { class: 'tick', text: status === 'done' ? '✓' : status === 'doing' ? '▸' : '○' }),
+            el('span', { class: 'tick', text: status === 'done' ? '✓' : status === 'doing' ? '▸' : status === 'stopped' ? '×' : '○' }),
             el('span', { text: String(t?.text ?? '') }),
           ]);
           ul.append(li);
@@ -7817,7 +8162,7 @@
       /* ---- Question form (RULE 1: the brief as a form) ---- */
       const answeredForms = new Set(); // key = raw JSON of the form
 
-      function buildQForm(seg, answeredHint) {
+      function buildQForm(seg, answeredHint, opts = {}) {
         let spec;
         try { spec = JSON.parse(seg.json); } catch { spec = null; }
         if (!spec || !Array.isArray(spec.questions)) {
@@ -7837,7 +8182,8 @@
           el('span', { class: 'qt', text: seg.title || 'Before I sketch' }),
           el('span', { class: 'qmeta', text: `${spec.questions.length} question${spec.questions.length === 1 ? '' : 's'}` }),
         );
-        form.append(head, el('p', { class: 'qform-sub', text: 'A few quick questions so I aim in the right direction — pick what fits, or let me decide.' }));
+        form.append(head, el('p', { class: 'qform-sub',
+          text: opts.subtitle || 'A few quick questions so I aim in the right direction — pick what fits, or let me decide.' }));
 
         const state = {}; // id -> value (string or array for checkbox)
         spec.questions.forEach((q, qi) => {
@@ -7900,13 +8246,17 @@
 
         if (!answered) {
           // Footer (mockup): ghost "Skip — you decide" + primary submit.
-          const skip = el('button', { class: 'btn-ghost', type: 'button', text: 'Skip — you decide' });
+          const skip = el('button', { class: 'btn-ghost', type: 'button', text: opts.skipLabel || 'Skip — you decide' });
           on(skip, 'click', () => {
+            if (opts.beforeSubmit && opts.beforeSubmit() === false) return;
+            const skipText = opts.skipText || 'You decide — proceed with your best judgment.';
             answeredForms.add(seg.json);
-            send('You decide — proceed with your best judgment.');
+            if (opts.onSubmit) opts.onSubmit(skipText, []);
+            else send(skipText);
           });
-          const btn = el('button', { class: 'btn btn--primary', type: 'button', text: 'Generate designs' });
+          const btn = el('button', { class: 'btn btn--primary', type: 'button', text: opts.submitLabel || 'Generate designs' });
           on(btn, 'click', () => {
+            if (opts.beforeSubmit && opts.beforeSubmit() === false) return;
             const lines = [];
             for (const q of spec.questions) {
               const v = state[q.id];
@@ -7915,11 +8265,76 @@
             }
             if (!lines.length) { toast('Fill in at least one answer.', 'warn'); return; }
             answeredForms.add(seg.json);
-            send(`Answers to the brief:\n${lines.join('\n')}`);
+            const answerText = `${opts.answerPrefix || 'Answers to the brief:'}\n${lines.join('\n')}`;
+            if (opts.onSubmit) opts.onSubmit(answerText, lines);
+            else send(answerText);
           });
           form.append(el('div', { class: 'qform-foot' }, [skip, el('span', { class: 'qspacer' }), btn]));
         }
         return form;
+      }
+
+      function questionEventFormSeg(ev) {
+        return {
+          title: ev?.title || 'Question',
+          json: JSON.stringify({
+            id: ev?.id || 'question',
+            title: ev?.title || 'Question',
+            questions: Array.isArray(ev?.questions) ? ev.questions : [],
+          }),
+        };
+      }
+
+      function questionAnswerBody(t) {
+        const m = String(t || '').trim().match(/^§QUESTION_ANSWER\s*\n?([\s\S]*?)\n?§END$/);
+        return m ? m[1].trim() : null;
+      }
+
+      function sendQuestionAnswer(answerText) {
+        const body = (answerText || '').trim() || 'You decide — proceed with your best judgment.';
+        send(`§QUESTION_ANSWER\n${body}\n§END`);
+      }
+
+      function hideActiveQuestion() {
+        const host = qs('#build-asks');
+        if (host && host.dataset.kind === 'question') {
+          host.replaceChildren();
+          host.hidden = true;
+          delete host.dataset.kind;
+        }
+        activeQuestionKey = null;
+        activeQuestionRenderSeen = false;
+        Composer.setQuestionMode && Composer.setQuestionMode(false);
+      }
+
+      function showActiveQuestion(seg) {
+        const host = qs('#build-asks');
+        if (!host || !seg || !seg.json) return;
+        activeQuestionRenderSeen = true;
+        if (activeQuestionKey === seg.json && host.dataset.kind === 'question' && !host.hidden) {
+          Composer.setQuestionMode && Composer.setQuestionMode(true);
+          return;
+        }
+        const form = buildQForm(seg, false, {
+          subtitle: 'A quick clarification before I continue.',
+          skipLabel: 'You decide',
+          skipText: 'You decide — proceed with your best judgment.',
+          submitLabel: 'Continue',
+          answerPrefix: 'Answers to the clarification:',
+          beforeSubmit: () => {
+            if (working) { toast('Wait for the agent to finish asking the question.', 'warn'); return false; }
+            return true;
+          },
+          onSubmit: (answerText) => {
+            hideActiveQuestion();
+            sendQuestionAnswer(answerText);
+          },
+        });
+        host.dataset.kind = 'question';
+        host.replaceChildren(form);
+        host.hidden = false;
+        activeQuestionKey = seg.json;
+        Composer.setQuestionMode && Composer.setQuestionMode(true);
       }
 
       // Separate the user turns (marked by serve) from the rest (agent output).
@@ -7972,6 +8387,7 @@
         if (!t || (t.indexOf('§') < 0 && t.indexOf('BUILD MODE') < 0)) return t;
         // §ASK … §END → just the question (its options render as buttons below the composer)
         t = t.replace(/§ASK\s*([\s\S]*?)§END/g, (_, body) => ((body.match(/Q:\s*([^\n]+)/i) || [])[1] || '').trim());
+        t = t.replace(/§QUESTION_ANSWER\s*[\s\S]*?§END/g, 'Clarification answered');
         // §PLAN … §END → a clean one-line plan summary
         t = t.replace(/§PLAN\s*([\s\S]*?)§END/g, (_, body) => {
           const pages = [];
@@ -7985,8 +8401,8 @@
         t = t.replace(/BUILD MODE \(planned\)\s*—\s*wire[\s\S]*$/i, (m) => { const f = m.match(/`([^`]+\.html?)`/i); return 'Wiring ' + (f ? f[1].trim() : 'a page') + '…'; });
         // the instruction block appended to your goal; an unclosed (streaming) block; stray markers
         t = t.replace(/\n*\(BUILD MODE[\s\S]*$/i, '');
-        t = t.replace(/§(?:ASK|PLAN)\b[\s\S]*$/g, '');
-        t = t.replace(/^[ \t]*§END[ \t]*$/gm, '').replace(/^[ \t]*§REQUEST_DESIGN:[^\n]*$/gm, '');
+        t = t.replace(/§(?:ASK|PLAN|QUESTION_ANSWER)\b[\s\S]*$/g, '');
+        t = t.replace(/^[ \t]*§END[ \t]*$/gm, '');
         return t.replace(/\n{3,}/g, '\n\n').trim();
       }
 
@@ -8600,6 +9016,7 @@
       let switching = false;
       let dialogTarget = 'agent'; // the workdir dialog is shared between agent and design
       let dialogNewSession = false; // the picker was opened by "+ New session"
+      let dialogCompleted = false; // true only when Start/Attach was pressed
 
       function mount() {
         tabServer = qs('#tab-server');
@@ -8616,26 +9033,43 @@
         on(tabDesign, 'click', () => switchTo('design'));
 
         const wdDialog = qs('#workdir-dialog');
-        on(qs('#workdir-cancel'), 'click', () => wdDialog.close());
+        const filterKbd = qs('#wd-filter-kbd');
+        if (filterKbd) filterKbd.textContent = kbdLabel('F');
+        on(qs('#workdir-cancel'), 'click', () => {
+          dialogCompleted = false;
+          wdDialog.close();
+        });
+        on(wdDialog, 'close', () => {
+          if (!dialogCompleted) recoverFromWorkdirCancel(dialogTarget);
+          dialogCompleted = false;
+        });
+        on(wdDialog, 'keydown', (e) => {
+          if (isMod(e) && e.key.toLowerCase() === 'f') {
+            e.preventDefault();
+            qs('#wd-search')?.focus();
+          }
+        });
 
         // Folder browser inside the picker (server-side listing via fs/list).
         // The SELECTED folder is always the browsed one (wdCur) — no typing.
-        on(qs('#wd-up'), 'click', () => {
-          const parent = wdCur.replace(/\/[^/]+\/?$/, '') || '/';
-          loadDirs(parent);
+        on(qs('#wd-crumbs'), 'click', (e) => {
+          const add = e.target.closest('#wd-newfolder');
+          if (add) { showNewFolderRow(); return; }
+          const crumb = e.target.closest('.wd-crumb[data-path]');
+          if (crumb && !crumb.classList.contains('cur')) loadDirs(crumb.dataset.path);
         });
         on(qs('#wd-list'), 'click', (e) => {
           const it = e.target.closest('.wd-item');
           if (it) loadDirs(it.dataset.path);
         });
         on(qs('#wd-search'), 'input', (e) => renderWdList(e.target.value));
-        on(qs('#wd-newfolder'), 'click', showNewFolderRow);
         on(qs('#workdir-go'), 'click', () => {
           const wd = wdCur;
           if (!wd) return;
           // Design needs an EMPTY folder (Start is disabled otherwise via the
           // live warning); guard here too in case of a race.
           if (dialogTarget === 'design' && wdEntries > 0) { updateWdWarn(); return; }
+          dialogCompleted = true;
           wdDialog.close();
           if (dialogTarget === 'import') { runImport(wd); return; }
           if (dialogNewSession) { startNewSession(dialogTarget, wd); return; }
@@ -8738,8 +9172,8 @@
         Composer.setMode(m);
         if (piped) AgentView.start(m);
         else AgentView.stop();
-        if (m === 'design') DesignPreview.start();
-        else DesignPreview.stop();
+        if (m === 'design') { DesignRuntime.start(); DesignPreview.start(); }
+        else { DesignRuntime.stop(); DesignPreview.stop(); }
       }
 
       // Workdir dialog texts for the two targets that use it. The agent's
@@ -8750,19 +9184,22 @@
         agent: {
           title: 'Start the agent',
           note: null, // restored from agentNoteHTML
-          label: 'Working directory',
+          label: 'agent scope',
+          foot: 'Shell commands still ask for approval before running.',
           go: 'Start agent',
         },
         design: {
           title: 'Start the design agent',
           note: 'Pick an EMPTY folder: the designer fills it with the project files (design HTML/CSS) and works ONLY inside it. Leave the field empty for ~/Documents/ds4-designs.',
-          label: 'Design project folder',
+          label: 'design scope',
+          foot: 'Design starts from an empty project folder and writes only there.',
           go: 'Start design',
         },
         import: {
           title: 'Attach a folder',
           note: 'Its files are copied into the current design project so the designer can read an existing app and build on it (code/text only, no node_modules or huge files). Then ask it to improve or start from them.',
-          label: 'Folder to attach',
+          label: 'import source',
+          foot: 'Files are copied into the design workspace; the source folder is not modified.',
           go: 'Attach folder',
         },
       };
@@ -8787,9 +9224,46 @@
         if (go) go.disabled = block;
       }
 
-      const DIR_SVG = '<svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h6.8c.7 0 1.2.5 1.2 1.2v6.6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2z"/></svg>';
+      const DIR_SVG = '<svg class="ic" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5l1.3-1.4h3.1l1.1 1.4H14v7.4a.7.7 0 0 1-.7.7H2.7a.7.7 0 0 1-.7-.7z"/></svg>';
+      const INTO_SVG = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 2.5L8 6l-3.5 3.5"/></svg>';
 
       let wdDirsCache = []; // {name, path} of the current folder's subdirs (for the filter)
+      function renderWdCrumbs(path) {
+        const bar = qs('#wd-crumbs');
+        if (!bar) return;
+        bar.replaceChildren();
+        const clean = path || '/';
+        const absolute = clean.startsWith('/');
+        let acc = absolute ? '' : '';
+        const parts = clean.split('/').filter(Boolean);
+        const root = el('button', { class: 'wd-crumb' + (parts.length ? '' : ' cur'), type: 'button', text: absolute ? '/' : '~', 'data-path': absolute ? '/' : '' });
+        bar.append(root);
+        parts.forEach((part, i) => {
+          acc += (absolute || acc ? '/' : '') + part;
+          bar.append(el('span', { class: 'wd-sep', text: '/' }));
+          bar.append(el('button', {
+            class: 'wd-crumb' + (i === parts.length - 1 ? ' cur' : ''),
+            type: 'button',
+            text: part,
+            'data-path': acc,
+          }));
+        });
+        bar.append(el('button', { id: 'wd-newfolder', class: 'wd-newbtn', type: 'button', title: 'Create a new folder here', text: '+ New folder' }));
+        bar.scrollLeft = bar.scrollWidth;
+      }
+      function renderWdCurrent(path) {
+        const cur = qs('#workdir-current');
+        if (!cur) return;
+        cur.replaceChildren();
+        const p = path || '…';
+        if (p === '…') { cur.textContent = p; return; }
+        const i = p.lastIndexOf('/');
+        const base = i >= 0 ? p.slice(0, i + 1) : '';
+        const leaf = i >= 0 ? p.slice(i + 1) : p;
+        cur.append(document.createTextNode(base));
+        cur.append(el('b', { text: leaf || p }));
+        cur.title = p;
+      }
       function renderWdList(filter) {
         const list = qs('#wd-list');
         if (!list) return;
@@ -8807,7 +9281,10 @@
         for (const d of dirs) {
           const item = el('button', { class: 'wd-item', type: 'button', 'data-path': d.path });
           item.innerHTML = DIR_SVG;
-          item.append(el('span', { text: d.name }));
+          item.append(el('span', { class: 'nm', text: d.name }));
+          const into = el('span', { class: 'into' });
+          into.innerHTML = INTO_SVG;
+          item.append(into);
           list.append(item);
         }
       }
@@ -8823,10 +9300,8 @@
           wdCur = r.path;
           wdEntries = r.entries | 0;
           updateWdWarn();
-          const pathEl = qs('#wd-path');
-          if (pathEl) pathEl.textContent = r.path;
-          const cur = qs('#workdir-current');
-          if (cur) cur.textContent = r.path;   // readable, not an editable box
+          renderWdCrumbs(r.path);
+          renderWdCurrent(r.path);
           const search = qs('#wd-search');
           if (search) search.value = '';
           wdDirsCache = (r.dirs || []).sort((a, b) => a.localeCompare(b)).map((name) => ({ name, path: `${r.path}/${name}` }));
@@ -8858,6 +9333,7 @@
       function openWorkdirDialog(target, newSession) {
         dialogTarget = target;
         dialogNewSession = !!newSession;
+        dialogCompleted = false;
         wdEntries = 0;
         updateWdWarn(); // clear stale warning/disable from a previous open
         const t = DIALOG_TEXTS[target];
@@ -8867,8 +9343,10 @@
         if (t.note) note.textContent = t.note;
         else note.innerHTML = agentNoteHTML;
         qs('#workdir-label').textContent = t.label;
+        qs('#workdir-foot-note').textContent = t.foot;
         qs('#workdir-go').textContent = t.go;
-        qs('#workdir-current').textContent = '…';
+        renderWdCrumbs('');
+        renderWdCurrent('');
         const search = qs('#wd-search'); if (search) search.value = '';
         qs('#workdir-dialog').showModal();
         // Start browsing from the CURRENT working dir (the running engine's, or
@@ -8878,20 +9356,27 @@
         loadDirs(target === 'import' ? '' : cur);
       }
 
-      // Start a new agent/design session: always asks for the directory. If the
-      // picker is dismissed and the mode has NO conversations (e.g. the last one
-      // was just deleted), fall back to an empty conversation so the view stays
-      // usable; on Start, startNewSession has already created one (no-op here).
+      function latestChat(m) {
+        return [...Store.listChats(m)].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0] || null;
+      }
+      function recoverFromWorkdirCancel(target) {
+        if (target === 'import') return;
+        const latest = latestChat(target);
+        if (latest) {
+          Store.setActiveChat(latest.id);
+          return;
+        }
+        const chat = latestChat('chat') || Store.createChat('chat');
+        Store.setActiveChat(chat.id);
+        if (mode === 'server') setMode('server');
+        else startServer();
+      }
+
+      // Start a new agent/design session: always asks for the directory. Cancel
+      // goes back to the latest existing conversation in that mode; if none
+      // exists, it returns to Chat instead of leaving an empty agent/design shell.
       function newSession(m) {
         openWorkdirDialog(m, true);
-        const dlg = qs('#workdir-dialog');
-        const onClose = () => {
-          dlg.removeEventListener('close', onClose);
-          if ((m === 'agent' || m === 'design') && Store.listChats(m).length === 0) {
-            Store.setActiveChat(Store.createChat(m).id);
-          }
-        };
-        dlg.addEventListener('close', onClose);
       }
 
 
@@ -8946,9 +9431,8 @@
       // The active design-system (brand) for DESIGN mode only; injected alongside the skill.
       const designSystem = () => Store.getSettings().designSystem || '';
       // Build mode (agent): 'off' | 'plan'. "On" = the planned driver: the model proposes a
-      // page plan from your goal, then it's built one page at a time. (Legacy values true/
-      // 'auto'/'on' all map to 'plan' — the old hands-off mode was removed.)
-      const buildMode = () => { const b = Store.getSettings().buildMode; return (b === true || b === 'plan' || b === 'auto' || b === 'on') ? 'plan' : 'off'; };
+      // page plan from your goal, then it's built one page at a time.
+      const buildMode = () => Store.getSettings().buildMode === 'plan' ? 'plan' : 'off';
 
       function startServer() {
         runSwitch('server', { mode: 'server', model: 'uncensored', variant: variant(), gguf: modelGguf(), ctx: ctxSize(), power: 100 }, 'Starting the server…');
@@ -9015,68 +9499,13 @@
       // build — the model proposes the plan and BuildDriver takes it from there.
       function switchBuild(val) {
         if (mode !== 'agent') return;
-        const on = (val === 'on' || val === 'plan' || val === 'auto' || val === true);
+        const on = val === 'on' || val === 'plan';
         const v = on ? 'plan' : 'off';
         if (buildMode() === v) return;
         BuildDriver.cancel(true);            // drop any plan state silently on either toggle
         Store.setSettings({ buildMode: v });
         toast(v === 'plan' ? 'Build on — tell the agent what to build; it proposes the pages + style.' : 'Build off — restarting…', 'info');
         restartCurrent();
-      }
-
-      /* ---- Build-mode design handoff (autonomous, re-feed) -------------------------
-         The agent (Build mode) asks for a page it doesn't have via the §REQUEST_DESIGN
-         marker; we stop the agent, run the DESIGNER in the same workspace, then resume the
-         agent (re-fed to re-read the workspace). One engine at a time (instance lock);
-         continuity is via the files, not the KV. AgentView detects the marker + the
-         design-done idle and calls in here. */
-      let buildHandoff = null;  // { phase:'design'|'resume', desc, workdir, gotArtifact, retried }
-      const isBuildHandoff = () => buildHandoff != null;
-      function buildAbort(msg) { if (buildHandoff) { buildHandoff = null; if (msg) toast(msg, 'warn'); } }
-      function buildRequestDesign(desc) {
-        if (buildHandoff || mode !== 'agent') return;
-        const workdir = Store.getState().ui.agentWorkdir || (Store.getSettings().workdirs || {}).agent || '';
-        if (!workdir) { toast('Build: no working folder for the design request', 'warn'); return; }
-        buildHandoff = { phase: 'design', desc, workdir, gotArtifact: false, retried: false };
-        toast('Build — asking the designer: ' + desc.slice(0, 60), 'info');
-        startDesign(workdir);   // on ready, buildOnReady() sends the request
-      }
-      // The designer produced/registered a page this handoff (an artifact event).
-      function buildArtifactSeen() { if (buildHandoff && buildHandoff.phase === 'design') buildHandoff.gotArtifact = true; }
-      // The designer finished a TURN during a handoff. Resume the agent ONLY if it actually
-      // produced the page; otherwise it likely asked a discovery question (design RULE 1) —
-      // nudge it to build directly, then give up so the loop can never stall.
-      function buildDesignTurnEnded() {
-        if (!buildHandoff || buildHandoff.phase !== 'design') return;
-        if (buildHandoff.gotArtifact) {
-          buildHandoff.phase = 'resume';
-          toast('Build — design ready, resuming the agent…', 'info');
-          startAgent(buildHandoff.workdir);
-        } else if (!buildHandoff.retried) {
-          buildHandoff.retried = true;
-          Engine.agentSend('Don\'t ask any questions — build it now. Write a complete, '
-            + 'self-contained HTML page for: ' + buildHandoff.desc + ' — then call artifact() with it.')
-            .catch(() => {});
-        } else {
-          buildHandoff.phase = 'resume';   // give up; resume so the loop doesn't hang
-          toast('Build — the designer didn\'t produce a page; resuming the agent.', 'warn');
-          startAgent(buildHandoff.workdir);
-        }
-      }
-      // Called from runSwitch once an engine is ready, to send the queued prompt.
-      function buildOnReady(target) {
-        if (!buildHandoff) return;
-        if (target === 'design' && buildHandoff.phase === 'design') {
-          // Tell the designer to BUILD DIRECTLY — skip its discovery question-form (RULE 1).
-          Engine.agentSend('Build this page DIRECTLY — do NOT ask a discovery question, you have '
-            + 'the context. Create a complete, self-contained HTML page and call artifact() when '
-            + 'done. The page to build: ' + buildHandoff.desc).catch(() => {});
-        } else if (target === 'agent' && buildHandoff.phase === 'resume') {
-          buildHandoff = null;
-          Engine.agentSend('The design page(s) you requested are ready in the workspace. '
-            + 'Re-read the workspace — the new design plus your existing code — and continue '
-            + 'building the web app. Wire the new page in; keep its look.').catch(() => {});
-        }
       }
 
       /* ---- BuildDriver: planned Build (checkpoint) --------------------------------
@@ -9086,7 +9515,7 @@
          The human is present once — the plan + approving the first page's look. This
          is the path that survives a weak model: small verified steps, "done" decided
          by the filesystem, never by the model's say-so. Fully gated behind
-         buildMode()==='plan' so normal design/agent and auto-Build are untouched. */
+         buildMode()==='plan' so normal design/agent sessions are untouched. */
       const BuildDriver = (() => {
         let bs = null;                                  // the run state (mirrors Store.buildState)
         function load() { if (!bs) bs = Store.getSettings().buildState || null; return bs; }
@@ -9766,7 +10195,6 @@
               }
               setMode(target);
               if (target === 'server') invalidateAndRefreshServer();
-              buildOnReady(target);        // auto-Build handoff: send the queued design/resume prompt
               BuildDriver.onReady(target);  // planned-Build driver: send this step's prompt
               return;
             }
@@ -9810,7 +10238,6 @@
         stageEl.textContent = msg;
         stageEl.style.color = 'var(--danger)';
         setTimeout(hideOverlay, 3500);
-        buildAbort('Build handoff stopped — an engine failed to start.');  // no-op unless mid-handoff
         BuildDriver.onEngineFail(msg);  // retry-then-pause a planned-Build run (no-op unless active)
       }
 
@@ -9861,7 +10288,7 @@
         openWorkdirDialog(target);
       }
 
-      return { mount, mode: () => mode, changeWorkdir, applyCtxSize, applyJsonl, applyThinkLevel, openImport, switchModel, switchToGguf, switchSkill, switchDesignSystem, switchBuild, buildRequestDesign, buildArtifactSeen, buildDesignTurnEnded, isBuildHandoff, buildAbort, downloadModel, newSession,
+      return { mount, mode: () => mode, changeWorkdir, applyCtxSize, applyJsonl, applyThinkLevel, openImport, switchModel, switchToGguf, switchSkill, switchDesignSystem, switchBuild, downloadModel, newSession,
                buildPlanActive: () => BuildDriver.active(), buildPlanArmed: () => BuildDriver.armed(), buildPlanArm: (g) => BuildDriver.arm(g),
                buildPlanInterviewing: () => BuildDriver.interviewing(), buildPlanExpectReply: () => BuildDriver.expectReply(), buildPlanCancel: () => BuildDriver.cancel(false),
                buildPlanReady: (t) => BuildDriver.onReady(t), buildPlanIdle: (vm, tx) => BuildDriver.onIdle(vm, tx), buildPlanArtifact: () => BuildDriver.onArtifact(),

@@ -2,6 +2,10 @@
 name: seo-audit
 description: Technical & on-page SEO audit: meta, indexability, core web vitals, rankability — with actionable fixes.
 modes: [marketing]
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/seo-audit
 ---
 
 # SEO Audit

@@ -1,6 +1,10 @@
 ---
 name: Material
 description: Google Material — elevation and tactile surfaces, a bold key color with tonal variants, Roboto, FAB and ripples. Structured, accessible, productive.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/material
 ---
 
 # DESIGN SYSTEM: Material

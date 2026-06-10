@@ -2,6 +2,10 @@
 name: marketing-psychology
 description: Persuasion frameworks — cognitive biases, motivation, objection handling — applied ethically to copy and pages.
 modes: [marketing]
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/marketing-psychology
 ---
 
 # Marketing Psychology & Mental Models

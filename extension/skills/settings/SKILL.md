@@ -3,6 +3,10 @@ name: settings
 description: A settings / preferences area — sectioned navigation, clear controls with helper text, instant or explicit save, and careful destructive actions.
 modes: [design]
 when_to_use: The user wants a settings page, preferences, account/profile management, or an admin configuration screen.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: image-brief
+ds4_upstream: dstudio/settings
 ---
 
 # SKILL: settings

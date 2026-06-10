@@ -1,6 +1,10 @@
 ---
 name: Linear
 description: Dark, sharp, technical. Indigo accent on near-black, tight grid, crisp 1px borders, fast and quiet — a tool for people who live in it.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/linear
 ---
 
 # DESIGN SYSTEM: Linear

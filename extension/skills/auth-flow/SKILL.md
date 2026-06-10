@@ -3,6 +3,10 @@ name: auth-flow
 description: Authentication screens — sign in, sign up, reset, verify, SSO — that feel safe and frictionless, with real validation and every state rendered.
 modes: [design]
 when_to_use: The user wants login / sign-up / auth / onboarding-gate screens, or a "get started" account flow.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/auth-flow
 ---
 
 # SKILL: auth-flow

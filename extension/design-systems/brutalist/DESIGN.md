@@ -1,6 +1,10 @@
 ---
 name: Brutalist
 description: Raw, loud, structural. Stark high-contrast, thick black borders, hard corners, monospace, one electric accent. Anti-polish on purpose — confident and editorial.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/brutalist
 ---
 
 # DESIGN SYSTEM: Brutalist

@@ -1,6 +1,10 @@
 ---
 name: Carbon
 description: IBM Carbon — enterprise productivity. Dense 2px-grid layouts, IBM Plex, blue-60 accent, sharp corners, data-first. Calm, rigorous, accessible.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/carbon
 ---
 
 # DESIGN SYSTEM: Carbon

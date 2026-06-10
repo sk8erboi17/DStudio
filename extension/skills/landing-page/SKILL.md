@@ -3,6 +3,10 @@ name: landing-page
 description: A marketing / product landing page — hero that fits the first viewport, then sections that build the argument, ending on one CTA.
 modes: [design]
 when_to_use: The user wants a landing page, marketing page, product page, or "homepage" to sell or explain one thing.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/landing-page
 ---
 
 # SKILL: landing-page

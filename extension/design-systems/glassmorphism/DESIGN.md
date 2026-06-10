@@ -1,6 +1,10 @@
 ---
 name: Glassmorphism
 description: Frosted glass on vibrant aurora gradients — translucent blurred panels, soft light borders, luminous depth. Modern, atmospheric, premium-playful.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/glassmorphism
 ---
 
 # DESIGN SYSTEM: Glassmorphism

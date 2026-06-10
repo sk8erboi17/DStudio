@@ -38,26 +38,247 @@
  *  - page CSP: fetch only towards 127.0.0.1/localhost.
  *  - SIGINT/SIGTERM also shut down the child engine.
  */
-#include <arpa/inet.h>
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include <ctype.h>
-#include <dirent.h>
 #include <errno.h>
-#include <fcntl.h>
-#include <ifaddrs.h>      /* getifaddrs: report the LAN IP for the network toggle */
-#include <net/if.h>
-#include <netinet/in.h>
-#include <poll.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <sys/stat.h>
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+#if PATH_MAX < 4096
+#define DSTUDIO_PATH_MAX 4096
+#else
+#define DSTUDIO_PATH_MAX PATH_MAX
+#endif
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <direct.h>
+#include <fcntl.h>
+#include <io.h>
+#include <process.h>
+typedef intptr_t pid_t;
+typedef SSIZE_T ssize_t;
+typedef unsigned long nfds_t;
+#ifndef R_OK
+#define R_OK 4
+#endif
+#ifndef X_OK
+#define X_OK 0
+#endif
+#ifndef STDIN_FILENO
+#define STDIN_FILENO 0
+#define STDOUT_FILENO 1
+#define STDERR_FILENO 2
+#endif
+#ifndef S_ISREG
+#define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
+#endif
+#ifndef S_ISDIR
+#define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
+#endif
+#ifndef S_ISLNK
+#define S_ISLNK(m) (0)
+#endif
+#ifndef F_GETFL
+#define F_GETFL 3
+#endif
+#ifndef F_SETFL
+#define F_SETFL 4
+#endif
+#ifndef O_NONBLOCK
+#define O_NONBLOCK 0x4000
+#endif
+#define access _access
+#define chdir _chdir
+#define getpid _getpid
+#define lstat stat
+#define mkdir(path, mode) _mkdir(path)
+#define realpath(path, out) _fullpath((out), (path), DSTUDIO_PATH_MAX)
+#define rmdir _rmdir
+#define unlink _unlink
+#define usleep(us) Sleep((DWORD)((us) / 1000))
+#define setenv(k, v, overwrite) _putenv_s((k), (v))
+#define WNOHANG 1
+#define SIGKILL SIGTERM
+#define SIGPIPE 13
+#define WIFEXITED(st) (1)
+#define WEXITSTATUS(st) ((st) & 0xff)
+#define WIFSIGNALED(st) (0)
+#define WTERMSIG(st) (0)
+#ifndef POLLIN
+#define POLLIN 0x0001
+#endif
+#ifndef POLLHUP
+#define POLLHUP 0x0010
+#endif
+struct sigaction { void (*sa_handler)(int); };
+static int sigaction(int sig, const struct sigaction *sa, struct sigaction *old) {
+    void (*prev)(int) = signal(sig, sa ? sa->sa_handler : SIG_DFL);
+    if (old) old->sa_handler = prev;
+    return prev == SIG_ERR ? -1 : 0;
+}
+typedef struct {
+    HANDLE h;
+    WIN32_FIND_DATAA data;
+    struct { char d_name[MAX_PATH]; } de;
+    int first;
+} DIR;
+static DIR *opendir(const char *path) {
+    char pat[4096];
+    snprintf(pat, sizeof pat, "%s\\*", path);
+    DIR *d = (DIR *)calloc(1, sizeof *d);
+    if (!d) return NULL;
+    d->h = FindFirstFileA(pat, &d->data);
+    if (d->h == INVALID_HANDLE_VALUE) { free(d); return NULL; }
+    d->first = 1;
+    return d;
+}
+static struct dirent { char d_name[MAX_PATH]; } *readdir(DIR *d) {
+    if (!d) return NULL;
+    if (!d->first && !FindNextFileA(d->h, &d->data)) return NULL;
+    d->first = 0;
+    snprintf(d->de.d_name, sizeof d->de.d_name, "%s", d->data.cFileName);
+    return (struct dirent *)&d->de;
+}
+static int closedir(DIR *d) {
+    if (!d) return -1;
+    FindClose(d->h);
+    free(d);
+    return 0;
+}
+static void ds4_win_wsa_start(void) {
+    static int started = 0;
+    if (!started) { WSADATA w; WSAStartup(MAKEWORD(2, 2), &w); started = 1; }
+}
+static intptr_t ds4_socket(int domain, int type, int protocol) {
+    ds4_win_wsa_start();
+    SOCKET s = socket(domain, type, protocol);
+    return s == INVALID_SOCKET ? -1 : (intptr_t)s;
+}
+static intptr_t ds4_accept(intptr_t s, void *addr, void *len) {
+    SOCKET a = accept((SOCKET)s, (struct sockaddr *)addr, (int *)len);
+    return a == INVALID_SOCKET ? -1 : (intptr_t)a;
+}
+static int ds4_close(intptr_t fd) {
+    if (fd < 0) return 0;
+    if (closesocket((SOCKET)fd) == 0) return 0;
+    return CloseHandle((HANDLE)fd) ? 0 : -1;
+}
+static ssize_t ds4_send(intptr_t fd, const char *buf, size_t len, int flags) {
+    int n = send((SOCKET)fd, buf, (int)len, flags);
+    if (n >= 0) return n;
+    if (WSAGetLastError() != WSAENOTSOCK) return -1;
+    DWORD wrote = 0;
+    return WriteFile((HANDLE)fd, buf, (DWORD)len, &wrote, NULL) ? (ssize_t)wrote : -1;
+}
+static ssize_t ds4_recv(intptr_t fd, char *buf, size_t len, int flags) {
+    DWORD avail = 0;
+    if (PeekNamedPipe((HANDLE)fd, NULL, 0, NULL, &avail, NULL)) {
+        if (avail == 0) { errno = EAGAIN; return -1; }
+        DWORD got = 0;
+        return ReadFile((HANDLE)fd, buf, (DWORD)len, &got, NULL) ? (ssize_t)got : -1;
+    }
+    int n = recv((SOCKET)fd, buf, (int)len, flags);
+    return n >= 0 ? n : -1;
+}
+static ssize_t ds4_read(intptr_t fd, void *buf, size_t len) { return ds4_recv(fd, (char *)buf, len, 0); }
+static ssize_t ds4_write(intptr_t fd, const void *buf, size_t len) { return ds4_send(fd, (const char *)buf, len, 0); }
+static int ds4_pipe(int p[2]) {
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+    HANDLE r = NULL, w = NULL;
+    if (!CreatePipe(&r, &w, &sa, 0)) return -1;
+    p[0] = (int)(intptr_t)r;
+    p[1] = (int)(intptr_t)w;
+    return 0;
+}
+static int ds4_poll(struct pollfd *pfd, nfds_t nfds, int timeout_ms) {
+    DWORD start = GetTickCount();
+    for (;;) {
+        int ready = 0;
+        for (nfds_t i = 0; i < nfds; i++) {
+            pfd[i].revents = 0;
+            if (!(pfd[i].events & POLLIN) || pfd[i].fd < 0) continue;
+            DWORD avail = 0;
+            if (PeekNamedPipe((HANDLE)pfd[i].fd, NULL, 0, NULL, &avail, NULL)) {
+                if (avail > 0) { pfd[i].revents |= POLLIN; ready++; }
+                continue;
+            }
+            fd_set rfds;
+            FD_ZERO(&rfds);
+            FD_SET((SOCKET)pfd[i].fd, &rfds);
+            struct timeval tv = {0, 0};
+            int rc = select(0, &rfds, NULL, NULL, &tv);
+            if (rc > 0 && FD_ISSET((SOCKET)pfd[i].fd, &rfds)) {
+                pfd[i].revents |= POLLIN;
+                ready++;
+            }
+        }
+        if (ready || timeout_ms == 0) return ready;
+        if (timeout_ms > 0 && (int)(GetTickCount() - start) >= timeout_ms) return 0;
+        Sleep(10);
+    }
+}
+static int ds4_fcntl(int fd, int cmd, ...) { (void)fd; (void)cmd; return 0; }
+static pid_t ds4_waitpid(pid_t pid, int *status, int options) {
+    if (pid <= 0) return -1;
+    DWORD wait = WaitForSingleObject((HANDLE)pid, options == WNOHANG ? 0 : INFINITE);
+    if (wait == WAIT_TIMEOUT) return 0;
+    if (wait != WAIT_OBJECT_0) return -1;
+    DWORD code = 0;
+    GetExitCodeProcess((HANDLE)pid, &code);
+    if (status) *status = (int)code;
+    CloseHandle((HANDLE)pid);
+    return pid;
+}
+static int ds4_kill(pid_t pid, int sig) {
+    (void)sig;
+    return (pid > 0 && TerminateProcess((HANDLE)pid, 1)) ? 0 : -1;
+}
+static DWORD g_last_spawn_win_pid = 0;
+static pid_t fork(void) { errno = ENOSYS; return -1; }
+#define dup2 _dup2
+#define execl(path, ...) (-1)
+#define execlp(path, ...) (-1)
+#define execv(path, argv) (-1)
+#define open _open
+#define _exit(code) ExitProcess((UINT)(code))
+#define accept ds4_accept
+#define close ds4_close
+#define fcntl ds4_fcntl
+#define pipe ds4_pipe
+#define poll ds4_poll
+#define read ds4_read
+#define recv ds4_recv
+#define send ds4_send
+#define socket ds4_socket
+#define waitpid ds4_waitpid
+#define write ds4_write
+#define kill ds4_kill
+#else
+#include <arpa/inet.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <ifaddrs.h>      /* getifaddrs: report the LAN IP for the network toggle */
+#include <net/if.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 #ifdef __APPLE__
 #include <mach-o/dyld.h>   /* _NSGetExecutablePath: resolve ds4 dir from bundle */
 #endif
@@ -415,6 +636,84 @@ static size_t json_escape_into(char *out, size_t outsz, const char *src, size_t 
     return o;
 }
 
+typedef struct {
+    char *ptr;
+    size_t len;
+    size_t cap;
+} json_dyn_buf;
+
+static int json_dyn_reserve(json_dyn_buf *b, size_t add) {
+    size_t need = b->len + add + 1;
+    if (need <= b->cap) return 1;
+    size_t nc = b->cap ? b->cap * 2 : 8192;
+    while (nc < need) nc *= 2;
+    char *np = realloc(b->ptr, nc);
+    if (!np) return 0;
+    b->ptr = np;
+    b->cap = nc;
+    return 1;
+}
+
+static int json_dyn_putn(json_dyn_buf *b, const char *s, size_t n) {
+    if (!json_dyn_reserve(b, n)) return 0;
+    memcpy(b->ptr + b->len, s, n);
+    b->len += n;
+    b->ptr[b->len] = '\0';
+    return 1;
+}
+
+static int json_dyn_puts(json_dyn_buf *b, const char *s) {
+    return json_dyn_putn(b, s, strlen(s));
+}
+
+static int json_dyn_printf(json_dyn_buf *b, const char *fmt, ...) {
+    va_list ap, aq;
+    va_start(ap, fmt);
+    va_copy(aq, ap);
+    int n = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+    if (n < 0 || !json_dyn_reserve(b, (size_t)n)) {
+        va_end(aq);
+        return 0;
+    }
+    vsnprintf(b->ptr + b->len, b->cap - b->len, fmt, aq);
+    va_end(aq);
+    b->len += (size_t)n;
+    return 1;
+}
+
+static int json_dyn_put_escaped(json_dyn_buf *b, const char *s) {
+    if (!json_dyn_puts(b, "\"")) return 0;
+    for (; s && *s; s++) {
+        unsigned char c = (unsigned char)*s;
+        char tmp[8];
+        switch (c) {
+            case '"':  if (!json_dyn_puts(b, "\\\"")) return 0; break;
+            case '\\': if (!json_dyn_puts(b, "\\\\")) return 0; break;
+            case '\n': if (!json_dyn_puts(b, "\\n")) return 0; break;
+            case '\r': if (!json_dyn_puts(b, "\\r")) return 0; break;
+            case '\t': if (!json_dyn_puts(b, "\\t")) return 0; break;
+            default:
+                if (c < 0x20) {
+                    snprintf(tmp, sizeof tmp, "\\u%04x", c);
+                    if (!json_dyn_puts(b, tmp)) return 0;
+                } else if (!json_dyn_putn(b, (const char *)&c, 1)) {
+                    return 0;
+                }
+        }
+    }
+    return json_dyn_puts(b, "\"");
+}
+
+static void cstr_copy(char *dst, size_t dstsz, const char *src) {
+    if (!dstsz) return;
+    if (!src) src = "";
+    size_t n = strlen(src);
+    if (n >= dstsz) n = dstsz - 1;
+    memcpy(dst, src, n);
+    dst[n] = '\0';
+}
+
 /* ==================== model / kv / port ==================== */
 
 static const char *model_rel(int uncensored) { return uncensored ? MODEL_UNC : MODEL_STD; }
@@ -427,8 +726,11 @@ static char  g_dl_variant[16] = "";  /* which variant is downloading */
 static char  g_model_override[1024] = ""; /* explicit GGUF the user picked (rel to ds4 dir); "" = use the variant */
 static char  g_skill[64] = "";            /* active skill id (extension/skills/<id>); "" = none */
 static char  g_design_system[64] = "";    /* active design-system id (design only); "" = none */
-static int   g_build_mode = 0;            /* agent Build mode: 0 off, 1 auto (§REQUEST_DESIGN loop), 2 plan (driver) */
+static int   g_build_mode = 0;            /* agent Build mode: 0 off, 2 plan (driver) */
 static char  g_build_dir[1024] = "";      /* the Build workspace (plan.md / pages live here); set on a build start */
+#ifdef _WIN32
+static DWORD g_child_win_pid = 0;
+#endif
 
 static const char *variant_rel(const char *v) {
     return (v && !strcmp(v, "pro")) ? MODEL_PRO : MODEL_FLASH;
@@ -457,6 +759,7 @@ static int ds4_dir_valid(void) {
     struct stat st;
     if (stat(g_ds4_dir, &st) != 0 || !S_ISDIR(st.st_mode)) return 0;
     return file_present("ds4-server") || file_present("ds4-agent") ||
+           file_present("ds4-server.exe") || file_present("ds4-agent.exe") ||
            file_present("Makefile")   || file_present("metal/ds4.metal") ||
            file_present("ds4.c");
 }
@@ -471,12 +774,6 @@ static int web_dir_valid(void) {
     return stat(marker, &st) == 0 && S_ISREG(st.st_mode);
 }
 
-static void kv_dir_for(int uncensored, char *out, size_t outsz) {
-    const char *home = getenv("HOME");
-    snprintf(out, outsz, "%s/.local/share/flashcards/%s",
-             home ? home : ".", uncensored ? "ds4-kv-uncensored" : "ds4-kv");
-}
-
 /* The KV disk cache is prefix state computed from a SPECIFIC model's weights —
  * it is only valid for that exact GGUF. Keying it by anything coarser (e.g. a
  * standard/uncensored flag) means switching models (Flash <-> Pro, or any other
@@ -484,13 +781,23 @@ static void kv_dir_for(int uncensored, char *out, size_t outsz) {
  * So each model gets its OWN cache directory under ds4-kv/<model-key>, derived
  * from the GGUF file name. Switching back and forth keeps each model's cache. */
 static void kv_root(char *out, size_t outsz) {
+#ifdef _WIN32
+    const char *base = getenv("LOCALAPPDATA");
+    if (!base || !base[0]) base = getenv("USERPROFILE");
+    snprintf(out, outsz, "%s\\DStudio\\ds4-kv", base ? base : ".");
+#else
     const char *home = getenv("HOME");
     snprintf(out, outsz, "%s/.local/share/flashcards/ds4-kv", home ? home : ".");
+#endif
 }
 static void kv_dir_for_model(const char *rel, char *out, size_t outsz) {
     char root[1600];
     kv_root(root, sizeof root);
     const char *slash = strrchr(rel, '/');
+#ifdef _WIN32
+    const char *bslash = strrchr(rel, '\\');
+    if (!slash || (bslash && bslash > slash)) slash = bslash;
+#endif
     const char *base = slash ? slash + 1 : rel;   /* the GGUF file name */
     char key[200];
     size_t k = 0;
@@ -500,14 +807,18 @@ static void kv_dir_for_model(const char *rel, char *out, size_t outsz) {
     }
     key[k] = '\0';
     if (!key[0]) snprintf(key, sizeof key, "default");
+#ifdef _WIN32
+    snprintf(out, outsz, "%s\\%s", root, key);
+#else
     snprintf(out, outsz, "%s/%s", root, key);
+#endif
 }
 
 static void mkpath(const char *path) {
     char tmp[2048];
     snprintf(tmp, sizeof tmp, "%s", path);
     for (char *p = tmp + 1; *p; p++) {
-        if (*p == '/') { *p = '\0'; mkdir(tmp, 0755); *p = '/'; }
+        if (*p == '/' || *p == '\\') { char sep = *p; *p = '\0'; mkdir(tmp, 0755); *p = sep; }
     }
     mkdir(tmp, 0755);
 }
@@ -515,9 +826,15 @@ static void mkpath(const char *path) {
 static int port_listening(int port) {
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return 0;
+#ifdef _WIN32
+    int tv = 300;
+    (void)setsockopt((SOCKET)(intptr_t)s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
+    (void)setsockopt((SOCKET)(intptr_t)s, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tv, sizeof tv);
+#else
     struct timeval tv = { 0, 300000 };
     (void)setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
     (void)setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+#endif
     struct sockaddr_in a;
     memset(&a, 0, sizeof a);
     a.sin_family = AF_INET;
@@ -533,7 +850,11 @@ static int open_listener(const char *host, int port) {
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return -1;
     int yes = 1;
+#ifdef _WIN32
+    (void)setsockopt((SOCKET)(intptr_t)s, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof yes);
+#else
     (void)setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof yes);
+#endif
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof addr);
     addr.sin_family = AF_INET;
@@ -548,6 +869,10 @@ static int open_listener(const char *host, int port) {
  * down interfaces). Prefers a private range (192.168/10/172.16-31). Writes the
  * dotted IP into `out`; returns 1 if one was found, 0 otherwise. */
 static int lan_ip(char *out, size_t outsz) {
+#ifdef _WIN32
+    (void)out; (void)outsz;
+    return 0;
+#else
     struct ifaddrs *ifs = NULL;
     if (getifaddrs(&ifs) != 0) return 0;
     char first[INET_ADDRSTRLEN] = "", priv[INET_ADDRSTRLEN] = "";
@@ -571,6 +896,7 @@ static int lan_ip(char *out, size_t outsz) {
     if (!pick[0]) return 0;
     snprintf(out, outsz, "%s", pick);
     return 1;
+#endif
 }
 
 /* LAN reachability: writes "IP:port" into `addr` (empty if no LAN IP) and
@@ -683,14 +1009,17 @@ static void reap_child(void) {
          * reaps it there). Record WHY — exit code/signal + its last line — so the
          * UI can show the reason instead of just "Server unreachable". */
         if (WIFSIGNALED(st))
-            snprintf(g_engine_err, sizeof g_engine_err, "engine stopped (signal %d)%s%s",
+            snprintf(g_engine_err, sizeof g_engine_err, "engine stopped (signal %d)%s%.200s",
                      WTERMSIG(st), g_last_engine_line[0] ? " — " : "", g_last_engine_line);
         else
-            snprintf(g_engine_err, sizeof g_engine_err, "engine exited (code %d)%s%s",
+            snprintf(g_engine_err, sizeof g_engine_err, "engine exited (code %d)%s%.200s",
                      WIFEXITED(st) ? WEXITSTATUS(st) : -1,
                      g_last_engine_line[0] ? " — " : "", g_last_engine_line);
         printf("engine: pid %d terminated — %s\n", (int)g_child, g_engine_err);
         g_child = -1;
+#ifdef _WIN32
+        g_child_win_pid = 0;
+#endif
         g_mode = ENGINE_NONE;
         g_ready = 0;
     }
@@ -713,6 +1042,9 @@ static void stop_child(void) {
         usleep(100000);
     }
     if (g_child > 0) { kill(g_child, SIGKILL); waitpid(g_child, NULL, 0); g_child = -1; }
+#ifdef _WIN32
+    g_child_win_pid = 0;
+#endif
     close_pipes();
     g_mode = ENGINE_NONE;
     g_ready = 0;
@@ -727,6 +1059,11 @@ static void stop_child(void) {
  * port is free afterwards. The launcher runs as the user, so this only ever
  * touches the user's own processes. */
 static int kill_external_server(int port) {
+#ifdef _WIN32
+    /* Windows v1 avoids taskkill heuristics: DStudio can supervise processes it
+     * starts, but external listeners must be stopped explicitly by the user. */
+    return !port_listening(port);
+#else
     char cmd[96];
     snprintf(cmd, sizeof cmd, "lsof -nP -iTCP:%d -sTCP:LISTEN -t 2>/dev/null", port);
     pid_t pids[32];
@@ -748,6 +1085,7 @@ static int kill_external_server(int port) {
         for (int t = 0; t < 20 && port_listening(port); t++) usleep(100000); /* up to 2s */
     }
     return !port_listening(port);
+#endif
 }
 
 /* Common to both spawns: prepares the Metal env in the child. */
@@ -785,7 +1123,7 @@ static const char *const METAL_SRC[][2] = {
 };
 
 static void child_setenv_metal_sources(const char *ds4_abs) {
-    char p[2200];
+    char p[DSTUDIO_PATH_MAX + 64];
     for (size_t i = 0; i < sizeof METAL_SRC / sizeof METAL_SRC[0]; i++) {
         snprintf(p, sizeof p, "%s/metal/%s", ds4_abs, METAL_SRC[i][1]);
         setenv(METAL_SRC[i][0], p, 1);
@@ -795,8 +1133,14 @@ static void child_setenv_metal_sources(const char *ds4_abs) {
 /* Writable directory for USER-authored skills (created via the web UI). Each skill is
  * <dir>/<id>/SKILL.md, available to the agent (and design) like a shipped pack. */
 static void user_skills_dir(char *out, size_t outsz) {
+#ifdef _WIN32
+    const char *base = getenv("LOCALAPPDATA");
+    if (!base || !base[0]) base = getenv("USERPROFILE");
+    snprintf(out, outsz, "%s\\DStudio\\ds4-skills", base ? base : ".");
+#else
     const char *home = getenv("HOME");
     snprintf(out, outsz, "%s/.local/share/flashcards/ds4-skills", home ? home : ".");
+#endif
 }
 
 /* Point the engine's on-demand skill()/design_system() tools at this DStudio checkout's
@@ -821,10 +1165,94 @@ static void reset_progress(const char *stage0) {
     g_engine_err[0] = g_last_engine_line[0] = '\0';   /* fresh start: clear the last death reason */
 }
 
+#ifdef _WIN32
+static void win_arg_append(char *cmd, size_t cap, const char *arg) {
+    size_t o = strlen(cmd);
+    if (o && o + 1 < cap) cmd[o++] = ' ';
+    if (o + 1 >= cap) return;
+    cmd[o++] = '"';
+    int bs = 0;
+    for (const char *p = arg ? arg : ""; *p && o + 4 < cap; p++) {
+        if (*p == '\\') { bs++; continue; }
+        if (*p == '"') {
+            while (bs-- > 0 && o + 1 < cap) cmd[o++] = '\\';
+            if (o + 1 < cap) cmd[o++] = '\\';
+            if (o + 1 < cap) cmd[o++] = '"';
+            bs = 0;
+            continue;
+        }
+        while (bs-- > 0 && o + 1 < cap) cmd[o++] = '\\';
+        cmd[o++] = *p;
+        bs = 0;
+    }
+    while (bs-- > 0 && o + 2 < cap) { cmd[o++] = '\\'; cmd[o++] = '\\'; }
+    if (o + 1 < cap) cmd[o++] = '"';
+    cmd[o] = '\0';
+}
+
+static void win_join_path(char *out, size_t outsz, const char *a, const char *b) {
+    snprintf(out, outsz, "%s\\%s", a ? a : ".", b ? b : "");
+}
+
+static int win_spawn(const char *cwd, char *const argv[], int want_stdin,
+                     int *in_w, int *out_r, int *err_r, pid_t *pid_out,
+                     char *err, size_t errsz) {
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+    HANDLE in_r = NULL, in_w_h = NULL, out_r_h = NULL, out_w = NULL, err_r_h = NULL, err_w = NULL;
+    if (want_stdin && !CreatePipe(&in_r, &in_w_h, &sa, 0)) {
+        snprintf(err, errsz, "CreatePipe(stdin) failed");
+        return 0;
+    }
+    if (!CreatePipe(&out_r_h, &out_w, &sa, 0) || !CreatePipe(&err_r_h, &err_w, &sa, 0)) {
+        snprintf(err, errsz, "CreatePipe(stdout/stderr) failed");
+        if (in_r) CloseHandle(in_r); if (in_w_h) CloseHandle(in_w_h);
+        if (out_r_h) CloseHandle(out_r_h); if (out_w) CloseHandle(out_w);
+        if (err_r_h) CloseHandle(err_r_h); if (err_w) CloseHandle(err_w);
+        return 0;
+    }
+    if (in_w_h) SetHandleInformation(in_w_h, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(out_r_h, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(err_r_h, HANDLE_FLAG_INHERIT, 0);
+
+    char cmd[32768] = "";
+    for (int i = 0; argv[i]; i++) win_arg_append(cmd, sizeof cmd, argv[i]);
+
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof si);
+    memset(&pi, 0, sizeof pi);
+    si.cb = sizeof si;
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = want_stdin ? in_r : GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = out_w;
+    si.hStdError = err_w;
+    BOOL ok = CreateProcessA(NULL, cmd, NULL, NULL, TRUE,
+                             CREATE_NEW_PROCESS_GROUP, NULL, cwd, &si, &pi);
+    if (in_r) CloseHandle(in_r);
+    CloseHandle(out_w);
+    CloseHandle(err_w);
+    if (!ok) {
+        snprintf(err, errsz, "CreateProcess failed for %s (error %lu)", argv[0], GetLastError());
+        if (in_w_h) CloseHandle(in_w_h);
+        CloseHandle(out_r_h);
+        CloseHandle(err_r_h);
+        return 0;
+    }
+    CloseHandle(pi.hThread);
+    g_last_spawn_win_pid = pi.dwProcessId;
+    if (want_stdin) *in_w = (int)(intptr_t)in_w_h;
+    else if (in_w) *in_w = -1;
+    *out_r = (int)(intptr_t)out_r_h;
+    *err_r = (int)(intptr_t)err_r_h;
+    *pid_out = (pid_t)pi.hProcess;
+    return 1;
+}
+#endif
+
 /* Starts ds4-server. out/err piped to us for progress. */
 static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     if (!file_present(current_model_rel())) {
-        snprintf(err, errsz, "model %s not found in %s",
+        snprintf(err, errsz, "model %.16s not found in %.180s",
                  g_variant, g_ds4_dir);
         return 0;
     }
@@ -836,6 +1264,36 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     kv_dir_for_model(current_model_rel(), kvdir, sizeof kvdir);  /* per-model cache */
     mkpath(kvdir);
 
+#ifdef _WIN32
+    if (!file_present("ds4-server.exe")) {
+        snprintf(err, errsz, "ds4-server.exe not found in %s — use the Windows CPU artifact", g_ds4_dir);
+        return 0;
+    }
+    int op[2], ep[2];
+    (void)op; (void)ep;
+    char exe[2200];
+    win_join_path(exe, sizeof exe, g_ds4_dir, "ds4-server.exe");
+    char ports[16], ctxs[16], pows[16], kvs[16], mins[16];
+    snprintf(ports, sizeof ports, "%d", cfg->port);
+    snprintf(ctxs,  sizeof ctxs,  "%d", cfg->ctx);
+    snprintf(pows,  sizeof pows,  "%d", cfg->power);
+    snprintf(kvs,   sizeof kvs,   "%d", cfg->kv_space_mb);
+    snprintf(mins,  sizeof mins,  "%d", cfg->kv_min_tok);
+    char *argv[] = {
+        exe, "-m", (char *)current_model_rel(), "--cpu",
+        "--host", g_bind_host, "--port", ports, "--ctx", ctxs, "--power", pows,
+        "--kv-disk-dir", kvdir, "--kv-disk-space-mb", kvs,
+        "--kv-cache-min-tokens", mins, "--cors", NULL
+    };
+    pid_t pid = 0;
+    if (!win_spawn(g_ds4_dir, argv, 0, NULL, &g_out_fd, &g_err_fd, &pid, err, errsz))
+        return 0;
+    g_child_win_pid = g_last_spawn_win_pid;
+    g_child = pid; g_mode = ENGINE_SERVER; g_cfg = *cfg;
+    reset_progress("Starting the server…");
+    printf("engine: server pid %ld (port %d, windows cpu)\n", (long)pid, cfg->port);
+    return 1;
+#else
     int op[2], ep[2];
     if (pipe(op) != 0 || pipe(ep) != 0) { snprintf(err, errsz, "pipe failed"); return 0; }
 
@@ -871,6 +1329,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     printf("engine: server pid %d (port %d, %s)\n", (int)pid, cfg->port,
            cfg->uncensored ? "uncensored" : "standard");
     return 1;
+#endif
 }
 
 /* ============================================================================
@@ -886,7 +1345,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
  * The edits below are generated (escaping verified) from an anchored table.
  * ============================================================================ */
 #define JSONL_MARK "/*DS4UI_JSONL*/"
-#define JSONL_PATCH_VERSION 10  /* bump when the edits change: forces the rebuild */
+#define JSONL_PATCH_VERSION 12  /* bump when the edits change: forces the rebuild */
 
 static const char *JSONL_EDITS[][2] = {
   { "    bool non_interactive;\n",
@@ -895,6 +1354,26 @@ static const char *JSONL_EDITS[][2] = {
     "        } else if (!strcmp(arg, \"--non-interactive\")) {\n            c.non_interactive = true;\n        } else if (!strcmp(arg, \"--jsonl\")) {   /*DS4UI_JSONL*/\n            c.jsonl = true;\n" },
   { "static void renderer_write(agent_token_renderer *r, const char *s, size_t n) {\n",
     "/*DS4UI_JSONL*/\n/* Opt-in structured output for the UI: one JSON line per event, prefixed by\n * \\x1e (Record Separator) so the consumer tells events from text without\n * heuristics. Additive: active only with --jsonl. */\nstatic void ds4ui_json_escape(const char *s, char *out, size_t cap) {\n    size_t o = 0;\n    for (; s && *s && o + 7 < cap; s++) {\n        unsigned char c = (unsigned char)*s;\n        if (c == '\"' || c == '\\\\') { out[o++] = '\\\\'; out[o++] = (char)c; }\n        else if (c == '\\n') { out[o++] = '\\\\'; out[o++] = 'n'; }\n        else if (c == '\\r') { out[o++] = '\\\\'; out[o++] = 'r'; }\n        else if (c == '\\t') { out[o++] = '\\\\'; out[o++] = 't'; }\n        else if (c < 0x20) { o += (size_t)snprintf(out + o, cap - o, \"\\\\u%04x\", c); }\n        else out[o++] = (char)c;\n    }\n    out[o] = '\\0';\n}\nstatic void ds4ui_emit_event(agent_worker *w, const char *type) {\n    char line[128];\n    int k = snprintf(line, sizeof line, \"\\x1e{\\\"type\\\":\\\"%s\\\"}\\n\", type);\n    agent_publish(w, line, (size_t)k);\n}\nstatic void ds4ui_emit_tool_call(agent_worker *w, const agent_tool_call *tc) {\n    char nm[256];\n    ds4ui_json_escape(tc->name ? tc->name : \"\", nm, sizeof nm);\n    char line[16384];   /* edit old/new + write content need room for the diff the UI renders */\n    int k = snprintf(line, sizeof line,\n        \"\\x1e{\\\"type\\\":\\\"tool_call\\\",\\\"name\\\":\\\"%s\\\",\\\"input\\\":{\", nm);\n    /* snprintf returns the REQUESTED length, not the written one: never add to k\n     * a value that does not fit (k past the buffer = OOB on line+k and a publish\n     * of stack bytes). An arg that does not fit truncates HERE, at a JSON boundary. */\n    for (int j = 0; j < tc->argc; j++) {\n        char an[128], av[6144];\n        ds4ui_json_escape(tc->args[j].name ? tc->args[j].name : \"\", an, sizeof an);\n        ds4ui_json_escape(tc->args[j].value ? tc->args[j].value : \"\", av, sizeof av);\n        int r = snprintf(line + k, sizeof line - k, \"%s\\\"%s\\\":\\\"%s\\\"\", j ? \",\" : \"\", an, av);\n        if (r < 0 || r >= (int)(sizeof line - k) - 4) { line[k] = '\\0'; break; }\n        k += r;\n    }\n    k += snprintf(line + k, sizeof line - k, \"}}\\n\");\n    agent_publish(w, line, (size_t)k);\n}\nstatic void ds4ui_emit_tool_result(agent_worker *w, const char *name, const char *res) {\n    char nm[256];\n    ds4ui_json_escape(name ? name : \"\", nm, sizeof nm);\n    size_t rl = res ? strlen(res) : 0;\n    size_t cap = rl * 6 + 512;\n    char *line = (char *)malloc(cap);\n    if (!line) return;\n    int k = snprintf(line, cap,\n        \"\\x1e{\\\"type\\\":\\\"tool_result\\\",\\\"name\\\":\\\"%s\\\",\\\"output\\\":\\\"\", nm);\n    char *esc = (char *)malloc(rl * 6 + 8);\n    if (esc) { ds4ui_json_escape(res ? res : \"\", esc, rl * 6 + 8);\n               k += snprintf(line + k, cap - k, \"%s\", esc); free(esc); }\n    k += snprintf(line + k, cap - k, \"\\\"}\\n\");\n    agent_publish(w, line, (size_t)k);\n    free(line);\n}\nstatic void renderer_write(agent_token_renderer *r, const char *s, size_t n) {\n" },
+  { "static void ds4ui_emit_tool_call(agent_worker *w, const agent_tool_call *tc) {\n",
+    "static void ds4ui_emit_question(agent_worker *w, const char *id, const char *title, const char *questions_json) {\n"
+    "    char iid[256], ttl[512];\n"
+    "    ds4ui_json_escape(id ? id : \"question\", iid, sizeof iid);\n"
+    "    ds4ui_json_escape(title ? title : \"Question\", ttl, sizeof ttl);\n"
+    "    const char *q = (questions_json && questions_json[0]) ? questions_json : \"[]\";\n"
+    "    size_t ql = strlen(q), cap = ql + 1024;\n"
+    "    char *line = (char *)malloc(cap);\n"
+    "    if (!line) return;\n"
+    "    int k = snprintf(line, cap, \"\\x1e{\\\"type\\\":\\\"question\\\",\\\"id\\\":\\\"%s\\\",\\\"title\\\":\\\"%s\\\",\\\"questions\\\":\", iid, ttl);\n"
+    "    for (; *q && k + 2 < (int)cap; q++) {\n"
+    "        char c = *q;\n"
+    "        if (c == '\\n' || c == '\\r' || c == '\\x1e') c = ' ';\n"
+    "        line[k++] = c;\n"
+    "    }\n"
+    "    k += snprintf(line + k, cap - (size_t)k, \"}\\n\");\n"
+    "    agent_publish(w, line, (size_t)k);\n"
+    "    free(line);\n"
+    "}\n"
+    "static void ds4ui_emit_tool_call(agent_worker *w, const agent_tool_call *tc) {\n" },
   { "        char *res = agent_execute_tool_call(w, &calls->v[i]);\n",
     "        if (w->cfg->jsonl) ds4ui_emit_tool_call(w, &calls->v[i]);   /*DS4UI_JSONL*/\n        char *res = agent_execute_tool_call(w, &calls->v[i]);\n        if (w->cfg->jsonl) ds4ui_emit_tool_result(w, calls->v[i].name, res);   /*DS4UI_JSONL*/\n" },
   { "            sr->in_think = true;\n            sr->renderer->in_think = true;\n",
@@ -1020,10 +1499,77 @@ static const char *JSONL_EDITS[][2] = {
     "    if (!strcmp(call->name, \"write\")) return ds4ui_verify_after(w, call, agent_tool_write(w, call));   /*DS4UI_JSONL*/\n    if (!strcmp(call->name, \"list\")) return agent_tool_list(call);\n    if (!strcmp(call->name, \"edit\")) return ds4ui_verify_after(w, call, agent_tool_edit(w, call));   /*DS4UI_JSONL*/\n" },
   { "    bool sigint_installed = !cfg.non_interactive &&\n        sigaction(SIGINT, &sa, &old_int) == 0;",
     "    bool sigint_installed = (!cfg.non_interactive || cfg.jsonl) &&   /*DS4UI_JSONL: install the SIGINT handler in piped mode so a turn can be interrupted*/\n        sigaction(SIGINT, &sa, &old_int) == 0;" },
-  { "        int prc = poll(pfd, (nfds_t)nfds, timeout_ms);\n        if (prc < 0) {",
-    "        int prc = poll(pfd, (nfds_t)nfds, timeout_ms);\n        if (cfg->jsonl && agent_sigint) {   /*DS4UI_JSONL: SIGINT aborts the current turn (the UI deleted the live conversation) without killing the engine*/\n            agent_sigint = 0;\n            if (!worker_is_idle(&worker)) worker_interrupt(&worker);\n        }\n        if (prc < 0) {" },
+	  { "        int prc = poll(pfd, (nfds_t)nfds, timeout_ms);\n        if (prc < 0) {",
+	    "        int prc = poll(pfd, (nfds_t)nfds, timeout_ms);\n        if (cfg->jsonl && agent_sigint) {   /*DS4UI_JSONL: SIGINT aborts the current turn (the UI deleted the live conversation) without killing the engine*/\n            agent_sigint = 0;\n            if (!worker_is_idle(&worker)) worker_interrupt(&worker);\n        }\n        if (prc < 0) {" },
 
-  /* ---- on-demand skill / design-system tools (DStudio) ----
+	  /* ---- MEMORY.MD for ds4-agent-jsonl (DStudio) ----
+	   * The upstream source is not edited permanently.  The generated JSONL agent
+	   * reads a project-root MEMORY.MD into system context and writes the true
+	   * compact summary back after antirez's compaction succeeds. */
+	  { "static void agent_worker_build_system_tokens(agent_worker *w, ds4_tokens *out) {\n",
+	    "/*DS4UI_JSONL*/\n"
+	    "#define DS4UI_MEMORY_MAX_BYTES (32 * 1024)\n"
+	    "static char *ds4ui_memory_read_md(void) {\n"
+	    "    FILE *fp = fopen(\"MEMORY.MD\", \"rb\");\n"
+	    "    if (!fp) return NULL;\n"
+	    "    agent_buf b = {0};\n"
+	    "    char tmp[4096];\n"
+	    "    while (b.len < DS4UI_MEMORY_MAX_BYTES) {\n"
+	    "        size_t room = DS4UI_MEMORY_MAX_BYTES - b.len;\n"
+	    "        size_t want = room < sizeof(tmp) ? room : sizeof(tmp);\n"
+	    "        size_t n = fread(tmp, 1, want, fp);\n"
+	    "        if (n) agent_buf_append(&b, tmp, n);\n"
+	    "        if (n < want) break;\n"
+	    "    }\n"
+	    "    fclose(fp);\n"
+	    "    return agent_buf_take(&b);\n"
+	    "}\n"
+	    "static void ds4ui_memory_write_md(const char *summary, const char *reason) {\n"
+	    "    if (!summary || !summary[0]) return;\n"
+	    "    time_t t = time(NULL);\n"
+	    "    struct tm tmv;\n"
+	    "    gmtime_r(&t, &tmv);\n"
+	    "    char ts[32];\n"
+	    "    strftime(ts, sizeof(ts), \"%Y-%m-%dT%H:%M:%SZ\", &tmv);\n"
+	    "    agent_buf b = {0};\n"
+	    "    agent_buf_puts(&b, \"# MEMORY.MD\\n\\n\");\n"
+	    "    agent_buf_puts(&b, \"Shared durable memory for DS4 agents working in this workspace.\\n\\n\");\n"
+	    "    agent_buf_puts(&b, \"## Durable Summary\\n\\n\");\n"
+	    "    agent_buf_puts(&b, summary);\n"
+	    "    if (b.len && b.ptr[b.len - 1] != '\\n') agent_buf_puts(&b, \"\\n\");\n"
+	    "    agent_buf_puts(&b, \"\\n## Runtime State\\n\\n- Updated: \");\n"
+	    "    agent_buf_puts(&b, ts);\n"
+	    "    agent_buf_puts(&b, \"\\n- Runtime: ds4-agent-jsonl\");\n"
+	    "    if (reason && reason[0]) { agent_buf_puts(&b, \"\\n- Last compact reason: \"); agent_buf_puts(&b, reason); }\n"
+	    "    agent_buf_puts(&b, \"\\n\");\n"
+	    "    char tmp_path[64];\n"
+	    "    snprintf(tmp_path, sizeof(tmp_path), \"MEMORY.MD.tmp.%ld\", (long)getpid());\n"
+	    "    FILE *fp = fopen(tmp_path, \"wb\");\n"
+	    "    if (!fp) { free(b.ptr); return; }\n"
+	    "    bool ok = fwrite(b.ptr ? b.ptr : \"\", 1, b.len, fp) == b.len;\n"
+	    "    ok = fclose(fp) == 0 && ok;\n"
+	    "    if (ok) rename(tmp_path, \"MEMORY.MD\"); else unlink(tmp_path);\n"
+	    "    free(b.ptr);\n"
+	    "}\n"
+	    "static void agent_worker_build_system_tokens(agent_worker *w, ds4_tokens *out) {\n" },
+	  { "    agent_append_system_prompt(w->engine, out, w->cfg->gen.system);\n}\n",
+	    "    agent_append_system_prompt(w->engine, out, w->cfg->gen.system);\n"
+	    "    if (w->cfg->jsonl) {   /*DS4UI_JSONL*/\n"
+	    "        char *mem = ds4ui_memory_read_md();\n"
+	    "        if (mem && mem[0]) {\n"
+	    "            agent_buf m = {0};\n"
+	    "            agent_buf_puts(&m, \"PROJECT MEMORY (runtime summary from MEMORY.MD):\\n\\n\");\n"
+	    "            agent_buf_puts(&m, mem);\n"
+	    "            ds4_chat_append_message(w->engine, out, \"system\", m.ptr ? m.ptr : \"\");\n"
+	    "            free(m.ptr);\n"
+	    "        }\n"
+	    "        free(mem);\n"
+	    "    }\n"
+	    "}\n" },
+	  { "    ds4_chat_append_message(w->engine, &compacted, \"system\", summary_msg.ptr);\n    free(summary_msg.ptr);\n    free(summary.ptr);\n\n    agent_tokens_append_range(&compacted, &w->transcript, tail_start, bottom);\n",
+	    "    ds4_chat_append_message(w->engine, &compacted, \"system\", summary_msg.ptr);\n    free(summary_msg.ptr);\n    if (w->cfg->jsonl) ds4ui_memory_write_md(summary.ptr, reason);   /*DS4UI_JSONL*/\n    free(summary.ptr);\n\n    agent_tokens_append_range(&compacted, &w->transcript, tail_start, bottom);\n" },
+
+	  /* ---- on-demand skill / design-system tools (DStudio) ----
    * The model can pull a focused recipe or brand mid-conversation, no restart, by
    * calling skill(name) / design_system(name). The packs live in this DStudio checkout
    * (DS4UI_SKILLS_DIR set by the launcher); name is sanitised so it can't escape it.
@@ -1063,10 +1609,96 @@ static const char *JSONL_EDITS[][2] = {
     "static char *ds4ui_tool_skill(const agent_tool_call *call) { return ds4ui_load_pack(call, \"skills\", \"SKILL.md\", 1); }\n"
     "static char *ds4ui_tool_design_system(const agent_tool_call *call) { return ds4ui_load_pack(call, \"design-systems\", \"DESIGN.md\", 0); }\n"
     "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n" },
+  { "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n",
+    "static const char *ds4ui_json_ws(const char *p, const char *end) { while (p < end && (*p == ' ' || *p == '\\t' || *p == '\\n' || *p == '\\r')) p++; return p; }\n"
+    "static int ds4ui_json_hex(char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'); }\n"
+    "static const char *ds4ui_json_skip_value(const char *p, const char *end, int depth, char *err, size_t errsz);\n"
+    "static const char *ds4ui_json_skip_string(const char *p, const char *end, char *err, size_t errsz) {\n"
+    "    if (p >= end || *p != '\\\"') { snprintf(err, errsz, \"expected JSON string\"); return NULL; }\n"
+    "    for (p++; p < end;) {\n"
+    "        unsigned char c = (unsigned char)*p++;\n"
+    "        if (c == '\\\"') return p;\n"
+    "        if (c < 0x20) { snprintf(err, errsz, \"control character in JSON string\"); return NULL; }\n"
+    "        if (c != '\\\\') continue;\n"
+    "        if (p >= end) { snprintf(err, errsz, \"unterminated JSON escape\"); return NULL; }\n"
+    "        char e = *p++;\n"
+    "        if (e == '\\\"' || e == '\\\\' || e == '/' || e == 'b' || e == 'f' || e == 'n' || e == 'r' || e == 't') continue;\n"
+    "        if (e == 'u') {\n"
+    "            if (end - p < 4 || !ds4ui_json_hex(p[0]) || !ds4ui_json_hex(p[1]) || !ds4ui_json_hex(p[2]) || !ds4ui_json_hex(p[3])) { snprintf(err, errsz, \"bad JSON unicode escape\"); return NULL; }\n"
+    "            p += 4; continue;\n"
+    "        }\n"
+    "        snprintf(err, errsz, \"bad JSON escape\"); return NULL;\n"
+    "    }\n"
+    "    snprintf(err, errsz, \"unterminated JSON string\"); return NULL;\n"
+    "}\n"
+    "static const char *ds4ui_json_skip_number(const char *p, const char *end, char *err, size_t errsz) {\n"
+    "    if (p < end && *p == '-') p++;\n"
+    "    if (p >= end) { snprintf(err, errsz, \"bad JSON number\"); return NULL; }\n"
+    "    if (*p == '0') p++;\n"
+    "    else if (*p >= '1' && *p <= '9') { while (p < end && isdigit((unsigned char)*p)) p++; }\n"
+    "    else { snprintf(err, errsz, \"bad JSON number\"); return NULL; }\n"
+    "    if (p < end && *p == '.') { p++; if (p >= end || !isdigit((unsigned char)*p)) { snprintf(err, errsz, \"bad JSON number\"); return NULL; } while (p < end && isdigit((unsigned char)*p)) p++; }\n"
+    "    if (p < end && (*p == 'e' || *p == 'E')) { p++; if (p < end && (*p == '+' || *p == '-')) p++; if (p >= end || !isdigit((unsigned char)*p)) { snprintf(err, errsz, \"bad JSON number\"); return NULL; } while (p < end && isdigit((unsigned char)*p)) p++; }\n"
+    "    return p;\n"
+    "}\n"
+    "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n" },
+  { "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n",
+    "static const char *ds4ui_json_skip_array(const char *p, const char *end, int depth, char *err, size_t errsz) {\n"
+    "    p++; p = ds4ui_json_ws(p, end);\n"
+    "    if (p < end && *p == ']') return p + 1;\n"
+    "    for (;;) { p = ds4ui_json_skip_value(p, end, depth + 1, err, errsz); if (!p) return NULL; p = ds4ui_json_ws(p, end); if (p < end && *p == ',') { p++; continue; } if (p < end && *p == ']') return p + 1; snprintf(err, errsz, \"expected ',' or ']' in JSON array\"); return NULL; }\n"
+    "}\n"
+    "static const char *ds4ui_json_skip_object(const char *p, const char *end, int depth, char *err, size_t errsz) {\n"
+    "    p++; p = ds4ui_json_ws(p, end);\n"
+    "    if (p < end && *p == '}') return p + 1;\n"
+    "    for (;;) { p = ds4ui_json_ws(p, end); if (p >= end || *p != '\\\"') { snprintf(err, errsz, \"expected JSON object key\"); return NULL; } p = ds4ui_json_skip_string(p, end, err, errsz); if (!p) return NULL; p = ds4ui_json_ws(p, end); if (p >= end || *p != ':') { snprintf(err, errsz, \"expected ':' after JSON object key\"); return NULL; } p++; p = ds4ui_json_skip_value(p, end, depth + 1, err, errsz); if (!p) return NULL; p = ds4ui_json_ws(p, end); if (p < end && *p == ',') { p++; continue; } if (p < end && *p == '}') return p + 1; snprintf(err, errsz, \"expected ',' or '}' in JSON object\"); return NULL; }\n"
+    "}\n"
+    "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n" },
+  { "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n",
+    "static const char *ds4ui_json_skip_value(const char *p, const char *end, int depth, char *err, size_t errsz) {\n"
+    "    if (depth > 64) { snprintf(err, errsz, \"JSON nesting too deep\"); return NULL; }\n"
+    "    p = ds4ui_json_ws(p, end);\n"
+    "    if (p >= end) { snprintf(err, errsz, \"expected JSON value\"); return NULL; }\n"
+    "    if (*p == '\\\"') return ds4ui_json_skip_string(p, end, err, errsz);\n"
+    "    if (*p == '{') return ds4ui_json_skip_object(p, end, depth, err, errsz);\n"
+    "    if (*p == '[') return ds4ui_json_skip_array(p, end, depth, err, errsz);\n"
+    "    if (*p == '-' || isdigit((unsigned char)*p)) return ds4ui_json_skip_number(p, end, err, errsz);\n"
+    "    if (end - p >= 4 && !memcmp(p, \"true\", 4)) return p + 4;\n"
+    "    if (end - p >= 5 && !memcmp(p, \"false\", 5)) return p + 5;\n"
+    "    if (end - p >= 4 && !memcmp(p, \"null\", 4)) return p + 4;\n"
+    "    snprintf(err, errsz, \"bad JSON value\"); return NULL;\n"
+    "}\n"
+    "static int ds4ui_json_validate_array(const char *json, char *err, size_t errsz) {\n"
+    "    if (!json) { snprintf(err, errsz, \"missing JSON\"); return 0; }\n"
+    "    const char *end = json + strlen(json);\n"
+    "    const char *p = ds4ui_json_ws(json, end);\n"
+    "    if (p >= end || *p != '[') { snprintf(err, errsz, \"JSON must start with '['\"); return 0; }\n"
+    "    p = ds4ui_json_skip_value(p, end, 0, err, errsz);\n"
+    "    if (!p) return 0;\n"
+    "    p = ds4ui_json_ws(p, end);\n"
+    "    if (p != end) { snprintf(err, errsz, \"trailing data after JSON value\"); return 0; }\n"
+    "    return 1;\n"
+    "}\n"
+    "static char *ds4ui_tool_question(agent_worker *w, const agent_tool_call *call) {\n"
+    "    const char *id = agent_tool_arg_value(call, \"id\");\n"
+    "    const char *title = agent_tool_arg_value(call, \"title\");\n"
+    "    const char *questions = agent_tool_arg_value(call, \"questions\");\n"
+    "    if (!id || !id[0]) return xstrdup(\"Tool error: question requires id\\n\");\n"
+    "    if (!title || !title[0]) return xstrdup(\"Tool error: question requires title\\n\");\n"
+    "    if (!questions || !questions[0]) return xstrdup(\"Tool error: question requires questions\\n\");\n"
+    "    char err[256];\n"
+    "    if (!ds4ui_json_validate_array(questions, err, sizeof err)) { agent_buf b = {0}; agent_buf_puts(&b, \"Tool error: \"); agent_buf_puts(&b, err); agent_buf_puts(&b, \"\\n\"); return agent_buf_take(&b); }\n"
+    "    ds4ui_emit_question(w, id, title, questions);\n"
+    "    return xstrdup(\"Question event emitted. Stop this turn and wait for the user's answer.\\n\");\n"
+    "}\n"
+    "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n" },
   { "    if (!strcmp(call->name, \"read\")) return agent_tool_read(w, call);\n",
     "    if (!strcmp(call->name, \"read\")) return agent_tool_read(w, call);\n"
     "    if (!strcmp(call->name, \"skill\")) return ds4ui_tool_skill(call);   /*DS4UI_JSONL*/\n"
     "    if (!strcmp(call->name, \"design_system\")) return ds4ui_tool_design_system(call);   /*DS4UI_JSONL*/\n" },
+  { "    if (!strcmp(call->name, \"skill\")) return ds4ui_tool_skill(call);   /*DS4UI_JSONL*/\n",
+    "    if (!strcmp(call->name, \"question\")) return ds4ui_tool_question(w, call);   /*DS4UI_JSONL*/\n"
+    "    if (!strcmp(call->name, \"skill\")) return ds4ui_tool_skill(call);   /*DS4UI_JSONL*/\n" },
 };
 
 /* Inline Makefile for `make -f -`: includes the ds4 Makefile (reuses
@@ -1074,10 +1706,13 @@ static const char *JSONL_EDITS[][2] = {
  * separate name. The recipe lines MUST start with a TAB. */
 static const char *JSONL_MAKEFILE =
     "include Makefile\n"
+    "JSONL_CFLAGS ?= $(CFLAGS)\n"
+    "JSONL_CORE_OBJS ?= $(CORE_OBJS)\n"
+    "JSONL_LDLIBS ?= $(METAL_LDLIBS)\n"
     "ds4_agent_jsonl.o: ds4_agent.c\n"
-    "\t$(CC) $(CFLAGS) -c -o $@ ds4_agent.c\n"
-    "ds4-agent-jsonl: ds4_agent_jsonl.o ds4_help.o ds4_web.o ds4_kvstore.o linenoise.o $(CORE_OBJS)\n"
-    "\t$(CC) $(CFLAGS) -o $@ ds4_agent_jsonl.o ds4_help.o ds4_web.o ds4_kvstore.o linenoise.o $(CORE_OBJS) $(METAL_LDLIBS)\n";
+    "\t$(CC) $(JSONL_CFLAGS) -c -o $@ ds4_agent.c\n"
+    "ds4-agent-jsonl: ds4_agent_jsonl.o ds4_help.o ds4_web.o ds4_kvstore.o linenoise.o $(JSONL_CORE_OBJS)\n"
+    "\t$(CC) $(JSONL_CFLAGS) -o $@ ds4_agent_jsonl.o ds4_help.o ds4_web.o ds4_kvstore.o linenoise.o $(JSONL_CORE_OBJS) $(JSONL_LDLIBS)\n";
 
 static char *jsonl_read_file(const char *path, size_t *len) {
     FILE *f = fopen(path, "rb");
@@ -1101,6 +1736,21 @@ static int jsonl_write_file(const char *path, const char *data, size_t len) {
     int ok = fwrite(data, 1, len, f) == len;
     fclose(f);
     return ok;
+}
+
+static void jsonl_normalize_newlines(char *b, size_t *len) {
+    size_t r = 0, w = 0, n = len ? *len : strlen(b);
+    while (r < n) {
+        if (b[r] == '\r') {
+            if (r + 1 < n && b[r + 1] == '\n') r++;
+            b[w++] = '\n';
+            r++;
+        } else {
+            b[w++] = b[r++];
+        }
+    }
+    b[w] = '\0';
+    if (len) *len = w;
 }
 
 /* Skill id sanitiser: only [a-z0-9-], so it can never escape extension/skills/. */
@@ -1131,11 +1781,40 @@ static void catalog_append(char *out, size_t cap, size_t *o, const char *dir,
         size_t len = 0;
         char *content = jsonl_read_file(md, &len);
         if (!content) continue;
-        char desc[320];
+        char desc[320], cat[120], local_mode[80], output[160], provider[120];
         fm_field(content, "description", desc, sizeof desc);
+        fm_field(content, "ds4_category", cat, sizeof cat);
+        fm_field(content, "ds4_local_mode", local_mode, sizeof local_mode);
+        fm_field(content, "ds4_output_kinds", output, sizeof output);
+        fm_field(content, "ds4_provider", provider, sizeof provider);
         free(content);
+        char assets[2300], refs[2300], example[2300];
+        snprintf(assets, sizeof assets, "%s/%s/assets", dir, id);
+        snprintf(refs, sizeof refs, "%s/%s/references", dir, id);
+        snprintf(example, sizeof example, "%s/%s/example.html", dir, id);
+        int has_assets = access(assets, R_OK) == 0;
+        int has_refs = access(refs, R_OK) == 0;
+        int has_example = access(example, R_OK) == 0;
         if (!any) { *o += (size_t)snprintf(out + *o, cap - *o, "%s:\n", label); any = 1; }
-        *o += (size_t)snprintf(out + *o, cap - *o, "- %s: %s\n", id, desc);
+        *o += (size_t)snprintf(out + *o, cap - *o, "- %s: %s", id, desc);
+        if (cat[0] || local_mode[0] || output[0] || provider[0] ||
+            has_assets || has_refs || has_example)
+        {
+            *o += (size_t)snprintf(out + *o, cap - *o, " [");
+            int first = 1;
+            if (cat[0]) { *o += (size_t)snprintf(out + *o, cap - *o, "cat=%s", cat); first = 0; }
+            if (local_mode[0]) { *o += (size_t)snprintf(out + *o, cap - *o, "%smode=%s", first ? "" : "; ", local_mode); first = 0; }
+            if (output[0]) { *o += (size_t)snprintf(out + *o, cap - *o, "%sout=%s", first ? "" : "; ", output); first = 0; }
+            if (provider[0]) { *o += (size_t)snprintf(out + *o, cap - *o, "%sprovider=%s", first ? "" : "; ", provider); first = 0; }
+            if (has_assets || has_refs || has_example) {
+                *o += (size_t)snprintf(out + *o, cap - *o, "%sfiles=", first ? "" : "; ");
+                if (has_assets) *o += (size_t)snprintf(out + *o, cap - *o, "assets");
+                if (has_refs) *o += (size_t)snprintf(out + *o, cap - *o, "%sreferences", has_assets ? "," : "");
+                if (has_example) *o += (size_t)snprintf(out + *o, cap - *o, "%sexample", (has_assets || has_refs) ? "," : "");
+            }
+            *o += (size_t)snprintf(out + *o, cap - *o, "]");
+        }
+        *o += (size_t)snprintf(out + *o, cap - *o, "\n");
     }
     closedir(d);
     if (any) *o += (size_t)snprintf(out + *o, cap - *o, "\n");
@@ -1176,7 +1855,7 @@ static void sys_append(char **buf, size_t *len, size_t *cap, char *src, size_t s
  * nothing to inject. The packs live in this DStudio checkout (g_web_dir), read here —
  * NOT through an engine tool — so the agents need no change and no access outside their
  * workspace. include_design_system gates the brand layer to design mode. */
-static char *build_skill_sys(int include_design_system) {
+static char *build_skill_sys(int include_design_system, int include_agent_question) {
     if (!g_web_dir[0]) return NULL;
     char path[2300];
     char *buf = NULL; size_t len = 0, cap = 0;
@@ -1199,32 +1878,37 @@ static char *build_skill_sys(int include_design_system) {
      * design_system() tools, plus the tool schemas (the agent's native prompt lacks
      * them; design also has them natively). The user's selected packs above are already
      * loaded — this lets the model reach the OTHERS without a restart. */
-    char *cat = malloc(8192);
+    const size_t catcap = 256 * 1024;
+    char *cat = malloc(catcap);
     if (cat) {
         size_t o = 0;
         char dir[2048], udir[1100];
-        o += (size_t)snprintf(cat + o, 8192 - o,
+        o += (size_t)snprintf(cat + o, catcap - o,
             "## On-demand packs\n\n"
             "Load any pack below at any time WITHOUT restarting, by calling these tools "
             "(DSML, exactly like your other tools):\n\n"
             "{\"type\":\"function\",\"function\":{\"name\":\"skill\",\"description\":\"Load a skill recipe (layout patterns + checklist) by id, then follow its checklist.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n"
-            "{\"type\":\"function\",\"function\":{\"name\":\"design_system\",\"description\":\"Load a brand pack (color tokens, type, components, voice) by id, then bind its tokens.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n");
+            "{\"type\":\"function\",\"function\":{\"name\":\"design_system\",\"description\":\"Load a brand pack (color tokens, type, components, voice) by id, then bind its tokens.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n"
+            "{\"type\":\"function\",\"function\":{\"name\":\"pack_file\",\"description\":\"Read an allowlisted pack file such as assets/template.html, references/checklist.md, references/layouts.md, or example.html after a pack lists available files.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"type\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"type\",\"name\",\"path\"]}}}\n");
+        if (!include_design_system && include_agent_question)
+            o += (size_t)snprintf(cat + o, catcap - o,
+                "{\"type\":\"function\",\"function\":{\"name\":\"question\",\"description\":\"Emit a structured question event for the UI. Use when you need the user to choose or clarify, then stop the turn.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"questions\":{\"type\":\"string\",\"description\":\"JSON array of question objects, e.g. [{id,label,type,options}].\"}},\"required\":[\"id\",\"title\",\"questions\"]}}}\n");
         if (include_design_system)
-            o += (size_t)snprintf(cat + o, 8192 - o,
+            o += (size_t)snprintf(cat + o, catcap - o,
                 "{\"type\":\"function\",\"function\":{\"name\":\"craft\",\"description\":\"Load a universal craft rules pack by id (accessibility before shipping; layout-responsive before any resize).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n");
-        o += (size_t)snprintf(cat + o, 8192 - o, "\n");
+        o += (size_t)snprintf(cat + o, catcap - o, "\n");
         user_skills_dir(udir, sizeof udir);
-        catalog_append(cat, 8192, &o, udir, "SKILL.md", "Your skills");
+        catalog_append(cat, catcap, &o, udir, "SKILL.md", "Your skills");
         snprintf(dir, sizeof dir, "%s/extension/skills", g_web_dir);
-        catalog_append(cat, 8192, &o, dir, "SKILL.md", "Design skills");
+        catalog_append(cat, catcap, &o, dir, "SKILL.md", "Design skills");
         if (include_design_system) {
             snprintf(dir, sizeof dir, "%s/extension/design-systems", g_web_dir);
-            catalog_append(cat, 8192, &o, dir, "DESIGN.md", "Available design systems");
+            catalog_append(cat, catcap, &o, dir, "DESIGN.md", "Available design systems");
             snprintf(dir, sizeof dir, "%s/extension/craft", g_web_dir);
-            catalog_append(cat, 8192, &o, dir, "CRAFT.md", "Craft rules (universal)");
+            catalog_append(cat, catcap, &o, dir, "CRAFT.md", "Craft rules (universal)");
         }
         if (g_skill[0] || (include_design_system && g_design_system[0]))
-            o += (size_t)snprintf(cat + o, 8192 - o,
+            o += (size_t)snprintf(cat + o, catcap - o,
                 "The pack(s) the user selected are already loaded above; use the tools to pull others.\n");
         sys_append(&buf, &len, &cap, cat, o);  /* frees cat */
     }
@@ -1241,8 +1925,22 @@ static int jsonl_copy_preserve(const char *src, const char *dst) {
     if (!ok) return 0;
     struct stat st;
     if (stat(src, &st) == 0) {
+#ifdef _WIN32
+        HANDLE h = CreateFileA(dst, FILE_WRITE_ATTRIBUTES,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                               NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (h != INVALID_HANDLE_VALUE) {
+            ULONGLONG ticks = ((ULONGLONG)st.st_mtime + 11644473600ULL) * 10000000ULL;
+            FILETIME ft;
+            ft.dwLowDateTime = (DWORD)ticks;
+            ft.dwHighDateTime = (DWORD)(ticks >> 32);
+            SetFileTime(h, NULL, &ft, &ft);
+            CloseHandle(h);
+        }
+#else
         struct timeval tv[2] = { { st.st_mtime, 0 }, { st.st_mtime, 0 } };
         utimes(dst, tv);
+#endif
     }
     return 1;
 }
@@ -1269,6 +1967,7 @@ static int jsonl_apply(const char *src_path) {
     size_t n;
     char *buf = jsonl_read_file(src_path, &n);
     if (!buf) return 0;
+    jsonl_normalize_newlines(buf, &n);
     if (strstr(buf, JSONL_MARK)) { free(buf); return 0; }  /* already patched */
     int nedits = (int)(sizeof JSONL_EDITS / sizeof JSONL_EDITS[0]);
     for (int i = 0; i < nedits; i++) {
@@ -1290,12 +1989,14 @@ static int jsonl_check_anchors(const char *src_path) {
     size_t n;
     char *buf = jsonl_read_file(src_path, &n);
     if (!buf) { printf("check-anchors: cannot read %s\n", src_path); return -1; }
+    jsonl_normalize_newlines(buf, &n);
     if (strstr(buf, JSONL_MARK))
         printf("check-anchors: NOTE source already contains %s (already patched?)\n", JSONL_MARK);
     int nedits = (int)(sizeof JSONL_EDITS / sizeof JSONL_EDITS[0]);
     int fails = 0;
     for (int i = 0; i < nedits; i++) {
         const char *find = JSONL_EDITS[i][0];
+        const char *repl = JSONL_EDITS[i][1];
         int cnt = 0;
         for (char *q = strstr(buf, find); q; q = strstr(q + 1, find)) cnt++;
         const char *verdict = cnt == 1 ? "ok" : (cnt == 0 ? "MISSING" : "AMBIGUOUS");
@@ -1305,6 +2006,7 @@ static int jsonl_check_anchors(const char *src_path) {
         preview[k] = '\0';
         printf("  anchor %2d/%d  %-9s  %s%s\n", i + 1, nedits, verdict, preview,
                k < strlen(find) ? " …" : "");
+        if (cnt == 1 && !jsonl_replace_once(&buf, &n, find, repl)) fails++;
     }
     free(buf);
     printf("check-anchors: %d/%d ok, %d would fail\n", nedits - fails, nedits, fails);
@@ -1313,6 +2015,10 @@ static int jsonl_check_anchors(const char *src_path) {
 
 /* `make -f - <target>` in the ds4 dir, with the inline makefile on stdin. */
 static int jsonl_make(const char *ds4_abs, const char *target) {
+#ifdef _WIN32
+    (void)ds4_abs; (void)target;
+    return 0;
+#else
     int pp[2];
     if (pipe(pp) != 0) return 0;
     pid_t pid = fork();
@@ -1321,7 +2027,23 @@ static int jsonl_make(const char *ds4_abs, const char *target) {
         if (chdir(ds4_abs) != 0) _exit(127);
         dup2(pp[0], STDIN_FILENO);
         close(pp[0]); close(pp[1]);
-        execlp("make", "make", "-f", "-", target, (char *)NULL);
+        char core_arg[4096], libs_arg[4096], cflags_arg[4096], cc_arg[4096];
+        char *argv[10];
+        int ai = 0;
+        argv[ai++] = "make";
+        argv[ai++] = "-f";
+        argv[ai++] = "-";
+        argv[ai++] = (char *)target;
+        const char *cc = getenv("DS4UI_JSONL_CC");
+        const char *cf = getenv("DS4UI_JSONL_CFLAGS");
+        const char *co = getenv("DS4UI_JSONL_CORE_OBJS");
+        const char *ll = getenv("DS4UI_JSONL_LDLIBS");
+        if (cc && cc[0]) { snprintf(cc_arg, sizeof cc_arg, "CC=%s", cc); argv[ai++] = cc_arg; }
+        if (cf && cf[0]) { snprintf(cflags_arg, sizeof cflags_arg, "JSONL_CFLAGS=%s", cf); argv[ai++] = cflags_arg; }
+        if (co && co[0]) { snprintf(core_arg, sizeof core_arg, "JSONL_CORE_OBJS=%s", co); argv[ai++] = core_arg; }
+        if (ll && ll[0]) { snprintf(libs_arg, sizeof libs_arg, "JSONL_LDLIBS=%s", ll); argv[ai++] = libs_arg; }
+        argv[ai] = NULL;
+        execvp("make", argv);
         _exit(127);
     }
     close(pp[0]);
@@ -1335,6 +2057,7 @@ static int jsonl_make(const char *ds4_abs, const char *target) {
     int st;
     if (waitpid(pid, &st, 0) != pid) return 0;
     return WIFEXITED(st) && WEXITSTATUS(st) == 0;
+#endif
 }
 
 static int jsonl_sentinel_ok(const char *path) {
@@ -1350,41 +2073,69 @@ static int jsonl_sentinel_ok(const char *path) {
  * from Finder/bundle: cwd = "/"). Order: cwd → next to the executable → folder
  * containing the bundle (Contents/MacOS → ../../..) → ~/Documents/dev/ds4. */
 static void resolve_ds4_dir(void) {
-    char abs[2048];
+    char abs[DSTUDIO_PATH_MAX];
     if (realpath(g_ds4_dir, abs) && access(abs, R_OK) == 0) {
-        snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", abs);
+        cstr_copy(g_ds4_dir, sizeof g_ds4_dir, abs);
         return;
     }
 #ifdef __APPLE__
-    char exe[2048];
+    char exe[DSTUDIO_PATH_MAX];
     uint32_t n = sizeof exe;
     if (_NSGetExecutablePath(exe, &n) == 0) {
-        char exabs[2048];
+        char exabs[DSTUDIO_PATH_MAX];
         if (realpath(exe, exabs)) {
             char *slash = strrchr(exabs, '/');
             if (slash) {
                 *slash = '\0';
-                char cand[4200];
+                char cand[DSTUDIO_PATH_MAX + 2048];
                 snprintf(cand, sizeof cand, "%s/%s", exabs, g_ds4_dir);
                 if (realpath(cand, abs) && access(abs, R_OK) == 0) {
-                    snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", abs);
+                    cstr_copy(g_ds4_dir, sizeof g_ds4_dir, abs);
                     return;
                 }
                 snprintf(cand, sizeof cand, "%s/../../../%s", exabs, g_ds4_dir);
                 if (realpath(cand, abs) && access(abs, R_OK) == 0) {
-                    snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", abs);
+                    cstr_copy(g_ds4_dir, sizeof g_ds4_dir, abs);
                     return;
                 }
             }
         }
     }
 #endif
+#ifdef _WIN32
+    char exe[DSTUDIO_PATH_MAX];
+    DWORD en = GetModuleFileNameA(NULL, exe, sizeof exe);
+    if (en > 0 && en < sizeof exe) {
+        char *slash = strrchr(exe, '\\');
+        if (slash) {
+            *slash = '\0';
+            char cand[DSTUDIO_PATH_MAX + 2048];
+            snprintf(cand, sizeof cand, "%s\\%s", exe, g_ds4_dir);
+            if (realpath(cand, abs) && access(abs, R_OK) == 0) {
+                cstr_copy(g_ds4_dir, sizeof g_ds4_dir, abs);
+                return;
+            }
+            snprintf(cand, sizeof cand, "%s\\ds4", exe);
+            if (realpath(cand, abs) && access(abs, R_OK) == 0) {
+                cstr_copy(g_ds4_dir, sizeof g_ds4_dir, abs);
+                return;
+            }
+        }
+    }
+#endif
     const char *home = getenv("HOME");
+#ifdef _WIN32
+    if (!home || !home[0]) home = getenv("USERPROFILE");
+#endif
     if (home && home[0]) {
-        char cand[2048];
+        char cand[DSTUDIO_PATH_MAX];
+#ifdef _WIN32
+        snprintf(cand, sizeof cand, "%s\\Documents\\dev\\ds4", home);
+#else
         snprintf(cand, sizeof cand, "%s/Documents/dev/ds4", home);
+#endif
         if (access(cand, R_OK) == 0) {
-            snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", cand);
+            cstr_copy(g_ds4_dir, sizeof g_ds4_dir, cand);
             return;
         }
     }
@@ -1396,9 +2147,14 @@ static void resolve_ds4_dir(void) {
  * All in C: backup .bak, patch, make, restore.
  * Replaces the former extension/jsonl/build-jsonl.sh + inject.py script. */
 static int run_build_jsonl(const char *action) {
-    char ds4_abs[2048];
+#ifdef _WIN32
+    (void)action;
+    return file_present("ds4-agent-jsonl.exe");
+#else
+    char ds4_abs[DSTUDIO_PATH_MAX];
     if (!realpath(g_ds4_dir, ds4_abs)) return 0;
-    char src[2200], bak[2300], bin[2300], ver[2300];
+    char src[DSTUDIO_PATH_MAX + 64], bak[DSTUDIO_PATH_MAX + 64];
+    char bin[DSTUDIO_PATH_MAX + 64], ver[DSTUDIO_PATH_MAX + 64];
     snprintf(src, sizeof src, "%s/ds4_agent.c", ds4_abs);
     snprintf(bak, sizeof bak, "%s/ds4_agent.c.ds4ui.bak", ds4_abs);
     snprintf(bin, sizeof bin, "%s/ds4-agent-jsonl", ds4_abs);
@@ -1434,6 +2190,7 @@ static int run_build_jsonl(const char *action) {
         jsonl_write_file(ver, vs, (size_t)vn);
     }
     return ok;
+#endif
 }
 
 /* Runs an extension script (build/restore of the derived binaries).
@@ -1444,17 +2201,17 @@ static int run_build_jsonl(const char *action) {
  * relative "extension/..." path would not be found. Tries cwd, then next to
  * the executable, then up out of the .app bundle (DStudio.app/Contents/MacOS). */
 static void resolve_web_dir(void) {
-    char cand[2200], abs[2048];
+    char cand[DSTUDIO_PATH_MAX + 2048], abs[DSTUDIO_PATH_MAX];
     snprintf(cand, sizeof cand, "extension");
     if (realpath(cand, abs) && access(abs, R_OK) == 0) {
         char *slash = strrchr(abs, '/'); if (slash) *slash = '\0';
-        snprintf(g_web_dir, sizeof g_web_dir, "%s", abs);
+        cstr_copy(g_web_dir, sizeof g_web_dir, abs);
         return;
     }
 #ifdef __APPLE__
-    char exe[2048]; uint32_t n = sizeof exe;
+    char exe[DSTUDIO_PATH_MAX]; uint32_t n = sizeof exe;
     if (_NSGetExecutablePath(exe, &n) == 0) {
-        char exabs[2048];
+        char exabs[DSTUDIO_PATH_MAX];
         if (realpath(exe, exabs)) {
             char *slash = strrchr(exabs, '/');
             if (slash) {
@@ -1464,9 +2221,28 @@ static void resolve_web_dir(void) {
                     snprintf(cand, sizeof cand, rels[i], exabs);
                     if (realpath(cand, abs) && access(abs, R_OK) == 0) {
                         char *s2 = strrchr(abs, '/'); if (s2) *s2 = '\0';
-                        snprintf(g_web_dir, sizeof g_web_dir, "%s", abs);
+                        cstr_copy(g_web_dir, sizeof g_web_dir, abs);
                         return;
                     }
+                }
+            }
+        }
+    }
+#endif
+#ifdef _WIN32
+    char exe[DSTUDIO_PATH_MAX];
+    DWORD n = GetModuleFileNameA(NULL, exe, sizeof exe);
+    if (n > 0 && n < sizeof exe) {
+        char *slash = strrchr(exe, '\\');
+        if (slash) {
+            *slash = '\0';
+            const char *rels[] = { "%s\\extension", "%s\\..\\extension" };
+            for (int i = 0; i < 2; i++) {
+                snprintf(cand, sizeof cand, rels[i], exe);
+                if (realpath(cand, abs) && access(abs, R_OK) == 0) {
+                    char *s2 = strrchr(abs, '\\'); if (s2) *s2 = '\0';
+                    cstr_copy(g_web_dir, sizeof g_web_dir, abs);
+                    return;
                 }
             }
         }
@@ -1476,10 +2252,14 @@ static void resolve_web_dir(void) {
 }
 
 static int run_ext_script(const char *script, const char *action) {
-    char ds4_abs[2048];
+#ifdef _WIN32
+    (void)script; (void)action;
+    return file_present("ds4-design.exe");
+#else
+    char ds4_abs[DSTUDIO_PATH_MAX];
     if (!realpath(g_ds4_dir, ds4_abs)) return 0;
     /* Absolute script path so it resolves regardless of cwd (bundle = "/"). */
-    char abs_script[2300];
+    char abs_script[DSTUDIO_PATH_MAX + 1024];
     if (g_web_dir[0]) snprintf(abs_script, sizeof abs_script, "%s/%s", g_web_dir, script);
     else snprintf(abs_script, sizeof abs_script, "%s", script);
     pid_t pid = fork();
@@ -1492,12 +2272,13 @@ static int run_ext_script(const char *script, const char *action) {
     int st;
     if (waitpid(pid, &st, 0) != pid) return 0;
     return WIFEXITED(st) && WEXITSTATUS(st) == 0;
+#endif
 }
 
 /* Starts ds4-agent-jsonl --non-interactive --jsonl. in/out/err on pipe. */
 static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, size_t errsz) {
     if (!file_present(current_model_rel())) {
-        snprintf(err, errsz, "model %s not found in %s",
+        snprintf(err, errsz, "model %.16s not found in %.180s",
                  g_variant, g_ds4_dir);
         return 0;
     }
@@ -1519,13 +2300,23 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     int use_jsonl = g_use_jsonl && run_build_jsonl("build");
     if (g_use_jsonl && !use_jsonl)
         printf("engine: jsonl patch unavailable — falling back to stock ds4-agent (raw output)\n");
-    const char *agent_bin = use_jsonl ? "ds4-agent-jsonl" : "ds4-agent";
+    const char *agent_bin = use_jsonl
+#ifdef _WIN32
+        ? "ds4-agent-jsonl.exe" : "ds4-agent.exe";
+#else
+        ? "ds4-agent-jsonl" : "ds4-agent";
+#endif
     if (!file_present(agent_bin)) {
-        snprintf(err, errsz, "%s not found in %s — build ds4 first (make)", agent_bin, g_ds4_dir);
+        snprintf(err, errsz, "%.32s not found in %.150s — build ds4 first (make)", agent_bin, g_ds4_dir);
         return 0;
     }
+#ifdef _WIN32
+    int ip[2] = {-1, -1}, op[2] = {-1, -1}, ep[2] = {-1, -1};
+    (void)ip; (void)op; (void)ep;
+#else
     int ip[2], op[2], ep[2];
     if (pipe(ip) != 0 || pipe(op) != 0 || pipe(ep) != 0) { snprintf(err, errsz, "pipe failed"); return 0; }
+#endif
 
     char ctxs[16], pows[16];
     snprintf(ctxs, sizeof ctxs, "%d", cfg->ctx);
@@ -1535,14 +2326,14 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
 
     /* The agent's --chdir changes cwd BEFORE loading the assets, so both the
      * model and the Metal sources must be passed as ABSOLUTE paths. */
-    char cand[2048], model_abs[2048], ds4_abs[2048];
+    char cand[DSTUDIO_PATH_MAX + 256], model_abs[DSTUDIO_PATH_MAX], ds4_abs[DSTUDIO_PATH_MAX];
     snprintf(cand, sizeof cand, "%s/%s", g_ds4_dir, current_model_rel());
     if (!realpath(cand, model_abs)) {
-        snprintf(err, errsz, "model not resolvable: %s", cand);
+        snprintf(err, errsz, "model not resolvable: %.200s", cand);
         return 0;
     }
     if (!realpath(g_ds4_dir, ds4_abs)) {
-        snprintf(err, errsz, "ds4 dir not resolvable: %s", g_ds4_dir);
+        snprintf(err, errsz, "ds4 dir not resolvable: %.200s", g_ds4_dir);
         return 0;
     }
 
@@ -1550,8 +2341,37 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
      * parent frees its copy after the fork. The shared charter + active skill go in
      * via the agent's own -sys flag — no change to ds4-agent itself. The design-system
      * (brand) layer is design-only, so it is excluded here (0). */
-    char *skill_sys = build_skill_sys(0);
-    if (g_build_mode) {
+    char *skill_sys = build_skill_sys(0, use_jsonl);
+    if (!g_build_mode && use_jsonl) {
+        /* Normal agent, Build Off: keep Claude-like discovery for direction-sensitive
+         * work without slowing down straightforward code edits.  This is injected via
+         * -sys only; antirez's ds4_agent.c stays untouched. */
+        static const char *normal_agent_discovery =
+            "\n\n## NORMAL AGENT DISCOVERY (Build Off)\n"
+            "Default to action, but ask before committing to a direction when the missing "
+            "choice would materially change the result.\n"
+            "Ask a compact clarification first, then stop, when the user asks for a NEW "
+            "app/site/UI/product flow/brand-facing page and two or more of these are missing "
+            "from the prompt and repository context: target user, primary workflow, required "
+            "stack/framework, page/screen list, visual direction/brand/reference, must-have "
+            "data or integrations, non-goals/constraints.\n"
+            "For UI/design work, ask especially when the visual direction is absent: audience, "
+            "vibe, reference/brand, and scope are direction-setting. When you ask, use the "
+            "question(id,title,questions) tool and STOP. Do not ask in plain prose. The "
+            "questions argument is a JSON array string with 1-4 objects: {id,label,type,options}; "
+            "type is radio, checkbox, select, text, or textarea. Prefer choices over free text.\n"
+            "When the next user message starts with §QUESTION_ANSWER, treat it as the user's "
+            "answer to that UI question form and continue with a brief plan plus implementation.\n"
+            "Do NOT ask first for bug fixes, tests, reviews, refactors with clear files, shell "
+            "commands, dependency updates, or small requested changes. Inspect the repo first "
+            "when files can answer the question. If only one minor ambiguity remains, state a "
+            "reasonable assumption and proceed.\n"
+            "Never ask the same clarification twice; once the user answers, proceed with a "
+            "brief plan and implementation.\n";
+        size_t cur = skill_sys ? strlen(skill_sys) : 0, dl = strlen(normal_agent_discovery);
+        char *nb = realloc(skill_sys, cur + dl + 1);
+        if (nb) { skill_sys = nb; memcpy(skill_sys + cur, normal_agent_discovery, dl + 1); }
+    } else {
         /* Build mode (planned): a deterministic driver (the web UI) first asks the model to
          * propose a plan (pages + style), writes plan.md, then walks it ONE page at a time —
          * the designer makes each page, the agent wires it. Each agent turn handles exactly
@@ -1575,6 +2395,32 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
         if (nb) { skill_sys = nb; memcpy(skill_sys + cur, proto_plan, pl + 1); }
     }
 
+#ifdef _WIN32
+    char exe[2200];
+    win_join_path(exe, sizeof exe, g_ds4_dir, agent_bin);
+    char *think_flag = cfg->think == 0 ? "--nothink"
+                     : cfg->think == 2 ? "--think-max"
+                     : "--think";
+    char *argv[20]; int n = 0;
+    argv[n++] = exe;
+    argv[n++] = "--non-interactive";
+    if (use_jsonl) argv[n++] = "--jsonl";
+    argv[n++] = "--cpu";
+    argv[n++] = "-m"; argv[n++] = model_abs;
+    argv[n++] = "-c"; argv[n++] = ctxs;
+    argv[n++] = "--power"; argv[n++] = pows;
+    argv[n++] = think_flag;
+    argv[n++] = "--chdir"; argv[n++] = wd;
+    if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
+    argv[n] = NULL;
+    pid_t pid = 0;
+    if (!win_spawn(g_ds4_dir, argv, 1, &g_in_fd, &g_out_fd, &g_err_fd, &pid, err, errsz)) {
+        free(skill_sys);
+        return 0;
+    }
+    g_child_win_pid = g_last_spawn_win_pid;
+    free(skill_sys);
+#else
     pid_t pid = fork();
     if (pid < 0) { snprintf(err, errsz, "fork: %s", strerror(errno)); free(skill_sys); return 0; }
     if (pid == 0) {
@@ -1610,6 +2456,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     close(ip[0]); close(op[1]); close(ep[1]);
     g_in_fd = ip[1]; g_out_fd = op[0]; g_err_fd = ep[0];
     set_nonblock(g_out_fd); set_nonblock(g_err_fd);
+#endif
     g_child = pid; g_mode = ENGINE_AGENT; g_cfg = *cfg;
     g_jsonl_active = use_jsonl;
     snprintf(g_workdir, sizeof g_workdir, "%s", wd);
@@ -1629,7 +2476,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
  * compiles it in the ds4 repo as an untracked output, without patch or .bak. */
 static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, size_t errsz) {
     if (!file_present(current_model_rel())) {
-        snprintf(err, errsz, "model %s not found in %s",
+        snprintf(err, errsz, "model %.16s not found in %.180s",
                  g_variant, g_ds4_dir);
         return 0;
     }
@@ -1640,12 +2487,24 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
                  ENGINE_DEFAULTS.port);
         return 0;
     }
+#ifdef _WIN32
+    if (!file_present("ds4-design.exe")) {
+        snprintf(err, errsz, "ds4-design.exe not found in %s — use the Windows CPU artifact", g_ds4_dir);
+        return 0;
+    }
+#else
     if (!run_ext_script("extension/design/build-design.sh", "build")) {
         snprintf(err, errsz, "build of ds4-design failed (see the serve terminal)");
         return 0;
     }
+#endif
+#ifdef _WIN32
+    int ip[2] = {-1, -1}, op[2] = {-1, -1}, ep[2] = {-1, -1};
+    (void)ip; (void)op; (void)ep;
+#else
     int ip[2], op[2], ep[2];
     if (pipe(ip) != 0 || pipe(op) != 0 || pipe(ep) != 0) { snprintf(err, errsz, "pipe failed"); return 0; }
+#endif
 
     char ctxs[16], pows[16];
     snprintf(ctxs, sizeof ctxs, "%d", cfg->ctx);
@@ -1660,8 +2519,33 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
 
     /* Same as the agent, but design also gets the active design-system (brand) layer (1):
      * charter + DESIGN.md + SKILL.md, injected via ds4-design's -sys flag. */
-    char *skill_sys = build_skill_sys(1);
+    char *skill_sys = build_skill_sys(1, 0);
 
+#ifdef _WIN32
+    char exe[2200];
+    win_join_path(exe, sizeof exe, g_ds4_dir, "ds4-design.exe");
+    char *think_flag = cfg->think == 0 ? "--nothink"
+                     : cfg->think == 2 ? "--think-max"
+                     : "--think";
+    char *argv[18]; int n = 0;
+    argv[n++] = exe;
+    argv[n++] = "--jsonl";
+    argv[n++] = "--cpu";
+    argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
+    argv[n++] = "-c"; argv[n++] = ctxs;
+    argv[n++] = "--power"; argv[n++] = pows;
+    argv[n++] = think_flag;
+    argv[n++] = "--workspace"; argv[n++] = wd;
+    if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
+    argv[n] = NULL;
+    pid_t pid = 0;
+    if (!win_spawn(g_ds4_dir, argv, 1, &g_in_fd, &g_out_fd, &g_err_fd, &pid, err, errsz)) {
+        free(skill_sys);
+        return 0;
+    }
+    g_child_win_pid = g_last_spawn_win_pid;
+    free(skill_sys);
+#else
     pid_t pid = fork();
     if (pid < 0) { snprintf(err, errsz, "fork: %s", strerror(errno)); free(skill_sys); return 0; }
     if (pid == 0) {
@@ -1693,6 +2577,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     close(ip[0]); close(op[1]); close(ep[1]);
     g_in_fd = ip[1]; g_out_fd = op[0]; g_err_fd = ep[0];
     set_nonblock(g_out_fd); set_nonblock(g_err_fd);
+#endif
     g_child = pid; g_mode = ENGINE_DESIGN; g_cfg = *cfg;
     g_jsonl_active = 1; /* design uses its own native --jsonl (DStudio's extension) */
     snprintf(g_workdir, sizeof g_workdir, "%s", wd);
@@ -1749,6 +2634,12 @@ static const char *mode_name(int m) {
  * pro-q2-imatrix; flash → download-abliterated.sh), logging to a file. The
  * percentage is read from the growing file in /api/status. */
 static void api_model_download(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    send_json(fd, "501 Not Implemented",
+              "{\"ok\":false,\"error\":\"model download scripts are not available in the Windows portable build yet\"}");
+    return;
+#else
     char variant[16] = {0}, target[48] = {0};
     json_get_string(body, "variant", variant, sizeof variant);
     json_get_string(body, "target", target, sizeof target);
@@ -1772,7 +2663,7 @@ static void api_model_download(int fd, const char *body) {
         send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"a download is already running\"}");
         return;
     }
-    char ds4_abs[2048];
+    char ds4_abs[DSTUDIO_PATH_MAX];
     if (!realpath(g_ds4_dir, ds4_abs)) {
         send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"ds4 dir not found\"}");
         return;
@@ -1789,11 +2680,12 @@ static void api_model_download(int fd, const char *body) {
         _exit(127);
     }
     g_dl_pid = pid;
-    snprintf(g_dl_variant, sizeof g_dl_variant, "%s", abliterated ? "flash" : target);
+    cstr_copy(g_dl_variant, sizeof g_dl_variant, abliterated ? "flash" : target);
     printf("model: downloading %s (pid %d) — log /tmp/ds4-model-dl.log\n", abliterated ? "abliterated" : target, (int)pid);
     char out[96];
     snprintf(out, sizeof out, "{\"ok\":true,\"target\":\"%s\"}", abliterated ? "flash" : target);
     send_json(fd, "200 OK", out);
+#endif
 }
 
 static void api_status(int fd) {
@@ -1832,7 +2724,7 @@ static void api_status(int fd) {
     char lan_addr[80];
     int lan_on = lan_status(lan_addr, sizeof lan_addr);
 
-    char body[6144];
+    char body[12288];
     snprintf(body, sizeof body,
         "{\"mode\":\"%s\",\"running\":%s,\"ready\":%s,\"loadPct\":%d,\"stage\":\"%s\","
         "\"agentWorking\":%s,\"workdir\":\"%s\",\"config\":%s,\"jsonl\":%s,"
@@ -1894,11 +2786,48 @@ static void fm_field(const char *content, const char *key, char *out, size_t out
     out[0] = '\0';
     size_t klen = strlen(key);
     const char *p = content;
-    int at_line_start = 1, scanned = 0;
-    while (*p && scanned < 800) {
+    int at_line_start = 1;
+    int fm_delims = 0;
+    size_t scanned = 0;
+    while (*p && scanned < 8192) {
+        if (at_line_start && p[0] == '-' && p[1] == '-' && p[2] == '-') {
+            fm_delims++;
+            if (fm_delims >= 2) return;
+        }
         if (at_line_start && !strncmp(p, key, klen) && p[klen] == ':') {
             p += klen + 1;
             while (*p == ' ' || *p == '\t') p++;
+            if (*p == '|' || *p == '>') {
+                const char *nl = strchr(p, '\n');
+                if (!nl) return;
+                p = nl + 1;
+                int indent = -1;
+                size_t o = 0;
+                while (*p && scanned < 8192) {
+                    const char *line = p;
+                    const char *end = strchr(line, '\n');
+                    size_t len = end ? (size_t)(end - line) : strlen(line);
+                    if (len >= 3 && line[0] == '-' && line[1] == '-' && line[2] == '-') break;
+                    int ind = 0;
+                    while (line[ind] == ' ' || line[ind] == '\t') ind++;
+                    if (line[ind] && indent < 0) indent = ind;
+                    if (line[ind] && indent >= 0 && ind < indent) break;
+                    if (line[ind] && indent >= 0) {
+                        const char *s = line + indent;
+                        const char *e = line + len;
+                        while (e > s && (e[-1] == ' ' || e[-1] == '\t' || e[-1] == '\r')) e--;
+                        if (e > s) {
+                            if (o && o < outsz - 1) out[o++] = ' ';
+                            while (s < e && o < outsz - 1) out[o++] = *s++;
+                        }
+                    }
+                    if (!end) break;
+                    scanned += len + 1;
+                    p = end + 1;
+                }
+                out[o] = '\0';
+                return;
+            }
             size_t o = 0;
             while (*p && *p != '\n' && *p != '\r' && o < outsz - 1) out[o++] = *p++;
             while (o > 0 && (out[o - 1] == ' ' || out[o - 1] == '\t')) o--;
@@ -1914,43 +2843,76 @@ static void fm_field(const char *content, const char *key, char *out, size_t out
  * reading each pack's frontmatter name/description/modes. Shared by /api/skills and
  * /api/design-systems. key is the top-level JSON array name. */
 static void md_catalog(int fd, const char *subdir, const char *file, const char *key) {
-    char body[8192];
-    int o = snprintf(body, sizeof body, "{\"ok\":true,\"%s\":[", key);
+    json_dyn_buf body = {0};
+    if (!json_dyn_printf(&body, "{\"ok\":true,\"%s\":[", key)) {
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false}");
+        return;
+    }
     int n = 0;
     if (g_web_dir[0]) {
-        char dir[2048];
+        char dir[12288];
         snprintf(dir, sizeof dir, "%s/extension/%s", g_web_dir, subdir);
         DIR *d = opendir(dir);
         if (d) {
             struct dirent *de;
-            while ((de = readdir(d)) != NULL && o < (int)sizeof body - 1400) {
+            while ((de = readdir(d)) != NULL) {
                 const char *id = de->d_name;
                 if (id[0] == '.' || !skill_id_ok(id)) continue;
-                char md[2300];
-                snprintf(md, sizeof md, "%s/%s/%s", dir, id, file);
+                size_t mdlen = strlen(dir) + 1 + strlen(id) + 1 + strlen(file) + 1;
+                char *md = malloc(mdlen);
+                if (!md) continue;
+                snprintf(md, mdlen, "%s/%s/%s", dir, id, file);
                 size_t len = 0;
                 char *content = jsonl_read_file(md, &len);
+                free(md);
                 if (!content) continue;
-                char nm[200], desc[600], modes[160];
+                char nm[300], desc[900], modes[200], cat[160], local_mode[120];
+                char output[240], provider[180], upstream[400];
                 fm_field(content, "name", nm, sizeof nm);
                 fm_field(content, "description", desc, sizeof desc);
                 fm_field(content, "modes", modes, sizeof modes);
+                fm_field(content, "ds4_category", cat, sizeof cat);
+                fm_field(content, "ds4_local_mode", local_mode, sizeof local_mode);
+                fm_field(content, "ds4_output_kinds", output, sizeof output);
+                fm_field(content, "ds4_provider", provider, sizeof provider);
+                fm_field(content, "ds4_upstream", upstream, sizeof upstream);
                 free(content);
-                if (!nm[0]) snprintf(nm, sizeof nm, "%s", id);
-                char ide[200], nme[400], dse[1200], mde[340];
-                json_escape_into(ide, sizeof ide, id, strlen(id));
-                json_escape_into(nme, sizeof nme, nm, strlen(nm));
-                json_escape_into(dse, sizeof dse, desc, strlen(desc));
-                json_escape_into(mde, sizeof mde, modes, strlen(modes));
-                o += snprintf(body + o, sizeof body - o,
-                    "%s{\"id\":\"%s\",\"name\":\"%s\",\"description\":\"%s\",\"modes\":\"%s\"}",
-                    n++ ? "," : "", ide, nme, dse, mde);
+                if (!nm[0]) cstr_copy(nm, sizeof nm, id);
+                char assets[2300], refs[2300], example[2300];
+                snprintf(assets, sizeof assets, "%s/%s/assets", dir, id);
+                snprintf(refs, sizeof refs, "%s/%s/references", dir, id);
+                snprintf(example, sizeof example, "%s/%s/example.html", dir, id);
+                int has_assets = access(assets, R_OK) == 0;
+                int has_refs = access(refs, R_OK) == 0;
+                int has_example = access(example, R_OK) == 0;
+
+                if (!json_dyn_puts(&body, n++ ? ",{" : "{")) goto oom;
+                if (!json_dyn_puts(&body, "\"id\":") || !json_dyn_put_escaped(&body, id)) goto oom;
+                if (!json_dyn_puts(&body, ",\"name\":") || !json_dyn_put_escaped(&body, nm)) goto oom;
+                if (!json_dyn_puts(&body, ",\"description\":") || !json_dyn_put_escaped(&body, desc)) goto oom;
+                if (!json_dyn_puts(&body, ",\"modes\":") || !json_dyn_put_escaped(&body, modes)) goto oom;
+                if (!json_dyn_puts(&body, ",\"category\":") || !json_dyn_put_escaped(&body, cat)) goto oom;
+                if (!json_dyn_puts(&body, ",\"localMode\":") || !json_dyn_put_escaped(&body, local_mode)) goto oom;
+                if (!json_dyn_puts(&body, ",\"outputKinds\":") || !json_dyn_put_escaped(&body, output)) goto oom;
+                if (!json_dyn_puts(&body, ",\"provider\":") || !json_dyn_put_escaped(&body, provider)) goto oom;
+                if (!json_dyn_puts(&body, ",\"upstream\":") || !json_dyn_put_escaped(&body, upstream)) goto oom;
+                if (!json_dyn_printf(&body,
+                                      ",\"hasAssets\":%s,\"hasReferences\":%s,\"hasExample\":%s}",
+                                      has_assets ? "true" : "false",
+                                      has_refs ? "true" : "false",
+                                      has_example ? "true" : "false"))
+                    goto oom;
             }
             closedir(d);
         }
     }
-    snprintf(body + o, sizeof body - o, "]}");
-    send_json(fd, "200 OK", body);
+    if (!json_dyn_puts(&body, "]}")) goto oom;
+    send_json(fd, "200 OK", body.ptr ? body.ptr : "{\"ok\":true}");
+    free(body.ptr);
+    return;
+oom:
+    free(body.ptr);
+    send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"catalog memory\"}");
 }
 
 /* GET /api/skills — skill packs (extension/skills/<id>/SKILL.md). */
@@ -1980,16 +2942,16 @@ static void api_user_skills(int fd) {
         while ((de = readdir(d)) != NULL && o < (int)sizeof body - 1400) {
             const char *id = de->d_name;
             if (id[0] == '.' || !skill_id_ok(id)) continue;
-            char md[1300];
+            char md[1600];
             snprintf(md, sizeof md, "%s/%s/SKILL.md", dir, id);
             size_t len = 0;
             char *content = jsonl_read_file(md, &len);
             if (!content) continue;
-            char nm[200], desc[600];
+            char nm[300], desc[600];
             fm_field(content, "name", nm, sizeof nm);
             fm_field(content, "description", desc, sizeof desc);
             free(content);
-            if (!nm[0]) snprintf(nm, sizeof nm, "%s", id);
+            if (!nm[0]) cstr_copy(nm, sizeof nm, id);
             char ide[200], nme[400], dse[1200];
             json_escape_into(ide, sizeof ide, id, strlen(id));
             json_escape_into(nme, sizeof nme, nm, strlen(nm));
@@ -2066,7 +3028,7 @@ static void api_user_skill_save(int fd, const char *reqbody) {
         send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"could not write the skill\"}");
         return;
     }
-    char out[160];
+    char out[260];
     char ide[200];
     json_escape_into(ide, sizeof ide, id, strlen(id));
     snprintf(out, sizeof out, "{\"ok\":true,\"id\":\"%s\"}", ide);
@@ -2165,15 +3127,14 @@ static void api_start(int fd, const char *body) {
         else if (skill_id_ok(ds)) snprintf(g_design_system, sizeof g_design_system, "%s", ds);
     }
 
-    /* Build mode (planned): on/off. The web UI sends "plan"/"on" (or a legacy bool/"auto",
-     * all treated as on); "off"/false turns it off. On also remembers the workspace so the
-     * driver's /api/build endpoints (plan.md, file listing) target the right folder. */
+    /* Build mode (planned): on/off. The web UI sends "plan"/"on" or "off".
+     * On also remembers the workspace so the driver's /api/build endpoints
+     * (plan.md, file listing) target the right folder. */
     if (strstr(body, "\"build\"")) {
         char bv[16] = "";
         json_get_string(body, "build", bv, sizeof bv);
-        if (!strcmp(bv, "off") || !strcmp(bv, "false"))               g_build_mode = 0;
-        else if (bv[0])                                               g_build_mode = 2;   /* plan/on/auto/anything else */
-        else                                                          g_build_mode = json_get_bool(body, "build") ? 2 : 0; /* legacy bool */
+        if (!strcmp(bv, "plan") || !strcmp(bv, "on")) g_build_mode = 2;
+        else                                          g_build_mode = 0;
         if (g_build_mode && (want_agent || want_design) && workdir[0])
             snprintf(g_build_dir, sizeof g_build_dir, "%s", workdir);
     }
@@ -2271,7 +3232,11 @@ static void api_agent_interrupt(int fd) {
         send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"agent not active\"}");
         return;
     }
+#ifdef _WIN32
+    if (g_child_win_pid) GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, g_child_win_pid);
+#else
     kill(g_child, SIGINT);
+#endif
     g_agent_working = 0; /* the WAITING marker will reconfirm; clear early so the UI does not flicker */
     send_json(fd, "200 OK", "{\"ok\":true}");
 }
@@ -2570,6 +3535,120 @@ static void api_design_files(int fd) {
     free(b.ptr);
 }
 
+static long design_line_seq(const char *line) {
+    const char *p = strstr(line, "\"seq\"");
+    if (!p) return -1;
+    p += 5;
+    while (*p && (*p == ' ' || *p == '\t' || *p == ':')) p++;
+    if (!isdigit((unsigned char)*p)) return -1;
+    return strtol(p, NULL, 10);
+}
+
+static char *read_small_file(const char *path, size_t max, size_t *len_out) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
+    long sz = ftell(f);
+    if (sz < 0 || (size_t)sz > max) { fclose(f); return NULL; }
+    rewind(f);
+    char *buf = malloc((size_t)sz + 1);
+    if (!buf) { fclose(f); return NULL; }
+    size_t got = fread(buf, 1, (size_t)sz, f);
+    fclose(f);
+    if (got != (size_t)sz) { free(buf); return NULL; }
+    buf[got] = '\0';
+    if (len_out) *len_out = got;
+    return buf;
+}
+
+static void api_design_events(int fd, const char *path) {
+    long since = 0;
+    const char *q = strstr(path, "since=");
+    if (q) since = strtol(q + 6, NULL, 10);
+    design_buf_t b = {0};
+    dbuf_puts(&b, "{\"ok\":true,\"events\":[");
+    int count = 0;
+    if (g_design_dir[0]) {
+        char hist[2048];
+        snprintf(hist, sizeof hist, "%s/.ds4-design/history.jsonl", g_design_dir);
+        FILE *f = fopen(hist, "rb");
+        if (f) {
+            char line[65536];
+            while (fgets(line, sizeof line, f)) {
+                size_t n = strlen(line);
+                if (!n || line[n - 1] != '\n') continue; /* ignore partial tail */
+                long seq = design_line_seq(line);
+                if (seq <= since) continue;
+                line[n - 1] = '\0';
+                if (count) dbuf_puts(&b, ",");
+                dbuf_puts(&b, line);
+                count++;
+                if (count >= 500) break;
+            }
+            fclose(f);
+        }
+    }
+    dbuf_puts(&b, "]}");
+    send_response(fd, "200 OK", "application/json; charset=utf-8",
+                  b.ptr ? b.ptr : "{\"ok\":true,\"events\":[]}", b.len, 0);
+    free(b.ptr);
+}
+
+static void api_design_state(int fd) {
+    if (!g_design_dir[0]) {
+        send_json(fd, "200 OK", "{\"ok\":true,\"state\":{\"schema\":\"ds4.design.state.v1\",\"seq\":0,\"phase\":\"idle\",\"todos\":[],\"todosHaveInProgress\":false}}");
+        return;
+    }
+    char path[2048];
+    snprintf(path, sizeof path, "%s/.ds4-design/state.json", g_design_dir);
+    size_t len = 0;
+    char *state = read_small_file(path, 1024 * 1024, &len);
+    if (!state) {
+        send_json(fd, "200 OK", "{\"ok\":true,\"state\":{\"schema\":\"ds4.design.state.v1\",\"seq\":0,\"phase\":\"idle\",\"todos\":[],\"todosHaveInProgress\":false}}");
+        return;
+    }
+    design_buf_t b = {0};
+    dbuf_puts(&b, "{\"ok\":true,\"state\":");
+    dbuf_puts(&b, state);
+    dbuf_puts(&b, "}");
+    send_response(fd, "200 OK", "application/json; charset=utf-8", b.ptr, b.len, 0);
+    free(state);
+    free(b.ptr);
+}
+
+static void api_design_artifacts(int fd) {
+    design_buf_t b = {0};
+    dbuf_puts(&b, "{\"ok\":true,\"artifacts\":[");
+    int count = 0;
+    if (g_design_dir[0]) {
+        char dir[2048];
+        snprintf(dir, sizeof dir, "%s/.ds4-design/artifacts", g_design_dir);
+        DIR *d = opendir(dir);
+        if (d) {
+            struct dirent *de;
+            while ((de = readdir(d)) != NULL && count < 500) {
+                if (de->d_name[0] == '.') continue;
+                size_t nl = strlen(de->d_name);
+                if (nl < 6 || strcmp(de->d_name + nl - 5, ".json")) continue;
+                char file[12288];
+                snprintf(file, sizeof file, "%s/%s", dir, de->d_name);
+                size_t len = 0;
+                char *m = read_small_file(file, 1024 * 1024, &len);
+                if (!m) continue;
+                if (count) dbuf_puts(&b, ",");
+                dbuf_puts(&b, m);
+                free(m);
+                count++;
+            }
+            closedir(d);
+        }
+    }
+    dbuf_puts(&b, "]}");
+    send_response(fd, "200 OK", "application/json; charset=utf-8",
+                  b.ptr ? b.ptr : "{\"ok\":true,\"artifacts\":[]}", b.len, 0);
+    free(b.ptr);
+}
+
 static const char *design_content_type(const char *name);   /* defined below */
 
 /* ---- Build mode (planned) workspace endpoints -------------------------------
@@ -2682,10 +3761,10 @@ static void api_fs_mkdir(int fd, const char *body) {
         send_json(fd, "500 Internal Server Error", out);
         return;
     }
-    char abs[2048], esc[2100];
+    char abs[DSTUDIO_PATH_MAX], esc[DSTUDIO_PATH_MAX * 2 + 1];
     if (!realpath(path, abs)) snprintf(abs, sizeof abs, "%s", path);
     json_escape_into(esc, sizeof esc, abs, strlen(abs));
-    char out[2200];
+    char out[DSTUDIO_PATH_MAX * 2 + 64];
     snprintf(out, sizeof out, "{\"ok\":true,\"path\":\"%s\"}", esc);
     send_json(fd, "200 OK", out);
 }
@@ -2700,7 +3779,7 @@ static void api_set_ds4dir(int fd, const char *body) {
     char path[1024] = {0};
     json_get_string(body, "path", path, sizeof path);
     if (!path[0] || strstr(path, "..")) { send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"invalid path\"}"); return; }
-    char abs[2048];
+    char abs[DSTUDIO_PATH_MAX];
     struct stat st;
     if (!realpath(path, abs) || stat(abs, &st) != 0 || !S_ISDIR(st.st_mode)) {
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"not a folder\"}");
@@ -2716,7 +3795,7 @@ static void api_set_ds4dir(int fd, const char *body) {
     snprintf(prev_wd, sizeof prev_wd, "%s", g_workdir);
     int was_running = (g_child > 0) || (prev_mode != ENGINE_NONE);
 
-    snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", abs);
+    cstr_copy(g_ds4_dir, sizeof g_ds4_dir, abs);
     int valid = ds4_dir_valid();
 
     /* Kill the active ds4: our own child first, then any external ds4-server
@@ -2751,19 +3830,19 @@ static void api_set_webdir(int fd, const char *body) {
     char path[1024] = {0};
     json_get_string(body, "path", path, sizeof path);
     if (!path[0] || strstr(path, "..")) { send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"invalid path\"}"); return; }
-    char abs[2048];
+    char abs[DSTUDIO_PATH_MAX];
     struct stat st;
     if (!realpath(path, abs) || stat(abs, &st) != 0 || !S_ISDIR(st.st_mode)) {
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"not a folder\"}");
         return;
     }
-    char marker[2200];
+    char marker[DSTUDIO_PATH_MAX + 1024];
     snprintf(marker, sizeof marker, "%s/extension/design/build-design.sh", abs);
     if (stat(marker, &st) != 0 || !S_ISREG(st.st_mode)) {
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"not a DStudio folder (extension/design missing)\"}");
         return;
     }
-    snprintf(g_web_dir, sizeof g_web_dir, "%s", abs);
+    cstr_copy(g_web_dir, sizeof g_web_dir, abs);
     char out[80];
     snprintf(out, sizeof out, "{\"ok\":true,\"webdirOk\":%s}", web_dir_valid() ? "true" : "false");
     send_json(fd, "200 OK", out);
@@ -2816,7 +3895,7 @@ static void api_fs_list(int fd, const char *body) {
     json_get_string(body, "path", path, sizeof path);
     const char *home = getenv("HOME");
     if (!path[0] && home) snprintf(path, sizeof path, "%s", home);
-    char abs[2048];
+    char abs[DSTUDIO_PATH_MAX];
     if (!realpath(path, abs)) {
         send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"path not found\"}");
         return;
@@ -2902,8 +3981,8 @@ static void api_design_clean(int fd) {
 #define IMPORT_MAX_DEPTH       6
 
 static void import_mkdir_p(const char *path) {
-    char tmp[2300];
-    snprintf(tmp, sizeof tmp, "%s", path);
+    char tmp[12288];
+    cstr_copy(tmp, sizeof tmp, path);
     for (char *p = tmp + 1; *p; p++) {
         if (*p == '/') { *p = '\0'; mkdir(tmp, 0755); *p = '/'; }
     }
@@ -2911,8 +3990,8 @@ static void import_mkdir_p(const char *path) {
 }
 
 static int import_copy_file(const char *src, const char *dst) {
-    char dir[2300];
-    snprintf(dir, sizeof dir, "%s", dst);
+    char dir[12288];
+    cstr_copy(dir, sizeof dir, dst);
     char *sl = strrchr(dir, '/');
     if (sl) { *sl = '\0'; import_mkdir_p(dir); }
     FILE *in = fopen(src, "rb");
@@ -2961,7 +4040,7 @@ static void import_walk(const char *src_root, const char *rel, const char *dst_r
                         int depth, int *files, long *total) {
     if (depth > IMPORT_MAX_DEPTH || *files >= IMPORT_MAX_FILES ||
         *total >= IMPORT_MAX_TOTAL_BYTES) return;
-    char dir[2300];
+    char dir[12288];
     if (rel[0]) snprintf(dir, sizeof dir, "%s/%s", src_root, rel);
     else        snprintf(dir, sizeof dir, "%s", src_root);
     DIR *d = opendir(dir);
@@ -2970,10 +4049,10 @@ static void import_walk(const char *src_root, const char *rel, const char *dst_r
     while ((de = readdir(d)) != NULL) {
         if (de->d_name[0] == '.') continue;            /* dotfiles/dotdirs */
         if (import_skip_dir(de->d_name)) continue;     /* heavy build dirs */
-        char child_rel[2048];
+        char child_rel[8192];
         if (rel[0]) snprintf(child_rel, sizeof child_rel, "%s/%s", rel, de->d_name);
         else        snprintf(child_rel, sizeof child_rel, "%s", de->d_name);
-        char src_path[2400];
+        char src_path[12288];
         snprintf(src_path, sizeof src_path, "%s/%s", src_root, child_rel);
         struct stat st;
         if (lstat(src_path, &st) != 0 || S_ISLNK(st.st_mode)) continue; /* no symlinks */
@@ -2986,7 +4065,7 @@ static void import_walk(const char *src_root, const char *rel, const char *dst_r
         if (!import_allow_ext(de->d_name)) continue; /* design-relevant files only */
         if (*files >= IMPORT_MAX_FILES ||
             *total + (long)st.st_size > IMPORT_MAX_TOTAL_BYTES) break;
-        char dst_path[2400];
+        char dst_path[12288];
         snprintf(dst_path, sizeof dst_path, "%s/%s", dst_root, child_rel);
         if (import_copy_file(src_path, dst_path) == 0) { (*files)++; *total += (long)st.st_size; }
     }
@@ -3001,14 +4080,14 @@ static void api_design_import(int fd, const char *body) {
     char path[1024] = {0};
     json_get_string(body, "path", path, sizeof path);
     if (!path[0]) { send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"path required\"}"); return; }
-    char abs[2048];
+    char abs[DSTUDIO_PATH_MAX];
     if (!realpath(path, abs)) { send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"folder not found\"}"); return; }
     struct stat st;
     if (stat(abs, &st) != 0 || !S_ISDIR(st.st_mode)) {
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"not a folder\"}");
         return;
     }
-    char dst_abs[2048];
+    char dst_abs[DSTUDIO_PATH_MAX];
     if (realpath(g_design_dir, dst_abs) &&
         (strcmp(abs, dst_abs) == 0 ||
          (strncmp(dst_abs, abs, strlen(abs)) == 0 && dst_abs[strlen(abs)] == '/'))) {
@@ -3119,8 +4198,14 @@ static void on_term(int sig) { (void)sig; g_stop = 1; if (g_child > 0) kill(g_ch
 /* ==================== shared chat store ==================== */
 
 static void store_file_path(char *out, size_t n) {
+#ifdef _WIN32
+    const char *base = getenv("LOCALAPPDATA");
+    if (!base || !base[0]) base = getenv("USERPROFILE");
+    snprintf(out, n, "%s\\DStudio\\ds4web-store.json", base ? base : ".");
+#else
     const char *home = getenv("HOME");
     snprintf(out, n, "%s/.local/share/flashcards/ds4web-store.json", home ? home : ".");
+#endif
 }
 static void store_load(void) {
     char p[2048];
@@ -3146,6 +4231,10 @@ static void store_save(void) {
     char dir[2048];
     snprintf(dir, sizeof dir, "%s", p);
     char *s = strrchr(dir, '/');
+#ifdef _WIN32
+    char *bs = strrchr(dir, '\\');
+    if (!s || (bs && bs > s)) s = bs;
+#endif
     if (s) { *s = '\0'; mkpath(dir); }
     FILE *f = fopen(p, "wb");
     if (!f) return;
@@ -3216,10 +4305,9 @@ static void api_wipe(int fd) {
     store_save();
     int kv_cleared = 0;
     if (g_child <= 0) {        /* the engine isn't running → the KV files are free */
-        char kvroot[2048], kvunc[2048];
+        char kvroot[2048];
         kv_root(kvroot, sizeof kvroot);        /* all per-model caches live under here */
-        kv_dir_for(1, kvunc, sizeof kvunc);    /* legacy uncensored cache (pre per-model) */
-        clear_dir(kvroot); clear_dir(kvunc);
+        clear_dir(kvroot);
         kv_cleared = 1;
     }
     char out[80];
@@ -3254,6 +4342,34 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
                   "{\"error\":{\"message\":\"the local ds4 engine is not running\"}}");
         return;
     }
+#ifdef _WIN32
+    char head[1024];
+    int hn = (clen > 0)
+        ? snprintf(head, sizeof head,
+            "%s %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nAccept: text/event-stream\r\n"
+            "Content-Type: application/json\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n",
+            method, path, eport, clen)
+        : snprintf(head, sizeof head,
+            "%s %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nAccept: application/json\r\nConnection: close\r\n\r\n",
+            method, path, eport);
+    char buf[16384];
+    ssize_t n;
+    int ok = (hn > 0 && send_all(efd, head, (size_t)hn) == 0);
+    size_t have = got - header_len;
+    if (ok && have > 0) ok = (send_all(efd, req + header_len, have) == 0);
+    size_t left = clen > have ? clen - have : 0;
+    while (ok && left > 0) {
+        n = recv(client_fd, buf, left < sizeof buf ? left : sizeof buf, 0);
+        if (n <= 0) { ok = 0; break; }
+        if (send_all(efd, buf, (size_t)n) != 0) { ok = 0; break; }
+        left -= (size_t)n;
+    }
+    if (ok) while ((n = read(efd, buf, sizeof buf)) > 0) {
+        if (send_all(client_fd, buf, (size_t)n) != 0) break;
+    }
+    close(efd);
+    return;
+#else
     pid_t pid = fork();
     if (pid < 0) { close(efd); send_json(client_fd, "500 Internal Server Error", "{\"error\":\"proxy fork\"}"); return; }
     if (pid == 0) {
@@ -3299,14 +4415,21 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
     }
     waitpid(pid, NULL, 0);   /* reap the immediately-exiting first child */
     close(efd);              /* parent's copy; the relay grandchild has its own */
+#endif
 }
 
 /* ==================== handling a connection ==================== */
 
 static void handle_connection(int fd) {
+#ifdef _WIN32
+    int tv = IO_TIMEOUT_S * 1000;
+    (void)setsockopt((SOCKET)(intptr_t)fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
+    (void)setsockopt((SOCKET)(intptr_t)fd, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tv, sizeof tv);
+#else
     struct timeval tv = { IO_TIMEOUT_S, 0 };
     (void)setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
     (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+#endif
 
     char req[REQ_BUF + 1];
     size_t got = 0;
@@ -3418,6 +4541,12 @@ static void handle_connection(int fd) {
         api_agent_poll(fd, path);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/design/status")) {
         api_design_status(fd);
+    } else if ((!strcmp(method, "GET") || head_only) && !strncmp(path, "/api/design/events", 18)) {
+        api_design_events(fd, path);
+    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/design/state")) {
+        api_design_state(fd);
+    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/design/artifacts")) {
+        api_design_artifacts(fd);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/design/files")) {
         /* before /file: it is a prefix of it */
         api_design_files(fd);
@@ -3444,6 +4573,8 @@ static void handle_connection(int fd) {
     /* compact log, I exclude polling so as not to flood the terminal */
     if (strncmp(path, "/api/agent/poll", 15) != 0 && strcmp(path, "/api/status") != 0 &&
         strcmp(path, "/api/design/status") != 0 && strcmp(path, "/api/design/files") != 0 &&
+        strncmp(path, "/api/design/events", 18) != 0 &&
+        strcmp(path, "/api/design/state") != 0 && strcmp(path, "/api/design/artifacts") != 0 &&
         strcmp(path, "/api/build/files") != 0 &&
         strcmp(path, "/api/store") != 0 && strcmp(path, "/api/storerev") != 0)
         printf("%d %s %s\n", status, method, path);
@@ -3461,7 +4592,11 @@ int ds4_serve_main(int argc, char **argv)
 int main(int argc, char **argv)
 #endif
 {
+#ifdef _WIN32
+    setvbuf(stdout, NULL, _IONBF, 0);
+#else
     setvbuf(stdout, NULL, _IOLBF, 0);   /* launcher log visible line by line */
+#endif
     /* Batch mode: apply the jsonl patch and build ds4-agent-jsonl, then
      * exit. To test the patch without starting engine/HTTP: ./dstudio --build-jsonl [ds4-dir] */
     if (argc > 1 && strcmp(argv[1], "--build-jsonl") == 0) {
@@ -3500,7 +4635,9 @@ int main(int argc, char **argv)
     if (ds4ui_forced_port > 0) port = ds4ui_forced_port;   /* parent pre-picked a free port */
     g_http_port = port;
 
+#ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);
+#endif
     struct sigaction sa;
     memset(&sa, 0, sizeof sa);
     sa.sa_handler = on_term;

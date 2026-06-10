@@ -2,6 +2,10 @@
 name: ai-seo
 description: Optimize for AI search / LLM citation (ChatGPT, Perplexity, AI Overviews): get cited, not just ranked.
 modes: [marketing]
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/ai-seo
 ---
 
 # AI SEO

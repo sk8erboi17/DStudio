@@ -3,6 +3,10 @@ name: docs
 description: A documentation site — three-pane layout (nav · content · on-this-page), first-class code blocks, scannable reference, built to find the answer fast.
 modes: [design]
 when_to_use: The user wants documentation, a developer guide, API reference, help center, or a knowledge base.
+ds4_category: deck-document
+ds4_local_mode: native
+ds4_output_kinds: markdown-document
+ds4_upstream: dstudio/docs
 ---
 
 # SKILL: docs

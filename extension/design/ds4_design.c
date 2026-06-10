@@ -28,9 +28,10 @@
  * - assistant text streamed to stdout;
  * - "+DWARFSTAR_WAITING" on stderr when idle;
  * - with --jsonl, structured events on stdout, one JSON object per line
- *   prefixed by \x1e: tool_call / tool_result / reasoning_start /
- *   reasoning_end / todos / artifact.  <question-form> blocks stream as
- *   plain text; the UI recognizes and renders them.
+ *   prefixed by \x1e: protocol / tool_call / tool_result / reasoning_start /
+ *   reasoning_end / todos / artifact_check / artifact / question.  Legacy
+ *   <question-form> blocks still stream as plain text; the UI recognizes and
+ *   renders them.
  *
  * Build:  extension/design/build-design.sh  (from DStudio; output untracked
  *         in the ds4 repo).  Run: ./ds4-design --metal -m model.gguf
@@ -47,10 +48,12 @@
 #include <regex.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -66,6 +69,23 @@
 #define DESIGN_CTX_RESERVE 4096
 #define DESIGN_READ_DEFAULT_LINES 200
 #define DESIGN_FILE_MAX (8 * 1024 * 1024)
+#define DESIGN_MEMORY_MAX_BYTES (32 * 1024)
+#define DESIGN_TOOL_RESULT_RESERVE_TOKENS 1024
+#define DESIGN_COMPACT_SOFT_PERCENT 85
+#define DESIGN_COMPACT_MIN_FREE_TOKENS 8192
+#define DESIGN_COMPACT_TAIL_DIVISOR 10
+#define DESIGN_COMPACT_TAIL_CAP_TOKENS 50000
+#define DESIGN_COMPACT_SUMMARY_MAX_TOKENS 4096
+#define DESIGN_QUALITY_RUBRIC_ID "ds4-design-quality-v1"
+#define DESIGN_QUALITY_THRESHOLD 8.0
+
+typedef struct {
+    double critic;
+    double brand;
+    double a11y;
+    double copy;
+    double composite;
+} design_critique_scores;
 
 /* ==================== small utilities ==================== */
 
@@ -235,14 +255,25 @@ static void emit_todos_event(const char *todos_json) {
     emit_event_line(&b);
 }
 
-static void emit_artifact_event(const char *entry, const char *title) {
+static void emit_artifact_event(const char *entry, const char *title,
+                                const char *manifest_json) {
     if (!g_jsonl) return;
     design_buf b = {0};
     buf_puts(&b, "\x1e{\"type\":\"artifact\",\"entry\":\"");
     json_escape_buf(&b, entry, strlen(entry));
     buf_puts(&b, "\",\"title\":\"");
     json_escape_buf(&b, title ? title : "", title ? strlen(title) : 0);
-    buf_puts(&b, "\"}\n");
+    if (manifest_json && manifest_json[0]) {
+        buf_puts(&b, "\",\"manifest\":");
+        for (const char *p = manifest_json; *p; p++) {
+            char c = *p;
+            if (c == '\n' || c == '\r' || c == '\x1e') c = ' ';
+            buf_append(&b, &c, 1);
+        }
+        buf_puts(&b, "}\n");
+    } else {
+        buf_puts(&b, "\"}\n");
+    }
     emit_event_line(&b);
 }
 
@@ -277,6 +308,356 @@ static void emit_session_status(const char *level, const char *msg) {
         emit_event_line(&b);
     } else {
         fprintf(stderr, "ds4-design: %s\n", msg ? msg : "");
+    }
+}
+
+static void emit_protocol_event(void) {
+    if (!g_jsonl) return;
+    design_buf b = {0};
+    buf_puts(&b, "\x1e{\"type\":\"protocol\",\"name\":\"ds4-design\","
+                 "\"version\":2,\"capabilities\":["
+                 "\"todos_v2\","
+                 "\"artifact_manifest_v1\","
+                 "\"artifact_check_v1\","
+                 "\"critique_event_v1\","
+                 "\"quality_gate_v1\","
+                 "\"question_event_v1\","
+                 "\"compact_v1\","
+                 "\"memory_md_v1\","
+                 "\"design_skill_metadata_v1\"]}\n");
+    emit_event_line(&b);
+}
+
+static void emit_question_event(const char *id, const char *title,
+                                const char *questions_json) {
+    if (!g_jsonl) return;
+    design_buf b = {0};
+    buf_puts(&b, "\x1e{\"type\":\"question\",\"id\":\"");
+    json_escape_buf(&b, id ? id : "", id ? strlen(id) : 0);
+    buf_puts(&b, "\",\"title\":\"");
+    json_escape_buf(&b, title ? title : "", title ? strlen(title) : 0);
+    buf_puts(&b, "\",\"questions\":");
+    for (const char *p = questions_json ? questions_json : "[]"; *p; p++) {
+        char c = *p;
+        if (c == '\n' || c == '\r' || c == '\x1e') c = ' ';
+        buf_append(&b, &c, 1);
+    }
+    buf_puts(&b, "}\n");
+    emit_event_line(&b);
+}
+
+/* ---- small JSON scanner -------------------------------------------------------
+ * Not a DOM: just enough to validate the model-authored tool parameters and to
+ * extract string fields from arrays of objects.  It rejects malformed JSON so
+ * UI state is driven by runtime guarantees, not prompt compliance. */
+
+static const char *json_ws(const char *p, const char *end) {
+    while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) p++;
+    return p;
+}
+
+static int json_hexval(int c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return 10 + c - 'a';
+    if (c >= 'A' && c <= 'F') return 10 + c - 'A';
+    return -1;
+}
+
+static bool json_hex4(const char *p, const char *end, uint32_t *cp) {
+    if (end - p < 4) return false;
+    uint32_t v = 0;
+    for (int i = 0; i < 4; i++) {
+        int h = json_hexval((unsigned char)p[i]);
+        if (h < 0) return false;
+        v = (v << 4) | (uint32_t)h;
+    }
+    *cp = v;
+    return true;
+}
+
+static void json_put_utf8(design_buf *b, uint32_t cp) {
+    char out[4];
+    if (cp <= 0x7F) {
+        out[0] = (char)cp;
+        buf_append(b, out, 1);
+    } else if (cp <= 0x7FF) {
+        out[0] = (char)(0xC0 | (cp >> 6));
+        out[1] = (char)(0x80 | (cp & 0x3F));
+        buf_append(b, out, 2);
+    } else if (cp <= 0xFFFF) {
+        out[0] = (char)(0xE0 | (cp >> 12));
+        out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (cp & 0x3F));
+        buf_append(b, out, 3);
+    } else if (cp <= 0x10FFFF) {
+        out[0] = (char)(0xF0 | (cp >> 18));
+        out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+        out[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[3] = (char)(0x80 | (cp & 0x3F));
+        buf_append(b, out, 4);
+    }
+}
+
+static bool json_parse_string_to_buf(const char **pp, const char *end,
+                                     design_buf *out, char *err, size_t errsz) {
+    const char *p = *pp;
+    if (p >= end || *p != '"') {
+        snprintf(err, errsz, "expected JSON string");
+        return false;
+    }
+    p++;
+    while (p < end) {
+        unsigned char c = (unsigned char)*p++;
+        if (c == '"') {
+            *pp = p;
+            return true;
+        }
+        if (c < 0x20) {
+            snprintf(err, errsz, "control character in JSON string");
+            return false;
+        }
+        if (c != '\\') {
+            buf_append(out, (const char *)&c, 1);
+            continue;
+        }
+        if (p >= end) {
+            snprintf(err, errsz, "unterminated JSON escape");
+            return false;
+        }
+        char e = *p++;
+        switch (e) {
+            case '"': buf_puts(out, "\""); break;
+            case '\\': buf_puts(out, "\\"); break;
+            case '/': buf_puts(out, "/"); break;
+            case 'b': buf_append(out, "\b", 1); break;
+            case 'f': buf_append(out, "\f", 1); break;
+            case 'n': buf_puts(out, "\n"); break;
+            case 'r': buf_puts(out, "\r"); break;
+            case 't': buf_puts(out, "\t"); break;
+            case 'u': {
+                uint32_t cp = 0;
+                if (!json_hex4(p, end, &cp)) {
+                    snprintf(err, errsz, "bad JSON unicode escape");
+                    return false;
+                }
+                p += 4;
+                if (cp >= 0xD800 && cp <= 0xDBFF &&
+                    end - p >= 6 && p[0] == '\\' && p[1] == 'u')
+                {
+                    uint32_t lo = 0;
+                    if (json_hex4(p + 2, end, &lo) && lo >= 0xDC00 && lo <= 0xDFFF) {
+                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                        p += 6;
+                    }
+                }
+                if (cp >= 0xD800 && cp <= 0xDFFF) cp = 0xFFFD;
+                json_put_utf8(out, cp);
+                break;
+            }
+            default:
+                snprintf(err, errsz, "bad JSON escape");
+                return false;
+        }
+    }
+    snprintf(err, errsz, "unterminated JSON string");
+    return false;
+}
+
+static char *json_parse_string_alloc(const char **pp, const char *end,
+                                     char *err, size_t errsz) {
+    design_buf b = {0};
+    if (!json_parse_string_to_buf(pp, end, &b, err, errsz)) {
+        free(b.ptr);
+        return NULL;
+    }
+    return buf_take(&b);
+}
+
+static const char *json_skip_value(const char *p, const char *end,
+                                   int depth, char *err, size_t errsz);
+
+static const char *json_skip_string(const char *p, const char *end,
+                                    char *err, size_t errsz) {
+    design_buf tmp = {0};
+    const char *q = p;
+    bool ok = json_parse_string_to_buf(&q, end, &tmp, err, errsz);
+    free(tmp.ptr);
+    return ok ? q : NULL;
+}
+
+static const char *json_skip_number(const char *p, const char *end,
+                                    char *err, size_t errsz) {
+    if (p < end && *p == '-') p++;
+    if (p >= end) { snprintf(err, errsz, "bad JSON number"); return NULL; }
+    if (*p == '0') {
+        p++;
+    } else if (*p >= '1' && *p <= '9') {
+        while (p < end && isdigit((unsigned char)*p)) p++;
+    } else {
+        snprintf(err, errsz, "bad JSON number");
+        return NULL;
+    }
+    if (p < end && *p == '.') {
+        p++;
+        if (p >= end || !isdigit((unsigned char)*p)) {
+            snprintf(err, errsz, "bad JSON number");
+            return NULL;
+        }
+        while (p < end && isdigit((unsigned char)*p)) p++;
+    }
+    if (p < end && (*p == 'e' || *p == 'E')) {
+        p++;
+        if (p < end && (*p == '+' || *p == '-')) p++;
+        if (p >= end || !isdigit((unsigned char)*p)) {
+            snprintf(err, errsz, "bad JSON number");
+            return NULL;
+        }
+        while (p < end && isdigit((unsigned char)*p)) p++;
+    }
+    return p;
+}
+
+static const char *json_skip_array(const char *p, const char *end,
+                                   int depth, char *err, size_t errsz) {
+    p++;
+    p = json_ws(p, end);
+    if (p < end && *p == ']') return p + 1;
+    for (;;) {
+        p = json_skip_value(p, end, depth + 1, err, errsz);
+        if (!p) return NULL;
+        p = json_ws(p, end);
+        if (p < end && *p == ',') { p++; continue; }
+        if (p < end && *p == ']') return p + 1;
+        snprintf(err, errsz, "expected ',' or ']' in JSON array");
+        return NULL;
+    }
+}
+
+static const char *json_skip_object(const char *p, const char *end,
+                                    int depth, char *err, size_t errsz) {
+    p++;
+    p = json_ws(p, end);
+    if (p < end && *p == '}') return p + 1;
+    for (;;) {
+        p = json_ws(p, end);
+        if (p >= end || *p != '"') {
+            snprintf(err, errsz, "expected JSON object key");
+            return NULL;
+        }
+        p = json_skip_string(p, end, err, errsz);
+        if (!p) return NULL;
+        p = json_ws(p, end);
+        if (p >= end || *p != ':') {
+            snprintf(err, errsz, "expected ':' after JSON object key");
+            return NULL;
+        }
+        p++;
+        p = json_skip_value(p, end, depth + 1, err, errsz);
+        if (!p) return NULL;
+        p = json_ws(p, end);
+        if (p < end && *p == ',') { p++; continue; }
+        if (p < end && *p == '}') return p + 1;
+        snprintf(err, errsz, "expected ',' or '}' in JSON object");
+        return NULL;
+    }
+}
+
+static const char *json_skip_value(const char *p, const char *end,
+                                   int depth, char *err, size_t errsz) {
+    if (depth > 64) {
+        snprintf(err, errsz, "JSON nesting too deep");
+        return NULL;
+    }
+    p = json_ws(p, end);
+    if (p >= end) {
+        snprintf(err, errsz, "expected JSON value");
+        return NULL;
+    }
+    if (*p == '"') return json_skip_string(p, end, err, errsz);
+    if (*p == '{') return json_skip_object(p, end, depth, err, errsz);
+    if (*p == '[') return json_skip_array(p, end, depth, err, errsz);
+    if (*p == '-' || isdigit((unsigned char)*p)) return json_skip_number(p, end, err, errsz);
+    if (end - p >= 4 && !memcmp(p, "true", 4)) return p + 4;
+    if (end - p >= 5 && !memcmp(p, "false", 5)) return p + 5;
+    if (end - p >= 4 && !memcmp(p, "null", 4)) return p + 4;
+    snprintf(err, errsz, "bad JSON value");
+    return NULL;
+}
+
+static bool json_validate_complete(const char *json, char required_first,
+                                   char *err, size_t errsz) {
+    if (!json) {
+        snprintf(err, errsz, "missing JSON");
+        return false;
+    }
+    const char *end = json + strlen(json);
+    const char *p = json_ws(json, end);
+    if (required_first && (p >= end || *p != required_first)) {
+        snprintf(err, errsz, "JSON must start with '%c'", required_first);
+        return false;
+    }
+    p = json_skip_value(p, end, 0, err, errsz);
+    if (!p) return false;
+    p = json_ws(p, end);
+    if (p != end) {
+        snprintf(err, errsz, "trailing data after JSON value");
+        return false;
+    }
+    return true;
+}
+
+typedef struct {
+    char **v;
+    int len;
+    int cap;
+} design_string_list;
+
+static void design_string_list_push(design_string_list *l, char *s) {
+    if (l->len == l->cap) {
+        l->cap = l->cap ? l->cap * 2 : 8;
+        l->v = xrealloc(l->v, (size_t)l->cap * sizeof(l->v[0]));
+    }
+    l->v[l->len++] = s;
+}
+
+static void design_string_list_free(design_string_list *l) {
+    for (int i = 0; i < l->len; i++) free(l->v[i]);
+    free(l->v);
+    memset(l, 0, sizeof(*l));
+}
+
+static bool json_parse_string_array(const char *json, design_string_list *out,
+                                    char *err, size_t errsz) {
+    memset(out, 0, sizeof(*out));
+    const char *end = json + strlen(json);
+    const char *p = json_ws(json, end);
+    if (p >= end || *p != '[') {
+        snprintf(err, errsz, "expected JSON array of strings");
+        return false;
+    }
+    p++;
+    p = json_ws(p, end);
+    if (p < end && *p == ']') return true;
+    for (;;) {
+        p = json_ws(p, end);
+        char *s = json_parse_string_alloc(&p, end, err, errsz);
+        if (!s) { design_string_list_free(out); return false; }
+        design_string_list_push(out, s);
+        p = json_ws(p, end);
+        if (p < end && *p == ',') { p++; continue; }
+        if (p < end && *p == ']') {
+            p++;
+            p = json_ws(p, end);
+            if (p != end) {
+                snprintf(err, errsz, "trailing data after JSON string array");
+                design_string_list_free(out);
+                return false;
+            }
+            return true;
+        }
+        snprintf(err, errsz, "expected ',' or ']' in JSON string array");
+        design_string_list_free(out);
+        return false;
     }
 }
 
@@ -708,6 +1089,25 @@ typedef struct {
     /* web tooling (Chrome via CDP). Owned by main(); the dispatch reaches it
      * through &a->project, like the bash jobs. NULL if creation failed. */
     ds4_web *web;
+    /* Canonical normalized TodoWrite state. The UI gets the same snapshot on
+     * every update, independent of whatever field names the model used. */
+    char *todos_json;
+    bool todos_have_in_progress;
+    /* Application/runtime state. KV cache remains the model-side memory; these
+     * fields back the project-local event log/state files the UI can replay. */
+    uint64_t event_seq;
+    char run_id[64];
+    char phase[32];
+    char current_artifact_id[17];
+    char current_artifact_entry[PATH_MAX];
+    bool stop_after_tools;
+    char *memory_summary;
+    char memory_updated_at[32];
+    char critique_entry[PATH_MAX];
+    char critique_updated_at[32];
+    design_critique_scores critique_scores;
+    int critique_must_fixes;
+    bool critique_passed;
 } design_project;
 
 static bool design_mkdir_p(const char *path) {
@@ -905,6 +1305,426 @@ static bool write_file_bytes(const char *path, const char *data, size_t len,
     return true;
 }
 
+/* ---- project-local runtime memory -------------------------------------------
+ * KV cache keeps DS4's inference state fast; these files are the readable app
+ * memory: replayable events, current UI/runtime state, and a compact project
+ * memory note for future context rebuilds. */
+
+static void design_utc_timestamp(char out[32]) {
+    time_t t = time(NULL);
+    struct tm tmv;
+    gmtime_r(&t, &tmv);
+    strftime(out, 32, "%Y-%m-%dT%H:%M:%SZ", &tmv);
+}
+
+static void design_json_kv_string(design_buf *b, const char *key, const char *val) {
+    buf_puts(b, "\"");
+    json_escape_buf(b, key, strlen(key));
+    buf_puts(b, "\":\"");
+    json_escape_buf(b, val ? val : "", val ? strlen(val) : 0);
+    buf_puts(b, "\"");
+}
+
+static void design_put_json_flat(design_buf *b, const char *json) {
+    for (const char *p = json ? json : ""; *p; p++) {
+        char c = *p;
+        if (c == '\n' || c == '\r' || c == '\x1e') c = ' ';
+        buf_append(b, &c, 1);
+    }
+}
+
+static void emit_critique_event(const char *entry,
+                                const design_critique_scores *scores,
+                                int must_fixes, bool passed,
+                                const char *decision,
+                                const char *scores_json,
+                                const char *must_fixes_json,
+                                const char *notes) {
+    if (!g_jsonl) return;
+    design_buf b = {0};
+    char n[64];
+    buf_puts(&b, "\x1e{\"type\":\"critique\",\"entry\":\"");
+    json_escape_buf(&b, entry ? entry : "", entry ? strlen(entry) : 0);
+    buf_puts(&b, "\",\"rubric\":\"" DESIGN_QUALITY_RUBRIC_ID
+                "\",\"composite\":");
+    snprintf(n, sizeof(n), "%.2f", scores ? scores->composite : 0.0);
+    buf_puts(&b, n);
+    buf_puts(&b, ",\"threshold\":");
+    snprintf(n, sizeof(n), "%.2f", DESIGN_QUALITY_THRESHOLD);
+    buf_puts(&b, n);
+    buf_puts(&b, ",\"pass\":");
+    buf_puts(&b, passed ? "true" : "false");
+    buf_puts(&b, ",\"mustFixes\":");
+    snprintf(n, sizeof(n), "%d", must_fixes);
+    buf_puts(&b, n);
+    buf_puts(&b, ",\"decision\":\"");
+    json_escape_buf(&b, decision ? decision : "", decision ? strlen(decision) : 0);
+    buf_puts(&b, "\",\"scores\":");
+    design_put_json_flat(&b, scores_json && scores_json[0] ? scores_json : "{}");
+    buf_puts(&b, ",\"mustFixItems\":");
+    design_put_json_flat(&b, must_fixes_json && must_fixes_json[0] ? must_fixes_json : "[]");
+    buf_puts(&b, ",\"notes\":\"");
+    json_escape_buf(&b, notes ? notes : "", notes ? strlen(notes) : 0);
+    buf_puts(&b, "\"}\n");
+    emit_event_line(&b);
+}
+
+static void design_project_clear_critique(design_project *pr) {
+    if (!pr) return;
+    pr->critique_entry[0] = '\0';
+    pr->critique_updated_at[0] = '\0';
+    memset(&pr->critique_scores, 0, sizeof(pr->critique_scores));
+    pr->critique_must_fixes = 0;
+    pr->critique_passed = false;
+}
+
+static bool design_project_same_entry(design_project *pr, const char *a, const char *b) {
+    if (!a || !b || !a[0] || !b[0]) return false;
+    char afull[PATH_MAX], bfull[PATH_MAX], err[256];
+    if (!project_resolve(pr, a, afull, sizeof(afull), err, sizeof(err))) return false;
+    if (!project_resolve(pr, b, bfull, sizeof(bfull), err, sizeof(err))) return false;
+    return strcmp(afull, bfull) == 0;
+}
+
+static bool design_project_invalidate_critique(design_project *pr, const char *entry) {
+    if (!pr || !entry || !entry[0] || !pr->critique_entry[0]) return false;
+    if (design_project_same_entry(pr, pr->critique_entry, entry)) {
+        design_project_clear_critique(pr);
+        return true;
+    }
+    return false;
+}
+
+static bool design_project_critique_passes(design_project *pr, const char *entry,
+                                           char *err, size_t errsz) {
+    if (!pr->critique_entry[0]) {
+        snprintf(err, errsz, "artifact blocked: call critique_write for %s before artifact", entry);
+        return false;
+    }
+    if (!design_project_same_entry(pr, pr->critique_entry, entry)) {
+        snprintf(err, errsz,
+                 "artifact blocked: latest critique is for %s, not %s",
+                 pr->critique_entry, entry);
+        return false;
+    }
+    if (!pr->critique_passed) {
+        snprintf(err, errsz,
+                 "artifact blocked: latest critique did not pass (%.1f/10, %d must-fix)",
+                 pr->critique_scores.composite, pr->critique_must_fixes);
+        return false;
+    }
+    return true;
+}
+
+static bool design_project_file_path(design_project *pr, const char *rel,
+                                     char *full, size_t fullsz) {
+    char err[256];
+    return project_resolve(pr, rel, full, fullsz, err, sizeof(err));
+}
+
+static bool design_append_file_bytes(const char *path, const char *data, size_t len) {
+    char dir[PATH_MAX];
+    snprintf(dir, sizeof(dir), "%s", path);
+    char *slash = strrchr(dir, '/');
+    if (slash) {
+        *slash = '\0';
+        if (!design_mkdir_p(dir)) return false;
+    }
+    FILE *fp = fopen(path, "ab");
+    if (!fp) return false;
+    bool ok = fwrite(data, 1, len, fp) == len && fflush(fp) == 0;
+    fclose(fp);
+    return ok;
+}
+
+static uint64_t design_history_last_seq(design_project *pr) {
+    char full[PATH_MAX];
+    if (!design_project_file_path(pr, ".ds4-design/history.jsonl", full, sizeof(full)))
+        return 0;
+    char *data = NULL;
+    size_t len = 0;
+    char err[256];
+    if (read_file_bytes(full, &data, &len, err, sizeof(err)) != 0) return 0;
+    uint64_t last = 0;
+    const char *p = data;
+    while ((p = strstr(p, "\"seq\"")) != NULL) {
+        p += 5;
+        while (*p && (*p == ' ' || *p == '\t' || *p == ':')) p++;
+        if (isdigit((unsigned char)*p)) {
+            unsigned long long v = strtoull(p, NULL, 10);
+            if (v > last) last = v;
+        }
+    }
+    free(data);
+    return last;
+}
+
+static bool design_memory_path(design_project *pr, char *full, size_t fullsz) {
+    return design_project_file_path(pr, "MEMORY.MD", full, fullsz);
+}
+
+static char *design_trimmed_dup(const char *s, size_t len) {
+    while (len && isspace((unsigned char)*s)) {
+        s++;
+        len--;
+    }
+    while (len && isspace((unsigned char)s[len - 1])) len--;
+    return len ? xstrndup(s, len) : xstrdup("");
+}
+
+static char *design_memory_extract_durable_summary(const char *body) {
+    if (!body || !body[0]) return xstrdup("");
+
+    const char heading[] = "## Durable Summary";
+    const char *start = strstr(body, heading);
+    if (!start) return design_trimmed_dup(body, strlen(body));
+    start = strchr(start, '\n');
+    if (!start) return xstrdup("");
+    while (*start == '\n' || *start == '\r') start++;
+
+    const char *end = strstr(start, "\n## ");
+    if (!end) end = body + strlen(body);
+    return design_trimmed_dup(start, (size_t)(end - start));
+}
+
+static void design_load_project_memory(design_project *pr) {
+    if (pr->memory_summary) return;
+
+    char full[PATH_MAX], err[256];
+    char *body = NULL;
+    size_t len = 0;
+    if (design_memory_path(pr, full, sizeof(full)) &&
+        read_file_bytes(full, &body, &len, err, sizeof(err)) == 0)
+    {
+        if (len > DESIGN_MEMORY_MAX_BYTES) body[DESIGN_MEMORY_MAX_BYTES] = '\0';
+        pr->memory_summary = design_memory_extract_durable_summary(body);
+        free(body);
+        return;
+    }
+
+    if (design_project_file_path(pr, ".ds4-design/project.md", full, sizeof(full)) &&
+        read_file_bytes(full, &body, &len, err, sizeof(err)) == 0)
+    {
+        if (len > DESIGN_MEMORY_MAX_BYTES) body[DESIGN_MEMORY_MAX_BYTES] = '\0';
+        pr->memory_summary = design_memory_extract_durable_summary(body);
+        free(body);
+        return;
+    }
+
+    pr->memory_summary = xstrdup("");
+}
+
+static void design_set_compact_memory(design_project *pr, const char *summary) {
+    free(pr->memory_summary);
+    pr->memory_summary = design_trimmed_dup(summary ? summary : "",
+                                           summary ? strlen(summary) : 0);
+    design_utc_timestamp(pr->memory_updated_at);
+}
+
+static void design_write_project_memory(design_project *pr) {
+    design_load_project_memory(pr);
+
+    design_buf b = {0};
+    char ts[32];
+    design_utc_timestamp(ts);
+    buf_puts(&b, "# MEMORY.MD\n\n");
+    buf_puts(&b, "Shared durable memory for DS4 agents working in this workspace.\n\n");
+    buf_puts(&b, "## Durable Summary\n\n");
+    if (pr->memory_summary && pr->memory_summary[0]) {
+        buf_puts(&b, pr->memory_summary);
+        if (b.len && b.ptr[b.len - 1] != '\n') buf_puts(&b, "\n");
+    } else {
+        buf_puts(&b, "(No compact summary yet.)\n");
+    }
+    buf_puts(&b, "\n## Runtime State\n\n");
+    buf_puts(&b, "- Updated: ");
+    buf_puts(&b, ts);
+    if (pr->memory_updated_at[0]) {
+        buf_puts(&b, "\n- Last compact: ");
+        buf_puts(&b, pr->memory_updated_at);
+    }
+    buf_puts(&b, "\n- Phase: ");
+    buf_puts(&b, pr->phase[0] ? pr->phase : "idle");
+    buf_puts(&b, "\n- Current run: ");
+    buf_puts(&b, pr->run_id[0] ? pr->run_id : "(none)");
+    buf_puts(&b, "\n- Current artifact: ");
+    if (pr->current_artifact_entry[0]) {
+        buf_puts(&b, pr->current_artifact_entry);
+        if (pr->current_artifact_id[0]) {
+            buf_puts(&b, " (");
+            buf_puts(&b, pr->current_artifact_id);
+            buf_puts(&b, ")");
+        }
+    } else {
+        buf_puts(&b, "(none)");
+    }
+    buf_puts(&b, "\n- Open todos: ");
+    buf_puts(&b, pr->todos_have_in_progress ? "yes" : "no");
+    buf_puts(&b, "\n- Latest quality gate: ");
+    if (pr->critique_entry[0]) {
+        char q[160];
+        snprintf(q, sizeof(q), "%s composite %.1f/10, %s",
+                 pr->critique_entry, pr->critique_scores.composite,
+                 pr->critique_passed ? "pass" : "blocked");
+        buf_puts(&b, q);
+        if (pr->critique_must_fixes > 0) {
+            snprintf(q, sizeof(q), " (%d must-fix)", pr->critique_must_fixes);
+            buf_puts(&b, q);
+        }
+    } else {
+        buf_puts(&b, "(none)");
+    }
+    buf_puts(&b, "\n\n## Latest Todos\n\n```json\n");
+    buf_puts(&b, pr->todos_json ? pr->todos_json : "[]");
+    buf_puts(&b, "\n```\n");
+
+    char full[PATH_MAX], err[256];
+    if (design_memory_path(pr, full, sizeof(full)))
+        (void)write_file_bytes(full, b.ptr ? b.ptr : "", b.len, err, sizeof(err));
+    if (design_project_file_path(pr, ".ds4-design/project.md", full, sizeof(full)))
+        (void)write_file_bytes(full, b.ptr ? b.ptr : "", b.len, err, sizeof(err));
+    free(b.ptr);
+}
+
+static char *design_read_project_memory(design_project *pr) {
+    char full[PATH_MAX], err[256];
+    char *body = NULL;
+    size_t len = 0;
+    if (design_memory_path(pr, full, sizeof(full)) &&
+        read_file_bytes(full, &body, &len, err, sizeof(err)) == 0)
+    {
+        if (len > DESIGN_MEMORY_MAX_BYTES) body[DESIGN_MEMORY_MAX_BYTES] = '\0';
+        return body;
+    }
+    if (!design_project_file_path(pr, ".ds4-design/project.md", full, sizeof(full)))
+        return NULL;
+    if (read_file_bytes(full, &body, &len, err, sizeof(err)) != 0)
+        return NULL;
+    if (len > DESIGN_MEMORY_MAX_BYTES) body[DESIGN_MEMORY_MAX_BYTES] = '\0';
+    return body;
+}
+
+static void design_write_state(design_project *pr) {
+    design_buf b = {0};
+    char num[32];
+    buf_puts(&b, "{\n  \"schema\":\"ds4.design.state.v1\",\n  \"seq\":");
+    snprintf(num, sizeof(num), "%llu", (unsigned long long)pr->event_seq);
+    buf_puts(&b, num);
+    buf_puts(&b, ",\n  ");
+    design_json_kv_string(&b, "phase", pr->phase[0] ? pr->phase : "idle");
+    buf_puts(&b, ",\n  ");
+    design_json_kv_string(&b, "runId", pr->run_id);
+    buf_puts(&b, ",\n  ");
+    design_json_kv_string(&b, "currentArtifactId", pr->current_artifact_id);
+    buf_puts(&b, ",\n  ");
+    design_json_kv_string(&b, "currentArtifactEntry", pr->current_artifact_entry);
+    buf_puts(&b, ",\n  \"todos\":");
+    buf_puts(&b, pr->todos_json ? pr->todos_json : "[]");
+    buf_puts(&b, ",\n  \"todosHaveInProgress\":");
+    buf_puts(&b, pr->todos_have_in_progress ? "true" : "false");
+    buf_puts(&b, ",\n  \"latestCritique\":");
+    if (pr->critique_entry[0]) {
+        buf_puts(&b, "{\"entry\":\"");
+        json_escape_buf(&b, pr->critique_entry, strlen(pr->critique_entry));
+        buf_puts(&b, "\",\"rubric\":\"" DESIGN_QUALITY_RUBRIC_ID
+                    "\",\"composite\":");
+        char q[64];
+        snprintf(q, sizeof(q), "%.2f", pr->critique_scores.composite);
+        buf_puts(&b, q);
+        buf_puts(&b, ",\"threshold\":");
+        snprintf(q, sizeof(q), "%.2f", DESIGN_QUALITY_THRESHOLD);
+        buf_puts(&b, q);
+        buf_puts(&b, ",\"pass\":");
+        buf_puts(&b, pr->critique_passed ? "true" : "false");
+        buf_puts(&b, ",\"mustFixes\":");
+        snprintf(q, sizeof(q), "%d", pr->critique_must_fixes);
+        buf_puts(&b, q);
+        buf_puts(&b, ",\"updatedAt\":\"");
+        json_escape_buf(&b, pr->critique_updated_at, strlen(pr->critique_updated_at));
+        buf_puts(&b, "\"}");
+    } else {
+        buf_puts(&b, "null");
+    }
+    buf_puts(&b, "\n}\n");
+
+    char full[PATH_MAX], err[256];
+    if (design_project_file_path(pr, ".ds4-design/state.json", full, sizeof(full)))
+        (void)write_file_bytes(full, b.ptr ? b.ptr : "", b.len, err, sizeof(err));
+    free(b.ptr);
+    design_write_project_memory(pr);
+}
+
+static void design_project_set_phase(design_project *pr, const char *phase) {
+    snprintf(pr->phase, sizeof(pr->phase), "%s", phase && phase[0] ? phase : "idle");
+}
+
+static void design_event_log(design_project *pr, const char *type,
+                             const char *payload_json) {
+    if (!pr || !pr->dir[0] || !type || !type[0]) return;
+    char ts[32];
+    design_utc_timestamp(ts);
+    pr->event_seq++;
+    design_buf b = {0};
+    char num[32];
+    buf_puts(&b, "{\"seq\":");
+    snprintf(num, sizeof(num), "%llu", (unsigned long long)pr->event_seq);
+    buf_puts(&b, num);
+    buf_puts(&b, ",\"run_id\":\"");
+    json_escape_buf(&b, pr->run_id, strlen(pr->run_id));
+    buf_puts(&b, "\",\"ts\":\"");
+    buf_puts(&b, ts);
+    buf_puts(&b, "\",\"type\":\"");
+    json_escape_buf(&b, type, strlen(type));
+    buf_puts(&b, "\",\"payload\":");
+    buf_puts(&b, payload_json && payload_json[0] ? payload_json : "{}");
+    buf_puts(&b, "}\n");
+
+    char full[PATH_MAX];
+    if (design_project_file_path(pr, ".ds4-design/history.jsonl", full, sizeof(full)))
+        (void)design_append_file_bytes(full, b.ptr ? b.ptr : "", b.len);
+    free(b.ptr);
+    design_write_state(pr);
+}
+
+static void design_project_bootstrap(design_project *pr) {
+    pr->event_seq = design_history_last_seq(pr);
+    design_project_set_phase(pr, "idle");
+    design_write_state(pr);
+}
+
+static void design_project_start_run(design_project *pr, const char *user_text) {
+    char ts[32];
+    design_utc_timestamp(ts);
+    snprintf(pr->run_id, sizeof(pr->run_id), "%s-%04llu", ts,
+             (unsigned long long)((pr->event_seq + 1) % 10000));
+    for (char *p = pr->run_id; *p; p++) {
+        if (*p == ':' || *p == 'T' || *p == 'Z') *p = '-';
+    }
+    design_project_set_phase(pr, "building");
+    design_buf p = {0};
+    buf_puts(&p, "{\"promptBytes\":");
+    char n[32];
+    snprintf(n, sizeof(n), "%zu", user_text ? strlen(user_text) : 0);
+    buf_puts(&p, n);
+    buf_puts(&p, "}");
+    design_event_log(pr, "run_started", p.ptr);
+    free(p.ptr);
+}
+
+static void design_project_finish_run(design_project *pr, const char *status) {
+    design_buf p = {0};
+    buf_puts(&p, "{\"status\":\"");
+    json_escape_buf(&p, status ? status : "ok", status ? strlen(status) : 2);
+    buf_puts(&p, "\",\"phase\":\"");
+    json_escape_buf(&p, pr->phase, strlen(pr->phase));
+    buf_puts(&p, "\"}");
+    design_event_log(pr, "run_done", p.ptr);
+    free(p.ptr);
+    if (strcmp(pr->phase, "waiting_user") != 0)
+        design_project_set_phase(pr, "idle");
+    design_write_state(pr);
+}
+
 /* ---- anchored old/new matching, same contract as ds4-agent ---- */
 
 static bool find_unique(const char *data, size_t len,
@@ -1067,6 +1887,23 @@ static char *tool_write(design_project *pr, const design_tool_call *call) {
     size_t len = strlen(content);
     if (!write_file_bytes(full, content, len, err, sizeof(err)))
         return tool_error(err);
+    char sha[41];
+    ds4_kvstore_sha1_bytes_hex(content, len, sha);
+    design_buf ev = {0};
+    char num[64];
+    buf_puts(&ev, "{\"path\":\"");
+    json_escape_buf(&ev, path, strlen(path));
+    buf_puts(&ev, "\",\"op\":\"write\",\"bytes\":");
+    snprintf(num, sizeof(num), "%zu", len);
+    buf_puts(&ev, num);
+    buf_puts(&ev, ",\"lines\":");
+    snprintf(num, sizeof(num), "%d", count_lines_before(content, len));
+    buf_puts(&ev, num);
+    buf_puts(&ev, ",\"sha1\":\"");
+    buf_puts(&ev, sha);
+    buf_puts(&ev, "\"}");
+    design_event_log(pr, "file_written", ev.ptr);
+    free(ev.ptr);
     char msg[640];
     snprintf(msg, sizeof(msg), "Wrote %zu bytes to %s (%d lines). "
              "The file panel and preview refresh automatically.\n",
@@ -1115,6 +1952,26 @@ static char *tool_edit(design_project *pr, const design_tool_call *call) {
         free(out);
         return tool_error(err);
     }
+    char sha[41];
+    ds4_kvstore_sha1_bytes_hex(out, out_len, sha);
+    design_buf ev = {0};
+    char num[64];
+    buf_puts(&ev, "{\"path\":\"");
+    json_escape_buf(&ev, path, strlen(path));
+    buf_puts(&ev, "\",\"op\":\"edit\",\"bytes\":");
+    snprintf(num, sizeof(num), "%zu", out_len);
+    buf_puts(&ev, num);
+    buf_puts(&ev, ",\"lines\":");
+    snprintf(num, sizeof(num), "%d", count_lines_before(out, out_len));
+    buf_puts(&ev, num);
+    buf_puts(&ev, ",\"sha1\":\"");
+    buf_puts(&ev, sha);
+    buf_puts(&ev, "\",\"lineDelta\":");
+    snprintf(num, sizeof(num), "%d", new_end_line - old_end_line);
+    buf_puts(&ev, num);
+    buf_puts(&ev, "}");
+    design_event_log(pr, "file_written", ev.ptr);
+    free(ev.ptr);
 
     design_buf b = {0};
     char hdr[512];
@@ -1209,37 +2066,933 @@ static char *tool_list(design_project *pr, const design_tool_call *call) {
     return buf_take(&b);
 }
 
-static char *tool_todo_write(const design_tool_call *call) {
+static const char *todo_normalize_status(const char *s) {
+    if (!s) return NULL;
+    if (!strcmp(s, "pending")) return "pending";
+    if (!strcmp(s, "in_progress")) return "in_progress";
+    if (!strcmp(s, "completed")) return "completed";
+    if (!strcmp(s, "stopped")) return "stopped";
+    if (!strcmp(s, "canceled") || !strcmp(s, "cancelled") || !strcmp(s, "failed"))
+        return "stopped";
+    return NULL;
+}
+
+static bool todo_text_nonempty(const char *s) {
+    if (!s) return false;
+    for (const char *p = s; *p; p++) {
+        if (!isspace((unsigned char)*p)) return true;
+    }
+    return false;
+}
+
+static bool todo_parse_and_normalize(const char *todos, char **normalized_out,
+                                     int *items_out, bool *has_ip_out,
+                                     char *err, size_t errsz) {
+    const char *end = todos ? todos + strlen(todos) : "";
+    const char *p = json_ws(todos ? todos : "", end);
+    if (p >= end || *p != '[') {
+        snprintf(err, errsz, "todos must be a JSON array of objects");
+        return false;
+    }
+    p++;
+    design_buf out = {0};
+    buf_puts(&out, "[");
+    int items = 0;
+    bool has_ip = false;
+    p = json_ws(p, end);
+    if (p < end && *p == ']') {
+        p++;
+        p = json_ws(p, end);
+        if (p != end) {
+            snprintf(err, errsz, "trailing data after todos array");
+            free(out.ptr);
+            return false;
+        }
+        buf_puts(&out, "]");
+        *normalized_out = buf_take(&out);
+        *items_out = 0;
+        *has_ip_out = false;
+        return true;
+    }
+
+    for (;;) {
+        p = json_ws(p, end);
+        if (p >= end || *p != '{') {
+            snprintf(err, errsz, "each todo must be a JSON object");
+            free(out.ptr);
+            return false;
+        }
+        p++;
+        char *text = NULL;
+        char *status_raw = NULL;
+        p = json_ws(p, end);
+        if (p < end && *p == '}') {
+            snprintf(err, errsz, "todo item cannot be empty");
+            free(out.ptr);
+            return false;
+        }
+        for (;;) {
+            p = json_ws(p, end);
+            char *key = json_parse_string_alloc(&p, end, err, errsz);
+            if (!key) { free(text); free(status_raw); free(out.ptr); return false; }
+            p = json_ws(p, end);
+            if (p >= end || *p != ':') {
+                snprintf(err, errsz, "expected ':' after todo key");
+                free(key); free(text); free(status_raw); free(out.ptr);
+                return false;
+            }
+            p++;
+            p = json_ws(p, end);
+            if (!strcmp(key, "text") || !strcmp(key, "content") || !strcmp(key, "step")) {
+                if (p >= end || *p != '"') {
+                    snprintf(err, errsz, "todo text/content/step must be a string");
+                    free(key); free(text); free(status_raw); free(out.ptr);
+                    return false;
+                }
+                char *v = json_parse_string_alloc(&p, end, err, errsz);
+                if (!v) { free(key); free(text); free(status_raw); free(out.ptr); return false; }
+                if (!text) text = v;
+                else free(v);
+            } else if (!strcmp(key, "status")) {
+                if (p >= end || *p != '"') {
+                    snprintf(err, errsz, "todo status must be a string");
+                    free(key); free(text); free(status_raw); free(out.ptr);
+                    return false;
+                }
+                free(status_raw);
+                status_raw = json_parse_string_alloc(&p, end, err, errsz);
+                if (!status_raw) { free(key); free(text); free(out.ptr); return false; }
+            } else {
+                p = json_skip_value(p, end, 0, err, errsz);
+                if (!p) { free(key); free(text); free(status_raw); free(out.ptr); return false; }
+            }
+            free(key);
+            p = json_ws(p, end);
+            if (p < end && *p == ',') { p++; continue; }
+            if (p < end && *p == '}') { p++; break; }
+            snprintf(err, errsz, "expected ',' or '}' in todo object");
+            free(text); free(status_raw); free(out.ptr);
+            return false;
+        }
+        const char *status = todo_normalize_status(status_raw);
+        if (!todo_text_nonempty(text)) {
+            snprintf(err, errsz, "todo item needs non-empty text/content/step");
+            free(text); free(status_raw); free(out.ptr);
+            return false;
+        }
+        if (!status) {
+            snprintf(err, errsz,
+                     "todo status must be pending, in_progress, completed, or stopped");
+            free(text); free(status_raw); free(out.ptr);
+            return false;
+        }
+        if (items) buf_puts(&out, ",");
+        buf_puts(&out, "{\"text\":\"");
+        json_escape_buf(&out, text, strlen(text));
+        buf_puts(&out, "\",\"status\":\"");
+        buf_puts(&out, status);
+        buf_puts(&out, "\"}");
+        if (!strcmp(status, "in_progress")) has_ip = true;
+        items++;
+        free(text);
+        free(status_raw);
+
+        p = json_ws(p, end);
+        if (p < end && *p == ',') { p++; continue; }
+        if (p < end && *p == ']') {
+            p++;
+            p = json_ws(p, end);
+            if (p != end) {
+                snprintf(err, errsz, "trailing data after todos array");
+                free(out.ptr);
+                return false;
+            }
+            break;
+        }
+        snprintf(err, errsz, "expected ',' or ']' after todo item");
+        free(out.ptr);
+        return false;
+    }
+    buf_puts(&out, "]");
+    *normalized_out = buf_take(&out);
+    *items_out = items;
+    *has_ip_out = has_ip;
+    return true;
+}
+
+static char *tool_todo_write(design_project *pr, const design_tool_call *call) {
     const char *todos = tool_arg_value(call, "todos");
     if (!todos) return tool_error("todo_write requires todos");
-    const char *p = todos;
-    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
-    if (*p != '[')
-        return tool_error("todos must be a JSON array of "
-                          "{\"text\":...,\"status\":\"pending|in_progress|completed\"}");
-    emit_todos_event(todos);
+    char err[256];
+    char *normalized = NULL;
     int items = 0;
-    for (const char *q = todos; *q; q++) {
-        if (*q == '{') items++;
-    }
-    char msg[96];
-    snprintf(msg, sizeof(msg), "Todo list updated (%d items). It renders live in the chat.\n", items);
+    bool has_ip = false;
+    if (!todo_parse_and_normalize(todos, &normalized, &items, &has_ip, err, sizeof(err)))
+        return tool_error(err);
+    free(pr->todos_json);
+    pr->todos_json = normalized;
+    pr->todos_have_in_progress = has_ip;
+    design_project_set_phase(pr, has_ip ? "building" : pr->phase);
+    emit_todos_event(pr->todos_json);
+    design_buf ev = {0};
+    char n[32];
+    buf_puts(&ev, "{\"todos\":");
+    buf_puts(&ev, pr->todos_json);
+    buf_puts(&ev, ",\"count\":");
+    snprintf(n, sizeof(n), "%d", items);
+    buf_puts(&ev, n);
+    buf_puts(&ev, ",\"hasInProgress\":");
+    buf_puts(&ev, has_ip ? "true" : "false");
+    buf_puts(&ev, "}");
+    design_event_log(pr, "todos_updated", ev.ptr);
+    free(ev.ptr);
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Todo list updated (%d item%s). It renders live in the chat.\n",
+             items, items == 1 ? "" : "s");
     return xstrdup(msg);
+}
+
+typedef struct {
+    char *severity;
+    char *message;
+} design_check_finding;
+
+typedef struct {
+    design_check_finding *v;
+    int len;
+    int cap;
+    int errors;
+    int warnings;
+    int p0;
+    int p1;
+    int p2;
+} design_check_report;
+
+static void design_check_report_free(design_check_report *r) {
+    for (int i = 0; i < r->len; i++) {
+        free(r->v[i].severity);
+        free(r->v[i].message);
+    }
+    free(r->v);
+    memset(r, 0, sizeof(*r));
+}
+
+static void design_check_add(design_check_report *r, const char *severity,
+                             const char *fmt, ...) {
+    if (r->len == r->cap) {
+        r->cap = r->cap ? r->cap * 2 : 8;
+        r->v = xrealloc(r->v, (size_t)r->cap * sizeof(r->v[0]));
+    }
+    char stack[512];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(stack, sizeof(stack), fmt, ap);
+    va_end(ap);
+    char *msg;
+    if (n < 0) {
+        msg = xstrdup("check failed");
+    } else if ((size_t)n < sizeof(stack)) {
+        msg = xstrdup(stack);
+    } else {
+        msg = xmalloc((size_t)n + 1);
+        va_start(ap, fmt);
+        vsnprintf(msg, (size_t)n + 1, fmt, ap);
+        va_end(ap);
+    }
+    r->v[r->len++] = (design_check_finding){
+        .severity = xstrdup(severity),
+        .message = msg,
+    };
+    if (!strcmp(severity, "P0") || !strcmp(severity, "error")) {
+        r->errors++;
+        r->p0++;
+    } else {
+        r->warnings++;
+        if (!strcmp(severity, "P2")) r->p2++;
+        else r->p1++;
+    }
+}
+
+static const char *design_check_status(const design_check_report *r) {
+    if (r->errors) return "fail";
+    if (r->warnings) return "warning";
+    return "pass";
+}
+
+static void emit_artifact_check_event(const char *entry,
+                                      const design_check_report *report) {
+    if (!g_jsonl) return;
+    design_buf b = {0};
+    buf_puts(&b, "\x1e{\"type\":\"artifact_check\",\"entry\":\"");
+    json_escape_buf(&b, entry ? entry : "", entry ? strlen(entry) : 0);
+    buf_puts(&b, "\",\"status\":\"");
+    buf_puts(&b, design_check_status(report));
+    buf_puts(&b, "\",\"p0\":");
+    char n[32];
+    snprintf(n, sizeof(n), "%d", report ? report->p0 : 0);
+    buf_puts(&b, n);
+    buf_puts(&b, ",\"p1\":");
+    snprintf(n, sizeof(n), "%d", report ? report->p1 : 0);
+    buf_puts(&b, n);
+    buf_puts(&b, ",\"p2\":");
+    snprintf(n, sizeof(n), "%d", report ? report->p2 : 0);
+    buf_puts(&b, n);
+    buf_puts(&b, ",\"findings\":[");
+    for (int i = 0; i < report->len; i++) {
+        if (i) buf_puts(&b, ",");
+        buf_puts(&b, "{\"severity\":\"");
+        json_escape_buf(&b, report->v[i].severity, strlen(report->v[i].severity));
+        buf_puts(&b, "\",\"message\":\"");
+        json_escape_buf(&b, report->v[i].message, strlen(report->v[i].message));
+        buf_puts(&b, "\"}");
+    }
+    buf_puts(&b, "]}\n");
+    emit_event_line(&b);
+}
+
+static void design_check_report_text(design_buf *b,
+                                     const design_check_report *report) {
+    char hdr[96];
+    snprintf(hdr, sizeof(hdr), "Artifact check: %s (%d P0, %d P1, %d P2)\n",
+             design_check_status(report),
+             report->p0, report->p1, report->p2);
+    buf_puts(b, hdr);
+    for (int i = 0; i < report->len; i++) {
+        buf_puts(b, "- ");
+        buf_puts(b, report->v[i].severity);
+        buf_puts(b, ": ");
+        buf_puts(b, report->v[i].message);
+        buf_puts(b, "\n");
+    }
+}
+
+static bool design_artifact_check(design_project *pr, const char *entry,
+                                  design_check_report *report);
+
+static char *tool_verify_artifact(design_project *pr, const design_tool_call *call) {
+    const char *entry = tool_arg_value(call, "entry");
+    if (!entry || !entry[0]) return tool_error("verify_artifact requires entry");
+    design_check_report report = {0};
+    (void)design_artifact_check(pr, entry, &report);
+    emit_artifact_check_event(entry, &report);
+    design_buf ev = {0};
+    char n[32];
+    buf_puts(&ev, "{\"entry\":\"");
+    json_escape_buf(&ev, entry, strlen(entry));
+    buf_puts(&ev, "\",\"status\":\"");
+    buf_puts(&ev, design_check_status(&report));
+    buf_puts(&ev, "\",\"errors\":");
+    snprintf(n, sizeof(n), "%d", report.errors);
+    buf_puts(&ev, n);
+    buf_puts(&ev, ",\"warnings\":");
+    snprintf(n, sizeof(n), "%d", report.warnings);
+    buf_puts(&ev, n);
+    buf_puts(&ev, ",\"p0\":");
+    snprintf(n, sizeof(n), "%d", report.p0);
+    buf_puts(&ev, n);
+    buf_puts(&ev, ",\"p1\":");
+    snprintf(n, sizeof(n), "%d", report.p1);
+    buf_puts(&ev, n);
+    buf_puts(&ev, ",\"p2\":");
+    snprintf(n, sizeof(n), "%d", report.p2);
+    buf_puts(&ev, n);
+    buf_puts(&ev, "}");
+    design_event_log(pr, "artifact_checked", ev.ptr);
+    free(ev.ptr);
+    design_buf b = {0};
+    design_check_report_text(&b, &report);
+    design_check_report_free(&report);
+    return buf_take(&b);
+}
+
+static char *tool_question(design_project *pr, const design_tool_call *call) {
+    const char *id = tool_arg_value(call, "id");
+    const char *title = tool_arg_value(call, "title");
+    const char *questions = tool_arg_value(call, "questions");
+    if (!id || !id[0]) return tool_error("question requires id");
+    if (!title || !title[0]) return tool_error("question requires title");
+    if (!questions || !questions[0]) return tool_error("question requires questions");
+    char err[256];
+    if (!json_validate_complete(questions, '[', err, sizeof(err)))
+        return tool_error(err);
+    design_project_set_phase(pr, "waiting_user");
+    emit_question_event(id, title, questions);
+    design_buf ev = {0};
+    buf_puts(&ev, "{\"id\":\"");
+    json_escape_buf(&ev, id, strlen(id));
+    buf_puts(&ev, "\",\"title\":\"");
+    json_escape_buf(&ev, title, strlen(title));
+    buf_puts(&ev, "\",\"questions\":");
+    design_put_json_flat(&ev, questions);
+    buf_puts(&ev, "}");
+    design_event_log(pr, "question_asked", ev.ptr);
+    free(ev.ptr);
+    pr->stop_after_tools = true;
+    return xstrdup("Question event emitted. Stop this turn and wait for the user's answer.\n");
+}
+
+static void design_json_string_array_put(design_buf *b, const design_string_list *l) {
+    buf_puts(b, "[");
+    for (int i = 0; i < l->len; i++) {
+        if (i) buf_puts(b, ",");
+        buf_puts(b, "\"");
+        json_escape_buf(b, l->v[i], strlen(l->v[i]));
+        buf_puts(b, "\"");
+    }
+    buf_puts(b, "]");
+}
+
+static const char *design_ext(const char *path) {
+    const char *slash = strrchr(path, '/');
+    const char *dot = strrchr(path, '.');
+    return (dot && (!slash || dot > slash)) ? dot : "";
+}
+
+static bool json_number_field(const char *json, const char *key,
+                              double *out, char *err, size_t errsz) {
+    char pat[96];
+    snprintf(pat, sizeof(pat), "\"%s\"", key);
+    const char *end = json + strlen(json);
+    const char *p = json;
+    while ((p = strstr(p, pat)) != NULL) {
+        const char *q = p + strlen(pat);
+        q = json_ws(q, end);
+        if (q >= end || *q != ':') { p = q; continue; }
+        q++;
+        q = json_ws(q, end);
+        char *ep = NULL;
+        errno = 0;
+        double v = strtod(q, &ep);
+        if (ep == q || errno == ERANGE) {
+            snprintf(err, errsz, "score %s must be a JSON number", key);
+            return false;
+        }
+        const char *r = json_ws(ep, end);
+        if (r < end && *r != ',' && *r != '}') {
+            snprintf(err, errsz, "score %s has trailing non-number text", key);
+            return false;
+        }
+        if (v < 0.0 || v > 10.0) {
+            snprintf(err, errsz, "score %s must be between 0 and 10", key);
+            return false;
+        }
+        *out = v;
+        return true;
+    }
+    snprintf(err, errsz, "scores_json missing required role: %s", key);
+    return false;
+}
+
+static bool design_critique_parse_scores(const char *scores_json,
+                                         design_critique_scores *scores,
+                                         char *err, size_t errsz) {
+    if (!scores_json || !scores_json[0]) {
+        snprintf(err, errsz, "critique_write requires scores_json");
+        return false;
+    }
+    if (!json_validate_complete(scores_json, '{', err, errsz))
+        return false;
+    memset(scores, 0, sizeof(*scores));
+    if (!json_number_field(scores_json, "critic", &scores->critic, err, errsz) ||
+        !json_number_field(scores_json, "brand", &scores->brand, err, errsz) ||
+        !json_number_field(scores_json, "a11y", &scores->a11y, err, errsz) ||
+        !json_number_field(scores_json, "copy", &scores->copy, err, errsz))
+        return false;
+    scores->composite = scores->critic * 0.4 +
+                        scores->brand * 0.2 +
+                        scores->a11y * 0.2 +
+                        scores->copy * 0.2;
+    return true;
+}
+
+static char *tool_critique_write(design_project *pr, const design_tool_call *call) {
+    const char *entry = tool_arg_value(call, "entry");
+    const char *scores_json = tool_arg_value(call, "scores_json");
+    const char *must_fixes_json = tool_arg_value(call, "must_fixes_json");
+    const char *decision = tool_arg_value(call, "decision");
+    const char *notes = tool_arg_value(call, "notes");
+    if (!entry || !entry[0]) return tool_error("critique_write requires entry");
+    if (!decision || !decision[0]) return tool_error("critique_write requires decision");
+    if (strcasecmp(decision, "ship") && strcasecmp(decision, "continue"))
+        return tool_error("critique_write decision must be ship or continue");
+
+    const char *ext = design_ext(entry);
+    if (strcasecmp(ext, ".html") && strcasecmp(ext, ".htm"))
+        return tool_error("critique_write is only required for HTML artifact entries");
+
+    char full[PATH_MAX], err[256];
+    if (!project_resolve(pr, entry, full, sizeof(full), err, sizeof(err)))
+        return tool_error(err);
+    if (access(full, R_OK) != 0)
+        return tool_error("critique_write entry file does not exist; write it first");
+
+    design_critique_scores scores;
+    if (!design_critique_parse_scores(scores_json, &scores, err, sizeof(err)))
+        return tool_error(err);
+
+    design_string_list must_fixes = {0};
+    if (!must_fixes_json || !must_fixes_json[0])
+        must_fixes_json = "[]";
+    if (!json_parse_string_array(must_fixes_json, &must_fixes, err, sizeof(err)))
+        return tool_error(err);
+
+    bool passed = !strcasecmp(decision, "ship") &&
+                  scores.composite >= DESIGN_QUALITY_THRESHOLD &&
+                  must_fixes.len == 0;
+    snprintf(pr->critique_entry, sizeof(pr->critique_entry), "%s", entry);
+    pr->critique_scores = scores;
+    pr->critique_must_fixes = must_fixes.len;
+    pr->critique_passed = passed;
+    design_utc_timestamp(pr->critique_updated_at);
+
+    emit_critique_event(entry, &scores, must_fixes.len, passed, decision,
+                        scores_json, must_fixes_json, notes ? notes : "");
+
+    design_buf ev = {0};
+    char n[64];
+    buf_puts(&ev, "{\"entry\":\"");
+    json_escape_buf(&ev, entry, strlen(entry));
+    buf_puts(&ev, "\",\"rubric\":\"" DESIGN_QUALITY_RUBRIC_ID
+                  "\",\"composite\":");
+    snprintf(n, sizeof(n), "%.2f", scores.composite);
+    buf_puts(&ev, n);
+    buf_puts(&ev, ",\"threshold\":");
+    snprintf(n, sizeof(n), "%.2f", DESIGN_QUALITY_THRESHOLD);
+    buf_puts(&ev, n);
+    buf_puts(&ev, ",\"pass\":");
+    buf_puts(&ev, passed ? "true" : "false");
+    buf_puts(&ev, ",\"mustFixes\":");
+    snprintf(n, sizeof(n), "%d", must_fixes.len);
+    buf_puts(&ev, n);
+    buf_puts(&ev, ",\"scores\":");
+    design_put_json_flat(&ev, scores_json);
+    buf_puts(&ev, ",\"mustFixItems\":");
+    design_put_json_flat(&ev, must_fixes_json);
+    buf_puts(&ev, "}");
+    design_event_log(pr, "critique_recorded", ev.ptr);
+    free(ev.ptr);
+
+    design_buf out = {0};
+    snprintf(n, sizeof(n), "%.1f", scores.composite);
+    if (passed) {
+        buf_puts(&out, "Critique passed: composite ");
+        buf_puts(&out, n);
+        buf_puts(&out, "/10. artifact() is now allowed for this entry if verification still passes.\n");
+    } else {
+        buf_puts(&out, "Critique blocked: composite ");
+        buf_puts(&out, n);
+        buf_puts(&out, "/10");
+        if (must_fixes.len) {
+            char mf[64];
+            snprintf(mf, sizeof(mf), ", %d must-fix item%s",
+                     must_fixes.len, must_fixes.len == 1 ? "" : "s");
+            buf_puts(&out, mf);
+        }
+        buf_puts(&out, ". Fix the file and call critique_write again before artifact().\n");
+    }
+    design_string_list_free(&must_fixes);
+    return buf_take(&out);
+}
+
+static void artifact_defaults_for_entry(const char *entry, const char **kind,
+                                        const char **renderer,
+                                        design_string_list *exports) {
+    const char *ext = design_ext(entry);
+    if (!strcasecmp(ext, ".md")) {
+        *kind = "markdown-document";
+        *renderer = "markdown";
+        design_string_list_push(exports, xstrdup("md"));
+        design_string_list_push(exports, xstrdup("pdf"));
+        design_string_list_push(exports, xstrdup("zip"));
+    } else if (!strcasecmp(ext, ".svg")) {
+        *kind = "svg";
+        *renderer = "svg";
+        design_string_list_push(exports, xstrdup("svg"));
+        design_string_list_push(exports, xstrdup("zip"));
+    } else {
+        *kind = "html";
+        *renderer = "html";
+        design_string_list_push(exports, xstrdup("html"));
+        design_string_list_push(exports, xstrdup("pdf"));
+        design_string_list_push(exports, xstrdup("zip"));
+    }
+}
+
+static bool artifact_kind_ok(const char *s) {
+    static const char *ok[] = {
+        "html", "deck", "react-component", "markdown-document", "svg",
+        "diagram", "code-snippet", "mini-app", "design-system",
+        "poster", "social-card", "image-brief", "video-storyboard",
+        "audio-script", "prompt-pack", "pdf-brief", "docx-brief",
+        "figma-brief", "hyperframes", NULL
+    };
+    for (int i = 0; ok[i]; i++) if (!strcmp(s, ok[i])) return true;
+    return false;
+}
+
+static bool artifact_renderer_ok(const char *s) {
+    static const char *ok[] = {
+        "html", "deck-html", "react-component", "markdown", "svg",
+        "diagram", "code", "mini-app", "design-system",
+        "poster-html", "social-html", "brief", "storyboard",
+        "prompt-pack", "hyperframes", NULL
+    };
+    for (int i = 0; ok[i]; i++) if (!strcmp(s, ok[i])) return true;
+    return false;
+}
+
+static bool artifact_export_ok(const char *s) {
+    static const char *ok[] = {
+        "html", "pdf", "zip", "pptx", "jsx", "md", "svg", "txt",
+        "json", "png", "mp4", "wav", "docx", "figma", "prompt", NULL
+    };
+    for (int i = 0; ok[i]; i++) if (!strcmp(s, ok[i])) return true;
+    return false;
+}
+
+static char *artifact_slug_for_entry(const char *entry) {
+    design_buf b = {0};
+    for (const char *p = entry; *p; p++) {
+        unsigned char c = (unsigned char)*p;
+        char out = (isalnum(c) || c == '-' || c == '_' || c == '.') ? (char)c : '_';
+        buf_append(&b, &out, 1);
+    }
+    if (!b.len) buf_puts(&b, "artifact");
+    buf_puts(&b, ".json");
+    return buf_take(&b);
+}
+
+static void artifact_timestamp(char out[32]) {
+    time_t t = time(NULL);
+    struct tm tmv;
+    gmtime_r(&t, &tmv);
+    strftime(out, 32, "%Y-%m-%dT%H:%M:%SZ", &tmv);
+}
+
+static char *artifact_build_manifest_json(const char *artifact_id,
+                                          const char *parent_artifact_id,
+                                          const char *content_hash,
+                                          const char *entry, const char *title,
+                                          const char *kind,
+                                          const char *renderer,
+                                          const design_string_list *exports,
+                                          const design_string_list *supporting,
+                                          const design_check_report *report,
+                                          const design_project *pr,
+                                          const char *created_at,
+                                          const char *metadata_json) {
+    design_buf b = {0};
+    buf_puts(&b, "{\n");
+    buf_puts(&b, "  \"schema\":\"ds4.design.artifact.v2\",\n");
+    buf_puts(&b, "  \"version\":2,\n");
+    buf_puts(&b, "  \"artifactId\":\"");
+    json_escape_buf(&b, artifact_id, strlen(artifact_id));
+    buf_puts(&b, "\",\n  \"parentArtifactId\":");
+    if (parent_artifact_id && parent_artifact_id[0]) {
+        buf_puts(&b, "\"");
+        json_escape_buf(&b, parent_artifact_id, strlen(parent_artifact_id));
+        buf_puts(&b, "\"");
+    } else {
+        buf_puts(&b, "null");
+    }
+    buf_puts(&b, ",\n  \"entry\":\"");
+    json_escape_buf(&b, entry, strlen(entry));
+    buf_puts(&b, "\",\n  \"title\":\"");
+    json_escape_buf(&b, title ? title : "", title ? strlen(title) : 0);
+    buf_puts(&b, "\",\n  \"kind\":\"");
+    json_escape_buf(&b, kind, strlen(kind));
+    buf_puts(&b, "\",\n  \"renderer\":\"");
+    json_escape_buf(&b, renderer, strlen(renderer));
+    buf_puts(&b, "\",\n  \"exports\":");
+    design_json_string_array_put(&b, exports);
+    buf_puts(&b, ",\n  \"supportingFiles\":");
+    design_json_string_array_put(&b, supporting);
+    buf_puts(&b, ",\n  \"contentHash\":\"");
+    json_escape_buf(&b, content_hash, strlen(content_hash));
+    buf_puts(&b, "\",\n  \"checkReport\":{\"status\":\"");
+    buf_puts(&b, report ? design_check_status(report) : "pass");
+    buf_puts(&b, "\",\"errors\":");
+    char num[32];
+    snprintf(num, sizeof(num), "%d", report ? report->errors : 0);
+    buf_puts(&b, num);
+    buf_puts(&b, ",\"warnings\":");
+    snprintf(num, sizeof(num), "%d", report ? report->warnings : 0);
+    buf_puts(&b, num);
+    buf_puts(&b, ",\"p0\":");
+    snprintf(num, sizeof(num), "%d", report ? report->p0 : 0);
+    buf_puts(&b, num);
+    buf_puts(&b, ",\"p1\":");
+    snprintf(num, sizeof(num), "%d", report ? report->p1 : 0);
+    buf_puts(&b, num);
+    buf_puts(&b, ",\"p2\":");
+    snprintf(num, sizeof(num), "%d", report ? report->p2 : 0);
+    buf_puts(&b, num);
+    buf_puts(&b, "},\n  \"quality\":{\"rubric\":\"" DESIGN_QUALITY_RUBRIC_ID
+                "\",\"composite\":");
+    if (pr && pr->critique_entry[0]) {
+        snprintf(num, sizeof(num), "%.2f", pr->critique_scores.composite);
+        buf_puts(&b, num);
+    } else {
+        buf_puts(&b, "null");
+    }
+    buf_puts(&b, ",\"threshold\":");
+    snprintf(num, sizeof(num), "%.2f", DESIGN_QUALITY_THRESHOLD);
+    buf_puts(&b, num);
+    buf_puts(&b, ",\"pass\":");
+    buf_puts(&b, pr && pr->critique_passed ? "true" : "false");
+    buf_puts(&b, ",\"p0\":");
+    snprintf(num, sizeof(num), "%d", report ? report->p0 : 0);
+    buf_puts(&b, num);
+    buf_puts(&b, ",\"p1\":");
+    snprintf(num, sizeof(num), "%d", report ? report->p1 : 0);
+    buf_puts(&b, num);
+    buf_puts(&b, ",\"p2\":");
+    snprintf(num, sizeof(num), "%d", report ? report->p2 : 0);
+    buf_puts(&b, num);
+    buf_puts(&b, ",\"critiqueEntry\":");
+    if (pr && pr->critique_entry[0]) {
+        buf_puts(&b, "\"");
+        json_escape_buf(&b, pr->critique_entry, strlen(pr->critique_entry));
+        buf_puts(&b, "\"");
+    } else {
+        buf_puts(&b, "null");
+    }
+    buf_puts(&b, ",\"critiqueAt\":");
+    if (pr && pr->critique_updated_at[0]) {
+        buf_puts(&b, "\"");
+        json_escape_buf(&b, pr->critique_updated_at, strlen(pr->critique_updated_at));
+        buf_puts(&b, "\"");
+    } else {
+        buf_puts(&b, "null");
+    }
+    buf_puts(&b, "},\n  \"createdAt\":\"");
+    buf_puts(&b, created_at);
+    buf_puts(&b, "\",\n  \"updatedAt\":\"");
+    buf_puts(&b, created_at);
+    buf_puts(&b, "\",\n  \"metadata\":");
+    buf_puts(&b, metadata_json && metadata_json[0] ? metadata_json : "{}");
+    buf_puts(&b, "\n}\n");
+    return buf_take(&b);
+}
+
+static bool artifact_write_manifest(design_project *pr, const char *entry,
+                                    const char *manifest, char *err, size_t errsz) {
+    char *slug = artifact_slug_for_entry(entry);
+    char rel[PATH_MAX];
+    int n = snprintf(rel, sizeof(rel), ".ds4-design/artifacts/%s", slug);
+    free(slug);
+    if (n < 0 || (size_t)n >= sizeof(rel)) {
+        snprintf(err, errsz, "artifact manifest path too long");
+        return false;
+    }
+    char full[PATH_MAX];
+    if (!project_resolve(pr, rel, full, sizeof(full), err, errsz))
+        return false;
+    return write_file_bytes(full, manifest, strlen(manifest), err, errsz);
 }
 
 static char *tool_artifact(design_project *pr, const design_tool_call *call) {
     const char *entry = tool_arg_value(call, "entry");
     const char *title = tool_arg_value(call, "title");
+    const char *kind_arg = tool_arg_value(call, "kind");
+    const char *renderer_arg = tool_arg_value(call, "renderer");
+    const char *exports_arg = tool_arg_value(call, "exports");
+    const char *supporting_arg = tool_arg_value(call, "supporting_files");
+    const char *metadata_arg = tool_arg_value(call, "metadata");
+    if (!entry || !entry[0]) return tool_error("artifact requires entry");
+    if (!title || !title[0]) return tool_error("artifact requires title");
     char full[PATH_MAX], err[256];
     if (!project_resolve(pr, entry, full, sizeof(full), err, sizeof(err)))
         return tool_error(err);
     if (access(full, R_OK) != 0)
         return tool_error("artifact entry file does not exist; write it first");
-    emit_artifact_event(entry, title);
+
+    if (pr->todos_have_in_progress)
+        return tool_error("todo_write still has an in_progress step; update the plan before artifact");
+
+    design_check_report report = {0};
+    (void)design_artifact_check(pr, entry, &report);
+    emit_artifact_check_event(entry, &report);
+    {
+        design_buf cev = {0};
+        char n[32];
+        buf_puts(&cev, "{\"entry\":\"");
+        json_escape_buf(&cev, entry, strlen(entry));
+        buf_puts(&cev, "\",\"status\":\"");
+        buf_puts(&cev, design_check_status(&report));
+        buf_puts(&cev, "\",\"errors\":");
+        snprintf(n, sizeof(n), "%d", report.errors);
+        buf_puts(&cev, n);
+        buf_puts(&cev, ",\"warnings\":");
+        snprintf(n, sizeof(n), "%d", report.warnings);
+        buf_puts(&cev, n);
+        buf_puts(&cev, ",\"p0\":");
+        snprintf(n, sizeof(n), "%d", report.p0);
+        buf_puts(&cev, n);
+        buf_puts(&cev, ",\"p1\":");
+        snprintf(n, sizeof(n), "%d", report.p1);
+        buf_puts(&cev, n);
+        buf_puts(&cev, ",\"p2\":");
+        snprintf(n, sizeof(n), "%d", report.p2);
+        buf_puts(&cev, n);
+        buf_puts(&cev, "}");
+        design_event_log(pr, "artifact_checked", cev.ptr);
+        free(cev.ptr);
+    }
+    if (report.errors) {
+        design_buf b = {0};
+        buf_puts(&b, "artifact blocked by verification failures:\n");
+        design_check_report_text(&b, &report);
+        design_check_report_free(&report);
+        char *msg = buf_take(&b);
+        char *res = tool_error(msg);
+        free(msg);
+        return res;
+    }
+
+    const char *entry_ext = design_ext(entry);
+    bool entry_is_html = !strcasecmp(entry_ext, ".html") || !strcasecmp(entry_ext, ".htm");
+    if (entry_is_html) {
+        char qerr[256];
+        if (!design_project_critique_passes(pr, entry, qerr, sizeof(qerr))) {
+            design_check_report_free(&report);
+            return tool_error(qerr);
+        }
+    }
+
+    const char *kind = NULL, *renderer = NULL;
+    design_string_list exports = {0}, supporting = {0};
+    artifact_defaults_for_entry(entry, &kind, &renderer, &exports);
+    if (kind_arg && kind_arg[0]) kind = kind_arg;
+    if (renderer_arg && renderer_arg[0]) renderer = renderer_arg;
+    if (!artifact_kind_ok(kind)) {
+        design_check_report_free(&report);
+        design_string_list_free(&exports);
+        return tool_error("artifact kind is not supported");
+    }
+    if (!artifact_renderer_ok(renderer)) {
+        design_check_report_free(&report);
+        design_string_list_free(&exports);
+        return tool_error("artifact renderer is not supported");
+    }
+    if (exports_arg && exports_arg[0]) {
+        design_string_list_free(&exports);
+        if (!json_parse_string_array(exports_arg, &exports, err, sizeof(err))) {
+            design_check_report_free(&report);
+            return tool_error(err);
+        }
+    }
+    for (int i = 0; i < exports.len; i++) {
+        if (!artifact_export_ok(exports.v[i])) {
+            design_check_report_free(&report);
+            design_string_list_free(&exports);
+            design_string_list_free(&supporting);
+            return tool_error("artifact export is not supported");
+        }
+    }
+    if (supporting_arg && supporting_arg[0]) {
+        if (!json_parse_string_array(supporting_arg, &supporting, err, sizeof(err))) {
+            design_check_report_free(&report);
+            design_string_list_free(&exports);
+            return tool_error(err);
+        }
+    }
+    for (int i = 0; i < supporting.len; i++) {
+        char sfull[PATH_MAX];
+        if (!project_resolve(pr, supporting.v[i], sfull, sizeof(sfull), err, sizeof(err)) ||
+            access(sfull, R_OK) != 0)
+        {
+            design_buf e = {0};
+            buf_puts(&e, "supporting file does not exist or escapes workspace: ");
+            buf_puts(&e, supporting.v[i]);
+            char *msg = buf_take(&e);
+            design_check_report_free(&report);
+            design_string_list_free(&exports);
+            design_string_list_free(&supporting);
+            char *res = tool_error(msg);
+            free(msg);
+            return res;
+        }
+    }
+    if (metadata_arg && metadata_arg[0] &&
+        !json_validate_complete(metadata_arg, '{', err, sizeof(err)))
+    {
+        design_check_report_free(&report);
+        design_string_list_free(&exports);
+        design_string_list_free(&supporting);
+        return tool_error(err);
+    }
+    char *entry_body = NULL;
+    size_t entry_len = 0;
+    if (read_file_bytes(full, &entry_body, &entry_len, err, sizeof(err)) != 0) {
+        design_check_report_free(&report);
+        design_string_list_free(&exports);
+        design_string_list_free(&supporting);
+        return tool_error(err);
+    }
+    char content_hash[41];
+    ds4_kvstore_sha1_bytes_hex(entry_body, entry_len, content_hash);
+    free(entry_body);
+    char created_at[32];
+    artifact_timestamp(created_at);
+    design_buf idsrc = {0};
+    buf_puts(&idsrc, entry);
+    buf_puts(&idsrc, "|");
+    buf_puts(&idsrc, content_hash);
+    buf_puts(&idsrc, "|");
+    buf_puts(&idsrc, created_at);
+    char artifact_sha[41];
+    ds4_kvstore_sha1_bytes_hex(idsrc.ptr ? idsrc.ptr : "", idsrc.len, artifact_sha);
+    free(idsrc.ptr);
+    char artifact_id[17];
+    memcpy(artifact_id, artifact_sha, 16);
+    artifact_id[16] = '\0';
+
+    char *manifest = artifact_build_manifest_json(artifact_id,
+                                                  pr->current_artifact_id,
+                                                  content_hash,
+                                                  entry, title, kind, renderer,
+                                                  &exports, &supporting, &report,
+                                                  pr,
+                                                  created_at,
+                                                  metadata_arg && metadata_arg[0] ? metadata_arg : "{}");
+    if (!artifact_write_manifest(pr, entry, manifest, err, sizeof(err))) {
+        design_check_report_free(&report);
+        design_string_list_free(&exports);
+        design_string_list_free(&supporting);
+        free(manifest);
+        return tool_error(err);
+    }
+
+    snprintf(pr->current_artifact_id, sizeof(pr->current_artifact_id), "%s", artifact_id);
+    snprintf(pr->current_artifact_entry, sizeof(pr->current_artifact_entry), "%s", entry);
+    design_project_set_phase(pr, "artifact_ready");
+    emit_artifact_event(entry, title, manifest);
+    design_buf aev = {0};
+    buf_puts(&aev, "{\"artifactId\":\"");
+    json_escape_buf(&aev, artifact_id, strlen(artifact_id));
+    buf_puts(&aev, "\",\"entry\":\"");
+    json_escape_buf(&aev, entry, strlen(entry));
+    buf_puts(&aev, "\",\"title\":\"");
+    json_escape_buf(&aev, title, strlen(title));
+    buf_puts(&aev, "\",\"contentHash\":\"");
+    buf_puts(&aev, content_hash);
+    buf_puts(&aev, "\"}");
+    design_event_log(pr, "artifact_registered", aev.ptr);
+    free(aev.ptr);
+    pr->stop_after_tools = true;
     char msg[640];
     snprintf(msg, sizeof(msg),
-             "Artifact registered: %s. The workspace preview switched to it.\n", entry);
-    return xstrdup(msg);
+             "Artifact registered: %s. Manifest v2 written and the workspace preview switched to it.\n",
+             entry);
+    design_buf out = {0};
+    buf_puts(&out, msg);
+    if (report.warnings) design_check_report_text(&out, &report);
+    design_check_report_free(&report);
+    design_string_list_free(&exports);
+    design_string_list_free(&supporting);
+    free(manifest);
+    return buf_take(&out);
 }
 
 /* Register a SET of parallel design directions (compare grid in the UI). Each
@@ -1284,7 +3037,19 @@ static char *tool_propose(design_project *pr, const design_tool_call *call) {
     }
     if (count == 0)
         return tool_error("propose needs at least one direction with an existing \"entry\" file");
+    design_project_set_phase(pr, "waiting_user");
     emit_proposal_event(dirs);
+    design_buf ev = {0};
+    char n[32];
+    buf_puts(&ev, "{\"directions\":");
+    design_put_json_flat(&ev, dirs);
+    buf_puts(&ev, ",\"count\":");
+    snprintf(n, sizeof(n), "%d", count);
+    buf_puts(&ev, n);
+    buf_puts(&ev, "}");
+    design_event_log(pr, "proposal_created", ev.ptr);
+    free(ev.ptr);
+    pr->stop_after_tools = true;
     char msg[128];
     snprintf(msg, sizeof(msg),
              "Proposed %d direction%s. The user can compare them and pick one to refine.\n",
@@ -2181,19 +3946,319 @@ static char *design_read_file_buf(const char *path) {  /* file body, or NULL */
     fclose(f);
     return buf_take(&b);
 }
+
+static char *design_read_file_buf_limit(const char *path, size_t max_bytes,
+                                        bool *truncated) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    design_buf b = {0};
+    char chunk[4096];
+    size_t n;
+    if (truncated) *truncated = false;
+    while ((n = fread(chunk, 1, sizeof chunk, f)) > 0) {
+        if (b.len + n > max_bytes) {
+            size_t keep = max_bytes > b.len ? max_bytes - b.len : 0;
+            if (keep) buf_append(&b, chunk, keep);
+            if (truncated) *truncated = true;
+            break;
+        }
+        buf_append(&b, chunk, n);
+    }
+    fclose(f);
+    return buf_take(&b);
+}
+
+static bool design_string_list_contains(const design_string_list *l, const char *s) {
+    for (int i = 0; i < l->len; i++) {
+        if (!strcmp(l->v[i], s)) return true;
+    }
+    return false;
+}
+
+static void design_pack_collect_dash_id(const char *line, design_string_list *ids) {
+    const char *p = line;
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p != '-') return;
+    p++;
+    while (*p == ' ' || *p == '\t') p++;
+    char id[96];
+    size_t n = 0;
+    while ((*p == '-' || (*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9')) &&
+           n + 1 < sizeof(id)) {
+        id[n++] = *p++;
+    }
+    id[n] = '\0';
+    if (design_pack_name_ok(id) && !design_string_list_contains(ids, id))
+        design_string_list_push(ids, xstrdup(id));
+}
+
+static void design_pack_collect_inline_ids(const char *line, design_string_list *ids) {
+    const char *lb = strchr(line, '[');
+    const char *rb = lb ? strchr(lb, ']') : NULL;
+    if (!lb || !rb || rb <= lb) return;
+    const char *p = lb + 1;
+    while (p < rb) {
+        while (p < rb && (*p == ' ' || *p == '\t' || *p == ',' || *p == '"' || *p == '\'')) p++;
+        char id[96];
+        size_t n = 0;
+        while (p < rb &&
+               (*p == '-' || (*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9')) &&
+               n + 1 < sizeof(id)) {
+            id[n++] = *p++;
+        }
+        id[n] = '\0';
+        if (design_pack_name_ok(id) && !design_string_list_contains(ids, id))
+            design_string_list_push(ids, xstrdup(id));
+        while (p < rb && *p != ',') p++;
+    }
+}
+
+static void design_pack_collect_craft_requires(const char *body,
+                                               design_string_list *ids) {
+    const char *p = body;
+    bool in_frontmatter = false;
+    bool started = false;
+    bool in_meta = false;
+    bool in_craft = false;
+    bool in_requires = false;
+    while (*p) {
+        const char *line = p;
+        const char *nl = strchr(p, '\n');
+        size_t len = nl ? (size_t)(nl - line) : strlen(line);
+        char tmp[512];
+        size_t keep = len < sizeof(tmp) - 1 ? len : sizeof(tmp) - 1;
+        memcpy(tmp, line, keep);
+        tmp[keep] = '\0';
+        char *t = tmp;
+        while (*t == ' ' || *t == '\t') t++;
+        if (!started) {
+            started = true;
+            if (!strcmp(t, "---")) { in_frontmatter = true; p = nl ? nl + 1 : line + len; continue; }
+            break;
+        }
+        if (in_frontmatter && !strcmp(t, "---")) break;
+        if (!in_frontmatter) break;
+        if (!strncmp(t, "ds4:", 4) || !strncmp(t, "quality:", 8)) {
+            in_meta = true; in_craft = false; in_requires = false;
+        }
+        else if (in_meta && !strncmp(t, "craft:", 6)) { in_craft = true; in_requires = false; }
+        else if (in_meta && in_craft && !strncmp(t, "requires:", 9)) {
+            in_requires = true;
+            design_pack_collect_inline_ids(t, ids);
+        } else if (in_meta && in_craft && in_requires && t[0] == '-') {
+            design_pack_collect_dash_id(t, ids);
+        } else if (in_requires && t[0] && t[0] != '-' && !isspace((unsigned char)tmp[0])) {
+            in_requires = false;
+        }
+        if (strstr(t, "craft.requires") || strstr(t, "craft_requires"))
+            design_pack_collect_inline_ids(t, ids);
+        p = nl ? nl + 1 : line + len;
+    }
+}
+
+static void design_pack_append_truncation_note(design_buf *b, const char *label,
+                                               bool truncated, size_t max_bytes) {
+    if (!truncated) return;
+    char note[160];
+    snprintf(note, sizeof(note),
+             "\n\n[ds4-design: %s truncated at %zu bytes to protect context]\n",
+             label, max_bytes);
+    buf_puts(b, note);
+}
+
+static bool design_pack_file_ext_ok(const char *rel) {
+    const char *ext = strrchr(rel, '.');
+    if (!ext) return false;
+    static const char *ok[] = {
+        ".md", ".html", ".css", ".js", ".json", ".svg", ".txt", ".csv", NULL
+    };
+    for (int i = 0; ok[i]; i++) {
+        if (!strcasecmp(ext, ok[i])) return true;
+    }
+    return false;
+}
+
+static bool design_pack_file_rel_ok(const char *rel, char *err, size_t errsz) {
+    if (!rel || !rel[0]) {
+        snprintf(err, errsz, "path is required");
+        return false;
+    }
+    if (rel[0] == '/' || rel[0] == '~') {
+        snprintf(err, errsz, "pack_file path must be relative");
+        return false;
+    }
+    size_t len = strlen(rel);
+    if (len > 512) {
+        snprintf(err, errsz, "pack_file path too long");
+        return false;
+    }
+    if (strcmp(rel, "example.html") &&
+        strncmp(rel, "assets/", 7) &&
+        strncmp(rel, "references/", 11))
+    {
+        snprintf(err, errsz, "pack_file path must be example.html, assets/*, or references/*");
+        return false;
+    }
+    if (!design_pack_file_ext_ok(rel)) {
+        snprintf(err, errsz, "pack_file extension is not allowed");
+        return false;
+    }
+    const char *p = rel;
+    while (*p) {
+        const char *seg = p;
+        while (*p && *p != '/') {
+            unsigned char c = (unsigned char)*p;
+            if (!(isalnum(c) || c == '-' || c == '_' || c == '.')) {
+                snprintf(err, errsz, "pack_file path contains invalid characters");
+                return false;
+            }
+            p++;
+        }
+        size_t seglen = (size_t)(p - seg);
+        if (seglen == 0 || (seglen == 1 && seg[0] == '.') ||
+            (seglen == 2 && seg[0] == '.' && seg[1] == '.'))
+        {
+            snprintf(err, errsz, "pack_file path must not contain . or .. segments");
+            return false;
+        }
+        if (*p == '/') p++;
+    }
+    return true;
+}
+
+static size_t design_pack_file_cap(const char *rel) {
+    if (!strcmp(rel, "example.html") || !strncmp(rel, "assets/", 7))
+        return 96 * 1024;
+    return 32 * 1024;
+}
+
+static bool design_pack_resolve_existing_file(const char *pack_root,
+                                              const char *rel,
+                                              char *out, size_t outsz,
+                                              char *err, size_t errsz) {
+    char real_root[PATH_MAX];
+    if (!realpath(pack_root, real_root)) {
+        snprintf(err, errsz, "pack root unavailable");
+        return false;
+    }
+    char joined[PATH_MAX];
+    if ((size_t)snprintf(joined, sizeof(joined), "%s/%s", pack_root, rel) >= sizeof(joined)) {
+        snprintf(err, errsz, "pack_file path too long");
+        return false;
+    }
+    char real_file[PATH_MAX];
+    if (!realpath(joined, real_file)) {
+        snprintf(err, errsz, "pack_file not found");
+        return false;
+    }
+    size_t rl = strlen(real_root);
+    if (strncmp(real_file, real_root, rl) != 0 ||
+        (real_file[rl] != '\0' && real_file[rl] != '/'))
+    {
+        snprintf(err, errsz, "pack_file escapes the pack directory");
+        return false;
+    }
+    struct stat st;
+    if (stat(real_file, &st) != 0 || !S_ISREG(st.st_mode)) {
+        snprintf(err, errsz, "pack_file is not a regular file");
+        return false;
+    }
+    if ((size_t)snprintf(out, outsz, "%s", real_file) >= outsz) {
+        snprintf(err, errsz, "pack_file path too long");
+        return false;
+    }
+    return true;
+}
+
+static void design_pack_inventory_append_file(design_buf *out, const char *rel,
+                                              int *count) {
+    if (*count >= 80) return;
+    char err[160];
+    if (!design_pack_file_rel_ok(rel, err, sizeof(err))) return;
+    buf_puts(out, *count ? ", " : "");
+    buf_puts(out, rel);
+    (*count)++;
+}
+
+static void design_pack_inventory_append_dir(const char *pack_root,
+                                             const char *prefix,
+                                             design_buf *out,
+                                             int *count) {
+    char dir[PATH_MAX];
+    if ((size_t)snprintf(dir, sizeof(dir), "%s/%s", pack_root, prefix) >= sizeof(dir))
+        return;
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL && *count < 80) {
+        const char *name = de->d_name;
+        if (!strcmp(name, ".") || !strcmp(name, "..") || name[0] == '.') continue;
+        char rel[PATH_MAX], full[PATH_MAX];
+        if ((size_t)snprintf(rel, sizeof(rel), "%s/%s", prefix, name) >= sizeof(rel))
+            continue;
+        if ((size_t)snprintf(full, sizeof(full), "%s/%s", pack_root, rel) >= sizeof(full))
+            continue;
+        struct stat st;
+        if (lstat(full, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) {
+            design_pack_inventory_append_dir(pack_root, rel, out, count);
+        } else if (S_ISREG(st.st_mode) || S_ISLNK(st.st_mode)) {
+            design_pack_inventory_append_file(out, rel, count);
+        }
+    }
+    closedir(d);
+}
+
+static void design_pack_append_inventory(design_buf *out, const char *pack_root) {
+    if (!pack_root || !pack_root[0]) return;
+    design_buf inv = {0};
+    int count = 0;
+    char example[PATH_MAX];
+    if ((size_t)snprintf(example, sizeof(example), "%s/example.html", pack_root) < sizeof(example) &&
+        access(example, R_OK) == 0)
+        design_pack_inventory_append_file(&inv, "example.html", &count);
+    design_pack_inventory_append_dir(pack_root, "assets", &inv, &count);
+    design_pack_inventory_append_dir(pack_root, "references", &inv, &count);
+    if (!count) {
+        free(inv.ptr);
+        return;
+    }
+    buf_puts(out, "\n\n---\n[ds4-design pack files]\n");
+    buf_puts(out, "Use pack_file(type,name,path) to load these on demand: ");
+    buf_puts(out, inv.ptr);
+    if (count >= 80) buf_puts(out, " ...");
+    buf_puts(out, "\n");
+    free(inv.ptr);
+}
+
 static char *design_tool_pack(const design_tool_call *call, const char *subdir,
                               const char *file, int allow_user) {
     const char *name = tool_arg_value(call, "name");
     if (!design_pack_name_ok(name)) return tool_error("name must be a simple id (a-z, 0-9, -)");
     char path[2300];
+    char pack_root[2300] = "";
     char *body = NULL;
+    bool body_truncated = false;
+    const size_t skill_cap = 24 * 1024;
+    const size_t pack_cap = 24 * 1024;
+    const size_t craft_cap = 12 * 1024;
     if (allow_user) {  /* a user-authored skill overrides / extends the shipped library */
         const char *u = getenv("DS4UI_USER_SKILLS_DIR");
-        if (u && u[0]) { snprintf(path, sizeof path, "%s/%s/SKILL.md", u, name); body = design_read_file_buf(path); }
+        if (u && u[0]) {
+            snprintf(path, sizeof path, "%s/%s/SKILL.md", u, name);
+            body = design_read_file_buf_limit(path, skill_cap, &body_truncated);
+            if (body) snprintf(pack_root, sizeof(pack_root), "%s/%s", u, name);
+        }
     }
     if (!body) {
         const char *root = getenv("DS4UI_SKILLS_DIR");
-        if (root && root[0]) { snprintf(path, sizeof path, "%s/%s/%s/%s", root, subdir, name, file); body = design_read_file_buf(path); }
+        if (root && root[0]) {
+            snprintf(path, sizeof path, "%s/%s/%s/%s", root, subdir, name, file);
+            body = design_read_file_buf_limit(path,
+                                              !strcmp(subdir, "skills") ? skill_cap : pack_cap,
+                                              &body_truncated);
+            if (body) snprintf(pack_root, sizeof(pack_root), "%s/%s/%s", root, subdir, name);
+        }
     }
     if (!body) {
         design_buf e = {0};
@@ -2202,7 +4267,121 @@ static char *design_tool_pack(const design_tool_call *call, const char *subdir,
         buf_puts(&e, "\n");
         return buf_take(&e);
     }
-    return body;
+    design_buf out = {0};
+    buf_puts(&out, body);
+    design_pack_append_truncation_note(&out, name, body_truncated,
+                                       !strcmp(subdir, "skills") ? skill_cap : pack_cap);
+    design_pack_append_inventory(&out, pack_root);
+
+    if (!strcmp(subdir, "skills")) {
+        design_string_list crafts = {0};
+        design_pack_collect_craft_requires(body, &crafts);
+        if (crafts.len) {
+            buf_puts(&out, "\n\n---\n[ds4-design skill metadata]\n");
+            buf_puts(&out, "Auto-loaded craft.requires:");
+            for (int i = 0; i < crafts.len; i++) {
+                buf_puts(&out, i ? ", " : " ");
+                buf_puts(&out, crafts.v[i]);
+            }
+            buf_puts(&out, "\n");
+            const char *root = getenv("DS4UI_SKILLS_DIR");
+            for (int i = 0; root && root[0] && i < crafts.len; i++) {
+                char cpath[2300];
+                bool trunc = false;
+                snprintf(cpath, sizeof(cpath), "%s/craft/%s/CRAFT.md", root, crafts.v[i]);
+                char *craft = design_read_file_buf_limit(cpath, craft_cap, &trunc);
+                if (!craft) {
+                    buf_puts(&out, "\n[missing craft: ");
+                    buf_puts(&out, crafts.v[i]);
+                    buf_puts(&out, "]\n");
+                    continue;
+                }
+                buf_puts(&out, "\n---\n[auto-loaded craft: ");
+                buf_puts(&out, crafts.v[i]);
+                buf_puts(&out, "]\n");
+                buf_puts(&out, craft);
+                design_pack_append_truncation_note(&out, crafts.v[i], trunc, craft_cap);
+                free(craft);
+            }
+        }
+        design_string_list_free(&crafts);
+    }
+
+    free(body);
+    return buf_take(&out);
+}
+
+static const char *design_pack_type_subdir(const char *type,
+                                           const char **main_file,
+                                           int *allow_user) {
+    if (!type) return NULL;
+    if (!strcmp(type, "skill")) {
+        if (main_file) *main_file = "SKILL.md";
+        if (allow_user) *allow_user = 1;
+        return "skills";
+    }
+    if (!strcmp(type, "design_system")) {
+        if (main_file) *main_file = "DESIGN.md";
+        if (allow_user) *allow_user = 0;
+        return "design-systems";
+    }
+    if (!strcmp(type, "craft")) {
+        if (main_file) *main_file = "CRAFT.md";
+        if (allow_user) *allow_user = 0;
+        return "craft";
+    }
+    return NULL;
+}
+
+static char *design_tool_pack_file(const design_tool_call *call) {
+    const char *type = tool_arg_value(call, "type");
+    const char *name = tool_arg_value(call, "name");
+    const char *rel = tool_arg_value(call, "path");
+    const char *main_file = NULL;
+    int allow_user = 0;
+    const char *subdir = design_pack_type_subdir(type, &main_file, &allow_user);
+    (void)main_file;
+    if (!subdir) return tool_error("type must be skill, design_system, or craft");
+    if (!design_pack_name_ok(name)) return tool_error("name must be a simple id (a-z, 0-9, -)");
+    char err[256] = {0};
+    if (!design_pack_file_rel_ok(rel, err, sizeof(err))) return tool_error(err);
+
+    char pack_root[2300], full[PATH_MAX];
+    bool found = false;
+    if (allow_user) {
+        const char *u = getenv("DS4UI_USER_SKILLS_DIR");
+        if (u && u[0]) {
+            snprintf(pack_root, sizeof(pack_root), "%s/%s", u, name);
+            found = design_pack_resolve_existing_file(pack_root, rel, full, sizeof(full),
+                                                      err, sizeof(err));
+        }
+    }
+    if (!found) {
+        const char *root = getenv("DS4UI_SKILLS_DIR");
+        if (root && root[0]) {
+            snprintf(pack_root, sizeof(pack_root), "%s/%s/%s", root, subdir, name);
+            found = design_pack_resolve_existing_file(pack_root, rel, full, sizeof(full),
+                                                      err, sizeof(err));
+        }
+    }
+    if (!found) return tool_error(err[0] ? err : "pack_file not found");
+
+    bool truncated = false;
+    size_t cap = design_pack_file_cap(rel);
+    char *body = design_read_file_buf_limit(full, cap, &truncated);
+    if (!body) return tool_error("pack_file could not be read");
+    design_buf out = {0};
+    buf_puts(&out, "[ds4-design pack_file: ");
+    buf_puts(&out, type);
+    buf_puts(&out, "/");
+    buf_puts(&out, name);
+    buf_puts(&out, "/");
+    buf_puts(&out, rel);
+    buf_puts(&out, "]\n");
+    buf_puts(&out, body);
+    design_pack_append_truncation_note(&out, rel, truncated, cap);
+    free(body);
+    return buf_take(&out);
 }
 
 /* ---- post-write design check ----------------------------------------------------
@@ -2233,6 +4412,406 @@ static int dv_ci_contains(const char *hay, const char *needle) {
     }
     return 0;
 }
+
+static const char *dv_ci_find(const char *hay, const char *needle) {
+    size_t nl = strlen(needle);
+    if (!nl) return hay;
+    for (const char *p = hay; *p; p++) {
+        size_t k = 0;
+        while (k < nl && p[k] &&
+               tolower((unsigned char)p[k]) == tolower((unsigned char)needle[k])) k++;
+        if (k == nl) return p;
+    }
+    return NULL;
+}
+
+static bool html_title_nonempty(const char *body) {
+    const char *p = dv_ci_find(body, "<title");
+    if (!p) return false;
+    p = strchr(p, '>');
+    if (!p) return false;
+    p++;
+    const char *end = dv_ci_find(p, "</title>");
+    if (!end) return false;
+    while (p < end) {
+        if (!isspace((unsigned char)*p)) return true;
+        p++;
+    }
+    return false;
+}
+
+static bool html_ref_ignored(const char *ref) {
+    if (!ref || !ref[0]) return true;
+    if (ref[0] == '#') return true;
+    if (!strncasecmp(ref, "http:", 5) || !strncasecmp(ref, "https:", 6) ||
+        !strncasecmp(ref, "data:", 5) || !strncasecmp(ref, "mailto:", 7) ||
+        !strncasecmp(ref, "tel:", 4) || !strncasecmp(ref, "blob:", 5) ||
+        !strncasecmp(ref, "javascript:", 11) || !strncmp(ref, "//", 2))
+        return true;
+    return false;
+}
+
+static char *html_ref_path_part(const char *ref) {
+    size_t n = 0;
+    while (ref[n] && ref[n] != '#' && ref[n] != '?') n++;
+    return xstrndup(ref, n);
+}
+
+static bool entry_relative_path(const char *entry, const char *ref,
+                                char *out, size_t outsz) {
+    const char *slash = strrchr(entry, '/');
+    int n;
+    if (slash) {
+        size_t dir_len = (size_t)(slash - entry);
+        n = snprintf(out, outsz, "%.*s/%s", (int)dir_len, entry, ref);
+    } else {
+        n = snprintf(out, outsz, "%s", ref);
+    }
+    return n >= 0 && (size_t)n < outsz;
+}
+
+static void artifact_check_attr_refs(design_project *pr, const char *entry,
+                                     const char *body, const char *attr,
+                                     design_check_report *report) {
+    const char *p = body;
+    char needle[16];
+    snprintf(needle, sizeof(needle), "%s=", attr);
+    while ((p = dv_ci_find(p, needle)) != NULL) {
+        p += strlen(needle);
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+        char quote = 0;
+        if (*p == '"' || *p == '\'') quote = *p++;
+        const char *start = p;
+        if (quote) {
+            while (*p && *p != quote) p++;
+        } else {
+            while (*p && !isspace((unsigned char)*p) && *p != '>') p++;
+        }
+        if (p == start) continue;
+        char *ref = xstrndup(start, (size_t)(p - start));
+        if (!html_ref_ignored(ref)) {
+            if (ref[0] == '/') {
+                design_check_add(report, "P0",
+                                 "%s uses root-relative asset %s; use project-relative paths",
+                                 attr, ref);
+            } else {
+                char *part = html_ref_path_part(ref);
+                if (part[0]) {
+                    char rel[PATH_MAX], full[PATH_MAX], err[256];
+                    if (!entry_relative_path(entry, part, rel, sizeof(rel)) ||
+                        !project_resolve(pr, rel, full, sizeof(full), err, sizeof(err)) ||
+                        access(full, R_OK) != 0)
+                    {
+                        design_check_add(report, "P0",
+                                         "%s references missing local asset %s", attr, ref);
+                    }
+                }
+                free(part);
+            }
+        }
+        free(ref);
+        if (quote && *p == quote) p++;
+    }
+}
+
+static size_t design_count_ci_substr(const char *hay, const char *needle) {
+    size_t count = 0;
+    const char *p = hay;
+    size_t nl = strlen(needle);
+    if (!nl) return 0;
+    while ((p = dv_ci_find(p, needle)) != NULL) {
+        count++;
+        p += nl;
+    }
+    return count;
+}
+
+static size_t design_count_css_hex_colors(const char *body) {
+    size_t count = 0;
+    for (const char *p = body; *p; p++) {
+        if (*p != '#') continue;
+        int n = 0;
+        const char *q = p + 1;
+        while (isxdigit((unsigned char)*q) && n < 8) {
+            q++;
+            n++;
+        }
+        if (n == 3 || n == 4 || n == 6 || n == 8) {
+            count++;
+            p = q - 1;
+        }
+    }
+    return count;
+}
+
+static bool design_has_pictographic_emoji(const char *body, size_t *count) {
+    size_t n = strlen(body);
+    size_t i = 0, c = 0;
+    while (i < n) {
+        unsigned cp = 0;
+        dv_utf8_next(body, n, &i, &cp);
+        if (dv_is_emoji(cp)) c++;
+    }
+    if (count) *count = c;
+    return c > 0;
+}
+
+static bool design_has_any_ci(const char *body, const char **needles) {
+    for (int i = 0; needles[i]; i++) {
+        if (dv_ci_contains(body, needles[i])) return true;
+    }
+    return false;
+}
+
+static bool design_span_ci_contains(const char *start, const char *end,
+                                    const char *needle) {
+    size_t nl = strlen(needle);
+    if (!nl || end <= start) return false;
+    for (const char *p = start; p + nl <= end; p++) {
+        size_t k = 0;
+        while (k < nl &&
+               tolower((unsigned char)p[k]) == tolower((unsigned char)needle[k]))
+            k++;
+        if (k == nl) return true;
+    }
+    return false;
+}
+
+static bool design_has_any_ci_in_gradient(const char *body, const char **needles) {
+    const char *p = body;
+    while ((p = dv_ci_find(p, "linear-gradient(")) != NULL) {
+        const char *end = strchr(p, ')');
+        if (!end) end = p + strlen(p);
+        for (int i = 0; needles[i]; i++) {
+            if (design_span_ci_contains(p, end, needles[i])) return true;
+        }
+        p = end;
+    }
+    return false;
+}
+
+static bool design_has_trust_gradient(const char *body) {
+    static const char *blue[] = {
+        "#3b82f6", "#2563eb", "#1d4ed8", "#1e40af", "#1e3a8a",
+        "#60a5fa", "#93c5fd", "#bfdbfe", "#0ea5e9", "#0284c7",
+        "#0369a1", "#38bdf8", "#7dd3fc", "blue", "sky", NULL
+    };
+    static const char *cyan[] = {
+        "#06b6d4", "#0891b2", "#0e7490", "#155e75", "#164e63",
+        "#22d3ee", "#67e8f9", "#a5f3fc", "cyan", NULL
+    };
+    const char *p = body;
+    while ((p = dv_ci_find(p, "linear-gradient(")) != NULL) {
+        const char *end = strchr(p, ')');
+        if (!end) end = p + strlen(p);
+        bool has_blue = false, has_cyan = false;
+        for (int i = 0; blue[i]; i++)
+            if (design_span_ci_contains(p, end, blue[i])) has_blue = true;
+        for (int i = 0; cyan[i]; i++)
+            if (design_span_ci_contains(p, end, cyan[i])) has_cyan = true;
+        if (has_blue && has_cyan) return true;
+        p = end;
+    }
+    return false;
+}
+
+static bool design_hex_outside_global_token_scope(const char *body, const char *hex) {
+    const char *p = body;
+    while ((p = dv_ci_find(p, hex)) != NULL) {
+        const char *brace = p;
+        while (brace > body && *brace != '{' && *brace != '}') brace--;
+        if (*brace != '{') return true;
+        const char *sel = brace;
+        while (sel > body && sel[-1] != '}') sel--;
+        bool global = design_span_ci_contains(sel, brace, ":root") ||
+                      design_span_ci_contains(sel, brace, "[data-theme") ||
+                      design_span_ci_contains(sel, brace, "html");
+        if (!global) return true;
+        p += strlen(hex);
+    }
+    return false;
+}
+
+static bool design_has_sans_display_rule(const char *body) {
+    static const char *selectors[] = { "h1", "h2", "h3", ".hero", ".headline", ".display", NULL };
+    static const char *faces[] = { "Inter", "Roboto", "Arial", "-apple-system", "system-ui", "SF Pro", NULL };
+    const char *p = body;
+    while ((p = strchr(p, '{')) != NULL) {
+        const char *sel = p;
+        while (sel > body && sel[-1] != '}') sel--;
+        const char *end = strchr(p, '}');
+        if (!end) return false;
+        bool display_selector = false;
+        for (int i = 0; selectors[i]; i++) {
+            if (design_span_ci_contains(sel, p, selectors[i])) display_selector = true;
+        }
+        if (display_selector && design_span_ci_contains(p, end, "font-family")) {
+            for (int i = 0; faces[i]; i++) {
+                if (design_span_ci_contains(p, end, faces[i])) return true;
+            }
+        }
+        p = end + 1;
+    }
+    return false;
+}
+
+static void design_artifact_quality_lint(const char *body,
+                                         design_check_report *report) {
+    size_t emoji_count = 0;
+    if (design_has_pictographic_emoji(body, &emoji_count))
+        design_check_add(report, "P0",
+                         "pictographic emoji used as product icons/content (%zu found); use text or inline SVG",
+                         emoji_count);
+
+    static const char *purple_defaults[] = {
+        "#6366f1", "#8b5cf6", "#a855f7", "#7c3aed", "indigo", "violet", "purple", NULL
+    };
+    if (design_has_any_ci_in_gradient(body, purple_defaults))
+        design_check_add(report, "P0",
+                         "generic purple/indigo gradient treatment detected; bind a brief-specific palette instead");
+
+    if (design_has_trust_gradient(body))
+        design_check_add(report, "P0",
+                         "blue-to-cyan trust gradient detected; use a brief-specific single accent or flat surface");
+
+    static const char *ai_indigo[] = {
+        "#6366f1", "#4f46e5", "#4338ca", "#3730a3",
+        "#8b5cf6", "#7c3aed", "#a855f7", NULL
+    };
+    for (int i = 0; ai_indigo[i]; i++) {
+        if (design_hex_outside_global_token_scope(body, ai_indigo[i])) {
+            design_check_add(report, "P0",
+                             "default Tailwind indigo/purple accent detected outside global tokens");
+            break;
+        }
+    }
+
+    if (dv_ci_contains(body, "border-left") &&
+        dv_ci_contains(body, "border-radius") &&
+        (dv_ci_contains(body, "card") || dv_ci_contains(body, "panel")))
+        design_check_add(report, "P0",
+                         "rounded card/panel with a left accent border detected; replace the template-card pattern");
+
+    static const char *invented_metrics[] = {
+        "10x faster", "10× faster", "99.9%", "zero downtime",
+        "100x faster", "100× faster", "3x more", "3× more",
+        "millions of users", "trusted by thousands", NULL
+    };
+    if (design_has_any_ci(body, invented_metrics))
+        design_check_add(report, "P0",
+                         "unsupported marketing metric/claim detected; remove it or source it from the brief");
+
+    if (design_has_sans_display_rule(body))
+        design_check_add(report, "P0",
+                         "display heading rule uses a generic sans face; use the pack/design-system display face");
+
+    static const char *deck_placeholders[] = {
+        "Name to confirm", "$X.XM", "Replace this panel with",
+        "Replace role placeholders", "Your form answer only said", NULL
+    };
+    if (design_has_any_ci(body, deck_placeholders))
+        design_check_add(report, "P0",
+                         "unresolved deck/template placeholder remains");
+
+    if (dv_ci_contains(body, "@keyframes") || dv_ci_contains(body, "animation:")) {
+        if (!dv_ci_contains(body, "prefers-reduced-motion"))
+            design_check_add(report, "P1",
+                             "motion is present without a prefers-reduced-motion override");
+    }
+
+    if ((dv_ci_contains(body, "<button") || dv_ci_contains(body, "<input") ||
+         dv_ci_contains(body, "<select") || dv_ci_contains(body, "<textarea")) &&
+        !dv_ci_contains(body, ":focus-visible"))
+        design_check_add(report, "P1",
+                         "interactive controls should define a visible :focus-visible state");
+
+    if ((dv_ci_contains(body, "<form") || dv_ci_contains(body, "<table") ||
+         dv_ci_contains(body, "dashboard") || dv_ci_contains(body, "data-")) &&
+        (!dv_ci_contains(body, "loading") || !dv_ci_contains(body, "empty") ||
+         !dv_ci_contains(body, "error")))
+        design_check_add(report, "P1",
+                         "data/input surface should cover loading, empty, error, populated, and edge states");
+
+    size_t accent_refs = design_count_ci_substr(body, "var(--accent");
+    if (accent_refs > 8)
+        design_check_add(report, "P1",
+                         "accent token appears %zu times; accent usage should be intentionally scarce",
+                         accent_refs);
+
+    size_t raw_hex = design_count_css_hex_colors(body);
+    if (raw_hex > 16)
+        design_check_add(report, "P2",
+                         "%zu raw hex colors found; prefer a small :root token set",
+                         raw_hex);
+
+    if (dv_ci_contains(body, "blob") || dv_ci_contains(body, "bokeh") ||
+        dv_ci_contains(body, "gradient-orb") || dv_ci_contains(body, "orb-"))
+        design_check_add(report, "P2",
+                         "decorative blob/orb/bokeh naming detected; remove generic decorative effects");
+}
+
+static bool design_artifact_check(design_project *pr, const char *entry,
+                                  design_check_report *report) {
+    char full[PATH_MAX], err[256];
+    if (!project_resolve(pr, entry, full, sizeof(full), err, sizeof(err))) {
+        design_check_add(report, "P0", "%s", err);
+        return false;
+    }
+    char *body = NULL;
+    size_t len = 0;
+    if (read_file_bytes(full, &body, &len, err, sizeof(err)) != 0) {
+        design_check_add(report, "P0", "cannot read entry: %s", err);
+        return false;
+    }
+    (void)len;
+    const char *ext = design_ext(entry);
+    bool is_html = !strcasecmp(ext, ".html") || !strcasecmp(ext, ".htm");
+    if (!is_html) {
+        free(body);
+        return report->errors == 0;
+    }
+
+    if (!dv_ci_contains(body, "<!doctype") && !dv_ci_contains(body, "<html"))
+        design_check_add(report, "P0", "HTML entry needs <!doctype> or <html>");
+    if (!dv_ci_contains(body, "name=\"viewport\"") &&
+        !dv_ci_contains(body, "name='viewport'") &&
+        !dv_ci_contains(body, "name=viewport"))
+        design_check_add(report, "P0", "HTML entry needs a viewport meta tag");
+    if (!html_title_nonempty(body))
+        design_check_add(report, "P0", "HTML entry needs a non-empty <title>");
+
+    static const char *placeholders[] = {
+        "lorem ipsum", "[replace]", "placeholder", "placeholder text",
+        "your text here", "sample content", "tbd", "your company",
+        "feature one", "feature two", "feature three", "item one",
+        "john doe", "jane doe", "acme", NULL
+    };
+    for (int i = 0; placeholders[i]; i++) {
+        if (dv_ci_contains(body, placeholders[i])) {
+            design_check_add(report, "P0",
+                             "placeholder copy remains: \"%s\"", placeholders[i]);
+            break;
+        }
+    }
+    if (strstr(body, "TODO") || strstr(body, "FIXME"))
+        design_check_add(report, "P0", "developer placeholder marker remains (TODO/FIXME)");
+
+    artifact_check_attr_refs(pr, entry, body, "src", report);
+    artifact_check_attr_refs(pr, entry, body, "href", report);
+    design_artifact_quality_lint(body, report);
+
+    if (!dv_ci_contains(body, ":root"))
+        design_check_add(report, "P1", "no :root design tokens found");
+    if (!dv_ci_contains(body, "@media") && !dv_ci_contains(body, "@container") &&
+        !dv_ci_contains(body, "clamp(") && !dv_ci_contains(body, "container-type"))
+        design_check_add(report, "P1",
+                         "no obvious responsive rule found (@media/@container/clamp)");
+    if (strstr(body, "100vh"))
+        design_check_add(report, "P1", "100vh found; prefer 100dvh in embedded previews");
+
+    free(body);
+    return report->errors == 0;
+}
 /* The integer oklch lightness (%) of a CSS custom property's definition, or -1. */
 static int dv_oklch_l(const char *content, const char *var) {
     char key[48];
@@ -2255,6 +4834,8 @@ static char *design_verify_after(design_project *pr, const design_tool_call *cal
     size_t pl = strlen(path);
     int is_html = (pl >= 5 && !strcmp(path + pl - 5, ".html")) || (pl >= 4 && !strcmp(path + pl - 4, ".htm"));
     if (!is_html) return result;
+    if (design_project_invalidate_critique(pr, path))
+        design_write_state(pr);
     char full[PATH_MAX], err[256];
     if (!project_resolve(pr, path, full, sizeof(full), err, sizeof(err))) return result;
     char *body = design_read_file_buf(full);
@@ -2331,13 +4912,17 @@ static char *execute_tool_call(design_project *pr, const design_tool_call *call)
     if (!strcmp(name, "skill")) return design_tool_pack(call, "skills", "SKILL.md", 1);
     if (!strcmp(name, "design_system")) return design_tool_pack(call, "design-systems", "DESIGN.md", 0);
     if (!strcmp(name, "craft")) return design_tool_pack(call, "craft", "CRAFT.md", 0);
+    if (!strcmp(name, "pack_file")) return design_tool_pack_file(call);
     if (!strcmp(name, "write")) return design_verify_after(pr, call, tool_write(pr, call));
     if (!strcmp(name, "edit")) return design_verify_after(pr, call, tool_edit(pr, call));
     if (!strcmp(name, "read")) return tool_read(pr, call);
     if (!strcmp(name, "more")) return design_tool_more(pr, call);
     if (!strcmp(name, "search")) return design_tool_search(pr, call);
     if (!strcmp(name, "list")) return tool_list(pr, call);
-    if (!strcmp(name, "todo_write")) return tool_todo_write(call);
+    if (!strcmp(name, "todo_write")) return tool_todo_write(pr, call);
+    if (!strcmp(name, "question")) return tool_question(pr, call);
+    if (!strcmp(name, "verify_artifact")) return tool_verify_artifact(pr, call);
+    if (!strcmp(name, "critique_write")) return tool_critique_write(pr, call);
     if (!strcmp(name, "artifact")) return tool_artifact(pr, call);
     if (!strcmp(name, "propose")) return tool_propose(pr, call);
     if (!strcmp(name, "google_search")) return design_tool_google_search(pr, call);
@@ -2379,8 +4964,9 @@ static char *execute_tool_call(design_project *pr, const design_tool_call *call)
     design_buf b = {0};
     buf_puts(&b, "Tool error: unknown tool: ");
     buf_puts(&b, name);
-    buf_puts(&b, ". Available tools: todo_write, write, edit, read, more, search, "
-                 "list, artifact, propose, google_search, visit_page, bash, "
+    buf_puts(&b, ". Available tools: todo_write, question, write, edit, read, more, search, "
+                 "list, verify_artifact, critique_write, artifact, propose, skill, design_system, craft, "
+                 "pack_file, google_search, visit_page, bash, "
                  "bash_status, bash_stop.\n");
     return buf_take(&b);
 }
@@ -2389,8 +4975,36 @@ static char *execute_tool_calls(design_project *pr, const design_tool_calls *cal
     design_buf all = {0};
     for (int i = 0; i < calls->len; i++) {
         emit_tool_call_event(&calls->v[i]);
+        {
+            design_buf ev = {0};
+            buf_puts(&ev, "{\"name\":\"");
+            json_escape_buf(&ev, calls->v[i].name ? calls->v[i].name : "",
+                            calls->v[i].name ? strlen(calls->v[i].name) : 0);
+            buf_puts(&ev, "\",\"argc\":");
+            char n[32];
+            snprintf(n, sizeof(n), "%d", calls->v[i].argc);
+            buf_puts(&ev, n);
+            buf_puts(&ev, "}");
+            design_event_log(pr, "tool_call", ev.ptr);
+            free(ev.ptr);
+        }
         char *res = execute_tool_call(pr, &calls->v[i]);
         emit_tool_result_event(calls->v[i].name, res);
+        {
+            design_buf ev = {0};
+            buf_puts(&ev, "{\"name\":\"");
+            json_escape_buf(&ev, calls->v[i].name ? calls->v[i].name : "",
+                            calls->v[i].name ? strlen(calls->v[i].name) : 0);
+            buf_puts(&ev, "\",\"ok\":");
+            buf_puts(&ev, strncmp(res, "Tool error", 10) ? "true" : "false");
+            buf_puts(&ev, ",\"bytes\":");
+            char n[32];
+            snprintf(n, sizeof(n), "%zu", strlen(res));
+            buf_puts(&ev, n);
+            buf_puts(&ev, "}");
+            design_event_log(pr, "tool_result", ev.ptr);
+            free(ev.ptr);
+        }
         char hdr[128];
         snprintf(hdr, sizeof(hdr), "Tool result %d (%s):\n", i + 1,
                  calls->v[i].name ? calls->v[i].name : "unknown");
@@ -2442,8 +5056,14 @@ static const char design_system_prompt[] =
     "{\"type\":\"function\",\"function\":{\"name\":\"todo_write\","
     "\"description\":\"Replace the plan shown to the user as a live Todos card.\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{"
-    "\"todos\":{\"type\":\"string\",\"description\":\"JSON array of {\\\"text\\\":string,\\\"status\\\":\\\"pending\\\"|\\\"in_progress\\\"|\\\"completed\\\"}\"}},"
+    "\"todos\":{\"type\":\"string\",\"description\":\"JSON array of todo objects. Use text, content, or step for the label; status must be pending, in_progress, completed, or stopped. The runtime normalizes to {text,status}.\"}},"
     "\"required\":[\"todos\"]}}}\n\n"
+    "{\"type\":\"function\",\"function\":{\"name\":\"question\","
+    "\"description\":\"Emit a structured question event for the UI. Use when you need the user to choose or clarify, then stop the turn.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{"
+    "\"id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},"
+    "\"questions\":{\"type\":\"string\",\"description\":\"JSON array of question objects, e.g. {id,label,prompt,type,options}.\"}},"
+    "\"required\":[\"id\",\"title\",\"questions\"]}}}\n\n"
     "{\"type\":\"function\",\"function\":{\"name\":\"write\","
     "\"description\":\"Create or overwrite a project file. Paths are relative to the project directory; subdirectories are created as needed.\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{"
@@ -2479,10 +5099,29 @@ static const char design_system_prompt[] =
     "\"description\":\"List all project files.\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{}}}}\n\n"
     "{\"type\":\"function\",\"function\":{\"name\":\"artifact\","
-    "\"description\":\"Register the canonical entry file of this turn's deliverable; the workspace preview switches to it.\","
+    "\"description\":\"Register the canonical entry file of this turn's deliverable; the runtime verifies it, requires a passing critique_write for HTML, writes an artifact manifest, and the workspace preview switches to it.\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{"
-    "\"entry\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"}},"
+    "\"entry\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},"
+    "\"kind\":{\"type\":\"string\",\"description\":\"Optional artifact kind: html, markdown-document, svg, deck, mini-app, etc. Inferred from extension if omitted.\"},"
+    "\"renderer\":{\"type\":\"string\",\"description\":\"Optional renderer: html, markdown, svg, deck-html, mini-app, etc. Inferred from extension if omitted.\"},"
+    "\"exports\":{\"type\":\"string\",\"description\":\"Optional JSON array of export ids: html, pdf, zip, md, svg, txt, jsx, pptx.\"},"
+    "\"supporting_files\":{\"type\":\"string\",\"description\":\"Optional JSON array of project-relative supporting files that must already exist.\"},"
+    "\"metadata\":{\"type\":\"string\",\"description\":\"Optional JSON object with extra artifact metadata.\"}},"
     "\"required\":[\"entry\",\"title\"]}}}\n\n"
+    "{\"type\":\"function\",\"function\":{\"name\":\"verify_artifact\","
+    "\"description\":\"Run the deterministic artifact gate without registering the artifact. Use before artifact when you want to inspect failures/warnings explicitly.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{"
+    "\"entry\":{\"type\":\"string\"}},"
+    "\"required\":[\"entry\"]}}}\n\n"
+    "{\"type\":\"function\",\"function\":{\"name\":\"critique_write\","
+    "\"description\":\"Record the mandatory quality critique for a new HTML artifact. artifact() is blocked until the latest critique for the same entry passes.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{"
+    "\"entry\":{\"type\":\"string\"},"
+    "\"scores_json\":{\"type\":\"string\",\"description\":\"Flat JSON object with numeric 0-10 role scores: {\\\"critic\\\":8.5,\\\"brand\\\":8,\\\"a11y\\\":8,\\\"copy\\\":8}. Composite weights are critic .4, brand .2, a11y .2, copy .2.\"},"
+    "\"must_fixes_json\":{\"type\":\"string\",\"description\":\"JSON array of must-fix strings. Must be [] to pass.\"},"
+    "\"decision\":{\"type\":\"string\",\"description\":\"ship only when composite >= 8.0 and no must-fix items; otherwise continue.\"},"
+    "\"notes\":{\"type\":\"string\",\"description\":\"Concise private critique notes naming the exact elements behind weak scores.\"}},"
+    "\"required\":[\"entry\",\"scores_json\",\"must_fixes_json\",\"decision\"]}}}\n\n"
     "{\"type\":\"function\",\"function\":{\"name\":\"propose\","
     "\"description\":\"Propose 2-3 PARALLEL design directions to compare (each a separate self-contained HTML file you already wrote). The UI shows them side by side; the user picks one to refine. Use ONLY when the user asked you to pick a direction (see RULE 2); otherwise build one design and use artifact.\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{"
@@ -2530,10 +5169,20 @@ static const char design_system_prompt[] =
     "\"parameters\":{\"type\":\"object\",\"properties\":{"
     "\"name\":{\"type\":\"string\",\"description\":\"The craft id, e.g. layout-responsive.\"}},"
     "\"required\":[\"name\"]}}}\n\n"
+    "{\"type\":\"function\",\"function\":{\"name\":\"pack_file\","
+    "\"description\":\"Read an allowlisted file exposed by a loaded pack, such as assets/template.html, references/checklist.md, references/layouts.md, or example.html. Use after skill()/design_system()/craft() lists pack files.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{"
+    "\"type\":{\"type\":\"string\",\"description\":\"skill, design_system, or craft\"},"
+    "\"name\":{\"type\":\"string\",\"description\":\"The pack id, e.g. landing-page.\"},"
+    "\"path\":{\"type\":\"string\",\"description\":\"Pack-relative allowlisted path: example.html, assets/*, or references/*.\"}},"
+    "\"required\":[\"type\",\"name\",\"path\"]}}}\n\n"
     "When a skill or design-system fits the brief — or the user selected one (see the "
     "system context) — load it FIRST with skill()/design_system(), then build to it. Load "
     "the relevant craft() rules too (accessibility before shipping; layout-responsive before "
-    "any resize/restructure). You can load more at any point without restarting.\n\n"
+    "any resize/restructure). If the loaded pack lists pack files, use pack_file() to load "
+    "assets/template.html before writing from scratch, references/layouts.md before choosing "
+    "structure, and references/checklist.md before verify_artifact. You can load more at any "
+    "point without restarting.\n\n"
     "You have a real shell via bash (runs in the project dir) and web access via "
     "google_search / visit_page: use bash for builds, format/lint, quick scripts, "
     "and inspecting files; use the web to pull references, palettes, copy, or docs "
@@ -2547,7 +5196,7 @@ static const char design_system_prompt[] =
     "<question-form id=\"discovery\" title=\"Quick brief\">\n"
     "{\"questions\":[\n"
     " {\"id\":\"output\",\"label\":\"What are we making?\",\"type\":\"radio\","
-    "\"options\":[\"Landing page\",\"Dashboard / tool UI\",\"Mobile app prototype\",\"Slide deck\",\"Other\"]},\n"
+    "\"options\":[\"Prototype\",\"Live artifact\",\"Slide deck\",\"Image / poster\",\"Video storyboard\",\"HyperFrames\",\"Audio / script\",\"Other\"]},\n"
     " {\"id\":\"platform\",\"label\":\"Target platform\",\"type\":\"radio\","
     "\"options\":[\"Responsive web\",\"Desktop\",\"iOS\",\"Android\",\"Fixed canvas 1920x1080\"]},\n"
     " {\"id\":\"audience\",\"label\":\"Who is it for?\",\"type\":\"text\",\"placeholder\":\"audience / context\"},\n"
@@ -2572,7 +5221,10 @@ static const char design_system_prompt[] =
     "ALWAYS ask in a <question-form> — at ANY turn, not just the first. Whenever "
     "you need the user to choose or clarify something, emit a <question-form> "
     "(same shape and rules as above) and stop; never ask questions as plain "
-    "prose with a question mark. The styled form is the only way you ask.\n\n"
+    "prose with a question mark. The styled form is the only way you ask. If "
+    "you are already in a tool-calling round and need a structured UI question, "
+    "you may instead call question(id,title,questions) with the same JSON shape; "
+    "after question() stop and wait for the user's answer.\n\n"
     "## RULE 2 — lock the visual direction (or propose a few) before building\n\n"
     "If the user described brand colors/fonts or pasted a reference, EXTRACT "
     "real values, never guess from memory: if they gave a URL, fetch its CSS "
@@ -2584,16 +5236,11 @@ static const char design_system_prompt[] =
     "navy canvas, single electric-cyan accent at oklch(68% 0.16 220), "
     "geometric display + system body\"), build ONE design binding those tokens "
     "to :root, and register it with artifact.\n"
-    "If instead the user chose \"pick a direction for me\", do NOT silently pick "
-    "one: WRITE 2-3 of the five built-in directions below as SEPARATE "
-    "self-contained files (direction-a.html, direction-b.html, direction-c.html), "
-    "each binding a DIFFERENT direction's palette to :root and each a real take "
-    "on the brief (not a placeholder), then call propose with a JSON array of "
-    "{entry,tag,name,desc} so the user can compare and choose. Do NOT todo_write "
-    "before proposing — the proposal IS the fast fork. Make the directions "
-    "genuinely distinct (different palette AND layout personality), never three "
-    "tweaks of one. After the user says \"Use direction X\", continue refining "
-    "THAT one file per RULE 4 and drop the others.\n"
+    "If instead the user chose \"pick a direction for me\", pick the strongest "
+    "matching direction yourself and build ONE design. Use propose only when the "
+    "user explicitly asks for alternatives, variants, or a comparison. When you "
+    "do propose, write 2-3 separate self-contained files and call propose with "
+    "{entry,tag,name,desc}; otherwise keep momentum on one canonical artifact.\n"
     "The five built-in directions (each a palette source; bind to :root in CSS):\n"
     "- editorial-monocle: bg oklch(98% 0.004 95), fg oklch(20% 0.018 70), "
     "accent oklch(52% 0.10 28); serif display + sans body + mono metadata; no "
@@ -2643,38 +5290,41 @@ static const char design_system_prompt[] =
     "todo_write with short imperative steps in the order you will do them — "
     "the chat renders it as a live Todos card, the user's main window into "
     "your plan. The standard plan shape:\n"
-    "1. Bind direction/brand tokens to :root\n"
-    "2. Plan the section/screen list (state it aloud before writing)\n"
-    "3. Write the file(s)\n"
-    "4. Replace placeholder copy with real, specific copy from the brief\n"
-    "5. Critique and fix (5-dimension self-check below)\n"
-    "6. Register the artifact\n"
+    "1. Load the active skill/design-system and any listed template/checklist pack files\n"
+    "2. Bind direction/brand tokens to :root\n"
+    "3. Plan the section/screen/slide list (state it aloud before writing)\n"
+    "4. Copy the seed template when one exists; otherwise write the file(s)\n"
+    "5. Replace placeholders with real, specific copy from the brief\n"
+    "6. Run the pack checklist, verify_artifact, critique_write, then fix blockers\n"
+    "7. Register the artifact only after critique_write passes\n"
     "Update the card as you go: mark a step in_progress when you start it and "
     "completed when it is done (call todo_write again with the full updated "
     "list). Keep the plan under ~8 items.\n\n"
     "## RULE 3.5 — critique before you ship (do not skip)\n\n"
-    "After writing and before the artifact, score yourself silently 1-5 on "
-    "five dimensions, then fix the weakest before emitting:\n"
-    "- Philosophy: does the visual posture match what was asked (editorial vs "
-    "minimal vs brutalist), or did you drift back to a default?\n"
-    "- Hierarchy: does the eye land in ONE obvious place per screen, or is "
-    "everything competing?\n"
-    "- Execution: typography, spacing, alignment, contrast — right, or just "
-    "close?\n"
-    "- Specificity: is every word, number and image specific to THIS brief, or "
-    "did filler / generic stat-slop creep in?\n"
-    "- Restraint: one accent used at most twice, one decisive flourish — or "
-    "three competing ones?\n"
-    "Any dimension under 3/5 is a regression: go back, fix the weakest, "
-    "re-score. Score the WORST sustained band, never average up; name the "
-    "element behind each weak score; if no dimension is under 3 you are "
-    "grade-inflating, so look again. Two passes is normal. Do this silently (no scores in the chat). "
-    "Then run the anti-slop checklist below and the P0 gates — every P0 must "
-    "pass before you call artifact:\n"
-    "- P0: body text >= 16px, tap targets >= 44px, body contrast >= 4.5:1, no "
-    "horizontal scroll at 390 / 768 / 1280px, no [REPLACE]/lorem/\"Feature "
-    "One\" placeholder left in the file.\n"
-    "If a P0 fails, fix it first — never ship an artifact with a failing P0.\n\n"
+    "After writing and before artifact, run verify_artifact(entry). Fix every "
+    "P0; P1/P2 warnings should be fixed unless the brief makes them intentional. "
+    "Then call critique_write(entry, scores_json, must_fixes_json, decision, notes). "
+    "Use role scores on a 0-10 scale:\n"
+    "- critic (weight .4): composition, hierarchy, execution quality, responsive "
+    "fit, whether it avoids the lazy default.\n"
+    "- brand (weight .2): palette discipline, type personality, reference DNA "
+    "when a reference exists, and restraint.\n"
+    "- a11y (weight .2): contrast, focus, hit targets, reduced motion, keyboard "
+    "and state coverage.\n"
+    "- copy (weight .2): specificity, truthful claims, clear labels, no filler.\n"
+    "The runtime computes the composite. Passing means composite >= 8.0, "
+    "must_fixes_json is [], and decision is ship. Any must-fix or score below "
+    "the bar means edit the file and call critique_write again. Scores are a "
+    "tool event only; do not narrate them in chat. Name the exact weak elements "
+    "inside notes so the next edit is targeted.\n"
+    "P0 gates include: valid standalone HTML, viewport/title, no missing local "
+    "assets, no placeholders, no generic emoji-icon slop, no default purple "
+    "gradient, no rounded card with left accent stripe, no unsupported metrics, "
+    "body text >= 16px, tap targets >= 44px, body contrast >= 4.5:1, and no "
+    "horizontal scroll at 390 / 768 / 1280px.\n\n"
+    "The runtime enforces this: verify_artifact(entry) reports P0/P1/P2, "
+    "critique_write records the quality decision, and artifact(entry,title) "
+    "blocks HTML until the latest critique for that exact entry passes.\n\n"
     "## Hard rules — count-checkable, fix before the artifact\n\n"
     "Typography: 3 weights only (400 body, 510-550 labels/UI, 590-600 "
     "headings); weight should JUMP between levels, not climb one step each; "
@@ -2718,6 +5368,10 @@ static const char design_system_prompt[] =
     "- Every HTML file is complete and standalone: one <style>, optional one "
     "<script>, no external requests of any kind (system font stacks, inline "
     "SVG, CSS gradients instead of images).\n"
+    "- Provider-backed Open Design skills are local-first here: do not call "
+    "external APIs for Figma, Fal, Venice, Sora, Replicate, Minimax or similar. "
+    "Instead produce a local blueprint, storyboard, prompt pack, or static HTML "
+    "mockup with clear export metadata.\n"
     "- Descriptive kebab-case names: landing-page.html, pricing.html — never "
     "page.html. Multi-screen work: screens/01-onboarding.html, "
     "screens/02-paywall.html, with index.html only as an overview/launcher "
@@ -2764,7 +5418,8 @@ static const char design_system_prompt[] =
     "- At most one middle-dot (·) per metadata line; no decorative status dots\n\n"
     "## Artifact handoff\n\n"
     "When a turn shipped a NEW canonical HTML file, end the turn by calling "
-    "artifact with its entry path and a human title. One artifact per turn at "
+    "artifact with its entry path and a human title, after verify_artifact and "
+    "a passing critique_write for the same entry. One artifact per turn at "
     "most; for multi-file work register the entry point (the launcher or the "
     "main page). Never register an unchanged file again; never register "
     "non-HTML. After the artifact tool result, close with one or two short "
@@ -2796,6 +5451,7 @@ typedef struct {
     uint64_t seed;
     ds4_think_mode think_mode;
     bool jsonl;
+    bool self_test;
 } design_config;
 
 static void usage(FILE *fp) {
@@ -2813,6 +5469,7 @@ static void usage(FILE *fp) {
         "  --metal|--cuda|--cpu    backend\n"
         "  --power <1-100>         power limit\n"
         "  --jsonl                 emit structured \\x1e-prefixed UI events\n"
+        "  --self-test             run ds4-design runtime contract tests and exit\n"
         "  --non-interactive       accepted for launcher symmetry (always on)\n",
         (double)DS4_DEFAULT_TEMPERATURE, (double)DS4_DEFAULT_TOP_P,
         (double)DS4_DEFAULT_MIN_P);
@@ -2893,6 +5550,8 @@ static design_config parse_options(int argc, char **argv) {
             }
         } else if (!strcmp(arg, "--jsonl")) {
             c.jsonl = true;
+        } else if (!strcmp(arg, "--self-test")) {
+            c.self_test = true;
         } else if (!strcmp(arg, "--non-interactive")) {
             /* the only mode there is */
         } else {
@@ -3573,6 +6232,16 @@ static bool design_session_save_now(design_agent *a, char sha_out[41],
     if (ok) {
         memcpy(a->session_sha, sha, sizeof(a->session_sha));
         if (tokens_out) *tokens_out = a->transcript.len;
+        design_buf ev = {0};
+        char n[32];
+        buf_puts(&ev, "{\"sha\":\"");
+        json_escape_buf(&ev, sha, 8);
+        buf_puts(&ev, "\",\"tokens\":");
+        snprintf(n, sizeof(n), "%d", a->transcript.len);
+        buf_puts(&ev, n);
+        buf_puts(&ev, "}");
+        design_event_log(&a->project, "session_saved", ev.ptr);
+        free(ev.ptr);
     }
     free(path);
     free(text);
@@ -3710,6 +6379,7 @@ static bool design_session_switch(design_agent *a, const char *prefix,
  * which is the same bootstrap main() does.  Defined after run_turn alongside
  * the bootstrap helper. */
 static int design_build_system_transcript(design_agent *a, char *err, size_t err_len);
+static void design_build_system_tokens(design_agent *a, ds4_tokens *out);
 
 static bool design_session_new(design_agent *a, char *err, size_t err_len) {
     if (design_build_system_transcript(a, err, err_len) != 0)
@@ -3721,11 +6391,306 @@ static bool design_session_new(design_agent *a, char *err, size_t err_len) {
     return true;
 }
 
+/* ============================================================================
+ * Context Compaction — ported from ds4_agent.c
+ * ============================================================================
+ *
+ * Compaction asks DS4 for durable task state, then rebuilds the transcript as:
+ * system prompt + compact summary + recent verbatim tail.  This is intentionally
+ * the same mechanism as antirez's agent, without worker threads/status mutexes.
+ */
+
+static bool design_should_compact(design_agent *a) {
+    int ctx = a->cfg->ctx_size;
+    int used = a->transcript.len;
+    if (ctx <= 0 || used <= 0) return false;
+    if (used >= (ctx * DESIGN_COMPACT_SOFT_PERCENT) / 100) return true;
+    int free_threshold = DESIGN_COMPACT_MIN_FREE_TOKENS;
+    int proportional = ctx / 4;
+    if (free_threshold > proportional) free_threshold = proportional;
+    return ctx - used <= free_threshold;
+}
+
+static int design_special_token_id(ds4_engine *engine, const char *rendered) {
+    ds4_tokens t = {0};
+    ds4_tokenize_rendered_chat(engine, rendered, &t);
+    int id = t.len == 1 ? t.v[0] : -1;
+    ds4_tokens_free(&t);
+    return id;
+}
+
+static int design_compact_tail_start(design_agent *a, int bottom, int sys_len) {
+    int tail_budget = a->cfg->ctx_size / DESIGN_COMPACT_TAIL_DIVISOR;
+    if (tail_budget > DESIGN_COMPACT_TAIL_CAP_TOKENS)
+        tail_budget = DESIGN_COMPACT_TAIL_CAP_TOKENS;
+    if (tail_budget < 1) tail_budget = 1;
+
+    int target = bottom - tail_budget;
+    if (target < sys_len) target = sys_len;
+
+    int user_id = design_special_token_id(a->engine, "<｜User｜>");
+    if (user_id < 0) return target;
+
+    for (int i = target; i < bottom; i++) {
+        if (a->transcript.v[i] == user_id) return i;
+    }
+    return target;
+}
+
+static void design_tokens_append_range(ds4_tokens *dst, const ds4_tokens *src,
+                                       int start, int end) {
+    if (start < 0) start = 0;
+    if (end > src->len) end = src->len;
+    for (int i = start; i < end; i++) ds4_tokens_push(dst, src->v[i]);
+}
+
+static char *design_compact_make_prompt(const char *reason) {
+    design_buf b = {0};
+    buf_puts(&b,
+        "Internal ds4-design context compaction request. This is not a user request.\n"
+        "Write a durable task-state summary of the conversation so far. Preserve only facts that matter for continuing the work:\n"
+        "- user goals, constraints, and preferences\n"
+        "- files inspected or edited\n"
+        "- commands run and important results\n"
+        "- decisions, rejected approaches, known bugs, and pending next steps\n"
+        "- reloadable bulky data with exact paths/ranges/commands when available\n\n"
+        "Do not invent facts. Do not include generic narration. Do not include raw file contents unless they were essential to a conclusion.\n"
+        "After the summary, stop. Do not continue the user task, do not call tools, and do not output thinking tags or DSML markup.\n"
+        "Output only the compact summary.\n");
+    if (reason && reason[0]) {
+        buf_puts(&b, "\nCompaction reason: ");
+        buf_puts(&b, reason);
+        buf_puts(&b, "\n");
+    }
+    return buf_take(&b);
+}
+
+static char *design_bash_jobs_compaction_observation(design_project *pr) {
+    if (!pr->bash_jobs) return NULL;
+    design_buf out = {0};
+    buf_puts(&out,
+        "Bash job update after context compaction. Running jobs still need explicit bash_status or bash_stop if relevant.\n");
+    for (design_bash_job *job = pr->bash_jobs; job; job = job->next) {
+        char *obs = design_bash_observation(job, true);
+        char hdr[64];
+        snprintf(hdr, sizeof(hdr), "\nJob %d:\n", job->id);
+        buf_puts(&out, hdr);
+        buf_puts(&out, obs);
+        free(obs);
+    }
+    return buf_take(&out);
+}
+
+static bool design_tool_result_fits_context(design_agent *a, const char *result,
+                                            int reserve_tokens,
+                                            int *tokens_out) {
+    ds4_tokens tmp = {0};
+    ds4_tokens_copy(&tmp, &a->transcript);
+    ds4_chat_append_message(a->engine, &tmp, "tool", result ? result : "");
+    int tokens = tmp.len;
+    ds4_tokens_free(&tmp);
+    if (tokens_out) *tokens_out = tokens;
+    return tokens + reserve_tokens < a->cfg->ctx_size;
+}
+
+static void design_log_compact_event(design_project *pr, const char *type,
+                                     const char *reason, int old_tokens,
+                                     int new_tokens, int tail_tokens,
+                                     const char *error) {
+    design_buf ev = {0};
+    char n[32];
+    buf_puts(&ev, "{\"reason\":\"");
+    json_escape_buf(&ev, reason ? reason : "", reason ? strlen(reason) : 0);
+    buf_puts(&ev, "\",\"old_tokens\":");
+    snprintf(n, sizeof(n), "%d", old_tokens);
+    buf_puts(&ev, n);
+    buf_puts(&ev, ",\"new_tokens\":");
+    snprintf(n, sizeof(n), "%d", new_tokens);
+    buf_puts(&ev, n);
+    buf_puts(&ev, ",\"tail_tokens\":");
+    snprintf(n, sizeof(n), "%d", tail_tokens);
+    buf_puts(&ev, n);
+    if (error && error[0]) {
+        buf_puts(&ev, ",\"error\":\"");
+        json_escape_buf(&ev, error, strlen(error));
+        buf_puts(&ev, "\"");
+    }
+    buf_puts(&ev, "}");
+    design_event_log(pr, type, ev.ptr);
+    free(ev.ptr);
+}
+
+static bool design_agent_compact(design_agent *a, const char *reason,
+                                 char *err, size_t err_len) {
+    const int bottom = a->transcript.len;
+    if (bottom <= 0) return true;
+
+    ds4_tokens sys = {0};
+    design_build_system_tokens(a, &sys);
+    if (bottom <= sys.len) {
+        ds4_tokens_free(&sys);
+        return true;
+    }
+
+    design_log_compact_event(&a->project, "compact_started",
+                             reason ? reason : "context", bottom, 0, 0, NULL);
+
+    char line[512];
+    snprintf(line, sizeof(line),
+             "\n\x1b[1;95mCOMPACTING\x1b[0m %s: summarizing durable task state\n\x1b[38;5;245m",
+             reason && reason[0] ? reason : "context");
+    out_text(line, strlen(line));
+
+    char *prompt_text = design_compact_make_prompt(reason);
+    ds4_tokens prompt = {0};
+    ds4_tokens_copy(&prompt, &a->transcript);
+    ds4_chat_append_message(a->engine, &prompt, "user", prompt_text);
+    free(prompt_text);
+    ds4_chat_append_assistant_prefix(a->engine, &prompt, DS4_THINK_NONE);
+
+    int summary_room = a->cfg->ctx_size - prompt.len - 1;
+    if (summary_room < 256) {
+        snprintf(err, err_len, "not enough context left to request compaction summary");
+        ds4_tokens_free(&prompt);
+        ds4_tokens_free(&sys);
+        out_text("\x1b[0m\n", 5);
+        design_log_compact_event(&a->project, "compact_failed",
+                                 reason, bottom, 0, 0, err);
+        return false;
+    }
+    int summary_max = summary_room < DESIGN_COMPACT_SUMMARY_MAX_TOKENS ?
+                      summary_room : DESIGN_COMPACT_SUMMARY_MAX_TOKENS;
+
+    int sync_rc = design_sync_tokens(a, &prompt, err, err_len);
+    if (sync_rc != 0) {
+        ds4_session_invalidate(a->session);
+        ds4_tokens_free(&prompt);
+        ds4_tokens_free(&sys);
+        out_text("\x1b[0m\n", 5);
+        design_log_compact_event(&a->project, "compact_failed",
+                                 reason, bottom, 0, 0, err);
+        return false;
+    }
+
+    design_buf summary = {0};
+    char eval_err[160] = {0};
+    int think_end_id = design_special_token_id(a->engine, "</think>");
+    int dsml_id = design_special_token_id(a->engine, "｜DSML｜");
+    for (int i = 0; i < summary_max; i++) {
+        int token = ds4_session_argmax(a->session);
+        if (token == ds4_token_eos(a->engine)) break;
+        if (token == think_end_id || token == dsml_id) {
+            if (token == dsml_id && summary.len && summary.ptr[summary.len - 1] == '<')
+                summary.ptr[--summary.len] = '\0';
+            break;
+        }
+        if (ds4_session_eval(a->session, token, eval_err, sizeof(eval_err)) != 0) {
+            snprintf(err, err_len, "%s", eval_err);
+            ds4_session_invalidate(a->session);
+            ds4_tokens_free(&prompt);
+            ds4_tokens_free(&sys);
+            free(summary.ptr);
+            out_text("\x1b[0m\n", 5);
+            design_log_compact_event(&a->project, "compact_failed",
+                                     reason, bottom, 0, 0, err);
+            return false;
+        }
+
+        size_t text_len = 0;
+        char *text = ds4_token_text(a->engine, token, &text_len);
+        buf_append(&summary, text, text_len);
+        out_text(text, text_len);
+        free(text);
+    }
+    out_text("\x1b[0m\n", 5);
+    ds4_tokens_free(&prompt);
+
+    if (!summary.ptr || !summary.ptr[0]) {
+        snprintf(err, err_len, "compaction summary was empty");
+        ds4_session_invalidate(a->session);
+        ds4_tokens_free(&sys);
+        free(summary.ptr);
+        design_log_compact_event(&a->project, "compact_failed",
+                                 reason, bottom, 0, 0, err);
+        return false;
+    }
+
+    int tail_start = design_compact_tail_start(a, bottom, sys.len);
+    ds4_tokens compacted = {0};
+    ds4_tokens_copy(&compacted, &sys);
+
+    design_buf summary_msg = {0};
+    buf_puts(&summary_msg,
+        "\n\n[ds4-design compacted earlier conversation. Durable task-state summary follows.]\n");
+    buf_puts(&summary_msg, summary.ptr);
+    if (summary_msg.len && summary_msg.ptr[summary_msg.len - 1] != '\n')
+        buf_puts(&summary_msg, "\n");
+    buf_puts(&summary_msg,
+        "[End compacted summary. Recent conversation continues verbatim below.]\n\n");
+    ds4_chat_append_message(a->engine, &compacted, "system", summary_msg.ptr);
+    free(summary_msg.ptr);
+
+    design_tokens_append_range(&compacted, &a->transcript, tail_start, bottom);
+
+    snprintf(line, sizeof(line),
+             "\x1b[1;95mCOMPACTING\x1b[0m rebuilding context: old=%d summary+tail=%d tail=%d\n",
+             bottom, compacted.len, bottom - tail_start);
+    out_text(line, strlen(line));
+
+    ds4_tokens old_transcript = {0};
+    ds4_tokens_copy(&old_transcript, &a->transcript);
+    ds4_tokens_free(&a->transcript);
+    a->transcript = compacted;
+    if (design_sync_tokens(a, &a->transcript, err, err_len) != 0) {
+        ds4_session_invalidate(a->session);
+        ds4_tokens_free(&a->transcript);
+        a->transcript = old_transcript;
+        ds4_tokens_free(&sys);
+        free(summary.ptr);
+        design_log_compact_event(&a->project, "compact_failed",
+                                 reason, bottom, 0, 0, err);
+        return false;
+    }
+    ds4_tokens_free(&old_transcript);
+    ds4_tokens_free(&sys);
+
+    design_set_compact_memory(&a->project, summary.ptr);
+    int new_tokens = a->transcript.len;
+    int tail_tokens = bottom - tail_start;
+    free(summary.ptr);
+
+    char *bash_update = design_bash_jobs_compaction_observation(&a->project);
+    if (bash_update) {
+        ds4_chat_append_message(a->engine, &a->transcript, "tool", bash_update);
+        out_text("\x1b[90mCOMPACTING added bash job update after rebuild\x1b[0m\n",
+                 strlen("\x1b[90mCOMPACTING added bash job update after rebuild\x1b[0m\n"));
+        free(bash_update);
+    }
+
+    design_log_compact_event(&a->project, "compact_completed",
+                             reason, bottom, new_tokens, tail_tokens, NULL);
+    return true;
+}
+
+static bool design_compact_if_needed(design_agent *a, const char *reason,
+                                     char *err, size_t err_len) {
+    if (!design_should_compact(a)) return true;
+    return design_agent_compact(a, reason, err, err_len);
+}
+
 /* One user turn: any number of assistant/tool rounds until the model answers
  * without a tool call.  The transcript is the single source of truth, exactly
- * like ds4-agent's worker_run_turn, minus threading and compaction. */
+ * like ds4-agent's worker_run_turn, minus the worker thread. */
 static int run_turn(design_agent *a, const char *user_text) {
     ds4_think_mode think_mode = agent_think_mode(a);
+    char compact_err[160] = {0};
+    if (!design_compact_if_needed(a, "soft limit before user turn",
+                                  compact_err, sizeof(compact_err)))
+    {
+        fprintf(stderr, "ds4-design: context compaction failed: %s\n",
+                compact_err[0] ? compact_err : "unknown error");
+        return 1;
+    }
     /* First user turn of a session: derive its stable identity (title +
      * created_at + sha) from the opening prompt, exactly like ds4-agent.  This
      * is what the post-turn save keys the on-disk file on. */
@@ -3735,12 +6700,21 @@ static int run_turn(design_agent *a, const char *user_text) {
         design_session_identity_sha(a->session_title, a->session_created_at,
                                     a->session_sha);
     }
+    design_project_start_run(&a->project, user_text);
     ds4_chat_append_message(a->engine, &a->transcript, "user", user_text);
 
     uint64_t rng = a->cfg->seed ? a->cfg->seed :
         ((uint64_t)time(NULL) ^ ((uint64_t)getpid() << 32));
 
-    for (;;) {
+    for (int tool_round = 0; ; tool_round++) {
+        if (tool_round > 0 &&
+            !design_compact_if_needed(a, "soft limit before tool continuation",
+                                      compact_err, sizeof(compact_err)))
+        {
+            fprintf(stderr, "ds4-design: context compaction failed: %s\n",
+                    compact_err[0] ? compact_err : "unknown error");
+            return 1;
+        }
         ds4_chat_append_assistant_prefix(a->engine, &a->transcript, think_mode);
         /* With thinking on, the assistant prefix opens <think>: the round
          * starts inside reasoning and leaves it at the </think> token. */
@@ -3815,6 +6789,7 @@ static int run_turn(design_agent *a, const char *user_text) {
         if (!got_tool && !malformed_tool) {
             out_text("\n", 1);
             dsml_parser_free(&dsml);
+            design_project_finish_run(&a->project, "ok");
             return 0;
         }
 
@@ -3829,9 +6804,52 @@ static int run_turn(design_agent *a, const char *user_text) {
         } else {
             tool_result = execute_tool_calls(&a->project, &dsml.calls);
         }
+        int projected_tokens = 0;
+        if (!design_tool_result_fits_context(a, tool_result,
+                                             DESIGN_TOOL_RESULT_RESERVE_TOKENS,
+                                             &projected_tokens))
+        {
+            if (!design_agent_compact(a, "tool result would exceed context",
+                                      compact_err, sizeof(compact_err)))
+            {
+                free(tool_result);
+                dsml_parser_free(&dsml);
+                fprintf(stderr, "ds4-design: context compaction failed: %s\n",
+                        compact_err[0] ? compact_err : "unknown error");
+                return 1;
+            }
+            if (!design_tool_result_fits_context(a, tool_result,
+                                                 DESIGN_TOOL_RESULT_RESERVE_TOKENS,
+                                                 &projected_tokens))
+            {
+                free(tool_result);
+                design_buf b = {0};
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "Tool error: tool result still does not fit after context compaction "
+                         "(projected_prompt=%d tokens, ctx=%d, reserve=%d). "
+                         "Retry with a smaller read/search/bash output.\n",
+                         projected_tokens, a->cfg->ctx_size,
+                         DESIGN_TOOL_RESULT_RESERVE_TOKENS);
+                buf_puts(&b, msg);
+                tool_result = buf_take(&b);
+                if (!design_tool_result_fits_context(a, tool_result, 16, NULL)) {
+                    free(tool_result);
+                    dsml_parser_free(&dsml);
+                    fprintf(stderr, "ds4-design: context full after compaction\n");
+                    return 1;
+                }
+            }
+        }
         ds4_chat_append_message(a->engine, &a->transcript, "tool", tool_result);
         free(tool_result);
         dsml_parser_free(&dsml);
+        if (a->project.stop_after_tools) {
+            a->project.stop_after_tools = false;
+            out_text("\n", 1);
+            design_project_finish_run(&a->project, "stopped_after_tool");
+            return 0;
+        }
     }
 }
 
@@ -3839,18 +6857,32 @@ static int run_turn(design_agent *a, const char *user_text) {
  * live session.  This is the exact bootstrap main() runs on startup; /new
  * reuses it to drop the current conversation back to a fresh session without
  * restarting the process.  Returns 0 on success. */
-static int design_build_system_transcript(design_agent *a, char *err, size_t err_len) {
+static void design_build_system_tokens(design_agent *a, ds4_tokens *out) {
     design_config *cfg = a->cfg;
-    ds4_tokens_free(&a->transcript);
-    memset(&a->transcript, 0, sizeof(a->transcript));
-    ds4_chat_begin(a->engine, &a->transcript);
+    ds4_chat_begin(a->engine, out);
     if (cfg->think_mode == DS4_THINK_MAX && agent_think_mode(a) == DS4_THINK_MAX)
-        ds4_chat_append_max_effort_prefix(a->engine, &a->transcript);
-    ds4_tokenize_rendered_chat(a->engine, design_system_prompt, &a->transcript);
+        ds4_chat_append_max_effort_prefix(a->engine, out);
+    ds4_tokenize_rendered_chat(a->engine, design_system_prompt, out);
+    char *pm = design_read_project_memory(&a->project);
+    if (pm && pm[0]) {
+        design_buf mem = {0};
+        buf_puts(&mem, "PROJECT MEMORY (runtime summary from MEMORY.MD):\n\n");
+        buf_puts(&mem, pm);
+        ds4_chat_append_message(a->engine, out, "system", mem.ptr ? mem.ptr : "");
+        free(mem.ptr);
+    }
+    free(pm);
     if (cfg->extra_system && cfg->extra_system[0]) {
         /* User text must stay plain content, never DSML control tokens. */
-        ds4_chat_append_message(a->engine, &a->transcript, "system", cfg->extra_system);
+        ds4_chat_append_message(a->engine, out, "system", cfg->extra_system);
     }
+}
+
+static int design_build_system_transcript(design_agent *a, char *err, size_t err_len) {
+    ds4_tokens sys = {0};
+    design_build_system_tokens(a, &sys);
+    ds4_tokens_free(&a->transcript);
+    a->transcript = sys;
     if (ds4_session_sync(a->session, &a->transcript, err, err_len) != 0)
         return 1;
     return 0;
@@ -3897,6 +6929,337 @@ static bool read_prompt(design_buf *input) {
 }
 
 /* ============================================================================
+ * Self-test
+ * ============================================================================
+ *
+ * Runtime contract tests that do not open a model. They cover the pieces the
+ * UI relies on: normalized todos, JSON validation, artifact gates, and manifest
+ * sidecars.
+ */
+
+static int selftest_expect(bool cond, const char *msg) {
+    if (cond) return 0;
+    fprintf(stderr, "ds4-design self-test failed: %s\n", msg);
+    return 1;
+}
+
+static int design_run_self_test(void) {
+    int fails = 0;
+    char err[256];
+
+    char *norm = NULL;
+    int items = 0;
+    bool has_ip = false;
+    fails += selftest_expect(
+        todo_parse_and_normalize("[{\"content\":\"Build page\",\"status\":\"in_progress\"},"
+                                 "{\"step\":\"Ship\",\"status\":\"completed\"}]",
+                                 &norm, &items, &has_ip, err, sizeof(err)) &&
+        items == 2 && has_ip && strstr(norm, "\"text\":\"Build page\"") &&
+        strstr(norm, "\"status\":\"in_progress\""),
+        "todo_write normalizes content/step/status");
+    free(norm);
+    norm = NULL;
+    fails += selftest_expect(
+        !todo_parse_and_normalize("[{\"text\":\"Bad\",\"status\":\"running\"}]",
+                                  &norm, &items, &has_ip, err, sizeof(err)),
+        "todo_write rejects invalid status");
+    free(norm);
+
+    fails += selftest_expect(
+        json_validate_complete("[{\"id\":\"tone\",\"label\":\"Tone\"}]", '[', err, sizeof(err)),
+        "question JSON array validates");
+
+    design_string_list exports = {0};
+    fails += selftest_expect(
+        json_parse_string_array("[\"html\",\"pdf\",\"zip\"]", &exports, err, sizeof(err)) &&
+        exports.len == 3 && !strcmp(exports.v[1], "pdf"),
+        "JSON string array parser");
+    design_string_list_free(&exports);
+
+    char dir[PATH_MAX];
+    snprintf(dir, sizeof(dir), "/tmp/ds4-design-self-test-%ld", (long)getpid());
+    unlink(dir);
+    if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
+        fprintf(stderr, "ds4-design self-test failed: mkdir %s: %s\n", dir, strerror(errno));
+        return 1;
+    }
+    design_project pr;
+    memset(&pr, 0, sizeof(pr));
+    snprintf(pr.dir, sizeof(pr.dir), "%s", dir);
+    design_project_bootstrap(&pr);
+    design_event_log(&pr, "self_test", "{\"ok\":true}");
+    fails += selftest_expect(pr.event_seq >= 1, "event log increments sequence");
+    char root_mem_path[PATH_MAX];
+    snprintf(root_mem_path, sizeof(root_mem_path), "%s/MEMORY.MD", dir);
+    char *mem_body = NULL;
+    size_t mem_len = 0;
+    fails += selftest_expect(
+        read_file_bytes(root_mem_path, &mem_body, &mem_len, err, sizeof(err)) == 0 &&
+        strstr(mem_body, "# MEMORY.MD") != NULL,
+        "MEMORY.MD is written at project root");
+    free(mem_body);
+    mem_body = NULL;
+    design_set_compact_memory(&pr, "Remember the user's design constraints.");
+    design_write_project_memory(&pr);
+    fails += selftest_expect(
+        read_file_bytes(root_mem_path, &mem_body, &mem_len, err, sizeof(err)) == 0 &&
+        strstr(mem_body, "Remember the user's design constraints.") != NULL,
+        "MEMORY.MD preserves compact summary");
+    char *durable = design_memory_extract_durable_summary(mem_body ? mem_body : "");
+    fails += selftest_expect(
+        strstr(durable, "Remember the user's design constraints.") != NULL,
+        "MEMORY.MD durable summary parser");
+    free(durable);
+    free(mem_body);
+
+    char pack_dir[PATH_MAX], pack_skill_root[PATH_MAX], pack_err[256];
+    snprintf(pack_dir, sizeof(pack_dir), "%s/packs", dir);
+    snprintf(pack_skill_root, sizeof(pack_skill_root), "%s/skills/demo", pack_dir);
+    fails += selftest_expect(design_mkdir_p(pack_skill_root),
+                             "pack test root mkdir");
+    char pack_skill_md[PATH_MAX], pack_template[PATH_MAX], pack_checklist[PATH_MAX];
+    snprintf(pack_skill_md, sizeof(pack_skill_md), "%s/SKILL.md", pack_skill_root);
+    snprintf(pack_template, sizeof(pack_template), "%s/assets/template.html", pack_skill_root);
+    snprintf(pack_checklist, sizeof(pack_checklist), "%s/references/checklist.md", pack_skill_root);
+    const char demo_skill[] = "---\nname: demo\n---\n# Demo skill\n";
+    const char demo_template[] = "<!doctype html><title>Seed</title>";
+    const char demo_checklist[] = "# Checklist\n- P0 pass\n";
+    fails += selftest_expect(write_file_bytes(pack_skill_md, demo_skill, strlen(demo_skill),
+                                              pack_err, sizeof(pack_err)),
+                             "pack SKILL.md fixture writes");
+    fails += selftest_expect(write_file_bytes(pack_template, demo_template, strlen(demo_template),
+                                              pack_err, sizeof(pack_err)),
+                             "pack assets/template.html fixture writes");
+    fails += selftest_expect(write_file_bytes(pack_checklist, demo_checklist, strlen(demo_checklist),
+                                              pack_err, sizeof(pack_err)),
+                             "pack references/checklist.md fixture writes");
+    setenv("DS4UI_SKILLS_DIR", pack_dir, 1);
+
+    design_tool_call skill_call = {0};
+    skill_call.name = xstrdup("skill");
+    tool_call_add_arg(&skill_call, "name", "demo", strlen("demo"), true);
+    char *skill_res = execute_tool_call(&pr, &skill_call);
+    fails += selftest_expect(strstr(skill_res, "assets/template.html") != NULL &&
+                             strstr(skill_res, "references/checklist.md") != NULL,
+                             "skill() lists pack_file inventory");
+    free(skill_res);
+    tool_call_free(&skill_call);
+
+    design_tool_call pf_call = {0};
+    pf_call.name = xstrdup("pack_file");
+    tool_call_add_arg(&pf_call, "type", "skill", strlen("skill"), true);
+    tool_call_add_arg(&pf_call, "name", "demo", strlen("demo"), true);
+    tool_call_add_arg(&pf_call, "path", "assets/template.html", strlen("assets/template.html"), true);
+    char *pf_res = execute_tool_call(&pr, &pf_call);
+    fails += selftest_expect(strstr(pf_res, "Seed") != NULL,
+                             "pack_file reads allowlisted template");
+    free(pf_res);
+    tool_call_free(&pf_call);
+
+    memset(&pf_call, 0, sizeof(pf_call));
+    pf_call.name = xstrdup("pack_file");
+    tool_call_add_arg(&pf_call, "type", "skill", strlen("skill"), true);
+    tool_call_add_arg(&pf_call, "name", "demo", strlen("demo"), true);
+    tool_call_add_arg(&pf_call, "path", "../SKILL.md", strlen("../SKILL.md"), true);
+    pf_res = execute_tool_call(&pr, &pf_call);
+    fails += selftest_expect(strstr(pf_res, "Tool error") != NULL,
+                             "pack_file blocks traversal paths");
+    free(pf_res);
+    tool_call_free(&pf_call);
+
+    char pack_link[PATH_MAX];
+    snprintf(pack_link, sizeof(pack_link), "%s/assets/escape.md", pack_skill_root);
+    if (symlink("/etc/passwd", pack_link) == 0) {
+        memset(&pf_call, 0, sizeof(pf_call));
+        pf_call.name = xstrdup("pack_file");
+        tool_call_add_arg(&pf_call, "type", "skill", strlen("skill"), true);
+        tool_call_add_arg(&pf_call, "name", "demo", strlen("demo"), true);
+        tool_call_add_arg(&pf_call, "path", "assets/escape.md", strlen("assets/escape.md"), true);
+        pf_res = execute_tool_call(&pr, &pf_call);
+        fails += selftest_expect(strstr(pf_res, "escapes the pack directory") != NULL,
+                                 "pack_file blocks symlink escape");
+        free(pf_res);
+        tool_call_free(&pf_call);
+    }
+
+    char html_path[PATH_MAX], html_err[256];
+    snprintf(html_path, sizeof(html_path), "%s/index.html", dir);
+    const char good_html[] =
+        "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        "<title>Demo</title><style>:root{--bg:#fafafa;--fg:#202020;}@media(max-width:600px){body{padding:16px}}</style>"
+        "</head><body><main>Specific launch copy.</main></body></html>";
+    fails += selftest_expect(
+        write_file_bytes(html_path, good_html, sizeof(good_html) - 1, html_err, sizeof(html_err)),
+        "write good html fixture");
+    design_check_report report = {0};
+    bool ok = design_artifact_check(&pr, "index.html", &report);
+    fails += selftest_expect(ok && report.errors == 0, "artifact check passes valid HTML");
+    design_check_report_free(&report);
+
+    const char bad_html[] = "<html><head></head><body>Lorem ipsum</body></html>";
+    fails += selftest_expect(
+        write_file_bytes(html_path, bad_html, sizeof(bad_html) - 1, html_err, sizeof(html_err)),
+        "write bad html fixture");
+    memset(&report, 0, sizeof(report));
+    ok = design_artifact_check(&pr, "index.html", &report);
+    fails += selftest_expect(!ok && report.errors >= 2, "artifact check blocks invalid HTML");
+    design_check_report_free(&report);
+
+    const char slop_html[] =
+        "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        "<title>Demo</title><style>:root{--bg:#fafafa;--fg:#202020;--accent:#6366f1;}"
+        "@media(max-width:600px){body{padding:16px}}"
+        ".card{border-left:4px solid #6366f1;border-radius:12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);}"
+        "</style></head><body><main><div class=\"card\">🚀 10x faster delivery.</div></main></body></html>";
+    fails += selftest_expect(
+        write_file_bytes(html_path, slop_html, sizeof(slop_html) - 1, html_err, sizeof(html_err)),
+        "write slop html fixture");
+    memset(&report, 0, sizeof(report));
+    ok = design_artifact_check(&pr, "index.html", &report);
+    fails += selftest_expect(!ok && report.p0 >= 3,
+                             "artifact check blocks P0 quality regressions");
+    design_check_report_free(&report);
+
+    const char od_slop_html[] =
+        "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        "<title>Demo</title><style>:root{--bg:#fafafa;--fg:#202020;}"
+        "@media(max-width:600px){body{padding:16px}}"
+        "h1{font-family:Inter,system-ui,sans-serif}"
+        ".hero{background:linear-gradient(90deg,#3b82f6,#06b6d4);}</style>"
+        "</head><body><main class=\"hero\"><h1>Name to confirm</h1></main></body></html>";
+    fails += selftest_expect(
+        write_file_bytes(html_path, od_slop_html, sizeof(od_slop_html) - 1, html_err, sizeof(html_err)),
+        "write Open Design slop fixture");
+    memset(&report, 0, sizeof(report));
+    ok = design_artifact_check(&pr, "index.html", &report);
+    fails += selftest_expect(!ok && report.p0 >= 3,
+                             "artifact check blocks OD lint regressions");
+    design_check_report_free(&report);
+
+    fails += selftest_expect(
+        write_file_bytes(html_path, good_html, sizeof(good_html) - 1, html_err, sizeof(html_err)),
+        "rewrite good html fixture");
+
+    design_tool_call art_call = {0};
+    art_call.name = xstrdup("artifact");
+    tool_call_add_arg(&art_call, "entry", "index.html", strlen("index.html"), true);
+    tool_call_add_arg(&art_call, "title", "Demo", strlen("Demo"), true);
+    char *art_res = tool_artifact(&pr, &art_call);
+    fails += selftest_expect(strstr(art_res, "Tool error: artifact blocked: call critique_write") != NULL,
+                             "artifact blocks without critique");
+    free(art_res);
+    tool_call_free(&art_call);
+
+    design_tool_call crit_call = {0};
+    crit_call.name = xstrdup("critique_write");
+    tool_call_add_arg(&crit_call, "entry", "index.html", strlen("index.html"), true);
+    const char fail_scores[] = "{\"critic\":8,\"brand\":8,\"a11y\":8,\"copy\":8}";
+    const char must_fixes_json[] = "[\"Strengthen hero hierarchy\"]";
+    tool_call_add_arg(&crit_call, "scores_json", fail_scores, strlen(fail_scores), true);
+    tool_call_add_arg(&crit_call, "must_fixes_json", must_fixes_json, strlen(must_fixes_json), true);
+    tool_call_add_arg(&crit_call, "decision", "continue", strlen("continue"), true);
+    char *crit_res = tool_critique_write(&pr, &crit_call);
+    fails += selftest_expect(!pr.critique_passed && pr.critique_must_fixes == 1 &&
+                             strstr(crit_res, "Critique blocked") != NULL,
+                             "critique_write blocks must-fix items");
+    free(crit_res);
+    tool_call_free(&crit_call);
+
+    memset(&crit_call, 0, sizeof(crit_call));
+    crit_call.name = xstrdup("critique_write");
+    tool_call_add_arg(&crit_call, "entry", "index.html", strlen("index.html"), true);
+    const char pass_scores[] = "{\"critic\":8.5,\"brand\":8,\"a11y\":8,\"copy\":8.5}";
+    tool_call_add_arg(&crit_call, "scores_json", pass_scores, strlen(pass_scores), true);
+    tool_call_add_arg(&crit_call, "must_fixes_json", "[]", strlen("[]"), true);
+    tool_call_add_arg(&crit_call, "decision", "ship", strlen("ship"), true);
+    tool_call_add_arg(&crit_call, "notes", "Specific enough to ship.", strlen("Specific enough to ship."), true);
+    crit_res = tool_critique_write(&pr, &crit_call);
+    fails += selftest_expect(pr.critique_passed &&
+                             pr.critique_scores.composite >= DESIGN_QUALITY_THRESHOLD &&
+                             strstr(crit_res, "Critique passed") != NULL,
+                             "critique_write accepts passing composite");
+    free(crit_res);
+    tool_call_free(&crit_call);
+
+    memset(&art_call, 0, sizeof(art_call));
+    art_call.name = xstrdup("artifact");
+    tool_call_add_arg(&art_call, "entry", "index.html", strlen("index.html"), true);
+    tool_call_add_arg(&art_call, "title", "Demo", strlen("Demo"), true);
+    art_res = tool_artifact(&pr, &art_call);
+    fails += selftest_expect(strstr(art_res, "Artifact registered: index.html") != NULL,
+                             "artifact accepts passing critique");
+    free(art_res);
+    tool_call_free(&art_call);
+
+    design_string_list def_exports = {0}, supporting = {0};
+    const char *kind = NULL, *renderer = NULL;
+    artifact_defaults_for_entry("index.html", &kind, &renderer, &def_exports);
+    fails += selftest_expect(artifact_kind_ok("video-storyboard") &&
+                             artifact_kind_ok("prompt-pack") &&
+                             artifact_renderer_ok("storyboard") &&
+                             artifact_export_ok("mp4") &&
+                             artifact_export_ok("docx"),
+                             "Open Design local-first artifact kinds are accepted");
+    design_check_report empty_report = {0};
+    char *manifest = artifact_build_manifest_json("abcd1234abcd1234", NULL,
+                                                  "0123456789012345678901234567890123456789",
+                                                  "index.html", "Demo", kind, renderer,
+                                                  &def_exports, &supporting, &empty_report,
+                                                  &pr,
+                                                  "2026-06-09T00:00:00Z", "{}");
+    fails += selftest_expect(strstr(manifest, "\"schema\":\"ds4.design.artifact.v2\"") != NULL,
+                             "artifact manifest v2 schema");
+    fails += selftest_expect(strstr(manifest, "\"quality\"") != NULL &&
+                             strstr(manifest, DESIGN_QUALITY_RUBRIC_ID) != NULL,
+                             "artifact manifest includes quality section");
+    fails += selftest_expect(
+        artifact_write_manifest(&pr, "index.html", manifest, html_err, sizeof(html_err)),
+        "artifact manifest sidecar writes");
+    free(manifest);
+    design_string_list_free(&def_exports);
+
+    char manifest_path[PATH_MAX];
+    snprintf(manifest_path, sizeof(manifest_path),
+             "%s/.ds4-design/artifacts/index.html.json", dir);
+    unlink(manifest_path);
+    char artifacts_dir[PATH_MAX], ds4_dir[PATH_MAX];
+    snprintf(artifacts_dir, sizeof(artifacts_dir), "%s/.ds4-design/artifacts", dir);
+    snprintf(ds4_dir, sizeof(ds4_dir), "%s/.ds4-design", dir);
+    char state_path[PATH_MAX], hist_path[PATH_MAX], mem_path[PATH_MAX];
+    snprintf(state_path, sizeof(state_path), "%s/.ds4-design/state.json", dir);
+    snprintf(hist_path, sizeof(hist_path), "%s/.ds4-design/history.jsonl", dir);
+    snprintf(mem_path, sizeof(mem_path), "%s/.ds4-design/project.md", dir);
+    unlink(root_mem_path);
+    unlink(state_path);
+    unlink(hist_path);
+    unlink(mem_path);
+    unlink(html_path);
+    unlink(pack_link);
+    unlink(pack_checklist);
+    unlink(pack_template);
+    unlink(pack_skill_md);
+    char pack_assets_dir[PATH_MAX], pack_refs_dir[PATH_MAX], pack_skills_dir[PATH_MAX];
+    snprintf(pack_assets_dir, sizeof(pack_assets_dir), "%s/assets", pack_skill_root);
+    snprintf(pack_refs_dir, sizeof(pack_refs_dir), "%s/references", pack_skill_root);
+    snprintf(pack_skills_dir, sizeof(pack_skills_dir), "%s/skills", pack_dir);
+    rmdir(pack_assets_dir);
+    rmdir(pack_refs_dir);
+    rmdir(pack_skill_root);
+    rmdir(pack_skills_dir);
+    rmdir(pack_dir);
+    rmdir(artifacts_dir);
+    rmdir(ds4_dir);
+    rmdir(dir);
+    free(pr.memory_summary);
+
+    if (fails == 0) {
+        fprintf(stdout, "ds4-design: self-test ok\n");
+        return 0;
+    }
+    return 1;
+}
+
+/* ============================================================================
  * Main
  * ============================================================================
  */
@@ -3909,7 +7272,9 @@ int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
 
     design_config cfg = parse_options(argc, argv);
+    if (cfg.self_test) return design_run_self_test();
     g_jsonl = cfg.jsonl;
+    emit_protocol_event();
 
     design_agent a;
     memset(&a, 0, sizeof(a));
@@ -3929,6 +7294,7 @@ int main(int argc, char **argv) {
         if (realpath(a.project.dir, abs_dir))
             snprintf(a.project.dir, sizeof(a.project.dir), "%s", abs_dir);
     }
+    design_project_bootstrap(&a.project);
     fprintf(stderr, "ds4-design: project %s\n", a.project.dir);
 
     /* Persistent named sessions live under ~/.ds4/design-sessions, created
@@ -3992,13 +7358,19 @@ int main(int argc, char **argv) {
         if (input.len == 0) continue;
 
         if (a.transcript.len + DESIGN_CTX_RESERVE >= cfg.ctx_size) {
-            const char full[] =
-                "\nContext is full: this design session cannot continue. "
-                "Restart the design agent to keep iterating on the project files.\n";
-            out_text(full, sizeof(full) - 1);
-            input.len = 0;
-            if (input.ptr) input.ptr[0] = '\0';
-            continue;
+            char rerr[160] = {0};
+            if (!design_agent_compact(&a, "context full before prompt",
+                                      rerr, sizeof(rerr))) {
+                const char full[] =
+                    "\nContext is full and compaction failed. "
+                    "Restart the design agent to keep iterating on the project files.\n";
+                out_text(full, sizeof(full) - 1);
+                input.len = 0;
+                if (input.ptr) input.ptr[0] = '\0';
+                continue;
+            }
+            design_project_set_phase(&a.project, "idle");
+            emit_session_status("info", "context compacted");
         }
 
         /* Slash-command router: a leading '/' (after optional spaces) is a
@@ -4062,6 +7434,13 @@ int main(int argc, char **argv) {
                         emit_session_status("info", "started a new session");
                     else
                         emit_session_status("error", serr[0] ? serr : "new failed");
+                } else if (wlen == 8 && !strncmp(word, "/compact", 8)) {
+                    if (design_agent_compact(&a, "user requested compaction",
+                                             serr, sizeof(serr)))
+                        emit_session_status("info", "context compacted");
+                    else
+                        emit_session_status("error",
+                                            serr[0] ? serr : "compact failed");
                 } else {
                     char m[96];
                     snprintf(m, sizeof(m), "unknown command: %.*s",
@@ -4092,6 +7471,8 @@ int main(int argc, char **argv) {
 
     design_bash_jobs_free(&a.project); /* SIGKILL any still-running shell jobs */
     ds4_web_free(a.project.web);        /* tears down the Chrome it launched */
+    free(a.project.todos_json);
+    free(a.project.memory_summary);
     free(a.cache_dir);
     free(a.session_title);
     ds4_session_free(a.session);

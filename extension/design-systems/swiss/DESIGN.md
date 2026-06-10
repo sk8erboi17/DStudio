@@ -1,6 +1,10 @@
 ---
 name: Swiss
 description: International Typographic Style — strict grid, Helvetica, flush-left/ragged-right, black + red on white, photography over illustration. Objective, confident, timeless.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: image-brief
+ds4_upstream: dstudio/swiss
 ---
 
 # DESIGN SYSTEM: Swiss

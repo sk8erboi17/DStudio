@@ -1,6 +1,10 @@
 ---
 name: Vercel
 description: Pure black & white, geometric, maximum contrast. No accent color — type, space and a single hairline carry everything. Developer-grade minimalism.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/vercel
 ---
 
 # DESIGN SYSTEM: Vercel

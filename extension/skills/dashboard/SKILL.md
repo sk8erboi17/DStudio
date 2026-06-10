@@ -3,6 +3,10 @@ name: dashboard
 description: A data UI — KPIs, tables, charts and filters — where density, scannability and real states matter more than decoration.
 modes: [design]
 when_to_use: The user wants a dashboard, admin panel, analytics view, console, or any data-dense internal tool.
+ds4_category: general
+ds4_local_mode: reference
+ds4_output_kinds: html
+ds4_upstream: dstudio/dashboard
 ---
 
 # SKILL: dashboard

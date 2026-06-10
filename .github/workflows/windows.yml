@@ -1,0 +1,151 @@
+name: windows
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'web/index.html'
+      - 'extension/**'
+      - 'scripts/build-windows.ps1'
+      - 'scripts/build-ds4-windows-cygwin.sh'
+      - '.github/workflows/windows.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure MSVC/clang-cl environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe not found" }
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "Visual Studio C++ tools not found" }
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          if (-not (Test-Path $vcvars)) { throw "vcvars64.bat not found: $vcvars" }
+          $lines = cmd /c "`"$vcvars`" >nul && set"
+          foreach ($line in $lines) {
+            if ($line -notmatch '^([^=]+)=(.*)$') { continue }
+            $name = $matches[1]
+            $value = $matches[2]
+            if ($name -ieq "Path") {
+              foreach ($p in $value.Split(';')) {
+                if ($p) { $p | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8 }
+              }
+              continue
+            }
+            if ($name -match '^(INCLUDE|LIB|LIBPATH|VCToolsInstallDir|VCINSTALLDIR|WindowsSdkDir|WindowsSDKVersion|UniversalCRTSdkDir|UCRTVersion|DevEnvDir|ExtensionSdkDir|VSINSTALLDIR|VisualStudioVersion|VSCMD_ARG_.*|VSCMD_VER)$') {
+              "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+          }
+
+      - name: Install MSYS2 build tools
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          update: true
+          install: >-
+            base-devel
+            git
+            make
+            gcc
+            patch
+
+      - name: Verify MSYS2 tools
+        shell: msys2 {0}
+        run: |
+          command -v gcc
+          command -v make
+          gcc --version
+          make --version
+
+      - name: Clone upstream antirez/ds4
+        shell: pwsh
+        run: git clone --depth 1 https://github.com/antirez/ds4.git ..\ds4
+
+      - name: Build Windows portable artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          try {
+            .\scripts\build-windows.ps1 -Ds4Dir ..\ds4 *>&1 |
+              Tee-Object -FilePath build-windows.log
+            if ($LASTEXITCODE -ne 0) {
+              throw "build-windows.ps1 exited with code $LASTEXITCODE"
+            }
+          } catch {
+            $_ | Out-String | Tee-Object -FilePath build-windows.log -Append
+            $lines = Get-Content build-windows.log
+            $interesting = $lines |
+              Where-Object { $_ -match '(?i)(error:|fatal error|LNK[0-9]|unresolved external|undefined reference|failed with exit code|Exception:)' } |
+              Select-Object -Last 20
+            $last = $lines | Select-Object -Last 40
+            if (-not $interesting) {
+              $tail = $last -join "`n"
+            } else {
+              $tail = (@($interesting) + "--- last 40 log lines ---" + @($last)) -join "`n"
+            }
+            $msg = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Host "::error title=Windows build failed::$msg"
+            exit 1
+          }
+
+      - name: Smoke DStudio server child
+        shell: pwsh
+        run: |
+          $p = $null
+          try {
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = (Resolve-Path ".\dist\DStudio-windows-x64\DStudio.exe").Path
+            $psi.ArgumentList.Add("--serve-child")
+            $psi.ArgumentList.Add("5599")
+            $psi.ArgumentList.Add((Resolve-Path "..\ds4").Path)
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.CreateNoWindow = $true
+            $p = [System.Diagnostics.Process]::new()
+            $p.StartInfo = $psi
+            [void]$p.Start()
+            $ok = $false
+            for ($i = 0; $i -lt 20; $i++) {
+              if ($p.HasExited) { break }
+              try {
+                $r = Invoke-WebRequest http://127.0.0.1:5599/ -UseBasicParsing -TimeoutSec 2
+                if ($r.StatusCode -eq 200) { $ok = $true; break }
+              } catch {
+                Start-Sleep -Seconds 1
+              }
+            }
+            if (-not $ok) {
+              throw "server did not return HTTP 200"
+            }
+          } catch {
+            $status = if ($p -and $p.HasExited) { "exited code $($p.ExitCode)" } elseif ($p) { "still running" } else { "not started" }
+            if ($p -and -not $p.HasExited) {
+              try { $p.Kill() } catch {}
+              try { [void]$p.WaitForExit(5000) } catch {}
+            }
+            $stdout = if ($p) { $p.StandardOutput.ReadToEnd() } else { "" }
+            $stderr = if ($p) { $p.StandardError.ReadToEnd() } else { "" }
+            $ports = (netstat -ano | Select-String ":5599" | Out-String)
+            $detail = "status=$status`nerror=$($_.Exception.Message)`n--- stdout ---`n$stdout`n--- stderr ---`n$stderr`n--- netstat ---`n$ports"
+            $msg = $detail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Host "::error title=Windows smoke failed::$msg"
+            throw
+          } finally {
+            if ($p -and -not $p.HasExited) {
+              try { $p.Kill() } catch {}
+            }
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: DStudio-windows-x64
+          path: dist/DStudio-windows-x64.zip

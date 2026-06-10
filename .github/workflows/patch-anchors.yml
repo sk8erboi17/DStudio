@@ -19,13 +19,13 @@ jobs:
   check:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Generate the embedded page header (dstudio.c includes it)
         run: make src/page_data.h
 
       - name: Build the standalone anchor checker (no webview, no Metal)
-        run: cc -O2 -std=gnu11 -D_GNU_SOURCE -o dstudio-check src/dstudio.c
+        run: cc -O2 -Wall -Wextra -Wpedantic -Werror -std=gnu11 -D_GNU_SOURCE -o dstudio-check src/dstudio.c
 
       - name: Clone upstream antirez/ds4 (latest main)
         run: git clone --depth 1 https://github.com/antirez/ds4.git /tmp/ds4
