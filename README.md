@@ -1,20 +1,25 @@
 <div align="center">
 
-<img src="assets/logo.png" width="80" alt="DStudio">
+<img src="assets/logo.png" width="80" alt="DStudio local AI studio for DeepSeek V4">
 
-# DStudio
+# DStudio — Local AI Studio for DeepSeek V4
 
-**A native, local-first desktop app for DeepSeek V4 — chat, a coding agent and a design studio, all running on your Mac. Nothing leaves the device.**
+**An open-source local AI studio for DeepSeek V4 and ds4: private chat, a local coding agent, a design agent, Web Search and Build mode for real web apps. Runs on your machine. No cloud required.**
 
 ![license](https://img.shields.io/badge/license-BSD--3--Clause-blue)
 ![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux-black)
 ![ai](https://img.shields.io/badge/AI-100%25_local-success)
 ![engine](https://img.shields.io/badge/engine-DeepSeek_V4-orange)
 ![deps](https://img.shields.io/badge/dependencies-zero-brightgreen)
+![agents](https://img.shields.io/badge/agents-chat_%7C_code_%7C_design-purple)
 
 </div>
 
-DStudio is a single-file UI driven by a small C launcher that supervises [ds4](https://github.com/antirez/ds4), antirez's local inference engine for DeepSeek V4. On macOS it ships as **DStudio.app** — double-click from the Finder, no Terminal. The whole interface is one `index.html` (vanilla HTML/CSS/JS, no framework, no build step, no dependencies) embedded in the binary, so the app is fully self-contained, offline, and private.
+DStudio turns [ds4](https://github.com/antirez/ds4), antirez's local DeepSeek V4 inference engine, into a full desktop AI workspace: a private AI chat, a local coding agent, a design studio and a guided app builder in one native UI. It is built for people who want a **local-first Cursor/Lovable-style workflow** without sending code, prompts or design work to a remote API.
+
+In plain terms: DStudio is a **ds4 GUI**, a **local DeepSeek V4 desktop app**, a **private coding agent** and a **local AI design/build studio** packaged as one open-source project.
+
+On macOS it ships as **DStudio.app**: double-click from Finder, no Terminal. The UI is a single vanilla `index.html` embedded in a small C launcher, so there is no Electron bundle, no framework build step, no CDN and no telemetry.
 
 ## 30-second start
 
@@ -28,36 +33,47 @@ On first launch, DStudio runs a local system check for the engine folder, model,
 chat engine, agent, design runtime and Web Search. Missing pieces show a direct
 button such as **Choose**, **Download**, **Start** or **Settings**.
 
-**Why?**
+## Why DStudio?
 
-- **Private & offline** — your chats, code and designs never leave the machine. No cloud, no telemetry, no subscription.
-- **Three tools, one window** — a chat, a coding agent that edits files and runs commands, and a real design studio — on the *same* local model.
-- **One binary** — a vanilla page embedded in a small C launcher; nothing to install but the app itself.
-- **Use it from your phone** — flip a switch and reach the same chats from any device on your Wi-Fi, while the engine stays on your Mac.
+- **Local AI, not rented AI.** Your chats, code, files, designs and generated apps stay on your machine.
+- **One DeepSeek V4 workspace.** Chat, code, design and Build mode run against the same local ds4 engine.
+- **Agentic workflows without a SaaS backend.** The coding agent edits files, runs commands and keeps per-session KV memory locally.
+- **Design and code in the same loop.** The design agent creates UI directions and Build mode turns approved pages into a runnable Django app.
+- **Low-friction native app.** A setup doctor checks the engine folder, GGUF model, chat, agent, design runtime, Web Search and network state.
+- **LAN when you want it.** Localhost by default; one switch lets you use the same conversations from a phone or tablet on trusted Wi-Fi.
+
+## What You Can Do
+
+- Run **DeepSeek V4 locally** through a native macOS/Linux desktop interface.
+- Use a **private AI chat** with persistent KV cache, reasoning display, citations from optional Web Search and local history.
+- Use a **local coding agent** that reads, edits and verifies files inside a folder you choose.
+- Generate interface concepts with **ds4-design**, a design agent built on ds4.
+- Turn a product idea into a **runnable Django web app** with Build mode: interview, plan, design pages, wire files, review diffs.
+- Keep the engine private while still reaching the UI from another device on your LAN.
 
 ## Modes
 
-A sidebar switches between the three modes, each with its own history of reopenable conversations grouped by day.
+A sidebar switches between Chat, Agent and Design. Each mode has its own reopenable conversation history, and each agent/design session keeps its own local KV state.
 
 ### 💬 Chat
 
 <div align="center">
 
-<img src="assets/README%20images/chat.png" width="820" alt="Chat">
+<img src="assets/README%20images/chat.png" width="820" alt="DStudio local DeepSeek V4 chat with reasoning, cached tokens and private history">
 
 </div>
 
-Streaming chat backed by the server KV cache: the context lives server-side (prefix reuse, shown as *cached* tokens) and every message is saved locally. Live tokens/s, a collapsible reasoning block, LaTeX rendered to **native MathML** (no library), syntax-highlighted code — all offline and XSS-safe.
+Streaming DeepSeek V4 chat backed by the ds4 server KV cache: the context lives server-side (prefix reuse, shown as *cached* tokens) and every message is saved locally. You get live tokens/s, collapsible reasoning, native MathML for LaTeX, syntax-highlighted code and optional Web Search sources through the local browser.
 
 ### 🤖 Agent
 
-<img src="assets/README%20images/agent.png" width="760" alt="Agent mode">
+<img src="assets/README%20images/agent.png" width="760" alt="DStudio local coding agent editing files with folded tool calls and reasoning">
 
-`ds4-agent` as a coding agent: it reads and edits files and runs commands in a working directory you choose. The transcript renders cleanly — folded tool calls, folded reasoning, a live plan — and a build-time post-edit check lets the model fix its own syntax errors in the same turn.
+`ds4-agent` becomes a local coding agent: it reads and edits files, runs commands in a working directory you choose, renders folded tool calls/reasoning, and keeps a live plan. A post-edit verifier catches common syntax errors immediately, so the model can fix broken code in the same turn.
 
 ## 🎨 Design — a studio built **on** ds4
 
-Design isn't a chat — it's a separate agent that runs a designer's pipeline end to end. **`ds4-design` is our own extension to ds4**: it lives in *this* repo (`extension/design/ds4_design.c`), built on the same DeepSeek V4 engine but with its own system prompt, tools and staged flow, and compiled into the ds4 repo automatically the first time you open Design. Because it's our code, it emits the structured events **natively** — no patch needed, unlike the agent.
+Design is not a chat skin. It is a separate local design agent that runs a designer's pipeline end to end. **`ds4-design` is DStudio's own extension to ds4**: it lives in this repo (`extension/design/ds4_design.c`), uses the same DeepSeek V4 engine, and has its own system prompt, tools, staged flow and native structured events.
 
 The whole pipeline, from a one-line idea to laid-out screens:
 
@@ -79,11 +95,11 @@ The whole pipeline, from a one-line idea to laid-out screens:
 
 ## 🏗️ Build — from a chat goal to a runnable web app
 
-Toggle **Build** on in Agent mode and a one-line idea becomes a **real, runnable Django web app** — built page by page, entirely on your machine. A **deterministic driver** (not the model) walks the plan and decides *done* from the **filesystem**, never from the model's say-so, so it holds up even on a weak local quant.
+Toggle **Build** in Agent mode and a one-line product idea becomes a **real, runnable Django web app** — built page by page on your machine. A deterministic driver, not the model, walks the plan and decides *done* from the filesystem, so local quantization mistakes are easier to catch and recover from.
 
 <div align="center">
 
-<img src="assets/README%20images/build.png" width="460" alt="Build mode — the Off/On toggle in Agent mode">
+<img src="assets/README%20images/build.png" width="460" alt="DStudio Build mode toggle for creating a local Django web app with DeepSeek V4">
 
 </div>
 
@@ -97,28 +113,33 @@ Toggle **Build** on in Agent mode and a one-line idea becomes a **real, runnable
 
 **4 · Queue follow-ups while it builds.** Type while it works — your message doesn't interrupt the current page; it's queued and applied after the page is done, and if it's ambiguous the agent asks a quick clarifying question first.
 
-A live console shows the pages stack (done ✓ / now / to do), what it's doing right now, the skills/craft packs it pulled on demand, and colored **+/- diffs** for every file edit.
+A live console shows the pages stack (done / now / to do), the current operation, the skills/craft packs pulled on demand, and colored **+/- diffs** for every file edit.
 
 ## Highlights
 
-- **Local-first & private.** Everything runs on your Mac. No telemetry, no cloud, strict CSP — the app speaks only to your engine.
-- **Self-contained app.** The entire UI is one vanilla file, base64-embedded in the binary. No asset files, no CDN, no build step.
+- **Local-first & private.** Everything runs on your machine. No telemetry, no cloud backend, strict CSP — the app speaks only to your local engine.
+- **Self-contained native app.** The UI is one vanilla file base64-embedded in the binary. No Electron, no asset server, no CDN.
 - **Non-invasive integration.** The agent's structured output comes from a small, **reversible, build-time patch** of the engine source: DStudio backs it up, builds a separately-named binary, and restores the original immediately — the ds4 repo stays pristine, and if the patch ever fails it falls back to the stock agent.
-- **Pick model & reasoning per chat.** A gear in the composer collapses the model variant (Flash / Pro), the reasoning level (off / normal / max) and the working folder into one popover, in every mode.
+- **Setup doctor.** First run checks the ds4 folder, GGUF model, chat engine, agent, design runtime, Web Search, port and LAN state, then gives a direct fix button.
+- **Pick model & reasoning per chat.** A gear in the composer collapses model selection, reasoning level, Web Search and working folder into one popover.
 - **Zero-config networking.** Localhost by default; one toggle exposes it on your Wi-Fi — and the engine still never leaves localhost (see below).
+
+## Who It's For
+
+DStudio is for local-AI builders who have the hardware to run DeepSeek V4 and want an open-source desktop workflow for private AI coding, local design generation and no-cloud app building. It is intentionally heavy: if you do not have enough RAM for the GGUF, use the screenshots and demo as the preview until your hardware catches up.
 
 ## Requirements
 
-This is a heavy local setup — be honest with yourself about the hardware:
+This is a serious local AI setup. DStudio removes product friction, not physics:
 
-- **OS.** One `make` builds the branded app per platform: **DStudio.app** on **macOS** (Apple Silicon — the primary, tested target; double-click, no Terminal) and a **`dstudio`** binary on **Linux** (WebKitGTK / GTK3 via `webkit2gtk-4.1`, same logo). Linux is less exercised, and `ds4` itself must be built for your platform (the reference engine integration targets Apple **Metal**).
+- **OS.** One `make` builds the branded app per platform: **DStudio.app** on **macOS** (Apple Silicon is the primary tested target) and a **`dstudio`** binary on **Linux** (WebKitGTK / GTK3 via `webkit2gtk-4.1`). Linux is less exercised, and `ds4` itself must be built for your platform.
 - A C compiler (`cc` / `clang`). `node` is optional, only for `make check`.
 - **[antirez's ds4](https://github.com/antirez/ds4)** — clone it and build it in a **sibling folder** of DStudio (`git clone https://github.com/antirez/ds4`, default `../ds4`, also resolved at `~/Documents/dev/ds4`), so the `ds4-server` / `ds4-agent` binaries exist. The rich agent mode targets antirez's **original** ds4 source; on a **fork**, switch **Agent output → Raw** in Settings (see *The agent patch* under [How it works](#how-it-works)).
 - **A DeepSeek V4 GGUF model.** Two variants (IQ2_XXS, 2-bit):
   - **Flash** — ~87 GB on disk, ~96–128 GB RAM
   - **Pro** — ~430 GB on disk, ~512 GB RAM
 
-  Missing the weights? The first-run onboarding can download a variant for you and shows the size before it pulls.
+  Missing the weights? The first-run setup can download a variant and shows the size before it pulls.
 
 > Not packing a 96 GB Mac? The screenshots above show every mode in action — chat, the coding agent, the design pipeline and LAN access.
 
@@ -132,7 +153,7 @@ make run        # build + start on http://127.0.0.1:5500
 make check      # sanity: page stays text, JS syntax OK
 ```
 
-Launch **DStudio.app** on macOS (or run `./dstudio` on Linux, or open `http://127.0.0.1:5500`). The first-run onboarding walks you through the engine status, the folder paths (editable and verified live), the model, and the context size.
+Launch **DStudio.app** on macOS, run `./dstudio` on Linux, or open `http://127.0.0.1:5500`. The first-run setup walks through engine status, ds4 folder, model file, context size and the System Check panel.
 
 Optional parameters:
 
@@ -162,7 +183,7 @@ Behind the scenes DStudio **reverse-proxies the engine API** (`/v1`) to the loca
 
 ## How it works
 
-- **C launcher, not a script.** `dstudio.c` is an HTTP server *and* the engine supervisor: it starts/stops `ds4-server` (chat), `ds4-agent` (coding) and `ds4-design`, manages the working directory, and exposes a small local API. It replaces `start.sh`.
+- **C launcher, not a script.** `dstudio.c` is both the local HTTP server and the engine supervisor: it starts/stops `ds4-server` for chat, `ds4-agent` for coding and `ds4-design` for design, manages working directories, runs the setup doctor, proxies `/v1`, serves Web Search and exposes a small local API.
 - **Native window.** `app.cc` forks the server and opens a WKWebView (macOS) / WebKitGTK (Linux) window via `webview.h`; the page is base64-embedded (`page_data.h`).
 - **Same-origin proxy.** The page calls DStudio for `/v1`; DStudio forwards (streaming) to the local engine — which is why LAN works with no engine exposure and no settings.
 
@@ -210,13 +231,14 @@ DeepSeek V4 keeps the conversation in ds4-server's **KV cache** instead of re-en
 
 Where DStudio is headed (ideas, not promises):
 
-- **Sharper Design studio** — *in progress* — push `ds4-design` further: higher-fidelity screens, more distinct directions, and faster refine loops on the canvas.
-- **Cowork** — *planned* — collaborative sessions: share a workspace and build alongside the model, together.
-- **MCP** — *planned* — Model Context Protocol support, so the agent can plug into external tools and data sources beyond the working directory.
+- **Sharper Design studio** — higher-fidelity screens, more distinct directions and faster refine loops on the canvas.
+- **More Build targets** — keep Django first-class, then expand the deterministic driver to more local web-app stacks.
+- **Cowork** — collaborative sessions: share a workspace and build alongside the local model.
+- **MCP** — Model Context Protocol support so the agent can plug into external tools and data sources beyond the working directory.
 
 ## Contributing
 
-It's an early, fast-moving project for the local-AI crowd. If you find it interesting, a ⭐ helps it find the people who'd enjoy it. Issues and PRs welcome — the whole UI is one readable vanilla file.
+DStudio is early, hardware-hungry and built for the local-AI crowd. The most useful contributions right now are setup reports, hardware reports, reproducible agent failures, design-output examples and small PRs that reduce first-run friction. If you want open-source local AI tools to exist outside cloud subscriptions, a ⭐ helps the project reach the right testers.
 
 ## License
 
