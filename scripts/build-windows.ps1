@@ -14,6 +14,57 @@ function Assert-NativeOk([string]$Name) {
   }
 }
 
+function Write-IcoFromPng([string]$PngPath, [string]$IcoPath) {
+  Add-Type -AssemblyName System.Drawing
+  $src = [Drawing.Image]::FromFile($PngPath)
+  try {
+    $bmp = New-Object Drawing.Bitmap 256, 256
+    try {
+      $g = [Drawing.Graphics]::FromImage($bmp)
+      try {
+        $g.Clear([Drawing.Color]::Transparent)
+        $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $g.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::HighQuality
+        $g.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $g.DrawImage($src, 0, 0, 256, 256)
+      } finally {
+        $g.Dispose()
+      }
+      $png = New-Object IO.MemoryStream
+      try {
+        $bmp.Save($png, [Drawing.Imaging.ImageFormat]::Png)
+        $bytes = $png.ToArray()
+      } finally {
+        $png.Dispose()
+      }
+    } finally {
+      $bmp.Dispose()
+    }
+  } finally {
+    $src.Dispose()
+  }
+
+  $fs = [IO.File]::Open($IcoPath, [IO.FileMode]::Create, [IO.FileAccess]::Write)
+  $bw = New-Object IO.BinaryWriter($fs)
+  try {
+    $bw.Write([UInt16]0)       # reserved
+    $bw.Write([UInt16]1)       # image type: icon
+    $bw.Write([UInt16]1)       # image count
+    $bw.Write([Byte]0)         # 256 px
+    $bw.Write([Byte]0)         # 256 px
+    $bw.Write([Byte]0)         # palette
+    $bw.Write([Byte]0)         # reserved
+    $bw.Write([UInt16]1)       # color planes
+    $bw.Write([UInt16]32)      # bits per pixel
+    $bw.Write([UInt32]$bytes.Length)
+    $bw.Write([UInt32]22)      # ICO header + directory entry
+    $bw.Write($bytes)
+  } finally {
+    $bw.Dispose()
+    $fs.Dispose()
+  }
+}
+
 if (-not $Ds4Dir) {
   $Ds4Dir = Join-Path (Split-Path $Root -Parent) "ds4"
 }
@@ -39,6 +90,15 @@ $lines.Add("  0")
 $lines.Add("};")
 [IO.File]::WriteAllLines((Join-Path $Root "src\page_data.h"), $lines)
 
+Write-Host "windows: generating app icon resource"
+$Icon = Join-Path $Root "build\windows\dstudio.ico"
+$Rc = Join-Path $Root "build\windows\dstudio.rc"
+$Res = Join-Path $Root "build\windows\dstudio.res"
+Write-IcoFromPng (Join-Path $Root "assets\logo.png") $Icon
+[IO.File]::WriteAllText($Rc, "101 ICON `"$Icon`"`r`n")
+rc /nologo /fo $Res $Rc
+Assert-NativeOk "compile Windows icon resource"
+
 Write-Host "windows: restoring WebView2 SDK"
 $Deps = Join-Path $Root ".deps\windows"
 New-Item -ItemType Directory -Force -Path $Deps | Out-Null
@@ -58,7 +118,7 @@ clang-cl /nologo /O2 /W3 /D_CRT_SECURE_NO_WARNINGS /D_WINSOCK_DEPRECATED_NO_WARN
 Assert-NativeOk "compile dstudio.c"
 clang-cl /nologo /O2 /W3 /EHsc /std:c++17 /D_CRT_SECURE_NO_WARNINGS /I "$WvInclude" /c src\app.cc /Fobuild\windows\app.obj
 Assert-NativeOk "compile app.cc"
-clang-cl /nologo build\windows\dstudio.obj build\windows\app.obj /Fe:$OutDir\DStudio.exe /link /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup ws2_32.lib user32.lib shell32.lib ole32.lib uuid.lib version.lib $LinkLib
+clang-cl /nologo build\windows\dstudio.obj build\windows\app.obj $Res /Fe:$OutDir\DStudio.exe /link /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup ws2_32.lib user32.lib shell32.lib ole32.lib uuid.lib version.lib $LinkLib
 Assert-NativeOk "link DStudio.exe"
 
 if ($DynamicLib) {
