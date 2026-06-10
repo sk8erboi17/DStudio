@@ -271,12 +271,34 @@ static void webview_run(webview_t handle) {
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include "logo_data.h"   /* generated: the logo PNG bytes (LOGO_PNG / LOGO_PNG_LEN) */
 
+#define DS4_LINUX_APP_ID "dev.ds4.DStudio"
+
 typedef struct {
     GtkWidget *window;
     GtkWidget *webview;
 } ds4_wv;
 
+static GdkPixbuf *ds4_load_logo_pixbuf(void) {
+    GdkPixbuf *pb = NULL;
+    GdkPixbufLoader *loader = gdk_pixbuf_loader_new();
+    if (!loader) return NULL;
+
+    gboolean ok = gdk_pixbuf_loader_write(loader, LOGO_PNG, LOGO_PNG_LEN, NULL);
+    if (ok) ok = gdk_pixbuf_loader_close(loader, NULL);
+    else gdk_pixbuf_loader_close(loader, NULL);
+
+    if (ok) {
+        GdkPixbuf *loaded = gdk_pixbuf_loader_get_pixbuf(loader);
+        if (loaded) pb = (GdkPixbuf *)g_object_ref(loaded);
+    }
+    g_object_unref(loader);
+    return pb;
+}
+
 static webview_t webview_create(int width, int height, const char *title) {
+    g_set_prgname(DS4_LINUX_APP_ID);
+    g_set_application_name("DStudio");
+    gdk_set_program_class(DS4_LINUX_APP_ID);
     gtk_init_check(0, NULL);
     /* Linux/Windows look (my call): prefer the dark theme so the window
      * decorations (the WM/GTK title bar with its close/min/max buttons)
@@ -287,18 +309,18 @@ static webview_t webview_create(int width, int height, const char *title) {
     w->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(w->window), title);
     gtk_window_set_default_size(GTK_WINDOW(w->window), width, height);
+    gtk_window_set_icon_name(GTK_WINDOW(w->window), DS4_LINUX_APP_ID);
     /* Window icon (taskbar / alt-tab / WM title bar) from the embedded logo:
      * the PNG bytes are baked into logo_data.h, decoded into a pixbuf at runtime
      * — same logo as the macOS .icns, no asset file needed. (macOS sets its icon
      * via the .icns in the bundle/resource fork, so this path is Linux-only.) */
     {
-        GdkPixbufLoader *loader = gdk_pixbuf_loader_new();
-        if (gdk_pixbuf_loader_write(loader, LOGO_PNG, LOGO_PNG_LEN, NULL) &&
-            gdk_pixbuf_loader_close(loader, NULL)) {
-            GdkPixbuf *pb = gdk_pixbuf_loader_get_pixbuf(loader);
-            if (pb) gtk_window_set_icon(GTK_WINDOW(w->window), pb);
+        GdkPixbuf *pb = ds4_load_logo_pixbuf();
+        if (pb) {
+            gtk_window_set_default_icon(pb);
+            gtk_window_set_icon(GTK_WINDOW(w->window), pb);
+            g_object_unref(pb);
         }
-        g_object_unref(loader);
     }
     w->webview = webkit_web_view_new();
     gtk_container_add(GTK_CONTAINER(w->window), w->webview);

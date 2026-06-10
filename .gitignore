@@ -10,6 +10,7 @@ logo_data.h
 ds4.icns
 ds4.iconset/
 .icontmp.*
+dev.ds4.DStudio.desktop
 
 # Engine log (generated at runtime in the ds4 dir, but ignored just in case)
 ds4-server.log

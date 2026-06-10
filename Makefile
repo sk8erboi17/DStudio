@@ -5,6 +5,8 @@
 #   make run        compiles and starts (opens the window on the interface)
 #   make check      sanity: the page is valid text and the pure modules pass the tests
 #   make windows    Windows portable zip (run from Windows with PowerShell + toolchains)
+#   make install-desktop
+#                   Linux: installs the launcher + icon in ~/.local/share
 #   make clean      removes the binary and the generated artifacts
 #
 # Architecture: dstudio.c is the HTTP server (compiled with -DDS4_WITH_WEBVIEW, its
@@ -34,6 +36,11 @@ LOGO     := assets/logo.png
 LOGO_HDR := src/logo_data.h
 ICNS     := ds4.icns
 PLIST    := assets/Info.plist
+LINUX_APP_ID := dev.ds4.DStudio
+DESKTOP  := $(LINUX_APP_ID).desktop
+XDG_DATA_HOME ?= $(HOME)/.local/share
+DESKTOP_INSTALL_DIR ?= $(XDG_DATA_HOME)/applications
+ICON_INSTALL_DIR ?= $(XDG_DATA_HOME)/icons/hicolor/1024x1024/apps
 
 # Webview backend per platform.
 UNAME := $(shell uname)
@@ -52,7 +59,7 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check clean app windows
+.PHONY: all run check clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
@@ -60,6 +67,9 @@ ifeq ($(UNAME),Darwin)
 all: app
 else
 all: $(BIN)
+ifeq ($(UNAME),Linux)
+all: $(DESKTOP)
+endif
 endif
 
 # macOS bundle: DStudio.app launches with a double click from the Finder, WITHOUT a Terminal.
@@ -143,6 +153,63 @@ ifeq ($(UNAME),Darwin)
 	  rm -f .icontmp.icns .icontmp.rsrc
 endif
 
+$(DESKTOP): $(BIN) $(LOGO) Makefile
+ifeq ($(UNAME),Linux)
+	@abs_bin="$$(pwd)/$(BIN)"; \
+	abs_icon="$$(pwd)/$(LOGO)"; \
+	{ \
+	  echo "[Desktop Entry]"; \
+	  echo "Type=Application"; \
+	  echo "Name=DStudio"; \
+	  echo "Comment=Local DS4 desktop studio"; \
+	  echo "Exec=$$abs_bin"; \
+	  echo "Icon=$$abs_icon"; \
+	  echo "Terminal=false"; \
+	  echo "Categories=Development;"; \
+	  echo "StartupNotify=true"; \
+	  echo "StartupWMClass=$(LINUX_APP_ID)"; \
+	} > $@
+	@chmod 0755 $@
+	@echo "$@: desktop launcher generated"
+else
+	@echo "desktop launcher generation is for Linux only"
+endif
+
+install-desktop: $(BIN)
+ifeq ($(UNAME),Linux)
+	@mkdir -p "$(DESKTOP_INSTALL_DIR)" "$(ICON_INSTALL_DIR)"
+	@install -m 0644 "$(LOGO)" "$(ICON_INSTALL_DIR)/$(LINUX_APP_ID).png"
+	@abs_bin="$$(pwd)/$(BIN)"; \
+	{ \
+	  echo "[Desktop Entry]"; \
+	  echo "Type=Application"; \
+	  echo "Name=DStudio"; \
+	  echo "Comment=Local DS4 desktop studio"; \
+	  echo "Exec=$$abs_bin"; \
+	  echo "Icon=$(LINUX_APP_ID)"; \
+	  echo "Terminal=false"; \
+	  echo "Categories=Development;"; \
+	  echo "StartupNotify=true"; \
+	  echo "StartupWMClass=$(LINUX_APP_ID)"; \
+	} > "$(DESKTOP_INSTALL_DIR)/$(DESKTOP)"
+	@chmod 0644 "$(DESKTOP_INSTALL_DIR)/$(DESKTOP)"
+	@command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$(DESKTOP_INSTALL_DIR)" >/dev/null 2>&1 || true
+	@command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q "$(XDG_DATA_HOME)/icons/hicolor" >/dev/null 2>&1 || true
+	@echo "Installed $(DESKTOP_INSTALL_DIR)/$(DESKTOP)"
+else
+	@echo "make install-desktop is for Linux only"
+endif
+
+uninstall-desktop:
+ifeq ($(UNAME),Linux)
+	@rm -f "$(DESKTOP_INSTALL_DIR)/$(DESKTOP)" "$(ICON_INSTALL_DIR)/$(LINUX_APP_ID).png"
+	@command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$(DESKTOP_INSTALL_DIR)" >/dev/null 2>&1 || true
+	@command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q "$(XDG_DATA_HOME)/icons/hicolor" >/dev/null 2>&1 || true
+	@echo "Removed Linux desktop launcher/icon"
+else
+	@echo "make uninstall-desktop is for Linux only"
+endif
+
 run: $(BIN)
 	./$(BIN) $(PORT) $(DS4_DIR)
 
@@ -159,5 +226,5 @@ windows:
 	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1
 
 clean:
-	rm -f $(BIN) $(GEN) $(LOGO_HDR) $(ICNS) dstudio.o app.o
+	rm -f $(BIN) $(GEN) $(LOGO_HDR) $(ICNS) $(DESKTOP) dstudio.o app.o
 	@rm -rf ds4.iconset .icontmp.icns .icontmp.rsrc
