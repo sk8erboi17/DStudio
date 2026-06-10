@@ -5301,7 +5301,8 @@
         const mustMatch = uniqueStrings([...(Array.isArray(obj.mustMatch) ? obj.mustMatch : []), entity]
           .filter((x) => String(x).trim().length >= 2), 4);
         const exactQueries = mustMatch.flatMap((t) => [`"${t}"`, t]);
-        const queries = uniqueStrings([...exactQueries, ...(Array.isArray(obj.queries) ? obj.queries : []), userText], 4);
+        const queries = uniqueStrings([...exactQueries, ...(Array.isArray(obj.queries) ? obj.queries : [])], 4);
+        if (!queries.length) throw new Error('planner returned no search queries');
         return {
           intent: String(obj.intent || 'web_lookup').slice(0, 80),
           entity,
@@ -5311,45 +5312,15 @@
         };
       }
 
-      const SEARCH_FALLBACK_STOP = new Set([
-        'mi', 'dici', 'dimmi', 'spiegami', 'spiega', 'cosa', 'cos', 'che', 'chi',
-        'quanto', 'quale', 'qual', 'perche', 'perchè', 'come', 'dove', 'quando',
-        'costa', 'prezzo', 'vale', 'significa', 'significato', 'vuol', 'dire',
-        'e', 'è', 'un', 'una', 'uno', 'il', 'lo', 'la', 'i', 'gli', 'le',
-        'di', 'del', 'della', 'dei', 'degli', 'delle', 'su', 'sul', 'sulla',
-        'per', 'a', 'ad', 'in', 'da', 'the', 'what', 'is', 'are', 'who',
-        'tell', 'me', 'about', 'explain',
-      ]);
-
-      function fallbackSearchEntity(userText) {
-        let text = String(userText || '').trim();
-        const domain = text.match(/\b([a-z0-9-]+\.)+[a-z]{2,}\b/i);
-        if (domain) return domain[0].toLowerCase();
-        const quoted = text.match(/["'“”‘’]([^"'“”‘’]{2,})["'“”‘’]/);
-        if (quoted) return quoted[1].replace(/\s+/g, ' ').trim();
-        text = text
-          .replace(/\b(mi\s+dici|dimmi|spiegami|spiega|cosa\s+(?:è|e|significa)|cos['’]è|che\s+(?:cos['’]è|significa)|significato\s+di|what\s+is|tell\s+me\s+about|explain)\b/gi, ' ')
-          .replace(/[?!.,:;()[\]{}]/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-        const tokens = text.match(/\b[A-Za-z0-9À-ÖØ-öø-ÿ][A-Za-z0-9À-ÖØ-öø-ÿ._-]{1,}\b/g) || [];
-        const meaningful = tokens.filter((t) => {
-          const key = t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          return key.length > 1 && !SEARCH_FALLBACK_STOP.has(key);
-        });
-        if (meaningful.length) return meaningful.slice(-4).join(' ');
-        return String(userText || '').replace(/\s+/g, ' ').trim();
-      }
-
-      function fallbackSearchPlan(userText) {
-        const entity = fallbackSearchEntity(userText);
-        const terms = entity && entity.length < 80 ? [entity] : [];
-        return normalizeSearchPlan({
-          intent: 'fallback',
-          entity,
-          mustMatch: terms,
-          queries: entity ? [`"${entity}"`, entity, `${entity} official`, userText] : [userText],
-        }, userText);
+      async function completeSearchPlan(messages, settings) {
+        const text = await Api.completeText({
+          model: settings.model,
+          messages,
+          temperature: 0,
+          maxTokens: 420,
+          thinkLevel: 'off',
+        }, AbortSignal.timeout(WEB_SEARCH_PLAN_TIMEOUT_MS));
+        return normalizeSearchPlan(JSON.parse(stripJsonFence(text)));
       }
 
       async function planWebSearch(userText, settings) {
@@ -5367,17 +5338,36 @@
           },
           { role: 'user', content: `User message:\n${userText}` },
         ];
+        let primaryError = null;
         try {
-          const text = await Api.completeText({
-            model: settings.model,
-            messages,
-            temperature: 0,
-            maxTokens: 420,
-            thinkLevel: 'off',
-          }, AbortSignal.timeout(WEB_SEARCH_PLAN_TIMEOUT_MS));
-          return normalizeSearchPlan(JSON.parse(stripJsonFence(text)), userText);
-        } catch {
-          return fallbackSearchPlan(userText);
+          const plan = await completeSearchPlan(messages, settings);
+          plan.planner = 'primary';
+          return plan;
+        } catch (e) {
+          primaryError = e;
+        }
+
+        const repairMessages = [
+          {
+            role: 'system',
+            content: [
+              'You are DStudio web search planner retry.',
+              'The first planner failed. Return strict JSON only. No markdown. No prose.',
+              'Do not use heuristics. Decide the exact search target from the user message.',
+              'Preserve unknown names, products, brands, domains, handles, and possible typos exactly as typed.',
+              'Never autocorrect unknown terms before search.',
+              'Return 2-4 concrete search queries. Put exact-match queries first when an entity exists.',
+              'Schema: {"intent":"entity_lookup|news|docs|general","entity":"exact entity or empty","mustMatch":["exact terms search results should preserve"],"queries":["query 1","query 2"]}.',
+            ].join('\n'),
+          },
+          { role: 'user', content: `User message:\n${userText}` },
+        ];
+        try {
+          const plan = await completeSearchPlan(repairMessages, settings);
+          plan.planner = 'retry';
+          return plan;
+        } catch (e) {
+          throw new Error(`Web Search planner failed twice: ${primaryError?.message || 'primary failed'}; ${e?.message || 'retry failed'}`);
         }
       }
 
@@ -5423,10 +5413,11 @@
 
       function planTraceDetail(plan) {
         const bits = [];
+        if (plan.planner) bits.push(`planner: ${plan.planner}`);
         if (plan.intent) bits.push(`intent: ${plan.intent}`);
         if (plan.mustMatch?.length) bits.push(`preserve: ${plan.mustMatch.join(', ')}`);
         if (plan.queries?.length) bits.push(`queries: ${plan.queries.join(' | ')}`);
-        return bits.join(' · ') || 'planner returned the fallback query set';
+        return bits.join(' · ') || 'planner returned a search plan';
       }
 
       function emitSearchTrace(onTrace, steps) {
