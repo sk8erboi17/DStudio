@@ -439,9 +439,25 @@ static void webview_run(webview_t handle) {
 #elif defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <dwmapi.h>
 #include <shlobj.h>
 #include <wrl.h>
 #include "WebView2.h"
+#pragma comment(lib, "dwmapi.lib")
+
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+#ifndef DWMWA_BORDER_COLOR
+#define DWMWA_BORDER_COLOR 34
+#endif
+#ifndef DWMWA_CAPTION_COLOR
+#define DWMWA_CAPTION_COLOR 35
+#endif
+#ifndef DWMWA_TEXT_COLOR
+#define DWMWA_TEXT_COLOR 36
+#endif
+#define DS4_WIN_ICON_ID 101
 
 typedef struct {
     HWND hwnd;
@@ -455,6 +471,20 @@ static void ds4_wv_resize(ds4_wv *w) {
     RECT bounds;
     GetClientRect(w->hwnd, &bounds);
     w->controller->put_Bounds(bounds);
+}
+
+static void ds4_apply_windows_chrome(HWND hwnd, int light) {
+    BOOL dark = light ? FALSE : TRUE;
+    if (FAILED(DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof dark))) {
+        const DWORD legacy_dark_mode = 19;
+        DwmSetWindowAttribute(hwnd, legacy_dark_mode, &dark, sizeof dark);
+    }
+    COLORREF caption = light ? RGB(245, 245, 246) : RGB(22, 22, 22);
+    COLORREF border = light ? RGB(204, 207, 214) : RGB(22, 22, 22);
+    COLORREF text = light ? RGB(24, 24, 27) : RGB(242, 242, 242);
+    DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &caption, sizeof caption);
+    DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &border, sizeof border);
+    DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, &text, sizeof text);
 }
 
 static LRESULT CALLBACK ds4_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -504,6 +534,29 @@ static void ds4_init_webview2(ds4_wv *w) {
                             w->controller = controller;
                             w->controller->AddRef();
                             controller->get_CoreWebView2(&w->webview);
+                            w->webview->AddScriptToExecuteOnDocumentCreated(
+                                L"(() => {"
+                                L"  const target = { ds4Theme: { postMessage: (theme) =>"
+                                L"    chrome.webview.postMessage({ ds4Theme: String(theme) }) } };"
+                                L"  window.webkit = window.webkit || {};"
+                                L"  window.webkit.messageHandlers = Object.assign({}, window.webkit.messageHandlers, target);"
+                                L"})();",
+                                NULL);
+                            EventRegistrationToken token;
+                            w->webview->add_WebMessageReceived(
+                                Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(
+                                    [w](ICoreWebView2 *sender, ICoreWebView2WebMessageReceivedEventArgs *args) -> HRESULT {
+                                        (void)sender;
+                                        LPWSTR json = NULL;
+                                        if (SUCCEEDED(args->get_WebMessageAsJson(&json)) && json) {
+                                            if (wcsstr(json, L"ds4Theme")) {
+                                                ds4_apply_windows_chrome(w->hwnd, wcsstr(json, L"light") != NULL);
+                                            }
+                                            CoTaskMemFree(json);
+                                        }
+                                        return S_OK;
+                                    }).Get(),
+                                &token);
                             ds4_wv_resize(w);
                             if (w->pending_url[0]) {
                                 wchar_t *url = ds4_utf8_to_wide(w->pending_url);
@@ -524,7 +577,8 @@ static webview_t webview_create(int width, int height, const char *title) {
     wc.hInstance = inst;
     wc.lpszClassName = "DStudioWindow";
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    wc.hIcon = LoadIcon(inst, MAKEINTRESOURCE(DS4_WIN_ICON_ID));
+    if (!wc.hIcon) wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
     RegisterClassA(&wc);
 
     ds4_wv *w = (ds4_wv *)calloc(1, sizeof(ds4_wv));
@@ -536,6 +590,13 @@ static webview_t webview_create(int width, int height, const char *title) {
                               r.right - r.left, r.bottom - r.top,
                               NULL, NULL, inst, NULL);
     SetWindowLongPtr(w->hwnd, GWLP_USERDATA, (LONG_PTR)w);
+    HICON big_icon = (HICON)LoadImage(inst, MAKEINTRESOURCE(DS4_WIN_ICON_ID),
+                                      IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+    HICON small_icon = (HICON)LoadImage(inst, MAKEINTRESOURCE(DS4_WIN_ICON_ID),
+                                        IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+    if (big_icon) SendMessage(w->hwnd, WM_SETICON, ICON_BIG, (LPARAM)big_icon);
+    if (small_icon) SendMessage(w->hwnd, WM_SETICON, ICON_SMALL, (LPARAM)small_icon);
+    ds4_apply_windows_chrome(w->hwnd, 0);
     ds4_init_webview2(w);
     return (webview_t)w;
 }
