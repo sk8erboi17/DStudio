@@ -1,11 +1,21 @@
 ---
 name: product-marketing
-description: Foundation brief: capture the product, audience, ICP, positioning, brand voice and proof. Create/read it FIRST; every copy/SEO/CRO task references it.
-modes: [marketing]
-ds4_category: general
-ds4_local_mode: reference
-ds4_output_kinds: html
-ds4_upstream: dstudio/product-marketing
+description: |
+  When the user wants to create or update their product marketing context document. Also
+  use when the user mentions 'product context,' 'marketing context,' 'set up context,'
+  'positioning,' 'who is my target audience,' 'describe my product,' 'ICP,' 'ideal
+  customer profile,' or wants to avoid repeating foundational information across marketing
+  tasks. Use this at the start of any new project before using other marketing skills — it
+  creates `.agents/product-marketing.md` that all other skills reference for product,
+  audience, and positioning context.
+modes: [agent, marketing]
+ds4_category: marketing-foundation
+ds4_local_mode: native
+ds4_output_kinds: markdown
+ds4_upstream: marketingskills/product-marketing
+ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+marketingskills_version: 2.0.0
+ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
 ---
 
 # Product Marketing Context

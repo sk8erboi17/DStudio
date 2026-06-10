@@ -1345,13 +1345,13 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
  * The edits below are generated (escaping verified) from an anchored table.
  * ============================================================================ */
 #define JSONL_MARK "/*DS4UI_JSONL*/"
-#define JSONL_PATCH_VERSION 12  /* bump when the edits change: forces the rebuild */
+#define JSONL_PATCH_VERSION 14  /* bump when the edits change: forces the rebuild */
 
 static const char *JSONL_EDITS[][2] = {
   { "    bool non_interactive;\n",
-    "    bool non_interactive;\n    bool jsonl; /*DS4UI_JSONL*/\n" },
+    "    bool non_interactive;\n    bool jsonl; /*DS4UI_JSONL*/\n    bool web_tool_mode; /*DS4UI_JSONL*/\n    const char *web_tool; /*DS4UI_JSONL*/\n    const char *web_query; /*DS4UI_JSONL*/\n    const char *web_url; /*DS4UI_JSONL*/\n" },
   { "        } else if (!strcmp(arg, \"--non-interactive\")) {\n            c.non_interactive = true;\n",
-    "        } else if (!strcmp(arg, \"--non-interactive\")) {\n            c.non_interactive = true;\n        } else if (!strcmp(arg, \"--jsonl\")) {   /*DS4UI_JSONL*/\n            c.jsonl = true;\n" },
+    "        } else if (!strcmp(arg, \"--non-interactive\")) {\n            c.non_interactive = true;\n        } else if (!strcmp(arg, \"--jsonl\")) {   /*DS4UI_JSONL*/\n            c.jsonl = true;\n        } else if (!strcmp(arg, \"--web-tool\")) {   /*DS4UI_JSONL*/\n            c.web_tool_mode = true;\n            c.web_tool = need_arg(&i, argc, argv, arg);\n        } else if (!strcmp(arg, \"--query\")) {   /*DS4UI_JSONL*/\n            c.web_query = need_arg(&i, argc, argv, arg);\n        } else if (!strcmp(arg, \"--url\")) {   /*DS4UI_JSONL*/\n            c.web_url = need_arg(&i, argc, argv, arg);\n" },
   { "static void renderer_write(agent_token_renderer *r, const char *s, size_t n) {\n",
     "/*DS4UI_JSONL*/\n/* Opt-in structured output for the UI: one JSON line per event, prefixed by\n * \\x1e (Record Separator) so the consumer tells events from text without\n * heuristics. Additive: active only with --jsonl. */\nstatic void ds4ui_json_escape(const char *s, char *out, size_t cap) {\n    size_t o = 0;\n    for (; s && *s && o + 7 < cap; s++) {\n        unsigned char c = (unsigned char)*s;\n        if (c == '\"' || c == '\\\\') { out[o++] = '\\\\'; out[o++] = (char)c; }\n        else if (c == '\\n') { out[o++] = '\\\\'; out[o++] = 'n'; }\n        else if (c == '\\r') { out[o++] = '\\\\'; out[o++] = 'r'; }\n        else if (c == '\\t') { out[o++] = '\\\\'; out[o++] = 't'; }\n        else if (c < 0x20) { o += (size_t)snprintf(out + o, cap - o, \"\\\\u%04x\", c); }\n        else out[o++] = (char)c;\n    }\n    out[o] = '\\0';\n}\nstatic void ds4ui_emit_event(agent_worker *w, const char *type) {\n    char line[128];\n    int k = snprintf(line, sizeof line, \"\\x1e{\\\"type\\\":\\\"%s\\\"}\\n\", type);\n    agent_publish(w, line, (size_t)k);\n}\nstatic void ds4ui_emit_tool_call(agent_worker *w, const agent_tool_call *tc) {\n    char nm[256];\n    ds4ui_json_escape(tc->name ? tc->name : \"\", nm, sizeof nm);\n    char line[16384];   /* edit old/new + write content need room for the diff the UI renders */\n    int k = snprintf(line, sizeof line,\n        \"\\x1e{\\\"type\\\":\\\"tool_call\\\",\\\"name\\\":\\\"%s\\\",\\\"input\\\":{\", nm);\n    /* snprintf returns the REQUESTED length, not the written one: never add to k\n     * a value that does not fit (k past the buffer = OOB on line+k and a publish\n     * of stack bytes). An arg that does not fit truncates HERE, at a JSON boundary. */\n    for (int j = 0; j < tc->argc; j++) {\n        char an[128], av[6144];\n        ds4ui_json_escape(tc->args[j].name ? tc->args[j].name : \"\", an, sizeof an);\n        ds4ui_json_escape(tc->args[j].value ? tc->args[j].value : \"\", av, sizeof av);\n        int r = snprintf(line + k, sizeof line - k, \"%s\\\"%s\\\":\\\"%s\\\"\", j ? \",\" : \"\", an, av);\n        if (r < 0 || r >= (int)(sizeof line - k) - 4) { line[k] = '\\0'; break; }\n        k += r;\n    }\n    k += snprintf(line + k, sizeof line - k, \"}}\\n\");\n    agent_publish(w, line, (size_t)k);\n}\nstatic void ds4ui_emit_tool_result(agent_worker *w, const char *name, const char *res) {\n    char nm[256];\n    ds4ui_json_escape(name ? name : \"\", nm, sizeof nm);\n    size_t rl = res ? strlen(res) : 0;\n    size_t cap = rl * 6 + 512;\n    char *line = (char *)malloc(cap);\n    if (!line) return;\n    int k = snprintf(line, cap,\n        \"\\x1e{\\\"type\\\":\\\"tool_result\\\",\\\"name\\\":\\\"%s\\\",\\\"output\\\":\\\"\", nm);\n    char *esc = (char *)malloc(rl * 6 + 8);\n    if (esc) { ds4ui_json_escape(res ? res : \"\", esc, rl * 6 + 8);\n               k += snprintf(line + k, cap - k, \"%s\", esc); free(esc); }\n    k += snprintf(line + k, cap - k, \"\\\"}\\n\");\n    agent_publish(w, line, (size_t)k);\n    free(line);\n}\nstatic void renderer_write(agent_token_renderer *r, const char *s, size_t n) {\n" },
   { "static void ds4ui_emit_tool_call(agent_worker *w, const agent_tool_call *tc) {\n",
@@ -1591,6 +1591,84 @@ static const char *JSONL_EDITS[][2] = {
     "    fclose(f);\n"
     "    return agent_buf_take(&b);\n"
     "}\n"
+    "static char *ds4ui_read_file_buf_limit(const char *path, size_t cap, int *truncated) {\n"
+    "    if (truncated) *truncated = 0;\n"
+    "    FILE *f = fopen(path, \"rb\");\n"
+    "    if (!f) return NULL;\n"
+    "    agent_buf b = {0};\n"
+    "    char chunk[4096];\n"
+    "    while (b.len < cap) {\n"
+    "        size_t room = cap - b.len;\n"
+    "        size_t want = room < sizeof(chunk) ? room : sizeof(chunk);\n"
+    "        size_t n = fread(chunk, 1, want, f);\n"
+    "        if (n) agent_buf_append(&b, chunk, n);\n"
+    "        if (n < want) break;\n"
+    "    }\n"
+    "    if (!feof(f) && truncated) *truncated = 1;\n"
+    "    fclose(f);\n"
+    "    return agent_buf_take(&b);\n"
+    "}\n"
+    "static int ds4ui_pack_file_ext_ok(const char *rel) {\n"
+    "    const char *dot = strrchr(rel, '.');\n"
+    "    if (!dot) return 0;\n"
+    "    return !strcmp(dot, \".md\") || !strcmp(dot, \".html\") ||\n"
+    "           !strcmp(dot, \".css\") || !strcmp(dot, \".js\") ||\n"
+    "           !strcmp(dot, \".json\") || !strcmp(dot, \".svg\") ||\n"
+    "           !strcmp(dot, \".txt\") || !strcmp(dot, \".csv\");\n"
+    "}\n"
+    "static int ds4ui_pack_file_rel_ok(const char *rel, char *err, size_t errsz) {\n"
+    "    if (!rel || !rel[0]) { snprintf(err, errsz, \"pack_file path is required\"); return 0; }\n"
+    "    if (rel[0] == '/' || rel[0] == '~') { snprintf(err, errsz, \"pack_file path must be relative\"); return 0; }\n"
+    "    if (strlen(rel) > 512) { snprintf(err, errsz, \"pack_file path too long\"); return 0; }\n"
+    "    if (strcmp(rel, \"example.html\") && strncmp(rel, \"assets/\", 7) && strncmp(rel, \"references/\", 11)) {\n"
+    "        snprintf(err, errsz, \"pack_file path must be example.html, assets/*, or references/*\"); return 0;\n"
+    "    }\n"
+    "    if (!ds4ui_pack_file_ext_ok(rel)) { snprintf(err, errsz, \"pack_file extension is not allowed\"); return 0; }\n"
+    "    const char *seg = rel;\n"
+    "    for (const char *p = rel; ; p++) {\n"
+    "        unsigned char c = (unsigned char)*p;\n"
+    "        if (c && !(isalnum(c) || c == '/' || c == '-' || c == '_' || c == '.')) {\n"
+    "            snprintf(err, errsz, \"pack_file path contains invalid characters\"); return 0;\n"
+    "        }\n"
+    "        if (c == '/' || c == '\\0') {\n"
+    "            size_t n = (size_t)(p - seg);\n"
+    "            if (n == 0 || (n == 1 && seg[0] == '.') || (n == 2 && seg[0] == '.' && seg[1] == '.')) {\n"
+    "                snprintf(err, errsz, \"pack_file path must not contain . or .. segments\"); return 0;\n"
+    "            }\n"
+    "            if (!c) break;\n"
+    "            seg = p + 1;\n"
+    "        }\n"
+    "    }\n"
+    "    return 1;\n"
+    "}\n"
+    "static size_t ds4ui_pack_file_cap(const char *rel) {\n"
+    "    if (!strcmp(rel, \"example.html\") || !strncmp(rel, \"assets/\", 7)) return 96 * 1024;\n"
+    "    return 32 * 1024;\n"
+    "}\n"
+    "static const char *ds4ui_pack_type_subdir(const char *type, int *allow_user) {\n"
+    "    if (allow_user) *allow_user = 0;\n"
+    "    if (!type) return NULL;\n"
+    "    if (!strcmp(type, \"skill\") || !strcmp(type, \"skills\")) { if (allow_user) *allow_user = 1; return \"skills\"; }\n"
+    "    if (!strcmp(type, \"design_system\") || !strcmp(type, \"design-system\") || !strcmp(type, \"design-systems\")) return \"design-systems\";\n"
+    "    if (!strcmp(type, \"craft\")) return \"craft\";\n"
+    "    return NULL;\n"
+    "}\n"
+    "static int ds4ui_pack_resolve_existing_file(const char *pack_root, const char *rel, char *out, size_t outsz, char *err, size_t errsz) {\n"
+    "    char real_root[PATH_MAX];\n"
+    "    if (!realpath(pack_root, real_root)) { snprintf(err, errsz, \"pack root unavailable\"); return 0; }\n"
+    "    char joined[PATH_MAX];\n"
+    "    if ((size_t)snprintf(joined, sizeof(joined), \"%s/%s\", pack_root, rel) >= sizeof(joined)) { snprintf(err, errsz, \"pack_file path too long\"); return 0; }\n"
+    "    char real_file[PATH_MAX];\n"
+    "    if (!realpath(joined, real_file)) { snprintf(err, errsz, \"pack_file not found\"); return 0; }\n"
+    "    size_t rl = strlen(real_root);\n"
+    "    if (strncmp(real_file, real_root, rl) != 0 || (real_file[rl] != '\\0' && real_file[rl] != '/')) {\n"
+    "        snprintf(err, errsz, \"pack_file escapes the pack directory\"); return 0;\n"
+    "    }\n"
+    "    struct stat st;\n"
+    "    if (stat(real_file, &st) != 0 || !S_ISREG(st.st_mode)) { snprintf(err, errsz, \"pack_file is not a regular file\"); return 0; }\n"
+    "    if ((size_t)snprintf(out, outsz, \"%s\", real_file) >= outsz) { snprintf(err, errsz, \"pack_file path too long\"); return 0; }\n"
+    "    return 1;\n"
+    "}\n"
     "static char *ds4ui_load_pack(const agent_tool_call *call, const char *subdir, const char *file, int allow_user) {\n"
     "    const char *name = agent_tool_arg_value(call, \"name\");\n"
     "    if (!ds4ui_pack_name_ok(name)) return xstrdup(\"Tool error: name must be a simple id (a-z, 0-9, -)\\n\");\n"
@@ -1608,6 +1686,44 @@ static const char *JSONL_EDITS[][2] = {
     "}\n"
     "static char *ds4ui_tool_skill(const agent_tool_call *call) { return ds4ui_load_pack(call, \"skills\", \"SKILL.md\", 1); }\n"
     "static char *ds4ui_tool_design_system(const agent_tool_call *call) { return ds4ui_load_pack(call, \"design-systems\", \"DESIGN.md\", 0); }\n"
+    "static char *ds4ui_tool_pack_file(const agent_tool_call *call) {\n"
+    "    const char *type = agent_tool_arg_value(call, \"type\");\n"
+    "    const char *name = agent_tool_arg_value(call, \"name\");\n"
+    "    const char *rel = agent_tool_arg_value(call, \"path\");\n"
+    "    int allow_user = 0;\n"
+    "    const char *subdir = ds4ui_pack_type_subdir(type, &allow_user);\n"
+    "    if (!subdir) return xstrdup(\"Tool error: type must be skill, design_system, or craft\\n\");\n"
+    "    if (!ds4ui_pack_name_ok(name)) return xstrdup(\"Tool error: name must be a simple id (a-z, 0-9, -)\\n\");\n"
+    "    char err[256] = {0};\n"
+    "    if (!ds4ui_pack_file_rel_ok(rel, err, sizeof(err))) { agent_buf e = {0}; agent_buf_puts(&e, \"Tool error: \"); agent_buf_puts(&e, err); agent_buf_puts(&e, \"\\n\"); return agent_buf_take(&e); }\n"
+    "    char pack_root[2300], full[PATH_MAX];\n"
+    "    int found = 0;\n"
+    "    if (allow_user) {\n"
+    "        const char *u = getenv(\"DS4UI_USER_SKILLS_DIR\");\n"
+    "        if (u && u[0]) { snprintf(pack_root, sizeof(pack_root), \"%s/%s\", u, name); found = ds4ui_pack_resolve_existing_file(pack_root, rel, full, sizeof(full), err, sizeof(err)); }\n"
+    "    }\n"
+    "    if (!found) {\n"
+    "        const char *root = getenv(\"DS4UI_SKILLS_DIR\");\n"
+    "        if (root && root[0]) { snprintf(pack_root, sizeof(pack_root), \"%s/%s/%s\", root, subdir, name); found = ds4ui_pack_resolve_existing_file(pack_root, rel, full, sizeof(full), err, sizeof(err)); }\n"
+    "    }\n"
+    "    if (!found) { agent_buf e = {0}; agent_buf_puts(&e, \"Tool error: \"); agent_buf_puts(&e, err[0] ? err : \"pack_file not found\"); agent_buf_puts(&e, \"\\n\"); return agent_buf_take(&e); }\n"
+    "    int truncated = 0;\n"
+    "    size_t cap = ds4ui_pack_file_cap(rel);\n"
+    "    char *body = ds4ui_read_file_buf_limit(full, cap, &truncated);\n"
+    "    if (!body) return xstrdup(\"Tool error: pack_file could not be read\\n\");\n"
+    "    agent_buf out = {0};\n"
+    "    agent_buf_puts(&out, \"[ds4-agent pack_file: \");\n"
+    "    agent_buf_puts(&out, type);\n"
+    "    agent_buf_puts(&out, \"/\");\n"
+    "    agent_buf_puts(&out, name);\n"
+    "    agent_buf_puts(&out, \"/\");\n"
+    "    agent_buf_puts(&out, rel);\n"
+    "    agent_buf_puts(&out, \"]\\n\");\n"
+    "    agent_buf_puts(&out, body);\n"
+    "    if (truncated) { agent_buf_puts(&out, \"\\n\\n[Truncated pack_file at \"); char nbuf[32]; snprintf(nbuf, sizeof(nbuf), \"%zu\", cap); agent_buf_puts(&out, nbuf); agent_buf_puts(&out, \" bytes. Load a narrower reference if needed.]\\n\"); }\n"
+    "    free(body);\n"
+    "    return agent_buf_take(&out);\n"
+    "}\n"
     "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n" },
   { "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n",
     "static const char *ds4ui_json_ws(const char *p, const char *end) { while (p < end && (*p == ' ' || *p == '\\t' || *p == '\\n' || *p == '\\r')) p++; return p; }\n"
@@ -1695,10 +1811,62 @@ static const char *JSONL_EDITS[][2] = {
   { "    if (!strcmp(call->name, \"read\")) return agent_tool_read(w, call);\n",
     "    if (!strcmp(call->name, \"read\")) return agent_tool_read(w, call);\n"
     "    if (!strcmp(call->name, \"skill\")) return ds4ui_tool_skill(call);   /*DS4UI_JSONL*/\n"
-    "    if (!strcmp(call->name, \"design_system\")) return ds4ui_tool_design_system(call);   /*DS4UI_JSONL*/\n" },
+    "    if (!strcmp(call->name, \"design_system\")) return ds4ui_tool_design_system(call);   /*DS4UI_JSONL*/\n"
+    "    if (!strcmp(call->name, \"pack_file\")) return ds4ui_tool_pack_file(call);   /*DS4UI_JSONL*/\n" },
   { "    if (!strcmp(call->name, \"skill\")) return ds4ui_tool_skill(call);   /*DS4UI_JSONL*/\n",
     "    if (!strcmp(call->name, \"question\")) return ds4ui_tool_question(w, call);   /*DS4UI_JSONL*/\n"
     "    if (!strcmp(call->name, \"skill\")) return ds4ui_tool_skill(call);   /*DS4UI_JSONL*/\n" },
+  { "#ifndef DS4_AGENT_TEST_NO_MAIN\n",
+    "/*DS4UI_JSONL*/\n"
+    "static int ds4ui_web_confirm_auto(void *privdata, const char *message, char *err, size_t err_len) {\n"
+    "    (void)privdata; (void)message; if (err && err_len) err[0] = '\\0'; return 1;\n"
+    "}\n"
+    "static void ds4ui_web_log_stderr(void *privdata, const char *message) {\n"
+    "    (void)privdata; if (message && message[0]) fprintf(stderr, \"web: %s\\n\", message);\n"
+    "}\n"
+    "static bool ds4ui_web_cancel_never(void *privdata) { (void)privdata; return false; }\n"
+    "static void ds4ui_web_print_json(const char *tool, bool ok, const char *body_key, const char *body) {\n"
+    "    char t[128]; ds4ui_json_escape(tool ? tool : \"\", t, sizeof t);\n"
+    "    const char *bk = body_key ? body_key : (ok ? \"markdown\" : \"error\");\n"
+    "    size_t bl = body ? strlen(body) : 0;\n"
+    "    char *esc = (char *)malloc(bl * 6 + 16);\n"
+    "    if (!esc) { printf(\"{\\\"ok\\\":false,\\\"tool\\\":\\\"%s\\\",\\\"error\\\":\\\"out of memory\\\"}\\n\", t); return; }\n"
+    "    ds4ui_json_escape(body ? body : \"\", esc, bl * 6 + 16);\n"
+    "    printf(\"{\\\"ok\\\":%s,\\\"tool\\\":\\\"%s\\\",\\\"%s\\\":\\\"%s\\\"}\\n\", ok ? \"true\" : \"false\", t, bk, esc);\n"
+    "    free(esc);\n"
+    "}\n"
+    "static int ds4ui_run_web_tool(const agent_config *cfg) {\n"
+    "    if (!cfg || !cfg->web_tool || !cfg->web_tool[0]) {\n"
+    "        ds4ui_web_print_json(\"\", false, \"error\", \"--web-tool is required\"); return 2;\n"
+    "    }\n"
+    "    ds4_web_config web_cfg = {\n"
+    "        .home_dir = getenv(\"HOME\"),\n"
+    "        .port = 9333,\n"
+    "        .confirm = ds4ui_web_confirm_auto,\n"
+    "        .log = ds4ui_web_log_stderr,\n"
+    "        .cancel = ds4ui_web_cancel_never,\n"
+    "    };\n"
+    "    ds4_web *web = ds4_web_create(&web_cfg);\n"
+    "    char err[256] = {0};\n"
+    "    char *out = NULL;\n"
+    "    if (!strcmp(cfg->web_tool, \"google_search\")) {\n"
+    "        if (!cfg->web_query || !cfg->web_query[0]) { ds4ui_web_print_json(cfg->web_tool, false, \"error\", \"--query is required\"); ds4_web_free(web); return 2; }\n"
+    "        out = ds4_web_google_search(web, cfg->web_query, err, sizeof err);\n"
+    "    } else if (!strcmp(cfg->web_tool, \"visit_page\")) {\n"
+    "        if (!cfg->web_url || !cfg->web_url[0]) { ds4ui_web_print_json(cfg->web_tool, false, \"error\", \"--url is required\"); ds4_web_free(web); return 2; }\n"
+    "        out = ds4_web_visit_page(web, cfg->web_url, err, sizeof err);\n"
+    "    } else {\n"
+    "        ds4ui_web_print_json(cfg->web_tool, false, \"error\", \"unknown web tool\"); ds4_web_free(web); return 2;\n"
+    "    }\n"
+    "    ds4_web_free(web);\n"
+    "    if (!out) { ds4ui_web_print_json(cfg->web_tool, false, \"error\", err[0] ? err : \"web tool failed\"); return 1; }\n"
+    "    ds4ui_web_print_json(cfg->web_tool, true, \"markdown\", out);\n"
+    "    free(out);\n"
+    "    return 0;\n"
+    "}\n"
+    "#ifndef DS4_AGENT_TEST_NO_MAIN\n" },
+  { "int main(int argc, char **argv) {\n    agent_config cfg = parse_options(argc, argv);\n",
+    "int main(int argc, char **argv) {\n    agent_config cfg = parse_options(argc, argv);\n    if (cfg.web_tool_mode) return ds4ui_run_web_tool(&cfg);   /*DS4UI_JSONL*/\n" },
 };
 
 /* Inline Makefile for `make -f -`: includes the ds4 Makefile (reuses
@@ -4315,6 +4483,221 @@ static void api_wipe(int fd) {
     send_json(fd, "200 OK", out);
 }
 
+typedef struct {
+    char title[256];
+    char url[1024];
+    char *content;
+} web_source;
+
+static char *json_get_string_alloc(const char *body, const char *key) {
+    char pat[96];
+    snprintf(pat, sizeof pat, "\"%s\"", key);
+    const char *p = strstr(body, pat);
+    if (!p) return NULL;
+    p += strlen(pat);
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    if (*p != ':') return NULL;
+    p++;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    if (*p != '"') return NULL;
+    p++;
+    json_dyn_buf b = {0};
+    while (*p && *p != '"') {
+        char c = *p++;
+        if (c == '\\' && *p) {
+            char e = *p++;
+            switch (e) {
+                case 'n': c = '\n'; break;
+                case 't': c = '\t'; break;
+                case 'r': c = '\r'; break;
+                case '"': c = '"';  break;
+                case '\\': c = '\\'; break;
+                case '/': c = '/';  break;
+                case 'u': {
+                    if (p[0] && p[1] && p[2] && p[3]) {
+                        char hx[5] = { p[0], p[1], p[2], p[3], 0 };
+                        long v = strtol(hx, NULL, 16);
+                        p += 4;
+                        if (v < 0x80) c = (char)v;
+                        else c = '?';
+                    } else c = '?';
+                    break;
+                }
+                default: c = e; break;
+            }
+        }
+        if (!json_dyn_putn(&b, &c, 1)) { free(b.ptr); return NULL; }
+    }
+    return b.ptr ? b.ptr : strdup("");
+}
+
+static int web_url_ok(const char *url) {
+    return url && (!strncmp(url, "http://", 7) || !strncmp(url, "https://", 8));
+}
+
+static int web_sources_parse_links(const char *md, web_source *sources, int max_sources) {
+    int n = 0;
+    const char *p = md ? md : "";
+    while (n < max_sources && (p = strstr(p, "- [")) != NULL) {
+        const char *ts = p + 3;
+        const char *mid = strstr(ts, "](");
+        if (!mid) { p += 3; continue; }
+        const char *us = mid + 2;
+        const char *ue = strchr(us, ')');
+        if (!ue) { p = us; continue; }
+        size_t tl = (size_t)(mid - ts);
+        size_t ul = (size_t)(ue - us);
+        if (tl > 0 && ul > 0 && tl < sizeof sources[n].title && ul < sizeof sources[n].url) {
+            char url[1024];
+            memcpy(url, us, ul); url[ul] = '\0';
+            if (web_url_ok(url)) {
+                int dup = 0;
+                for (int i = 0; i < n; i++) if (!strcmp(sources[i].url, url)) dup = 1;
+                if (!dup) {
+                    memcpy(sources[n].title, ts, tl); sources[n].title[tl] = '\0';
+                    memcpy(sources[n].url, url, ul + 1);
+                    n++;
+                }
+            }
+        }
+        p = ue + 1;
+    }
+    return n;
+}
+
+static char *web_markdown_excerpt(const char *md, size_t cap) {
+    const char *p = md ? strstr(md, "## Content") : NULL;
+    p = p ? p + strlen("## Content") : (md ? md : "");
+    while (*p == '\n' || *p == '\r' || *p == ' ' || *p == '\t') p++;
+    size_t n = strlen(p);
+    if (n > cap) n = cap;
+    while (n && (p[n - 1] == '\n' || p[n - 1] == '\r' || p[n - 1] == ' ' || p[n - 1] == '\t')) n--;
+    return strndup(p, n);
+}
+
+static void web_sources_free(web_source *sources, int n) {
+    for (int i = 0; i < n; i++) free(sources[i].content);
+}
+
+static void web_json_error(int fd, const char *status, const char *msg) {
+    json_dyn_buf b = {0};
+    if (!json_dyn_puts(&b, "{\"ok\":false,\"error\":") ||
+        !json_dyn_put_escaped(&b, msg ? msg : "web search failed") ||
+        !json_dyn_puts(&b, "}")) {
+        free(b.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}");
+        return;
+    }
+    send_json(fd, status, b.ptr);
+    free(b.ptr);
+}
+
+static char *web_helper_capture(const char *tool, const char *arg_kind, const char *arg_value,
+                                int *exit_status) {
+#ifdef _WIN32
+    (void)tool; (void)arg_kind; (void)arg_value; (void)exit_status;
+    return NULL;
+#else
+    if (!run_build_jsonl("build")) return NULL;
+    int pfd[2];
+    if (pipe(pfd) != 0) return NULL;
+    pid_t pid = fork();
+    if (pid < 0) { close(pfd[0]); close(pfd[1]); return NULL; }
+    if (pid == 0) {
+        if (chdir(g_ds4_dir) != 0) _exit(127);
+        dup2(pfd[1], STDOUT_FILENO);
+        close(pfd[0]); close(pfd[1]);
+        int dn = open("/dev/null", O_RDONLY);
+        if (dn >= 0) { dup2(dn, STDIN_FILENO); close(dn); }
+        char *argv[8]; int n = 0;
+        argv[n++] = "./ds4-agent-jsonl";
+        argv[n++] = "--web-tool"; argv[n++] = (char *)tool;
+        argv[n++] = (char *)arg_kind; argv[n++] = (char *)arg_value;
+        argv[n] = NULL;
+        execv("./ds4-agent-jsonl", argv);
+        _exit(127);
+    }
+    close(pfd[1]);
+    json_dyn_buf out = {0};
+    char buf[8192];
+    ssize_t r;
+    while ((r = read(pfd[0], buf, sizeof buf)) > 0) {
+        if (out.len + (size_t)r > 2 * 1024 * 1024) break;
+        if (!json_dyn_putn(&out, buf, (size_t)r)) { free(out.ptr); out.ptr = NULL; break; }
+    }
+    close(pfd[0]);
+    int st = 0;
+    waitpid(pid, &st, 0);
+    if (exit_status) *exit_status = WIFEXITED(st) ? WEXITSTATUS(st) : 127;
+    return out.ptr ? out.ptr : strdup("");
+#endif
+}
+
+/* POST /api/web-search {query} — zero-dependency web search for Chat. It reuses
+ * ds4-agent's built-in Chrome/CDP web subsystem through a helper mode that does
+ * not load the model. */
+static void api_web_search(int fd, const char *body) {
+    char query[2048];
+    if (!json_get_string(body, "query", query, sizeof query) || !query[0]) {
+        web_json_error(fd, "400 Bad Request", "query is required");
+        return;
+    }
+#ifdef _WIN32
+    web_json_error(fd, "501 Not Implemented", "web search helper is not available in the Windows build yet");
+    return;
+#else
+    int st = 0;
+    char *search_json = web_helper_capture("google_search", "--query", query, &st);
+    if (!search_json || !search_json[0]) {
+        free(search_json);
+        web_json_error(fd, "500 Internal Server Error", "web search helper failed to start");
+        return;
+    }
+    char *search_err = json_get_string_alloc(search_json, "error");
+    char *search_md = json_get_string_alloc(search_json, "markdown");
+    if (!search_md) {
+        char msg[512];
+        snprintf(msg, sizeof msg, "%s", search_err && search_err[0] ? search_err : "google_search returned no markdown");
+        free(search_json); free(search_err);
+        web_json_error(fd, st == 0 ? "502 Bad Gateway" : "500 Internal Server Error", msg);
+        return;
+    }
+    web_source sources[3] = {0};
+    int ns = web_sources_parse_links(search_md, sources, 3);
+    for (int i = 0; i < ns; i++) {
+        int vst = 0;
+        char *visit_json = web_helper_capture("visit_page", "--url", sources[i].url, &vst);
+        char *visit_md = visit_json ? json_get_string_alloc(visit_json, "markdown") : NULL;
+        sources[i].content = visit_md ? web_markdown_excerpt(visit_md, 6000) : strdup(sources[i].title);
+        free(visit_md);
+        free(visit_json);
+        (void)vst;
+    }
+
+    json_dyn_buf out = {0};
+    int ok = json_dyn_puts(&out, "{\"ok\":true,\"query\":") &&
+             json_dyn_put_escaped(&out, query) &&
+             json_dyn_puts(&out, ",\"markdown\":") &&
+             json_dyn_put_escaped(&out, search_md) &&
+             json_dyn_puts(&out, ",\"sources\":[");
+    for (int i = 0; ok && i < ns; i++) {
+        ok = json_dyn_puts(&out, i ? ",{" : "{") &&
+             json_dyn_puts(&out, "\"title\":") &&
+             json_dyn_put_escaped(&out, sources[i].title) &&
+             json_dyn_puts(&out, ",\"url\":") &&
+             json_dyn_put_escaped(&out, sources[i].url) &&
+             json_dyn_puts(&out, ",\"content\":") &&
+             json_dyn_put_escaped(&out, sources[i].content ? sources[i].content : "");
+        if (ok) ok = json_dyn_puts(&out, "}");
+    }
+    if (ok) ok = json_dyn_puts(&out, "]}");
+    free(search_json); free(search_err); free(search_md); web_sources_free(sources, ns);
+    if (!ok) { free(out.ptr); web_json_error(fd, "500 Internal Server Error", "out of memory"); return; }
+    send_json(fd, "200 OK", out.ptr);
+    free(out.ptr);
+#endif
+}
+
 /* Reverse-proxy for the engine's OpenAI API under /v1. The page talks to serve
  * SAME-ORIGIN for /v1, and serve forwards to the LOCAL engine (127.0.0.1) — so
  * the engine never needs LAN exposure, a LAN client only ever speaks to serve,
@@ -4515,6 +4898,7 @@ static void handle_connection(int fd) {
         else if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); }
         else if (!strcmp(path, "/api/ds4dir"))       { api_set_ds4dir(fd, body); }
         else if (!strcmp(path, "/api/webdir"))       { api_set_webdir(fd, body); }
+        else if (!strcmp(path, "/api/web-search"))   { api_web_search(fd, body); }
         else if (!strcmp(path, "/api/lan"))          { api_lan(fd, body); }
         else if (!strcmp(path, "/api/wipe"))         { api_wipe(fd); }
         else { send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"unknown endpoint\"}"); status = 404; }

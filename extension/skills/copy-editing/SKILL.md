@@ -1,11 +1,21 @@
 ---
 name: copy-editing
-description: Tighten and sharpen existing copy: clarity, specificity, voice, cut the fluff.
-modes: [marketing]
-ds4_category: general
-ds4_local_mode: reference
-ds4_output_kinds: html
-ds4_upstream: dstudio/copy-editing
+description: |
+  When the user wants to edit, review, or improve existing marketing copy, or refresh
+  outdated content. Also use when the user mentions 'edit this copy,' 'review my copy,'
+  'copy feedback,' 'proofread,' 'polish this,' 'make this better,' 'copy sweep,' 'tighten
+  this up,' 'this reads awkwardly,' 'clean up this text,' 'too wordy,' 'sharpen the
+  messaging,' 'refresh this content,' 'update this page,' 'this content is outdated,' or
+  'content audit.' Use this when the user already has copy and wants it improved or
+  refreshed rather than rewritten from scratch. For writing new copy, see copywriting.
+modes: [agent, marketing]
+ds4_category: content-copy
+ds4_local_mode: native
+ds4_output_kinds: markdown
+ds4_upstream: marketingskills/copy-editing
+ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+marketingskills_version: 2.0.0
+ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
 ---
 
 # Copy Editing

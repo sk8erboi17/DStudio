@@ -1,11 +1,22 @@
 ---
 name: signup
-description: Optimize signup/registration flows: fields, friction, social auth, value-first, error states.
-modes: [marketing]
-ds4_category: general
-ds4_local_mode: reference
-ds4_output_kinds: html
-ds4_upstream: dstudio/signup
+description: |
+  When the user wants to optimize signup, registration, account creation, or trial
+  activation flows. Also use when the user mentions "signup conversions," "registration
+  friction," "signup form optimization," "free trial signup," "reduce signup dropoff,"
+  "account creation flow," "people aren't signing up," "signup abandonment," "trial
+  conversion rate," "nobody completes registration," "too many steps to sign up," or
+  "simplify our signup." Use this whenever the user has a signup or registration flow that
+  isn't performing. For post-signup onboarding, see onboarding. For lead capture forms
+  (not account creation), see cro.
+modes: [agent, marketing]
+ds4_category: conversion
+ds4_local_mode: native
+ds4_output_kinds: markdown
+ds4_upstream: marketingskills/signup
+ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+marketingskills_version: 2.0.0
+ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
 ---
 
 # Signup Flow CRO

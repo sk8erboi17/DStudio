@@ -1,11 +1,21 @@
 ---
 name: schema
-description: Add structured data (JSON-LD) for rich results — Article, Product, FAQ, Organization, Breadcrumb.
-modes: [marketing]
-ds4_category: general
-ds4_local_mode: reference
-ds4_output_kinds: image-brief
-ds4_upstream: dstudio/schema
+description: |
+  When the user wants to add, fix, or optimize schema markup and structured data on their
+  site. Also use when the user mentions "schema markup," "structured data," "JSON-LD,"
+  "rich snippets," "schema.org," "FAQ schema," "product schema," "review schema,"
+  "breadcrumb schema," "Google rich results," "knowledge panel," "star ratings in search,"
+  or "add structured data." Use this whenever someone wants their pages to show enhanced
+  results in Google. For broader SEO issues, see seo-audit. For AI search optimization,
+  see ai-seo.
+modes: [agent, marketing]
+ds4_category: seo-content
+ds4_local_mode: native
+ds4_output_kinds: markdown,json
+ds4_upstream: marketingskills/schema
+ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+marketingskills_version: 2.0.0
+ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
 ---
 
 # Schema Markup

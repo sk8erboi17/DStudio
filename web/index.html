@@ -1025,6 +1025,61 @@
       font-size: 0.72rem;
     }
 
+    .msg-sources {
+      margin-top: 0.7rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+
+    .msg-source {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      max-width: min(100%, 260px);
+      padding: 0.4rem 0.55rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--text-2);
+      text-decoration: none;
+    }
+
+    .msg-source:hover {
+      border-color: var(--border-2);
+      color: var(--text);
+    }
+
+    .msg-source__idx {
+      width: 1.35rem;
+      height: 1.35rem;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      color: var(--accent-2);
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+
+    .msg-source__body {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.05rem;
+    }
+
+    .msg-source__title,
+    .msg-source__url {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .msg-source__title { font-size: 0.78rem; }
+    .msg-source__url { font-size: 0.68rem; color: var(--muted); }
+
     .msg__actions {
       margin-top: 0.45rem;
       display: flex;
@@ -1190,6 +1245,14 @@
       min-width: 230px; max-height: 300px; overflow-y: auto;
       background: var(--surface); border: 1px solid var(--border-2); border-radius: 13px;
       padding: 6px; box-shadow: 0 22px 56px rgba(0, 0, 0, 0.6);
+    }
+    .cdrop-group {
+      padding: 8px 10px 5px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
     }
     .cdrop-opt {
       display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 10px;
@@ -2443,7 +2506,7 @@
               </button>
               <!-- Agent/design: a single gear collapses model + reasoning + working
                    folder into an upward popover (chat keeps them inline). -->
-              <button type="button" id="cbar-gear" class="cbar-btn cbar-gear" title="Model, reasoning & working folder" aria-haspopup="true" aria-expanded="false" hidden>
+              <button type="button" id="cbar-gear" class="cbar-btn cbar-gear" title="Model, reasoning, web & working folder" aria-haspopup="true" aria-expanded="false" hidden>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.5v1.6M8 12.9v1.6M14.5 8h-1.6M3.1 8H1.5M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1M12.6 12.6l-1.1-1.1M4.5 4.5L3.4 3.4"/></svg>
               </button>
               <div class="cbar-model" id="cbar-model"></div>
@@ -2452,7 +2515,7 @@
                 <option value="high">Thinking: normal</option>
                 <option value="max">Thinking: max</option>
               </select>
-              <div class="cbar-pop" id="cbar-pop" role="menu" aria-label="Agent settings" hidden></div>
+              <div class="cbar-pop" id="cbar-pop" role="menu" aria-label="Composer settings" hidden></div>
             </div>
           <textarea id="composer-input" class="composer__input" rows="1"
                     placeholder="Write a message… (Enter to send, Shift+Enter for a new line)"
@@ -2883,6 +2946,8 @@
       modelVariant: 'flash',// 'flash' | 'pro' — which GGUF the engine launches with
       ctxSize: 65536,       // engine context window (-c); 64k default, changeable in onboarding/settings
       useJsonlPatch: true,  // agent: try the structured-output patch (off = stock ds4-agent, raw output)
+      webSearchEnabled: false,       // chat: opt-in current web context via DS4 browser tools
+      webSearchBrowserAllowed: false,// remembers the local visible-browser consent
       workdirs: {},        // last working folder per mode (agent/design)
       onboarded: false,     // onboarding is shown while this is false
     };
@@ -4474,6 +4539,7 @@
           m.role, m.streaming ? 's' : '', isLastAssistant ? 'last' : '',
           m.content || '', m.reasoning || '', m.finishReason || '',
           m.error?.message || '', m.usage ? JSON.stringify(m.usage) : '',
+          m.sources ? JSON.stringify(m.sources) : '',
           chat?.model || '',
         ].join('\u0003');
       }
@@ -4510,11 +4576,41 @@
           content.innerHTML = '<p class="placeholder">(no response)</p>';
         }
         article.append(content);
+        if (m.sources?.length) article.append(buildSources(m.sources));
 
         const meta = buildMeta(m, chat);
         if (meta) article.append(meta);
         article.append(buildActions(isLastAssistant));
         return article;
+      }
+
+      function sourceHost(url) {
+        try { return new URL(url).hostname.replace(/^www\./, ''); }
+        catch { return url || ''; }
+      }
+
+      function buildSources(sources) {
+        const wrap = el('div', { class: 'msg-sources', 'aria-label': 'Web sources' });
+        sources.slice(0, 3).forEach((s, i) => {
+          if (!s?.url) return;
+          const host = sourceHost(s.url);
+          const a = el('a', {
+            class: 'msg-source',
+            href: s.url,
+            target: '_blank',
+            rel: 'noopener noreferrer',
+            title: s.title || host,
+          });
+          a.append(
+            el('span', { class: 'msg-source__idx', text: String(i + 1) }),
+            el('span', { class: 'msg-source__body' }, [
+              el('span', { class: 'msg-source__title', text: s.title || host }),
+              el('span', { class: 'msg-source__url', text: host }),
+            ]),
+          );
+          wrap.append(a);
+        });
+        return wrap;
       }
 
       function buildThinking(text, open) {
@@ -4752,12 +4848,87 @@
     // (debounced checkpoint during streaming, immediate flush at the end).
 
     const Chat = (() => {
+      const WEB_CONTEXT_CHARS = 1800;
+      const pendingPreflight = new Set();
+
+      function msgContentForModel(m) {
+        if (m.role === 'user' && m.web?.context) return `${m.content}\n\n${m.web.context}`;
+        return m.content;
+      }
+
       function buildHistory(chat, settings) {
         const msgs = chat.messages
           .filter((m) => !m.streaming && (m.role === 'user' || (m.role === 'assistant' && m.content)))
-          .map((m) => ({ role: m.role, content: m.content }));
+          .map((m) => ({ role: m.role, content: msgContentForModel(m) }));
         const sys = settings.systemPrompt?.trim();
         return sys ? [{ role: 'system', content: sys }, ...msgs] : msgs;
+      }
+
+      function compactText(s, max = WEB_CONTEXT_CHARS) {
+        return String(s || '').replace(/\s+/g, ' ').trim().slice(0, max);
+      }
+
+      function buildWebContext(query, sources) {
+        const clean = (sources || []).filter((s) => s?.url).slice(0, 3);
+        if (!clean.length) return '';
+        const lines = [
+          '[Web search context]',
+          'Current web excerpts retrieved for this user request. Use only when relevant. Cite supported current claims with source numbers like [1].',
+          `User query: ${query}`,
+          '',
+        ];
+        clean.forEach((s, i) => {
+          lines.push(
+            `[${i + 1}] ${compactText(s.title, 180) || s.url}`,
+            `URL: ${s.url}`,
+            `Excerpt: ${compactText(s.content)}`,
+            '',
+          );
+        });
+        lines.push('[/Web search context]');
+        return lines.join('\n');
+      }
+
+      async function ensureWebContext(chat, userMsg, settings) {
+        if (!settings.webSearchEnabled || !userMsg || userMsg.web?.context) return true;
+        if (!settings.webSearchBrowserAllowed) {
+          const ok = await askConfirm({
+            title: 'Allow Web Search',
+            body: 'DStudio will use DS4 local browser tools for this chat request. A visible Chrome/Chromium instance may be opened.',
+            cta: 'Allow',
+          });
+          if (!ok) return false;
+          Store.setSettings({ webSearchBrowserAllowed: true });
+        }
+        toast('Searching the web...', 'info');
+        let res;
+        try {
+          res = await Engine.webSearch(userMsg.content);
+        } catch (e) {
+          res = { ok: false, error: e?.message || 'Web search failed' };
+        }
+        if (!res?.ok) {
+          const msg = Store.mkMessage('assistant', '');
+          msg.finishReason = 'error';
+          msg.error = { message: res?.error || 'Web search failed' };
+          Store.appendMessage(chat.id, msg);
+          Messages.renderChat(chat);
+          return false;
+        }
+        const sources = (res.sources || []).filter((s) => s?.url).slice(0, 3);
+        const context = buildWebContext(userMsg.content, sources);
+        if (!context) {
+          const msg = Store.mkMessage('assistant', '');
+          msg.finishReason = 'error';
+          msg.error = { message: 'Web search returned no usable sources' };
+          Store.appendMessage(chat.id, msg);
+          Messages.renderChat(chat);
+          return false;
+        }
+        const web = { query: userMsg.content, sources, context };
+        Object.assign(userMsg, { web });
+        Store.patchMessage(chat.id, userMsg.id, { web });
+        return true;
       }
 
       async function sendMessage(text, { regenerate = false } = {}) {
@@ -4770,19 +4941,31 @@
         const chat = Store.ensureActiveChat();
         // Per-chat guard: this chat must not already be generating (another
         // chat may be generating in parallel, in the background).
-        if (Store.isChatStreaming(chat.id)) return;
+        if (Store.isChatStreaming(chat.id) || pendingPreflight.has(chat.id)) return;
         chat.model ??= settings.model;
 
+        let userMsg = null;
         if (regenerate) {
           const last = chat.messages.at(-1);
           if (last?.role === 'assistant') Store.removeMessage(chat.id, last.id);
           if (chat.messages.at(-1)?.role !== 'user') return;
+          userMsg = chat.messages.at(-1);
         } else {
           const t = text?.trim();
           if (!t) return;
-          Store.appendMessage(chat.id, Store.mkMessage('user', t));
+          userMsg = Store.appendMessage(chat.id, Store.mkMessage('user', t));
           Store.maybeAutoTitle(chat.id);
         }
+
+        Messages.renderChat(chat);
+        pendingPreflight.add(chat.id);
+        let preflightOk = false;
+        try {
+          preflightOk = await ensureWebContext(chat, userMsg, settings);
+        } finally {
+          pendingPreflight.delete(chat.id);
+        }
+        if (!preflightOk) return;
 
         const history = buildHistory(chat, settings);
         Messages.renderChat(chat);
@@ -4792,6 +4975,7 @@
         const asst = Store.mkMessage('assistant', '');
         asst.reasoning = '';
         asst.streaming = true;
+        if (userMsg?.web?.sources?.length) asst.sources = userMsg.web.sources;
         Store.appendMessage(chat.id, asst);
 
         const view = Messages.beginAssistant(asst);
@@ -4896,6 +5080,7 @@
             finishReason,
             usage,
             error,
+            sources: asst.sources,
           });
           if (!error) Store.setConnection('ok');
           Store.setChatStreaming(chat.id, null);
@@ -5161,6 +5346,10 @@
           el('span', { class: 'cdrop-caret', text: '▾' }));
         const menu = el('div', { class: 'cdrop-menu', role: 'menu', hidden: true });
         items.forEach((it) => {
+          if (it.group) {
+            menu.append(el('div', { class: 'cdrop-group', text: it.lead }));
+            return;
+          }
           const ol = el('span', { class: 'cdrop-ol' }, [el('b', { text: it.lead })]);
           if (it.sub) ol.append(el('span', { text: it.sub }));
           const ck = el('span', { class: 'cdrop-ck' }); ck.innerHTML = CDROP_CHECK;
@@ -5191,6 +5380,18 @@
         if (!agentMode) {                       // chat: the reasoning select stays inline
           cbarPop.append(cbarThink);
           cbarThink.hidden = false;
+          const webOn = Store.getSettings().webSearchEnabled === true;
+          cbarPop.append(cdrop({
+            cap: 'Web',
+            ariaLabel: 'Web Search',
+            title: 'Web Search - adds current web sources to the next chat prompt',
+            value: webOn ? 'on' : 'off',
+            items: [
+              { value: 'off', lead: 'Off' },
+              { value: 'on', lead: 'On', sub: 'DS4 browser tools' },
+            ],
+            onPick: (v) => Store.setSettings({ webSearchEnabled: v === 'on' }),
+          }));
           return;
         }
         cbarThink.hidden = true;                // agent/design gear: custom dropdowns
@@ -5207,13 +5408,38 @@
         // Skill — agent: your own + shipped agent/build skills; design: shipped design skills.
         const skItems = [{ value: '', lead: 'No skill', sub: 'The charter only' }];
         const skCache = curMode === 'agent' ? userSkillCache : skillCache;
-        if (skCache === null) { (curMode === 'agent' ? loadUserSkills : loadSkills)(); }
+        if (skCache === null || (curMode === 'agent' && skillCache === null)) { (curMode === 'agent' ? loadUserSkills : loadSkills)(); }
         else {
           const seen = new Set();
           const addS = (s) => { if (!s.id || seen.has(s.id)) return; seen.add(s.id); skItems.push({ value: s.id, lead: s.name || s.id, sub: cdTrunc(s.description) }); };
+          const addGroup = (label) => skItems.push({ group: true, lead: label });
           if (curMode === 'agent') {
-            (skillCache || []).filter((s) => s.modes && (s.modes.includes('agent') || s.modes.includes('build'))).forEach(addS);
-            (userSkillCache || []).forEach(addS);
+            const shipped = (skillCache || []).filter((s) => s.modes && (s.modes.includes('agent') || s.modes.includes('build')));
+            const userSkills = userSkillCache || [];
+            if (userSkills.length) {
+              addGroup('Your skills');
+              userSkills.forEach(addS);
+            }
+            const buildSkills = shipped.filter((s) => !s.modes.includes('marketing'));
+            if (buildSkills.length) {
+              addGroup('Web / Build');
+              buildSkills.forEach(addS);
+            }
+            [
+              ['marketing-foundation', 'Marketing foundation'],
+              ['marketing-strategy', 'Marketing strategy'],
+              ['seo-content', 'SEO & content'],
+              ['content-copy', 'Content & copy'],
+              ['conversion', 'Conversion'],
+              ['paid-measurement', 'Paid & measurement'],
+              ['growth-retention', 'Growth & retention'],
+              ['sales-gtm', 'Sales & GTM'],
+            ].forEach(([cat, label]) => {
+              const group = shipped.filter((s) => s.modes.includes('marketing') && s.category === cat);
+              if (!group.length) return;
+              addGroup(label);
+              group.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id)).forEach(addS);
+            });
           } else {
             (skillCache || []).filter((s) => !s.modes || s.modes.includes('design')).forEach(addS);
           }
@@ -6452,6 +6678,10 @@
         const r = await fetch('/api/webdir', { method: 'POST', headers: H, body: JSON.stringify({ path }) });
         return r.json();
       }
+      async function webSearch(query) {
+        const r = await fetch('/api/web-search', { method: 'POST', headers: H, body: JSON.stringify({ query }) });
+        return r.json();
+      }
       // Network toggle: rebind the listener to the LAN (0.0.0.0) or localhost.
       async function setLan(enable) {
         const r = await fetch('/api/lan', { method: 'POST', headers: H, body: JSON.stringify({ enable }) });
@@ -6513,7 +6743,7 @@
         return r.text();
       }
 
-      return { status, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setDs4Dir, setWebDir, ggufs, skills, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, setLan, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
+      return { status, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setDs4Dir, setWebDir, webSearch, ggufs, skills, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, setLan, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
     })();
 
     /* ==================== DesignRuntime: event-sourced design state ==================== */

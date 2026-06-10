@@ -1,11 +1,21 @@
 ---
 name: popups
-description: High-converting, non-annoying popups/modals: trigger, offer, timing, exit-intent, dismissal.
-modes: [marketing]
-ds4_category: general
-ds4_local_mode: reference
-ds4_output_kinds: html
-ds4_upstream: dstudio/popups
+description: |
+  When the user wants to create or optimize popups, modals, overlays, slide-ins, or
+  banners for conversion purposes. Also use when the user mentions "exit intent," "popup
+  conversions," "modal optimization," "lead capture popup," "email popup," "announcement
+  banner," "overlay," "collect emails with a popup," "exit popup," "scroll trigger,"
+  "sticky bar," or "notification bar." Use this for any overlay or interrupt-style
+  conversion element. For forms outside of popups, see cro. For general page conversion
+  optimization, see cro.
+modes: [agent, marketing]
+ds4_category: conversion
+ds4_local_mode: native
+ds4_output_kinds: markdown
+ds4_upstream: marketingskills/popups
+ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+marketingskills_version: 2.0.0
+ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
 ---
 
 # Popup CRO

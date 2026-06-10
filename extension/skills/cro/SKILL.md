@@ -1,11 +1,22 @@
 ---
 name: cro
-description: Conversion-rate optimization: diagnose and fix pages/forms so more visitors take the action.
-modes: [marketing]
-ds4_category: general
-ds4_local_mode: reference
-ds4_output_kinds: html
-ds4_upstream: dstudio/cro
+description: |
+  When the user wants to optimize, improve, or increase conversions on any marketing page
+  or form — including homepage, landing pages, pricing pages, feature pages, lead capture
+  forms, or contact forms. Also use when the user says 'CRO,' 'conversion rate
+  optimization,' 'this page isn't converting,' 'improve conversions,' 'why isn't this page
+  working,' 'my landing page sucks,' 'form abandonment,' 'nobody's converting,' 'low
+  conversion rate,' or 'this page needs work.' Use this even if the user just shares a URL
+  and asks for feedback. For signup/registration flows, see signup. For post-signup
+  activation, see onboarding. For popups/modals, see popups.
+modes: [agent, marketing]
+ds4_category: conversion
+ds4_local_mode: native
+ds4_output_kinds: markdown
+ds4_upstream: marketingskills/cro
+ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+marketingskills_version: 2.0.0
+ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
 ---
 
 # Conversion Rate Optimization (CRO)

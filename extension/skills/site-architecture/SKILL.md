@@ -1,11 +1,22 @@
 ---
 name: site-architecture
-description: Information architecture & internal linking: URL structure, hubs, navigation, crawl depth.
-modes: [marketing]
-ds4_category: general
-ds4_local_mode: reference
-ds4_output_kinds: html
-ds4_upstream: dstudio/site-architecture
+description: |
+  When the user wants to plan, map, or restructure their website's page hierarchy,
+  navigation, URL structure, or internal linking. Also use when the user mentions
+  "sitemap," "site map," "visual sitemap," "site structure," "page hierarchy,"
+  "information architecture," "IA," "navigation design," "URL structure," "breadcrumbs,"
+  "internal linking strategy," "website planning," "what pages do I need," "how should I
+  organize my site," or "site navigation." Use this whenever someone is planning what
+  pages a website should have and how they connect. NOT for XML sitemaps (that's technical
+  SEO — see seo-audit). For SEO audits, see seo-audit. For structured data, see schema.
+modes: [agent, marketing]
+ds4_category: seo-content
+ds4_local_mode: native
+ds4_output_kinds: markdown
+ds4_upstream: marketingskills/site-architecture
+ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+marketingskills_version: 2.0.0
+ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
 ---
 
 # Site Architecture

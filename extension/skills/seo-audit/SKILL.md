@@ -1,11 +1,23 @@
 ---
 name: seo-audit
-description: Technical & on-page SEO audit: meta, indexability, core web vitals, rankability — with actionable fixes.
-modes: [marketing]
-ds4_category: general
-ds4_local_mode: reference
-ds4_output_kinds: html
-ds4_upstream: dstudio/seo-audit
+description: |
+  When the user wants to audit, review, or diagnose SEO issues on their site. Also use
+  when the user mentions "SEO audit," "technical SEO," "why am I not ranking," "SEO
+  issues," "on-page SEO," "meta tags review," "SEO health check," "my traffic dropped,"
+  "lost rankings," "not showing up in Google," "site isn't ranking," "Google update hit
+  me," "page speed," "core web vitals," "crawl errors," or "indexing issues." Use this
+  even if the user just says something vague like "my SEO is bad" or "help with SEO" —
+  start with an audit. For building pages at scale to target keywords, see
+  programmatic-seo. For adding structured data, see schema. For AI search optimization,
+  see ai-seo.
+modes: [agent, marketing]
+ds4_category: seo-content
+ds4_local_mode: native
+ds4_output_kinds: markdown
+ds4_upstream: marketingskills/seo-audit
+ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+marketingskills_version: 2.0.0
+ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
 ---
 
 # SEO Audit

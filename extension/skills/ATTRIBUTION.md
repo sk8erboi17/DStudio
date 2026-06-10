@@ -1,9 +1,16 @@
 # Attribution
 
-The marketing skills (`modes: [marketing]`) — product-marketing, copywriting,
-copy-editing, cro, seo-audit, ai-seo, schema, site-architecture, marketing-psychology,
-popups, signup — are vendored from **marketingskills** by **Corey Haines**, used under
-the MIT License. Source: https://github.com/coreyhaines31/marketingskills
+The marketing skills (`ds4_upstream: marketingskills/...`) are vendored from
+**marketingskills** by **Corey Haines**, used under the MIT License.
+Source: https://github.com/coreyhaines31/marketingskills
+Imported commit: `7f4af1ea8e7809e0142c55bf19243a706f539c25`
+
+The imported skills were adapted for DStudio/DS4 with Agent-mode discovery,
+DS4 category metadata, and local catalog fields. The upstream `pricing` skill
+is imported as `pricing-strategy` to avoid colliding with DStudio's design-mode
+pricing page skill. Modified imported files carry a `ds4_modified_notice`
+frontmatter field. See `../../THIRD_PARTY_NOTICES.md` and
+`../../third_party/marketingskills/LICENSE`.
 
 ```
 MIT License

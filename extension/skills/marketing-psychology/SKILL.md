@@ -1,11 +1,22 @@
 ---
 name: marketing-psychology
-description: Persuasion frameworks — cognitive biases, motivation, objection handling — applied ethically to copy and pages.
-modes: [marketing]
-ds4_category: general
-ds4_local_mode: reference
-ds4_output_kinds: html
-ds4_upstream: dstudio/marketing-psychology
+description: |
+  When the user wants to apply psychological principles, mental models, or behavioral
+  science to marketing. Also use when the user mentions 'psychology,' 'mental models,'
+  'cognitive bias,' 'persuasion,' 'behavioral science,' 'why people buy,'
+  'decision-making,' 'consumer behavior,' 'anchoring,' 'social proof,' 'scarcity,' 'loss
+  aversion,' 'framing,' or 'nudge.' Use this whenever someone wants to understand or
+  leverage how people think and make decisions in a marketing context. For applying
+  psychology to specific pages, see cro; for pricing tactics, see pricing-strategy; for
+  copy framing, see copywriting.
+modes: [agent, marketing]
+ds4_category: marketing-strategy
+ds4_local_mode: native
+ds4_output_kinds: markdown
+ds4_upstream: marketingskills/marketing-psychology
+ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+marketingskills_version: 2.0.0
+ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
 ---
 
 # Marketing Psychology & Mental Models

@@ -1,11 +1,22 @@
 ---
 name: copywriting
-description: Write or rewrite persuasive site copy — headlines, value prop, CTAs, hero, feature/pricing copy — clear and conversion-driven.
-modes: [marketing]
-ds4_category: general
-ds4_local_mode: reference
-ds4_output_kinds: html
-ds4_upstream: dstudio/copywriting
+description: |
+  When the user wants to write, rewrite, or improve marketing copy for any page —
+  including homepage, landing pages, pricing pages, feature pages, about pages, or product
+  pages. Also use when the user says "write copy for," "improve this copy," "rewrite this
+  page," "marketing copy," "headline help," "CTA copy," "value proposition," "tagline,"
+  "subheadline," "hero section copy," "above the fold," "this copy is weak," "make this
+  more compelling," or "help me describe my product." Use this whenever someone is working
+  on website text that needs to persuade or convert. For email copy, see emails. For popup
+  copy, see popups. For editing existing copy, see copy-editing.
+modes: [agent, marketing]
+ds4_category: content-copy
+ds4_local_mode: native
+ds4_output_kinds: markdown
+ds4_upstream: marketingskills/copywriting
+ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+marketingskills_version: 2.0.0
+ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
 ---
 
 # Copywriting

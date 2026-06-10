@@ -1,11 +1,23 @@
 ---
 name: ai-seo
-description: Optimize for AI search / LLM citation (ChatGPT, Perplexity, AI Overviews): get cited, not just ranked.
-modes: [marketing]
-ds4_category: general
-ds4_local_mode: reference
-ds4_output_kinds: html
-ds4_upstream: dstudio/ai-seo
+description: |
+  When the user wants to optimize content for AI search engines, get cited by LLMs, or
+  appear in AI-generated answers. Also use when the user mentions 'AI SEO,' 'AEO,' 'GEO,'
+  'LLMO,' 'answer engine optimization,' 'generative engine optimization,' 'LLM
+  optimization,' 'AI Overviews,' 'optimize for ChatGPT,' 'optimize for Perplexity,' 'AI
+  citations,' 'AI visibility,' 'zero-click search,' 'how do I show up in AI answers,' 'LLM
+  mentions,' or 'optimize for Claude/Gemini.' Use this whenever someone wants their
+  content to be cited or surfaced by AI assistants and AI search engines. For traditional
+  technical and on-page SEO audits, see seo-audit. For structured data implementation, see
+  schema.
+modes: [agent, marketing]
+ds4_category: seo-content
+ds4_local_mode: native
+ds4_output_kinds: markdown
+ds4_upstream: marketingskills/ai-seo
+ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+marketingskills_version: 2.0.1
+ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
 ---
 
 # AI SEO
