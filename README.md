@@ -16,6 +16,18 @@
 
 DStudio is a single-file UI driven by a small C launcher that supervises [ds4](https://github.com/antirez/ds4), antirez's local inference engine for DeepSeek V4. On macOS it ships as **DStudio.app** — double-click from the Finder, no Terminal. The whole interface is one `index.html` (vanilla HTML/CSS/JS, no framework, no build step, no dependencies) embedded in the binary, so the app is fully self-contained, offline, and private.
 
+## 30-second start
+
+```sh
+make
+open DStudio.app        # macOS
+# or: ./dstudio         # Linux/headless workflows
+```
+
+On first launch, DStudio runs a local system check for the engine folder, model,
+chat engine, agent, design runtime and Web Search. Missing pieces show a direct
+button such as **Choose**, **Download**, **Start** or **Settings**.
+
 **Why?**
 
 - **Private & offline** — your chats, code and designs never leave the machine. No cloud, no telemetry, no subscription.

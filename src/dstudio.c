@@ -774,6 +774,78 @@ static int web_dir_valid(void) {
     return stat(marker, &st) == 0 && S_ISREG(st.st_mode);
 }
 
+static int rel_exists(const char *rel) {
+    char full[2048];
+    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, rel);
+    return access(full, R_OK) == 0;
+}
+
+static int any_gguf_present(void) {
+    const char *subs[2] = { "gguf", "" };
+    for (int di = 0; di < 2; di++) {
+        char dir[2048];
+        snprintf(dir, sizeof dir, "%s%s%s", g_ds4_dir, subs[di][0] ? "/" : "", subs[di]);
+        DIR *d = opendir(dir);
+        if (!d) continue;
+        struct dirent *e;
+        while ((e = readdir(d))) {
+            const char *dot = strrchr(e->d_name, '.');
+            if (!dot || strcmp(dot, ".gguf")) continue;
+            char full[2300];
+            snprintf(full, sizeof full, "%s/%s", dir, e->d_name);
+            struct stat st;
+            if (stat(full, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) {
+                closedir(d);
+                return 1;
+            }
+        }
+        closedir(d);
+    }
+    return 0;
+}
+
+static int executable_on_path(const char *name) {
+    const char *path = getenv("PATH");
+    if (!path || !path[0]) return 0;
+    char buf[4096];
+    cstr_copy(buf, sizeof buf, path);
+    for (char *p = buf; p && *p; ) {
+        char *colon = strchr(p, ':');
+        if (colon) *colon = '\0';
+        if (p[0]) {
+            char full[PATH_MAX];
+            snprintf(full, sizeof full, "%s/%s", p, name);
+            if (access(full, X_OK) == 0) return 1;
+        }
+        p = colon ? colon + 1 : NULL;
+    }
+    return 0;
+}
+
+static int chrome_available(void) {
+#ifdef _WIN32
+    return 1; /* The Windows portable build does not use the ds4_web helper yet. */
+#else
+#ifdef __APPLE__
+    if (access("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", X_OK) == 0) return 1;
+    if (access("/Applications/Chromium.app/Contents/MacOS/Chromium", X_OK) == 0) return 1;
+    if (access("/Applications/Google Chrome.app", F_OK) == 0) return 1;
+    if (access("/Applications/Chromium.app", F_OK) == 0) return 1;
+#endif
+    const char *paths[] = {
+        "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium", "/usr/bin/chromium-browser",
+        "/snap/bin/chromium", "/opt/google/chrome/chrome",
+    };
+    for (size_t i = 0; i < sizeof paths / sizeof paths[0]; i++)
+        if (access(paths[i], X_OK) == 0) return 1;
+    return executable_on_path("google-chrome") ||
+           executable_on_path("google-chrome-stable") ||
+           executable_on_path("chromium") ||
+           executable_on_path("chromium-browser");
+#endif
+}
+
 /* The KV disk cache is prefix state computed from a SPECIFIC model's weights —
  * it is only valid for that exact GGUF. Keying it by anything coarser (e.g. a
  * standard/uncensored flag) means switching models (Flash <-> Pro, or any other
@@ -2914,6 +2986,120 @@ static void api_status(int fd) {
     send_json(fd, "200 OK", body);
 }
 
+static int doctor_add_check(json_dyn_buf *b, int *first, const char *id, const char *label,
+                            const char *state, const char *message, const char *action) {
+    int ok = json_dyn_puts(b, *first ? "" : ",") &&
+             json_dyn_puts(b, "{\"id\":") &&
+             json_dyn_put_escaped(b, id) &&
+             json_dyn_puts(b, ",\"label\":") &&
+             json_dyn_put_escaped(b, label) &&
+             json_dyn_puts(b, ",\"state\":") &&
+             json_dyn_put_escaped(b, state) &&
+             json_dyn_puts(b, ",\"message\":") &&
+             json_dyn_put_escaped(b, message ? message : "") &&
+             json_dyn_puts(b, ",\"action\":");
+    ok = ok && (action ? json_dyn_put_escaped(b, action) : json_dyn_puts(b, "null"));
+    ok = ok && json_dyn_puts(b, "}");
+    if (ok) *first = 0;
+    return ok;
+}
+
+/* GET /api/doctor — cheap first-run/preflight checks. It intentionally does not
+ * auto-discover, clone, install, build, or launch anything: it reports what is
+ * ready and gives the UI an action code for the next user-controlled step. */
+static void api_doctor(int fd) {
+    reap_child();
+    int ds4_ok = ds4_dir_valid();
+    int model_ok = ds4_ok && (file_present(current_model_rel()) || any_gguf_present());
+    int current_model_ok = ds4_ok && file_present(current_model_rel());
+    int agent_ok = ds4_ok && (rel_exists("ds4-agent") || rel_exists("ds4-agent.exe") ||
+                              rel_exists("ds4-agent-jsonl") || rel_exists("ds4-agent-jsonl.exe"));
+    int agent_src_ok = ds4_ok && rel_exists("ds4_agent.c");
+    int design_ok = ds4_ok && (rel_exists("ds4-design") || rel_exists("ds4-design.exe") ||
+                               rel_exists("ds4_design.c"));
+    int web_ok = ds4_ok && agent_src_ok && chrome_available();
+    int engine_port_owned = g_child > 0;
+    int engine_port_busy = port_listening(ENGINE_DEFAULTS.port) && !engine_port_owned;
+    int server_ok = (g_mode == ENGINE_SERVER && g_child > 0 && g_ready) || port_listening(ENGINE_DEFAULTS.port);
+
+    char ds4_msg[1400];
+    snprintf(ds4_msg, sizeof ds4_msg, ds4_ok ? "Using %s" : "Choose the ds4 folder that contains the engine binaries.", g_ds4_dir);
+
+    json_dyn_buf b = {0};
+    int first = 1, fatal = 0, warn = 0, ok = 1;
+    ok = ok && json_dyn_puts(&b, "{\"ok\":true,\"checks\":[");
+
+    if (!ds4_ok) fatal++;
+    ok = ok && doctor_add_check(&b, &first, "ds4", "Engine folder",
+        ds4_ok ? "ok" : "error", ds4_msg, ds4_ok ? NULL : "choose-ds4");
+
+    if (!model_ok) fatal++;
+    else if (!current_model_ok) warn++;
+    ok = ok && doctor_add_check(&b, &first, "model", "Model",
+        model_ok ? (current_model_ok ? "ok" : "warn") : "error",
+        model_ok ? (current_model_ok ? "Selected GGUF is present." : "A GGUF is present; pick it from the model menu if needed.")
+                 : "Download or copy a DeepSeek V4 GGUF into the ds4 folder.",
+        model_ok ? NULL : "download-model");
+
+    if (!server_ok) warn++;
+    ok = ok && doctor_add_check(&b, &first, "chat", "Chat",
+        server_ok ? "ok" : (model_ok ? "warn" : "error"),
+        server_ok ? "Engine is reachable." : (model_ok ? "Start the local engine." : "Needs a model first."),
+        server_ok ? NULL : (model_ok ? "start-engine" : "download-model"));
+
+    if (!agent_ok) warn++;
+    ok = ok && doctor_add_check(&b, &first, "agent", "Agent",
+        agent_ok ? "ok" : "warn",
+        agent_ok ? "Agent binary is available." : "Build ds4 once, then Agent can start from the workspace picker.",
+        agent_ok ? NULL : "open-settings");
+
+    if (!design_ok) warn++;
+    ok = ok && doctor_add_check(&b, &first, "design", "Design",
+        design_ok ? "ok" : "warn",
+        design_ok ? "Design runtime is available." : "Open Design once after ds4 is set; DStudio will prepare the runtime.",
+        design_ok ? NULL : "open-settings");
+
+    if (!web_ok) warn++;
+    ok = ok && doctor_add_check(&b, &first, "web", "Web",
+        web_ok ? "ok" : "warn",
+        web_ok ? "Local browser search is ready." :
+                 (chrome_available() ? "Web Search will build the DS4 helper on first use." : "Install Chrome or Chromium for Web Search."),
+        web_ok ? NULL : "open-settings");
+
+    if (engine_port_busy) warn++;
+    ok = ok && doctor_add_check(&b, &first, "port", "Port",
+        engine_port_busy ? "warn" : "ok",
+        engine_port_busy ? "Another ds4-server is already listening on the engine port." :
+        (engine_port_owned ? "DStudio is managing the engine port." : "Engine port is available."),
+        engine_port_busy ? "open-settings" : NULL);
+
+    char lan_addr[80];
+    int lan_on = lan_status(lan_addr, sizeof lan_addr);
+    if (lan_on) warn++;
+    ok = ok && doctor_add_check(&b, &first, "network", "Network",
+        lan_on ? "warn" : "ok",
+        lan_on ? "LAN access is enabled; use only on trusted networks." : "Localhost only.",
+        lan_on ? "open-settings" : NULL);
+
+    ok = ok && json_dyn_puts(&b, "],\"ready\":") &&
+         json_dyn_puts(&b, fatal ? "false" : "true") &&
+         json_dyn_puts(&b, ",\"fatal\":");
+    char nums[80];
+    snprintf(nums, sizeof nums, "%d,\"warnings\":%d", fatal, warn);
+    ok = ok && json_dyn_puts(&b, nums) &&
+         json_dyn_puts(&b, ",\"summary\":") &&
+         json_dyn_put_escaped(&b, fatal ? "Setup needed" : (warn ? "Ready with notes" : "Ready")) &&
+         json_dyn_puts(&b, "}");
+
+    if (!ok) {
+        free(b.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}");
+        return;
+    }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+}
+
 /* GET /api/ggufs — list the .gguf files in the engine folder (and its gguf/
  * subdir) with sizes. The UI parses the filenames to label model/quant/kind.
  * Symlinks are skipped so the same file is not listed twice. */
@@ -4909,6 +5095,8 @@ static void handle_connection(int fd) {
         send_json(fd, "200 OK", out);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/status")) {
         api_status(fd);
+    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/doctor")) {
+        api_doctor(fd);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/ggufs")) {
         api_ggufs(fd);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/skills")) {
@@ -4960,7 +5148,8 @@ static void handle_connection(int fd) {
         strncmp(path, "/api/design/events", 18) != 0 &&
         strcmp(path, "/api/design/state") != 0 && strcmp(path, "/api/design/artifacts") != 0 &&
         strcmp(path, "/api/build/files") != 0 &&
-        strcmp(path, "/api/store") != 0 && strcmp(path, "/api/storerev") != 0)
+        strcmp(path, "/api/store") != 0 && strcmp(path, "/api/storerev") != 0 &&
+        strcmp(path, "/api/doctor") != 0)
         printf("%d %s %s\n", status, method, path);
     close(fd);
 }

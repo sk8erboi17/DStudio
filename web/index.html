@@ -1740,6 +1740,73 @@
     .onboard__model-state { font-size: 0.76rem; color: var(--ok); white-space: nowrap; }
     .onboard__model-state.dl { color: var(--accent-2); }
 
+    /* First-run/preflight doctor: compact status strip + actionable dialog. */
+    .doctor-strip {
+      max-width: var(--msg-maxw);
+      margin: 0.7rem auto 0;
+      padding: 0 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+    }
+    .doctor-strip[hidden] { display: none; }
+    .doctor-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      min-height: 28px;
+      padding: 0.25rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-2);
+      background: var(--surface);
+      font-size: 0.74rem;
+      white-space: nowrap;
+    }
+    .doctor-badge::before {
+      content: '';
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--faint);
+      flex: 0 0 auto;
+    }
+    .doctor-badge.ok::before { background: var(--ok); }
+    .doctor-badge.warn::before { background: var(--warn); }
+    .doctor-badge.error::before { background: var(--danger); }
+    .doctor-fix {
+      min-height: 28px;
+      padding: 0.25rem 0.65rem;
+      font-size: 0.74rem;
+    }
+    .doctor-dialog { width: min(94vw, 34rem); }
+    .doctor-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.7rem; }
+    .doctor-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.65rem;
+      padding: 0.65rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+    .doctor-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-top: 0.28rem;
+      background: var(--faint);
+      flex: 0 0 auto;
+    }
+    .doctor-row.ok .doctor-dot { background: var(--ok); }
+    .doctor-row.warn .doctor-dot { background: var(--warn); }
+    .doctor-row.error .doctor-dot { background: var(--danger); }
+    .doctor-copy { min-width: 0; flex: 1; }
+    .doctor-copy b { display: block; font-size: 0.86rem; margin-bottom: 0.12rem; }
+    .doctor-copy span { display: block; color: var(--muted); font-size: 0.76rem; line-height: 1.45; overflow-wrap: break-word; }
+    .doctor-row .btn { flex: 0 0 auto; }
+
     /* ==================== Server/Agent tab ==================== */
     /* The modes now live in the sidebar (.sb-nav):
        the active states are handled by .sb-item.tab--active. */
@@ -2486,6 +2553,7 @@
         <h1 class="chat__title" id="chat-title">DStudio</h1>
         <button type="button" id="btn-cmdk" class="cmdk-pill" title="Commands (⌘K)" aria-label="Open command palette" hidden><kbd>⌘K</kbd></button>
       </header>
+      <div id="doctor-strip" class="doctor-strip" role="status" aria-live="polite" hidden></div>
 
       <div class="stage">
         <section class="messages" id="messages" aria-label="Messages" tabindex="0"></section>
@@ -2678,6 +2746,18 @@
       <div class="dialog__actions">
         <button type="button" id="ds4dir-cancel" class="btn">Later</button>
         <button type="button" id="ds4dir-save" class="btn btn--primary">Use this folder</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="doctor-dialog" class="dialog doctor-dialog" aria-label="System check">
+    <form method="dialog" class="settings">
+      <h2>System check</h2>
+      <p class="wd-note" id="doctor-summary">Checking local setup…</p>
+      <div id="doctor-list" class="doctor-list"></div>
+      <div class="dialog__actions">
+        <button type="button" id="doctor-recheck" class="btn">Recheck</button>
+        <button type="button" id="doctor-close" class="btn btn--primary">Done</button>
       </div>
     </form>
   </dialog>
@@ -2946,7 +3026,7 @@
       modelVariant: 'flash',// 'flash' | 'pro' — which GGUF the engine launches with
       ctxSize: 65536,       // engine context window (-c); 64k default, changeable in onboarding/settings
       useJsonlPatch: true,  // agent: try the structured-output patch (off = stock ds4-agent, raw output)
-      webSearchEnabled: false,       // chat: opt-in current web context via DS4 browser tools
+      webSearchEnabled: false,       // chat: opt-in current web context through the local browser
       webSearchBrowserAllowed: false,// remembers the local visible-browser consent
       workdirs: {},        // last working folder per mode (agent/design)
       onboarded: false,     // onboarding is shown while this is false
@@ -4893,8 +4973,8 @@
         if (!settings.webSearchEnabled || !userMsg || userMsg.web?.context) return true;
         if (!settings.webSearchBrowserAllowed) {
           const ok = await askConfirm({
-            title: 'Allow Web Search',
-            body: 'DStudio will use DS4 local browser tools for this chat request. A visible Chrome/Chromium instance may be opened.',
+            title: 'Use Web Search?',
+            body: 'DStudio will search online with the local browser for this message. A visible Chrome/Chromium window may open.',
             cta: 'Allow',
           });
           if (!ok) return false;
@@ -4934,7 +5014,8 @@
       async function sendMessage(text, { regenerate = false } = {}) {
         const settings = Store.getSettings();
         if (!settings.model) {
-          toast('Select a model in the settings.', 'warn');
+          toast('Choose or download a model first.', 'warn');
+          Doctor.open();
           return;
         }
 
@@ -5388,7 +5469,7 @@
             value: webOn ? 'on' : 'off',
             items: [
               { value: 'off', lead: 'Off' },
-              { value: 'on', lead: 'On', sub: 'DS4 browser tools' },
+              { value: 'on', lead: 'On', sub: 'Local browser' },
             ],
             onPick: (v) => Store.setSettings({ webSearchEnabled: v === 'on' }),
           }));
@@ -6391,6 +6472,7 @@
       }
 
       function show() {
+        if (dialog.open) return;
         dialog.showModal();
         const ctx = qs('#onboard-ctx');
         if (ctx) ctx.value = String(Store.getSettings().ctxSize ?? 65536);
@@ -6588,7 +6670,7 @@
           : 'checking…';
       }
 
-      return { mount };
+      return { mount, show };
     })();
 
     /* ==================== Engine: client of serve's local API ==================== */
@@ -6601,6 +6683,11 @@
       async function status() {
         const r = await fetch('/api/status', { signal: AbortSignal.timeout(3000) });
         if (!r.ok) throw new Error(`status ${r.status}`);
+        return r.json();
+      }
+      async function doctor() {
+        const r = await fetch('/api/doctor', { signal: AbortSignal.timeout(3000) });
+        if (!r.ok) throw new Error(`doctor ${r.status}`);
         return r.json();
       }
       async function start(cfg, force) {
@@ -6743,7 +6830,121 @@
         return r.text();
       }
 
-      return { status, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setDs4Dir, setWebDir, webSearch, ggufs, skills, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, setLan, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
+      return { status, doctor, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setDs4Dir, setWebDir, webSearch, ggufs, skills, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, setLan, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
+    })();
+
+    /* ==================== Doctor: first-run/preflight ==================== */
+
+    const Doctor = (() => {
+      let strip, dialog, listEl, summaryEl;
+      let last = null;
+      let autoShown = false;
+      const stripIds = ['model', 'agent', 'web', 'design'];
+
+      function mount() {
+        strip = qs('#doctor-strip');
+        dialog = qs('#doctor-dialog');
+        listEl = qs('#doctor-list');
+        summaryEl = qs('#doctor-summary');
+        on(qs('#doctor-recheck'), 'click', refresh);
+        on(qs('#doctor-close'), 'click', () => dialog.close());
+        on(dialog, 'click', (e) => { if (e.target === dialog) dialog.close(); });
+        Store.subscribe('modelDownload', refresh);
+        refresh();
+        setInterval(refresh, 12000);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+      }
+
+      async function refresh() {
+        let d = null;
+        try { d = await Engine.doctor(); } catch { /* launcher unavailable */ }
+        if (!d?.ok) {
+          if (strip) strip.hidden = true;
+          return;
+        }
+        last = d;
+        renderStrip(d);
+        renderDialog(d);
+        if (d.fatal > 0 && Store.getSettings().onboarded === true && !autoShown && !document.querySelector('dialog[open]')) {
+          autoShown = true;
+          open();
+        }
+      }
+
+      function renderStrip(d) {
+        if (!strip) return;
+        const checks = (d.checks || []).filter((c) => stripIds.includes(c.id));
+        const badges = checks.map((c) => el('span', {
+          class: `doctor-badge ${c.state}`,
+          title: c.message || '',
+          text: `${c.label}: ${c.state === 'ok' ? 'ready' : c.state}`,
+        }));
+        const needsFix = (d.checks || []).some((c) => c.state === 'error' || c.state === 'warn');
+        const btn = el('button', { class: 'btn doctor-fix', type: 'button', text: needsFix ? 'Fix' : 'Check' });
+        on(btn, 'click', open);
+        strip.replaceChildren(...badges, btn);
+        strip.hidden = false;
+      }
+
+      function renderDialog(d = last) {
+        if (!d || !listEl) return;
+        summaryEl.textContent = d.summary || 'System check';
+        const rows = (d.checks || []).map((c) => {
+          const kids = [
+            el('span', { class: 'doctor-dot' }),
+            el('span', { class: 'doctor-copy' }, [
+              el('b', { text: c.label }),
+              el('span', { text: c.message || '' }),
+            ]),
+          ];
+          if (c.action) {
+            const btn = el('button', { class: 'btn btn--sm', type: 'button', text: actionLabel(c.action) });
+            on(btn, 'click', () => runAction(c.action));
+            kids.push(btn);
+          }
+          return el('div', { class: `doctor-row ${c.state || 'warn'}` }, kids);
+        });
+        listEl.replaceChildren(...rows);
+      }
+
+      function actionLabel(action) {
+        return {
+          'choose-ds4': 'Choose',
+          'download-model': 'Download',
+          'start-engine': 'Start',
+          'open-settings': 'Settings',
+        }[action] || 'Fix';
+      }
+
+      async function runAction(action) {
+        if (action === 'choose-ds4' || action === 'download-model') {
+          dialog.close();
+          requestAnimationFrame(() => Onboarding.show());
+          return;
+        }
+        if (action === 'start-engine') {
+          toast('Starting the engine...', 'info');
+          const r = await Engine.start({ mode: 'server' }, true).catch(() => null);
+          if (!r || r.ok === false) toast(r?.error || 'Could not start the engine', 'error');
+          await Statusbar.refresh();
+          refresh();
+          return;
+        }
+        if (action === 'open-settings') {
+          dialog.close();
+          qs('#btn-settings')?.click();
+        }
+      }
+
+      function open() {
+        if (last) renderDialog(last);
+        if (!dialog.open) {
+          try { dialog.showModal(); } catch { dialog.show(); }
+        }
+        refresh();
+      }
+
+      return { mount, refresh, open };
     })();
 
     /* ==================== DesignRuntime: event-sourced design state ==================== */
@@ -10550,6 +10751,7 @@
             label: mode === 'design' ? 'New design' : mode === 'agent' ? 'New session' : 'New chat',
             hint: 'Start fresh', kbd: kbdLabel('N'), run: () => qs('#btn-new-chat').click() },
           { group: 'Session', icon: 'sliders', label: 'Settings', hint: 'Open the settings', kbd: kbdLabel(','), run: () => qs('#btn-settings').click() },
+          { group: 'Session', icon: 'check', label: 'System check', hint: 'Check model, agent, web and design readiness', run: () => Doctor.open() },
           { group: 'Session', icon: 'search', label: 'Go to message', hint: 'Focus the text field', run: () => qs('#composer-input') && qs('#composer-input').focus() },
         ];
         if (mode === 'server') cmds.push(
@@ -10720,6 +10922,7 @@
     CmdPalette.mount(); // global ⌘K
     AppShortcuts.mount(); // ⌘/Ctrl N · 1/2/3 · , · Esc
     Onboarding.mount();
+    Doctor.mount();
 
     // Chat switch → re-render of the message list (only in chat mode: in
     // agent/design #messages is hidden and AgentView handles the title).
