@@ -804,10 +804,12 @@
       display: inline-flex;
       align-items: center;
       gap: 0.55rem;
+      padding: 0.35rem 0.1rem 0.35rem 0.7rem;
       color: var(--muted);
       font-family: var(--serif);
       font-size: 0.98rem;
       font-style: italic;
+      overflow: visible;
     }
 
     .web-searching-wrap {
@@ -815,6 +817,7 @@
       flex-direction: column;
       gap: 0.7rem;
       max-width: var(--msg-maxw);
+      overflow: visible;
     }
 
     .web-searching::before {
@@ -825,6 +828,7 @@
       background: var(--accent-2);
       box-shadow: 0 0 0 0 rgba(157, 190, 255, 0.4);
       animation: websearch-pulse 1.25s ease-out infinite;
+      flex: 0 0 auto;
     }
 
     @keyframes websearch-pulse {
@@ -5307,12 +5311,45 @@
         };
       }
 
+      const SEARCH_FALLBACK_STOP = new Set([
+        'mi', 'dici', 'dimmi', 'spiegami', 'spiega', 'cosa', 'cos', 'che', 'chi',
+        'quanto', 'quale', 'qual', 'perche', 'perchè', 'come', 'dove', 'quando',
+        'costa', 'prezzo', 'vale', 'significa', 'significato', 'vuol', 'dire',
+        'e', 'è', 'un', 'una', 'uno', 'il', 'lo', 'la', 'i', 'gli', 'le',
+        'di', 'del', 'della', 'dei', 'degli', 'delle', 'su', 'sul', 'sulla',
+        'per', 'a', 'ad', 'in', 'da', 'the', 'what', 'is', 'are', 'who',
+        'tell', 'me', 'about', 'explain',
+      ]);
+
+      function fallbackSearchEntity(userText) {
+        let text = String(userText || '').trim();
+        const domain = text.match(/\b([a-z0-9-]+\.)+[a-z]{2,}\b/i);
+        if (domain) return domain[0].toLowerCase();
+        const quoted = text.match(/["'“”‘’]([^"'“”‘’]{2,})["'“”‘’]/);
+        if (quoted) return quoted[1].replace(/\s+/g, ' ').trim();
+        text = text
+          .replace(/\b(mi\s+dici|dimmi|spiegami|spiega|cosa\s+(?:è|e|significa)|cos['’]è|che\s+(?:cos['’]è|significa)|significato\s+di|what\s+is|tell\s+me\s+about|explain)\b/gi, ' ')
+          .replace(/[?!.,:;()[\]{}]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        const tokens = text.match(/\b[A-Za-z0-9À-ÖØ-öø-ÿ][A-Za-z0-9À-ÖØ-öø-ÿ._-]{1,}\b/g) || [];
+        const meaningful = tokens.filter((t) => {
+          const key = t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          return key.length > 1 && !SEARCH_FALLBACK_STOP.has(key);
+        });
+        if (meaningful.length) return meaningful.slice(-4).join(' ');
+        return String(userText || '').replace(/\s+/g, ' ').trim();
+      }
+
       function fallbackSearchPlan(userText) {
-        const quoted = String(userText).match(/["'“”‘’]([^"'“”‘’]{2,})["'“”‘’]/);
-        const tokens = String(userText).match(/\b[a-z0-9][a-z0-9._-]{2,}\b/gi) || [];
-        const entity = (quoted?.[1] || tokens.find((t) => /[a-z]/i.test(t)) || userText).trim();
+        const entity = fallbackSearchEntity(userText);
         const terms = entity && entity.length < 80 ? [entity] : [];
-        return normalizeSearchPlan({ intent: 'fallback', entity, mustMatch: terms, queries: [`"${entity}"`, entity, userText] }, userText);
+        return normalizeSearchPlan({
+          intent: 'fallback',
+          entity,
+          mustMatch: terms,
+          queries: entity ? [`"${entity}"`, entity, `${entity} official`, userText] : [userText],
+        }, userText);
       }
 
       async function planWebSearch(userText, settings) {
@@ -5375,6 +5412,15 @@
         return { source, score, matched };
       }
 
+      function readableWebSearchError(message) {
+        const raw = String(message || '').trim();
+        if (!raw) return 'Web Search failed.';
+        if (/^load failed$/i.test(raw) || /failed to fetch|networkerror|network request failed/i.test(raw)) {
+          return 'Web Search could not reach the local search helper. Check the Web Search service and retry.';
+        }
+        return /^web search/i.test(raw) ? raw : `Web Search failed: ${raw}`;
+      }
+
       function planTraceDetail(plan) {
         const bits = [];
         if (plan.intent) bits.push(`intent: ${plan.intent}`);
@@ -5409,16 +5455,18 @@
           try {
             res = await Engine.webSearch(query);
           } catch (e) {
-            errors.push(e?.message || 'Web search failed');
+            const msg = readableWebSearchError(e?.message);
+            errors.push(msg);
             querySteps[i].state = 'error';
-            querySteps[i].detail = `${query} -> ${e?.message || 'Web search failed'}`;
+            querySteps[i].detail = `${query} -> ${msg}`;
             emitSearchTrace(onTrace, [...trace, ...querySteps]);
             continue;
           }
           if (!res?.ok) {
-            errors.push(res?.error || 'Web search failed');
+            const msg = readableWebSearchError(res?.error);
+            errors.push(msg);
             querySteps[i].state = 'error';
-            querySteps[i].detail = `${query} -> ${res?.error || 'Web search failed'}`;
+            querySteps[i].detail = `${query} -> ${msg}`;
             emitSearchTrace(onTrace, [...trace, ...querySteps]);
             continue;
           }
@@ -5482,10 +5530,12 @@
         try {
           webResult = await searchWithPlan(userMsg.content, settings, updateTrace);
         } catch (e) {
+          const message = readableWebSearchError(e?.message);
           Store.commitMessage(chat.id, searchMsg.id, {
             webSearching: false,
+            content: message,
             finishReason: 'error',
-            error: { message: e?.message || 'Web search failed' },
+            error: { message },
           });
           Messages.renderChat(chat);
           return false;
