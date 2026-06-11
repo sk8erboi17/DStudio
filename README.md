@@ -59,7 +59,7 @@ A sidebar switches between Chat, Agent and Design. Each mode has its own reopena
 
 <div align="center">
 
-<img src="assets/README%20images/chat.png" width="820" alt="DStudio local DeepSeek V4 chat with reasoning, cached tokens and private history">
+<img src="assets/demo.gif" width="820" alt="DStudio Chat demo showing local DeepSeek V4 chat, files and canvas">
 
 </div>
 
@@ -67,7 +67,11 @@ Streaming DeepSeek V4 chat backed by the ds4 server KV cache: the context lives 
 
 ### 🤖 Agent
 
-<img src="assets/README%20images/agent.png" width="760" alt="DStudio local coding agent editing files with folded tool calls and reasoning">
+<div align="center">
+
+<img src="assets/agent.gif" width="820" alt="DStudio Agent demo showing the local coding agent editing and validating files">
+
+</div>
 
 `ds4-agent` becomes a local coding agent: it reads and edits files, runs commands in a working directory you choose, renders folded tool calls/reasoning, and keeps a live plan. A post-edit verifier catches common syntax errors immediately, so the model can fix broken code in the same turn.
 

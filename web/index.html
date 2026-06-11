@@ -3004,6 +3004,7 @@
     .agent-view {
       display: flex;
       flex-direction: column;
+      overflow-anchor: none;
     }
 
     .agent-inner {
@@ -3183,26 +3184,34 @@
 
     /* File edit/write/delete shown as a colored +/- diff (ds4-agent terminal style). */
     .diffcard {
-      width: 100%; margin: 0 0 16px;
-      border: 1px solid var(--border-2); border-radius: 8px; overflow: hidden;
-      background: color-mix(in srgb, var(--surface) 60%, transparent);
+      width: 100%; margin: 0.15rem 0 0.9rem;
+      border: none; border-radius: 0; overflow: visible;
+      background: transparent;
     }
     .diff-head {
       display: flex; align-items: baseline; gap: 8px;
-      padding: 6px 11px; border-bottom: 1px solid var(--border-2);
+      padding: 0 0 0.35rem; border-bottom: none;
     }
     .diff-verb { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .8px; text-transform: uppercase; color: var(--accent); flex: 0 0 auto; }
     .diff-path { font-family: var(--font-mono); font-size: 12px; color: var(--text); overflow-wrap: anywhere; }
-    .diff-body { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; max-height: 24rem; overflow: auto; padding: 4px 0; }
-    .diff-line { display: flex; padding: 0 11px; }
-    .diff-line.diff-add { background: rgba(124, 192, 138, 0.10); }
-    .diff-line.diff-del { background: rgba(224, 138, 125, 0.10); }
+    .diff-body { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; max-height: none; overflow: visible; padding: 0; }
+    .diff-line { display: flex; padding: 0 0.35rem; border-radius: 4px; }
+    .diff-line.diff-add { background: color-mix(in srgb, var(--ok) 9%, transparent); }
+    .diff-line.diff-del { background: color-mix(in srgb, var(--danger) 9%, transparent); }
     .diff-sign { width: 1.5em; flex: 0 0 auto; user-select: none; white-space: pre; }
     .diff-txt { white-space: pre; overflow-wrap: anywhere; }
     .diff-add .diff-sign, .diff-add .diff-txt { color: var(--ok); }
     .diff-del .diff-sign, .diff-del .diff-txt { color: var(--danger); }
-    .diff-more { padding: 4px 11px; color: var(--muted); font-size: 11px; font-style: italic; }
-    .diff-err { padding: 6px 11px; border-top: 1px solid var(--border-2); color: var(--danger); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .diff-more { padding: 4px 0.35rem; color: var(--muted); font-size: 11px; font-style: italic; }
+    .diff-err { padding: 6px 0; border-top: 1px solid var(--border-2); color: var(--danger); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .diffcard--pending {
+      border: 1px solid var(--border-2); border-radius: 8px;
+      padding: 6px 11px;
+      background: color-mix(in srgb, var(--surface) 60%, transparent);
+    }
+    .diffcard--pending .diff-head { padding: 0; border-bottom: none; }
+    .diffcard--pending .diff-verb { color: var(--muted); }
+    .diffcard--pending .diff-path { color: var(--faint); }
 
     .agent-working {
       color: var(--muted);
@@ -4462,6 +4471,19 @@
       if (!scroller) return;
       if (stick) scrollToBottom(scroller);
       else if (Number.isFinite(previousTop)) scroller.scrollTop = previousTop;
+    }
+
+    const UTF8_ENCODER = new TextEncoder();
+    const UTF8_DECODER = new TextDecoder();
+    function utf8ByteLength(str) {
+      return UTF8_ENCODER.encode(String(str || '')).length;
+    }
+    function sliceUtf8From(str, byteOffset) {
+      const text = String(str || '');
+      if (byteOffset <= 0) return text;
+      const bytes = UTF8_ENCODER.encode(text);
+      if (byteOffset >= bytes.length) return '';
+      return UTF8_DECODER.decode(bytes.slice(byteOffset));
     }
 
     /** Non-blocking notification at the bottom of the screen. */
@@ -5780,12 +5802,13 @@
         if (t.length > TRANSCRIPT_MAX_CHARS) t = t.slice(t.length - TRANSCRIPT_MAX_CHARS);
         chat.transcript = t;
         if (engineLen !== undefined) {
+          const deltaBytes = utf8ByteLength(delta);
           // `bufRun` = CONTIGUOUS bytes in the engine buffer at the tail of this
           // conversation (another conv may interleave in the global
           // buffer): limits the window of the re-attach comparison.
-          chat.bufRun = chat.engineLen === engineLen - delta.length
-            ? (chat.bufRun || 0) + delta.length
-            : delta.length;
+          chat.bufRun = chat.engineLen === engineLen - deltaBytes
+            ? (chat.bufRun || 0) + deltaBytes
+            : deltaBytes;
           chat.engineLen = engineLen;
         }
         chat.updatedAt = Date.now();
@@ -6214,7 +6237,7 @@
       function onScroll() {
         updateScrollBtn();
         const chatId = Store.getActiveChat()?.id;
-        const userDriven = performance.now() - scrollInputAt < 900;
+        const userDriven = performance.now() - scrollInputAt < 1800;
         if (!userDriven || !chatId || followBottomChatId !== chatId || !Store.isChatStreaming(chatId)) return;
         followBottom = isNearBottom(root, 120);
       }
@@ -6231,7 +6254,8 @@
 
       function renderChat(chat, opts = {}) {
         const forceBottom = opts.stickToBottom === true;
-        const stick = forceBottom || shouldAutoFollow(chat?.id) || shouldStickToBottom(root);
+        const streaming = !!chat?.id && Store.isChatStreaming(chat.id);
+        const stick = forceBottom || shouldAutoFollow(chat?.id) || (!streaming && shouldStickToBottom(root));
         const prevScrollTop = root.scrollTop;
         root.replaceChildren();
         inner = el('div', { class: 'messages__inner' });
@@ -6598,7 +6622,7 @@
           const article = root.querySelector(`.msg[data-id="${cssEscape(msg.id)}"]`);
           if (!article) return; // chat not visible: the data already lives in the message
           article.classList.add('msg--streaming');
-          const stick = shouldAutoFollow(followBottomChatId) || shouldStickToBottom(root);
+          const stick = shouldAutoFollow(followBottomChatId);
           if (fullReasoning) {
             let thinkingEl = article.querySelector('.thinking');
             if (!thinkingEl) {
@@ -11833,6 +11857,10 @@
       let liveTurnStartedAt = 0;
       let liveTurnResponseIndex = null;
       let liveElapsedTimer = null;
+      let agentFollowBottom = false;
+      let agentScrollInputAt = 0;
+      let agentLastScrollTop = 0;
+      let agentSelectionPendingRender = false;
 
       // Engine service lines (KV sessions): they are not model prose,
       // they should be rendered as muted notes (kind 'sys'). EXACT patterns of the
@@ -11931,9 +11959,55 @@
         stopElapsedTicker();
       }
 
+      function markAgentScrollInput() {
+        agentScrollInputAt = performance.now();
+      }
+
+      function onAgentScrollKey(e) {
+        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) {
+          markAgentScrollInput();
+        }
+      }
+
+      function onAgentScroll() {
+        if (!view) return;
+        const nearBottom = isNearBottom(view, 120);
+        const userWindow = performance.now() - agentScrollInputAt < 1800;
+        const movedUp = view.scrollTop < agentLastScrollTop - 2;
+        if (userWindow) agentFollowBottom = nearBottom && !movedUp;
+        else if (movedUp) agentFollowBottom = false;
+        agentLastScrollTop = view.scrollTop;
+      }
+
+      function shouldAgentFollow() {
+        return !!view && agentFollowBottom && !selectionInside(view);
+      }
+
+      function shouldDeferAgentRenderForSelection() {
+        return !!view && selectionInside(view) && (working || agentSelectionPendingRender);
+      }
+
+      function settleAgentScroll(stick, previousTop) {
+        settleScroll(view, stick, previousTop);
+        if (view) agentLastScrollTop = view.scrollTop;
+      }
+
+      function onAgentSelectionChange() {
+        if (!agentSelectionPendingRender || shouldDeferAgentRenderForSelection()) return;
+        agentSelectionPendingRender = false;
+        if (activeView) render();
+      }
+
       function mount() {
         view = qs('#agent-view');
+        agentLastScrollTop = view.scrollTop || 0;
         on(view, 'click', onClick);
+        on(view, 'scroll', onAgentScroll);
+        on(view, 'wheel', markAgentScrollInput, { passive: true });
+        on(view, 'touchstart', markAgentScrollInput, { passive: true });
+        on(view, 'pointerdown', markAgentScrollInput);
+        on(view, 'keydown', onAgentScrollKey);
+        on(document, 'selectionchange', onAgentSelectionChange);
         // Conversation switch from the sidebar (applies only when the pipe view is active).
         Store.subscribe('activeChat', () => {
           if (!activeView) return;
@@ -12267,7 +12341,6 @@
             if (seg.kind === 'todos' && Array.isArray(seg.ev.todos)) todos = seg.ev.todos;
             else if (seg.kind === 'tool_call') { const h = toolHead(seg.ev).text; lastTool = h; activity.push({ t: 'tool', text: h }); }
             else if (seg.kind === 'reasoning' && seg.text && seg.text.trim()) activity.push({ t: 'think', text: seg.text.trim() });
-            else if (seg.kind === 'text' && seg.text && seg.text.trim()) activity.push({ t: 'say', text: seg.text.trim() });
           }
         }
         return { todos, lastTool, activity };
@@ -12498,12 +12571,17 @@
         // A pipe→pipe switch (e.g. design→agent) does NOT go through stop(): the old
         // timer would stay alive → TWO pollers on the same `since` = duplicated and
         // interleaved deltas in the transcript. Always exactly one.
+        if (streamAbort) { streamAbort.abort(); streamAbort = null; }
         if (timer) { clearInterval(timer); timer = null; }
+        pollBusy = false;
         activeView = true;
         working = false;
         liveConvId = null;
         pendingCmd = null;
         turnArtifact = null;
+        agentFollowBottom = false;
+        agentLastScrollTop = view?.scrollTop || 0;
+        agentSelectionPendingRender = false;
         const conv = Store.getActiveChat() ?? Store.createChat(viewMode);
         openConversation(conv, { deferRestore: true }); // the restore is decided by the probe
         if (conv.lanMirror) {
@@ -12528,6 +12606,9 @@
         liveTailStartHint = null;
         hideActiveQuestion();
         resetLiveTurnTimer();
+        agentFollowBottom = false;
+        agentLastScrollTop = view?.scrollTop || 0;
+        agentSelectionPendingRender = false;
         working = false;
         syncSpinner();
         document.body.classList.remove('design-staged'); // the composer comes back
@@ -12546,6 +12627,9 @@
         clearLiveTail();
         liveTailStartHint = null;
         resetLiveTurnTimer();
+        agentFollowBottom = false;
+        agentLastScrollTop = view?.scrollTop || 0;
+        agentSelectionPendingRender = false;
         Composer.setAgentBusy(false);
         syncSpinner();
         if (activeView) render();
@@ -12560,6 +12644,7 @@
 
       function startPolling() {
         if (timer) return;
+        streamAbort = null;
         poll();
         timer = setInterval(poll, 500);
       }
@@ -12576,6 +12661,7 @@
         if (myEpoch !== epoch) { streamAbort.abort(); return; }
         const ct = res.headers.get('content-type') || '';
         if (!res.ok || !ct.includes('text/event-stream') || !res.body) {
+          streamAbort = null;
           startPolling();
           return;
         }
@@ -12595,6 +12681,7 @@
             if (done) break;
           }
         } catch { /* network: fall back below */ }
+        streamAbort = null;
         if (myEpoch === epoch) startPolling(); // stream ended/died → polling
       }
 
@@ -12616,10 +12703,25 @@
         processRes(res);
       }
 
+      function agentDeltaFromResponse(res) {
+        const raw = res?.text || '';
+        const len = Number(res?.len);
+        const base = Number(res?.base);
+        if (Number.isFinite(base) && base > since) since = base;
+        if (!raw) {
+          if (Number.isFinite(len) && len > since) since = len;
+          return '';
+        }
+        if (!Number.isFinite(len)) return raw;
+        if (len <= since) return '';
+        const payloadStart = Math.max(Number.isFinite(base) ? base : 0, len - utf8ByteLength(raw));
+        if (payloadStart >= since) return raw;
+        return sliceUtf8From(raw, since - payloadStart);
+      }
+
       /* Shared by polling and SSE streaming: one poll-shaped payload in. */
       function processRes(res) {
-        if (res.base > since) since = res.base; // buffer truncated by the server: realign (rare)
-        const delta = res.text || '';
+        const delta = agentDeltaFromResponse(res);
         const beforeTextLen = text.length;
         // During a planned-Build drive the HARNESS drives the engine (Engine.agentSend, not
         // AgentView.send), so liveConvId stays null and the deltas below would be discarded — the
@@ -12649,6 +12751,7 @@
         const wasWorking = working;
         working = res.working;
         if (!wasWorking && working) ensureLiveTurnTimer();
+        if (!wasWorking && working && !agentFollowBottom) agentFollowBottom = shouldStickToBottom(view);
         if (wasWorking && !working) finishLiveTurnTimer();
         const liveVisible = delta && (liveConvId === convId || buildDriving);
         if (liveVisible || wasWorking !== working) {
@@ -12674,7 +12777,7 @@
 
         // Build: note when the designer registers a page (artifact event). Auto-Build uses it
         // planned-Build uses the designer's artifact event as a per-page success signal.
-        if (res.text && res.text.includes('"type":"artifact"') && Switcher.buildPlanActive()) {
+        if (delta && delta.includes('"type":"artifact"') && Switcher.buildPlanActive()) {
           Switcher.buildPlanArtifact();
         }
 
@@ -12698,10 +12801,10 @@
         // Artifact handoff: a NEW artifact event (only in the delta just
         // received) registers the file as a version snapshot (stepper); the
         // VIEW only moves at end of turn, when the flow lands on the canvas.
-        if (viewMode === 'design' && res.text && res.text.includes('"type":"artifact"')) {
+        if (viewMode === 'design' && delta && delta.includes('"type":"artifact"')) {
           const m = /\{"type":"artifact","entry":"((?:[^"\\]|\\.)*)"/g;
           let last = null, hit;
-          while ((hit = m.exec(res.text)) !== null) last = hit[1];
+          while ((hit = m.exec(delta)) !== null) last = hit[1];
           if (last) {
             try {
               const entry = JSON.parse(`"${last}"`);
@@ -12724,7 +12827,7 @@
         // Session events (design only): I pull them out of the delta just received —
         // like the artifact — so they bind the conv↔KV-session sha and toast ONCE,
         // without ending up rendered as chat bubbles.
-        if (viewMode === 'design' && res.text) drainSessionEvents(res.text);
+        if (viewMode === 'design' && delta) drainSessionEvents(delta);
       }
 
       // Binds the live conversation to the engine session (agent mode):
@@ -12838,6 +12941,8 @@
             t.length > AUTO_TITLE_MAX_CHARS ? `${t.slice(0, AUTO_TITLE_MAX_CHARS - 1)}…` : t);
         }
         working = true;
+        agentFollowBottom = shouldStickToBottom(view);
+        agentSelectionPendingRender = false;
         Composer.setAgentBusy(true);
         syncSpinner();
         Engine.agentSend(prompt)
@@ -12936,7 +13041,7 @@
         return wrap;
       }
 
-      function appendAgentPart(host, partText, { partIdx = 0, lastRealUser = -1, inBuildRun = false, inBuildDrive = false, todoCards = null } = {}) {
+      function appendAgentPart(host, partText, { partIdx = 0, lastRealUser = -1, inBuildRun = false, inBuildDrive = false, todoCards = null, deferFileOps = false, deferLiveText = false, deferFallbackToolText = false, deferFreeText = false } = {}) {
         let hadOutput = false; // text/artifact/proposal = "real" design output
         const segs = [...segmentAgent(partText)];
         // Design (mockups): the WORK NARRATION (prose interleaved with
@@ -12961,9 +13066,17 @@
         };
         // One tool action = ONE fold (call as label, result as body):
         // the result attaches to the fold of the call just rendered.
-        let openToolFold = null, openDiff = null;
+        let openToolFold = null, openDiff = null, openPendingDiff = false;
+        const fileOpHasResult = (idx, name) => {
+          for (let i = idx + 1; i < segs.length; i++) {
+            const s = segs[i];
+            if (s.kind === 'tool_result') return !s.ev?.name || s.ev.name === name;
+            if (s.kind === 'tool_call') return false;
+          }
+          return false;
+        };
         segs.forEach((seg, segIdx) => {
-          if (seg.kind !== 'tool_call' && seg.kind !== 'tool_result') { openToolFold = null; openDiff = null; }
+          if (seg.kind !== 'tool_call' && seg.kind !== 'tool_result') { openToolFold = null; openDiff = null; openPendingDiff = false; }
           if (seg.kind === 'reasoning') {
             if (seg.text.trim()) {
               const rb = el('div', { class: 'thinking__body md' });
@@ -13017,20 +13130,25 @@
             // style); other tools fold as before. Design mockups stay tool-quiet — EXCEPT a
             // build drive, where seeing the page files written/edited IS the feedback.
             const fileOp = DIFF_TOOLS.has(seg.ev.name);
+            const fileOpPending = fileOp && deferFileOps && !fileOpHasResult(segIdx, seg.ev.name);
             if (viewMode !== 'design') {
-              if (fileOp) { openDiff = buildDiffCard(seg.ev); host.append(openDiff); }
+              if (fileOpPending) { openPendingDiff = true; host.append(buildDiffPending(seg.ev)); }
+              else if (fileOp) { openDiff = buildDiffCard(seg.ev); host.append(openDiff); }
               else { openToolFold = buildToolFold(seg.ev); host.append(openToolFold); }
             } else if (inBuildDrive && fileOp) {
-              openDiff = buildDiffCard(seg.ev); host.append(openDiff);
+              if (fileOpPending) { openPendingDiff = true; host.append(buildDiffPending(seg.ev)); }
+              else { openDiff = buildDiffCard(seg.ev); host.append(openDiff); }
             }
           } else if (seg.kind === 'tool_result') {
             if (seg.ev.name === 'question') return;
+            if (openPendingDiff) { openPendingDiff = false; return; }
             if (openDiff) { attachDiffResult(openDiff, seg.ev); openDiff = null; }
             else if (viewMode !== 'design') {
               if (openToolFold) { attachToolOutput(openToolFold, seg.ev); openToolFold = null; }
               else host.append(buildResultFold(seg.ev));
             }
           } else if (seg.kind === 'tool_text') {
+            if (deferLiveText || deferFallbackToolText) return;
             // Raw fallback: a 🛠 line with no structured event — show it in the
             // same tool-fold style, summary only (no parsed output body).
             if (viewMode !== 'design') {
@@ -13043,6 +13161,7 @@
           } else if (seg.kind === 'sys') {
             host.append(el('div', { class: 'seg seg--sys', text: seg.text }));
           } else if (seg.text && seg.text.trim()) {
+            if (deferFreeText) return;
             if (segIdx < lastWork) {
               worklogAdd(seg.text); // work narration → collapsed log
             } else {
@@ -13073,21 +13192,76 @@
         return end < 0 ? null : end + U_CLOSE.length;
       }
 
+      function sameLiveNodeShape(a, b) {
+        if (!a || !b || a.nodeType !== b.nodeType) return false;
+        if (a.nodeType === Node.TEXT_NODE) return true;
+        if (a.nodeType !== Node.ELEMENT_NODE) return false;
+        return a.tagName === b.tagName;
+      }
+
+      function syncLiveAttrs(cur, next) {
+        if (cur.nodeType !== Node.ELEMENT_NODE || next.nodeType !== Node.ELEMENT_NODE) return;
+        if (cur.tagName === 'DETAILS' && cur.open && !next.hasAttribute('open')) next.setAttribute('open', '');
+        for (const attr of [...cur.attributes]) {
+          if (!next.hasAttribute(attr.name)) cur.removeAttribute(attr.name);
+        }
+        for (const attr of [...next.attributes]) {
+          if (cur.getAttribute(attr.name) !== attr.value) cur.setAttribute(attr.name, attr.value);
+        }
+      }
+
+      function syncLiveNode(cur, next) {
+        if (!sameLiveNodeShape(cur, next)) {
+          cur.replaceWith(next);
+          return;
+        }
+        if (cur.nodeType === Node.TEXT_NODE) {
+          if (cur.nodeValue !== next.nodeValue) cur.nodeValue = next.nodeValue;
+          return;
+        }
+        syncLiveAttrs(cur, next);
+        const nextKids = [...next.childNodes];
+        let i = 0;
+        for (; i < nextKids.length; i++) {
+          const curKid = cur.childNodes[i];
+          const nextKid = nextKids[i];
+          if (!curKid) cur.append(nextKid);
+          else syncLiveNode(curKid, nextKid);
+        }
+        while (cur.childNodes.length > nextKids.length) cur.lastChild.remove();
+      }
+
+      function syncLiveTailChildren(target, draft) {
+        const nextKids = [...draft.childNodes];
+        let i = 0;
+        for (; i < nextKids.length; i++) {
+          const curKid = target.childNodes[i];
+          const nextKid = nextKids[i];
+          if (!curKid) target.append(nextKid);
+          else syncLiveNode(curKid, nextKid);
+        }
+        while (target.childNodes.length > nextKids.length) target.lastChild.remove();
+      }
+
       function paintLiveTail() {
         if (!liveTail || !liveTail.el) return;
-        liveTail.el.replaceChildren();
+        const draft = el('div');
         const todoCards = [];
-        appendAgentPart(liveTail.el, text.slice(liveTail.start), {
+        appendAgentPart(draft, text.slice(liveTail.start), {
           inBuildRun: liveTail.inBuildRun,
           inBuildDrive: liveTail.inBuildDrive,
           todoCards,
+          deferFileOps: working,
+          deferFallbackToolText: working,
+          deferFreeText: working,
         });
         for (let i = 0; i < todoCards.length - 1; i++) todoCards[i].remove();
-        if (liveTurnStartedAt) liveTail.el.append(buildElapsed(performance.now() - liveTurnStartedAt, true));
+        if (liveTurnStartedAt) draft.append(buildElapsed(performance.now() - liveTurnStartedAt, true));
         if (working && !liveTail.inBuildDrive) {
-          liveTail.el.append(el('div', { class: 'agent-working',
+          draft.append(el('div', { class: 'agent-working',
             text: viewMode === 'design' ? 'The design agent is working' : 'The agent is working' }));
         }
+        syncLiveTailChildren(liveTail.el, draft);
       }
 
       function mountLiveTail(start, inBuildRun, inBuildDrive) {
@@ -13106,20 +13280,30 @@
         liveTail.raf = requestAnimationFrame(() => {
           if (!liveTail) return;
           liveTail.raf = 0;
-          const stick = shouldStickToBottom(view);
+          if (shouldDeferAgentRenderForSelection()) {
+            agentSelectionPendingRender = true;
+            return;
+          }
+          const stick = shouldAgentFollow();
+          const prevScrollTop = view.scrollTop;
           if (inBuildDrive) {
             const bs = Store.getSettings().buildState;
             const old = inner.querySelector('.build-console');
             if (bs && old) old.replaceWith(buildConsole(bs, text, working, text.slice(liveTail.start)));
           }
           paintLiveTail();
-          if (stick) scrollToBottom(view);
+          settleAgentScroll(stick, prevScrollTop);
         });
         return true;
       }
 
       function render() {
-        const stick = shouldStickToBottom(view);
+        if (shouldDeferAgentRenderForSelection()) {
+          agentSelectionPendingRender = true;
+          return;
+        }
+        agentSelectionPendingRender = false;
+        const stick = shouldAgentFollow();
         const prevScrollTop = view.scrollTop;
         if (viewMode !== 'agent') hideActiveQuestion();
         // FAST PATH while the design Generating screen is up: refresh it IN PLACE
@@ -13131,7 +13315,7 @@
         if (genEl && genEl.parentNode === inner && viewMode === 'design' &&
             working && convId === liveConvId && designPhase() !== 'questions') {
           syncGeneratingScreen(genEl);
-          settleScroll(view, stick, prevScrollTop);
+          settleAgentScroll(stick, prevScrollTop);
           return;
         }
         const hasContent = !!visibleText();
@@ -13207,7 +13391,7 @@
           // keep running instead of restarting (looking frozen) every render.
           if (!genEl) genEl = buildGeneratingScreen(); else syncGeneratingScreen(genEl);
           inner.append(genEl);
-          settleScroll(view, stick, prevScrollTop);
+          settleAgentScroll(stick, prevScrollTop);
           return;
         }
         genEl = null; // left the generating phase: next one starts fresh
@@ -13215,7 +13399,7 @@
           const lastQ = findLastQform();
           if (lastQ) {
             inner.append(buildQForm(lastQ));
-            settleScroll(view, stick, prevScrollTop);
+            settleAgentScroll(stick, prevScrollTop);
             return;
           }
         }
@@ -13278,7 +13462,7 @@
           if (liveTurnStartedAt) inner.append(buildElapsed(performance.now() - liveTurnStartedAt, true));
           inner.append(el('div', { class: 'agent-working', text: viewMode === 'design' ? 'The design agent is working' : 'The agent is working' }));
         }
-        settleScroll(view, stick, prevScrollTop);
+        settleAgentScroll(stick, prevScrollTop);
       }
 
       /* ---- Compaction card: the engine summarizes the conversation to free
@@ -13416,8 +13600,7 @@
         const inp = ev.input || {};
         const name = ev.name || '';
         const path = inp.path || inp.file || inp.filename || inp.entry || '';
-        const verb = (name === 'delete' || name === 'remove') ? 'removes'
-          : (name === 'write' || name === 'create' || name === 'new_file') ? 'writes' : 'edits';
+        const verb = fileOpVerb(name);
         const card = el('div', { class: 'diffcard' });
         card.append(el('div', { class: 'diff-head' }, [
           el('span', { class: 'diff-verb', text: verb }),
@@ -13438,6 +13621,28 @@
         }
         if (over > 0) body.append(el('div', { class: 'diff-more', text: `… +${over} more line${over === 1 ? '' : 's'}` }));
         if (body.childNodes.length) card.append(body);
+        return card;
+      }
+
+      function fileOpVerb(name) {
+        return (name === 'delete' || name === 'remove') ? 'removes'
+          : (name === 'write' || name === 'create' || name === 'new_file') ? 'writes' : 'edits';
+      }
+
+      function fileOpPendingVerb(name) {
+        return (name === 'delete' || name === 'remove') ? 'deleting'
+          : (name === 'write' || name === 'create' || name === 'new_file') ? 'writing' : 'editing';
+      }
+
+      function buildDiffPending(ev) {
+        const inp = ev.input || {};
+        const name = ev.name || '';
+        const path = inp.path || inp.file || inp.filename || inp.entry || '';
+        const card = el('div', { class: 'diffcard diffcard--pending' });
+        card.append(el('div', { class: 'diff-head' }, [
+          el('span', { class: 'diff-verb', text: `${fileOpPendingVerb(name)}...` }),
+          el('span', { class: 'diff-path', text: path || name || 'file' }),
+        ]));
         return card;
       }
       // The tool RESULT after a file op: surface only problems (e.g. the [verify] syntax errors) —
