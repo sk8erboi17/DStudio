@@ -15,11 +15,13 @@ EXT="$(cd "$(dirname "$0")" && pwd)"
 DS4_DIR="${DS4_DIR:-$(cd "$EXT/../../../ds4" 2>/dev/null && pwd)}"
 SRC="$EXT/ds4_design.c"
 MK="$EXT/design.mk"
+REMOTE_DIR="$(cd "$EXT/../remote" && pwd)"
 BIN="$DS4_DIR/ds4-design"
 
 die() { echo "build-design: $*" >&2; exit 1; }
 [ -f "$SRC" ] || die "source not found: $SRC"
 [ -f "$DS4_DIR/Makefile" ] || die "ds4 repo not found: $DS4_DIR"
+[ -f "$REMOTE_DIR/dstudio_remote_llm.c" ] || die "remote helper source not found: $REMOTE_DIR"
 
 case "${1:-build}" in
   status)
@@ -33,12 +35,12 @@ case "${1:-build}" in
 esac
 
 # idempotence: skip if the binary is newer than both the source and the mk
-if [ -f "$BIN" ] && [ "$BIN" -nt "$SRC" ] && [ "$BIN" -nt "$MK" ]; then
+if [ -f "$BIN" ] && [ "$BIN" -nt "$SRC" ] && [ "$BIN" -nt "$MK" ] && [ "$BIN" -nt "$REMOTE_DIR/dstudio_remote_llm.c" ]; then
   echo "build-design: ds4-design already up to date, nothing to do"
   exit 0
 fi
 
 echo "build-design: compiling ds4-design…"
-( cd "$DS4_DIR" && make -f "$MK" DESIGN_SRC="$SRC" ds4-design ) || die "make failed"
+( cd "$DS4_DIR" && make -f "$MK" DESIGN_SRC="$SRC" REMOTE_DIR="$REMOTE_DIR" ds4-design ) || die "make failed"
 [ -f "$BIN" ] || die "build finished without errors but the binary is missing?"
 echo "build-design: OK — $BIN ready"

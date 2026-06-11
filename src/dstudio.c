@@ -25,17 +25,18 @@
  *   GET  /api/design/file?name=R      one project file (path R sandboxed)
  *
  * Security:
- *  - bind ONLY 127.0.0.1; no client path touches the filesystem
- *    (the page is at a fixed path, the API does not open files on request).
+ *  - bind 127.0.0.1 by default. The explicit LAN toggle exposes the app shell,
+ *    /remote, /v1, LAN mirror publishing and Chat web tools;
+ *    host settings/store/download APIs stay local.
  *  - spawn with fork+execv and an argv ARRAY: no shell, no command
  *    injection. Model from a fixed ENUM, integers validated with explicit
  *    ranges, working dir passed as a single argv to --chdir (never concatenated in a shell).
  *  - anti-CSRF: POST /api requests require the custom header X-Requested-With:
- *    ds4web, which another site cannot add without a CORS preflight (here
- *    never granted) → only this origin commands the engine.
+ *    ds4web, which another site cannot add without a CORS preflight; workspace,
+ *    agent/design and settings APIs remain host-local even when LAN is enabled.
  *  - bounded buffers (header REQ_BUF, body BODY_MAX), logging with escaping of
  *    non-printable bytes, I/O timeout, SIGPIPE ignored, partial writes handled.
- *  - page CSP: fetch only towards 127.0.0.1/localhost.
+ *  - page CSP allows http/https fetches so LAN clients can call the host API.
  *  - SIGINT/SIGTERM also shut down the child engine.
  */
 #ifndef _GNU_SOURCE
@@ -50,6 +51,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <sys/stat.h>
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -310,14 +312,21 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #  include "page_data.h"          /* defines: static const char PAGE_B64[] */
 #  define HAVE_EMBEDDED_PAGE 1
 #endif
+#if __has_include("loading_data.h")
+#  include "loading_data.h"       /* defines: static const char LOADING_B64[] */
+#  define HAVE_EMBEDDED_LOADING 1
+#endif
 
 #define DEFAULT_PORT 5500
 /* DS4UI_PAGE_FROM_DISK reads this, relative to the cwd (the repo root). */
 #define PAGE_PATH    "web/index.html"
+#define LOADING_PATH "web/loading.html"
 #define MAX_PAGE     (8 * 1024 * 1024)
 #define REQ_BUF      65536
 #define BODY_MAX     32768   /* roomy enough for a user-authored skill body */
 #define IO_TIMEOUT_S 5
+#define WEB_HELPER_SEARCH_TIMEOUT_MS 25000
+#define WEB_HELPER_VISIT_TIMEOUT_MS 45000
 #define AGENT_BUF_CAP (4 * 1024 * 1024)   /* cap of the agent transcript in RAM */
 
 #define MODEL_STD "ds4flash.gguf"
@@ -353,6 +362,8 @@ static engine_cfg g_cfg;
 static char      g_ds4_dir[1024] = "../ds4";
 static char      g_web_dir[1024] = "";       /* this DStudio checkout (holds extension/) */
 static char      g_workdir[1024] = "";       /* agent: --chdir; design: --workspace */
+static char      g_remote_base_url[1024] = ""; /* LAN client: local agent/design, remote model */
+static char      g_remote_model[128] = "";
 static char      g_design_dir[1024] = "";    /* last design workspace: the preview
                                                 stays servable even after stop */
 
@@ -367,6 +378,20 @@ static int  g_err_fd = -1;   /* child stderr (read)  */
 static char  *g_store = NULL;
 static size_t g_store_len = 0;
 static long   g_store_rev = 0;
+
+/* LAN client mirrors: clients keep their own local stores, but publish snapshots
+ * here so the host can inspect their chats. GET is host-local; LAN clients only
+ * get POST access to write their own snapshot. */
+typedef struct lan_client_snapshot {
+    char id[128];
+    char name[160];
+    char *json;
+    size_t json_len;
+    long updated_ms;
+    struct lan_client_snapshot *next;
+} lan_client_snapshot;
+static lan_client_snapshot *g_lan_clients = NULL;
+static long g_lan_clients_rev = 0;
 
 /* /remote share: one chat intentionally exposed to LAN clients. It is separate
  * from the local workspace, sidebar, settings and full conversation store. */
@@ -429,6 +454,7 @@ static const char DESIGN_HEADERS[] =
 static char g_bind_host[64] = "127.0.0.1";
 static int  g_srv_fd = -1;     /* HTTP listen socket (rebindable for the LAN toggle) */
 static int  g_http_port = 5500;
+static int  g_reply_cors = 0;
 /* Set by the windowed launcher (app.cc) BEFORE forking the server: a pre-picked FREE port,
  * so if 5500 is squatted (e.g. a leftover Django runserver) DStudio opens on the next free
  * port instead of a blank window. 0 = not forced (CLI/headless uses the argv/default port). */
@@ -449,9 +475,15 @@ static void send_response_hdrs(int fd, const char *status, const char *ctype,
                                const char *body, size_t blen, int head_only,
                                const char *extra_headers) {
     char hdr[1024];
+    static const char CORS_RESPONSE_HEADERS[] =
+        "Access-Control-Allow-Origin: *\r\n"
+        "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+        "Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With\r\n";
+    int add_cors = g_reply_cors && !(extra_headers && strstr(extra_headers, "Access-Control-Allow-Origin:"));
     int n = snprintf(hdr, sizeof hdr,
-                     "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n%s\r\n",
-                     status, ctype, blen, extra_headers);
+                     "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n%s%s\r\n",
+                     status, ctype, blen, extra_headers ? extra_headers : "",
+                     add_cors ? CORS_RESPONSE_HEADERS : "");
     if (n < 0 || (size_t)n >= sizeof hdr) return;
     if (send_all(fd, hdr, (size_t)n) < 0) return;
     if (!head_only && blen > 0) send_all(fd, body, blen);
@@ -470,14 +502,86 @@ static void send_json(int fd, const char *status, const char *body) {
     send_response(fd, status, "application/json; charset=utf-8", body, strlen(body), 0);
 }
 
+static void send_json_cors(int fd, const char *status, const char *body) {
+    static const char CORS_JSON_HEADERS[] =
+        "Access-Control-Allow-Origin: *\r\n"
+        "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+        "Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With\r\n";
+    send_response_hdrs(fd, status, "application/json; charset=utf-8", body, strlen(body), 0,
+                       CORS_JSON_HEADERS);
+}
+
+static void send_cors_options(int fd) {
+    static const char CORS_OPTIONS_HEADERS[] =
+        "Access-Control-Allow-Origin: *\r\n"
+        "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+        "Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With\r\n"
+        "Access-Control-Max-Age: 600\r\n";
+    send_response_hdrs(fd, "204 No Content", "text/plain; charset=utf-8", "", 0, 0,
+                       CORS_OPTIONS_HEADERS);
+}
+
+static int ascii_eq_ci(char a, char b) {
+    if (a >= 'A' && a <= 'Z') a = (char)(a + ('a' - 'A'));
+    if (b >= 'A' && b <= 'Z') b = (char)(b + ('a' - 'A'));
+    return a == b;
+}
+
+static int mem_contains_ci(const char *hay, size_t hlen, const char *needle) {
+    size_t nlen = strlen(needle);
+    if (!hay || !needle || nlen == 0 || hlen < nlen) return 0;
+    for (size_t i = 0; i + nlen <= hlen; i++) {
+        size_t j = 0;
+        while (j < nlen && ascii_eq_ci(hay[i + j], needle[j])) j++;
+        if (j == nlen) return 1;
+    }
+    return 0;
+}
+
+static void relay_engine_response(int client_fd, int engine_fd, int cors) {
+    char head[65536];
+    size_t got = 0;
+    int sent_head = 0;
+    while (got < sizeof head - 1) {
+        ssize_t n = read(engine_fd, head + got, sizeof head - 1 - got);
+        if (n <= 0) break;
+        got += (size_t)n;
+        head[got] = '\0';
+        char *end = strstr(head, "\r\n\r\n");
+        if (!end) continue;
+        size_t hlen = (size_t)(end - head);
+        if (send_all(client_fd, head, hlen) != 0) return;
+        if (cors && !mem_contains_ci(head, hlen, "\r\nAccess-Control-Allow-Origin:")) {
+            static const char CORS_RESPONSE_HEADERS[] =
+                "\r\nAccess-Control-Allow-Origin: *"
+                "\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS"
+                "\r\nAccess-Control-Allow-Headers: Content-Type, Accept, X-Requested-With";
+            if (send_all(client_fd, CORS_RESPONSE_HEADERS, strlen(CORS_RESPONSE_HEADERS)) != 0) return;
+        }
+        if (send_all(client_fd, "\r\n\r\n", 4) != 0) return;
+        size_t body = hlen + 4;
+        if (got > body && send_all(client_fd, head + body, got - body) != 0) return;
+        sent_head = 1;
+        break;
+    }
+    if (!sent_head && got > 0) {
+        if (send_all(client_fd, head, got) != 0) return;
+    }
+    char buf[16384];
+    ssize_t n;
+    while ((n = read(engine_fd, buf, sizeof buf)) > 0) {
+        if (send_all(client_fd, buf, (size_t)n) != 0) break;
+    }
+}
+
 static int set_nonblock(int fd) {
     int fl = fcntl(fd, F_GETFL, 0);
     if (fl < 0) return -1;
     return fcntl(fd, F_SETFL, fl | O_NONBLOCK);
 }
 
-static char *read_page_disk(size_t *out_len) {
-    FILE *f = fopen(PAGE_PATH, "rb");
+static char *read_html_disk(const char *path, size_t *out_len) {
+    FILE *f = fopen(path, "rb");
     if (!f) return NULL;
     if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
     long sz = ftell(f);
@@ -491,7 +595,15 @@ static char *read_page_disk(size_t *out_len) {
     return buf;
 }
 
-#ifdef HAVE_EMBEDDED_PAGE
+static char *read_page_disk(size_t *out_len) {
+    return read_html_disk(PAGE_PATH, out_len);
+}
+
+static char *read_loading_disk(size_t *out_len) {
+    return read_html_disk(LOADING_PATH, out_len);
+}
+
+#if defined(HAVE_EMBEDDED_PAGE) || defined(HAVE_EMBEDDED_LOADING)
 /* Decodes base64 → malloc'd buffer. Ignores spaces/newlines. Returns
  * NULL on malformed input. Table: value+1 for valid characters, 0 = not
  * valid (so 'A'→1 is distinguished from the default zeroed entries). */
@@ -538,6 +650,15 @@ static char *read_page(size_t *out_len) {
     }
 #endif
     return read_page_disk(out_len);
+}
+
+static char *read_loading_page(size_t *out_len) {
+#ifdef HAVE_EMBEDDED_LOADING
+    if (!getenv("DS4UI_PAGE_FROM_DISK")) {
+        return base64_decode(LOADING_B64, out_len);
+    }
+#endif
+    return read_loading_disk(out_len);
 }
 
 static void sanitize(char *s) {
@@ -961,6 +1082,10 @@ static int port_listening(int port) {
 static int open_listener(const char *host, int port) {
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return -1;
+#ifndef _WIN32
+    int fdfl = fcntl(s, F_GETFD, 0);
+    if (fdfl >= 0) (void)fcntl(s, F_SETFD, fdfl | FD_CLOEXEC);
+#endif
     int yes = 1;
 #ifdef _WIN32
     (void)setsockopt((SOCKET)(intptr_t)s, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof yes);
@@ -977,35 +1102,159 @@ static int open_listener(const char *host, int port) {
     return s;
 }
 
+static int open_first_listener(const char *host, int *port_io) {
+    int start = *port_io;
+    int end = start + 40;
+    if (end > 65535) end = 65535;
+    for (int p = start; p <= end; p++) {
+        int fd = open_listener(host, p);
+        if (fd >= 0) {
+            *port_io = p;
+            return fd;
+        }
+    }
+    return -1;
+}
+
+static int ipv4_usable_lan(uint32_t ip) {
+    if ((ip >> 24) == 127) return 0;        /* loopback */
+    if ((ip >> 16) == 0xA9FE) return 0;     /* 169.254 link-local */
+    if (ip == 0) return 0;
+    return 1;
+}
+
+static int ipv4_private_lan(uint32_t ip) {
+    return (ip >> 24) == 10 ||
+           ((ip >> 24) == 192 && ((ip >> 16) & 0xFF) == 168) ||
+           ((ip >> 24) == 172 && ((ip >> 20) & 0xF) == 1);
+}
+
+static int lan_ip_text(const char *text, char *out, size_t outsz) {
+    if (!text || !out || outsz == 0) return 0;
+    while (*text && isspace((unsigned char)*text)) text++;
+    char tmp[INET_ADDRSTRLEN];
+    size_t n = strcspn(text, " \t\r\n");
+    if (n == 0 || n >= sizeof tmp) return 0;
+    memcpy(tmp, text, n);
+    tmp[n] = '\0';
+    struct in_addr a;
+    if (inet_pton(AF_INET, tmp, &a) != 1) return 0;
+    if (!ipv4_usable_lan(ntohl(a.s_addr))) return 0;
+    snprintf(out, outsz, "%s", tmp);
+    return 1;
+}
+
+static int lan_ip_route(char *out, size_t outsz) {
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0) return 0;
+    struct sockaddr_in dst;
+    memset(&dst, 0, sizeof dst);
+    dst.sin_family = AF_INET;
+    dst.sin_port = htons(80);
+    if (inet_pton(AF_INET, "8.8.8.8", &dst.sin_addr) != 1) { close(s); return 0; }
+    if (connect(s, (struct sockaddr *)&dst, sizeof dst) != 0) { close(s); return 0; }
+    struct sockaddr_in local;
+    socklen_t len = sizeof local;
+    if (getsockname(s, (struct sockaddr *)&local, &len) != 0) { close(s); return 0; }
+    close(s);
+    uint32_t ip = ntohl(local.sin_addr.s_addr);
+    if (!ipv4_usable_lan(ip)) return 0;
+    return inet_ntop(AF_INET, &local.sin_addr, out, (socklen_t)outsz) != NULL;
+}
+
+#ifdef __APPLE__
+static int lan_ip_macos_command(const char *cmd, char *out, size_t outsz) {
+    FILE *p = popen(cmd, "r");
+    if (!p) return 0;
+    char line[256] = "";
+    if (!fgets(line, sizeof line, p)) line[0] = '\0';
+    pclose(p);
+    return lan_ip_text(line, out, outsz);
+}
+
+static int lan_ip_macos_service(char *out, size_t outsz) {
+    FILE *p = popen("/usr/sbin/route -n get default 2>/dev/null", "r");
+    char iface[64] = "";
+    if (p) {
+        char line[256];
+        while (fgets(line, sizeof line, p)) {
+            char *s = strstr(line, "interface:");
+            if (!s) continue;
+            s += strlen("interface:");
+            while (*s && isspace((unsigned char)*s)) s++;
+            size_t n = strcspn(s, " \t\r\n");
+            if (n > 0 && n < sizeof iface) {
+                memcpy(iface, s, n);
+                iface[n] = '\0';
+            }
+            break;
+        }
+        pclose(p);
+    }
+    if (iface[0]) {
+        int safe = 1;
+        for (char *s = iface; *s; s++) {
+            unsigned char c = (unsigned char)*s;
+            if (!(isalnum(c) || c == '-' || c == '_' || c == '.')) { safe = 0; break; }
+        }
+        if (safe) {
+            char cmd[160];
+            snprintf(cmd, sizeof cmd, "/usr/sbin/ipconfig getifaddr %s 2>/dev/null", iface);
+            if (lan_ip_macos_command(cmd, out, outsz)) return 1;
+        }
+    }
+
+    const char *ifaces[] = { "en0", "en1", "en2", "en3", "en4", "en5", "en6", "en7", "en8", "en9", "en10", "en11", "en12" };
+    for (size_t i = 0; i < sizeof ifaces / sizeof ifaces[0]; i++) {
+        char cmd[160];
+        snprintf(cmd, sizeof cmd, "/usr/sbin/ipconfig getifaddr %s 2>/dev/null", ifaces[i]);
+        if (lan_ip_macos_command(cmd, out, outsz)) return 1;
+    }
+    return 0;
+}
+#endif
+
 /* Best-effort primary LAN IPv4 of this machine (skips loopback / link-local /
  * down interfaces). Prefers a private range (192.168/10/172.16-31). Writes the
  * dotted IP into `out`; returns 1 if one was found, 0 otherwise. */
 static int lan_ip(char *out, size_t outsz) {
 #ifdef _WIN32
-    (void)out; (void)outsz;
-    return 0;
+    return lan_ip_route(out, outsz);
 #else
+    char routed[INET_ADDRSTRLEN] = "";
+    (void)lan_ip_route(routed, sizeof routed);
+
     struct ifaddrs *ifs = NULL;
-    if (getifaddrs(&ifs) != 0) return 0;
+    if (getifaddrs(&ifs) != 0) {
+        if (routed[0]) { snprintf(out, outsz, "%s", routed); return 1; }
+#ifdef __APPLE__
+        return lan_ip_macos_service(out, outsz);
+#else
+        return 0;
+#endif
+    }
     char first[INET_ADDRSTRLEN] = "", priv[INET_ADDRSTRLEN] = "";
     for (struct ifaddrs * a = ifs; a; a = a->ifa_next) {
         if (!a->ifa_addr || a->ifa_addr->sa_family != AF_INET) continue;
         if (!(a->ifa_flags & IFF_UP) || (a->ifa_flags & IFF_LOOPBACK)) continue;
         struct sockaddr_in *sin = (struct sockaddr_in *)a->ifa_addr;
         uint32_t ip = ntohl(sin->sin_addr.s_addr);
-        if ((ip >> 24) == 127) continue;            /* loopback */
-        if ((ip >> 16) == 0xA9FE) continue;         /* 169.254 link-local */
+        if (!ipv4_usable_lan(ip)) continue;
         char buf[INET_ADDRSTRLEN];
         if (!inet_ntop(AF_INET, &sin->sin_addr, buf, sizeof buf)) continue;
         if (!first[0]) snprintf(first, sizeof first, "%s", buf);
-        int is_priv = (ip >> 24) == 10 ||
-                      ((ip >> 24) == 192 && ((ip >> 16) & 0xFF) == 168) ||
-                      ((ip >> 24) == 172 && ((ip >> 20) & 0xF) == 1);
-        if (is_priv && !priv[0]) snprintf(priv, sizeof priv, "%s", buf);
+        if (ipv4_private_lan(ip) && !priv[0]) snprintf(priv, sizeof priv, "%s", buf);
     }
     freeifaddrs(ifs);
     const char *pick = priv[0] ? priv : first;
-    if (!pick[0]) return 0;
+    if (!pick[0] && routed[0]) pick = routed;
+    if (!pick[0]) {
+#ifdef __APPLE__
+        return lan_ip_macos_service(out, outsz);
+#else
+        return 0;
+#endif
+    }
     snprintf(out, outsz, "%s", pick);
     return 1;
 #endif
@@ -1443,6 +1692,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
         dup2(op[1], STDOUT_FILENO);
         dup2(ep[1], STDERR_FILENO);
         close(op[0]); close(op[1]); close(ep[0]); close(ep[1]);
+        if (g_srv_fd >= 0) close(g_srv_fd);
         char *argv[] = {
             "./ds4-server", "-m", (char *)current_model_rel(),
             "--host", g_bind_host, "--port", ports, "--ctx", ctxs, "--power", pows,
@@ -1476,13 +1726,18 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
  * The edits below are generated (escaping verified) from an anchored table.
  * ============================================================================ */
 #define JSONL_MARK "/*DS4UI_JSONL*/"
-#define JSONL_PATCH_VERSION 14  /* bump when the edits change: forces the rebuild */
+#define WEB_CDP_MARK "/*DS4UI_WEB_CDP*/"
+#define WEB_DIRECT_NAV_MARK "/*DS4UI_WEB_DIRECT_NAV*/"
+#define JSONL_PATCH_VERSION 19  /* bump when the edits change: forces the rebuild */
+#define JSONL_REMOTE_AGENT_FRAGMENT "extension/remote/ds4_agent_remote.cfrag"
 
 static const char *JSONL_EDITS[][2] = {
+  { "#include \"ds4_web.h\"\n",
+    "#include \"ds4_web.h\"\n#include \"dstudio_remote_llm.h\" /*DS4UI_JSONL*/\n" },
   { "    bool non_interactive;\n",
-    "    bool non_interactive;\n    bool jsonl; /*DS4UI_JSONL*/\n    bool web_tool_mode; /*DS4UI_JSONL*/\n    const char *web_tool; /*DS4UI_JSONL*/\n    const char *web_query; /*DS4UI_JSONL*/\n    const char *web_url; /*DS4UI_JSONL*/\n" },
+    "    bool non_interactive;\n    bool jsonl; /*DS4UI_JSONL*/\n    bool web_tool_mode; /*DS4UI_JSONL*/\n    const char *web_tool; /*DS4UI_JSONL*/\n    const char *web_query; /*DS4UI_JSONL*/\n    const char *web_url; /*DS4UI_JSONL*/\n    const char *remote_base_url; /*DS4UI_JSONL*/\n    const char *remote_model; /*DS4UI_JSONL*/\n" },
   { "        } else if (!strcmp(arg, \"--non-interactive\")) {\n            c.non_interactive = true;\n",
-    "        } else if (!strcmp(arg, \"--non-interactive\")) {\n            c.non_interactive = true;\n        } else if (!strcmp(arg, \"--jsonl\")) {   /*DS4UI_JSONL*/\n            c.jsonl = true;\n        } else if (!strcmp(arg, \"--web-tool\")) {   /*DS4UI_JSONL*/\n            c.web_tool_mode = true;\n            c.web_tool = need_arg(&i, argc, argv, arg);\n        } else if (!strcmp(arg, \"--query\")) {   /*DS4UI_JSONL*/\n            c.web_query = need_arg(&i, argc, argv, arg);\n        } else if (!strcmp(arg, \"--url\")) {   /*DS4UI_JSONL*/\n            c.web_url = need_arg(&i, argc, argv, arg);\n" },
+    "        } else if (!strcmp(arg, \"--non-interactive\")) {\n            c.non_interactive = true;\n        } else if (!strcmp(arg, \"--jsonl\")) {   /*DS4UI_JSONL*/\n            c.jsonl = true;\n        } else if (!strcmp(arg, \"--web-tool\")) {   /*DS4UI_JSONL*/\n            c.web_tool_mode = true;\n            c.web_tool = need_arg(&i, argc, argv, arg);\n        } else if (!strcmp(arg, \"--query\")) {   /*DS4UI_JSONL*/\n            c.web_query = need_arg(&i, argc, argv, arg);\n        } else if (!strcmp(arg, \"--url\")) {   /*DS4UI_JSONL*/\n            c.web_url = need_arg(&i, argc, argv, arg);\n        } else if (!strcmp(arg, \"--remote-base-url\")) {   /*DS4UI_JSONL*/\n            c.remote_base_url = need_arg(&i, argc, argv, arg);\n        } else if (!strcmp(arg, \"--remote-model\")) {   /*DS4UI_JSONL*/\n            c.remote_model = need_arg(&i, argc, argv, arg);\n" },
   { "static void renderer_write(agent_token_renderer *r, const char *s, size_t n) {\n",
     "/*DS4UI_JSONL*/\n/* Opt-in structured output for the UI: one JSON line per event, prefixed by\n * \\x1e (Record Separator) so the consumer tells events from text without\n * heuristics. Additive: active only with --jsonl. */\nstatic void ds4ui_json_escape(const char *s, char *out, size_t cap) {\n    size_t o = 0;\n    for (; s && *s && o + 7 < cap; s++) {\n        unsigned char c = (unsigned char)*s;\n        if (c == '\"' || c == '\\\\') { out[o++] = '\\\\'; out[o++] = (char)c; }\n        else if (c == '\\n') { out[o++] = '\\\\'; out[o++] = 'n'; }\n        else if (c == '\\r') { out[o++] = '\\\\'; out[o++] = 'r'; }\n        else if (c == '\\t') { out[o++] = '\\\\'; out[o++] = 't'; }\n        else if (c < 0x20) { o += (size_t)snprintf(out + o, cap - o, \"\\\\u%04x\", c); }\n        else out[o++] = (char)c;\n    }\n    out[o] = '\\0';\n}\nstatic void ds4ui_emit_event(agent_worker *w, const char *type) {\n    char line[128];\n    int k = snprintf(line, sizeof line, \"\\x1e{\\\"type\\\":\\\"%s\\\"}\\n\", type);\n    agent_publish(w, line, (size_t)k);\n}\nstatic void ds4ui_emit_tool_call(agent_worker *w, const agent_tool_call *tc) {\n    char nm[256];\n    ds4ui_json_escape(tc->name ? tc->name : \"\", nm, sizeof nm);\n    char line[16384];   /* edit old/new + write content need room for the diff the UI renders */\n    int k = snprintf(line, sizeof line,\n        \"\\x1e{\\\"type\\\":\\\"tool_call\\\",\\\"name\\\":\\\"%s\\\",\\\"input\\\":{\", nm);\n    /* snprintf returns the REQUESTED length, not the written one: never add to k\n     * a value that does not fit (k past the buffer = OOB on line+k and a publish\n     * of stack bytes). An arg that does not fit truncates HERE, at a JSON boundary. */\n    for (int j = 0; j < tc->argc; j++) {\n        char an[128], av[6144];\n        ds4ui_json_escape(tc->args[j].name ? tc->args[j].name : \"\", an, sizeof an);\n        ds4ui_json_escape(tc->args[j].value ? tc->args[j].value : \"\", av, sizeof av);\n        int r = snprintf(line + k, sizeof line - k, \"%s\\\"%s\\\":\\\"%s\\\"\", j ? \",\" : \"\", an, av);\n        if (r < 0 || r >= (int)(sizeof line - k) - 4) { line[k] = '\\0'; break; }\n        k += r;\n    }\n    k += snprintf(line + k, sizeof line - k, \"}}\\n\");\n    agent_publish(w, line, (size_t)k);\n}\nstatic void ds4ui_emit_tool_result(agent_worker *w, const char *name, const char *res) {\n    char nm[256];\n    ds4ui_json_escape(name ? name : \"\", nm, sizeof nm);\n    size_t rl = res ? strlen(res) : 0;\n    size_t cap = rl * 6 + 512;\n    char *line = (char *)malloc(cap);\n    if (!line) return;\n    int k = snprintf(line, cap,\n        \"\\x1e{\\\"type\\\":\\\"tool_result\\\",\\\"name\\\":\\\"%s\\\",\\\"output\\\":\\\"\", nm);\n    char *esc = (char *)malloc(rl * 6 + 8);\n    if (esc) { ds4ui_json_escape(res ? res : \"\", esc, rl * 6 + 8);\n               k += snprintf(line + k, cap - k, \"%s\", esc); free(esc); }\n    k += snprintf(line + k, cap - k, \"\\\"}\\n\");\n    agent_publish(w, line, (size_t)k);\n    free(line);\n}\nstatic void renderer_write(agent_token_renderer *r, const char *s, size_t n) {\n" },
   { "static void ds4ui_emit_tool_call(agent_worker *w, const agent_tool_call *tc) {\n",
@@ -1998,6 +2253,268 @@ static const char *JSONL_EDITS[][2] = {
     "#ifndef DS4_AGENT_TEST_NO_MAIN\n" },
   { "int main(int argc, char **argv) {\n    agent_config cfg = parse_options(argc, argv);\n",
     "int main(int argc, char **argv) {\n    agent_config cfg = parse_options(argc, argv);\n    if (cfg.web_tool_mode) return ds4ui_run_web_tool(&cfg);   /*DS4UI_JSONL*/\n" },
+  { "    ds4_engine *engine = NULL;\n",
+    "    if (cfg.remote_base_url && cfg.remote_base_url[0]) return ds4ui_run_remote_agent(&cfg);   /*DS4UI_JSONL*/\n    ds4_engine *engine = NULL;\n" },
+};
+
+static const char *WEB_CDP_EDITS[][2] = {
+  { "static bool web_open_tab(ds4_web *web, const char *url, web_tab *tab,\n"
+    "                         char *err, size_t err_len) {\n"
+    "    memset(tab, 0, sizeof(*tab));\n"
+    "\n"
+    "    char *browser_url = web_browser_ws_url(web, err, err_len);\n"
+    "    if (!browser_url) return false;\n"
+    "    cdp_ws browser = {.fd = -1, .web = web};\n"
+    "    if (web_ws_connect(browser_url, &browser, err, err_len) != 0) {\n"
+    "        free(browser_url);\n"
+    "        return false;\n"
+    "    }\n"
+    "    free(browser_url);\n"
+    "\n"
+    "    char *qurl = web_json_quote(url);\n"
+    "    web_buf params = {0};\n"
+    "    web_buf_puts(&params, \"{\\\"url\\\":\");\n"
+    "    web_buf_puts(&params, qurl);\n"
+    "    web_buf_puts(&params, \",\\\"background\\\":true,\\\"newWindow\\\":false}\");\n"
+    "    free(qurl);\n"
+    "    char *params_s = web_buf_take(&params);\n"
+    "    char *resp = web_cdp_call(&browser, \"Target.createTarget\",\n"
+    "                              params_s, err, err_len);\n"
+    "    free(params_s);\n"
+    "    web_ws_close(&browser);\n"
+    "    if (!resp) return false;\n"
+    "\n"
+    "    tab->id = web_json_get_string(resp, \"targetId\");\n"
+    "    free(resp);\n"
+    "    if (!tab->id) {\n"
+    "        web_tab_free(tab);\n"
+    "        web_set_err(err, err_len, \"Chrome did not return a page target id\");\n"
+    "        return false;\n"
+    "    }\n"
+    "\n"
+    "    char ws_url[PATH_MAX + 128];\n"
+    "    snprintf(ws_url, sizeof(ws_url), \"ws://127.0.0.1:%d/devtools/page/%s\",\n"
+    "             web->port, tab->id);\n"
+    "    tab->ws_url = web_xstrdup(ws_url);\n"
+    "    return true;\n"
+    "}\n",
+    WEB_CDP_MARK "\n"
+    "static bool ds4ui_web_json_get_int(const char *json, const char *key, int *out) {\n"
+    "    char pat[128];\n"
+    "    snprintf(pat, sizeof(pat), \"\\\"%s\\\"\", key);\n"
+    "    const char *p = json;\n"
+    "    while ((p = strstr(p, pat)) != NULL) {\n"
+    "        p += strlen(pat);\n"
+    "        while (*p == ' ' || *p == '\\t' || *p == '\\r' || *p == '\\n') p++;\n"
+    "        if (*p++ != ':') continue;\n"
+    "        while (*p == ' ' || *p == '\\t' || *p == '\\r' || *p == '\\n') p++;\n"
+    "        char *end = NULL;\n"
+    "        long v = strtol(p, &end, 10);\n"
+    "        if (end != p) {\n"
+    "            if (out) *out = (int)v;\n"
+    "            return true;\n"
+    "        }\n"
+    "    }\n"
+    "    return false;\n"
+    "}\n"
+    "\n"
+    "static void ds4ui_web_json_excerpt(const char *json, char *out, size_t out_len) {\n"
+    "    if (!out || out_len == 0) return;\n"
+    "    out[0] = '\\0';\n"
+    "    if (!json) return;\n"
+    "    size_t j = 0;\n"
+    "    bool space = false;\n"
+    "    for (const char *p = json; *p && j + 1 < out_len; p++) {\n"
+    "        unsigned char c = (unsigned char)*p;\n"
+    "        if (c == '\\r' || c == '\\n' || c == '\\t' || c == ' ') {\n"
+    "            if (space) continue;\n"
+    "            c = ' ';\n"
+    "            space = true;\n"
+    "        } else {\n"
+    "            space = false;\n"
+    "        }\n"
+    "        out[j++] = (char)c;\n"
+    "    }\n"
+    "    out[j] = '\\0';\n"
+    "}\n"
+    "\n"
+    "static void ds4ui_web_cdp_response_error(const char *resp, char *out, size_t out_len) {\n"
+    "    if (!out || out_len == 0) return;\n"
+    "    char *msg = web_json_get_string(resp, \"message\");\n"
+    "    int code = 0;\n"
+    "    bool has_code = ds4ui_web_json_get_int(resp, \"code\", &code);\n"
+    "    if (msg && msg[0] && has_code) {\n"
+    "        web_set_err(out, out_len, \"CDP error %d: %s\", code, msg);\n"
+    "    } else if (msg && msg[0]) {\n"
+    "        web_set_err(out, out_len, \"CDP error: %s\", msg);\n"
+    "    } else {\n"
+    "        char excerpt[240];\n"
+    "        ds4ui_web_json_excerpt(resp, excerpt, sizeof(excerpt));\n"
+    "        web_set_err(out, out_len, \"CDP response missing targetId: %s\",\n"
+    "                    excerpt[0] ? excerpt : \"empty response\");\n"
+    "    }\n"
+    "    free(msg);\n"
+    "}\n"
+    "\n"
+    "static void ds4ui_web_tab_set_ws_from_id(ds4_web *web, web_tab *tab) {\n"
+    "    char ws_url[PATH_MAX + 128];\n"
+    "    snprintf(ws_url, sizeof(ws_url), \"ws://127.0.0.1:%d/devtools/page/%s\",\n"
+    "             web->port, tab->id);\n"
+    "    tab->ws_url = web_xstrdup(ws_url);\n"
+    "}\n"
+    "\n"
+    "static bool ds4ui_web_open_tab_cdp_once(ds4_web *web, const char *url, web_tab *tab,\n"
+    "                                       char *detail, size_t detail_len) {\n"
+    "    char local_err[256] = {0};\n"
+    "\n"
+    "    memset(tab, 0, sizeof(*tab));\n"
+    "    if (web_set_cancel_err(web, detail, detail_len)) return false;\n"
+    "\n"
+    "    char *browser_url = web_browser_ws_url(web, local_err, sizeof(local_err));\n"
+    "    if (!browser_url) {\n"
+    "        web_set_err(detail, detail_len, \"%s\",\n"
+    "                    local_err[0] ? local_err : \"Chrome did not return a browser WebSocket URL\");\n"
+    "        return false;\n"
+    "    }\n"
+    "    cdp_ws browser = {.fd = -1, .web = web};\n"
+    "    if (web_ws_connect(browser_url, &browser, local_err, sizeof(local_err)) != 0) {\n"
+    "        free(browser_url);\n"
+    "        web_set_err(detail, detail_len, \"%s\",\n"
+    "                    local_err[0] ? local_err : \"could not connect to Chrome browser WebSocket\");\n"
+    "        return false;\n"
+    "    }\n"
+    "    free(browser_url);\n"
+    "\n"
+    "    char *qurl = web_json_quote(url);\n"
+    "    web_buf params = {0};\n"
+    "    web_buf_puts(&params, \"{\\\"url\\\":\");\n"
+    "    web_buf_puts(&params, qurl);\n"
+    "    web_buf_puts(&params, \",\\\"background\\\":true,\\\"newWindow\\\":false}\");\n"
+    "    free(qurl);\n"
+    "    char *params_s = web_buf_take(&params);\n"
+    "    char *resp = web_cdp_call(&browser, \"Target.createTarget\",\n"
+    "                              params_s, local_err, sizeof(local_err));\n"
+    "    free(params_s);\n"
+    "    web_ws_close(&browser);\n"
+    "    if (!resp) {\n"
+    "        web_set_err(detail, detail_len, \"%s\",\n"
+    "                    local_err[0] ? local_err : \"Target.createTarget returned no response\");\n"
+    "        return false;\n"
+    "    }\n"
+    "\n"
+    "    tab->id = web_json_get_string(resp, \"targetId\");\n"
+    "    if (!tab->id) {\n"
+    "        ds4ui_web_cdp_response_error(resp, detail, detail_len);\n"
+    "        free(resp);\n"
+    "        web_tab_free(tab);\n"
+    "        return false;\n"
+    "    }\n"
+    "    free(resp);\n"
+    "\n"
+    "    ds4ui_web_tab_set_ws_from_id(web, tab);\n"
+    "    return true;\n"
+    "}\n"
+    "\n"
+    "static bool ds4ui_web_open_tab_http_fallback(ds4_web *web, const char *url, web_tab *tab,\n"
+    "                                            char *detail, size_t detail_len) {\n"
+    "    char local_err[256] = {0};\n"
+    "\n"
+    "    memset(tab, 0, sizeof(*tab));\n"
+    "    if (web_set_cancel_err(web, detail, detail_len)) return false;\n"
+    "\n"
+    "    char *enc = web_url_encode(url);\n"
+    "    web_buf path = {0};\n"
+    "    web_buf_puts(&path, \"/json/new?\");\n"
+    "    web_buf_puts(&path, enc);\n"
+    "    free(enc);\n"
+    "\n"
+    "    char *path_s = web_buf_take(&path);\n"
+    "    char *body = web_http_request(\"PUT\", web->port, path_s, local_err, sizeof(local_err));\n"
+    "    free(path_s);\n"
+    "    if (!body) {\n"
+    "        web_set_err(detail, detail_len, \"%s\",\n"
+    "                    local_err[0] ? local_err : \"/json/new returned no response\");\n"
+    "        return false;\n"
+    "    }\n"
+    "\n"
+    "    tab->id = web_json_get_string(body, \"id\");\n"
+    "    tab->ws_url = web_json_get_string(body, \"webSocketDebuggerUrl\");\n"
+    "    if (!tab->id) {\n"
+    "        ds4ui_web_cdp_response_error(body, detail, detail_len);\n"
+    "        free(body);\n"
+    "        web_tab_free(tab);\n"
+    "        return false;\n"
+    "    }\n"
+    "    if (!tab->ws_url || !tab->ws_url[0]) {\n"
+    "        free(tab->ws_url);\n"
+    "        tab->ws_url = NULL;\n"
+    "        ds4ui_web_tab_set_ws_from_id(web, tab);\n"
+    "    }\n"
+    "    free(body);\n"
+    "    return true;\n"
+    "}\n"
+    "\n"
+    "static bool web_open_tab(ds4_web *web, const char *url, web_tab *tab,\n"
+    "                         char *err, size_t err_len) {\n"
+    "    char last_cdp[512] = {0};\n"
+    "    char fallback_err[512] = {0};\n"
+    "    static const int backoff_ms[] = {150, 300};\n"
+    "\n"
+    "    memset(tab, 0, sizeof(*tab));\n"
+    "    for (int attempt = 0; attempt < 3; attempt++) {\n"
+    "        char detail[512] = {0};\n"
+    "        if (ds4ui_web_open_tab_cdp_once(web, url, tab, detail, sizeof(detail)))\n"
+    "            return true;\n"
+    "        web_set_err(last_cdp, sizeof(last_cdp), \"%s\",\n"
+    "                    detail[0] ? detail : \"Target.createTarget failed\");\n"
+    "        if (web_err_is_interrupted(last_cdp)) {\n"
+    "            web_set_err(err, err_len, \"%s\", last_cdp);\n"
+    "            return false;\n"
+    "        }\n"
+    "        if (attempt < 2 && !web_sleep_ms(web, backoff_ms[attempt])) {\n"
+    "            web_set_err(err, err_len, \"interrupted\");\n"
+    "            return false;\n"
+    "        }\n"
+    "    }\n"
+    "\n"
+    "    if (ds4ui_web_open_tab_http_fallback(web, url, tab, fallback_err, sizeof(fallback_err)))\n"
+    "        return true;\n"
+    "    if (web_err_is_interrupted(fallback_err)) {\n"
+    "        web_set_err(err, err_len, \"%s\", fallback_err);\n"
+    "        return false;\n"
+    "    }\n"
+    "\n"
+    "    web_set_err(err, err_len,\n"
+    "                \"Chrome could not create a page target: %s; fallback /json/new failed: %s\",\n"
+    "                last_cdp[0] ? last_cdp : \"Target.createTarget failed\",\n"
+    "                fallback_err[0] ? fallback_err : \"unknown error\");\n"
+    "    return false;\n"
+    "}\n" },
+};
+
+static const char *WEB_DIRECT_NAV_EDITS[][2] = {
+  { "    web_tab tab = {0};\n"
+    "    if (!web_open_tab(web, \"about:blank\", &tab, err, err_len)) return NULL;\n",
+    WEB_DIRECT_NAV_MARK "\n"
+    "    web_tab tab = {0};\n"
+    "    if (!web_open_tab(web, url, &tab, err, err_len)) return NULL;\n" },
+  { "    if (!web_cdp_navigate(&ws, url, err, err_len) ||\n"
+    "        !web_wait_navigated_ready(&ws, url, err, err_len))\n"
+    "    {\n"
+    "        web_ws_close(&ws);\n"
+    "        web_close_tab(web, &tab);\n"
+    "        web_tab_free(&tab);\n"
+    "        return NULL;\n"
+    "    }\n",
+    "    if (!web_wait_navigated_ready(&ws, url, err, err_len))\n"
+    "    {\n"
+    "        web_ws_close(&ws);\n"
+    "        web_close_tab(web, &tab);\n"
+    "        web_tab_free(&tab);\n"
+    "        return NULL;\n"
+    "    }\n" },
+  { "static bool web_cdp_navigate(cdp_ws *ws, const char *url,\n",
+    "static bool __attribute__((unused)) web_cdp_navigate(cdp_ws *ws, const char *url,\n" },
 };
 
 /* Inline Makefile for `make -f -`: includes the ds4 Makefile (reuses
@@ -2008,10 +2525,15 @@ static const char *JSONL_MAKEFILE =
     "JSONL_CFLAGS ?= $(CFLAGS)\n"
     "JSONL_CORE_OBJS ?= $(CORE_OBJS)\n"
     "JSONL_LDLIBS ?= $(METAL_LDLIBS)\n"
+    "DSTUDIO_REMOTE_DIR ?= ../DStudio/extension/remote\n"
     "ds4_agent_jsonl.o: ds4_agent.c\n"
-    "\t$(CC) $(JSONL_CFLAGS) -c -o $@ ds4_agent.c\n"
-    "ds4-agent-jsonl: ds4_agent_jsonl.o ds4_help.o ds4_web.o ds4_kvstore.o linenoise.o $(JSONL_CORE_OBJS)\n"
-    "\t$(CC) $(JSONL_CFLAGS) -o $@ ds4_agent_jsonl.o ds4_help.o ds4_web.o ds4_kvstore.o linenoise.o $(JSONL_CORE_OBJS) $(JSONL_LDLIBS)\n";
+    "\t$(CC) $(JSONL_CFLAGS) -I$(DSTUDIO_REMOTE_DIR) -c -o $@ ds4_agent.c\n"
+    "ds4_web_ds4ui.o: ds4_web_ds4ui.c\n"
+    "\t$(CC) $(JSONL_CFLAGS) -c -o $@ ds4_web_ds4ui.c\n"
+    "dstudio_remote_llm.o: $(DSTUDIO_REMOTE_DIR)/dstudio_remote_llm.c $(DSTUDIO_REMOTE_DIR)/dstudio_remote_llm.h\n"
+    "\t$(CC) $(JSONL_CFLAGS) -I$(DSTUDIO_REMOTE_DIR) -c -o $@ $(DSTUDIO_REMOTE_DIR)/dstudio_remote_llm.c\n"
+    "ds4-agent-jsonl: ds4_agent_jsonl.o dstudio_remote_llm.o ds4_help.o ds4_web_ds4ui.o ds4_kvstore.o linenoise.o $(JSONL_CORE_OBJS)\n"
+    "\t$(CC) $(JSONL_CFLAGS) -o $@ ds4_agent_jsonl.o dstudio_remote_llm.o ds4_help.o ds4_web_ds4ui.o ds4_kvstore.o linenoise.o $(JSONL_CORE_OBJS) $(JSONL_LDLIBS)\n";
 
 static char *jsonl_read_file(const char *path, size_t *len) {
     FILE *f = fopen(path, "rb");
@@ -2036,6 +2558,8 @@ static int jsonl_write_file(const char *path, const char *data, size_t len) {
     fclose(f);
     return ok;
 }
+
+static int jsonl_insert_remote_agent_fragment(char **buf, size_t *n);
 
 static void jsonl_normalize_newlines(char *b, size_t *len) {
     size_t r = 0, w = 0, n = len ? *len : strlen(b);
@@ -2275,9 +2799,145 @@ static int jsonl_apply(const char *src_path) {
             return 0;
         }
     }
+    if (!jsonl_insert_remote_agent_fragment(&buf, &n)) {
+        free(buf);
+        return 0;
+    }
     int ok = jsonl_write_file(src_path, buf, n);
     free(buf);
     return ok;
+}
+
+static int web_cdp_source_has_fix(const char *buf) {
+    return buf &&
+           strstr(buf, "web_open_tab_http_fallback") &&
+           strstr(buf, "Chrome could not create a page target");
+}
+
+static int web_direct_nav_source_has_fix(const char *buf) {
+    return buf &&
+           strstr(buf, "web_open_tab(web, url, &tab, err, err_len)") &&
+           !strstr(buf, "web_open_tab(web, \"about:blank\", &tab, err, err_len)") &&
+           !strstr(buf, "web_cdp_navigate(&ws, url, err, err_len)");
+}
+
+static int web_cdp_apply(char **buf, size_t *n) {
+    if (strstr(*buf, WEB_CDP_MARK) || web_cdp_source_has_fix(*buf))
+        return 1;  /* already patched or integrated upstream */
+    int nedits = (int)(sizeof WEB_CDP_EDITS / sizeof WEB_CDP_EDITS[0]);
+    for (int i = 0; i < nedits; i++) {
+        if (!jsonl_replace_once(buf, n, WEB_CDP_EDITS[i][0], WEB_CDP_EDITS[i][1]))
+            return 0;
+    }
+    return 1;
+}
+
+static int web_direct_nav_apply(char **buf, size_t *n) {
+    if (strstr(*buf, WEB_DIRECT_NAV_MARK) || web_direct_nav_source_has_fix(*buf))
+        return 1;
+    int nedits = (int)(sizeof WEB_DIRECT_NAV_EDITS / sizeof WEB_DIRECT_NAV_EDITS[0]);
+    for (int i = 0; i < nedits; i++) {
+        if (!jsonl_replace_once(buf, n, WEB_DIRECT_NAV_EDITS[i][0], WEB_DIRECT_NAV_EDITS[i][1]))
+            return 0;
+    }
+    return 1;
+}
+
+static int web_cdp_write_temp(const char *src_path, const char *tmp_path) {
+    size_t n;
+    char *buf = jsonl_read_file(src_path, &n);
+    if (!buf) return 0;
+    jsonl_normalize_newlines(buf, &n);
+    int ok = web_cdp_apply(&buf, &n) &&
+             web_direct_nav_apply(&buf, &n) &&
+             jsonl_write_file(tmp_path, buf, n);
+    free(buf);
+    return ok;
+}
+
+static void jsonl_unlink_if_exists(const char *path) {
+    if (path && path[0]) unlink(path);
+}
+
+static char *jsonl_read_remote_agent_fragment(size_t *len) {
+    char path[DSTUDIO_PATH_MAX + 256];
+    if (g_web_dir[0]) {
+        snprintf(path, sizeof path, "%s/%s", g_web_dir, JSONL_REMOTE_AGENT_FRAGMENT);
+        char *body = jsonl_read_file(path, len);
+        if (body) return body;
+    }
+    return jsonl_read_file(JSONL_REMOTE_AGENT_FRAGMENT, len);
+}
+
+static int jsonl_insert_remote_agent_fragment(char **buf, size_t *n) {
+    static const char anchor[] =
+        "static int run_agent_non_interactive(ds4_engine *engine, agent_config *cfg) {\n";
+    if (strstr(*buf, "/*DS4UI_REMOTE_AGENT*/")) return 0;
+    size_t frag_len = 0;
+    char *frag = jsonl_read_remote_agent_fragment(&frag_len);
+    if (!frag) return 0;
+    jsonl_normalize_newlines(frag, &frag_len);
+    size_t repl_len = frag_len + strlen(anchor) + 2;
+    char *repl = malloc(repl_len);
+    if (!repl) { free(frag); return 0; }
+    int k = snprintf(repl, repl_len, "%s\n%s", frag, anchor);
+    free(frag);
+    if (k < 0 || (size_t)k >= repl_len) { free(repl); return 0; }
+    int ok = jsonl_replace_once(buf, n, anchor, repl);
+    free(repl);
+    return ok;
+}
+
+static int web_cdp_check_anchors(const char *src_path) {
+    size_t n;
+    char *buf = jsonl_read_file(src_path, &n);
+    if (!buf) { printf("check-anchors: cannot read %s\n", src_path); return -1; }
+    jsonl_normalize_newlines(buf, &n);
+    int fails = 0;
+    if (web_cdp_source_has_fix(buf)) {
+        printf("check-anchors: web CDP fix already present upstream\n");
+    } else if (strstr(buf, WEB_CDP_MARK)) {
+        printf("check-anchors: NOTE source already contains %s (already patched?)\n", WEB_CDP_MARK);
+    } else {
+        int nedits = (int)(sizeof WEB_CDP_EDITS / sizeof WEB_CDP_EDITS[0]);
+        for (int i = 0; i < nedits; i++) {
+            const char *find = WEB_CDP_EDITS[i][0];
+            const char *repl = WEB_CDP_EDITS[i][1];
+            int cnt = 0;
+            for (char *q = strstr(buf, find); q; q = strstr(q + 1, find)) cnt++;
+            const char *verdict = cnt == 1 ? "ok" : (cnt == 0 ? "MISSING" : "AMBIGUOUS");
+            if (cnt != 1) fails++;
+            char preview[56]; size_t k = 0;
+            for (const char *s = find; *s && *s != '\n' && k + 1 < sizeof preview; s++) preview[k++] = *s;
+            preview[k] = '\0';
+            printf("  web anchor %2d/%d  %-9s  %s%s\n", i + 1, nedits, verdict, preview,
+                   k < strlen(find) ? " ..." : "");
+            if (cnt == 1 && !jsonl_replace_once(&buf, &n, find, repl)) fails++;
+        }
+    }
+
+    if (strstr(buf, WEB_DIRECT_NAV_MARK) || web_direct_nav_source_has_fix(buf)) {
+        printf("check-anchors: web direct navigation already present\n");
+    } else {
+        int nedits = (int)(sizeof WEB_DIRECT_NAV_EDITS / sizeof WEB_DIRECT_NAV_EDITS[0]);
+        for (int i = 0; i < nedits; i++) {
+            const char *find = WEB_DIRECT_NAV_EDITS[i][0];
+            const char *repl = WEB_DIRECT_NAV_EDITS[i][1];
+            int cnt = 0;
+            for (char *q = strstr(buf, find); q; q = strstr(q + 1, find)) cnt++;
+            const char *verdict = cnt == 1 ? "ok" : (cnt == 0 ? "MISSING" : "AMBIGUOUS");
+            if (cnt != 1) fails++;
+            char preview[56]; size_t k = 0;
+            for (const char *s = find; *s && *s != '\n' && k + 1 < sizeof preview; s++) preview[k++] = *s;
+            preview[k] = '\0';
+            printf("  web nav anchor %2d/%d  %-9s  %s%s\n", i + 1, nedits, verdict, preview,
+                   k < strlen(find) ? " ..." : "");
+            if (cnt == 1 && !jsonl_replace_once(&buf, &n, find, repl)) fails++;
+        }
+    }
+    free(buf);
+    printf("check-anchors: web direct navigation %s\n", fails ? "would fail" : "ok");
+    return fails;
 }
 
 /* Dry-run for CI: verify every JSONL_EDITS anchor is present exactly once in
@@ -2307,8 +2967,16 @@ static int jsonl_check_anchors(const char *src_path) {
                k < strlen(find) ? " …" : "");
         if (cnt == 1 && !jsonl_replace_once(&buf, &n, find, repl)) fails++;
     }
+    if (jsonl_insert_remote_agent_fragment(&buf, &n)) {
+        printf("  remote fragment     ok         %s\n", JSONL_REMOTE_AGENT_FRAGMENT);
+    } else {
+        printf("  remote fragment     MISSING    %s or run_agent_non_interactive anchor\n",
+               JSONL_REMOTE_AGENT_FRAGMENT);
+        fails++;
+    }
     free(buf);
-    printf("check-anchors: %d/%d ok, %d would fail\n", nedits - fails, nedits, fails);
+    printf("check-anchors: %d/%d ok, %d would fail\n",
+           (nedits + 1) - fails, nedits + 1, fails);
     return fails;
 }
 
@@ -2326,8 +2994,8 @@ static int jsonl_make(const char *ds4_abs, const char *target) {
         if (chdir(ds4_abs) != 0) _exit(127);
         dup2(pp[0], STDIN_FILENO);
         close(pp[0]); close(pp[1]);
-        char core_arg[4096], libs_arg[4096], cflags_arg[4096], cc_arg[4096];
-        char *argv[10];
+        char core_arg[4096], libs_arg[4096], cflags_arg[4096], cc_arg[4096], remote_arg[4096];
+        char *argv[12];
         int ai = 0;
         argv[ai++] = "make";
         argv[ai++] = "-f";
@@ -2341,6 +3009,7 @@ static int jsonl_make(const char *ds4_abs, const char *target) {
         if (cf && cf[0]) { snprintf(cflags_arg, sizeof cflags_arg, "JSONL_CFLAGS=%s", cf); argv[ai++] = cflags_arg; }
         if (co && co[0]) { snprintf(core_arg, sizeof core_arg, "JSONL_CORE_OBJS=%s", co); argv[ai++] = core_arg; }
         if (ll && ll[0]) { snprintf(libs_arg, sizeof libs_arg, "JSONL_LDLIBS=%s", ll); argv[ai++] = libs_arg; }
+        if (g_web_dir[0]) { snprintf(remote_arg, sizeof remote_arg, "DSTUDIO_REMOTE_DIR=%s/extension/remote", g_web_dir); argv[ai++] = remote_arg; }
         argv[ai] = NULL;
         execvp("make", argv);
         _exit(127);
@@ -2453,11 +3122,18 @@ static int run_build_jsonl(const char *action) {
     char ds4_abs[DSTUDIO_PATH_MAX];
     if (!realpath(g_ds4_dir, ds4_abs)) return 0;
     char src[DSTUDIO_PATH_MAX + 64], bak[DSTUDIO_PATH_MAX + 64];
+    char web_src[DSTUDIO_PATH_MAX + 64], web_tmp[DSTUDIO_PATH_MAX + 64], web_obj[DSTUDIO_PATH_MAX + 64];
     char bin[DSTUDIO_PATH_MAX + 64], ver[DSTUDIO_PATH_MAX + 64];
     snprintf(src, sizeof src, "%s/ds4_agent.c", ds4_abs);
     snprintf(bak, sizeof bak, "%s/ds4_agent.c.ds4ui.bak", ds4_abs);
+    snprintf(web_src, sizeof web_src, "%s/ds4_web.c", ds4_abs);
+    snprintf(web_tmp, sizeof web_tmp, "%s/ds4_web_ds4ui.c", ds4_abs);
+    snprintf(web_obj, sizeof web_obj, "%s/ds4_web_ds4ui.o", ds4_abs);
     snprintf(bin, sizeof bin, "%s/ds4-agent-jsonl", ds4_abs);
     snprintf(ver, sizeof ver, "%s/ds4-agent-jsonl.ver", ds4_abs);
+
+    jsonl_unlink_if_exists(web_tmp);
+    jsonl_unlink_if_exists(web_obj);
 
     char *cur = jsonl_read_file(src, NULL);
     if (!cur) return 0;
@@ -2473,16 +3149,30 @@ static int run_build_jsonl(const char *action) {
 
     /* idempotence: skip if the binary is newer than the source and the patch
      * version matches (a change to the edits bumps JSONL_PATCH_VERSION). */
-    struct stat sb, bb;
-    if (access(bin, X_OK) == 0 && stat(src, &sb) == 0 && stat(bin, &bb) == 0 &&
-        bb.st_mtime >= sb.st_mtime && jsonl_sentinel_ok(ver)) {
+    struct stat sb, wb, bb;
+    if (access(bin, X_OK) == 0 &&
+        stat(src, &sb) == 0 && stat(web_src, &wb) == 0 && stat(bin, &bb) == 0 &&
+        bb.st_mtime >= sb.st_mtime && bb.st_mtime >= wb.st_mtime &&
+        jsonl_sentinel_ok(ver)) {
         return 1;
     }
 
     if (!jsonl_copy_preserve(src, bak)) return 0;
-    if (!jsonl_apply(src)) { jsonl_copy_preserve(bak, src); return 0; }
+    if (!web_cdp_write_temp(web_src, web_tmp)) {
+        jsonl_copy_preserve(bak, src);
+        jsonl_unlink_if_exists(web_tmp);
+        return 0;
+    }
+    if (!jsonl_apply(src)) {
+        jsonl_copy_preserve(bak, src);
+        jsonl_unlink_if_exists(web_tmp);
+        jsonl_unlink_if_exists(web_obj);
+        return 0;
+    }
     int ok = jsonl_make(ds4_abs, "ds4-agent-jsonl");
     jsonl_copy_preserve(bak, src);  /* ALWAYS restore, even if the build fails */
+    jsonl_unlink_if_exists(web_tmp);
+    jsonl_unlink_if_exists(web_obj);
     if (ok) {
         char vs[16];
         int vn = snprintf(vs, sizeof vs, "%d\n", JSONL_PATCH_VERSION);
@@ -2576,7 +3266,8 @@ static int run_ext_script(const char *script, const char *action) {
 
 /* Starts ds4-agent-jsonl --non-interactive --jsonl. in/out/err on pipe. */
 static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, size_t errsz) {
-    if (!file_present(current_model_rel())) {
+    int remote_model = g_remote_base_url[0] != '\0';
+    if (!remote_model && !file_present(current_model_rel())) {
         snprintf(err, errsz, "model %.16s not found in %.180s",
                  g_variant, g_ds4_dir);
         return 0;
@@ -2585,7 +3276,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
      * (api_start calls stop_child first). If the server port still responds,
      * there is an EXTERNAL ds4-server: ds4's instance-lock forbids two large
      * processes together, so we refuse with a clear message. */
-    if (port_listening(ENGINE_DEFAULTS.port)) {
+    if (!g_remote_base_url[0] && port_listening(ENGINE_DEFAULTS.port)) {
         snprintf(err, errsz,
                  "a ds4-server is running outside the launcher (port %d): close it before "
                  "switching to the agent — the instance-lock forbids two large processes",
@@ -2597,6 +3288,10 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
      * (e.g. the agent was reworked upstream and the anchors no longer apply), run
      * the STOCK ds4-agent — the UI parses its raw output instead. */
     int use_jsonl = g_use_jsonl && run_build_jsonl("build");
+    if (remote_model && !use_jsonl) {
+        snprintf(err, errsz, "remote agent requires the structured ds4-agent-jsonl build");
+        return 0;
+    }
     if (g_use_jsonl && !use_jsonl)
         printf("engine: jsonl patch unavailable — falling back to stock ds4-agent (raw output)\n");
     const char *agent_bin = use_jsonl
@@ -2625,11 +3320,13 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
 
     /* The agent's --chdir changes cwd BEFORE loading the assets, so both the
      * model and the Metal sources must be passed as ABSOLUTE paths. */
-    char cand[DSTUDIO_PATH_MAX + 256], model_abs[DSTUDIO_PATH_MAX], ds4_abs[DSTUDIO_PATH_MAX];
-    snprintf(cand, sizeof cand, "%s/%s", g_ds4_dir, current_model_rel());
-    if (!realpath(cand, model_abs)) {
-        snprintf(err, errsz, "model not resolvable: %.200s", cand);
-        return 0;
+    char cand[DSTUDIO_PATH_MAX + 256], model_abs[DSTUDIO_PATH_MAX] = "", ds4_abs[DSTUDIO_PATH_MAX];
+    if (!remote_model) {
+        snprintf(cand, sizeof cand, "%s/%s", g_ds4_dir, current_model_rel());
+        if (!realpath(cand, model_abs)) {
+            snprintf(err, errsz, "model not resolvable: %.200s", cand);
+            return 0;
+        }
     }
     if (!realpath(g_ds4_dir, ds4_abs)) {
         snprintf(err, errsz, "ds4 dir not resolvable: %.200s", g_ds4_dir);
@@ -2700,12 +3397,17 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
                      : "--think";
-    char *argv[20]; int n = 0;
+    char *argv[26]; int n = 0;
     argv[n++] = exe;
     argv[n++] = "--non-interactive";
     if (use_jsonl) argv[n++] = "--jsonl";
-    argv[n++] = "--cpu";
-    argv[n++] = "-m"; argv[n++] = model_abs;
+    if (remote_model) {
+        argv[n++] = "--remote-base-url"; argv[n++] = g_remote_base_url;
+        argv[n++] = "--remote-model"; argv[n++] = g_remote_model[0] ? g_remote_model : "ds4";
+    } else {
+        argv[n++] = "--cpu";
+        argv[n++] = "-m"; argv[n++] = model_abs;
+    }
     argv[n++] = "-c"; argv[n++] = ctxs;
     argv[n++] = "--power"; argv[n++] = pows;
     argv[n++] = think_flag;
@@ -2724,24 +3426,32 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     if (pid < 0) { snprintf(err, errsz, "fork: %s", strerror(errno)); free(skill_sys); return 0; }
     if (pid == 0) {
         if (chdir(g_ds4_dir) != 0) _exit(127);   /* to find ./ds4-agent */
-        child_setenv_metal();
-        child_setenv_metal_sources(ds4_abs);     /* absolute: survive --chdir */
+        if (!remote_model) {
+            child_setenv_metal();
+            child_setenv_metal_sources(ds4_abs); /* absolute: survive --chdir */
+        }
         child_setenv_skills();                   /* on-demand skill()/design_system() packs */
         dup2(ip[0], STDIN_FILENO);
         dup2(op[1], STDOUT_FILENO);
         dup2(ep[1], STDERR_FILENO);
         close(ip[0]); close(ip[1]); close(op[0]); close(op[1]); close(ep[0]); close(ep[1]);
+        if (g_srv_fd >= 0) close(g_srv_fd);
         char binpath[64];
         snprintf(binpath, sizeof binpath, "./%s", agent_bin);
         char *think_flag = cfg->think == 0 ? "--nothink"
                          : cfg->think == 2 ? "--think-max"
                          : "--think";
-        char *argv[20]; int n = 0;
+        char *argv[26]; int n = 0;
         argv[n++] = binpath;
         argv[n++] = "--non-interactive";
         if (use_jsonl) argv[n++] = "--jsonl";
-        argv[n++] = "--metal";
-        argv[n++] = "-m"; argv[n++] = model_abs;
+        if (remote_model) {
+            argv[n++] = "--remote-base-url"; argv[n++] = g_remote_base_url;
+            argv[n++] = "--remote-model"; argv[n++] = g_remote_model[0] ? g_remote_model : "ds4";
+        } else {
+            argv[n++] = "--metal";
+            argv[n++] = "-m"; argv[n++] = model_abs;
+        }
         argv[n++] = "-c"; argv[n++] = ctxs;
         argv[n++] = "--power"; argv[n++] = pows;
         argv[n++] = think_flag;
@@ -2764,7 +3474,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     g_agent_working = 0;
     printf("engine: agent pid %d (chdir %s, %s, %s)\n", (int)pid, wd,
            cfg->uncensored ? "uncensored" : "standard",
-           use_jsonl ? "jsonl" : "stock/raw");
+           remote_model ? "jsonl/remote-model" : (use_jsonl ? "jsonl" : "stock/raw"));
     return 1;
 }
 
@@ -2774,12 +3484,13 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
  * THIS repo (extension/design/ds4_design.c, native \x1e events): the script
  * compiles it in the ds4 repo as an untracked output, without patch or .bak. */
 static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, size_t errsz) {
-    if (!file_present(current_model_rel())) {
+    int remote_model = g_remote_base_url[0] != '\0';
+    if (!remote_model && !file_present(current_model_rel())) {
         snprintf(err, errsz, "model %.16s not found in %.180s",
                  g_variant, g_ds4_dir);
         return 0;
     }
-    if (port_listening(ENGINE_DEFAULTS.port)) {
+    if (!remote_model && port_listening(ENGINE_DEFAULTS.port)) {
         snprintf(err, errsz,
                  "a ds4-server is running outside the launcher (port %d): close it before "
                  "switching to the design — the instance-lock forbids two large processes",
@@ -2826,11 +3537,16 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
                      : "--think";
-    char *argv[18]; int n = 0;
+    char *argv[24]; int n = 0;
     argv[n++] = exe;
     argv[n++] = "--jsonl";
-    argv[n++] = "--cpu";
-    argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
+    if (remote_model) {
+        argv[n++] = "--remote-base-url"; argv[n++] = g_remote_base_url;
+        argv[n++] = "--remote-model"; argv[n++] = g_remote_model[0] ? g_remote_model : "ds4";
+    } else {
+        argv[n++] = "--cpu";
+        argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
+    }
     argv[n++] = "-c"; argv[n++] = ctxs;
     argv[n++] = "--power"; argv[n++] = pows;
     argv[n++] = think_flag;
@@ -2849,20 +3565,26 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     if (pid < 0) { snprintf(err, errsz, "fork: %s", strerror(errno)); free(skill_sys); return 0; }
     if (pid == 0) {
         if (chdir(g_ds4_dir) != 0) _exit(127);   /* to find ./ds4-design */
-        child_setenv_metal();
+        if (!remote_model) child_setenv_metal();
         child_setenv_skills();                   /* on-demand skill()/design_system() packs */
         dup2(ip[0], STDIN_FILENO);
         dup2(op[1], STDOUT_FILENO);
         dup2(ep[1], STDERR_FILENO);
         close(ip[0]); close(ip[1]); close(op[0]); close(op[1]); close(ep[0]); close(ep[1]);
+        if (g_srv_fd >= 0) close(g_srv_fd);
         char *think_flag = cfg->think == 0 ? "--nothink"
                          : cfg->think == 2 ? "--think-max"
                          : "--think";
-        char *argv[18]; int n = 0;
+        char *argv[24]; int n = 0;
         argv[n++] = "./ds4-design";
         argv[n++] = "--jsonl";
-        argv[n++] = "--metal";
-        argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
+        if (remote_model) {
+            argv[n++] = "--remote-base-url"; argv[n++] = g_remote_base_url;
+            argv[n++] = "--remote-model"; argv[n++] = g_remote_model[0] ? g_remote_model : "ds4";
+        } else {
+            argv[n++] = "--metal";
+            argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
+        }
         argv[n++] = "-c"; argv[n++] = ctxs;
         argv[n++] = "--power"; argv[n++] = pows;
         argv[n++] = think_flag;
@@ -2884,8 +3606,9 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     agent_buf_reset();
     reset_progress("Starting the design agent…");
     g_agent_working = 0;
-    printf("engine: design pid %d (workspace %s, %s)\n", (int)pid, wd,
-           cfg->uncensored ? "uncensored" : "standard");
+    printf("engine: design pid %d (workspace %s, %s%s)\n", (int)pid, wd,
+           cfg->uncensored ? "uncensored" : "standard",
+           remote_model ? ", remote-model" : "");
     return 1;
 }
 
@@ -3028,7 +3751,7 @@ static void api_status(int fd) {
         "{\"mode\":\"%s\",\"running\":%s,\"ready\":%s,\"loadPct\":%d,\"stage\":\"%s\","
         "\"agentWorking\":%s,\"workdir\":\"%s\",\"config\":%s,\"jsonl\":%s,"
         "\"ds4dir\":\"%s\",\"ds4dirOk\":%s,\"webdir\":\"%s\",\"webdirOk\":%s,"
-        "\"lan\":%s,\"lanAddr\":\"%s\","
+        "\"lan\":%s,\"lanAddr\":\"%s\",\"httpPort\":%d,"
         "\"models\":{\"standard\":%s,\"uncensored\":%s},"
         "\"variants\":{\"flash\":%s,\"pro\":%s},\"variant\":\"%s\","
         "\"download\":%s,\"downloadVariant\":\"%s\",\"downloadPct\":%lld,"
@@ -3037,12 +3760,22 @@ static void api_status(int fd) {
         g_load_pct, stage_esc, g_agent_working ? "true" : "false", wd_esc, cfg,
         g_jsonl_active ? "true" : "false",
         d4_esc, ds4_dir_valid() ? "true" : "false", web_esc, web_dir_valid() ? "true" : "false",
-        lan_on ? "true" : "false", lan_addr,
+        lan_on ? "true" : "false", lan_addr, g_http_port,
         model_present(0) ? "true" : "false", model_present(1) ? "true" : "false",
         file_present(MODEL_FLASH) ? "true" : "false", file_present(MODEL_PRO) ? "true" : "false",
         g_variant, g_dl_variant[0] ? "true" : "false", g_dl_variant, dl_pct, err_esc, mf_esc, g_skill, g_design_system,
         g_build_mode);
     send_json(fd, "200 OK", body);
+}
+
+static void api_lan_health(int fd) {
+    char lan_addr[80];
+    int lan_on = lan_status(lan_addr, sizeof lan_addr);
+    char body[180];
+    snprintf(body, sizeof body,
+             "{\"ok\":true,\"app\":\"DStudio\",\"lan\":%s,\"lanAddr\":\"%s\",\"httpPort\":%d}",
+             lan_on ? "true" : "false", lan_addr, g_http_port);
+    send_json_cors(fd, "200 OK", body);
 }
 
 static int doctor_add_check(json_dyn_buf *b, int *first, const char *id, const char *label,
@@ -3487,6 +4220,59 @@ static void parse_cfg(const char *body, engine_cfg *cfg, int *bad) {
     }
 }
 
+static int remote_value_safe(const char *s) {
+    if (!s || !s[0]) return 0;
+    for (const char *p = s; *p; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (c <= 0x20 || c == '"' || c == '\'' || c == '\\') return 0;
+    }
+    return 1;
+}
+
+static int parse_remote_start(const char *body, int allow, char *err, size_t errsz) {
+    char backend[32] = "";
+    char base[1024] = "";
+    char model[128] = "ds4";
+    json_get_string(body, "modelBackend", backend, sizeof backend);
+    json_get_string(body, "remoteBaseUrl", base, sizeof base);
+    json_get_string(body, "remoteModel", model, sizeof model);
+    int lan_client = json_get_bool(body, "lanClient");
+    int enabled = !strcmp(backend, "remote") || base[0];
+    if (!enabled) {
+        if (allow && lan_client) {
+            snprintf(err, errsz, "LAN client Agent/Design requires a remote model host");
+            return 0;
+        }
+        g_remote_base_url[0] = '\0';
+        g_remote_model[0] = '\0';
+        return 1;
+    }
+    if (!allow) {
+        snprintf(err, errsz, "remote model backend is only valid for agent/design");
+        return 0;
+    }
+    if (strcmp(backend, "remote") && backend[0]) {
+        snprintf(err, errsz, "modelBackend must be remote or local");
+        return 0;
+    }
+    if (!base[0]) {
+        snprintf(err, errsz, "remoteBaseUrl is required");
+        return 0;
+    }
+    if (strncmp(base, "http://", 7) != 0 || !remote_value_safe(base)) {
+        snprintf(err, errsz, "remoteBaseUrl must be a safe http:// LAN URL");
+        return 0;
+    }
+    if (!model[0]) snprintf(model, sizeof model, "ds4");
+    if (!remote_value_safe(model) || strlen(model) >= sizeof g_remote_model) {
+        snprintf(err, errsz, "remoteModel is invalid");
+        return 0;
+    }
+    snprintf(g_remote_base_url, sizeof g_remote_base_url, "%s", base);
+    snprintf(g_remote_model, sizeof g_remote_model, "%s", model);
+    return 1;
+}
+
 static void api_start(int fd, const char *body) {
     char mode[16] = "server";
     json_get_string(body, "mode", mode, sizeof mode);
@@ -3505,11 +4291,21 @@ static void api_start(int fd, const char *body) {
         return;
     }
 
+    char remote_err[256] = "";
+    if (!parse_remote_start(body, want_agent || want_design, remote_err, sizeof remote_err)) {
+        char out[512], esc[384];
+        json_escape_into(esc, sizeof esc, remote_err, strlen(remote_err));
+        snprintf(out, sizeof out, "{\"ok\":false,\"error\":\"%s\"}", esc);
+        send_json(fd, "400 Bad Request", out);
+        return;
+    }
+
     char workdir[1024] = "";
     json_get_string(body, "workdir", workdir, sizeof workdir);
     int force = json_get_bool(body, "force");
     /* Whether to try the jsonl patch (default on if the key is absent). */
     g_use_jsonl = strstr(body, "\"jsonl\"") ? json_get_bool(body, "jsonl") : 1;
+    if (g_remote_base_url[0]) g_use_jsonl = 1;
 
     /* Model variant ("flash"|"pro") — picked in the composer. Default stays. */
     char variant[16] = {0};
@@ -4263,8 +5059,10 @@ static void api_set_webdir(int fd, const char *body) {
 
 /* Network toggle: enable=true rebinds the HTTP listener to 0.0.0.0 (reachable on
  * the LAN), enable=false back to 127.0.0.1 (localhost only). Non-loopback clients
- * are still router-limited to /remote and its small API; the full app remains
- * local-only. This POST is behind the anti-CSRF header like other mutating routes. */
+ * can fetch the app shell, /remote, the /v1 model proxy and the engine-control
+ * endpoints needed by Chat/Agent/Design. Host settings, store and model-download
+ * APIs stay local-only. This POST is behind the anti-CSRF header like other
+ * mutating routes. */
 static void api_lan(int fd, const char *body) {
     int enable = json_get_bool(body, "enable");
     const char *want = enable ? "0.0.0.0" : "127.0.0.1";
@@ -4277,9 +5075,9 @@ static void api_lan(int fd, const char *body) {
         if (enable) {
             char ip[INET_ADDRSTRLEN] = "";
             lan_ip(ip, sizeof ip);
-            printf("\n  !  LAN ENABLED from Settings (%s:%d): non-local clients can open only /remote.\n",
+        printf("\n  !  LAN ENABLED from Settings (%s:%d): non-local clients can open the app shell, /remote, /v1 and Chat web tools. Workspace APIs stay host-local.\n",
                    ip[0] ? ip : "0.0.0.0", g_http_port);
-            printf("     The full DStudio app, workspace, settings and store remain loopback-only.\n\n");
+            printf("     Host settings, store and model-download APIs remain loopback-only.\n\n");
         } else {
             if (g_remote_enabled) { g_remote_enabled = 0; g_remote_rev++; }
             printf("DStudio: LAN disabled — localhost only again.\n");
@@ -4289,8 +5087,14 @@ static void api_lan(int fd, const char *body) {
          * on the network, and there is nothing for the user to configure. */
     }
     int on = lan_status(addr, sizeof addr);
-    snprintf(out, sizeof out, "{\"ok\":true,\"lan\":%s,\"lanAddr\":\"%s\",\"engineRestart\":false}",
-             on ? "true" : "false", addr);
+    if (enable && on && !addr[0]) {
+        (void)rebind_http_listener("127.0.0.1");
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"LAN enabled but no LAN IPv4 address was detected\"}");
+        return;
+    }
+    snprintf(out, sizeof out, "{\"ok\":true,\"lan\":%s,\"lanAddr\":\"%s\",\"httpPort\":%d,\"engineRestart\":false}",
+             on ? "true" : "false", addr, g_http_port);
     send_json(fd, "200 OK", out);
 }
 
@@ -4667,6 +5471,77 @@ static void api_store_set(int fd, char *body, size_t len) {
     send_json(fd, "200 OK", out);
 }
 
+static int lan_client_id_ok(const char *id) {
+    size_t n = strlen(id);
+    if (n < 3 || n >= 120) return 0;
+    for (const char *p = id; *p; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (!(isalnum(c) || c == '-' || c == '_' || c == '.')) return 0;
+    }
+    return 1;
+}
+
+static lan_client_snapshot *lan_client_find(const char *id) {
+    for (lan_client_snapshot *c = g_lan_clients; c; c = c->next)
+        if (!strcmp(c->id, id)) return c;
+    return NULL;
+}
+
+static void api_lan_client_chats_set(int fd, char *body, size_t len) {
+    char id[128] = "", name[160] = "";
+    json_get_string(body, "clientId", id, sizeof id);
+    json_get_string(body, "clientName", name, sizeof name);
+    size_t end = len;
+    while (end > 0 && isspace((unsigned char)body[end - 1])) end--;
+    if (!lan_client_id_ok(id) || len < 2 || body[0] != '{' || end == 0 || body[end - 1] != '}') {
+        free(body);
+        send_json_cors(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"invalid client snapshot\"}");
+        return;
+    }
+    lan_client_snapshot *c = lan_client_find(id);
+    if (!c) {
+        c = calloc(1, sizeof *c);
+        if (!c) {
+            free(body);
+            send_json_cors(fd, "500 Internal Server Error", "{\"ok\":false}");
+            return;
+        }
+        snprintf(c->id, sizeof c->id, "%s", id);
+        c->next = g_lan_clients;
+        g_lan_clients = c;
+    }
+    snprintf(c->name, sizeof c->name, "%s", name[0] ? name : id);
+    free(c->json);
+    c->json = body;
+    c->json_len = len;
+    c->updated_ms = (long)(time(NULL) * 1000L);
+    g_lan_clients_rev++;
+    char out[80];
+    snprintf(out, sizeof out, "{\"ok\":true,\"rev\":%ld}", g_lan_clients_rev);
+    send_json_cors(fd, "200 OK", out);
+}
+
+static void api_lan_client_chats_get(int fd) {
+    json_dyn_buf b = {0};
+    int first = 1;
+    int ok = json_dyn_puts(&b, "{\"ok\":true,\"rev\":") &&
+             json_dyn_printf(&b, "%ld", g_lan_clients_rev) &&
+             json_dyn_puts(&b, ",\"clients\":[");
+    for (lan_client_snapshot *c = g_lan_clients; ok && c; c = c->next) {
+        ok = json_dyn_puts(&b, first ? "" : ",") &&
+             json_dyn_putn(&b, c->json, c->json_len);
+        first = 0;
+    }
+    ok = ok && json_dyn_puts(&b, "]}");
+    if (!ok) {
+        free(b.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}");
+        return;
+    }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+}
+
 /* Recursive remove (no shell). Used by the "clear all" wipe for the KV dirs. */
 static void rm_rf(const char *path) {
     struct stat st;
@@ -4725,6 +5600,12 @@ typedef struct {
     char *content;
 } web_source;
 
+typedef struct {
+    web_source *items;
+    int len;
+    int cap;
+} web_source_list;
+
 static char *json_get_string_alloc(const char *body, const char *key) {
     char pat[96];
     snprintf(pat, sizeof pat, "\"%s\"", key);
@@ -4773,11 +5654,106 @@ static int remote_json_ok(const char *body, size_t len) {
     return i < len && body[i] == '{';
 }
 
+static const char *json_value_end_ptr(const char *p) {
+    p += strspn(p, " \t\r\n");
+    if (*p == '"') {
+        for (p++; *p; p++) {
+            if (*p == '\\' && p[1]) { p++; continue; }
+            if (*p == '"') return p + 1;
+        }
+        return NULL;
+    }
+    if (*p == '{' || *p == '[') {
+        char open = *p, close = open == '{' ? '}' : ']';
+        int depth = 0, in_str = 0, esc = 0;
+        for (; *p; p++) {
+            if (in_str) {
+                if (esc) esc = 0;
+                else if (*p == '\\') esc = 1;
+                else if (*p == '"') in_str = 0;
+                continue;
+            }
+            if (*p == '"') in_str = 1;
+            else if (*p == open) depth++;
+            else if (*p == close && --depth == 0) return p + 1;
+        }
+        return NULL;
+    }
+    const char *s = p;
+    while (*p && *p != ',' && *p != '}' && *p != ']' &&
+           !isspace((unsigned char)*p)) p++;
+    return p > s ? p : NULL;
+}
+
+static char *json_top_value_dup(const char *json, const char *key, char required_first) {
+    const char *p = json;
+    if (!p) return NULL;
+    p += strspn(p, " \t\r\n");
+    if (*p++ != '{') return NULL;
+    size_t key_len = strlen(key);
+    while (*p) {
+        p += strspn(p, " \t\r\n");
+        if (*p == '}') return NULL;
+        if (*p != '"') return NULL;
+        const char *ks = ++p;
+        while (*p && !(*p == '"' && p[-1] != '\\')) p++;
+        if (!*p) return NULL;
+        size_t kl = (size_t)(p - ks);
+        p++;
+        p += strspn(p, " \t\r\n");
+        if (*p++ != ':') return NULL;
+        p += strspn(p, " \t\r\n");
+        const char *vs = p;
+        const char *ve = json_value_end_ptr(vs);
+        if (!ve) return NULL;
+        if (kl == key_len && !strncmp(ks, key, key_len) &&
+            (!required_first || *vs == required_first)) {
+            return strndup(vs, (size_t)(ve - vs));
+        }
+        p = ve;
+        p += strspn(p, " \t\r\n");
+        if (*p == ',') { p++; continue; }
+        if (*p == '}') return NULL;
+    }
+    return NULL;
+}
+
 static void remote_ensure_empty_chat(void) {
     if (g_remote_chat) return;
     const char *empty = "{\"id\":\"remote\",\"title\":\"Remote\",\"model\":\"\",\"settings\":{},\"messages\":[]}";
     g_remote_chat = ds4_strdup_local(empty);
     if (g_remote_chat) g_remote_chat_len = strlen(empty);
+}
+
+static char *remote_messages_only_update(char *body) {
+    remote_ensure_empty_chat();
+    char *messages = json_top_value_dup(body, "messages", '[');
+    if (!messages) return NULL;
+    char *id = json_top_value_dup(g_remote_chat, "id", '"');
+    char *title = json_top_value_dup(g_remote_chat, "title", '"');
+    char *model = json_top_value_dup(g_remote_chat, "model", '"');
+    char *settings = json_top_value_dup(g_remote_chat, "settings", '{');
+    if (!id) id = strdup("\"remote\"");
+    if (!title) title = strdup("\"Remote\"");
+    if (!model) model = strdup("\"\"");
+    if (!settings) settings = strdup("{}");
+    json_dyn_buf out = {0};
+    int ok = id && title && model && settings &&
+             json_dyn_puts(&out, "{\"id\":") &&
+             json_dyn_puts(&out, id) &&
+             json_dyn_puts(&out, ",\"title\":") &&
+             json_dyn_puts(&out, title) &&
+             json_dyn_puts(&out, ",\"model\":") &&
+             json_dyn_puts(&out, model) &&
+             json_dyn_puts(&out, ",\"settings\":") &&
+             json_dyn_puts(&out, settings) &&
+             json_dyn_puts(&out, ",\"messages\":") &&
+             json_dyn_puts(&out, messages) &&
+             json_dyn_puts(&out, "}");
+    free(id); free(title); free(model); free(settings); free(messages);
+    if (!ok) { free(out.ptr); return NULL; }
+    free(body);
+    return out.ptr;
 }
 
 static void remote_addr_url(char *addr, size_t addrsz, char *url, size_t urlsz) {
@@ -4819,7 +5795,7 @@ static void api_remote_control(int fd, const char *body) {
         g_remote_rev++;
         char ip[INET_ADDRSTRLEN] = "";
         lan_ip(ip, sizeof ip);
-        printf("\n  !  REMOTE CHAT ENABLED (%s:%d/remote): LAN clients are limited to /remote.\n\n",
+        printf("\n  !  REMOTE CHAT ENABLED (%s:%d/remote): shared chat is available at /remote.\n\n",
                ip[0] ? ip : "0.0.0.0", g_http_port);
     } else {
         g_remote_enabled = 0;
@@ -4850,7 +5826,7 @@ static void api_remote_chat_get(int fd) {
     free(out.ptr);
 }
 
-static void api_remote_chat_set(int fd, char *body, size_t len) {
+static void api_remote_chat_set(int fd, char *body, size_t len, int local_client) {
     if (!g_remote_enabled) {
         free(body);
         send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"remote chat is not enabled\"}");
@@ -4860,6 +5836,16 @@ static void api_remote_chat_set(int fd, char *body, size_t len) {
         free(body);
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"remote chat must be a JSON object\"}");
         return;
+    }
+    if (!local_client) {
+        char *merged = remote_messages_only_update(body);
+        if (!merged) {
+            free(body);
+            send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"remote clients can only update messages\"}");
+            return;
+        }
+        body = merged;
+        len = strlen(body);
     }
     free(g_remote_chat);
     g_remote_chat = body;
@@ -4884,11 +5870,17 @@ static const char REMOTE_PAGE[] =
 ".composer{position:fixed;left:0;right:0;bottom:0;padding:14px 16px 18px;background:linear-gradient(180deg,rgba(7,8,9,0),#070809 22%)}"
 ".bar{max-width:920px;margin:auto;display:flex;align-items:flex-end;gap:10px;border:1px solid var(--line);border-radius:18px;padding:8px;background:#090a0c}"
 "textarea{flex:1;min-height:42px;max-height:160px;resize:none;background:transparent;border:0;color:var(--text);font:inherit;outline:0;padding:8px}button{width:42px;height:42px;border:0;border-radius:13px;background:var(--accent);color:#07101e;font-size:20px;font-weight:700;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}"
-"</style></head><body><div class=\"app\"><header class=\"top\"><span class=\"mark\"></span><span class=\"brand\">DStudio</span><span class=\"tag\">Remote</span><span id=\"status\" class=\"status\">Connecting...</span></header><main id=\"messages\" class=\"messages\"></main><form id=\"form\" class=\"composer\"><div class=\"bar\"><textarea id=\"input\" placeholder=\"Write a message...\" rows=\"1\"></textarea><button id=\"send\" type=\"submit\">&#8593;</button></div></form></div>"
+".settings-btn{width:auto;height:34px;border:1px solid var(--line);border-radius:10px;background:#151922;color:var(--text);font-size:13px;font-weight:600;padding:0 12px}.modal[hidden]{display:none}.modal{position:fixed;inset:0;background:rgba(0,0,0,.62);display:grid;place-items:center;padding:20px;z-index:20}.modal-card{width:min(92vw,430px);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 24px 80px rgba(0,0,0,.55)}.modal-card h2{font-size:18px;margin:0 0 6px}.modal-card p{margin:0 0 14px;color:var(--muted);font-size:13px}.modal-row{display:flex;gap:8px}.modal-row input{flex:1;min-width:0;background:#08090b;border:1px solid var(--line);border-radius:10px;color:var(--text);font:14px ui-monospace,monospace;padding:10px}.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}.modal-actions button,.modal-row button{width:auto;height:38px;font-size:13px;border-radius:10px;padding:0 12px}.btn-plain{background:#171a20!important;color:var(--text)!important}.btn-danger{background:#3a1720!important;color:#ffdce5!important}.lan-msg{min-height:18px;margin-top:8px;color:#ff9d91;font-size:12px}"
+"</style></head><body><div class=\"app\"><header class=\"top\"><span class=\"mark\"></span><span class=\"brand\">DStudio</span><span class=\"tag\">Remote</span><span id=\"status\" class=\"status\">Connecting...</span><button id=\"settings\" type=\"button\" class=\"settings-btn\">Settings</button></header><main id=\"messages\" class=\"messages\"></main><div id=\"modal\" class=\"modal\" hidden><div class=\"modal-card\"><h2>LAN connection</h2><p>This Remote client cannot change the host model or host settings. It can only switch LAN address or switch this device to host mode.</p><label><p>LAN address</p><div class=\"modal-row\"><input id=\"lanaddr\" type=\"text\" spellcheck=\"false\" placeholder=\"192.168.1.207:5500\"><button id=\"lanconnect\" type=\"button\">Connect</button></div></label><div id=\"lanmsg\" class=\"lan-msg\"></div><div class=\"modal-actions\"><button id=\"lanexit\" type=\"button\" class=\"btn-danger\">Switch to host</button><button id=\"modalclose\" type=\"button\" class=\"btn-plain\">Close</button></div></div></div><form id=\"form\" class=\"composer\"><div class=\"bar\"><textarea id=\"input\" placeholder=\"Write a message...\" rows=\"1\"></textarea><button id=\"send\" type=\"submit\">&#8593;</button></div></form></div>"
 "<script>"
 "const $=s=>document.querySelector(s);let chat=null,rev=-1,busy=false,saveTimer=null;"
 "const uid=()=>crypto.randomUUID?crypto.randomUUID():('m_'+Date.now().toString(36)+Math.random().toString(36).slice(2));"
 "function setStatus(t){$('#status').textContent=t||''}"
+"function remoteUrl(raw){let v=String(raw||'').trim();if(!v)throw new Error('Insert the LAN address.');if(!/^https?:\\/\\//i.test(v))v='http://'+v;let u;try{u=new URL(v)}catch{throw new Error('Use an address like 192.168.1.207:5500.')}if(!u.hostname)throw new Error('Use an address like 192.168.1.207:5500.');if(!u.port)u.port='5500';u.pathname='/remote';u.search='';u.hash='';return u.toString()}"
+"function openSettings(){ $('#lanaddr').value=location.host||''; $('#lanmsg').textContent=''; $('#modal').hidden=false }"
+"function closeSettings(){ $('#modal').hidden=true }"
+"function connectLan(){try{location.href=remoteUrl($('#lanaddr').value)}catch(e){$('#lanmsg').textContent=e.message||'Invalid LAN address.'}}"
+"function exitLan(){location.href='http://127.0.0.1:'+((location&&location.port)||'5500')+'/loading.html'}"
 "function start(role){const d=document.createElement('div');d.className='start';d.innerHTML='<span class=\"mark\"></span><span>'+(role==='user'?'You':'DStudio')+'</span>';return d}"
 "function render(){const box=$('#messages');box.innerHTML='';if(!chat){const p=document.createElement('p');p.className='empty';p.textContent='Remote chat is not active. Run /remote on the host.';box.append(p);return}for(const m of chat.messages||[]){if(m.role!=='user'&&m.role!=='assistant')continue;const a=document.createElement('article');a.className='msg '+(m.role==='user'?'user':'assistant');const b=document.createElement('div');b.className='bubble';b.textContent=m.content||'';a.append(start(m.role),b);box.append(a)}box.scrollTop=box.scrollHeight}"
 "async function load(){try{const j=await (await fetch('/api/remote/chat',{cache:'no-store'})).json();if(!j.enabled){chat=null;rev=j.rev;setStatus('Waiting for /remote');render();return}if(j.rev!==rev){chat=j.chat||{title:'Remote',settings:{},messages:[]};rev=j.rev;setStatus(chat.title||'Remote');render()}}catch(e){setStatus('Disconnected')}}"
@@ -4898,6 +5890,7 @@ static const char REMOTE_PAGE[] =
 "async function stream(res,a){const reader=res.body.getReader();const dec=new TextDecoder();let buf='';for(;;){const x=await reader.read();if(x.done)break;buf+=dec.decode(x.value,{stream:true});const parts=buf.split('\\n\\n');buf=parts.pop()||'';for(const p of parts)sse(p,a)}if(buf)sse(buf,a)}"
 "async function send(text){if(!chat||busy||!text.trim())return;busy=true;$('#send').disabled=true;chat.messages=chat.messages||[];chat.messages.push({id:uid(),role:'user',content:text.trim(),createdAt:Date.now()});const a={id:uid(),role:'assistant',content:'',createdAt:Date.now(),streaming:true};chat.messages.push(a);render();await save().catch(()=>{});try{const msgs=[];const sys=chat.settings&&chat.settings.systemPrompt;if(sys)msgs.push({role:'system',content:sys});for(const m of chat.messages){if(m.role==='user'||(m.role==='assistant'&&m.content&&!m.streaming))msgs.push({role:m.role,content:m.content})}const body={model:chat.model||'ds4',messages:msgs,stream:true,temperature:(chat.settings&&chat.settings.temperature)||0.6};if(chat.settings&&chat.settings.maxTokens)body.max_tokens=chat.settings.maxTokens;const res=await fetch('/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!res.ok)throw new Error('HTTP '+res.status);await stream(res,a)}catch(e){a.content+=(a.content?'\\n\\n':'')+'[Remote error: '+(e.message||e)+']'}finally{delete a.streaming;busy=false;$('#send').disabled=false;await save().catch(()=>{});render()}}"
 "$('#form').addEventListener('submit',e=>{e.preventDefault();const i=$('#input');const t=i.value;i.value='';send(t)});$('#input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#form').requestSubmit()}});"
+"$('#settings').addEventListener('click',openSettings);$('#modalclose').addEventListener('click',closeSettings);$('#modal').addEventListener('click',e=>{if(e.target.id==='modal')closeSettings()});$('#lanconnect').addEventListener('click',connectLan);$('#lanaddr').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();connectLan()}});$('#lanexit').addEventListener('click',exitLan);"
 "load();setInterval(()=>{if(!busy)load()},1500);"
 "</script></body></html>";
 
@@ -4936,17 +5929,34 @@ static int lan_root_path(const char *path) {
     return path_eq_clean(path, "/") || path_eq_clean(path, "/index.html");
 }
 
+static int loading_page_path(const char *path) {
+    return path_eq_clean(path, "/loading.html");
+}
+
 static int remote_page_path(const char *path) {
     return path_eq_clean(path, "/remote") || path_eq_clean(path, "/remote/") ||
            path_eq_clean(path, "/remote/index.html");
 }
 
+static int lan_web_tool_path(const char *path) {
+    return path_eq_clean(path, "/api/web-search") ||
+           path_eq_clean(path, "/api/web-read") ||
+           path_eq_clean(path, "/api/http-probe");
+}
+
 static int lan_public_path_allowed(const char *method, const char *path) {
     int get = !strcmp(method, "GET") || !strcmp(method, "HEAD");
+    int lan_on = strcmp(g_bind_host, "127.0.0.1") != 0;
+    if (!strcmp(method, "OPTIONS") &&
+        (!strncmp(path, "/v1/", 4) || path_eq_clean(path, "/api/lan-client/chats") ||
+         path_eq_clean(path, "/api/lan-health") || (lan_on && lan_web_tool_path(path)))) return 1;
     if (get && (remote_page_path(path) || lan_root_path(path))) return 1;
     if (get && (path_eq_clean(path, "/api/remote/status") || path_eq_clean(path, "/api/remote/chat"))) return 1;
+    if (get && path_eq_clean(path, "/api/lan-health")) return 1;
     if (!strcmp(method, "POST") && path_eq_clean(path, "/api/remote/chat")) return 1;
-    if (!strcmp(method, "POST") && g_remote_enabled && path_eq_clean(path, "/v1/chat/completions")) return 1;
+    if (!strcmp(method, "POST") && path_eq_clean(path, "/api/lan-client/chats")) return 1;
+    if (lan_on && !strcmp(method, "POST") && lan_web_tool_path(path)) return 1;
+    if (lan_on && !strncmp(path, "/v1/", 4)) return 1;
     return 0;
 }
 
@@ -4954,10 +5964,27 @@ static int web_url_ok(const char *url) {
     return url && (!strncmp(url, "http://", 7) || !strncmp(url, "https://", 8));
 }
 
-static int web_sources_parse_links(const char *md, web_source *sources, int max_sources) {
-    int n = 0;
+static int web_sources_push(web_source_list *list, const char *title, size_t tl, const char *url, size_t ul) {
+    if (list->len >= list->cap) {
+        int nc = list->cap ? list->cap * 2 : 16;
+        web_source *np = realloc(list->items, (size_t)nc * sizeof *np);
+        if (!np) return 0;
+        list->items = np;
+        list->cap = nc;
+    }
+    web_source *s = &list->items[list->len];
+    memset(s, 0, sizeof *s);
+    if (tl >= sizeof s->title) tl = sizeof s->title - 1;
+    if (ul >= sizeof s->url) ul = sizeof s->url - 1;
+    memcpy(s->title, title, tl); s->title[tl] = '\0';
+    memcpy(s->url, url, ul); s->url[ul] = '\0';
+    list->len++;
+    return 1;
+}
+
+static int web_sources_parse_links(const char *md, web_source_list *sources) {
     const char *p = md ? md : "";
-    while (n < max_sources && (p = strstr(p, "- [")) != NULL) {
+    while ((p = strstr(p, "- [")) != NULL) {
         const char *ts = p + 3;
         const char *mid = strstr(ts, "](");
         if (!mid) { p += 3; continue; }
@@ -4966,22 +5993,20 @@ static int web_sources_parse_links(const char *md, web_source *sources, int max_
         if (!ue) { p = us; continue; }
         size_t tl = (size_t)(mid - ts);
         size_t ul = (size_t)(ue - us);
-        if (tl > 0 && ul > 0 && tl < sizeof sources[n].title && ul < sizeof sources[n].url) {
+        if (tl > 0 && ul > 0 && tl < sizeof(((web_source *)0)->title) && ul < sizeof(((web_source *)0)->url)) {
             char url[1024];
             memcpy(url, us, ul); url[ul] = '\0';
             if (web_url_ok(url)) {
                 int dup = 0;
-                for (int i = 0; i < n; i++) if (!strcmp(sources[i].url, url)) dup = 1;
+                for (int i = 0; i < sources->len; i++) if (!strcmp(sources->items[i].url, url)) dup = 1;
                 if (!dup) {
-                    memcpy(sources[n].title, ts, tl); sources[n].title[tl] = '\0';
-                    memcpy(sources[n].url, url, ul + 1);
-                    n++;
+                    if (!web_sources_push(sources, ts, tl, us, ul)) return 0;
                 }
             }
         }
         p = ue + 1;
     }
-    return n;
+    return 1;
 }
 
 static char *web_markdown_excerpt(const char *md, size_t cap) {
@@ -4994,8 +6019,154 @@ static char *web_markdown_excerpt(const char *md, size_t cap) {
     return ds4_strndup_local(p, n);
 }
 
-static void web_sources_free(web_source *sources, int n) {
-    for (int i = 0; i < n; i++) free(sources[i].content);
+static char *web_strndup_cap(const char *s, size_t n, size_t cap);
+static int web_starts_ci(const char *s, const char *prefix);
+
+static char *web_markdown_title(const char *md) {
+    const char *p = md ? md : "";
+    while (*p) {
+        const char *line = p;
+        const char *end = strpbrk(line, "\r\n");
+        size_t n = end ? (size_t)(end - line) : strlen(line);
+        if (n > 2 && line[0] == '#' && line[1] == ' ') {
+            line += 2;
+            n -= 2;
+            while (n && isspace((unsigned char)*line)) { line++; n--; }
+            while (n && isspace((unsigned char)line[n - 1])) n--;
+            if (n) return web_strndup_cap(line, n, 240);
+        }
+        p = end ? end + ((*end == '\r' && end[1] == '\n') ? 2 : 1) : line + n;
+    }
+    return strdup("Page");
+}
+
+static char *web_markdown_canonical_url(const char *md, const char *fallback) {
+    const char *p = md ? md : "";
+    while (*p) {
+        const char *line = p;
+        const char *end = strpbrk(line, "\r\n");
+        size_t n = end ? (size_t)(end - line) : strlen(line);
+        if (n > 4 && web_starts_ci(line, "URL:")) {
+            line += 4;
+            n -= 4;
+            while (n && isspace((unsigned char)*line)) { line++; n--; }
+            while (n && isspace((unsigned char)line[n - 1])) n--;
+            if (n) return web_strndup_cap(line, n, 2048);
+        }
+        p = end ? end + ((*end == '\r' && end[1] == '\n') ? 2 : 1) : line + n;
+    }
+    return strdup(fallback ? fallback : "");
+}
+
+static const char *web_last_header_split(const char *s);
+
+static int web_starts_ci(const char *s, const char *prefix) {
+    while (*prefix) {
+        if (tolower((unsigned char)*s++) != tolower((unsigned char)*prefix++)) return 0;
+    }
+    return 1;
+}
+
+static const char *web_find_ci(const char *s, const char *needle) {
+    if (!s || !needle || !needle[0]) return NULL;
+    for (const char *p = s; *p; p++) {
+        if (tolower((unsigned char)*p) == tolower((unsigned char)needle[0]) &&
+            web_starts_ci(p, needle)) return p;
+    }
+    return NULL;
+}
+
+static const char *web_skip_block_tag(const char *p, const char *tag) {
+    char open[48], close[48];
+    snprintf(open, sizeof open, "<%s", tag);
+    snprintf(close, sizeof close, "</%s>", tag);
+    if (!web_starts_ci(p, open)) return NULL;
+    const char *end = web_find_ci(p, close);
+    return end ? end + strlen(close) : p + 1;
+}
+
+static char *web_html_text_excerpt(const char *raw, size_t cap) {
+    const char *p = web_last_header_split(raw ? raw : "");
+    if (!p) p = raw ? raw : "";
+    char *out = malloc(cap + 1);
+    if (!out) return NULL;
+    size_t o = 0;
+    int space = 1;
+    while (*p && o + 1 < cap) {
+        if (*p == '<') {
+            const char *skip = NULL;
+            const char *skip_tags[] = { "script", "style", "nav", "footer", "aside", "svg", "noscript", "form" };
+            for (size_t i = 0; i < sizeof skip_tags / sizeof skip_tags[0]; i++) {
+                skip = web_skip_block_tag(p, skip_tags[i]);
+                if (skip) break;
+            }
+            if (skip) {
+                p = skip;
+                if (!space && o + 1 < cap) { out[o++] = ' '; space = 1; }
+                continue;
+            }
+            const char *gt = strchr(p, '>');
+            p = gt ? gt + 1 : p + 1;
+            if (!space && o + 1 < cap) { out[o++] = ' '; space = 1; }
+            continue;
+        }
+        unsigned char c = (unsigned char)*p++;
+        if (c == '&') {
+            if (!strncmp(p, "amp;", 4)) { c = '&'; p += 4; }
+            else if (!strncmp(p, "lt;", 3)) { c = '<'; p += 3; }
+            else if (!strncmp(p, "gt;", 3)) { c = '>'; p += 3; }
+            else if (!strncmp(p, "quot;", 5)) { c = '"'; p += 5; }
+            else if (!strncmp(p, "apos;", 5)) { c = '\''; p += 5; }
+            else if (!strncmp(p, "nbsp;", 5)) { c = ' '; p += 5; }
+            else c = ' ';
+        }
+        if (c < 0x20 || c == 0x7f || c == ' ' || c == '\n' || c == '\r' || c == '\t') {
+            if (!space && o + 1 < cap) out[o++] = ' ';
+            space = 1;
+            continue;
+        }
+        out[o++] = (char)c;
+        space = 0;
+    }
+    while (o && out[o - 1] == ' ') o--;
+    out[o] = '\0';
+    return out;
+}
+
+static const char *web_guess_source_kind(const char *url, const char *title, const char *text) {
+    char blob[4096];
+    snprintf(blob, sizeof blob, "%s %s %s", url ? url : "", title ? title : "", text ? text : "");
+    if (web_find_ci(blob, "repository") || web_find_ci(blob, "source code") ||
+        web_find_ci(blob, "readme") || web_find_ci(blob, "package.json") ||
+        web_find_ci(blob, "makefile") || web_find_ci(blob, "pyproject.toml") ||
+        web_find_ci(blob, "cargo.toml") || web_find_ci(blob, "go.mod") ||
+        web_find_ci(blob, "github.") || web_find_ci(blob, "gitlab.") ||
+        web_find_ci(blob, "bitbucket.") || web_find_ci(blob, "codeberg.org")) return "repo";
+    if (web_find_ci(blob, "arxiv") || web_find_ci(blob, "doi") ||
+        web_find_ci(blob, "pubmed") || web_find_ci(blob, "journal") ||
+        web_find_ci(blob, "conference") || web_find_ci(blob, "abstract")) return "academic";
+    if (web_find_ci(blob, "reddit.com") || web_find_ci(blob, "news.ycombinator.com") ||
+        web_find_ci(blob, "twitter.com") || web_find_ci(blob, "x.com") ||
+        web_find_ci(blob, "youtube.com") || web_find_ci(blob, "thread") ||
+        web_find_ci(blob, "comments")) return "social";
+    if (web_find_ci(blob, "/docs") || web_find_ci(blob, "documentation") ||
+        web_find_ci(blob, "api reference") || web_find_ci(blob, "quickstart") ||
+        web_find_ci(blob, "manual")) return "docs";
+    if (web_find_ci(blob, "/pricing") || web_find_ci(blob, "/features") ||
+        web_find_ci(blob, "/product") || web_find_ci(blob, "plans") ||
+        web_find_ci(blob, "customers") || web_find_ci(blob, "enterprise")) return "product";
+    if (web_find_ci(blob, "/blog/") || web_find_ci(blob, "/news/") ||
+        web_find_ci(blob, "published") || web_find_ci(blob, "press release")) return "article";
+    return "generic";
+}
+
+static void web_sources_free(web_source_list *sources) {
+    if (!sources) return;
+    for (int i = 0; i < sources->len; i++) free(sources->items[i].content);
+    free(sources->items);
+    sources->items = NULL;
+    sources->len = 0;
+    sources->cap = 0;
 }
 
 static void web_json_error(int fd, const char *status, const char *msg) {
@@ -5011,13 +6182,195 @@ static void web_json_error(int fd, const char *status, const char *msg) {
     free(b.ptr);
 }
 
-static char *web_helper_capture(const char *tool, const char *arg_kind, const char *arg_value,
-                                int *exit_status) {
+static long long web_now_ms(void);
+
+static char *web_curl_capture(char *const argv[], int timeout_ms, int *exit_status) {
 #ifdef _WIN32
-    (void)tool; (void)arg_kind; (void)arg_value; (void)exit_status;
+    (void)argv; (void)timeout_ms; (void)exit_status;
     return NULL;
 #else
-    if (!run_build_jsonl("build")) return NULL;
+    int pfd[2];
+    if (pipe(pfd) != 0) return NULL;
+    pid_t pid = fork();
+    if (pid < 0) { close(pfd[0]); close(pfd[1]); return NULL; }
+    if (pid == 0) {
+        dup2(pfd[1], STDOUT_FILENO);
+        dup2(pfd[1], STDERR_FILENO);
+        close(pfd[0]); close(pfd[1]);
+        int dn = open("/dev/null", O_RDONLY);
+        if (dn >= 0) { dup2(dn, STDIN_FILENO); close(dn); }
+        execvp("curl", argv);
+        _exit(127);
+    }
+    close(pfd[1]);
+    int flags = fcntl(pfd[0], F_GETFL, 0);
+    if (flags >= 0) (void)fcntl(pfd[0], F_SETFL, flags | O_NONBLOCK);
+    json_dyn_buf out = {0};
+    char buf[8192];
+    int st = 0, done = 0, killed = 0, reaped = 0;
+    long long deadline = web_now_ms() + (timeout_ms > 0 ? timeout_ms : 20000);
+    while (!done) {
+        ssize_t r;
+        while ((r = read(pfd[0], buf, sizeof buf)) > 0) {
+            if (out.len + (size_t)r > 768 * 1024) {
+                killed = 1;
+                kill(pid, SIGKILL);
+                break;
+            }
+            if (!json_dyn_putn(&out, buf, (size_t)r)) {
+                free(out.ptr);
+                out.ptr = NULL;
+                killed = 1;
+                kill(pid, SIGKILL);
+                break;
+            }
+        }
+        if (killed) break;
+        if (r == 0) { done = 1; break; }
+        if (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) break;
+        pid_t wp = waitpid(pid, &st, WNOHANG);
+        if (wp == pid) {
+            reaped = 1;
+            done = 1;
+            while ((r = read(pfd[0], buf, sizeof buf)) > 0) {
+                if (out.len + (size_t)r > 768 * 1024) break;
+                if (!json_dyn_putn(&out, buf, (size_t)r)) { free(out.ptr); out.ptr = NULL; break; }
+            }
+            break;
+        }
+        if (wp < 0 && errno != EINTR) break;
+        long long left = deadline - web_now_ms();
+        if (left <= 0) {
+            killed = 1;
+            kill(pid, SIGKILL);
+            break;
+        }
+        struct pollfd pf = { pfd[0], POLLIN | POLLHUP, 0 };
+        int wait_ms = left > 250 ? 250 : (int)left;
+        (void)poll(&pf, 1, wait_ms);
+    }
+    close(pfd[0]);
+    if (killed) kill(pid, SIGKILL);
+    if (!reaped) waitpid(pid, &st, 0);
+    if (killed) {
+        free(out.ptr);
+        if (exit_status) *exit_status = 124;
+        return strdup("");
+    }
+    if (exit_status) *exit_status = WIFEXITED(st) ? WEXITSTATUS(st) : 127;
+    return out.ptr ? out.ptr : strdup("");
+#endif
+}
+
+static char *web_curl_visit_page(const char *url, char *err, size_t err_len) {
+#ifdef _WIN32
+    (void)url; (void)err; (void)err_len;
+    return NULL;
+#else
+    char *argv[20];
+    int n = 0;
+    argv[n++] = "curl";
+    argv[n++] = "-sS";
+    argv[n++] = "-L";
+    argv[n++] = "--compressed";
+    argv[n++] = "-i";
+    argv[n++] = "--max-redirs"; argv[n++] = "8";
+    argv[n++] = "--connect-timeout"; argv[n++] = "12";
+    argv[n++] = "--max-time"; argv[n++] = "45";
+    argv[n++] = "-A"; argv[n++] = "Mozilla/5.0 DStudio/1.0";
+    argv[n++] = "-w"; argv[n++] = "\n__DSTUDIO_CURL_META__%{http_code} %{url_effective}\n";
+    argv[n++] = (char *)url;
+    argv[n] = NULL;
+
+    int st = 0;
+    char *raw = web_curl_capture(argv, 60000, &st);
+    if (!raw) {
+        snprintf(err, err_len, "curl failed to start");
+        return NULL;
+    }
+    int status = 0;
+    char final_url[2048] = "";
+    char *marker = strstr(raw, "\n__DSTUDIO_CURL_META__");
+    if (marker) {
+        *marker = '\0';
+        const char *meta = marker + strlen("\n__DSTUDIO_CURL_META__");
+        char *end = NULL;
+        long code = strtol(meta, &end, 10);
+        if (code >= 0 && code <= 999) status = (int)code;
+        while (end && (*end == ' ' || *end == '\t')) end++;
+        if (end) {
+            size_t fl = strcspn(end, "\r\n");
+            if (fl >= sizeof final_url) fl = sizeof final_url - 1;
+            memcpy(final_url, end, fl); final_url[fl] = '\0';
+        }
+    }
+    char *text = web_html_text_excerpt(raw, 24000);
+    free(raw);
+    if (!text || strlen(text) < 24) {
+        snprintf(err, err_len, "%s", st == 124 ? "curl timed out" :
+                 st != 0 ? "curl returned no readable text" : "page returned no readable text");
+        free(text);
+        return NULL;
+    }
+    json_dyn_buf md = {0};
+    int ok = json_dyn_puts(&md, "# Page\n\nURL: ") &&
+             json_dyn_puts(&md, final_url[0] ? final_url : url) &&
+             json_dyn_puts(&md, "\n") &&
+             (status ? json_dyn_printf(&md, "\nHTTP status: %d\n", status) : 1) &&
+             json_dyn_puts(&md, "\n## Content\n\n") &&
+             json_dyn_puts(&md, text);
+    free(text);
+    if (!ok) {
+        free(md.ptr);
+        snprintf(err, err_len, "out of memory");
+        return NULL;
+    }
+    return md.ptr;
+#endif
+}
+
+static const char *web_last_header_split(const char *s) {
+    const char *last = NULL;
+    for (const char *p = s; p && *p; ) {
+        const char *a = strstr(p, "\r\n\r\n");
+        const char *b = strstr(p, "\n\n");
+        const char *hit = NULL;
+        if (a && b) hit = a < b ? a : b;
+        else hit = a ? a : b;
+        if (!hit) break;
+        last = hit + (hit[0] == '\r' ? 4 : 2);
+        p = last;
+    }
+    return last;
+}
+
+static char *web_strndup_cap(const char *s, size_t n, size_t cap) {
+    if (!s) s = "";
+    if (n > cap) n = cap;
+    return strndup(s, n);
+}
+
+static long long web_now_ms(void) {
+#ifdef _WIN32
+    return (long long)GetTickCount64();
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (long long)tv.tv_sec * 1000LL + (long long)(tv.tv_usec / 1000);
+#endif
+}
+
+static char *web_helper_capture(const char *tool, const char *arg_kind, const char *arg_value,
+                                int timeout_ms, int *exit_status) {
+#ifdef _WIN32
+    (void)tool; (void)arg_kind; (void)arg_value; (void)timeout_ms; (void)exit_status;
+    return NULL;
+#else
+    static int web_helper_ready = 0;
+    if (!web_helper_ready) {
+        if (!run_build_jsonl("build")) return NULL;
+        web_helper_ready = 1;
+    }
     int pfd[2];
     if (pipe(pfd) != 0) return NULL;
     pid_t pid = fork();
@@ -5037,25 +6390,180 @@ static char *web_helper_capture(const char *tool, const char *arg_kind, const ch
         _exit(127);
     }
     close(pfd[1]);
+    int flags = fcntl(pfd[0], F_GETFL, 0);
+    if (flags >= 0) (void)fcntl(pfd[0], F_SETFL, flags | O_NONBLOCK);
     json_dyn_buf out = {0};
     char buf[8192];
-    ssize_t r;
-    while ((r = read(pfd[0], buf, sizeof buf)) > 0) {
-        if (out.len + (size_t)r > 2 * 1024 * 1024) break;
-        if (!json_dyn_putn(&out, buf, (size_t)r)) { free(out.ptr); out.ptr = NULL; break; }
+    int st = 0, done = 0, killed = 0, reaped = 0;
+    long long deadline = web_now_ms() + (timeout_ms > 0 ? timeout_ms : WEB_HELPER_SEARCH_TIMEOUT_MS);
+    while (!done) {
+        ssize_t r;
+        while ((r = read(pfd[0], buf, sizeof buf)) > 0) {
+            if (out.len + (size_t)r > 2 * 1024 * 1024) {
+                killed = 1;
+                kill(pid, SIGKILL);
+                break;
+            }
+            if (!json_dyn_putn(&out, buf, (size_t)r)) {
+                free(out.ptr);
+                out.ptr = NULL;
+                killed = 1;
+                kill(pid, SIGKILL);
+                break;
+            }
+        }
+        if (killed) break;
+        if (r == 0) { done = 1; break; }
+        if (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) break;
+
+        pid_t wp = waitpid(pid, &st, WNOHANG);
+        if (wp == pid) {
+            reaped = 1;
+            done = 1;
+            while ((r = read(pfd[0], buf, sizeof buf)) > 0) {
+                if (out.len + (size_t)r > 2 * 1024 * 1024) break;
+                if (!json_dyn_putn(&out, buf, (size_t)r)) { free(out.ptr); out.ptr = NULL; break; }
+            }
+            break;
+        }
+        if (wp < 0 && errno != EINTR) break;
+
+        long long left = deadline - web_now_ms();
+        if (left <= 0) {
+            killed = 1;
+            kill(pid, SIGKILL);
+            break;
+        }
+        struct pollfd pf = { pfd[0], POLLIN | POLLHUP, 0 };
+        int wait_ms = left > 250 ? 250 : (int)left;
+        (void)poll(&pf, 1, wait_ms);
     }
     close(pfd[0]);
-    int st = 0;
-    waitpid(pid, &st, 0);
+    if (killed) kill(pid, SIGKILL);
+    if (!reaped) waitpid(pid, &st, 0);
+    if (killed) {
+        free(out.ptr);
+        if (exit_status) *exit_status = 124;
+        return strdup("{\"error\":\"web helper timed out\"}");
+    }
     if (exit_status) *exit_status = WIFEXITED(st) ? WEXITSTATUS(st) : 127;
     return out.ptr ? out.ptr : ds4_strdup_local("");
 #endif
 }
 
-/* POST /api/web-search {query} — zero-dependency web search for Chat. It reuses
- * ds4-agent's built-in Chrome/CDP web subsystem through a helper mode that does
- * not load the model. */
-static void api_web_search(int fd, const char *body) {
+static void api_http_probe_run(int fd, const char *body) {
+    char url[2048], method[16];
+    method[0] = '\0';
+    if (!json_get_string(body, "url", url, sizeof url) || !url[0]) {
+        web_json_error(fd, "400 Bad Request", "url is required");
+        return;
+    }
+    if (!web_url_ok(url)) {
+        web_json_error(fd, "400 Bad Request", "url must be http or https");
+        return;
+    }
+    if (!json_get_string(body, "method", method, sizeof method) || !method[0]) cstr_copy(method, sizeof method, "HEAD");
+    for (char *p = method; *p; p++) *p = (char)toupper((unsigned char)*p);
+    if (strcmp(method, "HEAD") && strcmp(method, "GET")) {
+        web_json_error(fd, "400 Bad Request", "method must be HEAD or GET");
+        return;
+    }
+#ifdef _WIN32
+    web_json_error(fd, "501 Not Implemented", "http probe is not available in the Windows build yet");
+    return;
+#else
+    char *argv[18];
+    int n = 0;
+    argv[n++] = "curl";
+    argv[n++] = "-sS";
+    argv[n++] = "-L";
+    argv[n++] = !strcmp(method, "HEAD") ? "-I" : "-i";
+    argv[n++] = "--max-redirs"; argv[n++] = "6";
+    argv[n++] = "--connect-timeout"; argv[n++] = "8";
+    argv[n++] = "--max-time"; argv[n++] = "24";
+    argv[n++] = "-A"; argv[n++] = "DStudio/1.0";
+    argv[n++] = "-w"; argv[n++] = "\n__DSTUDIO_CURL_META__%{http_code} %{url_effective}\n";
+    argv[n++] = url;
+    argv[n] = NULL;
+
+    int st = 0;
+    char *raw = web_curl_capture(argv, 30000, &st);
+    if (!raw) {
+        web_json_error(fd, "500 Internal Server Error", "curl failed to start");
+        return;
+    }
+    int status = 0;
+    char final_url[2048] = "";
+    char *marker = strstr(raw, "\n__DSTUDIO_CURL_META__");
+    if (marker) {
+        *marker = '\0';
+        const char *meta = marker + strlen("\n__DSTUDIO_CURL_META__");
+        char *end = NULL;
+        long code = strtol(meta, &end, 10);
+        if (code >= 0 && code <= 999) status = (int)code;
+        while (end && (*end == ' ' || *end == '\t')) end++;
+        if (end) {
+            size_t fl = strcspn(end, "\r\n");
+            if (fl >= sizeof final_url) fl = sizeof final_url - 1;
+            memcpy(final_url, end, fl); final_url[fl] = '\0';
+        }
+    }
+
+    size_t raw_len = strlen(raw);
+    const char *body_start = !strcmp(method, "GET") ? web_last_header_split(raw) : NULL;
+    if (!body_start) body_start = raw + raw_len;
+    size_t header_len = (size_t)(body_start - raw);
+    char *headers = web_strndup_cap(raw, header_len, 160 * 1024);
+    char *excerpt = web_strndup_cap(body_start, strlen(body_start), 24000);
+
+    json_dyn_buf out = {0};
+    int ok = json_dyn_puts(&out, "{\"ok\":true,\"method\":") &&
+             json_dyn_put_escaped(&out, method) &&
+             json_dyn_puts(&out, ",\"url\":") &&
+             json_dyn_put_escaped(&out, url) &&
+             json_dyn_puts(&out, ",\"finalUrl\":") &&
+             json_dyn_put_escaped(&out, final_url[0] ? final_url : url) &&
+             json_dyn_printf(&out, ",\"status\":%d,\"exitStatus\":%d,\"rawBytes\":%zu,\"headers\":", status, st, raw_len) &&
+             json_dyn_put_escaped(&out, headers ? headers : "") &&
+             json_dyn_puts(&out, ",\"bodyExcerpt\":") &&
+             json_dyn_put_escaped(&out, excerpt ? excerpt : "") &&
+             json_dyn_puts(&out, "}");
+    free(headers);
+    free(excerpt);
+    free(raw);
+    if (!ok) { free(out.ptr); web_json_error(fd, "500 Internal Server Error", "out of memory"); return; }
+    send_json(fd, "200 OK", out.ptr);
+    free(out.ptr);
+#endif
+}
+
+static void api_http_probe(int fd, const char *body) {
+#ifdef _WIN32
+    api_http_probe_run(fd, body);
+    return;
+#else
+    pid_t pid = fork();
+    if (pid < 0) {
+        api_http_probe_run(fd, body);
+        return;
+    }
+    if (pid == 0) {
+        if (fork() > 0) _exit(0);
+        if (g_srv_fd >= 0) close(g_srv_fd);
+        if (g_out_fd >= 0) close(g_out_fd);
+        if (g_err_fd >= 0) close(g_err_fd);
+        if (g_in_fd  >= 0) close(g_in_fd);
+        struct timeval tv = { 45, 0 };
+        (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+        api_http_probe_run(fd, body);
+        close(fd);
+        _exit(0);
+    }
+    waitpid(pid, NULL, 0);
+#endif
+}
+
+static void api_web_search_run(int fd, const char *body) {
     char query[2048];
     if (!json_get_string(body, "query", query, sizeof query) || !query[0]) {
         web_json_error(fd, "400 Bad Request", "query is required");
@@ -5066,7 +6574,7 @@ static void api_web_search(int fd, const char *body) {
     return;
 #else
     int st = 0;
-    char *search_json = web_helper_capture("google_search", "--query", query, &st);
+    char *search_json = web_helper_capture("google_search", "--query", query, WEB_HELPER_SEARCH_TIMEOUT_MS, &st);
     if (!search_json || !search_json[0]) {
         free(search_json);
         web_json_error(fd, "500 Internal Server Error", "web search helper failed to start");
@@ -5081,52 +6589,177 @@ static void api_web_search(int fd, const char *body) {
         web_json_error(fd, st == 0 ? "502 Bad Gateway" : "500 Internal Server Error", msg);
         return;
     }
-    web_source sources[3] = {0};
-    int ns = web_sources_parse_links(search_md, sources, 3);
-    for (int i = 0; i < ns; i++) {
-        int vst = 0;
-        char *visit_json = web_helper_capture("visit_page", "--url", sources[i].url, &vst);
-        char *visit_md = visit_json ? json_get_string_alloc(visit_json, "markdown") : NULL;
-        sources[i].content = visit_md ? web_markdown_excerpt(visit_md, 6000) : ds4_strdup_local(sources[i].title);
-        free(visit_md);
-        free(visit_json);
-        (void)vst;
+    web_source_list sources = {0};
+    if (!web_sources_parse_links(search_md, &sources)) {
+        free(search_json); free(search_err); free(search_md);
+        web_json_error(fd, "500 Internal Server Error", "out of memory");
+        return;
     }
-
     json_dyn_buf out = {0};
     int ok = json_dyn_puts(&out, "{\"ok\":true,\"query\":") &&
              json_dyn_put_escaped(&out, query) &&
              json_dyn_puts(&out, ",\"markdown\":") &&
              json_dyn_put_escaped(&out, search_md) &&
              json_dyn_puts(&out, ",\"sources\":[");
-    for (int i = 0; ok && i < ns; i++) {
+    for (int i = 0; ok && i < sources.len; i++) {
         ok = json_dyn_puts(&out, i ? ",{" : "{") &&
              json_dyn_puts(&out, "\"title\":") &&
-             json_dyn_put_escaped(&out, sources[i].title) &&
+             json_dyn_put_escaped(&out, sources.items[i].title) &&
              json_dyn_puts(&out, ",\"url\":") &&
-             json_dyn_put_escaped(&out, sources[i].url) &&
+             json_dyn_put_escaped(&out, sources.items[i].url) &&
              json_dyn_puts(&out, ",\"content\":") &&
-             json_dyn_put_escaped(&out, sources[i].content ? sources[i].content : "");
+             json_dyn_put_escaped(&out, sources.items[i].title);
         if (ok) ok = json_dyn_puts(&out, "}");
     }
     if (ok) ok = json_dyn_puts(&out, "]}");
-    free(search_json); free(search_err); free(search_md); web_sources_free(sources, ns);
+    free(search_json); free(search_err); free(search_md); web_sources_free(&sources);
     if (!ok) { free(out.ptr); web_json_error(fd, "500 Internal Server Error", "out of memory"); return; }
     send_json(fd, "200 OK", out.ptr);
     free(out.ptr);
 #endif
 }
 
-/* Reverse-proxy for the engine's OpenAI API under /v1. The page talks to serve
- * SAME-ORIGIN for /v1, and serve forwards to the LOCAL engine (127.0.0.1) — so
- * the engine never needs LAN exposure, a LAN client only ever speaks to serve,
- * and there is nothing to configure (no baseUrl). A long chat completion would
- * block serve's single-threaded loop, so the relay runs in a double-forked
- * (zombie-free) child that streams the response; it reads the full request body
- * itself, bypassing the small BODY_MAX used by /api. `req` holds the request
- * line + headers + the body bytes already buffered (got - header_len of them). */
+static void api_web_read_run(int fd, const char *body) {
+    char url[2048];
+    if (!json_get_string(body, "url", url, sizeof url) || !url[0]) {
+        web_json_error(fd, "400 Bad Request", "url is required");
+        return;
+    }
+    if (!web_url_ok(url)) {
+        web_json_error(fd, "400 Bad Request", "url must be http or https");
+        return;
+    }
+#ifdef _WIN32
+    web_json_error(fd, "501 Not Implemented", "web read helper is not available in the Windows build yet");
+    return;
+#else
+    int st = 0;
+    int fallback_used = 0;
+    char *visit_json = web_helper_capture("visit_page", "--url", url, WEB_HELPER_VISIT_TIMEOUT_MS, &st);
+    char *visit_err = visit_json ? json_get_string_alloc(visit_json, "error") : NULL;
+    char *visit_md = visit_json ? json_get_string_alloc(visit_json, "markdown") : NULL;
+    if (!visit_md) {
+        char curl_err[256] = "";
+        visit_md = web_curl_visit_page(url, curl_err, sizeof curl_err);
+        if (visit_md) {
+            fallback_used = 1;
+        } else {
+            char msg[768];
+            snprintf(msg, sizeof msg, "%s%s%s",
+                     visit_err && visit_err[0] ? visit_err :
+                     (visit_json && visit_json[0] ? "visit_page returned no markdown" : "web read helper failed to start"),
+                     curl_err[0] ? "; curl fallback failed: " : "",
+                     curl_err[0] ? curl_err : "");
+            free(visit_json); free(visit_err);
+            web_json_error(fd, st == 0 ? "502 Bad Gateway" : "500 Internal Server Error", msg);
+            return;
+        }
+    }
+    char *excerpt = web_markdown_excerpt(visit_md, 24000);
+    char *title = web_markdown_title(visit_md);
+    char *canonical = web_markdown_canonical_url(visit_md, url);
+    const char *source_kind = web_guess_source_kind(canonical ? canonical : url, title ? title : "", excerpt ? excerpt : "");
+
+    json_dyn_buf out = {0};
+    int ok = json_dyn_puts(&out, "{\"ok\":true,\"url\":") &&
+             json_dyn_put_escaped(&out, url) &&
+             json_dyn_puts(&out, ",\"canonicalUrl\":") &&
+             json_dyn_put_escaped(&out, canonical ? canonical : url) &&
+             json_dyn_puts(&out, ",\"title\":") &&
+             json_dyn_put_escaped(&out, title ? title : "Page") &&
+             json_dyn_puts(&out, ",\"sourceKind\":") &&
+             json_dyn_put_escaped(&out, source_kind) &&
+             json_dyn_puts(&out, ",\"reader\":") &&
+             json_dyn_put_escaped(&out, fallback_used ? "curl" : "browser") &&
+             json_dyn_puts(&out, ",\"markdown\":") &&
+             json_dyn_put_escaped(&out, visit_md) &&
+             json_dyn_puts(&out, ",\"excerpt\":") &&
+             json_dyn_put_escaped(&out, excerpt ? excerpt : "") &&
+             json_dyn_puts(&out, ",\"metadata\":{") &&
+             json_dyn_puts(&out, "\"markdownChars\":") &&
+             json_dyn_printf(&out, "%zu", strlen(visit_md)) &&
+             json_dyn_puts(&out, ",\"excerptChars\":") &&
+             json_dyn_printf(&out, "%zu", excerpt ? strlen(excerpt) : 0) &&
+             json_dyn_puts(&out, ",\"fallback\":") &&
+             json_dyn_puts(&out, fallback_used ? "true" : "false") &&
+             json_dyn_puts(&out, "},\"warnings\":[") &&
+             (fallback_used
+                ? (json_dyn_put_escaped(&out, "browser helper failed; used curl fallback"))
+                : 1) &&
+             json_dyn_puts(&out, "]") &&
+             json_dyn_puts(&out, "}");
+    free(visit_json); free(visit_err); free(visit_md); free(excerpt); free(title); free(canonical);
+    if (!ok) { free(out.ptr); web_json_error(fd, "500 Internal Server Error", "out of memory"); return; }
+    send_json(fd, "200 OK", out.ptr);
+    free(out.ptr);
+#endif
+}
+
+static void api_web_read(int fd, const char *body) {
+#ifdef _WIN32
+    api_web_read_run(fd, body);
+    return;
+#else
+    pid_t pid = fork();
+    if (pid < 0) {
+        api_web_read_run(fd, body);
+        return;
+    }
+    if (pid == 0) {
+        if (fork() > 0) _exit(0);
+        if (g_srv_fd >= 0) close(g_srv_fd);
+        if (g_out_fd >= 0) close(g_out_fd);
+        if (g_err_fd >= 0) close(g_err_fd);
+        if (g_in_fd  >= 0) close(g_in_fd);
+        struct timeval tv = { 120, 0 };
+        (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+        api_web_read_run(fd, body);
+        close(fd);
+        _exit(0);
+    }
+    waitpid(pid, NULL, 0);
+#endif
+}
+
+/* POST /api/web-search {query} — zero-dependency web search for Chat. It reuses
+ * ds4-agent's built-in Chrome/CDP web subsystem through a helper mode that does
+ * not load the model. */
+static void api_web_search(int fd, const char *body) {
+#ifdef _WIN32
+    api_web_search_run(fd, body);
+    return;
+#else
+    pid_t pid = fork();
+    if (pid < 0) {
+        api_web_search_run(fd, body);
+        return;
+    }
+    if (pid == 0) {
+        if (fork() > 0) _exit(0);
+        if (g_srv_fd >= 0) close(g_srv_fd);
+        if (g_out_fd >= 0) close(g_out_fd);
+        if (g_err_fd >= 0) close(g_err_fd);
+        if (g_in_fd  >= 0) close(g_in_fd);
+        struct timeval tv = { 300, 0 };
+        (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+        api_web_search_run(fd, body);
+        close(fd);
+        _exit(0);
+    }
+    waitpid(pid, NULL, 0);
+#endif
+}
+
+/* Reverse-proxy for the engine's OpenAI API under /v1. The app normally talks to
+ * serve same-origin; a LAN client app can also point baseUrl at another DStudio
+ * host and use this proxy with CORS. The engine itself stays loopback-only. A
+ * long chat completion would block serve's single-threaded loop, so the relay
+ * runs in a double-forked (zombie-free) child that streams the response; it reads
+ * the full request body itself, bypassing the small BODY_MAX used by /api. `req`
+ * holds the request line + headers + the body bytes already buffered. */
 static void api_v1_proxy(int client_fd, const char *method, const char *path,
                          const char *req, size_t got, size_t header_len, size_t clen) {
+    int cors = !client_is_loopback(client_fd);
     int eport = (g_mode == ENGINE_SERVER) ? g_cfg.port : ENGINE_DEFAULTS.port;
     const char *eport_env = getenv("DS4UI_ENGINE_PORT");  /* override the engine port */
     if (eport_env && eport_env[0]) { int p = atoi(eport_env); if (p > 0 && p < 65536) eport = p; }
@@ -5140,8 +6773,17 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
         if (connect(efd, (struct sockaddr *)&a, sizeof a) != 0) { close(efd); efd = -1; }
     }
     if (efd < 0) {
-        send_json(client_fd, "503 Service Unavailable",
-                  "{\"error\":{\"message\":\"the local ds4 engine is not running\"}}");
+        const char *body = "{\"error\":{\"message\":\"the local ds4 engine is not running\"}}";
+        if (cors) {
+            static const char CORS_JSON_HEADERS[] =
+                "Access-Control-Allow-Origin: *\r\n"
+                "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+                "Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With\r\n";
+            send_response_hdrs(client_fd, "503 Service Unavailable", "application/json; charset=utf-8",
+                               body, strlen(body), 0, CORS_JSON_HEADERS);
+        } else {
+            send_json(client_fd, "503 Service Unavailable", body);
+        }
         return;
     }
 #ifdef _WIN32
@@ -5166,9 +6808,7 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
         if (send_all(efd, buf, (size_t)n) != 0) { ok = 0; break; }
         left -= (size_t)n;
     }
-    if (ok) while ((n = read(efd, buf, sizeof buf)) > 0) {
-        if (send_all(client_fd, buf, (size_t)n) != 0) break;
-    }
+    if (ok) relay_engine_response(client_fd, efd, cors);
     close(efd);
     return;
 #else
@@ -5207,10 +6847,7 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
             if (send_all(efd, buf, (size_t)n) != 0) { ok = 0; break; }
             left -= (size_t)n;
         }
-        /* stream the engine's response back to the client verbatim */
-        if (ok) while ((n = read(efd, buf, sizeof buf)) > 0) {
-            if (send_all(client_fd, buf, (size_t)n) != 0) break;
-        }
+        if (ok) relay_engine_response(client_fd, efd, cors);
         close(efd);
         close(client_fd);
         _exit(0);
@@ -5223,6 +6860,7 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
 /* ==================== handling a connection ==================== */
 
 static void handle_connection(int fd) {
+    g_reply_cors = 0;
 #ifdef _WIN32
     int tv = IO_TIMEOUT_S * 1000;
     (void)setsockopt((SOCKET)(intptr_t)fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
@@ -5253,15 +6891,21 @@ static void handle_connection(int fd) {
     sanitize(method); sanitize(path);
     int head_only_req = !strcmp(method, "HEAD");
     int local_client = client_is_loopback(fd);
+    g_reply_cors = !local_client && lan_public_path_allowed(method, path);
 
-    if (!local_client && !lan_public_path_allowed(method, path)) {
-        send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"LAN clients can only use /remote\"}");
+    if (!strcmp(method, "OPTIONS") && lan_public_path_allowed(method, path)) {
+        send_cors_options(fd);
         close(fd);
         return;
     }
 
-    if ((!strcmp(method, "GET") || head_only_req) &&
-        (remote_page_path(path) || (!local_client && lan_root_path(path)))) {
+    if (!local_client && !lan_public_path_allowed(method, path)) {
+        send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"endpoint is host-local only\"}");
+        close(fd);
+        return;
+    }
+
+    if ((!strcmp(method, "GET") || head_only_req) && remote_page_path(path)) {
         serve_remote_page(fd, head_only_req);
         close(fd);
         return;
@@ -5285,7 +6929,33 @@ static void handle_connection(int fd) {
             off += (size_t)n; left -= (size_t)n;
         }
         buf[off] = '\0';
-        api_remote_chat_set(fd, buf, off);
+        api_remote_chat_set(fd, buf, off, local_client);
+        close(fd);
+        return;
+    }
+
+    /* LAN clients keep their own local stores and publish snapshots here so the
+     * host can inspect their chat/agent/design conversations. This endpoint is
+     * intentionally separate from /api/store: non-loopback clients can POST
+     * their snapshot, but only the host-local UI can GET the aggregate. */
+    if (!strcmp(method, "POST") && path_eq_clean(path, "/api/lan-client/chats")) {
+        if (clen < 0 || clen > 16L * 1024 * 1024) {
+            send_text(fd, "413 Payload Too Large", "LAN client snapshot too large\n", 0);
+            close(fd);
+            return;
+        }
+        char *buf = malloc((size_t)clen + 1);
+        if (!buf) { send_json_cors(fd, "500 Internal Server Error", "{\"ok\":false}"); close(fd); return; }
+        size_t have = got - header_len; if (have > (size_t)clen) have = (size_t)clen;
+        memcpy(buf, req + header_len, have);
+        size_t off = have, left = (size_t)clen - have;
+        while (left > 0) {
+            ssize_t n = recv(fd, buf + off, left, 0);
+            if (n <= 0) break;
+            off += (size_t)n; left -= (size_t)n;
+        }
+        buf[off] = '\0';
+        api_lan_client_chats_set(fd, buf, off);
         close(fd);
         return;
     }
@@ -5356,6 +7026,8 @@ static void handle_connection(int fd) {
         else if (!strcmp(path, "/api/ds4dir"))       { api_set_ds4dir(fd, body); }
         else if (!strcmp(path, "/api/webdir"))       { api_set_webdir(fd, body); }
         else if (!strcmp(path, "/api/web-search"))   { api_web_search(fd, body); }
+        else if (!strcmp(path, "/api/web-read"))     { api_web_read(fd, body); }
+        else if (!strcmp(path, "/api/http-probe"))   { api_http_probe(fd, body); }
         else if (!strcmp(path, "/api/lan"))          { api_lan(fd, body); }
         else if (!strcmp(path, "/api/remote"))       { api_remote_control(fd, body); }
         else if (!strcmp(path, "/api/wipe"))         { api_wipe(fd); }
@@ -5369,8 +7041,12 @@ static void handle_connection(int fd) {
         api_remote_status(fd);
     } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/remote/chat")) {
         api_remote_chat_get(fd);
+    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/lan-client/chats")) {
+        api_lan_client_chats_get(fd);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/status")) {
         api_status(fd);
+    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/lan-health")) {
+        api_lan_health(fd);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/doctor")) {
         api_doctor(fd);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/ggufs")) {
@@ -5408,6 +7084,11 @@ static void handle_connection(int fd) {
         send_text(fd, "405 Method Not Allowed", "method not allowed\n", 0); status = 405;
     } else if (remote_page_path(path)) {
         serve_remote_page(fd, head_only);
+    } else if (loading_page_path(path)) {
+        size_t len = 0;
+        char *page = read_loading_page(&len);
+        if (!page) { send_text(fd, "500 Internal Server Error", "loading.html not readable\n", head_only); status = 500; }
+        else { send_response(fd, "200 OK", "text/html; charset=utf-8", page, len, head_only); free(page); }
     } else if (!strcmp(path, "/") || !strcmp(path, "/index.html")) {
         size_t len = 0;
         char *page = read_page(&len);
@@ -5427,6 +7108,8 @@ static void handle_connection(int fd) {
         strcmp(path, "/api/design/state") != 0 && strcmp(path, "/api/design/artifacts") != 0 &&
         strcmp(path, "/api/build/files") != 0 &&
         strcmp(path, "/api/store") != 0 && strcmp(path, "/api/storerev") != 0 &&
+        strcmp(path, "/api/lan-client/chats") != 0 &&
+        strcmp(path, "/api/lan-health") != 0 &&
         strcmp(path, "/api/doctor") != 0)
         printf("%d %s %s\n", status, method, path);
     close(fd);
@@ -5453,6 +7136,7 @@ int main(int argc, char **argv)
     if (argc > 1 && strcmp(argv[1], "--build-jsonl") == 0) {
         if (argc > 2) snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]);
         resolve_ds4_dir();
+        resolve_web_dir();
         int ok = run_build_jsonl("build");
         printf("build-jsonl: %s\n", ok ? "ok" : "FAILED");
         return ok ? 0 : 1;
@@ -5462,11 +7146,15 @@ int main(int argc, char **argv)
     if (argc > 1 && strcmp(argv[1], "--check-anchors") == 0) {
         if (argc > 2) snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]);
         resolve_ds4_dir();
-        char src[2200];
+        resolve_web_dir();
+        char src[2200], web_src[2200];
         snprintf(src, sizeof src, "%s/ds4_agent.c", g_ds4_dir);
+        snprintf(web_src, sizeof web_src, "%s/ds4_web.c", g_ds4_dir);
         printf("check-anchors: ds4_agent.c = %s\n", src);
         int fails = jsonl_check_anchors(src);
-        return fails == 0 ? 0 : 1;
+        printf("check-anchors: ds4_web.c = %s\n", web_src);
+        int web_fails = web_cdp_check_anchors(web_src);
+        return fails == 0 && web_fails == 0 ? 0 : 1;
     }
     int port = DEFAULT_PORT;
     if (argc > 1) {
@@ -5480,10 +7168,12 @@ int main(int argc, char **argv)
     if (argc > 2) snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]);
     resolve_ds4_dir();   /* launch from Finder/bundle: cwd = "/", the relative one must be resolved */
     resolve_web_dir();   /* same for extension/ scripts (build-design.sh) */
+    int test_mode = getenv("DS4UI_TEST_MODE") && getenv("DS4UI_TEST_MODE")[0];
 
     const char *bind_env = getenv("DS4UI_HOST");
     if (bind_env && bind_env[0]) snprintf(g_bind_host, sizeof g_bind_host, "%s", bind_env);
     if (ds4ui_forced_port > 0) port = ds4ui_forced_port;   /* parent pre-picked a free port */
+    int requested_port = port;
     g_http_port = port;
 
 #ifndef _WIN32
@@ -5495,31 +7185,36 @@ int main(int argc, char **argv)
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
 
-    g_srv_fd = open_listener(g_bind_host, port);
+    g_srv_fd = ds4ui_forced_port > 0 ? open_listener(g_bind_host, port) : open_first_listener(g_bind_host, &port);
     if (g_srv_fd < 0) {
         fprintf(stderr, "could not bind %s:%d (%s)\n", g_bind_host, port, strerror(errno));
         return 1;
     }
+    if (port != requested_port)
+        fprintf(stderr, "DStudio: port %d busy on %s — opening on %d instead\n", requested_port, g_bind_host, port);
+    g_http_port = port;
 
     g_abuf = malloc(65536);
     g_acap = g_abuf ? 65536 : 0;
 
-    store_load();   /* local browser history; LAN clients get only the explicit /remote chat */
+    store_load();   /* host-local browser history; LAN clients do not reach this store */
 
     /* Crash-clean: if a previous launch died with the ds4_agent.c source
      * still patched, restore it from the .bak before anything else. */
-    run_build_jsonl("restore");
+    if (!test_mode) run_build_jsonl("restore");
 
     int lan = strcmp(g_bind_host, "127.0.0.1") != 0;
     printf("DStudio: http://%s:%d  (page %s, ds4 %s)\n", g_bind_host, port, PAGE_PATH, g_ds4_dir);
     if (lan) {
-        printf("\n  !  BOUND ON THE LAN (%s): non-local clients are limited to /remote.\n", g_bind_host);
-        printf("     The full app, workspace, settings, store, agent and design APIs stay loopback-only.\n");
+        printf("\n  !  BOUND ON THE LAN (%s): non-local clients can open the app shell, /remote, /v1 and engine APIs.\n", g_bind_host);
+        printf("     Host settings, store and model-download APIs stay loopback-only.\n");
         printf("     To go back to localhost only:  DS4UI_HOST=127.0.0.1 ./dstudio\n\n");
     }
 
     /* Automatic startup of the server with the defaults, if the port is free. */
-    if (port_listening(ENGINE_DEFAULTS.port)) {
+    if (test_mode) {
+        printf("engine: test mode - not starting ds4\n");
+    } else if (port_listening(ENGINE_DEFAULTS.port)) {
         printf("engine: :%d already in use - I start nothing, manage it from the page\n", ENGINE_DEFAULTS.port);
     } else {
         engine_cfg boot = ENGINE_DEFAULTS;

@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DStudio Loading</title>
+  <script>
+    (() => {
+      try {
+        const settings = JSON.parse(localStorage.getItem('ds4web.settings.v1') || '{}');
+        if (settings && settings.lanClientHost) location.replace('/');
+        if (!settings || settings.onboardedVersion !== 6) location.replace('/');
+      } catch {
+        location.replace('/');
+      }
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f7f4;
+      --fg: #171717;
+      --muted: #73706a;
+      --line: rgba(20, 20, 20, 0.12);
+      --accent: #7aa7ff;
+      --panel: rgba(255, 255, 255, 0.72);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #070707;
+        --fg: #f4f2ee;
+        --muted: #9b9892;
+        --line: rgba(255, 255, 255, 0.12);
+        --panel: rgba(255, 255, 255, 0.06);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      color: var(--fg);
+      font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      width: min(520px, calc(100vw - 44px));
+      padding: 34px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 16px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 28px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: 0.02em;
+      color: var(--muted);
+    }
+    .mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      position: relative;
+      background:
+        radial-gradient(circle at center, var(--accent) 0 4px, transparent 5px),
+        conic-gradient(from 0deg, transparent 0 16deg, var(--accent) 16deg 58deg, transparent 58deg 106deg, var(--accent) 106deg 148deg, transparent 148deg 196deg, var(--accent) 196deg 238deg, transparent 238deg 286deg, var(--accent) 286deg 328deg, transparent 328deg);
+      box-shadow: inset 0 0 0 8px color-mix(in srgb, var(--bg), transparent 18%);
+      animation: spin 1.8s linear infinite;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(2rem, 5vw, 3.4rem);
+      line-height: 1.02;
+      font-weight: 520;
+      letter-spacing: 0;
+    }
+    p { margin: 0; color: var(--muted); }
+    .steps {
+      margin-top: 30px;
+      display: grid;
+      gap: 13px;
+    }
+    .step {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 12px;
+      align-items: start;
+      color: var(--muted);
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      margin-top: 6px;
+      border-radius: 50%;
+      background: var(--line);
+    }
+    .step.on { color: var(--fg); }
+    .step.on .dot {
+      background: var(--accent);
+      box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent), transparent 82%);
+      animation: pulse 1.1s ease-in-out infinite;
+    }
+    .step.done .dot { background: #79c48c; animation: none; box-shadow: none; }
+    .err { margin-top: 22px; color: #d36b5d; min-height: 1.4em; }
+    .actions { margin-top: 22px; display: none; }
+    button {
+      appearance: none;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: transparent;
+      color: var(--fg);
+      padding: 9px 13px;
+      font: inherit;
+      cursor: pointer;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pulse {
+      0%, 100% { transform: scale(0.92); opacity: 0.75; }
+      50% { transform: scale(1.12); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand"><span class="mark"></span><span>DStudio</span></div>
+    <h1>Loading the local model</h1>
+    <p>DStudio opens after the host model answers a real readiness probe.</p>
+    <div class="steps">
+      <div class="step on" id="s-launcher"><span class="dot"></span><span>Connecting to the local launcher</span></div>
+      <div class="step" id="s-ready"><span class="dot"></span><span>Waiting for the model to be ready</span></div>
+      <div class="step" id="s-alive"><span class="dot"></span><span>Asking the model: hello are you alive?</span></div>
+    </div>
+    <div class="err" id="err"></div>
+    <div class="actions" id="actions"><button id="open">Open DStudio anyway</button></div>
+  </main>
+  <script>
+    const step = (id, state) => {
+      const n = document.getElementById(id);
+      n.classList.toggle('on', state === 'on');
+      n.classList.toggle('done', state === 'done');
+    };
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const err = document.getElementById('err');
+    const actions = document.getElementById('actions');
+    document.getElementById('open').onclick = () => { location.href = '/'; };
+
+    async function fetchJson(url, opts = {}, timeout = 4000) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), timeout);
+      try {
+        const res = await fetch(url, { ...opts, signal: ctl.signal });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return await res.json();
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function waitForReady() {
+      let failures = 0;
+      for (;;) {
+        try {
+          const st = await fetchJson('/api/status', {}, 3500);
+          step('s-launcher', 'done');
+          step('s-ready', 'on');
+          if (st.ready === true && st.running === true) {
+            step('s-ready', 'done');
+            return;
+          }
+          err.textContent = st.stage ? st.stage : 'Model is still starting...';
+        } catch (e) {
+          failures++;
+          err.textContent = 'Waiting for the local launcher...';
+          if (failures > 8) actions.style.display = 'block';
+        }
+        await sleep(900);
+      }
+    }
+
+    async function askAlive() {
+      step('s-alive', 'on');
+      const body = {
+        model: 'ds4',
+        stream: false,
+        temperature: 0,
+        max_tokens: 16,
+        messages: [{ role: 'user', content: 'hello are you alive?' }]
+      };
+      for (;;) {
+        try {
+          const json = await fetchJson('/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          }, 45000);
+          if (json && Array.isArray(json.choices) && json.choices.length > 0) {
+            step('s-alive', 'done');
+            location.replace('/');
+            return;
+          }
+          throw new Error('empty model response');
+        } catch (e) {
+          err.textContent = 'Model probe failed, retrying...';
+          actions.style.display = 'block';
+          await sleep(1400);
+        }
+      }
+    }
+
+    (async () => {
+      await waitForReady();
+      await askAlive();
+    })();
+  </script>
+</body>
+</html>

@@ -2,7 +2,7 @@
  *
  * On startup it forks: the CHILD runs the HTTP server (ds4_serve_main, from
  * dstudio.c) and supervises the ds4 engine; the PARENT opens the webview window
- * pointed at http://127.0.0.1:PORT and, on close, terminates the child.
+ * pointed at the local loading gate and, on close, terminates the child.
  *
  * Headless: with DS4UI_NO_WINDOW=1 no window — classic headless-server behavior
  * (useful for binding on the LAN or for use from a remote terminal).
@@ -44,13 +44,15 @@ typedef int app_socket_t;
 #define APP_INVALID_SOCKET (-1)
 #endif
 
-/* Pick the first FREE port at/after `start` (test-bind on 127.0.0.1). Without this, if 5500 is
+/* Pick the first FREE port at/after `start` for the host the server will bind.
+ * Without this, if 5500 is
  * squatted (e.g. a leftover Django runserver) the server can't bind and the window opens onto the
  * squatter (or nothing) — a blank screen. With it, DStudio just opens on the next free port. */
-static int pick_free_port(int start) {
+static int pick_free_port(const char *host, int start) {
 #ifdef _WIN32
     wsa_start();
 #endif
+    const char *bind_host = (host && host[0]) ? host : "127.0.0.1";
     for (int p = start; p <= start + 40 && p <= 65535; p++) {
         app_socket_t fd = socket(AF_INET, SOCK_STREAM, 0);
         if (fd == APP_INVALID_SOCKET) return start;
@@ -60,7 +62,14 @@ static int pick_free_port(int start) {
         memset(&a, 0, sizeof a);
         a.sin_family = AF_INET;
         a.sin_port = htons((uint16_t)p);
-        inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
+        if (inet_pton(AF_INET, bind_host, &a.sin_addr) != 1) {
+#ifdef _WIN32
+            closesocket(fd);
+#else
+            close(fd);
+#endif
+            return start;
+        }
         int ok = bind(fd, (struct sockaddr *)&a, sizeof a) == 0;
 #ifdef _WIN32
         closesocket(fd);
@@ -176,10 +185,13 @@ int main(int argc, char **argv) {
         (argc > 1 && (!strcmp(argv[1], "--build-jsonl") || !strcmp(argv[1], "--check-anchors"))))
         return ds4_serve_main(argc, argv);
 
-    int port = pick_free_port(port_from_argv(argc, argv));
+    const char *bind_host = getenv("DS4UI_HOST");
+    if (!bind_host || !bind_host[0]) bind_host = "127.0.0.1";
+    int requested_port = port_from_argv(argc, argv);
+    int port = pick_free_port(bind_host, requested_port);
     ds4ui_forced_port = port;   /* the forked server binds THIS port (set before fork → inherited) */
-    if (port != port_from_argv(argc, argv))
-        fprintf(stderr, "DStudio: port %d busy — opening on %d instead\n", port_from_argv(argc, argv), port);
+    if (port != requested_port)
+        fprintf(stderr, "DStudio: port %d busy on %s — opening on %d instead\n", requested_port, bind_host, port);
 
 #ifdef _WIN32
     if (!spawn_server_process(argc, argv, port)) {
@@ -201,8 +213,9 @@ int main(int argc, char **argv) {
     if (!wait_for_port(port, 8000))
         fprintf(stderr, "DStudio: server not ready yet on :%d, opening the window anyway\n", port);
 
-    char url[64];
-    snprintf(url, sizeof url, "http://127.0.0.1:%d", port);
+    char url[96];
+    const char *path = getenv("DS4UI_SKIP_LOADING") ? "/" : "/loading.html";
+    snprintf(url, sizeof url, "http://127.0.0.1:%d%s", port, path);
 
     webview_t w = webview_create(1280, 860, "DS4");
     webview_navigate(w, url);

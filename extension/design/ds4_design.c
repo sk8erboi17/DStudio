@@ -63,6 +63,7 @@
 #include "ds4.h"
 #include "ds4_web.h"
 #include "ds4_kvstore.h"
+#include "dstudio_remote_llm.h"
 
 /* Tokens kept free for the next assistant round + tool result before a user
  * turn is accepted.  Past that, the session is declared full. */
@@ -5450,6 +5451,8 @@ typedef struct {
     float min_p;
     uint64_t seed;
     ds4_think_mode think_mode;
+    const char *remote_base_url;
+    const char *remote_model;
     bool jsonl;
     bool self_test;
 } design_config;
@@ -5468,6 +5471,8 @@ static void usage(FILE *fp) {
         "  --think|--think-max|--nothink   reasoning effort (default nothink)\n"
         "  --metal|--cuda|--cpu    backend\n"
         "  --power <1-100>         power limit\n"
+        "  --remote-base-url <url> use a DStudio LAN host for model inference\n"
+        "  --remote-model <id>     remote model id (default ds4)\n"
         "  --jsonl                 emit structured \\x1e-prefixed UI events\n"
         "  --self-test             run ds4-design runtime contract tests and exit\n"
         "  --non-interactive       accepted for launcher symmetry (always on)\n",
@@ -5548,6 +5553,10 @@ static design_config parse_options(int argc, char **argv) {
                 fprintf(stderr, "ds4-design: --power must be between 1 and 100\n");
                 exit(2);
             }
+        } else if (!strcmp(arg, "--remote-base-url")) {
+            c.remote_base_url = need_arg(&i, argc, argv, arg);
+        } else if (!strcmp(arg, "--remote-model")) {
+            c.remote_model = need_arg(&i, argc, argv, arg);
         } else if (!strcmp(arg, "--jsonl")) {
             c.jsonl = true;
         } else if (!strcmp(arg, "--self-test")) {
@@ -5589,6 +5598,8 @@ typedef struct {
     char session_sha[41];
     char *session_title;
     uint64_t session_created_at;
+    dstudio_remote_buf remote_messages;
+    int remote_message_count;
 } design_agent;
 
 static ds4_think_mode agent_think_mode(const design_agent *a) {
@@ -7260,6 +7271,213 @@ static int design_run_self_test(void) {
 }
 
 /* ============================================================================
+ * Remote Model Mode
+ * ============================================================================
+ *
+ * LAN clients still run ds4-design locally for workspace and tool execution.
+ * Only the model turn is delegated to the DStudio host's /v1 endpoint.
+ */
+
+typedef struct {
+    design_agent *agent;
+    design_stream *stream;
+    design_buf assistant_raw;
+    bool reasoning_open;
+} design_remote_stream_ctx;
+
+static int design_remote_think_level(ds4_think_mode m) {
+    if (m == DS4_THINK_MAX) return 2;
+    if (m == DS4_THINK_HIGH) return 1;
+    return 0;
+}
+
+static void design_remote_cb(void *ud, const char *kind, const char *text, size_t len) {
+    design_remote_stream_ctx *ctx = ud;
+    if (!ctx || !kind || !text || !len) return;
+    if (!strcmp(kind, "reasoning")) {
+        if (!ctx->reasoning_open) {
+            emit_event("reasoning_start");
+            ctx->reasoning_open = true;
+        }
+        out_text(text, len);
+        return;
+    }
+    if (!strcmp(kind, "content")) {
+        if (ctx->reasoning_open) {
+            emit_event("reasoning_end");
+            ctx->reasoning_open = false;
+        }
+        buf_append(&ctx->assistant_raw, text, len);
+        stream_text(ctx->stream, text, len);
+    }
+}
+
+static char *design_remote_system_prompt(design_agent *a) {
+    design_buf sys = {0};
+    buf_puts(&sys, design_system_prompt);
+    char *pm = design_read_project_memory(&a->project);
+    if (pm && pm[0]) {
+        buf_puts(&sys, "\n\nPROJECT MEMORY (runtime summary from MEMORY.MD):\n\n");
+        buf_puts(&sys, pm);
+    }
+    free(pm);
+    if (a->cfg->extra_system && a->cfg->extra_system[0]) {
+        buf_puts(&sys, "\n\nAdditional system instructions:\n");
+        buf_puts(&sys, a->cfg->extra_system);
+    }
+    buf_puts(&sys,
+        "\n\nRuntime note: you are using a remote DS4 model, but all tools, "
+        "filesystem writes, bash commands, browser reads, artifact registration "
+        "and project state run on this local client workspace. Never assume the "
+        "remote host filesystem is available.\n");
+    return buf_take(&sys);
+}
+
+static void design_remote_reset_messages(design_agent *a) {
+    dstudio_remote_buf_free(&a->remote_messages);
+    a->remote_message_count = 0;
+    char *sys = design_remote_system_prompt(a);
+    dstudio_remote_messages_append(&a->remote_messages, &a->remote_message_count,
+                                   "system", sys);
+    free(sys);
+}
+
+static int design_remote_run_turn(design_agent *a, const char *user_text) {
+    if (!a->session_title) {
+        a->session_title = design_session_title_from_prompt(user_text, 0);
+        a->session_created_at = (uint64_t)time(NULL);
+        design_session_identity_sha(a->session_title, a->session_created_at,
+                                    a->session_sha);
+    }
+    design_project_start_run(&a->project, user_text);
+    dstudio_remote_messages_append(&a->remote_messages, &a->remote_message_count,
+                                   "user", user_text ? user_text : "");
+
+    for (int tool_round = 0; ; tool_round++) {
+        (void)tool_round;
+        dsml_parser dsml;
+        memset(&dsml, 0, sizeof(dsml));
+        dsml.state = DSML_SEARCH;
+        design_stream stream = { .parser = &dsml, .hold_len = 0, .suppressed = false };
+        design_remote_stream_ctx ctx = {
+            .agent = a,
+            .stream = &stream,
+        };
+        char *messages = dstudio_remote_messages_snapshot(&a->remote_messages);
+        char err[256] = {0};
+        int rc = dstudio_remote_chat_stream(
+            a->cfg->remote_base_url,
+            a->cfg->remote_model && a->cfg->remote_model[0] ? a->cfg->remote_model : "ds4",
+            messages,
+            design_remote_think_level(agent_think_mode(a)),
+            a->cfg->temperature,
+            a->cfg->top_p,
+            a->cfg->min_p,
+            a->cfg->n_predict,
+            design_remote_cb,
+            &ctx,
+            err,
+            sizeof(err));
+        free(messages);
+        stream_finish(&stream);
+        if (ctx.reasoning_open) emit_event("reasoning_end");
+
+        if (rc != 0) {
+            dsml_parser_free(&dsml);
+            char msg[512];
+            snprintf(msg, sizeof(msg), "\nRemote model failed: %s\n",
+                     err[0] ? err : "unknown error");
+            out_text(msg, strlen(msg));
+            return 1;
+        }
+
+        char *assistant = buf_take(&ctx.assistant_raw);
+        dstudio_remote_messages_append(&a->remote_messages,
+                                       &a->remote_message_count,
+                                       "assistant",
+                                       assistant);
+
+        bool got_tool = dsml.state == DSML_DONE;
+        bool malformed_tool = dsml.state == DSML_ERROR ||
+            dsml.state == DSML_STRUCTURAL || dsml.state == DSML_PARAM_VALUE;
+        char *tool_result = NULL;
+        if (!got_tool && !malformed_tool) {
+            out_text("\n", 1);
+            free(assistant);
+            dsml_parser_free(&dsml);
+            design_project_finish_run(&a->project, "ok");
+            return 0;
+        }
+        if (malformed_tool) {
+            design_buf b = {0};
+            buf_puts(&b, "Tool error: invalid DSML tool call: ");
+            buf_puts(&b, dsml.error[0] ? dsml.error : "parse error");
+            buf_puts(&b, "\n");
+            tool_result = buf_take(&b);
+        } else {
+            tool_result = execute_tool_calls(&a->project, &dsml.calls);
+        }
+        dstudio_remote_messages_append(&a->remote_messages,
+                                       &a->remote_message_count,
+                                       "tool",
+                                       tool_result);
+        free(tool_result);
+        free(assistant);
+        dsml_parser_free(&dsml);
+    }
+}
+
+static void design_remote_handle_slash(design_agent *a, const char *input) {
+    const char *p = input;
+    while (*p == ' ' || *p == '\t') p++;
+    if (!strncmp(p, "/new", 4) && (p[4] == '\0' || p[4] == ' ' || p[4] == '\t')) {
+        design_remote_reset_messages(a);
+        free(a->session_title);
+        a->session_title = NULL;
+        a->session_sha[0] = '\0';
+        emit_session_status("info", "started a new remote design session");
+    } else if (!strncmp(p, "/save", 5) || !strncmp(p, "/list", 5) ||
+               !strncmp(p, "/sessions", 9) || !strncmp(p, "/switch", 7) ||
+               !strncmp(p, "/del", 4) || !strncmp(p, "/compact", 8)) {
+        emit_session_status("info", "remote design keeps local workspace files but does not write local KV sessions");
+    } else {
+        char m[96];
+        snprintf(m, sizeof(m), "unknown command: %.40s", p);
+        emit_session_status("error", m);
+    }
+}
+
+static int design_run_remote(design_agent *a) {
+    design_remote_reset_messages(a);
+    fprintf(stderr, "ds4-design: remote model %s (%s)\n",
+            a->cfg->remote_model && a->cfg->remote_model[0] ? a->cfg->remote_model : "ds4",
+            a->cfg->remote_base_url);
+
+    design_buf input = {0};
+    for (;;) {
+        if (!read_prompt(&input)) break;
+        while (input.len && (input.ptr[input.len - 1] == '\n' ||
+                             input.ptr[input.len - 1] == '\r'))
+            input.ptr[--input.len] = '\0';
+        if (input.len == 0) continue;
+        const char *p = input.ptr;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '/') {
+            design_remote_handle_slash(a, input.ptr);
+            input.len = 0;
+            if (input.ptr) input.ptr[0] = '\0';
+            continue;
+        }
+        char *prompt = buf_take(&input);
+        int rc = design_remote_run_turn(a, prompt);
+        free(prompt);
+        if (rc != 0) break;
+    }
+    free(input.ptr);
+    return 0;
+}
+
+/* ============================================================================
  * Main
  * ============================================================================
  */
@@ -7323,6 +7541,18 @@ int main(int argc, char **argv) {
     a.project.web = ds4_web_create(&web_cfg);
     if (!a.project.web)
         fprintf(stderr, "ds4-design: web tools unavailable (ds4_web_create failed)\n");
+
+    if (cfg.remote_base_url && cfg.remote_base_url[0]) {
+        int rc = design_run_remote(&a);
+        design_bash_jobs_free(&a.project);
+        ds4_web_free(a.project.web);
+        free(a.project.todos_json);
+        free(a.project.memory_summary);
+        free(a.cache_dir);
+        free(a.session_title);
+        dstudio_remote_buf_free(&a.remote_messages);
+        return rc;
+    }
 
     if (ds4_engine_open(&a.engine, &cfg.engine) != 0) return 1;
 
@@ -7475,6 +7705,7 @@ int main(int argc, char **argv) {
     free(a.project.memory_summary);
     free(a.cache_dir);
     free(a.session_title);
+    dstudio_remote_buf_free(&a.remote_messages);
     ds4_session_free(a.session);
     ds4_engine_close(a.engine);
     return 0;
