@@ -104,6 +104,7 @@ $Ds4Dir = (Resolve-Path $Ds4Dir).Path
 
 New-Item -ItemType Directory -Force -Path "src" | Out-Null
 New-Item -ItemType Directory -Force -Path "build\windows" | Out-Null
+if (Test-Path $OutDir) { Remove-Item $OutDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
 Write-Host "windows: generating embedded page headers"
@@ -167,7 +168,7 @@ if (-not (Test-Path $Bash)) { throw "POSIX bash not found: $Bash" }
 & $Bash -lc "true"
 Assert-NativeOk "initialize POSIX shell"
 if ($CygwinRoot -like "*msys64*") {
-  & $Bash -lc "export PATH=/usr/local/bin:/usr/bin:/bin:`$PATH; pacman --noconfirm -S --needed make git patch curl mingw-w64-ucrt-x86_64-gcc"
+  & $Bash -lc "export PATH=/usr/local/bin:/usr/bin:/bin:`$PATH; pacman --noconfirm -S --needed make git patch gcc"
   Assert-NativeOk "install MSYS2 build tools"
 }
 $RootUnix = ((& $Bash -lc "cygpath -u '$Root'") | Select-Object -Last 1).Trim()
@@ -189,54 +190,21 @@ if (-not (Test-Path $JsonlVer)) { throw "missing JSONL runtime version marker: $
 Copy-Item $JsonlVer $OutDir -Force
 
 $RuntimeDlls = @(
-  "cygwin1.dll", "cyggcc_s-seh-1.dll",
-  "msys-2.0.dll", "msys-gcc_s-seh-1.dll",
-  "msys-curl-4.dll", "msys-nghttp2-14.dll",
-  "msys-ssl-3.dll", "msys-crypto-3.dll",
-  "msys-z-1.dll", "msys-zstd-1.dll",
-  "msys-brotlidec-1.dll", "msys-brotlicommon-1.dll",
-  "msys-idn2-0.dll", "msys-psl-5.dll", "msys-unistring-5.dll",
-  "msys-iconv-2.dll", "msys-intl-8.dll", "msys-ssh2-1.dll",
   "libgcc_s_seh-1.dll", "libwinpthread-1.dll", "libstdc++-6.dll"
 )
 foreach ($dll in $RuntimeDlls) {
   $src = $null
   foreach ($dir in @(
-    (Join-Path $CygwinRoot "bin"),
     "C:\msys64\ucrt64\bin",
     "C:\msys64\mingw64\bin",
-    "C:\msys64\clang64\bin",
-    "C:\msys64\usr\bin",
-    "C:\cygwin64\bin"
+    "C:\msys64\clang64\bin"
   )) {
     $candidate = Join-Path $dir $dll
     if (Test-Path $candidate) { $src = $candidate; break }
   }
   if ($src) {
     Copy-Item $src $OutDir -Force
-    Copy-Item $src $Ds4Dir -Force
   }
-}
-
-$RuntimeTools = @("curl.exe")
-foreach ($tool in $RuntimeTools) {
-  $src = $null
-  foreach ($dir in @(
-    (Join-Path $OutDir "."),
-    "C:\Windows\System32",
-    (Join-Path $CygwinRoot "bin"),
-    "C:\msys64\usr\bin",
-    "C:\msys64\ucrt64\bin",
-    "C:\msys64\mingw64\bin",
-    "C:\msys64\clang64\bin",
-    "C:\cygwin64\bin"
-  )) {
-    $candidate = Join-Path $dir $tool
-    if (Test-Path $candidate) { $src = $candidate; break }
-  }
-  if (-not $src) { throw "missing runtime tool: $tool" }
-  Copy-Item $src $OutDir -Force
-  Copy-Item $src $Ds4Dir -Force
 }
 
 @"
@@ -246,10 +214,10 @@ Run DStudio.exe. The DS4 engine binaries in this folder are CPU-only Windows
 builds produced from a temporary staging copy; the upstream ds4 checkout is not
 modified permanently.
 
-Agent and Design LAN-client mode need the local runtime files in this folder,
-including ds4-agent-jsonl.exe, ds4-agent-jsonl.ver and curl.exe. Keep the
-portable folder together or point the client settings to a DS4 folder prepared
-by this package.
+Agent and Design LAN-client mode use the local DS4 tools for workspace actions
+and DStudio's internal model bridge for LAN inference. Do not copy MSYS/Cygwin
+runtime DLLs next to the DS4 binaries: the launcher adds the installed MSYS2
+runtime to PATH so /tmp, fork and shell tools keep the correct MSYS root.
 
 Models are not included. Put GGUF files in the selected ds4 folder, or point
 DStudio at a ds4 folder that already contains them.

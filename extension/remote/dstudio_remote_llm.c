@@ -4,24 +4,12 @@
 
 #include <ctype.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-#include <time.h>
 #include <unistd.h>
-
-#if defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
-#include <windows.h>
-#endif
-
-#ifndef O_BINARY
-#define O_BINARY 0
-#endif
 
 static void remote_err(char *err, size_t err_len, const char *fmt, ...) {
     if (!err || !err_len) return;
@@ -132,253 +120,6 @@ char *dstudio_remote_messages_snapshot(const dstudio_remote_buf *b) {
     return dstudio_remote_buf_take(&out);
 }
 
-static const char *remote_curl_exe(void) {
-    const char *curl = getenv("DS4UI_CURL");
-    return (curl && curl[0]) ? curl : "curl";
-}
-
-#if defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
-static void win_cmd_append_arg(dstudio_remote_buf *b, const char *arg) {
-    if (b->len) dstudio_remote_buf_puts(b, " ");
-    dstudio_remote_buf_puts(b, "\"");
-    int bs = 0;
-    for (const char *p = arg ? arg : ""; *p; p++) {
-        if (*p == '\\') {
-            bs++;
-            continue;
-        }
-        if (*p == '"') {
-            while (bs-- > 0) dstudio_remote_buf_puts(b, "\\");
-            dstudio_remote_buf_puts(b, "\\\"");
-            bs = 0;
-            continue;
-        }
-        while (bs-- > 0) dstudio_remote_buf_puts(b, "\\");
-        dstudio_remote_buf_append(b, p, 1);
-    }
-    while (bs-- > 0) dstudio_remote_buf_puts(b, "\\\\");
-    dstudio_remote_buf_puts(b, "\"");
-}
-#endif
-
-static const char *remote_tmp_dir(void) {
-    const char *keys[] = { "TMPDIR", "TMP", "TEMP", "USERPROFILE", NULL };
-    for (int i = 0; keys[i]; i++) {
-        const char *v = getenv(keys[i]);
-        if (v && v[0]) return v;
-    }
-    return ".";
-}
-
-static int remote_tempfile(char *path, size_t path_len) {
-    const char *dir = remote_tmp_dir();
-    size_t dl = strlen(dir);
-    char sep = (dl && (dir[dl - 1] == '/' || dir[dl - 1] == '\\')) ? '\0' : '/';
-    unsigned seed = (unsigned)time(NULL) ^ (unsigned)getpid();
-    for (int i = 0; i < 128; i++) {
-        seed = seed * 1103515245u + 12345u;
-        if (sep) snprintf(path, path_len, "%s%c%s-%ld-%08x.json", dir, sep, "dstudio-remote", (long)getpid(), seed);
-        else     snprintf(path, path_len, "%s%s-%ld-%08x.json", dir, "dstudio-remote", (long)getpid(), seed);
-        int fd = open(path, O_CREAT | O_EXCL | O_WRONLY | O_BINARY, 0600);
-        if (fd >= 0) return fd;
-        if (errno != EEXIST) break;
-    }
-    path[0] = '\0';
-    return -1;
-}
-
-static char *remote_url(const char *base_url) {
-    dstudio_remote_buf b = {0};
-    const char *base = base_url ? base_url : "";
-    size_t n = strlen(base);
-    while (n && base[n - 1] == '/') n--;
-    dstudio_remote_buf_append(&b, base, n);
-    dstudio_remote_buf_puts(&b, "/v1/chat/completions");
-    return dstudio_remote_buf_take(&b);
-}
-
-static void stream_sse_line(const char *line,
-                            dstudio_remote_chunk_cb cb,
-                            void *ud,
-                            int *done);
-
-static void stream_sse_bytes(const char *buf,
-                             size_t len,
-                             dstudio_remote_buf *line,
-                             dstudio_remote_chunk_cb cb,
-                             void *ud,
-                             int *done) {
-    for (size_t i = 0; i < len && !*done; i++) {
-        dstudio_remote_buf_append(line, buf + i, 1);
-        if (buf[i] == '\n') {
-            stream_sse_line(line->ptr ? line->ptr : "", cb, ud, done);
-            line->len = 0;
-            if (line->ptr) line->ptr[0] = '\0';
-        }
-    }
-}
-
-#if defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
-static int remote_run_curl_stream(const char *tmp,
-                                  const char *url,
-                                  dstudio_remote_chunk_cb cb,
-                                  void *ud,
-                                  char *err,
-                                  size_t err_len) {
-    char atfile[1200];
-    snprintf(atfile, sizeof atfile, "@%s", tmp);
-
-    dstudio_remote_buf cmd = {0};
-    win_cmd_append_arg(&cmd, remote_curl_exe());
-    win_cmd_append_arg(&cmd, "-fsS");
-    win_cmd_append_arg(&cmd, "-N");
-    win_cmd_append_arg(&cmd, "--max-time");
-    win_cmd_append_arg(&cmd, "1800");
-    win_cmd_append_arg(&cmd, "-H");
-    win_cmd_append_arg(&cmd, "Accept: text/event-stream");
-    win_cmd_append_arg(&cmd, "-H");
-    win_cmd_append_arg(&cmd, "Content-Type: application/json");
-    win_cmd_append_arg(&cmd, "--data-binary");
-    win_cmd_append_arg(&cmd, atfile);
-    win_cmd_append_arg(&cmd, url);
-
-    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
-    HANDLE out_r = NULL, out_w = NULL;
-    if (!CreatePipe(&out_r, &out_w, &sa, 0)) {
-        dstudio_remote_buf_free(&cmd);
-        remote_err(err, err_len, "failed to create curl pipe");
-        return 1;
-    }
-    SetHandleInformation(out_r, HANDLE_FLAG_INHERIT, 0);
-
-    STARTUPINFOA si;
-    PROCESS_INFORMATION pi;
-    memset(&si, 0, sizeof si);
-    memset(&pi, 0, sizeof pi);
-    si.cb = sizeof si;
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-    si.hStdOutput = out_w;
-    si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
-
-    BOOL ok = CreateProcessA(NULL, cmd.ptr, NULL, NULL, TRUE,
-                             CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
-    dstudio_remote_buf_free(&cmd);
-    CloseHandle(out_w);
-    if (!ok) {
-        DWORD code = GetLastError();
-        CloseHandle(out_r);
-        remote_err(err, err_len, "failed to start curl (Windows error %lu)", (unsigned long)code);
-        return 1;
-    }
-
-    CloseHandle(pi.hThread);
-    char chunk[4096];
-    dstudio_remote_buf line = {0};
-    int done = 0;
-    for (;;) {
-        DWORD got = 0;
-        if (!ReadFile(out_r, chunk, sizeof chunk, &got, NULL) || got == 0) break;
-        stream_sse_bytes(chunk, (size_t)got, &line, cb, ud, &done);
-        if (done) break;
-    }
-    if (!done && line.len) stream_sse_line(line.ptr, cb, ud, &done);
-    dstudio_remote_buf_free(&line);
-    CloseHandle(out_r);
-
-    WaitForSingleObject(pi.hProcess, INFINITE);
-    DWORD exit_code = 1;
-    GetExitCodeProcess(pi.hProcess, &exit_code);
-    CloseHandle(pi.hProcess);
-    if (!done && exit_code != 0) {
-        remote_err(err, err_len, "remote model request failed (curl exit %lu)", (unsigned long)exit_code);
-        return 1;
-    }
-    if (!done) {
-        remote_err(err, err_len, "remote model stream ended before [DONE]");
-        return 1;
-    }
-    return 0;
-}
-#else
-static int remote_run_curl_stream(const char *tmp,
-                                  const char *url,
-                                  dstudio_remote_chunk_cb cb,
-                                  void *ud,
-                                  char *err,
-                                  size_t err_len) {
-    int pfd[2];
-    if (pipe(pfd) != 0) {
-        remote_err(err, err_len, "failed to create curl pipe: %s", strerror(errno));
-        return 1;
-    }
-
-    char atfile[1200];
-    snprintf(atfile, sizeof atfile, "@%s", tmp);
-    char *const argv[] = {
-        (char *)remote_curl_exe(),
-        (char *)"-fsS",
-        (char *)"-N",
-        (char *)"--max-time",
-        (char *)"1800",
-        (char *)"-H",
-        (char *)"Accept: text/event-stream",
-        (char *)"-H",
-        (char *)"Content-Type: application/json",
-        (char *)"--data-binary",
-        atfile,
-        (char *)url,
-        NULL
-    };
-
-    pid_t pid = fork();
-    if (pid < 0) {
-        int e = errno;
-        close(pfd[0]);
-        close(pfd[1]);
-        remote_err(err, err_len, "failed to fork curl: %s", strerror(e));
-        return 1;
-    }
-    if (pid == 0) {
-        close(pfd[0]);
-        if (dup2(pfd[1], STDOUT_FILENO) < 0) _exit(127);
-        close(pfd[1]);
-        execvp(argv[0], argv);
-        _exit(127);
-    }
-    close(pfd[1]);
-
-    char chunk[4096];
-    dstudio_remote_buf line = {0};
-    int done = 0;
-    for (;;) {
-        ssize_t n = read(pfd[0], chunk, sizeof chunk);
-        if (n < 0 && errno == EINTR) continue;
-        if (n <= 0) break;
-        stream_sse_bytes(chunk, (size_t)n, &line, cb, ud, &done);
-        if (done) break;
-    }
-    if (!done && line.len) stream_sse_line(line.ptr, cb, ud, &done);
-    dstudio_remote_buf_free(&line);
-    close(pfd[0]);
-
-    int st = 0;
-    if (waitpid(pid, &st, 0) < 0) {
-        remote_err(err, err_len, "curl wait failed: %s", strerror(errno));
-        return 1;
-    }
-    if (!done && (!WIFEXITED(st) || WEXITSTATUS(st) != 0)) {
-        remote_err(err, err_len, "remote model request failed");
-        return 1;
-    }
-    if (!done) {
-        remote_err(err, err_len, "remote model stream ended before [DONE]");
-        return 1;
-    }
-    return 0;
-}
-#endif
-
 static int write_all_fd(int fd, const char *p, size_t n) {
     while (n) {
         ssize_t w = write(fd, p, n);
@@ -388,6 +129,19 @@ static int write_all_fd(int fd, const char *p, size_t n) {
         n -= (size_t)w;
     }
     return 0;
+}
+
+static int read_line_fd(int fd, dstudio_remote_buf *line) {
+    line->len = 0;
+    if (line->ptr) line->ptr[0] = '\0';
+    for (;;) {
+        char c;
+        ssize_t n = read(fd, &c, 1);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return line->len ? 1 : 0;
+        dstudio_remote_buf_append(line, &c, 1);
+        if (c == '\n') return 1;
+    }
 }
 
 static int hex4(const char *p, unsigned *out) {
@@ -459,23 +213,39 @@ static char *json_string_value(const char *json, const char *key) {
     return NULL;
 }
 
-static void stream_sse_line(const char *line,
-                            dstudio_remote_chunk_cb cb,
-                            void *ud,
-                            int *done) {
-    if (strncmp(line, "data:", 5) != 0) return;
-    const char *p = line + 5;
-    while (*p == ' ' || *p == '\t') p++;
-    if (!strncmp(p, "[DONE]", 6)) {
-        *done = 1;
-        return;
+static int json_int_value(const char *json, const char *key, int *out) {
+    char pat[96];
+    snprintf(pat, sizeof(pat), "\"%s\"", key);
+    const char *p = strstr(json, pat);
+    if (!p) return 0;
+    p += strlen(pat);
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (*p != ':') return 0;
+    p++;
+    while (*p && isspace((unsigned char)*p)) p++;
+    char *end = NULL;
+    long v = strtol(p, &end, 10);
+    if (end == p || v < 0 || v > 2147483647L) return 0;
+    *out = (int)v;
+    return 1;
+}
+
+static int rpc_send_request(int id, const char *body, char *err, size_t err_len) {
+    dstudio_remote_buf event = {0};
+    char num[64];
+    dstudio_remote_buf_puts(&event, "\x1e{\"type\":\"model_request\",\"id\":");
+    snprintf(num, sizeof num, "%d", id);
+    dstudio_remote_buf_puts(&event, num);
+    dstudio_remote_buf_puts(&event, ",\"body\":");
+    dstudio_remote_json_string(&event, body ? body : "{}");
+    dstudio_remote_buf_puts(&event, "}\n");
+    int rc = write_all_fd(STDOUT_FILENO, event.ptr ? event.ptr : "", event.len);
+    dstudio_remote_buf_free(&event);
+    if (rc != 0) {
+        remote_err(err, err_len, "failed to send internal model request to DStudio");
+        return 1;
     }
-    char *reasoning = json_string_value(p, "reasoning_content");
-    if (reasoning && reasoning[0] && cb) cb(ud, "reasoning", reasoning, strlen(reasoning));
-    free(reasoning);
-    char *content = json_string_value(p, "content");
-    if (content && content[0] && cb) cb(ud, "content", content, strlen(content));
-    free(content);
+    return 0;
 }
 
 int dstudio_remote_chat_stream(const char *base_url,
@@ -520,25 +290,47 @@ int dstudio_remote_chat_stream(const char *base_url,
     }
     dstudio_remote_buf_puts(&body, "}");
 
-    char tmp[1024];
-    int fd = remote_tempfile(tmp, sizeof(tmp));
-    if (fd < 0) {
-        remote_err(err, err_len, "tempfile failed in %s: %s", remote_tmp_dir(), strerror(errno));
+    static int next_id = 1;
+    int id = next_id++;
+    if (next_id <= 0) next_id = 1;
+    if (rpc_send_request(id, body.ptr ? body.ptr : "{}", err, err_len) != 0) {
         dstudio_remote_buf_free(&body);
         return 1;
     }
-    int write_ok = write_all_fd(fd, body.ptr ? body.ptr : "", body.len) == 0;
-    close(fd);
     dstudio_remote_buf_free(&body);
-    if (!write_ok) {
-        unlink(tmp);
-        remote_err(err, err_len, "failed to write remote request body");
-        return 1;
+
+    dstudio_remote_buf line = {0};
+    while (read_line_fd(STDIN_FILENO, &line)) {
+        const char *p = line.ptr ? line.ptr : "";
+        if ((unsigned char)p[0] != 0x1e) continue;
+        p++;
+        if (!strstr(p, "\"type\":\"model_")) continue;
+        int got_id = -1;
+        if (!json_int_value(p, "id", &got_id) || got_id != id) continue;
+
+        char *type = json_string_value(p, "type");
+        if (type && !strcmp(type, "model_delta")) {
+            char *kind = json_string_value(p, "kind");
+            char *text = json_string_value(p, "text");
+            if (kind && text && text[0] && cb) cb(ud, kind, text, strlen(text));
+            free(kind);
+            free(text);
+        } else if (type && !strcmp(type, "model_done")) {
+            free(type);
+            dstudio_remote_buf_free(&line);
+            return 0;
+        } else if (type && !strcmp(type, "model_error")) {
+            char *msg = json_string_value(p, "error");
+            remote_err(err, err_len, "%s", msg && msg[0] ? msg : "remote model request failed");
+            free(msg);
+            free(type);
+            dstudio_remote_buf_free(&line);
+            return 1;
+        }
+        free(type);
     }
 
-    char *url = remote_url(base_url);
-    int rc = remote_run_curl_stream(tmp, url, cb, ud, err, err_len);
-    free(url);
-    unlink(tmp);
-    return rc;
+    dstudio_remote_buf_free(&line);
+    remote_err(err, err_len, "internal model stream ended before completion");
+    return 1;
 }

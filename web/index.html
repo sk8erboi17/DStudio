@@ -9896,7 +9896,7 @@
             }
             const buildSkills = shipped.filter((s) => !s.modes.includes('marketing'));
             if (buildSkills.length) {
-              addGroup('Web / Build');
+              addGroup('Web / Plan');
               buildSkills.forEach(addS);
             }
             [
@@ -9932,10 +9932,10 @@
 
           const bm = Store.getSettings().buildMode;
           const bon = bm === 'plan';
-          cbarPop.append(cdrop({ cap: 'Build', ariaLabel: 'Build mode',
-            title: 'Build mode — turn it on, then tell the agent what to build; it interviews you, proposes the pages + style, then builds one page at a time.',
+          cbarPop.append(cdrop({ cap: 'Plan', ariaLabel: 'Plan mode',
+            title: 'Plan mode — describe what you want; the agent produces a Markdown planning file in the selected workspace.',
             value: bon ? 'on' : 'off',
-            items: [{ value: 'off', lead: 'Off' }, { value: 'on', lead: 'On', sub: 'Interview → plan → build, page by page' }],
+            items: [{ value: 'off', lead: 'Off' }, { value: 'on', lead: 'On', sub: 'Write plan.md' }],
             onPick: (v) => Switcher.switchBuild(v) }));
         }
 
@@ -15401,8 +15401,9 @@
       const skillForMode = (m) => (Store.getSettings().skillByMode || {})[m] || '';
       // The active design-system (brand) for DESIGN mode only; injected alongside the skill.
       const designSystem = () => Store.getSettings().designSystem || '';
-      // Build mode (agent): 'off' | 'plan'. "On" = the planned driver: the model proposes a
-      // page plan from your goal, then it's built one page at a time.
+      // Plan mode (agent): 'off' | 'plan'. The legacy setting key is kept so
+      // existing users do not lose preferences, but the product behavior is now
+      // a one-turn Markdown planning file instead of the old app builder.
       const buildMode = () => Store.getSettings().buildMode === 'plan' ? 'plan' : 'off';
       const remoteModelLaunch = () => {
         if (!isLanClientMode()) return {};
@@ -15502,17 +15503,17 @@
         restartCurrent();
       }
 
-      // Switch Build mode (agent only): on/off. It's a launch param (the agent restarts so it
-      // gets the planned-Build protocol). When on, you just tell the agent in the chat what to
-      // build — the model proposes the plan and BuildDriver takes it from there.
+      // Switch Plan mode (agent only): on/off. It's a launch param (the agent
+      // restarts so it gets the Plan-mode system prompt). When on, you describe
+      // what you want and the agent writes a Markdown planning file.
       function switchBuild(val) {
         if (mode !== 'agent') return;
         const on = val === 'on' || val === 'plan';
         const v = on ? 'plan' : 'off';
         if (buildMode() === v) return;
-        BuildDriver.cancel(true);            // drop any plan state silently on either toggle
+        BuildDriver.cancel(true);            // drop any stale legacy builder state
         Store.setSettings({ buildMode: v });
-        toast(v === 'plan' ? 'Build on — tell the agent what to build; it proposes the pages + style.' : 'Build off — restarting…', 'info');
+        toast(v === 'plan' ? 'Plan mode on — describe what you want; the agent will write plan.md.' : 'Plan mode off — restarting…', 'info');
         restartCurrent();
       }
 
@@ -15528,7 +15529,7 @@
         let bs = null;                                  // the run state (mirrors Store.buildState)
         function load() { if (!bs) bs = Store.getSettings().buildState || null; return bs; }
         function save() { Store.setSettings({ buildState: bs }); }
-        const active = () => buildMode() === 'plan' && !!load() && !bs.done && !bs.paused;
+        const active = () => false; // legacy app-builder driver is disabled; Plan mode is one-turn.
 
         // -- helpers -------------------------------------------------------------
         const slug = (s) => (s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'page';
@@ -15636,7 +15637,7 @@
         function runAgent()  { bs.pending = false; save(); startAgent(bs.workdir); }
 
         // -- planning entry (the model proposes the plan from your chat goal) ----
-        // True when a goal you type should START a plan: Build is on and nothing is running yet.
+        // True when a goal you type should become a Markdown planning request.
         const armed = () => buildMode() === 'plan' && !active();
         // Pull a page list out of the goal itself: bulleted lines ("- Home feed", "- Item | item.html").
         // Extract a PAGE LIST from the goal. Handles both an inline "pages: home, item detail, …"
@@ -15686,30 +15687,29 @@
           if (!go) { cancel(true); return; }
           startDrive();
         }
-        // Called from the composer with your goal. If the goal ALREADY lists the pages, skip the
-        // model interview entirely (it's flaky on Flash) and go straight to confirm → build; returns
-        // false so the composer does NOT forward the goal to the agent. Otherwise set up an interview
-        // turn and return the prompt to send.
+        function planFilename(goal) {
+          const first = (goal || '').split('\n').find((x) => x.trim()) || 'plan';
+          const base = slug(first.replace(/^(build|create|make|plan|pianifica|crea|fammi)\s+/i, '')).slice(0, 36) || 'plan';
+          return base === 'plan' ? 'plan.md' : `${base}-plan.md`;
+        }
+
+        // Called from the composer with your goal. Plan mode is intentionally
+        // not the old app-builder: it asks the agent for a concrete Markdown
+        // plan file and then stops. No Design handoff, no page driver.
         function arm(goal) {
-          const workdir = Store.getState().ui.agentWorkdir || (Store.getSettings().workdirs || {}).agent || '';
-          const listed = parsePagesFromGoal(goal);
-          if (listed.length >= 2) {
-            bs = Object.assign(baseState(workdir, goal), { phase: 'confirm', plan: listed });
-            save();
-            confirmAndDrive();
-            return false;
-          }
-          bs = Object.assign(baseState(workdir, goal), { phase: 'planning', pending: true, planRetried: false });
-          save();
-          return (goal || '').trim()
-            + '\n\n(BUILD MODE — scope this build like a senior engineer. Do NOT write code or a plan yet. '
-            + 'INTERVIEW ME ONE QUESTION AT A TIME. For each question output ONLY this block:\n'
-            + '§ASK\nQ: <the question>\n1) <option>\n2) <option>\n3) <option>\n§END\n'
-            + 'Give 2-4 realistic options (I can always write my own). Cover features & scope, the must-have pages, auth, '
-            + 'the data, and the visual style/brand. After my answer, ask the next question. ONLY once you have enough, '
-            + 'output the final plan instead, as this EXACT block:\n'
-            + '§PLAN\nSTYLE: <one concise visual-direction line>\n- <Page name> | <filename.html>\n§END\n'
-            + 'List every page, home first, lowercase .html filenames. Emit exactly ONE §ASK or §PLAN block per turn — nothing else.)';
+          bs = null;
+          Store.setSettings({ buildState: null });
+          const filename = planFilename(goal);
+          return [
+            (goal || '').trim(),
+            '',
+            'PLAN MODE — create a Markdown planning file for the request above.',
+            `Write exactly one Markdown file named \`${filename}\` in the selected workspace using the file write tool.`,
+            'Do not implement code, do not scaffold an app, do not switch to Design, and do not run a build. This turn is planning only.',
+            'Make reasonable assumptions when details are missing. Ask a clarification only if the plan would be meaningless without it.',
+            'The Markdown file must include: title, objective, assumptions, scope, milestones, task breakdown, technical/design decisions, risks, validation checklist, and next actions.',
+            'After writing the file, reply briefly with the filename and a 3-5 bullet summary of the plan.',
+          ].join('\n');
         }
         // True while the model is interviewing you (planning phase) — your chat replies pass
         // through to it as answers; the driver keeps watching the transcript for the §PLAN block.

@@ -7484,19 +7484,38 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
     }
 }
 
+static bool design_remote_slash_is(const char *p, const char *cmd) {
+    size_t n = strlen(cmd);
+    return !strncmp(p, cmd, n) &&
+           (p[n] == '\0' || p[n] == ' ' || p[n] == '\t');
+}
+
+static void design_remote_emit_empty_sessions(void) {
+    if (!g_jsonl) return;
+    design_buf b = {0};
+    buf_puts(&b, "\x1e{\"type\":\"sessions\",\"sessions\":[]}\n");
+    emit_event_line(&b);
+}
+
 static void design_remote_handle_slash(design_agent *a, const char *input) {
     const char *p = input;
     while (*p == ' ' || *p == '\t') p++;
-    if (!strncmp(p, "/new", 4) && (p[4] == '\0' || p[4] == ' ' || p[4] == '\t')) {
+    if (design_remote_slash_is(p, "/new")) {
         design_remote_reset_messages(a);
         free(a->session_title);
         a->session_title = NULL;
         a->session_sha[0] = '\0';
-        emit_session_status("info", "started a new remote design session");
-    } else if (!strncmp(p, "/save", 5) || !strncmp(p, "/list", 5) ||
-               !strncmp(p, "/sessions", 9) || !strncmp(p, "/switch", 7) ||
-               !strncmp(p, "/del", 4) || !strncmp(p, "/compact", 8)) {
-        emit_session_status("info", "remote design keeps local workspace files but does not write local KV sessions");
+    } else if (design_remote_slash_is(p, "/list") ||
+               design_remote_slash_is(p, "/sessions")) {
+        design_remote_emit_empty_sessions();
+    } else if (design_remote_slash_is(p, "/save") ||
+               design_remote_slash_is(p, "/switch") ||
+               design_remote_slash_is(p, "/del") ||
+               design_remote_slash_is(p, "/compact")) {
+        /* Remote Design keeps the workspace local but does not own local KV
+         * sessions. The UI may still send session commands while syncing; keep
+         * them successful and silent instead of surfacing repeated status
+         * events to the user. */
     } else {
         char m[96];
         snprintf(m, sizeof(m), "unknown command: %.40s", p);

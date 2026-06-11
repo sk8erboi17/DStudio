@@ -4,7 +4,7 @@
 
 # DStudio — Local AI Studio for DeepSeek V4
 
-**An open-source local AI studio for DeepSeek V4 and ds4: private chat, a local coding agent, a design agent, Web Search and Build mode for real web apps. Runs on your machine. No cloud required.**
+**An open-source local AI studio for DeepSeek V4 and ds4: private chat, a local coding agent, a design agent, Web Search and Plan mode for Markdown planning files. Runs on your machine. No cloud required.**
 
 ![license](https://img.shields.io/badge/license-BSD--3--Clause-blue)
 ![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux_%7C_Windows-black)
@@ -15,9 +15,9 @@
 
 </div>
 
-DStudio turns [ds4](https://github.com/antirez/ds4), antirez's local DeepSeek V4 inference engine, into a full desktop AI workspace: a private AI chat, a local coding agent, a design studio and a guided app builder in one native UI. It is built for people who want a **local-first Cursor/Lovable-style workflow** without sending code, prompts or design work to a remote API.
+DStudio turns [ds4](https://github.com/antirez/ds4), antirez's local DeepSeek V4 inference engine, into a full desktop AI workspace: a private AI chat, a local coding agent, a design studio and a planning workspace in one native UI. It is built for people who want a **local-first Cursor/Lovable-style workflow** without sending code, prompts or design work to a remote API.
 
-In plain terms: DStudio is a **ds4 GUI**, a **local DeepSeek V4 desktop app**, a **private coding agent** and a **local AI design/build studio** packaged as one open-source project.
+In plain terms: DStudio is a **ds4 GUI**, a **local DeepSeek V4 desktop app**, a **private coding agent** and a **local AI design/planning studio** packaged as one open-source project.
 
 On macOS it ships as **DStudio.app**: double-click from Finder, no Terminal. On Windows it ships as a portable folder with `DStudio.exe` and the DS4 runtime binaries. The UI is a single vanilla `index.html` embedded in a small C launcher, so there is no Electron bundle, no framework build step, no CDN and no telemetry.
 
@@ -89,27 +89,23 @@ The whole pipeline, from a one-line idea to laid-out screens:
 
 <img src="assets/README%20images/design/canvas.png" width="760" alt="Design — Canvas">
 
-## 🏗️ Build — from a chat goal to a runnable web app
+## 📝 Plan — from a rough goal to a Markdown execution plan
 
-Toggle **Build** in Agent mode and a one-line product idea becomes a **real, runnable web app** — built page by page on your machine. A deterministic driver, not the model, walks the plan and decides *done* from the filesystem, while the model chooses the appropriate stack for the brief and repository context.
+Toggle **Plan** in Agent mode, describe what you want, and DStudio writes a **Markdown planning file** into the selected workspace. It is intentionally planning-only: no scaffolding, no Design handoff, no hidden app builder. The agent turns the request into a concrete `plan.md` or `<topic>-plan.md` with assumptions, milestones, tasks, risks and validation steps.
 
 <div align="center">
 
-<img src="assets/README%20images/build.png" width="460" alt="DStudio Build mode toggle for creating a local web app with DeepSeek V4">
+<img src="assets/README%20images/build.png" width="460" alt="DStudio Plan mode toggle for creating a Markdown planning file with DeepSeek V4">
 
 </div>
 
-> 🎥 **[Watch it build an app end to end](https://www.youtube.com/watch?v=kLuf9JDTAxM)** — the finished result is at **3:28**.
+**1 · You describe the outcome.** Give it a product idea, feature, workflow, migration, research task or implementation goal.
 
-**1 · It interviews you.** Instead of guessing, it asks one question at a time — scope, the must-have pages, auth, the data, the visual style — each as a clickable card (pick an option or write your own).
+**2 · It plans instead of building.** The agent makes reasonable assumptions, scopes the work and writes a Markdown file in your workspace.
 
-**2 · It proposes a plan.** Once it has enough, it lays out the pages plus a one-line style direction. Nothing is written until you approve it.
+**3 · The file is useful immediately.** The plan includes objective, assumptions, deliverables, milestones, task breakdown, technical/design decisions, risks, validation checklist and next actions.
 
-**3 · It builds page by page, switching agents.** For each page the driver **switches engines**: the **design agent** makes the page's look (style-locked to the first approved page), then the **coding agent** wires that exact page into the app structure selected for the project. You're in the loop once: approve the first page's look, which locks the design tokens for the rest.
-
-**4 · Queue follow-ups while it builds.** Type while it works — your message doesn't interrupt the current page; it's queued and applied after the page is done, and if it's ambiguous the agent asks a quick clarifying question first.
-
-A live console shows the pages stack (done / now / to do), the current operation, the skills/craft packs pulled on demand, and colored **+/- diffs** for every file edit.
+**4 · Then you decide.** Turn Plan off and use Agent/Design to implement, or keep the Markdown file as a handoff document.
 
 ## Highlights
 
@@ -143,15 +139,15 @@ This is a serious local AI setup. DStudio removes product friction, not physics:
 
 ### Windows notes
 
-For normal use, download/extract the Windows portable zip and run `DStudio.exe`. Keep the files together: `DStudio.exe`, `ds4-server.exe`, `ds4-agent.exe`, `ds4-agent-jsonl.exe`, `ds4-agent-jsonl.ver`, `ds4-design.exe`, `curl.exe` and the runtime DLLs are meant to live in the same portable folder.
+For normal use, download/extract the Windows portable zip and run `DStudio.exe`. Keep the files together: `DStudio.exe`, `ds4-server.exe`, `ds4-agent.exe`, `ds4-agent-jsonl.exe`, `ds4-agent-jsonl.ver` and `ds4-design.exe` are meant to live in the same portable folder.
 
 If you build DStudio or use Agent/Design from a LAN client with your own local DS4 checkout, install:
 
 - **Microsoft Edge WebView2 Runtime** if your Windows install does not already have it.
-- **MSYS2 UCRT64** build tools: `pacman -S --needed make git patch curl mingw-w64-ucrt-x86_64-gcc`.
+- **MSYS2 POSIX** build tools: `pacman -S --needed make git patch gcc`.
 - **Visual Studio Build Tools** or `clang-cl` for building the native Windows wrapper.
 
-The error `msys-gcc_s-seh-1.dll was not found` means Windows found `ds4-agent-jsonl.exe` but not the MSYS2 runtime DLLs it was built with. The error `Remote model failed: failed to start curl` usually means the LAN-client Agent runtime cannot find the packaged `curl.exe`. Recent DStudio builds copy `curl.exe`, the JSONL version marker and the runtime DLLs next to the selected DS4 binaries, then launch Agent/Design with that prepared runtime. If you move only the `.exe` files by hand, copy the DLLs, `curl.exe` and `ds4-agent-jsonl.ver` too, or rebuild the Windows portable package.
+The error `msys-gcc_s-seh-1.dll was not found` means Windows found `ds4-agent-jsonl.exe` but not the MSYS2 runtime it was built with. Install MSYS2 in `C:\msys64`; DStudio adds its runtime directories to `PATH` before launching Agent/Design. Do not copy `msys-2.0.dll` or Cygwin/MSYS DLLs next to the DS4 binaries: that can make MSYS detect the wrong root and break `/tmp`, `fork()` and shell tools. LAN Agent/Design model calls use DStudio's internal bridge, and Agent bash tools are launched through the Windows process API, so `curl.exe` is no longer required.
 
 ## Quick start
 
@@ -240,7 +236,7 @@ DeepSeek V4 keeps the conversation in ds4-server's **KV cache** instead of re-en
 Where DStudio is headed (ideas, not promises):
 
 - **Sharper Design studio** — higher-fidelity screens, more distinct directions and faster refine loops on the canvas.
-- **Sharper Build mode** — let the model choose the right local web-app stack, then make the deterministic driver better at validating the result.
+- **Sharper Plan mode** — richer Markdown plans with better assumptions, acceptance criteria and handoff quality.
 - **Cowork** — collaborative sessions: share a workspace and build alongside the local model.
 - **MCP** — Model Context Protocol support so the agent can plug into external tools and data sources beyond the working directory.
 

@@ -1,4 +1,109 @@
 /*DS4UI_REMOTE_AGENT*/
+#if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#endif
+
+#if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)
+static bool ds4ui_win32_cdp_alive(int port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return false;
+    int old_flags = 0;
+    set_nonblock(fd, true, &old_flags);
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons((uint16_t)port);
+    sa.sin_addr.s_addr = inet_addr("127.0.0.1");
+    int rc = connect(fd, (struct sockaddr *)&sa, sizeof(sa));
+    if (rc == 0) {
+        close(fd);
+        return true;
+    }
+    if (errno != EINPROGRESS) {
+        close(fd);
+        return false;
+    }
+    fd_set wfds;
+    FD_ZERO(&wfds);
+    FD_SET(fd, &wfds);
+    struct timeval tv = {.tv_sec = 0, .tv_usec = 150000};
+    rc = select(fd + 1, NULL, &wfds, NULL, &tv);
+    if (rc <= 0) {
+        close(fd);
+        return false;
+    }
+    int err = 0;
+    socklen_t err_len = sizeof(err);
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, (char *)&err, &err_len) != 0) err = errno;
+    close(fd);
+    return err == 0;
+}
+
+static bool ds4ui_win32_file_exists(const char *path) {
+    DWORD attr = GetFileAttributesA(path);
+    return attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+static bool ds4ui_win32_chrome_candidate(char *out, size_t cap, const char *base, const char *suffix) {
+    if (!base || !base[0] || !suffix || !suffix[0]) return false;
+    int n = snprintf(out, cap, "%s\\%s", base, suffix);
+    return n > 0 && (size_t)n < cap && ds4ui_win32_file_exists(out);
+}
+
+static void ds4ui_win32_ensure_chrome(int port) {
+    if (ds4ui_win32_cdp_alive(port)) return;
+    char chrome[1024] = {0};
+    const char *env = getenv("DS4_CHROME");
+    if (env && env[0] && ds4ui_win32_file_exists(env)) {
+        snprintf(chrome, sizeof(chrome), "%s", env);
+    } else {
+        char base[768];
+        DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", base, sizeof(base));
+        if (n > 0 && n < sizeof(base))
+            ds4ui_win32_chrome_candidate(chrome, sizeof(chrome), base, "Google\\Chrome\\Application\\chrome.exe");
+        if (!chrome[0]) {
+            n = GetEnvironmentVariableA("PROGRAMFILES", base, sizeof(base));
+            if (n > 0 && n < sizeof(base))
+                ds4ui_win32_chrome_candidate(chrome, sizeof(chrome), base, "Google\\Chrome\\Application\\chrome.exe");
+        }
+        if (!chrome[0]) {
+            n = GetEnvironmentVariableA("PROGRAMFILES(X86)", base, sizeof(base));
+            if (n > 0 && n < sizeof(base))
+                ds4ui_win32_chrome_candidate(chrome, sizeof(chrome), base, "Google\\Chrome\\Application\\chrome.exe");
+        }
+    }
+    if (!chrome[0]) return;
+    char profile[1024] = {0};
+    DWORD pn = GetEnvironmentVariableA("LOCALAPPDATA", profile, sizeof(profile));
+    if (pn <= 0 || pn >= sizeof(profile)) snprintf(profile, sizeof(profile), ".");
+    size_t pl = strlen(profile);
+    snprintf(profile + pl, sizeof(profile) - pl, "\\DStudio\\chrome-cdp");
+    CreateDirectoryA(profile, NULL);
+
+    char cmd[4096];
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" --remote-debugging-port=%d --user-data-dir=\"%s\" "
+             "--no-first-run --no-default-browser-check about:blank",
+             chrome, port, profile);
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof(si));
+    memset(&pi, 0, sizeof(pi));
+    si.cb = sizeof(si);
+    if (CreateProcessA(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        Sleep(250);
+    }
+}
+#endif
+
 static int ds4ui_remote_web_confirm(void *privdata, const char *message, char *err, size_t err_len) {
     (void)privdata;
     (void)message;
@@ -41,6 +146,9 @@ static int ds4ui_remote_worker_init(agent_worker *w, agent_config *cfg) {
         .cancel = ds4ui_remote_web_cancel,
         .cancel_privdata = w,
     };
+#if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)
+    ds4ui_win32_ensure_chrome(9333);
+#endif
     w->web = ds4_web_create(&web_cfg);
     if (cfg->gen.trace_path && cfg->gen.trace_path[0])
         w->trace = fopen(cfg->gen.trace_path, "ab");
@@ -127,6 +235,16 @@ typedef struct {
     int generated;
 } ds4ui_remote_stream_ctx;
 
+static bool ds4ui_remote_contains_tool_call_tag(const char *text, size_t len) {
+    static const char tag[] = "<\xef\xbd\x9c" "DSML" "\xef\xbd\x9c" "tool_calls>";
+    size_t tag_len = sizeof(tag) - 1;
+    if (!text || len < tag_len) return false;
+    for (size_t i = 0; i + tag_len <= len; i++) {
+        if (!memcmp(text + i, tag, tag_len)) return true;
+    }
+    return false;
+}
+
 static void ds4ui_remote_chunk(void *ud, const char *kind, const char *text, size_t len) {
     ds4ui_remote_stream_ctx *ctx = ud;
     if (!ctx || !text || !len) return;
@@ -143,6 +261,12 @@ static void ds4ui_remote_chunk(void *ud, const char *kind, const char *text, siz
     if (ctx->reasoning_open) {
         ds4ui_emit_event(w, "reasoning_end");
         ctx->reasoning_open = false;
+    }
+    if (ctx->stream && ctx->stream->in_think &&
+        ds4ui_remote_contains_tool_call_tag(text, len)) {
+        static const char close_think[] = "</think>\n\n";
+        dstudio_remote_buf_append(ctx->raw, close_think, sizeof(close_think) - 1);
+        agent_stream_text(ctx->stream, close_think, sizeof(close_think) - 1, false);
     }
     dstudio_remote_buf_append(ctx->raw, text, len);
     agent_stream_text(ctx->stream, text, len, false);
@@ -218,7 +342,7 @@ static int ds4ui_remote_run_turn(agent_worker *w,
             .worker = w,
             .format_thinking = think_enabled,
             .format_markdown = use_color,
-            .in_think = think_enabled,
+            .in_think = false,
             .use_color = use_color,
             .last_output_newline = true,
         };
@@ -226,7 +350,7 @@ static int ds4ui_remote_run_turn(agent_worker *w,
         agent_stream_renderer stream = {
             .renderer = &renderer,
             .parser = &dsml,
-            .in_think = think_enabled,
+            .in_think = false,
         };
         dstudio_remote_buf raw = {0};
         ds4ui_remote_stream_ctx sctx = {

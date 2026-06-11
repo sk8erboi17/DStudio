@@ -273,12 +273,14 @@ static pid_t fork(void) { errno = ENOSYS; return -1; }
 #include <dirent.h>
 #include <fcntl.h>
 #include <ifaddrs.h>      /* getifaddrs: report the LAN IP for the network toggle */
+#include <netdb.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/wait.h>
+#include <pthread.h>
 #include <unistd.h>
 #endif
 #ifdef __APPLE__
@@ -871,6 +873,9 @@ static int json_dyn_put_escaped(json_dyn_buf *b, const char *s) {
     return json_dyn_puts(b, "\"");
 }
 
+static json_dyn_buf g_child_event_line = {0};
+static int g_child_event_active = 0;
+
 static void cstr_copy(char *dst, size_t dstsz, const char *src) {
     if (!dstsz) return;
     if (!src) src = "";
@@ -890,6 +895,363 @@ static int path_join(char *dst, size_t dstsz, const char *dir, const char *name)
     return 1;
 }
 
+static char *json_get_string_alloc_rpc(const char *body, const char *key) {
+    char pat[96];
+    snprintf(pat, sizeof pat, "\"%s\"", key);
+    const char *p = strstr(body ? body : "", pat);
+    if (!p) return NULL;
+    p += strlen(pat);
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (*p != ':') return NULL;
+    p++;
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (*p != '"') return NULL;
+    p++;
+    json_dyn_buf out = {0};
+    while (*p) {
+        unsigned char c = (unsigned char)*p++;
+        if (c == '"') return out.ptr ? out.ptr : ds4_strdup_local("");
+        if (c != '\\') {
+            if (!json_dyn_putn(&out, (const char *)&c, 1)) { free(out.ptr); return NULL; }
+            continue;
+        }
+        c = (unsigned char)*p++;
+        switch (c) {
+            case '"':  if (!json_dyn_puts(&out, "\"")) { free(out.ptr); return NULL; } break;
+            case '\\': if (!json_dyn_puts(&out, "\\")) { free(out.ptr); return NULL; } break;
+            case '/':  if (!json_dyn_puts(&out, "/")) { free(out.ptr); return NULL; } break;
+            case 'b':  if (!json_dyn_putn(&out, "\b", 1)) { free(out.ptr); return NULL; } break;
+            case 'f':  if (!json_dyn_putn(&out, "\f", 1)) { free(out.ptr); return NULL; } break;
+            case 'n':  if (!json_dyn_putn(&out, "\n", 1)) { free(out.ptr); return NULL; } break;
+            case 'r':  if (!json_dyn_putn(&out, "\r", 1)) { free(out.ptr); return NULL; } break;
+            case 't':  if (!json_dyn_putn(&out, "\t", 1)) { free(out.ptr); return NULL; } break;
+            case 'u': {
+                if (p[0] && p[1] && p[2] && p[3]) {
+                    char hx[5] = { p[0], p[1], p[2], p[3], 0 };
+                    long v = strtol(hx, NULL, 16);
+                    p += 4;
+                    char tmp[4];
+                    size_t n = 0;
+                    if (v >= 0 && v <= 0x7f) tmp[n++] = (char)v;
+                    else if (v < 0x800) {
+                        tmp[n++] = (char)(0xc0 | (v >> 6));
+                        tmp[n++] = (char)(0x80 | (v & 0x3f));
+                    } else {
+                        tmp[n++] = '?';
+                    }
+                    if (!json_dyn_putn(&out, tmp, n)) { free(out.ptr); return NULL; }
+                }
+                break;
+            }
+            default:
+                if (!json_dyn_putn(&out, (const char *)&c, 1)) { free(out.ptr); return NULL; }
+                break;
+        }
+    }
+    free(out.ptr);
+    return NULL;
+}
+
+typedef struct {
+    int id;
+    int in_fd;
+    char base_url[1024];
+    char *body;
+    int done;
+} model_rpc_job;
+
+static int model_rpc_parse_base(const char *base, char *host, size_t hostsz, int *port) {
+    if (!base || strncmp(base, "http://", 7) != 0) return 0;
+    const char *p = base + 7;
+    const char *end = p;
+    while (*end && *end != ':' && *end != '/') end++;
+    if (end == p || (size_t)(end - p) >= hostsz) return 0;
+    memcpy(host, p, (size_t)(end - p));
+    host[end - p] = '\0';
+    *port = 80;
+    if (*end == ':') {
+        char *pe = NULL;
+        long v = strtol(end + 1, &pe, 10);
+        if (pe == end + 1 || v <= 0 || v > 65535) return 0;
+        *port = (int)v;
+    }
+    return 1;
+}
+
+static int model_rpc_connect(const char *base, char *err, size_t errsz) {
+    char host[256];
+    int port = 80;
+    if (!model_rpc_parse_base(base, host, sizeof host, &port)) {
+        snprintf(err, errsz, "invalid LAN model host");
+        return -1;
+    }
+#ifdef _WIN32
+    ds4_win_wsa_start();
+#endif
+    char port_s[16];
+    snprintf(port_s, sizeof port_s, "%d", port);
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family = AF_UNSPEC;
+    struct addrinfo *res = NULL;
+    int gai = getaddrinfo(host, port_s, &hints, &res);
+    if (gai != 0 || !res) {
+        snprintf(err, errsz, "could not resolve LAN model host");
+        return -1;
+    }
+    int fd = -1;
+    for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
+        fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (fd < 0) continue;
+        if (connect(fd, ai->ai_addr, (socklen_t)ai->ai_addrlen) == 0) break;
+        close(fd);
+        fd = -1;
+    }
+    freeaddrinfo(res);
+    if (fd < 0) snprintf(err, errsz, "could not connect to LAN model host");
+    return fd;
+}
+
+static int fd_write_all(int fd, const char *p, size_t n) {
+    while (n > 0) {
+        ssize_t w = write(fd, p, n);
+        if (w < 0 && errno == EINTR) continue;
+        if (w <= 0) return 0;
+        p += w;
+        n -= (size_t)w;
+    }
+    return 1;
+}
+
+static int model_rpc_write_frame(model_rpc_job *job,
+                                 const char *type,
+                                 const char *kind,
+                                 const char *text) {
+    json_dyn_buf out = {0};
+    int ok = json_dyn_puts(&out, "\x1e{\"type\":") &&
+             json_dyn_put_escaped(&out, type) &&
+             json_dyn_printf(&out, ",\"id\":%d", job->id);
+    if (kind) ok = ok && json_dyn_puts(&out, ",\"kind\":") && json_dyn_put_escaped(&out, kind);
+    if (text) {
+        const char *key = !strcmp(type, "model_error") ? "error" : "text";
+        ok = ok && json_dyn_printf(&out, ",\"%s\":", key) && json_dyn_put_escaped(&out, text);
+    }
+    ok = ok && json_dyn_puts(&out, "}\n");
+    if (!ok) { free(out.ptr); return 0; }
+    int rc = fd_write_all(job->in_fd, out.ptr, out.len);
+    free(out.ptr);
+    return rc;
+}
+
+static void model_rpc_sse_line(model_rpc_job *job, const char *line) {
+    if (strncmp(line, "data:", 5) != 0) return;
+    const char *p = line + 5;
+    while (*p == ' ' || *p == '\t') p++;
+    if (!strncmp(p, "[DONE]", 6)) {
+        job->done = 1;
+        return;
+    }
+    char *reasoning = json_get_string_alloc_rpc(p, "reasoning_content");
+    if (reasoning && reasoning[0]) model_rpc_write_frame(job, "model_delta", "reasoning", reasoning);
+    free(reasoning);
+    char *content = json_get_string_alloc_rpc(p, "content");
+    if (content && content[0]) model_rpc_write_frame(job, "model_delta", "content", content);
+    free(content);
+}
+
+static void model_rpc_sse_bytes(model_rpc_job *job, const char *buf, size_t len, json_dyn_buf *line) {
+    for (size_t i = 0; i < len && !job->done; i++) {
+        json_dyn_putn(line, buf + i, 1);
+        if (buf[i] == '\n') {
+            model_rpc_sse_line(job, line->ptr ? line->ptr : "");
+            line->len = 0;
+            if (line->ptr) line->ptr[0] = '\0';
+        }
+    }
+}
+
+typedef struct {
+    json_dyn_buf size_line;
+    size_t left;
+    int skip_crlf;
+    int finished;
+} model_rpc_chunked;
+
+static int model_rpc_chunked_bytes(model_rpc_job *job,
+                                   model_rpc_chunked *st,
+                                   const char *buf,
+                                   size_t len,
+                                   json_dyn_buf *sse_line) {
+    for (size_t i = 0; i < len && !job->done && !st->finished; i++) {
+        char c = buf[i];
+        if (st->skip_crlf > 0) {
+            if (c == '\r' || c == '\n') { st->skip_crlf--; continue; }
+            st->skip_crlf = 0;
+        }
+        if (st->left == 0) {
+            json_dyn_putn(&st->size_line, &c, 1);
+            if (c != '\n') continue;
+            char *end = NULL;
+            unsigned long sz = strtoul(st->size_line.ptr ? st->size_line.ptr : "0", &end, 16);
+            st->size_line.len = 0;
+            if (st->size_line.ptr) st->size_line.ptr[0] = '\0';
+            if (end == st->size_line.ptr) return 0;
+            if (sz == 0) { st->finished = 1; break; }
+            st->left = (size_t)sz;
+            continue;
+        }
+        model_rpc_sse_bytes(job, &c, 1, sse_line);
+        st->left--;
+        if (st->left == 0) st->skip_crlf = 2;
+    }
+    return 1;
+}
+
+static int model_rpc_http_stream(model_rpc_job *job, char *err, size_t errsz) {
+    int fd = model_rpc_connect(job->base_url, err, errsz);
+    if (fd < 0) return 0;
+#ifdef _WIN32
+    int tv = 1800 * 1000;
+    (void)setsockopt((SOCKET)(intptr_t)fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
+    (void)setsockopt((SOCKET)(intptr_t)fd, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tv, sizeof tv);
+#else
+    struct timeval tv = { 1800, 0 };
+    (void)setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+#endif
+    char host[256];
+    int port = 80;
+    model_rpc_parse_base(job->base_url, host, sizeof host, &port);
+    size_t body_len = strlen(job->body ? job->body : "{}");
+    json_dyn_buf req = {0};
+    int ok = json_dyn_printf(&req,
+        "POST /v1/chat/completions HTTP/1.1\r\n"
+        "Host: %s:%d\r\n"
+        "Accept: text/event-stream\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n\r\n",
+        host, port, body_len) &&
+        json_dyn_putn(&req, job->body ? job->body : "{}", body_len);
+    if (!ok || send_all(fd, req.ptr ? req.ptr : "", req.len) != 0) {
+        free(req.ptr);
+        close(fd);
+        snprintf(err, errsz, "failed to send LAN model request");
+        return 0;
+    }
+    free(req.ptr);
+
+    json_dyn_buf head = {0};
+    json_dyn_buf sse_line = {0};
+    model_rpc_chunked ch = {0};
+    int have_head = 0;
+    int chunked = 0;
+    char buf[8192];
+    for (;;) {
+        ssize_t n = recv(fd, buf, sizeof buf, 0);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        const char *body = buf;
+        size_t body_n = (size_t)n;
+        if (!have_head) {
+            json_dyn_putn(&head, buf, (size_t)n);
+            char *end = head.ptr ? strstr(head.ptr, "\r\n\r\n") : NULL;
+            if (!end) {
+                if (head.len > 65536) {
+                    snprintf(err, errsz, "LAN model response headers too large");
+                    goto fail;
+                }
+                continue;
+            }
+            have_head = 1;
+            size_t hlen = (size_t)(end - head.ptr) + 4;
+            int status = 0;
+            sscanf(head.ptr, "HTTP/%*s %d", &status);
+            if (status < 200 || status >= 300) {
+                snprintf(err, errsz, "LAN model returned HTTP %d", status ? status : 0);
+                goto fail;
+            }
+            chunked = mem_contains_ci(head.ptr, hlen, "\r\nTransfer-Encoding: chunked") ||
+                      mem_contains_ci(head.ptr, hlen, "\nTransfer-Encoding: chunked");
+            body = head.ptr + hlen;
+            body_n = head.len - hlen;
+        }
+        if (body_n > 0) {
+            if (chunked) {
+                if (!model_rpc_chunked_bytes(job, &ch, body, body_n, &sse_line)) {
+                    snprintf(err, errsz, "invalid chunked LAN model stream");
+                    goto fail;
+                }
+            } else {
+                model_rpc_sse_bytes(job, body, body_n, &sse_line);
+            }
+        }
+        if (job->done) break;
+    }
+    if (!job->done && sse_line.len) model_rpc_sse_line(job, sse_line.ptr);
+    if (!job->done) {
+        snprintf(err, errsz, "LAN model stream ended before completion");
+        goto fail;
+    }
+    free(head.ptr);
+    free(sse_line.ptr);
+    free(ch.size_line.ptr);
+    close(fd);
+    return 1;
+
+fail:
+    free(head.ptr);
+    free(sse_line.ptr);
+    free(ch.size_line.ptr);
+    close(fd);
+    return 0;
+}
+
+#ifdef _WIN32
+static DWORD WINAPI model_rpc_thread_main(LPVOID arg)
+#else
+static void *model_rpc_thread_main(void *arg)
+#endif
+{
+    model_rpc_job *job = (model_rpc_job *)arg;
+    char err[512] = "";
+    if (model_rpc_http_stream(job, err, sizeof err))
+        model_rpc_write_frame(job, "model_done", NULL, NULL);
+    else
+        model_rpc_write_frame(job, "model_error", NULL, err[0] ? err : "LAN model request failed");
+    free(job->body);
+    free(job);
+#ifdef _WIN32
+    return 0;
+#else
+    return NULL;
+#endif
+}
+
+static int model_rpc_start(int id, char *body) {
+    model_rpc_job *job = (model_rpc_job *)calloc(1, sizeof *job);
+    if (!job) { free(body); return 0; }
+    job->id = id;
+    job->in_fd = g_in_fd;
+    job->body = body;
+    snprintf(job->base_url, sizeof job->base_url, "%s", g_remote_base_url);
+#ifdef _WIN32
+    HANDLE h = CreateThread(NULL, 0, model_rpc_thread_main, job, 0, NULL);
+    if (!h) { free(job->body); free(job); return 0; }
+    CloseHandle(h);
+#else
+    pthread_t th;
+    if (pthread_create(&th, NULL, model_rpc_thread_main, job) != 0) {
+        free(job->body);
+        free(job);
+        return 0;
+    }
+    pthread_detach(th);
+#endif
+    return 1;
+}
+
 /* ==================== model / kv / port ==================== */
 
 static const char *model_rel(int uncensored) { return uncensored ? MODEL_UNC : MODEL_STD; }
@@ -902,8 +1264,8 @@ static char  g_dl_variant[16] = "";  /* which variant is downloading */
 static char  g_model_override[1024] = ""; /* explicit GGUF the user picked (rel to ds4 dir); "" = use the variant */
 static char  g_skill[64] = "";            /* active skill id (extension/skills/<id>); "" = none */
 static char  g_design_system[64] = "";    /* active design-system id (design only); "" = none */
-static int   g_build_mode = 0;            /* agent Build mode: 0 off, 2 plan (driver) */
-static char  g_build_dir[1024] = "";      /* the Build workspace (plan.md / pages live here); set on a build start */
+static int   g_build_mode = 0;            /* agent Plan mode: 0 off, 2 markdown plan */
+static char  g_build_dir[1024] = "";      /* selected workspace for Plan/legacy build helper endpoints */
 #ifdef _WIN32
 static DWORD g_child_win_pid = 0;
 #endif
@@ -1382,9 +1744,92 @@ static void agent_buf_append(const char *data, size_t n) {
     }
 }
 
+static void drain_child_stdout_plain(const char *data, size_t n) {
+    if (!n) return;
+    if (MODE_IS_PIPED(g_mode)) agent_buf_append(data, n);
+    scan_lines(data, n, g_line_out, &g_line_out_len, 0);
+}
+
+static void model_rpc_send_start_error(long id, const char *msg) {
+    if (g_in_fd < 0) return;
+    model_rpc_job job;
+    memset(&job, 0, sizeof job);
+    job.id = (int)id;
+    job.in_fd = g_in_fd;
+    model_rpc_write_frame(&job, "model_error", NULL, msg);
+}
+
+static int handle_child_event_line(const char *line) {
+    if (!line) return 0;
+    const char *p = line;
+    if ((unsigned char)p[0] == 0x1e) p++;
+    if (!strstr(p, "\"type\":\"model_request\"")) return 0;
+
+    long id = 0;
+    if (json_get_int(p, "id", 0, 2147483647L, &id) <= 0) return 1;
+    char *body = json_get_string_alloc_rpc(p, "body");
+    if (!body) {
+        model_rpc_send_start_error(id, "invalid internal model request");
+        return 1;
+    }
+    if (g_in_fd < 0 || !g_remote_base_url[0]) {
+        free(body);
+        model_rpc_send_start_error(id, "LAN model host is not configured");
+        return 1;
+    }
+    if (!model_rpc_start((int)id, body))
+        model_rpc_send_start_error(id, "failed to start internal LAN model request");
+    return 1;
+}
+
+static void drain_child_event_finish(void) {
+    if (!g_child_event_active) return;
+    if (g_child_event_line.ptr && g_child_event_line.len) {
+        if (!handle_child_event_line(g_child_event_line.ptr))
+            drain_child_stdout_plain(g_child_event_line.ptr, g_child_event_line.len);
+    }
+    g_child_event_line.len = 0;
+    if (g_child_event_line.ptr) g_child_event_line.ptr[0] = '\0';
+    g_child_event_active = 0;
+}
+
+static void drain_child_stdout_data(const char *data, size_t n) {
+    size_t plain_start = 0;
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)data[i];
+        if (g_child_event_active) {
+            if (!json_dyn_putn(&g_child_event_line, data + i, 1)) {
+                g_child_event_active = 0;
+                g_child_event_line.len = 0;
+                if (g_child_event_line.ptr) g_child_event_line.ptr[0] = '\0';
+                plain_start = i + 1;
+                continue;
+            }
+            if (c == '\n') {
+                drain_child_event_finish();
+                plain_start = i + 1;
+            }
+            continue;
+        }
+        if (c == 0x1e) {
+            if (i > plain_start) drain_child_stdout_plain(data + plain_start, i - plain_start);
+            g_child_event_active = 1;
+            g_child_event_line.len = 0;
+            if (g_child_event_line.ptr) g_child_event_line.ptr[0] = '\0';
+            json_dyn_putn(&g_child_event_line, data + i, 1);
+            plain_start = i + 1;
+        }
+    }
+    if (!g_child_event_active && n > plain_start)
+        drain_child_stdout_plain(data + plain_start, n - plain_start);
+}
+
 static void agent_buf_reset(void) {
     g_alen = g_abase = 0;
     g_line_out_len = g_line_err_len = 0;
+    g_child_event_active = 0;
+    g_child_event_line.len = 0;
+    if (g_child_event_line.ptr) g_child_event_line.ptr[0] = '\0';
 }
 
 static void sse_close_all_fwd(void);
@@ -1626,66 +2071,30 @@ static void win_copy_packaged_engine_to_ds4(void) {
     for (int i = 0; files[i]; i++) win_copy_packaged_file_to_ds4(files[i]);
 }
 
-static void win_copy_runtime_dlls_to_ds4(void) {
-    char appdir[DSTUDIO_PATH_MAX];
-    const char *dirs[8];
-    int nd = 0;
-    if (win_app_dir(appdir, sizeof appdir)) dirs[nd++] = appdir;
-    dirs[nd++] = "C:\\msys64\\usr\\bin";
-    dirs[nd++] = "C:\\msys64\\ucrt64\\bin";
-    dirs[nd++] = "C:\\msys64\\mingw64\\bin";
-    dirs[nd++] = "C:\\msys64\\clang64\\bin";
-    dirs[nd++] = "C:\\cygwin64\\bin";
-    dirs[nd] = NULL;
-
+static void win_remove_copied_posix_runtime_from_ds4(void) {
     static const char *dlls[] = {
         "msys-2.0.dll", "msys-gcc_s-seh-1.dll",
+        "msys-z-1.dll", "msys-zstd-1.dll",
+        "msys-iconv-2.dll", "msys-intl-8.dll",
         "msys-curl-4.dll", "msys-nghttp2-14.dll",
         "msys-ssl-3.dll", "msys-crypto-3.dll",
-        "msys-z-1.dll", "msys-zstd-1.dll",
         "msys-brotlidec-1.dll", "msys-brotlicommon-1.dll",
-        "msys-idn2-0.dll", "msys-psl-5.dll", "msys-unistring-5.dll",
-        "msys-iconv-2.dll", "msys-intl-8.dll", "msys-ssh2-1.dll",
+        "msys-idn2-0.dll", "msys-psl-5.dll",
+        "msys-unistring-5.dll", "msys-ssh2-1.dll",
         "cygwin1.dll", "cyggcc_s-seh-1.dll",
-        "libgcc_s_seh-1.dll", "libwinpthread-1.dll",
-        "libstdc++-6.dll", NULL
+        NULL
     };
     for (int i = 0; dlls[i]; i++) {
-        char dst[DSTUDIO_PATH_MAX + 128];
-        win_join_path(dst, sizeof dst, g_ds4_dir, dlls[i]);
-        for (int d = 0; d < nd; d++) {
-            char src[DSTUDIO_PATH_MAX + 128];
-            win_join_path(src, sizeof src, dirs[d], dlls[i]);
-            if (access(src, R_OK) != 0) continue;
-            if (!_stricmp(src, dst)) break;
-            CopyFileA(src, dst, FALSE);
-            break;
-        }
-    }
-
-    static const char *tools[] = { "curl.exe", NULL };
-    for (int i = 0; tools[i]; i++) {
-        char dst[DSTUDIO_PATH_MAX + 128];
-        win_join_path(dst, sizeof dst, g_ds4_dir, tools[i]);
-        for (int d = 0; d < nd; d++) {
-            char src[DSTUDIO_PATH_MAX + 128];
-            win_join_path(src, sizeof src, dirs[d], tools[i]);
-            if (access(src, R_OK) != 0) continue;
-            if (!_stricmp(src, dst)) break;
-            CopyFileA(src, dst, FALSE);
-            break;
-        }
+        char path[DSTUDIO_PATH_MAX + 128];
+        win_join_path(path, sizeof path, g_ds4_dir, dlls[i]);
+        DeleteFileA(path);
     }
 }
 
 static void win_prepare_engine_runtime(void) {
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+    win_remove_copied_posix_runtime_from_ds4();
     win_copy_packaged_engine_to_ds4();
-    win_copy_runtime_dlls_to_ds4();
-
-    char curl[DSTUDIO_PATH_MAX + 128];
-    win_join_path(curl, sizeof curl, g_ds4_dir, "curl.exe");
-    if (access(curl, R_OK) == 0) _putenv_s("DS4UI_CURL", "curl.exe");
 
     static char prepared_for[DSTUDIO_PATH_MAX] = "";
     if (!strcmp(prepared_for, g_ds4_dir)) return;
@@ -1693,7 +2102,7 @@ static void win_prepare_engine_runtime(void) {
     char appdir[DSTUDIO_PATH_MAX];
     if (!win_app_dir(appdir, sizeof appdir)) appdir[0] = '\0';
     const char *old = getenv("PATH");
-    const char *prefix_fmt = "%s;%s;C:\\msys64\\usr\\bin;C:\\msys64\\ucrt64\\bin;C:\\msys64\\mingw64\\bin;C:\\msys64\\clang64\\bin;C:\\cygwin64\\bin";
+    const char *prefix_fmt = "C:\\msys64\\usr\\bin;C:\\msys64\\ucrt64\\bin;C:\\msys64\\mingw64\\bin;C:\\msys64\\clang64\\bin;C:\\cygwin64\\bin;%s;%s";
     size_t need = strlen(g_ds4_dir) + strlen(appdir) + (old ? strlen(old) : 0) + 220;
     char *path = malloc(need);
     if (!path) return;
@@ -1862,12 +2271,12 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
 #define JSONL_MARK "/*DS4UI_JSONL*/"
 #define WEB_CDP_MARK "/*DS4UI_WEB_CDP*/"
 #define WEB_DIRECT_NAV_MARK "/*DS4UI_WEB_DIRECT_NAV*/"
-#define JSONL_PATCH_VERSION 20  /* bump when the edits change: forces the rebuild */
+#define JSONL_PATCH_VERSION 21  /* bump when the edits change: forces the rebuild */
 #define JSONL_REMOTE_AGENT_FRAGMENT "extension/remote/ds4_agent_remote.cfrag"
 
 static const char *JSONL_EDITS[][2] = {
   { "#include \"ds4_web.h\"\n",
-    "#include \"ds4_web.h\"\n#include \"dstudio_remote_llm.h\" /*DS4UI_JSONL*/\n" },
+    "#include \"ds4_web.h\"\n#include \"dstudio_remote_llm.h\" /*DS4UI_JSONL*/\n#if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)\n#ifndef WIN32_LEAN_AND_MEAN\n#define WIN32_LEAN_AND_MEAN\n#endif\n#include <windows.h>\nstatic void ds4ui_win32_ensure_chrome(int port);\n#endif\n" },
   { "    bool non_interactive;\n",
     "    bool non_interactive;\n    bool jsonl; /*DS4UI_JSONL*/\n    bool web_tool_mode; /*DS4UI_JSONL*/\n    const char *web_tool; /*DS4UI_JSONL*/\n    const char *web_query; /*DS4UI_JSONL*/\n    const char *web_url; /*DS4UI_JSONL*/\n    const char *remote_base_url; /*DS4UI_JSONL*/\n    const char *remote_model; /*DS4UI_JSONL*/\n" },
   { "        } else if (!strcmp(arg, \"--non-interactive\")) {\n            c.non_interactive = true;\n",
@@ -1895,7 +2304,7 @@ static const char *JSONL_EDITS[][2] = {
     "}\n"
     "static void ds4ui_emit_tool_call(agent_worker *w, const agent_tool_call *tc) {\n" },
   { "        char *res = agent_execute_tool_call(w, &calls->v[i]);\n",
-    "        if (w->cfg->jsonl) ds4ui_emit_tool_call(w, &calls->v[i]);   /*DS4UI_JSONL*/\n        char *res = agent_execute_tool_call(w, &calls->v[i]);\n        if (w->cfg->jsonl) ds4ui_emit_tool_result(w, calls->v[i].name, res);   /*DS4UI_JSONL*/\n" },
+    "        if (w->cfg->jsonl) ds4ui_emit_tool_call(w, &calls->v[i]);   /*DS4UI_JSONL*/\n        char *res;\n#if defined(__MSYS__) || defined(__CYGWIN__) || defined(_WIN32)\n        if (!strcmp(calls->v[i].name, \"bash\"))\n            res = ds4ui_win32_bash_exec(w, &calls->v[i]);\n        else\n#endif\n        res = agent_execute_tool_call(w, &calls->v[i]);\n        if (w->cfg->jsonl) ds4ui_emit_tool_result(w, calls->v[i].name, res);   /*DS4UI_JSONL*/\n" },
   { "            sr->in_think = true;\n            sr->renderer->in_think = true;\n",
     "            sr->in_think = true;\n            sr->renderer->in_think = true;\n            if (sr->renderer->worker->cfg->jsonl) ds4ui_emit_event(sr->renderer->worker, \"reasoning_start\");   /*DS4UI_JSONL*/\n" },
   { "            sr->in_think = false;\n            sr->renderer->in_think = false;\n",
@@ -2013,6 +2422,92 @@ static const char *JSONL_EDITS[][2] = {
     "                    fflush(stdout);\n"
     "                }\n"
     "            } else if (worker_is_idle(&worker) && queue.len == 0) {\n                if (!worker_submit(&worker, prompt)) {\n" },
+  { "static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {\n",
+    "/*DS4UI_JSONL*/\n"
+    "#if defined(__MSYS__) || defined(__CYGWIN__) || defined(_WIN32)\n"
+    "static char *ds4ui_win32_bash_exec(agent_worker *w, const agent_tool_call *call) {\n"
+    "    (void)w;\n"
+    "    const char *cmd = agent_tool_arg_value(call, \"cmd\");\n"
+    "    if (!cmd || !cmd[0]) cmd = agent_tool_arg_value(call, \"command\");\n"
+    "    if (!cmd || !cmd[0]) return xstrdup(\"Tool error: bash requires cmd\\n\");\n"
+    "    const char *refresh = agent_tool_arg_value(call, \"refresh_sec\");\n"
+    "    if (refresh && refresh[0]) return xstrdup(\"Tool error: refresh_sec is not supported by the Windows structured agent yet\\n\");\n"
+    "    SECURITY_ATTRIBUTES sa;\n"
+    "    memset(&sa, 0, sizeof(sa));\n"
+    "    sa.nLength = sizeof(sa);\n"
+    "    sa.bInheritHandle = TRUE;\n"
+    "    HANDLE stdin_rd = NULL, stdin_wr = NULL, stdout_rd = NULL, stdout_wr = NULL;\n"
+    "    if (!CreatePipe(&stdin_rd, &stdin_wr, &sa, 0)) return xstrdup(\"Tool error: failed to create bash stdin pipe\\n\");\n"
+    "    if (!CreatePipe(&stdout_rd, &stdout_wr, &sa, 0)) { CloseHandle(stdin_rd); CloseHandle(stdin_wr); return xstrdup(\"Tool error: failed to create bash stdout pipe\\n\"); }\n"
+    "    SetHandleInformation(stdin_wr, HANDLE_FLAG_INHERIT, 0);\n"
+    "    SetHandleInformation(stdout_rd, HANDLE_FLAG_INHERIT, 0);\n"
+    "    STARTUPINFOA si;\n"
+    "    PROCESS_INFORMATION pi;\n"
+    "    memset(&si, 0, sizeof(si));\n"
+    "    memset(&pi, 0, sizeof(pi));\n"
+    "    si.cb = sizeof(si);\n"
+    "    si.dwFlags = STARTF_USESTDHANDLES;\n"
+    "    si.hStdInput = stdin_rd;\n"
+    "    si.hStdOutput = stdout_wr;\n"
+    "    si.hStdError = stdout_wr;\n"
+    "    char cmdline[] = \"bash.exe -s\";\n"
+    "    BOOL ok = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);\n"
+    "    CloseHandle(stdin_rd);\n"
+    "    CloseHandle(stdout_wr);\n"
+    "    if (!ok) {\n"
+    "        DWORD gle = GetLastError();\n"
+    "        CloseHandle(stdin_wr);\n"
+    "        CloseHandle(stdout_rd);\n"
+    "        char msg[160];\n"
+    "        snprintf(msg, sizeof(msg), \"Tool error: failed to start bash.exe (GetLastError=%lu)\\n\", (unsigned long)gle);\n"
+    "        return xstrdup(msg);\n"
+    "    }\n"
+    "    DWORD wr = 0;\n"
+    "    WriteFile(stdin_wr, cmd, (DWORD)strlen(cmd), &wr, NULL);\n"
+    "    WriteFile(stdin_wr, \"\\n\", 1, &wr, NULL);\n"
+    "    CloseHandle(stdin_wr);\n"
+    "    agent_buf out = {0};\n"
+    "    DWORD start = GetTickCount();\n"
+    "    DWORD exit_code = 0;\n"
+    "    for (;;) {\n"
+    "        DWORD avail = 0;\n"
+    "        while (PeekNamedPipe(stdout_rd, NULL, 0, NULL, &avail, NULL) && avail > 0) {\n"
+    "            char buf[4096];\n"
+    "            DWORD want = avail < sizeof(buf) ? avail : sizeof(buf);\n"
+    "            DWORD got = 0;\n"
+    "            if (!ReadFile(stdout_rd, buf, want, &got, NULL) || got == 0) break;\n"
+    "            agent_buf_append(&out, buf, got);\n"
+    "            avail = 0;\n"
+    "        }\n"
+    "        DWORD wait = WaitForSingleObject(pi.hProcess, 50);\n"
+    "        if (wait == WAIT_OBJECT_0) break;\n"
+    "        if (GetTickCount() - start > 120000) {\n"
+    "            TerminateProcess(pi.hProcess, 124);\n"
+    "            agent_buf_puts(&out, \"\\nTool error: bash timed out\\n\");\n"
+    "            break;\n"
+    "        }\n"
+    "    }\n"
+    "    while (PeekNamedPipe(stdout_rd, NULL, 0, NULL, &wr, NULL) && wr > 0) {\n"
+    "        char buf[4096];\n"
+    "        DWORD want = wr < sizeof(buf) ? wr : sizeof(buf);\n"
+    "        DWORD got = 0;\n"
+    "        if (!ReadFile(stdout_rd, buf, want, &got, NULL) || got == 0) break;\n"
+    "        agent_buf_append(&out, buf, got);\n"
+    "    }\n"
+    "    WaitForSingleObject(pi.hProcess, INFINITE);\n"
+    "    GetExitCodeProcess(pi.hProcess, &exit_code);\n"
+    "    CloseHandle(stdout_rd);\n"
+    "    CloseHandle(pi.hThread);\n"
+    "    CloseHandle(pi.hProcess);\n"
+    "    if (exit_code != 0 && !strstr(out.ptr ? out.ptr : \"\", \"Tool error:\")) {\n"
+    "        char msg[96];\n"
+    "        snprintf(msg, sizeof(msg), \"\\nTool exit status: %lu\\n\", (unsigned long)exit_code);\n"
+    "        agent_buf_puts(&out, msg);\n"
+    "    }\n"
+    "    return agent_buf_take(&out);\n"
+    "}\n"
+    "#endif\n"
+    "static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {\n" },
   { "static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {\n",
     "/*DS4UI_JSONL*/\n/* Post-edit verification (DStudio): after a write/edit, run a cheap single-file\n * syntax check on the touched path and append any errors to the tool result, so\n * the model fixes them in the same turn instead of shipping broken code. Only\n * reliable single-file checkers (no project context) are used, so false\n * positives are rare; C falls back to cc -fsyntax-only and suppresses\n * missing-include noise. Gated on --jsonl. */\nstatic char *ds4ui_verify_after(agent_worker *w, const agent_tool_call *call, char *result) {\n    if (!w || !w->cfg || !w->cfg->jsonl || !result) return result;\n    if (!strncmp(result, \"Tool error\", 10)) return result;\n    const char *path = agent_tool_arg_value(call, \"path\");\n    if (!path || !path[0]) return result;\n    const char *dot = strrchr(path, '.');\n    if (!dot) return result;\n    const char *argv[6] = {0};\n    int is_c = 0;\n    if (!strcmp(dot, \".js\") || !strcmp(dot, \".mjs\") || !strcmp(dot, \".cjs\") || !strcmp(dot, \".jsx\")) {\n        argv[0] = \"node\"; argv[1] = \"--check\"; argv[2] = path;\n    } else if (!strcmp(dot, \".py\")) {\n        argv[0] = \"python3\"; argv[1] = \"-m\"; argv[2] = \"py_compile\"; argv[3] = path;\n    } else if (!strcmp(dot, \".sh\") || !strcmp(dot, \".bash\")) {\n        argv[0] = \"bash\"; argv[1] = \"-n\"; argv[2] = path;\n    } else if (!strcmp(dot, \".rb\")) {\n        argv[0] = \"ruby\"; argv[1] = \"-c\"; argv[2] = path;\n    } else if (!strcmp(dot, \".json\")) {\n        argv[0] = \"python3\"; argv[1] = \"-m\"; argv[2] = \"json.tool\"; argv[3] = path; argv[4] = \"/dev/null\";\n    } else if (!strcmp(dot, \".go\")) {\n        argv[0] = \"gofmt\"; argv[1] = \"-e\"; argv[2] = path;\n    } else if (!strcmp(dot, \".c\") || !strcmp(dot, \".h\") || !strcmp(dot, \".cc\") || !strcmp(dot, \".cpp\")) {\n        argv[0] = \"cc\"; argv[1] = \"-fsyntax-only\"; argv[2] = path; is_c = 1;\n    } else {\n        return result;\n    }\n    int pfd[2];\n    if (pipe(pfd) != 0) return result;\n    pid_t pid = fork();\n    if (pid < 0) { close(pfd[0]); close(pfd[1]); return result; }\n    if (pid == 0) {\n        dup2(pfd[1], STDOUT_FILENO); dup2(pfd[1], STDERR_FILENO);\n        close(pfd[0]); close(pfd[1]);\n        int dn = open(\"/dev/null\", O_RDONLY);\n        if (dn >= 0) { dup2(dn, STDIN_FILENO); close(dn); }\n        execvp(argv[0], (char *const *)argv);\n        _exit(127);\n    }\n    close(pfd[1]);\n    char out[4096]; size_t n = 0; char chunk[1024]; ssize_t r;\n    while ((r = read(pfd[0], chunk, sizeof(chunk))) > 0) {\n        size_t room = sizeof(out) - 1 - n;\n        if (room > 0) { size_t c = (size_t)r < room ? (size_t)r : room; memcpy(out + n, chunk, c); n += c; }\n    }\n    out[n] = '\\0';\n    close(pfd[0]);\n    int status = 0; waitpid(pid, &status, 0);\n    int failed = !(WIFEXITED(status) && WEXITSTATUS(status) == 0);\n    if (!failed) return result;\n    if (n == 0) return result;\n    if (is_c && strstr(out, \"fatal error\")) return result;\n    agent_buf b = {0};\n    agent_buf_puts(&b, result);\n    if (result[0] && result[strlen(result) - 1] != '\\n') agent_buf_puts(&b, \"\\n\");\n    agent_buf_puts(&b, \"[verify] \");\n    agent_buf_puts(&b, argv[0]);\n    agent_buf_puts(&b, \" reported problems in \");\n    agent_buf_puts(&b, path);\n    agent_buf_puts(&b, \" - fix them before continuing:\\n\");\n    agent_buf_puts(&b, out);\n    agent_buf_puts(&b, \"\\n\");\n    free(result);\n    return agent_buf_take(&b);\n}\nstatic char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {\n" },
   { "    if (!strcmp(call->name, \"write\")) return agent_tool_write(w, call);\n    if (!strcmp(call->name, \"list\")) return agent_tool_list(call);\n    if (!strcmp(call->name, \"edit\")) return agent_tool_edit(w, call);\n",
@@ -2366,6 +2861,9 @@ static const char *JSONL_EDITS[][2] = {
     "        .log = ds4ui_web_log_stderr,\n"
     "        .cancel = ds4ui_web_cancel_never,\n"
     "    };\n"
+    "#if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)\n"
+    "    ds4ui_win32_ensure_chrome(9333);\n"
+    "#endif\n"
     "    ds4_web *web = ds4_web_create(&web_cfg);\n"
     "    char err[256] = {0};\n"
     "    char *out = NULL;\n"
@@ -3482,11 +3980,11 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
      * (brand) layer is design-only, so it is excluded here (0). */
     char *skill_sys = build_skill_sys(0, use_jsonl);
     if (!g_build_mode && use_jsonl) {
-        /* Normal agent, Build Off: keep Claude-like discovery for direction-sensitive
+        /* Normal agent, Plan Off: keep Claude-like discovery for direction-sensitive
          * work without slowing down straightforward code edits.  This is injected via
          * -sys only; antirez's ds4_agent.c stays untouched. */
         static const char *normal_agent_discovery =
-            "\n\n## NORMAL AGENT DISCOVERY (Build Off)\n"
+            "\n\n## NORMAL AGENT DISCOVERY (Plan Off)\n"
             "Default to action, but ask before committing to a direction when the missing "
             "choice would materially change the result.\n"
             "Ask a compact clarification first, then stop, when the user asks for a NEW "
@@ -3511,24 +4009,22 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
         char *nb = realloc(skill_sys, cur + dl + 1);
         if (nb) { skill_sys = nb; memcpy(skill_sys + cur, normal_agent_discovery, dl + 1); }
     } else {
-        /* Build mode (planned): a deterministic driver (the web UI) first asks the model to
-         * propose a plan (pages + style), writes plan.md, then walks it ONE page at a time —
-         * the designer makes each page, the agent wires it. Each agent turn handles exactly
-         * one page. The proto keeps the agent in that lane (no hands-off whole-app build). */
+        /* Plan mode: DStudio augments each user request with a planning contract.
+         * This system layer keeps the agent out of implementation/build behavior. */
         static const char *proto_plan =
-            "\n\n## BUILD MODE (planned) — wire ONE page at a time\n"
-            "You are in planned Build mode: a driver feeds you the app ONE page at a time and "
-            "tracks progress from a `plan.md` in this directory. Each turn you are told exactly "
-            "ONE page to wire — its static design HTML is already here.\n"
-            "- Do EXACTLY the page you're told this turn — nothing else. Don't build other pages, "
-            "don't scaffold ahead, don't 'finish the app'. The driver decides what comes next.\n"
-            "- On the FIRST page only, choose or extend the app stack from the brief, repo context "
-            "and active web-app skill. On later pages, reuse that structure.\n"
-            "- Convert that page's HTML into a template that extends the shared base, wire its "
-            "route, data, forms and behavior, keep the look intact, and make the page render.\n"
-            "- Run the selected stack's fastest check/build/smoke command before ending the turn. "
-            "Then STOP — do NOT request design pages (the driver supplies them), do NOT continue "
-            "to another page. The driver verifies the result on disk and feeds you the next page.\n";
+            "\n\n## PLAN MODE — Markdown planning file only\n"
+            "You are in DStudio Plan mode. The user describes what they want; your job is to "
+            "turn that request into a clear Markdown planning document in the selected workspace.\n"
+            "- Do not implement code, scaffold projects, run builds, or hand off to Design unless "
+            "the user explicitly turns Plan mode off and asks for implementation.\n"
+            "- Use the file write/edit tools to create exactly one Markdown plan file for the "
+            "current request. Prefer the filename requested by the UI prompt; otherwise use "
+            "`plan.md` or a concise `<topic>-plan.md`.\n"
+            "- The document should be actionable: objective, assumptions, scope, milestones, "
+            "task breakdown, technical/design decisions, risks, validation checklist, and next actions.\n"
+            "- Make reasonable assumptions when details are missing and list them in the plan. "
+            "Ask a clarification only if a useful plan is impossible.\n"
+            "- After writing the Markdown file, answer briefly with the filename and a short summary.\n";
         size_t cur = skill_sys ? strlen(skill_sys) : 0, pl = strlen(proto_plan);
         char *nb = realloc(skill_sys, cur + pl + 1);
         if (nb) { skill_sys = nb; memcpy(skill_sys + cur, proto_plan, pl + 1); }
@@ -3765,9 +4261,8 @@ static void drain_child(void) {
         for (;;) {
             ssize_t n = read(g_out_fd, buf, sizeof buf);
             if (n > 0) {
-                if (MODE_IS_PIPED(g_mode)) agent_buf_append(buf, (size_t)n);
-                scan_lines(buf, (size_t)n, g_line_out, &g_line_out_len, 0);
-            } else if (n == 0) { break; }
+                drain_child_stdout_data(buf, (size_t)n);
+            } else if (n == 0) { drain_child_event_finish(); break; }
             else { break; } /* EAGAIN or error: retry on the next pass */
             if (n < (ssize_t)sizeof buf) break;
         }
