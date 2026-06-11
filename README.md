@@ -143,15 +143,15 @@ This is a serious local AI setup. DStudio removes product friction, not physics:
 
 ### Windows notes
 
-For normal use, download/extract the Windows portable zip and run `DStudio.exe`. Keep the files together: `DStudio.exe`, `ds4-server.exe`, `ds4-agent.exe`, `ds4-agent-jsonl.exe`, `ds4-design.exe` and the runtime DLLs are meant to live in the same portable folder.
+For normal use, download/extract the Windows portable zip and run `DStudio.exe`. Keep the files together: `DStudio.exe`, `ds4-server.exe`, `ds4-agent.exe`, `ds4-agent-jsonl.exe`, `ds4-agent-jsonl.ver`, `ds4-design.exe`, `curl.exe` and the runtime DLLs are meant to live in the same portable folder.
 
 If you build DStudio or use Agent/Design from a LAN client with your own local DS4 checkout, install:
 
 - **Microsoft Edge WebView2 Runtime** if your Windows install does not already have it.
-- **MSYS2 UCRT64** build tools: `pacman -S --needed make gcc git patch`.
+- **MSYS2 UCRT64** build tools: `pacman -S --needed make git patch curl mingw-w64-ucrt-x86_64-gcc`.
 - **Visual Studio Build Tools** or `clang-cl` for building the native Windows wrapper.
 
-The error `msys-gcc_s-seh-1.dll was not found` means Windows found `ds4-agent-jsonl.exe` but not the MSYS2 runtime DLLs it was built with. Recent DStudio builds copy those DLLs next to the selected DS4 binaries and add the common MSYS2 runtime paths before launching the tools; if you move only the `.exe` files by hand, copy the DLLs too or rebuild the Windows portable package.
+The error `msys-gcc_s-seh-1.dll was not found` means Windows found `ds4-agent-jsonl.exe` but not the MSYS2 runtime DLLs it was built with. The error `Remote model failed: failed to start curl` usually means the LAN-client Agent runtime cannot find the packaged `curl.exe`. Recent DStudio builds copy `curl.exe`, the JSONL version marker and the runtime DLLs next to the selected DS4 binaries, then launch Agent/Design with that prepared runtime. If you move only the `.exe` files by hand, copy the DLLs, `curl.exe` and `ds4-agent-jsonl.ver` too, or rebuild the Windows portable package.
 
 ## Quick start
 

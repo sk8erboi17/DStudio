@@ -1603,6 +1603,29 @@ static int win_app_dir(char *out, size_t outsz) {
     return 1;
 }
 
+static void win_copy_packaged_file_to_ds4(const char *name) {
+    char appdir[DSTUDIO_PATH_MAX];
+    if (!win_app_dir(appdir, sizeof appdir)) return;
+    char src[DSTUDIO_PATH_MAX + 128], dst[DSTUDIO_PATH_MAX + 128];
+    win_join_path(src, sizeof src, appdir, name);
+    win_join_path(dst, sizeof dst, g_ds4_dir, name);
+    if (access(src, R_OK) != 0) return;
+    if (!_stricmp(src, dst)) return;
+    CopyFileA(src, dst, FALSE);
+}
+
+static void win_copy_packaged_engine_to_ds4(void) {
+    static const char *files[] = {
+        "ds4-server.exe",
+        "ds4-agent.exe",
+        "ds4-agent-jsonl.exe",
+        "ds4-agent-jsonl.ver",
+        "ds4-design.exe",
+        NULL
+    };
+    for (int i = 0; files[i]; i++) win_copy_packaged_file_to_ds4(files[i]);
+}
+
 static void win_copy_runtime_dlls_to_ds4(void) {
     char appdir[DSTUDIO_PATH_MAX];
     const char *dirs[8];
@@ -1617,6 +1640,12 @@ static void win_copy_runtime_dlls_to_ds4(void) {
 
     static const char *dlls[] = {
         "msys-2.0.dll", "msys-gcc_s-seh-1.dll",
+        "msys-curl-4.dll", "msys-nghttp2-14.dll",
+        "msys-ssl-3.dll", "msys-crypto-3.dll",
+        "msys-z-1.dll", "msys-zstd-1.dll",
+        "msys-brotlidec-1.dll", "msys-brotlicommon-1.dll",
+        "msys-idn2-0.dll", "msys-psl-5.dll", "msys-unistring-5.dll",
+        "msys-iconv-2.dll", "msys-intl-8.dll", "msys-ssh2-1.dll",
         "cygwin1.dll", "cyggcc_s-seh-1.dll",
         "libgcc_s_seh-1.dll", "libwinpthread-1.dll",
         "libstdc++-6.dll", NULL
@@ -1633,11 +1662,30 @@ static void win_copy_runtime_dlls_to_ds4(void) {
             break;
         }
     }
+
+    static const char *tools[] = { "curl.exe", NULL };
+    for (int i = 0; tools[i]; i++) {
+        char dst[DSTUDIO_PATH_MAX + 128];
+        win_join_path(dst, sizeof dst, g_ds4_dir, tools[i]);
+        for (int d = 0; d < nd; d++) {
+            char src[DSTUDIO_PATH_MAX + 128];
+            win_join_path(src, sizeof src, dirs[d], tools[i]);
+            if (access(src, R_OK) != 0) continue;
+            if (!_stricmp(src, dst)) break;
+            CopyFileA(src, dst, FALSE);
+            break;
+        }
+    }
 }
 
 static void win_prepare_engine_runtime(void) {
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+    win_copy_packaged_engine_to_ds4();
     win_copy_runtime_dlls_to_ds4();
+
+    char curl[DSTUDIO_PATH_MAX + 128];
+    win_join_path(curl, sizeof curl, g_ds4_dir, "curl.exe");
+    if (access(curl, R_OK) == 0) _putenv_s("DS4UI_CURL", "curl.exe");
 
     static char prepared_for[DSTUDIO_PATH_MAX] = "";
     if (!strcmp(prepared_for, g_ds4_dir)) return;
@@ -1814,7 +1862,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
 #define JSONL_MARK "/*DS4UI_JSONL*/"
 #define WEB_CDP_MARK "/*DS4UI_WEB_CDP*/"
 #define WEB_DIRECT_NAV_MARK "/*DS4UI_WEB_DIRECT_NAV*/"
-#define JSONL_PATCH_VERSION 19  /* bump when the edits change: forces the rebuild */
+#define JSONL_PATCH_VERSION 20  /* bump when the edits change: forces the rebuild */
 #define JSONL_REMOTE_AGENT_FRAGMENT "extension/remote/ds4_agent_remote.cfrag"
 
 static const char *JSONL_EDITS[][2] = {
@@ -3204,7 +3252,9 @@ static int run_build_jsonl(const char *action) {
 #ifdef _WIN32
     (void)action;
     win_prepare_engine_runtime();
-    return file_present("ds4-agent-jsonl.exe");
+    char ver[DSTUDIO_PATH_MAX + 64];
+    snprintf(ver, sizeof ver, "%s/ds4-agent-jsonl.ver", g_ds4_dir);
+    return file_present("ds4-agent-jsonl.exe") && jsonl_sentinel_ok(ver);
 #else
     char ds4_abs[DSTUDIO_PATH_MAX];
     if (!realpath(g_ds4_dir, ds4_abs)) return 0;
@@ -3376,7 +3426,13 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
      * the STOCK ds4-agent — the UI parses its raw output instead. */
     int use_jsonl = g_use_jsonl && run_build_jsonl("build");
     if (remote_model && !use_jsonl) {
+#ifdef _WIN32
+        snprintf(err, errsz,
+                 "remote agent requires the updated DStudio Windows runtime "
+                 "(ds4-agent-jsonl.exe + ds4-agent-jsonl.ver)");
+#else
         snprintf(err, errsz, "remote agent requires the structured ds4-agent-jsonl build");
+#endif
         return 0;
     }
     if (g_use_jsonl && !use_jsonl)
@@ -5112,11 +5168,13 @@ static void api_set_ds4dir(int fd, const char *body) {
         restarted = ok ? 1 : 0;
     }
 
-    char err_esc[300];
+    char err_esc[300], ds4_esc[DSTUDIO_PATH_MAX * 2 + 1];
     json_escape_into(err_esc, sizeof err_esc, err, strlen(err));
-    char out[512];
+    json_escape_into(ds4_esc, sizeof ds4_esc, g_ds4_dir, strlen(g_ds4_dir));
+    char out[DSTUDIO_PATH_MAX * 2 + 700];
     snprintf(out, sizeof out,
-        "{\"ok\":true,\"ds4dirOk\":%s,\"wasRunning\":%s,\"restarted\":%s,\"mode\":\"%s\",\"error\":\"%s\"}",
+        "{\"ok\":true,\"ds4dir\":\"%s\",\"ds4dirOk\":%s,\"wasRunning\":%s,\"restarted\":%s,\"mode\":\"%s\",\"error\":\"%s\"}",
+        ds4_esc,
         valid ? "true" : "false", was_running ? "true" : "false",
         restarted ? "true" : "false", mode_name(g_mode), err_esc);
     send_json(fd, "200 OK", out);

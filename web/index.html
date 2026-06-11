@@ -4092,6 +4092,7 @@
       v: SCHEMA_VERSION,
       baseUrl: DEFAULT_BASE_URL,
       lanClientHost: '',     // when set, this local UI uses that DStudio host for model + Chat web tools
+      lanClientDs4Dir: '',   // local DS4 runtime folder used by Agent/Design on LAN clients
       lanClientId: '',       // stable browser id used only for host-side LAN mirrors
       lanClientName: '',     // display label for the host's mirrored sidebar entries
       model: null,          // populated from /v1/models on first launch
@@ -10354,8 +10355,10 @@
       async function syncLanClientDs4Dir() {
         if (!lf.ds4Path || !isLanClientMode()) return;
         try {
+          await applySavedLanClientDs4Dir();
+          const saved = (Store.getSettings().lanClientDs4Dir || '').trim();
           const st = await Engine.status();
-          lf.ds4Path.value = st.ds4dir || lf.ds4Path.value || '';
+          lf.ds4Path.value = saved || st.ds4dir || lf.ds4Path.value || '';
           lf.ds4Msg.textContent = st.ds4dirOk
             ? 'Local DS4 runtime ready for Agent and Design.'
             : 'Choose the local DS4 folder for Agent and Design on this device.';
@@ -10383,6 +10386,7 @@
         try {
           const r = await Engine.setDs4Dir(path);
           if (r && r.ok && r.ds4dirOk) {
+            Store.setSettings({ lanClientDs4Dir: r.ds4dir || path });
             lf.ds4Msg.textContent = r.restarted
               ? 'Local DS4 runtime ready; Agent/Design restarted in this folder.'
               : 'Local DS4 runtime ready for Agent and Design.';
@@ -11658,6 +11662,24 @@
 
       return { apiUrl, designPreviewUrl, status, doctor, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setDs4Dir, setWebDir, webSearch, webRead, httpProbe, ggufs, skills, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
     })();
+
+    let lanClientDs4ApplyPromise = null;
+    async function applySavedLanClientDs4Dir() {
+      const path = (Store.getSettings().lanClientDs4Dir || '').trim();
+      if (!isLanClientMode() || !path) return null;
+      if (!lanClientDs4ApplyPromise) {
+        lanClientDs4ApplyPromise = Engine.setDs4Dir(path)
+          .then((r) => {
+            if (r && r.ok && r.ds4dirOk) {
+              Store.setSettings({ lanClientDs4Dir: r.ds4dir || path });
+            }
+            return r;
+          })
+          .catch(() => null)
+          .finally(() => { lanClientDs4ApplyPromise = null; });
+      }
+      return lanClientDs4ApplyPromise;
+    }
 
     /* ==================== Remote LAN chat ==================== */
     const RemoteShare = (() => {
@@ -15408,11 +15430,12 @@
         runSwitch('server', { mode: 'server', model: 'uncensored', variant: variant(), gguf: modelGguf(), ctx: ctxSize(), power: 100 }, 'Starting the server…');
       }
 
-      function startAgent(workdir) {
+      async function startAgent(workdir) {
         if (isHostServedLanShell()) {
           toast('Agent cannot use a LAN host workspace. Run DStudio locally on this device.', 'warn');
           return;
         }
+        if (isLanClientMode()) await applySavedLanClientDs4Dir();
         const remote = remoteModelLaunch();
         if (!remote) return;
         runSwitch('agent', { mode: 'agent', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill: skillForMode('agent'), build: isLanClientMode() ? 'off' : buildMode(), ctx: ctxSize(), power: 100, think: thinkLevel(), workdir, jsonl: isLanClientMode() ? true : Store.getSettings().useJsonlPatch !== false, ...remote }, 'Starting the agent…');
@@ -15421,7 +15444,7 @@
       // Design's system prompt is ~5.3k tokens and it generates full HTML files,
       // so it needs real headroom. Block below this and point to Settings.
       const MIN_DESIGN_CTX = 32768;
-      function startDesign(workdir, opts) {
+      async function startDesign(workdir, opts) {
         if (isHostServedLanShell()) {
           toast('Design cannot use a LAN host workspace. Run DStudio locally on this device.', 'warn');
           return;
@@ -15437,6 +15460,7 @@
         // opts.skill overrides the design skill — Build runs the designer SKILL-LESS so it just
         // makes the page instead of kicking off a skill's own pipeline (e.g. a brand-spec).
         const skill = (opts && 'skill' in opts) ? opts.skill : skillForMode('design');
+        if (isLanClientMode()) await applySavedLanClientDs4Dir();
         const remote = remoteModelLaunch();
         if (!remote) return;
         runSwitch('design', { mode: 'design', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, designSystem: designSystem(), build: isLanClientMode() ? 'off' : buildMode(), ctx: ctxSize(), power: 100, think: thinkLevel(), workdir, ...remote }, 'Starting the design agent…');

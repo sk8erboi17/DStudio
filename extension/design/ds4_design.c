@@ -65,6 +65,10 @@
 #include "ds4_kvstore.h"
 #include "dstudio_remote_llm.h"
 
+#ifndef O_BINARY
+#define O_BINARY 0
+#endif
+
 /* Tokens kept free for the next assistant round + tool result before a user
  * turn is accepted.  Past that, the session is declared full. */
 #define DESIGN_CTX_RESERVE 4096
@@ -149,6 +153,61 @@ static void write_all_fd(int fd, const char *p, size_t n) {
         p += w;
         n -= (size_t)w;
     }
+}
+
+static const char *design_tmp_dir(void) {
+    const char *keys[] = { "TMPDIR", "TMP", "TEMP", "USERPROFILE", NULL };
+    for (int i = 0; keys[i]; i++) {
+        const char *v = getenv(keys[i]);
+        if (v && v[0]) return v;
+    }
+    return ".";
+}
+
+static int design_tempfile_in_dir(char *path, size_t path_len,
+                                  const char *dir, const char *prefix,
+                                  const char *suffix) {
+    if (!dir || !dir[0]) dir = ".";
+    if (!prefix || !prefix[0]) prefix = "ds4_design";
+    if (!suffix) suffix = "";
+    size_t dl = strlen(dir);
+    char sep = (dl && (dir[dl - 1] == '/' || dir[dl - 1] == '\\')) ? '\0' : '/';
+    unsigned seed = (unsigned)time(NULL) ^ (unsigned)getpid();
+    for (int i = 0; i < 128; i++) {
+        seed = seed * 1103515245u + 12345u;
+        if (sep) snprintf(path, path_len, "%s%c%s-%ld-%08x%s",
+                          dir, sep, prefix, (long)getpid(), seed, suffix);
+        else     snprintf(path, path_len, "%s%s-%ld-%08x%s",
+                          dir, prefix, (long)getpid(), seed, suffix);
+        int fd = open(path, O_CREAT | O_EXCL | O_WRONLY | O_BINARY, 0600);
+        if (fd >= 0) return fd;
+        if (errno != EEXIST) break;
+    }
+    path[0] = '\0';
+    return -1;
+}
+
+static int design_tempfile_near(const char *target_path, char **tmp_out) {
+    if (!target_path || !tmp_out) {
+        errno = EINVAL;
+        return -1;
+    }
+    size_t n = strlen(target_path);
+    char *tmp = xmalloc(n + 64);
+    unsigned seed = (unsigned)time(NULL) ^ (unsigned)getpid();
+    for (int i = 0; i < 128; i++) {
+        seed = seed * 1103515245u + 12345u;
+        snprintf(tmp, n + 64, "%s.tmp.%ld.%08x", target_path, (long)getpid(), seed);
+        int fd = open(tmp, O_CREAT | O_EXCL | O_WRONLY | O_BINARY, 0600);
+        if (fd >= 0) {
+            *tmp_out = tmp;
+            return fd;
+        }
+        if (errno != EEXIST) break;
+    }
+    free(tmp);
+    *tmp_out = NULL;
+    return -1;
 }
 
 /* The UI splits the transcript on newlines and treats a leading \x1e as a
@@ -3506,8 +3565,9 @@ static void design_bash_poll(design_bash_job *job) {
  * grandchildren) with cwd = project dir. */
 static design_bash_job *design_bash_start(design_project *pr, const char *cmd,
                                           int timeout_sec, char *err, size_t err_len) {
-    char tmp_path[] = "/tmp/ds4_design_output_XXXXXX";
-    int tmpfd = mkstemp(tmp_path);
+    char tmp_path[PATH_MAX];
+    int tmpfd = design_tempfile_in_dir(tmp_path, sizeof tmp_path,
+                                       design_tmp_dir(), "ds4_design_output", ".log");
     if (tmpfd < 0) {
         snprintf(err, err_len, "failed to create temporary output file: %s", strerror(errno));
         return NULL;
@@ -5920,11 +5980,8 @@ static bool design_kv_save_path(design_agent *a, const char *path,
     }
     uint64_t payload_bytes = staged.bytes;
 
-    design_buf tmpl = {0};
-    buf_puts(&tmpl, path);
-    buf_puts(&tmpl, ".tmp.XXXXXX");
-    char *tmp = buf_take(&tmpl);
-    int fd = mkstemp(tmp);
+    char *tmp = NULL;
+    int fd = design_tempfile_near(path, &tmp);
     if (fd < 0) {
         snprintf(err, err_len, "%s", strerror(errno));
         ds4_session_payload_file_free(&staged);

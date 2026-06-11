@@ -15,6 +15,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#if defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
+#include <windows.h>
+#endif
+
 #ifndef O_BINARY
 #define O_BINARY 0
 #endif
@@ -128,24 +132,34 @@ char *dstudio_remote_messages_snapshot(const dstudio_remote_buf *b) {
     return dstudio_remote_buf_take(&out);
 }
 
-static void shell_quote(dstudio_remote_buf *b, const char *s) {
-#ifdef _WIN32
-    dstudio_remote_buf_puts(b, "\"");
-    for (; s && *s; s++) {
-        if (*s == '"') dstudio_remote_buf_puts(b, "\\\"");
-        else if (*s == '%') dstudio_remote_buf_puts(b, "%%");
-        else dstudio_remote_buf_append(b, s, 1);
-    }
-    dstudio_remote_buf_puts(b, "\"");
-#else
-    dstudio_remote_buf_puts(b, "'");
-    for (; s && *s; s++) {
-        if (*s == '\'') dstudio_remote_buf_puts(b, "'\\''");
-        else dstudio_remote_buf_append(b, s, 1);
-    }
-    dstudio_remote_buf_puts(b, "'");
-#endif
+static const char *remote_curl_exe(void) {
+    const char *curl = getenv("DS4UI_CURL");
+    return (curl && curl[0]) ? curl : "curl";
 }
+
+#if defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
+static void win_cmd_append_arg(dstudio_remote_buf *b, const char *arg) {
+    if (b->len) dstudio_remote_buf_puts(b, " ");
+    dstudio_remote_buf_puts(b, "\"");
+    int bs = 0;
+    for (const char *p = arg ? arg : ""; *p; p++) {
+        if (*p == '\\') {
+            bs++;
+            continue;
+        }
+        if (*p == '"') {
+            while (bs-- > 0) dstudio_remote_buf_puts(b, "\\");
+            dstudio_remote_buf_puts(b, "\\\"");
+            bs = 0;
+            continue;
+        }
+        while (bs-- > 0) dstudio_remote_buf_puts(b, "\\");
+        dstudio_remote_buf_append(b, p, 1);
+    }
+    while (bs-- > 0) dstudio_remote_buf_puts(b, "\\\\");
+    dstudio_remote_buf_puts(b, "\"");
+}
+#endif
 
 static const char *remote_tmp_dir(void) {
     const char *keys[] = { "TMPDIR", "TMP", "TEMP", "USERPROFILE", NULL };
@@ -182,6 +196,188 @@ static char *remote_url(const char *base_url) {
     dstudio_remote_buf_puts(&b, "/v1/chat/completions");
     return dstudio_remote_buf_take(&b);
 }
+
+static void stream_sse_line(const char *line,
+                            dstudio_remote_chunk_cb cb,
+                            void *ud,
+                            int *done);
+
+static void stream_sse_bytes(const char *buf,
+                             size_t len,
+                             dstudio_remote_buf *line,
+                             dstudio_remote_chunk_cb cb,
+                             void *ud,
+                             int *done) {
+    for (size_t i = 0; i < len && !*done; i++) {
+        dstudio_remote_buf_append(line, buf + i, 1);
+        if (buf[i] == '\n') {
+            stream_sse_line(line->ptr ? line->ptr : "", cb, ud, done);
+            line->len = 0;
+            if (line->ptr) line->ptr[0] = '\0';
+        }
+    }
+}
+
+#if defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
+static int remote_run_curl_stream(const char *tmp,
+                                  const char *url,
+                                  dstudio_remote_chunk_cb cb,
+                                  void *ud,
+                                  char *err,
+                                  size_t err_len) {
+    char atfile[1200];
+    snprintf(atfile, sizeof atfile, "@%s", tmp);
+
+    dstudio_remote_buf cmd = {0};
+    win_cmd_append_arg(&cmd, remote_curl_exe());
+    win_cmd_append_arg(&cmd, "-fsS");
+    win_cmd_append_arg(&cmd, "-N");
+    win_cmd_append_arg(&cmd, "--max-time");
+    win_cmd_append_arg(&cmd, "1800");
+    win_cmd_append_arg(&cmd, "-H");
+    win_cmd_append_arg(&cmd, "Accept: text/event-stream");
+    win_cmd_append_arg(&cmd, "-H");
+    win_cmd_append_arg(&cmd, "Content-Type: application/json");
+    win_cmd_append_arg(&cmd, "--data-binary");
+    win_cmd_append_arg(&cmd, atfile);
+    win_cmd_append_arg(&cmd, url);
+
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+    HANDLE out_r = NULL, out_w = NULL;
+    if (!CreatePipe(&out_r, &out_w, &sa, 0)) {
+        dstudio_remote_buf_free(&cmd);
+        remote_err(err, err_len, "failed to create curl pipe");
+        return 1;
+    }
+    SetHandleInformation(out_r, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof si);
+    memset(&pi, 0, sizeof pi);
+    si.cb = sizeof si;
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = out_w;
+    si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+
+    BOOL ok = CreateProcessA(NULL, cmd.ptr, NULL, NULL, TRUE,
+                             CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+    dstudio_remote_buf_free(&cmd);
+    CloseHandle(out_w);
+    if (!ok) {
+        DWORD code = GetLastError();
+        CloseHandle(out_r);
+        remote_err(err, err_len, "failed to start curl (Windows error %lu)", (unsigned long)code);
+        return 1;
+    }
+
+    CloseHandle(pi.hThread);
+    char chunk[4096];
+    dstudio_remote_buf line = {0};
+    int done = 0;
+    for (;;) {
+        DWORD got = 0;
+        if (!ReadFile(out_r, chunk, sizeof chunk, &got, NULL) || got == 0) break;
+        stream_sse_bytes(chunk, (size_t)got, &line, cb, ud, &done);
+        if (done) break;
+    }
+    if (!done && line.len) stream_sse_line(line.ptr, cb, ud, &done);
+    dstudio_remote_buf_free(&line);
+    CloseHandle(out_r);
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exit_code = 1;
+    GetExitCodeProcess(pi.hProcess, &exit_code);
+    CloseHandle(pi.hProcess);
+    if (!done && exit_code != 0) {
+        remote_err(err, err_len, "remote model request failed (curl exit %lu)", (unsigned long)exit_code);
+        return 1;
+    }
+    if (!done) {
+        remote_err(err, err_len, "remote model stream ended before [DONE]");
+        return 1;
+    }
+    return 0;
+}
+#else
+static int remote_run_curl_stream(const char *tmp,
+                                  const char *url,
+                                  dstudio_remote_chunk_cb cb,
+                                  void *ud,
+                                  char *err,
+                                  size_t err_len) {
+    int pfd[2];
+    if (pipe(pfd) != 0) {
+        remote_err(err, err_len, "failed to create curl pipe: %s", strerror(errno));
+        return 1;
+    }
+
+    char atfile[1200];
+    snprintf(atfile, sizeof atfile, "@%s", tmp);
+    char *const argv[] = {
+        (char *)remote_curl_exe(),
+        (char *)"-fsS",
+        (char *)"-N",
+        (char *)"--max-time",
+        (char *)"1800",
+        (char *)"-H",
+        (char *)"Accept: text/event-stream",
+        (char *)"-H",
+        (char *)"Content-Type: application/json",
+        (char *)"--data-binary",
+        atfile,
+        (char *)url,
+        NULL
+    };
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        int e = errno;
+        close(pfd[0]);
+        close(pfd[1]);
+        remote_err(err, err_len, "failed to fork curl: %s", strerror(e));
+        return 1;
+    }
+    if (pid == 0) {
+        close(pfd[0]);
+        if (dup2(pfd[1], STDOUT_FILENO) < 0) _exit(127);
+        close(pfd[1]);
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+    close(pfd[1]);
+
+    char chunk[4096];
+    dstudio_remote_buf line = {0};
+    int done = 0;
+    for (;;) {
+        ssize_t n = read(pfd[0], chunk, sizeof chunk);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        stream_sse_bytes(chunk, (size_t)n, &line, cb, ud, &done);
+        if (done) break;
+    }
+    if (!done && line.len) stream_sse_line(line.ptr, cb, ud, &done);
+    dstudio_remote_buf_free(&line);
+    close(pfd[0]);
+
+    int st = 0;
+    if (waitpid(pid, &st, 0) < 0) {
+        remote_err(err, err_len, "curl wait failed: %s", strerror(errno));
+        return 1;
+    }
+    if (!done && (!WIFEXITED(st) || WEXITSTATUS(st) != 0)) {
+        remote_err(err, err_len, "remote model request failed");
+        return 1;
+    }
+    if (!done) {
+        remote_err(err, err_len, "remote model stream ended before [DONE]");
+        return 1;
+    }
+    return 0;
+}
+#endif
 
 static int write_all_fd(int fd, const char *p, size_t n) {
     while (n) {
@@ -341,46 +537,8 @@ int dstudio_remote_chat_stream(const char *base_url,
     }
 
     char *url = remote_url(base_url);
-    dstudio_remote_buf cmd = {0};
-    dstudio_remote_buf_puts(&cmd,
-        "curl -fsS -N --max-time 1800 "
-        "-H 'Accept: text/event-stream' "
-        "-H 'Content-Type: application/json' "
-        "--data-binary @");
-    shell_quote(&cmd, tmp);
-    dstudio_remote_buf_puts(&cmd, " ");
-    shell_quote(&cmd, url);
+    int rc = remote_run_curl_stream(tmp, url, cb, ud, err, err_len);
     free(url);
-
-    FILE *fp = popen(cmd.ptr, "r");
-    dstudio_remote_buf_free(&cmd);
-    if (!fp) {
-        unlink(tmp);
-        remote_err(err, err_len, "failed to start curl");
-        return 1;
-    }
-
-    char *line = NULL;
-    size_t cap = 0;
-    int done = 0;
-    while (getline(&line, &cap, fp) >= 0) {
-        stream_sse_line(line, cb, ud, &done);
-        if (done) break;
-    }
-    free(line);
-    int st = pclose(fp);
     unlink(tmp);
-    if (st == -1) {
-        remote_err(err, err_len, "curl wait failed");
-        return 1;
-    }
-    if (!done && (!WIFEXITED(st) || WEXITSTATUS(st) != 0)) {
-        remote_err(err, err_len, "remote model request failed");
-        return 1;
-    }
-    if (!done) {
-        remote_err(err, err_len, "remote model stream ended before [DONE]");
-        return 1;
-    }
-    return 0;
+    return rc;
 }
