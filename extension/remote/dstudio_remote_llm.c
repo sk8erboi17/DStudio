@@ -15,7 +15,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#if defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
+#if defined(_WIN32) || defined(__CYGWIN__) || defined(__MSYS__)
 #include <windows.h>
 #endif
 
@@ -134,10 +134,15 @@ char *dstudio_remote_messages_snapshot(const dstudio_remote_buf *b) {
 
 static const char *remote_curl_exe(void) {
     const char *curl = getenv("DS4UI_CURL");
-    return (curl && curl[0]) ? curl : "curl";
+    if (curl && curl[0]) return curl;
+#if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)
+    /* Use native Windows curl (no MSYS2 deps). Windows 10+ ships it in System32. */
+    return "C:\\Windows\\System32\\curl.exe";
+#endif
+    return "curl";
 }
 
-#if defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
+#if defined(_WIN32) || defined(__CYGWIN__) || defined(__MSYS__)
 static void win_cmd_append_arg(dstudio_remote_buf *b, const char *arg) {
     if (b->len) dstudio_remote_buf_puts(b, " ");
     dstudio_remote_buf_puts(b, "\"");
@@ -162,6 +167,16 @@ static void win_cmd_append_arg(dstudio_remote_buf *b, const char *arg) {
 #endif
 
 static const char *remote_tmp_dir(void) {
+#if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)
+    /* Use Win32 GetTempPathA for a reliable Windows-format path that native
+     * curl can open without going through the MSYS2 VFS. */
+    static char win_tmp[MAX_PATH];
+    if (!win_tmp[0]) {
+        DWORD n = GetTempPathA(sizeof(win_tmp), win_tmp);
+        if (!n || n >= sizeof(win_tmp)) win_tmp[0] = '\0';
+    }
+    if (win_tmp[0]) return win_tmp;
+#endif
     const char *keys[] = { "TMPDIR", "TMP", "TEMP", "USERPROFILE", NULL };
     for (int i = 0; keys[i]; i++) {
         const char *v = getenv(keys[i]);
@@ -218,15 +233,40 @@ static void stream_sse_bytes(const char *buf,
     }
 }
 
-#if defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
+#if defined(_WIN32) || defined(__CYGWIN__) || defined(__MSYS__)
 static int remote_run_curl_stream(const char *tmp,
                                   const char *url,
                                   dstudio_remote_chunk_cb cb,
                                   void *ud,
                                   char *err,
                                   size_t err_len) {
-    char atfile[1200];
-    snprintf(atfile, sizeof atfile, "@%s", tmp);
+    /* Open the body file via Win32 CreateFileA — no MSYS2 VFS involved. */
+    HANDLE hBody = CreateFileA(tmp, GENERIC_READ, FILE_SHARE_READ, NULL,
+                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hBody == INVALID_HANDLE_VALUE) {
+        remote_err(err, err_len, "failed to open request body (Windows error %lu)",
+                   (unsigned long)GetLastError());
+        return 1;
+    }
+
+    /* stdin pipe: parent writes body, curl reads via @- */
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+    HANDLE in_r = NULL, in_w = NULL;
+    if (!CreatePipe(&in_r, &in_w, &sa, 0)) {
+        CloseHandle(hBody);
+        remote_err(err, err_len, "failed to create curl stdin pipe");
+        return 1;
+    }
+    SetHandleInformation(in_w, HANDLE_FLAG_INHERIT, 0);
+
+    /* stdout pipe: curl writes SSE, parent reads */
+    HANDLE out_r = NULL, out_w = NULL;
+    if (!CreatePipe(&out_r, &out_w, &sa, 0)) {
+        CloseHandle(hBody); CloseHandle(in_r); CloseHandle(in_w);
+        remote_err(err, err_len, "failed to create curl stdout pipe");
+        return 1;
+    }
+    SetHandleInformation(out_r, HANDLE_FLAG_INHERIT, 0);
 
     dstudio_remote_buf cmd = {0};
     win_cmd_append_arg(&cmd, remote_curl_exe());
@@ -239,17 +279,8 @@ static int remote_run_curl_stream(const char *tmp,
     win_cmd_append_arg(&cmd, "-H");
     win_cmd_append_arg(&cmd, "Content-Type: application/json");
     win_cmd_append_arg(&cmd, "--data-binary");
-    win_cmd_append_arg(&cmd, atfile);
+    win_cmd_append_arg(&cmd, "@-");   /* read body from stdin */
     win_cmd_append_arg(&cmd, url);
-
-    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
-    HANDLE out_r = NULL, out_w = NULL;
-    if (!CreatePipe(&out_r, &out_w, &sa, 0)) {
-        dstudio_remote_buf_free(&cmd);
-        remote_err(err, err_len, "failed to create curl pipe");
-        return 1;
-    }
-    SetHandleInformation(out_r, HANDLE_FLAG_INHERIT, 0);
 
     STARTUPINFOA si;
     PROCESS_INFORMATION pi;
@@ -257,22 +288,31 @@ static int remote_run_curl_stream(const char *tmp,
     memset(&pi, 0, sizeof pi);
     si.cb = sizeof si;
     si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdInput  = in_r;
     si.hStdOutput = out_w;
-    si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    si.hStdError  = GetStdHandle(STD_ERROR_HANDLE);
 
     BOOL ok = CreateProcessA(NULL, cmd.ptr, NULL, NULL, TRUE,
                              CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
     dstudio_remote_buf_free(&cmd);
+    CloseHandle(in_r);
     CloseHandle(out_w);
     if (!ok) {
         DWORD code = GetLastError();
-        CloseHandle(out_r);
+        CloseHandle(hBody); CloseHandle(in_w); CloseHandle(out_r);
         remote_err(err, err_len, "failed to start curl (Windows error %lu)", (unsigned long)code);
         return 1;
     }
-
     CloseHandle(pi.hThread);
+
+    /* Pump body file → curl stdin */
+    char fbuf[4096]; DWORD nr, nw;
+    while (ReadFile(hBody, fbuf, sizeof fbuf, &nr, NULL) && nr > 0)
+        WriteFile(in_w, fbuf, nr, &nw, NULL);
+    CloseHandle(hBody);
+    CloseHandle(in_w);   /* EOF signals curl to start the request */
+
+    /* Read SSE stream from curl stdout */
     char chunk[4096];
     dstudio_remote_buf line = {0};
     int done = 0;
