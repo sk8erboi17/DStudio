@@ -437,16 +437,16 @@ static const char SEC_HEADERS[] =
     "script-src 'unsafe-inline'; img-src data:; connect-src http: https:; "
     "frame-src 'self'\r\n";
 
-/* Headers for the design files served in the preview iframe: the CSP allows
- * only inline style/script and img data:, NO external request — it is the
- * same self-sufficiency rule imposed on the model by the system prompt. */
+/* Headers for design files served in preview iframes. The preview must behave
+ * like a small local site, so relative CSS/JS/images under the same workspace
+ * are allowed through 'self', while external network access remains blocked. */
 static const char DESIGN_HEADERS[] =
     "Connection: close\r\n"
     "Cache-Control: no-store\r\n"
     "X-Content-Type-Options: nosniff\r\n"
     "Referrer-Policy: no-referrer\r\n"
-    "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; "
-    "script-src 'unsafe-inline'; img-src data:\r\n";
+    "Content-Security-Policy: default-src 'none'; style-src 'self' 'unsafe-inline'; "
+    "script-src 'self' 'unsafe-inline'; img-src 'self' data: blob:\r\n";
 
 /* Bind address of the HTTP listener. Default 127.0.0.1 (localhost only): LAN is
  * OFF by default. The user enables it from Settings (POST /api/lan {enable}),
@@ -5346,20 +5346,11 @@ static const char *design_content_type(const char *name) {
     return "application/octet-stream";
 }
 
-/* Serve a project file: /api/design/file?name=<relative-path>. The path
- * passes the SAME validation as the agent's tool-layer; the filesystem outside
- * the workspace stays unreachable. */
-static void api_design_file(int fd, const char *path, int head_only) {
+static void serve_design_project_file(int fd, const char *name, int head_only) {
     if (!g_design_dir[0]) {
         send_text(fd, "404 Not Found", "no design workspace\n", head_only);
         return;
     }
-    const char *q = strstr(path, "name=");
-    if (!q) { send_text(fd, "400 Bad Request", "name missing\n", head_only); return; }
-    q += 5;
-    size_t qlen = strcspn(q, "&");
-    char name[1024];
-    url_decode_into(q, qlen, name, sizeof name);
     if (!design_rel_path_ok(name)) {
         send_text(fd, "400 Bad Request", "invalid path\n", head_only);
         return;
@@ -5380,6 +5371,32 @@ static void api_design_file(int fd, const char *path, int head_only) {
     if (got != (size_t)sz) { free(buf); send_text(fd, "500 Internal Server Error", "read\n", head_only); return; }
     send_response_hdrs(fd, "200 OK", design_content_type(name), buf, got, head_only, DESIGN_HEADERS);
     free(buf);
+}
+
+/* Serve a project file: /api/design/file?name=<relative-path>. The path
+ * passes the SAME validation as the agent's tool-layer; the filesystem outside
+ * the workspace stays unreachable. */
+static void api_design_file(int fd, const char *path, int head_only) {
+    const char *q = strstr(path, "name=");
+    if (!q) { send_text(fd, "400 Bad Request", "name missing\n", head_only); return; }
+    q += 5;
+    size_t qlen = strcspn(q, "&");
+    char name[1024];
+    url_decode_into(q, qlen, name, sizeof name);
+    serve_design_project_file(fd, name, head_only);
+}
+
+/* Preview route with a real path: /api/design/preview/<relative-path>.
+ * Iframes loaded through /file?name=... cannot resolve relative assets like
+ * css/blog.css; this route preserves the directory base while keeping the same
+ * workspace sandbox. */
+static void api_design_preview_file(int fd, const char *path, int head_only) {
+    static const char prefix[] = "/api/design/preview/";
+    const char *raw = path + strlen(prefix);
+    size_t n = strcspn(raw, "?");
+    char name[1024];
+    url_decode_into(raw, n, name, sizeof name);
+    serve_design_project_file(fd, name, head_only);
 }
 
 /* ==================== header helpers ==================== */
@@ -7099,6 +7116,8 @@ static void handle_connection(int fd) {
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/design/files")) {
         /* before /file: it is a prefix of it */
         api_design_files(fd);
+    } else if ((!strcmp(method, "GET") || head_only) && !strncmp(path, "/api/design/preview/", 20)) {
+        api_design_preview_file(fd, path, head_only);
     } else if ((!strcmp(method, "GET") || head_only) && !strncmp(path, "/api/design/file?", 17)) {
         api_design_file(fd, path, head_only);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/build/files")) {
@@ -7129,6 +7148,7 @@ static void handle_connection(int fd) {
     /* compact log, I exclude polling so as not to flood the terminal */
     if (strncmp(path, "/api/agent/poll", 15) != 0 && strcmp(path, "/api/status") != 0 &&
         strcmp(path, "/api/design/status") != 0 && strcmp(path, "/api/design/files") != 0 &&
+        strncmp(path, "/api/design/preview/", 20) != 0 &&
         strncmp(path, "/api/design/events", 18) != 0 &&
         strcmp(path, "/api/design/state") != 0 && strcmp(path, "/api/design/artifacts") != 0 &&
         strcmp(path, "/api/build/files") != 0 &&

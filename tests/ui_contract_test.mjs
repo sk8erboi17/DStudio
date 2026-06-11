@@ -248,6 +248,14 @@ assert.match(webview, /DS4_DIRECTORY_PICKER_SCRIPT/, 'native wrapper should inje
 assert.match(html, /:root\[data-theme="light"\] \.ws-canvas[\s\S]*background: #f7f8fb;/, 'Design canvas should have a light-mode background tuned for the takeover');
 assert.match(html, /:root\[data-theme="light"\] \.cv-bar[\s\S]*background: rgba\(255, 255, 255, 0\.96\)/, 'Design canvas floating prompt should be light in light mode');
 assert.match(html, /:root\[data-theme="light"\] \.ws-canvas-hint[\s\S]*background: rgba\(255, 255, 255, 0\.90\)/, 'Design canvas help hint should not stay dark in light mode');
+assert.match(launcher, /style-src 'self' 'unsafe-inline'/, 'Design preview CSP should allow local workspace stylesheets');
+assert.match(launcher, /api_design_preview_file/, 'Design preview should have a path-based file endpoint for relative assets');
+assert.match(launcher, /!strncmp\(path, "\/api\/design\/preview\/", 20\)/, 'Design preview route should be served by the local launcher');
+assert.match(js, /designPreviewUrl = \(name, mtime\)/, 'Design preview should build path-based URLs for iframe assets');
+assert.match(js, /Engine\.designPreviewUrl\(f\.name, f\.mtime\)/, 'Design canvas iframes should use the path-based preview route');
+assert.match(js, /if \(seq <= state\.seq\) return false;/, 'Design runtime should ignore duplicate event seqs from stream and poll');
+assert.match(js, /const reconcileTodos = \(todos\) =>/, 'Design runtime should reconcile stale todo_write checklists from real events');
+assert.match(js, /state\.donePaths\.add\(payload\.path\)/, 'Design runtime should mark file-backed todos completed from file_written events');
 assert.match(webview, /NSOpenPanel \*panel = \[NSOpenPanel openPanel\]/, 'macOS wrapper should open the native folder explorer');
 assert.match(webview, /runOpenPanelWithParameters:\(WKOpenPanelParameters \*\)parameters/, 'macOS WKWebView should open the native file picker for chat attachments');
 assert.match(webview, /gtk_file_chooser_dialog_new/, 'Linux wrapper should open the native folder explorer');

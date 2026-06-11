@@ -11336,6 +11336,9 @@
          DStudio process or they would operate on the host filesystem. */
       const apiUrl = (path) => `${path}`;
       const apiFetch = (path, init) => fetch(apiUrl(path), init);
+      const designPath = (name) => String(name || '').split('/').map(encodeURIComponent).join('/');
+      const designPreviewUrl = (name, mtime) =>
+        apiUrl(`/api/design/preview/${designPath(name)}${mtime ? `?t=${encodeURIComponent(String(mtime))}` : ''}`);
       const webToolUrl = (path) => {
         const host = isLanClientMode() ? currentLanClientHost().replace(/\/+$/, '') : '';
         return `${host}${path}`;
@@ -11572,7 +11575,7 @@
         return r.text();
       }
 
-      return { apiUrl, status, doctor, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setDs4Dir, setWebDir, webSearch, webRead, httpProbe, ggufs, skills, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
+      return { apiUrl, designPreviewUrl, status, doctor, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setDs4Dir, setWebDir, webSearch, webRead, httpProbe, ggufs, skills, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
     })();
 
     /* ==================== Remote LAN chat ==================== */
@@ -11838,6 +11841,9 @@
         currentArtifactEntry: '',
         lastCheck: null,
         activity: [],
+        donePaths: new Set(),
+        doneOps: new Set(),
+        activeTool: '',
       };
       const subs = new Set();
       const notify = () => subs.forEach((fn) => { try { fn(state); } catch { /* ignore */ } });
@@ -11845,30 +11851,114 @@
         if (!text) return;
         state.activity = [...state.activity, { t: kind, text: String(text).slice(0, 140) }].slice(-12);
       };
+      const lower = (v) => String(v || '').toLowerCase();
+      const donePathMatches = (text) => {
+        const t = lower(text);
+        for (const p of state.donePaths) {
+          const lp = lower(p);
+          const base = lp.split('/').pop();
+          if ((lp && t.includes(lp)) || (base && t.includes(base))) return true;
+        }
+        return false;
+      };
+      const requiredOps = (text) => {
+        const t = lower(text);
+        const ops = [];
+        if (/\bverify|artifact check|all pages/.test(t)) ops.push('verify_artifact');
+        if (/\bcritique|review/.test(t)) ops.push('critique_write');
+        if (/\bregister|artifact\b/.test(t)) ops.push('artifact');
+        return [...new Set(ops)];
+      };
+      const activeToolMatches = (text) => {
+        const t = lower(text);
+        const tool = state.activeTool;
+        if (!tool) return false;
+        if (tool === 'write' || tool === 'edit' || tool === 'delete') return donePathMatches(text);
+        if (tool === 'verify_artifact') return /\bverify|artifact check|all pages/.test(t);
+        if (tool === 'critique_write') return /\bcritique|review/.test(t);
+        if (tool === 'artifact') return /\bregister|artifact\b/.test(t);
+        return false;
+      };
+      const reconcileTodos = (todos) => {
+        if (!Array.isArray(todos)) return todos;
+        let activeMarked = false;
+        const out = todos.map((todo) => {
+          const text = String(todo?.text ?? '');
+          const ops = requiredOps(text);
+          const completedByOps = ops.length && ops.every((op) => state.doneOps.has(op));
+          const completed = todo?.status === 'completed' || donePathMatches(text) || completedByOps;
+          if (completed) return { ...todo, status: 'completed' };
+          if (!activeMarked && activeToolMatches(text)) {
+            activeMarked = true;
+            return { ...todo, status: 'in_progress' };
+          }
+          return { ...todo, status: todo?.status === 'in_progress' ? 'pending' : (todo?.status || 'pending') };
+        });
+        if (!activeMarked && state.phase === 'building') {
+          const idx = out.findIndex((todo) => todo.status !== 'completed');
+          if (idx >= 0) out[idx] = { ...out[idx], status: 'in_progress' };
+        }
+        return out;
+      };
+      const refreshTodos = () => {
+        if (Array.isArray(state.todos)) state.todos = reconcileTodos(state.todos);
+      };
       function applyEvent(ev) {
         if (!ev || typeof ev !== 'object') return false;
+        const seq = Number(ev.seq);
+        if (Number.isFinite(seq)) {
+          if (seq <= state.seq) return false;
+          state.seq = seq;
+        }
         const type = ev.type || '';
         const payload = ev.payload && typeof ev.payload === 'object' ? ev.payload : ev;
-        if (Number.isFinite(ev.seq) && ev.seq > state.seq) state.seq = ev.seq;
         if (ev.run_id) state.currentRun = ev.run_id;
-        if (type === 'run_started') { state.phase = 'building'; state.question = null; pushActivity('Started design run', 'run'); }
-        else if (type === 'run_done') { state.phase = payload.phase === 'waiting_user' ? 'waiting_user' : 'idle'; pushActivity('Run finished', 'run'); }
+        if (type === 'run_started') {
+          state.phase = 'building';
+          state.question = null;
+          state.activity = [];
+          state.donePaths = new Set();
+          state.doneOps = new Set();
+          state.activeTool = '';
+          pushActivity('Started design run', 'run');
+        }
+        else if (type === 'run_done') { state.phase = payload.phase === 'waiting_user' ? 'waiting_user' : 'idle'; state.activeTool = ''; refreshTodos(); pushActivity('Run finished', 'run'); }
         else if (type === 'todos_updated' || type === 'todos') {
           const todos = Array.isArray(payload.todos) ? payload.todos : Array.isArray(ev.todos) ? ev.todos : null;
-          if (todos) state.todos = todos;
+          if (todos) state.todos = reconcileTodos(todos);
           state.phase = payload.hasInProgress ? 'building' : state.phase;
         } else if (type === 'question_asked' || type === 'question') {
           state.question = { id: payload.id || ev.id || 'question', title: payload.title || ev.title || 'Question', questions: payload.questions || ev.questions || [] };
           state.phase = 'waiting_user';
           pushActivity(state.question.title, 'question');
         } else if (type === 'tool_call') {
-          pushActivity(payload.name || ev.name || 'Tool call', 'tool');
+          state.activeTool = payload.name || ev.name || '';
+          refreshTodos();
+          pushActivity(state.activeTool || 'Tool call', 'tool');
+        } else if (type === 'tool_result') {
+          if (payload.name && payload.ok !== false) state.doneOps.add(payload.name);
+          state.activeTool = '';
+          refreshTodos();
         } else if (type === 'file_written') {
+          if (payload.path) state.donePaths.add(payload.path);
+          state.doneOps.add(payload.op || 'write');
+          state.activeTool = '';
+          refreshTodos();
           pushActivity((payload.op || 'wrote') + ' ' + (payload.path || ''), 'file');
         } else if (type === 'artifact_checked' || type === 'artifact_check') {
+          state.doneOps.add('verify_artifact');
+          state.activeTool = '';
           state.lastCheck = payload.entry ? payload : ev;
+          refreshTodos();
           pushActivity('Artifact check: ' + (payload.status || ev.status || 'done'), 'check');
+        } else if (type === 'critique_recorded' || type === 'critique') {
+          state.doneOps.add('critique_write');
+          state.activeTool = '';
+          refreshTodos();
+          pushActivity('Critique recorded', 'check');
         } else if (type === 'artifact_registered' || type === 'artifact') {
+          state.doneOps.add('artifact');
+          state.activeTool = '';
           const artifact = payload.manifest || ev.manifest || payload;
           if (artifact && (artifact.artifactId || artifact.entry || ev.entry)) {
             const id = artifact.artifactId || payload.artifactId || '';
@@ -11879,6 +11969,7 @@
               state.artifacts = [...state.artifacts, artifact];
             }
             state.phase = 'artifact_ready';
+            refreshTodos();
             pushActivity('Registered artifact ' + entry, 'artifact');
           }
         } else if (type === 'proposal_created' || type === 'proposal') {
@@ -11912,8 +12003,9 @@
       async function hydrate() {
         try {
           const s = await Engine.designState();
+          let diskSeq = 0;
           if (s && s.state) {
-            state.seq = Number(s.state.seq || 0);
+            diskSeq = Number(s.state.seq || 0);
             state.phase = s.state.phase || 'idle';
             state.todos = Array.isArray(s.state.todos) ? s.state.todos : state.todos;
             state.currentArtifactId = s.state.currentArtifactId || '';
@@ -11921,6 +12013,10 @@
           }
           const a = await Engine.designArtifacts().catch(() => null);
           if (a && Array.isArray(a.artifacts)) state.artifacts = a.artifacts;
+          state.seq = 0;
+          await refresh();
+          if (state.seq === 0 && diskSeq) state.seq = diskSeq;
+          refreshTodos();
           notify();
         } catch { /* ignore */ }
         refresh();
@@ -12648,7 +12744,7 @@
           });
           fw.append(el('iframe', {
             class: 'pd-frame', sandbox: 'allow-scripts', loading: 'lazy', tabindex: '-1',
-            src: Engine.apiUrl(`/api/design/file?name=${encodeURIComponent(d.entry)}&t=${Date.now()}`),
+            src: Engine.designPreviewUrl(d.entry, Date.now()),
             title: d.name || d.entry,
           }));
           card.append(
@@ -14291,7 +14387,7 @@
           board.style.top = (row * (CV_AH + CV_LBL + CV_GAP)) + 'px';
           board.style.width = CV_AW + 'px';
           const fr = el('iframe', { class: 'cv-frame', sandbox: 'allow-scripts', title: f.name });
-          fr.dataset.src = fileUrl(f.name, f.mtime);
+          fr.dataset.src = Engine.designPreviewUrl(f.name, f.mtime);
           const fw = el('div', { class: 'cv-frame-wrap' });
           fw.style.width = CV_AW + 'px'; fw.style.height = CV_AH + 'px';
           fw.append(fr);
@@ -14299,7 +14395,7 @@
           const fsBtn = el('button', { class: 'ft-btn', type: 'button', text: 'Fullscreen' });
           on(fsBtn, 'click', (e) => { e.stopPropagation(); openFullscreen(f.name); });
           const openBtn = el('button', { class: 'ft-btn primary', type: 'button', text: 'Open ↗' });
-          on(openBtn, 'click', (e) => { e.stopPropagation(); window.open(fileUrl(f.name), '_blank', 'noopener'); });
+          on(openBtn, 'click', (e) => { e.stopPropagation(); window.open(Engine.designPreviewUrl(f.name), '_blank', 'noopener'); });
           board.append(
             el('div', { class: 'cv-label' }, [
               el('span', { class: 'cv-name', text: f.name }),
@@ -14473,7 +14569,7 @@
       function renderFullscreen() {
         const f = fsState.list[fsState.idx];
         const fr = el('iframe', { class: 'fs-frame', sandbox: 'allow-scripts', title: f.name });
-        fr.src = fileUrl(f.name, f.mtime);
+        fr.src = Engine.designPreviewUrl(f.name, f.mtime);
         fsEl.replaceChildren(
           el('div', { class: 'fs-bar' }, [
             el('button', { class: 'btn btn--icon', type: 'button', 'data-fs': 'prev', text: '‹', title: 'Previous' }),
