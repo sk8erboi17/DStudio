@@ -4,13 +4,20 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
+
+#ifndef O_BINARY
+#define O_BINARY 0
+#endif
 
 static void remote_err(char *err, size_t err_len, const char *fmt, ...) {
     if (!err || !err_len) return;
@@ -122,12 +129,48 @@ char *dstudio_remote_messages_snapshot(const dstudio_remote_buf *b) {
 }
 
 static void shell_quote(dstudio_remote_buf *b, const char *s) {
+#ifdef _WIN32
+    dstudio_remote_buf_puts(b, "\"");
+    for (; s && *s; s++) {
+        if (*s == '"') dstudio_remote_buf_puts(b, "\\\"");
+        else if (*s == '%') dstudio_remote_buf_puts(b, "%%");
+        else dstudio_remote_buf_append(b, s, 1);
+    }
+    dstudio_remote_buf_puts(b, "\"");
+#else
     dstudio_remote_buf_puts(b, "'");
     for (; s && *s; s++) {
         if (*s == '\'') dstudio_remote_buf_puts(b, "'\\''");
         else dstudio_remote_buf_append(b, s, 1);
     }
     dstudio_remote_buf_puts(b, "'");
+#endif
+}
+
+static const char *remote_tmp_dir(void) {
+    const char *keys[] = { "TMPDIR", "TMP", "TEMP", "USERPROFILE", NULL };
+    for (int i = 0; keys[i]; i++) {
+        const char *v = getenv(keys[i]);
+        if (v && v[0]) return v;
+    }
+    return ".";
+}
+
+static int remote_tempfile(char *path, size_t path_len) {
+    const char *dir = remote_tmp_dir();
+    size_t dl = strlen(dir);
+    char sep = (dl && (dir[dl - 1] == '/' || dir[dl - 1] == '\\')) ? '\0' : '/';
+    unsigned seed = (unsigned)time(NULL) ^ (unsigned)getpid();
+    for (int i = 0; i < 128; i++) {
+        seed = seed * 1103515245u + 12345u;
+        if (sep) snprintf(path, path_len, "%s%c%s-%ld-%08x.json", dir, sep, "dstudio-remote", (long)getpid(), seed);
+        else     snprintf(path, path_len, "%s%s-%ld-%08x.json", dir, "dstudio-remote", (long)getpid(), seed);
+        int fd = open(path, O_CREAT | O_EXCL | O_WRONLY | O_BINARY, 0600);
+        if (fd >= 0) return fd;
+        if (errno != EEXIST) break;
+    }
+    path[0] = '\0';
+    return -1;
 }
 
 static char *remote_url(const char *base_url) {
@@ -281,10 +324,10 @@ int dstudio_remote_chat_stream(const char *base_url,
     }
     dstudio_remote_buf_puts(&body, "}");
 
-    char tmp[] = "/tmp/dstudio-remote-XXXXXX";
-    int fd = mkstemp(tmp);
+    char tmp[1024];
+    int fd = remote_tempfile(tmp, sizeof(tmp));
     if (fd < 0) {
-        remote_err(err, err_len, "mkstemp failed: %s", strerror(errno));
+        remote_err(err, err_len, "tempfile failed in %s: %s", remote_tmp_dir(), strerror(errno));
         dstudio_remote_buf_free(&body);
         return 1;
     }

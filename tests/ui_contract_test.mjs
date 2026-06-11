@@ -7,6 +7,7 @@ const loadingHtml = fs.readFileSync('web/loading.html', 'utf8');
 const launcher = fs.readFileSync('src/dstudio.c', 'utf8');
 const app = fs.readFileSync('src/app.cc', 'utf8');
 const webview = fs.readFileSync('src/webview.h', 'utf8');
+const remoteHelper = fs.readFileSync('extension/remote/dstudio_remote_llm.c', 'utf8');
 const windowsBuild = fs.readFileSync('scripts/build-windows.ps1', 'utf8');
 const windowsDs4Build = fs.readFileSync('scripts/build-ds4-windows-cygwin.sh', 'utf8');
 
@@ -277,6 +278,11 @@ assert.match(launcher, /win_prepare_engine_runtime/, 'Windows launcher should pr
 assert.match(launcher, /win_copy_runtime_dlls_to_ds4/, 'Windows launcher should copy packaged runtime DLLs into the selected DS4 folder');
 assert.match(launcher, /SetErrorMode\(SEM_FAILCRITICALERRORS \| SEM_NOGPFAULTERRORBOX \| SEM_NOOPENFILEERRORBOX\)/, 'Windows launcher should suppress loader error dialogs and surface failures in DStudio');
 assert.match(launcher, /C:\\\\msys64\\\\usr\\\\bin;C:\\\\msys64\\\\ucrt64\\\\bin;C:\\\\msys64\\\\mingw64\\\\bin/, 'Windows launcher PATH should include common MSYS2 runtime directories');
+assert.doesNotMatch(remoteHelper, /\/tmp\/dstudio-remote-XXXXXX/, 'remote model helper must not hardcode /tmp on Windows clients');
+assert.match(remoteHelper, /static const char \*remote_tmp_dir\(void\)[\s\S]*"TMPDIR"[\s\S]*"TMP"[\s\S]*"TEMP"[\s\S]*"USERPROFILE"/, 'remote model helper should use platform temp environment variables');
+assert.match(remoteHelper, /static int remote_tempfile\(char \*path, size_t path_len\)/, 'remote model helper should create request body temp files portably');
+assert.match(remoteHelper, /O_CREAT \| O_EXCL \| O_WRONLY \| O_BINARY/, 'remote model helper should create temp files atomically and in binary mode');
+assert.match(remoteHelper, /#ifdef _WIN32[\s\S]*dstudio_remote_buf_puts\(b, "\\\\\\""\)/, 'remote model helper should quote curl arguments for cmd.exe on Windows');
 assert.match(launcher, /ds4_strndup_local\(vs, \(size_t\)\(ve - vs\)\)/, 'Windows launcher build should not depend on POSIX strndup');
 assert.match(launcher, /ds4_strndup_local\(s, n\)/, 'Windows web reader should not depend on POSIX strndup');
 assert.match(app, /CreateMutexA\(NULL, TRUE, "Local\\\\DStudioSingleInstance"\)/, 'Windows app startup should block a second DStudio instance');
