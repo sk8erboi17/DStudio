@@ -1,0 +1,412 @@
+/*DS4UI_REMOTE_AGENT*/
+static int ds4ui_remote_web_confirm(void *privdata, const char *message, char *err, size_t err_len) {
+    (void)privdata;
+    (void)message;
+    if (err && err_len) err[0] = '\0';
+    return 1;
+}
+
+static void ds4ui_remote_web_log(void *privdata, const char *message) {
+    agent_worker *w = privdata;
+    if (w && message && message[0]) agent_trace(w, "remote web: %s", message);
+}
+
+static bool ds4ui_remote_web_cancel(void *privdata) {
+    return worker_should_interrupt(privdata);
+}
+
+static int ds4ui_remote_worker_init(agent_worker *w, agent_config *cfg) {
+    memset(w, 0, sizeof(*w));
+    w->engine = NULL;
+    w->cfg = cfg;
+    w->wake_fd[0] = -1;
+    w->wake_fd[1] = -1;
+    pthread_mutex_init(&w->mu, NULL);
+    pthread_cond_init(&w->cond, NULL);
+    w->status.state = AGENT_WORKER_IDLE;
+    w->status.ctx_size = cfg->gen.ctx_size;
+    w->initialized = true;
+    w->next_bash_job_id = 1;
+    if (pipe(w->wake_fd) != 0) return -1;
+    int old_flags;
+    set_nonblock(w->wake_fd[0], true, &old_flags);
+    set_nonblock(w->wake_fd[1], true, &old_flags);
+    ds4_web_config web_cfg = {
+        .home_dir = getenv("HOME"),
+        .port = 9333,
+        .confirm = ds4ui_remote_web_confirm,
+        .confirm_privdata = w,
+        .log = ds4ui_remote_web_log,
+        .log_privdata = w,
+        .cancel = ds4ui_remote_web_cancel,
+        .cancel_privdata = w,
+    };
+    w->web = ds4_web_create(&web_cfg);
+    if (cfg->gen.trace_path && cfg->gen.trace_path[0])
+        w->trace = fopen(cfg->gen.trace_path, "ab");
+    return 0;
+}
+
+static void ds4ui_remote_worker_free(agent_worker *w) {
+    if (!w) return;
+    agent_bash_jobs_free(w);
+    ds4_web_free(w->web);
+    free(w->out);
+    free(w->cache_dir);
+    free(w->sysprompt_path);
+    free(w->session_title);
+    free(w->legacy_session_path_to_delete);
+    free(w->queued_user_drain_text);
+    free(w->cmd_text);
+    if (w->wake_fd[0] >= 0) close(w->wake_fd[0]);
+    if (w->wake_fd[1] >= 0) close(w->wake_fd[1]);
+    if (w->trace) fclose(w->trace);
+    pthread_mutex_destroy(&w->mu);
+    pthread_cond_destroy(&w->cond);
+    memset(w, 0, sizeof(*w));
+}
+
+static void ds4ui_remote_flush(agent_worker *w) {
+    char *out = NULL;
+    size_t out_len = 0;
+    worker_consume(w, &out, &out_len, NULL);
+    if (out && out_len) {
+        write_all(STDOUT_FILENO, out, out_len);
+        fflush(stdout);
+    }
+    free(out);
+    if (w->wake_fd[0] >= 0) drain_wake_fd(w->wake_fd[0]);
+}
+
+static int ds4ui_remote_think_level(const agent_config *cfg) {
+    if (!cfg || cfg->gen.think_mode == DS4_THINK_NONE) return 0;
+    return cfg->gen.think_mode == DS4_THINK_MAX ? 2 : 1;
+}
+
+static char *ds4ui_remote_system_prompt(agent_config *cfg) {
+    char *tools = agent_build_tools_prompt();
+    agent_buf b = {0};
+    agent_buf_puts(&b, tools);
+    free(tools);
+    if (cfg->gen.system && cfg->gen.system[0]) {
+        agent_buf_puts(&b, "\n\nAdditional system instructions:\n");
+        agent_buf_puts(&b, cfg->gen.system);
+        agent_buf_puts(&b, "\n");
+    }
+    char *mem = ds4ui_memory_read_md();
+    if (mem && mem[0]) {
+        agent_buf_puts(&b, "\n\nPROJECT MEMORY (runtime summary from MEMORY.MD):\n\n");
+        agent_buf_puts(&b, mem);
+        agent_buf_puts(&b, "\n");
+    }
+    free(mem);
+    agent_buf_puts(&b,
+        "\n\nRuntime note: you are running in DStudio LAN client mode. "
+        "The model is hosted remotely, but all tools, filesystem paths, bash commands, "
+        "web browser state, Agent workspace, and Design workspace are local to this client. "
+        "Never assume host filesystem paths are available here unless the user provides them.\n");
+    return agent_buf_take(&b);
+}
+
+static void ds4ui_remote_messages_reset(dstudio_remote_buf *messages,
+                                        int *message_count,
+                                        agent_config *cfg) {
+    dstudio_remote_buf_free(messages);
+    *message_count = 0;
+    char *sys = ds4ui_remote_system_prompt(cfg);
+    dstudio_remote_messages_append(messages, message_count, "system", sys);
+    free(sys);
+}
+
+typedef struct {
+    agent_worker *worker;
+    agent_stream_renderer *stream;
+    dstudio_remote_buf *raw;
+    bool reasoning_open;
+    double started_at;
+    int generated;
+} ds4ui_remote_stream_ctx;
+
+static void ds4ui_remote_chunk(void *ud, const char *kind, const char *text, size_t len) {
+    ds4ui_remote_stream_ctx *ctx = ud;
+    if (!ctx || !text || !len) return;
+    agent_worker *w = ctx->worker;
+    if (kind && !strcmp(kind, "reasoning")) {
+        if (!ctx->reasoning_open) {
+            ds4ui_emit_event(w, "reasoning_start");
+            ctx->reasoning_open = true;
+        }
+        agent_publish(w, text, len);
+        ds4ui_remote_flush(w);
+        return;
+    }
+    if (ctx->reasoning_open) {
+        ds4ui_emit_event(w, "reasoning_end");
+        ctx->reasoning_open = false;
+    }
+    dstudio_remote_buf_append(ctx->raw, text, len);
+    agent_stream_text(ctx->stream, text, len, false);
+    ctx->generated++;
+    double dt = now_sec() - ctx->started_at;
+    pthread_mutex_lock(&w->mu);
+    w->status.generated = ctx->generated;
+    w->status.gen_tps = dt > 0.0 ? (double)ctx->generated / dt : 0.0;
+    agent_wake_locked(w);
+    pthread_mutex_unlock(&w->mu);
+    ds4ui_remote_flush(w);
+}
+
+static char *ds4ui_remote_tool_result(agent_worker *w,
+                                      agent_stream_renderer *stream,
+                                      agent_dsml_parser *dsml) {
+    if (stream->tool_preflight_error) {
+        agent_buf b = {0};
+        agent_buf_puts(&b, "Tool error: ");
+        agent_buf_puts(&b, stream->tool_preflight_error_msg[0] ?
+                       stream->tool_preflight_error_msg :
+                       "tool preflight failed");
+        agent_buf_puts(&b, "\n");
+        return agent_buf_take(&b);
+    }
+    if (stream->dsml_in_think) {
+        agent_buf b = {0};
+        agent_buf_puts(&b, "Tool error: invalid DSML tool call: tool calling is not allowed inside <think></think>\n");
+        agent_buf_puts(&b, agent_dsml_syntax_reminder);
+        return agent_buf_take(&b);
+    }
+    if (dsml->state == AGENT_DSML_ERROR) {
+        agent_buf b = {0};
+        agent_buf_puts(&b, "Tool error: invalid DSML tool call: ");
+        agent_buf_puts(&b, dsml->error[0] ? dsml->error : "parse error");
+        agent_buf_puts(&b, "\n");
+        agent_buf_puts(&b, agent_dsml_syntax_reminder);
+        return agent_buf_take(&b);
+    }
+    if (dsml->state == AGENT_DSML_STRUCTURAL || dsml->state == AGENT_DSML_PARAM_VALUE) {
+        agent_buf b = {0};
+        agent_buf_puts(&b, "Tool error: invalid DSML tool call: incomplete DSML tool call\n");
+        agent_buf_puts(&b, agent_dsml_syntax_reminder);
+        return agent_buf_take(&b);
+    }
+    if (dsml->state == AGENT_DSML_DONE) return agent_execute_tool_calls(w, &dsml->calls);
+    return NULL;
+}
+
+static int ds4ui_remote_run_turn(agent_worker *w,
+                                 dstudio_remote_buf *messages,
+                                 int *message_count,
+                                 const char *user_text) {
+    agent_config *cfg = w->cfg;
+    dstudio_remote_messages_append(messages, message_count, "user", user_text ? user_text : "");
+    if (!w->session_title) {
+        w->session_title = agent_session_title_from_prompt(user_text, 0);
+        w->session_created_at = (uint64_t)time(NULL);
+        agent_session_identity_sha(w->session_title, w->session_created_at,
+                                   w->session_sha);
+    }
+    pthread_mutex_lock(&w->mu);
+    w->user_activity = true;
+    w->status.error[0] = '\0';
+    agent_wake_locked(w);
+    pthread_mutex_unlock(&w->mu);
+
+    for (;;) {
+        bool think_enabled = cfg->gen.think_mode != DS4_THINK_NONE;
+        bool use_color = isatty(STDOUT_FILENO) != 0;
+        agent_token_renderer renderer = {
+            .engine = NULL,
+            .worker = w,
+            .format_thinking = think_enabled,
+            .format_markdown = use_color,
+            .in_think = think_enabled,
+            .use_color = use_color,
+            .last_output_newline = true,
+        };
+        agent_dsml_parser dsml = {.state = AGENT_DSML_SEARCH};
+        agent_stream_renderer stream = {
+            .renderer = &renderer,
+            .parser = &dsml,
+            .in_think = think_enabled,
+        };
+        dstudio_remote_buf raw = {0};
+        ds4ui_remote_stream_ctx sctx = {
+            .worker = w,
+            .stream = &stream,
+            .raw = &raw,
+            .started_at = now_sec(),
+        };
+        char *snapshot = dstudio_remote_messages_snapshot(messages);
+        char err[512] = {0};
+
+        pthread_mutex_lock(&w->mu);
+        w->status.state = AGENT_WORKER_GENERATING;
+        w->status.generated = 0;
+        w->status.gen_tps = 0.0;
+        w->status.greedy_sampling = false;
+        agent_wake_locked(w);
+        pthread_mutex_unlock(&w->mu);
+
+        int rc = dstudio_remote_chat_stream(
+            cfg->remote_base_url,
+            cfg->remote_model && cfg->remote_model[0] ? cfg->remote_model : "ds4",
+            snapshot,
+            ds4ui_remote_think_level(cfg),
+            cfg->gen.temperature,
+            cfg->gen.top_p,
+            cfg->gen.min_p,
+            cfg->gen.n_predict,
+            ds4ui_remote_chunk,
+            &sctx,
+            err,
+            sizeof(err));
+        free(snapshot);
+        if (sctx.reasoning_open) ds4ui_emit_event(w, "reasoning_end");
+        agent_stream_text(&stream, NULL, 0, true);
+        renderer_finish(&renderer);
+        ds4ui_remote_flush(w);
+
+        char *assistant_raw = dstudio_remote_buf_take(&raw);
+        if (assistant_raw && assistant_raw[0])
+            dstudio_remote_messages_append(messages, message_count, "assistant", assistant_raw);
+
+        if (rc != 0) {
+            agent_publishf(w, "\nRemote model failed: %s\n", err[0] ? err : "request failed");
+            free(assistant_raw);
+            agent_dsml_parser_free(&dsml);
+            agent_set_error(w, err[0] ? err : "remote model request failed");
+            ds4ui_remote_flush(w);
+            return 1;
+        }
+
+        char *tool_result = ds4ui_remote_tool_result(w, &stream, &dsml);
+        free(assistant_raw);
+        if (!tool_result) {
+            agent_dsml_parser_free(&dsml);
+            agent_set_status(w, AGENT_WORKER_IDLE);
+            ds4ui_remote_flush(w);
+            return 0;
+        }
+        dstudio_remote_messages_append(messages, message_count, "tool", tool_result);
+        free(tool_result);
+        agent_dsml_parser_free(&dsml);
+    }
+}
+
+static bool ds4ui_remote_handle_slash(agent_worker *w,
+                                      dstudio_remote_buf *messages,
+                                      int *message_count,
+                                      const char *line) {
+    char cmd[256];
+    ds4ui_slash_trim(line, cmd, sizeof(cmd));
+    if (cmd[0] != '/') return false;
+    if (!strcmp(cmd, "/new")) {
+        ds4ui_remote_messages_reset(messages, message_count, w->cfg);
+        free(w->session_title);
+        w->session_title = NULL;
+        w->session_sha[0] = '\0';
+        printf("new remote-model session started (workspace stays local)\n");
+    } else if (!strcmp(cmd, "/help")) {
+        printf("commands: /new /help. KV session save/list/switch are host-side in LAN remote-model mode.\n");
+    } else if (!strcmp(cmd, "/save") || !strcmp(cmd, "/list") ||
+               !strcmp(cmd, "/compact") ||
+               agent_slash_command_with_args(cmd, "/switch") ||
+               agent_slash_command_with_args(cmd, "/del")) {
+        printf("remote-model mode keeps the live KV on the LAN host; this local agent does not manage host KV sessions. Use /new to reset this local transcript.\n");
+    } else {
+        return false;
+    }
+    fflush(stdout);
+    return true;
+}
+
+static int ds4ui_run_remote_agent(agent_config *cfg) {
+    if (!cfg->non_interactive) {
+        fprintf(stderr, "ds4-agent: --remote-base-url requires --non-interactive\n");
+        return 2;
+    }
+    agent_worker worker;
+    if (ds4ui_remote_worker_init(&worker, cfg) != 0) {
+        fprintf(stderr, "ds4-agent: failed to initialize remote worker\n");
+        return 1;
+    }
+    dstudio_remote_buf messages = {0};
+    int message_count = 0;
+    ds4ui_remote_messages_reset(&messages, &message_count, cfg);
+
+    struct sigaction old_int;
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sigemptyset(&sa.sa_mask);
+    sa.sa_handler = agent_sigint_handler;
+    bool sigint_installed = sigaction(SIGINT, &sa, &old_int) == 0;
+
+    const bool one_shot = cfg->gen.prompt != NULL;
+    int rc = 0;
+    if (one_shot) {
+        rc = ds4ui_remote_run_turn(&worker, &messages, &message_count, cfg->gen.prompt);
+    } else {
+        bool stdin_eof = false;
+        bool waiting_announced = false;
+        bool stdin_nonblock = false;
+        int old_stdin_flags = 0;
+        agent_input_buf input = {0};
+        double quiet_deadline = 0.0;
+        if (set_nonblock(STDIN_FILENO, true, &old_stdin_flags) != 0) {
+            perror("ds4-agent: nonblocking stdin");
+            rc = 1;
+        } else {
+            stdin_nonblock = true;
+        }
+        while (rc == 0 && !stdin_eof) {
+            if (agent_sigint) {
+                agent_sigint = 0;
+                worker_interrupt(&worker);
+                agent_set_status(&worker, AGENT_WORKER_IDLE);
+            }
+            if (input.len == 0 && !waiting_announced) {
+                agent_noninteractive_marker("+DWARFSTAR_WAITING");
+                waiting_announced = true;
+            }
+            int timeout_ms = -1;
+            if (input.len > 0) {
+                double rem = quiet_deadline - now_sec();
+                timeout_ms = rem <= 0.0 ? 0 : (int)(rem * 1000.0) + 1;
+            }
+            struct pollfd pfd = {.fd = STDIN_FILENO, .events = POLLIN};
+            int prc = poll(&pfd, 1, timeout_ms);
+            if (prc < 0) {
+                if (errno == EINTR) continue;
+                perror("ds4-agent: poll");
+                rc = 1;
+                break;
+            }
+            if (prc > 0 && (pfd.revents & (POLLIN | POLLHUP))) {
+                size_t old_len = input.len;
+                if (agent_read_stdin_available(&input, &stdin_eof) != 0) {
+                    rc = 1;
+                    break;
+                }
+                if (input.len != old_len) {
+                    quiet_deadline = now_sec() + 0.200;
+                    waiting_announced = false;
+                }
+            }
+            if (input.len > 0 && (stdin_eof || now_sec() >= quiet_deadline)) {
+                char *prompt = agent_input_buf_take(&input);
+                if (!ds4ui_pipe_slash(prompt) ||
+                    !ds4ui_remote_handle_slash(&worker, &messages, &message_count, prompt))
+                    rc = ds4ui_remote_run_turn(&worker, &messages, &message_count, prompt);
+                free(prompt);
+                waiting_announced = false;
+            }
+            ds4ui_remote_flush(&worker);
+        }
+        if (stdin_nonblock) fcntl(STDIN_FILENO, F_SETFL, old_stdin_flags);
+        agent_input_buf_free(&input);
+    }
+
+    if (sigint_installed) sigaction(SIGINT, &old_int, NULL);
+    dstudio_remote_buf_free(&messages);
+    ds4ui_remote_worker_free(&worker);
+    return rc;
+}

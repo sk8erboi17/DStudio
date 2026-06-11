@@ -1,0 +1,544 @@
+#define _POSIX_C_SOURCE 200809L
+
+#include "dstudio_remote_llm.h"
+
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <unistd.h>
+
+#if defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
+#include <windows.h>
+#endif
+
+#ifndef O_BINARY
+#define O_BINARY 0
+#endif
+
+static void remote_err(char *err, size_t err_len, const char *fmt, ...) {
+    if (!err || !err_len) return;
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(err, err_len, fmt, ap);
+    va_end(ap);
+}
+
+void dstudio_remote_buf_free(dstudio_remote_buf *b) {
+    if (!b) return;
+    free(b->ptr);
+    memset(b, 0, sizeof(*b));
+}
+
+void dstudio_remote_buf_append(dstudio_remote_buf *b, const char *s, size_t n) {
+    if (!b || !s || !n) return;
+    if (b->len + n + 1 > b->cap) {
+        size_t cap = b->cap ? b->cap * 2 : 4096;
+        while (cap < b->len + n + 1) cap *= 2;
+        char *p = (char *)realloc(b->ptr, cap);
+        if (!p) return;
+        b->ptr = p;
+        b->cap = cap;
+    }
+    memcpy(b->ptr + b->len, s, n);
+    b->len += n;
+    b->ptr[b->len] = '\0';
+}
+
+void dstudio_remote_buf_puts(dstudio_remote_buf *b, const char *s) {
+    if (s) dstudio_remote_buf_append(b, s, strlen(s));
+}
+
+char *dstudio_remote_buf_take(dstudio_remote_buf *b) {
+    if (!b || !b->ptr) return strdup("");
+    char *p = b->ptr;
+    memset(b, 0, sizeof(*b));
+    return p;
+}
+
+static void remote_utf8_append(dstudio_remote_buf *b, unsigned cp) {
+    char out[4];
+    size_t n = 0;
+    if (cp <= 0x7f) {
+        out[n++] = (char)cp;
+    } else if (cp <= 0x7ff) {
+        out[n++] = (char)(0xc0 | (cp >> 6));
+        out[n++] = (char)(0x80 | (cp & 0x3f));
+    } else if (cp <= 0xffff) {
+        out[n++] = (char)(0xe0 | (cp >> 12));
+        out[n++] = (char)(0x80 | ((cp >> 6) & 0x3f));
+        out[n++] = (char)(0x80 | (cp & 0x3f));
+    } else if (cp <= 0x10ffff) {
+        out[n++] = (char)(0xf0 | (cp >> 18));
+        out[n++] = (char)(0x80 | ((cp >> 12) & 0x3f));
+        out[n++] = (char)(0x80 | ((cp >> 6) & 0x3f));
+        out[n++] = (char)(0x80 | (cp & 0x3f));
+    }
+    if (n) dstudio_remote_buf_append(b, out, n);
+}
+
+void dstudio_remote_json_string(dstudio_remote_buf *b, const char *s) {
+    dstudio_remote_buf_puts(b, "\"");
+    for (; s && *s; s++) {
+        unsigned char c = (unsigned char)*s;
+        char tmp[8];
+        if (c == '"' || c == '\\') {
+            tmp[0] = '\\';
+            tmp[1] = (char)c;
+            dstudio_remote_buf_append(b, tmp, 2);
+        } else if (c == '\n') {
+            dstudio_remote_buf_puts(b, "\\n");
+        } else if (c == '\r') {
+            dstudio_remote_buf_puts(b, "\\r");
+        } else if (c == '\t') {
+            dstudio_remote_buf_puts(b, "\\t");
+        } else if (c < 0x20) {
+            snprintf(tmp, sizeof(tmp), "\\u%04x", c);
+            dstudio_remote_buf_puts(b, tmp);
+        } else {
+            dstudio_remote_buf_append(b, (const char *)&c, 1);
+        }
+    }
+    dstudio_remote_buf_puts(b, "\"");
+}
+
+void dstudio_remote_messages_append(dstudio_remote_buf *b,
+                                    int *count,
+                                    const char *role,
+                                    const char *content) {
+    if (!b || !count) return;
+    if (b->len == 0) dstudio_remote_buf_puts(b, "[");
+    if (*count > 0) dstudio_remote_buf_puts(b, ",");
+    dstudio_remote_buf_puts(b, "{\"role\":");
+    dstudio_remote_json_string(b, role && role[0] ? role : "user");
+    dstudio_remote_buf_puts(b, ",\"content\":");
+    dstudio_remote_json_string(b, content ? content : "");
+    dstudio_remote_buf_puts(b, "}");
+    (*count)++;
+}
+
+char *dstudio_remote_messages_snapshot(const dstudio_remote_buf *b) {
+    dstudio_remote_buf out = {0};
+    if (b && b->ptr && b->len) dstudio_remote_buf_append(&out, b->ptr, b->len);
+    else dstudio_remote_buf_puts(&out, "[");
+    dstudio_remote_buf_puts(&out, "]");
+    return dstudio_remote_buf_take(&out);
+}
+
+static const char *remote_curl_exe(void) {
+    const char *curl = getenv("DS4UI_CURL");
+    return (curl && curl[0]) ? curl : "curl";
+}
+
+#if defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
+static void win_cmd_append_arg(dstudio_remote_buf *b, const char *arg) {
+    if (b->len) dstudio_remote_buf_puts(b, " ");
+    dstudio_remote_buf_puts(b, "\"");
+    int bs = 0;
+    for (const char *p = arg ? arg : ""; *p; p++) {
+        if (*p == '\\') {
+            bs++;
+            continue;
+        }
+        if (*p == '"') {
+            while (bs-- > 0) dstudio_remote_buf_puts(b, "\\");
+            dstudio_remote_buf_puts(b, "\\\"");
+            bs = 0;
+            continue;
+        }
+        while (bs-- > 0) dstudio_remote_buf_puts(b, "\\");
+        dstudio_remote_buf_append(b, p, 1);
+    }
+    while (bs-- > 0) dstudio_remote_buf_puts(b, "\\\\");
+    dstudio_remote_buf_puts(b, "\"");
+}
+#endif
+
+static const char *remote_tmp_dir(void) {
+    const char *keys[] = { "TMPDIR", "TMP", "TEMP", "USERPROFILE", NULL };
+    for (int i = 0; keys[i]; i++) {
+        const char *v = getenv(keys[i]);
+        if (v && v[0]) return v;
+    }
+    return ".";
+}
+
+static int remote_tempfile(char *path, size_t path_len) {
+    const char *dir = remote_tmp_dir();
+    size_t dl = strlen(dir);
+    char sep = (dl && (dir[dl - 1] == '/' || dir[dl - 1] == '\\')) ? '\0' : '/';
+    unsigned seed = (unsigned)time(NULL) ^ (unsigned)getpid();
+    for (int i = 0; i < 128; i++) {
+        seed = seed * 1103515245u + 12345u;
+        if (sep) snprintf(path, path_len, "%s%c%s-%ld-%08x.json", dir, sep, "dstudio-remote", (long)getpid(), seed);
+        else     snprintf(path, path_len, "%s%s-%ld-%08x.json", dir, "dstudio-remote", (long)getpid(), seed);
+        int fd = open(path, O_CREAT | O_EXCL | O_WRONLY | O_BINARY, 0600);
+        if (fd >= 0) return fd;
+        if (errno != EEXIST) break;
+    }
+    path[0] = '\0';
+    return -1;
+}
+
+static char *remote_url(const char *base_url) {
+    dstudio_remote_buf b = {0};
+    const char *base = base_url ? base_url : "";
+    size_t n = strlen(base);
+    while (n && base[n - 1] == '/') n--;
+    dstudio_remote_buf_append(&b, base, n);
+    dstudio_remote_buf_puts(&b, "/v1/chat/completions");
+    return dstudio_remote_buf_take(&b);
+}
+
+static void stream_sse_line(const char *line,
+                            dstudio_remote_chunk_cb cb,
+                            void *ud,
+                            int *done);
+
+static void stream_sse_bytes(const char *buf,
+                             size_t len,
+                             dstudio_remote_buf *line,
+                             dstudio_remote_chunk_cb cb,
+                             void *ud,
+                             int *done) {
+    for (size_t i = 0; i < len && !*done; i++) {
+        dstudio_remote_buf_append(line, buf + i, 1);
+        if (buf[i] == '\n') {
+            stream_sse_line(line->ptr ? line->ptr : "", cb, ud, done);
+            line->len = 0;
+            if (line->ptr) line->ptr[0] = '\0';
+        }
+    }
+}
+
+#if defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
+static int remote_run_curl_stream(const char *tmp,
+                                  const char *url,
+                                  dstudio_remote_chunk_cb cb,
+                                  void *ud,
+                                  char *err,
+                                  size_t err_len) {
+    char atfile[1200];
+    snprintf(atfile, sizeof atfile, "@%s", tmp);
+
+    dstudio_remote_buf cmd = {0};
+    win_cmd_append_arg(&cmd, remote_curl_exe());
+    win_cmd_append_arg(&cmd, "-fsS");
+    win_cmd_append_arg(&cmd, "-N");
+    win_cmd_append_arg(&cmd, "--max-time");
+    win_cmd_append_arg(&cmd, "1800");
+    win_cmd_append_arg(&cmd, "-H");
+    win_cmd_append_arg(&cmd, "Accept: text/event-stream");
+    win_cmd_append_arg(&cmd, "-H");
+    win_cmd_append_arg(&cmd, "Content-Type: application/json");
+    win_cmd_append_arg(&cmd, "--data-binary");
+    win_cmd_append_arg(&cmd, atfile);
+    win_cmd_append_arg(&cmd, url);
+
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+    HANDLE out_r = NULL, out_w = NULL;
+    if (!CreatePipe(&out_r, &out_w, &sa, 0)) {
+        dstudio_remote_buf_free(&cmd);
+        remote_err(err, err_len, "failed to create curl pipe");
+        return 1;
+    }
+    SetHandleInformation(out_r, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof si);
+    memset(&pi, 0, sizeof pi);
+    si.cb = sizeof si;
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = out_w;
+    si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+
+    BOOL ok = CreateProcessA(NULL, cmd.ptr, NULL, NULL, TRUE,
+                             CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+    dstudio_remote_buf_free(&cmd);
+    CloseHandle(out_w);
+    if (!ok) {
+        DWORD code = GetLastError();
+        CloseHandle(out_r);
+        remote_err(err, err_len, "failed to start curl (Windows error %lu)", (unsigned long)code);
+        return 1;
+    }
+
+    CloseHandle(pi.hThread);
+    char chunk[4096];
+    dstudio_remote_buf line = {0};
+    int done = 0;
+    for (;;) {
+        DWORD got = 0;
+        if (!ReadFile(out_r, chunk, sizeof chunk, &got, NULL) || got == 0) break;
+        stream_sse_bytes(chunk, (size_t)got, &line, cb, ud, &done);
+        if (done) break;
+    }
+    if (!done && line.len) stream_sse_line(line.ptr, cb, ud, &done);
+    dstudio_remote_buf_free(&line);
+    CloseHandle(out_r);
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exit_code = 1;
+    GetExitCodeProcess(pi.hProcess, &exit_code);
+    CloseHandle(pi.hProcess);
+    if (!done && exit_code != 0) {
+        remote_err(err, err_len, "remote model request failed (curl exit %lu)", (unsigned long)exit_code);
+        return 1;
+    }
+    if (!done) {
+        remote_err(err, err_len, "remote model stream ended before [DONE]");
+        return 1;
+    }
+    return 0;
+}
+#else
+static int remote_run_curl_stream(const char *tmp,
+                                  const char *url,
+                                  dstudio_remote_chunk_cb cb,
+                                  void *ud,
+                                  char *err,
+                                  size_t err_len) {
+    int pfd[2];
+    if (pipe(pfd) != 0) {
+        remote_err(err, err_len, "failed to create curl pipe: %s", strerror(errno));
+        return 1;
+    }
+
+    char atfile[1200];
+    snprintf(atfile, sizeof atfile, "@%s", tmp);
+    char *const argv[] = {
+        (char *)remote_curl_exe(),
+        (char *)"-fsS",
+        (char *)"-N",
+        (char *)"--max-time",
+        (char *)"1800",
+        (char *)"-H",
+        (char *)"Accept: text/event-stream",
+        (char *)"-H",
+        (char *)"Content-Type: application/json",
+        (char *)"--data-binary",
+        atfile,
+        (char *)url,
+        NULL
+    };
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        int e = errno;
+        close(pfd[0]);
+        close(pfd[1]);
+        remote_err(err, err_len, "failed to fork curl: %s", strerror(e));
+        return 1;
+    }
+    if (pid == 0) {
+        close(pfd[0]);
+        if (dup2(pfd[1], STDOUT_FILENO) < 0) _exit(127);
+        close(pfd[1]);
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+    close(pfd[1]);
+
+    char chunk[4096];
+    dstudio_remote_buf line = {0};
+    int done = 0;
+    for (;;) {
+        ssize_t n = read(pfd[0], chunk, sizeof chunk);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        stream_sse_bytes(chunk, (size_t)n, &line, cb, ud, &done);
+        if (done) break;
+    }
+    if (!done && line.len) stream_sse_line(line.ptr, cb, ud, &done);
+    dstudio_remote_buf_free(&line);
+    close(pfd[0]);
+
+    int st = 0;
+    if (waitpid(pid, &st, 0) < 0) {
+        remote_err(err, err_len, "curl wait failed: %s", strerror(errno));
+        return 1;
+    }
+    if (!done && (!WIFEXITED(st) || WEXITSTATUS(st) != 0)) {
+        remote_err(err, err_len, "remote model request failed");
+        return 1;
+    }
+    if (!done) {
+        remote_err(err, err_len, "remote model stream ended before [DONE]");
+        return 1;
+    }
+    return 0;
+}
+#endif
+
+static int write_all_fd(int fd, const char *p, size_t n) {
+    while (n) {
+        ssize_t w = write(fd, p, n);
+        if (w < 0 && errno == EINTR) continue;
+        if (w <= 0) return -1;
+        p += w;
+        n -= (size_t)w;
+    }
+    return 0;
+}
+
+static int hex4(const char *p, unsigned *out) {
+    unsigned v = 0;
+    for (int i = 0; i < 4; i++) {
+        unsigned char c = (unsigned char)p[i];
+        v <<= 4;
+        if (c >= '0' && c <= '9') v |= (unsigned)(c - '0');
+        else if (c >= 'a' && c <= 'f') v |= (unsigned)(c - 'a' + 10);
+        else if (c >= 'A' && c <= 'F') v |= (unsigned)(c - 'A' + 10);
+        else return 0;
+    }
+    *out = v;
+    return 1;
+}
+
+static char *json_string_value(const char *json, const char *key) {
+    char pat[96];
+    snprintf(pat, sizeof(pat), "\"%s\"", key);
+    const char *p = strstr(json, pat);
+    if (!p) return NULL;
+    p += strlen(pat);
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (*p != ':') return NULL;
+    p++;
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (*p != '"') return NULL;
+    p++;
+
+    dstudio_remote_buf out = {0};
+    while (*p) {
+        unsigned char c = (unsigned char)*p++;
+        if (c == '"') return dstudio_remote_buf_take(&out);
+        if (c != '\\') {
+            dstudio_remote_buf_append(&out, (const char *)&c, 1);
+            continue;
+        }
+        c = (unsigned char)*p++;
+        switch (c) {
+        case '"': dstudio_remote_buf_puts(&out, "\""); break;
+        case '\\': dstudio_remote_buf_puts(&out, "\\"); break;
+        case '/': dstudio_remote_buf_puts(&out, "/"); break;
+        case 'b': dstudio_remote_buf_append(&out, "\b", 1); break;
+        case 'f': dstudio_remote_buf_append(&out, "\f", 1); break;
+        case 'n': dstudio_remote_buf_append(&out, "\n", 1); break;
+        case 'r': dstudio_remote_buf_append(&out, "\r", 1); break;
+        case 't': dstudio_remote_buf_append(&out, "\t", 1); break;
+        case 'u': {
+            unsigned cp = 0;
+            if (hex4(p, &cp)) {
+                p += 4;
+                if (cp >= 0xd800 && cp <= 0xdbff && p[0] == '\\' && p[1] == 'u') {
+                    unsigned lo = 0;
+                    if (hex4(p + 2, &lo) && lo >= 0xdc00 && lo <= 0xdfff) {
+                        cp = 0x10000 + ((cp - 0xd800) << 10) + (lo - 0xdc00);
+                        p += 6;
+                    }
+                }
+                remote_utf8_append(&out, cp);
+            }
+            break;
+        }
+        default:
+            dstudio_remote_buf_append(&out, (const char *)&c, 1);
+            break;
+        }
+    }
+    dstudio_remote_buf_free(&out);
+    return NULL;
+}
+
+static void stream_sse_line(const char *line,
+                            dstudio_remote_chunk_cb cb,
+                            void *ud,
+                            int *done) {
+    if (strncmp(line, "data:", 5) != 0) return;
+    const char *p = line + 5;
+    while (*p == ' ' || *p == '\t') p++;
+    if (!strncmp(p, "[DONE]", 6)) {
+        *done = 1;
+        return;
+    }
+    char *reasoning = json_string_value(p, "reasoning_content");
+    if (reasoning && reasoning[0] && cb) cb(ud, "reasoning", reasoning, strlen(reasoning));
+    free(reasoning);
+    char *content = json_string_value(p, "content");
+    if (content && content[0] && cb) cb(ud, "content", content, strlen(content));
+    free(content);
+}
+
+int dstudio_remote_chat_stream(const char *base_url,
+                               const char *model,
+                               const char *messages_json,
+                               int think_level,
+                               float temperature,
+                               float top_p,
+                               float min_p,
+                               int max_tokens,
+                               dstudio_remote_chunk_cb cb,
+                               void *ud,
+                               char *err,
+                               size_t err_len) {
+    if (!base_url || !base_url[0]) {
+        remote_err(err, err_len, "remote model host is missing");
+        return 1;
+    }
+    if (strncmp(base_url, "http://", 7) != 0) {
+        remote_err(err, err_len, "remote model host must be http:// on LAN");
+        return 1;
+    }
+
+    dstudio_remote_buf body = {0};
+    dstudio_remote_buf_puts(&body, "{\"model\":");
+    dstudio_remote_json_string(&body, model && model[0] ? model : "ds4");
+    dstudio_remote_buf_puts(&body, ",\"stream\":true,\"messages\":");
+    dstudio_remote_buf_puts(&body, messages_json && messages_json[0] ? messages_json : "[]");
+    dstudio_remote_buf_puts(&body, ",\"think\":");
+    dstudio_remote_buf_puts(&body, think_level > 0 ? "true" : "false");
+    if (think_level > 0) {
+        dstudio_remote_buf_puts(&body, ",\"reasoning_effort\":");
+        dstudio_remote_json_string(&body, think_level >= 2 ? "max" : "high");
+    }
+    char num[160];
+    snprintf(num, sizeof(num), ",\"temperature\":%.4g,\"top_p\":%.4g,\"min_p\":%.4g",
+             (double)temperature, (double)top_p, (double)min_p);
+    dstudio_remote_buf_puts(&body, num);
+    if (max_tokens > 0) {
+        snprintf(num, sizeof(num), ",\"max_tokens\":%d", max_tokens);
+        dstudio_remote_buf_puts(&body, num);
+    }
+    dstudio_remote_buf_puts(&body, "}");
+
+    char tmp[1024];
+    int fd = remote_tempfile(tmp, sizeof(tmp));
+    if (fd < 0) {
+        remote_err(err, err_len, "tempfile failed in %s: %s", remote_tmp_dir(), strerror(errno));
+        dstudio_remote_buf_free(&body);
+        return 1;
+    }
+    int write_ok = write_all_fd(fd, body.ptr ? body.ptr : "", body.len) == 0;
+    close(fd);
+    dstudio_remote_buf_free(&body);
+    if (!write_ok) {
+        unlink(tmp);
+        remote_err(err, err_len, "failed to write remote request body");
+        return 1;
+    }
+
+    char *url = remote_url(base_url);
+    int rc = remote_run_curl_stream(tmp, url, cb, ud, err, err_len);
+    free(url);
+    unlink(tmp);
+    return rc;
+}
