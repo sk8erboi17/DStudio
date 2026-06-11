@@ -245,6 +245,9 @@ assert.match(js, /launchTarget = target;[\s\S]*Statusbar\.render\(\);[\s\S]*show
 assert.match(js, /const timeoutMs = target === 'server' \? 180000 : 15 \* 60 \* 1000;/, 'agent/design startup should allow longer model and system-prompt loading than chat server startup');
 assert.match(launcher, /\\"engineLine\\":\\"%s\\"/, 'status endpoint should expose the latest engine log line');
 assert.match(webview, /DS4_DIRECTORY_PICKER_SCRIPT/, 'native wrapper should inject the directory picker bridge');
+assert.match(html, /:root\[data-theme="light"\] \.ws-canvas[\s\S]*background: #f7f8fb;/, 'Design canvas should have a light-mode background tuned for the takeover');
+assert.match(html, /:root\[data-theme="light"\] \.cv-bar[\s\S]*background: rgba\(255, 255, 255, 0\.96\)/, 'Design canvas floating prompt should be light in light mode');
+assert.match(html, /:root\[data-theme="light"\] \.ws-canvas-hint[\s\S]*background: rgba\(255, 255, 255, 0\.90\)/, 'Design canvas help hint should not stay dark in light mode');
 assert.match(webview, /NSOpenPanel \*panel = \[NSOpenPanel openPanel\]/, 'macOS wrapper should open the native folder explorer');
 assert.match(webview, /runOpenPanelWithParameters:\(WKOpenPanelParameters \*\)parameters/, 'macOS WKWebView should open the native file picker for chat attachments');
 assert.match(webview, /gtk_file_chooser_dialog_new/, 'Linux wrapper should open the native folder explorer');
