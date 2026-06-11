@@ -6121,6 +6121,9 @@
       let scrollBtn;
       let handlers = {}; // { onRegenerate, onContinue }
       let editingUserMsgId = null;
+      let followBottomChatId = null;
+      let followBottom = false;
+      let scrollInputAt = 0;
       // Active stream views (msgId → view). They allow re-attach: if the
       // user switches chat and comes back, the re-rendered bubble is reconnected
       // to the still-running stream.
@@ -6131,7 +6134,11 @@
         root = rootEl;
         handlers = h;
         on(root, 'click', onClick);
-        on(root, 'scroll', updateScrollBtn);
+        on(root, 'scroll', onScroll);
+        on(root, 'wheel', markScrollInput, { passive: true });
+        on(root, 'touchstart', markScrollInput, { passive: true });
+        on(root, 'pointerdown', markScrollInput);
+        on(root, 'keydown', onScrollKey);
       }
 
       function announce(text) {
@@ -6196,14 +6203,49 @@
         return out.length ? out : (chat.messages || []);
       }
 
-      function renderChat(chat) {
-        const stick = shouldStickToBottom(root);
+      function markScrollInput() {
+        scrollInputAt = performance.now();
+      }
+
+      function onScrollKey(e) {
+        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) markScrollInput();
+      }
+
+      function onScroll() {
+        updateScrollBtn();
+        const chatId = Store.getActiveChat()?.id;
+        const userDriven = performance.now() - scrollInputAt < 900;
+        if (!userDriven || !chatId || followBottomChatId !== chatId || !Store.isChatStreaming(chatId)) return;
+        followBottom = isNearBottom(root, 120);
+      }
+
+      function shouldAutoFollow(chatId) {
+        return !!root && !!chatId && followBottomChatId === chatId && followBottom && !selectionInside(root);
+      }
+
+      function finishAutoFollow(chatId) {
+        if (followBottomChatId !== chatId) return;
+        followBottomChatId = null;
+        followBottom = false;
+      }
+
+      function renderChat(chat, opts = {}) {
+        const forceBottom = opts.stickToBottom === true;
+        const stick = forceBottom || shouldAutoFollow(chat?.id) || shouldStickToBottom(root);
         const prevScrollTop = root.scrollTop;
         root.replaceChildren();
         inner = el('div', { class: 'messages__inner' });
         scrollBtn = el('button', { class: 'btn scroll-down', type: 'button', text: '↓', 'aria-label': 'Scroll to bottom' });
         scrollBtn.hidden = true;
-        on(scrollBtn, 'click', () => scrollToBottom(root));
+        on(scrollBtn, 'click', () => {
+          scrollToBottom(root);
+          const chatId = Store.getActiveChat()?.id;
+          if (chatId && Store.isChatStreaming(chatId)) {
+            followBottomChatId = chatId;
+            followBottom = true;
+          }
+          updateScrollBtn();
+        });
         root.append(inner, scrollBtn);
 
         const title = qs('#chat-title');
@@ -6228,6 +6270,12 @@
           }
         }
         settleScroll(root, stick, prevScrollTop);
+        if (stick) {
+          requestAnimationFrame(() => {
+            if ((forceBottom || shouldAutoFollow(chat?.id)) && !selectionInside(root)) scrollToBottom(root);
+            updateScrollBtn();
+          });
+        }
         updateScrollBtn();
 
         // Re-attach: for each message still streaming with a live view,
@@ -6529,6 +6577,8 @@
       function beginAssistant(msg) {
         // Create the bubble immediately in the current view (if it is the active chat).
         const stick = shouldStickToBottom(root);
+        followBottomChatId = Store.getActiveChat()?.id || followBottomChatId;
+        followBottom = stick;
         const initial = el('article', { class: 'msg msg--assistant msg--streaming', 'data-id': msg.id });
         initial.append(buildMessageStart('assistant', true));
         initial.append(el('div', { class: 'msg__content md' }));
@@ -6548,7 +6598,7 @@
           const article = root.querySelector(`.msg[data-id="${cssEscape(msg.id)}"]`);
           if (!article) return; // chat not visible: the data already lives in the message
           article.classList.add('msg--streaming');
-          const stick = shouldStickToBottom(root);
+          const stick = shouldAutoFollow(followBottomChatId) || shouldStickToBottom(root);
           if (fullReasoning) {
             let thinkingEl = article.querySelector('.thinking');
             if (!thinkingEl) {
@@ -6686,7 +6736,7 @@
         Chat.sendMessage('', { regenerate: true });
       }
 
-      return { mount, renderChat, beginAssistant, announce };
+      return { mount, renderChat, beginAssistant, shouldAutoFollow, finishAutoFollow, announce };
     })();
 
     /* ==================== UI: connection indicator ==================== */
@@ -8851,7 +8901,9 @@
           // meta/actions). If the user switched chat in the meantime, the
           // commit still landed in the right chat thanks to the ids.
           if (Store.getActiveChat()?.id === chat.id) {
-            Messages.renderChat(Store.getChat(chat.id));
+            const stickToBottom = Messages.shouldAutoFollow(chat.id);
+            Messages.renderChat(Store.getChat(chat.id), { stickToBottom });
+            Messages.finishAutoFollow(chat.id);
             openGeneratedFilesCanvas(generated.files);
           }
           Messages.announce(finishReason === 'aborted' ? 'Response interrupted' : 'Response completed');

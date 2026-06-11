@@ -291,6 +291,12 @@ assert.match(js, /function downloadModel\(spec\) \{[\s\S]*if \(isLanClientMode\(
 assert.match(js, /if \(action === 'start-engine'\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*return;[\s\S]*Engine\.start\(\{ mode: 'server' \}/, 'LAN client system check must not start a local engine');
 assert.match(js, /function shouldStickToBottom\(/, 'streaming render should respect user scroll position and text selection');
 assert.match(js, /selectionInside\(scroller\)/, 'autoscroll must stop while the user is selecting text');
+assert.match(js, /let followBottomChatId = null/, 'Chat streaming should track bottom-follow intent across final re-renders');
+assert.match(js, /function shouldAutoFollow\(chatId\)/, 'Chat streaming should expose bottom-follow state');
+assert.match(js, /function finishAutoFollow\(chatId\)/, 'Chat streaming should consume bottom-follow state after the final render');
+assert.match(js, /function onScroll\(\)[\s\S]*followBottom = isNearBottom\(root, 120\)/, 'User navigation should disable or re-enable stream autoscroll based on distance from bottom');
+assert.match(js, /Messages\.renderChat\(Store\.getChat\(chat\.id\), \{ stickToBottom \}\)/, 'Final chat render should keep the viewport at bottom when the user did not navigate away');
+assert.match(js, /Messages\.finishAutoFollow\(chat\.id\)/, 'Final chat render should clear stream autoscroll state');
 assert.doesNotMatch(js, /Agent and Design run on the DStudio host\. LAN clients use Chat\./, 'LAN clients must be able to open Agent and Design');
 assert.doesNotMatch(js, /if \(isLanClientMode\(\)\) \{ setMode\('server'\); return; \}/, 'LAN switches must not be forced back to Chat');
 assert.match(js, /function isHostServedLanShell\(\)/, 'host-served LAN shell must be detectable');
@@ -427,7 +433,7 @@ assert.doesNotMatch(js, /artifact-canvas-dialog[\s\S]*showModal/, 'Artifact canv
 assert.match(js, /data-act': 'open-generated-file'/, 'Generated file cards should open the artifact canvas from chat');
 assert.match(js, /if \(file\) ArtifactCanvas\.open\(file\)/, 'Generated file card clicks should open the canvas instead of downloading immediately');
 assert.match(js, /function openGeneratedFilesCanvas\(files\)[\s\S]*requestAnimationFrame\(\(\) => ArtifactCanvas\.open\(file\)\)/, 'Generated file responses should have a dedicated artifact canvas auto-open helper');
-assert.match(js, /Messages\.renderChat\(Store\.getChat\(chat\.id\)\);\s*openGeneratedFilesCanvas\(generated\.files\);/, 'Generated file responses should open the artifact canvas automatically after the final render');
+assert.match(js, /Messages\.renderChat\(Store\.getChat\(chat\.id\), \{ stickToBottom \}\);[\s\S]*openGeneratedFilesCanvas\(generated\.files\);/, 'Generated file responses should open the artifact canvas automatically after the final render');
 assert.match(js, /buildFileTileIcon\(\)[\s\S]*msg-attachment__name[\s\S]*attachmentKindLabel\(\{ name: f\.filename, type: f\.mime \}\)/, 'Generated file cards should use the same readable file tile layout as attachments');
 assert.match(js, /function makeSimplePdfBlob\(text, title = 'DStudio file'\)/, 'PDF file requests should be packaged locally from model-provided content');
 assert.match(js, /generatedFiles: generated\.files\.length \? generated\.files : undefined/, 'Generated files should be persisted on assistant messages');
