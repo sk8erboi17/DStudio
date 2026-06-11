@@ -1,4 +1,157 @@
 /*DS4UI_REMOTE_AGENT*/
+
+/* Win32/MSYS2 bash execution: replaces fork()+mkstemp("/tmp/...") which breaks
+ * when msys-2.0.dll loads from a non-MSYS2 directory (VFS root detection fails).
+ * Uses CreateProcessA + stdin pipe (bash -s) — no MSYS2 VFS required. */
+#if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)
+static char *ds4ui_win32_bash_exec(agent_worker *w, const agent_tool_call *call) {
+    (void)w;
+    const char *cmd = agent_tool_arg_value(call, "command");
+    if (!cmd || !cmd[0]) return xstrdup("Tool error: bash requires command\n");
+    /* Async refresh_sec not supported via Win32 path — report clearly */
+    const char *refresh_str = agent_tool_arg_value(call, "refresh_sec");
+    if (refresh_str && refresh_str[0])
+        return xstrdup("Tool error: bash: async refresh_sec not supported on this platform\n");
+
+    const char *timeout_str = agent_tool_arg_value(call, "timeout_sec");
+    DWORD timeout_ms = 15000;
+    if (timeout_str) { int t = atoi(timeout_str); if (t > 0) timeout_ms = (DWORD)t * 1000; }
+
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+    HANDLE in_r = NULL, in_w = NULL, out_r = NULL, out_w = NULL;
+    if (!CreatePipe(&in_r, &in_w, &sa, 0))
+        return xstrdup("Tool error: bash: failed to create stdin pipe\n");
+    SetHandleInformation(in_w, HANDLE_FLAG_INHERIT, 0);
+    if (!CreatePipe(&out_r, &out_w, &sa, 0)) {
+        CloseHandle(in_r); CloseHandle(in_w);
+        return xstrdup("Tool error: bash: failed to create stdout pipe\n");
+    }
+    SetHandleInformation(out_r, HANDLE_FLAG_INHERIT, 0);
+
+    char cmdline[16] = "bash.exe -s";
+    STARTUPINFOA si = { 0 };
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput  = in_r;
+    si.hStdOutput = out_w;
+    si.hStdError  = out_w;
+    PROCESS_INFORMATION pi = { 0 };
+    BOOL ok = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE,
+                              CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+    CloseHandle(in_r);
+    CloseHandle(out_w);
+    if (!ok) {
+        CloseHandle(in_w); CloseHandle(out_r);
+        char em[128];
+        snprintf(em, sizeof(em),
+                 "Tool error: bash: failed to start bash.exe (error %lu)\n", GetLastError());
+        return xstrdup(em);
+    }
+    CloseHandle(pi.hThread);
+
+    /* Feed script to bash stdin, then close to signal EOF */
+    DWORD nw;
+    WriteFile(in_w, cmd, (DWORD)strlen(cmd), &nw, NULL);
+    WriteFile(in_w, "\n", 1, &nw, NULL);
+    CloseHandle(in_w);
+
+    /* Collect stdout+stderr */
+    agent_buf out_buf = { 0 };
+    char chunk[4096];
+    DWORD nr;
+    while (ReadFile(out_r, chunk, sizeof(chunk), &nr, NULL) && nr > 0)
+        agent_buf_append(&out_buf, chunk, (size_t)nr);
+    CloseHandle(out_r);
+
+    WaitForSingleObject(pi.hProcess, timeout_ms);
+    CloseHandle(pi.hProcess);
+
+    char *result = agent_buf_take(&out_buf);
+    return result ? result : xstrdup("");
+}
+#endif
+
+/* Win32/MSYS2 Chrome launcher for web tool CDP.
+ * web_spawn_chrome() uses fork()+execlp() which fails when msys-2.0.dll loads
+ * from a non-MSYS2 directory. This launches Chrome via CreateProcessA instead.
+ * Called before ds4_web_create so web_cdp_alive() returns true and the internal
+ * web_spawn_chrome() path is never reached. */
+#if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+/* Use POSIX sockets (available in MSYS2/Cygwin) to avoid winsock2.h
+ * which conflicts with sys/poll.h redefining struct pollfd. */
+static bool ds4ui_win32_cdp_alive(int port) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return false;
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    int flags = fcntl(s, F_GETFL, 0);
+    fcntl(s, F_SETFL, flags | O_NONBLOCK);
+    connect(s, (struct sockaddr *)&addr, sizeof(addr));
+    fd_set wfds;
+    FD_ZERO(&wfds);
+    FD_SET(s, &wfds);
+    struct timeval tv = {1, 0};
+    bool alive = (select(s + 1, NULL, &wfds, NULL, &tv) > 0);
+    close(s);
+    return alive;
+}
+
+static void ds4ui_win32_ensure_chrome(int port) {
+    if (ds4ui_win32_cdp_alive(port)) return;
+
+    char chrome_path[MAX_PATH] = {0};
+    const char *env_chrome = getenv("DS4_CHROME");
+    if (env_chrome && env_chrome[0]) {
+        snprintf(chrome_path, sizeof(chrome_path), "%s", env_chrome);
+    } else {
+        const char *lad = getenv("LOCALAPPDATA");
+        const char *pf  = getenv("PROGRAMFILES");
+        const char *pf86 = getenv("PROGRAMFILES(X86)");
+        const char *bases[3] = {lad, pf, pf86};
+        for (int i = 0; i < 3 && !chrome_path[0]; i++) {
+            if (!bases[i]) continue;
+            char cand[MAX_PATH];
+            snprintf(cand, sizeof(cand), "%s\\Google\\Chrome\\Application\\chrome.exe", bases[i]);
+            if (GetFileAttributesA(cand) != INVALID_FILE_ATTRIBUTES)
+                snprintf(chrome_path, sizeof(chrome_path), "%s", cand);
+        }
+    }
+    if (!chrome_path[0]) return;
+
+    char profile_dir[MAX_PATH] = {0};
+    const char *lad2 = getenv("LOCALAPPDATA");
+    snprintf(profile_dir, sizeof(profile_dir), "%s\\ds4-chrome-debug",
+             lad2 ? lad2 : "C:\\Temp");
+
+    char cmdline[MAX_PATH * 2 + 256];
+    snprintf(cmdline, sizeof(cmdline),
+             "\"%s\" --remote-debugging-port=%d --remote-allow-origins=* "
+             "--user-data-dir=\"%s\" --no-first-run --no-default-browser-check "
+             "--disable-sync --password-store=basic --mute-audio about:blank",
+             chrome_path, port, profile_dir);
+
+    STARTUPINFOA si = {0};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi = {0};
+    if (!CreateProcessA(NULL, cmdline, NULL, NULL, FALSE, CREATE_NO_WINDOW,
+                        NULL, NULL, &si, &pi))
+        return;
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+
+    for (int i = 0; i < 40; i++) {
+        usleep(250000);
+        if (ds4ui_win32_cdp_alive(port)) break;
+    }
+}
+#endif
+
 static int ds4ui_remote_web_confirm(void *privdata, const char *message, char *err, size_t err_len) {
     (void)privdata;
     (void)message;
@@ -41,6 +194,9 @@ static int ds4ui_remote_worker_init(agent_worker *w, agent_config *cfg) {
         .cancel = ds4ui_remote_web_cancel,
         .cancel_privdata = w,
     };
+#if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)
+    ds4ui_win32_ensure_chrome(9333);
+#endif
     w->web = ds4_web_create(&web_cfg);
     if (cfg->gen.trace_path && cfg->gen.trace_path[0])
         w->trace = fopen(cfg->gen.trace_path, "ab");
@@ -144,6 +300,25 @@ static void ds4ui_remote_chunk(void *ud, const char *kind, const char *text, siz
         ds4ui_emit_event(w, "reasoning_end");
         ctx->reasoning_open = false;
     }
+    /* Recover tool calls started inside an unclosed <think> block.
+     * Mirrors ds4 commit 91bafb5 (server-side) but applied client-side:
+     * inject </think>\n\n before the stanza so agent_stream_text sees
+     * the tool call outside the think block and executes it. */
+    {
+        static const char dsml_open[] =
+            "<\xEF\xBD\x9C" "DSML\xEF\xBD\x9C" "tool_calls>";
+        static const size_t dsml_open_len = sizeof(dsml_open) - 1;
+        bool found = false;
+        if (ctx->stream->in_think && len >= dsml_open_len) {
+            for (size_t _i = 0; _i <= len - dsml_open_len && !found; _i++)
+                if (memcmp(text + _i, dsml_open, dsml_open_len) == 0) found = true;
+        }
+        if (found) {
+            static const char close_think[] = "</think>\n\n";
+            dstudio_remote_buf_append(ctx->raw, close_think, sizeof(close_think) - 1);
+            agent_stream_text(ctx->stream, close_think, sizeof(close_think) - 1, false);
+        }
+    }
     dstudio_remote_buf_append(ctx->raw, text, len);
     agent_stream_text(ctx->stream, text, len, false);
     ctx->generated++;
@@ -218,7 +393,7 @@ static int ds4ui_remote_run_turn(agent_worker *w,
             .worker = w,
             .format_thinking = think_enabled,
             .format_markdown = use_color,
-            .in_think = think_enabled,
+            .in_think = false,
             .use_color = use_color,
             .last_output_newline = true,
         };
@@ -226,7 +401,7 @@ static int ds4ui_remote_run_turn(agent_worker *w,
         agent_stream_renderer stream = {
             .renderer = &renderer,
             .parser = &dsml,
-            .in_think = think_enabled,
+            .in_think = false,
         };
         dstudio_remote_buf raw = {0};
         ds4ui_remote_stream_ctx sctx = {
