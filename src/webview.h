@@ -24,6 +24,30 @@ static webview_t webview_create(int width, int height, const char *title);
 static void      webview_navigate(webview_t w, const char *url);
 static void      webview_run(webview_t w);
 
+#define DS4_DIRECTORY_PICKER_SCRIPT \
+"(() => {" \
+"  if (window.ds4PickDirectory) return;" \
+"  let seq = 1;" \
+"  const pending = new Map();" \
+"  window.__ds4NativeDirectoryPicked = (id, path) => {" \
+"    const key = String(id);" \
+"    const resolve = pending.get(key);" \
+"    if (!resolve) return;" \
+"    pending.delete(key);" \
+"    resolve(path || '');" \
+"  };" \
+"  window.ds4PickDirectory = () => new Promise((resolve) => {" \
+"    const id = String(seq++);" \
+"    pending.set(id, resolve);" \
+"    try {" \
+"      window.webkit.messageHandlers.ds4PickDirectory.postMessage(id);" \
+"    } catch (e) {" \
+"      pending.delete(id);" \
+"      resolve('');" \
+"    }" \
+"  });" \
+"})();"
+
 /* ============================ macOS ============================ */
 #ifdef __APPLE__
 #import <Cocoa/Cocoa.h>
@@ -155,6 +179,50 @@ static void      webview_run(webview_t w);
 }
 @end
 
+static NSString *ds4_js_string(NSString *s) {
+    if (!s) return @"null";
+    NSData *data = [NSJSONSerialization dataWithJSONObject:@[s] options:0 error:nil];
+    if (!data) return @"\"\"";
+    NSString *arr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if (!arr || arr.length < 2) return @"\"\"";
+    return [arr substringWithRange:NSMakeRange(1, arr.length - 2)];
+}
+
+/* Native folder picker bridge for Agent/Design workspaces. Browser directory
+ * pickers do not expose absolute filesystem paths; the native shell can. */
+@interface DS4DirectoryPickerHandler : NSObject <WKScriptMessageHandler>
+@property (assign) NSWindow *win;
+@property (assign) WKWebView *webview;
+@end
+@implementation DS4DirectoryPickerHandler
+- (void)resolveRequest:(NSString *)rid withPath:(NSString *)path {
+    if (!self.webview || !rid) return;
+    NSString *js = [NSString stringWithFormat:
+        @"window.__ds4NativeDirectoryPicked&&window.__ds4NativeDirectoryPicked(%@,%@)",
+        ds4_js_string(rid), path ? ds4_js_string(path) : @"null"];
+    [self.webview evaluateJavaScript:js completionHandler:nil];
+}
+- (void)userContentController:(WKUserContentController *)ucc
+      didReceiveScriptMessage:(WKScriptMessage *)message {
+    (void)ucc;
+    NSString *rid = [message.body isKindOfClass:[NSString class]] ? (NSString *)message.body : nil;
+    if (!rid.length) return;
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.canChooseFiles = NO;
+    panel.canChooseDirectories = YES;
+    panel.allowsMultipleSelection = NO;
+    panel.canCreateDirectories = YES;
+    panel.prompt = @"Choose";
+    panel.message = @"Choose a folder for DStudio.";
+    void (^finish)(NSModalResponse) = ^(NSModalResponse r) {
+        NSString *path = (r == NSModalResponseOK && panel.URL) ? panel.URL.path : nil;
+        [self resolveRequest:rid withPath:path];
+    };
+    if (self.win) [panel beginSheetModalForWindow:self.win completionHandler:finish];
+    else [panel beginWithCompletionHandler:finish];
+}
+@end
+
 typedef struct {
     NSWindow *window;
     WKWebView *webview;
@@ -236,7 +304,16 @@ static webview_t webview_create(int width, int height, const char *title) {
     DS4ThemeHandler *themeHandler = [[DS4ThemeHandler alloc] init];
     themeHandler.win = win;
     [cfg.userContentController addScriptMessageHandler:themeHandler name:@"ds4Theme"];
+    DS4DirectoryPickerHandler *dirHandler = [[DS4DirectoryPickerHandler alloc] init];
+    dirHandler.win = win;
+    [cfg.userContentController addScriptMessageHandler:dirHandler name:@"ds4PickDirectory"];
+    WKUserScript *dirScript = [[WKUserScript alloc]
+        initWithSource:[NSString stringWithUTF8String:DS4_DIRECTORY_PICKER_SCRIPT]
+        injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+        forMainFrameOnly:YES];
+    [cfg.userContentController addUserScript:dirScript];
     WKWebView *wv = [[WKWebView alloc] initWithFrame:frame configuration:cfg];
+    dirHandler.webview = wv;
     [wv setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     /* dark layer under the page: no white flash before the first paint */
     wv.wantsLayer = YES;
@@ -361,6 +438,63 @@ static void ds4_on_linux_theme_message(WebKitUserContentManager *manager,
     g_free(theme);
 }
 
+static char *ds4_js_quote_utf8(const char *s) {
+    if (!s) return g_strdup("null");
+    size_t n = strlen(s);
+    char *out = (char *)g_malloc(n * 6 + 3);
+    if (!out) return g_strdup("\"\"");
+    char *p = out;
+    *p++ = '"';
+    for (const unsigned char *c = (const unsigned char *)s; *c; c++) {
+        if (*c == '"' || *c == '\\') { *p++ = '\\'; *p++ = (char)*c; }
+        else if (*c == '\n') { *p++ = '\\'; *p++ = 'n'; }
+        else if (*c == '\r') { *p++ = '\\'; *p++ = 'r'; }
+        else if (*c == '\t') { *p++ = '\\'; *p++ = 't'; }
+        else if (*c < 0x20) { p += sprintf(p, "\\u%04x", *c); }
+        else *p++ = (char)*c;
+    }
+    *p++ = '"';
+    *p = '\0';
+    return out;
+}
+
+static void ds4_on_linux_directory_message(WebKitUserContentManager *manager,
+                                           WebKitJavascriptResult *result,
+                                           gpointer user_data) {
+    (void)manager;
+    ds4_wv *w = (ds4_wv *)user_data;
+    JSCValue *value = webkit_javascript_result_get_js_value(result);
+    char *rid = value ? jsc_value_to_string(value) : NULL;
+    if (!rid || !rid[0]) { g_free(rid); return; }
+
+    GtkWidget *dialog = gtk_file_chooser_dialog_new(
+        "Choose Folder",
+        GTK_WINDOW(w->window),
+        GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
+        "_Cancel", GTK_RESPONSE_CANCEL,
+        "_Choose", GTK_RESPONSE_ACCEPT,
+        NULL);
+    gtk_file_chooser_set_create_folders(GTK_FILE_CHOOSER(dialog), TRUE);
+
+    char *path = NULL;
+    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT)
+        path = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+    gtk_widget_destroy(dialog);
+
+    char *rid_js = ds4_js_quote_utf8(rid);
+    char *path_js = path ? ds4_js_quote_utf8(path) : g_strdup("null");
+    char *js = g_strdup_printf(
+        "window.__ds4NativeDirectoryPicked&&window.__ds4NativeDirectoryPicked(%s,%s)",
+        rid_js, path_js);
+    webkit_web_view_run_javascript(WEBKIT_WEB_VIEW(w->webview), js, NULL, NULL, NULL);
+
+    g_free(js);
+    g_free(path_js);
+    g_free(rid_js);
+    g_free(path);
+    g_free(rid);
+}
+
 static GdkPixbuf *ds4_load_logo_pixbuf(void) {
     GdkPixbuf *pb = NULL;
     GdkPixbufLoader *loader = gdk_pixbuf_loader_new();
@@ -419,6 +553,17 @@ static webview_t webview_create(int width, int height, const char *title) {
     g_signal_connect(manager, "script-message-received::ds4Theme",
                      G_CALLBACK(ds4_on_linux_theme_message), w);
     webkit_user_content_manager_register_script_message_handler(manager, "ds4Theme");
+    g_signal_connect(manager, "script-message-received::ds4PickDirectory",
+                     G_CALLBACK(ds4_on_linux_directory_message), w);
+    webkit_user_content_manager_register_script_message_handler(manager, "ds4PickDirectory");
+    WebKitUserScript *dir_script = webkit_user_script_new(
+        DS4_DIRECTORY_PICKER_SCRIPT,
+        WEBKIT_USER_CONTENT_INJECT_TOP_FRAME,
+        WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
+        NULL,
+        NULL);
+    webkit_user_content_manager_add_script(manager, dir_script);
+    webkit_user_script_unref(dir_script);
     gtk_container_add(GTK_CONTAINER(w->window), w->webview);
     g_signal_connect(w->window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
     return (webview_t)w;
@@ -441,6 +586,7 @@ static void webview_run(webview_t handle) {
 #include <windows.h>
 #include <dwmapi.h>
 #include <shlobj.h>
+#include <shobjidl.h>
 #include <wrl.h>
 #include "WebView2.h"
 #pragma comment(lib, "dwmapi.lib")
@@ -512,6 +658,100 @@ static wchar_t *ds4_utf8_to_wide(const char *s) {
     return w;
 }
 
+static wchar_t *ds4_win_json_get_string(const wchar_t *json, const wchar_t *key) {
+    if (!json || !key) return NULL;
+    const wchar_t *p = wcsstr(json, key);
+    if (!p) return NULL;
+    p = wcschr(p, L':');
+    if (!p) return NULL;
+    p++;
+    while (*p == L' ' || *p == L'\t' || *p == L'\r' || *p == L'\n') p++;
+    if (*p != L'"') return NULL;
+    p++;
+    size_t cap = wcslen(p) + 1;
+    wchar_t *out = (wchar_t *)calloc(cap, sizeof(wchar_t));
+    if (!out) return NULL;
+    size_t o = 0;
+    for (; *p && o + 1 < cap; p++) {
+        if (*p == L'"') break;
+        if (*p == L'\\' && p[1]) {
+            p++;
+            if (*p == L'n') out[o++] = L'\n';
+            else if (*p == L'r') out[o++] = L'\r';
+            else if (*p == L't') out[o++] = L'\t';
+            else out[o++] = *p;
+        } else {
+            out[o++] = *p;
+        }
+    }
+    out[o] = L'\0';
+    return out;
+}
+
+static wchar_t *ds4_win_js_quote(const wchar_t *s) {
+    if (!s) {
+        wchar_t *nulls = (wchar_t *)calloc(5, sizeof(wchar_t));
+        if (nulls) wcscpy(nulls, L"null");
+        return nulls;
+    }
+    size_t n = wcslen(s);
+    wchar_t *out = (wchar_t *)calloc(n * 6 + 3, sizeof(wchar_t));
+    if (!out) return NULL;
+    wchar_t *p = out;
+    *p++ = L'"';
+    for (const wchar_t *c = s; *c; c++) {
+        if (*c == L'"' || *c == L'\\') { *p++ = L'\\'; *p++ = *c; }
+        else if (*c == L'\n') { *p++ = L'\\'; *p++ = L'n'; }
+        else if (*c == L'\r') { *p++ = L'\\'; *p++ = L'r'; }
+        else if (*c == L'\t') { *p++ = L'\\'; *p++ = L't'; }
+        else if (*c < 0x20) { p += swprintf(p, 7, L"\\u%04x", (unsigned)*c); }
+        else *p++ = *c;
+    }
+    *p++ = L'"';
+    *p = L'\0';
+    return out;
+}
+
+static PWSTR ds4_windows_pick_directory(HWND hwnd) {
+    IFileOpenDialog *dlg = NULL;
+    HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER,
+                                  IID_PPV_ARGS(&dlg));
+    if (FAILED(hr) || !dlg) return NULL;
+    DWORD opts = 0;
+    if (SUCCEEDED(dlg->GetOptions(&opts))) {
+        dlg->SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+    }
+    dlg->SetTitle(L"Choose Folder");
+    PWSTR path = NULL;
+    if (SUCCEEDED(dlg->Show(hwnd))) {
+        IShellItem *item = NULL;
+        if (SUCCEEDED(dlg->GetResult(&item)) && item) {
+            item->GetDisplayName(SIGDN_FILESYSPATH, &path);
+            item->Release();
+        }
+    }
+    dlg->Release();
+    return path;
+}
+
+static void ds4_windows_resolve_directory(ds4_wv *w, const wchar_t *rid, const wchar_t *path) {
+    if (!w || !w->webview || !rid) return;
+    wchar_t *rid_js = ds4_win_js_quote(rid);
+    wchar_t *path_js = path ? ds4_win_js_quote(path) : ds4_win_js_quote(NULL);
+    if (!rid_js || !path_js) { free(rid_js); free(path_js); return; }
+    size_t cap = wcslen(rid_js) + wcslen(path_js) + 128;
+    wchar_t *js = (wchar_t *)calloc(cap, sizeof(wchar_t));
+    if (js) {
+        swprintf(js, cap,
+            L"window.__ds4NativeDirectoryPicked&&window.__ds4NativeDirectoryPicked(%ls,%ls)",
+            rid_js, path_js);
+        w->webview->ExecuteScript(js, NULL);
+        free(js);
+    }
+    free(path_js);
+    free(rid_js);
+}
+
 static void ds4_init_webview2(ds4_wv *w) {
     wchar_t user_data[MAX_PATH];
     PWSTR local = NULL;
@@ -536,10 +776,36 @@ static void ds4_init_webview2(ds4_wv *w) {
                             controller->get_CoreWebView2(&w->webview);
                             w->webview->AddScriptToExecuteOnDocumentCreated(
                                 L"(() => {"
-                                L"  const target = { ds4Theme: { postMessage: (theme) =>"
-                                L"    chrome.webview.postMessage({ ds4Theme: String(theme) }) } };"
+                                L"  const target = {"
+                                L"    ds4Theme: { postMessage: (theme) =>"
+                                L"      chrome.webview.postMessage({ ds4Theme: String(theme) }) },"
+                                L"    ds4PickDirectory: { postMessage: (id) =>"
+                                L"      chrome.webview.postMessage({ ds4PickDirectory: String(id) }) }"
+                                L"  };"
                                 L"  window.webkit = window.webkit || {};"
                                 L"  window.webkit.messageHandlers = Object.assign({}, window.webkit.messageHandlers, target);"
+                                L"})();"
+                                L"(() => {"
+                                L"  if (window.ds4PickDirectory) return;"
+                                L"  let seq = 1;"
+                                L"  const pending = new Map();"
+                                L"  window.__ds4NativeDirectoryPicked = (id, path) => {"
+                                L"    const key = String(id);"
+                                L"    const resolve = pending.get(key);"
+                                L"    if (!resolve) return;"
+                                L"    pending.delete(key);"
+                                L"    resolve(path || '');"
+                                L"  };"
+                                L"  window.ds4PickDirectory = () => new Promise((resolve) => {"
+                                L"    const id = String(seq++);"
+                                L"    pending.set(id, resolve);"
+                                L"    try {"
+                                L"      window.webkit.messageHandlers.ds4PickDirectory.postMessage(id);"
+                                L"    } catch (e) {"
+                                L"      pending.delete(id);"
+                                L"      resolve('');"
+                                L"    }"
+                                L"  });"
                                 L"})();",
                                 NULL);
                             EventRegistrationToken token;
@@ -551,6 +817,14 @@ static void ds4_init_webview2(ds4_wv *w) {
                                         if (SUCCEEDED(args->get_WebMessageAsJson(&json)) && json) {
                                             if (wcsstr(json, L"ds4Theme")) {
                                                 ds4_apply_windows_chrome(w->hwnd, wcsstr(json, L"light") != NULL);
+                                            } else if (wcsstr(json, L"ds4PickDirectory")) {
+                                                wchar_t *rid = ds4_win_json_get_string(json, L"ds4PickDirectory");
+                                                if (rid) {
+                                                    PWSTR path = ds4_windows_pick_directory(w->hwnd);
+                                                    ds4_windows_resolve_directory(w, rid, path);
+                                                    if (path) CoTaskMemFree(path);
+                                                    free(rid);
+                                                }
                                             }
                                             CoTaskMemFree(json);
                                         }

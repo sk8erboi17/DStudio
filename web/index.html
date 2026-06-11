@@ -2028,46 +2028,7 @@
     .onboard__model-state { font-size: 0.76rem; color: var(--ok); white-space: nowrap; }
     .onboard__model-state.dl { color: var(--accent-2); }
 
-    /* First-run/preflight doctor: compact status strip + actionable dialog. */
-    .doctor-strip {
-      max-width: var(--msg-maxw);
-      margin: 0.7rem auto 0;
-      padding: 0 1rem;
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      flex-wrap: wrap;
-    }
-    .doctor-strip[hidden] { display: none; }
-    .doctor-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      min-height: 28px;
-      padding: 0.25rem 0.5rem;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: var(--text-2);
-      background: var(--surface);
-      font-size: 0.74rem;
-      white-space: nowrap;
-    }
-    .doctor-badge::before {
-      content: '';
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: var(--faint);
-      flex: 0 0 auto;
-    }
-    .doctor-badge.ok::before { background: var(--ok); }
-    .doctor-badge.warn::before { background: var(--warn); }
-    .doctor-badge.error::before { background: var(--danger); }
-    .doctor-fix {
-      min-height: 28px;
-      padding: 0.25rem 0.65rem;
-      font-size: 0.74rem;
-    }
+    /* First-run/preflight doctor: actionable dialog opened from the menu or fatal recovery. */
     .doctor-dialog { width: min(94vw, 34rem); }
     .doctor-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.7rem; }
     .doctor-row {
@@ -2115,12 +2076,34 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       padding: 1.5rem;
-      width: min(90vw, 24rem);
+      width: min(90vw, 30rem);
       text-align: center;
     }
 
-    .loading-card h3 {
+    .loading-top {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
       margin-bottom: 1rem;
+    }
+
+    .loading-spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: loading-spin 0.8s linear infinite;
+      flex: 0 0 auto;
+    }
+
+    @keyframes loading-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading-card h3 {
+      margin: 0;
       font-size: 1.05rem;
     }
 
@@ -2151,6 +2134,41 @@
       font-size: 1.4rem;
       font-weight: 700;
       color: var(--accent);
+    }
+
+    .loading-log {
+      margin-top: 0.9rem;
+      max-height: 128px;
+      overflow: auto;
+      padding: 0.65rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--bg);
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      line-height: 1.45;
+      text-align: left;
+    }
+
+    .loading-log:empty { display: none; }
+
+    .loading-log__line {
+      display: flex;
+      gap: 0.5rem;
+      min-width: 0;
+    }
+
+    .loading-log__line + .loading-log__line { margin-top: 0.35rem; }
+
+    .loading-log__time {
+      color: var(--faint);
+      flex: 0 0 auto;
+    }
+
+    .loading-log__msg {
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
 
     .loading-card .btn { margin-top: 1rem; }
@@ -2841,8 +2859,6 @@
         <h1 class="chat__title" id="chat-title">DStudio</h1>
         <button type="button" id="btn-cmdk" class="cmdk-pill" title="Commands (⌘K)" aria-label="Open command palette" hidden><kbd>⌘K</kbd></button>
       </header>
-      <div id="doctor-strip" class="doctor-strip" role="status" aria-live="polite" hidden></div>
-
       <div class="stage">
         <section class="messages" id="messages" aria-label="Messages" tabindex="0"></section>
         <section class="messages agent-view" id="agent-view" aria-label="Agent session" tabindex="0" hidden></section>
@@ -2931,10 +2947,14 @@
   <!-- Engine loading modal (server/agent switch) -->
   <div class="loading-overlay" id="loading-overlay" hidden>
     <div class="loading-card" role="status" aria-live="polite">
-      <h3 id="loading-title">Starting…</h3>
+      <div class="loading-top">
+        <span class="loading-spinner" aria-hidden="true"></span>
+        <h3 id="loading-title">Starting…</h3>
+      </div>
       <div class="progress"><div class="progress__bar" id="loading-bar"></div></div>
       <p class="loading-stage" id="loading-stage">Preparing…</p>
       <p class="loading-pct" id="loading-pct">0%</p>
+      <div class="loading-log" id="loading-log" aria-label="Loading log"></div>
       <button type="button" id="loading-cancel" class="btn" hidden>Cancel</button>
     </div>
   </div>
@@ -10176,13 +10196,11 @@
     /* ==================== Doctor: first-run/preflight ==================== */
 
     const Doctor = (() => {
-      let strip, dialog, listEl, summaryEl;
+      let dialog, listEl, summaryEl;
       let last = null;
       let autoShown = false;
-      const stripIds = ['model', 'agent', 'web', 'design'];
 
       function mount() {
-        strip = qs('#doctor-strip');
         dialog = qs('#doctor-dialog');
         listEl = qs('#doctor-list');
         summaryEl = qs('#doctor-summary');
@@ -10199,18 +10217,13 @@
         if (isLanClientMode()) {
           const d = await lanClientDoctor();
           last = d;
-          renderStrip(d);
           renderDialog(d);
           return;
         }
         let d = null;
         try { d = await Engine.doctor(); } catch { /* launcher unavailable */ }
-        if (!d?.ok) {
-          if (strip) strip.hidden = true;
-          return;
-        }
+        if (!d?.ok) return;
         last = d;
-        renderStrip(d);
         renderDialog(d);
         if (d.fatal > 0 && Store.getSettings().onboarded === true && !autoShown && !document.querySelector('dialog[open]')) {
           autoShown = true;
@@ -10253,22 +10266,6 @@
           summary: fatal ? 'LAN host unavailable' : 'LAN client ready',
           checks,
         };
-      }
-
-      function renderStrip(d) {
-        if (!strip) return;
-        const ids = isLanClientMode() ? ['lan-host'] : stripIds;
-        const checks = (d.checks || []).filter((c) => ids.includes(c.id));
-        const badges = checks.map((c) => el('span', {
-          class: `doctor-badge ${c.state}`,
-          title: c.message || '',
-          text: `${c.label}: ${c.state === 'ok' ? 'ready' : c.state}`,
-        }));
-        const needsFix = (d.checks || []).some((c) => c.state === 'error' || c.state === 'warn');
-        const btn = el('button', { class: 'btn doctor-fix', type: 'button', text: needsFix ? 'Fix' : 'Check' });
-        on(btn, 'click', open);
-        strip.replaceChildren(...badges, btn);
-        strip.hidden = false;
       }
 
       function renderDialog(d = last) {
@@ -12857,9 +12854,10 @@
     /* ==================== Switcher: Chat/Agent/Design tabs + loading ==================== */
 
     const Switcher = (() => {
-      let tabServer, tabAgent, tabDesign, overlay, bar, stageEl, pctEl, titleEl;
+      let tabServer, tabAgent, tabDesign, overlay, bar, stageEl, pctEl, titleEl, logEl;
       let mode = 'server';
       let switching = false;
+      let lastOverlayLog = '';
       let dialogTarget = 'agent'; // the workdir dialog is shared between agent and design
       let dialogNewSession = false; // the picker was opened by "+ New session"
       let dialogCompleted = false; // true only when Start/Attach was pressed
@@ -12873,6 +12871,7 @@
         stageEl = qs('#loading-stage');
         pctEl = qs('#loading-pct');
         titleEl = qs('#loading-title');
+        logEl = qs('#loading-log');
 
         on(tabServer, 'click', () => switchTo('server'));
         on(tabAgent, 'click', () => switchTo('agent'));
@@ -12914,14 +12913,7 @@
         on(qs('#workdir-go'), 'click', () => {
           const wd = wdCur;
           if (!wd) return;
-          // Design needs an EMPTY folder (Start is disabled otherwise via the
-          // live warning); guard here too in case of a race.
-          if (dialogTarget === 'design' && wdEntries > 0) { updateWdWarn(); return; }
-          dialogCompleted = true;
-          wdDialog.close();
-          if (dialogTarget === 'import') { runImport(wd); return; }
-          if (dialogNewSession) { startNewSession(dialogTarget, wd); return; }
-          if (dialogTarget === 'design') startDesign(wd); else startAgent(wd);
+          completeWorkdirSelection(dialogTarget, dialogNewSession, wd, true);
         });
 
         // ds4 engine folder not found: let the user point at the right path.
@@ -13263,7 +13255,51 @@
         input.focus();
       }
 
-      function openWorkdirDialog(target, newSession) {
+      function completeWorkdirSelection(target, newSession, wd, closeDialog) {
+        if (!wd) return;
+        // Design needs an EMPTY folder (Start is disabled otherwise via the
+        // fallback picker warning); guard here too in case of a race.
+        if (target === 'design' && wdEntries > 0) { updateWdWarn(); return; }
+        dialogCompleted = true;
+        if (closeDialog) qs('#workdir-dialog')?.close();
+        if (target === 'import') { runImport(wd); return; }
+        if (newSession) { startNewSession(target, wd); return; }
+        if (target === 'design') startDesign(wd); else startAgent(wd);
+      }
+
+      const nativeDirectoryPickerAvailable = () => typeof window.ds4PickDirectory === 'function';
+
+      async function openNativeWorkdirPicker(target, newSession) {
+        dialogTarget = target;
+        dialogNewSession = !!newSession;
+        dialogCompleted = false;
+        let path = '';
+        try {
+          path = await window.ds4PickDirectory({ mode: target });
+        } catch {
+          path = '';
+        }
+        if (!path) { recoverFromWorkdirCancel(target); return; }
+
+        let r = null;
+        try { r = await Engine.fsList(path); } catch { r = null; }
+        if (!r || !r.ok) {
+          toast('That folder is not reachable from DStudio.', 'error');
+          openWorkdirDialogFallback(target, newSession, path);
+          return;
+        }
+        if (target === 'design' && (r.entries | 0) > 0) {
+          toast('Design needs an empty folder. Create or choose an empty folder.', 'warn');
+          openWorkdirDialogFallback(target, newSession, r.path || path);
+          return;
+        }
+
+        wdCur = r.path || path;
+        wdEntries = r.entries | 0;
+        completeWorkdirSelection(target, newSession, wdCur, false);
+      }
+
+      function openWorkdirDialogFallback(target, newSession, startPath) {
         dialogTarget = target;
         dialogNewSession = !!newSession;
         dialogCompleted = false;
@@ -13286,7 +13322,15 @@
         // this mode's last-used folder) so the picker opens where you already
         // are. Attach-a-folder browses from $HOME (you pick a source elsewhere).
         const cur = Store.getState().ui.agentWorkdir || Store.getSettings().workdirs?.[target] || '';
-        loadDirs(target === 'import' ? '' : cur);
+        loadDirs(startPath || (target === 'import' ? '' : cur));
+      }
+
+      function openWorkdirDialog(target, newSession) {
+        if (nativeDirectoryPickerAvailable()) {
+          openNativeWorkdirPicker(target, newSession);
+          return;
+        }
+        openWorkdirDialogFallback(target, newSession);
       }
 
       function latestChat(m) {
@@ -14168,7 +14212,7 @@
           let st = null;
           try { st = await Engine.status(); } catch { /* retry */ }
           if (st) {
-            updateOverlay(st.loadPct, st.stage);
+            updateOverlay(st.loadPct, st.stage, st.engineLine || st.engineError || '');
             Store.getState().ui.agentWorkdir = st.workdir || '';
             if (st.ready) {
               hideOverlay();
@@ -14215,20 +14259,46 @@
         pctEl.textContent = '0%';
         stageEl.textContent = 'Preparing…';
         stageEl.style.color = '';
+        lastOverlayLog = '';
+        if (logEl) logEl.replaceChildren();
+        appendOverlayLog(title);
+        appendOverlayLog('Preparing launch request');
         overlay.hidden = false;
       }
 
-      function updateOverlay(pct, stage) {
-        bar.style.width = `${pct}%`;
-        pctEl.textContent = `${pct}%`;
-        if (stage) stageEl.textContent = stage;
+      function updateOverlay(pct, stage, line) {
+        const safePct = Number.isFinite(Number(pct)) ? Math.max(0, Math.min(100, Number(pct))) : 0;
+        bar.style.width = `${safePct}%`;
+        pctEl.textContent = `${safePct}%`;
+        if (stage) {
+          stageEl.textContent = stage;
+          appendOverlayLog(stage);
+        }
+        if (line) appendOverlayLog(line);
       }
 
       function failOverlay(msg) {
         stageEl.textContent = msg;
         stageEl.style.color = 'var(--danger)';
+        appendOverlayLog(msg);
         setTimeout(hideOverlay, 3500);
         BuildDriver.onEngineFail(msg);  // retry-then-pause a planned-Build run (no-op unless active)
+      }
+
+      function appendOverlayLog(msg) {
+        if (!logEl) return;
+        const text = String(msg || '').replace(/\s+/g, ' ').trim();
+        if (!text) return;
+        const clipped = text.length > 220 ? `${text.slice(0, 217)}...` : text;
+        if (clipped === lastOverlayLog) return;
+        lastOverlayLog = clipped;
+        const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        logEl.append(el('div', { class: 'loading-log__line' }, [
+          el('span', { class: 'loading-log__time', text: ts }),
+          el('span', { class: 'loading-log__msg', text: clipped }),
+        ]));
+        while (logEl.children.length > 10) logEl.firstChild.remove();
+        logEl.scrollTop = logEl.scrollHeight;
       }
 
       function hideOverlay() { overlay.hidden = true; }

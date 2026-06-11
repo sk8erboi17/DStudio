@@ -3737,10 +3737,11 @@ static void api_status(int fd) {
         if (file_present(variant_rel(g_dl_variant)) && g_dl_pid <= 0) dl_pct = 100;
     }
 
-    char d4_esc[2100], web_esc[2100], err_esc[600], mf_esc[1100];
+    char d4_esc[2100], web_esc[2100], err_esc[600], line_esc[600], mf_esc[1100];
     json_escape_into(d4_esc, sizeof d4_esc, g_ds4_dir, strlen(g_ds4_dir));
     json_escape_into(web_esc, sizeof web_esc, g_web_dir, strlen(g_web_dir));
     json_escape_into(err_esc, sizeof err_esc, g_engine_err, strlen(g_engine_err));
+    json_escape_into(line_esc, sizeof line_esc, g_last_engine_line, strlen(g_last_engine_line));
     json_escape_into(mf_esc, sizeof mf_esc, current_model_rel(), strlen(current_model_rel()));
 
     char lan_addr[80];
@@ -3755,7 +3756,7 @@ static void api_status(int fd) {
         "\"models\":{\"standard\":%s,\"uncensored\":%s},"
         "\"variants\":{\"flash\":%s,\"pro\":%s},\"variant\":\"%s\","
         "\"download\":%s,\"downloadVariant\":\"%s\",\"downloadPct\":%lld,"
-        "\"engineError\":\"%s\",\"modelFile\":\"%s\",\"skill\":\"%s\",\"designSystem\":\"%s\",\"build\":%d}",
+        "\"engineError\":\"%s\",\"engineLine\":\"%s\",\"modelFile\":\"%s\",\"skill\":\"%s\",\"designSystem\":\"%s\",\"build\":%d}",
         mode_name(g_mode), g_child > 0 ? "true" : "false", g_ready ? "true" : "false",
         g_load_pct, stage_esc, g_agent_working ? "true" : "false", wd_esc, cfg,
         g_jsonl_active ? "true" : "false",
@@ -3763,7 +3764,7 @@ static void api_status(int fd) {
         lan_on ? "true" : "false", lan_addr, g_http_port,
         model_present(0) ? "true" : "false", model_present(1) ? "true" : "false",
         file_present(MODEL_FLASH) ? "true" : "false", file_present(MODEL_PRO) ? "true" : "false",
-        g_variant, g_dl_variant[0] ? "true" : "false", g_dl_variant, dl_pct, err_esc, mf_esc, g_skill, g_design_system,
+        g_variant, g_dl_variant[0] ? "true" : "false", g_dl_variant, dl_pct, err_esc, line_esc, mf_esc, g_skill, g_design_system,
         g_build_mode);
     send_json(fd, "200 OK", body);
 }

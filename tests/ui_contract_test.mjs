@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 const html = fs.readFileSync('web/index.html', 'utf8');
 const loadingHtml = fs.readFileSync('web/loading.html', 'utf8');
 const launcher = fs.readFileSync('src/dstudio.c', 'utf8');
+const webview = fs.readFileSync('src/webview.h', 'utf8');
 
 function scriptSource() {
   const m = html.match(/<script type="module">([\s\S]*?)<\/script>/);
@@ -209,6 +210,29 @@ try {
 }
 
 assert.match(js, /theme:\s*'light'/, 'default theme should stay light');
+assert.doesNotMatch(html, /id="doctor-strip"/, 'system check strip should not be visible in the main chat UI');
+assert.doesNotMatch(html, /doctor-strip|doctor-badge|doctor-fix/, 'system check strip CSS/classes should be removed');
+assert.doesNotMatch(js, /renderStrip|doctor-strip|doctor-badge|doctor-fix/, 'Doctor should not render the removed status strip');
+assert.doesNotMatch(html, /Model: ready|Agent: ready|Design: ready|Web: ready/, 'ready badges should not be visible in host or LAN UI');
+assert.match(html, /id="doctor-dialog"/, 'manual System check dialog should remain available');
+assert.match(html, /id="doctor-recheck"/, 'manual System check dialog should keep Recheck');
+assert.match(js, /label: 'System check'[\s\S]*run: \(\) => Doctor\.open\(\)/, 'System check should remain available from the gear menu');
+assert.match(html, /class="loading-spinner"/, 'engine loading overlay should show a spinner');
+assert.match(html, /id="loading-log"/, 'engine loading overlay should show a live log');
+assert.match(js, /appendOverlayLog\(title\)/, 'engine loading overlay should log launch start');
+assert.match(js, /updateOverlay\(st\.loadPct, st\.stage, st\.engineLine \|\| st\.engineError \|\| ''\)/, 'engine loading overlay should consume launcher log lines');
+assert.match(launcher, /\\"engineLine\\":\\"%s\\"/, 'status endpoint should expose the latest engine log line');
+assert.match(webview, /DS4_DIRECTORY_PICKER_SCRIPT/, 'native wrapper should inject the directory picker bridge');
+assert.match(webview, /NSOpenPanel \*panel = \[NSOpenPanel openPanel\]/, 'macOS wrapper should open the native folder explorer');
+assert.match(webview, /gtk_file_chooser_dialog_new/, 'Linux wrapper should open the native folder explorer');
+assert.match(webview, /IFileOpenDialog \*dlg = NULL/, 'Windows wrapper should open the native folder explorer');
+assert.match(webview, /FOS_PICKFOLDERS/, 'Windows folder explorer should be configured for directories');
+assert.match(webview, /ds4PickDirectory: \{ postMessage/, 'Windows WebView2 bridge should expose ds4PickDirectory');
+assert.match(webview, /ds4_windows_resolve_directory/, 'Windows native picker should resolve the JS promise');
+assert.match(webview, /ExecuteScript\(js, NULL\)/, 'Windows native picker should callback into the page');
+assert.match(js, /nativeDirectoryPickerAvailable/, 'Agent\/Design should prefer the native folder picker when available');
+assert.match(js, /window\.ds4PickDirectory/, 'Agent\/Design should call the native directory picker bridge');
+assert.match(js, /openWorkdirDialogFallback\(target, newSession/, 'custom workdir dialog should remain as fallback');
 assert.doesNotMatch(html, /no LAN IP detected/, 'UI must not accept the stale no-LAN-IP placeholder');
 assert.match(html, /LAN enabled - resolving address/, 'LAN toggle should show a resolving state while waiting');
 assert.match(js, /enable\s*&&\s*r\.lan\s*&&\s*!r\.lanAddr/, 'LAN toggle must reject enabled-without-address responses');
