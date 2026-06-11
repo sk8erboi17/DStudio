@@ -33,22 +33,12 @@ On first launch, DStudio runs a local system check for the engine folder, model,
 chat engine, agent, design runtime and Web Search. Missing pieces show a direct
 button such as **Choose**, **Download**, **Start** or **Settings**.
 
-## Why DStudio?
-
-- **Local AI, not rented AI.** Your chats, code, files, designs and generated apps stay on your machine.
-- **One DeepSeek V4 workspace.** Chat, code, design and Build mode run against the same local ds4 engine.
-- **Agentic workflows without a SaaS backend.** The coding agent edits files, runs commands and keeps per-session KV memory locally.
-- **Design and code in the same loop.** The design agent creates UI directions and Build mode turns approved pages into a runnable Django app.
-- **Low-friction native app.** A setup doctor checks the engine folder, GGUF model, chat, agent, design runtime, Web Search and network state.
-- **LAN when you want it.** Localhost by default; one switch lets you use the same conversations from a phone or tablet on trusted Wi-Fi.
-
 ## What You Can Do
 
 - Run **DeepSeek V4 locally** through a native macOS/Linux desktop interface.
 - Use a **private AI chat** with persistent KV cache, reasoning display, citations from optional Web Search and local history.
 - Use a **local coding agent** that reads, edits and verifies files inside a folder you choose.
 - Generate interface concepts with **ds4-design**, a design agent built on ds4.
-- Turn a product idea into a **runnable Django web app** with Build mode: interview, plan, design pages, wire files, review diffs.
 - Keep the engine private while still reaching the UI from another device on your LAN.
 
 ## Modes
@@ -59,7 +49,7 @@ A sidebar switches between Chat, Agent and Design. Each mode has its own reopena
 
 <div align="center">
 
-<img src="assets/demo.gif" width="820" alt="DStudio Chat demo showing local DeepSeek V4 chat, files and canvas">
+<img src="assets/demo.gif" width="820" alt="DStudio Chat demo showing local DeepSeek V4 chat, file generation and canvas preview">
 
 </div>
 
@@ -99,11 +89,11 @@ The whole pipeline, from a one-line idea to laid-out screens:
 
 ## 🏗️ Build — from a chat goal to a runnable web app
 
-Toggle **Build** in Agent mode and a one-line product idea becomes a **real, runnable Django web app** — built page by page on your machine. A deterministic driver, not the model, walks the plan and decides *done* from the filesystem, so local quantization mistakes are easier to catch and recover from.
+Toggle **Build** in Agent mode and a one-line product idea becomes a **real, runnable web app** — built page by page on your machine. A deterministic driver, not the model, walks the plan and decides *done* from the filesystem, while the model chooses the appropriate stack for the brief and repository context.
 
 <div align="center">
 
-<img src="assets/README%20images/build.png" width="460" alt="DStudio Build mode toggle for creating a local Django web app with DeepSeek V4">
+<img src="assets/README%20images/build.png" width="460" alt="DStudio Build mode toggle for creating a local web app with DeepSeek V4">
 
 </div>
 
@@ -113,7 +103,7 @@ Toggle **Build** in Agent mode and a one-line product idea becomes a **real, run
 
 **2 · It proposes a plan.** Once it has enough, it lays out the pages plus a one-line style direction. Nothing is written until you approve it.
 
-**3 · It builds page by page, switching agents.** For each page the driver **switches engines**: the **design agent** makes the page's look (style-locked to the first approved page), then the **coding agent** wires that exact page into Django — models, views, urls, forms, templates. You're in the loop once: approve the first page's look, which locks the design tokens for the rest.
+**3 · It builds page by page, switching agents.** For each page the driver **switches engines**: the **design agent** makes the page's look (style-locked to the first approved page), then the **coding agent** wires that exact page into the app structure selected for the project. You're in the loop once: approve the first page's look, which locks the design tokens for the rest.
 
 **4 · Queue follow-ups while it builds.** Type while it works — your message doesn't interrupt the current page; it's queued and applied after the page is done, and if it's ambiguous the agent asks a quick clarifying question first.
 
@@ -236,7 +226,7 @@ DeepSeek V4 keeps the conversation in ds4-server's **KV cache** instead of re-en
 Where DStudio is headed (ideas, not promises):
 
 - **Sharper Design studio** — higher-fidelity screens, more distinct directions and faster refine loops on the canvas.
-- **More Build targets** — keep Django first-class, then expand the deterministic driver to more local web-app stacks.
+- **Sharper Build mode** — let the model choose the right local web-app stack, then make the deterministic driver better at validating the result.
 - **Cowork** — collaborative sessions: share a workspace and build alongside the local model.
 - **MCP** — Model Context Protocol support so the agent can plug into external tools and data sources beyond the working directory.
 

@@ -6782,6 +6782,12 @@
       }
 
       async function refresh() {
+        const mode = typeof Switcher !== 'undefined' && Switcher.mode ? Switcher.mode() : 'server';
+        const launching = typeof Switcher !== 'undefined' && Switcher.launching ? Switcher.launching() : null;
+        if (mode === 'agent' || mode === 'design' || launching === 'agent' || launching === 'design') {
+          render();
+          return;
+        }
         const ok = await Api.checkHealth();
         Store.setConnection(ok ? 'ok' : 'down');
       }
@@ -6790,9 +6796,19 @@
         // In agent/design the :28000 chat probe is misleading ("Server
         // unreachable" while the engine works fine): show the engine mode.
         const mode = typeof Switcher !== 'undefined' && Switcher.mode ? Switcher.mode() : 'server';
+        const launching = typeof Switcher !== 'undefined' && Switcher.launching ? Switcher.launching() : null;
+        if (launching === 'agent' || launching === 'design') {
+          indicator.className = 'conn conn--ok';
+          indicator.textContent = launching === 'design' ? 'Starting design agent...' : 'Starting coding agent...';
+          indicator.style.cursor = '';
+          indicator.title = '';
+          return;
+        }
         if (mode === 'agent' || mode === 'design') {
           indicator.className = 'conn conn--ok';
           indicator.textContent = mode === 'design' ? 'Design agent active' : 'Coding agent active';
+          indicator.style.cursor = '';
+          indicator.title = '';
           return;
         }
         const st = Store.getState();
@@ -14509,6 +14525,7 @@
       let tabServer, tabAgent, tabDesign, overlay, bar, stageEl, pctEl, titleEl, logEl;
       let mode = 'server';
       let switching = false;
+      let launchTarget = null;
       let lastOverlayLog = '';
       let dialogTarget = 'agent'; // the workdir dialog is shared between agent and design
       let dialogNewSession = false; // the picker was opened by "+ New session"
@@ -14720,9 +14737,10 @@
             Store.setModelState({ download: { variant: st.downloadVariant, pct: st.downloadPct } });
             if (!dlPoll) dlPoll = setInterval(pollDownload, 2000); // resume polling after a reload
           }
+          if (switching || launchTarget) return;
           setMode(isLanHostMode() ? 'server' : ((st.mode === 'agent' || st.mode === 'design') && st.running ? st.mode : 'server'));
         } catch {
-          setMode('server');
+          if (!switching && !launchTarget) setMode('server');
         }
       }
 
@@ -15839,15 +15857,25 @@
 
       async function runSwitch(target, cfg, title, force) {
         switching = true;
+        launchTarget = target;
+        Statusbar.render();
         showOverlay(title);
         let res;
         try { res = await Engine.start(cfg, force); }
-        catch { failOverlay('Unable to contact the launcher (is dstudio.c active?)'); switching = false; return; }
+        catch {
+          failOverlay('Unable to contact the launcher (is dstudio.c active?)');
+          switching = false;
+          launchTarget = null;
+          Statusbar.render();
+          return;
+        }
         // An external ds4-server holds the instance-lock: instead of dead-ending
         // on the overlay, offer to kill it and restart in this mode.
         if (res && res.code === 'external_server') {
           hideOverlay();
           switching = false;
+          launchTarget = null;
+          Statusbar.render();
           askConfirm({
             title: 'A ds4-server is already running',
             body: `Another ds4-server (port ${res.port || 28000}) is running outside the launcher — ` +
@@ -15856,9 +15884,16 @@
           }).then((yes) => { if (yes) runSwitch(target, cfg, title, true); });
           return;
         }
-        if (!res || !res.ok) { failOverlay(res?.error || 'Startup failed'); switching = false; return; }
+        if (!res || !res.ok) {
+          failOverlay(res?.error || 'Startup failed');
+          switching = false;
+          launchTarget = null;
+          Statusbar.render();
+          return;
+        }
 
         const t0 = Date.now();
+        const timeoutMs = target === 'server' ? 180000 : 15 * 60 * 1000;
         let deaths = 0;
         const tick = async () => {
           let st = null;
@@ -15869,6 +15904,7 @@
             if (st.ready) {
               hideOverlay();
               switching = false;
+              launchTarget = null;
               if (target === 'agent' || target === 'design') {
                 const cur = Store.getSettings().workdirs || {};
                 const wd = cfg.workdir || st.workdir || '';
@@ -15890,10 +15926,19 @@
             if (!st.running && ++deaths >= 2) {
               failOverlay('Engine terminated during startup' + (st.engineError ? ' — ' + st.engineError : '. Check the engine log') + '.');
               switching = false;
+              launchTarget = null;
+              Statusbar.render();
               return;
             }
           }
-          if (Date.now() - t0 > 180000) { failOverlay('Loading timeout (the engine took over 3 min to start). Check the engine log.'); switching = false; return; }
+          if (Date.now() - t0 > timeoutMs) {
+            const mins = Math.round(timeoutMs / 60000);
+            failOverlay(`Loading timeout (the engine took over ${mins} min to start). Check the engine log.`);
+            switching = false;
+            launchTarget = null;
+            Statusbar.render();
+            return;
+          }
           setTimeout(tick, 500);
         };
         tick();
@@ -16000,7 +16045,7 @@
         openWorkdirDialog(target);
       }
 
-      return { mount, mode: () => mode, changeWorkdir, applyCtxSize, applyJsonl, applyThinkLevel, openImport, switchModel, switchToGguf, switchSkill, switchDesignSystem, switchBuild, downloadModel, newSession,
+      return { mount, mode: () => mode, launching: () => launchTarget, changeWorkdir, applyCtxSize, applyJsonl, applyThinkLevel, openImport, switchModel, switchToGguf, switchSkill, switchDesignSystem, switchBuild, downloadModel, newSession,
                buildPlanActive: () => BuildDriver.active(), buildPlanArmed: () => BuildDriver.armed(), buildPlanArm: (g) => BuildDriver.arm(g),
                buildPlanInterviewing: () => BuildDriver.interviewing(), buildPlanExpectReply: () => BuildDriver.expectReply(), buildPlanCancel: () => BuildDriver.cancel(false),
                buildPlanReady: (t) => BuildDriver.onReady(t), buildPlanIdle: (vm, tx) => BuildDriver.onIdle(vm, tx), buildPlanArtifact: () => BuildDriver.onArtifact(),

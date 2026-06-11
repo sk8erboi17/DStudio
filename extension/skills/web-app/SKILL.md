@@ -1,8 +1,8 @@
 ---
 name: web-app
-description: Turn a static design (HTML/CSS/JS) into a real, runnable web app — Django (Python) backend wired to the design's frontend. Build it so `runserver` works, end to end.
+description: Turn a static design into a real, runnable web app. Preserve the design, choose the right local stack from the brief and repository context, wire behavior/data, and verify that it boots end to end.
 modes: [build]
-when_to_use: Building an actual web application from a design — a Django + HTML/CSS/JS app, with models, views, templates, forms, auth and a runnable result. Used by Build mode (design → agent handoff) and on demand via skill(web-app).
+when_to_use: Building an actual web application from a design: routing, pages, state/data, forms, auth when needed, assets, run steps and verification. Used by Build mode (design -> agent handoff) and on demand via skill(web-app).
 ds4_category: web-ui-prototype
 ds4_local_mode: native
 ds4_output_kinds: image-brief
@@ -11,90 +11,86 @@ ds4_upstream: dstudio/web-app
 
 # SKILL: web-app
 
-You are a senior full-stack engineer. The **design phase already produced static
-HTML/CSS/JS** in the working directory (the look is decided). Your job: turn it into a
-**working Django web app** — keep the design's look exactly, make it real and dynamic, and
-leave it so `python manage.py runserver` actually serves it.
+You are a senior full-stack engineer. The design phase already produced static
+HTML/CSS/JS in the working directory. Your job is to turn that design into a real,
+runnable web app while preserving the visual result exactly.
 
-Don't redesign. Don't invent a different UI. **Preserve the design**, wire it to a backend.
+Do not redesign. Do not replace the UI with a different style. Preserve the design,
+then wire it to behavior, routes, data, validation and persistence as required by the
+brief.
 
-## Method (work in small, verified steps)
+## Stack choice
 
-1. **Read the design first.** List the HTML files, open them, note the pages, shared
-   chrome (nav/footer), the CSS/JS, and what's dynamic (lists, forms, auth, detail pages).
-2. **Scaffold Django** (only if not already there):
-   ```
-   python -m venv .venv && . .venv/bin/activate
-   pip install "Django>=5" && pip freeze > requirements.txt
-   django-admin startproject config .        # project in cwd, package "config"
-   python manage.py startapp <app>            # one app per domain area
-   ```
-3. **Wire the design into templates** (the key step — see below).
-4. **Model the data**, make migrations, migrate. **Views + URLs** for each page. **Forms**
-   for each form in the design. Then auth/admin if needed.
-5. **Run it after every step**: `python manage.py runserver` and the relevant `check` /
-   `makemigrations --check` — fix before moving on. A web-app skill that doesn't boot is a
-   failure.
+- Choose the app stack from the user request, existing repository files, available
+  tooling, deployment target and complexity of the product.
+- If the repo already has a stack, continue it unless there is a clear reason not to.
+- If the brief does not imply a stack, pick the smallest local stack that can satisfy
+  the product cleanly and explain the choice briefly in the final summary.
+- Do not force a preset stack. The model decides from evidence.
 
-## Converting the design HTML → Django templates (do this carefully)
+## Method
 
-- Create `templates/base.html` from the design's shared shell: move `<head>`, nav, footer
-  into it, with `{% block content %}{% endblock %}` (and `{% block title %}`,
-  `{% block extra_head %}`) where pages differ.
-- Each design page becomes `templates/<page>.html` with `{% extends "base.html" %}` +
-  `{% block content %}` holding that page's unique markup. **Don't duplicate the shell.**
-- **Static assets**: move CSS/JS/images to `static/`, load with `{% load static %}` and
-  `{% static 'css/app.css' %}`. Configure `STATIC_URL`, `STATICFILES_DIRS`. Don't inline
-  what the design kept in files; keep the design's CSS intact (don't rewrite it).
-- **Replace hardcoded content with template logic**: the design's example rows/cards become
-  `{% for item in items %}…{% endfor %}` over real context; hardcoded text that's data
-  becomes `{{ object.field }}`. Keep the markup/classes identical so the CSS still applies.
-- **Links/forms**: hrefs → `{% url 'name' %}`; every `<form>` gets `method`, `action
-  {% url %}`, and **`{% csrf_token %}`**. Forms render from Django `Form`/`ModelForm` but
-  keep the design's field markup/classes (use widget attrs or render fields manually).
+1. **Read the design first.** List the produced files, open the pages, identify shared
+   chrome, assets, scripts, responsive behavior and dynamic areas.
+2. **Read the project context.** Check existing package files, server entrypoints,
+   routing, conventions, tests and run commands before creating new structure.
+3. **Create or extend the app shell.** Add only the minimal project structure needed to
+   run the app locally.
+4. **Preserve the UI.** Move shared layout, styles and assets into the selected app
+   structure without changing class names or visual decisions.
+5. **Wire behavior/data.** Convert sample rows, cards, forms and detail pages into real
+   state or persisted data where the brief needs it.
+6. **Verify stepwise.** Run the smallest available checks after meaningful edits, fix
+   failures immediately, and do not claim success until the app boots.
 
-## Backend craft (Django)
+## Converting Static Design Into A Web App
 
-- **Layout**: `config/` (settings, urls, wsgi/asgi), one or more apps, `templates/`,
-  `static/`, `manage.py`, `requirements.txt`, `.gitignore` (`.venv`, `db.sqlite3`,
-  `__pycache__`, `.env`, `staticfiles`).
-- **Settings, safely**: `SECRET_KEY` from env (`os.environ`), `DEBUG = os.environ.get(...)
-  == "1"` (default off for prod, on for local), real `ALLOWED_HOSTS`. Never commit secrets.
-- **Models** are the source of truth: clear fields, `__str__`, `Meta.ordering`,
-  relationships; `makemigrations` + `migrate`; register in `admin.py`.
-- **Views**: prefer class-based (`ListView`/`DetailView`/`CreateView`) or thin function
-  views; pass real context; handle GET/POST; 404 with `get_object_or_404`.
-- **URLs**: app `urls.py` with named patterns, included from `config/urls.py`.
-- **Forms**: `ModelForm` with validation; show errors inline in the design's style; never
-  trust input.
-- **Auth** (if the design has login/signup): `django.contrib.auth`, `LoginView`/`LogoutView`,
-  `@login_required`/`LoginRequiredMixin`, the design's auth pages as templates.
-- **Security**: CSRF on every form, `DEBUG=False` in prod, no secrets in code, escape output
-  (Django autoescapes — don't `|safe` user data), validate/whitelist.
+- Extract shared shell once: document head, navigation, footer, layout wrappers and
+  global assets should not be duplicated across pages.
+- Keep page-specific markup isolated so each route/page owns only its unique content.
+- Keep the design's CSS and class names intact. If refactoring is necessary, preserve
+  the rendered layout, spacing, typography and responsive behavior.
+- Move assets into the selected app's asset convention and update references without
+  breaking relative paths.
+- Replace hardcoded examples with real data only where it improves the app. If the brief
+  is a simple static site, do not over-engineer persistence.
+- Forms must have real submission behavior, validation, error states and success states.
+- Links and navigation must point to real routes/pages, not dead placeholders.
 
-## Frontend (keep the design, enhance it)
+## Backend And Data
 
-- HTML/CSS stay the design's — semantic, accessible (cross-ref `craft(accessibility)`),
-  responsive. **Don't break the CSS** by changing classes.
-- JS as **progressive enhancement**: the page works without it; JS adds interactivity (fetch
-  to JSON endpoints, form UX, toggles). Vanilla or a small lib — match the design.
-- If the app needs live data, add JSON views/endpoints and `fetch()` them; otherwise render
-  server-side.
+- Add a server only when the app needs routing beyond static files, persistence, auth,
+  form handling, uploads, APIs or runtime behavior.
+- Keep data models minimal and shaped around the product, not around demo content.
+- Validate all user input. Escape output by default. Never commit secrets.
+- Keep configuration local-friendly: clear run command, environment notes when needed,
+  and safe defaults.
+- If auth is required, implement only the flows the brief needs and preserve the design's
+  screens.
 
-## Deliverable & run
+## Frontend
 
-- It must **boot**: `pip install -r requirements.txt`, `migrate`, `runserver` → the pages
-  render with the design intact and the dynamic parts working.
-- A short `README` with the run steps. Seed/sample data if it helps demo it.
+- The design is the contract. Preserve visual language, component density, typography,
+  colors, spacing and responsive behavior.
+- JavaScript should be progressive: use it to enhance interactions, not to hide missing
+  server behavior.
+- If live data is needed, add a small data endpoint or server-rendered state depending on
+  the selected stack.
+- Keep accessibility basics: labels, keyboard focus, semantic controls, alt text and
+  sensible error messages.
 
-## Self-check before finishing
+## Deliverable
 
-- **No leftover server**: verify with `manage.py check` (and `makemigrations --check`). If you
-  ever start `runserver` to look, **stop it** — never leave a dev server running in the
-  background; it squats a port and breaks other apps.
-- **It runs**: every page renders, `manage.py check` clean, migrations applied?
-- **Design preserved**: same look, CSS intact, classes unchanged, responsive still works?
-- **Real, not static**: lists/detail/forms backed by models; forms validate + CSRF?
-- **Safe**: SECRET_KEY/DEBUG from env, no secrets committed, output escaped?
-- **Templated, not duplicated**: one base, pages extend it, static via `{% static %}`?
-- **Verified stepwise**: you ran it as you went, not just at the end?
+- A runnable local app in the working directory.
+- A short README or run note when the command is not obvious.
+- Seed/sample data only when it makes the demo meaningful.
+- No leftover background servers.
+
+## Self-check Before Finishing
+
+- **Boots locally:** the documented command starts the app.
+- **Design preserved:** the generated pages still look like the approved design.
+- **Real enough:** required forms, routes, state/data and interactions work.
+- **No dead paths:** assets, links and routes resolve.
+- **Safe defaults:** no secrets, validated input, escaped output.
+- **Verified:** run checks/tests/builds available in the selected stack.

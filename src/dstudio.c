@@ -456,7 +456,7 @@ static int  g_srv_fd = -1;     /* HTTP listen socket (rebindable for the LAN tog
 static int  g_http_port = 5500;
 static int  g_reply_cors = 0;
 /* Set by the windowed launcher (app.cc) BEFORE forking the server: a pre-picked FREE port,
- * so if 5500 is squatted (e.g. a leftover Django runserver) DStudio opens on the next free
+ * so if 5500 is squatted (e.g. a leftover dev server) DStudio opens on the next free
  * port instead of a blank window. 0 = not forced (CLI/headless uses the argv/default port). */
 int ds4ui_forced_port = 0;
 
@@ -3367,7 +3367,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
             "Ask a compact clarification first, then stop, when the user asks for a NEW "
             "app/site/UI/product flow/brand-facing page and two or more of these are missing "
             "from the prompt and repository context: target user, primary workflow, required "
-            "stack/framework, page/screen list, visual direction/brand/reference, must-have "
+            "technical stack, page/screen list, visual direction/brand/reference, must-have "
             "data or integrations, non-goals/constraints.\n"
             "For UI/design work, ask especially when the visual direction is absent: audience, "
             "vibe, reference/brand, and scope are direction-setting. When you ask, use the "
@@ -3397,11 +3397,11 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
             "ONE page to wire — its static design HTML is already here.\n"
             "- Do EXACTLY the page you're told this turn — nothing else. Don't build other pages, "
             "don't scaffold ahead, don't 'finish the app'. The driver decides what comes next.\n"
-            "- Scaffold the backend on the FIRST page only (per your skill, e.g. web-app/Django: "
-            "project, base.html, settings, requirements.txt). On later pages, reuse it.\n"
+            "- On the FIRST page only, choose or extend the app stack from the brief, repo context "
+            "and active web-app skill. On later pages, reuse that structure.\n"
             "- Convert that page's HTML into a template that extends the shared base, wire its "
-            "model/view/URL/form, keep the look intact, and make the page render.\n"
-            "- Run `manage.py check` (and a quick `runserver` sanity) before ending the turn. "
+            "route, data, forms and behavior, keep the look intact, and make the page render.\n"
+            "- Run the selected stack's fastest check/build/smoke command before ending the turn. "
             "Then STOP — do NOT request design pages (the driver supplies them), do NOT continue "
             "to another page. The driver verifies the result on disk and feeds you the next page.\n";
         size_t cur = skill_sys ? strlen(skill_sys) : 0, pl = strlen(proto_plan);

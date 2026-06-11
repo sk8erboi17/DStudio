@@ -236,6 +236,13 @@ assert.match(html, /class="loading-spinner"/, 'engine loading overlay should sho
 assert.match(html, /id="loading-log"/, 'engine loading overlay should show a live log');
 assert.match(js, /appendOverlayLog\(title\)/, 'engine loading overlay should log launch start');
 assert.match(js, /updateOverlay\(st\.loadPct, st\.stage, st\.engineLine \|\| st\.engineError \|\| ''\)/, 'engine loading overlay should consume launcher log lines');
+assert.match(js, /let launchTarget = null;/, 'mode switcher should track the launch target separately from the active mode');
+assert.match(js, /launching: \(\) => launchTarget/, 'mode switcher should expose the current launch target');
+assert.match(js, /launching === 'agent' \|\| launching === 'design'[\s\S]*render\(\);[\s\S]*return;[\s\S]*Api\.checkHealth\(\)/, 'statusbar should not run chat health while agent or design is launching');
+assert.match(js, /Starting design agent\.\.\.[\s\S]*Starting coding agent\.\.\./, 'statusbar should show explicit startup state for design and agent');
+assert.match(js, /if \(switching \|\| launchTarget\) return;[\s\S]*setMode\(isLanHostMode\(\) \? 'server'/, 'engine sync should not force the UI back to chat during a mode switch');
+assert.match(js, /launchTarget = target;[\s\S]*Statusbar\.render\(\);[\s\S]*showOverlay\(title\)/, 'runSwitch should publish launch state before showing the startup overlay');
+assert.match(js, /const timeoutMs = target === 'server' \? 180000 : 15 \* 60 \* 1000;/, 'agent/design startup should allow longer model and system-prompt loading than chat server startup');
 assert.match(launcher, /\\"engineLine\\":\\"%s\\"/, 'status endpoint should expose the latest engine log line');
 assert.match(webview, /DS4_DIRECTORY_PICKER_SCRIPT/, 'native wrapper should inject the directory picker bridge');
 assert.match(webview, /NSOpenPanel \*panel = \[NSOpenPanel openPanel\]/, 'macOS wrapper should open the native folder explorer');
