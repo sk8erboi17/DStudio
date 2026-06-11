@@ -52,6 +52,7 @@ echo "windows-cygwin: building ds4-design"
 "$MAKE_BIN" -C "$DS4_DIR" -f "$ROOT/extension/design/design.mk" \
   CC="$CC_BIN" \
   DESIGN_SRC="$ROOT/extension/design/ds4_design.c" \
+  REMOTE_DIR="$ROOT/extension/remote" \
   CFLAGS="$CPU_CFLAGS" \
   CORE_OBJS="ds4_cpu.o ds4_distributed.o ds4_ssd.o" \
   METAL_LDLIBS="-lm -pthread" \

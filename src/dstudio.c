@@ -5709,7 +5709,7 @@ static char *json_top_value_dup(const char *json, const char *key, char required
         if (!ve) return NULL;
         if (kl == key_len && !strncmp(ks, key, key_len) &&
             (!required_first || *vs == required_first)) {
-            return strndup(vs, (size_t)(ve - vs));
+            return ds4_strndup_local(vs, (size_t)(ve - vs));
         }
         p = ve;
         p += strspn(p, " \t\r\n");
@@ -6348,7 +6348,7 @@ static const char *web_last_header_split(const char *s) {
 static char *web_strndup_cap(const char *s, size_t n, size_t cap) {
     if (!s) s = "";
     if (n > cap) n = cap;
-    return strndup(s, n);
+    return ds4_strndup_local(s, n);
 }
 
 static long long web_now_ms(void) {
