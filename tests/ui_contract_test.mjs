@@ -270,6 +270,13 @@ assert.match(windowsBuild, /Write-Base64Header[\s\S]*loading\.html[\s\S]*LOADING
 assert.match(windowsBuild, /Get-NativeTool @\("clang-cl", "cl"\)/, 'Windows build should accept clang-cl or cl');
 assert.match(windowsBuild, /\$Candidates = @\(/, 'Windows build should search common ds4 checkout locations');
 assert.match(windowsDs4Build, /REMOTE_DIR="\$ROOT\/extension\/remote"/, 'Windows ds4-design build should include DStudio remote adapter');
+assert.match(windowsDs4Build, /\/ucrt64\/bin\/gcc \/mingw64\/bin\/gcc \/clang64\/bin\/gcc \/usr\/bin\/gcc/, 'Windows DS4 build should prefer native MinGW toolchains before MSYS gcc');
+assert.match(windowsBuild, /libgcc_s_seh-1\.dll/, 'Windows package should include the MinGW GCC runtime');
+assert.match(windowsBuild, /Copy-Item \$src \$Ds4Dir -Force/, 'Windows package should copy runtime DLLs next to DS4 engine binaries too');
+assert.match(launcher, /win_prepare_engine_runtime/, 'Windows launcher should prepare runtime DLL lookup before spawning DS4 tools');
+assert.match(launcher, /win_copy_runtime_dlls_to_ds4/, 'Windows launcher should copy packaged runtime DLLs into the selected DS4 folder');
+assert.match(launcher, /SetErrorMode\(SEM_FAILCRITICALERRORS \| SEM_NOGPFAULTERRORBOX \| SEM_NOOPENFILEERRORBOX\)/, 'Windows launcher should suppress loader error dialogs and surface failures in DStudio');
+assert.match(launcher, /C:\\\\msys64\\\\usr\\\\bin;C:\\\\msys64\\\\ucrt64\\\\bin;C:\\\\msys64\\\\mingw64\\\\bin/, 'Windows launcher PATH should include common MSYS2 runtime directories');
 assert.match(launcher, /ds4_strndup_local\(vs, \(size_t\)\(ve - vs\)\)/, 'Windows launcher build should not depend on POSIX strndup');
 assert.match(launcher, /ds4_strndup_local\(s, n\)/, 'Windows web reader should not depend on POSIX strndup');
 assert.match(app, /CreateMutexA\(NULL, TRUE, "Local\\\\DStudioSingleInstance"\)/, 'Windows app startup should block a second DStudio instance');

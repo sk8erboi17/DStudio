@@ -22,9 +22,9 @@ if ! command -v "$MAKE_BIN" >/dev/null 2>&1 && [ ! -x "$MAKE_BIN" ]; then
   exit 127
 fi
 
-CC_BIN="${CC:-gcc}"
-if ! command -v "$CC_BIN" >/dev/null 2>&1; then
-  for candidate in /usr/bin/gcc /mingw64/bin/gcc /ucrt64/bin/gcc /clang64/bin/gcc; do
+CC_BIN="${CC:-}"
+if [ -z "$CC_BIN" ]; then
+  for candidate in /ucrt64/bin/gcc /mingw64/bin/gcc /clang64/bin/gcc /usr/bin/gcc; do
     if [ -x "$candidate" ]; then CC_BIN="$candidate"; break; fi
   done
 fi

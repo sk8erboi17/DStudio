@@ -7,7 +7,7 @@
 **An open-source local AI studio for DeepSeek V4 and ds4: private chat, a local coding agent, a design agent, Web Search and Build mode for real web apps. Runs on your machine. No cloud required.**
 
 ![license](https://img.shields.io/badge/license-BSD--3--Clause-blue)
-![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux-black)
+![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux_%7C_Windows-black)
 ![ai](https://img.shields.io/badge/AI-100%25_local-success)
 ![engine](https://img.shields.io/badge/engine-DeepSeek_V4-orange)
 ![deps](https://img.shields.io/badge/dependencies-zero-brightgreen)
@@ -19,7 +19,7 @@ DStudio turns [ds4](https://github.com/antirez/ds4), antirez's local DeepSeek V4
 
 In plain terms: DStudio is a **ds4 GUI**, a **local DeepSeek V4 desktop app**, a **private coding agent** and a **local AI design/build studio** packaged as one open-source project.
 
-On macOS it ships as **DStudio.app**: double-click from Finder, no Terminal. The UI is a single vanilla `index.html` embedded in a small C launcher, so there is no Electron bundle, no framework build step, no CDN and no telemetry.
+On macOS it ships as **DStudio.app**: double-click from Finder, no Terminal. On Windows it ships as a portable folder with `DStudio.exe` and the DS4 runtime binaries. The UI is a single vanilla `index.html` embedded in a small C launcher, so there is no Electron bundle, no framework build step, no CDN and no telemetry.
 
 ## 30-second start
 
@@ -28,6 +28,8 @@ make
 open DStudio.app        # macOS
 # or: ./dstudio         # Linux/headless workflows
 ```
+
+Windows users should use the portable zip and run `DStudio.exe`.
 
 On first launch, DStudio runs a local system check for the engine folder, model,
 chat engine, agent, design runtime and Web Search. Missing pieces show a direct
@@ -126,7 +128,7 @@ DStudio is for local-AI builders who have the hardware to run DeepSeek V4 and wa
 
 This is a serious local AI setup. DStudio removes product friction, not physics:
 
-- **OS.** One `make` builds the branded app per platform: **DStudio.app** on **macOS** (Apple Silicon is the primary tested target) and a **`dstudio`** binary on **Linux** (WebKitGTK / GTK3 via `webkit2gtk-4.1`). Linux is less exercised, and `ds4` itself must be built for your platform.
+- **OS.** One `make` builds the branded app per platform: **DStudio.app** on **macOS** (Apple Silicon is the primary tested target), a **`dstudio`** binary on **Linux** (WebKitGTK / GTK3 via `webkit2gtk-4.1`) and a portable **Windows x64** folder/zip via `make windows`. Linux and Windows are less exercised, and `ds4` itself must be built for your platform.
 - A C compiler (`cc` / `clang`). `node` is optional, only for `make check`.
 - **[antirez's ds4](https://github.com/antirez/ds4)** — clone it and build it in a **sibling folder** of DStudio (`git clone https://github.com/antirez/ds4`, default `../ds4`, also resolved at `~/Documents/dev/ds4`), so the `ds4-server` / `ds4-agent` binaries exist. The rich agent mode targets antirez's **original** ds4 source; on a **fork**, switch **Agent output → Raw** in Settings (see *The agent patch* under [How it works](#how-it-works)).
 - **A DeepSeek V4 GGUF model.** Two variants (IQ2_XXS, 2-bit):
@@ -138,6 +140,18 @@ This is a serious local AI setup. DStudio removes product friction, not physics:
 > Not packing a 96 GB Mac? The screenshots above show every mode in action — chat, the coding agent, the design pipeline and LAN access.
 
 `ds4-design` lives in **this** repo (`extension/design/ds4_design.c`) and is compiled into the ds4 repo automatically the first time you open Design.
+
+### Windows notes
+
+For normal use, download/extract the Windows portable zip and run `DStudio.exe`. Keep the files together: `DStudio.exe`, `ds4-server.exe`, `ds4-agent.exe`, `ds4-agent-jsonl.exe`, `ds4-design.exe` and the runtime DLLs are meant to live in the same portable folder.
+
+If you build DStudio or use Agent/Design from a LAN client with your own local DS4 checkout, install:
+
+- **Microsoft Edge WebView2 Runtime** if your Windows install does not already have it.
+- **MSYS2 UCRT64** build tools: `pacman -S --needed make gcc git patch`.
+- **Visual Studio Build Tools** or `clang-cl` for building the native Windows wrapper.
+
+The error `msys-gcc_s-seh-1.dll was not found` means Windows found `ds4-agent-jsonl.exe` but not the MSYS2 runtime DLLs it was built with. Recent DStudio builds copy those DLLs next to the selected DS4 binaries and add the common MSYS2 runtime paths before launching the tools; if you move only the `.exe` files by hand, copy the DLLs too or rebuild the Windows portable package.
 
 ## Quick start
 

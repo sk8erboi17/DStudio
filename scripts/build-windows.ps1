@@ -187,11 +187,26 @@ foreach ($e in $Engine) {
 
 $RuntimeDlls = @(
   "cygwin1.dll", "cyggcc_s-seh-1.dll",
-  "msys-2.0.dll", "msys-gcc_s-seh-1.dll"
+  "msys-2.0.dll", "msys-gcc_s-seh-1.dll",
+  "libgcc_s_seh-1.dll", "libwinpthread-1.dll", "libstdc++-6.dll"
 )
 foreach ($dll in $RuntimeDlls) {
-  $src = Join-Path $CygwinRoot "bin\$dll"
-  if (Test-Path $src) { Copy-Item $src $OutDir -Force }
+  $src = $null
+  foreach ($dir in @(
+    (Join-Path $CygwinRoot "bin"),
+    "C:\msys64\ucrt64\bin",
+    "C:\msys64\mingw64\bin",
+    "C:\msys64\clang64\bin",
+    "C:\msys64\usr\bin",
+    "C:\cygwin64\bin"
+  )) {
+    $candidate = Join-Path $dir $dll
+    if (Test-Path $candidate) { $src = $candidate; break }
+  }
+  if ($src) {
+    Copy-Item $src $OutDir -Force
+    Copy-Item $src $Ds4Dir -Force
+  }
 }
 
 @"

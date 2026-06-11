@@ -1592,6 +1592,73 @@ static void win_join_path(char *out, size_t outsz, const char *a, const char *b)
     snprintf(out, outsz, "%s\\%s", a ? a : ".", b ? b : "");
 }
 
+static int win_app_dir(char *out, size_t outsz) {
+    DWORD n = GetModuleFileNameA(NULL, out, (DWORD)outsz);
+    if (n == 0 || n >= outsz) return 0;
+    char *s1 = strrchr(out, '\\');
+    char *s2 = strrchr(out, '/');
+    char *slash = s1 > s2 ? s1 : s2;
+    if (!slash) return 0;
+    *slash = '\0';
+    return 1;
+}
+
+static void win_copy_runtime_dlls_to_ds4(void) {
+    char appdir[DSTUDIO_PATH_MAX];
+    const char *dirs[8];
+    int nd = 0;
+    if (win_app_dir(appdir, sizeof appdir)) dirs[nd++] = appdir;
+    dirs[nd++] = "C:\\msys64\\usr\\bin";
+    dirs[nd++] = "C:\\msys64\\ucrt64\\bin";
+    dirs[nd++] = "C:\\msys64\\mingw64\\bin";
+    dirs[nd++] = "C:\\msys64\\clang64\\bin";
+    dirs[nd++] = "C:\\cygwin64\\bin";
+    dirs[nd] = NULL;
+
+    static const char *dlls[] = {
+        "msys-2.0.dll", "msys-gcc_s-seh-1.dll",
+        "cygwin1.dll", "cyggcc_s-seh-1.dll",
+        "libgcc_s_seh-1.dll", "libwinpthread-1.dll",
+        "libstdc++-6.dll", NULL
+    };
+    for (int i = 0; dlls[i]; i++) {
+        char dst[DSTUDIO_PATH_MAX + 128];
+        win_join_path(dst, sizeof dst, g_ds4_dir, dlls[i]);
+        for (int d = 0; d < nd; d++) {
+            char src[DSTUDIO_PATH_MAX + 128];
+            win_join_path(src, sizeof src, dirs[d], dlls[i]);
+            if (access(src, R_OK) != 0) continue;
+            if (!_stricmp(src, dst)) break;
+            CopyFileA(src, dst, FALSE);
+            break;
+        }
+    }
+}
+
+static void win_prepare_engine_runtime(void) {
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+    win_copy_runtime_dlls_to_ds4();
+
+    static char prepared_for[DSTUDIO_PATH_MAX] = "";
+    if (!strcmp(prepared_for, g_ds4_dir)) return;
+
+    char appdir[DSTUDIO_PATH_MAX];
+    if (!win_app_dir(appdir, sizeof appdir)) appdir[0] = '\0';
+    const char *old = getenv("PATH");
+    const char *prefix_fmt = "%s;%s;C:\\msys64\\usr\\bin;C:\\msys64\\ucrt64\\bin;C:\\msys64\\mingw64\\bin;C:\\msys64\\clang64\\bin;C:\\cygwin64\\bin";
+    size_t need = strlen(g_ds4_dir) + strlen(appdir) + (old ? strlen(old) : 0) + 220;
+    char *path = malloc(need);
+    if (!path) return;
+    snprintf(path, need, prefix_fmt, g_ds4_dir, appdir);
+    if (old && old[0]) {
+        size_t len = strlen(path);
+        snprintf(path + len, need - len, ";%s", old);
+    }
+    _putenv_s("PATH", path);
+    free(path);
+    cstr_copy(prepared_for, sizeof prepared_for, g_ds4_dir);
+}
+
 static int win_spawn(const char *cwd, char *const argv[], int want_stdin,
                      int *in_w, int *out_r, int *err_r, pid_t *pid_out,
                      char *err, size_t errsz) {
@@ -1667,6 +1734,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
         snprintf(err, errsz, "ds4-server.exe not found in %s — use the Windows CPU artifact", g_ds4_dir);
         return 0;
     }
+    win_prepare_engine_runtime();
     int op[2], ep[2];
     (void)op; (void)ep;
     char exe[2200];
@@ -3135,6 +3203,7 @@ static void resolve_ds4_dir(void) {
 static int run_build_jsonl(const char *action) {
 #ifdef _WIN32
     (void)action;
+    win_prepare_engine_runtime();
     return file_present("ds4-agent-jsonl.exe");
 #else
     char ds4_abs[DSTUDIO_PATH_MAX];
@@ -3412,6 +3481,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
 #ifdef _WIN32
     char exe[2200];
     win_join_path(exe, sizeof exe, g_ds4_dir, agent_bin);
+    win_prepare_engine_runtime();
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
                      : "--think";
@@ -3520,6 +3590,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         snprintf(err, errsz, "ds4-design.exe not found in %s — use the Windows CPU artifact", g_ds4_dir);
         return 0;
     }
+    win_prepare_engine_runtime();
 #else
     if (!run_ext_script("extension/design/build-design.sh", "build")) {
         snprintf(err, errsz, "build of ds4-design failed (see the serve terminal)");
