@@ -874,6 +874,19 @@
     .fs-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; color: var(--text); }
     .fs-name { font-family: var(--font-mono); font-size: 13px; color: var(--text-2); }
     .fs-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+    :root[data-theme="light"] .ws-fs {
+      background: rgba(247, 248, 251, 0.96);
+      backdrop-filter: blur(8px);
+    }
+    :root[data-theme="light"] .fs-bar {
+      background: rgba(255, 255, 255, 0.92);
+      border-bottom: 1px solid #e2e5ec;
+      color: #172033;
+      box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+    }
+    :root[data-theme="light"] .fs-name {
+      color: #64748b;
+    }
 
     .msg {
       border-radius: var(--radius-lg);
@@ -2918,7 +2931,7 @@
       width: 40px;
       height: 40px;
       background: var(--accent);
-      color: #0c1626;
+      color: #fff;
       border: none;
       border-radius: 50%;
       cursor: pointer;
@@ -3929,8 +3942,17 @@
               <input type="text" id="lan-client-address" placeholder="192.168.1.207:5500" spellcheck="false" autocomplete="off">
               <button type="button" id="lan-client-connect" class="btn">Change LAN</button>
             </div>
-            <p class="set-help">This client keeps its own local chats, app state and workspaces. Chat, Agent and Design use the LAN host model.</p>
+            <p class="set-help">This client keeps its own local chats, app state and workspaces. Chat, Agent and Design use the LAN host model. Agent and Design still need a local DS4 runtime on this device.</p>
             <p class="set-inline-msg" id="lan-client-msg"></p>
+          </div>
+          <div class="field">
+            <span>Local DS4 runtime <small class="field-note">used only by this client for Agent and Design tools</small></span>
+            <div class="field__row">
+              <input type="text" id="lan-client-ds4dir" placeholder="/Users/you/Documents/dev/ds4" spellcheck="false" autocomplete="off">
+              <button type="button" id="lan-client-ds4dir-choose" class="btn">Choose DS4</button>
+            </div>
+            <p class="set-help">The LAN host supplies the model. This folder supplies the local Agent/Design binaries, JSONL runtime and filesystem tools, so your files never move to the host.</p>
+            <p class="set-inline-msg" id="lan-client-ds4dir-msg"></p>
           </div>
           <button type="button" id="lan-client-exit" class="btn btn--danger-outline">Switch to host</button>
         </section>
@@ -10200,6 +10222,9 @@
           exit: qs('#lan-client-exit'),
           close: qs('#lan-client-close'),
           theme: qs('#lan-client-theme'),
+          ds4Path: qs('#lan-client-ds4dir'),
+          ds4Choose: qs('#lan-client-ds4dir-choose'),
+          ds4Msg: qs('#lan-client-ds4dir-msg'),
         };
 
         on(qs('#btn-settings'), 'click', openSettings);
@@ -10209,6 +10234,10 @@
         on(lf.connect, 'click', changeLanClientHost);
         on(lf.address, 'keydown', (e) => {
           if (e.key === 'Enter') { e.preventDefault(); changeLanClientHost(); }
+        });
+        on(lf.ds4Choose, 'click', chooseLanClientDs4Dir);
+        on(lf.ds4Path, 'keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); chooseLanClientDs4Dir(); }
         });
         on(lf.exit, 'click', () => {
           switchToHostMode();
@@ -10316,8 +10345,60 @@
         if (lanDialog.open) return;
         lf.address.value = currentLanClientHost().replace(/^https?:\/\//, '');
         lf.msg.textContent = '';
+        lf.ds4Msg.textContent = '';
         setThemeActive(Store.getSettings().theme || 'light');
+        syncLanClientDs4Dir();
         requestAnimationFrame(() => { if (!lanDialog.open) { try { lanDialog.showModal(); } catch { lanDialog.show(); } } });
+      }
+
+      async function syncLanClientDs4Dir() {
+        if (!lf.ds4Path || !isLanClientMode()) return;
+        try {
+          const st = await Engine.status();
+          lf.ds4Path.value = st.ds4dir || lf.ds4Path.value || '';
+          lf.ds4Msg.textContent = st.ds4dirOk
+            ? 'Local DS4 runtime ready for Agent and Design.'
+            : 'Choose the local DS4 folder for Agent and Design on this device.';
+        } catch {
+          lf.ds4Msg.textContent = 'Could not check the local DS4 folder.';
+        }
+      }
+
+      async function chooseLanClientDs4Dir() {
+        const label = lf.ds4Choose.textContent;
+        let path = '';
+        if (typeof window.ds4PickDirectory === 'function') {
+          try { path = await window.ds4PickDirectory({ mode: 'ds4' }); }
+          catch { path = ''; }
+          if (path) lf.ds4Path.value = path;
+        }
+        path = (path || lf.ds4Path.value || '').trim();
+        if (!path) {
+          lf.ds4Msg.textContent = 'Choose or paste the local DS4 folder first.';
+          return;
+        }
+        lf.ds4Choose.disabled = true;
+        lf.ds4Choose.textContent = 'Checking...';
+        lf.ds4Msg.textContent = 'Checking local DS4 folder...';
+        try {
+          const r = await Engine.setDs4Dir(path);
+          if (r && r.ok && r.ds4dirOk) {
+            lf.ds4Msg.textContent = r.restarted
+              ? 'Local DS4 runtime ready; Agent/Design restarted in this folder.'
+              : 'Local DS4 runtime ready for Agent and Design.';
+            toast('Local DS4 folder set for this client', 'info');
+            syncLanClientDs4Dir();
+          } else if (r && r.ok) {
+            lf.ds4Msg.textContent = 'That folder exists but does not look like a DS4 install.';
+          } else {
+            lf.ds4Msg.textContent = (r && r.error) || 'Not a folder.';
+          }
+        } catch {
+          lf.ds4Msg.textContent = 'Could not update the local DS4 folder.';
+        } finally {
+          lf.ds4Choose.disabled = false;
+          lf.ds4Choose.textContent = label;
+        }
       }
 
       async function changeLanClientHost() {

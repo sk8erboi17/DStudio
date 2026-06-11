@@ -248,6 +248,8 @@ assert.match(webview, /DS4_DIRECTORY_PICKER_SCRIPT/, 'native wrapper should inje
 assert.match(html, /:root\[data-theme="light"\] \.ws-canvas[\s\S]*background: #f7f8fb;/, 'Design canvas should have a light-mode background tuned for the takeover');
 assert.match(html, /:root\[data-theme="light"\] \.cv-bar[\s\S]*background: rgba\(255, 255, 255, 0\.96\)/, 'Design canvas floating prompt should be light in light mode');
 assert.match(html, /:root\[data-theme="light"\] \.ws-canvas-hint[\s\S]*background: rgba\(255, 255, 255, 0\.90\)/, 'Design canvas help hint should not stay dark in light mode');
+assert.match(html, /:root\[data-theme="light"\] \.ws-fs[\s\S]*background: rgba\(247, 248, 251, 0\.96\)/, 'Design fullscreen preview should not stay dark in light mode');
+assert.match(html, /\.brief-send[\s\S]*color: #fff;/, 'Design send buttons should keep a light arrow on the accent background');
 assert.match(launcher, /style-src 'self' 'unsafe-inline'/, 'Design preview CSP should allow local workspace stylesheets');
 assert.match(launcher, /api_design_preview_file/, 'Design preview should have a path-based file endpoint for relative assets');
 assert.match(launcher, /!strncmp\(path, "\/api\/design\/preview\/", 20\)/, 'Design preview route should be served by the local launcher');
@@ -336,8 +338,14 @@ assert.doesNotMatch(js, /if \(isLanClientMode\(\)\) \{ setMode\('server'\); retu
 assert.match(js, /function isHostServedLanShell\(\)/, 'host-served LAN shell must be detectable');
 assert.match(html, /Workspace, agent, design, settings and store APIs stay local-only/, 'LAN copy must document local workspace isolation');
 assert.match(html, /keeps its own local chats, app state and workspaces/, 'LAN client settings should describe local workspaces');
+assert.match(html, /id="lan-client-ds4dir"/, 'LAN client settings should expose the local DS4 runtime folder');
+assert.match(html, /id="lan-client-ds4dir-choose"/, 'LAN client settings should let the client choose its local DS4 folder');
+assert.match(html, /Local DS4 runtime/, 'LAN client settings should name the client-side DS4 runtime explicitly');
 assert.doesNotMatch(html, /Agent and Design requests run on the LAN host|uses the LAN host for Chat, Agent and Design/, 'LAN client copy must not imply host workspaces');
 assert.match(js, /const apiUrl = \(path\) => `\$\{path\}`/, 'Engine APIs must stay local in LAN client mode');
+assert.match(js, /syncLanClientDs4Dir\(\)/, 'Opening LAN client settings should check the local DS4 folder');
+assert.match(js, /window\.ds4PickDirectory\(\{ mode: 'ds4' \}\)/, 'LAN client DS4 folder selection should use the native directory picker');
+assert.match(js, /const r = await Engine\.setDs4Dir\(path\)/, 'LAN client DS4 folder selection should update the local launcher ds4dir');
 assert.match(js, /const webToolUrl = \(path\) => \{[\s\S]*isLanClientMode\(\) \? currentLanClientHost\(\)\.replace/, 'LAN clients should route Chat web tools to the host');
 assert.match(js, /webToolFetch\('\/api\/web-search'/, 'LAN Chat Web Search should use the web tool fetch path');
 assert.match(js, /webToolFetch\('\/api\/web-read'/, 'LAN Chat Web Read should use the web tool fetch path');
