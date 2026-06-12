@@ -1,0 +1,2 @@
+        } else if (!strcmp(arg, "--non-interactive")) {
+            c.non_interactive = true;

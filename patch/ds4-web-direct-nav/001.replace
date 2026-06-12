@@ -1,0 +1,3 @@
+/*DS4UI_WEB_DIRECT_NAV*/
+    web_tab tab = {0};
+    if (!web_open_tab(web, url, &tab, err, err_len)) return NULL;

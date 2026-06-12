@@ -1,0 +1,8 @@
+    if (!web_cdp_navigate(&ws, url, err, err_len) ||
+        !web_wait_navigated_ready(&ws, url, err, err_len))
+    {
+        web_ws_close(&ws);
+        web_close_tab(web, &tab);
+        web_tab_free(&tab);
+        return NULL;
+    }

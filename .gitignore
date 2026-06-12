@@ -21,6 +21,10 @@ linux-smoke.log
 core
 core.*
 
+# Managed upstream engine checkout. DStudio can clone antirez/ds4 here and
+# apply its reversible patch sets without vendoring upstream source.
+/ds4/
+
 # macOS
 .DS_Store
 

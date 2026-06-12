@@ -412,6 +412,7 @@ export function createWebPipeline(baseUrl) {
     const WEB_RESEARCH_PLAN_TIMEOUT_MS = 90_000;
     const WEB_RESEARCH_JUDGE_TIMEOUT_MS = 90_000;
     const WEB_RESEARCH_TOTAL_TIMEOUT_MS = Number(process.env.DSTUDIO_REAL_TEST_TIMEOUT_MS || 1_800_000);
+    function isLanClientMode() { return false; }
     ${functions}
     return { searchWithPlan, runDeepResearch, buildWebContext };
   `);

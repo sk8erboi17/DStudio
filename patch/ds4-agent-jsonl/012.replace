@@ -1,0 +1,85 @@
+/*DS4UI_JSONL*/
+#if defined(__MSYS__) || defined(__CYGWIN__) || defined(_WIN32)
+static char *ds4ui_win32_bash_exec(agent_worker *w, const agent_tool_call *call) {
+    (void)w;
+    const char *cmd = agent_tool_arg_value(call, "cmd");
+    if (!cmd || !cmd[0]) cmd = agent_tool_arg_value(call, "command");
+    if (!cmd || !cmd[0]) return xstrdup("Tool error: bash requires cmd\n");
+    const char *refresh = agent_tool_arg_value(call, "refresh_sec");
+    if (refresh && refresh[0]) return xstrdup("Tool error: refresh_sec is not supported by the Windows structured agent yet\n");
+    SECURITY_ATTRIBUTES sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    HANDLE stdin_rd = NULL, stdin_wr = NULL, stdout_rd = NULL, stdout_wr = NULL;
+    if (!CreatePipe(&stdin_rd, &stdin_wr, &sa, 0)) return xstrdup("Tool error: failed to create bash stdin pipe\n");
+    if (!CreatePipe(&stdout_rd, &stdout_wr, &sa, 0)) { CloseHandle(stdin_rd); CloseHandle(stdin_wr); return xstrdup("Tool error: failed to create bash stdout pipe\n"); }
+    SetHandleInformation(stdin_wr, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(stdout_rd, HANDLE_FLAG_INHERIT, 0);
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof(si));
+    memset(&pi, 0, sizeof(pi));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = stdin_rd;
+    si.hStdOutput = stdout_wr;
+    si.hStdError = stdout_wr;
+    char cmdline[] = "bash.exe -s";
+    BOOL ok = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+    CloseHandle(stdin_rd);
+    CloseHandle(stdout_wr);
+    if (!ok) {
+        DWORD gle = GetLastError();
+        CloseHandle(stdin_wr);
+        CloseHandle(stdout_rd);
+        char msg[160];
+        snprintf(msg, sizeof(msg), "Tool error: failed to start bash.exe (GetLastError=%lu)\n", (unsigned long)gle);
+        return xstrdup(msg);
+    }
+    DWORD wr = 0;
+    WriteFile(stdin_wr, cmd, (DWORD)strlen(cmd), &wr, NULL);
+    WriteFile(stdin_wr, "\n", 1, &wr, NULL);
+    CloseHandle(stdin_wr);
+    agent_buf out = {0};
+    DWORD start = GetTickCount();
+    DWORD exit_code = 0;
+    for (;;) {
+        DWORD avail = 0;
+        while (PeekNamedPipe(stdout_rd, NULL, 0, NULL, &avail, NULL) && avail > 0) {
+            char buf[4096];
+            DWORD want = avail < sizeof(buf) ? avail : sizeof(buf);
+            DWORD got = 0;
+            if (!ReadFile(stdout_rd, buf, want, &got, NULL) || got == 0) break;
+            agent_buf_append(&out, buf, got);
+            avail = 0;
+        }
+        DWORD wait = WaitForSingleObject(pi.hProcess, 50);
+        if (wait == WAIT_OBJECT_0) break;
+        if (GetTickCount() - start > 120000) {
+            TerminateProcess(pi.hProcess, 124);
+            agent_buf_puts(&out, "\nTool error: bash timed out\n");
+            break;
+        }
+    }
+    while (PeekNamedPipe(stdout_rd, NULL, 0, NULL, &wr, NULL) && wr > 0) {
+        char buf[4096];
+        DWORD want = wr < sizeof(buf) ? wr : sizeof(buf);
+        DWORD got = 0;
+        if (!ReadFile(stdout_rd, buf, want, &got, NULL) || got == 0) break;
+        agent_buf_append(&out, buf, got);
+    }
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    GetExitCodeProcess(pi.hProcess, &exit_code);
+    CloseHandle(stdout_rd);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    if (exit_code != 0 && !strstr(out.ptr ? out.ptr : "", "Tool error:")) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "\nTool exit status: %lu\n", (unsigned long)exit_code);
+        agent_buf_puts(&out, msg);
+    }
+    return agent_buf_take(&out);
+}
+#endif
+static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {

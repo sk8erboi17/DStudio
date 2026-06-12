@@ -1,0 +1,6 @@
+    ds4_chat_append_message(w->engine, &compacted, "system", summary_msg.ptr);
+    free(summary_msg.ptr);
+    if (w->cfg->jsonl) ds4ui_memory_write_md(summary.ptr, reason);   /*DS4UI_JSONL*/
+    free(summary.ptr);
+
+    agent_tokens_append_range(&compacted, &w->transcript, tail_start, bottom);

@@ -1,0 +1,2 @@
+    if (!strcmp(call->name, "question")) return ds4ui_tool_question(w, call);   /*DS4UI_JSONL*/
+    if (!strcmp(call->name, "skill")) return ds4ui_tool_skill(call);   /*DS4UI_JSONL*/

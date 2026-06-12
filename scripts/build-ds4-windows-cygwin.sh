@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export PATH="/ucrt64/bin:/mingw64/bin:/clang64/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+export PATH="/usr/local/bin:/usr/bin:/bin:/ucrt64/bin:/mingw64/bin:/clang64/bin:$PATH"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DS4_DIR="${1:-$ROOT/../ds4}"
@@ -24,7 +24,7 @@ fi
 
 CC_BIN="${CC:-}"
 if [ -z "$CC_BIN" ]; then
-  for candidate in /ucrt64/bin/gcc /mingw64/bin/gcc /clang64/bin/gcc /usr/bin/gcc; do
+  for candidate in /usr/bin/gcc /ucrt64/bin/gcc /mingw64/bin/gcc /clang64/bin/gcc; do
     if [ -x "$candidate" ]; then CC_BIN="$candidate"; break; fi
   done
 fi
@@ -32,12 +32,6 @@ if ! command -v "$CC_BIN" >/dev/null 2>&1 && [ ! -x "$CC_BIN" ]; then
   echo "gcc not found in PATH=$PATH" >&2
   exit 127
 fi
-case "$CC_BIN" in
-  /usr/bin/gcc|*/usr/bin/gcc)
-    echo "MSYS gcc cannot build the DStudio Windows runtime; install mingw-w64-ucrt-x86_64-gcc" >&2
-    exit 127
-    ;;
-esac
 
 echo "windows-cygwin: building ds4 CPU binaries"
 "$MAKE_BIN" -C "$DS4_DIR" cpu CC="$CC_BIN" CFLAGS="$CPU_CFLAGS" LDLIBS="-lm -pthread"
@@ -45,7 +39,7 @@ echo "windows-cygwin: building ds4 CPU binaries"
 echo "windows-cygwin: building DStudio jsonl patch helper"
 (
   cd "$ROOT"
-  gcc -O2 -Wall -Wextra -std=gnu11 -D_GNU_SOURCE -o dstudio-jsonl-builder src/dstudio.c
+  /usr/bin/gcc -O2 -Wall -Wextra -std=gnu11 -D_GNU_SOURCE -o dstudio-jsonl-builder src/dstudio.c
   ./dstudio-jsonl-builder --check-anchors "$DS4_DIR"
   rm -f "$DS4_DIR/ds4-agent-jsonl" "$DS4_DIR/ds4-agent-jsonl.exe" \
         "$DS4_DIR/ds4_agent_jsonl.o" "$DS4_DIR/dstudio_remote_llm.o"

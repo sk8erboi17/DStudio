@@ -1,0 +1,45 @@
+/*DS4UI_JSONL*/
+#define DS4UI_MEMORY_MAX_BYTES (32 * 1024)
+static char *ds4ui_memory_read_md(void) {
+    FILE *fp = fopen("MEMORY.MD", "rb");
+    if (!fp) return NULL;
+    agent_buf b = {0};
+    char tmp[4096];
+    while (b.len < DS4UI_MEMORY_MAX_BYTES) {
+        size_t room = DS4UI_MEMORY_MAX_BYTES - b.len;
+        size_t want = room < sizeof(tmp) ? room : sizeof(tmp);
+        size_t n = fread(tmp, 1, want, fp);
+        if (n) agent_buf_append(&b, tmp, n);
+        if (n < want) break;
+    }
+    fclose(fp);
+    return agent_buf_take(&b);
+}
+static void ds4ui_memory_write_md(const char *summary, const char *reason) {
+    if (!summary || !summary[0]) return;
+    time_t t = time(NULL);
+    struct tm tmv;
+    gmtime_r(&t, &tmv);
+    char ts[32];
+    strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", &tmv);
+    agent_buf b = {0};
+    agent_buf_puts(&b, "# MEMORY.MD\n\n");
+    agent_buf_puts(&b, "Shared durable memory for DS4 agents working in this workspace.\n\n");
+    agent_buf_puts(&b, "## Durable Summary\n\n");
+    agent_buf_puts(&b, summary);
+    if (b.len && b.ptr[b.len - 1] != '\n') agent_buf_puts(&b, "\n");
+    agent_buf_puts(&b, "\n## Runtime State\n\n- Updated: ");
+    agent_buf_puts(&b, ts);
+    agent_buf_puts(&b, "\n- Runtime: ds4-agent-jsonl");
+    if (reason && reason[0]) { agent_buf_puts(&b, "\n- Last compact reason: "); agent_buf_puts(&b, reason); }
+    agent_buf_puts(&b, "\n");
+    char tmp_path[64];
+    snprintf(tmp_path, sizeof(tmp_path), "MEMORY.MD.tmp.%ld", (long)getpid());
+    FILE *fp = fopen(tmp_path, "wb");
+    if (!fp) { free(b.ptr); return; }
+    bool ok = fwrite(b.ptr ? b.ptr : "", 1, b.len, fp) == b.len;
+    ok = fclose(fp) == 0 && ok;
+    if (ok) rename(tmp_path, "MEMORY.MD"); else unlink(tmp_path);
+    free(b.ptr);
+}
+static void agent_worker_build_system_tokens(agent_worker *w, ds4_tokens *out) {

@@ -1,0 +1,72 @@
+/*DS4UI_JSONL*/
+/* Post-edit verification (DStudio): after a write/edit, run a cheap single-file
+ * syntax check on the touched path and append any errors to the tool result, so
+ * the model fixes them in the same turn instead of shipping broken code. Only
+ * reliable single-file checkers (no project context) are used, so false
+ * positives are rare; C falls back to cc -fsyntax-only and suppresses
+ * missing-include noise. Gated on --jsonl. */
+static char *ds4ui_verify_after(agent_worker *w, const agent_tool_call *call, char *result) {
+    if (!w || !w->cfg || !w->cfg->jsonl || !result) return result;
+    if (!strncmp(result, "Tool error", 10)) return result;
+    const char *path = agent_tool_arg_value(call, "path");
+    if (!path || !path[0]) return result;
+    const char *dot = strrchr(path, '.');
+    if (!dot) return result;
+    const char *argv[6] = {0};
+    int is_c = 0;
+    if (!strcmp(dot, ".js") || !strcmp(dot, ".mjs") || !strcmp(dot, ".cjs") || !strcmp(dot, ".jsx")) {
+        argv[0] = "node"; argv[1] = "--check"; argv[2] = path;
+    } else if (!strcmp(dot, ".py")) {
+        argv[0] = "python3"; argv[1] = "-m"; argv[2] = "py_compile"; argv[3] = path;
+    } else if (!strcmp(dot, ".sh") || !strcmp(dot, ".bash")) {
+        argv[0] = "bash"; argv[1] = "-n"; argv[2] = path;
+    } else if (!strcmp(dot, ".rb")) {
+        argv[0] = "ruby"; argv[1] = "-c"; argv[2] = path;
+    } else if (!strcmp(dot, ".json")) {
+        argv[0] = "python3"; argv[1] = "-m"; argv[2] = "json.tool"; argv[3] = path; argv[4] = "/dev/null";
+    } else if (!strcmp(dot, ".go")) {
+        argv[0] = "gofmt"; argv[1] = "-e"; argv[2] = path;
+    } else if (!strcmp(dot, ".c") || !strcmp(dot, ".h") || !strcmp(dot, ".cc") || !strcmp(dot, ".cpp")) {
+        argv[0] = "cc"; argv[1] = "-fsyntax-only"; argv[2] = path; is_c = 1;
+    } else {
+        return result;
+    }
+    int pfd[2];
+    if (pipe(pfd) != 0) return result;
+    pid_t pid = fork();
+    if (pid < 0) { close(pfd[0]); close(pfd[1]); return result; }
+    if (pid == 0) {
+        dup2(pfd[1], STDOUT_FILENO); dup2(pfd[1], STDERR_FILENO);
+        close(pfd[0]); close(pfd[1]);
+        int dn = open("/dev/null", O_RDONLY);
+        if (dn >= 0) { dup2(dn, STDIN_FILENO); close(dn); }
+        execvp(argv[0], (char *const *)argv);
+        _exit(127);
+    }
+    close(pfd[1]);
+    char out[4096]; size_t n = 0; char chunk[1024]; ssize_t r;
+    while ((r = read(pfd[0], chunk, sizeof(chunk))) > 0) {
+        size_t room = sizeof(out) - 1 - n;
+        if (room > 0) { size_t c = (size_t)r < room ? (size_t)r : room; memcpy(out + n, chunk, c); n += c; }
+    }
+    out[n] = '\0';
+    close(pfd[0]);
+    int status = 0; waitpid(pid, &status, 0);
+    int failed = !(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    if (!failed) return result;
+    if (n == 0) return result;
+    if (is_c && strstr(out, "fatal error")) return result;
+    agent_buf b = {0};
+    agent_buf_puts(&b, result);
+    if (result[0] && result[strlen(result) - 1] != '\n') agent_buf_puts(&b, "\n");
+    agent_buf_puts(&b, "[verify] ");
+    agent_buf_puts(&b, argv[0]);
+    agent_buf_puts(&b, " reported problems in ");
+    agent_buf_puts(&b, path);
+    agent_buf_puts(&b, " - fix them before continuing:\n");
+    agent_buf_puts(&b, out);
+    agent_buf_puts(&b, "\n");
+    free(result);
+    return agent_buf_take(&b);
+}
+static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {

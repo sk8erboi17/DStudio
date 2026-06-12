@@ -1,0 +1,2 @@
+            sr->in_think = false;
+            sr->renderer->in_think = false;

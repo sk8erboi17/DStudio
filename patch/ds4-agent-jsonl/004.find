@@ -1,0 +1,1 @@
+static void renderer_write(agent_token_renderer *r, const char *s, size_t n) {

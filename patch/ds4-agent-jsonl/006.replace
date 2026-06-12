@@ -1,0 +1,9 @@
+        if (w->cfg->jsonl) ds4ui_emit_tool_call(w, &calls->v[i]);   /*DS4UI_JSONL*/
+        char *res;
+#if defined(__MSYS__) || defined(__CYGWIN__) || defined(_WIN32)
+        if (!strcmp(calls->v[i].name, "bash"))
+            res = ds4ui_win32_bash_exec(w, &calls->v[i]);
+        else
+#endif
+        res = agent_execute_tool_call(w, &calls->v[i]);
+        if (w->cfg->jsonl) ds4ui_emit_tool_result(w, calls->v[i].name, res);   /*DS4UI_JSONL*/

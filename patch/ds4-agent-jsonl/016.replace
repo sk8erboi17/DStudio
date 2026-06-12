@@ -1,0 +1,6 @@
+        int prc = poll(pfd, (nfds_t)nfds, timeout_ms);
+        if (cfg->jsonl && agent_sigint) {   /*DS4UI_JSONL: SIGINT aborts the current turn (the UI deleted the live conversation) without killing the engine*/
+            agent_sigint = 0;
+            if (!worker_is_idle(&worker)) worker_interrupt(&worker);
+        }
+        if (prc < 0) {

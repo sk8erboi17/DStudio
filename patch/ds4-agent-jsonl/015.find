@@ -1,0 +1,2 @@
+    bool sigint_installed = !cfg.non_interactive &&
+        sigaction(SIGINT, &sa, &old_int) == 0;

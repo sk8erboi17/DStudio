@@ -1,0 +1,2 @@
+    agent_append_system_prompt(w->engine, out, w->cfg->gen.system);
+}

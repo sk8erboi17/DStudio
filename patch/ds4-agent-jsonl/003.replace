@@ -1,0 +1,15 @@
+        } else if (!strcmp(arg, "--non-interactive")) {
+            c.non_interactive = true;
+        } else if (!strcmp(arg, "--jsonl")) {   /*DS4UI_JSONL*/
+            c.jsonl = true;
+        } else if (!strcmp(arg, "--web-tool")) {   /*DS4UI_JSONL*/
+            c.web_tool_mode = true;
+            c.web_tool = need_arg(&i, argc, argv, arg);
+        } else if (!strcmp(arg, "--query")) {   /*DS4UI_JSONL*/
+            c.web_query = need_arg(&i, argc, argv, arg);
+        } else if (!strcmp(arg, "--url")) {   /*DS4UI_JSONL*/
+            c.web_url = need_arg(&i, argc, argv, arg);
+        } else if (!strcmp(arg, "--remote-base-url")) {   /*DS4UI_JSONL*/
+            c.remote_base_url = need_arg(&i, argc, argv, arg);
+        } else if (!strcmp(arg, "--remote-model")) {   /*DS4UI_JSONL*/
+            c.remote_model = need_arg(&i, argc, argv, arg);

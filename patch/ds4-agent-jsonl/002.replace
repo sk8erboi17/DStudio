@@ -1,0 +1,8 @@
+    bool non_interactive;
+    bool jsonl; /*DS4UI_JSONL*/
+    bool web_tool_mode; /*DS4UI_JSONL*/
+    const char *web_tool; /*DS4UI_JSONL*/
+    const char *web_query; /*DS4UI_JSONL*/
+    const char *web_url; /*DS4UI_JSONL*/
+    const char *remote_base_url; /*DS4UI_JSONL*/
+    const char *remote_model; /*DS4UI_JSONL*/

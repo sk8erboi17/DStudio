@@ -66,7 +66,7 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check check-fast check-real test-lan-unit test-ui-contract test-http-lan test-real-search-research test-real-remote clean app windows install-desktop uninstall-desktop
+.PHONY: all run check check-fast check-real test-lan-unit test-ui-contract test-ui-browser test-http-lan test-real-search-research test-real-remote clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
@@ -245,10 +245,13 @@ test-lan-unit: $(TEST_UNIT)
 test-ui-contract:
 	@if command -v node >/dev/null 2>&1; then node tests/ui_contract_test.mjs; else echo "node missing: skipping UI contract tests"; fi
 
+test-ui-browser:
+	@if command -v node >/dev/null 2>&1; then node tests/ui_agent_design_playwright_test.mjs; else echo "node missing: skipping UI browser tests"; fi
+
 test-http-lan: $(TEST_SERVER)
 	@tests/http_lan_test.sh $(TEST_SERVER)
 
-check-fast: $(BIN) test-lan-unit test-ui-contract test-http-lan
+check-fast: $(BIN) test-lan-unit test-ui-contract test-ui-browser test-http-lan
 	@file $(PAGE) | grep -q text && echo "$(PAGE): text OK" || (echo "$(PAGE) is not text!" && exit 1)
 	@file $(LOADING) | grep -q text && echo "$(LOADING): text OK" || (echo "$(LOADING) is not text!" && exit 1)
 	@command -v node >/dev/null 2>&1 && { \

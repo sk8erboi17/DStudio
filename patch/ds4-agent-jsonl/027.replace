@@ -1,0 +1,3 @@
+int main(int argc, char **argv) {
+    agent_config cfg = parse_options(argc, argv);
+    if (cfg.web_tool_mode) return ds4ui_run_web_tool(&cfg);   /*DS4UI_JSONL*/

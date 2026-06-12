@@ -1,0 +1,11 @@
+static const char *ds4ui_json_skip_array(const char *p, const char *end, int depth, char *err, size_t errsz) {
+    p++; p = ds4ui_json_ws(p, end);
+    if (p < end && *p == ']') return p + 1;
+    for (;;) { p = ds4ui_json_skip_value(p, end, depth + 1, err, errsz); if (!p) return NULL; p = ds4ui_json_ws(p, end); if (p < end && *p == ',') { p++; continue; } if (p < end && *p == ']') return p + 1; snprintf(err, errsz, "expected ',' or ']' in JSON array"); return NULL; }
+}
+static const char *ds4ui_json_skip_object(const char *p, const char *end, int depth, char *err, size_t errsz) {
+    p++; p = ds4ui_json_ws(p, end);
+    if (p < end && *p == '}') return p + 1;
+    for (;;) { p = ds4ui_json_ws(p, end); if (p >= end || *p != '\"') { snprintf(err, errsz, "expected JSON object key"); return NULL; } p = ds4ui_json_skip_string(p, end, err, errsz); if (!p) return NULL; p = ds4ui_json_ws(p, end); if (p >= end || *p != ':') { snprintf(err, errsz, "expected ':' after JSON object key"); return NULL; } p++; p = ds4ui_json_skip_value(p, end, depth + 1, err, errsz); if (!p) return NULL; p = ds4ui_json_ws(p, end); if (p < end && *p == ',') { p++; continue; } if (p < end && *p == '}') return p + 1; snprintf(err, errsz, "expected ',' or '}' in JSON object"); return NULL; }
+}
+static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {

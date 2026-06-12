@@ -1,0 +1,8 @@
+            if (cfg->jsonl && agent_worker_needs_save(&worker)) {   /*DS4UI_JSONL: save-on-turn like ds4-design*/
+                char ds4ui_err[160] = {0};
+                if (!agent_worker_save_session(&worker, ds4ui_err, sizeof(ds4ui_err)))
+                    printf("save failed: %s\n", ds4ui_err);
+                fflush(stdout);
+            }
+            agent_noninteractive_marker("+DWARFSTAR_WAITING");
+            waiting_announced = true;

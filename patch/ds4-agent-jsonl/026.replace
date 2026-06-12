@@ -1,0 +1,51 @@
+/*DS4UI_JSONL*/
+static int ds4ui_web_confirm_auto(void *privdata, const char *message, char *err, size_t err_len) {
+    (void)privdata; (void)message; if (err && err_len) err[0] = '\0'; return 1;
+}
+static void ds4ui_web_log_stderr(void *privdata, const char *message) {
+    (void)privdata; if (message && message[0]) fprintf(stderr, "web: %s\n", message);
+}
+static bool ds4ui_web_cancel_never(void *privdata) { (void)privdata; return false; }
+static void ds4ui_web_print_json(const char *tool, bool ok, const char *body_key, const char *body) {
+    char t[128]; ds4ui_json_escape(tool ? tool : "", t, sizeof t);
+    const char *bk = body_key ? body_key : (ok ? "markdown" : "error");
+    size_t bl = body ? strlen(body) : 0;
+    char *esc = (char *)malloc(bl * 6 + 16);
+    if (!esc) { printf("{\"ok\":false,\"tool\":\"%s\",\"error\":\"out of memory\"}\n", t); return; }
+    ds4ui_json_escape(body ? body : "", esc, bl * 6 + 16);
+    printf("{\"ok\":%s,\"tool\":\"%s\",\"%s\":\"%s\"}\n", ok ? "true" : "false", t, bk, esc);
+    free(esc);
+}
+static int ds4ui_run_web_tool(const agent_config *cfg) {
+    if (!cfg || !cfg->web_tool || !cfg->web_tool[0]) {
+        ds4ui_web_print_json("", false, "error", "--web-tool is required"); return 2;
+    }
+    ds4_web_config web_cfg = {
+        .home_dir = getenv("HOME"),
+        .port = 9333,
+        .confirm = ds4ui_web_confirm_auto,
+        .log = ds4ui_web_log_stderr,
+        .cancel = ds4ui_web_cancel_never,
+    };
+#if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)
+    ds4ui_win32_ensure_chrome(9333);
+#endif
+    ds4_web *web = ds4_web_create(&web_cfg);
+    char err[256] = {0};
+    char *out = NULL;
+    if (!strcmp(cfg->web_tool, "google_search")) {
+        if (!cfg->web_query || !cfg->web_query[0]) { ds4ui_web_print_json(cfg->web_tool, false, "error", "--query is required"); ds4_web_free(web); return 2; }
+        out = ds4_web_google_search(web, cfg->web_query, err, sizeof err);
+    } else if (!strcmp(cfg->web_tool, "visit_page")) {
+        if (!cfg->web_url || !cfg->web_url[0]) { ds4ui_web_print_json(cfg->web_tool, false, "error", "--url is required"); ds4_web_free(web); return 2; }
+        out = ds4_web_visit_page(web, cfg->web_url, err, sizeof err);
+    } else {
+        ds4ui_web_print_json(cfg->web_tool, false, "error", "unknown web tool"); ds4_web_free(web); return 2;
+    }
+    ds4_web_free(web);
+    if (!out) { ds4ui_web_print_json(cfg->web_tool, false, "error", err[0] ? err : "web tool failed"); return 1; }
+    ds4ui_web_print_json(cfg->web_tool, true, "markdown", out);
+    free(out);
+    return 0;
+}
+#ifndef DS4_AGENT_TEST_NO_MAIN

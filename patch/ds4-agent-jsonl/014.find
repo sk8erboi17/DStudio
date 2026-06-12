@@ -1,0 +1,3 @@
+    if (!strcmp(call->name, "write")) return agent_tool_write(w, call);
+    if (!strcmp(call->name, "list")) return agent_tool_list(call);
+    if (!strcmp(call->name, "edit")) return agent_tool_edit(w, call);

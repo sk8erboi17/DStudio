@@ -1,0 +1,1 @@
+static bool web_cdp_navigate(cdp_ws *ws, const char *url,
