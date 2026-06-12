@@ -2362,10 +2362,10 @@
 
     /* ==================== Onboarding ==================== */
     .dialog--wide {
-      width: min(96vw, 52rem);
-      max-height: 90dvh;
+      width: min(97vw, 58rem);
+      max-height: 92dvh;
       border-radius: 10px;
-      padding: 1.45rem 1.65rem;
+      padding: 1.55rem 1.8rem;
       overflow-y: auto;
     }
 
@@ -2569,8 +2569,6 @@
     .onboard__status-k { font-weight: 600; font-size: 0.85rem; flex: 0 0 auto; }
     .onboard__status .conn { font-size: 0.82rem; margin-right: auto; }
     .btn--sm { padding: 0.25rem 0.6rem; font-size: 0.78rem; }
-    .onboard__how { margin-top: 0.6rem; }
-    .onboard__how summary { font-size: 0.8rem; color: var(--accent-2); cursor: pointer; }
     .onboard__path { margin-top: 0.7rem; }
     .onboard__path-l { display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem; }
     .onboard__path-l small { color: var(--faint); font-weight: 400; }
@@ -2633,7 +2631,7 @@
     .onboard__model.sel { border-color: var(--accent); }
     .onboard__model-radio { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border-2); flex: 0 0 auto; }
     .onboard__model.sel .onboard__model-radio, .onboard__model-radio.on { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 2px var(--surface-2); }
-    .onboard__dl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+    .onboard__dl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
     .onboard__dl-lbl { font-size: 0.74rem; color: var(--muted); }
     .onboard__dl .onboard__ctx { flex: 1; min-width: 180px; }
     .fsfinder { margin-top: 8px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface-2); padding: 8px; }
@@ -3788,8 +3786,6 @@
         </section>
 
         <section class="onboard__sec">
-          <h3>Folders</h3>
-          <p class="onboard__note">DStudio manages the default engine at <code>./ds4</code> and applies patches from <code>patch/</code>.</p>
           <div class="onboard__path">
             <label class="onboard__path-l" for="onboard-ds4dir">Engine <small>(ds4 — binaries &amp; model)</small></label>
             <div class="onboard__path-row">
@@ -3824,11 +3820,6 @@
             <option value="1048576">1M tokens</option>
           </select>
         </section>
-
-        <details class="onboard__sec onboard__how">
-          <summary>Good to know</summary>
-          <p class="onboard__note" style="margin-top:.5rem"><strong>Thinking &amp; model</strong> — pick them per chat from the composer; in agent and design they restart the engine. <strong>Agent output</strong> stays structured via a small reversible patch built at launch (the <code>ds4-agent</code> source is never modified — Settings → <em>Raw</em> runs it stock). <strong>Network</strong> is localhost-only by default; switch LAN above to connect this machine to a DStudio host on the same network. Everything else lives in Settings (⚙).</p>
-        </details>
 
         <div class="dialog__actions">
           <button type="button" id="onboard-start" class="btn btn--primary">Start</button>

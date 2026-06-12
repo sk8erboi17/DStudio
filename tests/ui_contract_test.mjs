@@ -686,6 +686,9 @@ assert.match(html, /id="onboard-ds4dir-setup-btn"/, 'onboarding should offer one
 assert.match(html, /id="onboard-model-recheck"/, 'onboarding model section should offer an explicit Recheck button');
 assert.match(html, /id="onboard-lan-ds4dir-setup"[\s\S]*Install ds4/, 'LAN onboarding should offer local ds4 install for Agent/Design');
 assert.match(html, /id="onboard-lan-ds4dir-path"/, 'LAN onboarding should show the managed local ds4 runtime path');
+assert.doesNotMatch(html, /<h3>Folders<\/h3>|Good to know/, 'onboarding should stay compact without explanatory Folders or Good to know sections');
+assert.match(html, /\.dialog--wide\s*\{[\s\S]*width:\s*min\(97vw,\s*58rem\)/, 'onboarding dialog should be slightly larger');
+assert.doesNotMatch(html, /\.onboard__dl\s*\{[^}]*border-top/, 'onboarding model download row should not draw a divider');
 assert.match(html, /id="ds4dir-setup"/, 'forced ds4 gate should offer one-click ds4 install');
 assert.doesNotMatch(html, /id="onboard-ds4dir-browse-btn"|id="onboard-ds4dir-browse"|id="ds4dir-input"|id="ds4dir-save"|id="lan-client-ds4dir-choose"/, 'UI should not keep manual ds4 folder fallback controls');
 assert.match(js, /const ONBOARD_VERSION = 8/, 'onboarding version should bump when first-run cache needs to be cleared');
