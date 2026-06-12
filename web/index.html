@@ -2566,7 +2566,6 @@
       padding: 0.6rem 0.75rem; border: 1px solid var(--border);
       border-radius: var(--radius); background: var(--surface);
     }
-    .onboard__status-k { font-weight: 600; font-size: 0.85rem; flex: 0 0 auto; }
     .onboard__status .conn { font-size: 0.82rem; margin-right: auto; }
     .btn--sm { padding: 0.25rem 0.6rem; font-size: 0.78rem; }
     .onboard__path { margin-top: 0.7rem; }
@@ -3777,15 +3776,6 @@
 
       <div id="onboard-local-panel" class="onboard__panel">
         <section class="onboard__sec">
-          <div class="onboard__status">
-            <span class="onboard__status-k">Engine</span>
-            <span id="onboard-conn" class="conn conn--unknown">checking…</span>
-            <button type="button" id="onboard-check" class="btn btn--sm">Recheck</button>
-          </div>
-          <p class="onboard__note">Install ds4 into this DStudio repo to avoid manual paths and keep local patches reproducible.</p>
-        </section>
-
-        <section class="onboard__sec">
           <div class="onboard__path">
             <label class="onboard__path-l" for="onboard-ds4dir">Engine <small>(ds4 — binaries &amp; model)</small></label>
             <div class="onboard__path-row">
@@ -3795,6 +3785,14 @@
             </div>
             <p class="path-msg" id="onboard-ds4dir-msg"></p>
           </div>
+        </section>
+
+        <section class="onboard__sec">
+          <div class="onboard__status">
+            <span id="onboard-conn" class="conn conn--unknown">checking…</span>
+            <button type="button" id="onboard-check" class="btn btn--sm">Recheck</button>
+          </div>
+          <p class="onboard__note">Install ds4 into this DStudio repo to avoid manual paths and keep local patches reproducible.</p>
         </section>
 
         <section class="onboard__sec" id="onboard-model-sec">
@@ -4752,12 +4750,16 @@
     // Quantizations ds4's download scripts can fetch (download_model.sh targets +
     // abliterated). Shared by the onboarding and Settings model pickers.
     const MODEL_DOWNLOADS = [
-      { id: 'flash', label: 'Flash · uncensored (abliterated) — IQ2_XXS, ~87 GB', body: { variant: 'flash' } },
-      { id: 'q2-imatrix', label: 'Flash · chat — IQ2_XXS, ~87 GB', body: { target: 'q2-imatrix' } },
-      { id: 'q2-q4-imatrix', label: 'Flash · mixed Q2/Q4 — ~98 GB', body: { target: 'q2-q4-imatrix' } },
-      { id: 'q4-imatrix', label: 'Flash · chat — Q4, higher quality & larger', body: { target: 'q4-imatrix' } },
-      { id: 'pro-q2-imatrix', label: 'Pro · IQ2_XXS — ~430 GB', body: { target: 'pro-q2-imatrix' } },
+      { id: 'flash', label: 'Flash · uncensored (abliterated) — IQ2_XXS, ~87 GB', body: { variant: 'flash' }, match: /abliterat|uncensor|cyberneurova/i },
+      { id: 'q2-imatrix', label: 'Flash · chat — IQ2_XXS, ~87 GB', body: { target: 'q2-imatrix' }, match: /^DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix\.gguf$/i },
+      { id: 'q2-q4-imatrix', label: 'Flash · mixed Q2/Q4 — ~98 GB', body: { target: 'q2-q4-imatrix' }, match: /Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown.*imatrix/i },
+      { id: 'q4-imatrix', label: 'Flash · chat — Q4, higher quality & larger', body: { target: 'q4-imatrix' }, match: /^DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix\.gguf$/i },
+      { id: 'pro-q2-imatrix', label: 'Pro · IQ2_XXS — ~430 GB', body: { target: 'pro-q2-imatrix' }, match: /^DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix\.gguf$/i },
     ];
+    function availableModelDownloads(ggufs) {
+      const files = (ggufs || []).map((g) => String(g?.file || ''));
+      return MODEL_DOWNLOADS.filter((d) => !files.some((file) => d.match.test(file)));
+    }
 
     /* ==================== SSE parser ==================== */
     // It is fed with already-decoded text (even split mid-line)
@@ -10761,16 +10763,21 @@
         if (dl) {
           dlBox.append(el('span', { class: 'onboard__dl-lbl', text: `Downloading ${dl.variant} — ${dl.pct}% · runs in the background` }));
         } else {
-          const sel = el('select', { class: 'onboard__ctx', 'aria-label': 'Model / quantization to download' });
-          MODEL_DOWNLOADS.forEach((t) => sel.append(el('option', { value: t.id, text: t.label })));
-          const btn = el('button', { class: 'btn btn--sm', type: 'button', text: 'Download' });
-          on(btn, 'click', () => {
-            const t = MODEL_DOWNLOADS.find((x) => x.id === sel.value);
-            if (!t) return;
-            askConfirm({ title: 'Download this model?', body: `${t.label}. Large file — it downloads in the background.`, cta: 'Download' })
-              .then((yes) => { if (yes) Switcher.downloadModel(t.body); });
-          });
-          dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'Add another model:' }), sel, btn);
+          const choices = availableModelDownloads(ggufs);
+          if (choices.length) {
+            const sel = el('select', { class: 'onboard__ctx', 'aria-label': 'Model / quantization to download' });
+            choices.forEach((t) => sel.append(el('option', { value: t.id, text: t.label })));
+            const btn = el('button', { class: 'btn btn--sm', type: 'button', text: 'Download' });
+            on(btn, 'click', () => {
+              const t = choices.find((x) => x.id === sel.value);
+              if (!t) return;
+              askConfirm({ title: 'Download this model?', body: `${t.label}. Large file — it downloads in the background.`, cta: 'Download' })
+                .then((yes) => { if (yes) Switcher.downloadModel(t.body); });
+            });
+            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'Add another model:' }), sel, btn);
+          } else {
+            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'All listed models are already downloaded.' }));
+          }
         }
         host.replaceChildren(...cards, dlBox);
       }
@@ -11408,17 +11415,22 @@
         if (dl) {
           dlBox.append(el('span', { class: 'onboard__dl-lbl', text: `Downloading ${dl.variant} — ${dl.pct}% · runs in the background` }));
         } else {
-          const sel = el('select', { class: 'onboard__ctx', 'aria-label': 'Model / quantization to download' });
-          MODEL_DOWNLOADS.forEach((t) => sel.append(el('option', { value: t.id, text: t.label })));
-          const btn = el('button', { class: 'btn btn--sm', type: 'button', text: 'Download' });
-          btn.disabled = !lastDs4Ok;
-          on(btn, 'click', () => {
-            const t = MODEL_DOWNLOADS.find((x) => x.id === sel.value);
-            if (!t) return;
-            askConfirm({ title: 'Download this model?', body: `${t.label}. Large file — it downloads in the background.`, cta: 'Download' })
-              .then((yes) => { if (yes) Switcher.downloadModel(t.body); });
-          });
-          dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'Add another model:' }), sel, btn);
+          const choices = availableModelDownloads(ggufs);
+          if (choices.length) {
+            const sel = el('select', { class: 'onboard__ctx', 'aria-label': 'Model / quantization to download' });
+            choices.forEach((t) => sel.append(el('option', { value: t.id, text: t.label })));
+            const btn = el('button', { class: 'btn btn--sm', type: 'button', text: 'Download' });
+            btn.disabled = !lastDs4Ok;
+            on(btn, 'click', () => {
+              const t = choices.find((x) => x.id === sel.value);
+              if (!t) return;
+              askConfirm({ title: 'Download this model?', body: `${t.label}. Large file — it downloads in the background.`, cta: 'Download' })
+                .then((yes) => { if (yes) Switcher.downloadModel(t.body); });
+            });
+            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'Add another model:' }), sel, btn);
+          } else {
+            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'All listed models are already downloaded.' }));
+          }
         }
         host.replaceChildren(...cards, dlBox);
       }
