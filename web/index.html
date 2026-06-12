@@ -2362,8 +2362,10 @@
 
     /* ==================== Onboarding ==================== */
     .dialog--wide {
-      width: min(92vw, 34rem);
-      max-height: 88dvh;
+      width: min(96vw, 52rem);
+      max-height: 90dvh;
+      border-radius: 10px;
+      padding: 1.45rem 1.65rem;
       overflow-y: auto;
     }
 
@@ -2504,6 +2506,18 @@
       margin-bottom: 0.4rem;
     }
 
+    .onboard__sec-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .onboard__sec-head h3 {
+      margin-bottom: 0;
+    }
+
     .onboard__sec p {
       font-size: 0.85rem;
       margin: 0.3rem 0;
@@ -2577,10 +2591,31 @@
     .path-msg.good { color: var(--ok); }
     .path-msg.bad { color: var(--danger); }
     .onboard__ctx {
-      font-size: 0.85rem; padding: 0.4rem 0.6rem; border: 1px solid var(--border-2);
-      border-radius: 8px; background: var(--surface); color: var(--text); cursor: pointer;
+      min-height: 2.35rem;
+      font-size: 0.85rem;
+      line-height: 1.2;
+      padding: 0.48rem 2.3rem 0.48rem 0.72rem;
+      border: 1px solid var(--border-2);
+      border-radius: 10px;
+      background-color: var(--surface);
+      background-image: url("data:image/svg+xml,%3Csvg width='16' height='16' viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 6l4 4 4-4' stroke='%23757983' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.68rem center;
+      background-size: 16px 16px;
+      color: var(--text);
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
+      transition: border-color 0.12s, background-color 0.12s, box-shadow 0.12s;
     }
-    .onboard__ctx:focus { outline: none; border-color: var(--accent); }
+    .onboard__ctx:hover { border-color: var(--muted); background-color: var(--surface-2); }
+    .onboard__ctx:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim), inset 0 1px 0 rgb(255 255 255 / 0.04);
+    }
+    .onboard__ctx option { background: var(--surface); color: var(--text); }
     .onboard__models { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
     .onboard__model {
       display: flex; align-items: center; gap: 0.7rem;
@@ -3760,14 +3795,17 @@
             <div class="onboard__path-row">
               <input type="text" id="onboard-ds4dir" class="onboard__path-in" spellcheck="false" autocomplete="off" placeholder="./ds4" readonly>
               <span id="onboard-ds4dir-badge" class="path-badge"></span>
-              <button type="button" id="onboard-ds4dir-setup-btn" class="btn btn--sm btn--primary" title="Clone antirez/ds4 here and apply DStudio patches">Install ds4</button>
+              <button type="button" id="onboard-ds4dir-setup-btn" class="btn btn--sm btn--primary" title="Download antirez/ds4 here and apply DStudio patches">Install ds4</button>
             </div>
             <p class="path-msg" id="onboard-ds4dir-msg"></p>
           </div>
         </section>
 
         <section class="onboard__sec" id="onboard-model-sec">
-          <h3>Model</h3>
+          <div class="onboard__sec-head">
+            <h3>Model</h3>
+            <button type="button" id="onboard-model-recheck" class="btn btn--sm">Recheck</button>
+          </div>
           <p class="onboard__note" id="onboard-model-note">Optional for onboarding — the GGUF weights live in the engine folder.</p>
           <div class="onboard__models" id="onboard-models"></div>
         </section>
@@ -3809,6 +3847,17 @@
             </div>
           </label>
           <p class="onboard__lan-msg" id="onboard-lan-msg"></p>
+        </section>
+        <section class="onboard__sec">
+          <div class="onboard__sec-head">
+            <h3>Local DS4 runtime</h3>
+            <button type="button" id="onboard-lan-ds4dir-setup" class="btn btn--sm">Install ds4</button>
+          </div>
+          <p class="onboard__note">Required on this device for Agent and Design workspace tools. Chat still uses the LAN host model.</p>
+          <div class="onboard__path-row">
+            <code id="onboard-lan-ds4dir-path" class="set-code">./ds4</code>
+          </div>
+          <p class="path-msg" id="onboard-lan-ds4dir-msg"></p>
         </section>
       </div>
     </div>
@@ -11204,6 +11253,10 @@
 
         const setupBtn = qs('#onboard-ds4dir-setup-btn');
         if (setupBtn) on(setupBtn, 'click', () => setupDs4FromUi());
+        const modelRecheckBtn = qs('#onboard-model-recheck');
+        if (modelRecheckBtn) on(modelRecheckBtn, 'click', recheckModels);
+        const lanDs4SetupBtn = qs('#onboard-lan-ds4dir-setup');
+        if (lanDs4SetupBtn) on(lanDs4SetupBtn, 'click', setupOnboardLanDs4);
 
         // Context size picker (default 64k): persisted like Settings.
         const ctx = qs('#onboard-ctx');
@@ -11287,6 +11340,19 @@
         if (isLanClientMode()) return;
         try { applyModelStatus(await Engine.status()); } catch { /* keep last */ }
         renderModels();
+      }
+
+      async function recheckModels() {
+        if (isLanClientMode()) return;
+        const btn = qs('#onboard-model-recheck');
+        const label = btn?.textContent || 'Recheck';
+        if (btn) { btn.disabled = true; btn.textContent = 'Checking...'; }
+        try {
+          await refreshModels();
+          await loadGgufs();
+        } finally {
+          if (btn) { btn.disabled = false; btn.textContent = label; }
+        }
       }
 
       // Model section: one row per variant with its presence/download state. When
@@ -11379,7 +11445,63 @@
         localPanel.hidden = lan;
         lanPanel.hidden = !lan;
         updateForcedSetup();
+        if (lan) syncOnboardLanDs4();
         if (lan) setTimeout(() => lanAddressInput?.focus(), 0);
+      }
+
+      async function syncOnboardLanDs4() {
+        const path = qs('#onboard-lan-ds4dir-path');
+        const msg = qs('#onboard-lan-ds4dir-msg');
+        const btn = qs('#onboard-lan-ds4dir-setup');
+        if (!path || !msg) return;
+        try {
+          const st = await Engine.status();
+          path.textContent = st.ds4dir || './ds4';
+          msg.className = 'path-msg' + (st.ds4dirOk ? ' good' : '');
+          msg.textContent = st.ds4dirOk
+            ? 'Local DS4 runtime ready for Agent and Design.'
+            : 'Install ds4 locally for Agent and Design on this device.';
+          if (btn) btn.textContent = st.ds4dirOk ? 'Repair ds4' : 'Install ds4';
+        } catch {
+          msg.className = 'path-msg bad';
+          msg.textContent = 'Could not check the local DS4 runtime.';
+        }
+      }
+
+      async function setupOnboardLanDs4() {
+        if (ds4SetupBusy) return;
+        ds4SetupBusy = true;
+        const path = qs('#onboard-lan-ds4dir-path');
+        const msg = qs('#onboard-lan-ds4dir-msg');
+        const btn = qs('#onboard-lan-ds4dir-setup');
+        const label = btn?.textContent || 'Install ds4';
+        if (btn) { btn.disabled = true; btn.textContent = 'Installing...'; }
+        if (msg) {
+          msg.className = 'path-msg';
+          msg.textContent = 'Downloading ds4, building it and applying DStudio patches...';
+        }
+        let r;
+        try { r = await Engine.setupDs4(); }
+        catch (e) { r = { ok: false, error: e?.message || 'Could not reach the launcher' }; }
+        let nextLabel = label;
+        if (path && r?.ds4dir) path.textContent = r.ds4dir;
+        if (r && r.ok && r.ds4dirOk !== false) {
+          lastDs4Ok = true;
+          nextLabel = 'Repair ds4';
+          if (msg) {
+            msg.className = 'path-msg good';
+            msg.textContent = 'Local DS4 runtime ready for Agent and Design.';
+          }
+          toast('Local ds4 installed and patched for this client', 'info');
+        } else {
+          if (msg) {
+            msg.className = 'path-msg bad';
+            msg.textContent = (r && r.error) || 'ds4 setup failed.';
+          }
+          toast((r && r.error) || 'ds4 setup failed', 'error');
+        }
+        ds4SetupBusy = false;
+        if (btn) { btn.disabled = false; btn.textContent = nextLabel; }
       }
 
       function updateForcedSetup() {

@@ -5366,6 +5366,46 @@ static int setup_download_ds4_archive(const char *target, char *log_tail, size_t
     return 1;
 }
 
+static int setup_gguf_dir_path(const char *ds4dir, char *out, size_t outsz) {
+    if (!ds4dir || !ds4dir[0] || !out || !outsz) return 0;
+#ifdef _WIN32
+    int n = snprintf(out, outsz, "%s\\gguf", ds4dir);
+#else
+    int n = snprintf(out, outsz, "%s/gguf", ds4dir);
+#endif
+    return n >= 0 && (size_t)n < outsz;
+}
+
+static int setup_gguf_dir_ok_path(const char *ds4dir) {
+    char path[DSTUDIO_PATH_MAX + 16];
+    if (!setup_gguf_dir_path(ds4dir, path, sizeof path)) return 0;
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static int setup_ensure_gguf_dir(char *err, size_t errsz) {
+    char path[DSTUDIO_PATH_MAX + 16];
+    if (!setup_gguf_dir_path(g_ds4_dir, path, sizeof path)) {
+        snprintf(err, errsz, "gguf folder path is too long under %s", g_ds4_dir);
+        return 0;
+    }
+    struct stat st;
+    if (stat(path, &st) == 0) {
+        if (S_ISDIR(st.st_mode)) return 1;
+        snprintf(err, errsz, "%s exists but is not a folder", path);
+        return 0;
+    }
+    if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+        snprintf(err, errsz, "could not create model folder %s: %s", path, strerror(errno));
+        return 0;
+    }
+    if (stat(path, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        snprintf(err, errsz, "model folder %s was not created", path);
+        return 0;
+    }
+    return 1;
+}
+
 #ifdef _WIN32
 static void setup_trim_line(char *s) {
     if (!s) return;
@@ -5492,6 +5532,8 @@ static void setup_send_json(int fd, const char *status, int ok, const char *targ
                json_dyn_put_escaped(&b, target ? target : g_ds4_dir) &&
                json_dyn_puts(&b, ",\"ds4dirOk\":") &&
                json_dyn_puts(&b, ds4_dir_valid() ? "true" : "false") &&
+               json_dyn_puts(&b, ",\"ggufDirOk\":") &&
+               json_dyn_puts(&b, setup_gguf_dir_ok_path(target ? target : g_ds4_dir) ? "true" : "false") &&
                json_dyn_puts(&b, ",\"downloaded\":") &&
                json_dyn_puts(&b, downloaded ? "true" : "false") &&
                json_dyn_puts(&b, ",\"built\":") &&
@@ -5585,6 +5627,12 @@ static void api_setup_ds4(int fd) {
     if (!ds4_dir_valid()) {
         setup_send_json(fd, "409 Conflict", 0, g_ds4_dir, downloaded, 0, 0, 0, 0, 0, mode_name(g_mode),
                         "downloaded folder does not look like a ds4 checkout");
+        return;
+    }
+    char gguf_err[1024];
+    if (!setup_ensure_gguf_dir(gguf_err, sizeof gguf_err)) {
+        setup_send_json(fd, "500 Internal Server Error", 0, g_ds4_dir, downloaded, 0, 0, 0, 0, 0,
+                        mode_name(g_mode), gguf_err);
         return;
     }
 
