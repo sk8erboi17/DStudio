@@ -4106,7 +4106,7 @@
     // engine by entering a full URL in Settings.
     const PAGE_HOST = (typeof location !== 'undefined' && location.hostname) || '127.0.0.1';
     const DEFAULT_BASE_URL = '';
-    const ONBOARD_VERSION = 7;
+    const ONBOARD_VERSION = 8;
 
     function isLoopbackHost(host) {
       const h = String(host || '').toLowerCase().replace(/^\[|\]$/g, '');
@@ -11269,12 +11269,8 @@
         Store.subscribe('models', renderModels);
         Store.subscribe('modelDownload', renderModels);
 
-        // Clicking the backdrop must NOT close the onboarding (deliberate).
-        // If the local ds4 folder is missing, Esc cannot close it either: the
-        // user must either select a valid folder or connect to a LAN host.
-        on(dialog, 'cancel', (e) => {
-          if (forcedSetup && !lastDs4Ok) e.preventDefault();
-        });
+        // Escape must not close onboarding; completion is explicit through Start.
+        on(dialog, 'cancel', (e) => e.preventDefault());
         on(dialog, 'close', () => {
           if (forcedSetup && !lastDs4Ok) {
             requestAnimationFrame(() => { if (!dialog.open) dialog.showModal(); });

@@ -658,7 +658,7 @@ assert.match(settingsDialog, /Network access/, 'host settings should keep the LA
 assert.match(settingsDialog, /Connect to LAN/, 'settings should allow entering LAN client mode');
 
 assert.match(loadingHtml, /lanClientHost/, 'loading gate must skip when this browser is a LAN client');
-assert.match(loadingHtml, /onboardedVersion !== 7/, 'loading gate must skip before host onboarding is complete');
+assert.match(loadingHtml, /onboardedVersion !== 8/, 'loading gate must skip before host onboarding is complete');
 assert.match(loadingHtml, /hello are you alive\?/, 'loading gate should probe the local model');
 assert.doesNotMatch(loadingHtml, /Loading the local model|Connecting to the local launcher|Waiting for the model to be ready|Open DStudio anyway/, 'loading page should show only the logo, not a status card');
 
@@ -688,7 +688,8 @@ assert.match(html, /id="onboard-lan-ds4dir-setup"[\s\S]*Install ds4/, 'LAN onboa
 assert.match(html, /id="onboard-lan-ds4dir-path"/, 'LAN onboarding should show the managed local ds4 runtime path');
 assert.match(html, /id="ds4dir-setup"/, 'forced ds4 gate should offer one-click ds4 install');
 assert.doesNotMatch(html, /id="onboard-ds4dir-browse-btn"|id="onboard-ds4dir-browse"|id="ds4dir-input"|id="ds4dir-save"|id="lan-client-ds4dir-choose"/, 'UI should not keep manual ds4 folder fallback controls');
-assert.match(js, /const ONBOARD_VERSION = 7/, 'onboarding version should bump when first-run cache needs to be cleared');
+assert.match(js, /const ONBOARD_VERSION = 8/, 'onboarding version should bump when first-run cache needs to be cleared');
+assert.match(js, /on\(dialog, 'cancel', \(e\) => e\.preventDefault\(\)\)/, 'onboarding should not close when Escape is pressed');
 assert.match(js, /delete state\.settings\.lanClientDs4Dir/, 'settings migration should remove the old LAN client ds4 folder cache key');
 assert.match(js, /async function setupDs4\(\)[\s\S]*\/api\/ds4\/setup/, 'Engine API should call the managed ds4 setup endpoint');
 assert.match(js, /async function setupDs4FromUi\(\)[\s\S]*Engine\.setupDs4\(\)/, 'onboarding setup button should call the managed setup endpoint');
