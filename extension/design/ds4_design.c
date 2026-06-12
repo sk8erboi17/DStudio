@@ -5639,6 +5639,59 @@ static design_config parse_options(int argc, char **argv) {
     return c;
 }
 
+static bool design_think_control_value(const char *value, ds4_think_mode *out) {
+    if (!value || !out) return false;
+    if (!strcmp(value, "off") || !strcmp(value, "none") || !strcmp(value, "nothink")) {
+        *out = DS4_THINK_NONE;
+        return true;
+    }
+    if (!strcmp(value, "max") || !strcmp(value, "think-max")) {
+        *out = DS4_THINK_MAX;
+        return true;
+    }
+    if (!strcmp(value, "high") || !strcmp(value, "normal") ||
+        !strcmp(value, "think") || !strcmp(value, "on")) {
+        *out = DS4_THINK_HIGH;
+        return true;
+    }
+    return false;
+}
+
+static bool design_apply_control_frames(design_config *cfg, char *line) {
+    bool changed = false;
+    if (!cfg || !line) return false;
+    for (;;) {
+        if ((unsigned char)line[0] != 0x1e) break;
+        char *nl = strchr(line, '\n');
+        if (!nl) break;
+        size_t frame_len = (size_t)(nl - line - 1);
+        char *frame = line + 1;
+        if (frame_len > 1024 ||
+            !strstr(frame, "\"type\":\"control\"") ||
+            !strstr(frame, "\"name\":\"think\"")) {
+            break;
+        }
+        char *v = strstr(frame, "\"value\":\"");
+        if (v) {
+            v += 9;
+            char value[32];
+            size_t n = 0;
+            while (v[n] && v[n] != '"' && n + 1 < sizeof(value)) {
+                value[n] = v[n];
+                n++;
+            }
+            value[n] = '\0';
+            ds4_think_mode m;
+            if (design_think_control_value(value, &m)) {
+                cfg->think_mode = m;
+                changed = true;
+            }
+        }
+        memmove(line, nl + 1, strlen(nl + 1) + 1);
+    }
+    return changed;
+}
+
 /* ============================================================================
  * Turn Runner
  * ============================================================================
@@ -7342,6 +7395,47 @@ typedef struct {
     bool reasoning_open;
 } design_remote_stream_ctx;
 
+#define DESIGN_REMOTE_AUTO_CONTINUES 3
+
+static bool design_remote_retryable_model_error(const char *err) {
+    if (!err || !err[0]) return false;
+    return strstr(err, "stream ended before completion") ||
+           strstr(err, "ended before data: [DONE]") ||
+           strstr(err, "internal model stream ended before completion") ||
+           strstr(err, "Connection interrupted") ||
+           strstr(err, "connection interrupted");
+}
+
+static char *design_remote_continue_prompt(const dsml_parser *dsml,
+                                           const char *err,
+                                           int attempt,
+                                           int max_attempts) {
+    design_buf b = {0};
+    buf_puts(&b,
+        "DStudio transport recovery: the previous design response was interrupted before the model stream completed.\n");
+    if (err && err[0]) {
+        buf_puts(&b, "Technical reason: ");
+        buf_puts(&b, err);
+        buf_puts(&b, "\n");
+    }
+    char nbuf[96];
+    snprintf(nbuf, sizeof(nbuf), "Automatic continuation attempt %d of %d.\n", attempt, max_attempts);
+    buf_puts(&b, nbuf);
+    if (dsml && (dsml->state == DSML_STRUCTURAL ||
+                 dsml->state == DSML_PARAM_VALUE ||
+                 dsml->state == DSML_ERROR)) {
+        buf_puts(&b,
+            "Your prior output was cut off while forming a DSML tool call. "
+            "Do not continue the broken fragment. Re-emit the full intended DSML tool call from the beginning, "
+            "with complete parameters and no extra prose before it.\n");
+    } else {
+        buf_puts(&b,
+            "Continue exactly where the previous design response stopped. "
+            "Do not repeat completed text. Finish the current artifact/tool action before stopping.\n");
+    }
+    return buf_take(&b);
+}
+
 static int design_remote_think_level(ds4_think_mode m) {
     if (m == DS4_THINK_MAX) return 2;
     if (m == DS4_THINK_HIGH) return 1;
@@ -7410,6 +7504,7 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
     dstudio_remote_messages_append(&a->remote_messages, &a->remote_message_count,
                                    "user", user_text ? user_text : "");
 
+    int auto_continues = 0;
     for (int tool_round = 0; ; tool_round++) {
         (void)tool_round;
         dsml_parser dsml;
@@ -7438,21 +7533,41 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
         free(messages);
         stream_finish(&stream);
         if (ctx.reasoning_open) emit_event("reasoning_end");
-
-        if (rc != 0) {
-            dsml_parser_free(&dsml);
-            char msg[512];
-            snprintf(msg, sizeof(msg), "\nRemote model failed: %s\n",
-                     err[0] ? err : "unknown error");
-            out_text(msg, strlen(msg));
-            return 1;
+        char *assistant = buf_take(&ctx.assistant_raw);
+        if (assistant && assistant[0]) {
+            dstudio_remote_messages_append(&a->remote_messages,
+                                           &a->remote_message_count,
+                                           "assistant",
+                                           assistant);
         }
 
-        char *assistant = buf_take(&ctx.assistant_raw);
-        dstudio_remote_messages_append(&a->remote_messages,
-                                       &a->remote_message_count,
-                                       "assistant",
-                                       assistant);
+        if (rc != 0) {
+            if (design_remote_retryable_model_error(err) &&
+                auto_continues < DESIGN_REMOTE_AUTO_CONTINUES) {
+                auto_continues++;
+                char *cont = design_remote_continue_prompt(&dsml, err,
+                    auto_continues, DESIGN_REMOTE_AUTO_CONTINUES);
+                dstudio_remote_messages_append(&a->remote_messages,
+                                               &a->remote_message_count,
+                                               "user",
+                                               cont);
+                free(cont);
+                printf("\x1e{\"type\":\"model_retry\",\"attempt\":%d,\"max\":%d}\n",
+                       auto_continues, DESIGN_REMOTE_AUTO_CONTINUES);
+                fflush(stdout);
+                free(assistant);
+                dsml_parser_free(&dsml);
+                continue;
+            }
+            dsml_parser_free(&dsml);
+            char msg[512];
+            snprintf(msg, sizeof(msg), "\nRemote model failed after automatic recovery: %s\n",
+                     err[0] ? err : "unknown error");
+            out_text(msg, strlen(msg));
+            design_project_finish_run(&a->project, "error");
+            free(assistant);
+            return 0;
+        }
 
         bool got_tool = dsml.state == DSML_DONE;
         bool malformed_tool = dsml.state == DSML_ERROR ||
@@ -7535,6 +7650,9 @@ static int design_run_remote(design_agent *a) {
         while (input.len && (input.ptr[input.len - 1] == '\n' ||
                              input.ptr[input.len - 1] == '\r'))
             input.ptr[--input.len] = '\0';
+        if (input.len == 0) continue;
+        design_apply_control_frames(a->cfg, input.ptr);
+        input.len = strlen(input.ptr);
         if (input.len == 0) continue;
         const char *p = input.ptr;
         while (*p == ' ' || *p == '\t') p++;
@@ -7661,6 +7779,9 @@ int main(int argc, char **argv) {
         while (input.len && (input.ptr[input.len - 1] == '\n' ||
                              input.ptr[input.len - 1] == '\r'))
             input.ptr[--input.len] = '\0';
+        if (input.len == 0) continue;
+        design_apply_control_frames(&cfg, input.ptr);
+        input.len = strlen(input.ptr);
         if (input.len == 0) continue;
 
         if (a.transcript.len + DESIGN_CTX_RESERVE >= cfg.ctx_size) {

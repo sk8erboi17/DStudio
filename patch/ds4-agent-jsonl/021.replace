@@ -1,0 +1,32 @@
+static const char *ds4ui_json_ws(const char *p, const char *end) { while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) p++; return p; }
+static int ds4ui_json_hex(char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'); }
+static const char *ds4ui_json_skip_value(const char *p, const char *end, int depth, char *err, size_t errsz);
+static const char *ds4ui_json_skip_string(const char *p, const char *end, char *err, size_t errsz) {
+    if (p >= end || *p != '\"') { snprintf(err, errsz, "expected JSON string"); return NULL; }
+    for (p++; p < end;) {
+        unsigned char c = (unsigned char)*p++;
+        if (c == '\"') return p;
+        if (c < 0x20) { snprintf(err, errsz, "control character in JSON string"); return NULL; }
+        if (c != '\\') continue;
+        if (p >= end) { snprintf(err, errsz, "unterminated JSON escape"); return NULL; }
+        char e = *p++;
+        if (e == '\"' || e == '\\' || e == '/' || e == 'b' || e == 'f' || e == 'n' || e == 'r' || e == 't') continue;
+        if (e == 'u') {
+            if (end - p < 4 || !ds4ui_json_hex(p[0]) || !ds4ui_json_hex(p[1]) || !ds4ui_json_hex(p[2]) || !ds4ui_json_hex(p[3])) { snprintf(err, errsz, "bad JSON unicode escape"); return NULL; }
+            p += 4; continue;
+        }
+        snprintf(err, errsz, "bad JSON escape"); return NULL;
+    }
+    snprintf(err, errsz, "unterminated JSON string"); return NULL;
+}
+static const char *ds4ui_json_skip_number(const char *p, const char *end, char *err, size_t errsz) {
+    if (p < end && *p == '-') p++;
+    if (p >= end) { snprintf(err, errsz, "bad JSON number"); return NULL; }
+    if (*p == '0') p++;
+    else if (*p >= '1' && *p <= '9') { while (p < end && isdigit((unsigned char)*p)) p++; }
+    else { snprintf(err, errsz, "bad JSON number"); return NULL; }
+    if (p < end && *p == '.') { p++; if (p >= end || !isdigit((unsigned char)*p)) { snprintf(err, errsz, "bad JSON number"); return NULL; } while (p < end && isdigit((unsigned char)*p)) p++; }
+    if (p < end && (*p == 'e' || *p == 'E')) { p++; if (p < end && (*p == '+' || *p == '-')) p++; if (p >= end || !isdigit((unsigned char)*p)) { snprintf(err, errsz, "bad JSON number"); return NULL; } while (p < end && isdigit((unsigned char)*p)) p++; }
+    return p;
+}
+static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {

@@ -168,7 +168,7 @@ if (-not (Test-Path $Bash)) { throw "POSIX bash not found: $Bash" }
 & $Bash -lc "true"
 Assert-NativeOk "initialize POSIX shell"
 if ($CygwinRoot -like "*msys64*") {
-  & $Bash -lc "export PATH=/usr/local/bin:/usr/bin:/bin:`$PATH; pacman --noconfirm -S --needed make git patch gcc"
+  & $Bash -lc "export PATH=/usr/local/bin:/usr/bin:/bin:`$PATH; pacman --noconfirm -S --needed make patch gcc"
   Assert-NativeOk "install MSYS2 build tools"
 }
 $RootUnix = ((& $Bash -lc "cygpath -u '$Root'") | Select-Object -Last 1).Trim()

@@ -1,0 +1,3 @@
+            sr->in_think = true;
+            sr->renderer->in_think = true;
+            if (sr->renderer->worker->cfg->jsonl) ds4ui_emit_event(sr->renderer->worker, "reasoning_start");   /*DS4UI_JSONL*/

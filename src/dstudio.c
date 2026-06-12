@@ -12,7 +12,7 @@
  * Makes start.sh obsolete: all of its parameters are here.
  *
  * Compile:  cc -O2 -Wall -Wextra -o dstudio dstudio.c
- * Run:      ./dstudio [web_port] [ds4_dir]      (default 5500, ../ds4)
+ * Run:      ./dstudio [web_port] [ds4_dir]      (default 5500, ./ds4)
  *
  * Local API (only from this page, see anti-CSRF):
  *   GET  /api/status                  engine state, progress, models
@@ -330,6 +330,9 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define WEB_HELPER_SEARCH_TIMEOUT_MS 25000
 #define WEB_HELPER_VISIT_TIMEOUT_MS 45000
 #define AGENT_BUF_CAP (4 * 1024 * 1024)   /* cap of the agent transcript in RAM */
+#define DS4_REPO_URL "https://github.com/antirez/ds4"
+#define DS4_UPSTREAM_COMMIT "d881f2a05e8ff6bec001315a36b794b4aa310173"
+#define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
 
 #define MODEL_STD "ds4flash.gguf"
 #define MODEL_UNC "gguf/cyberneurova-DeepSeek-V4-Flash-abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-aligned.gguf"
@@ -361,7 +364,8 @@ static const engine_cfg ENGINE_DEFAULTS = { 1, 28000, 262144, 100, 24576, 128, 1
 static int       g_mode = ENGINE_NONE;
 static pid_t     g_child = -1;
 static engine_cfg g_cfg;
-static char      g_ds4_dir[1024] = "../ds4";
+static char      g_ds4_dir[1024] = "ds4";
+static int       g_ds4_dir_explicit = 0;  /* CLI path: do not override with ./ds4 discovery */
 static char      g_web_dir[1024] = "";       /* this DStudio checkout (holds extension/) */
 static char      g_workdir[1024] = "";       /* agent: --chdir; design: --workspace */
 static char      g_remote_base_url[1024] = ""; /* LAN client: local agent/design, remote model */
@@ -958,6 +962,7 @@ typedef struct {
     char base_url[1024];
     char *body;
     int done;
+    char finish_reason[32];
 } model_rpc_job;
 
 static int model_rpc_parse_base(const char *base, char *host, size_t hostsz, int *port) {
@@ -1058,6 +1063,10 @@ static void model_rpc_sse_line(model_rpc_job *job, const char *line) {
     char *content = json_get_string_alloc_rpc(p, "content");
     if (content && content[0]) model_rpc_write_frame(job, "model_delta", "content", content);
     free(content);
+    char *finish = json_get_string_alloc_rpc(p, "finish_reason");
+    if (finish && finish[0])
+        snprintf(job->finish_reason, sizeof job->finish_reason, "%s", finish);
+    free(finish);
 }
 
 static void model_rpc_sse_bytes(model_rpc_job *job, const char *buf, size_t len, json_dyn_buf *line) {
@@ -1191,7 +1200,10 @@ static int model_rpc_http_stream(model_rpc_job *job, char *err, size_t errsz) {
     }
     if (!job->done && sse_line.len) model_rpc_sse_line(job, sse_line.ptr);
     if (!job->done) {
-        snprintf(err, errsz, "LAN model stream ended before completion");
+        snprintf(err, errsz, "LAN model stream ended before completion%s%s",
+                 job->finish_reason[0] ? " (finish_reason=" : "",
+                 job->finish_reason[0] ? job->finish_reason : "");
+        if (job->finish_reason[0] && strlen(err) + 2 < errsz) strcat(err, ")");
         goto fail;
     }
     free(head.ptr);
@@ -1277,11 +1289,15 @@ static const char *variant_rel(const char *v) {
 static const char *current_model_rel(void) {
     return g_model_override[0] ? g_model_override : variant_rel(g_variant);
 }
-static int file_present(const char *rel) {
+static int file_present_in_dir(const char *dir, const char *rel) {
     char full[2048];
-    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, rel);
+    snprintf(full, sizeof full, "%s/%s", dir ? dir : "", rel ? rel : "");
     struct stat st;
     return stat(full, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0;
+}
+
+static int file_present(const char *rel) {
+    return file_present_in_dir(g_ds4_dir, rel);
 }
 
 static int model_present(int uncensored) {
@@ -1293,13 +1309,17 @@ static int model_present(int uncensored) {
 /* The ds4 dir is "valid" if it exists AND looks like a ds4 checkout/install:
  * one of the engine binaries, the Makefile, or the Metal sources is present.
  * When this is false the UI prompts the user for the correct path. */
-static int ds4_dir_valid(void) {
+static int ds4_dir_valid_path(const char *dir) {
     struct stat st;
-    if (stat(g_ds4_dir, &st) != 0 || !S_ISDIR(st.st_mode)) return 0;
-    return file_present("ds4-server") || file_present("ds4-agent") ||
-           file_present("ds4-server.exe") || file_present("ds4-agent.exe") ||
-           file_present("Makefile")   || file_present("metal/ds4.metal") ||
-           file_present("ds4.c");
+    if (!dir || stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) return 0;
+    return file_present_in_dir(dir, "ds4-server") || file_present_in_dir(dir, "ds4-agent") ||
+           file_present_in_dir(dir, "ds4-server.exe") || file_present_in_dir(dir, "ds4-agent.exe") ||
+           file_present_in_dir(dir, "Makefile")   || file_present_in_dir(dir, "metal/ds4.metal") ||
+           file_present_in_dir(dir, "ds4.c");
+}
+
+static int ds4_dir_valid(void) {
+    return ds4_dir_valid_path(g_ds4_dir);
 }
 
 /* True if g_web_dir points at a DStudio checkout — i.e. the design extension
@@ -1859,6 +1879,14 @@ static void reap_child(void) {
                      WIFEXITED(st) ? WEXITSTATUS(st) : -1,
                      g_last_engine_line[0] ? " — " : "", g_last_engine_line);
         printf("engine: pid %d terminated — %s\n", (int)g_child, g_engine_err);
+        if (MODE_IS_PIPED(g_mode) && g_agent_working) {
+            char msg[640];
+            int n = snprintf(msg, sizeof msg,
+                "\nEngine process stopped before completing the turn: %s\n",
+                g_engine_err[0] ? g_engine_err : "unknown process failure");
+            if (n > 0) agent_buf_append(msg, (size_t)n);
+        }
+        g_agent_working = 0;
         g_child = -1;
 #ifdef _WIN32
         g_child_win_pid = 0;
@@ -2257,915 +2285,35 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
 }
 
 /* ============================================================================
- * --jsonl extension: ALL here (no external scripts/files).
- * Reversible and additive patch of ds4_agent.c: adds a --jsonl flag (opt-in,
- * gated), the event emitters (tool_call/tool_result/reasoning_*) on a
- * JSON line prefixed by \x1e, and (v3+) the dispatch of the session slash
- * commands (/save /list /new /switch /del /compact /help) + the end-of-turn
- * autosave in the non-interactive loop. Builds ds4-agent-jsonl under a SEPARATE NAME
- * reusing the existing .o (via `make -f -` that includes the ds4 Makefile),
- * then immediately RESTORES the source from the .bak. The canonical ds4-agent and ds4_agent.o
- * are never touched. Crash-clean at startup if the source stays patched.
- * The edits below are generated (escaping verified) from an anchored table.
+ * --jsonl extension patcher.
+ * Reversible and additive patch of upstream ds4 sources. Patch bodies live under
+ * patch/ as ordered anchor files so missing files and anchor drift fail loudly.
  * ============================================================================ */
 #define JSONL_MARK "/*DS4UI_JSONL*/"
 #define WEB_CDP_MARK "/*DS4UI_WEB_CDP*/"
 #define WEB_DIRECT_NAV_MARK "/*DS4UI_WEB_DIRECT_NAV*/"
-#define JSONL_PATCH_VERSION 21  /* bump when the edits change: forces the rebuild */
-#define JSONL_REMOTE_AGENT_FRAGMENT "extension/remote/ds4_agent_remote.cfrag"
+#define JSONL_PATCH_DIR "patch/ds4-agent-jsonl"
+#define WEB_CDP_PATCH_DIR "patch/ds4-web-cdp"
+#define WEB_DIRECT_NAV_PATCH_DIR "patch/ds4-web-direct-nav"
 
-static const char *JSONL_EDITS[][2] = {
-  { "#include \"ds4_web.h\"\n",
-    "#include \"ds4_web.h\"\n#include \"dstudio_remote_llm.h\" /*DS4UI_JSONL*/\n#if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)\n#ifndef WIN32_LEAN_AND_MEAN\n#define WIN32_LEAN_AND_MEAN\n#endif\n#include <windows.h>\nstatic void ds4ui_win32_ensure_chrome(int port);\n#endif\n" },
-  { "    bool non_interactive;\n",
-    "    bool non_interactive;\n    bool jsonl; /*DS4UI_JSONL*/\n    bool web_tool_mode; /*DS4UI_JSONL*/\n    const char *web_tool; /*DS4UI_JSONL*/\n    const char *web_query; /*DS4UI_JSONL*/\n    const char *web_url; /*DS4UI_JSONL*/\n    const char *remote_base_url; /*DS4UI_JSONL*/\n    const char *remote_model; /*DS4UI_JSONL*/\n" },
-  { "        } else if (!strcmp(arg, \"--non-interactive\")) {\n            c.non_interactive = true;\n",
-    "        } else if (!strcmp(arg, \"--non-interactive\")) {\n            c.non_interactive = true;\n        } else if (!strcmp(arg, \"--jsonl\")) {   /*DS4UI_JSONL*/\n            c.jsonl = true;\n        } else if (!strcmp(arg, \"--web-tool\")) {   /*DS4UI_JSONL*/\n            c.web_tool_mode = true;\n            c.web_tool = need_arg(&i, argc, argv, arg);\n        } else if (!strcmp(arg, \"--query\")) {   /*DS4UI_JSONL*/\n            c.web_query = need_arg(&i, argc, argv, arg);\n        } else if (!strcmp(arg, \"--url\")) {   /*DS4UI_JSONL*/\n            c.web_url = need_arg(&i, argc, argv, arg);\n        } else if (!strcmp(arg, \"--remote-base-url\")) {   /*DS4UI_JSONL*/\n            c.remote_base_url = need_arg(&i, argc, argv, arg);\n        } else if (!strcmp(arg, \"--remote-model\")) {   /*DS4UI_JSONL*/\n            c.remote_model = need_arg(&i, argc, argv, arg);\n" },
-  { "static void renderer_write(agent_token_renderer *r, const char *s, size_t n) {\n",
-    "/*DS4UI_JSONL*/\n/* Opt-in structured output for the UI: one JSON line per event, prefixed by\n * \\x1e (Record Separator) so the consumer tells events from text without\n * heuristics. Additive: active only with --jsonl. */\nstatic void ds4ui_json_escape(const char *s, char *out, size_t cap) {\n    size_t o = 0;\n    for (; s && *s && o + 7 < cap; s++) {\n        unsigned char c = (unsigned char)*s;\n        if (c == '\"' || c == '\\\\') { out[o++] = '\\\\'; out[o++] = (char)c; }\n        else if (c == '\\n') { out[o++] = '\\\\'; out[o++] = 'n'; }\n        else if (c == '\\r') { out[o++] = '\\\\'; out[o++] = 'r'; }\n        else if (c == '\\t') { out[o++] = '\\\\'; out[o++] = 't'; }\n        else if (c < 0x20) { o += (size_t)snprintf(out + o, cap - o, \"\\\\u%04x\", c); }\n        else out[o++] = (char)c;\n    }\n    out[o] = '\\0';\n}\nstatic void ds4ui_emit_event(agent_worker *w, const char *type) {\n    char line[128];\n    int k = snprintf(line, sizeof line, \"\\x1e{\\\"type\\\":\\\"%s\\\"}\\n\", type);\n    agent_publish(w, line, (size_t)k);\n}\nstatic void ds4ui_emit_tool_call(agent_worker *w, const agent_tool_call *tc) {\n    char nm[256];\n    ds4ui_json_escape(tc->name ? tc->name : \"\", nm, sizeof nm);\n    char line[16384];   /* edit old/new + write content need room for the diff the UI renders */\n    int k = snprintf(line, sizeof line,\n        \"\\x1e{\\\"type\\\":\\\"tool_call\\\",\\\"name\\\":\\\"%s\\\",\\\"input\\\":{\", nm);\n    /* snprintf returns the REQUESTED length, not the written one: never add to k\n     * a value that does not fit (k past the buffer = OOB on line+k and a publish\n     * of stack bytes). An arg that does not fit truncates HERE, at a JSON boundary. */\n    for (int j = 0; j < tc->argc; j++) {\n        char an[128], av[6144];\n        ds4ui_json_escape(tc->args[j].name ? tc->args[j].name : \"\", an, sizeof an);\n        ds4ui_json_escape(tc->args[j].value ? tc->args[j].value : \"\", av, sizeof av);\n        int r = snprintf(line + k, sizeof line - k, \"%s\\\"%s\\\":\\\"%s\\\"\", j ? \",\" : \"\", an, av);\n        if (r < 0 || r >= (int)(sizeof line - k) - 4) { line[k] = '\\0'; break; }\n        k += r;\n    }\n    k += snprintf(line + k, sizeof line - k, \"}}\\n\");\n    agent_publish(w, line, (size_t)k);\n}\nstatic void ds4ui_emit_tool_result(agent_worker *w, const char *name, const char *res) {\n    char nm[256];\n    ds4ui_json_escape(name ? name : \"\", nm, sizeof nm);\n    size_t rl = res ? strlen(res) : 0;\n    size_t cap = rl * 6 + 512;\n    char *line = (char *)malloc(cap);\n    if (!line) return;\n    int k = snprintf(line, cap,\n        \"\\x1e{\\\"type\\\":\\\"tool_result\\\",\\\"name\\\":\\\"%s\\\",\\\"output\\\":\\\"\", nm);\n    char *esc = (char *)malloc(rl * 6 + 8);\n    if (esc) { ds4ui_json_escape(res ? res : \"\", esc, rl * 6 + 8);\n               k += snprintf(line + k, cap - k, \"%s\", esc); free(esc); }\n    k += snprintf(line + k, cap - k, \"\\\"}\\n\");\n    agent_publish(w, line, (size_t)k);\n    free(line);\n}\nstatic void renderer_write(agent_token_renderer *r, const char *s, size_t n) {\n" },
-  { "static void ds4ui_emit_tool_call(agent_worker *w, const agent_tool_call *tc) {\n",
-    "static void ds4ui_emit_question(agent_worker *w, const char *id, const char *title, const char *questions_json) {\n"
-    "    char iid[256], ttl[512];\n"
-    "    ds4ui_json_escape(id ? id : \"question\", iid, sizeof iid);\n"
-    "    ds4ui_json_escape(title ? title : \"Question\", ttl, sizeof ttl);\n"
-    "    const char *q = (questions_json && questions_json[0]) ? questions_json : \"[]\";\n"
-    "    size_t ql = strlen(q), cap = ql + 1024;\n"
-    "    char *line = (char *)malloc(cap);\n"
-    "    if (!line) return;\n"
-    "    int k = snprintf(line, cap, \"\\x1e{\\\"type\\\":\\\"question\\\",\\\"id\\\":\\\"%s\\\",\\\"title\\\":\\\"%s\\\",\\\"questions\\\":\", iid, ttl);\n"
-    "    for (; *q && k + 2 < (int)cap; q++) {\n"
-    "        char c = *q;\n"
-    "        if (c == '\\n' || c == '\\r' || c == '\\x1e') c = ' ';\n"
-    "        line[k++] = c;\n"
-    "    }\n"
-    "    k += snprintf(line + k, cap - (size_t)k, \"}\\n\");\n"
-    "    agent_publish(w, line, (size_t)k);\n"
-    "    free(line);\n"
-    "}\n"
-    "static void ds4ui_emit_tool_call(agent_worker *w, const agent_tool_call *tc) {\n" },
-  { "        char *res = agent_execute_tool_call(w, &calls->v[i]);\n",
-    "        if (w->cfg->jsonl) ds4ui_emit_tool_call(w, &calls->v[i]);   /*DS4UI_JSONL*/\n        char *res;\n#if defined(__MSYS__) || defined(__CYGWIN__) || defined(_WIN32)\n        if (!strcmp(calls->v[i].name, \"bash\"))\n            res = ds4ui_win32_bash_exec(w, &calls->v[i]);\n        else\n#endif\n        res = agent_execute_tool_call(w, &calls->v[i]);\n        if (w->cfg->jsonl) ds4ui_emit_tool_result(w, calls->v[i].name, res);   /*DS4UI_JSONL*/\n" },
-  { "            sr->in_think = true;\n            sr->renderer->in_think = true;\n",
-    "            sr->in_think = true;\n            sr->renderer->in_think = true;\n            if (sr->renderer->worker->cfg->jsonl) ds4ui_emit_event(sr->renderer->worker, \"reasoning_start\");   /*DS4UI_JSONL*/\n" },
-  { "            sr->in_think = false;\n            sr->renderer->in_think = false;\n",
-    "            sr->in_think = false;\n            sr->renderer->in_think = false;\n            if (sr->renderer->worker->cfg->jsonl) ds4ui_emit_event(sr->renderer->worker, \"reasoning_end\");   /*DS4UI_JSONL*/\n" },
+typedef struct {
+    char id[32];
+    char find_path[DSTUDIO_PATH_MAX + 512];
+    char replace_path[DSTUDIO_PATH_MAX + 512];
+    char *find;
+    char *replace;
+} ds4ui_patch_edit;
 
-  /* ---- v3: slash commands + session autosave on the non-interactive pipe ----
-   * Without these edits every stdin line (even "/save", "/switch …") would be
-   * submitted to the MODEL as a prompt: the agent's KV sessions would be out of
-   * reach for the web UI. The C handlers already exist (save/list/new/
-   * switch/del); this only adds the dispatch to an idle worker + the
-   * end-of-turn autosave (same save-on-turn as ds4-design), gated on --jsonl. */
-  { "static int run_agent_non_interactive(ds4_engine *engine, agent_config *cfg) {\n",
-    "/*DS4UI_JSONL*/\n"
-    "/* Slash commands on the pipe (web UI): in the non-interactive loop every\n"
-    " * stdin line would end up at the MODEL as a prompt; here /save /list /new\n"
-    " * /switch /del /compact /help are actually executed (idle worker only),\n"
-    " * with text output on stdout -> the UI transcript. Only with --jsonl. */\n"
-    "static void ds4ui_slash_trim(const char *line, char *cmd, size_t cap) {\n"
-    "    while (*line == ' ' || *line == '\\t' || *line == '\\n' || *line == '\\r') line++;\n"
-    "    size_t n = 0;\n"
-    "    for (; line[n] && line[n] != '\\n' && n < cap - 1; n++) cmd[n] = line[n];\n"
-    "    cmd[n] = '\\0';\n"
-    "    while (n && (cmd[n-1] == ' ' || cmd[n-1] == '\\t' || cmd[n-1] == '\\r')) cmd[--n] = '\\0';\n"
-    "}\n"
-    "static bool ds4ui_pipe_slash(const char *line) {\n"
-    "    char cmd[256];\n"
-    "    ds4ui_slash_trim(line, cmd, sizeof(cmd));\n"
-    "    if (cmd[0] != '/') return false;\n"
-    "    const char *p = line;\n"
-    "    while (*p == ' ' || *p == '\\t' || *p == '\\n' || *p == '\\r') p++;\n"
-    "    p = strchr(p, '\\n');\n"
-    "    if (p) {\n"
-    "        while (*p == ' ' || *p == '\\t' || *p == '\\n' || *p == '\\r') p++;\n"
-    "        if (*p) return false; /* multi-line: it is a prompt, not a command */\n"
-    "    }\n"
-    "    return !strcmp(cmd, \"/save\") || !strcmp(cmd, \"/list\") ||\n"
-    "           !strcmp(cmd, \"/new\") || !strcmp(cmd, \"/help\") ||\n"
-    "           !strcmp(cmd, \"/compact\") ||\n"
-    "           agent_slash_command_with_args(cmd, \"/switch\") ||\n"
-    "           agent_slash_command_with_args(cmd, \"/del\");\n"
-    "}\n"
-    "static void ds4ui_handle_slash_idle(agent_worker *w, const char *line) {\n"
-    "    char cmd[256];\n"
-    "    char err[160] = {0};\n"
-    "    ds4ui_slash_trim(line, cmd, sizeof(cmd));\n"
-    "    if (!strcmp(cmd, \"/save\")) {\n"
-    "        if (!agent_worker_save_session(w, err, sizeof(err)))\n"
-    "            printf(\"save failed: %s\\n\", err);\n"
-    "    } else if (!strcmp(cmd, \"/list\")) {\n"
-    "        agent_worker_list_sessions(w);\n"
-    "    } else if (!strcmp(cmd, \"/help\")) {\n"
-    "        printf(\"commands: /save /list /new /switch <sha> /del <sha> /compact\\n\");\n"
-    "    } else if (!strcmp(cmd, \"/compact\")) {\n"
-    "        worker_request_compact(w);\n"
-    "        printf(\"compaction scheduled\\n\");\n"
-    "    } else if (!strcmp(cmd, \"/new\")) {\n"
-    "        if (agent_worker_needs_save(w) &&\n"
-    "            !agent_worker_save_session(w, err, sizeof(err)))\n"
-    "            printf(\"save failed: %s\\n\", err);\n"
-    "        err[0] = '\\0';\n"
-    "        if (!agent_worker_reset_to_sysprompt(w, err, sizeof(err)))\n"
-    "            printf(\"new session failed: %s\\n\", err);\n"
-    "        else\n"
-    "            printf(\"new session started\\n\");\n"
-    "    } else if (agent_slash_command_with_args(cmd, \"/switch\")) {\n"
-    "        char *arg = cmd + 7;\n"
-    "        while (*arg == ' ' || *arg == '\\t') arg++;\n"
-    "        if (!arg[0]) {\n"
-    "            printf(\"usage: /switch <sha-prefix>\\n\");\n"
-    "        } else {\n"
-    "            char *sha = arg;\n"
-    "            while (*arg && *arg != ' ' && *arg != '\\t') arg++;\n"
-    "            *arg = '\\0';\n"
-    "            if (agent_worker_needs_save(w) &&\n"
-    "                !agent_worker_save_session(w, err, sizeof(err)))\n"
-    "                printf(\"save failed: %s\\n\", err);\n"
-    "            err[0] = '\\0';\n"
-    "            if (!agent_worker_switch_session(w, sha, 0, err, sizeof(err)))\n"
-    "                printf(\"switch failed: %s\\n\", err);\n"
-    "        }\n"
-    "    } else if (agent_slash_command_with_args(cmd, \"/del\")) {\n"
-    "        char *arg = cmd + 4;\n"
-    "        while (*arg == ' ' || *arg == '\\t') arg++;\n"
-    "        if (!arg[0]) {\n"
-    "            printf(\"usage: /del <sha-prefix>\\n\");\n"
-    "        } else {\n"
-    "            char *sha_arg = arg;\n"
-    "            while (*arg && *arg != ' ' && *arg != '\\t') arg++;\n"
-    "            *arg = '\\0';\n"
-    "            char sha[41] = {0};\n"
-    "            if (agent_worker_delete_session(w, sha_arg, sha, err, sizeof(err)))\n"
-    "                printf(\"deleted session %.8s\\n\", sha);\n"
-    "            else\n"
-    "                printf(\"delete failed: %s\\n\", err);\n"
-    "        }\n"
-    "    }\n"
-    "    fflush(stdout);\n"
-    "}\n"
-    "static int run_agent_non_interactive(ds4_engine *engine, agent_config *cfg) {\n" },
-  { "            agent_noninteractive_marker(\"+DWARFSTAR_WAITING\");\n            waiting_announced = true;\n",
-    "            if (cfg->jsonl && agent_worker_needs_save(&worker)) {   /*DS4UI_JSONL: save-on-turn like ds4-design*/\n"
-    "                char ds4ui_err[160] = {0};\n"
-    "                if (!agent_worker_save_session(&worker, ds4ui_err, sizeof(ds4ui_err)))\n"
-    "                    printf(\"save failed: %s\\n\", ds4ui_err);\n"
-    "                fflush(stdout);\n"
-    "            }\n"
-    "            agent_noninteractive_marker(\"+DWARFSTAR_WAITING\");\n            waiting_announced = true;\n" },
-  { "            char *prompt = agent_input_buf_take(&input);\n            if (worker_is_idle(&worker) && queue.len == 0) {\n                if (!worker_submit(&worker, prompt)) {\n",
-    "            char *prompt = agent_input_buf_take(&input);\n"
-    "            if (cfg->jsonl && ds4ui_pipe_slash(prompt)) {   /*DS4UI_JSONL*/\n"
-    "                if (worker_is_idle(&worker) && queue.len == 0) {\n"
-    "                    ds4ui_handle_slash_idle(&worker, prompt);\n"
-    "                } else {\n"
-    "                    printf(\"command ignored (model busy)\\n\");\n"
-    "                    fflush(stdout);\n"
-    "                }\n"
-    "            } else if (worker_is_idle(&worker) && queue.len == 0) {\n                if (!worker_submit(&worker, prompt)) {\n" },
-  { "static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {\n",
-    "/*DS4UI_JSONL*/\n"
-    "#if defined(__MSYS__) || defined(__CYGWIN__) || defined(_WIN32)\n"
-    "static char *ds4ui_win32_bash_exec(agent_worker *w, const agent_tool_call *call) {\n"
-    "    (void)w;\n"
-    "    const char *cmd = agent_tool_arg_value(call, \"cmd\");\n"
-    "    if (!cmd || !cmd[0]) cmd = agent_tool_arg_value(call, \"command\");\n"
-    "    if (!cmd || !cmd[0]) return xstrdup(\"Tool error: bash requires cmd\\n\");\n"
-    "    const char *refresh = agent_tool_arg_value(call, \"refresh_sec\");\n"
-    "    if (refresh && refresh[0]) return xstrdup(\"Tool error: refresh_sec is not supported by the Windows structured agent yet\\n\");\n"
-    "    SECURITY_ATTRIBUTES sa;\n"
-    "    memset(&sa, 0, sizeof(sa));\n"
-    "    sa.nLength = sizeof(sa);\n"
-    "    sa.bInheritHandle = TRUE;\n"
-    "    HANDLE stdin_rd = NULL, stdin_wr = NULL, stdout_rd = NULL, stdout_wr = NULL;\n"
-    "    if (!CreatePipe(&stdin_rd, &stdin_wr, &sa, 0)) return xstrdup(\"Tool error: failed to create bash stdin pipe\\n\");\n"
-    "    if (!CreatePipe(&stdout_rd, &stdout_wr, &sa, 0)) { CloseHandle(stdin_rd); CloseHandle(stdin_wr); return xstrdup(\"Tool error: failed to create bash stdout pipe\\n\"); }\n"
-    "    SetHandleInformation(stdin_wr, HANDLE_FLAG_INHERIT, 0);\n"
-    "    SetHandleInformation(stdout_rd, HANDLE_FLAG_INHERIT, 0);\n"
-    "    STARTUPINFOA si;\n"
-    "    PROCESS_INFORMATION pi;\n"
-    "    memset(&si, 0, sizeof(si));\n"
-    "    memset(&pi, 0, sizeof(pi));\n"
-    "    si.cb = sizeof(si);\n"
-    "    si.dwFlags = STARTF_USESTDHANDLES;\n"
-    "    si.hStdInput = stdin_rd;\n"
-    "    si.hStdOutput = stdout_wr;\n"
-    "    si.hStdError = stdout_wr;\n"
-    "    char cmdline[] = \"bash.exe -s\";\n"
-    "    BOOL ok = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);\n"
-    "    CloseHandle(stdin_rd);\n"
-    "    CloseHandle(stdout_wr);\n"
-    "    if (!ok) {\n"
-    "        DWORD gle = GetLastError();\n"
-    "        CloseHandle(stdin_wr);\n"
-    "        CloseHandle(stdout_rd);\n"
-    "        char msg[160];\n"
-    "        snprintf(msg, sizeof(msg), \"Tool error: failed to start bash.exe (GetLastError=%lu)\\n\", (unsigned long)gle);\n"
-    "        return xstrdup(msg);\n"
-    "    }\n"
-    "    DWORD wr = 0;\n"
-    "    WriteFile(stdin_wr, cmd, (DWORD)strlen(cmd), &wr, NULL);\n"
-    "    WriteFile(stdin_wr, \"\\n\", 1, &wr, NULL);\n"
-    "    CloseHandle(stdin_wr);\n"
-    "    agent_buf out = {0};\n"
-    "    DWORD start = GetTickCount();\n"
-    "    DWORD exit_code = 0;\n"
-    "    for (;;) {\n"
-    "        DWORD avail = 0;\n"
-    "        while (PeekNamedPipe(stdout_rd, NULL, 0, NULL, &avail, NULL) && avail > 0) {\n"
-    "            char buf[4096];\n"
-    "            DWORD want = avail < sizeof(buf) ? avail : sizeof(buf);\n"
-    "            DWORD got = 0;\n"
-    "            if (!ReadFile(stdout_rd, buf, want, &got, NULL) || got == 0) break;\n"
-    "            agent_buf_append(&out, buf, got);\n"
-    "            avail = 0;\n"
-    "        }\n"
-    "        DWORD wait = WaitForSingleObject(pi.hProcess, 50);\n"
-    "        if (wait == WAIT_OBJECT_0) break;\n"
-    "        if (GetTickCount() - start > 120000) {\n"
-    "            TerminateProcess(pi.hProcess, 124);\n"
-    "            agent_buf_puts(&out, \"\\nTool error: bash timed out\\n\");\n"
-    "            break;\n"
-    "        }\n"
-    "    }\n"
-    "    while (PeekNamedPipe(stdout_rd, NULL, 0, NULL, &wr, NULL) && wr > 0) {\n"
-    "        char buf[4096];\n"
-    "        DWORD want = wr < sizeof(buf) ? wr : sizeof(buf);\n"
-    "        DWORD got = 0;\n"
-    "        if (!ReadFile(stdout_rd, buf, want, &got, NULL) || got == 0) break;\n"
-    "        agent_buf_append(&out, buf, got);\n"
-    "    }\n"
-    "    WaitForSingleObject(pi.hProcess, INFINITE);\n"
-    "    GetExitCodeProcess(pi.hProcess, &exit_code);\n"
-    "    CloseHandle(stdout_rd);\n"
-    "    CloseHandle(pi.hThread);\n"
-    "    CloseHandle(pi.hProcess);\n"
-    "    if (exit_code != 0 && !strstr(out.ptr ? out.ptr : \"\", \"Tool error:\")) {\n"
-    "        char msg[96];\n"
-    "        snprintf(msg, sizeof(msg), \"\\nTool exit status: %lu\\n\", (unsigned long)exit_code);\n"
-    "        agent_buf_puts(&out, msg);\n"
-    "    }\n"
-    "    return agent_buf_take(&out);\n"
-    "}\n"
-    "#endif\n"
-    "static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {\n" },
-  { "static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {\n",
-    "/*DS4UI_JSONL*/\n/* Post-edit verification (DStudio): after a write/edit, run a cheap single-file\n * syntax check on the touched path and append any errors to the tool result, so\n * the model fixes them in the same turn instead of shipping broken code. Only\n * reliable single-file checkers (no project context) are used, so false\n * positives are rare; C falls back to cc -fsyntax-only and suppresses\n * missing-include noise. Gated on --jsonl. */\nstatic char *ds4ui_verify_after(agent_worker *w, const agent_tool_call *call, char *result) {\n    if (!w || !w->cfg || !w->cfg->jsonl || !result) return result;\n    if (!strncmp(result, \"Tool error\", 10)) return result;\n    const char *path = agent_tool_arg_value(call, \"path\");\n    if (!path || !path[0]) return result;\n    const char *dot = strrchr(path, '.');\n    if (!dot) return result;\n    const char *argv[6] = {0};\n    int is_c = 0;\n    if (!strcmp(dot, \".js\") || !strcmp(dot, \".mjs\") || !strcmp(dot, \".cjs\") || !strcmp(dot, \".jsx\")) {\n        argv[0] = \"node\"; argv[1] = \"--check\"; argv[2] = path;\n    } else if (!strcmp(dot, \".py\")) {\n        argv[0] = \"python3\"; argv[1] = \"-m\"; argv[2] = \"py_compile\"; argv[3] = path;\n    } else if (!strcmp(dot, \".sh\") || !strcmp(dot, \".bash\")) {\n        argv[0] = \"bash\"; argv[1] = \"-n\"; argv[2] = path;\n    } else if (!strcmp(dot, \".rb\")) {\n        argv[0] = \"ruby\"; argv[1] = \"-c\"; argv[2] = path;\n    } else if (!strcmp(dot, \".json\")) {\n        argv[0] = \"python3\"; argv[1] = \"-m\"; argv[2] = \"json.tool\"; argv[3] = path; argv[4] = \"/dev/null\";\n    } else if (!strcmp(dot, \".go\")) {\n        argv[0] = \"gofmt\"; argv[1] = \"-e\"; argv[2] = path;\n    } else if (!strcmp(dot, \".c\") || !strcmp(dot, \".h\") || !strcmp(dot, \".cc\") || !strcmp(dot, \".cpp\")) {\n        argv[0] = \"cc\"; argv[1] = \"-fsyntax-only\"; argv[2] = path; is_c = 1;\n    } else {\n        return result;\n    }\n    int pfd[2];\n    if (pipe(pfd) != 0) return result;\n    pid_t pid = fork();\n    if (pid < 0) { close(pfd[0]); close(pfd[1]); return result; }\n    if (pid == 0) {\n        dup2(pfd[1], STDOUT_FILENO); dup2(pfd[1], STDERR_FILENO);\n        close(pfd[0]); close(pfd[1]);\n        int dn = open(\"/dev/null\", O_RDONLY);\n        if (dn >= 0) { dup2(dn, STDIN_FILENO); close(dn); }\n        execvp(argv[0], (char *const *)argv);\n        _exit(127);\n    }\n    close(pfd[1]);\n    char out[4096]; size_t n = 0; char chunk[1024]; ssize_t r;\n    while ((r = read(pfd[0], chunk, sizeof(chunk))) > 0) {\n        size_t room = sizeof(out) - 1 - n;\n        if (room > 0) { size_t c = (size_t)r < room ? (size_t)r : room; memcpy(out + n, chunk, c); n += c; }\n    }\n    out[n] = '\\0';\n    close(pfd[0]);\n    int status = 0; waitpid(pid, &status, 0);\n    int failed = !(WIFEXITED(status) && WEXITSTATUS(status) == 0);\n    if (!failed) return result;\n    if (n == 0) return result;\n    if (is_c && strstr(out, \"fatal error\")) return result;\n    agent_buf b = {0};\n    agent_buf_puts(&b, result);\n    if (result[0] && result[strlen(result) - 1] != '\\n') agent_buf_puts(&b, \"\\n\");\n    agent_buf_puts(&b, \"[verify] \");\n    agent_buf_puts(&b, argv[0]);\n    agent_buf_puts(&b, \" reported problems in \");\n    agent_buf_puts(&b, path);\n    agent_buf_puts(&b, \" - fix them before continuing:\\n\");\n    agent_buf_puts(&b, out);\n    agent_buf_puts(&b, \"\\n\");\n    free(result);\n    return agent_buf_take(&b);\n}\nstatic char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {\n" },
-  { "    if (!strcmp(call->name, \"write\")) return agent_tool_write(w, call);\n    if (!strcmp(call->name, \"list\")) return agent_tool_list(call);\n    if (!strcmp(call->name, \"edit\")) return agent_tool_edit(w, call);\n",
-    "    if (!strcmp(call->name, \"write\")) return ds4ui_verify_after(w, call, agent_tool_write(w, call));   /*DS4UI_JSONL*/\n    if (!strcmp(call->name, \"list\")) return agent_tool_list(call);\n    if (!strcmp(call->name, \"edit\")) return ds4ui_verify_after(w, call, agent_tool_edit(w, call));   /*DS4UI_JSONL*/\n" },
-  { "    bool sigint_installed = !cfg.non_interactive &&\n        sigaction(SIGINT, &sa, &old_int) == 0;",
-    "    bool sigint_installed = (!cfg.non_interactive || cfg.jsonl) &&   /*DS4UI_JSONL: install the SIGINT handler in piped mode so a turn can be interrupted*/\n        sigaction(SIGINT, &sa, &old_int) == 0;" },
-	  { "        int prc = poll(pfd, (nfds_t)nfds, timeout_ms);\n        if (prc < 0) {",
-	    "        int prc = poll(pfd, (nfds_t)nfds, timeout_ms);\n        if (cfg->jsonl && agent_sigint) {   /*DS4UI_JSONL: SIGINT aborts the current turn (the UI deleted the live conversation) without killing the engine*/\n            agent_sigint = 0;\n            if (!worker_is_idle(&worker)) worker_interrupt(&worker);\n        }\n        if (prc < 0) {" },
-
-	  /* ---- MEMORY.MD for ds4-agent-jsonl (DStudio) ----
-	   * The upstream source is not edited permanently.  The generated JSONL agent
-	   * reads a project-root MEMORY.MD into system context and writes the true
-	   * compact summary back after antirez's compaction succeeds. */
-	  { "static void agent_worker_build_system_tokens(agent_worker *w, ds4_tokens *out) {\n",
-	    "/*DS4UI_JSONL*/\n"
-	    "#define DS4UI_MEMORY_MAX_BYTES (32 * 1024)\n"
-	    "static char *ds4ui_memory_read_md(void) {\n"
-	    "    FILE *fp = fopen(\"MEMORY.MD\", \"rb\");\n"
-	    "    if (!fp) return NULL;\n"
-	    "    agent_buf b = {0};\n"
-	    "    char tmp[4096];\n"
-	    "    while (b.len < DS4UI_MEMORY_MAX_BYTES) {\n"
-	    "        size_t room = DS4UI_MEMORY_MAX_BYTES - b.len;\n"
-	    "        size_t want = room < sizeof(tmp) ? room : sizeof(tmp);\n"
-	    "        size_t n = fread(tmp, 1, want, fp);\n"
-	    "        if (n) agent_buf_append(&b, tmp, n);\n"
-	    "        if (n < want) break;\n"
-	    "    }\n"
-	    "    fclose(fp);\n"
-	    "    return agent_buf_take(&b);\n"
-	    "}\n"
-	    "static void ds4ui_memory_write_md(const char *summary, const char *reason) {\n"
-	    "    if (!summary || !summary[0]) return;\n"
-	    "    time_t t = time(NULL);\n"
-	    "    struct tm tmv;\n"
-	    "    gmtime_r(&t, &tmv);\n"
-	    "    char ts[32];\n"
-	    "    strftime(ts, sizeof(ts), \"%Y-%m-%dT%H:%M:%SZ\", &tmv);\n"
-	    "    agent_buf b = {0};\n"
-	    "    agent_buf_puts(&b, \"# MEMORY.MD\\n\\n\");\n"
-	    "    agent_buf_puts(&b, \"Shared durable memory for DS4 agents working in this workspace.\\n\\n\");\n"
-	    "    agent_buf_puts(&b, \"## Durable Summary\\n\\n\");\n"
-	    "    agent_buf_puts(&b, summary);\n"
-	    "    if (b.len && b.ptr[b.len - 1] != '\\n') agent_buf_puts(&b, \"\\n\");\n"
-	    "    agent_buf_puts(&b, \"\\n## Runtime State\\n\\n- Updated: \");\n"
-	    "    agent_buf_puts(&b, ts);\n"
-	    "    agent_buf_puts(&b, \"\\n- Runtime: ds4-agent-jsonl\");\n"
-	    "    if (reason && reason[0]) { agent_buf_puts(&b, \"\\n- Last compact reason: \"); agent_buf_puts(&b, reason); }\n"
-	    "    agent_buf_puts(&b, \"\\n\");\n"
-	    "    char tmp_path[64];\n"
-	    "    snprintf(tmp_path, sizeof(tmp_path), \"MEMORY.MD.tmp.%ld\", (long)getpid());\n"
-	    "    FILE *fp = fopen(tmp_path, \"wb\");\n"
-	    "    if (!fp) { free(b.ptr); return; }\n"
-	    "    bool ok = fwrite(b.ptr ? b.ptr : \"\", 1, b.len, fp) == b.len;\n"
-	    "    ok = fclose(fp) == 0 && ok;\n"
-	    "    if (ok) rename(tmp_path, \"MEMORY.MD\"); else unlink(tmp_path);\n"
-	    "    free(b.ptr);\n"
-	    "}\n"
-	    "static void agent_worker_build_system_tokens(agent_worker *w, ds4_tokens *out) {\n" },
-	  { "    agent_append_system_prompt(w->engine, out, w->cfg->gen.system);\n}\n",
-	    "    agent_append_system_prompt(w->engine, out, w->cfg->gen.system);\n"
-	    "    if (w->cfg->jsonl) {   /*DS4UI_JSONL*/\n"
-	    "        char *mem = ds4ui_memory_read_md();\n"
-	    "        if (mem && mem[0]) {\n"
-	    "            agent_buf m = {0};\n"
-	    "            agent_buf_puts(&m, \"PROJECT MEMORY (runtime summary from MEMORY.MD):\\n\\n\");\n"
-	    "            agent_buf_puts(&m, mem);\n"
-	    "            ds4_chat_append_message(w->engine, out, \"system\", m.ptr ? m.ptr : \"\");\n"
-	    "            free(m.ptr);\n"
-	    "        }\n"
-	    "        free(mem);\n"
-	    "    }\n"
-	    "}\n" },
-	  { "    ds4_chat_append_message(w->engine, &compacted, \"system\", summary_msg.ptr);\n    free(summary_msg.ptr);\n    free(summary.ptr);\n\n    agent_tokens_append_range(&compacted, &w->transcript, tail_start, bottom);\n",
-	    "    ds4_chat_append_message(w->engine, &compacted, \"system\", summary_msg.ptr);\n    free(summary_msg.ptr);\n    if (w->cfg->jsonl) ds4ui_memory_write_md(summary.ptr, reason);   /*DS4UI_JSONL*/\n    free(summary.ptr);\n\n    agent_tokens_append_range(&compacted, &w->transcript, tail_start, bottom);\n" },
-
-	  /* ---- on-demand skill / design-system tools (DStudio) ----
-   * The model can pull a focused recipe or brand mid-conversation, no restart, by
-   * calling skill(name) / design_system(name). The packs live in this DStudio checkout
-   * (DS4UI_SKILLS_DIR set by the launcher); name is sanitised so it can't escape it.
-   * Two edits: define the loaders before agent_tool_read, register them in the dispatch. */
-  { "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n",
-    "/*DS4UI_JSONL*/\n"
-    "static int ds4ui_pack_name_ok(const char *s) {\n"
-    "    if (!s || !s[0]) return 0;\n"
-    "    for (const char *p = s; *p; p++)\n"
-    "        if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '-')) return 0;\n"
-    "    return 1;\n"
-    "}\n"
-    "static char *ds4ui_read_file_buf(const char *path) {\n"
-    "    FILE *f = fopen(path, \"rb\");\n"
-    "    if (!f) return NULL;\n"
-    "    agent_buf b = {0};\n"
-    "    char chunk[4096]; size_t n;\n"
-    "    while ((n = fread(chunk, 1, sizeof chunk, f)) > 0) agent_buf_append(&b, chunk, n);\n"
-    "    fclose(f);\n"
-    "    return agent_buf_take(&b);\n"
-    "}\n"
-    "static char *ds4ui_read_file_buf_limit(const char *path, size_t cap, int *truncated) {\n"
-    "    if (truncated) *truncated = 0;\n"
-    "    FILE *f = fopen(path, \"rb\");\n"
-    "    if (!f) return NULL;\n"
-    "    agent_buf b = {0};\n"
-    "    char chunk[4096];\n"
-    "    while (b.len < cap) {\n"
-    "        size_t room = cap - b.len;\n"
-    "        size_t want = room < sizeof(chunk) ? room : sizeof(chunk);\n"
-    "        size_t n = fread(chunk, 1, want, f);\n"
-    "        if (n) agent_buf_append(&b, chunk, n);\n"
-    "        if (n < want) break;\n"
-    "    }\n"
-    "    if (!feof(f) && truncated) *truncated = 1;\n"
-    "    fclose(f);\n"
-    "    return agent_buf_take(&b);\n"
-    "}\n"
-    "static int ds4ui_pack_file_ext_ok(const char *rel) {\n"
-    "    const char *dot = strrchr(rel, '.');\n"
-    "    if (!dot) return 0;\n"
-    "    return !strcmp(dot, \".md\") || !strcmp(dot, \".html\") ||\n"
-    "           !strcmp(dot, \".css\") || !strcmp(dot, \".js\") ||\n"
-    "           !strcmp(dot, \".json\") || !strcmp(dot, \".svg\") ||\n"
-    "           !strcmp(dot, \".txt\") || !strcmp(dot, \".csv\");\n"
-    "}\n"
-    "static int ds4ui_pack_file_rel_ok(const char *rel, char *err, size_t errsz) {\n"
-    "    if (!rel || !rel[0]) { snprintf(err, errsz, \"pack_file path is required\"); return 0; }\n"
-    "    if (rel[0] == '/' || rel[0] == '~') { snprintf(err, errsz, \"pack_file path must be relative\"); return 0; }\n"
-    "    if (strlen(rel) > 512) { snprintf(err, errsz, \"pack_file path too long\"); return 0; }\n"
-    "    if (strcmp(rel, \"example.html\") && strncmp(rel, \"assets/\", 7) && strncmp(rel, \"references/\", 11)) {\n"
-    "        snprintf(err, errsz, \"pack_file path must be example.html, assets/*, or references/*\"); return 0;\n"
-    "    }\n"
-    "    if (!ds4ui_pack_file_ext_ok(rel)) { snprintf(err, errsz, \"pack_file extension is not allowed\"); return 0; }\n"
-    "    const char *seg = rel;\n"
-    "    for (const char *p = rel; ; p++) {\n"
-    "        unsigned char c = (unsigned char)*p;\n"
-    "        if (c && !(isalnum(c) || c == '/' || c == '-' || c == '_' || c == '.')) {\n"
-    "            snprintf(err, errsz, \"pack_file path contains invalid characters\"); return 0;\n"
-    "        }\n"
-    "        if (c == '/' || c == '\\0') {\n"
-    "            size_t n = (size_t)(p - seg);\n"
-    "            if (n == 0 || (n == 1 && seg[0] == '.') || (n == 2 && seg[0] == '.' && seg[1] == '.')) {\n"
-    "                snprintf(err, errsz, \"pack_file path must not contain . or .. segments\"); return 0;\n"
-    "            }\n"
-    "            if (!c) break;\n"
-    "            seg = p + 1;\n"
-    "        }\n"
-    "    }\n"
-    "    return 1;\n"
-    "}\n"
-    "static size_t ds4ui_pack_file_cap(const char *rel) {\n"
-    "    if (!strcmp(rel, \"example.html\") || !strncmp(rel, \"assets/\", 7)) return 96 * 1024;\n"
-    "    return 32 * 1024;\n"
-    "}\n"
-    "static const char *ds4ui_pack_type_subdir(const char *type, int *allow_user) {\n"
-    "    if (allow_user) *allow_user = 0;\n"
-    "    if (!type) return NULL;\n"
-    "    if (!strcmp(type, \"skill\") || !strcmp(type, \"skills\")) { if (allow_user) *allow_user = 1; return \"skills\"; }\n"
-    "    if (!strcmp(type, \"design_system\") || !strcmp(type, \"design-system\") || !strcmp(type, \"design-systems\")) return \"design-systems\";\n"
-    "    if (!strcmp(type, \"craft\")) return \"craft\";\n"
-    "    return NULL;\n"
-    "}\n"
-    "static int ds4ui_pack_resolve_existing_file(const char *pack_root, const char *rel, char *out, size_t outsz, char *err, size_t errsz) {\n"
-    "    char real_root[PATH_MAX];\n"
-    "    if (!realpath(pack_root, real_root)) { snprintf(err, errsz, \"pack root unavailable\"); return 0; }\n"
-    "    char joined[PATH_MAX];\n"
-    "    if ((size_t)snprintf(joined, sizeof(joined), \"%s/%s\", pack_root, rel) >= sizeof(joined)) { snprintf(err, errsz, \"pack_file path too long\"); return 0; }\n"
-    "    char real_file[PATH_MAX];\n"
-    "    if (!realpath(joined, real_file)) { snprintf(err, errsz, \"pack_file not found\"); return 0; }\n"
-    "    size_t rl = strlen(real_root);\n"
-    "    if (strncmp(real_file, real_root, rl) != 0 || (real_file[rl] != '\\0' && real_file[rl] != '/')) {\n"
-    "        snprintf(err, errsz, \"pack_file escapes the pack directory\"); return 0;\n"
-    "    }\n"
-    "    struct stat st;\n"
-    "    if (stat(real_file, &st) != 0 || !S_ISREG(st.st_mode)) { snprintf(err, errsz, \"pack_file is not a regular file\"); return 0; }\n"
-    "    if ((size_t)snprintf(out, outsz, \"%s\", real_file) >= outsz) { snprintf(err, errsz, \"pack_file path too long\"); return 0; }\n"
-    "    return 1;\n"
-    "}\n"
-    "static char *ds4ui_load_pack(const agent_tool_call *call, const char *subdir, const char *file, int allow_user) {\n"
-    "    const char *name = agent_tool_arg_value(call, \"name\");\n"
-    "    if (!ds4ui_pack_name_ok(name)) return xstrdup(\"Tool error: name must be a simple id (a-z, 0-9, -)\\n\");\n"
-    "    char path[2300]; char *body = NULL;\n"
-    "    if (allow_user) {\n"
-    "        const char *u = getenv(\"DS4UI_USER_SKILLS_DIR\");\n"
-    "        if (u && u[0]) { snprintf(path, sizeof path, \"%s/%s/SKILL.md\", u, name); body = ds4ui_read_file_buf(path); }\n"
-    "    }\n"
-    "    if (!body) {\n"
-    "        const char *root = getenv(\"DS4UI_SKILLS_DIR\");\n"
-    "        if (root && root[0]) { snprintf(path, sizeof path, \"%s/%s/%s/%s\", root, subdir, name, file); body = ds4ui_read_file_buf(path); }\n"
-    "    }\n"
-    "    if (!body) return xstrdup(\"Tool error: no such pack (see the catalog in the system context)\\n\");\n"
-    "    return body;\n"
-    "}\n"
-    "static char *ds4ui_tool_skill(const agent_tool_call *call) { return ds4ui_load_pack(call, \"skills\", \"SKILL.md\", 1); }\n"
-    "static char *ds4ui_tool_design_system(const agent_tool_call *call) { return ds4ui_load_pack(call, \"design-systems\", \"DESIGN.md\", 0); }\n"
-    "static char *ds4ui_tool_pack_file(const agent_tool_call *call) {\n"
-    "    const char *type = agent_tool_arg_value(call, \"type\");\n"
-    "    const char *name = agent_tool_arg_value(call, \"name\");\n"
-    "    const char *rel = agent_tool_arg_value(call, \"path\");\n"
-    "    int allow_user = 0;\n"
-    "    const char *subdir = ds4ui_pack_type_subdir(type, &allow_user);\n"
-    "    if (!subdir) return xstrdup(\"Tool error: type must be skill, design_system, or craft\\n\");\n"
-    "    if (!ds4ui_pack_name_ok(name)) return xstrdup(\"Tool error: name must be a simple id (a-z, 0-9, -)\\n\");\n"
-    "    char err[256] = {0};\n"
-    "    if (!ds4ui_pack_file_rel_ok(rel, err, sizeof(err))) { agent_buf e = {0}; agent_buf_puts(&e, \"Tool error: \"); agent_buf_puts(&e, err); agent_buf_puts(&e, \"\\n\"); return agent_buf_take(&e); }\n"
-    "    char pack_root[2300], full[PATH_MAX];\n"
-    "    int found = 0;\n"
-    "    if (allow_user) {\n"
-    "        const char *u = getenv(\"DS4UI_USER_SKILLS_DIR\");\n"
-    "        if (u && u[0]) { snprintf(pack_root, sizeof(pack_root), \"%s/%s\", u, name); found = ds4ui_pack_resolve_existing_file(pack_root, rel, full, sizeof(full), err, sizeof(err)); }\n"
-    "    }\n"
-    "    if (!found) {\n"
-    "        const char *root = getenv(\"DS4UI_SKILLS_DIR\");\n"
-    "        if (root && root[0]) { snprintf(pack_root, sizeof(pack_root), \"%s/%s/%s\", root, subdir, name); found = ds4ui_pack_resolve_existing_file(pack_root, rel, full, sizeof(full), err, sizeof(err)); }\n"
-    "    }\n"
-    "    if (!found) { agent_buf e = {0}; agent_buf_puts(&e, \"Tool error: \"); agent_buf_puts(&e, err[0] ? err : \"pack_file not found\"); agent_buf_puts(&e, \"\\n\"); return agent_buf_take(&e); }\n"
-    "    int truncated = 0;\n"
-    "    size_t cap = ds4ui_pack_file_cap(rel);\n"
-    "    char *body = ds4ui_read_file_buf_limit(full, cap, &truncated);\n"
-    "    if (!body) return xstrdup(\"Tool error: pack_file could not be read\\n\");\n"
-    "    agent_buf out = {0};\n"
-    "    agent_buf_puts(&out, \"[ds4-agent pack_file: \");\n"
-    "    agent_buf_puts(&out, type);\n"
-    "    agent_buf_puts(&out, \"/\");\n"
-    "    agent_buf_puts(&out, name);\n"
-    "    agent_buf_puts(&out, \"/\");\n"
-    "    agent_buf_puts(&out, rel);\n"
-    "    agent_buf_puts(&out, \"]\\n\");\n"
-    "    agent_buf_puts(&out, body);\n"
-    "    if (truncated) { agent_buf_puts(&out, \"\\n\\n[Truncated pack_file at \"); char nbuf[32]; snprintf(nbuf, sizeof(nbuf), \"%zu\", cap); agent_buf_puts(&out, nbuf); agent_buf_puts(&out, \" bytes. Load a narrower reference if needed.]\\n\"); }\n"
-    "    free(body);\n"
-    "    return agent_buf_take(&out);\n"
-    "}\n"
-    "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n" },
-  { "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n",
-    "static const char *ds4ui_json_ws(const char *p, const char *end) { while (p < end && (*p == ' ' || *p == '\\t' || *p == '\\n' || *p == '\\r')) p++; return p; }\n"
-    "static int ds4ui_json_hex(char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'); }\n"
-    "static const char *ds4ui_json_skip_value(const char *p, const char *end, int depth, char *err, size_t errsz);\n"
-    "static const char *ds4ui_json_skip_string(const char *p, const char *end, char *err, size_t errsz) {\n"
-    "    if (p >= end || *p != '\\\"') { snprintf(err, errsz, \"expected JSON string\"); return NULL; }\n"
-    "    for (p++; p < end;) {\n"
-    "        unsigned char c = (unsigned char)*p++;\n"
-    "        if (c == '\\\"') return p;\n"
-    "        if (c < 0x20) { snprintf(err, errsz, \"control character in JSON string\"); return NULL; }\n"
-    "        if (c != '\\\\') continue;\n"
-    "        if (p >= end) { snprintf(err, errsz, \"unterminated JSON escape\"); return NULL; }\n"
-    "        char e = *p++;\n"
-    "        if (e == '\\\"' || e == '\\\\' || e == '/' || e == 'b' || e == 'f' || e == 'n' || e == 'r' || e == 't') continue;\n"
-    "        if (e == 'u') {\n"
-    "            if (end - p < 4 || !ds4ui_json_hex(p[0]) || !ds4ui_json_hex(p[1]) || !ds4ui_json_hex(p[2]) || !ds4ui_json_hex(p[3])) { snprintf(err, errsz, \"bad JSON unicode escape\"); return NULL; }\n"
-    "            p += 4; continue;\n"
-    "        }\n"
-    "        snprintf(err, errsz, \"bad JSON escape\"); return NULL;\n"
-    "    }\n"
-    "    snprintf(err, errsz, \"unterminated JSON string\"); return NULL;\n"
-    "}\n"
-    "static const char *ds4ui_json_skip_number(const char *p, const char *end, char *err, size_t errsz) {\n"
-    "    if (p < end && *p == '-') p++;\n"
-    "    if (p >= end) { snprintf(err, errsz, \"bad JSON number\"); return NULL; }\n"
-    "    if (*p == '0') p++;\n"
-    "    else if (*p >= '1' && *p <= '9') { while (p < end && isdigit((unsigned char)*p)) p++; }\n"
-    "    else { snprintf(err, errsz, \"bad JSON number\"); return NULL; }\n"
-    "    if (p < end && *p == '.') { p++; if (p >= end || !isdigit((unsigned char)*p)) { snprintf(err, errsz, \"bad JSON number\"); return NULL; } while (p < end && isdigit((unsigned char)*p)) p++; }\n"
-    "    if (p < end && (*p == 'e' || *p == 'E')) { p++; if (p < end && (*p == '+' || *p == '-')) p++; if (p >= end || !isdigit((unsigned char)*p)) { snprintf(err, errsz, \"bad JSON number\"); return NULL; } while (p < end && isdigit((unsigned char)*p)) p++; }\n"
-    "    return p;\n"
-    "}\n"
-    "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n" },
-  { "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n",
-    "static const char *ds4ui_json_skip_array(const char *p, const char *end, int depth, char *err, size_t errsz) {\n"
-    "    p++; p = ds4ui_json_ws(p, end);\n"
-    "    if (p < end && *p == ']') return p + 1;\n"
-    "    for (;;) { p = ds4ui_json_skip_value(p, end, depth + 1, err, errsz); if (!p) return NULL; p = ds4ui_json_ws(p, end); if (p < end && *p == ',') { p++; continue; } if (p < end && *p == ']') return p + 1; snprintf(err, errsz, \"expected ',' or ']' in JSON array\"); return NULL; }\n"
-    "}\n"
-    "static const char *ds4ui_json_skip_object(const char *p, const char *end, int depth, char *err, size_t errsz) {\n"
-    "    p++; p = ds4ui_json_ws(p, end);\n"
-    "    if (p < end && *p == '}') return p + 1;\n"
-    "    for (;;) { p = ds4ui_json_ws(p, end); if (p >= end || *p != '\\\"') { snprintf(err, errsz, \"expected JSON object key\"); return NULL; } p = ds4ui_json_skip_string(p, end, err, errsz); if (!p) return NULL; p = ds4ui_json_ws(p, end); if (p >= end || *p != ':') { snprintf(err, errsz, \"expected ':' after JSON object key\"); return NULL; } p++; p = ds4ui_json_skip_value(p, end, depth + 1, err, errsz); if (!p) return NULL; p = ds4ui_json_ws(p, end); if (p < end && *p == ',') { p++; continue; } if (p < end && *p == '}') return p + 1; snprintf(err, errsz, \"expected ',' or '}' in JSON object\"); return NULL; }\n"
-    "}\n"
-    "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n" },
-  { "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n",
-    "static const char *ds4ui_json_skip_value(const char *p, const char *end, int depth, char *err, size_t errsz) {\n"
-    "    if (depth > 64) { snprintf(err, errsz, \"JSON nesting too deep\"); return NULL; }\n"
-    "    p = ds4ui_json_ws(p, end);\n"
-    "    if (p >= end) { snprintf(err, errsz, \"expected JSON value\"); return NULL; }\n"
-    "    if (*p == '\\\"') return ds4ui_json_skip_string(p, end, err, errsz);\n"
-    "    if (*p == '{') return ds4ui_json_skip_object(p, end, depth, err, errsz);\n"
-    "    if (*p == '[') return ds4ui_json_skip_array(p, end, depth, err, errsz);\n"
-    "    if (*p == '-' || isdigit((unsigned char)*p)) return ds4ui_json_skip_number(p, end, err, errsz);\n"
-    "    if (end - p >= 4 && !memcmp(p, \"true\", 4)) return p + 4;\n"
-    "    if (end - p >= 5 && !memcmp(p, \"false\", 5)) return p + 5;\n"
-    "    if (end - p >= 4 && !memcmp(p, \"null\", 4)) return p + 4;\n"
-    "    snprintf(err, errsz, \"bad JSON value\"); return NULL;\n"
-    "}\n"
-    "static int ds4ui_json_validate_array(const char *json, char *err, size_t errsz) {\n"
-    "    if (!json) { snprintf(err, errsz, \"missing JSON\"); return 0; }\n"
-    "    const char *end = json + strlen(json);\n"
-    "    const char *p = ds4ui_json_ws(json, end);\n"
-    "    if (p >= end || *p != '[') { snprintf(err, errsz, \"JSON must start with '['\"); return 0; }\n"
-    "    p = ds4ui_json_skip_value(p, end, 0, err, errsz);\n"
-    "    if (!p) return 0;\n"
-    "    p = ds4ui_json_ws(p, end);\n"
-    "    if (p != end) { snprintf(err, errsz, \"trailing data after JSON value\"); return 0; }\n"
-    "    return 1;\n"
-    "}\n"
-    "static char *ds4ui_tool_question(agent_worker *w, const agent_tool_call *call) {\n"
-    "    const char *id = agent_tool_arg_value(call, \"id\");\n"
-    "    const char *title = agent_tool_arg_value(call, \"title\");\n"
-    "    const char *questions = agent_tool_arg_value(call, \"questions\");\n"
-    "    if (!id || !id[0]) return xstrdup(\"Tool error: question requires id\\n\");\n"
-    "    if (!title || !title[0]) return xstrdup(\"Tool error: question requires title\\n\");\n"
-    "    if (!questions || !questions[0]) return xstrdup(\"Tool error: question requires questions\\n\");\n"
-    "    char err[256];\n"
-    "    if (!ds4ui_json_validate_array(questions, err, sizeof err)) { agent_buf b = {0}; agent_buf_puts(&b, \"Tool error: \"); agent_buf_puts(&b, err); agent_buf_puts(&b, \"\\n\"); return agent_buf_take(&b); }\n"
-    "    ds4ui_emit_question(w, id, title, questions);\n"
-    "    return xstrdup(\"Question event emitted. Stop this turn and wait for the user's answer.\\n\");\n"
-    "}\n"
-    "static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {\n" },
-  { "    if (!strcmp(call->name, \"read\")) return agent_tool_read(w, call);\n",
-    "    if (!strcmp(call->name, \"read\")) return agent_tool_read(w, call);\n"
-    "    if (!strcmp(call->name, \"skill\")) return ds4ui_tool_skill(call);   /*DS4UI_JSONL*/\n"
-    "    if (!strcmp(call->name, \"design_system\")) return ds4ui_tool_design_system(call);   /*DS4UI_JSONL*/\n"
-    "    if (!strcmp(call->name, \"pack_file\")) return ds4ui_tool_pack_file(call);   /*DS4UI_JSONL*/\n" },
-  { "    if (!strcmp(call->name, \"skill\")) return ds4ui_tool_skill(call);   /*DS4UI_JSONL*/\n",
-    "    if (!strcmp(call->name, \"question\")) return ds4ui_tool_question(w, call);   /*DS4UI_JSONL*/\n"
-    "    if (!strcmp(call->name, \"skill\")) return ds4ui_tool_skill(call);   /*DS4UI_JSONL*/\n" },
-  { "#ifndef DS4_AGENT_TEST_NO_MAIN\n",
-    "/*DS4UI_JSONL*/\n"
-    "static int ds4ui_web_confirm_auto(void *privdata, const char *message, char *err, size_t err_len) {\n"
-    "    (void)privdata; (void)message; if (err && err_len) err[0] = '\\0'; return 1;\n"
-    "}\n"
-    "static void ds4ui_web_log_stderr(void *privdata, const char *message) {\n"
-    "    (void)privdata; if (message && message[0]) fprintf(stderr, \"web: %s\\n\", message);\n"
-    "}\n"
-    "static bool ds4ui_web_cancel_never(void *privdata) { (void)privdata; return false; }\n"
-    "static void ds4ui_web_print_json(const char *tool, bool ok, const char *body_key, const char *body) {\n"
-    "    char t[128]; ds4ui_json_escape(tool ? tool : \"\", t, sizeof t);\n"
-    "    const char *bk = body_key ? body_key : (ok ? \"markdown\" : \"error\");\n"
-    "    size_t bl = body ? strlen(body) : 0;\n"
-    "    char *esc = (char *)malloc(bl * 6 + 16);\n"
-    "    if (!esc) { printf(\"{\\\"ok\\\":false,\\\"tool\\\":\\\"%s\\\",\\\"error\\\":\\\"out of memory\\\"}\\n\", t); return; }\n"
-    "    ds4ui_json_escape(body ? body : \"\", esc, bl * 6 + 16);\n"
-    "    printf(\"{\\\"ok\\\":%s,\\\"tool\\\":\\\"%s\\\",\\\"%s\\\":\\\"%s\\\"}\\n\", ok ? \"true\" : \"false\", t, bk, esc);\n"
-    "    free(esc);\n"
-    "}\n"
-    "static int ds4ui_run_web_tool(const agent_config *cfg) {\n"
-    "    if (!cfg || !cfg->web_tool || !cfg->web_tool[0]) {\n"
-    "        ds4ui_web_print_json(\"\", false, \"error\", \"--web-tool is required\"); return 2;\n"
-    "    }\n"
-    "    ds4_web_config web_cfg = {\n"
-    "        .home_dir = getenv(\"HOME\"),\n"
-    "        .port = 9333,\n"
-    "        .confirm = ds4ui_web_confirm_auto,\n"
-    "        .log = ds4ui_web_log_stderr,\n"
-    "        .cancel = ds4ui_web_cancel_never,\n"
-    "    };\n"
-    "#if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)\n"
-    "    ds4ui_win32_ensure_chrome(9333);\n"
-    "#endif\n"
-    "    ds4_web *web = ds4_web_create(&web_cfg);\n"
-    "    char err[256] = {0};\n"
-    "    char *out = NULL;\n"
-    "    if (!strcmp(cfg->web_tool, \"google_search\")) {\n"
-    "        if (!cfg->web_query || !cfg->web_query[0]) { ds4ui_web_print_json(cfg->web_tool, false, \"error\", \"--query is required\"); ds4_web_free(web); return 2; }\n"
-    "        out = ds4_web_google_search(web, cfg->web_query, err, sizeof err);\n"
-    "    } else if (!strcmp(cfg->web_tool, \"visit_page\")) {\n"
-    "        if (!cfg->web_url || !cfg->web_url[0]) { ds4ui_web_print_json(cfg->web_tool, false, \"error\", \"--url is required\"); ds4_web_free(web); return 2; }\n"
-    "        out = ds4_web_visit_page(web, cfg->web_url, err, sizeof err);\n"
-    "    } else {\n"
-    "        ds4ui_web_print_json(cfg->web_tool, false, \"error\", \"unknown web tool\"); ds4_web_free(web); return 2;\n"
-    "    }\n"
-    "    ds4_web_free(web);\n"
-    "    if (!out) { ds4ui_web_print_json(cfg->web_tool, false, \"error\", err[0] ? err : \"web tool failed\"); return 1; }\n"
-    "    ds4ui_web_print_json(cfg->web_tool, true, \"markdown\", out);\n"
-    "    free(out);\n"
-    "    return 0;\n"
-    "}\n"
-    "#ifndef DS4_AGENT_TEST_NO_MAIN\n" },
-  { "int main(int argc, char **argv) {\n    agent_config cfg = parse_options(argc, argv);\n",
-    "int main(int argc, char **argv) {\n    agent_config cfg = parse_options(argc, argv);\n    if (cfg.web_tool_mode) return ds4ui_run_web_tool(&cfg);   /*DS4UI_JSONL*/\n" },
-  { "    ds4_engine *engine = NULL;\n",
-    "    if (cfg.remote_base_url && cfg.remote_base_url[0]) return ds4ui_run_remote_agent(&cfg);   /*DS4UI_JSONL*/\n    ds4_engine *engine = NULL;\n" },
-};
-
-static const char *WEB_CDP_EDITS[][2] = {
-  { "static bool web_open_tab(ds4_web *web, const char *url, web_tab *tab,\n"
-    "                         char *err, size_t err_len) {\n"
-    "    memset(tab, 0, sizeof(*tab));\n"
-    "\n"
-    "    char *browser_url = web_browser_ws_url(web, err, err_len);\n"
-    "    if (!browser_url) return false;\n"
-    "    cdp_ws browser = {.fd = -1, .web = web};\n"
-    "    if (web_ws_connect(browser_url, &browser, err, err_len) != 0) {\n"
-    "        free(browser_url);\n"
-    "        return false;\n"
-    "    }\n"
-    "    free(browser_url);\n"
-    "\n"
-    "    char *qurl = web_json_quote(url);\n"
-    "    web_buf params = {0};\n"
-    "    web_buf_puts(&params, \"{\\\"url\\\":\");\n"
-    "    web_buf_puts(&params, qurl);\n"
-    "    web_buf_puts(&params, \",\\\"background\\\":true,\\\"newWindow\\\":false}\");\n"
-    "    free(qurl);\n"
-    "    char *params_s = web_buf_take(&params);\n"
-    "    char *resp = web_cdp_call(&browser, \"Target.createTarget\",\n"
-    "                              params_s, err, err_len);\n"
-    "    free(params_s);\n"
-    "    web_ws_close(&browser);\n"
-    "    if (!resp) return false;\n"
-    "\n"
-    "    tab->id = web_json_get_string(resp, \"targetId\");\n"
-    "    free(resp);\n"
-    "    if (!tab->id) {\n"
-    "        web_tab_free(tab);\n"
-    "        web_set_err(err, err_len, \"Chrome did not return a page target id\");\n"
-    "        return false;\n"
-    "    }\n"
-    "\n"
-    "    char ws_url[PATH_MAX + 128];\n"
-    "    snprintf(ws_url, sizeof(ws_url), \"ws://127.0.0.1:%d/devtools/page/%s\",\n"
-    "             web->port, tab->id);\n"
-    "    tab->ws_url = web_xstrdup(ws_url);\n"
-    "    return true;\n"
-    "}\n",
-    WEB_CDP_MARK "\n"
-    "static bool ds4ui_web_json_get_int(const char *json, const char *key, int *out) {\n"
-    "    char pat[128];\n"
-    "    snprintf(pat, sizeof(pat), \"\\\"%s\\\"\", key);\n"
-    "    const char *p = json;\n"
-    "    while ((p = strstr(p, pat)) != NULL) {\n"
-    "        p += strlen(pat);\n"
-    "        while (*p == ' ' || *p == '\\t' || *p == '\\r' || *p == '\\n') p++;\n"
-    "        if (*p++ != ':') continue;\n"
-    "        while (*p == ' ' || *p == '\\t' || *p == '\\r' || *p == '\\n') p++;\n"
-    "        char *end = NULL;\n"
-    "        long v = strtol(p, &end, 10);\n"
-    "        if (end != p) {\n"
-    "            if (out) *out = (int)v;\n"
-    "            return true;\n"
-    "        }\n"
-    "    }\n"
-    "    return false;\n"
-    "}\n"
-    "\n"
-    "static void ds4ui_web_json_excerpt(const char *json, char *out, size_t out_len) {\n"
-    "    if (!out || out_len == 0) return;\n"
-    "    out[0] = '\\0';\n"
-    "    if (!json) return;\n"
-    "    size_t j = 0;\n"
-    "    bool space = false;\n"
-    "    for (const char *p = json; *p && j + 1 < out_len; p++) {\n"
-    "        unsigned char c = (unsigned char)*p;\n"
-    "        if (c == '\\r' || c == '\\n' || c == '\\t' || c == ' ') {\n"
-    "            if (space) continue;\n"
-    "            c = ' ';\n"
-    "            space = true;\n"
-    "        } else {\n"
-    "            space = false;\n"
-    "        }\n"
-    "        out[j++] = (char)c;\n"
-    "    }\n"
-    "    out[j] = '\\0';\n"
-    "}\n"
-    "\n"
-    "static void ds4ui_web_cdp_response_error(const char *resp, char *out, size_t out_len) {\n"
-    "    if (!out || out_len == 0) return;\n"
-    "    char *msg = web_json_get_string(resp, \"message\");\n"
-    "    int code = 0;\n"
-    "    bool has_code = ds4ui_web_json_get_int(resp, \"code\", &code);\n"
-    "    if (msg && msg[0] && has_code) {\n"
-    "        web_set_err(out, out_len, \"CDP error %d: %s\", code, msg);\n"
-    "    } else if (msg && msg[0]) {\n"
-    "        web_set_err(out, out_len, \"CDP error: %s\", msg);\n"
-    "    } else {\n"
-    "        char excerpt[240];\n"
-    "        ds4ui_web_json_excerpt(resp, excerpt, sizeof(excerpt));\n"
-    "        web_set_err(out, out_len, \"CDP response missing targetId: %s\",\n"
-    "                    excerpt[0] ? excerpt : \"empty response\");\n"
-    "    }\n"
-    "    free(msg);\n"
-    "}\n"
-    "\n"
-    "static void ds4ui_web_tab_set_ws_from_id(ds4_web *web, web_tab *tab) {\n"
-    "    char ws_url[PATH_MAX + 128];\n"
-    "    snprintf(ws_url, sizeof(ws_url), \"ws://127.0.0.1:%d/devtools/page/%s\",\n"
-    "             web->port, tab->id);\n"
-    "    tab->ws_url = web_xstrdup(ws_url);\n"
-    "}\n"
-    "\n"
-    "static bool ds4ui_web_open_tab_cdp_once(ds4_web *web, const char *url, web_tab *tab,\n"
-    "                                       char *detail, size_t detail_len) {\n"
-    "    char local_err[256] = {0};\n"
-    "\n"
-    "    memset(tab, 0, sizeof(*tab));\n"
-    "    if (web_set_cancel_err(web, detail, detail_len)) return false;\n"
-    "\n"
-    "    char *browser_url = web_browser_ws_url(web, local_err, sizeof(local_err));\n"
-    "    if (!browser_url) {\n"
-    "        web_set_err(detail, detail_len, \"%s\",\n"
-    "                    local_err[0] ? local_err : \"Chrome did not return a browser WebSocket URL\");\n"
-    "        return false;\n"
-    "    }\n"
-    "    cdp_ws browser = {.fd = -1, .web = web};\n"
-    "    if (web_ws_connect(browser_url, &browser, local_err, sizeof(local_err)) != 0) {\n"
-    "        free(browser_url);\n"
-    "        web_set_err(detail, detail_len, \"%s\",\n"
-    "                    local_err[0] ? local_err : \"could not connect to Chrome browser WebSocket\");\n"
-    "        return false;\n"
-    "    }\n"
-    "    free(browser_url);\n"
-    "\n"
-    "    char *qurl = web_json_quote(url);\n"
-    "    web_buf params = {0};\n"
-    "    web_buf_puts(&params, \"{\\\"url\\\":\");\n"
-    "    web_buf_puts(&params, qurl);\n"
-    "    web_buf_puts(&params, \",\\\"background\\\":true,\\\"newWindow\\\":false}\");\n"
-    "    free(qurl);\n"
-    "    char *params_s = web_buf_take(&params);\n"
-    "    char *resp = web_cdp_call(&browser, \"Target.createTarget\",\n"
-    "                              params_s, local_err, sizeof(local_err));\n"
-    "    free(params_s);\n"
-    "    web_ws_close(&browser);\n"
-    "    if (!resp) {\n"
-    "        web_set_err(detail, detail_len, \"%s\",\n"
-    "                    local_err[0] ? local_err : \"Target.createTarget returned no response\");\n"
-    "        return false;\n"
-    "    }\n"
-    "\n"
-    "    tab->id = web_json_get_string(resp, \"targetId\");\n"
-    "    if (!tab->id) {\n"
-    "        ds4ui_web_cdp_response_error(resp, detail, detail_len);\n"
-    "        free(resp);\n"
-    "        web_tab_free(tab);\n"
-    "        return false;\n"
-    "    }\n"
-    "    free(resp);\n"
-    "\n"
-    "    ds4ui_web_tab_set_ws_from_id(web, tab);\n"
-    "    return true;\n"
-    "}\n"
-    "\n"
-    "static bool ds4ui_web_open_tab_http_fallback(ds4_web *web, const char *url, web_tab *tab,\n"
-    "                                            char *detail, size_t detail_len) {\n"
-    "    char local_err[256] = {0};\n"
-    "\n"
-    "    memset(tab, 0, sizeof(*tab));\n"
-    "    if (web_set_cancel_err(web, detail, detail_len)) return false;\n"
-    "\n"
-    "    char *enc = web_url_encode(url);\n"
-    "    web_buf path = {0};\n"
-    "    web_buf_puts(&path, \"/json/new?\");\n"
-    "    web_buf_puts(&path, enc);\n"
-    "    free(enc);\n"
-    "\n"
-    "    char *path_s = web_buf_take(&path);\n"
-    "    char *body = web_http_request(\"PUT\", web->port, path_s, local_err, sizeof(local_err));\n"
-    "    free(path_s);\n"
-    "    if (!body) {\n"
-    "        web_set_err(detail, detail_len, \"%s\",\n"
-    "                    local_err[0] ? local_err : \"/json/new returned no response\");\n"
-    "        return false;\n"
-    "    }\n"
-    "\n"
-    "    tab->id = web_json_get_string(body, \"id\");\n"
-    "    tab->ws_url = web_json_get_string(body, \"webSocketDebuggerUrl\");\n"
-    "    if (!tab->id) {\n"
-    "        ds4ui_web_cdp_response_error(body, detail, detail_len);\n"
-    "        free(body);\n"
-    "        web_tab_free(tab);\n"
-    "        return false;\n"
-    "    }\n"
-    "    if (!tab->ws_url || !tab->ws_url[0]) {\n"
-    "        free(tab->ws_url);\n"
-    "        tab->ws_url = NULL;\n"
-    "        ds4ui_web_tab_set_ws_from_id(web, tab);\n"
-    "    }\n"
-    "    free(body);\n"
-    "    return true;\n"
-    "}\n"
-    "\n"
-    "static bool web_open_tab(ds4_web *web, const char *url, web_tab *tab,\n"
-    "                         char *err, size_t err_len) {\n"
-    "    char last_cdp[512] = {0};\n"
-    "    char fallback_err[512] = {0};\n"
-    "    static const int backoff_ms[] = {150, 300};\n"
-    "\n"
-    "    memset(tab, 0, sizeof(*tab));\n"
-    "    for (int attempt = 0; attempt < 3; attempt++) {\n"
-    "        char detail[512] = {0};\n"
-    "        if (ds4ui_web_open_tab_cdp_once(web, url, tab, detail, sizeof(detail)))\n"
-    "            return true;\n"
-    "        web_set_err(last_cdp, sizeof(last_cdp), \"%s\",\n"
-    "                    detail[0] ? detail : \"Target.createTarget failed\");\n"
-    "        if (web_err_is_interrupted(last_cdp)) {\n"
-    "            web_set_err(err, err_len, \"%s\", last_cdp);\n"
-    "            return false;\n"
-    "        }\n"
-    "        if (attempt < 2 && !web_sleep_ms(web, backoff_ms[attempt])) {\n"
-    "            web_set_err(err, err_len, \"interrupted\");\n"
-    "            return false;\n"
-    "        }\n"
-    "    }\n"
-    "\n"
-    "    if (ds4ui_web_open_tab_http_fallback(web, url, tab, fallback_err, sizeof(fallback_err)))\n"
-    "        return true;\n"
-    "    if (web_err_is_interrupted(fallback_err)) {\n"
-    "        web_set_err(err, err_len, \"%s\", fallback_err);\n"
-    "        return false;\n"
-    "    }\n"
-    "\n"
-    "    web_set_err(err, err_len,\n"
-    "                \"Chrome could not create a page target: %s; fallback /json/new failed: %s\",\n"
-    "                last_cdp[0] ? last_cdp : \"Target.createTarget failed\",\n"
-    "                fallback_err[0] ? fallback_err : \"unknown error\");\n"
-    "    return false;\n"
-    "}\n" },
-};
-
-static const char *WEB_DIRECT_NAV_EDITS[][2] = {
-  { "    web_tab tab = {0};\n"
-    "    if (!web_open_tab(web, \"about:blank\", &tab, err, err_len)) return NULL;\n",
-    WEB_DIRECT_NAV_MARK "\n"
-    "    web_tab tab = {0};\n"
-    "    if (!web_open_tab(web, url, &tab, err, err_len)) return NULL;\n" },
-  { "    if (!web_cdp_navigate(&ws, url, err, err_len) ||\n"
-    "        !web_wait_navigated_ready(&ws, url, err, err_len))\n"
-    "    {\n"
-    "        web_ws_close(&ws);\n"
-    "        web_close_tab(web, &tab);\n"
-    "        web_tab_free(&tab);\n"
-    "        return NULL;\n"
-    "    }\n",
-    "    if (!web_wait_navigated_ready(&ws, url, err, err_len))\n"
-    "    {\n"
-    "        web_ws_close(&ws);\n"
-    "        web_close_tab(web, &tab);\n"
-    "        web_tab_free(&tab);\n"
-    "        return NULL;\n"
-    "    }\n" },
-  { "static bool web_cdp_navigate(cdp_ws *ws, const char *url,\n",
-    "static bool __attribute__((unused)) web_cdp_navigate(cdp_ws *ws, const char *url,\n" },
-};
-
-/* Inline Makefile for `make -f -`: includes the ds4 Makefile (reuses
- * CFLAGS/CORE_OBJS/METAL_LDLIBS) and compiles only the patched agent under a
- * separate name. The recipe lines MUST start with a TAB. */
-static const char *JSONL_MAKEFILE =
-    "include Makefile\n"
-    "JSONL_CFLAGS ?= $(CFLAGS)\n"
-    "JSONL_CORE_OBJS ?= $(CORE_OBJS)\n"
-    "JSONL_LDLIBS ?= $(METAL_LDLIBS)\n"
-    "DSTUDIO_REMOTE_DIR ?= ../DStudio/extension/remote\n"
-    "ds4_agent_jsonl.o: ds4_agent.c\n"
-    "\t$(CC) $(JSONL_CFLAGS) -I$(DSTUDIO_REMOTE_DIR) -c -o $@ ds4_agent.c\n"
-    "ds4_web_ds4ui.o: ds4_web_ds4ui.c\n"
-    "\t$(CC) $(JSONL_CFLAGS) -c -o $@ ds4_web_ds4ui.c\n"
-    "dstudio_remote_llm.o: $(DSTUDIO_REMOTE_DIR)/dstudio_remote_llm.c $(DSTUDIO_REMOTE_DIR)/dstudio_remote_llm.h\n"
-    "\t$(CC) $(JSONL_CFLAGS) -I$(DSTUDIO_REMOTE_DIR) -c -o $@ $(DSTUDIO_REMOTE_DIR)/dstudio_remote_llm.c\n"
-    "ds4-agent-jsonl: ds4_agent_jsonl.o dstudio_remote_llm.o ds4_help.o ds4_web_ds4ui.o ds4_kvstore.o linenoise.o $(JSONL_CORE_OBJS)\n"
-    "\t$(CC) $(JSONL_CFLAGS) -o $@ ds4_agent_jsonl.o dstudio_remote_llm.o ds4_help.o ds4_web_ds4ui.o ds4_kvstore.o linenoise.o $(JSONL_CORE_OBJS) $(JSONL_LDLIBS)\n";
+typedef struct {
+    char rel_dir[160];
+    char name[80];
+    char dir_path[DSTUDIO_PATH_MAX + 512];
+    char fragment_path[DSTUDIO_PATH_MAX + 512];
+    char makefile_path[DSTUDIO_PATH_MAX + 512];
+    int version;
+    ds4ui_patch_edit *edits;
+    int count;
+} ds4ui_patch_set;
 
 static char *jsonl_read_file(const char *path, size_t *len) {
     FILE *f = fopen(path, "rb");
@@ -3206,6 +2354,213 @@ static void jsonl_normalize_newlines(char *b, size_t *len) {
     }
     b[w] = '\0';
     if (len) *len = w;
+}
+
+static int patch_fail(const char *fmt, ...) {
+    char msg[640];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof msg, fmt, ap);
+    va_end(ap);
+    fprintf(stderr, "DStudio patch error: %s\n", msg);
+    snprintf(g_engine_err, sizeof g_engine_err, "patch error: %.220s", msg);
+    return 0;
+}
+
+static char *patch_trim(char *s) {
+    while (s && isspace((unsigned char)*s)) s++;
+    if (!s) return s;
+    char *e = s + strlen(s);
+    while (e > s && isspace((unsigned char)e[-1])) *--e = '\0';
+    return s;
+}
+
+static int patch_leaf_ok(const char *leaf) {
+    if (!leaf || !leaf[0]) return 0;
+    for (const unsigned char *p = (const unsigned char *)leaf; *p; p++) {
+        if (isalnum(*p) || *p == '-' || *p == '_' || *p == '.') continue;
+        return 0;
+    }
+    return 1;
+}
+
+static int patch_resolve_dir(const char *rel_dir, char *out, size_t outsz) {
+    char primary[DSTUDIO_PATH_MAX + 512];
+    if (g_web_dir[0]) {
+        snprintf(primary, sizeof primary, "%s/%s", g_web_dir, rel_dir);
+        if (access(primary, R_OK) == 0) {
+            cstr_copy(out, outsz, primary);
+            return 1;
+        }
+    }
+    snprintf(primary, sizeof primary, "%s", rel_dir);
+    if (access(primary, R_OK) == 0) {
+        cstr_copy(out, outsz, primary);
+        return 1;
+    }
+    if (g_web_dir[0])
+        return patch_fail("patch directory not found: %s/%s", g_web_dir, rel_dir);
+    return patch_fail("patch directory not found: %s", rel_dir);
+}
+
+static int patch_join_leaf(const ds4ui_patch_set *set, const char *leaf, char *out, size_t outsz) {
+    if (!patch_leaf_ok(leaf))
+        return patch_fail("invalid patch file name '%s' in %s", leaf ? leaf : "", set->rel_dir);
+    int n = snprintf(out, outsz, "%s/%s", set->dir_path, leaf);
+    if (n < 0 || (size_t)n >= outsz)
+        return patch_fail("patch path too long: %s/%s", set->dir_path, leaf);
+    return 1;
+}
+
+static void patch_free_set(ds4ui_patch_set *set) {
+    if (!set) return;
+    for (int i = 0; i < set->count; i++) {
+        free(set->edits[i].find);
+        free(set->edits[i].replace);
+    }
+    free(set->edits);
+    memset(set, 0, sizeof *set);
+}
+
+static int patch_add_edit(ds4ui_patch_set *set, const char *id) {
+    if (!patch_leaf_ok(id))
+        return patch_fail("invalid edit id '%s' in %s", id ? id : "", set->rel_dir);
+    if (set->count >= 512)
+        return patch_fail("too many patch edits in %s", set->rel_dir);
+    ds4ui_patch_edit *next = realloc(set->edits, (size_t)(set->count + 1) * sizeof *set->edits);
+    if (!next) return patch_fail("out of memory loading patch manifest %s", set->rel_dir);
+    set->edits = next;
+    ds4ui_patch_edit *edit = &set->edits[set->count++];
+    memset(edit, 0, sizeof *edit);
+    cstr_copy(edit->id, sizeof edit->id, id);
+    return 1;
+}
+
+static char *patch_read_text(const char *path, size_t *len) {
+    size_t n = 0;
+    char *body = jsonl_read_file(path, &n);
+    if (!body) {
+        patch_fail("cannot read patch file %s: %s", path, strerror(errno));
+        return NULL;
+    }
+    jsonl_normalize_newlines(body, &n);
+    if (len) *len = n;
+    return body;
+}
+
+static int patch_load_set(const char *rel_dir, ds4ui_patch_set *set) {
+    memset(set, 0, sizeof *set);
+    cstr_copy(set->rel_dir, sizeof set->rel_dir, rel_dir);
+    if (!patch_resolve_dir(rel_dir, set->dir_path, sizeof set->dir_path)) return 0;
+
+    char manifest_path[DSTUDIO_PATH_MAX + 512];
+    if (!patch_join_leaf(set, "manifest", manifest_path, sizeof manifest_path)) return 0;
+    size_t manifest_len = 0;
+    char *manifest = patch_read_text(manifest_path, &manifest_len);
+    if (!manifest) return 0;
+
+    for (char *line = manifest; line && *line; ) {
+        char *next = strchr(line, '\n');
+        if (next) *next++ = '\0';
+        char *trimmed = patch_trim(line);
+        if (!trimmed[0] || trimmed[0] == '#') { line = next; continue; }
+        char *eq = strchr(trimmed, '=');
+        if (!eq) {
+            free(manifest);
+            patch_free_set(set);
+            return patch_fail("invalid manifest line in %s: %s", manifest_path, trimmed);
+        }
+        *eq = '\0';
+        char *key = patch_trim(trimmed);
+        char *val = patch_trim(eq + 1);
+        if (!strcmp(key, "name")) {
+            cstr_copy(set->name, sizeof set->name, val);
+        } else if (!strcmp(key, "version")) {
+            char *end = NULL;
+            long v = strtol(val, &end, 10);
+            if (end == val || *end != '\0' || v <= 0 || v > 1000000) {
+                free(manifest);
+                patch_free_set(set);
+                return patch_fail("invalid patch version in %s: %s", manifest_path, val);
+            }
+            set->version = (int)v;
+        } else if (!strcmp(key, "edit")) {
+            if (!patch_add_edit(set, val)) { free(manifest); patch_free_set(set); return 0; }
+        } else if (!strcmp(key, "fragment")) {
+            if (!patch_join_leaf(set, val, set->fragment_path, sizeof set->fragment_path)) {
+                free(manifest); patch_free_set(set); return 0;
+            }
+        } else if (!strcmp(key, "makefile")) {
+            if (!patch_join_leaf(set, val, set->makefile_path, sizeof set->makefile_path)) {
+                free(manifest); patch_free_set(set); return 0;
+            }
+        } else {
+            free(manifest);
+            patch_free_set(set);
+            return patch_fail("unknown manifest key '%s' in %s", key, manifest_path);
+        }
+        line = next;
+    }
+    free(manifest);
+    if (!set->name[0]) cstr_copy(set->name, sizeof set->name, rel_dir);
+    if (set->count <= 0) {
+        patch_free_set(set);
+        return patch_fail("patch manifest has no edits: %s", manifest_path);
+    }
+
+    for (int i = 0; i < set->count; i++) {
+        char leaf[80];
+        int n = snprintf(leaf, sizeof leaf, "%s.find", set->edits[i].id);
+        if (n < 0 || (size_t)n >= sizeof leaf ||
+            !patch_join_leaf(set, leaf, set->edits[i].find_path, sizeof set->edits[i].find_path)) {
+            patch_free_set(set);
+            return 0;
+        }
+        n = snprintf(leaf, sizeof leaf, "%s.replace", set->edits[i].id);
+        if (n < 0 || (size_t)n >= sizeof leaf ||
+            !patch_join_leaf(set, leaf, set->edits[i].replace_path, sizeof set->edits[i].replace_path)) {
+            patch_free_set(set);
+            return 0;
+        }
+        set->edits[i].find = patch_read_text(set->edits[i].find_path, NULL);
+        set->edits[i].replace = patch_read_text(set->edits[i].replace_path, NULL);
+        if (!set->edits[i].find || !set->edits[i].replace) {
+            patch_free_set(set);
+            return 0;
+        }
+        if (!set->edits[i].find[0]) {
+            patch_fail("empty patch anchor: %s", set->edits[i].find_path);
+            patch_free_set(set);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int jsonl_patch_version(void) {
+    ds4ui_patch_set patch;
+    if (!patch_load_set(JSONL_PATCH_DIR, &patch)) return -1;
+    int version = patch.version;
+    patch_free_set(&patch);
+    if (version <= 0) {
+        patch_fail("%s manifest is missing a positive version", JSONL_PATCH_DIR);
+        return -1;
+    }
+    return version;
+}
+
+static char *jsonl_read_patch_makefile(size_t *len) {
+    ds4ui_patch_set patch;
+    if (!patch_load_set(JSONL_PATCH_DIR, &patch)) return NULL;
+    if (!patch.makefile_path[0]) {
+        patch_free_set(&patch);
+        patch_fail("%s manifest is missing makefile=", JSONL_PATCH_DIR);
+        return NULL;
+    }
+    char path[DSTUDIO_PATH_MAX + 512];
+    cstr_copy(path, sizeof path, patch.makefile_path);
+    patch_free_set(&patch);
+    return patch_read_text(path, len);
 }
 
 /* Skill id sanitiser: only [a-z0-9-], so it can never escape extension/skills/. */
@@ -3417,25 +2772,56 @@ static int jsonl_replace_once(char **buf, size_t *len, const char *find, const c
     return 1;
 }
 
-/* applies the anchored edits of JSONL_EDITS; 0 on missing/ambiguous anchor. */
+static int patch_count_occurrences(const char *buf, const char *find) {
+    if (!buf || !find || !find[0]) return 0;
+    int cnt = 0;
+    for (const char *q = strstr(buf, find); q; q = strstr(q + 1, find)) cnt++;
+    return cnt;
+}
+
+static void patch_anchor_preview(const char *find, char *preview, size_t preview_len) {
+    size_t k = 0;
+    if (!preview || preview_len == 0) return;
+    for (const char *s = find; s && *s && *s != '\n' && k + 1 < preview_len; s++)
+        preview[k++] = *s;
+    preview[k] = '\0';
+}
+
+static int patch_apply_edits(ds4ui_patch_set *patch, char **buf, size_t *n, const char *src_path) {
+    for (int i = 0; i < patch->count; i++) {
+        ds4ui_patch_edit *edit = &patch->edits[i];
+        if (!jsonl_replace_once(buf, n, edit->find, edit->replace)) {
+            int cnt = patch_count_occurrences(*buf, edit->find);
+            return patch_fail("%s edit %s anchor %s in %s (%s)",
+                              patch->name, edit->id,
+                              cnt == 0 ? "missing" : (cnt > 1 ? "ambiguous" : "replace failed"),
+                              src_path, edit->find_path);
+        }
+    }
+    return 1;
+}
+
+/* Applies the anchored JSONL patch set; 0 on missing/ambiguous anchor. */
 static int jsonl_apply(const char *src_path) {
     size_t n;
     char *buf = jsonl_read_file(src_path, &n);
-    if (!buf) return 0;
+    if (!buf) return patch_fail("cannot read source for patching: %s", src_path);
     jsonl_normalize_newlines(buf, &n);
-    if (strstr(buf, JSONL_MARK)) { free(buf); return 0; }  /* already patched */
-    int nedits = (int)(sizeof JSONL_EDITS / sizeof JSONL_EDITS[0]);
-    for (int i = 0; i < nedits; i++) {
-        if (!jsonl_replace_once(&buf, &n, JSONL_EDITS[i][0], JSONL_EDITS[i][1])) {
-            free(buf);
-            return 0;
-        }
+    if (strstr(buf, JSONL_MARK)) {
+        free(buf);
+        return patch_fail("source already contains %s: %s", JSONL_MARK, src_path);
     }
+    ds4ui_patch_set patch;
+    if (!patch_load_set(JSONL_PATCH_DIR, &patch)) { free(buf); return 0; }
+    int ok = patch_apply_edits(&patch, &buf, &n, src_path);
+    patch_free_set(&patch);
+    if (!ok) { free(buf); return 0; }
     if (!jsonl_insert_remote_agent_fragment(&buf, &n)) {
         free(buf);
         return 0;
     }
-    int ok = jsonl_write_file(src_path, buf, n);
+    ok = jsonl_write_file(src_path, buf, n);
+    if (!ok) patch_fail("cannot write patched source: %s", src_path);
     free(buf);
     return ok;
 }
@@ -3456,33 +2842,32 @@ static int web_direct_nav_source_has_fix(const char *buf) {
 static int web_cdp_apply(char **buf, size_t *n) {
     if (strstr(*buf, WEB_CDP_MARK) || web_cdp_source_has_fix(*buf))
         return 1;  /* already patched or integrated upstream */
-    int nedits = (int)(sizeof WEB_CDP_EDITS / sizeof WEB_CDP_EDITS[0]);
-    for (int i = 0; i < nedits; i++) {
-        if (!jsonl_replace_once(buf, n, WEB_CDP_EDITS[i][0], WEB_CDP_EDITS[i][1]))
-            return 0;
-    }
-    return 1;
+    ds4ui_patch_set patch;
+    if (!patch_load_set(WEB_CDP_PATCH_DIR, &patch)) return 0;
+    int ok = patch_apply_edits(&patch, buf, n, "ds4_web.c");
+    patch_free_set(&patch);
+    return ok;
 }
 
 static int web_direct_nav_apply(char **buf, size_t *n) {
     if (strstr(*buf, WEB_DIRECT_NAV_MARK) || web_direct_nav_source_has_fix(*buf))
         return 1;
-    int nedits = (int)(sizeof WEB_DIRECT_NAV_EDITS / sizeof WEB_DIRECT_NAV_EDITS[0]);
-    for (int i = 0; i < nedits; i++) {
-        if (!jsonl_replace_once(buf, n, WEB_DIRECT_NAV_EDITS[i][0], WEB_DIRECT_NAV_EDITS[i][1]))
-            return 0;
-    }
-    return 1;
+    ds4ui_patch_set patch;
+    if (!patch_load_set(WEB_DIRECT_NAV_PATCH_DIR, &patch)) return 0;
+    int ok = patch_apply_edits(&patch, buf, n, "ds4_web.c");
+    patch_free_set(&patch);
+    return ok;
 }
 
 static int web_cdp_write_temp(const char *src_path, const char *tmp_path) {
     size_t n;
     char *buf = jsonl_read_file(src_path, &n);
-    if (!buf) return 0;
+    if (!buf) return patch_fail("cannot read source for web patching: %s", src_path);
     jsonl_normalize_newlines(buf, &n);
     int ok = web_cdp_apply(&buf, &n) &&
-             web_direct_nav_apply(&buf, &n) &&
-             jsonl_write_file(tmp_path, buf, n);
+             web_direct_nav_apply(&buf, &n);
+    if (ok && !jsonl_write_file(tmp_path, buf, n))
+        ok = patch_fail("cannot write patched web helper: %s", tmp_path);
     free(buf);
     return ok;
 }
@@ -3492,32 +2877,58 @@ static void jsonl_unlink_if_exists(const char *path) {
 }
 
 static char *jsonl_read_remote_agent_fragment(size_t *len) {
-    char path[DSTUDIO_PATH_MAX + 256];
-    if (g_web_dir[0]) {
-        snprintf(path, sizeof path, "%s/%s", g_web_dir, JSONL_REMOTE_AGENT_FRAGMENT);
-        char *body = jsonl_read_file(path, len);
-        if (body) return body;
+    ds4ui_patch_set patch;
+    if (!patch_load_set(JSONL_PATCH_DIR, &patch)) return NULL;
+    if (!patch.fragment_path[0]) {
+        patch_free_set(&patch);
+        patch_fail("%s manifest is missing fragment=", JSONL_PATCH_DIR);
+        return NULL;
     }
-    return jsonl_read_file(JSONL_REMOTE_AGENT_FRAGMENT, len);
+    char path[DSTUDIO_PATH_MAX + 512];
+    cstr_copy(path, sizeof path, patch.fragment_path);
+    patch_free_set(&patch);
+    return patch_read_text(path, len);
 }
 
 static int jsonl_insert_remote_agent_fragment(char **buf, size_t *n) {
     static const char anchor[] =
         "static int run_agent_non_interactive(ds4_engine *engine, agent_config *cfg) {\n";
-    if (strstr(*buf, "/*DS4UI_REMOTE_AGENT*/")) return 0;
+    if (strstr(*buf, "/*DS4UI_REMOTE_AGENT*/"))
+        return patch_fail("remote agent fragment marker already present in source");
     size_t frag_len = 0;
     char *frag = jsonl_read_remote_agent_fragment(&frag_len);
     if (!frag) return 0;
     jsonl_normalize_newlines(frag, &frag_len);
     size_t repl_len = frag_len + strlen(anchor) + 2;
     char *repl = malloc(repl_len);
-    if (!repl) { free(frag); return 0; }
+    if (!repl) { free(frag); return patch_fail("out of memory inserting remote agent fragment"); }
     int k = snprintf(repl, repl_len, "%s\n%s", frag, anchor);
     free(frag);
-    if (k < 0 || (size_t)k >= repl_len) { free(repl); return 0; }
+    if (k < 0 || (size_t)k >= repl_len) {
+        free(repl);
+        return patch_fail("remote agent fragment expansion overflow");
+    }
     int ok = jsonl_replace_once(buf, n, anchor, repl);
     free(repl);
+    if (!ok)
+        return patch_fail("remote agent fragment anchor missing or ambiguous: run_agent_non_interactive");
     return ok;
+}
+
+static int patch_check_anchors(ds4ui_patch_set *patch, char **buf, size_t *n, const char *label) {
+    int fails = 0;
+    for (int i = 0; i < patch->count; i++) {
+        ds4ui_patch_edit *edit = &patch->edits[i];
+        int cnt = patch_count_occurrences(*buf, edit->find);
+        const char *verdict = cnt == 1 ? "ok" : (cnt == 0 ? "MISSING" : "AMBIGUOUS");
+        if (cnt != 1) fails++;
+        char preview[56];
+        patch_anchor_preview(edit->find, preview, sizeof preview);
+        printf("  %s anchor %2d/%d  %-9s  %s%s  [%s]\n", label, i + 1, patch->count,
+               verdict, preview, strlen(preview) < strlen(edit->find) ? " ..." : "", edit->id);
+        if (cnt == 1 && !jsonl_replace_once(buf, n, edit->find, edit->replace)) fails++;
+    }
+    return fails;
 }
 
 static int web_cdp_check_anchors(const char *src_path) {
@@ -3531,51 +2942,28 @@ static int web_cdp_check_anchors(const char *src_path) {
     } else if (strstr(buf, WEB_CDP_MARK)) {
         printf("check-anchors: NOTE source already contains %s (already patched?)\n", WEB_CDP_MARK);
     } else {
-        int nedits = (int)(sizeof WEB_CDP_EDITS / sizeof WEB_CDP_EDITS[0]);
-        for (int i = 0; i < nedits; i++) {
-            const char *find = WEB_CDP_EDITS[i][0];
-            const char *repl = WEB_CDP_EDITS[i][1];
-            int cnt = 0;
-            for (char *q = strstr(buf, find); q; q = strstr(q + 1, find)) cnt++;
-            const char *verdict = cnt == 1 ? "ok" : (cnt == 0 ? "MISSING" : "AMBIGUOUS");
-            if (cnt != 1) fails++;
-            char preview[56]; size_t k = 0;
-            for (const char *s = find; *s && *s != '\n' && k + 1 < sizeof preview; s++) preview[k++] = *s;
-            preview[k] = '\0';
-            printf("  web anchor %2d/%d  %-9s  %s%s\n", i + 1, nedits, verdict, preview,
-                   k < strlen(find) ? " ..." : "");
-            if (cnt == 1 && !jsonl_replace_once(&buf, &n, find, repl)) fails++;
-        }
+        ds4ui_patch_set patch;
+        if (!patch_load_set(WEB_CDP_PATCH_DIR, &patch)) { free(buf); return -1; }
+        fails += patch_check_anchors(&patch, &buf, &n, "web");
+        patch_free_set(&patch);
     }
 
     if (strstr(buf, WEB_DIRECT_NAV_MARK) || web_direct_nav_source_has_fix(buf)) {
         printf("check-anchors: web direct navigation already present\n");
     } else {
-        int nedits = (int)(sizeof WEB_DIRECT_NAV_EDITS / sizeof WEB_DIRECT_NAV_EDITS[0]);
-        for (int i = 0; i < nedits; i++) {
-            const char *find = WEB_DIRECT_NAV_EDITS[i][0];
-            const char *repl = WEB_DIRECT_NAV_EDITS[i][1];
-            int cnt = 0;
-            for (char *q = strstr(buf, find); q; q = strstr(q + 1, find)) cnt++;
-            const char *verdict = cnt == 1 ? "ok" : (cnt == 0 ? "MISSING" : "AMBIGUOUS");
-            if (cnt != 1) fails++;
-            char preview[56]; size_t k = 0;
-            for (const char *s = find; *s && *s != '\n' && k + 1 < sizeof preview; s++) preview[k++] = *s;
-            preview[k] = '\0';
-            printf("  web nav anchor %2d/%d  %-9s  %s%s\n", i + 1, nedits, verdict, preview,
-                   k < strlen(find) ? " ..." : "");
-            if (cnt == 1 && !jsonl_replace_once(&buf, &n, find, repl)) fails++;
-        }
+        ds4ui_patch_set patch;
+        if (!patch_load_set(WEB_DIRECT_NAV_PATCH_DIR, &patch)) { free(buf); return -1; }
+        fails += patch_check_anchors(&patch, &buf, &n, "web nav");
+        patch_free_set(&patch);
     }
     free(buf);
     printf("check-anchors: web direct navigation %s\n", fails ? "would fail" : "ok");
     return fails;
 }
 
-/* Dry-run for CI: verify every JSONL_EDITS anchor is present exactly once in
- * src_path WITHOUT modifying it. Prints a per-anchor report; returns the number
- * of anchors that would fail to apply (0 = the patch applies cleanly). Catches an
- * upstream ds4_agent.c rework before it silently drops users to Raw. */
+/* Dry-run for CI: verify every JSONL anchor is present exactly once in src_path
+ * WITHOUT modifying it. Prints a per-anchor report; returns the number of
+ * anchors that would fail to apply (0 = the patch applies cleanly). */
 static int jsonl_check_anchors(const char *src_path) {
     size_t n;
     char *buf = jsonl_read_file(src_path, &n);
@@ -3583,45 +2971,37 @@ static int jsonl_check_anchors(const char *src_path) {
     jsonl_normalize_newlines(buf, &n);
     if (strstr(buf, JSONL_MARK))
         printf("check-anchors: NOTE source already contains %s (already patched?)\n", JSONL_MARK);
-    int nedits = (int)(sizeof JSONL_EDITS / sizeof JSONL_EDITS[0]);
-    int fails = 0;
-    for (int i = 0; i < nedits; i++) {
-        const char *find = JSONL_EDITS[i][0];
-        const char *repl = JSONL_EDITS[i][1];
-        int cnt = 0;
-        for (char *q = strstr(buf, find); q; q = strstr(q + 1, find)) cnt++;
-        const char *verdict = cnt == 1 ? "ok" : (cnt == 0 ? "MISSING" : "AMBIGUOUS");
-        if (cnt != 1) fails++;
-        char preview[56]; size_t k = 0;
-        for (const char *s = find; *s && *s != '\n' && k + 1 < sizeof preview; s++) preview[k++] = *s;
-        preview[k] = '\0';
-        printf("  anchor %2d/%d  %-9s  %s%s\n", i + 1, nedits, verdict, preview,
-               k < strlen(find) ? " …" : "");
-        if (cnt == 1 && !jsonl_replace_once(&buf, &n, find, repl)) fails++;
-    }
+    ds4ui_patch_set patch;
+    if (!patch_load_set(JSONL_PATCH_DIR, &patch)) { free(buf); return -1; }
+    int total = patch.count + 1;
+    int fails = patch_check_anchors(&patch, &buf, &n, "jsonl");
+    patch_free_set(&patch);
     if (jsonl_insert_remote_agent_fragment(&buf, &n)) {
-        printf("  remote fragment     ok         %s\n", JSONL_REMOTE_AGENT_FRAGMENT);
+        printf("  remote fragment     ok         %s/remote-agent.cfrag\n", JSONL_PATCH_DIR);
     } else {
-        printf("  remote fragment     MISSING    %s or run_agent_non_interactive anchor\n",
-               JSONL_REMOTE_AGENT_FRAGMENT);
+        printf("  remote fragment     MISSING    %s/remote-agent.cfrag or run_agent_non_interactive anchor\n",
+               JSONL_PATCH_DIR);
         fails++;
     }
     free(buf);
     printf("check-anchors: %d/%d ok, %d would fail\n",
-           (nedits + 1) - fails, nedits + 1, fails);
+           total - fails, total, fails);
     return fails;
 }
 
-/* `make -f - <target>` in the ds4 dir, with the inline makefile on stdin. */
+/* `make -f - <target>` in the ds4 dir, with the external build.mk on stdin. */
 static int jsonl_make(const char *ds4_abs, const char *target) {
 #ifdef _WIN32
     (void)ds4_abs; (void)target;
     return 0;
 #else
+    size_t makefile_len = 0;
+    char *makefile = jsonl_read_patch_makefile(&makefile_len);
+    if (!makefile) return 0;
     int pp[2];
-    if (pipe(pp) != 0) return 0;
+    if (pipe(pp) != 0) { free(makefile); return patch_fail("pipe failed for jsonl make: %s", strerror(errno)); }
     pid_t pid = fork();
-    if (pid < 0) { close(pp[0]); close(pp[1]); return 0; }
+    if (pid < 0) { close(pp[0]); close(pp[1]); free(makefile); return patch_fail("fork failed for jsonl make: %s", strerror(errno)); }
     if (pid == 0) {
         if (chdir(ds4_abs) != 0) _exit(127);
         dup2(pp[0], STDIN_FILENO);
@@ -3647,36 +3027,77 @@ static int jsonl_make(const char *ds4_abs, const char *target) {
         _exit(127);
     }
     close(pp[0]);
-    size_t off = 0, total = strlen(JSONL_MAKEFILE);
-    while (off < total) {
-        ssize_t w = write(pp[1], JSONL_MAKEFILE + off, total - off);
+    size_t off = 0;
+    while (off < makefile_len) {
+        ssize_t w = write(pp[1], makefile + off, makefile_len - off);
         if (w <= 0) break;
         off += (size_t)w;
     }
+    free(makefile);
     close(pp[1]);
     int st;
-    if (waitpid(pid, &st, 0) != pid) return 0;
-    return WIFEXITED(st) && WEXITSTATUS(st) == 0;
+    if (waitpid(pid, &st, 0) != pid) return patch_fail("waitpid failed for jsonl make: %s", strerror(errno));
+    if (!(WIFEXITED(st) && WEXITSTATUS(st) == 0))
+        return patch_fail("jsonl make target failed: %s", target);
+    return 1;
 #endif
 }
 
-static int jsonl_sentinel_ok(const char *path) {
+static int jsonl_sentinel_ok(const char *path, int want_version) {
+    if (want_version <= 0) return 0;
     size_t n;
     char *b = jsonl_read_file(path, &n);
     if (!b) return 0;
     int v = atoi(b);
     free(b);
-    return v == JSONL_PATCH_VERSION;
+    return v == want_version;
+}
+
+static int default_ds4_dir(char *out, size_t outsz) {
+    if (!outsz) return 0;
+    if (g_web_dir[0]) {
+        int n = snprintf(out, outsz, "%s/ds4", g_web_dir);
+        return n >= 0 && (size_t)n < outsz;
+    }
+#ifdef _WIN32
+    char appdir[DSTUDIO_PATH_MAX];
+    if (win_app_dir(appdir, sizeof appdir)) {
+        int n = snprintf(out, outsz, "%s\\ds4", appdir);
+        return n >= 0 && (size_t)n < outsz;
+    }
+#endif
+    char abs[DSTUDIO_PATH_MAX];
+    if (realpath("ds4", abs)) {
+        cstr_copy(out, outsz, abs);
+        return 1;
+    }
+    cstr_copy(out, outsz, "ds4");
+    return 1;
 }
 
 /* Resolves g_ds4_dir when it is RELATIVE and the cwd does not contain it (launch
- * from Finder/bundle: cwd = "/"). Order: cwd → next to the executable → folder
- * containing the bundle (Contents/MacOS → ../../..) → ~/Documents/dev/ds4. */
+ * from Finder/bundle: cwd = "/"). Default installs live in this DStudio checkout
+ * as ./ds4, so a missing checkout still resolves to that concrete target path. */
 static void resolve_ds4_dir(void) {
     char abs[DSTUDIO_PATH_MAX];
     if (realpath(g_ds4_dir, abs) && access(abs, R_OK) == 0) {
         cstr_copy(g_ds4_dir, sizeof g_ds4_dir, abs);
         return;
+    }
+    if (g_ds4_dir_explicit) {
+        fprintf(stderr, "DStudio: explicit ds4 directory not found (%s)\n", g_ds4_dir);
+        return;
+    }
+    if (!g_ds4_dir_explicit && g_web_dir[0]) {
+        char cand[DSTUDIO_PATH_MAX];
+        if (default_ds4_dir(cand, sizeof cand)) {
+            if (realpath(cand, abs) && access(abs, R_OK) == 0) {
+                cstr_copy(g_ds4_dir, sizeof g_ds4_dir, abs);
+                return;
+            }
+            cstr_copy(g_ds4_dir, sizeof g_ds4_dir, cand);
+            return;
+        }
     }
 #ifdef __APPLE__
     char exe[DSTUDIO_PATH_MAX];
@@ -3742,7 +3163,7 @@ static void resolve_ds4_dir(void) {
     fprintf(stderr, "DStudio: ds4 directory not found (%s)\n", g_ds4_dir);
 }
 
-/* "build" | "restore". 1 = ok. Applies ALL the JSONL_EDITS edits (jsonl events
+/* "build" | "restore". 1 = ok. Applies the external JSONL patch set (jsonl events
  * + slash command/autosave sessions of the non-interactive loop).
  * All in C: backup .bak, patch, make, restore.
  * Replaces the former extension/jsonl/build-jsonl.sh + inject.py script. */
@@ -3752,7 +3173,8 @@ static int run_build_jsonl(const char *action) {
     win_prepare_engine_runtime();
     char ver[DSTUDIO_PATH_MAX + 64];
     snprintf(ver, sizeof ver, "%s/ds4-agent-jsonl.ver", g_ds4_dir);
-    return file_present("ds4-agent-jsonl.exe") && jsonl_sentinel_ok(ver);
+    int patch_version = jsonl_patch_version();
+    return patch_version > 0 && file_present("ds4-agent-jsonl.exe") && jsonl_sentinel_ok(ver, patch_version);
 #else
     char ds4_abs[DSTUDIO_PATH_MAX];
     if (!realpath(g_ds4_dir, ds4_abs)) return 0;
@@ -3782,13 +3204,16 @@ static int run_build_jsonl(const char *action) {
     }
     if (strcmp(action, "restore") == 0) return 1;
 
-    /* idempotence: skip if the binary is newer than the source and the patch
-     * version matches (a change to the edits bumps JSONL_PATCH_VERSION). */
+    int patch_version = jsonl_patch_version();
+    if (patch_version <= 0) return 0;
+
+    /* idempotence: skip if the binary is newer than the source and the external patch
+     * version matches. */
     struct stat sb, wb, bb;
     if (access(bin, X_OK) == 0 &&
         stat(src, &sb) == 0 && stat(web_src, &wb) == 0 && stat(bin, &bb) == 0 &&
         bb.st_mtime >= sb.st_mtime && bb.st_mtime >= wb.st_mtime &&
-        jsonl_sentinel_ok(ver)) {
+        jsonl_sentinel_ok(ver, patch_version)) {
         return 1;
     }
 
@@ -3810,7 +3235,7 @@ static int run_build_jsonl(const char *action) {
     jsonl_unlink_if_exists(web_obj);
     if (ok) {
         char vs[16];
-        int vn = snprintf(vs, sizeof vs, "%d\n", JSONL_PATCH_VERSION);
+        int vn = snprintf(vs, sizeof vs, "%d\n", patch_version);
         jsonl_write_file(ver, vs, (size_t)vn);
     }
     return ok;
@@ -3929,7 +3354,8 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
                  "remote agent requires the updated DStudio Windows runtime "
                  "(ds4-agent-jsonl.exe + ds4-agent-jsonl.ver)");
 #else
-        snprintf(err, errsz, "remote agent requires the structured ds4-agent-jsonl build");
+        snprintf(err, errsz, "remote agent requires the structured ds4-agent-jsonl build%s%s",
+                 g_engine_err[0] ? ": " : "", g_engine_err[0] ? g_engine_err : "");
 #endif
         return 0;
     }
@@ -4437,9 +3863,9 @@ static int doctor_add_check(json_dyn_buf *b, int *first, const char *id, const c
     return ok;
 }
 
-/* GET /api/doctor — cheap first-run/preflight checks. It intentionally does not
- * auto-discover, clone, install, build, or launch anything: it reports what is
- * ready and gives the UI an action code for the next user-controlled step. */
+/* GET /api/doctor — cheap first-run/preflight checks. It reports what is ready
+ * and gives the UI action codes; the managed download/build happens only when the
+ * user clicks the explicit setup action. */
 static void api_doctor(int fd) {
     reap_child();
     int ds4_ok = ds4_dir_valid();
@@ -4456,7 +3882,8 @@ static void api_doctor(int fd) {
     int server_ok = (g_mode == ENGINE_SERVER && g_child > 0 && g_ready) || port_listening(ENGINE_DEFAULTS.port);
 
     char ds4_msg[1400];
-    snprintf(ds4_msg, sizeof ds4_msg, ds4_ok ? "Using %s" : "Choose the ds4 folder that contains the engine binaries.", g_ds4_dir);
+    if (ds4_ok) snprintf(ds4_msg, sizeof ds4_msg, "Using %s", g_ds4_dir);
+    else snprintf(ds4_msg, sizeof ds4_msg, "Install ds4 into %s.", g_ds4_dir);
 
     json_dyn_buf b = {0};
     int first = 1, fatal = 0, warn = 0, ok = 1;
@@ -4464,7 +3891,7 @@ static void api_doctor(int fd) {
 
     if (!ds4_ok) fatal++;
     ok = ok && doctor_add_check(&b, &first, "ds4", "Engine folder",
-        ds4_ok ? "ok" : "error", ds4_msg, ds4_ok ? NULL : "choose-ds4");
+        ds4_ok ? "ok" : "error", ds4_msg, ds4_ok ? NULL : "setup-ds4");
 
     if (!model_ok) fatal++;
     else if (!current_model_ok) warn++;
@@ -5040,13 +4467,27 @@ static void api_stop(int fd) {
     send_json(fd, "200 OK", "{\"ok\":true}");
 }
 
+static void api_agent_send_state_error(int fd, const char *status, const char *msg) {
+    char msg_esc[512], err_esc[512], line_esc[512], out[1600];
+    json_escape_into(msg_esc, sizeof msg_esc, msg ? msg : "agent/design send failed", strlen(msg ? msg : "agent/design send failed"));
+    json_escape_into(err_esc, sizeof err_esc, g_engine_err, strlen(g_engine_err));
+    json_escape_into(line_esc, sizeof line_esc, g_last_engine_line, strlen(g_last_engine_line));
+    snprintf(out, sizeof out,
+        "{\"ok\":false,\"error\":\"%s\",\"mode\":\"%s\",\"running\":%s,\"ready\":%s,"
+        "\"agentWorking\":%s,\"engineError\":\"%s\",\"engineLine\":\"%s\"}",
+        msg_esc, mode_name(g_mode), g_child > 0 ? "true" : "false", g_ready ? "true" : "false",
+        g_agent_working ? "true" : "false", err_esc, line_esc);
+    send_json(fd, status, out);
+}
+
 static void api_agent_send(int fd, const char *body) {
-    if (!MODE_IS_PIPED(g_mode) || g_in_fd < 0) {
-        send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"agent not active\"}");
+    reap_child();
+    if (!MODE_IS_PIPED(g_mode) || g_in_fd < 0 || g_child <= 0) {
+        api_agent_send_state_error(fd, "409 Conflict", "agent/design runtime is not active");
         return;
     }
     if (!g_ready) {
-        send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"agent still loading\"}");
+        api_agent_send_state_error(fd, "409 Conflict", "agent/design runtime is still loading");
         return;
     }
     static char prompt[BODY_MAX];
@@ -5054,22 +4495,29 @@ static void api_agent_send(int fd, const char *body) {
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"prompt missing\"}");
         return;
     }
+    static char display[BODY_MAX];
+    if (!json_get_string(body, "displayPrompt", display, sizeof display) || !display[0]) {
+        snprintf(display, sizeof display, "%s", prompt);
+    }
     size_t len = strlen(prompt);
+    size_t display_len = strlen(display);
+    size_t from = g_alen;
+    /* send on the agent's stdin + newline as turn terminator */
+    if (!fd_write_all(g_in_fd, prompt, len) || !fd_write_all(g_in_fd, "\n", 1)) {
+        snprintf(g_engine_err, sizeof g_engine_err, "write to agent/design failed: %s", strerror(errno));
+        api_agent_send_state_error(fd, "500 Internal Server Error", "write to agent/design failed");
+        return;
+    }
     /* Echo of the prompt into the transcript, marked, so the UI shows it right
      * away. The literals are SPLIT because \x is greedy on hex: "\x01E" would be
      * read as 0x1E. "\x01" "USER" keeps 0x01 separate from 'U'/'E'. */
     agent_buf_append("\x01" "USER\x02", 6);
-    agent_buf_append(prompt, len);
+    agent_buf_append(display, display_len);
     agent_buf_append("\x01" "ENDUSER\x02\n", 10);
-    /* send on the agent's stdin + newline as turn terminator */
-    if (write(g_in_fd, prompt, len) < 0 || write(g_in_fd, "\n", 1) < 0) {
-        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"write to agent failed\"}");
-        return;
-    }
     g_agent_working = 1;
     g_ready = 1;
-    char out[64];
-    snprintf(out, sizeof out, "{\"ok\":true,\"at\":%zu}", g_alen);
+    char out[96];
+    snprintf(out, sizeof out, "{\"ok\":true,\"from\":%zu,\"at\":%zu}", from, g_alen);
     send_json(fd, "200 OK", out);
 }
 
@@ -5619,60 +5067,583 @@ static void api_fs_mkdir(int fd, const char *body) {
     send_json(fd, "200 OK", out);
 }
 
-/* POST /api/ds4dir {path} — point the launcher at a different ds4 directory
- * (used when the health check finds the auto-resolved one missing). Validates
- * it is a real directory, then KILLS any active ds4 (our own child plus a stray
- * ds4-server holding the engine port) and RESTARTS the same mode/config in the
- * NEW location, so the engine comes back pointed at the folder the user just
- * gave. The UI re-checks ds4dirOk and reports whether the restart succeeded. */
-static void api_set_ds4dir(int fd, const char *body) {
-    char path[1024] = {0};
-    json_get_string(body, "path", path, sizeof path);
-    if (!path[0] || strstr(path, "..")) { send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"invalid path\"}"); return; }
-    char abs[DSTUDIO_PATH_MAX];
+static void setup_capture_append(char *out, size_t *used, size_t outsz, const char *buf, size_t n) {
+    if (!out || outsz <= 1 || !buf || !n) return;
+    if (n >= outsz - 1) {
+        memcpy(out, buf + n - (outsz - 1), outsz - 1);
+        *used = outsz - 1;
+        out[*used] = '\0';
+        return;
+    }
+    if (*used + n >= outsz) {
+        size_t drop = *used + n - (outsz - 1);
+        if (drop < *used) {
+            memmove(out, out + drop, *used - drop);
+            *used -= drop;
+        } else {
+            *used = 0;
+        }
+    }
+    memcpy(out + *used, buf, n);
+    *used += n;
+    out[*used] = '\0';
+}
+
+static int setup_run_cmd_capture(const char *cwd, char *const argv[], char *out, size_t outsz) {
+    if (out && outsz) out[0] = '\0';
+#ifdef _WIN32
+    char cmd[32768] = "";
+    for (int i = 0; argv && argv[i]; i++) win_arg_append(cmd, sizeof cmd, argv[i]);
+    if (!cmd[0]) {
+        snprintf(out, outsz, "empty command");
+        return 127;
+    }
+
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+    HANDLE rd = NULL, wr = NULL;
+    if (!CreatePipe(&rd, &wr, &sa, 0)) {
+        snprintf(out, outsz, "CreatePipe failed (error %lu)", GetLastError());
+        return 126;
+    }
+    SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    HANDLE nul = CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                             &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    memset(&si, 0, sizeof si);
+    memset(&pi, 0, sizeof pi);
+    si.cb = sizeof si;
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = (nul != INVALID_HANDLE_VALUE) ? nul : GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = wr;
+    si.hStdError = wr;
+
+    BOOL ok = CreateProcessA(NULL, cmd, NULL, NULL, TRUE,
+                             CREATE_NO_WINDOW, NULL,
+                             (cwd && cwd[0]) ? cwd : NULL, &si, &pi);
+    CloseHandle(wr);
+    if (!ok) {
+        DWORD e = GetLastError();
+        if (nul != INVALID_HANDLE_VALUE) CloseHandle(nul);
+        CloseHandle(rd);
+        snprintf(out, outsz, "CreateProcess failed for %s (error %lu)", argv && argv[0] ? argv[0] : "(null)", e);
+        return 127;
+    }
+    if (nul != INVALID_HANDLE_VALUE) CloseHandle(nul);
+    CloseHandle(pi.hThread);
+
+    size_t used = 0;
+    char buf[2048];
+    for (;;) {
+        DWORD avail = 0;
+        if (PeekNamedPipe(rd, NULL, 0, NULL, &avail, NULL) && avail > 0) {
+            DWORD got = 0;
+            DWORD want = avail < sizeof buf ? avail : (DWORD)sizeof buf;
+            if (ReadFile(rd, buf, want, &got, NULL) && got > 0) {
+                setup_capture_append(out, &used, outsz, buf, (size_t)got);
+                continue;
+            }
+        }
+        DWORD wait = WaitForSingleObject(pi.hProcess, 30);
+        if (wait == WAIT_OBJECT_0) {
+            for (;;) {
+                DWORD left = 0;
+                if (!PeekNamedPipe(rd, NULL, 0, NULL, &left, NULL) || left == 0) break;
+                DWORD got = 0;
+                DWORD want = left < sizeof buf ? left : (DWORD)sizeof buf;
+                if (!ReadFile(rd, buf, want, &got, NULL) || got == 0) break;
+                setup_capture_append(out, &used, outsz, buf, (size_t)got);
+            }
+            break;
+        }
+        if (wait == WAIT_FAILED) break;
+    }
+
+    DWORD code = 126;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(rd);
+    return (int)code;
+#else
+    int pp[2];
+    if (pipe(pp) != 0) {
+        snprintf(out, outsz, "pipe failed: %s", strerror(errno));
+        return 126;
+    }
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pp[0]);
+        close(pp[1]);
+        snprintf(out, outsz, "fork failed: %s", strerror(errno));
+        return 126;
+    }
+    if (pid == 0) {
+        if (cwd && cwd[0] && chdir(cwd) != 0) _exit(127);
+        int dn = open("/dev/null", O_RDONLY);
+        if (dn >= 0) { dup2(dn, STDIN_FILENO); close(dn); }
+        dup2(pp[1], STDOUT_FILENO);
+        dup2(pp[1], STDERR_FILENO);
+        close(pp[0]);
+        close(pp[1]);
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+    close(pp[1]);
+    size_t used = 0;
+    char buf[2048];
+    for (;;) {
+        ssize_t n = read(pp[0], buf, sizeof buf);
+        if (n > 0) setup_capture_append(out, &used, outsz, buf, (size_t)n);
+        else if (n == 0) break;
+        else if (errno != EINTR) break;
+    }
+    close(pp[0]);
+    int st = 0;
+    if (waitpid(pid, &st, 0) != pid) {
+        setup_capture_append(out, &used, outsz, "waitpid failed\n", 15);
+        return 126;
+    }
+    if (WIFEXITED(st)) return WEXITSTATUS(st);
+    if (WIFSIGNALED(st)) return 128 + WTERMSIG(st);
+    return 126;
+#endif
+}
+
+static int setup_dir_empty(const char *path, int *empty) {
+    DIR *d = opendir(path);
+    if (!d) return 0;
+    *empty = 1;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        *empty = 0;
+        break;
+    }
+    closedir(d);
+    return 1;
+}
+
+static int setup_remove_tree(const char *path) {
     struct stat st;
-    if (!realpath(path, abs) || stat(abs, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"not a folder\"}");
+    if (lstat(path, &st) != 0) return errno == ENOENT;
+    if (!S_ISDIR(st.st_mode)) return unlink(path) == 0;
+
+    DIR *d = opendir(path);
+    if (!d) return 0;
+    int ok = 1;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char child[DSTUDIO_PATH_MAX];
+        int n = snprintf(child, sizeof child, "%s/%s", path, e->d_name);
+        if (n < 0 || (size_t)n >= sizeof child || !setup_remove_tree(child)) ok = 0;
+    }
+    closedir(d);
+    if (rmdir(path) != 0) ok = 0;
+    return ok;
+}
+
+static int setup_parent_dir(const char *path, char *out, size_t outsz) {
+    if (!path || !path[0] || !out || !outsz) return 0;
+    int n = snprintf(out, outsz, "%s", path);
+    if (n < 0 || (size_t)n >= outsz) return 0;
+    char *slash = strrchr(out, '/');
+#ifdef _WIN32
+    char *bslash = strrchr(out, '\\');
+    if (!slash || bslash > slash) slash = bslash;
+#endif
+    if (!slash) return 0;
+    if (slash == out) slash[1] = '\0';
+    else *slash = '\0';
+    return 1;
+}
+
+static int setup_first_extracted_dir(const char *dir, char *out, size_t outsz) {
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    int found = 0;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char child[DSTUDIO_PATH_MAX];
+        int n = snprintf(child, sizeof child, "%s/%s", dir, e->d_name);
+        if (n < 0 || (size_t)n >= sizeof child) continue;
+        struct stat st;
+        if (lstat(child, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+        snprintf(out, outsz, "%s", child);
+        found = 1;
+        break;
+    }
+    closedir(d);
+    return found;
+}
+
+static int setup_download_ds4_archive(const char *target, char *log_tail, size_t logsz,
+                                      char *err, size_t errsz) {
+    char parent[DSTUDIO_PATH_MAX];
+    if (!setup_parent_dir(target, parent, sizeof parent)) {
+        snprintf(err, errsz, "could not resolve parent folder for %s", target ? target : "(null)");
+        return 0;
+    }
+
+    char archive[DSTUDIO_PATH_MAX];
+    char extract[DSTUDIO_PATH_MAX];
+    int n = snprintf(archive, sizeof archive, "%s/.dstudio-ds4-%s.tar.gz", parent, DS4_UPSTREAM_COMMIT);
+    int m = snprintf(extract, sizeof extract, "%s/.dstudio-ds4-extract-%ld", parent, (long)getpid());
+    if (n < 0 || (size_t)n >= sizeof archive || m < 0 || (size_t)m >= sizeof extract) {
+        snprintf(err, errsz, "temporary ds4 archive path is too long");
+        return 0;
+    }
+
+    unlink(archive);
+    setup_remove_tree(extract);
+    if (mkdir(extract, 0755) != 0) {
+        snprintf(err, errsz, "could not create temporary extract folder %s: %s", extract, strerror(errno));
+        return 0;
+    }
+
+    char *curl_argv[] = {
+        "curl", "-L", "--fail", "--show-error", "--retry", "2",
+        "--connect-timeout", "20", "--max-time", "300",
+        "-o", archive, DS4_ARCHIVE_URL, NULL
+    };
+    int rc = setup_run_cmd_capture(NULL, curl_argv, log_tail, logsz);
+    if (rc != 0) {
+        snprintf(err, errsz,
+                 "ds4 archive download failed (exit %d). DStudio setup needs curl and tar, not git. URL: %s. Output: %.7000s",
+                 rc, DS4_ARCHIVE_URL, log_tail && log_tail[0] ? log_tail : "(no output)");
+        unlink(archive);
+        setup_remove_tree(extract);
+        return 0;
+    }
+
+    char *tar_argv[] = { "tar", "-xzf", archive, "-C", extract, NULL };
+    rc = setup_run_cmd_capture(NULL, tar_argv, log_tail, logsz);
+    if (rc != 0) {
+        snprintf(err, errsz,
+                 "ds4 archive extraction failed (exit %d). DStudio setup needs tar. Output: %.7600s",
+                 rc, log_tail && log_tail[0] ? log_tail : "(no output)");
+        unlink(archive);
+        setup_remove_tree(extract);
+        return 0;
+    }
+
+    char extracted[DSTUDIO_PATH_MAX];
+    if (!setup_first_extracted_dir(extract, extracted, sizeof extracted)) {
+        snprintf(err, errsz, "ds4 archive did not contain a source folder");
+        unlink(archive);
+        setup_remove_tree(extract);
+        return 0;
+    }
+
+    struct stat st;
+    if (stat(target, &st) == 0) {
+        int empty = 0;
+        if (!S_ISDIR(st.st_mode) || !setup_dir_empty(target, &empty) || !empty) {
+            snprintf(err, errsz, "DStudio/ds4 exists and is not an empty folder");
+            unlink(archive);
+            setup_remove_tree(extract);
+            return 0;
+        }
+        if (rmdir(target) != 0) {
+            snprintf(err, errsz, "could not replace empty DStudio/ds4 folder: %s", strerror(errno));
+            unlink(archive);
+            setup_remove_tree(extract);
+            return 0;
+        }
+    }
+
+    if (rename(extracted, target) != 0) {
+        snprintf(err, errsz, "could not move extracted ds4 source into %s: %s", target, strerror(errno));
+        unlink(archive);
+        setup_remove_tree(extract);
+        return 0;
+    }
+
+    unlink(archive);
+    setup_remove_tree(extract);
+    return 1;
+}
+
+#ifdef _WIN32
+static void setup_trim_line(char *s) {
+    if (!s) return;
+    size_t n = strlen(s);
+    while (n && (s[n - 1] == '\n' || s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\t'))
+        s[--n] = '\0';
+}
+
+static int setup_windows_engine_ready(void) {
+    win_prepare_engine_runtime();
+    char ver[DSTUDIO_PATH_MAX + 64];
+    snprintf(ver, sizeof ver, "%s\\ds4-agent-jsonl.ver", g_ds4_dir);
+    int patch_version = jsonl_patch_version();
+    return file_present("ds4-server.exe") &&
+           file_present("ds4-agent.exe") &&
+           file_present("ds4-agent-jsonl.exe") &&
+           file_present("ds4-design.exe") &&
+           patch_version > 0 &&
+           jsonl_sentinel_ok(ver, patch_version);
+}
+
+static int setup_find_windows_bash(char *out, size_t outsz) {
+    win_prepare_engine_runtime();
+    const char *candidates[] = {
+        "C:\\msys64\\usr\\bin\\bash.exe",
+        "C:\\cygwin64\\bin\\bash.exe",
+        "bash.exe",
+        "bash",
+        NULL
+    };
+    for (int i = 0; candidates[i]; i++) {
+        if (strchr(candidates[i], '\\') && access(candidates[i], X_OK) != 0) continue;
+        snprintf(out, outsz, "%s", candidates[i]);
+        return 1;
+    }
+    return 0;
+}
+
+static int setup_windows_posix_path(const char *bash, const char *win_path,
+                                    char *out, size_t outsz, char *err, size_t errsz) {
+    char log_tail[4096];
+    char *argv[] = { (char *)bash, "-lc", "cygpath -u \"$1\"", "_", (char *)win_path, NULL };
+    int rc = setup_run_cmd_capture(NULL, argv, log_tail, sizeof log_tail);
+    if (rc != 0 || !log_tail[0]) {
+        snprintf(err, errsz, "cygpath failed for %s (exit %d). Output: %.3000s",
+                 win_path ? win_path : "(null)", rc, log_tail[0] ? log_tail : "(no output)");
+        return 0;
+    }
+    setup_trim_line(log_tail);
+    snprintf(out, outsz, "%s", log_tail);
+    return 1;
+}
+
+static int setup_windows_build_ds4(char *log_tail, size_t logsz, char *err, size_t errsz) {
+    if (!g_web_dir[0]) {
+        snprintf(err, errsz,
+                 "Windows ds4 build requires the DStudio source checkout with scripts/ and patch/. "
+                 "The portable build can still use packaged engine binaries next to DStudio.exe.");
+        return 0;
+    }
+
+    char script[DSTUDIO_PATH_MAX + 128];
+    snprintf(script, sizeof script, "%s\\scripts\\build-ds4-windows-cygwin.sh", g_web_dir);
+    if (access(script, R_OK) != 0) {
+        snprintf(err, errsz, "Windows ds4 build script not found: %s", script);
+        return 0;
+    }
+
+    char bash[DSTUDIO_PATH_MAX];
+    if (!setup_find_windows_bash(bash, sizeof bash)) {
+        snprintf(err, errsz,
+                 "Windows ds4 setup downloaded the pinned source, but could not find MSYS2/Cygwin bash. "
+                 "Install MSYS2 in C:\\msys64 or use the portable package with DS4 engine binaries.");
+        return 0;
+    }
+
+    char root_unix[DSTUDIO_PATH_MAX], ds4_unix[DSTUDIO_PATH_MAX];
+    if (!setup_windows_posix_path(bash, g_web_dir, root_unix, sizeof root_unix, err, errsz)) return 0;
+    if (!setup_windows_posix_path(bash, g_ds4_dir, ds4_unix, sizeof ds4_unix, err, errsz)) return 0;
+
+    char *argv[] = {
+        bash,
+        "-lc",
+        "cd \"$1\" && ./scripts/build-ds4-windows-cygwin.sh \"$2\"",
+        "_",
+        root_unix,
+        ds4_unix,
+        NULL
+    };
+    int rc = setup_run_cmd_capture(NULL, argv, log_tail, logsz);
+    if (rc != 0) {
+        snprintf(err, errsz,
+                 "Windows ds4 build failed (exit %d). Install MSYS2/Cygwin make+gcc+patch. Output: %.7600s",
+                 rc, log_tail && log_tail[0] ? log_tail : "(no output)");
+        return 0;
+    }
+    if (!setup_windows_engine_ready()) {
+        snprintf(err, errsz, "Windows ds4 build finished but required engine binaries or JSONL marker are missing");
+        return 0;
+    }
+    return 1;
+}
+
+static int setup_prepare_ds4_windows(char *log_tail, size_t logsz, char *err, size_t errsz) {
+    if (setup_windows_engine_ready()) return 1;
+    return setup_windows_build_ds4(log_tail, logsz, err, errsz);
+}
+#endif
+
+static void setup_send_json(int fd, const char *status, int ok, const char *target,
+                            int downloaded, int built, int jsonl_prepared, int design_prepared,
+                            int was_running, int restarted, const char *mode,
+                            const char *error) {
+    json_dyn_buf b = {0};
+    int good = json_dyn_puts(&b, "{\"ok\":") &&
+               json_dyn_puts(&b, ok ? "true" : "false") &&
+               json_dyn_puts(&b, ",\"repo\":") &&
+               json_dyn_put_escaped(&b, DS4_REPO_URL) &&
+               json_dyn_puts(&b, ",\"commit\":") &&
+               json_dyn_put_escaped(&b, DS4_UPSTREAM_COMMIT) &&
+               json_dyn_puts(&b, ",\"archiveUrl\":") &&
+               json_dyn_put_escaped(&b, DS4_ARCHIVE_URL) &&
+               json_dyn_puts(&b, ",\"ds4dir\":") &&
+               json_dyn_put_escaped(&b, target ? target : g_ds4_dir) &&
+               json_dyn_puts(&b, ",\"ds4dirOk\":") &&
+               json_dyn_puts(&b, ds4_dir_valid() ? "true" : "false") &&
+               json_dyn_puts(&b, ",\"downloaded\":") &&
+               json_dyn_puts(&b, downloaded ? "true" : "false") &&
+               json_dyn_puts(&b, ",\"built\":") &&
+               json_dyn_puts(&b, built ? "true" : "false") &&
+               json_dyn_puts(&b, ",\"jsonlPrepared\":") &&
+               json_dyn_puts(&b, jsonl_prepared ? "true" : "false") &&
+               json_dyn_puts(&b, ",\"designPrepared\":") &&
+               json_dyn_puts(&b, design_prepared ? "true" : "false") &&
+               json_dyn_puts(&b, ",\"wasRunning\":") &&
+               json_dyn_puts(&b, was_running ? "true" : "false") &&
+               json_dyn_puts(&b, ",\"restarted\":") &&
+               json_dyn_puts(&b, restarted ? "true" : "false") &&
+               json_dyn_puts(&b, ",\"mode\":") &&
+               json_dyn_put_escaped(&b, mode ? mode : mode_name(g_mode)) &&
+               json_dyn_puts(&b, ",\"error\":") &&
+               json_dyn_put_escaped(&b, error ? error : "") &&
+               json_dyn_puts(&b, "}");
+    if (!good) {
+        free(b.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}");
+        return;
+    }
+    send_json(fd, status, b.ptr);
+    free(b.ptr);
+}
+
+/* POST /api/ds4/setup — managed first-run path. Downloads antirez/ds4 at the
+ * pinned commit into this DStudio checkout as ./ds4, builds upstream, then applies the external patch
+ * sets from patch/. Every step returns a concrete error instead of leaving the
+ * onboarding path field in a silent-fail state. */
+static void api_setup_ds4(int fd) {
+    resolve_web_dir();
+#ifndef _WIN32
+    if (!web_dir_valid()) {
+        setup_send_json(fd, "409 Conflict", 0, g_ds4_dir, 0, 0, 0, 0, 0, 0, mode_name(g_mode),
+                        "DStudio checkout not found; cannot locate patch/ and extension/ to prepare ds4");
+        return;
+    }
+#endif
+
+    char target[DSTUDIO_PATH_MAX];
+    if (!default_ds4_dir(target, sizeof target)) {
+        setup_send_json(fd, "500 Internal Server Error", 0, g_ds4_dir, 0, 0, 0, 0, 0, 0, mode_name(g_mode),
+                        "default ds4 path is too long");
         return;
     }
 
-    /* Remember what was running so we can bring the SAME mode back up in the
-     * new location after killing it. */
+    struct stat st;
+    int exists = stat(target, &st) == 0;
+    if (exists && !S_ISDIR(st.st_mode)) {
+        setup_send_json(fd, "409 Conflict", 0, target, 0, 0, 0, 0, 0, 0, mode_name(g_mode),
+                        "DStudio/ds4 exists but is not a folder");
+        return;
+    }
+
+    int downloaded = 0;
+    char log_tail[8192] = "";
+    if (!exists || !ds4_dir_valid_path(target)) {
+        int can_download = !exists;
+        if (exists) {
+            int empty = 0;
+            if (!setup_dir_empty(target, &empty)) {
+                setup_send_json(fd, "409 Conflict", 0, target, 0, 0, 0, 0, 0, 0, mode_name(g_mode),
+                                "DStudio/ds4 exists but could not be inspected");
+                return;
+            }
+            can_download = empty;
+        }
+        if (!can_download) {
+            setup_send_json(fd, "409 Conflict", 0, target, 0, 0, 0, 0, 0, 0, mode_name(g_mode),
+                            "DStudio/ds4 exists but is not a ds4 checkout; remove it and run setup again");
+            return;
+        }
+        char err[8600];
+        if (!setup_download_ds4_archive(target, log_tail, sizeof log_tail, err, sizeof err)) {
+            setup_send_json(fd, "500 Internal Server Error", 0, target, 0, 0, 0, 0, 0, 0, mode_name(g_mode), err);
+            return;
+        }
+        downloaded = 1;
+    }
+
+    char abs[DSTUDIO_PATH_MAX];
+    if (!realpath(target, abs)) {
+        char err[1024];
+        snprintf(err, sizeof err, "ds4 checkout path could not be resolved after download: %s", strerror(errno));
+        setup_send_json(fd, "500 Internal Server Error", 0, target, downloaded, 0, 0, 0, 0, 0, mode_name(g_mode), err);
+        return;
+    }
+    cstr_copy(g_ds4_dir, sizeof g_ds4_dir, abs);
+    g_ds4_dir_explicit = 0;
+    if (!ds4_dir_valid()) {
+        setup_send_json(fd, "409 Conflict", 0, g_ds4_dir, downloaded, 0, 0, 0, 0, 0, mode_name(g_mode),
+                        "downloaded folder does not look like a ds4 checkout");
+        return;
+    }
+
     reap_child();
     int        prev_mode = g_mode;
     engine_cfg prev_cfg  = g_cfg;
     char       prev_wd[1024];
     snprintf(prev_wd, sizeof prev_wd, "%s", g_workdir);
     int was_running = (g_child > 0) || (prev_mode != ENGINE_NONE);
-
-    cstr_copy(g_ds4_dir, sizeof g_ds4_dir, abs);
-    int valid = ds4_dir_valid();
-
-    /* Kill the active ds4: our own child first, then any external ds4-server
-     * still holding the engine port (the instance-lock forbids two at once). */
     if (g_child > 0) stop_child();
     kill_external_server(ENGINE_DEFAULTS.port);
 
-    /* Restart in the new location, same mode/config, when it's a real ds4 install. */
+#ifdef _WIN32
+    char build_err[8600];
+    if (!setup_prepare_ds4_windows(log_tail, sizeof log_tail, build_err, sizeof build_err)) {
+        setup_send_json(fd, "500 Internal Server Error", 0, g_ds4_dir, downloaded, 0, 0, 0,
+                        was_running, 0, mode_name(prev_mode), build_err);
+        return;
+    }
+#else
+    char *make_argv[] = { "make", "-C", g_ds4_dir, NULL };
+    int rc = setup_run_cmd_capture(NULL, make_argv, log_tail, sizeof log_tail);
+    if (rc != 0) {
+        char err[8600];
+        snprintf(err, sizeof err, "ds4 make failed (exit %d). Output: %.7800s",
+                 rc, log_tail[0] ? log_tail : "(no output)");
+        setup_send_json(fd, "500 Internal Server Error", 0, g_ds4_dir, downloaded, 0, 0, 0,
+                        was_running, 0, mode_name(prev_mode), err);
+        return;
+    }
+#endif
+
+    if (!run_build_jsonl("build")) {
+        char err[1024];
+        snprintf(err, sizeof err, "%s", g_engine_err[0] ? g_engine_err : "JSONL patch/build failed");
+        setup_send_json(fd, "500 Internal Server Error", 0, g_ds4_dir, downloaded, 1, 0, 0,
+                        was_running, 0, mode_name(prev_mode), err);
+        return;
+    }
+
+    int design_prepared = run_ext_script("extension/design/build-design.sh", "build");
+    if (!design_prepared) {
+        setup_send_json(fd, "500 Internal Server Error", 0, g_ds4_dir, downloaded, 1, 1, 0,
+                        was_running, 0, mode_name(prev_mode),
+                        "ds4 was downloaded and the agent patch built, but the design runtime build failed");
+        return;
+    }
+
     int restarted = 0;
-    char err[256] = "";
-    if (was_running && valid) {
-        int ok = prev_mode == ENGINE_AGENT  ? spawn_agent(&prev_cfg, prev_wd, err, sizeof err)
-               : prev_mode == ENGINE_DESIGN ? spawn_design(&prev_cfg, prev_wd, err, sizeof err)
-                                            : spawn_server(&prev_cfg, err, sizeof err);
+    char restart_err[256] = "";
+    if (was_running) {
+        int ok = prev_mode == ENGINE_AGENT  ? spawn_agent(&prev_cfg, prev_wd, restart_err, sizeof restart_err)
+               : prev_mode == ENGINE_DESIGN ? spawn_design(&prev_cfg, prev_wd, restart_err, sizeof restart_err)
+                                            : spawn_server(&prev_cfg, restart_err, sizeof restart_err);
         restarted = ok ? 1 : 0;
     }
 
-    char err_esc[300], ds4_esc[DSTUDIO_PATH_MAX * 2 + 1];
-    json_escape_into(err_esc, sizeof err_esc, err, strlen(err));
-    json_escape_into(ds4_esc, sizeof ds4_esc, g_ds4_dir, strlen(g_ds4_dir));
-    char out[DSTUDIO_PATH_MAX * 2 + 700];
-    snprintf(out, sizeof out,
-        "{\"ok\":true,\"ds4dir\":\"%s\",\"ds4dirOk\":%s,\"wasRunning\":%s,\"restarted\":%s,\"mode\":\"%s\",\"error\":\"%s\"}",
-        ds4_esc,
-        valid ? "true" : "false", was_running ? "true" : "false",
-        restarted ? "true" : "false", mode_name(g_mode), err_esc);
-    send_json(fd, "200 OK", out);
+    setup_send_json(fd, "200 OK", 1, g_ds4_dir, downloaded, 1, 1, design_prepared,
+                    was_running, restarted, mode_name(g_mode), restart_err);
 }
 
 /* Point the launcher at a different DStudio checkout (where extension/ lives:
@@ -7689,7 +7660,7 @@ static void handle_connection(int fd) {
         else if (!strcmp(path, "/api/model/download")) { api_model_download(fd, body); }
         else if (!strcmp(path, "/api/fs/list")) { api_fs_list(fd, body); }
         else if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); }
-        else if (!strcmp(path, "/api/ds4dir"))       { api_set_ds4dir(fd, body); }
+        else if (!strcmp(path, "/api/ds4/setup"))    { api_setup_ds4(fd); }
         else if (!strcmp(path, "/api/webdir"))       { api_set_webdir(fd, body); }
         else if (!strcmp(path, "/api/web-search"))   { api_web_search(fd, body); }
         else if (!strcmp(path, "/api/web-read"))     { api_web_read(fd, body); }
@@ -7803,9 +7774,9 @@ int main(int argc, char **argv)
     /* Batch mode: apply the jsonl patch and build ds4-agent-jsonl, then
      * exit. To test the patch without starting engine/HTTP: ./dstudio --build-jsonl [ds4-dir] */
     if (argc > 1 && strcmp(argv[1], "--build-jsonl") == 0) {
-        if (argc > 2) snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]);
-        resolve_ds4_dir();
         resolve_web_dir();
+        if (argc > 2) { snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]); g_ds4_dir_explicit = 1; }
+        resolve_ds4_dir();
         int ok = run_build_jsonl("build");
         printf("build-jsonl: %s\n", ok ? "ok" : "FAILED");
         return ok ? 0 : 1;
@@ -7813,9 +7784,9 @@ int main(int argc, char **argv)
     /* CI/dev: check the patch anchors against a ds4 checkout WITHOUT building
      * anything (no model, no .o). Exit 0 if the patch would apply, 1 otherwise. */
     if (argc > 1 && strcmp(argv[1], "--check-anchors") == 0) {
-        if (argc > 2) snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]);
-        resolve_ds4_dir();
         resolve_web_dir();
+        if (argc > 2) { snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]); g_ds4_dir_explicit = 1; }
+        resolve_ds4_dir();
         char src[2200], web_src[2200];
         snprintf(src, sizeof src, "%s/ds4_agent.c", g_ds4_dir);
         snprintf(web_src, sizeof web_src, "%s/ds4_web.c", g_ds4_dir);
@@ -7834,9 +7805,9 @@ int main(int argc, char **argv)
         }
         port = (int)p;
     }
-    if (argc > 2) snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]);
-    resolve_ds4_dir();   /* launch from Finder/bundle: cwd = "/", the relative one must be resolved */
     resolve_web_dir();   /* same for extension/ scripts (build-design.sh) */
+    if (argc > 2) { snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]); g_ds4_dir_explicit = 1; }
+    resolve_ds4_dir();   /* launch from Finder/bundle: cwd = "/", the relative one must be resolved */
     int test_mode = getenv("DS4UI_TEST_MODE") && getenv("DS4UI_TEST_MODE")[0];
 
     const char *bind_env = getenv("DS4UI_HOST");

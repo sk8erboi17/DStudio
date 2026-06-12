@@ -1,0 +1,118 @@
+/*DS4UI_JSONL*/
+/* Slash commands on the pipe (web UI): in the non-interactive loop every
+ * stdin line would end up at the MODEL as a prompt; here /save /list /new
+ * /switch /del /compact /help are actually executed (idle worker only),
+ * with text output on stdout -> the UI transcript. Only with --jsonl. */
+static void ds4ui_slash_trim(const char *line, char *cmd, size_t cap) {
+    while (*line == ' ' || *line == '\t' || *line == '\n' || *line == '\r') line++;
+    size_t n = 0;
+    for (; line[n] && line[n] != '\n' && n < cap - 1; n++) cmd[n] = line[n];
+    cmd[n] = '\0';
+    while (n && (cmd[n-1] == ' ' || cmd[n-1] == '\t' || cmd[n-1] == '\r')) cmd[--n] = '\0';
+}
+static bool ds4ui_pipe_slash(const char *line) {
+    char cmd[256];
+    ds4ui_slash_trim(line, cmd, sizeof(cmd));
+    if (cmd[0] != '/') return false;
+    const char *p = line;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    p = strchr(p, '\n');
+    if (p) {
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+        if (*p) return false; /* multi-line: it is a prompt, not a command */
+    }
+    return !strcmp(cmd, "/save") || !strcmp(cmd, "/list") ||
+           !strcmp(cmd, "/new") || !strcmp(cmd, "/help") ||
+           !strcmp(cmd, "/compact") ||
+           agent_slash_command_with_args(cmd, "/switch") ||
+           agent_slash_command_with_args(cmd, "/del");
+}
+static bool ds4ui_think_control_value(const char *value, ds4_think_mode *out) {
+    if (!value || !out) return false;
+    if (!strcmp(value, "off") || !strcmp(value, "none") || !strcmp(value, "nothink")) { *out = DS4_THINK_NONE; return true; }
+    if (!strcmp(value, "max") || !strcmp(value, "think-max")) { *out = DS4_THINK_MAX; return true; }
+    if (!strcmp(value, "high") || !strcmp(value, "normal") || !strcmp(value, "think") || !strcmp(value, "on")) { *out = DS4_THINK_HIGH; return true; }
+    return false;
+}
+static bool ds4ui_pipe_apply_control(agent_config *cfg, char *line) {
+    bool changed = false;
+    if (!cfg || !line) return false;
+    for (;;) {
+        if ((unsigned char)line[0] != 0x1e) break;
+        char *nl = strchr(line, '\n');
+        if (!nl) break;
+        size_t frame_len = (size_t)(nl - line - 1);
+        char *frame = line + 1;
+        if (frame_len > 1024 || !strstr(frame, "\"type\":\"control\"") || !strstr(frame, "\"name\":\"think\"")) break;
+        char *v = strstr(frame, "\"value\":\"");
+        if (v) {
+            v += 9;
+            char value[32];
+            size_t n = 0;
+            while (v[n] && v[n] != '\"' && n + 1 < sizeof(value)) { value[n] = v[n]; n++; }
+            value[n] = '\0';
+            ds4_think_mode m;
+            if (ds4ui_think_control_value(value, &m)) { cfg->gen.think_mode = m; changed = true; }
+        }
+        memmove(line, nl + 1, strlen(nl + 1) + 1);
+    }
+    return changed;
+}
+static void ds4ui_handle_slash_idle(agent_worker *w, const char *line) {
+    char cmd[256];
+    char err[160] = {0};
+    ds4ui_slash_trim(line, cmd, sizeof(cmd));
+    if (!strcmp(cmd, "/save")) {
+        if (!agent_worker_save_session(w, err, sizeof(err)))
+            printf("save failed: %s\n", err);
+    } else if (!strcmp(cmd, "/list")) {
+        agent_worker_list_sessions(w);
+    } else if (!strcmp(cmd, "/help")) {
+        printf("commands: /save /list /new /switch <sha> /del <sha> /compact\n");
+    } else if (!strcmp(cmd, "/compact")) {
+        worker_request_compact(w);
+        printf("compaction scheduled\n");
+    } else if (!strcmp(cmd, "/new")) {
+        if (agent_worker_needs_save(w) &&
+            !agent_worker_save_session(w, err, sizeof(err)))
+            printf("save failed: %s\n", err);
+        err[0] = '\0';
+        if (!agent_worker_reset_to_sysprompt(w, err, sizeof(err)))
+            printf("new session failed: %s\n", err);
+        else
+            printf("new session started\n");
+    } else if (agent_slash_command_with_args(cmd, "/switch")) {
+        char *arg = cmd + 7;
+        while (*arg == ' ' || *arg == '\t') arg++;
+        if (!arg[0]) {
+            printf("usage: /switch <sha-prefix>\n");
+        } else {
+            char *sha = arg;
+            while (*arg && *arg != ' ' && *arg != '\t') arg++;
+            *arg = '\0';
+            if (agent_worker_needs_save(w) &&
+                !agent_worker_save_session(w, err, sizeof(err)))
+                printf("save failed: %s\n", err);
+            err[0] = '\0';
+            if (!agent_worker_switch_session(w, sha, 0, err, sizeof(err)))
+                printf("switch failed: %s\n", err);
+        }
+    } else if (agent_slash_command_with_args(cmd, "/del")) {
+        char *arg = cmd + 4;
+        while (*arg == ' ' || *arg == '\t') arg++;
+        if (!arg[0]) {
+            printf("usage: /del <sha-prefix>\n");
+        } else {
+            char *sha_arg = arg;
+            while (*arg && *arg != ' ' && *arg != '\t') arg++;
+            *arg = '\0';
+            char sha[41] = {0};
+            if (agent_worker_delete_session(w, sha_arg, sha, err, sizeof(err)))
+                printf("deleted session %.8s\n", sha);
+            else
+                printf("delete failed: %s\n", err);
+        }
+    }
+    fflush(stdout);
+}
+static int run_agent_non_interactive(ds4_engine *engine, agent_config *cfg) {

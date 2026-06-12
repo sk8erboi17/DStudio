@@ -1,0 +1,1 @@
+static int run_agent_non_interactive(ds4_engine *engine, agent_config *cfg) {

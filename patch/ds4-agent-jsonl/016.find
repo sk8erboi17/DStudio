@@ -1,0 +1,2 @@
+        int prc = poll(pfd, (nfds_t)nfds, timeout_ms);
+        if (prc < 0) {

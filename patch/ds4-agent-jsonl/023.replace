@@ -1,0 +1,37 @@
+static const char *ds4ui_json_skip_value(const char *p, const char *end, int depth, char *err, size_t errsz) {
+    if (depth > 64) { snprintf(err, errsz, "JSON nesting too deep"); return NULL; }
+    p = ds4ui_json_ws(p, end);
+    if (p >= end) { snprintf(err, errsz, "expected JSON value"); return NULL; }
+    if (*p == '\"') return ds4ui_json_skip_string(p, end, err, errsz);
+    if (*p == '{') return ds4ui_json_skip_object(p, end, depth, err, errsz);
+    if (*p == '[') return ds4ui_json_skip_array(p, end, depth, err, errsz);
+    if (*p == '-' || isdigit((unsigned char)*p)) return ds4ui_json_skip_number(p, end, err, errsz);
+    if (end - p >= 4 && !memcmp(p, "true", 4)) return p + 4;
+    if (end - p >= 5 && !memcmp(p, "false", 5)) return p + 5;
+    if (end - p >= 4 && !memcmp(p, "null", 4)) return p + 4;
+    snprintf(err, errsz, "bad JSON value"); return NULL;
+}
+static int ds4ui_json_validate_array(const char *json, char *err, size_t errsz) {
+    if (!json) { snprintf(err, errsz, "missing JSON"); return 0; }
+    const char *end = json + strlen(json);
+    const char *p = ds4ui_json_ws(json, end);
+    if (p >= end || *p != '[') { snprintf(err, errsz, "JSON must start with '['"); return 0; }
+    p = ds4ui_json_skip_value(p, end, 0, err, errsz);
+    if (!p) return 0;
+    p = ds4ui_json_ws(p, end);
+    if (p != end) { snprintf(err, errsz, "trailing data after JSON value"); return 0; }
+    return 1;
+}
+static char *ds4ui_tool_question(agent_worker *w, const agent_tool_call *call) {
+    const char *id = agent_tool_arg_value(call, "id");
+    const char *title = agent_tool_arg_value(call, "title");
+    const char *questions = agent_tool_arg_value(call, "questions");
+    if (!id || !id[0]) return xstrdup("Tool error: question requires id\n");
+    if (!title || !title[0]) return xstrdup("Tool error: question requires title\n");
+    if (!questions || !questions[0]) return xstrdup("Tool error: question requires questions\n");
+    char err[256];
+    if (!ds4ui_json_validate_array(questions, err, sizeof err)) { agent_buf b = {0}; agent_buf_puts(&b, "Tool error: "); agent_buf_puts(&b, err); agent_buf_puts(&b, "\n"); return agent_buf_take(&b); }
+    ds4ui_emit_question(w, id, title, questions);
+    return xstrdup("Question event emitted. Stop this turn and wait for the user's answer.\n");
+}
+static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {

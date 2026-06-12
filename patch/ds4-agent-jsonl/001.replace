@@ -1,0 +1,9 @@
+#include "ds4_web.h"
+#include "dstudio_remote_llm.h" /*DS4UI_JSONL*/
+#if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+static void ds4ui_win32_ensure_chrome(int port);
+#endif

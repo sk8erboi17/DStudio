@@ -1,0 +1,3 @@
+    if (!strcmp(call->name, "write")) return ds4ui_verify_after(w, call, agent_tool_write(w, call));   /*DS4UI_JSONL*/
+    if (!strcmp(call->name, "list")) return agent_tool_list(call);
+    if (!strcmp(call->name, "edit")) return ds4ui_verify_after(w, call, agent_tool_edit(w, call));   /*DS4UI_JSONL*/

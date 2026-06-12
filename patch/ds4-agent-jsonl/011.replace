@@ -1,0 +1,13 @@
+            char *prompt = agent_input_buf_take(&input);
+            if (cfg->jsonl) ds4ui_pipe_apply_control(cfg, prompt);   /*DS4UI_JSONL*/
+            if (cfg->jsonl && !prompt[0]) {
+                /* control-only frame */
+            } else if (cfg->jsonl && ds4ui_pipe_slash(prompt)) {   /*DS4UI_JSONL*/
+                if (worker_is_idle(&worker) && queue.len == 0) {
+                    ds4ui_handle_slash_idle(&worker, prompt);
+                } else {
+                    printf("command ignored (model busy)\n");
+                    fflush(stdout);
+                }
+            } else if (worker_is_idle(&worker) && queue.len == 0) {
+                if (!worker_submit(&worker, prompt)) {

@@ -2026,6 +2026,7 @@
       background: var(--accent-soft); color: var(--accent-2); border: 1px solid var(--accent-dim); }
     .ba-eyebrow { font-family: ui-monospace, monospace; font-size: 10.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--accent); margin-bottom: 5px; }
     .ba-title { font-family: Georgia, 'Times New Roman', serif; font-weight: 500; font-size: 20px; line-height: 1.3; color: var(--text); letter-spacing: .1px; }
+    .ba-subtitle { margin-top: 5px; color: var(--muted); font-size: 13px; line-height: 1.45; }
     .ba-opts { display: flex; flex-direction: column; gap: 9px; }
     .ba-opt { display: flex; align-items: flex-start; gap: 13px; width: 100%; text-align: left; cursor: pointer;
       background: var(--surface-2); border: 1px solid var(--border); border-radius: 13px; padding: 13px 15px;
@@ -2250,6 +2251,19 @@
     /* Inline help paragraph under a field (e.g. the Agent-output explainer). */
     .set-help { margin: 7px 2px 0; font-size: 0.72rem; color: var(--faint); line-height: 1.55; }
     .set-help strong { color: var(--muted); font-weight: 600; }
+    .set-code {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 0.55rem 0.65rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--text-2);
+      font-size: 0.78rem;
+    }
     .set-lan-addr {
       display: flex; align-items: center; gap: 10px; margin: 10px 2px 0;
       padding: 9px 12px; border: 1px solid var(--accent); border-radius: 10px;
@@ -3675,20 +3689,17 @@
   <dialog id="ds4dir-dialog" class="dialog" aria-label="ds4 engine folder">
     <form method="dialog" class="settings">
       <h2>Can't find the ds4 engine</h2>
-      <p class="wd-note">DStudio needs either a local <strong>ds4</strong> folder or a LAN host already running DStudio. Choose one to continue.</p>
+      <p class="wd-note">DStudio can install <strong>ds4</strong> into this repo and apply its local patches, or connect to a LAN host already running DStudio.</p>
       <p class="wd-note">Looked in: <code id="ds4dir-cur" style="word-break:break-all"></code></p>
       <div class="onboard__seg" role="radiogroup" aria-label="Choose local folder or LAN">
-        <button type="button" id="ds4dir-mode-local" class="onboard__seg-b on" role="radio" aria-checked="true">Use this folder</button>
+        <button type="button" id="ds4dir-mode-local" class="onboard__seg-b on" role="radio" aria-checked="true">Install local ds4</button>
         <button type="button" id="ds4dir-mode-lan" class="onboard__seg-b" role="radio" aria-checked="false">Connect to LAN</button>
       </div>
       <div id="ds4dir-local-panel">
-        <label class="field">
-          <span>ds4 folder path</span>
-          <input type="text" id="ds4dir-input" placeholder="/Users/you/Documents/dev/ds4" spellcheck="false" autocomplete="off">
-        </label>
+        <p class="wd-note">DStudio will use the managed checkout shown above and keep upstream source out of this repo history.</p>
         <p class="wd-warn" id="ds4dir-warn" hidden></p>
         <div class="dialog__actions">
-          <button type="button" id="ds4dir-save" class="btn btn--primary">Use this folder</button>
+          <button type="button" id="ds4dir-setup" class="btn btn--primary">Install ds4</button>
         </div>
       </div>
       <div id="ds4dir-lan-panel" hidden>
@@ -3721,7 +3732,7 @@
       <div class="onboard__hero">
         <div class="onboard__intro">
           <h2>Welcome to DStudio</h2>
-          <p class="onboard__sub">Local chat, agent and design for DeepSeek V4. Start now; add a model or engine folder later.</p>
+          <p class="onboard__sub">Local chat, agent and design for DeepSeek V4. Install ds4 here, then add a model.</p>
         </div>
         <div class="onboard__net" aria-label="Network access">
           <div class="onboard__seg" role="radiogroup" aria-label="Open DStudio locally or on the LAN">
@@ -3738,21 +3749,20 @@
             <span id="onboard-conn" class="conn conn--unknown">checking…</span>
             <button type="button" id="onboard-check" class="btn btn--sm">Recheck</button>
           </div>
-          <p class="onboard__note">The engine is optional here: continue into the app, then download a model or point DStudio at a ds4 folder when you need generation.</p>
+          <p class="onboard__note">Install ds4 into this DStudio repo to avoid manual paths and keep local patches reproducible.</p>
         </section>
 
         <section class="onboard__sec">
           <h3>Folders</h3>
-          <p class="onboard__note">Where the engine and this interface live. Edit a path and it is checked instantly.</p>
+          <p class="onboard__note">DStudio manages the default engine at <code>./ds4</code> and applies patches from <code>patch/</code>.</p>
           <div class="onboard__path">
             <label class="onboard__path-l" for="onboard-ds4dir">Engine <small>(ds4 — binaries &amp; model)</small></label>
             <div class="onboard__path-row">
-              <input type="text" id="onboard-ds4dir" class="onboard__path-in" spellcheck="false" autocomplete="off" placeholder="/Users/you/Documents/dev/ds4">
+              <input type="text" id="onboard-ds4dir" class="onboard__path-in" spellcheck="false" autocomplete="off" placeholder="./ds4" readonly>
               <span id="onboard-ds4dir-badge" class="path-badge"></span>
-              <button type="button" id="onboard-ds4dir-browse-btn" class="btn btn--sm" title="Browse folders">Browse…</button>
+              <button type="button" id="onboard-ds4dir-setup-btn" class="btn btn--sm btn--primary" title="Clone antirez/ds4 here and apply DStudio patches">Install ds4</button>
             </div>
             <p class="path-msg" id="onboard-ds4dir-msg"></p>
-            <div id="onboard-ds4dir-browse" class="fsfinder" hidden></div>
           </div>
         </section>
 
@@ -3942,16 +3952,16 @@
               <input type="text" id="lan-client-address" placeholder="192.168.1.207:5500" spellcheck="false" autocomplete="off">
               <button type="button" id="lan-client-connect" class="btn">Change LAN</button>
             </div>
-            <p class="set-help">This client keeps its own local chats, app state and workspaces. Chat, Agent and Design use the LAN host model. Agent and Design still need a local DS4 runtime on this device.</p>
+            <p class="set-help">This client keeps its own local chats, app state and workspaces. Chat, Agent and Design use the LAN host model. Agent and Design still need the managed local DS4 runtime on this device.</p>
             <p class="set-inline-msg" id="lan-client-msg"></p>
           </div>
           <div class="field">
-            <span>Local DS4 runtime <small class="field-note">used only by this client for Agent and Design tools</small></span>
+            <span>Local DS4 runtime <small class="field-note">managed in this DStudio repo</small></span>
             <div class="field__row">
-              <input type="text" id="lan-client-ds4dir" placeholder="/Users/you/Documents/dev/ds4" spellcheck="false" autocomplete="off">
-              <button type="button" id="lan-client-ds4dir-choose" class="btn">Choose DS4</button>
+              <code id="lan-client-ds4dir-path" class="set-code">./ds4</code>
+              <button type="button" id="lan-client-ds4dir-setup" class="btn">Install ds4</button>
             </div>
-            <p class="set-help">The LAN host supplies the model. This folder supplies the local Agent/Design binaries, JSONL runtime and filesystem tools, so your files never move to the host.</p>
+            <p class="set-help">The LAN host supplies the model. This local checkout supplies Agent/Design binaries, JSONL runtime and filesystem tools, so your files never move to the host.</p>
             <p class="set-inline-msg" id="lan-client-ds4dir-msg"></p>
           </div>
           <button type="button" id="lan-client-exit" class="btn btn--danger-outline">Switch to host</button>
@@ -4047,7 +4057,7 @@
     // engine by entering a full URL in Settings.
     const PAGE_HOST = (typeof location !== 'undefined' && location.hostname) || '127.0.0.1';
     const DEFAULT_BASE_URL = '';
-    const ONBOARD_VERSION = 6;
+    const ONBOARD_VERSION = 7;
 
     function isLoopbackHost(host) {
       const h = String(host || '').toLowerCase().replace(/^\[|\]$/g, '');
@@ -4092,7 +4102,6 @@
       v: SCHEMA_VERSION,
       baseUrl: DEFAULT_BASE_URL,
       lanClientHost: '',     // when set, this local UI uses that DStudio host for model + Chat web tools
-      lanClientDs4Dir: '',   // local DS4 runtime folder used by Agent/Design on LAN clients
       lanClientId: '',       // stable browser id used only for host-side LAN mirrors
       lanClientName: '',     // display label for the host's mirrored sidebar entries
       model: null,          // populated from /v1/models on first launch
@@ -4720,6 +4729,15 @@
       let buf = '';
       let eventType = 'message';
 
+      const consumeLine = (line) => {
+        if (line.endsWith('\r')) line = line.slice(0, -1);
+        if (line === '') { eventType = 'message'; return null; }  // event boundary
+        if (line.startsWith(':')) return null;                    // comment/keepalive
+        if (line.startsWith('event:')) { eventType = line.slice(6).trim(); return null; }
+        if (line.startsWith('data:')) return { event: eventType, data: line.slice(5).replace(/^ /, '') };
+        return null; // id:/retry:/unknown fields: ignored
+      };
+
       return {
         /** Adds a chunk of text; returns the completed events. */
         push(text) {
@@ -4727,19 +4745,20 @@
           const out = [];
           let nl;
           while ((nl = buf.indexOf('\n')) >= 0) {
-            let line = buf.slice(0, nl);
+            const line = buf.slice(0, nl);
             buf = buf.slice(nl + 1);
-            if (line.endsWith('\r')) line = line.slice(0, -1);
-
-            if (line === '') { eventType = 'message'; continue; }  // event boundary
-            if (line.startsWith(':')) continue;                    // comment/keepalive
-            if (line.startsWith('event:')) { eventType = line.slice(6).trim(); continue; }
-            if (line.startsWith('data:')) {
-              out.push({ event: eventType, data: line.slice(5).replace(/^ /, '') });
-            }
-            // id:/retry:/unknown fields: ignored
+            const evt = consumeLine(line);
+            if (evt) out.push(evt);
           }
           return out;
+        },
+        /** Flushes a final unterminated line at EOF. */
+        finish() {
+          if (!buf) return [];
+          const line = buf;
+          buf = '';
+          const evt = consumeLine(line);
+          return evt ? [evt] : [];
         },
       };
     }
@@ -5688,6 +5707,7 @@
         if (Array.isArray(chats?.deleted)) state.deleted = chats.deleted; // tombstones
         for (const c of state.chats) c.mode ||= 'chat'; // pre-mode → chat
 
+        let settingsChanged = false;
         const settings = migrate(readKey(STORAGE_KEYS.settings));
         if (settings?.v === SCHEMA_VERSION) {
           state.settings = { ...DEFAULT_SETTINGS, ...settings };
@@ -5701,7 +5721,10 @@
           delete state.settings.think;
           delete state.settings.webSearchEnabled;
         }
-        let settingsChanged = false;
+        if ('lanClientDs4Dir' in state.settings) {
+          delete state.settings.lanClientDs4Dir;
+          settingsChanged = true;
+        }
         if (!state.settings.lanClientId) {
           state.settings.lanClientId = `client-${uid().replace(/[^a-z0-9_.-]/gi, '').slice(0, 48)}`;
           settingsChanged = true;
@@ -6169,10 +6192,31 @@
       async function readErrorMessage(res) {
         try {
           const json = await res.json();
-          return json?.error?.message ?? `HTTP error ${res.status}`;
+          return json?.error?.message ?? json?.error ?? `HTTP error ${res.status}`;
         } catch {
           return `HTTP error ${res.status}`;
         }
+      }
+
+      async function streamStatusDiagnostic(finishReason) {
+        const bits = [];
+        if (finishReason) bits.push(`finish_reason=${finishReason}`);
+        try {
+          const res = await fetch(`${baseUrl()}/api/status`, { signal: AbortSignal.timeout(1200) });
+          if (!res.ok) {
+            bits.push(`/api/status HTTP ${res.status}`);
+          } else {
+            const st = await res.json();
+            bits.push(`mode=${st.mode || 'unknown'}`);
+            bits.push(`running=${st.running === true}`);
+            bits.push(`ready=${st.ready === true}`);
+            if (st.engineError) bits.push(`engineError=${st.engineError}`);
+            else if (st.engineLine) bits.push(`engineLine=${st.engineLine}`);
+          }
+        } catch (e) {
+          bits.push(`/api/status unavailable: ${e?.name === 'TimeoutError' ? 'timeout' : (e?.message || 'request failed')}`);
+        }
+        return bits.join('; ');
       }
 
       /** Converts an SSE event into our typed events. */
@@ -6201,11 +6245,13 @@
 
       /**
        * Streams a chat completion as a generator of typed events:
-       * {type:'reasoning'|'content'|'finish'|'usage'|'done'|'abort'|'error', ...}
+       * {type:'reasoning'|'content'|'finish'|'usage'|'done'|'abort'|'error'|'incomplete', ...}
        * Never throws: every failure becomes an 'error' or 'abort' event.
        */
       async function* streamChat(req, signal) {
         let res;
+        let sawDone = false;
+        let lastFinishReason = null;
         try {
           res = await fetch(`${baseUrl()}/v1/chat/completions`, {
             method: 'POST',
@@ -6232,13 +6278,27 @@
           for (;;) {
             const { value, done } = await reader.read();
             const text = done ? decoder.decode() : decoder.decode(value, { stream: true });
-            for (const evt of sse.push(text)) {
+            const events = done ? [...sse.push(text), ...sse.finish()] : sse.push(text);
+            for (const evt of events) {
               for (const ev of parseChunk(evt)) {
+                if (ev.type === 'finish') lastFinishReason = ev.reason;
+                if (ev.type === 'done') sawDone = true;
                 yield ev;
                 if (ev.type === 'done' || ev.type === 'error') return;
               }
             }
-            if (done) return;
+            if (done) {
+              if (!sawDone) {
+                const diagnostic = await streamStatusDiagnostic(lastFinishReason);
+                yield {
+                  type: 'incomplete',
+                  reason: lastFinishReason || 'stream_eof',
+                  errType: 'stream',
+                  message: `Response incomplete: stream ended before data: [DONE].${diagnostic ? ` ${diagnostic}` : ''}`,
+                };
+              }
+              return;
+            }
           }
         } catch (e) {
           yield e?.name === 'AbortError'
@@ -6701,6 +6761,9 @@
 
         if (m.finishReason === 'length') {
           bits.push(el('span', { class: 'warn', text: 'Response truncated (token limit)' }));
+          bits.push(el('button', { class: 'btn', type: 'button', 'data-act': 'continue', text: 'Continue' }));
+        } else if (m.finishReason === 'incomplete') {
+          bits.push(el('span', { class: 'warn', text: m.error?.message || 'Response incomplete (stream ended early)' }));
           bits.push(el('button', { class: 'btn', type: 'button', 'data-act': 'continue', text: 'Continue' }));
         } else if (m.finishReason === 'aborted') {
           bits.push(el('span', { class: 'warn', text: 'Interrupted' }));
@@ -9019,6 +9082,11 @@
                   Store.setConnection('down');
                 }
                 break;
+
+              case 'incomplete':
+                error = { message: ev.message, type: ev.errType, reason: ev.reason };
+                finishReason = 'incomplete';
+                break;
             }
           }
         } finally {
@@ -9076,7 +9144,11 @@
             Messages.finishAutoFollow(chat.id);
             openGeneratedFilesCanvas(generated.files);
           }
-          Messages.announce(finishReason === 'aborted' ? 'Response interrupted' : 'Response completed');
+          Messages.announce(
+            finishReason === 'aborted' ? 'Response interrupted'
+            : finishReason === 'incomplete' ? 'Response incomplete'
+            : 'Response completed'
+          );
         }
       }
 
@@ -9451,7 +9523,7 @@
         return !agentMode && (curMode === 'server' || curMode === 'chat');
       }
 
-      function submit() {
+      async function submit() {
         const text = input.value.trim();
         const hasFiles = pendingAttachments.length > 0;
         if (!text && !hasFiles) return;
@@ -9460,11 +9532,20 @@
           return;
         }
         if (agentMode) {
-          if (questionMode) return;
+          if (questionMode) {
+            toast('Answer the question card first.', 'warn');
+            return;
+          }
           // During a build the engine is busy but you can still TYPE — the message is queued as a
           // follow-up (or answers a follow-up's clarification). So don't block on agentBusy then.
           const building = Switcher.buildPlanActive && Switcher.buildPlanActive();
-          if (agentBusy && !building) return;
+          if (agentBusy && !building) {
+            const idle = await (AgentView.reconcileIdle ? AgentView.reconcileIdle() : Promise.resolve(false));
+            if (!idle) {
+              toast(curMode === 'design' ? 'The designer is still working…' : 'The agent is still working…', 'warn');
+              return;
+            }
+          }
           input.value = '';
           autogrow();
           AgentView.send(text);
@@ -10141,6 +10222,7 @@
       const PEN_SVG = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.7l2.8 2.8M9.5 3.7L3.4 9.8l-.6 3.2 3.2-.6 6.1-6.1z"/></svg>';
       function showBuildAsk(ask) {
         const host = buildAsksHost(); if (!host || !ask || !ask.q) return;
+        host.dataset.kind = 'question';
         const list = (ask.options || []).slice(0, 9);
         const send = (v) => { hideBuildAsk(); AgentView.send(v); };
 
@@ -10179,12 +10261,44 @@
         };
         document.addEventListener('keydown', host._keyh);
       }
+      function showPlanActions(info) {
+        const host = buildAsksHost(); if (!host) return;
+        if (host._keyh) { document.removeEventListener('keydown', host._keyh); host._keyh = null; }
+        host.dataset.kind = 'plan-actions';
+        const badge = el('span', { class: 'ba-badge' }); badge.innerHTML = PEN_SVG;
+        const filename = (info && info.filename) || 'plan.md';
+        const head = el('div', { class: 'ba-head' }, [badge,
+          el('div', {}, [
+            el('div', { class: 'ba-eyebrow', text: 'Plan ready' }),
+            el('div', { class: 'ba-title', text: 'What do you want to do next?' }),
+            el('div', { class: 'ba-subtitle', text: `Written as ${filename}.` }),
+          ])]);
+        const opts = el('div', { class: 'ba-opts' });
+        const actions = [
+          ['implement', 'Implement plan', 'Switch to normal agent mode and execute the plan.'],
+          ['stay', 'Stay in plan mode', 'Keep planning; the next message creates another planning file.'],
+          ['chat', 'Chat about this', 'Leave plan mode and continue discussing the plan.'],
+        ];
+        actions.forEach(([id, title, desc]) => {
+          const btn = el('button', { type: 'button', class: 'ba-opt' }, [
+            el('span', { class: 'ba-radio' }, [el('span', { class: 'ba-fill' })]),
+            el('span', { class: 'ba-otext' }, [
+              el('b', { class: 'ba-lead', text: title }),
+              document.createTextNode(' ' + desc),
+            ]),
+          ]);
+          on(btn, 'click', () => { hideBuildAsk(); if (Switcher.buildPlanAction) Switcher.buildPlanAction(id); });
+          opts.append(btn);
+        });
+        host.replaceChildren(head, opts);
+        host.hidden = false;
+      }
       function hideBuildAsk() {
         const host = buildAsksHost();
         if (host) { if (host._keyh) { document.removeEventListener('keydown', host._keyh); host._keyh = null; } host.replaceChildren(); host.hidden = true; }
       }
 
-      return { mount, setMode, setAgentBusy, setQuestionMode, invalidateUserSkills, showBuildAsk, hideBuildAsk };
+      return { mount, setMode, setAgentBusy, setQuestionMode, invalidateUserSkills, showBuildAsk, showPlanActions, hideBuildAsk };
     })();
 
     /* ==================== UI: settings ==================== */
@@ -10223,8 +10337,8 @@
           exit: qs('#lan-client-exit'),
           close: qs('#lan-client-close'),
           theme: qs('#lan-client-theme'),
-          ds4Path: qs('#lan-client-ds4dir'),
-          ds4Choose: qs('#lan-client-ds4dir-choose'),
+          ds4Path: qs('#lan-client-ds4dir-path'),
+          ds4Setup: qs('#lan-client-ds4dir-setup'),
           ds4Msg: qs('#lan-client-ds4dir-msg'),
         };
 
@@ -10236,10 +10350,7 @@
         on(lf.address, 'keydown', (e) => {
           if (e.key === 'Enter') { e.preventDefault(); changeLanClientHost(); }
         });
-        on(lf.ds4Choose, 'click', chooseLanClientDs4Dir);
-        on(lf.ds4Path, 'keydown', (e) => {
-          if (e.key === 'Enter') { e.preventDefault(); chooseLanClientDs4Dir(); }
-        });
+        on(lf.ds4Setup, 'click', setupLanClientDs4);
         on(lf.exit, 'click', () => {
           switchToHostMode();
           lanDialog.close();
@@ -10355,53 +10466,37 @@
       async function syncLanClientDs4Dir() {
         if (!lf.ds4Path || !isLanClientMode()) return;
         try {
-          await applySavedLanClientDs4Dir();
-          const saved = (Store.getSettings().lanClientDs4Dir || '').trim();
           const st = await Engine.status();
-          lf.ds4Path.value = saved || st.ds4dir || lf.ds4Path.value || '';
+          lf.ds4Path.textContent = st.ds4dir || './ds4';
           lf.ds4Msg.textContent = st.ds4dirOk
             ? 'Local DS4 runtime ready for Agent and Design.'
-            : 'Choose the local DS4 folder for Agent and Design on this device.';
+            : 'Install the managed local DS4 runtime for Agent and Design on this device.';
+          if (lf.ds4Setup) lf.ds4Setup.textContent = st.ds4dirOk ? 'Repair ds4' : 'Install ds4';
         } catch {
           lf.ds4Msg.textContent = 'Could not check the local DS4 folder.';
         }
       }
 
-      async function chooseLanClientDs4Dir() {
-        const label = lf.ds4Choose.textContent;
-        let path = '';
-        if (typeof window.ds4PickDirectory === 'function') {
-          try { path = await window.ds4PickDirectory({ mode: 'ds4' }); }
-          catch { path = ''; }
-          if (path) lf.ds4Path.value = path;
-        }
-        path = (path || lf.ds4Path.value || '').trim();
-        if (!path) {
-          lf.ds4Msg.textContent = 'Choose or paste the local DS4 folder first.';
-          return;
-        }
-        lf.ds4Choose.disabled = true;
-        lf.ds4Choose.textContent = 'Checking...';
-        lf.ds4Msg.textContent = 'Checking local DS4 folder...';
+      async function setupLanClientDs4() {
+        const label = lf.ds4Setup.textContent;
+        lf.ds4Setup.disabled = true;
+        lf.ds4Setup.textContent = 'Installing...';
+        lf.ds4Msg.textContent = 'Downloading ds4, building it and applying DStudio patches...';
         try {
-          const r = await Engine.setDs4Dir(path);
+          const r = await Engine.setupDs4();
+          if (r && r.ds4dir) lf.ds4Path.textContent = r.ds4dir;
           if (r && r.ok && r.ds4dirOk) {
-            Store.setSettings({ lanClientDs4Dir: r.ds4dir || path });
-            lf.ds4Msg.textContent = r.restarted
-              ? 'Local DS4 runtime ready; Agent/Design restarted in this folder.'
-              : 'Local DS4 runtime ready for Agent and Design.';
-            toast('Local DS4 folder set for this client', 'info');
+            lf.ds4Msg.textContent = 'Local DS4 runtime ready for Agent and Design.';
+            toast('Local ds4 installed and patched for this client', 'info');
             syncLanClientDs4Dir();
-          } else if (r && r.ok) {
-            lf.ds4Msg.textContent = 'That folder exists but does not look like a DS4 install.';
           } else {
-            lf.ds4Msg.textContent = (r && r.error) || 'Not a folder.';
+            lf.ds4Msg.textContent = (r && r.error) || 'ds4 setup failed.';
           }
         } catch {
-          lf.ds4Msg.textContent = 'Could not update the local DS4 folder.';
+          lf.ds4Msg.textContent = 'Could not install the local DS4 runtime.';
         } finally {
-          lf.ds4Choose.disabled = false;
-          lf.ds4Choose.textContent = label;
+          lf.ds4Setup.disabled = false;
+          lf.ds4Setup.textContent = label;
         }
       }
 
@@ -11061,13 +11156,10 @@
       let lanMsg;
       let forcedSetup = false;
       let lastDs4Ok = false; // gate model downloads: the weights land in the engine folder
+      let ds4SetupBusy = false;
       let selectedGguf = null; // the GGUF the user picked to run (relative path)
       let runningModel = '';   // the model currently loaded (status.modelFile)
-      // Editable, verified path fields: [inputId, badgeId, msgId, Engine.setter].
-      const PATHS = [
-        { key: 'ds4dir', input: 'onboard-ds4dir', badge: 'onboard-ds4dir-badge', msg: 'onboard-ds4dir-msg',
-          set: (p) => Engine.setDs4Dir(p), okField: 'ds4dirOk', cur: 'ds4dir', label: 'engine' },
-      ];
+      const DS4_PATH = { input: 'onboard-ds4dir', badge: 'onboard-ds4dir-badge', msg: 'onboard-ds4dir-msg' };
 
       function mount() {
         dialog = qs('#onboard-dialog');
@@ -11096,7 +11188,7 @@
             const msg = qs('#onboard-ds4dir-msg');
             if (msg) {
               msg.className = 'path-msg bad';
-              msg.textContent = 'Choose a valid ds4 folder or switch to LAN and connect.';
+              msg.textContent = 'Install ds4 locally or switch to LAN and connect.';
             }
             return;
           }
@@ -11110,13 +11202,8 @@
           if (!isLanClientMode()) location.href = '/loading.html';
         });
 
-        // Editable paths: verify against serve on change/blur, show ✓/✗ inline.
-        PATHS.forEach((pcfg) => {
-          const inp = qs('#' + pcfg.input);
-          on(inp, 'change', () => verifyPath(pcfg, inp.value.trim()));
-        });
-        const browseBtn = qs('#onboard-ds4dir-browse-btn');
-        if (browseBtn) on(browseBtn, 'click', toggleFinder);
+        const setupBtn = qs('#onboard-ds4dir-setup-btn');
+        if (setupBtn) on(setupBtn, 'click', () => setupDs4FromUi());
 
         // Context size picker (default 64k): persisted like Settings.
         const ctx = qs('#onboard-ctx');
@@ -11177,12 +11264,10 @@
         applyModelStatus(st);
         forcedSetup = st.ds4dirOk === false;
         if (st.lanAddr && lanAddressInput && !lanAddressInput.value) lanAddressInput.value = st.lanAddr;
-        PATHS.forEach((pcfg) => {
-          const inp = qs('#' + pcfg.input);
-          if (inp && !inp.value) inp.value = st[pcfg.cur] || '';
-          paintPath(pcfg, st[pcfg.okField] ? 'good' : (st[pcfg.cur] ? 'bad' : ''),
-            st[pcfg.okField] ? 'Found' : (st[pcfg.cur] ? `Not a valid ${pcfg.label} folder` : ''));
-        });
+        const inp = qs('#' + DS4_PATH.input);
+        if (inp) inp.value = st.ds4dir || './ds4';
+        paintPath(DS4_PATH, st.ds4dirOk ? 'good' : (st.ds4dir ? 'bad' : ''),
+          st.ds4dirOk ? 'Found' : (st.ds4dir ? 'Not installed yet' : ''));
         renderModels();
         updateForcedSetup();
       }
@@ -11239,7 +11324,7 @@
         const ggufs = ggufCache || [];
         const dl = Store.getState().ui.modelDownload;
         if (note) note.textContent = !lastDs4Ok
-          ? 'Set a valid engine folder above first — the weights live in it.'
+          ? 'Install ds4 above first — the weights live in it.'
           : ggufs.length
             ? `${ggufs.length} model file${ggufs.length > 1 ? 's' : ''} detected in the engine folder.`
             : 'No .gguf model found in the engine folder — download one below.';
@@ -11285,55 +11370,6 @@
         host.replaceChildren(...cards, dlBox);
       }
 
-      // Inline folder finder for the engine path (server-side browse via fs/list).
-      let finderCur = '';
-      function toggleFinder() {
-        const box = qs('#onboard-ds4dir-browse');
-        if (!box) return;
-        box.hidden = !box.hidden;
-        if (!box.hidden) loadFinder(qs('#onboard-ds4dir').value.trim() || '');
-      }
-      async function loadFinder(path) {
-        const box = qs('#onboard-ds4dir-browse');
-        if (!box) return;
-        let r; try { r = await Engine.fsList(path); } catch { return; }
-        if (!r || !r.ok) { box.replaceChildren(el('div', { class: 'wd-empty', text: 'Folder not found.' })); return; }
-        finderCur = r.path;
-        const up = el('button', { class: 'btn btn--sm', type: 'button', text: '↑', title: 'Up' });
-        on(up, 'click', () => loadFinder(r.path.replace(/\/[^/]+\/?$/, '') || '/'));
-        const use = el('button', { class: 'btn btn--sm btn--primary', type: 'button', text: 'Use this folder' });
-        on(use, 'click', () => {
-          qs('#onboard-ds4dir').value = finderCur;
-          box.hidden = true;
-          verifyPath(PATHS[0], finderCur);
-        });
-        const head = el('div', { class: 'fsfinder__head' }, [up, el('span', { class: 'fsfinder__path', text: r.path }), use]);
-        const list = el('div', { class: 'fsfinder__list' });
-        (r.dirs || []).forEach((d) => {
-          const it = el('button', { class: 'fsfinder__item', type: 'button', text: '📁 ' + d.name });
-          on(it, 'click', () => loadFinder(d.path));
-          list.append(it);
-        });
-        if (!(r.dirs || []).length) list.append(el('div', { class: 'wd-empty', text: 'No subfolders — use this one or go up.' }));
-        box.replaceChildren(head, list);
-      }
-
-      async function verifyPath(pcfg, value) {
-        if (!value) { paintPath(pcfg, '', ''); return; }
-        paintPath(pcfg, 'checking', 'Checking…');
-        let r;
-        try { r = await pcfg.set(value); } catch { paintPath(pcfg, 'bad', 'Could not reach the launcher'); return; }
-        if (r && r.ok && r[pcfg.okField] !== false) {
-          paintPath(pcfg, 'good', 'Found — looks good');
-          if (pcfg.key === 'ds4dir') { lastDs4Ok = true; forcedSetup = false; updateForcedSetup(); }
-        } else {
-          paintPath(pcfg, 'bad', (r && r.error) ? r.error : `Not a valid ${pcfg.label} folder`);
-          if (pcfg.key === 'ds4dir') { lastDs4Ok = false; forcedSetup = true; updateForcedSetup(); }
-        }
-        // A new engine folder may hold different GGUFs → re-scan + re-check.
-        if (pcfg.key === 'ds4dir') { refreshModels(); loadGgufs(); }
-      }
-
       function setOnboardMode(mode) {
         const lan = mode === 'lan';
         netLocalBtn.classList.toggle('on', !lan);
@@ -11351,7 +11387,7 @@
         if (!start) return;
         const local = !lanPanel || lanPanel.hidden;
         start.disabled = forcedSetup && !lastDs4Ok && local;
-        start.title = start.disabled ? 'Choose a valid ds4 folder or connect to LAN.' : '';
+        start.title = start.disabled ? 'Install ds4 locally or connect to LAN.' : '';
       }
 
       async function connectLanAddress() {
@@ -11391,6 +11427,40 @@
         }
       }
 
+      async function setupDs4FromUi() {
+        if (ds4SetupBusy || isLanClientMode()) return null;
+        ds4SetupBusy = true;
+        setOnboardMode('local');
+        const btn = qs('#onboard-ds4dir-setup-btn');
+        const label = btn?.textContent || 'Install ds4';
+        if (btn) { btn.disabled = true; btn.textContent = 'Installing...'; }
+        paintPath(DS4_PATH, 'checking', 'Downloading ds4, building it and applying DStudio patches...');
+        let r;
+        try { r = await Engine.setupDs4(); }
+        catch (e) { r = { ok: false, error: e?.message || 'Could not reach the launcher' }; }
+        if (btn) { btn.disabled = false; btn.textContent = label; }
+        ds4SetupBusy = false;
+
+        const inp = qs('#onboard-ds4dir');
+        if (r && r.ds4dir && inp) inp.value = r.ds4dir;
+        if (r && r.ok && r.ds4dirOk !== false) {
+          lastDs4Ok = true;
+          forcedSetup = false;
+          paintPath(DS4_PATH, 'good', r.downloaded ? 'Installed and patched' : 'Built and patched');
+          updateForcedSetup();
+          await refreshModels();
+          await loadGgufs();
+          toast('ds4 installed and DStudio patches applied.', 'info');
+        } else {
+          lastDs4Ok = false;
+          forcedSetup = true;
+          paintPath(DS4_PATH, 'bad', (r && r.error) || 'ds4 setup failed');
+          updateForcedSetup();
+          toast((r && r.error) || 'ds4 setup failed', 'error');
+        }
+        return r;
+      }
+
       async function check() {
         renderConn('unknown');
         Api.invalidateHealth();
@@ -11407,7 +11477,7 @@
           : 'checking…';
       }
 
-      return { mount, show };
+      return { mount, show, setupDs4: setupDs4FromUi };
     })();
 
     /* ==================== Engine: client of serve's local API ==================== */
@@ -11443,11 +11513,18 @@
       async function start(cfg, force) {
         const body = force ? { ...cfg, force: true } : cfg;
         const r = await apiFetch('/api/start', { method: 'POST', headers: H, body: JSON.stringify(body) });
-        return r.json();
+        const data = await r.json().catch(() => ({ ok: false, error: `/api/start returned HTTP ${r.status} with invalid JSON` }));
+        if (!r.ok && data && data.ok !== false) data.ok = false;
+        if (!r.ok && data && !data.error) data.error = `/api/start returned HTTP ${r.status}`;
+        return data;
       }
-      async function agentSend(prompt) {
-        const r = await apiFetch('/api/agent/send', { method: 'POST', headers: H, body: JSON.stringify({ prompt }) });
-        return r.json();
+      async function agentSend(prompt, displayPrompt) {
+        const body = displayPrompt === undefined ? { prompt } : { prompt, displayPrompt };
+        const r = await apiFetch('/api/agent/send', { method: 'POST', headers: H, body: JSON.stringify(body) });
+        const data = await r.json().catch(() => ({ ok: false, error: `send ${r.status}` }));
+        if (!r.ok && data && data.ok !== false) data.ok = false;
+        if (!r.ok && data && !data.error) data.error = `send ${r.status}`;
+        return data;
       }
       // Abort the current agent/design turn (e.g. its conversation was deleted)
       // without killing the engine — SIGINT to the piped child (jsonl patch).
@@ -11479,9 +11556,12 @@
         const r = await apiFetch('/api/fs/mkdir', { method: 'POST', headers: H, body: JSON.stringify({ path }) });
         return r.json();
       }
-      async function setDs4Dir(path) {
-        const r = await fetch('/api/ds4dir', { method: 'POST', headers: H, body: JSON.stringify({ path }) });
-        return r.json();
+      async function setupDs4() {
+        const r = await apiFetch('/api/ds4/setup', { method: 'POST', headers: H });
+        const data = await r.json().catch(() => ({ ok: false, error: `/api/ds4/setup returned HTTP ${r.status} with invalid JSON` }));
+        if (!r.ok && data && data.ok !== false) data.ok = false;
+        if (!r.ok && data && !data.error) data.error = `/api/ds4/setup returned HTTP ${r.status}`;
+        return data;
       }
       async function ggufs() {   // the actual .gguf files in the engine folder
         const r = await apiFetch('/api/ggufs', { signal: AbortSignal.timeout(4000) });
@@ -11660,26 +11740,8 @@
         return r.text();
       }
 
-      return { apiUrl, designPreviewUrl, status, doctor, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setDs4Dir, setWebDir, webSearch, webRead, httpProbe, ggufs, skills, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
+      return { apiUrl, designPreviewUrl, status, doctor, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setWebDir, webSearch, webRead, httpProbe, ggufs, skills, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
     })();
-
-    let lanClientDs4ApplyPromise = null;
-    async function applySavedLanClientDs4Dir() {
-      const path = (Store.getSettings().lanClientDs4Dir || '').trim();
-      if (!isLanClientMode() || !path) return null;
-      if (!lanClientDs4ApplyPromise) {
-        lanClientDs4ApplyPromise = Engine.setDs4Dir(path)
-          .then((r) => {
-            if (r && r.ok && r.ds4dirOk) {
-              Store.setSettings({ lanClientDs4Dir: r.ds4dir || path });
-            }
-            return r;
-          })
-          .catch(() => null)
-          .finally(() => { lanClientDs4ApplyPromise = null; });
-      }
-      return lanClientDs4ApplyPromise;
-    }
 
     /* ==================== Remote LAN chat ==================== */
     const RemoteShare = (() => {
@@ -11886,7 +11948,7 @@
 
       function actionLabel(action) {
         return {
-          'choose-ds4': 'Choose',
+          'setup-ds4': 'Install',
           'download-model': 'Download',
           'start-engine': 'Start',
           'open-settings': 'Settings',
@@ -11894,7 +11956,16 @@
       }
 
       async function runAction(action) {
-        if (action === 'choose-ds4' || action === 'download-model') {
+        if (action === 'setup-ds4') {
+          dialog.close();
+          requestAnimationFrame(async () => {
+            Onboarding.show();
+            await Onboarding.setupDs4();
+            refresh();
+          });
+          return;
+        }
+        if (action === 'download-model') {
           dialog.close();
           requestAnimationFrame(() => Onboarding.show());
           return;
@@ -12183,6 +12254,8 @@
       let agentScrollInputAt = 0;
       let agentLastScrollTop = 0;
       let agentSelectionPendingRender = false;
+      let pendingUserTurn = null; // optimistic UI until the backend echo lands in the stream
+      let sendSerial = 0;         // invalidates async engine-buffer syncs started before a send
 
       // Engine service lines (KV sessions): they are not model prose,
       // they should be rendered as muted notes (kind 'sys'). EXACT patterns of the
@@ -12339,7 +12412,8 @@
           openConversation(conv);
           if (!conv.lanMirror && !timer) {
             const myEpoch = epoch;
-            syncEngineOffset(conv).then(() => {
+            const guardSerial = sendSerial;
+            syncEngineOffset(conv, guardSerial).then(() => {
               if (myEpoch === epoch) tryStream(myEpoch);
             });
           }
@@ -12387,12 +12461,12 @@
       /** Aligns the `since` offset to the engine buffer. Same "epoch" if the
        *  buffer still contains the offset consumed by the conversation AND the
        *  tail of the transcript matches the buffer bytes (never contaminate). */
-      async function syncEngineOffset(conv) {
-        if (conv?.lanMirror) { since = 0; liveConvId = null; working = false; Composer.setAgentBusy(false); return; }
+      async function syncEngineOffset(conv, guardSerial = sendSerial) {
+        if (conv?.lanMirror) { since = 0; liveConvId = null; working = false; Composer.setAgentBusy(false); return false; }
         const myEpoch = epoch;
         let res;
-        try { res = await Engine.agentPoll(0); } catch { since = 0; return; }
-        if (myEpoch !== epoch) return; // view changed in the meantime
+        try { res = await Engine.agentPoll(0); } catch { since = 0; return false; }
+        if (myEpoch !== epoch || guardSerial !== sendSerial) return false; // view changed or a send started meanwhile
         const consumed = conv.engineLen;
         const sameRun = consumed != null && res.len >= consumed && res.base <= consumed &&
           transcriptMatchesBuffer(conv.transcript || '', res.text || '', res.base, consumed, conv.bufRun);
@@ -12420,6 +12494,7 @@
           Composer.setAgentBusy(working);
           if (conv.id === convId) maybeRestoreSession(conv);
         }
+        return true;
       }
 
       function transcriptMatchesBuffer(transcript, bufText, base, consumed, bufRun) {
@@ -12886,6 +12961,30 @@
         ]);
       }
 
+      function modeOfConversation(c) {
+        return c?.mode || 'chat';
+      }
+
+      function activeConversationForMode(targetMode) {
+        const active = Store.getActiveChat();
+        if (active && modeOfConversation(active) === targetMode) return active;
+        const state = Store.getState();
+        const byModeId = state.active?.[targetMode];
+        const byMode = byModeId ? Store.getChat(byModeId) : null;
+        if (byMode && modeOfConversation(byMode) === targetMode) {
+          Store.setActiveChat(byMode.id);
+          return byMode;
+        }
+        const latest = [...(state.chats || [])]
+          .filter((c) => !c.lanMirror && modeOfConversation(c) === targetMode)
+          .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+        if (latest) {
+          Store.setActiveChat(latest.id);
+          return latest;
+        }
+        return Store.createChat(targetMode);
+      }
+
       function start(mode) {
         viewMode = mode === 'design' ? 'design' : 'agent';
         epoch++;
@@ -12895,6 +12994,7 @@
         // interleaved deltas in the transcript. Always exactly one.
         if (streamAbort) { streamAbort.abort(); streamAbort = null; }
         if (timer) { clearInterval(timer); timer = null; }
+        stopIdleWatch();
         pollBusy = false;
         activeView = true;
         working = false;
@@ -12904,7 +13004,7 @@
         agentFollowBottom = false;
         agentLastScrollTop = view?.scrollTop || 0;
         agentSelectionPendingRender = false;
-        const conv = Store.getActiveChat() ?? Store.createChat(viewMode);
+        const conv = activeConversationForMode(viewMode);
         openConversation(conv, { deferRestore: true }); // the restore is decided by the probe
         if (conv.lanMirror) {
           Composer.setAgentBusy(false);
@@ -12913,7 +13013,8 @@
         }
         // Initial probe: align `since` to the engine buffer BEFORE starting
         // polling (avoids replay/duplication), then decide re-attach or switch.
-        syncEngineOffset(conv).then(() => {
+        const guardSerial = sendSerial;
+        syncEngineOffset(conv, guardSerial).then(() => {
           if (myEpoch !== epoch) return;
           tryStream(myEpoch);
         });
@@ -12924,6 +13025,7 @@
         activeView = false;
         if (streamAbort) { streamAbort.abort(); streamAbort = null; }
         if (timer) { clearInterval(timer); timer = null; }
+        stopIdleWatch();
         clearLiveTail();
         liveTailStartHint = null;
         hideActiveQuestion();
@@ -12932,6 +13034,7 @@
         agentLastScrollTop = view?.scrollTop || 0;
         agentSelectionPendingRender = false;
         working = false;
+        pendingUserTurn = null;
         syncSpinner();
         document.body.classList.remove('design-staged'); // the composer comes back
       }
@@ -12944,8 +13047,10 @@
         if (working) Engine.agentInterrupt().catch(() => {});
         liveConvId = null;
         working = false;
+        stopIdleWatch();
         turnArtifact = null;
         pendingCmd = null;
+        pendingUserTurn = null;
         clearLiveTail();
         liveTailStartHint = null;
         resetLiveTurnTimer();
@@ -12963,6 +13068,96 @@
       // non-SSE answer (mocked tests, proxies) or a dropped stream falls back
       // to the classic 500ms polling — absolute offsets keep continuity.
       let streamAbort = null;
+      let idleWatchTimer = null;
+      let idleWatchBusy = false;
+
+      function stopIdleWatch() {
+        if (idleWatchTimer) clearInterval(idleWatchTimer);
+        idleWatchTimer = null;
+        idleWatchBusy = false;
+      }
+
+      function ensureIdleWatch() {
+        if (idleWatchTimer) return;
+        idleWatchTimer = setInterval(async () => {
+          if (!activeView || !working || idleWatchBusy) {
+            if (!working) stopIdleWatch();
+            return;
+          }
+          idleWatchBusy = true;
+          try {
+            const st = await Engine.status();
+            if (st && st.agentWorking === false && working) {
+              await pollOnce();
+              if (working) {
+                working = false;
+                pendingUserTurn = null;
+                Composer.setAgentBusy(false);
+                syncSpinner();
+                render();
+              }
+            }
+          } catch { /* best-effort stale-working guard */ }
+          finally { idleWatchBusy = false; }
+        }, 1200);
+      }
+
+      async function reconcileIdle() {
+        try {
+          const st = await Engine.status();
+          if (st && st.agentWorking === false && working) {
+            await pollOnce();
+            if (working) {
+              working = false;
+              pendingUserTurn = null;
+              Composer.setAgentBusy(false);
+              syncSpinner();
+              render();
+            }
+          }
+        } catch { /* best-effort stale-working guard */ }
+        return !working;
+      }
+
+      function engineStatusSummary(st) {
+        if (!st) return '';
+        const bits = [
+          `mode=${st.mode || 'unknown'}`,
+          `running=${st.running === true}`,
+          `ready=${st.ready === true}`,
+          `agentWorking=${st.agentWorking === true}`,
+        ];
+        if (st.engineError) bits.push(`engineError=${st.engineError}`);
+        else if (st.engineLine) bits.push(`engineLine=${st.engineLine}`);
+        if (st.workdir) bits.push(`workdir=${st.workdir}`);
+        return bits.join('; ');
+      }
+
+      async function agentSendErrorMessage(base) {
+        const head = base || '/api/agent/send failed';
+        try {
+          const st = await Engine.status();
+          const summary = engineStatusSummary(st);
+          return summary ? `${head} — /api/status: ${summary}` : head;
+        } catch (e) {
+          return `${head} — /api/status unavailable: ${e?.message || 'request failed'}`;
+        }
+      }
+
+      function appendLocalSendFailure(displayPrompt, message, serial) {
+        if (pendingUserTurn && pendingUserTurn.serial === serial) pendingUserTurn = null;
+        const conv = Store.getChat(convId);
+        if (!conv || conv.lanMirror) return;
+        const label = viewMode === 'design' ? 'Design' : 'Agent';
+        const clean = String(message || 'Send failed').replace(CTRL_RE, ' ').replace(/\s+/g, ' ').trim();
+        let delta = '';
+        if (displayPrompt && !text.includes(`${U_OPEN}${displayPrompt}${U_CLOSE}`)) {
+          delta += `${U_OPEN}${displayPrompt}${U_CLOSE}\n`;
+        }
+        delta += `${label} send failed: ${clean}\n`;
+        text += delta;
+        Store.appendTranscript(conv.id, delta);
+      }
 
       function startPolling() {
         if (timer) return;
@@ -13069,12 +13264,18 @@
             if (liveTailStartHint == null) liveTailStartHint = beforeTextLen;
             text += delta;   // build drive: no live conv is bound — surface the engine's real output
           }
+          if (pendingUserTurn && pendingUserTurn.convId === liveConvId &&
+              text.includes(`${U_OPEN}${pendingUserTurn.text}${U_CLOSE}`)) {
+            pendingUserTurn = null;
+          }
         }
         const wasWorking = working;
         working = res.working;
         if (!wasWorking && working) ensureLiveTurnTimer();
         if (!wasWorking && working && !agentFollowBottom) agentFollowBottom = shouldStickToBottom(view);
         if (wasWorking && !working) finishLiveTurnTimer();
+        if (working) ensureIdleWatch();
+        else stopIdleWatch();
         const liveVisible = delta && (liveConvId === convId || buildDriving);
         if (liveVisible || wasWorking !== working) {
           const fast = liveVisible && working && !(wasWorking && !working) &&
@@ -13105,7 +13306,7 @@
 
         // On an idle transition,
         // the deterministic Build driver advances its state machine (planning → drive).
-        if (wasWorking && !working && Switcher.buildPlanActive()) {
+        if (wasWorking && !working && (Switcher.buildPlanActive() || (Switcher.buildPlanPending && Switcher.buildPlanPending()))) {
           const tx = (liveConvId && Store.getChat(liveConvId)?.transcript) || text;
           Switcher.buildPlanIdle(viewMode, tx);
         }
@@ -13226,11 +13427,22 @@
           toast(viewMode === 'design' ? 'The designer is still working…' : 'The agent is still working…', 'warn');
           return;
         }
+        let conv = Store.getChat(convId);
+        if (!conv || modeOfConversation(conv) !== viewMode) {
+          const next = activeConversationForMode(viewMode);
+          openConversation(next, { deferRestore: true });
+          conv = Store.getChat(convId);
+        }
+        if (!conv) {
+          toast(viewMode === 'design' ? 'Designer conversation is not ready.' : 'Agent conversation is not ready.', 'error');
+          return;
+        }
         // Build (planned): the first real message IS the goal — the driver turns this turn into
         // an INTERVIEW (the model asks you clarifying questions). While it's interviewing, your
         // replies pass straight through as answers; the driver watches for the final §PLAN. Once
         // it's building, what you type is QUEUED as a follow-up (handled after the current page) —
         // unless the driver is asking you to clarify a follow-up, where your reply goes to the agent.
+        const displayPrompt = prompt;
         if (viewMode === 'agent' && !isSlashCommand(prompt)) {
           if (Switcher.buildPlanArmed()) {
             const composed = Switcher.buildPlanArm(prompt);  // start the interview…
@@ -13249,27 +13461,59 @@
         }
         // The send binds the DISPLAYED conversation to the engine: the turn's
         // deltas (and the outcome of session commands) belong to it.
+        sendSerial++;
+        const thisSend = sendSerial;
         liveConvId = convId;
         staleNotice = false;
-        const conv = Store.getChat(convId);
+        if (!isSlashCommand(displayPrompt)) pendingUserTurn = { convId, text: displayPrompt, serial: thisSend };
+        else pendingUserTurn = null;
         if (!isSlashCommand(prompt)) {
           startTurnTimer(convId, (conv ? realUserTurnCount(conv.transcript || '') : 0) + 1);
         }
         if (conv && !isSlashCommand(prompt) &&
             conv.title === (DEFAULT_TITLES[conv.mode || 'chat'] ?? DEFAULT_CHAT_TITLE)) {
           // Auto-title from the first real prompt (slash commands do not count).
-          const t = prompt.replace(/\s+/g, ' ').trim();
+          const t = displayPrompt.replace(/\s+/g, ' ').trim();
           Store.renameChat(conv.id,
             t.length > AUTO_TITLE_MAX_CHARS ? `${t.slice(0, AUTO_TITLE_MAX_CHARS - 1)}…` : t);
         }
         working = true;
+        ensureIdleWatch();
         agentFollowBottom = shouldStickToBottom(view);
         agentSelectionPendingRender = false;
         Composer.setAgentBusy(true);
         syncSpinner();
-        Engine.agentSend(prompt)
-          .then((r) => { if (!r || !r.ok) toast(r?.error || 'Send failed', 'error'); })
-          .catch(() => toast('Send failed', 'error'));
+        render();
+        const runtimePrompt = Switcher.wirePromptForRuntime ? Switcher.wirePromptForRuntime(prompt) : prompt;
+        Engine.agentSend(runtimePrompt, displayPrompt)
+          .then(async (r) => {
+            if (!r || !r.ok) {
+              const msg = await agentSendErrorMessage(r?.error || '/api/agent/send failed');
+              appendLocalSendFailure(displayPrompt, msg, thisSend);
+              working = false;
+              stopIdleWatch();
+              resetLiveTurnTimer();
+              Composer.setAgentBusy(false);
+              syncSpinner();
+              render();
+              toast(msg, 'error');
+              return;
+            }
+            const from = Number(r.from);
+            if (Number.isFinite(from) && pendingUserTurn && pendingUserTurn.serial === thisSend) since = from;
+            pollOnce();
+          })
+          .catch(async (e) => {
+            const msg = await agentSendErrorMessage(e?.message || '/api/agent/send request failed');
+            appendLocalSendFailure(displayPrompt, msg, thisSend);
+            working = false;
+            stopIdleWatch();
+            resetLiveTurnTimer();
+            Composer.setAgentBusy(false);
+            syncSpinner();
+            render();
+            toast(msg, 'error');
+          });
       }
 
       const BC_CHECK = '<svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.3l2.6 2.6L11 4.3"/></svg>';
@@ -13663,7 +13907,9 @@
         else hideActiveQuestion();
         const liveStart = currentLiveTailStart(inBuildDrive);
         const renderSource = liveStart == null ? text : text.slice(0, liveStart);
-        const stagedBrief = curPhase === 'brief' && !hasContent && !inBuildDrive;
+        const pendingForThis = pendingUserTurn && pendingUserTurn.convId === convId &&
+          !renderSource.includes(`${U_OPEN}${pendingUserTurn.text}${U_CLOSE}`);
+        const stagedBrief = curPhase === 'brief' && !hasContent && !pendingForThis && !inBuildDrive;
         const stagedQ = curPhase === 'questions' && !inBuildDrive;
         // The Generating screen shows only on the LIVE (currently generating)
         // design conversation — so you can switch to other design chats in the
@@ -13703,7 +13949,7 @@
         // During a build drive there is no "brief"/hero — the harness drives the engine. Show
         // only the Build status animation (appended above); the engine's real output streams in
         // below as it comes. No chat chrome, no blinking input cursor.
-        if (!hasContent && !inBuildDrive) {
+        if (!hasContent && !pendingForThis && !inBuildDrive) {
           inner.append(viewMode === 'design' ? buildBriefScreen() : buildAgentHero());
         }
 
@@ -13731,7 +13977,8 @@
         let firstUser = true;
         // With no visible content (only chips/sys/service events, e.g. the
         // /new of a just-created conv) ONLY the welcome is shown, clean.
-        const parts = hasContent ? [...splitUserTurns(renderSource)] : [];
+        const parts = hasContent || pendingForThis ? [...splitUserTurns(renderSource)] : [];
+        if (pendingForThis) parts.push({ role: 'user', text: pendingUserTurn.text, pending: true });
         const lastRealUser = lastRealUserIdx(parts); // qforms before it are answered
         const timingConv = Store.getChat(convId);
         let responseIdx = 0;
@@ -14201,7 +14448,10 @@
       // instruction block appended to your goal, the per-page driver prompts). Prettify them for
       // DISPLAY ONLY — the driver still parses the untouched stored transcript.
       function cleanBuildMarkup(t) {
-        if (!t || (t.indexOf('§') < 0 && t.indexOf('BUILD MODE') < 0)) return t;
+        if (!t || (t.indexOf('§') < 0 && t.indexOf('BUILD MODE') < 0 && t.indexOf('PLAN MODE') < 0)) return t;
+        // Plan mode is a hidden per-turn contract appended to the user's real
+        // prompt. It must affect the agent, but never show up in the chat bubble.
+        t = t.replace(/\n+PLAN MODE\s*[—-]\s*create a Markdown planning file for the request above\.[\s\S]*$/i, '');
         // §ASK … §END → just the question (its options render as buttons below the composer)
         t = t.replace(/§ASK\s*([\s\S]*?)§END/g, (_, body) => ((body.match(/Q:\s*([^\n]+)/i) || [])[1] || '').trim());
         t = t.replace(/§QUESTION_ANSWER\s*[\s\S]*?§END/g, 'Clarification answered');
@@ -14349,7 +14599,7 @@
         }
       }
 
-      return { mount, start, stop, send, beginEngineSession, isWorking: () => working, isLiveConv, stopLiveGeneration, refreshFlow: render };
+      return { mount, start, stop, send, beginEngineSession, isWorking: () => working, isLiveConv, reconcileIdle, stopLiveGeneration, refreshFlow: render };
     })();
 
     /* ==================== DesignPreview: project files + design canvas ==================== */
@@ -14891,7 +15141,7 @@
           completeWorkdirSelection(dialogTarget, dialogNewSession, wd, true);
         });
 
-        // ds4 engine folder not found: let the user point at the right path.
+        // ds4 engine folder not found: install the managed checkout or connect to LAN.
         const d4d = qs('#ds4dir-dialog');
         on(d4d, 'cancel', (e) => {
           if (d4dForced && !d4dResolved) e.preventDefault();
@@ -14908,31 +15158,13 @@
           if (e.key === 'Enter') { e.preventDefault(); connectDs4GateLan(); }
         });
         on(d4d.querySelector('form'), 'submit', (e) => e.preventDefault());
-        on(qs('#ds4dir-save'), 'click', async () => {
-          const save = qs('#ds4dir-save');
-          const path = qs('#ds4dir-input').value.trim();
-          const warn = qs('#ds4dir-warn');
-          if (!path) { warn.textContent = 'Enter a folder path.'; warn.hidden = false; return; }
-          save.disabled = true; const label = save.textContent; save.textContent = 'Switching…';
-          const r = await Engine.setDs4Dir(path).catch(() => null);
-          save.disabled = false; save.textContent = label;
-          if (r && r.ok && r.ds4dirOk) {
-            d4dResolved = true;
-            d4d.close(); d4dShown = false;
-            if (r.restarted) toast(`Engine folder set — ds4 restarted (${r.mode}) in the new location.`, 'info');
-            else if (r.wasRunning) toast('Engine folder set, but ds4 could not restart: ' + (r.error || 'start it manually.'), 'warn');
-            else toast('Engine folder set — start the engine now.', 'info');
-            syncFromEngine();
-          }
-          else if (r && r.ok) { warn.textContent = 'That folder exists but does not look like a ds4 install (no engine binaries / model).'; warn.hidden = false; }
-          else { warn.textContent = (r && r.error) || 'Not a folder.'; warn.hidden = false; }
-        });
+        on(qs('#ds4dir-setup'), 'click', setupDs4Gate);
 
         syncFromEngine(); // reflect the real engine at startup
 
-        // Engine-directory health check: poll /api/status; if the ds4 folder
-        // disappears at runtime, maybePromptDs4Dir() interrupts with the modal
-        // (and "Use this folder" then kills any active ds4 and restarts it there).
+        // Engine-directory health check: poll /api/status; if the managed ds4
+        // checkout disappears at runtime, maybePromptDs4Dir() interrupts with
+        // the modal and offers to reinstall it.
         const onStatusPoll = (st) => { syncLanHostFlag(st); maybePromptDs4Dir(st); checkEngineHealth(st); };
         setInterval(() => { Engine.status().then(onStatusPoll).catch(() => {}); }, 5000);
         document.addEventListener('visibilitychange', () => {
@@ -14981,7 +15213,30 @@
         qs('#ds4dir-local-panel').hidden = lan;
         qs('#ds4dir-lan-panel').hidden = !lan;
         if (lan) setTimeout(() => qs('#ds4dir-lan-address')?.focus(), 0);
-        else setTimeout(() => qs('#ds4dir-input')?.focus(), 0);
+        else setTimeout(() => qs('#ds4dir-setup')?.focus(), 0);
+      }
+      async function setupDs4Gate() {
+        const btn = qs('#ds4dir-setup');
+        const warn = qs('#ds4dir-warn');
+        const label = btn?.textContent || 'Install ds4';
+        if (warn) { warn.hidden = false; warn.textContent = 'Downloading ds4, building it and applying DStudio patches...'; }
+        if (btn) { btn.disabled = true; btn.textContent = 'Installing...'; }
+        const r = await Engine.setupDs4().catch((e) => ({ ok: false, error: e?.message || 'Could not reach the launcher' }));
+        if (btn) { btn.disabled = false; btn.textContent = label; }
+        if (r && r.ds4dir) qs('#ds4dir-cur').textContent = r.ds4dir;
+        if (r && r.ok && r.ds4dirOk !== false) {
+          d4dResolved = true;
+          qs('#ds4dir-dialog')?.close();
+          d4dShown = false;
+          toast('ds4 installed and DStudio patches applied.', 'info');
+          syncFromEngine();
+          Settings.refreshModels();
+          return;
+        }
+        if (warn) {
+          warn.textContent = (r && r.error) || 'ds4 setup failed';
+          warn.hidden = false;
+        }
       }
       async function connectDs4GateLan() {
         const msg = qs('#ds4dir-lan-msg');
@@ -15014,7 +15269,6 @@
         d4dForced = true;
         d4dResolved = false;
         qs('#ds4dir-cur').textContent = st.ds4dir || '—';
-        qs('#ds4dir-input').value = st.ds4dir || '';
         qs('#ds4dir-warn').hidden = true;
         qs('#ds4dir-lan-msg').textContent = '';
         if (st.lanAddr && !qs('#ds4dir-lan-address').value) qs('#ds4dir-lan-address').value = st.lanAddr;
@@ -15405,6 +15659,23 @@
       // existing users do not lose preferences, but the product behavior is now
       // a one-turn Markdown planning file instead of the old app builder.
       const buildMode = () => Store.getSettings().buildMode === 'plan' ? 'plan' : 'off';
+      const CONTROL_RS = String.fromCharCode(0x1e);
+      const RUNTIME_SLASH_CMD_RE = /^\/(save|list|new|help|compact)$|^\/(switch|del)(\s+\S+)*$/;
+      let runtimeThinkDirty = false;
+      let runtimeThinkSupported = true;
+      function runtimeIsSlashCommand(t) {
+        const s = String(t || '').trim();
+        return !!s && !s.includes('\n') && RUNTIME_SLASH_CMD_RE.test(s);
+      }
+      function runtimeThinkControlFrame() {
+        return `${CONTROL_RS}${JSON.stringify({ type: 'control', name: 'think', value: thinkLevel() })}\n`;
+      }
+      function wirePromptForRuntime(prompt) {
+        if ((mode !== 'agent' && mode !== 'design') || runtimeIsSlashCommand(prompt)) return prompt;
+        if (!runtimeThinkDirty || !runtimeThinkSupported) return prompt;
+        runtimeThinkDirty = false;
+        return runtimeThinkControlFrame() + prompt;
+      }
       const remoteModelLaunch = () => {
         if (!isLanClientMode()) return {};
         const host = currentLanClientHost();
@@ -15436,10 +15707,11 @@
           toast('Agent cannot use a LAN host workspace. Run DStudio locally on this device.', 'warn');
           return;
         }
-        if (isLanClientMode()) await applySavedLanClientDs4Dir();
         const remote = remoteModelLaunch();
         if (!remote) return;
-        runSwitch('agent', { mode: 'agent', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill: skillForMode('agent'), build: isLanClientMode() ? 'off' : buildMode(), ctx: ctxSize(), power: 100, think: thinkLevel(), workdir, jsonl: isLanClientMode() ? true : Store.getSettings().useJsonlPatch !== false, ...remote }, 'Starting the agent…');
+        runtimeThinkDirty = false;
+        runtimeThinkSupported = true;
+        runSwitch('agent', { mode: 'agent', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill: skillForMode('agent'), build: 'off', ctx: ctxSize(), power: 100, think: thinkLevel(), workdir, jsonl: isLanClientMode() ? true : Store.getSettings().useJsonlPatch !== false, ...remote }, 'Starting the agent…');
       }
 
       // Design's system prompt is ~5.3k tokens and it generates full HTML files,
@@ -15461,10 +15733,11 @@
         // opts.skill overrides the design skill — Build runs the designer SKILL-LESS so it just
         // makes the page instead of kicking off a skill's own pipeline (e.g. a brand-spec).
         const skill = (opts && 'skill' in opts) ? opts.skill : skillForMode('design');
-        if (isLanClientMode()) await applySavedLanClientDs4Dir();
         const remote = remoteModelLaunch();
         if (!remote) return;
-        runSwitch('design', { mode: 'design', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, designSystem: designSystem(), build: isLanClientMode() ? 'off' : buildMode(), ctx: ctxSize(), power: 100, think: thinkLevel(), workdir, ...remote }, 'Starting the design agent…');
+        runtimeThinkDirty = false;
+        runtimeThinkSupported = true;
+        runSwitch('design', { mode: 'design', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, designSystem: designSystem(), build: 'off', ctx: ctxSize(), power: 100, think: thinkLevel(), workdir, ...remote }, 'Starting the design agent…');
       }
 
       // Switch the active model variant (v4-flash / v4-pro): persist the choice
@@ -15503,18 +15776,17 @@
         restartCurrent();
       }
 
-      // Switch Plan mode (agent only): on/off. It's a launch param (the agent
-      // restarts so it gets the Plan-mode system prompt). When on, you describe
-      // what you want and the agent writes a Markdown planning file.
+      // Switch Plan mode (agent only): on/off. This is a per-turn UI contract:
+      // the next agent message gets a hidden planning instruction, so changing
+      // the toggle does not need to restart the engine.
       function switchBuild(val) {
         if (mode !== 'agent') return;
         const on = val === 'on' || val === 'plan';
         const v = on ? 'plan' : 'off';
         if (buildMode() === v) return;
-        BuildDriver.cancel(true);            // drop any stale legacy builder state
+        BuildDriver.cancel(true);            // drop any stale plan action card/state
         Store.setSettings({ buildMode: v });
-        toast(v === 'plan' ? 'Plan mode on — describe what you want; the agent will write plan.md.' : 'Plan mode off — restarting…', 'info');
-        restartCurrent();
+        toast(v === 'plan' ? 'Plan mode on — the next agent message writes a planning file.' : 'Plan mode off.', 'info');
       }
 
       /* ---- BuildDriver: planned Build (checkpoint) --------------------------------
@@ -15697,9 +15969,16 @@
         // not the old app-builder: it asks the agent for a concrete Markdown
         // plan file and then stops. No Design handoff, no page driver.
         function arm(goal) {
-          bs = null;
-          Store.setSettings({ buildState: null });
+          Composer.hideBuildAsk();
           const filename = planFilename(goal);
+          bs = {
+            phase: 'plan-turn',
+            goal: (goal || '').trim(),
+            filename,
+            pending: true,
+            done: false,
+          };
+          save();
           return [
             (goal || '').trim(),
             '',
@@ -15710,6 +15989,28 @@
             'The Markdown file must include: title, objective, assumptions, scope, milestones, task breakdown, technical/design decisions, risks, validation checklist, and next actions.',
             'After writing the file, reply briefly with the filename and a 3-5 bullet summary of the plan.',
           ].join('\n');
+        }
+        const planPending = () => {
+          const s = load();
+          return !!(s && s.phase === 'plan-turn' && s.pending && !s.done);
+        };
+        function planAction(action) {
+          const s = load();
+          const filename = (s && s.filename) || 'plan.md';
+          bs = null;
+          Store.setSettings({ buildState: null });
+          if (action === 'implement') {
+            Store.setSettings({ buildMode: 'off' });
+            AgentView.send(`Implement the plan in \`${filename}\`. Read that Markdown file from the selected workspace first, then execute it step by step.`);
+            return;
+          }
+          if (action === 'stay') {
+            Store.setSettings({ buildMode: 'plan' });
+            toast('Plan mode stays on — describe the next planning task.', 'info');
+            return;
+          }
+          Store.setSettings({ buildMode: 'off' });
+          toast('Plan mode off — continue chatting normally.', 'info');
         }
         // True while the model is interviewing you (planning phase) — your chat replies pass
         // through to it as answers; the driver keeps watching the transcript for the §PLAN block.
@@ -15861,6 +16162,18 @@
         // The current engine just went idle: parse the plan (planning), or check disk and
         // advance (drive). `transcript` is the live conversation text, used to read the plan.
         async function onIdle(viewMode, transcript) {
+          const state = load();
+          if (state && state.phase === 'plan-turn') {
+            if (!state.pending || state.done) return;
+            state.pending = false;
+            state.done = true;
+            bs = state;
+            save();
+            if (viewMode === 'agent') {
+              Composer.showPlanActions({ filename: state.filename, goal: state.goal });
+            }
+            return;
+          }
           if (!active() || !bs.pending) return;
           bs.pending = false; save();
 
@@ -16018,7 +16331,7 @@
           runDesign();
         }
 
-        return { armed, arm, interviewing, expectReply, cancel, active, onReady, onArtifact, onIdle, onEngineFail,
+        return { armed, arm, planPending, planAction, interviewing, expectReply, cancel, active, onReady, onArtifact, onIdle, onEngineFail,
                  enqueue, dequeue, queued, awaitingAnswer, followupAnswer,
                  status: () => (load() ? { ...bs } : null) };
       })();
@@ -16058,15 +16371,20 @@
         restartCurrent();
       }
 
-      // Reasoning level changed from the composer pill. In CHAT it applies to the
-      // next message (the server takes it per-request), so nothing to restart. In
-      // AGENT/DESIGN it's a launch flag (--think / --think-max / --nothink), so the
-      // engine restarts with it — chat-style, no confirm, conversation kept.
+      // Reasoning level changed from the composer pill. Chat already applies it
+      // per-message. Agent/Design receive a hidden runtime control frame on the
+      // next turn, so the context stays alive.
       const THINK_LABEL = { off: 'off', high: 'normal', max: 'max' };
       function applyThinkLevel() {
         if (mode === 'server') return; // chat: per-message, no restart needed
-        toast(`Thinking: ${THINK_LABEL[thinkLevel()] || thinkLevel()} — restarting…`, 'info');
-        restartCurrent();
+        if (mode !== 'agent' && mode !== 'design') return;
+        if (!runtimeThinkSupported) {
+          toast(`Thinking: ${THINK_LABEL[thinkLevel()] || thinkLevel()} — restarting raw agent…`, 'info');
+          restartCurrent();
+          return;
+        }
+        runtimeThinkDirty = true;
+        toast(`Thinking: ${THINK_LABEL[thinkLevel()] || thinkLevel()} — applies to the next ${mode} turn.`, 'info');
       }
 
       // Download a missing variant in the background and poll the % until it
@@ -16203,12 +16521,21 @@
         const t0 = Date.now();
         const timeoutMs = target === 'server' ? 180000 : 15 * 60 * 1000;
         let deaths = 0;
+        let lastStatusError = '';
         const tick = async () => {
           let st = null;
-          try { st = await Engine.status(); } catch { /* retry */ }
+          try { st = await Engine.status(); lastStatusError = ''; }
+          catch (e) { lastStatusError = e?.message || 'status request failed'; }
           if (st) {
             updateOverlay(st.loadPct, st.stage, st.engineLine || st.engineError || '');
             Store.getState().ui.agentWorkdir = st.workdir || '';
+            if (st.ready && (st.mode !== target || st.running !== true)) {
+              failOverlay(`${target} did not start — /api/status reports mode=${st.mode || 'unknown'}, running=${st.running === true}, ready=${st.ready === true}${st.engineError ? `, engineError=${st.engineError}` : ''}.`);
+              switching = false;
+              launchTarget = null;
+              Statusbar.render();
+              return;
+            }
             if (st.ready) {
               hideOverlay();
               switching = false;
@@ -16221,7 +16548,10 @@
               // Patch requested but serve fell back to the stock agent (anchors
               // no longer apply / build failed): tell the user the output is raw.
               if (target === 'agent' && cfg.jsonl && st.jsonl === false) {
+                runtimeThinkSupported = false;
                 toast('Structured-output patch unavailable — running the stock agent (raw output).', 'warn');
+              } else if (target === 'agent' || target === 'design') {
+                runtimeThinkSupported = true;
               }
               setMode(target);
               if (target === 'server') invalidateAndRefreshServer();
@@ -16241,7 +16571,7 @@
           }
           if (Date.now() - t0 > timeoutMs) {
             const mins = Math.round(timeoutMs / 60000);
-            failOverlay(`Loading timeout (the engine took over ${mins} min to start). Check the engine log.`);
+            failOverlay(`Loading timeout (the engine took over ${mins} min to start).${lastStatusError ? ` Last /api/status error: ${lastStatusError}.` : ' Check the engine log.'}`);
             switching = false;
             launchTarget = null;
             Statusbar.render();
@@ -16286,6 +16616,7 @@
         stageEl.textContent = msg;
         stageEl.style.color = 'var(--danger)';
         appendOverlayLog(msg);
+        toast(msg, 'error');
         setTimeout(hideOverlay, 3500);
         BuildDriver.onEngineFail(msg);  // retry-then-pause a planned-Build run (no-op unless active)
       }
@@ -16354,7 +16685,9 @@
       }
 
       return { mount, mode: () => mode, launching: () => launchTarget, changeWorkdir, applyCtxSize, applyJsonl, applyThinkLevel, openImport, switchModel, switchToGguf, switchSkill, switchDesignSystem, switchBuild, downloadModel, newSession,
+               wirePromptForRuntime,
                buildPlanActive: () => BuildDriver.active(), buildPlanArmed: () => BuildDriver.armed(), buildPlanArm: (g) => BuildDriver.arm(g),
+               buildPlanPending: () => BuildDriver.planPending(), buildPlanAction: (a) => BuildDriver.planAction(a),
                buildPlanInterviewing: () => BuildDriver.interviewing(), buildPlanExpectReply: () => BuildDriver.expectReply(), buildPlanCancel: () => BuildDriver.cancel(false),
                buildPlanReady: (t) => BuildDriver.onReady(t), buildPlanIdle: (vm, tx) => BuildDriver.onIdle(vm, tx), buildPlanArtifact: () => BuildDriver.onArtifact(),
                buildPlanEnqueue: (m) => BuildDriver.enqueue(m), buildPlanDequeue: (i) => BuildDriver.dequeue(i), buildPlanQueued: () => BuildDriver.queued(),

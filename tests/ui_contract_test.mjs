@@ -8,10 +8,56 @@ const launcher = fs.readFileSync('src/dstudio.c', 'utf8');
 const app = fs.readFileSync('src/app.cc', 'utf8');
 const webview = fs.readFileSync('src/webview.h', 'utf8');
 const remoteHelper = fs.readFileSync('extension/remote/dstudio_remote_llm.c', 'utf8');
-const remoteAgent = fs.readFileSync('extension/remote/ds4_agent_remote.cfrag', 'utf8');
+const remoteAgent = fs.readFileSync('patch/ds4-agent-jsonl/remote-agent.cfrag', 'utf8');
 const remoteDesign = fs.readFileSync('extension/design/ds4_design.c', 'utf8');
 const windowsBuild = fs.readFileSync('scripts/build-windows.ps1', 'utf8');
 const windowsDs4Build = fs.readFileSync('scripts/build-ds4-windows-cygwin.sh', 'utf8');
+const gitignore = fs.readFileSync('.gitignore', 'utf8');
+
+function readPatchSet(dir, options = {}) {
+  const manifestPath = `${dir}/manifest`;
+  assert.ok(fs.existsSync(manifestPath), `${dir} manifest should exist`);
+  const lines = fs.readFileSync(manifestPath, 'utf8')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+  const values = new Map();
+  const edits = [];
+  for (const line of lines) {
+    const idx = line.indexOf('=');
+    assert.notEqual(idx, -1, `${manifestPath} line should be key=value: ${line}`);
+    const key = line.slice(0, idx);
+    const value = line.slice(idx + 1);
+    if (key === 'edit') edits.push(value);
+    else values.set(key, value);
+  }
+  assert.ok(edits.length > 0, `${dir} should list at least one edit`);
+  if (options.version) {
+    assert.match(values.get('version') || '', /^[1-9]\d*$/, `${dir} should carry a positive patch version`);
+  }
+  for (const key of ['fragment', 'makefile']) {
+    if (options[key]) {
+      assert.ok(values.get(key), `${dir} manifest should include ${key}=`);
+      assert.ok(fs.existsSync(`${dir}/${values.get(key)}`), `${dir}/${values.get(key)} should exist`);
+    }
+  }
+  const bodies = edits.map((id) => {
+    assert.match(id, /^[A-Za-z0-9_.-]+$/, `${dir} edit id should be a safe leaf name`);
+    const findPath = `${dir}/${id}.find`;
+    const replacePath = `${dir}/${id}.replace`;
+    assert.ok(fs.existsSync(findPath), `${findPath} should exist`);
+    assert.ok(fs.existsSync(replacePath), `${replacePath} should exist`);
+    const find = fs.readFileSync(findPath, 'utf8');
+    const replace = fs.readFileSync(replacePath, 'utf8');
+    assert.ok(find.length > 0, `${findPath} should not be empty`);
+    return { id, find, replace };
+  });
+  return { values, edits: bodies, text: bodies.map((e) => `${e.find}\n${e.replace}`).join('\n') };
+}
+
+const jsonlPatch = readPatchSet('patch/ds4-agent-jsonl', { version: true, fragment: true, makefile: true });
+const webCdpPatch = readPatchSet('patch/ds4-web-cdp');
+const webDirectNavPatch = readPatchSet('patch/ds4-web-direct-nav');
 
 function scriptSource() {
   const m = html.match(/<script type="module">([\s\S]*?)<\/script>/);
@@ -151,6 +197,11 @@ assert.equal(artifactHelpers.generatedFileLanguage({ filename: 'notes.txt', mime
 assert.match(js, /function highlightCode\(code, lang\)/, 'artifact code preview should reuse the offline syntax highlighter');
 assert.match(js, /body\.innerHTML = highlightCode\(file\.content \|\| '', lang\)/, 'artifact code files should render highlighted source');
 assert.match(js, /body\.classList\.toggle\('hl', !!lang\)/, 'artifact code previews should enable highlight token styling');
+assert.match(js, /let sawDone = false;/, 'Chat stream should explicitly track the [DONE] sentinel');
+assert.match(js, /type: 'incomplete'/, 'Chat stream EOF without [DONE] should emit an incomplete event');
+assert.match(js, /stream ended before data: \[DONE\]/, 'Incomplete chat responses should expose the missing SSE completion marker');
+assert.match(js, /m\.finishReason === 'incomplete'[\s\S]*data-act': 'continue'/, 'Incomplete chat responses should offer Continue');
+assert.match(js, /streamStatusDiagnostic\(lastFinishReason\)/, 'Incomplete chat responses should include /api/status diagnostics');
 {
   const urls = sourceAdapterHelpers.adapterCandidateUrls(
     { url: 'https://codeberg.org/user/project', title: 'Repository' },
@@ -278,7 +329,8 @@ assert.match(windowsDs4Build, /\/usr\/bin\/gcc \/ucrt64\/bin\/gcc \/mingw64\/bin
 assert.match(windowsBuild, /libgcc_s_seh-1\.dll/, 'Windows package should include the MinGW GCC runtime');
 assert.doesNotMatch(windowsBuild, /Copy-Item \$src \$Ds4Dir -Force/, 'Windows package must not copy runtime DLLs next to DS4 engine binaries');
 assert.doesNotMatch(windowsBuild, /msys-2\.0\.dll|cygwin1\.dll/, 'Windows package must not bundle copied MSYS/Cygwin root DLLs');
-assert.match(windowsBuild, /pacman --noconfirm -S --needed make git patch gcc/, 'Windows build should install the MSYS2 POSIX GCC toolchain');
+assert.match(windowsBuild, /pacman --noconfirm -S --needed make patch gcc/, 'Windows build should install the MSYS2 POSIX GCC toolchain without requiring git');
+assert.doesNotMatch(windowsBuild, /pacman --noconfirm -S --needed make git patch gcc/, 'Windows build should not install git for managed ds4 setup');
 assert.doesNotMatch(windowsBuild, /mingw-w64-ucrt-x86_64-gcc/, 'Windows DS4 build must not use UCRT GCC for ds4 POSIX sources');
 assert.doesNotMatch(windowsBuild, /curl\.exe/, 'Windows package should not depend on curl.exe for LAN client remote model calls');
 assert.match(windowsBuild, /ds4-agent-jsonl\.ver/, 'Windows package should include the JSONL runtime version marker');
@@ -294,9 +346,21 @@ assert.match(remoteHelper, /model_delta/, 'remote model helper should consume st
 assert.match(remoteHelper, /model_done/, 'remote model helper should consume model completion frames from DStudio');
 assert.match(remoteHelper, /model_error/, 'remote model helper should surface model error frames from DStudio');
 assert.match(remoteAgent, /\.in_think = false,[\s\S]*\.in_think = false,/, 'remote Agent stream state should not treat LAN content chunks as already inside a think block');
-assert.match(remoteAgent, /ds4ui_remote_contains_tool_call_tag[\s\S]*<\/think>\\n\\n/, 'remote Agent should close a stale thinking block before streaming DSML tool calls');
-assert.match(launcher, /ds4ui_win32_bash_exec[\s\S]*bash\.exe -s[\s\S]*CreateProcessA/, 'Windows JSONL Agent should run bash through the Windows process API instead of MSYS popen');
-assert.match(launcher, /ds4ui_win32_ensure_chrome\(9333\)/, 'Windows JSONL web tools should start or reuse Chrome CDP before creating ds4_web');
+assert.match(remoteAgent, /if \(ctx->stream && ctx->stream->in_think\)[\s\S]*<\/think>\\n\\n[\s\S]*ctx->stream->dsml_in_think = false/, 'remote Agent should close stale thinking before streaming non-reasoning content or DSML tool calls');
+assert.match(remoteAgent, /DS4UI_REMOTE_AUTO_CONTINUES 3/, 'remote Agent should automatically continue interrupted model streams');
+assert.match(remoteAgent, /ds4ui_remote_continue_prompt[\s\S]*Re-emit the full intended DSML tool call/, 'remote Agent should repair cut-off DSML tool calls instead of continuing broken fragments');
+assert.match(remoteAgent, /Remote model failed after automatic recovery[\s\S]*agent_set_status\(w, AGENT_WORKER_IDLE\)[\s\S]*return 0;/, 'remote Agent should stay alive and idle after unrecoverable model stream failures');
+assert.match(remoteDesign, /DESIGN_REMOTE_AUTO_CONTINUES 3/, 'remote Design should automatically continue interrupted model streams');
+assert.match(remoteDesign, /design_remote_continue_prompt[\s\S]*Re-emit the full intended DSML tool call/, 'remote Design should repair cut-off DSML tool calls instead of continuing broken fragments');
+assert.match(remoteDesign, /Remote model failed after automatic recovery[\s\S]*design_project_finish_run\(&a->project, "error"\)[\s\S]*return 0;/, 'remote Design should stay alive after unrecoverable model stream failures');
+assert.doesNotMatch(launcher, /static const char \*JSONL_EDITS\[\]\[2\]/, 'JSONL patch bodies must live under patch/, not in dstudio.c');
+assert.doesNotMatch(launcher, /static const char \*WEB_CDP_EDITS\[\]\[2\]/, 'web CDP patch bodies must live under patch/, not in dstudio.c');
+assert.doesNotMatch(launcher, /static const char \*WEB_DIRECT_NAV_EDITS\[\]\[2\]/, 'direct navigation patch bodies must live under patch/, not in dstudio.c');
+assert.doesNotMatch(launcher, /static const char \*JSONL_MAKEFILE/, 'JSONL build fragment must live under patch/, not in dstudio.c');
+assert.match(launcher, /patch_load_set\(JSONL_PATCH_DIR/, 'launcher should load the JSONL patch manifest from patch/');
+assert.match(webCdpPatch.text, /web_open_tab_http_fallback/, 'web CDP fallback patch should live under patch/');
+assert.match(jsonlPatch.text, /ds4ui_win32_bash_exec[\s\S]*bash\.exe -s[\s\S]*CreateProcessA/, 'Windows JSONL Agent should run bash through the Windows process API instead of MSYS popen');
+assert.match(jsonlPatch.text, /ds4ui_win32_ensure_chrome\(9333\)/, 'Windows JSONL web tools should start or reuse Chrome CDP before creating ds4_web');
 assert.doesNotMatch(remoteDesign, /remote design keeps local workspace files/, 'remote Design session sync should not emit repeated KV status errors');
 assert.match(remoteDesign, /design_remote_emit_empty_sessions/, 'remote Design should answer session-list sync with a structured empty list');
 assert.match(remoteDesign, /design_remote_slash_is\(p, "\/list"\)[\s\S]*design_remote_emit_empty_sessions\(\)/, 'remote Design /list should not become a session_status toast');
@@ -329,7 +393,7 @@ assert.match(js, /remoteModel:\s*Store\.getSettings\(\)\.model \|\| LAN_CLIENT_M
 assert.match(js, /gguf:\s*isLanClientMode\(\) \? '' : modelGguf\(\)/, 'LAN Agent/Design should not send a local GGUF/model path');
 assert.match(js, /function startServer\(\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*setMode\('server'\)[\s\S]*return;[\s\S]*runSwitch\('server'/, 'LAN clients must not start a local server when switching back to Chat');
 assert.match(js, /if \(!isLanClientMode\(\) && selectedGguf && selectedGguf !== runningModel\)/, 'LAN onboarding must not start a local selected model');
-assert.match(js, /build:\s*isLanClientMode\(\) \? 'off' : buildMode\(\)/, 'LAN Agent should not enable Plan mode against a remote host model');
+assert.match(js, /build:\s*'off'/, 'Agent/Design should keep Plan mode as a per-turn UI contract instead of a launch mode');
 assert.match(js, /jsonl:\s*isLanClientMode\(\) \? true : Store\.getSettings\(\)\.useJsonlPatch !== false/, 'LAN Agent must force structured output for local tools');
 assert.match(js, /startAgent[\s\S]*const remote = remoteModelLaunch\(\)[\s\S]*\.\.\.remote/, 'Agent start payload should include the remote model fields');
 assert.match(js, /startDesign[\s\S]*const remote = remoteModelLaunch\(\)[\s\S]*\.\.\.remote/, 'Design start payload should include the remote model fields');
@@ -368,19 +432,17 @@ assert.doesNotMatch(js, /if \(isLanClientMode\(\)\) \{ setMode\('server'\); retu
 assert.match(js, /function isHostServedLanShell\(\)/, 'host-served LAN shell must be detectable');
 assert.match(html, /Workspace, agent, design, settings and store APIs stay local-only/, 'LAN copy must document local workspace isolation');
 assert.match(html, /keeps its own local chats, app state and workspaces/, 'LAN client settings should describe local workspaces');
-assert.match(html, /id="lan-client-ds4dir"/, 'LAN client settings should expose the local DS4 runtime folder');
-assert.match(html, /id="lan-client-ds4dir-choose"/, 'LAN client settings should let the client choose its local DS4 folder');
+assert.match(html, /id="lan-client-ds4dir-path"/, 'LAN client settings should show the managed local DS4 runtime folder');
+assert.match(html, /id="lan-client-ds4dir-setup"/, 'LAN client settings should install the managed local DS4 runtime');
 assert.match(html, /Local DS4 runtime/, 'LAN client settings should name the client-side DS4 runtime explicitly');
-assert.match(js, /lanClientDs4Dir:\s*''/, 'LAN client settings should persist the local DS4 runtime folder');
+assert.doesNotMatch(js, /lanClientDs4Dir:\s*''/, 'LAN client settings should not persist a manual DS4 runtime folder');
 assert.doesNotMatch(html, /Agent and Design requests run on the LAN host|uses the LAN host for Chat, Agent and Design/, 'LAN client copy must not imply host workspaces');
 assert.match(js, /const apiUrl = \(path\) => `\$\{path\}`/, 'Engine APIs must stay local in LAN client mode');
 assert.match(js, /syncLanClientDs4Dir\(\)/, 'Opening LAN client settings should check the local DS4 folder');
-assert.match(js, /window\.ds4PickDirectory\(\{ mode: 'ds4' \}\)/, 'LAN client DS4 folder selection should use the native directory picker');
-assert.match(js, /const r = await Engine\.setDs4Dir\(path\)/, 'LAN client DS4 folder selection should update the local launcher ds4dir');
-assert.match(js, /Store\.setSettings\(\{ lanClientDs4Dir: r\.ds4dir \|\| path \}\)/, 'LAN client DS4 folder selection should remember the local DS4 folder');
-assert.match(js, /async function applySavedLanClientDs4Dir\(\)/, 'LAN clients should reapply their saved DS4 folder before launching local tools');
-assert.match(js, /startAgent[\s\S]*await applySavedLanClientDs4Dir\(\)/, 'LAN Agent should apply the saved local DS4 folder before launch');
-assert.match(js, /startDesign[\s\S]*await applySavedLanClientDs4Dir\(\)/, 'LAN Design should apply the saved local DS4 folder before launch');
+assert.match(js, /async function setupLanClientDs4\(\)[\s\S]*Engine\.setupDs4\(\)/, 'LAN client DS4 runtime setup should use the managed setup endpoint');
+assert.doesNotMatch(js, /window\.ds4PickDirectory\(\{ mode: 'ds4' \}\)/, 'LAN client DS4 setup should not use the native DS4 folder picker');
+assert.doesNotMatch(js, /Engine\.setDs4Dir/, 'UI should not keep the old manual ds4dir setter');
+assert.doesNotMatch(js, /applySavedLanClientDs4Dir/, 'LAN clients should not reapply saved manual DS4 paths');
 assert.match(js, /const webToolUrl = \(path\) => \{[\s\S]*isLanClientMode\(\) \? currentLanClientHost\(\)\.replace/, 'LAN clients should route Chat web tools to the host');
 assert.match(js, /webToolFetch\('\/api\/web-search'/, 'LAN Chat Web Search should use the web tool fetch path');
 assert.match(js, /webToolFetch\('\/api\/web-read'/, 'LAN Chat Web Read should use the web tool fetch path');
@@ -403,8 +465,8 @@ assert.match(launcher, /!remote_model && port_listening\(ENGINE_DEFAULTS\.port\)
 assert.match(launcher, /WEB_DIRECT_NAV_MARK/, 'web helper patch must include direct URL navigation');
 assert.match(launcher, /web_direct_nav_source_has_fix/, 'web helper patch must detect direct navigation when it lands upstream');
 assert.match(launcher, /web_direct_nav_apply\(&buf, &n\)/, 'generated ds4 web helper must receive the direct navigation patch');
-assert.match(launcher, /web_open_tab\(web, url, &tab, err, err_len\)/, 'web reader should open the requested URL directly, not through about:blank navigation');
-assert.match(launcher, /__attribute__\(\(unused\)\) web_cdp_navigate/, 'direct navigation patch should not leave an unused-function warning');
+assert.match(webDirectNavPatch.text, /web_open_tab\(web, url, &tab, err, err_len\)/, 'web reader should open the requested URL directly, not through about:blank navigation');
+assert.match(webDirectNavPatch.text, /__attribute__\(\(unused\)\) web_cdp_navigate/, 'direct navigation patch should not leave an unused-function warning');
 assert.match(launcher, /Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With/, 'LAN engine APIs must allow the app anti-CSRF header in CORS preflights');
 assert.match(launcher, /!local_client && \(!strcmp\(method, "GET"\) \|\| head_only_req\) && loading_page_path\(path\)[\s\S]*send_redirect\(fd, "\/", head_only_req\)/, 'LAN clients opening loading.html should be redirected to the app shell');
 assert.match(launcher, /else if \(lan_root_path\(path\)\)/, 'root app shell should tolerate query strings');
@@ -551,8 +613,30 @@ assert.match(readme, /### 🤖 Agent[\s\S]*assets\/agent\.gif/, 'README should f
 assert.match(js, /cap: 'Plan'[\s\S]*ariaLabel: 'Plan mode'/, 'Agent composer should expose Plan mode instead of Build mode');
 assert.doesNotMatch(js, /cap: 'Build'[\s\S]*ariaLabel: 'Build mode'/, 'Agent composer should not expose the old Build mode label');
 assert.match(js, /PLAN MODE — create a Markdown planning file/, 'Plan mode should convert the next agent prompt into a markdown planning request');
+assert.ok(js.includes('PLAN MODE\\s*[—-]\\s*create a Markdown planning file for the request above'), 'Plan mode hidden contract should be removed from displayed chat bubbles');
+assert.match(js, /showPlanActions\(info\)/, 'Plan mode should show post-plan action choices');
+assert.match(js, /Implement plan[\s\S]*Stay in plan mode[\s\S]*Chat about this/, 'Plan mode completion card should offer implement, continue planning, or chat actions');
+const switchBuildBody = js.match(/function switchBuild\(val\) \{[\s\S]*?\n      \}/)?.[0] || '';
+assert.ok(switchBuildBody, 'switchBuild body missing');
+assert.doesNotMatch(switchBuildBody, /restartCurrent\(/, 'Switching Plan mode should not restart the agent');
+assert.match(js, /runSwitch\('agent'[\s\S]*build: 'off'/, 'Agent launch should keep Plan mode as a per-turn hidden prompt, not a launch prompt');
 assert.match(launcher, /PLAN MODE — Markdown planning file only/, 'Plan mode launch prompt should keep the agent in planning-only behavior');
 assert.doesNotMatch(readme, /Build mode for real web apps|guided app builder|runnable web app/, 'README should no longer market the old app-builder Build mode');
+assert.match(js, /function activeConversationForMode\(targetMode\)/, 'Agent/Design must explicitly bind a conversation for the current mode before sending');
+assert.match(js, /const conv = activeConversationForMode\(viewMode\)/, 'Agent/Design startup must not reuse a chat from another mode');
+assert.match(js, /if \(agentBusy && !building\)[\s\S]*AgentView\.reconcileIdle/, 'Agent composer must reconcile stale busy state instead of silently dropping input');
+assert.match(js, /toast\('Answer the question card first\.'/, 'Agent question mode must give feedback instead of silently swallowing input');
+assert.match(js, /async function reconcileIdle\(\)/, 'Agent view should recover when the backend is idle but the UI is still marked busy');
+assert.match(js, /if \(!r\.ok && data && !data\.error\) data\.error = `send \$\{r\.status\}`/, 'Agent send should surface HTTP failures from the launcher');
+assert.match(js, /Switcher\.wirePromptForRuntime \? Switcher\.wirePromptForRuntime\(prompt\) : prompt/, 'AgentView must call the runtime prompt adapter through Switcher, not as an out-of-scope function');
+assert.match(js, /return \{[\s\S]*wirePromptForRuntime,[\s\S]*buildPlanActive/, 'Switcher should expose the runtime prompt adapter used by AgentView');
+assert.match(js, /function runtimeIsSlashCommand\(t\)/, 'Switcher runtime prompt adapter must not depend on AgentView-only slash helpers');
+assert.doesNotMatch(js.match(/function wirePromptForRuntime\(prompt\) \{[\s\S]*?\n      \}/)?.[0] || '', /isSlashCommand\(/, 'wirePromptForRuntime should use its own slash helper in Switcher scope');
+assert.match(launcher, /api_agent_send_state_error/, 'Backend agent send failures should include engine state');
+assert.match(launcher, /agent\/design runtime is not active/, 'Backend should report inactive Agent/Design runtime explicitly');
+assert.match(launcher, /Engine process stopped before completing the turn[\s\S]*g_agent_working = 0;/, 'Backend should make child crashes visible and clear Agent/Design working state');
+assert.match(js, /appendLocalSendFailure\(displayPrompt, msg, thisSend\)/, 'Agent/Design send failures should be persisted in the transcript');
+assert.match(js, /target} did not start[\s\S]*\/api\/status reports mode=/, 'Startup should fail visibly if /api/status disagrees with the requested mode');
 
 assert.match(js, /copy\.lanMirror\s*=\s*true/, 'LAN mirror rows should be marked read-only');
 assert.match(js, /for \(const mode of \['chat', 'agent', 'design'\]\)/, 'mirror sync must cover chat, agent and design');
@@ -574,9 +658,37 @@ assert.match(settingsDialog, /Network access/, 'host settings should keep the LA
 assert.match(settingsDialog, /Connect to LAN/, 'settings should allow entering LAN client mode');
 
 assert.match(loadingHtml, /lanClientHost/, 'loading gate must skip when this browser is a LAN client');
-assert.match(loadingHtml, /onboardedVersion !== 6/, 'loading gate must skip before host onboarding is complete');
+assert.match(loadingHtml, /onboardedVersion !== 7/, 'loading gate must skip before host onboarding is complete');
 assert.match(loadingHtml, /hello are you alive\?/, 'loading gate should probe the local model');
 assert.doesNotMatch(loadingHtml, /Loading the local model|Connecting to the local launcher|Waiting for the model to be ready|Open DStudio anyway/, 'loading page should show only the logo, not a status card');
+
+assert.match(gitignore, /^\/ds4\/$/m, 'managed upstream ds4 checkout should stay out of the DStudio source tree');
+assert.match(launcher, /#define DS4_REPO_URL "https:\/\/github\.com\/antirez\/ds4"/, 'launcher should know the upstream ds4 repo URL');
+assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "d881f2a05e8ff6bec001315a36b794b4aa310173"/, 'managed ds4 setup should pin the upstream commit in code');
+assert.match(launcher, /#define DS4_ARCHIVE_URL "https:\/\/codeload\.github\.com\/antirez\/ds4\/tar\.gz\/" DS4_UPSTREAM_COMMIT/, 'managed ds4 setup should download a pinned GitHub source archive');
+assert.match(launcher, /static char\s+g_ds4_dir\[1024\]\s*=\s*"ds4"/, 'default ds4 folder should be managed inside the DStudio repo');
+assert.match(launcher, /static int default_ds4_dir\([\s\S]*"%s\/ds4"/, 'default ds4 path should resolve under the DStudio checkout');
+assert.match(launcher, /setup_download_ds4_archive[\s\S]*"curl"[\s\S]*DS4_ARCHIVE_URL[\s\S]*"tar", "-xzf"/, 'setup endpoint should use curl+tar, not git, to download the pinned source archive');
+assert.doesNotMatch(launcher, /"git"\s*,\s*"clone"|git clone|Install git/, 'managed ds4 setup must not require git');
+assert.match(launcher, /static int setup_run_cmd_capture[\s\S]*#ifdef _WIN32[\s\S]*CreateProcessA[\s\S]*PeekNamedPipe/, 'managed ds4 setup should capture command output on Windows');
+assert.match(launcher, /setup_prepare_ds4_windows[\s\S]*setup_windows_engine_ready[\s\S]*setup_windows_build_ds4/, 'managed ds4 setup should prepare Windows DS4 from packaged binaries or source build');
+assert.match(launcher, /setup_windows_build_ds4[\s\S]*build-ds4-windows-cygwin\.sh/, 'Windows managed setup should build the downloaded ds4 source through the existing MSYS2/Cygwin script');
+assert.doesNotMatch(launcher, /managed ds4 download\/build is not implemented in the Windows launcher yet/, 'managed ds4 setup should not be disabled on Windows');
+assert.match(launcher, /api_setup_ds4[\s\S]*run_build_jsonl\("build"\)/, 'setup endpoint should apply the external JSONL/web patch build');
+assert.match(launcher, /api_setup_ds4[\s\S]*run_ext_script\("extension\/design\/build-design\.sh", "build"\)/, 'setup endpoint should build the Design runtime after ds4 setup');
+assert.match(launcher, /!strcmp\(path, "\/api\/ds4\/setup"\)[\s\S]*api_setup_ds4\(fd\)/, 'launcher should expose POST /api/ds4/setup');
+assert.doesNotMatch(launcher, /\/api\/ds4dir|api_set_ds4dir/, 'launcher should not keep the old manual ds4dir endpoint');
+assert.match(launcher, /"setup-ds4"/, 'doctor should offer managed ds4 setup when the engine folder is missing');
+assert.match(html, /id="onboard-ds4dir-setup-btn"/, 'onboarding should offer one-click ds4 install');
+assert.match(html, /id="ds4dir-setup"/, 'forced ds4 gate should offer one-click ds4 install');
+assert.doesNotMatch(html, /id="onboard-ds4dir-browse-btn"|id="onboard-ds4dir-browse"|id="ds4dir-input"|id="ds4dir-save"|id="lan-client-ds4dir-choose"/, 'UI should not keep manual ds4 folder fallback controls');
+assert.match(js, /const ONBOARD_VERSION = 7/, 'onboarding version should bump when first-run cache needs to be cleared');
+assert.match(js, /delete state\.settings\.lanClientDs4Dir/, 'settings migration should remove the old LAN client ds4 folder cache key');
+assert.match(js, /async function setupDs4\(\)[\s\S]*\/api\/ds4\/setup/, 'Engine API should call the managed ds4 setup endpoint');
+assert.match(js, /async function setupDs4FromUi\(\)[\s\S]*Engine\.setupDs4\(\)/, 'onboarding setup button should call the managed setup endpoint');
+assert.match(js, /'setup-ds4': 'Install'/, 'system check should label managed ds4 setup clearly');
+assert.match(js, /Onboarding\.setupDs4\(\)/, 'system check setup action should launch onboarding setup directly');
+assert.doesNotMatch(js, /choose-ds4|verifyPath|toggleFinder|loadFinder|PATHS/, 'UI should not keep manual ds4 path fallback code');
 
 assert.match(js, /function classifyResearchRequest\(/, 'web research should classify the request before searching');
 assert.match(js, /function planNextResearchAction\(/, 'Deep Research should use an action planner loop');

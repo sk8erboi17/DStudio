@@ -1,0 +1,2 @@
+    bool sigint_installed = (!cfg.non_interactive || cfg.jsonl) &&   /*DS4UI_JSONL: install the SIGINT handler in piped mode so a turn can be interrupted*/
+        sigaction(SIGINT, &sa, &old_int) == 0;

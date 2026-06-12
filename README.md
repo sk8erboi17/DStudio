@@ -125,8 +125,8 @@ DStudio is for local-AI builders who have the hardware to run DeepSeek V4 and wa
 This is a serious local AI setup. DStudio removes product friction, not physics:
 
 - **OS.** One `make` builds the branded app per platform: **DStudio.app** on **macOS** (Apple Silicon is the primary tested target), a **`dstudio`** binary on **Linux** (WebKitGTK / GTK3 via `webkit2gtk-4.1`) and a portable **Windows x64** folder/zip via `make windows`. Linux and Windows are less exercised, and `ds4` itself must be built for your platform.
-- A C compiler (`cc` / `clang`). `node` is optional, only for `make check`.
-- **[antirez's ds4](https://github.com/antirez/ds4)** — clone it and build it in a **sibling folder** of DStudio (`git clone https://github.com/antirez/ds4`, default `../ds4`, also resolved at `~/Documents/dev/ds4`), so the `ds4-server` / `ds4-agent` binaries exist. The rich agent mode targets antirez's **original** ds4 source; on a **fork**, switch **Agent output → Raw** in Settings (see *The agent patch* under [How it works](#how-it-works)).
+- A C compiler (`cc` / `clang`). `curl` and `tar` are used by first-run setup to download the pinned upstream `ds4` source archive; `node` is optional, only for `make check`.
+- **[antirez's ds4](https://github.com/antirez/ds4)** — DStudio installs the pinned upstream commit into `./ds4` from a GitHub source archive and applies its local patch set from `patch/`. Users do not need Git installed.
 - **A DeepSeek V4 GGUF model.** Two variants (IQ2_XXS, 2-bit):
   - **Flash** — ~87 GB on disk, ~96–128 GB RAM
   - **Pro** — ~430 GB on disk, ~512 GB RAM
@@ -144,10 +144,10 @@ For normal use, download/extract the Windows portable zip and run `DStudio.exe`.
 If you build DStudio or use Agent/Design from a LAN client with your own local DS4 checkout, install:
 
 - **Microsoft Edge WebView2 Runtime** if your Windows install does not already have it.
-- **MSYS2 POSIX** build tools: `pacman -S --needed make git patch gcc`.
+- **MSYS2 POSIX** build tools: `pacman -S --needed make patch gcc`.
 - **Visual Studio Build Tools** or `clang-cl` for building the native Windows wrapper.
 
-The error `msys-gcc_s-seh-1.dll was not found` means Windows found `ds4-agent-jsonl.exe` but not the MSYS2 runtime it was built with. Install MSYS2 in `C:\msys64`; DStudio adds its runtime directories to `PATH` before launching Agent/Design. Do not copy `msys-2.0.dll` or Cygwin/MSYS DLLs next to the DS4 binaries: that can make MSYS detect the wrong root and break `/tmp`, `fork()` and shell tools. LAN Agent/Design model calls use DStudio's internal bridge, and Agent bash tools are launched through the Windows process API, so `curl.exe` is no longer required.
+The error `msys-gcc_s-seh-1.dll was not found` means Windows found `ds4-agent-jsonl.exe` but not the MSYS2 runtime it was built with. Install MSYS2 in `C:\msys64`; DStudio adds its runtime directories to `PATH` before launching Agent/Design. Do not copy `msys-2.0.dll` or Cygwin/MSYS DLLs next to the DS4 binaries: that can make MSYS detect the wrong root and break `/tmp`, `fork()` and shell tools. LAN Agent/Design model calls use DStudio's internal bridge, and Agent bash tools are launched through the Windows process API. First-run setup uses Windows `curl` and `tar` to download the pinned ds4 source archive; Git is not required.
 
 ## Quick start
 

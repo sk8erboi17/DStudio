@@ -1,0 +1,1 @@
+static void ds4ui_emit_tool_call(agent_worker *w, const agent_tool_call *tc) {

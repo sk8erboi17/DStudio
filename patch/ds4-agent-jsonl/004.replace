@@ -1,0 +1,59 @@
+/*DS4UI_JSONL*/
+/* Opt-in structured output for the UI: one JSON line per event, prefixed by
+ * \x1e (Record Separator) so the consumer tells events from text without
+ * heuristics. Additive: active only with --jsonl. */
+static void ds4ui_json_escape(const char *s, char *out, size_t cap) {
+    size_t o = 0;
+    for (; s && *s && o + 7 < cap; s++) {
+        unsigned char c = (unsigned char)*s;
+        if (c == '"' || c == '\\') { out[o++] = '\\'; out[o++] = (char)c; }
+        else if (c == '\n') { out[o++] = '\\'; out[o++] = 'n'; }
+        else if (c == '\r') { out[o++] = '\\'; out[o++] = 'r'; }
+        else if (c == '\t') { out[o++] = '\\'; out[o++] = 't'; }
+        else if (c < 0x20) { o += (size_t)snprintf(out + o, cap - o, "\\u%04x", c); }
+        else out[o++] = (char)c;
+    }
+    out[o] = '\0';
+}
+static void ds4ui_emit_event(agent_worker *w, const char *type) {
+    char line[128];
+    int k = snprintf(line, sizeof line, "\x1e{\"type\":\"%s\"}\n", type);
+    agent_publish(w, line, (size_t)k);
+}
+static void ds4ui_emit_tool_call(agent_worker *w, const agent_tool_call *tc) {
+    char nm[256];
+    ds4ui_json_escape(tc->name ? tc->name : "", nm, sizeof nm);
+    char line[16384];   /* edit old/new + write content need room for the diff the UI renders */
+    int k = snprintf(line, sizeof line,
+        "\x1e{\"type\":\"tool_call\",\"name\":\"%s\",\"input\":{", nm);
+    /* snprintf returns the REQUESTED length, not the written one: never add to k
+     * a value that does not fit (k past the buffer = OOB on line+k and a publish
+     * of stack bytes). An arg that does not fit truncates HERE, at a JSON boundary. */
+    for (int j = 0; j < tc->argc; j++) {
+        char an[128], av[6144];
+        ds4ui_json_escape(tc->args[j].name ? tc->args[j].name : "", an, sizeof an);
+        ds4ui_json_escape(tc->args[j].value ? tc->args[j].value : "", av, sizeof av);
+        int r = snprintf(line + k, sizeof line - k, "%s\"%s\":\"%s\"", j ? "," : "", an, av);
+        if (r < 0 || r >= (int)(sizeof line - k) - 4) { line[k] = '\0'; break; }
+        k += r;
+    }
+    k += snprintf(line + k, sizeof line - k, "}}\n");
+    agent_publish(w, line, (size_t)k);
+}
+static void ds4ui_emit_tool_result(agent_worker *w, const char *name, const char *res) {
+    char nm[256];
+    ds4ui_json_escape(name ? name : "", nm, sizeof nm);
+    size_t rl = res ? strlen(res) : 0;
+    size_t cap = rl * 6 + 512;
+    char *line = (char *)malloc(cap);
+    if (!line) return;
+    int k = snprintf(line, cap,
+        "\x1e{\"type\":\"tool_result\",\"name\":\"%s\",\"output\":\"", nm);
+    char *esc = (char *)malloc(rl * 6 + 8);
+    if (esc) { ds4ui_json_escape(res ? res : "", esc, rl * 6 + 8);
+               k += snprintf(line + k, cap - k, "%s", esc); free(esc); }
+    k += snprintf(line + k, cap - k, "\"}\n");
+    agent_publish(w, line, (size_t)k);
+    free(line);
+}
+static void renderer_write(agent_token_renderer *r, const char *s, size_t n) {

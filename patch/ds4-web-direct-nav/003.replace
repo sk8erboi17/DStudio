@@ -1,0 +1,1 @@
+static bool __attribute__((unused)) web_cdp_navigate(cdp_ws *ws, const char *url,

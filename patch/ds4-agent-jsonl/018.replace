@@ -1,0 +1,13 @@
+    agent_append_system_prompt(w->engine, out, w->cfg->gen.system);
+    if (w->cfg->jsonl) {   /*DS4UI_JSONL*/
+        char *mem = ds4ui_memory_read_md();
+        if (mem && mem[0]) {
+            agent_buf m = {0};
+            agent_buf_puts(&m, "PROJECT MEMORY (runtime summary from MEMORY.MD):\n\n");
+            agent_buf_puts(&m, mem);
+            ds4_chat_append_message(w->engine, out, "system", m.ptr ? m.ptr : "");
+            free(m.ptr);
+        }
+        free(mem);
+    }
+}

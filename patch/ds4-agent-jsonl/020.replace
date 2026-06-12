@@ -1,0 +1,150 @@
+/*DS4UI_JSONL*/
+static int ds4ui_pack_name_ok(const char *s) {
+    if (!s || !s[0]) return 0;
+    for (const char *p = s; *p; p++)
+        if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '-')) return 0;
+    return 1;
+}
+static char *ds4ui_read_file_buf(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    agent_buf b = {0};
+    char chunk[4096]; size_t n;
+    while ((n = fread(chunk, 1, sizeof chunk, f)) > 0) agent_buf_append(&b, chunk, n);
+    fclose(f);
+    return agent_buf_take(&b);
+}
+static char *ds4ui_read_file_buf_limit(const char *path, size_t cap, int *truncated) {
+    if (truncated) *truncated = 0;
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    agent_buf b = {0};
+    char chunk[4096];
+    while (b.len < cap) {
+        size_t room = cap - b.len;
+        size_t want = room < sizeof(chunk) ? room : sizeof(chunk);
+        size_t n = fread(chunk, 1, want, f);
+        if (n) agent_buf_append(&b, chunk, n);
+        if (n < want) break;
+    }
+    if (!feof(f) && truncated) *truncated = 1;
+    fclose(f);
+    return agent_buf_take(&b);
+}
+static int ds4ui_pack_file_ext_ok(const char *rel) {
+    const char *dot = strrchr(rel, '.');
+    if (!dot) return 0;
+    return !strcmp(dot, ".md") || !strcmp(dot, ".html") ||
+           !strcmp(dot, ".css") || !strcmp(dot, ".js") ||
+           !strcmp(dot, ".json") || !strcmp(dot, ".svg") ||
+           !strcmp(dot, ".txt") || !strcmp(dot, ".csv");
+}
+static int ds4ui_pack_file_rel_ok(const char *rel, char *err, size_t errsz) {
+    if (!rel || !rel[0]) { snprintf(err, errsz, "pack_file path is required"); return 0; }
+    if (rel[0] == '/' || rel[0] == '~') { snprintf(err, errsz, "pack_file path must be relative"); return 0; }
+    if (strlen(rel) > 512) { snprintf(err, errsz, "pack_file path too long"); return 0; }
+    if (strcmp(rel, "example.html") && strncmp(rel, "assets/", 7) && strncmp(rel, "references/", 11)) {
+        snprintf(err, errsz, "pack_file path must be example.html, assets/*, or references/*"); return 0;
+    }
+    if (!ds4ui_pack_file_ext_ok(rel)) { snprintf(err, errsz, "pack_file extension is not allowed"); return 0; }
+    const char *seg = rel;
+    for (const char *p = rel; ; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (c && !(isalnum(c) || c == '/' || c == '-' || c == '_' || c == '.')) {
+            snprintf(err, errsz, "pack_file path contains invalid characters"); return 0;
+        }
+        if (c == '/' || c == '\0') {
+            size_t n = (size_t)(p - seg);
+            if (n == 0 || (n == 1 && seg[0] == '.') || (n == 2 && seg[0] == '.' && seg[1] == '.')) {
+                snprintf(err, errsz, "pack_file path must not contain . or .. segments"); return 0;
+            }
+            if (!c) break;
+            seg = p + 1;
+        }
+    }
+    return 1;
+}
+static size_t ds4ui_pack_file_cap(const char *rel) {
+    if (!strcmp(rel, "example.html") || !strncmp(rel, "assets/", 7)) return 96 * 1024;
+    return 32 * 1024;
+}
+static const char *ds4ui_pack_type_subdir(const char *type, int *allow_user) {
+    if (allow_user) *allow_user = 0;
+    if (!type) return NULL;
+    if (!strcmp(type, "skill") || !strcmp(type, "skills")) { if (allow_user) *allow_user = 1; return "skills"; }
+    if (!strcmp(type, "design_system") || !strcmp(type, "design-system") || !strcmp(type, "design-systems")) return "design-systems";
+    if (!strcmp(type, "craft")) return "craft";
+    return NULL;
+}
+static int ds4ui_pack_resolve_existing_file(const char *pack_root, const char *rel, char *out, size_t outsz, char *err, size_t errsz) {
+    char real_root[PATH_MAX];
+    if (!realpath(pack_root, real_root)) { snprintf(err, errsz, "pack root unavailable"); return 0; }
+    char joined[PATH_MAX];
+    if ((size_t)snprintf(joined, sizeof(joined), "%s/%s", pack_root, rel) >= sizeof(joined)) { snprintf(err, errsz, "pack_file path too long"); return 0; }
+    char real_file[PATH_MAX];
+    if (!realpath(joined, real_file)) { snprintf(err, errsz, "pack_file not found"); return 0; }
+    size_t rl = strlen(real_root);
+    if (strncmp(real_file, real_root, rl) != 0 || (real_file[rl] != '\0' && real_file[rl] != '/')) {
+        snprintf(err, errsz, "pack_file escapes the pack directory"); return 0;
+    }
+    struct stat st;
+    if (stat(real_file, &st) != 0 || !S_ISREG(st.st_mode)) { snprintf(err, errsz, "pack_file is not a regular file"); return 0; }
+    if ((size_t)snprintf(out, outsz, "%s", real_file) >= outsz) { snprintf(err, errsz, "pack_file path too long"); return 0; }
+    return 1;
+}
+static char *ds4ui_load_pack(const agent_tool_call *call, const char *subdir, const char *file, int allow_user) {
+    const char *name = agent_tool_arg_value(call, "name");
+    if (!ds4ui_pack_name_ok(name)) return xstrdup("Tool error: name must be a simple id (a-z, 0-9, -)\n");
+    char path[2300]; char *body = NULL;
+    if (allow_user) {
+        const char *u = getenv("DS4UI_USER_SKILLS_DIR");
+        if (u && u[0]) { snprintf(path, sizeof path, "%s/%s/SKILL.md", u, name); body = ds4ui_read_file_buf(path); }
+    }
+    if (!body) {
+        const char *root = getenv("DS4UI_SKILLS_DIR");
+        if (root && root[0]) { snprintf(path, sizeof path, "%s/%s/%s/%s", root, subdir, name, file); body = ds4ui_read_file_buf(path); }
+    }
+    if (!body) return xstrdup("Tool error: no such pack (see the catalog in the system context)\n");
+    return body;
+}
+static char *ds4ui_tool_skill(const agent_tool_call *call) { return ds4ui_load_pack(call, "skills", "SKILL.md", 1); }
+static char *ds4ui_tool_design_system(const agent_tool_call *call) { return ds4ui_load_pack(call, "design-systems", "DESIGN.md", 0); }
+static char *ds4ui_tool_pack_file(const agent_tool_call *call) {
+    const char *type = agent_tool_arg_value(call, "type");
+    const char *name = agent_tool_arg_value(call, "name");
+    const char *rel = agent_tool_arg_value(call, "path");
+    int allow_user = 0;
+    const char *subdir = ds4ui_pack_type_subdir(type, &allow_user);
+    if (!subdir) return xstrdup("Tool error: type must be skill, design_system, or craft\n");
+    if (!ds4ui_pack_name_ok(name)) return xstrdup("Tool error: name must be a simple id (a-z, 0-9, -)\n");
+    char err[256] = {0};
+    if (!ds4ui_pack_file_rel_ok(rel, err, sizeof(err))) { agent_buf e = {0}; agent_buf_puts(&e, "Tool error: "); agent_buf_puts(&e, err); agent_buf_puts(&e, "\n"); return agent_buf_take(&e); }
+    char pack_root[2300], full[PATH_MAX];
+    int found = 0;
+    if (allow_user) {
+        const char *u = getenv("DS4UI_USER_SKILLS_DIR");
+        if (u && u[0]) { snprintf(pack_root, sizeof(pack_root), "%s/%s", u, name); found = ds4ui_pack_resolve_existing_file(pack_root, rel, full, sizeof(full), err, sizeof(err)); }
+    }
+    if (!found) {
+        const char *root = getenv("DS4UI_SKILLS_DIR");
+        if (root && root[0]) { snprintf(pack_root, sizeof(pack_root), "%s/%s/%s", root, subdir, name); found = ds4ui_pack_resolve_existing_file(pack_root, rel, full, sizeof(full), err, sizeof(err)); }
+    }
+    if (!found) { agent_buf e = {0}; agent_buf_puts(&e, "Tool error: "); agent_buf_puts(&e, err[0] ? err : "pack_file not found"); agent_buf_puts(&e, "\n"); return agent_buf_take(&e); }
+    int truncated = 0;
+    size_t cap = ds4ui_pack_file_cap(rel);
+    char *body = ds4ui_read_file_buf_limit(full, cap, &truncated);
+    if (!body) return xstrdup("Tool error: pack_file could not be read\n");
+    agent_buf out = {0};
+    agent_buf_puts(&out, "[ds4-agent pack_file: ");
+    agent_buf_puts(&out, type);
+    agent_buf_puts(&out, "/");
+    agent_buf_puts(&out, name);
+    agent_buf_puts(&out, "/");
+    agent_buf_puts(&out, rel);
+    agent_buf_puts(&out, "]\n");
+    agent_buf_puts(&out, body);
+    if (truncated) { agent_buf_puts(&out, "\n\n[Truncated pack_file at "); char nbuf[32]; snprintf(nbuf, sizeof(nbuf), "%zu", cap); agent_buf_puts(&out, nbuf); agent_buf_puts(&out, " bytes. Load a narrower reference if needed.]\n"); }
+    free(body);
+    return agent_buf_take(&out);
+}
+static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {

@@ -1,0 +1,40 @@
+static bool web_open_tab(ds4_web *web, const char *url, web_tab *tab,
+                         char *err, size_t err_len) {
+    memset(tab, 0, sizeof(*tab));
+
+    char *browser_url = web_browser_ws_url(web, err, err_len);
+    if (!browser_url) return false;
+    cdp_ws browser = {.fd = -1, .web = web};
+    if (web_ws_connect(browser_url, &browser, err, err_len) != 0) {
+        free(browser_url);
+        return false;
+    }
+    free(browser_url);
+
+    char *qurl = web_json_quote(url);
+    web_buf params = {0};
+    web_buf_puts(&params, "{\"url\":");
+    web_buf_puts(&params, qurl);
+    web_buf_puts(&params, ",\"background\":true,\"newWindow\":false}");
+    free(qurl);
+    char *params_s = web_buf_take(&params);
+    char *resp = web_cdp_call(&browser, "Target.createTarget",
+                              params_s, err, err_len);
+    free(params_s);
+    web_ws_close(&browser);
+    if (!resp) return false;
+
+    tab->id = web_json_get_string(resp, "targetId");
+    free(resp);
+    if (!tab->id) {
+        web_tab_free(tab);
+        web_set_err(err, err_len, "Chrome did not return a page target id");
+        return false;
+    }
+
+    char ws_url[PATH_MAX + 128];
+    snprintf(ws_url, sizeof(ws_url), "ws://127.0.0.1:%d/devtools/page/%s",
+             web->port, tab->id);
+    tab->ws_url = web_xstrdup(ws_url);
+    return true;
+}

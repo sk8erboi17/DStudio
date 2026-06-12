@@ -191,6 +191,59 @@ static int ds4ui_remote_think_level(const agent_config *cfg) {
     return cfg->gen.think_mode == DS4_THINK_MAX ? 2 : 1;
 }
 
+static bool ds4ui_remote_think_control_value(const char *value, ds4_think_mode *out) {
+    if (!value || !out) return false;
+    if (!strcmp(value, "off") || !strcmp(value, "none") || !strcmp(value, "nothink")) {
+        *out = DS4_THINK_NONE;
+        return true;
+    }
+    if (!strcmp(value, "max") || !strcmp(value, "think-max")) {
+        *out = DS4_THINK_MAX;
+        return true;
+    }
+    if (!strcmp(value, "high") || !strcmp(value, "normal") ||
+        !strcmp(value, "think") || !strcmp(value, "on")) {
+        *out = DS4_THINK_HIGH;
+        return true;
+    }
+    return false;
+}
+
+static bool ds4ui_remote_apply_control(agent_config *cfg, char *line) {
+    bool changed = false;
+    if (!cfg || !line) return false;
+    for (;;) {
+        if ((unsigned char)line[0] != 0x1e) break;
+        char *nl = strchr(line, '\n');
+        if (!nl) break;
+        size_t frame_len = (size_t)(nl - line - 1);
+        char *frame = line + 1;
+        if (frame_len > 1024 ||
+            !strstr(frame, "\"type\":\"control\"") ||
+            !strstr(frame, "\"name\":\"think\"")) {
+            break;
+        }
+        char *v = strstr(frame, "\"value\":\"");
+        if (v) {
+            v += 9;
+            char value[32];
+            size_t n = 0;
+            while (v[n] && v[n] != '"' && n + 1 < sizeof(value)) {
+                value[n] = v[n];
+                n++;
+            }
+            value[n] = '\0';
+            ds4_think_mode m;
+            if (ds4ui_remote_think_control_value(value, &m)) {
+                cfg->gen.think_mode = m;
+                changed = true;
+            }
+        }
+        memmove(line, nl + 1, strlen(nl + 1) + 1);
+    }
+    return changed;
+}
+
 static char *ds4ui_remote_system_prompt(agent_config *cfg) {
     char *tools = agent_build_tools_prompt();
     agent_buf b = {0};
@@ -235,14 +288,45 @@ typedef struct {
     int generated;
 } ds4ui_remote_stream_ctx;
 
-static bool ds4ui_remote_contains_tool_call_tag(const char *text, size_t len) {
-    static const char tag[] = "<\xef\xbd\x9c" "DSML" "\xef\xbd\x9c" "tool_calls>";
-    size_t tag_len = sizeof(tag) - 1;
-    if (!text || len < tag_len) return false;
-    for (size_t i = 0; i + tag_len <= len; i++) {
-        if (!memcmp(text + i, tag, tag_len)) return true;
+#define DS4UI_REMOTE_AUTO_CONTINUES 3
+
+static bool ds4ui_remote_retryable_model_error(const char *err) {
+    if (!err || !err[0]) return false;
+    return strstr(err, "stream ended before completion") ||
+           strstr(err, "ended before data: [DONE]") ||
+           strstr(err, "internal model stream ended before completion") ||
+           strstr(err, "Connection interrupted") ||
+           strstr(err, "connection interrupted");
+}
+
+static char *ds4ui_remote_continue_prompt(const agent_dsml_parser *dsml,
+                                          const char *err,
+                                          int attempt,
+                                          int max_attempts) {
+    agent_buf b = {0};
+    agent_buf_puts(&b,
+        "DStudio transport recovery: the previous assistant response was interrupted before the model stream completed.\n");
+    if (err && err[0]) {
+        agent_buf_puts(&b, "Technical reason: ");
+        agent_buf_puts(&b, err);
+        agent_buf_puts(&b, "\n");
     }
-    return false;
+    char nbuf[96];
+    snprintf(nbuf, sizeof(nbuf), "Automatic continuation attempt %d of %d.\n", attempt, max_attempts);
+    agent_buf_puts(&b, nbuf);
+    if (dsml && (dsml->state == AGENT_DSML_STRUCTURAL ||
+                 dsml->state == AGENT_DSML_PARAM_VALUE ||
+                 dsml->state == AGENT_DSML_ERROR)) {
+        agent_buf_puts(&b,
+            "Your prior output was cut off while forming a DSML tool call. "
+            "Do not continue the broken fragment. Re-emit the full intended DSML tool call from the beginning, "
+            "with complete parameters and no extra prose before it.\n");
+    } else {
+        agent_buf_puts(&b,
+            "Continue exactly where the previous assistant message stopped. "
+            "Do not repeat completed text. If the previous message was already complete, add only the missing final sentence or final action, then stop.\n");
+    }
+    return agent_buf_take(&b);
 }
 
 static void ds4ui_remote_chunk(void *ud, const char *kind, const char *text, size_t len) {
@@ -262,11 +346,12 @@ static void ds4ui_remote_chunk(void *ud, const char *kind, const char *text, siz
         ds4ui_emit_event(w, "reasoning_end");
         ctx->reasoning_open = false;
     }
-    if (ctx->stream && ctx->stream->in_think &&
-        ds4ui_remote_contains_tool_call_tag(text, len)) {
+    if (ctx->stream && ctx->stream->in_think) {
         static const char close_think[] = "</think>\n\n";
         dstudio_remote_buf_append(ctx->raw, close_think, sizeof(close_think) - 1);
         agent_stream_text(ctx->stream, close_think, sizeof(close_think) - 1, false);
+        ctx->stream->in_think = false;
+        ctx->stream->dsml_in_think = false;
     }
     dstudio_remote_buf_append(ctx->raw, text, len);
     agent_stream_text(ctx->stream, text, len, false);
@@ -334,6 +419,7 @@ static int ds4ui_remote_run_turn(agent_worker *w,
     agent_wake_locked(w);
     pthread_mutex_unlock(&w->mu);
 
+    int auto_continues = 0;
     for (;;) {
         bool think_enabled = cfg->gen.think_mode != DS4_THINK_NONE;
         bool use_color = isatty(STDOUT_FILENO) != 0;
@@ -394,12 +480,28 @@ static int ds4ui_remote_run_turn(agent_worker *w,
             dstudio_remote_messages_append(messages, message_count, "assistant", assistant_raw);
 
         if (rc != 0) {
-            agent_publishf(w, "\nRemote model failed: %s\n", err[0] ? err : "request failed");
+            if (ds4ui_remote_retryable_model_error(err) &&
+                auto_continues < DS4UI_REMOTE_AUTO_CONTINUES) {
+                auto_continues++;
+                char *cont = ds4ui_remote_continue_prompt(&dsml, err,
+                    auto_continues, DS4UI_REMOTE_AUTO_CONTINUES);
+                dstudio_remote_messages_append(messages, message_count, "user", cont);
+                free(cont);
+                agent_publishf(w,
+                    "\x1e{\"type\":\"model_retry\",\"attempt\":%d,\"max\":%d}\n",
+                    auto_continues, DS4UI_REMOTE_AUTO_CONTINUES);
+                free(assistant_raw);
+                agent_dsml_parser_free(&dsml);
+                ds4ui_remote_flush(w);
+                continue;
+            }
+            agent_publishf(w, "\nRemote model failed after automatic recovery: %s\n", err[0] ? err : "request failed");
             free(assistant_raw);
             agent_dsml_parser_free(&dsml);
             agent_set_error(w, err[0] ? err : "remote model request failed");
+            agent_set_status(w, AGENT_WORKER_IDLE);
             ds4ui_remote_flush(w);
-            return 1;
+            return 0;
         }
 
         char *tool_result = ds4ui_remote_tool_result(w, &stream, &dsml);
@@ -517,8 +619,9 @@ static int ds4ui_run_remote_agent(agent_config *cfg) {
             }
             if (input.len > 0 && (stdin_eof || now_sec() >= quiet_deadline)) {
                 char *prompt = agent_input_buf_take(&input);
-                if (!ds4ui_pipe_slash(prompt) ||
-                    !ds4ui_remote_handle_slash(&worker, &messages, &message_count, prompt))
+                ds4ui_remote_apply_control(cfg, prompt);
+                if (prompt[0] && (!ds4ui_pipe_slash(prompt) ||
+                    !ds4ui_remote_handle_slash(&worker, &messages, &message_count, prompt)))
                     rc = ds4ui_remote_run_turn(&worker, &messages, &message_count, prompt);
                 free(prompt);
                 waiting_announced = false;
