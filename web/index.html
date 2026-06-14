@@ -15168,6 +15168,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
       let convId = null;
       let liveConvId = null;
       let pendingCmd = null;   // {convId, cmd:'new'|'switch'} deferred until engine idle
+      let pendingAfterRestore = null; // {convId,prompt,displayOverride,opts} sent after a lazy /switch
       let staleNotice = false; // conv reopened without a restorable session
       let turnArtifact = null;  // last artifact of the running design turn
       let spinnerConvId = null; // conv with the "generating" placeholder in the sidebar
@@ -15394,11 +15395,11 @@ Your report must be precise, of high-quality, and written by an expert using an 
           const conv = Store.getActiveChat();
           if (!conv || (conv.mode || 'chat') !== viewMode) return;
           if (conv.id === convId) return;
-          openConversation(conv);
+          openConversation(conv, { deferRestore: true });
           if (!conv.lanMirror && !timer) {
             const myEpoch = epoch;
             const guardSerial = sendSerial;
-            syncEngineOffset(conv, guardSerial).then(() => {
+            syncEngineOffset(conv, guardSerial, { restoreIfNeeded: false }).then(() => {
               if (myEpoch === epoch) tryStream(myEpoch);
             });
           }
@@ -15419,6 +15420,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           if (Switcher.buildPlanInterviewing && Switcher.buildPlanInterviewing()) Switcher.buildPlanCancel();
           else Composer.hideBuildAsk && Composer.hideBuildAsk();
           hideActiveQuestion();
+          if (pendingAfterRestore && pendingAfterRestore.convId !== conv.id) pendingAfterRestore = null;
         }
         convId = conv.id;
         // Switching conversation leaves the canvas takeover, if open.
@@ -15427,7 +15429,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         maxPhaseReached = 0;
         currentProposal = null;
         activeQuestionKey = null;
-        staleNotice = false;
+        staleNotice = !conv.lanMirror && !!conv.transcript && !conv.sessionSha;
         clearLiveTail();
         liveTailStartHint = null;
         view.replaceChildren();
@@ -15446,8 +15448,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
       /** Aligns the `since` offset to the engine buffer. Same "epoch" if the
        *  buffer still contains the offset consumed by the conversation AND the
        *  tail of the transcript matches the buffer bytes (never contaminate). */
-      async function syncEngineOffset(conv, guardSerial = sendSerial) {
+      async function syncEngineOffset(conv, guardSerial = sendSerial, opts = {}) {
         if (conv?.lanMirror) { since = 0; liveConvId = null; working = false; Composer.setAgentBusy(false); return false; }
+        const restoreIfNeeded = opts.restoreIfNeeded !== false;
         const myEpoch = epoch;
         let res;
         try { res = await Engine.agentPoll(0); } catch { since = 0; return false; }
@@ -15477,7 +15480,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           liveConvId = null;
           working = res.working; // the engine may be working for others
           Composer.setAgentBusy(working);
-          if (conv.id === convId) maybeRestoreSession(conv);
+          if (restoreIfNeeded && conv.id === convId) maybeRestoreSession(conv);
         }
         return true;
       }
@@ -15512,18 +15515,37 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
       function issueSwitch(conv) {
         liveConvId = conv.id; // the outcome of the switch belongs to this conv
-        if (viewMode === 'design') {
-          Engine.designSession('switch', conv.sessionSha).catch(() => {});
-          toast(`Restoring session ${conv.sessionSha}…`, 'info');
-        } else {
-          send(`/switch ${conv.sessionSha}`);
-        }
+        send(`/switch ${conv.sessionSha}`);
       }
 
       function issueNew(conv) {
         liveConvId = conv.id;
         if (viewMode === 'design') Engine.designSession('new').catch(() => {});
         else send('/new');
+      }
+
+      function needsSessionRestoreBeforeSend(conv, prompt) {
+        return !!conv &&
+          !isSlashCommand(prompt) &&
+          !!conv.transcript &&
+          !!conv.sessionSha &&
+          liveConvId !== conv.id;
+      }
+
+      function restoreBeforeSend(conv, prompt, displayOverride, opts = {}) {
+        pendingAfterRestore = {
+          convId: conv.id,
+          prompt,
+          displayOverride,
+          opts: { ...opts },
+        };
+        staleNotice = false;
+        toast(`Restoring session ${conv.sessionSha} before sending...`, 'info');
+        if (working) {
+          pendingCmd = { convId: conv.id, cmd: 'switch' };
+          return;
+        }
+        issueSwitch(conv);
       }
 
       /** Called from the sidebar on «+ New» (agent/design): the UI
@@ -15751,16 +15773,18 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
       // Infers the current phase from the stream (best-effort). Never used for gating.
       function designPhase() {
-        const ps0 = (DesignPreview.getState && DesignPreview.getState()) || {};
-        if (ps0.finalized) return 'handoff'; // the export wins over everything
         const rt = viewMode === 'design' && DesignRuntime.getState ? DesignRuntime.getState() : null;
         const rtHasTodos = Array.isArray(rt?.todos) && rt.todos.length > 0;
         const rtHasActivity = Array.isArray(rt?.activity) && rt.activity.length > 0;
+        const emptyTranscript = !visibleText();
+        if (emptyTranscript && !working && !rt?.question && rt?.phase !== 'building') return 'brief';
+        const ps0 = (DesignPreview.getState && DesignPreview.getState()) || {};
+        if (ps0.finalized) return 'handoff'; // the export wins over everything
         if (rt?.question) return 'questions';
         if (currentProposal && !currentProposal.lockedTag) return 'proposal';
         if ((working || rt?.phase === 'building') && (rtHasTodos || rtHasActivity || rt?.activeTool)) return 'generating';
         if (rt?.phase === 'artifact_ready' || rt?.currentArtifactEntry || rt?.currentArtifactId) return 'preview';
-        if (!visibleText()) return 'brief';
+        if (emptyTranscript) return 'brief';
         let lastQform = null, lastQformIdx = -1, hasTodos = false, hasArtifact = false, hasTool = false;
         const parts = [...splitUserTurns(text)];
         parts.forEach((part, pi) => {
@@ -16209,6 +16233,20 @@ Your report must be precise, of high-quality, and written by an expert using an 
           }
         }
 
+        if (wasWorking && !working && pendingAfterRestore) {
+          const queued = pendingAfterRestore;
+          const restoreFailed = delta && /\b(?:switch failed|usage: \/switch)\b/i.test(delta);
+          if (restoreFailed) {
+            pendingAfterRestore = null;
+            toast('Could not restore that session before sending.', 'error');
+          } else if (queued.convId !== convId) {
+            pendingAfterRestore = null;
+          } else if (liveConvId === queued.convId) {
+            pendingAfterRestore = null;
+            requestAnimationFrame(() => send(queued.prompt, queued.displayOverride, queued.opts));
+          }
+        }
+
         // Build: note when the designer registers a page (artifact event). Auto-Build uses it
         // planned-Build uses the designer's artifact event as a per-page success signal.
         if (delta && delta.includes('"type":"artifact"') && Switcher.buildPlanActive()) {
@@ -16353,6 +16391,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
         }
         if (!conv) {
           toast(viewMode === 'design' ? 'Designer conversation is not ready.' : 'Agent conversation is not ready.', 'error');
+          return;
+        }
+        if (needsSessionRestoreBeforeSend(conv, prompt)) {
+          restoreBeforeSend(conv, prompt, displayOverride, opts);
           return;
         }
         // Build (planned): the first real message IS the goal — the driver turns this turn into

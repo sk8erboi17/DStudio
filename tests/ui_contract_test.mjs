@@ -800,6 +800,7 @@ assert.match(js, /const markActiveOrNextTodoDone = \(\) => \{[\s\S]*!requiredOps
 assert.match(js, /type === 'run_started'[\s\S]*state\.todos = null[\s\S]*discoveryBlockedNotified = false/, 'Design runtime should clear stale todos and discovery warnings when a new run starts');
 assert.match(js, /type === 'discovery_blocked'[\s\S]*Questions required before building[\s\S]*Design needs the Questions step before building/, 'Design UI should surface a skipped-discovery runtime block to the user');
 assert.match(js, /function designPhase\(\)[\s\S]*DesignRuntime\.getState[\s\S]*return 'generating'/, 'Design stepper should use event-sourced runtime state, not only visible transcript text');
+assert.match(js, /function designPhase\(\)[\s\S]*const emptyTranscript = !visibleText\(\)[\s\S]*if \(emptyTranscript && !working && !rt\?\.question && rt\?\.phase !== 'building'\) return 'brief'[\s\S]*ps0\.finalized/, 'Empty Design conversations should stay on Brief instead of inheriting stale runtime preview state');
 assert.match(js, /const submitAnswer = \(answerText, lines = \[\]\) => \{[\s\S]*viewMode === 'design'[\s\S]*sendQuestionAnswer\(answerText\)/, 'Design question forms should submit with the runtime-recognized question answer marker');
 assert.match(js, /viewMode === 'agent' \|\| viewMode === 'design' \|\| inBuildDrive/, 'Design reasoning blocks should stay open like Agent reasoning blocks');
 assert.match(html, /\.thinking \{[\s\S]*content-visibility: visible;[\s\S]*contain-intrinsic-size: auto;/, 'Open reasoning blocks should not use estimated content-visibility heights that can disturb scroll');
@@ -811,6 +812,9 @@ assert.match(remoteDesign, /Tool error: discovery question required before build
 assert.match(js, /shared composer handles the brief and all controls[\s\S]*function buildBriefScreen\(\)[\s\S]*focusComposerInput\(\)/, 'Design brief should rely on the shared composer instead of a local input/control stack');
 assert.match(js, /function buildBriefScreen\(\)[\s\S]*Open gallery[\s\S]*Composer\.openDesignGallery/, 'Design empty brief should offer the same gallery without duplicating composer controls');
 assert.doesNotMatch(html + js, /brief-field|brief-input|brief-chips|brief-ctrls|brief-sel|chip-sg|brief-wd/, 'Design brief should not keep duplicate local controls now that the shared composer owns them');
+assert.match(js, /Store\.subscribe\('activeChat'[\s\S]*openConversation\(conv, \{ deferRestore: true \}\)[\s\S]*restoreIfNeeded: false/, 'Switching Agent/Design sidebar conversations should be view-only instead of restoring the KV session immediately');
+assert.match(js, /function needsSessionRestoreBeforeSend\(conv, prompt\)[\s\S]*conv\.sessionSha[\s\S]*liveConvId !== conv\.id/, 'Agent/Design should restore a saved KV session lazily before the next real send');
+assert.match(js, /function restoreBeforeSend\(conv, prompt, displayOverride, opts = \{\}\)[\s\S]*pendingAfterRestore[\s\S]*issueSwitch\(conv\)/, 'Lazy session restore should queue the user prompt and run /switch first');
 assert.match(js, /function editUserMessage\(chatId, msgId, content, attachments = null\)/, 'User chat messages should be editable while preserving attachments');
 assert.match(js, /data-act': 'edit-user-message'/, 'User message bubbles should expose an edit action');
 assert.match(html, /\.msg-edit-button[\s\S]*position: absolute/, 'User message edit button should float beside the bubble without adding vertical space');
