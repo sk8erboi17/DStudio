@@ -449,6 +449,10 @@ assert.match(js, /function renderGsaTargetPanel\(\)[\s\S]*curMode === 'agent' &&
 assert.match(js, /Engine\.gsaStart\(workdir, mission, targetUrl, '', gsaDisabledToolsPayload\(\)\)/, 'GSA command should pass target URL and disabled tools through to the backend');
 assert.match(js, /function renderGsaToolsPanel\(\)[\s\S]*GSA automation[\s\S]*Open tools/, 'Composer plus menu should open GSA tool automation in a dedicated modal');
 assert.match(html, /id="gsa-tools-dialog"[\s\S]*id="gsa-tools-dialog-grid"/, 'GSA tools should render in a modal grid instead of crowding the plus menu');
+assert.match(html, /id="design-gallery-dialog"[\s\S]*id="design-gallery-grid"/, 'Design should expose a gallery modal for visual starting points');
+assert.match(js, /const DESIGN_GALLERY_PRESETS = \[[\s\S]*SkyElite Private Jets[\s\S]*AeroCore - Aerospace Engine Landing/, 'Design gallery should ship multiple visual prompt presets');
+assert.match(js, /function openDesignGallery\(\)[\s\S]*renderDesignGallery\(\)[\s\S]*showModal/, 'Design gallery should render before opening the modal');
+assert.match(js, /curMode === 'design'[\s\S]*design-gallery-open[\s\S]*openDesignGallery\(\)/, 'Design plus menu should open the gallery from a dedicated action');
 assert.match(js, /function renderGsaToolsDialog\(\)[\s\S]*gsa-tool-card__purpose/, 'GSA tools modal should render purpose text');
 assert.match(js, /function renderGsaToolsDialog\(\)[\s\S]*gsa-tool-toggle/, 'GSA tools modal should render enable toggles');
 assert.match(js, /function gsaToolInstallProblem\(tool\)[\s\S]*missingInstaller/, 'GSA tools modal should surface missing installer prerequisites');
@@ -805,6 +809,7 @@ assert.match(remoteDesign, /design_discovery_gate_active[\s\S]*!pr->discovery_sa
 assert.match(remoteDesign, /discovery_required[\s\S]*discovery_blocked/, 'Design runtime should log a structured event when it blocks a pre-discovery build tool');
 assert.match(remoteDesign, /Tool error: discovery question required before building/, 'Design model should receive an explicit tool error when it skips the Questions step');
 assert.match(js, /shared composer handles the brief and all controls[\s\S]*function buildBriefScreen\(\)[\s\S]*focusComposerInput\(\)/, 'Design brief should rely on the shared composer instead of a local input/control stack');
+assert.match(js, /function buildBriefScreen\(\)[\s\S]*Open gallery[\s\S]*Composer\.openDesignGallery/, 'Design empty brief should offer the same gallery without duplicating composer controls');
 assert.doesNotMatch(html + js, /brief-field|brief-input|brief-chips|brief-ctrls|brief-sel|chip-sg|brief-wd/, 'Design brief should not keep duplicate local controls now that the shared composer owns them');
 assert.match(js, /function editUserMessage\(chatId, msgId, content, attachments = null\)/, 'User chat messages should be editable while preserving attachments');
 assert.match(js, /data-act': 'edit-user-message'/, 'User message bubbles should expose an edit action');

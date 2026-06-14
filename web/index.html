@@ -2118,10 +2118,379 @@
     .gsa-tools__btn:hover { border-color: var(--accent); color: var(--text); }
     .gsa-tools__btn--open { min-width: 88px; }
 
+    #design-gallery-dialog.settings-dialog {
+      width: min(96vw, 76rem);
+      max-height: min(90vh, 54rem);
+    }
+
     #gsa-tools-dialog.settings-dialog,
     #skills-dialog.settings-dialog {
       width: min(94vw, 48rem);
       max-height: min(88vh, 44rem);
+    }
+
+    .design-gallery-modal {
+      display: grid;
+      gap: 14px;
+      padding: 0.25rem 0 1rem;
+    }
+
+    .design-gallery-modal__top {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .design-gallery-modal__top .set-help {
+      margin: 4px 0 0;
+      max-width: 58rem;
+    }
+
+    .design-gallery-count {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      white-space: nowrap;
+    }
+
+    .design-gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 12px;
+    }
+
+    .design-gallery-card {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--border-2), transparent 10%);
+      border-radius: 8px;
+      background: color-mix(in srgb, #171612, var(--surface) 12%);
+      box-shadow: 0 12px 34px rgb(0 0 0 / 0.22);
+    }
+
+    .design-gallery-card__head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      padding: 10px 12px;
+      background: color-mix(in srgb, #24211d, transparent 8%);
+      color: #ebe7dd;
+      border-bottom: 1px solid rgb(255 255 255 / 0.08);
+    }
+
+    .design-gallery-card__dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #66d8a7;
+      box-shadow: 0 0 0 3px rgb(102 216 167 / 0.12);
+      flex: 0 0 auto;
+    }
+
+    .design-gallery-card__title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 760;
+      font-size: 0.88rem;
+      letter-spacing: 0;
+    }
+
+    .design-gallery-thumb {
+      position: relative;
+      aspect-ratio: 16 / 10;
+      overflow: hidden;
+      isolation: isolate;
+      background: #111;
+    }
+
+    .design-gallery-thumb::before,
+    .design-gallery-thumb::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .design-gallery-thumb::after {
+      z-index: 5;
+      background: linear-gradient(180deg, rgb(0 0 0 / 0.08), rgb(0 0 0 / 0.28));
+    }
+
+    .design-gallery-thumb__nav,
+    .design-gallery-thumb__copy,
+    .design-gallery-thumb__title,
+    .design-gallery-thumb__pill,
+    .design-gallery-thumb__object {
+      position: absolute;
+      z-index: 6;
+      pointer-events: none;
+    }
+
+    .design-gallery-thumb__nav {
+      top: 8px;
+      left: 10px;
+      right: 10px;
+      height: 5px;
+      border-radius: 99px;
+      background: linear-gradient(90deg, rgb(255 255 255 / 0.82) 0 13%, transparent 13% 45%, rgb(255 255 255 / 0.48) 45% 53%, transparent 53% 72%, rgb(255 255 255 / 0.45) 72% 100%);
+      opacity: 0.7;
+    }
+
+    .design-gallery-thumb__copy {
+      left: 14px;
+      bottom: 17px;
+      width: min(48%, 170px);
+      height: 4px;
+      border-radius: 999px;
+      background: rgb(255 255 255 / 0.72);
+      box-shadow: 0 9px 0 rgb(255 255 255 / 0.4), 0 18px 0 rgb(255 255 255 / 0.28);
+      opacity: 0.9;
+    }
+
+    .design-gallery-thumb__title {
+      left: 14px;
+      top: 36%;
+      width: min(46%, 170px);
+      height: 16%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, rgb(255 255 255 / 0.95), rgb(255 255 255 / 0.55));
+      -webkit-mask: linear-gradient(#000 0 0) top / 100% 40% no-repeat, linear-gradient(#000 0 0) center / 78% 40% no-repeat, linear-gradient(#000 0 0) bottom / 92% 40% no-repeat;
+      mask: linear-gradient(#000 0 0) top / 100% 40% no-repeat, linear-gradient(#000 0 0) center / 78% 40% no-repeat, linear-gradient(#000 0 0) bottom / 92% 40% no-repeat;
+    }
+
+    .design-gallery-thumb__pill {
+      right: 13px;
+      top: 48%;
+      width: 58px;
+      height: 34px;
+      border-radius: 7px;
+      border: 1px solid rgb(255 255 255 / 0.35);
+      background: rgb(255 255 255 / 0.2);
+      backdrop-filter: blur(8px);
+      box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08), 0 10px 26px rgb(0 0 0 / 0.25);
+    }
+
+    .design-gallery-thumb--nature {
+      background:
+        radial-gradient(circle at 62% 36%, rgb(194 243 187 / 0.62), transparent 12%),
+        radial-gradient(circle at 50% 54%, rgb(36 58 41 / 0.18), transparent 22%),
+        linear-gradient(115deg, #0c1911, #1f3e2f 42%, #07100b);
+    }
+    .design-gallery-thumb--nature::before {
+      background:
+        linear-gradient(96deg, transparent 0 35%, rgb(186 172 137 / 0.7) 35% 38%, transparent 38%),
+        radial-gradient(ellipse at 54% 58%, transparent 0 17%, rgb(162 151 123 / 0.88) 17% 21%, transparent 21%),
+        repeating-linear-gradient(100deg, rgb(255 255 255 / 0.09) 0 2px, transparent 2px 34px);
+      filter: saturate(1.1);
+    }
+    .design-gallery-thumb--nature .design-gallery-thumb__title,
+    .design-gallery-thumb--dream .design-gallery-thumb__title {
+      background: #fff8ef;
+    }
+
+    .design-gallery-thumb--dream {
+      background:
+        radial-gradient(circle at 61% 48%, #b7b7ff 0 14%, transparent 15%),
+        radial-gradient(circle at 56% 58%, #fff1cb 0 7%, transparent 8%),
+        radial-gradient(circle at 23% 36%, #2d1d43, transparent 26%),
+        linear-gradient(130deg, #140c17, #6a4b78 46%, #21101d);
+    }
+    .design-gallery-thumb--dream::before {
+      background:
+        radial-gradient(circle at 28% 78%, rgb(255 190 137 / 0.6), transparent 14%),
+        radial-gradient(circle at 72% 24%, rgb(112 241 255 / 0.38), transparent 9%),
+        conic-gradient(from 80deg at 62% 48%, rgb(255 255 255 / 0.0), rgb(255 255 255 / 0.38), rgb(255 255 255 / 0.0) 32%);
+      mix-blend-mode: screen;
+    }
+
+    .design-gallery-thumb--jet {
+      background:
+        radial-gradient(circle at 22% 50%, #ffffff 0 18%, transparent 19%),
+        radial-gradient(circle at 80% 37%, #ffffff 0 15%, transparent 16%),
+        linear-gradient(180deg, #fbfbfd, #d7dce6);
+    }
+    .design-gallery-thumb--jet .design-gallery-thumb__title {
+      left: 46%;
+      top: 30%;
+      width: 31%;
+      height: 19%;
+      background: #22262c;
+    }
+    .design-gallery-thumb--jet .design-gallery-thumb__object {
+      left: 10%;
+      right: -10%;
+      bottom: 15%;
+      height: 28%;
+      border-radius: 999px 20px 20px 999px;
+      background: linear-gradient(90deg, #10131a, #22252c 58%, #0a0b0e);
+      transform: rotate(-8deg);
+      box-shadow: 0 16px 18px rgb(0 0 0 / 0.18);
+    }
+    .design-gallery-thumb--jet .design-gallery-thumb__object::before {
+      content: "";
+      position: absolute;
+      left: 34%;
+      bottom: -38%;
+      width: 40%;
+      height: 48%;
+      border-radius: 0 0 999px 999px;
+      background: #171a20;
+      transform: skewX(-22deg);
+    }
+
+    .design-gallery-thumb--arch {
+      background:
+        radial-gradient(circle at 22% 14%, rgb(28 27 25 / 0.16), transparent 18%),
+        linear-gradient(180deg, #f7f7f4, #e6e4df);
+    }
+    .design-gallery-thumb--arch::before {
+      background:
+        radial-gradient(circle at 24% 20%, rgb(70 90 64 / 0.18), transparent 16%),
+        radial-gradient(circle at 70% 10%, rgb(70 90 64 / 0.14), transparent 18%);
+      filter: blur(2px);
+    }
+    .design-gallery-thumb--arch .design-gallery-thumb__title {
+      left: 9%;
+      top: 42%;
+      width: 62%;
+      height: 20%;
+      background: #20201e;
+    }
+    .design-gallery-thumb--arch .design-gallery-thumb__object {
+      left: 22%;
+      bottom: 0;
+      width: 38%;
+      height: 32%;
+      border-radius: 42% 42% 0 0;
+      background: linear-gradient(135deg, #b7b1a6, #706d64);
+    }
+
+    .design-gallery-thumb--botanical {
+      background:
+        radial-gradient(circle at 76% 26%, rgb(255 255 255 / 0.7), transparent 6%),
+        radial-gradient(circle at 34% 68%, #7a8d3b, transparent 17%),
+        linear-gradient(135deg, #f5c777, #f4dc9f 55%, #f2b861);
+    }
+    .design-gallery-thumb--botanical .design-gallery-thumb__title {
+      left: 8%;
+      top: 17%;
+      width: 32%;
+      height: 16%;
+      background: #1f1b16;
+    }
+    .design-gallery-thumb--botanical .design-gallery-thumb__object {
+      left: 48%;
+      bottom: 11%;
+      width: 18%;
+      height: 48%;
+      border-radius: 6px 6px 16px 16px;
+      background: linear-gradient(90deg, #9b5f25, #f8d481 50%, #8a4a1d);
+      box-shadow: 0 16px 34px rgb(101 58 18 / 0.3);
+    }
+
+    .design-gallery-thumb--aero {
+      background:
+        radial-gradient(circle at 60% 34%, rgb(255 255 255 / 0.58), transparent 12%),
+        linear-gradient(180deg, #8da9df, #c8d4ec);
+    }
+    .design-gallery-thumb--aero .design-gallery-thumb__title {
+      left: 4%;
+      top: 42%;
+      width: 76%;
+      height: 31%;
+      opacity: 0.82;
+      background: #fff;
+    }
+    .design-gallery-thumb--aero .design-gallery-thumb__object {
+      right: 15%;
+      top: 18%;
+      width: 23%;
+      height: 73%;
+      border-radius: 999px 999px 18px 18px;
+      background: repeating-linear-gradient(90deg, #28323e 0 7px, #d9e2ec 7px 13px, #667386 13px 19px);
+      box-shadow: inset 0 0 0 8px rgb(255 255 255 / 0.16);
+    }
+
+    .design-gallery-card__body {
+      display: grid;
+      gap: 5px;
+      padding: 11px 12px 10px;
+      min-width: 0;
+      background: color-mix(in srgb, var(--surface), #171612 52%);
+    }
+
+    .design-gallery-card__meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .design-gallery-tag {
+      min-width: 0;
+      max-width: 100%;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: rgb(255 255 255 / 0.07);
+      color: color-mix(in srgb, #f4efe3, var(--muted) 20%);
+      font-size: 0.68rem;
+      line-height: 1.2;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .design-gallery-card__desc {
+      min-height: 2.8em;
+      color: color-mix(in srgb, #f2eee4, var(--text-2) 35%);
+      font-size: 0.76rem;
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .design-gallery-card__actions {
+      display: flex;
+      gap: 8px;
+      padding: 0 12px 12px;
+      background: color-mix(in srgb, var(--surface), #171612 52%);
+    }
+
+    .design-gallery-card__actions .btn {
+      display: inline-flex;
+      align-items: center;
+      flex: 1 1 0;
+      min-width: 0;
+      height: 32px;
+      padding: 0 10px;
+      justify-content: center;
+    }
+
+    .design-gallery-open svg {
+      color: var(--accent);
+    }
+
+    @media (max-width: 760px) {
+      .design-gallery-modal__top {
+        align-items: start;
+        flex-direction: column;
+      }
+      .design-gallery-count {
+        white-space: normal;
+      }
+      .design-gallery-grid {
+        grid-template-columns: 1fr;
+      }
     }
 
     .gsa-tools-modal {
@@ -3575,6 +3944,23 @@
       margin: 0 0 28px;
       max-width: 600px;
     }
+    .brief-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .brief-gallery {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 34px;
+      border-radius: 8px;
+    }
+    .brief-gallery svg {
+      color: var(--accent);
+      flex: 0 0 auto;
+    }
     .brief-send {
       display: grid;
       place-items: center;
@@ -4666,6 +5052,37 @@
       </div>
       <footer class="set-foot">
         <span class="set-saved"><span class="set-saved__dot"></span>Saved to your machine</span>
+        <div class="set-foot__act"><button class="btn btn--primary" value="close">Done</button></div>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="design-gallery-dialog" class="dialog settings-dialog" aria-label="Design gallery">
+    <form method="dialog" class="settings">
+      <header class="set-head">
+        <div class="set-brand">
+          <span class="set-brand__ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.8 10 6l4.3.4-3.2 2.9 1 4.2L8 11.6 3.9 13.5l1-4.2L1.7 6.4 6 6z"/></svg></span>
+          <span class="set-brand__t">
+            <span class="set-brand__eye">Design</span>
+            <span class="set-brand__h">Gallery</span>
+          </span>
+        </div>
+        <button type="button" id="design-gallery-close" class="set-x" aria-label="Close"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+      </header>
+      <div class="set-body">
+        <section class="set-grp design-gallery-modal">
+          <div class="design-gallery-modal__top">
+            <div>
+              <div class="set-eye" style="margin:0">Visual starting points</div>
+              <p class="set-help">Pick a direction to load a polished brief into Design. Use it as a base, then edit the prompt before sending if you want a tighter target.</p>
+            </div>
+            <span class="design-gallery-count" id="design-gallery-count">0 presets</span>
+          </div>
+          <div id="design-gallery-grid" class="design-gallery-grid"></div>
+        </section>
+      </div>
+      <footer class="set-foot">
+        <span class="set-saved"><span class="set-saved__dot"></span>Local design presets</span>
         <div class="set-foot__act"><button class="btn btn--primary" value="close">Done</button></div>
       </footer>
     </form>
@@ -10716,6 +11133,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
       let cbarModel, cbarGsaLoop, cbarAttach, cbarAttachIcon, cbarThink, cbarThinkWrap, cbarGear, cbarPop, cbarLeft, cbarRight;
       let gsaTargetPanel, gsaTargetInput;
+      let designGalleryDialog, designGalleryGrid, designGalleryCount;
       let gsaToolsDialog, gsaToolsDialogGrid, gsaToolsDialogSummary;
       let gsaRunState = null;  // active GSA phase pipeline for the current Agent run
       let gsaLoopState = null; // {active, mission, targetUrl, workdir, previousRunDir, iteration, timer}
@@ -10726,6 +11144,56 @@ Your report must be precise, of high-quality, and written by an expert using an 
       const CHAT_ATTACH_MAX_CHARS = 140_000;
       const CHAT_ATTACH_TEXT_EXT_RE = /\.(txt|md|markdown|csv|tsv|json|jsonl|js|jsx|ts|tsx|mjs|cjs|py|rb|go|rs|c|h|cc|cpp|hpp|java|kt|swift|php|cs|html?|css|scss|sass|xml|svg|yml|yaml|toml|ini|cfg|conf|env|sh|bash|zsh|fish|sql|log|diff|patch|dockerfile|makefile|mk)$/i;
       const CHAT_ATTACH_TEXT_NAMES_RE = /^(makefile|dockerfile|readme|license|notice|changelog|gemfile|rakefile|procfile)$/i;
+      const DESIGN_GALLERY_PRESETS = [
+        {
+          id: 'mythic-naturecore',
+          title: 'Mythic Naturecore - Reverie',
+          thumb: 'nature',
+          tags: ['Hero', 'Nature', 'Immersive'],
+          desc: 'A cinematic landing page with an organic world, layered depth and premium editorial navigation.',
+          prompt: 'Design a premium mythic naturecore landing page called Reverie. Use a full-bleed hero with an ancient moss-covered stone arch, cinematic forest depth, soft sun shafts, compact editorial navigation, glassy reel cards, a clear primary call to action, and a responsive mobile layout. Ask 2 concise questions first if the audience, product or content hierarchy is unclear.'
+        },
+        {
+          id: 'dreamcore-portal',
+          title: 'Dreamcore Landing - Portal Hero',
+          thumb: 'dream',
+          tags: ['Landing', 'Parallax', 'Fantasy'],
+          desc: 'A surreal portal hero with crystal texture, soft depth and a polished visual system.',
+          prompt: 'Design a modern dreamcore landing page with a parallax portal hero, crystalline cave textures, soft clouds beyond the opening, layered foreground depth, elegant serif display type, small navigation, reel-style micro cards, and refined scroll sections. Keep it premium rather than playful. Ask 2 concise questions first if brand tone or content priorities are missing.'
+        },
+        {
+          id: 'private-jets',
+          title: 'SkyElite Private Jets',
+          thumb: 'jet',
+          tags: ['Luxury', 'Booking', 'Travel'],
+          desc: 'A clean private aviation page focused on trust, access, pricing cues and conversion.',
+          prompt: 'Design a premium private jet booking landing page for SkyElite. Use a bright spacious hero, a large realistic jet composition, minimal navigation, concise value proposition, booking and discovery calls to action, rate cards, safety and service benefits, FAQ, and mobile-first responsive spacing. Keep the tone accessible luxury. Ask 2 concise questions first if the booking flow or audience segment is unclear.'
+        },
+        {
+          id: 'layered-architecture',
+          title: 'Layered Depth - Qelora Studio',
+          thumb: 'arch',
+          tags: ['Portfolio', 'Architecture', 'Editorial'],
+          desc: 'A restrained studio portfolio with oversized typography and tactile material detail.',
+          prompt: 'Design an architecture studio portfolio for Qelora with layered depth, oversized typography, calm neutral surfaces, material closeups, project navigation, studio story, responsibility section, archive filters, and responsive project cards. Make the interface sophisticated and quiet, with strong whitespace and subtle motion states. Ask 2 concise questions first if project categories or brand positioning are missing.'
+        },
+        {
+          id: 'botanical-luxury',
+          title: 'Luxury Botanical - Collection',
+          thumb: 'botanical',
+          tags: ['Product', 'Commerce', 'Botanical'],
+          desc: 'A refined product launch with warm botanical staging and premium commerce actions.',
+          prompt: 'Design a luxury botanical product landing page for a fragrance collection. Use a warm hero with product bottle focus, moss and floral styling, elegant editorial type, shop call to action, collection cards, scent notes, ingredient story, reviews, and responsive commerce sections. Keep the design high-end, organized and easy to browse. Ask 2 concise questions first if product details or target market are missing.'
+        },
+        {
+          id: 'aerocore-engine',
+          title: 'AeroCore - Aerospace Engine Landing',
+          thumb: 'aero',
+          tags: ['B2B', 'Aerospace', 'Technical'],
+          desc: 'A cinematic technical landing page balancing hardware drama and enterprise credibility.',
+          prompt: 'Design a cinematic aerospace engine technology landing page for AeroCore. Use a full-bleed turbine or engine hero, technical navigation, oversized restrained typography, capability sections, performance metrics, investor and engineering trust signals, team/news links, and responsive layouts for desktop and mobile. Keep it polished, credible and product-led. Ask 2 concise questions first if the product scope or audience is unclear.'
+        },
+      ];
 
       function mount() {
         const form = qs('#composer-form');
@@ -10748,6 +11216,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
         cbarRight = qs('#cbar-right');
         gsaTargetPanel = qs('#gsa-target-panel');
         gsaTargetInput = qs('#gsa-target-url');
+        designGalleryDialog = qs('#design-gallery-dialog');
+        designGalleryGrid = qs('#design-gallery-grid');
+        designGalleryCount = qs('#design-gallery-count');
         gsaToolsDialog = qs('#gsa-tools-dialog');
         gsaToolsDialogGrid = qs('#gsa-tools-dialog-grid');
         gsaToolsDialogSummary = qs('#gsa-tools-dialog-summary');
@@ -10760,6 +11231,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
           on(qs('#gsa-tools-recheck'), 'click', (e) => { e.preventDefault(); loadGsaTools(true); });
           on(qs('#gsa-tools-install'), 'click', (e) => { e.preventDefault(); installGsaTools(); });
           on(gsaToolsDialog, 'click', (e) => { if (e.target === gsaToolsDialog) gsaToolsDialog.close(); });
+        }
+        if (designGalleryDialog) {
+          on(qs('#design-gallery-close'), 'click', () => designGalleryDialog.close());
+          on(designGalleryDialog, 'click', (e) => { if (e.target === designGalleryDialog) designGalleryDialog.close(); });
         }
         on(cbarAttach, 'click', (e) => {
           if (curMode === 'design') {
@@ -11604,6 +12079,73 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return true;
       }
 
+      function buildDesignGalleryThumb(preset) {
+        const kind = preset?.thumb || 'nature';
+        const thumb = el('div', { class: `design-gallery-thumb design-gallery-thumb--${kind}`, 'aria-hidden': 'true' });
+        thumb.append(
+          el('span', { class: 'design-gallery-thumb__nav' }),
+          el('span', { class: 'design-gallery-thumb__title' }),
+          el('span', { class: 'design-gallery-thumb__copy' }),
+          el('span', { class: 'design-gallery-thumb__pill' }),
+        );
+        if (['jet', 'arch', 'botanical', 'aero'].includes(kind)) {
+          thumb.append(el('span', { class: 'design-gallery-thumb__object' }));
+        }
+        return thumb;
+      }
+
+      function applyDesignGalleryPreset(preset, start = false) {
+        if (!input || !preset?.prompt) return;
+        input.value = preset.prompt;
+        autogrow();
+        closeSlash();
+        if (designGalleryDialog?.open) designGalleryDialog.close();
+        focusComposerInput();
+        try { input.setSelectionRange(input.value.length, input.value.length); } catch {}
+        toast(`${start ? 'Starting' : 'Loaded'} ${preset.title}.`, 'info');
+        if (start) requestAnimationFrame(() => submit());
+      }
+
+      function renderDesignGallery() {
+        if (!designGalleryGrid) return;
+        if (designGalleryCount) designGalleryCount.textContent = `${DESIGN_GALLERY_PRESETS.length} presets`;
+        designGalleryGrid.replaceChildren(...DESIGN_GALLERY_PRESETS.map((preset) => {
+          const useBtn = el('button', { class: 'btn', type: 'button', text: 'Use brief' });
+          const startBtn = el('button', { class: 'btn btn--primary', type: 'button', text: 'Start' });
+          on(useBtn, 'click', (e) => {
+            e.preventDefault();
+            applyDesignGalleryPreset(preset, false);
+          });
+          on(startBtn, 'click', (e) => {
+            e.preventDefault();
+            applyDesignGalleryPreset(preset, true);
+          });
+          return el('article', { class: 'design-gallery-card' }, [
+            el('div', { class: 'design-gallery-card__head' }, [
+              el('span', { class: 'design-gallery-card__dot', 'aria-hidden': 'true' }),
+              el('span', { class: 'design-gallery-card__title', text: preset.title }),
+            ]),
+            buildDesignGalleryThumb(preset),
+            el('div', { class: 'design-gallery-card__body' }, [
+              el('div', { class: 'design-gallery-card__meta' }, (preset.tags || []).map((tag) => el('span', { class: 'design-gallery-tag', text: tag }))),
+              el('p', { class: 'design-gallery-card__desc', text: preset.desc }),
+            ]),
+            el('div', { class: 'design-gallery-card__actions' }, [useBtn, startBtn]),
+          ]);
+        }));
+      }
+
+      function openDesignGallery() {
+        if (!designGalleryDialog) return;
+        closeGear();
+        renderDesignGallery();
+        requestAnimationFrame(() => {
+          if (!designGalleryDialog?.open) {
+            try { designGalleryDialog.showModal(); } catch { designGalleryDialog.show(); }
+          }
+        });
+      }
+
       function renderGsaToolsPanel() {
         if (gsaToolCache === null && !gsaToolLoading) loadGsaTools();
         const box = el('div', { class: 'gsa-tools' });
@@ -11919,6 +12461,20 @@ Your report must be precise, of high-quality, and written by an expert using an 
         }
 
         if (curMode === 'design') {
+          const galleryBtn = el('button', {
+            class: 'cbar-pop-wd design-gallery-open',
+            type: 'button',
+            title: 'Design gallery - browse visual starting points',
+            'aria-label': 'Open design gallery',
+          });
+          galleryBtn.innerHTML = iconSvg('spark', 13);
+          galleryBtn.append(el('span', { text: 'Gallery' }));
+          on(galleryBtn, 'click', (e) => {
+            e.stopPropagation();
+            openDesignGallery();
+          });
+          cbarPop.append(galleryBtn);
+
           const dsItems = [{ value: '', lead: 'Default', sub: 'No brand system' }];
           if (dsCache === null) loadDs();
           else (dsCache || []).forEach((s) => dsItems.push({ value: s.id, lead: s.name || s.id, sub: cdTrunc(s.description) }));
@@ -12209,7 +12765,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (host) { if (host._keyh) { document.removeEventListener('keydown', host._keyh); host._keyh = null; } host.replaceChildren(); host.hidden = true; }
       }
 
-      return { mount, setMode, setAgentBusy, setQuestionMode, invalidateUserSkills, showBuildAsk, showPlanActions, hideBuildAsk, onAgentTurnIdle, stopGsaLoop, currentGsaPhase };
+      return { mount, setMode, setAgentBusy, setQuestionMode, invalidateUserSkills, openDesignGallery, showBuildAsk, showPlanActions, hideBuildAsk, onAgentTurnIdle, stopGsaLoop, currentGsaPhase };
     })();
 
     /* ==================== UI: settings ==================== */
@@ -15029,10 +15585,15 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const wrap = el('div', { class: 'brief' });
         const h = el('h1');
         h.innerHTML = 'What should we <em>design?</em>';
+        const gallery = el('button', { class: 'btn brief-gallery', type: 'button' });
+        gallery.innerHTML = iconSvg('spark', 14);
+        gallery.append(el('span', { text: 'Open gallery' }));
+        on(gallery, 'click', () => Composer.openDesignGallery?.());
         wrap.append(
           el('div', { class: 'brief-eyebrow', text: 'Design mode' }),
           h,
           el('p', { class: 'sub', text: 'Describe a screen or a flow. I will ask a couple of questions, then propose a few directions you can compare side by side on the canvas.' }),
+          el('div', { class: 'brief-actions' }, [gallery]),
         );
         requestAnimationFrame(() => focusComposerInput());
         return wrap;
