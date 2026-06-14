@@ -1,0 +1,3 @@
+case=reverse-engineering-easy-03-protocol-decoder
+legacy_flag_seen=true
+trace_coverage=direct

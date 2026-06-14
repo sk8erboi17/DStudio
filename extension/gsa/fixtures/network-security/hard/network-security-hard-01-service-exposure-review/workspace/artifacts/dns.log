@@ -1,0 +1,2 @@
+2026-05-08T12:00:05Z client=10.21.0.15 query=service-exposure-review.corp.test type=A response=192.0.2.21
+2026-05-08T12:03:00Z client=10.21.0.99 query=legacy-service-exposure-review.corp.test type=A response=203.0.113.21

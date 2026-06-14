@@ -1,0 +1,4 @@
+rule_id,src,dst,port,action
+base-allow,10.0.0.0/8,192.0.2.0/24,443,allow
+admin-deny,198.51.100.0/24,10.0.0.0/8,22,deny
+admin-window,198.51.100.0/24,10.24.0.22/32,22,allow

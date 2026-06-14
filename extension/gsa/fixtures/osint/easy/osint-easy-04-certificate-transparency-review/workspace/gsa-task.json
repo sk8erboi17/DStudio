@@ -1,0 +1,21 @@
+{
+  "id": "osint-easy-04-certificate-transparency-review",
+  "category": "osint",
+  "difficulty": "easy",
+  "title": "Certificate transparency review",
+  "engagement_type": "authorized-local-source-review",
+  "artifact_theme": "certificate records",
+  "allowed_actions": {
+    "read_workspace_files": true,
+    "create_python_scripts_in_scripts_dir": true,
+    "write_reports_in_reports_dir": true,
+    "contact_external_hosts": false,
+    "run_external_security_tools": false,
+    "execute_exploit_payloads": false
+  },
+  "work_style": {
+    "noise": "low",
+    "minimum_confidence_to_report": "high",
+    "if_uncertain": "state uncertainty and list missing evidence"
+  }
+}

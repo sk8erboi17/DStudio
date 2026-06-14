@@ -1,0 +1,3 @@
+case=pwn-impossible-04-integer-boundary-review
+queue_entries=8
+repro_status=missing-original-input

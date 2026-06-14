@@ -1,0 +1,7 @@
+case_id=forensics-medium-01-auth-timeline-review
+host=auth-timeline-review.harbor-01.corp.test
+noise=medium
+record_count=28
+operator_note=Correlate records across files before reporting an issue.
+primary_observation=authentication logs contains an inconsistency that requires correlation
+control_status=partially_enforced

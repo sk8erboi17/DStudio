@@ -1,0 +1,7 @@
+{
+  "service": "signal-04-certificate-transparency-review",
+  "environment": "local-review",
+  "data_classification": "sanitized",
+  "external_network_allowed": false,
+  "generated_case": "osint-easy-04-certificate-transparency-review"
+}

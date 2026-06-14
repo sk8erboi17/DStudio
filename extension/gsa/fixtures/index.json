@@ -1,0 +1,114 @@
+[
+  {
+    "id": "crypto-easy-01-jwt-boundary-review",
+    "category": "crypto",
+    "difficulty": "easy",
+    "title": "JWT trust boundary review",
+    "workspace": "extension/gsa/fixtures/crypto/easy/crypto-easy-01-jwt-boundary-review/workspace"
+  },
+  {
+    "id": "crypto-medium-05-signature-canonicalization",
+    "category": "crypto",
+    "difficulty": "medium",
+    "title": "Signature canonicalization review",
+    "workspace": "extension/gsa/fixtures/crypto/medium/crypto-medium-05-signature-canonicalization/workspace"
+  },
+  {
+    "id": "web-hard-01-api-access-boundary",
+    "category": "web",
+    "difficulty": "hard",
+    "title": "API access boundary review",
+    "workspace": "extension/gsa/fixtures/web/hard/web-hard-01-api-access-boundary/workspace"
+  },
+  {
+    "id": "web-impossible-11-ssrf-boundary-review",
+    "category": "web",
+    "difficulty": "impossible",
+    "title": "Server-side fetch boundary review",
+    "workspace": "extension/gsa/fixtures/web/impossible/web-impossible-11-ssrf-boundary-review/workspace"
+  },
+  {
+    "id": "reverse-engineering-easy-03-protocol-decoder",
+    "category": "reverse-engineering",
+    "difficulty": "easy",
+    "title": "Protocol decoder review",
+    "workspace": "extension/gsa/fixtures/reverse-engineering/easy/reverse-engineering-easy-03-protocol-decoder/workspace"
+  },
+  {
+    "id": "reverse-engineering-hard-04-update-package-verifier",
+    "category": "reverse-engineering",
+    "difficulty": "hard",
+    "title": "Update package verifier review",
+    "workspace": "extension/gsa/fixtures/reverse-engineering/hard/reverse-engineering-hard-04-update-package-verifier/workspace"
+  },
+  {
+    "id": "forensics-medium-01-auth-timeline-review",
+    "category": "forensics",
+    "difficulty": "medium",
+    "title": "Authentication timeline review",
+    "workspace": "extension/gsa/fixtures/forensics/medium/forensics-medium-01-auth-timeline-review/workspace"
+  },
+  {
+    "id": "forensics-impossible-04-cloud-audit-review",
+    "category": "forensics",
+    "difficulty": "impossible",
+    "title": "Cloud audit review",
+    "workspace": "extension/gsa/fixtures/forensics/impossible/forensics-impossible-04-cloud-audit-review/workspace"
+  },
+  {
+    "id": "osint-easy-04-certificate-transparency-review",
+    "category": "osint",
+    "difficulty": "easy",
+    "title": "Certificate transparency review",
+    "workspace": "extension/gsa/fixtures/osint/easy/osint-easy-04-certificate-transparency-review/workspace"
+  },
+  {
+    "id": "osint-impossible-03-repository-exposure-review",
+    "category": "osint",
+    "difficulty": "impossible",
+    "title": "Repository exposure review",
+    "workspace": "extension/gsa/fixtures/osint/impossible/osint-impossible-03-repository-exposure-review/workspace"
+  },
+  {
+    "id": "network-security-medium-02-dns-egress-review",
+    "category": "network-security",
+    "difficulty": "medium",
+    "title": "DNS egress review",
+    "workspace": "extension/gsa/fixtures/network-security/medium/network-security-medium-02-dns-egress-review/workspace"
+  },
+  {
+    "id": "network-security-hard-01-service-exposure-review",
+    "category": "network-security",
+    "difficulty": "hard",
+    "title": "Service exposure review",
+    "workspace": "extension/gsa/fixtures/network-security/hard/network-security-hard-01-service-exposure-review/workspace"
+  },
+  {
+    "id": "malware-analysis-easy-01-powershell-triage",
+    "category": "malware-analysis",
+    "difficulty": "easy",
+    "title": "PowerShell triage",
+    "workspace": "extension/gsa/fixtures/malware-analysis/easy/malware-analysis-easy-01-powershell-triage/workspace"
+  },
+  {
+    "id": "malware-analysis-medium-04-macro-document-review",
+    "category": "malware-analysis",
+    "difficulty": "medium",
+    "title": "Macro document review",
+    "workspace": "extension/gsa/fixtures/malware-analysis/medium/malware-analysis-medium-04-macro-document-review/workspace"
+  },
+  {
+    "id": "pwn-hard-01-stack-parser-review",
+    "category": "pwn",
+    "difficulty": "hard",
+    "title": "Stack parser review",
+    "workspace": "extension/gsa/fixtures/pwn/hard/pwn-hard-01-stack-parser-review/workspace"
+  },
+  {
+    "id": "pwn-impossible-04-integer-boundary-review",
+    "category": "pwn",
+    "difficulty": "impossible",
+    "title": "Integer boundary review",
+    "workspace": "extension/gsa/fixtures/pwn/impossible/pwn-impossible-04-integer-boundary-review/workspace"
+  }
+]

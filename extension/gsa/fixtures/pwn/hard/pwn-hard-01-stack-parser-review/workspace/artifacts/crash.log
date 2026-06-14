@@ -1,0 +1,6 @@
+case=pwn-hard-01-stack-parser-review
+signal=SIGSEGV
+pc=0x41414141
+input_len=512
+reproducible=true
+mitigations=pie,nx,canary,full-relro

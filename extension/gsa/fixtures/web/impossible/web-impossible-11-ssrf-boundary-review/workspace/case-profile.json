@@ -1,0 +1,17 @@
+{
+  "id": "web-impossible-11-ssrf-boundary-review",
+  "category": "web",
+  "difficulty": "impossible",
+  "benchmark_version": "curated-v1",
+  "source_review": true,
+  "local_only": true,
+  "external_tools_allowed": false,
+  "report_destination": "reports/",
+  "scratch_scripts_destination": "scripts/",
+  "codebase_profile": {
+    "subsystem": "multi-tenant API service",
+    "primary_language": "TypeScript",
+    "architecture_note": "docs/architecture.md",
+    "operator_change_log": "docs/change-log.md"
+  }
+}

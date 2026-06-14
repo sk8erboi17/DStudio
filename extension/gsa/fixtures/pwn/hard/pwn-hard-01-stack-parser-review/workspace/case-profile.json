@@ -1,0 +1,17 @@
+{
+  "id": "pwn-hard-01-stack-parser-review",
+  "category": "pwn",
+  "difficulty": "hard",
+  "benchmark_version": "curated-v1",
+  "source_review": true,
+  "local_only": true,
+  "external_tools_allowed": false,
+  "report_destination": "reports/",
+  "scratch_scripts_destination": "scripts/",
+  "codebase_profile": {
+    "subsystem": "local protocol parser",
+    "primary_language": "C",
+    "architecture_note": "docs/architecture.md",
+    "operator_change_log": "docs/change-log.md"
+  }
+}

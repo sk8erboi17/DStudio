@@ -1,0 +1,17 @@
+{
+  "id": "reverse-engineering-easy-03-protocol-decoder",
+  "category": "reverse-engineering",
+  "difficulty": "easy",
+  "benchmark_version": "curated-v1",
+  "source_review": true,
+  "local_only": true,
+  "external_tools_allowed": false,
+  "report_destination": "reports/",
+  "scratch_scripts_destination": "scripts/",
+  "codebase_profile": {
+    "subsystem": "firmware record verification service",
+    "primary_language": "C",
+    "architecture_note": "docs/architecture.md",
+    "operator_change_log": "docs/change-log.md"
+  }
+}

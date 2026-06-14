@@ -1,0 +1,16 @@
+Case: osint-easy-04-certificate-transparency-review
+Organization: Signal-04 Labs
+Assessment type: OSINT local artifact review
+Primary theme: certificate records
+Difficulty: easy
+
+Authorized local identifiers:
+- target_domain: signal-04.corp.test
+- documentation_domain: docs.signal-04.test
+- reference_network: 192.0.2.24/32
+- internal_network: 10.24.0.0/24
+
+Boundary:
+- Use only the supplied artifacts.
+- Replace placeholders only when adapting this workspace to a real authorized engagement.
+- Do not perform live network activity from this fixture.

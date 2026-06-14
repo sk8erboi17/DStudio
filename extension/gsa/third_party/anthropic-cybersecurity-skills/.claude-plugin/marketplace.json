@@ -1,0 +1,37 @@
+{
+  "name": "anthropic-cybersecurity-skills",
+  "owner": {
+    "name": "mukul975",
+    "email": "mukuljangra5@gmail.com"
+  },
+  "metadata": {
+    "description": "754 cybersecurity skills for AI agents mapped to 5 frameworks: MITRE ATT&CK, NIST CSF 2.0, MITRE ATLAS, D3FEND, and NIST AI RMF.",
+    "version": "1.2.0"
+  },
+  "plugins": [
+    {
+      "name": "cybersecurity-skills",
+      "source": "./",
+      "description": "754 cybersecurity skills covering web security, pentesting, DFIR, threat intelligence, cloud security, malware analysis, and more. Mapped to 5 frameworks.",
+      "version": "1.2.0",
+      "author": {
+        "name": "mukul975"
+      },
+      "license": "Apache-2.0",
+      "keywords": [
+        "cybersecurity",
+        "pentesting",
+        "forensics",
+        "threat-intelligence",
+        "cloud-security",
+        "malware-analysis",
+        "incident-response",
+        "zero-trust",
+        "devsecops"
+      ],
+      "category": "security",
+      "homepage": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills",
+      "repository": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills"
+    }
+  ]
+}

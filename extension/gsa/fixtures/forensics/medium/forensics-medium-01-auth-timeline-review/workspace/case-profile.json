@@ -1,0 +1,17 @@
+{
+  "id": "forensics-medium-01-auth-timeline-review",
+  "category": "forensics",
+  "difficulty": "medium",
+  "benchmark_version": "curated-v1",
+  "source_review": true,
+  "local_only": true,
+  "external_tools_allowed": false,
+  "report_destination": "reports/",
+  "scratch_scripts_destination": "scripts/",
+  "codebase_profile": {
+    "subsystem": "incident timeline correlation pipeline",
+    "primary_language": "Python",
+    "architecture_note": "docs/architecture.md",
+    "operator_change_log": "docs/change-log.md"
+  }
+}

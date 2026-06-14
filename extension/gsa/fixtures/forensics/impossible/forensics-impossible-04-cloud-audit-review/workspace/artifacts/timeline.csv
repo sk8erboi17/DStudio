@@ -1,0 +1,5 @@
+timestamp,source,event,user,host,detail
+2026-05-11T08:00:01Z,idp,login_success,user4,workstation-07,normal location
+2026-05-11T08:05:11Z,endpoint,process_start,user4,workstation-07,editor opened local document
+2026-05-11T08:19:33Z,file,read,user4,share-02,quarterly-report-q2.xlsx
+2026-05-11T08:21:04Z,idp,record_missing,unknown,admin-console,redacted ticket reference

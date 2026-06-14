@@ -1,0 +1,3 @@
+case=reverse-engineering-hard-04-update-package-verifier
+legacy_flag_seen=mixed
+trace_coverage=partial

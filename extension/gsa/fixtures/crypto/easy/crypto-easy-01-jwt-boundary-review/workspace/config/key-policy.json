@@ -1,0 +1,6 @@
+{
+  "rotation_days": 90,
+  "nonce_size_bytes": 12,
+  "detached_tag": true,
+  "key_material_in_repo": false
+}

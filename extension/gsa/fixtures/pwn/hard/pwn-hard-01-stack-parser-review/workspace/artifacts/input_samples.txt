@@ -1,0 +1,3 @@
+normal: LOGIN alice 32
+edge: LOGIN aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 256
+crash: REDACTED_LONG_PATTERN

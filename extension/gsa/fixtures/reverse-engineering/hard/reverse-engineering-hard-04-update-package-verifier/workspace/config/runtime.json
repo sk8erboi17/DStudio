@@ -1,0 +1,7 @@
+{
+  "service": "vector-04-update-package-verifier",
+  "environment": "local-review",
+  "data_classification": "sanitized",
+  "external_network_allowed": false,
+  "generated_case": "reverse-engineering-hard-04-update-package-verifier"
+}

@@ -18,6 +18,9 @@ dev.ds4.DStudio.desktop
 # Engine log (generated at runtime in the ds4 dir, but ignored just in case)
 ds4-server.log
 linux-smoke.log
+*.log.gz
+Worker_*_log2timeline-*.log.gz
+log2timeline-*.log.gz
 core
 core.*
 
@@ -31,3 +34,30 @@ core.*
 # Design agent workspace/mockup (not source)
 ds4-design/
 *.app/
+
+# Local package/test caches and generated scratch state
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.dstudio/
+MEMORY.MD
+
+# Generated benchmark runs and local evaluation output
+benchmark/
+extension/gsa/benchmark/
+extension/gsa/artifacts/bench/
+
+# GSA managed tool downloads/installers generated locally
+extension/gsa/tools/bin/*
+!extension/gsa/tools/bin/.gitkeep
+extension/gsa/tools/go/
+extension/gsa/tools/pipx/
+extension/gsa/tools/python/
+extension/gsa/tools/cargo/
+extension/gsa/tools/smoke/
+extension/gsa/tools/install-gsa-tools.sh
+extension/gsa/tools/install-gsa-tools.ps1
+extension/gsa/tools/.crates*

@@ -1,0 +1,5 @@
+{
+  "stale_after_days": 180,
+  "independent_sources_required": 2,
+  "allow_alias_merge": true
+}

@@ -1,0 +1,3 @@
+compiler=gcc
+flags=-O0
+target=local-review-only

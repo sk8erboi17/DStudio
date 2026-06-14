@@ -1,0 +1,7 @@
+{
+  "service": "northstar-11-ssrf-boundary-review",
+  "environment": "local-review",
+  "data_classification": "sanitized",
+  "external_network_allowed": false,
+  "generated_case": "web-impossible-11-ssrf-boundary-review"
+}

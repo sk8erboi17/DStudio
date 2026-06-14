@@ -1,0 +1,3 @@
+normal: LOGIN alice 32
+edge: LOGIN aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 256
+missing: original crashing sample was not preserved

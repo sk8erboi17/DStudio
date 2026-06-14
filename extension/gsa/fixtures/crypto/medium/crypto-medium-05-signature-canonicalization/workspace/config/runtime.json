@@ -1,0 +1,7 @@
+{
+  "service": "keystone-05-signature-canonicalization",
+  "environment": "local-review",
+  "data_classification": "sanitized",
+  "external_network_allowed": false,
+  "generated_case": "crypto-medium-05-signature-canonicalization"
+}

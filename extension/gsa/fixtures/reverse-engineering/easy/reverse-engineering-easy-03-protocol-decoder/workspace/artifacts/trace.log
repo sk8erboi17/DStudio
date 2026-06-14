@@ -1,0 +1,4 @@
+run=reverse-engineering-easy-03-protocol-decoder
+parse_header -> validate_record -> apply_record
+single trace available
+authorization branch observed

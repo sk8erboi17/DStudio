@@ -31,20 +31,101 @@ static char *ds4ui_read_file_buf_limit(const char *path, size_t cap, int *trunca
     fclose(f);
     return agent_buf_take(&b);
 }
+static int ds4ui_line_has_prefix(const char *line, size_t len, const char *prefix) {
+    size_t n = strlen(prefix);
+    return len >= n && !strncmp(line, prefix, n);
+}
+static void ds4ui_trim_line(const char **line, size_t *len) {
+    while (*len && isspace((unsigned char)**line)) { (*line)++; (*len)--; }
+    while (*len && isspace((unsigned char)(*line)[*len - 1])) (*len)--;
+}
+static void ds4ui_put_line(agent_buf *b, const char *line, size_t len) {
+    agent_buf_append(b, line, len);
+    agent_buf_puts(b, "\n");
+}
+static char *ds4ui_read_cyber_skill_brief(const char *path, const char *name) {
+    int source_truncated = 0;
+    char *body = ds4ui_read_file_buf_limit(path, 96 * 1024, &source_truncated);
+    if (!body) return NULL;
+    agent_buf out = {0};
+    agent_buf_puts(&out, "[ds4-agent cyber skill brief: ");
+    agent_buf_puts(&out, name ? name : "(unknown)");
+    agent_buf_puts(&out, "]\n");
+    agent_buf_puts(&out, "This is a compact checklist view; long examples, tool catalogs and output templates are intentionally omitted.\n\n");
+    int in_code = 0, frontmatter_marks = 0, last_blank = 0, stopped = 0;
+    const char *p = body;
+    while (*p && out.len < 8192) {
+        const char *e = strchr(p, '\n');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        const char *line = p;
+        size_t tlen = len;
+        ds4ui_trim_line(&line, &tlen);
+        if (tlen && line[tlen - 1] == '\r') tlen--;
+        if (ds4ui_line_has_prefix(line, tlen, "```")) {
+            in_code = !in_code;
+            p = e ? e + 1 : p + len;
+            continue;
+        }
+        if (!in_code) {
+            if (ds4ui_line_has_prefix(line, tlen, "## Common Scenarios") ||
+                ds4ui_line_has_prefix(line, tlen, "## Output Format") ||
+                ds4ui_line_has_prefix(line, tlen, "## Tools & Systems") ||
+                ds4ui_line_has_prefix(line, tlen, "### Scenario"))
+            {
+                stopped = 1;
+                break;
+            }
+            int include = 0;
+            if (ds4ui_line_has_prefix(line, tlen, "---")) {
+                include = frontmatter_marks < 2;
+                frontmatter_marks++;
+            } else if (frontmatter_marks < 2) {
+                include = 1;
+            } else if (tlen == 0) {
+                include = !last_blank;
+            } else if (line[0] == '#') {
+                include = 1;
+            } else if (ds4ui_line_has_prefix(line, tlen, "- ") ||
+                       ds4ui_line_has_prefix(line, tlen, "* ") ||
+                       ds4ui_line_has_prefix(line, tlen, "> ")) {
+                include = 1;
+            } else if (tlen < 220 &&
+                       (strstr(line, "authorization") || strstr(line, "Authorization") ||
+                        strstr(line, "Do not use") || strstr(line, "workflow") ||
+                        strstr(line, "checklist"))) {
+                include = 1;
+            }
+            if (include) {
+                ds4ui_put_line(&out, line, tlen);
+                last_blank = (tlen == 0);
+            }
+        }
+        p = e ? e + 1 : p + len;
+    }
+    if (stopped || source_truncated || *p) {
+        agent_buf_puts(&out, "\n[Truncated to compact cyber skill brief. Use concrete workspace evidence; do not copy generic examples.]\n");
+    }
+    free(body);
+    return agent_buf_take(&out);
+}
 static int ds4ui_pack_file_ext_ok(const char *rel) {
     const char *dot = strrchr(rel, '.');
     if (!dot) return 0;
     return !strcmp(dot, ".md") || !strcmp(dot, ".html") ||
            !strcmp(dot, ".css") || !strcmp(dot, ".js") ||
            !strcmp(dot, ".json") || !strcmp(dot, ".svg") ||
-           !strcmp(dot, ".txt") || !strcmp(dot, ".csv");
+           !strcmp(dot, ".txt") || !strcmp(dot, ".csv") ||
+           !strcmp(dot, ".py") || !strcmp(dot, ".sh") ||
+           !strcmp(dot, ".yaml") || !strcmp(dot, ".yml") ||
+           !strcmp(dot, ".toml");
 }
 static int ds4ui_pack_file_rel_ok(const char *rel, char *err, size_t errsz) {
     if (!rel || !rel[0]) { snprintf(err, errsz, "pack_file path is required"); return 0; }
     if (rel[0] == '/' || rel[0] == '~') { snprintf(err, errsz, "pack_file path must be relative"); return 0; }
     if (strlen(rel) > 512) { snprintf(err, errsz, "pack_file path too long"); return 0; }
-    if (strcmp(rel, "example.html") && strncmp(rel, "assets/", 7) && strncmp(rel, "references/", 11)) {
-        snprintf(err, errsz, "pack_file path must be example.html, assets/*, or references/*"); return 0;
+    if (strcmp(rel, "example.html") && strncmp(rel, "assets/", 7) &&
+        strncmp(rel, "references/", 11) && strncmp(rel, "scripts/", 8)) {
+        snprintf(err, errsz, "pack_file path must be example.html, assets/*, references/*, or scripts/*"); return 0;
     }
     if (!ds4ui_pack_file_ext_ok(rel)) { snprintf(err, errsz, "pack_file extension is not allowed"); return 0; }
     const char *seg = rel;
@@ -65,7 +146,7 @@ static int ds4ui_pack_file_rel_ok(const char *rel, char *err, size_t errsz) {
     return 1;
 }
 static size_t ds4ui_pack_file_cap(const char *rel) {
-    if (!strcmp(rel, "example.html") || !strncmp(rel, "assets/", 7)) return 96 * 1024;
+    if (!strcmp(rel, "example.html") || !strncmp(rel, "assets/", 7) || !strncmp(rel, "scripts/", 8)) return 96 * 1024;
     return 32 * 1024;
 }
 static const char *ds4ui_pack_type_subdir(const char *type, int *allow_user) {
@@ -104,6 +185,10 @@ static char *ds4ui_load_pack(const agent_tool_call *call, const char *subdir, co
         const char *root = getenv("DS4UI_SKILLS_DIR");
         if (root && root[0]) { snprintf(path, sizeof path, "%s/%s/%s/%s", root, subdir, name, file); body = ds4ui_read_file_buf(path); }
     }
+    if (!body && !strcmp(subdir, "skills")) {
+        const char *root = getenv("DS4UI_CYBER_SKILLS_DIR");
+        if (root && root[0]) { snprintf(path, sizeof path, "%s/%s/%s", root, name, file); body = ds4ui_read_cyber_skill_brief(path, name); }
+    }
     if (!body) return xstrdup("Tool error: no such pack (see the catalog in the system context)\n");
     return body;
 }
@@ -128,6 +213,10 @@ static char *ds4ui_tool_pack_file(const agent_tool_call *call) {
     if (!found) {
         const char *root = getenv("DS4UI_SKILLS_DIR");
         if (root && root[0]) { snprintf(pack_root, sizeof(pack_root), "%s/%s/%s", root, subdir, name); found = ds4ui_pack_resolve_existing_file(pack_root, rel, full, sizeof(full), err, sizeof(err)); }
+    }
+    if (!found && !strcmp(subdir, "skills")) {
+        const char *root = getenv("DS4UI_CYBER_SKILLS_DIR");
+        if (root && root[0]) { snprintf(pack_root, sizeof(pack_root), "%s/%s", root, name); found = ds4ui_pack_resolve_existing_file(pack_root, rel, full, sizeof(full), err, sizeof(err)); }
     }
     if (!found) { agent_buf e = {0}; agent_buf_puts(&e, "Tool error: "); agent_buf_puts(&e, err[0] ? err : "pack_file not found"); agent_buf_puts(&e, "\n"); return agent_buf_take(&e); }
     int truncated = 0;

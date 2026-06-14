@@ -1,0 +1,7 @@
+{
+  "service": "northstar-01-api-access-boundary",
+  "environment": "local-review",
+  "data_classification": "sanitized",
+  "external_network_allowed": false,
+  "generated_case": "web-hard-01-api-access-boundary"
+}

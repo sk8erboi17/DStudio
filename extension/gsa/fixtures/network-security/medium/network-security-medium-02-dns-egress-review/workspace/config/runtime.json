@@ -1,0 +1,7 @@
+{
+  "service": "metro-02-dns-egress-review",
+  "environment": "local-review",
+  "data_classification": "sanitized",
+  "external_network_allowed": false,
+  "generated_case": "network-security-medium-02-dns-egress-review"
+}

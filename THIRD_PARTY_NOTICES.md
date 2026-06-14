@@ -41,3 +41,38 @@ Agent-mode frontmatter, `ds4_*` metadata, category grouping, local catalog
 fields, and by renaming upstream `pricing` to `pricing-strategy` to avoid a
 collision with DStudio's design-mode pricing page skill. Modified imported
 files carry a `ds4_modified_notice` frontmatter field.
+
+## Anthropic Cybersecurity Skills
+
+DStudio includes a vendored copy of `mukul975/Anthropic-Cybersecurity-Skills`
+under the Apache License 2.0.
+
+- Source: https://github.com/mukul975/Anthropic-Cybersecurity-Skills
+- Imported from commit: `04450304b12645cb2b974ab96d28c0664758a88d`
+- License: Apache License 2.0
+- Local license copy: `extension/gsa/third_party/anthropic-cybersecurity-skills/LICENSE`
+- Imported location:
+  - `extension/gsa/third_party/anthropic-cybersecurity-skills/`
+
+The upstream skill files are kept unmodified. DStudio indexes and loads them as
+external skills from the vendored directory, preserving upstream attribution and
+license files in place.
+
+## Optional GSA Recon Tools
+
+DStudio can install the following command-line tools into the user's local app
+data directory for GSA runs. The binaries are not vendored or committed in this
+repository; they are installed locally on demand by the user.
+
+- `subfinder`
+  - Source: https://github.com/projectdiscovery/subfinder
+  - License: MIT
+- `httpx`
+  - Source: https://github.com/projectdiscovery/httpx
+  - License: MIT
+- `nuclei`
+  - Source: https://github.com/projectdiscovery/nuclei
+  - License: MIT
+- `assetfinder`
+  - Source: https://github.com/tomnomnom/assetfinder
+  - License: MIT

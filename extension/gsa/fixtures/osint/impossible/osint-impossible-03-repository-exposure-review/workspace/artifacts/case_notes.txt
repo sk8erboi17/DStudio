@@ -1,0 +1,7 @@
+case_id=osint-impossible-03-repository-exposure-review
+host=repository-exposure-review.signal-03.corp.test
+noise=contradictory
+record_count=21
+operator_note=Do not force a conclusion. State what evidence is missing.
+primary_observation=records disagree and decisive validation material is absent
+control_status=unknown

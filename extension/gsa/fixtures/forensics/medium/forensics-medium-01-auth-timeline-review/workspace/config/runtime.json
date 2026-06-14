@@ -1,0 +1,7 @@
+{
+  "service": "harbor-01-auth-timeline-review",
+  "environment": "local-review",
+  "data_classification": "sanitized",
+  "external_network_allowed": false,
+  "generated_case": "forensics-medium-01-auth-timeline-review"
+}

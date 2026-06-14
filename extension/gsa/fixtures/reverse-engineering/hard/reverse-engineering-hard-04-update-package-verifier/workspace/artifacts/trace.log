@@ -1,0 +1,4 @@
+run=reverse-engineering-hard-04-update-package-verifier
+parse_header -> validate_record -> apply_record
+parse_header -> validate_record -> reject_record
+authorization branch observed

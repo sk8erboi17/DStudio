@@ -1,0 +1,7 @@
+build_id=reverse-engineering-easy-03-protocol-decoder
+module=protocol-decoder
+error: invalid record length
+state=paired
+state=unauthorized
+debug: accepting fallback parser path
+legacy_mode_not_observed

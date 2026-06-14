@@ -1,0 +1,10 @@
+{
+  "component": "jwt-boundary-review",
+  "key_ids_seen": [
+    "k-2026-04",
+    "k-2026-05"
+  ],
+  "rotation_window_days": 30,
+  "validation_records_available": true,
+  "notes": "Metadata only. No secret key material is included."
+}

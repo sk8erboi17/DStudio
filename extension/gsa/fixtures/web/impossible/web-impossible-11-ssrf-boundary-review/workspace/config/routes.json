@@ -1,0 +1,9 @@
+{
+  "basePath": "/api",
+  "routes": [
+    "/ssrf-boundary/summary",
+    "/ssrf-boundary/records/:id",
+    "/ssrf-boundary/export"
+  ],
+  "sessionHeader": "x-session-id"
+}

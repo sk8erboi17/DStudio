@@ -1,0 +1,50 @@
+name: Bug Report
+description: Report a SKILL.md validation error, broken script, or incorrect content
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug!
+  - type: input
+    id: skill-name
+    attributes:
+      label: Skill Name
+      description: Which skill has the issue?
+      placeholder: e.g., analyzing-disk-image-with-autopsy
+    validations:
+      required: true
+  - type: dropdown
+    id: bug-type
+    attributes:
+      label: Bug Type
+      options:
+        - SKILL.md validation error
+        - Broken/incorrect script
+        - Wrong instructions or commands
+        - Missing required files
+        - Incorrect metadata/frontmatter
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What is the issue?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should happen instead?
+    validations:
+      required: true
+  - type: input
+    id: ai-agent
+    attributes:
+      label: AI Agent Used
+      description: Which AI agent were you using?
+      placeholder: e.g., Claude Code, GitHub Copilot, Codex CLI
