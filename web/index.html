@@ -15429,7 +15429,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         maxPhaseReached = 0;
         currentProposal = null;
         activeQuestionKey = null;
-        staleNotice = !conv.lanMirror && !!conv.transcript && !conv.sessionSha;
+        staleNotice = !conv.lanMirror && hasRenderableConversation(conv.transcript || '') && !conv.sessionSha;
         clearLiveTail();
         liveTailStartHint = null;
         view.replaceChildren();
@@ -15753,11 +15753,30 @@ Your report must be precise, of high-quality, and written by an expert using an 
       // session_status, e.g. the session list at startup): they do not render,
       // so they do not count toward deciding whether the conversation is "empty". The
       // other events (proposal, artifact, todos, tool…) do render.
-      const visibleText = () => text
+      const strippedVisibleText = (raw = text) => String(raw || '')
         .replace(/\u001e\{"type":"(?:sessions|session_status)"[^\n]*(\n|$)/g, '')
         .replace(/\u0001USER\u0002\/(?:(?:save|list|new|help|compact)|(?:switch|del)[^\u0001]*)\u0001ENDUSER\u0002\n?/g, '')
         .split('\n').filter((ln) => !SYS_LINE_RE.test(ln.trim())).join('\n')
         .trim();
+      const visibleText = () => strippedVisibleText(text);
+
+      function hasRenderableConversation(raw = text) {
+        raw = String(raw || '');
+        if (!strippedVisibleText(raw)) return false;
+        for (const part of splitUserTurns(raw)) {
+          if (part.role === 'user') {
+            const body = cleanBuildMarkup(part.text || '').trim();
+            if (body && !isSlashCommand(body)) return true;
+            continue;
+          }
+          for (const seg of segmentAgent(part.text || '')) {
+            if (seg.kind === 'sys' || seg.kind === 'sessions' || seg.kind === 'session_status') continue;
+            if ((seg.kind === 'text' || seg.kind === 'reasoning') && !String(seg.text || '').trim()) continue;
+            return true;
+          }
+        }
+        return false;
+      }
 
       // A qform is ANSWERED if a real (non-slash) user turn follows it in the
       // transcript: the answers are sent as a normal user turn, so this
@@ -15776,7 +15795,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const rt = viewMode === 'design' && DesignRuntime.getState ? DesignRuntime.getState() : null;
         const rtHasTodos = Array.isArray(rt?.todos) && rt.todos.length > 0;
         const rtHasActivity = Array.isArray(rt?.activity) && rt.activity.length > 0;
-        const emptyTranscript = !visibleText();
+        const emptyTranscript = !hasRenderableConversation(text);
         if (emptyTranscript && !working && !rt?.question && rt?.phase !== 'building') return 'brief';
         const ps0 = (DesignPreview.getState && DesignPreview.getState()) || {};
         if (ps0.finalized) return 'handoff'; // the export wins over everything
@@ -16980,7 +16999,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           settleAgentScroll(stick, prevScrollTop);
           return;
         }
-        const hasContent = !!visibleText();
+        const hasContent = hasRenderableConversation(text);
         // Agent shows its working-dir banner DURING a conversation; the empty
         // agent view is an editorial hero (same style as the empty chat/design),
         // so no banner there. Design never shows the banner.
