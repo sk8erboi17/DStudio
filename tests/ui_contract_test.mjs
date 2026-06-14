@@ -429,6 +429,9 @@ assert.match(launcher, /static int display_prompt_is_gsa\(const char \*display\)
 assert.match(launcher, /gsa_think_max_frame\[\][\s\S]*"value\\":\\"max\\"/, 'Agent send endpoint should have a GSA thinking max control frame');
 assert.match(launcher, /force_gsa_think_max[\s\S]*fd_write_all\(g_in_fd, gsa_think_max_frame/, 'Agent send endpoint should prepend thinking max for GSA turns');
 assert.match(js, /async function skillsSearch\(params = \{\}\)[\s\S]*\/api\/skills\/search/, 'Engine client should expose skill search');
+assert.match(launcher, /static void api_skill_get\(int fd, const char \*path\)/, 'Backend should expose a skill body reader for local overrides');
+assert.match(launcher, /path_eq_clean\(path, "\/api\/skills\/search"\)[\s\S]*\/api\/skills\/get/, 'Router should serve /api/skills/get before the catalog endpoint');
+assert.match(js, /async function skillGet\(id\)[\s\S]*\/api\/skills\/get\?id=/, 'Engine client should expose skill body loading');
 assert.match(js, /async function gsaStart\(workdir, mission, targetUrl = '', parentRunDir = '', disabledTools = ''\)[\s\S]*JSON\.stringify\(\{ workdir, mission, targetUrl, parentRunDir, disabledTools \}\)/, 'Engine client should send target URL, parent GSA run and disabled tools');
 assert.match(js, /Store\.setSettings\(\{ gsaMode: 'off', thinkLevel: 'max' \}\)/, 'Starting GSA should force the visible thinking state to max');
 assert.match(js, /AgentView\.send\(res\.prompt,[\s\S]*\{ forceThink: 'max' \}\)/, 'GSA turns should force runtime thinking max');
@@ -759,8 +762,14 @@ assert.match(html, /body\.composer-raised \.cbar-think-menu \{ top: calc\(100% \
 assert.match(html, /\.cbar-pop\s*\{[\s\S]*width:\s*min\(88vw,\s*300px\)[\s\S]*min-width:\s*240px/, 'plus menu should stay compact instead of using oversized rows');
 assert.match(html, /\.cdrop-cap\s*\{ width:\s*30px; font-size:\s*9\.5px;/, 'plus menu dropdown labels should be compact');
 assert.match(html, /id="skills-picker-view"[\s\S]*id="skills-category-list"[\s\S]*id="skills-picker-list"/, 'Skill picker should use a modal with category sidebar and skill grid');
+assert.match(html, /id="skills-picker-manage"[\s\S]*>Add<\/button>/, 'Skill picker should label the authoring action Add, not Manage');
+assert.doesNotMatch(html, /id="skills-picker-manage"[\s\S]*>Manage<\/button>/, 'Skill picker should not expose the old Manage label');
 assert.match(js, /function openSkillPickerForCurrentMode\(\)[\s\S]*Skills\.openPicker/, 'Skill selection should open the modal picker from the plus menu');
 assert.match(js, /function renderSkillPicker\(\)[\s\S]*skills-cat[\s\S]*skill-card/, 'Skill picker modal should render categories and skill cards');
+assert.match(js, /on\(pickerManage, 'click', \(\) => showEditor\(null, null, 'picker'\)\)/, 'Skill picker Add should open the editor directly');
+assert.match(js, /skill-card__edit[\s\S]*showEditor\(it\.value, it\.raw, 'picker'\)/, 'Skill cards should expose an inline edit action');
+assert.match(js, /Engine\.userSkillGet\(id\)[\s\S]*Engine\.skillGet\(id\)/, 'Editing a shipped skill should fall back to reading the shipped body');
+assert.match(js, /Engine\.userSkillSave\(\{ id,[\s\S]*modes: editingModes/, 'Skill editor should preserve modes when saving local overrides');
 assert.match(js, /function selectedSkillPromptForRuntime\(\)[\s\S]*DStudio selected skill/, 'Selected skills should apply to future turns without restarting the runtime');
 assert.doesNotMatch(extractFunction(js, 'switchSkill'), /restartCurrent\(/, 'Changing skill should not restart the model');
 assert.match(js, /function setComposerRaised\(active\)[\s\S]*composer-raised/, 'empty-state renderer should explicitly toggle the raised composer layout');

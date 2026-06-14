@@ -5008,11 +5008,96 @@ static void api_user_skills(int fd) {
     send_json(fd, "200 OK", body);
 }
 
+static const char *skill_doc_body_start(const char *content) {
+    const char *b = content ? content : "";
+    if (!strncmp(b, "---", 3)) {
+        const char *e = strstr(b + 3, "\n---");
+        if (e) {
+            b = e + 4;
+            while (*b == '\n' || *b == '\r') b++;
+        }
+    }
+    return b;
+}
+
+static void send_skill_doc_json(int fd, const char *id, const char *source, const char *content) {
+    char nm[300], desc[900], modes[220];
+    fm_field(content, "name", nm, sizeof nm);
+    fm_field(content, "description", desc, sizeof desc);
+    fm_field(content, "modes", modes, sizeof modes);
+    if (!nm[0]) cstr_copy(nm, sizeof nm, id);
+    if (!modes[0]) cstr_copy(modes, sizeof modes, "[agent]");
+    const char *b = skill_doc_body_start(content);
+
+    json_dyn_buf out = {0};
+    int ok = json_dyn_puts(&out, "{\"ok\":true,\"id\":") &&
+             json_dyn_put_escaped(&out, id) &&
+             json_dyn_puts(&out, ",\"source\":") &&
+             json_dyn_put_escaped(&out, source ? source : "") &&
+             json_dyn_puts(&out, ",\"name\":") &&
+             json_dyn_put_escaped(&out, nm) &&
+             json_dyn_puts(&out, ",\"description\":") &&
+             json_dyn_put_escaped(&out, desc) &&
+             json_dyn_puts(&out, ",\"modes\":") &&
+             json_dyn_put_escaped(&out, modes) &&
+             json_dyn_puts(&out, ",\"body\":") &&
+             json_dyn_put_escaped(&out, b) &&
+             json_dyn_puts(&out, "}");
+    if (ok) send_json(fd, "200 OK", out.ptr);
+    else send_json(fd, "500 Internal Server Error", "{\"ok\":false}");
+    free(out.ptr);
+}
+
+static char *read_skill_doc_any(const char *id, char *source, size_t sourcesz) {
+    char dir[PATH_MAX], md[PATH_MAX];
+    size_t len = 0;
+
+    user_skills_dir(dir, sizeof dir);
+    snprintf(md, sizeof md, "%s/%s/SKILL.md", dir, id);
+    char *content = jsonl_read_file(md, &len);
+    if (content) {
+        cstr_copy(source, sourcesz, "user");
+        return content;
+    }
+
+    if (g_web_dir[0]) {
+        snprintf(md, sizeof md, "%s/extension/skills/%s/SKILL.md", g_web_dir, id);
+        content = jsonl_read_file(md, &len);
+        if (content) {
+            cstr_copy(source, sourcesz, "dstudio");
+            return content;
+        }
+    }
+
+    if (cyber_skills_dir(dir, sizeof dir)) {
+        snprintf(md, sizeof md, "%s/%s/SKILL.md", dir, id);
+        content = jsonl_read_file(md, &len);
+        if (content) {
+            cstr_copy(source, sourcesz, "anthropic-cybersecurity-skills");
+            return content;
+        }
+    }
+    return NULL;
+}
+
+/* GET /api/skills/get?id=<id> — read a skill body for the editor. User-authored
+ * skills win over shipped packs, so saving creates a local override instead of
+ * mutating the repository catalog. */
+static void api_skill_get(int fd, const char *path) {
+    char id[64] = {0};
+    query_param(path, "id", id, sizeof id);
+    if (!skill_id_ok(id)) { send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"bad id\"}"); return; }
+    char source[80] = "";
+    char *content = read_skill_doc_any(id, source, sizeof source);
+    if (!content) { send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"no such skill\"}"); return; }
+    send_skill_doc_json(fd, id, source, content);
+    free(content);
+}
+
 /* GET /api/user-skills/get?id=<id> — one skill's name/description/body, for the editor. */
 static void api_user_skill_get(int fd, const char *path) {
     char id[64] = {0};
-    const char *q = strstr(path, "id=");
-    if (q) { q += 3; size_t i = 0; while (q[i] && q[i] != '&' && i < sizeof id - 1) { id[i] = q[i]; i++; } id[i] = '\0'; }
+    query_param(path, "id", id, sizeof id);
     if (!skill_id_ok(id)) { send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"bad id\"}"); return; }
     char dir[1100], md[1300];
     user_skills_dir(dir, sizeof dir);
@@ -5020,45 +5105,26 @@ static void api_user_skill_get(int fd, const char *path) {
     size_t len = 0;
     char *content = jsonl_read_file(md, &len);
     if (!content) { send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"no such skill\"}"); return; }
-    char nm[200], desc[600];
-    fm_field(content, "name", nm, sizeof nm);
-    fm_field(content, "description", desc, sizeof desc);
-    /* body = everything after the closing frontmatter "---" line; else the whole file. */
-    const char *b = content;
-    if (!strncmp(content, "---", 3)) {
-        const char *e = strstr(content + 3, "\n---");
-        if (e) { b = e + 4; while (*b == '\n' || *b == '\r') b++; }
-    }
-    size_t blen = strlen(b);
-    char *be = malloc(blen * 6 + 16);
-    char nme[400], dse[1200];
-    json_escape_into(nme, sizeof nme, nm[0] ? nm : id, strlen(nm[0] ? nm : id));
-    json_escape_into(dse, sizeof dse, desc, strlen(desc));
-    if (be) json_escape_into(be, blen * 6 + 16, b, blen);
-    char *out = malloc(blen * 6 + 2048);
-    if (out) {
-        snprintf(out, blen * 6 + 2048,
-            "{\"ok\":true,\"id\":\"%s\",\"name\":\"%s\",\"description\":\"%s\",\"body\":\"%s\"}",
-            id, nme, dse, be ? be : "");
-        send_json(fd, "200 OK", out);
-        free(out);
-    } else send_json(fd, "500 Internal Server Error", "{\"ok\":false}");
-    free(be); free(content);
+    send_skill_doc_json(fd, id, "user", content);
+    free(content);
 }
 
 /* POST /api/user-skills {id,name,description,body} — create or overwrite a user skill. */
 static void api_user_skill_save(int fd, const char *reqbody) {
-    char id[64] = {0}, name[256] = {0}, desc[600] = {0};
+    char id[64] = {0}, name[256] = {0}, desc[600] = {0}, modes[220] = {0};
     static char skbody[32768];
     json_get_string(reqbody, "id", id, sizeof id);
     if (!skill_id_ok(id)) { send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"id must be a-z, 0-9, -\"}"); return; }
     json_get_string(reqbody, "name", name, sizeof name);
     json_get_string(reqbody, "description", desc, sizeof desc);
+    json_get_string(reqbody, "modes", modes, sizeof modes);
     if (!json_get_string(reqbody, "body", skbody, sizeof skbody)) skbody[0] = '\0';
     if (!name[0]) snprintf(name, sizeof name, "%s", id);
+    if (!modes[0]) snprintf(modes, sizeof modes, "[agent]");
     /* frontmatter is line-based: keep name/description single-line. */
     for (char *p = name; *p; p++) if (*p == '\n' || *p == '\r') *p = ' ';
     for (char *p = desc; *p; p++) if (*p == '\n' || *p == '\r') *p = ' ';
+    for (char *p = modes; *p; p++) if (*p == '\n' || *p == '\r') *p = ' ';
     char dir[1100], sub[1200], md[1300];
     user_skills_dir(dir, sizeof dir);
     snprintf(sub, sizeof sub, "%s/%s", dir, id);
@@ -5066,7 +5132,7 @@ static void api_user_skill_save(int fd, const char *reqbody) {
     snprintf(md, sizeof md, "%s/SKILL.md", sub);
     static char filebuf[40000];
     int fo = snprintf(filebuf, sizeof filebuf,
-        "---\nname: %s\ndescription: %s\nmodes: [agent]\n---\n\n%s\n", name, desc, skbody);
+        "---\nname: %s\ndescription: %s\nmodes: %s\n---\n\n%s\n", name, desc, modes, skbody);
     if (fo < 0 || !jsonl_write_file(md, filebuf, (size_t)fo)) {
         send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"could not write the skill\"}");
         return;
@@ -8670,6 +8736,8 @@ static void handle_connection(int fd) {
         api_ggufs(fd);
     } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/skills/search")) {
         api_skills_search(fd, path);
+    } else if ((!strcmp(method, "GET") || head_only) && !strncmp(path, "/api/skills/get", 15)) {
+        api_skill_get(fd, path);
     } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/gsa/tools")) {
         api_gsa_tools(fd);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/skills")) {

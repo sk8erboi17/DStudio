@@ -54,6 +54,7 @@ curl -fsS --max-time 2 "${base}/api/diagnostics" >"${tmp}/diagnostics.json"
 curl -fsS --max-time 2 "${base}/api/logs?limit=10" >"${tmp}/logs.json"
 curl -fsS --max-time 2 "${base}/api/tasks?limit=10" >"${tmp}/tasks.json"
 curl -fsS --max-time 2 "${base}/api/skills/search?q=authorization&source=anthropic&limit=5" >"${tmp}/skills-search.json"
+curl -fsS --max-time 2 "${base}/api/skills/get?id=web-app" >"${tmp}/skill-web-app.json"
 curl -fsS --max-time 2 "${base}/api/gsa/tools" >"${tmp}/gsa-tools-before.json"
 curl -fsS --max-time 5 -X POST "${base}/api/gsa/tools/install" \
   -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' >"${tmp}/gsa-tools-install.json"
@@ -92,6 +93,13 @@ const fs = require('fs');
 const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (!r.ok || !Array.isArray(r.skills)) throw new Error('skills search shape incomplete');
 if (!r.skills.some((s) => s.source === 'anthropic-cybersecurity-skills')) throw new Error('skills search should expose vendored cybersecurity skills');
+NODE
+node - "${tmp}/skill-web-app.json" <<'NODE'
+const fs = require('fs');
+const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (!r.ok || r.id !== 'web-app' || r.source !== 'dstudio') throw new Error('skill get should load shipped web-app metadata');
+if (!String(r.body || '').includes('# SKILL: web-app')) throw new Error('skill get should include the shipped skill body');
+if (!String(r.modes || '').includes('build')) throw new Error('skill get should preserve shipped modes');
 NODE
 node - "${tmp}/gsa-tools-before.json" "${tmp}/gsa-tools-install.json" "${tmp}/gsa-tools-after.json" <<'NODE'
 const fs = require('fs');

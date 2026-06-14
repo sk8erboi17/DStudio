@@ -2847,6 +2847,23 @@
       -webkit-box-orient: vertical;
       overflow: hidden;
     }
+    .skill-card__actions {
+      display: grid;
+      justify-items: end;
+      align-content: start;
+      gap: 7px;
+      flex: 0 0 auto;
+    }
+    .skill-card__edit {
+      padding: 3px 8px;
+      min-height: 24px;
+      border-radius: 7px;
+      font-size: 0.68rem;
+      opacity: 0;
+    }
+    .skill-card:hover .skill-card__edit,
+    .skill-card:focus-visible .skill-card__edit,
+    .skill-card__edit:focus-visible { opacity: 1; }
     .skill-card__check { color: var(--accent-2); flex: 0 0 auto; opacity: 0; }
     .skill-card.on .skill-card__check { opacity: 1; }
     @media (max-width: 700px) {
@@ -4603,7 +4620,7 @@
                 <div class="set-eye" id="skills-picker-title">Skills</div>
                 <p class="set-help" id="skills-picker-sub" style="margin:0"></p>
               </div>
-              <button type="button" id="skills-picker-manage" class="btn btn--sm">Manage</button>
+              <button type="button" id="skills-picker-manage" class="btn btn--sm">Add</button>
             </div>
             <div id="skills-picker-list" class="skills-picker__grid"></div>
           </div>
@@ -12665,7 +12682,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
     const Skills = (() => {
       let dialog, listEl, editor, listView, cyberView, cyberListEl, cyberQueryEl, helpEl;
       let pickerView, categoryEl, pickerListEl, pickerTitleEl, pickerSubEl, pickerManage;
-      let editingId = null, pickerConfig = null, activePickerCategory = '';
+      let editingId = null, editingModes = '[agent]', editorReturn = 'list';
+      let pickerConfig = null, activePickerCategory = '';
       function mount() {
         dialog = qs('#skills-dialog');
         helpEl = qs('#skills-help');
@@ -12682,10 +12700,13 @@ Your report must be precise, of high-quality, and written by an expert using an 
         editor = qs('#skills-editor');
         listView = qs('#skills-list-view');
         on(qs('#skills-close'), 'click', () => dialog.close());
-        on(qs('#skills-new'), 'click', () => showEditor(null));
-        on(qs('#skill-cancel'), 'click', showList);
+        on(qs('#skills-new'), 'click', () => showEditor(null, null, 'list'));
+        on(qs('#skill-cancel'), 'click', () => {
+          if (editorReturn === 'picker' && pickerConfig) renderSkillPicker();
+          else showList();
+        });
         on(qs('#skill-save'), 'click', save);
-        on(pickerManage, 'click', () => { pickerConfig = null; showList(); renderCyberSkills(cyberQueryEl.value); });
+        on(pickerManage, 'click', () => showEditor(null, null, 'picker'));
         on(qs('#cyber-skills-search'), 'click', () => renderCyberSkills(cyberQueryEl.value));
         on(cyberQueryEl, 'keydown', (e) => {
           if (e.key !== 'Enter') return;
@@ -12757,20 +12778,36 @@ Your report must be precise, of high-quality, and written by an expert using an 
           return btn;
         }));
         pickerListEl.replaceChildren(...active.items.map((it) => {
-          const card = el('button', {
+          const canEdit = !!it.value && pickerConfig?.mode === 'agent';
+          const card = el('div', {
             class: `skill-card${it.value === selected ? ' on' : ''}`,
-            type: 'button',
+            role: 'button',
+            tabindex: '0',
             title: it.sub || it.lead || it.value || 'No skill',
           }, [
             el('span', { class: 'skill-card__body' }, [
               el('span', { class: 'skill-card__name', text: it.lead || it.value || 'No skill' }),
               el('span', { class: 'skill-card__desc', text: it.sub || 'No extra instructions' }),
             ]),
-            el('span', { class: 'skill-card__check', text: '✓' }),
+            el('span', { class: 'skill-card__actions' }, [
+              canEdit ? (() => {
+                const b = el('button', { class: 'btn btn--sm skill-card__edit', type: 'button', text: 'Edit' });
+                on(b, 'click', (e) => { e.stopPropagation(); showEditor(it.value, it.raw, 'picker'); });
+                return b;
+              })() : null,
+              el('span', { class: 'skill-card__check', text: '✓' }),
+            ].filter(Boolean)),
           ]);
-          on(card, 'click', () => {
+          const pick = () => {
             dialog.close();
             if (it.value !== selected && pickerConfig?.onPick) pickerConfig.onPick(it.value);
+          };
+          on(card, 'click', pick);
+          on(card, 'keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            if (e.target && e.target.closest && e.target.closest('button')) return;
+            e.preventDefault();
+            pick();
           });
           return card;
         }));
@@ -12790,7 +12827,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
             el('div', { class: 'skill-row__desc', text: s.description || s.id }),
           ]),
           el('div', { class: 'skill-row__act' }, [
-            (() => { const b = el('button', { class: 'btn btn--sm', type: 'button', text: 'Edit' }); on(b, 'click', () => showEditor(s.id)); return b; })(),
+            (() => { const b = el('button', { class: 'btn btn--sm', type: 'button', text: 'Edit' }); on(b, 'click', () => showEditor(s.id, s, 'list')); return b; })(),
             (() => { const b = el('button', { class: 'btn btn--sm btn--danger-outline', type: 'button', text: 'Delete' }); on(b, 'click', () => del(s)); return b; })(),
           ]),
         ])));
@@ -12828,8 +12865,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
           ]);
         }));
       }
-      async function showEditor(id) {
+      async function showEditor(id, seed = null, returnTo = 'list') {
         editingId = id;
+        editorReturn = returnTo;
+        editingModes = '[agent]';
         qs('#skills-editor-title').textContent = id ? 'Edit skill' : 'New skill';
         qs('#skill-warn').hidden = true;
         const idIn = qs('#skill-id');
@@ -12838,10 +12877,16 @@ Your report must be precise, of high-quality, and written by an expert using an 
         idIn.disabled = !!id;   // the id is the agent's handle — immutable once created
         if (id) {
           try {
-            const s = await Engine.userSkillGet(id);
+            let s = await Engine.userSkillGet(id);
+            if (!s || !s.ok) s = await Engine.skillGet(id);
             idIn.value = s.id || id; qs('#skill-name').value = s.name || '';
             qs('#skill-desc').value = s.description || ''; qs('#skill-body').value = s.body || '';
-          } catch { /* leave blank */ }
+            editingModes = s.modes || '[agent]';
+          } catch {
+            idIn.value = id;
+            qs('#skill-name').value = seed?.name || seed?.lead || id;
+            qs('#skill-desc').value = seed?.description || seed?.sub || '';
+          }
         }
         if (pickerView) pickerView.hidden = true;
         if (cyberView) cyberView.hidden = true;
@@ -12856,10 +12901,15 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const body = qs('#skill-body').value;
         if (!body.trim()) { warn.textContent = 'Add some instructions for the skill.'; warn.hidden = false; return; }
         const r = await Engine.userSkillSave({ id, name: qs('#skill-name').value.trim(),
-          description: qs('#skill-desc').value.trim(), body }).catch(() => null);
+          description: qs('#skill-desc').value.trim(), modes: editingModes || '[agent]', body }).catch(() => null);
         if (!r || !r.ok) { warn.textContent = (r && r.error) || 'Could not save the skill.'; warn.hidden = false; return; }
         Composer.invalidateUserSkills();
         toast('Skill saved', 'info');
+        if (editorReturn === 'picker') {
+          if (pickerConfig?.onPick) pickerConfig.onPick(id);
+          dialog.close();
+          return;
+        }
         showList();
       }
       async function del(s) {
@@ -13759,6 +13809,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const r = await apiFetch('/api/skills/search' + (qs.toString() ? `?${qs}` : ''), { signal: AbortSignal.timeout(6000) });
         return r.json();
       }
+      async function skillGet(id) {
+        const r = await apiFetch('/api/skills/get?id=' + encodeURIComponent(id), { signal: AbortSignal.timeout(4000) });
+        return r.json();
+      }
       async function designSystems() {  // the brand systems in extension/design-systems
         const r = await apiFetch('/api/design-systems', { signal: AbortSignal.timeout(4000) });
         return r.json();
@@ -13960,7 +14014,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return r.text();
       }
 
-      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, tasks, task, logs, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setWebDir, webSearch, webRead, httpProbe, ggufs, skills, skillsSearch, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
+      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, tasks, task, logs, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setWebDir, webSearch, webRead, httpProbe, ggufs, skills, skillsSearch, skillGet, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe, buildWrite, buildFiles, buildFile };
     })();
 
     /* ==================== Remote LAN chat ==================== */
