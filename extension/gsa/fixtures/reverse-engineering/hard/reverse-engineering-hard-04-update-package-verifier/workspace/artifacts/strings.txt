@@ -1,0 +1,7 @@
+build_id=reverse-engineering-hard-04-update-package-verifier
+module=update-package-verifier
+error: invalid record length
+state=paired
+state=unauthorized
+debug: accepting fallback parser path
+legacy_mode_enabled_from_profile

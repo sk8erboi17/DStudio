@@ -1,0 +1,9 @@
+GET /api/ssrf_boundary_review/object/1842 HTTP/1.1
+Host: ssrf-boundary-review.corp.test
+Cookie: session=REDACTED
+X-User-Role: viewer
+
+GET /api/ssrf_boundary_review/object/1843 HTTP/1.1
+Host: ssrf-boundary-review.corp.test
+Cookie: session=REDACTED
+X-User-Role: viewer

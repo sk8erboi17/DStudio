@@ -1,0 +1,7 @@
+case_id=crypto-easy-01-jwt-boundary-review
+host=jwt-boundary-review.keystone-01.corp.test
+noise=low
+record_count=14
+operator_note=Look for a directly supported issue and avoid broad speculation.
+primary_observation=token issuer and verifier configuration contains an inconsistency that requires correlation
+control_status=partially_enforced

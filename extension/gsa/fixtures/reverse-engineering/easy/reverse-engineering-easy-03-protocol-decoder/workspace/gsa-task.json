@@ -1,0 +1,21 @@
+{
+  "id": "reverse-engineering-easy-03-protocol-decoder",
+  "category": "reverse-engineering",
+  "difficulty": "easy",
+  "title": "Protocol decoder review",
+  "engagement_type": "authorized-local-source-review",
+  "artifact_theme": "packet samples and decoder notes",
+  "allowed_actions": {
+    "read_workspace_files": true,
+    "create_python_scripts_in_scripts_dir": true,
+    "write_reports_in_reports_dir": true,
+    "contact_external_hosts": false,
+    "run_external_security_tools": false,
+    "execute_exploit_payloads": false
+  },
+  "work_style": {
+    "noise": "low",
+    "minimum_confidence_to_report": "high",
+    "if_uncertain": "state uncertainty and list missing evidence"
+  }
+}

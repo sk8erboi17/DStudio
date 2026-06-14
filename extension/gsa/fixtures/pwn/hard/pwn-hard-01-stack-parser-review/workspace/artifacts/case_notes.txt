@@ -1,0 +1,9 @@
+case_id=pwn-hard-01-stack-parser-review
+host=stack-parser-review.forge-01.corp.test
+noise=high
+record_count=42
+operator_note=Explain why the selected evidence is stronger than similar-looking decoys.
+primary_observation=C parser and crash input contains an inconsistency that requires correlation
+control_status=partially_enforced
+decoy_observation=similar event appears in a deprecated environment
+timestamp_warning=some records use local time and others use UTC

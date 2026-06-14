@@ -1,0 +1,7 @@
+{
+  "hardening": [
+    "nx",
+    "relro"
+  ],
+  "fuzz_corpus": "tests/corpus/requests.txt"
+}

@@ -1,0 +1,16 @@
+Case: crypto-medium-05-signature-canonicalization
+Organization: Keystone-05 Labs
+Assessment type: Crypto local artifact review
+Primary theme: signed webhook samples
+Difficulty: medium
+
+Authorized local identifiers:
+- target_domain: keystone-05.corp.test
+- documentation_domain: docs.keystone-05.test
+- reference_network: 192.0.2.25/32
+- internal_network: 10.25.0.0/24
+
+Boundary:
+- Use only the supplied artifacts.
+- Replace placeholders only when adapting this workspace to a real authorized engagement.
+- Do not perform live network activity from this fixture.

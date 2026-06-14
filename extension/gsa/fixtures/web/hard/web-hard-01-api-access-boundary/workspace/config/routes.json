@@ -1,0 +1,9 @@
+{
+  "basePath": "/api",
+  "routes": [
+    "/api-access-boundary/summary",
+    "/api-access-boundary/records/:id",
+    "/api-access-boundary/export"
+  ],
+  "sessionHeader": "x-session-id"
+}

@@ -1,0 +1,16 @@
+Case: forensics-impossible-04-cloud-audit-review
+Organization: Harbor-04 Labs
+Assessment type: Forensics local artifact review
+Primary theme: cloud control-plane audit records
+Difficulty: impossible
+
+Authorized local identifiers:
+- target_domain: harbor-04.corp.test
+- documentation_domain: docs.harbor-04.test
+- reference_network: 192.0.2.24/32
+- internal_network: 10.24.0.0/24
+
+Boundary:
+- Use only the supplied artifacts.
+- Replace placeholders only when adapting this workspace to a real authorized engagement.
+- Do not perform live network activity from this fixture.

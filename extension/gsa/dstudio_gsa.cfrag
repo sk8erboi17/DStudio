@@ -1,0 +1,1782 @@
+static void gsa_tools_dir(char *out, size_t outsz) {
+#ifdef _WIN32
+    snprintf(out, outsz, "%s\\extension\\gsa\\tools\\bin", g_web_dir[0] ? g_web_dir : ".");
+#else
+    snprintf(out, outsz, "%s/extension/gsa/tools/bin", g_web_dir[0] ? g_web_dir : ".");
+#endif
+}
+
+static void child_setenv_gsa_tools(void);
+
+/* ---- GSA: guided security analysis pipeline ----------------------------------
+ * GSA is intentionally file-backed and task-tracked. The API prepares bounded,
+ * deterministic inputs and phase prompts; the Agent still performs the analysis
+ * in the chosen workspace. That keeps failures visible and resumable. */
+
+static int setup_run_cmd_capture(const char *cwd, char *const argv[], char *out, size_t outsz);
+
+static int str_eq_ci_ascii(const char *a, const char *b) {
+    if (!a || !b) return 0;
+    while (*a && *b) {
+        if (!ascii_eq_ci(*a, *b)) return 0;
+        a++; b++;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+typedef struct {
+    const char *name;
+    const char *category;
+    const char *aliases;   /* pipe-separated commands; first is preferred */
+    const char *install;
+    const char *notes;
+} gsa_tool_spec;
+
+static const gsa_tool_spec GSA_TOOL_SPECS[] = {
+    { "subfinder", "recon/subdomains", "subfinder", "go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest", "Passive subdomain enumeration." },
+    { "assetfinder", "recon/subdomains", "assetfinder", "go install github.com/tomnomnom/assetfinder@latest", "Passive subdomain enumeration." },
+    { "httpx", "recon/http", "httpx", "go install github.com/projectdiscovery/httpx/cmd/httpx@latest", "HTTP probing, titles, status, TLS and CDN signals." },
+    { "nuclei", "scan/templates", "nuclei", "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest", "Template-based vulnerability checks; use only against authorized targets." },
+    { "dnsx", "recon/dns", "dnsx", "go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest", "DNS resolution and filtering." },
+    { "naabu", "recon/ports", "naabu", "go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest", "Fast port discovery; authorized targets only." },
+    { "katana", "recon/crawl", "katana", "go install github.com/projectdiscovery/katana/cmd/katana@latest", "Web crawling and endpoint discovery." },
+    { "tlsx", "recon/tls", "tlsx", "go install github.com/projectdiscovery/tlsx/cmd/tlsx@latest", "TLS certificate and protocol probing." },
+    { "mapcidr", "recon/network", "mapcidr", "go install github.com/projectdiscovery/mapcidr/cmd/mapcidr@latest", "CIDR expansion and filtering." },
+    { "alterx", "recon/permutation", "alterx", "go install github.com/projectdiscovery/alterx/cmd/alterx@latest", "Subdomain permutation generation." },
+    { "ffuf", "web/content", "ffuf", "go install github.com/ffuf/ffuf/v2@latest", "Web fuzzing/content discovery; authorized targets only." },
+    { "gobuster", "web/content", "gobuster", "go install github.com/OJ/gobuster/v3@latest", "Directory, DNS and vhost discovery." },
+    { "gau", "web/archive", "gau", "go install github.com/lc/gau/v2/cmd/gau@latest", "Known URL collection from public archives; use bounded provider-specific runs such as urlscan with short timeouts." },
+    { "hakrawler", "web/crawl", "hakrawler", "go install github.com/hakluke/hakrawler@latest", "Lightweight web crawler." },
+    { "dalfox", "web/xss", "dalfox", "go install github.com/hahwul/dalfox/v2@latest", "XSS scanning; authorized targets only." },
+    { "sqlmap", "web/sqli", "sqlmap", "managed pipx install sqlmap", "SQL injection testing; authorized targets only." },
+    { "arjun", "web/params", "arjun", "managed pipx install arjun", "HTTP parameter discovery." },
+    { "uro", "web/urls", "uro", "managed pipx install uro", "URL deduplication/normalization." },
+    { "semgrep", "code/sast", "semgrep", "managed pipx install semgrep", "Static code analysis." },
+    { "trivy", "code/deps", "trivy", "brew install trivy | see https://aquasecurity.github.io/trivy", "Dependency/container/IaC scanning." },
+    { "syft", "code/sbom", "syft", "brew install syft | see https://github.com/anchore/syft", "SBOM generation." },
+    { "grype", "code/deps", "grype", "brew install grype | see https://github.com/anchore/grype", "Dependency vulnerability scanning." },
+    { "plaso", "forensics/timeline", "log2timeline|log2timeline.py|psort|psort.py|pinfo|pinfo.py", "managed pipx install plaso", "Timeline generation and analysis from disk/artifact images." },
+    { "volatility3", "forensics/memory", "vol|vol.py", "managed pipx install volatility3", "Memory forensics." },
+    { "yara", "forensics/malware", "yara", "brew install yara | apt install yara", "Rule-based malware/artifact matching." },
+    { "binwalk", "forensics/firmware", "binwalk", "managed cargo install binwalk", "Firmware and binary extraction." },
+    { "tshark", "network/pcap", "tshark", "brew install wireshark | apt install tshark", "Packet capture analysis." },
+    { "zeek", "network/pcap", "zeek", "brew install zeek | apt install zeek", "Network security monitoring/log extraction." },
+    { "nmap", "network/ports", "nmap", "brew install nmap | apt install nmap", "Port/service enumeration; authorized targets only." },
+    { "rizin", "reverse", "rizin|rz-bin|rz-find", "brew install rizin | see https://rizin.re", "Reverse engineering/disassembly." },
+    { "radare2", "reverse", "radare2|r2", "brew install radare2 | see https://radare.org", "Reverse engineering/disassembly." },
+    { "gdb", "pwn/debug", "gdb", "brew install gdb | apt install gdb", "Native debugging." },
+    { "pwntools", "pwn/exploit-dev", "pwn", "managed pipx install pwntools", "Exploit development helpers." },
+    { "exiftool", "osint/metadata", "exiftool", "brew install exiftool | apt install libimage-exiftool-perl", "Metadata extraction." },
+    { "jq", "utility/json", "jq", "brew install jq | apt install jq", "JSON processing." },
+};
+
+static void gsa_tool_first_alias(const char *aliases, char *out, size_t outsz) {
+    if (!outsz) return;
+    out[0] = '\0';
+    if (!aliases) return;
+    size_t n = strcspn(aliases, "|");
+    if (n >= outsz) n = outsz - 1;
+    memcpy(out, aliases, n);
+    out[n] = '\0';
+}
+
+static int gsa_tool_alias_found(const char *alias, const char *managed) {
+    if (!alias || !alias[0]) return 0;
+    const char *dirs[8] = {0};
+    size_t dirc = 0;
+    if (managed && managed[0]) dirs[dirc++] = managed;
+#ifndef _WIN32
+    char localbin[PATH_MAX];
+    const char *home = getenv("HOME");
+    if (home && home[0]) {
+        snprintf(localbin, sizeof localbin, "%s/.local/bin", home);
+        dirs[dirc++] = localbin;
+    }
+    dirs[dirc++] = "/opt/homebrew/bin";
+    dirs[dirc++] = "/usr/local/bin";
+    dirs[dirc++] = "/usr/bin";
+    dirs[dirc++] = "/bin";
+#endif
+    for (size_t d = 0; d < dirc; d++) {
+        const char *dir = dirs[d];
+        if (!dir || !dir[0]) continue;
+        char full[PATH_MAX];
+        if (path_join(full, sizeof full, dir, alias) && access(full, X_OK) == 0) return 1;
+#ifdef _WIN32
+        const char *exts[] = { ".exe", ".cmd", ".bat", NULL };
+        for (int i = 0; exts[i]; i++) {
+            char extfull[PATH_MAX];
+            snprintf(extfull, sizeof extfull, "%s%s", full, exts[i]);
+            if (access(extfull, X_OK) == 0 || access(extfull, R_OK) == 0) return 1;
+        }
+#endif
+    }
+    return executable_on_path(alias);
+}
+
+static int gsa_tool_found(const gsa_tool_spec *t, const char *managed) {
+    if (!t || !t->aliases) return 0;
+    char aliases[512];
+    cstr_copy(aliases, sizeof aliases, t->aliases);
+    for (char *p = aliases; p && *p; ) {
+        char *sep = strchr(p, '|');
+        if (sep) *sep = '\0';
+        if (gsa_tool_alias_found(p, managed)) return 1;
+        p = sep ? sep + 1 : NULL;
+    }
+    return 0;
+}
+
+static int gsa_tool_disabled(const char *name, const char *disabled_tools) {
+    if (!name || !name[0] || !disabled_tools || !disabled_tools[0]) return 0;
+    size_t nl = strlen(name);
+    const char *p = disabled_tools;
+    while (*p) {
+        while (*p == '|' || *p == ',' || isspace((unsigned char)*p)) p++;
+        const char *start = p;
+        while (*p && *p != '|' && *p != ',' && !isspace((unsigned char)*p)) p++;
+        if ((size_t)(p - start) == nl && strncmp(start, name, nl) == 0) return 1;
+    }
+    return 0;
+}
+
+static const char *gsa_tool_install_mode(const gsa_tool_spec *t) {
+    const char *cmd = t && t->install ? t->install : "";
+    if (!strncmp(cmd, "go install ", 11)) return "go";
+    if (!strncmp(cmd, "managed pipx install ", 21)) return "python";
+    if (!strncmp(cmd, "managed cargo install ", 22)) return "cargo";
+    if (strstr(cmd, "brew install") || strstr(cmd, "apt install")) return "system";
+    return "manual";
+}
+
+static int gsa_any_installer_found(const char *names) {
+    if (!names || !names[0]) return 1;
+    char buf[256];
+    cstr_copy(buf, sizeof buf, names);
+    for (char *p = buf; p && *p; ) {
+        char *sep = strchr(p, '|');
+        if (sep) *sep = '\0';
+        if (p[0] && gsa_tool_alias_found(p, NULL)) return 1;
+        p = sep ? sep + 1 : NULL;
+    }
+    return 0;
+}
+
+static const char *gsa_tool_required_installer(const char *mode) {
+    if (!mode || !mode[0] || !strcmp(mode, "manual")) return "";
+    if (!strcmp(mode, "go")) return "go";
+    if (!strcmp(mode, "python")) return "pipx|python3|python";
+    if (!strcmp(mode, "cargo")) return "cargo";
+    if (!strcmp(mode, "system")) return "brew|apt|apt-get|dnf|yum|pacman|choco|winget";
+    return "";
+}
+
+static const char *gsa_tool_missing_installer_label(const char *mode) {
+    if (!mode || !mode[0] || !strcmp(mode, "manual")) return "";
+    if (!strcmp(mode, "go")) return "Go";
+    if (!strcmp(mode, "python")) return "Python 3 or pipx";
+    if (!strcmp(mode, "cargo")) return "Rust/Cargo";
+    if (!strcmp(mode, "system")) return "Homebrew, apt, dnf, yum, pacman, choco or winget";
+    return "";
+}
+
+static const char *gsa_tool_install_hint(const char *mode) {
+    if (!mode || !mode[0] || !strcmp(mode, "manual"))
+        return "Install manually using the command shown.";
+    if (!strcmp(mode, "go"))
+        return "Install Go first, then rerun the GSA tool installer.";
+    if (!strcmp(mode, "python"))
+        return "Install Python 3 with venv support or pipx, then rerun the GSA tool installer.";
+    if (!strcmp(mode, "cargo"))
+        return "Install Rust/Cargo first, then rerun the GSA tool installer.";
+    if (!strcmp(mode, "system"))
+        return "Install a supported package manager or install this tool manually using the command shown.";
+    return "";
+}
+
+static void child_setenv_gsa_tools(void) {
+    char bin[1200];
+    gsa_tools_dir(bin, sizeof bin);
+    const char *old = getenv("PATH");
+    char pathbuf[4096];
+#ifdef _WIN32
+    snprintf(pathbuf, sizeof pathbuf, "%s;%s", bin, old ? old : "");
+#else
+    const char *home = getenv("HOME");
+    char localbin[1200];
+    snprintf(localbin, sizeof localbin, "%s/.local/bin", home ? home : "");
+    snprintf(pathbuf, sizeof pathbuf, "%s:%s:/opt/homebrew/bin:/usr/local/bin:%s",
+             bin, localbin, old ? old : "");
+#endif
+    setenv("PATH", pathbuf, 1);
+    setenv("DSTUDIO_GSA_TOOLS_BIN", bin, 1);
+}
+
+static int gsa_write_install_scripts(const char *bin, char *sh_path, size_t shsz,
+                                     char *ps_path, size_t pssz, char *err, size_t errsz) {
+    char root[1200];
+    cstr_copy(root, sizeof root, bin);
+    char *slash = strrchr(root, '/');
+#ifdef _WIN32
+    char *bslash = strrchr(root, '\\');
+    if (bslash && (!slash || bslash > slash)) slash = bslash;
+#endif
+    if (slash) *slash = '\0';
+    mkpath(root);
+    snprintf(sh_path, shsz, "%s/install-gsa-tools.sh", root);
+    snprintf(ps_path, pssz, "%s/install-gsa-tools.ps1", root);
+
+    json_dyn_buf sh = {0};
+    json_dyn_puts(&sh,
+        "#!/usr/bin/env bash\n"
+        "set -uo pipefail\n"
+        "ROOT=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n"
+        "BIN=\"$ROOT/bin\"\n"
+        "WARNINGS=()\n"
+        "warn() { WARNINGS+=(\"$1\"); echo \"warning: $1\" >&2; }\n"
+        "mkdir -p \"$BIN\" \"$ROOT/go\" \"$ROOT/cargo/home\" \"$ROOT/cargo/target\" \"$ROOT/pipx\" \"$ROOT/python\"\n"
+        "export GOBIN=\"$BIN\"\n"
+        "export GOPATH=\"$ROOT/go\"\n"
+        "export GOMODCACHE=\"$ROOT/go/pkg/mod\"\n"
+        "export GOCACHE=\"$ROOT/go/cache\"\n"
+        "export CARGO_HOME=\"$ROOT/cargo/home\"\n"
+        "export CARGO_TARGET_DIR=\"$ROOT/cargo/target\"\n"
+        "export PIPX_HOME=\"$ROOT/pipx/home\"\n"
+        "export PIPX_BIN_DIR=\"$BIN\"\n"
+        "echo \"Preparing optional GSA tools in $BIN\"\n"
+        "echo \"Installing Go-based GSA tools\"\n"
+        "if command -v go >/dev/null 2>&1; then\n");
+    for (size_t i = 0; i < sizeof GSA_TOOL_SPECS / sizeof GSA_TOOL_SPECS[0]; i++) {
+        const char *cmd = GSA_TOOL_SPECS[i].install;
+        if (cmd && !strncmp(cmd, "go install ", 11)) {
+            char first[96];
+            gsa_tool_first_alias(GSA_TOOL_SPECS[i].aliases, first, sizeof first);
+            json_dyn_printf(&sh, "  echo \"  - %s\"; %s || warn \"%s install failed\"\n", first, cmd, first);
+        }
+    }
+    json_dyn_puts(&sh,
+        "else\n"
+        "  warn \"Go is not installed; skipping Go-based tools. Install Go, then rerun this script.\"\n"
+        "fi\n"
+        "if command -v cargo >/dev/null 2>&1; then\n"
+        "  echo \"Installing Cargo-based tools\"\n"
+        "  cargo install binwalk --root \"$ROOT\" --locked --force || warn \"binwalk install failed via cargo\"\n"
+        "else\n"
+        "  warn \"Cargo is not installed; skipping binwalk. Install Rust/Cargo, then rerun this script.\"\n"
+        "fi\n"
+        "echo \"Installing Python-based optional tools\"\n"
+        "PY_PKGS=\"plaso volatility3 semgrep sqlmap arjun uro pwntools\"\n"
+        "if command -v pipx >/dev/null 2>&1; then\n"
+        "  for pkg in $PY_PKGS; do echo \"  - $pkg\"; pipx install --force \"$pkg\" || warn \"$pkg install failed via pipx\"; done\n"
+        "elif command -v python3 >/dev/null 2>&1; then\n"
+        "  if python3 -m venv \"$ROOT/python/venv\"; then\n"
+        "    \"$ROOT/python/venv/bin/python\" -m pip install --upgrade pip || warn \"pip upgrade failed in managed Python venv\"\n"
+        "    \"$ROOT/python/venv/bin/python\" -m pip install $PY_PKGS || warn \"one or more Python tools failed to install in managed venv\"\n"
+        "    find \"$ROOT/python/venv/bin\" -maxdepth 1 -type f -perm -111 -exec ln -sf {} \"$BIN\" \\; || warn \"could not link Python tool entrypoints into $BIN\"\n"
+        "  else\n"
+        "    warn \"python3 exists, but venv creation failed. Install python3-venv or use pipx, then rerun this script.\"\n"
+        "  fi\n"
+        "else\n"
+        "  warn \"Python 3 or pipx is not installed; skipping Python-based tools.\"\n"
+        "fi\n"
+        "echo \"Manual/system tools still need OS packages when desired: nmap, tshark, zeek, yara, rizin/radare2, gdb, exiftool, trivy, syft, grype.\"\n"
+        "if [ \"${#WARNINGS[@]}\" -gt 0 ]; then\n"
+        "  echo\n"
+        "  echo \"Completed with skipped or failed optional installers:\"\n"
+        "  printf ' - %s\\n' \"${WARNINGS[@]}\"\n"
+        "else\n"
+        "  echo \"All managed installer steps completed.\"\n"
+        "fi\n");
+
+    json_dyn_buf ps = {0};
+    json_dyn_puts(&ps,
+        "$ErrorActionPreference = 'Continue'\n"
+        "$Root = Split-Path -Parent $MyInvocation.MyCommand.Path\n"
+        "$Bin = Join-Path $Root 'bin'\n"
+        "$Warnings = New-Object System.Collections.Generic.List[string]\n"
+        "function Add-Warn([string]$Message) { $Warnings.Add($Message); Write-Warning $Message }\n"
+        "New-Item -ItemType Directory -Force -Path $Bin | Out-Null\n"
+        "New-Item -ItemType Directory -Force -Path (Join-Path $Root 'go') | Out-Null\n"
+        "New-Item -ItemType Directory -Force -Path (Join-Path $Root 'cargo\\home') | Out-Null\n"
+        "New-Item -ItemType Directory -Force -Path (Join-Path $Root 'cargo\\target') | Out-Null\n"
+        "New-Item -ItemType Directory -Force -Path (Join-Path $Root 'pipx') | Out-Null\n"
+        "New-Item -ItemType Directory -Force -Path (Join-Path $Root 'python') | Out-Null\n"
+        "$env:GOBIN = $Bin\n"
+        "$env:GOPATH = Join-Path $Root 'go'\n"
+        "$env:GOMODCACHE = Join-Path $env:GOPATH 'pkg\\mod'\n"
+        "$env:GOCACHE = Join-Path $env:GOPATH 'cache'\n"
+        "$env:CARGO_HOME = Join-Path $Root 'cargo\\home'\n"
+        "$env:CARGO_TARGET_DIR = Join-Path $Root 'cargo\\target'\n"
+        "$env:PIPX_HOME = Join-Path $Root 'pipx\\home'\n"
+        "$env:PIPX_BIN_DIR = $Bin\n"
+        "Write-Host \"Installing Go-based GSA tools into $Bin\"\n"
+        "if (Get-Command go -ErrorAction SilentlyContinue) {\n");
+    for (size_t i = 0; i < sizeof GSA_TOOL_SPECS / sizeof GSA_TOOL_SPECS[0]; i++) {
+        const char *cmd = GSA_TOOL_SPECS[i].install;
+        if (cmd && !strncmp(cmd, "go install ", 11)) {
+            char first[96];
+            gsa_tool_first_alias(GSA_TOOL_SPECS[i].aliases, first, sizeof first);
+            json_dyn_printf(&ps,
+                "  Write-Host '  - %s'\n"
+                "  %s\n"
+                "  if ($LASTEXITCODE -ne 0) { Add-Warn '%s install failed' }\n",
+                first, cmd, first);
+        }
+    }
+    json_dyn_puts(&ps,
+        "} else { Add-Warn 'Go is not installed; skipping Go-based tools. Install Go, then rerun this script.' }\n"
+        "if (Get-Command cargo -ErrorAction SilentlyContinue) {\n"
+        "  cargo install binwalk --root $Root --locked --force\n"
+        "  if ($LASTEXITCODE -ne 0) { Add-Warn 'binwalk install failed via cargo' }\n"
+        "} else { Add-Warn 'Cargo is not installed; skipping binwalk. Install Rust/Cargo, then rerun this script.' }\n"
+        "$PyPkgs = @('plaso','volatility3','semgrep','sqlmap','arjun','uro','pwntools')\n"
+        "if (Get-Command pipx -ErrorAction SilentlyContinue) {\n"
+        "  foreach ($Pkg in $PyPkgs) { Write-Host \"  - $Pkg\"; pipx install --force $Pkg; if ($LASTEXITCODE -ne 0) { Add-Warn \"$Pkg install failed via pipx\" } }\n"
+        "} elseif ((Get-Command python3 -ErrorAction SilentlyContinue) -or (Get-Command python -ErrorAction SilentlyContinue)) {\n"
+        "  $Python = if (Get-Command python3 -ErrorAction SilentlyContinue) { 'python3' } else { 'python' }\n"
+        "  $Venv = Join-Path $Root 'python\\venv'\n"
+        "  & $Python -m venv $Venv\n"
+        "  if ($LASTEXITCODE -eq 0) {\n"
+        "    & (Join-Path $Venv 'Scripts\\python.exe') -m pip install --upgrade pip; if ($LASTEXITCODE -ne 0) { Add-Warn 'pip upgrade failed in managed Python venv' }\n"
+        "    & (Join-Path $Venv 'Scripts\\python.exe') -m pip install $PyPkgs; if ($LASTEXITCODE -ne 0) { Add-Warn 'one or more Python tools failed to install in managed venv' }\n"
+        "    Get-ChildItem (Join-Path $Venv 'Scripts') -File | Where-Object { $_.Extension -in '.exe','.cmd','.bat' } | ForEach-Object { Copy-Item $_.FullName (Join-Path $Bin $_.Name) -Force }\n"
+        "  } else { Add-Warn 'Python exists, but venv creation failed. Install venv support or use pipx, then rerun this script.' }\n"
+        "} else { Add-Warn 'Python 3 or pipx is not installed; skipping Python-based tools.' }\n"
+        "Write-Host 'Manual/system tools still need OS packages when desired: nmap, tshark, zeek, yara, rizin/radare2, gdb, exiftool, trivy, syft, grype.'\n"
+        "if ($Warnings.Count -gt 0) { Write-Host ''; Write-Host 'Completed with skipped or failed optional installers:'; foreach ($Warning in $Warnings) { Write-Host \" - $Warning\" } } else { Write-Host 'All managed installer steps completed.' }\n");
+
+    int ok = sh.ptr && ps.ptr &&
+             jsonl_write_file(sh_path, sh.ptr, sh.len) &&
+             jsonl_write_file(ps_path, ps.ptr, ps.len);
+#ifndef _WIN32
+    if (ok) chmod(sh_path, 0755);
+#endif
+    free(sh.ptr);
+    free(ps.ptr);
+    if (!ok) snprintf(err, errsz, "could not write GSA install scripts");
+    return ok;
+}
+
+static int gsa_tools_json_filtered(json_dyn_buf *b, const char *disabled_tools) {
+    char managed[1200], managed_esc[2400];
+    gsa_tools_dir(managed, sizeof managed);
+    json_escape_into(managed_esc, sizeof managed_esc, managed, strlen(managed));
+    int found_count = 0, disabled_count = 0, not_installable_count = 0;
+    if (!json_dyn_printf(b,
+        "{\"managedBin\":\"%s\",\"mode\":\"tool-assisted\","
+        "\"externalToolsRequired\":false,\"tools\":[",
+        managed_esc))
+        return 0;
+    for (size_t i = 0; i < sizeof GSA_TOOL_SPECS / sizeof GSA_TOOL_SPECS[0]; i++) {
+        const gsa_tool_spec *t = &GSA_TOOL_SPECS[i];
+        char cmd[96], name_esc[180], cat_esc[180], cmd_esc[180], aliases_esc[900], install_esc[1200], notes_esc[900];
+        char mode_esc[80], required_esc[260], missing_esc[260], hint_esc[700];
+        gsa_tool_first_alias(t->aliases, cmd, sizeof cmd);
+        int installed = gsa_tool_found(t, managed);
+        int disabled = gsa_tool_disabled(t->name, disabled_tools);
+        int found = installed && !disabled;
+        const char *mode = gsa_tool_install_mode(t);
+        const char *required = gsa_tool_required_installer(mode);
+        int prereq_found = required[0] ? gsa_any_installer_found(required) : 1;
+        int installable = installed || prereq_found;
+        const char *missing = (!installed && !prereq_found) ? gsa_tool_missing_installer_label(mode) : "";
+        const char *hint = (!installed && !prereq_found) ? gsa_tool_install_hint(mode) : "";
+        if (found) found_count++;
+        if (disabled) disabled_count++;
+        if (!disabled && !installed && !installable) not_installable_count++;
+        json_escape_into(name_esc, sizeof name_esc, t->name, strlen(t->name));
+        json_escape_into(cat_esc, sizeof cat_esc, t->category, strlen(t->category));
+        json_escape_into(cmd_esc, sizeof cmd_esc, cmd, strlen(cmd));
+        json_escape_into(aliases_esc, sizeof aliases_esc, t->aliases, strlen(t->aliases));
+        json_escape_into(install_esc, sizeof install_esc, t->install, strlen(t->install));
+        json_escape_into(notes_esc, sizeof notes_esc, t->notes, strlen(t->notes));
+        json_escape_into(mode_esc, sizeof mode_esc, mode, strlen(mode));
+        json_escape_into(required_esc, sizeof required_esc, required, strlen(required));
+        json_escape_into(missing_esc, sizeof missing_esc, missing, strlen(missing));
+        json_escape_into(hint_esc, sizeof hint_esc, hint, strlen(hint));
+        if (i && !json_dyn_puts(b, ",")) return 0;
+        if (!json_dyn_printf(b,
+            "{\"name\":\"%s\",\"category\":\"%s\",\"command\":\"%s\",\"aliases\":\"%s\","
+            "\"found\":%s,\"installed\":%s,\"enabled\":%s,\"disabled\":%s,"
+            "\"installable\":%s,\"installMode\":\"%s\",\"requiredInstaller\":\"%s\","
+            "\"missingInstaller\":\"%s\",\"installHint\":\"%s\",\"install\":\"%s\",\"notes\":\"%s\"}",
+            name_esc, cat_esc, cmd_esc, aliases_esc,
+            found ? "true" : "false", installed ? "true" : "false",
+            disabled ? "false" : "true", disabled ? "true" : "false",
+            installable ? "true" : "false", mode_esc, required_esc,
+            missing_esc, hint_esc,
+            install_esc, notes_esc))
+            return 0;
+    }
+    return json_dyn_printf(b,
+        "],\"found\":%d,\"total\":%zu,\"disabledCount\":%d,\"notInstallable\":%d,"
+        "\"installable\":%s,"
+        "\"message\":\"GSA can use enabled installed external tools from PATH or managedBin, but they are optional advisory evidence. Disabled or missing tools must not be used for this run; clean scanner output is not proof of safety without source/artifact/Python validation.\"}",
+        found_count, sizeof GSA_TOOL_SPECS / sizeof GSA_TOOL_SPECS[0], disabled_count,
+        not_installable_count, not_installable_count ? "false" : "true");
+}
+
+static int gsa_tools_json(json_dyn_buf *b) {
+    return gsa_tools_json_filtered(b, NULL);
+}
+
+static void api_gsa_tools(int fd) {
+    json_dyn_buf b = {0};
+    if (!json_dyn_puts(&b, "{\"ok\":true,\"gsaTools\":") || !gsa_tools_json(&b) ||
+        !json_dyn_puts(&b, "}"))
+    {
+        free(b.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"GSA tools status memory\"}");
+        return;
+    }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+}
+
+static void api_gsa_tools_install(int fd) {
+    char bin[1200];
+    gsa_tools_dir(bin, sizeof bin);
+    mkpath(bin);
+    char sh_path[1400] = "", ps_path[1400] = "", err[512] = "";
+    unsigned long long task_id = task_begin("gsa-tools", "Prepare GSA tool scripts",
+                                            "tool-assisted",
+                                            g_mode, bin, 0, 0);
+    int scripts_ok = gsa_write_install_scripts(bin, sh_path, sizeof sh_path, ps_path, sizeof ps_path,
+                                               err, sizeof err);
+    if (scripts_ok)
+        task_mark_completed(task_id, "GSA tool install scripts prepared");
+    else
+        task_mark_failed(task_id, "could not prepare GSA tool install scripts", err);
+    const char *detail = scripts_ok
+        ? "Prepared optional installer scripts. DStudio does not require external tools; run the script manually if you want recon/forensics scanners available to GSA."
+        : err;
+    json_dyn_buf b = {0};
+    int ok = json_dyn_printf(&b, "{\"ok\":%s,\"taskId\":%llu,\"installed\":0,\"skipped\":0,\"failed\":%d,\"detail\":",
+                             scripts_ok ? "true" : "false", task_id, scripts_ok ? 0 : 1) &&
+             json_dyn_put_escaped(&b, detail) &&
+             json_dyn_puts(&b, ",\"installSh\":") &&
+             json_dyn_put_escaped(&b, sh_path) &&
+             json_dyn_puts(&b, ",\"installPs1\":") &&
+             json_dyn_put_escaped(&b, ps_path) &&
+             json_dyn_puts(&b, ",\"gsaTools\":") &&
+             gsa_tools_json(&b) &&
+             json_dyn_puts(&b, "}");
+    if (!ok) {
+        free(b.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"GSA tools install response memory\"}");
+        return;
+    }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+}
+
+static int gsa_run_id_ok(const char *s) {
+    if (!s || !s[0]) return 0;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        if (isalnum(*p) || *p == '-' || *p == '_') continue;
+        return 0;
+    }
+    return 1;
+}
+
+static int gsa_path_under(const char *path, const char *base) {
+    if (!path || !base || !path[0] || !base[0]) return 0;
+    size_t n = strlen(base);
+    if (strncmp(path, base, n) != 0) return 0;
+    return path[n] == '\0' || path[n] == '/' || path[n] == '\\';
+}
+
+static int gsa_skip_dir(const char *name) {
+    static const char *skip[] = {
+        ".git", ".hg", ".svn", ".dstudio", "node_modules", "dist", "build",
+        ".next", ".nuxt", ".turbo", "coverage", "target", "vendor", ".venv",
+        "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".cache",
+        "DerivedData", ".idea", ".vscode", NULL
+    };
+    for (int i = 0; skip[i]; i++) if (!strcmp(name, skip[i])) return 1;
+    return 0;
+}
+
+static int gsa_candidate_file(const char *name) {
+    static const char *plain[] = {
+        "Makefile", "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
+        "package.json", "pnpm-lock.yaml", "yarn.lock", "package-lock.json",
+        "Cargo.toml", "Cargo.lock", "go.mod", "go.sum", "requirements.txt",
+        "pyproject.toml", "Pipfile", "Gemfile", "composer.json", ".env.example",
+        NULL
+    };
+    for (int i = 0; plain[i]; i++) if (str_eq_ci_ascii(name, plain[i])) return 1;
+    const char *dot = strrchr(name, '.');
+    if (!dot) return 0;
+    static const char *ext[] = {
+        ".c", ".h", ".cc", ".cpp", ".hpp", ".m", ".mm",
+        ".go", ".rs", ".java", ".kt", ".swift", ".cs",
+        ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+        ".py", ".rb", ".php", ".scala", ".sh", ".bash", ".zsh",
+        ".sql", ".graphql", ".proto", ".html", ".css", ".scss",
+        ".json", ".yaml", ".yml", ".toml", ".ini", ".conf", ".cfg",
+        ".md", ".txt", ".env", ".tf", ".tfvars", ".dockerfile",
+        NULL
+    };
+    for (int i = 0; ext[i]; i++) if (str_eq_ci_ascii(dot, ext[i])) return 1;
+    return 0;
+}
+
+static void gsa_scan_candidates(FILE *out, const char *base, const char *rel,
+                                int depth, int *count, int *truncated) {
+    if (depth > 8 || *count >= 2200) { *truncated = 1; return; }
+    char dir[PATH_MAX];
+    if ((size_t)snprintf(dir, sizeof dir, "%s%s%s", base, rel[0] ? "/" : "", rel) >= sizeof dir) {
+        *truncated = 1;
+        return;
+    }
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        const char *name = de->d_name;
+        if (!strcmp(name, ".") || !strcmp(name, "..") || name[0] == '.') {
+            if (strcmp(name, ".env") && strcmp(name, ".env.example")) continue;
+        }
+        if (gsa_skip_dir(name)) continue;
+        char child_rel[PATH_MAX], full[PATH_MAX];
+        if ((size_t)snprintf(child_rel, sizeof child_rel, "%s%s%s",
+                             rel, rel[0] ? "/" : "", name) >= sizeof child_rel)
+        {
+            *truncated = 1;
+            continue;
+        }
+        if ((size_t)snprintf(full, sizeof full, "%s/%s", base, child_rel) >= sizeof full) {
+            *truncated = 1;
+            continue;
+        }
+        struct stat st;
+        if (lstat(full, &st) != 0 || S_ISLNK(st.st_mode)) continue;
+        if (S_ISDIR(st.st_mode)) {
+            gsa_scan_candidates(out, base, child_rel, depth + 1, count, truncated);
+            if (*count >= 2200) { *truncated = 1; break; }
+        } else if (S_ISREG(st.st_mode) && gsa_candidate_file(name)) {
+            fprintf(out, "%s\t%lld\n", child_rel, (long long)st.st_size);
+            (*count)++;
+            if (*count >= 2200) { *truncated = 1; break; }
+        }
+    }
+    closedir(d);
+}
+
+typedef struct {
+    int score;
+    char id[96];
+    char name[300];
+    char desc[900];
+    char domain[120];
+    char subdomain[160];
+    char tags[600];
+    char reason[700];
+} gsa_skill_pick;
+
+static int gsa_token_skip(const char *tok) {
+    if (!tok || strlen(tok) < 3) return 1;
+    static const char *skip[] = {
+        "the", "and", "for", "with", "from", "that", "this", "using", "use",
+        "uses", "into", "only", "when", "where", "what", "your", "you",
+        "are", "can", "all", "any", "not", "security", "cybersecurity",
+        "analysis", "analyze", "analyzing", "performing", "conducting",
+        "implementing", "review", "testing", "skill", "skills", NULL
+    };
+    for (int i = 0; skip[i]; i++) if (!strcmp(tok, skip[i])) return 1;
+    return 0;
+}
+
+static int gsa_term_score(const char *hay, const char *terms) {
+    if (!hay || !hay[0] || !terms || !terms[0]) return 0;
+    int score = 0;
+    char seen[512][80];
+    int seen_n = 0;
+    char tok[80];
+    size_t o = 0;
+    for (const char *p = terms; ; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (isalnum(c)) {
+            if (o + 1 < sizeof tok) tok[o++] = (char)tolower(c);
+        } else {
+            if (o) {
+                tok[o] = '\0';
+                int dup = 0;
+                for (int i = 0; i < seen_n; i++) {
+                    if (!strcmp(seen[i], tok)) { dup = 1; break; }
+                }
+                if (!dup) {
+                    if (seen_n < (int)(sizeof seen / sizeof seen[0]))
+                        cstr_copy(seen[seen_n++], sizeof seen[0], tok);
+                    if (!gsa_token_skip(tok) && text_contains_ci(hay, tok)) score++;
+                }
+                o = 0;
+            }
+            if (!c) break;
+        }
+    }
+    return score;
+}
+
+static int gsa_pick_cmp(const void *a, const void *b) {
+    const gsa_skill_pick *pa = (const gsa_skill_pick *)a;
+    const gsa_skill_pick *pb = (const gsa_skill_pick *)b;
+    if (pb->score != pa->score) return pb->score - pa->score;
+    return strcmp(pa->id, pb->id);
+}
+
+static void gsa_consider_skill_pick(gsa_skill_pick *picks, int *n, int cap,
+                                    const gsa_skill_pick *pick) {
+    if (!pick || pick->score <= 0 || cap <= 0) return;
+    if (*n < cap) {
+        picks[(*n)++] = *pick;
+        return;
+    }
+    int worst = 0;
+    for (int i = 1; i < *n; i++) {
+        if (picks[i].score < picks[worst].score ||
+            (picks[i].score == picks[worst].score && strcmp(picks[i].id, picks[worst].id) > 0))
+            worst = i;
+    }
+    if (pick->score > picks[worst].score ||
+        (pick->score == picks[worst].score && strcmp(pick->id, picks[worst].id) < 0))
+        picks[worst] = *pick;
+}
+
+static int gsa_meta_overlap(const char *meta_terms, const char *domain_terms) {
+    return gsa_term_score(domain_terms, meta_terms);
+}
+
+static int gsa_domain_bonus(const char *mission, const char *workspace_signals,
+                            const char *meta_terms) {
+    const char *m = mission ? mission : "";
+    const char *w = workspace_signals ? workspace_signals : "";
+    int bonus = 0;
+    if (text_contains_ci(m, "crypto") || text_contains_ci(w, "crypto") ||
+        text_contains_ci(w, "jwt") || text_contains_ci(w, "hmac"))
+        bonus += gsa_meta_overlap(meta_terms, "cryptographic encryption decryption key hsm tls jwt oauth certificate nonce signature") ? 45 : 0;
+    if (text_contains_ci(m, "pwn") || text_contains_ci(w, "pwn") ||
+        text_contains_ci(w, "stack") || text_contains_ci(w, "heap"))
+        bonus += gsa_meta_overlap(meta_terms, "binary exploitation exploit memory heap stack fuzz buffer overflow rop crash") ? 45 : 0;
+    if (text_contains_ci(m, "reverse-engineering") || text_contains_ci(m, "reverse engineering") ||
+        text_contains_ci(w, "reverse-engineering") || text_contains_ci(w, "firmware"))
+        bonus += gsa_meta_overlap(meta_terms, "reverse engineering ghidra ida firmware binary disassemble decompile static") ? 45 : 0;
+    if (text_contains_ci(m, "forensics") || text_contains_ci(w, "forensics"))
+        bonus += gsa_meta_overlap(meta_terms, "forensics forensic volatility autopsy timeline artifact registry browser disk") ? 45 : 0;
+    if (text_contains_ci(m, "osint") || text_contains_ci(w, "osint"))
+        bonus += gsa_meta_overlap(meta_terms, "osint intelligence attribution domain certificate transparency infrastructure phishing") ? 45 : 0;
+    if (text_contains_ci(m, "network-security") || text_contains_ci(m, "network security") ||
+        text_contains_ci(w, "network-security") || text_contains_ci(w, "pcap"))
+        bonus += gsa_meta_overlap(meta_terms, "network dns zeek wireshark packet pcap firewall vpn cidr acl policy segmentation service exposure intrusion traffic flow") ? 45 : 0;
+    if (text_contains_ci(m, "firewall") || text_contains_ci(m, "cidr") ||
+        text_contains_ci(m, "service exposure") || text_contains_ci(m, "segmentation") ||
+        text_contains_ci(w, "firewall") || text_contains_ci(w, "cidr") ||
+        text_contains_ci(w, "rules.csv") || text_contains_ci(w, "zones.json") ||
+        text_contains_ci(w, "flows.csv") || text_contains_ci(w, "service_exposure"))
+        bonus += gsa_meta_overlap(meta_terms, "network firewall rules cidr acl policy segmentation service exposure flow traffic zone zero trust access control") ? 90 : 0;
+    if (text_contains_ci(m, "malware-analysis") || text_contains_ci(m, "malware analysis") ||
+        text_contains_ci(w, "malware-analysis") || text_contains_ci(w, "malware"))
+        bonus += gsa_meta_overlap(meta_terms, "malware sandbox yara ioc beacon packed elf pe macro loader dropper cuckoo") ? 45 : 0;
+    if (text_contains_ci(m, "web") || text_contains_ci(w, "/web/") ||
+        text_contains_ci(w, "web-"))
+        bonus += gsa_meta_overlap(meta_terms, "web api authorization authentication xss ssrf sql csrf upload cors session cookie oauth graphql") ? 45 : 0;
+    if (text_contains_ci(m, "idor") || text_contains_ci(m, "bola") ||
+        text_contains_ci(w, "idor") || text_contains_ci(w, "bola"))
+        bonus += gsa_meta_overlap(meta_terms, "idor bola object authorization broken access control") ? 80 : 0;
+    if (text_contains_ci(m, "bfla") || text_contains_ci(m, "function level authorization") ||
+        text_contains_ci(w, "bfla"))
+        bonus += gsa_meta_overlap(meta_terms, "bfla function authorization privilege access control") ? 80 : 0;
+    return bonus;
+}
+
+static int gsa_target_url_ok(const char *url, char *err, size_t errsz) {
+    if (!url || !url[0]) return 1;
+    if (strlen(url) > 1000) {
+        snprintf(err, errsz, "targetUrl too long");
+        return 0;
+    }
+    if (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0) {
+        snprintf(err, errsz, "targetUrl must start with http:// or https://");
+        return 0;
+    }
+    for (const unsigned char *p = (const unsigned char *)url; *p; p++) {
+        if (isspace(*p)) {
+            snprintf(err, errsz, "targetUrl must not contain whitespace");
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int gsa_extract_first_url(const char *text, char *out, size_t outsz) {
+    if (out && outsz) out[0] = '\0';
+    if (!text || !out || outsz == 0) return 0;
+    const char *http = strstr(text, "http://");
+    const char *https = strstr(text, "https://");
+    const char *p = NULL;
+    if (http && https) p = http < https ? http : https;
+    else p = http ? http : https;
+    if (!p) return 0;
+    const char *end = p;
+    while (*end) {
+        unsigned char c = (unsigned char)*end;
+        if (isspace(c) || c == '<' || c == '>' || c == '"' || c == '\'' || c == '`') break;
+        end++;
+    }
+    size_t n = (size_t)(end - p);
+    while (n > 0 && strchr(").,;:!?]}", p[n - 1])) n--;
+    if (n == 0 || n >= outsz) return 0;
+    memcpy(out, p, n);
+    out[n] = '\0';
+    return 1;
+}
+
+static int gsa_target_host(const char *url, char *host, size_t hostsz) {
+    if (host && hostsz) host[0] = '\0';
+    if (!url || !url[0]) return 0;
+    const char *p = !strncmp(url, "http://", 7) ? url + 7 :
+                    !strncmp(url, "https://", 8) ? url + 8 : url;
+    const char *end = p + strcspn(p, "/?#");
+    const char *at = memchr(p, '@', (size_t)(end - p));
+    if (at) p = at + 1;
+    if (p >= end) return 0;
+    if (*p == '[') return 0;
+    const char *colon = memchr(p, ':', (size_t)(end - p));
+    if (colon) end = colon;
+    size_t n = (size_t)(end - p);
+    if (n == 0 || n >= hostsz) return 0;
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)p[i];
+        if (!(isalnum(c) || c == '.' || c == '-')) return 0;
+    }
+    memcpy(host, p, n);
+    host[n] = '\0';
+    return 1;
+}
+
+static int gsa_write_tool_status_file(const char *run_dir, const char *disabled_tools, char *err, size_t errsz,
+                                      char *summary, size_t summarysz) {
+    json_dyn_buf b = {0};
+    if (!gsa_tools_json_filtered(&b, disabled_tools)) {
+        free(b.ptr);
+        snprintf(err, errsz, "could not build GSA tool status");
+        return 0;
+    }
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s/toolStatus.json", run_dir);
+    if (!jsonl_write_file(path, b.ptr, b.len)) {
+        free(b.ptr);
+        snprintf(err, errsz, "could not write GSA tool status: %s", strerror(errno));
+        return 0;
+    }
+    if (summary && summarysz) {
+        char managed[1200];
+        gsa_tools_dir(managed, sizeof managed);
+        snprintf(summary, summarysz,
+                 "- mode: tool-assisted\n"
+                 "- managed bin: `%s`\n"
+                 "- disabled tools: %s\n"
+                 "- external tools: optional advisory evidence only; use only if listed as enabled and found in toolStatus.json or available on PATH\n"
+                 "- network tools: allowed only for authorized target URL/host/scope; save command output under `%s/scripts/` or the run directory\n"
+                 "- missing or disabled tools: do not silently use; state the missing/disabled command and use source/Python evidence when possible\n"
+                 "- negative tool results are not proof of safety; close or kill hypotheses from code, artifacts, manual reasoning, or targeted Python checks\n",
+                 managed, (disabled_tools && disabled_tools[0]) ? disabled_tools : "(none)", run_dir);
+    }
+    free(b.ptr);
+    return 1;
+}
+
+static int gsa_prepare_python_scripts_dir(const char *run_dir, char *err, size_t errsz) {
+    char scripts[PATH_MAX], readme[PATH_MAX];
+    snprintf(scripts, sizeof scripts, "%s/scripts", run_dir);
+    mkpath(scripts);
+    struct stat st;
+    if (stat(scripts, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        snprintf(err, errsz, "could not create GSA scripts directory");
+        return 0;
+    }
+    snprintf(readme, sizeof readme, "%s/README.md", scripts);
+    static const char note[] =
+        "# GSA local scripts\n\n"
+        "This run is tool-assisted. Write small, bounded Python helpers here and save external-tool outputs here when automation is useful.\n"
+        "Scripts and tool commands must save their inputs/outputs in this run directory and report failures explicitly.\n"
+        "External scanners are advisory only: a clean/empty result from sqlmap, nuclei, semgrep, trivy or similar must be cross-checked manually before a hypothesis is closed.\n";
+    if (!jsonl_write_file(readme, note, strlen(note))) {
+        snprintf(err, errsz, "could not write GSA scripts README: %s", strerror(errno));
+        return 0;
+    }
+    return 1;
+}
+
+static int gsa_write_empty_artifacts(const char *run_dir, char *err, size_t errsz) {
+    char scripts_manifest[PATH_MAX], evidence[PATH_MAX];
+    snprintf(scripts_manifest, sizeof scripts_manifest, "%s/scripts_manifest.json", run_dir);
+    snprintf(evidence, sizeof evidence, "%s/evidence.jsonl", run_dir);
+    static const char manifest[] =
+        "{\n"
+        "  \"scripts\": [],\n"
+        "  \"note\": \"GSA is tool-assisted. Update this file when scripts or external-tool commands are planned, written, run or fail. Tool output is advisory and must be cross-checked against code/artifact evidence.\"\n"
+        "}\n";
+    if (!jsonl_write_file(scripts_manifest, manifest, strlen(manifest))) {
+        snprintf(err, errsz, "could not write GSA scripts manifest: %s", strerror(errno));
+        return 0;
+    }
+    if (!jsonl_write_file(evidence, "", 0)) {
+        snprintf(err, errsz, "could not write GSA evidence log: %s", strerror(errno));
+        return 0;
+    }
+    return 1;
+}
+
+static long long gsa_state_long_field(const char *run_dir, const char *field, long long def) {
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s/run_state.json", run_dir);
+    size_t n = 0;
+    char *body = jsonl_read_file(path, &n);
+    if (!body) return def;
+    char pat[96];
+    snprintf(pat, sizeof pat, "\"%s\"", field);
+    const char *p = strstr(body, pat);
+    int ok = 0;
+    long long v = def;
+    if (p) {
+        p += strlen(pat);
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == ':') {
+            p++;
+            while (*p == ' ' || *p == '\t') p++;
+            char *end = NULL;
+            v = strtoll(p, &end, 10);
+            ok = end && end != p;
+        }
+    }
+    free(body);
+    return ok ? v : def;
+}
+
+static int gsa_state_string_field(const char *run_dir, const char *field, char *out, size_t outsz) {
+    if (out && outsz) out[0] = '\0';
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s/run_state.json", run_dir);
+    size_t n = 0;
+    char *body = jsonl_read_file(path, &n);
+    if (!body) return 0;
+    int ok = json_get_string(body, field, out, outsz);
+    free(body);
+    return ok;
+}
+
+static int gsa_write_run_state(const char *run_dir, const char *run_id,
+                               const char *status, const char *phase,
+                               int iteration, const char *parent_run_dir,
+                               const char *target_url, const char *target_host,
+                               const char *error, char *err, size_t errsz) {
+    long long now = dstudio_now_ms();
+    long long started = gsa_state_long_field(run_dir, "startedMs", now);
+    if (iteration <= 0) iteration = (int)gsa_state_long_field(run_dir, "iteration", 1);
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s/run_state.json", run_dir);
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "{\n  \"runId\": ") &&
+             json_dyn_put_escaped(&b, run_id ? run_id : "") &&
+             json_dyn_puts(&b, ",\n  \"status\": ") &&
+             json_dyn_put_escaped(&b, status ? status : "incomplete") &&
+             json_dyn_puts(&b, ",\n  \"phase\": ") &&
+             json_dyn_put_escaped(&b, phase ? phase : "start") &&
+             json_dyn_printf(&b, ",\n  \"iteration\": %d,\n  \"startedMs\": %lld,\n  \"updatedMs\": %lld,\n  \"completedMs\": %lld,\n  \"parentRunDir\": ",
+                             iteration, started, now, status && !strcmp(status, "complete") ? now : 0) &&
+             json_dyn_put_escaped(&b, parent_run_dir ? parent_run_dir : "") &&
+             json_dyn_puts(&b, ",\n  \"targetUrl\": ") &&
+             json_dyn_put_escaped(&b, target_url ? target_url : "") &&
+             json_dyn_puts(&b, ",\n  \"targetHost\": ") &&
+             json_dyn_put_escaped(&b, target_host ? target_host : "") &&
+             json_dyn_puts(&b, ",\n  \"error\": ") &&
+             json_dyn_put_escaped(&b, error ? error : "") &&
+             json_dyn_puts(&b, "\n}\n");
+    if (!ok || !jsonl_write_file(path, b.ptr ? b.ptr : "", b.len)) {
+        snprintf(err, errsz, "could not write GSA run state: %s", strerror(errno));
+        free(b.ptr);
+        return 0;
+    }
+    free(b.ptr);
+    return 1;
+}
+
+static int gsa_validate_parent_run_dir(const char *workdir_abs, const char *raw,
+                                       char *out, size_t outsz,
+                                       char *err, size_t errsz) {
+    if (out && outsz) out[0] = '\0';
+    if (!raw || !raw[0]) return 1;
+    char runs[PATH_MAX], real_runs[PATH_MAX], real_parent[PATH_MAX];
+    snprintf(runs, sizeof runs, "%s/.dstudio/gsa/runs", workdir_abs);
+    if (!realpath(runs, real_runs)) {
+        snprintf(err, errsz, "GSA runs directory does not exist for loop parent");
+        return 0;
+    }
+    if (!realpath(raw, real_parent)) {
+        snprintf(err, errsz, "parentRunDir not found");
+        return 0;
+    }
+    if (!gsa_path_under(real_parent, real_runs)) {
+        snprintf(err, errsz, "parentRunDir must be inside this workspace GSA runs directory");
+        return 0;
+    }
+    const char *base = strrchr(real_parent, '/');
+#ifdef _WIN32
+    const char *b2 = strrchr(real_parent, '\\');
+    if (!base || (b2 && b2 > base)) base = b2;
+#endif
+    base = base ? base + 1 : real_parent;
+    if (!gsa_run_id_ok(base)) {
+        snprintf(err, errsz, "parentRunDir has an invalid run id");
+        return 0;
+    }
+    char status[64] = "";
+    if (!gsa_state_string_field(real_parent, "status", status, sizeof status) ||
+        strcmp(status, "complete") != 0)
+    {
+        snprintf(err, errsz, "previous GSA run is incomplete; loop stopped before starting another run");
+        return 0;
+    }
+    if (out && outsz) cstr_copy(out, outsz, real_parent);
+    return 1;
+}
+
+static void gsa_append_run_file_excerpt(json_dyn_buf *b, const char *run_dir,
+                                        const char *name, const char *title,
+                                        size_t max_bytes) {
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s/%s", run_dir, name);
+    size_t n = 0;
+    char *body = jsonl_read_file(path, &n);
+    if (!body) return;
+    if (n > max_bytes) {
+        n = max_bytes;
+        body[n] = '\0';
+    }
+    json_dyn_printf(b, "\n## %s\n\nSource: `%s`\n\n```text\n", title, path);
+    json_dyn_putn(b, body, n);
+    if (n == max_bytes) json_dyn_puts(b, "\n... truncated ...");
+    json_dyn_puts(b, "\n```\n");
+    free(body);
+}
+
+static int gsa_write_loop_context(const char *run_dir, const char *parent_run_dir,
+                                  char *err, size_t errsz) {
+    if (!parent_run_dir || !parent_run_dir[0]) return 1;
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s/loop_context.md", run_dir);
+    json_dyn_buf b = {0};
+    int ok = json_dyn_printf(&b,
+        "# GSA loop context\n\n"
+        "Previous run: `%s`\n\n"
+        "Read this before selecting scope. Try a different plausible path unless the previous run added concrete new evidence. "
+        "Also look for attack chains: multiple individually weak findings, leaks, auth gaps, parser behavior, config drift, exposed artifacts, or operational evidence may combine into a stronger exploit path. "
+        "Do not repeat the same single-vulnerability hypothesis unless new evidence changes it; prefer validating or killing a concrete chain that uses previous evidence plus one or two new links. "
+        "If this iteration cannot add new evidence or a plausible new chain, say so clearly and stop with `inconclusive` instead of inflating severity.\n",
+        parent_run_dir);
+    if (ok) gsa_append_run_file_excerpt(&b, parent_run_dir, "run_state.json", "Previous run state", 4096);
+    if (ok) gsa_append_run_file_excerpt(&b, parent_run_dir, "validation.json", "Previous validation", 8192);
+    if (ok) gsa_append_run_file_excerpt(&b, parent_run_dir, "report.md", "Previous report", 8192);
+    if (ok) gsa_append_run_file_excerpt(&b, parent_run_dir, "selection.json", "Previous selection", 8192);
+    if (!ok || !jsonl_write_file(path, b.ptr ? b.ptr : "", b.len)) {
+        snprintf(err, errsz, "could not write GSA loop context: %s", strerror(errno));
+        free(b.ptr);
+        return 0;
+    }
+    free(b.ptr);
+    return 1;
+}
+
+static int gsa_json_object_valid(const char *s, const char *phase, char *err, size_t errsz) {
+    const char *p = s;
+    while (p && *p && isspace((unsigned char)*p)) p++;
+    if (!p || *p != '{') {
+        snprintf(err, errsz, "%s output must be a JSON object", phase);
+        return 0;
+    }
+    int depth = 0, in_str = 0, esc = 0;
+    const char *last = p;
+    for (; *p; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (in_str) {
+            if (esc) esc = 0;
+            else if (c == '\\') esc = 1;
+            else if (c == '"') in_str = 0;
+        } else {
+            if (c == '"') in_str = 1;
+            else if (c == '{' || c == '[') depth++;
+            else if (c == '}' || c == ']') {
+                depth--;
+                if (depth < 0) {
+                    snprintf(err, errsz, "%s output has unbalanced JSON brackets", phase);
+                    return 0;
+                }
+            }
+        }
+        if (!isspace(c)) last = p;
+    }
+    if (in_str || depth != 0 || *last != '}') {
+        snprintf(err, errsz, "%s output is not complete JSON", phase);
+        return 0;
+    }
+    char found[48] = "";
+    if (!json_get_string(s, "phase", found, sizeof found) || strcmp(found, phase) != 0) {
+        snprintf(err, errsz, "%s output must include \"phase\":\"%s\"", phase, phase);
+        return 0;
+    }
+    return 1;
+}
+
+static int gsa_report_valid(const char *s, char *err, size_t errsz) {
+    const char *p = s;
+    while (p && *p && isspace((unsigned char)*p)) p++;
+    if (!p || strlen(p) < 24) {
+        snprintf(err, errsz, "GSA report is empty or too short");
+        return 0;
+    }
+    if (!strstr(p, "## Verdict")) {
+        snprintf(err, errsz, "GSA report must start with or include ## Verdict");
+        return 0;
+    }
+    if (!strstr(p, "confirmed_issue") && !strstr(p, "no_issue") && !strstr(p, "inconclusive")) {
+        snprintf(err, errsz, "GSA report must include confirmed_issue, no_issue, or inconclusive");
+        return 0;
+    }
+    return 1;
+}
+
+static void gsa_append_file_head(json_dyn_buf *b, const char *workdir, const char *rel,
+                                 const char *real_base, size_t *budget) {
+    if (!rel || !rel[0] || !budget || *budget == 0) return;
+    char full[PATH_MAX], real_file[PATH_MAX];
+    if ((size_t)snprintf(full, sizeof full, "%s/%s", workdir, rel) >= sizeof full) return;
+    if (!realpath(full, real_file)) return;
+    size_t bl = strlen(real_base);
+    if (strncmp(real_file, real_base, bl) != 0 || (real_file[bl] != '\0' && real_file[bl] != '/')) return;
+    struct stat st;
+    if (stat(real_file, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size > 1024 * 1024) return;
+    FILE *f = fopen(real_file, "rb");
+    if (!f) return;
+    char buf[2048];
+    size_t n = fread(buf, 1, sizeof buf, f);
+    fclose(f);
+    if (!n) return;
+    if (n > *budget) n = *budget;
+    json_dyn_puts(b, "\n[file head ");
+    json_dyn_puts(b, rel);
+    json_dyn_puts(b, "]\n");
+    json_dyn_putn(b, buf, n);
+    json_dyn_puts(b, "\n");
+    *budget -= n;
+}
+
+static char *gsa_workspace_signals(const char *workdir, const char *candidates_path) {
+    FILE *f = fopen(candidates_path, "rb");
+    if (!f) return NULL;
+    char real_base[PATH_MAX];
+    if (!realpath(workdir, real_base)) {
+        fclose(f);
+        return NULL;
+    }
+    json_dyn_buf b = {0};
+    if (!json_dyn_puts(&b, "Workspace candidate paths and bounded file heads.\n")) {
+        fclose(f);
+        return NULL;
+    }
+    char line[PATH_MAX + 64];
+    int paths = 0, heads = 0;
+    size_t head_budget = 96 * 1024;
+    while (fgets(line, sizeof line, f)) {
+        char rel[PATH_MAX];
+        size_t i = 0;
+        while (line[i] && line[i] != '\t' && line[i] != '\n' && i + 1 < sizeof rel) {
+            rel[i] = line[i];
+            i++;
+        }
+        rel[i] = '\0';
+        if (!rel[0]) continue;
+        if (paths < 360) {
+            json_dyn_puts(&b, "path ");
+            json_dyn_puts(&b, rel);
+            json_dyn_puts(&b, "\n");
+            paths++;
+        }
+        if (heads < 80 && head_budget > 0) {
+            gsa_append_file_head(&b, workdir, rel, real_base, &head_budget);
+            heads++;
+        }
+        if (paths >= 360 && (heads >= 80 || head_budget == 0)) break;
+    }
+    fclose(f);
+    return b.ptr;
+}
+
+static int gsa_add_cyber_skill_pick(gsa_skill_pick *picks, int *n, int cap,
+                                    const char *id, const char *content,
+                                    const char *mission, const char *route_mission,
+                                    const char *target_url,
+                                    const char *workspace_signals) {
+    if (!id || !content || !skill_id_ok(id)) return 1;
+    gsa_skill_pick pick;
+    memset(&pick, 0, sizeof pick);
+    cstr_copy(pick.id, sizeof pick.id, id);
+    fm_field(content, "name", pick.name, sizeof pick.name);
+    fm_field(content, "description", pick.desc, sizeof pick.desc);
+    fm_field(content, "domain", pick.domain, sizeof pick.domain);
+    fm_field(content, "subdomain", pick.subdomain, sizeof pick.subdomain);
+    fm_field(content, "tags", pick.tags, sizeof pick.tags);
+    if (!pick.name[0]) cstr_copy(pick.name, sizeof pick.name, id);
+
+    char meta_terms[3000];
+    snprintf(meta_terms, sizeof meta_terms, "%s %s %s %s %s %s",
+             pick.id, pick.name, pick.desc, pick.domain, pick.subdomain, pick.tags);
+    char terms[9000];
+    snprintf(terms, sizeof terms, "%s %.5000s", meta_terms, content);
+    int mission_hits = gsa_term_score(route_mission, meta_terms);
+    int target_hits = gsa_term_score(target_url, meta_terms);
+    int workspace_hits = gsa_term_score(workspace_signals, terms);
+    int domain_bonus = gsa_domain_bonus(mission, workspace_signals, meta_terms);
+    pick.score = mission_hits * 6 + target_hits * 5 + workspace_hits * 3 + domain_bonus;
+    snprintf(pick.reason, sizeof pick.reason,
+             "catalog=anthropic-cybersecurity-skills, mission_hits=%d, target_hits=%d, workspace_hits=%d, domain_bonus=%d",
+             mission_hits, target_hits, workspace_hits, domain_bonus);
+    gsa_consider_skill_pick(picks, n, cap, &pick);
+    return 1;
+}
+
+static void gsa_append_route_terms(json_dyn_buf *b, const char *hay) {
+    if (!b || !hay || !hay[0]) return;
+    if (text_contains_ci(hay, "crypto") || text_contains_ci(hay, "cryptograph") ||
+        text_contains_ci(hay, "jwt") || text_contains_ci(hay, "hmac") ||
+        text_contains_ci(hay, "nonce") || text_contains_ci(hay, "tls"))
+        json_dyn_puts(b, "\ncryptographic encryption decryption key management jwt hmac tls certificate nonce randomness password hash signature\n");
+    if (text_contains_ci(hay, "pwn") || text_contains_ci(hay, "stack") ||
+        text_contains_ci(hay, "heap") || text_contains_ci(hay, "rop") ||
+        text_contains_ci(hay, "fuzz") || text_contains_ci(hay, "crash") ||
+        text_contains_ci(hay, "memory corruption"))
+        json_dyn_puts(b, "\nexploit exploitation memory corruption stack heap buffer overflow integer overflow format string rop sandbox binary parser fuzz crash\n");
+    if (text_contains_ci(hay, "reverse") || text_contains_ci(hay, "firmware") ||
+        text_contains_ci(hay, "decompile") || text_contains_ci(hay, "binary"))
+        json_dyn_puts(b, "\nreverse engineering ghidra ida rizin radare strings firmware binary static analysis decompile disassemble\n");
+    if (text_contains_ci(hay, "forensic") || text_contains_ci(hay, "timeline") ||
+        text_contains_ci(hay, "artifact"))
+        json_dyn_puts(b, "\ndigital forensics timeline artifact volatility disk image registry browser linux windows logs evidence\n");
+    if (text_contains_ci(hay, "osint") || text_contains_ci(hay, "attribution") ||
+        text_contains_ci(hay, "domain intelligence"))
+        json_dyn_puts(b, "\nosint threat intelligence attribution domain certificate transparency phishing infrastructure social media\n");
+    if (text_contains_ci(hay, "network-security") || text_contains_ci(hay, "network security") ||
+        text_contains_ci(hay, "pcap") || text_contains_ci(hay, "dns") ||
+        text_contains_ci(hay, "vpn"))
+        json_dyn_puts(b, "\nnetwork security dns zeek wireshark packet pcap tls vpn firewall cidr acl policy segmentation service exposure intrusion traffic flow\n");
+    if (text_contains_ci(hay, "firewall") || text_contains_ci(hay, "cidr") ||
+        text_contains_ci(hay, "service exposure") || text_contains_ci(hay, "segmentation") ||
+        text_contains_ci(hay, "rules.csv") || text_contains_ci(hay, "flows.csv") ||
+        text_contains_ci(hay, "zones.json"))
+        json_dyn_puts(b, "\nfirewall policy cidr subnet acl rules allow deny segmentation exposure service flow traffic zero trust access control\n");
+    if (text_contains_ci(hay, "malware"))
+        json_dyn_puts(b, "\nmalware analysis sandbox yara ioc c2 beacon persistence packed elf pe macro loader dropper\n");
+    if (text_contains_ci(hay, "web") || text_contains_ci(hay, "api") ||
+        text_contains_ci(hay, "http") || text_contains_ci(hay, "session"))
+        json_dyn_puts(b, "\nweb api authorization authentication xss ssrf sql injection csrf upload cors session cookie oauth graphql\n");
+}
+
+static int gsa_write_cyber_skill_shortlist(const char *run_dir, const char *mission,
+                                           const char *target_url, const char *workspace_signals,
+                                           char *err, size_t errsz, int *out_count,
+                                           json_dyn_buf *prompt_list) {
+    char cyber[PATH_MAX];
+    if (!cyber_skills_dir(cyber, sizeof cyber)) {
+        snprintf(err, errsz, "vendored cybersecurity skills not found at %s/%s",
+                 g_web_dir[0] ? g_web_dir : ".", CYBER_SKILLS_REL_DIR);
+        return 0;
+    }
+    gsa_skill_pick picks[96];
+    int n = 0;
+    json_dyn_buf routing_mission = {0};
+    json_dyn_puts(&routing_mission, mission ? mission : "");
+    gsa_append_route_terms(&routing_mission, mission);
+    gsa_append_route_terms(&routing_mission, workspace_signals);
+    const char *route_mission = routing_mission.ptr ? routing_mission.ptr : mission;
+    DIR *d = opendir(cyber);
+    if (d) {
+        struct dirent *de;
+        while ((de = readdir(d)) != NULL) {
+            const char *id = de->d_name;
+            if (id[0] == '.' || !skill_id_ok(id)) continue;
+            char path[PATH_MAX];
+            if ((size_t)snprintf(path, sizeof path, "%s/%s/SKILL.md", cyber, id) >= sizeof path)
+                continue;
+            size_t len = 0;
+            char *content = jsonl_read_file(path, &len);
+            if (!content) continue;
+            gsa_add_cyber_skill_pick(picks, &n, (int)(sizeof picks / sizeof picks[0]),
+                                     id, content, mission, route_mission, target_url, workspace_signals);
+            free(content);
+        }
+        closedir(d);
+    }
+    free(routing_mission.ptr);
+    if (n <= 0) {
+        snprintf(err, errsz, "no matching SKILL.md files found in vendored cybersecurity skills");
+        return 0;
+    }
+    qsort(picks, (size_t)n, sizeof picks[0], gsa_pick_cmp);
+    int keep = n < 14 ? n : 14;
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s/skills.md", run_dir);
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        snprintf(err, errsz, "could not write GSA skills shortlist: %s", strerror(errno));
+        return 0;
+    }
+    fprintf(f, "# Imported cybersecurity skill shortlist\n\n");
+    fprintf(f, "Source: `extension/gsa/third_party/anthropic-cybersecurity-skills/skills`.\n");
+    fprintf(f, "These are the only skill IDs preselected for this GSA run. Load one with `skill(\"id\")` only when its workflow matches a hypothesis.\n\n");
+    for (int i = 0; i < keep; i++) {
+        fprintf(f, "## %s\n\n", picks[i].id);
+        fprintf(f, "- name: %s\n", picks[i].name);
+        fprintf(f, "- domain: %s\n", picks[i].domain[0] ? picks[i].domain : "cybersecurity");
+        fprintf(f, "- subdomain: %s\n", picks[i].subdomain);
+        fprintf(f, "- tags: %s\n", picks[i].tags);
+        fprintf(f, "- score: %d\n", picks[i].score);
+        fprintf(f, "- reason: %s\n", picks[i].reason);
+        fprintf(f, "- description: %s\n\n", picks[i].desc);
+        if (!json_dyn_puts(prompt_list, "- ") ||
+            !json_dyn_puts(prompt_list, picks[i].id))
+        {
+            fclose(f);
+            snprintf(err, errsz, "could not build GSA skill prompt list");
+            return 0;
+        }
+        if (picks[i].subdomain[0]) {
+            if (!json_dyn_puts(prompt_list, " (") ||
+                !json_dyn_puts(prompt_list, picks[i].subdomain) ||
+                !json_dyn_puts(prompt_list, ")"))
+            {
+                fclose(f);
+                snprintf(err, errsz, "could not build GSA skill prompt list");
+                return 0;
+            }
+        }
+        if (!json_dyn_puts(prompt_list, " — ") ||
+            !json_dyn_puts(prompt_list, picks[i].reason))
+        {
+            fclose(f);
+            snprintf(err, errsz, "could not build GSA skill prompt list");
+            return 0;
+        }
+        if (!json_dyn_puts(prompt_list, "\n")) {
+            fclose(f);
+            snprintf(err, errsz, "could not build GSA skill prompt list");
+            return 0;
+        }
+    }
+    fclose(f);
+    if (out_count) *out_count = keep;
+    return 1;
+}
+
+static char *gsa_prompt_start(const char *run_id, const char *run_dir,
+                              const char *workdir,
+                              const char *mission, const char *target_url, int count, int truncated,
+                              const char *skill_list, const char *target_host,
+                              const char *tool_status_summary,
+                              const char *parent_run_dir, int iteration) {
+    json_dyn_buf p = {0};
+    json_dyn_printf(&p,
+        "GSA security analysis run %s.\n\n"
+        "Loop iteration:\n%d\n\n"
+        "Workspace root:\n%s\n\n"
+        "Workspace artifact directory:\n%s\n\n"
+        "Run state artifact:\n%s/run_state.json\n\n"
+        "Parent run directory:\n%s\n\n"
+        "Mission:\n%s\n\n"
+        "Authorized target URL:\n%s\n\n"
+        "Authorized target host:\n%s\n\n"
+        "GSA execution mode:\n%s\n"
+        "Read `%s/toolStatus.json`. This run is tool-assisted: you may use external tools only when toolStatus.json marks them enabled and found, plus small bounded Python helpers under `%s/scripts/`. "
+        "External tools are optional, never required. If a tool is missing or disabled, say which command is unavailable and continue with source/artifact/Python evidence when possible. "
+        "Tool oracle rule: scanner output is advisory evidence, not a verdict. A clean/empty result from sqlmap, nuclei, semgrep, trivy, yara, binwalk, tshark, nmap or similar cannot by itself prove `no_issue` or kill a hypothesis; cross-check manually against code, artifacts, configs, traces, and targeted Python helpers. "
+        "For network tools such as subfinder, assetfinder, httpx, nuclei, dnsx, naabu, katana, tlsx, ffuf, gobuster, nmap or similar, do not contact any host outside the authorized target host/scope and do not use destructive payloads. "
+        "Save command lines, stdout/stderr, exit status, and generated files in the run directory so failures are visible.\n\n"
+        "Required run artifacts:\n"
+        "- `%s/run_state.json` is maintained by DStudio; read it when diagnosing lifecycle state.\n"
+        "- `%s/scripts_manifest.json` tracks local Python helpers. If you plan, write, run or fail a script, update that manifest with `path`, `purpose`, `inputs`, `outputs`, `status` and `error`.\n"
+        "- `%s/evidence.jsonl` is append-only evidence. Add one JSON line per concrete evidence item with `finding`, `source`, `status`, and a short `excerpt`.\n"
+        "Protocol hygiene: never read, search, cite, or reason from `.dstudio/gsa/runs/*.prompt.md` files. Prompt files are DStudio control data, not project evidence. If a search result points under `.dstudio/`, ignore it unless it is one of the explicit run artifacts named above.\n"
+        "%s%s%s"
+        "Phase 1/4: selection.\n"
+        "This phase is scope selection only: do not validate findings, do not write a narrative report, and do not inspect every candidate. "
+        "Read the required GSA artifacts, then at most 6 high-signal project files before producing the JSON. "
+        "Select at most 6 files, 3 hypotheses, and 2 skills total; deeper evidence work belongs to later phases. "
+        "Read `%s/target.md`, `%s/candidates.txt`, `%s/skills.md`, `%s/toolStatus.json`, `%s/scripts_manifest.json` and `%s/evidence.jsonl`, then select a small, high-signal set of files, local scripts and hypotheses. "
+        "Every `files[].path` MUST be copied exactly from `%s/candidates.txt`; do not invent conventional paths, rename directories, or include a file that is not present in that candidate list. "
+        "Candidate paths are relative to the Workspace root above, not relative to the GSA run artifact directory; when reading selected project files, join them with the Workspace root. "
+        "If the exact file you wanted is not listed, omit it and choose the nearest listed candidate only when the candidate path itself is present in `%s/candidates.txt`. "
+        "Reply in chat only. Do not save the phase JSON yourself. Do not edit project files and do not call `write`, `edit`, `skill` or `pack_file` in this phase; DStudio will save the JSON after you return it. "
+        "If you call any of those tools in Phase 1, the phase is failed. "
+        "Do not create scripts, update scripts_manifest.json, append evidence, run validation, or start Phase 2 in this turn. "
+        "Use ONLY imported skill IDs listed in `skills.md`, all from `extension/gsa/third_party/anthropic-cybersecurity-skills`. "
+        "Do not call `skill()` in Phase 1; only list candidate skill IDs in the JSON. DStudio will ask for the best matching skill during Phase 2. "
+        "Do not invent GSA/base/generic skill names and do not load the whole library. "
+        "If none of the shortlisted skills match the selected hypotheses, keep the hypothesis `skills` array empty and explain why in `why`. "
+        "For repeatable checks, use installed tools or Python helpers instead of ad-hoc shell pipelines so inputs, outputs and failures are preserved. "
+        "Only plan automation if it is needed, authorized, and bounded; prefer direct source/artifact evidence for no-issue or inconclusive conclusions. "
+        "For cryptographic or signature reviews, prioritize sign/verify/envelope/key-registry/policy/canonicalization files and explicitly distinguish safe controls (for example constant-time comparison) from remaining key-binding, nonce/replay, and canonicalization gaps. "
+        "Scope-priority rule: select the core domain pipeline first (policy/merge/decision/scoring/parser/auth/dispatch code, tests, and operational artifacts). Generic readers/loaders/open(path) helpers are high-signal only when a selected caller, test, config, or artifact passes them untrusted input.\n\n"
+        "Verdict policy for later phases: a confirmed issue can be grounded in source code plus authoritative artifacts/config/tests/flows, even when the local workspace is a reduced review harness. "
+        "However, a local code smell, stale source excerpt, compatibility note, or generic helper defect is not reportable by itself. Before `confirmed_issue`, validation must show all five links: defect/control gap, reachable input or data source, attacker capability, propagation/consumer or execution path, and concrete impact. "
+        "Local-source exception: for exported cryptographic, token, signature, serializer, parser, or policy primitives, caller-controlled function parameters plus tests/config/artifacts showing intended use can satisfy the reachable data-source link; do not require an HTTP route or CLI entrypoint just to report a code-level defect. "
+        "When `gsa-task.json` says `authorized-local-source-review` and the reviewed unit is a library/package, the exported public API is the reviewed trust boundary; missing app/server wiring outside the submitted workspace is a limitation, not an automatic veto. "
+        "`minimum_confidence_to_report: high` means high confidence in the reviewed-unit defect and cited evidence chain, not proof of production wiring that was not provided. "
+        "If any decisive link is only conditional (for example `if an external caller passes X`, no caller/route/parser/trace/dataset is present, no downstream consumer exists, or artifacts contradict live code), use `inconclusive`; use `no_issue` only when reviewed controls are present and block the path. "
+        "Do not require a `main()` caller if the mission is a library, parser, policy engine, or production-artifact review and artifacts show intended operational use, but artifact-based reachability must be corroborated by a dispatch/trace/config/test/flow that connects the reviewed input to the vulnerable behavior. "
+        "Attack-chain policy: a reportable issue may be a chain of smaller weaknesses rather than one standalone bug. When a single hypothesis looks low-impact, check whether it composes with adjacent auth, trust-boundary, parsing, storage, logging, exposure, dependency, or configuration weaknesses into a concrete exploit path. "
+        "Later validation findings may include an `attack_chain` array with ordered evidence-backed links; use it only when each link is cited. "
+        "Use `inconclusive` only when the decisive artifact or trust-boundary evidence is absent or contradictory after validation. "
+        "Severity rule: do not use high/critical language without a demonstrated exploit path and direct impact. Weak or contradictory evidence must be `inconclusive`.\n\n"
+        "Candidate files discovered: %d%s.\n\n"
+        "Imported skill shortlist:\n%s\n"
+        "Use tool calls to read the required artifacts and selected project files before choosing hypotheses. "
+        "When you are done reading, your final assistant text must be JSON only: no analysis prose, bullet lists, markdown, or code fences before or after the JSON. "
+        "Output JSON only with this shape:\n"
+        "{\"phase\":\"selection\",\"files\":[{\"path\":\"relative/path\",\"reason\":\"why this file matters\"}],"
+        "\"targetUrl\":\"authorized target url or empty\","
+        "\"localScripts\":[{\"path\":\"scripts/name.py\",\"purpose\":\"what it checks\",\"status\":\"planned|written|ran|failed\"}],"
+        "\"hypotheses\":[{\"title\":\"concrete risk\",\"why\":\"reachable code path\",\"skills\":[\"skill-id\"]}],"
+        "\"stop_if\":\"what would make this audit not worth continuing\"}\n"
+        "After emitting that single JSON object, stop immediately and wait for DStudio to send Phase 2.\n",
+        run_id, iteration,
+        workdir && workdir[0] ? workdir : "(unknown)", run_dir, run_dir,
+        parent_run_dir && parent_run_dir[0] ? parent_run_dir : "(none)",
+        mission && mission[0] ? mission : "high-signal general security review",
+        target_url && target_url[0] ? target_url : "(none)",
+        target_host && target_host[0] ? target_host : "(none)",
+        tool_status_summary && tool_status_summary[0] ? tool_status_summary : "(tool status unavailable)",
+        run_dir, run_dir, run_dir, run_dir, run_dir,
+        parent_run_dir && parent_run_dir[0] ? "- `" : "",
+        parent_run_dir && parent_run_dir[0] ? run_dir : "",
+        parent_run_dir && parent_run_dir[0] ? "/loop_context.md` summarizes the previous run. Read it before selecting scope, avoid repeated hypotheses, and specifically consider whether previous evidence can combine with new evidence into an attack chain.\n" : "",
+        run_dir, run_dir, run_dir, run_dir, run_dir, run_dir, run_dir, run_dir,
+        count, truncated ? " (truncated)" : "", skill_list ? skill_list : "");
+    return p.ptr;
+}
+
+static char *gsa_prompt_next(const char *run_dir, const char *workdir, const char *phase) {
+    json_dyn_buf p = {0};
+    if (!strcmp(phase, "selection")) {
+        json_dyn_printf(&p,
+            "GSA Phase 2/4: preflight.\n"
+            "Workspace root: `%s`.\n"
+            "Use `%s/selection.json` as the selected scope. Read only the selected files first. "
+            "`gsa-task.json` lives at the Workspace root above, not in the GSA run artifact directory; if you need work_style or scope policy, read `<Workspace root>/gsa-task.json`. "
+            "Protocol hygiene: do not search or cite `.dstudio/gsa/runs/*.prompt.md`; prompt files are control data, not evidence. If a search result points under `.dstudio/`, ignore it unless it is the selected phase artifact explicitly named in this prompt. "
+            "For each hypothesis, map entry points, trust boundaries, attacker capability, and missing evidence. "
+            "If a hypothesis depends on a generic helper (file reader, loader, parser wrapper, config loader), identify the concrete selected caller or artifact that supplies untrusted input; if none exists, mark that as kill criteria instead of treating the helper alone as a vulnerability. "
+            "Do not stay anchored to a bad Phase 1 guess. If selected files prove a hypothesis irrelevant but reveal a stronger concrete security issue in the same reviewed pipeline, replace the dead hypothesis with that concrete issue and state which original hypothesis was killed. "
+            "Respect `gsa-task.json` work_style: when minimum_confidence_to_report says high or do-not-report-without-evidence, unresolved caller/consumer/trace gaps should bias toward no-issue or inconclusive, not confirmed. "
+            "But for exported cryptographic, token, signature, serializer, parser, or policy primitives in a local source review, caller-controlled function parameters plus tests/config/artifacts showing intended use can be enough to keep a code-level defect as a validation target; missing service wiring belongs in `missing_evidence`, not automatic kill criteria. "
+            "For `authorized-local-source-review` of a library/package, treat an exported public API plus tests/config/artifacts as the local trust boundary; do not demand an HTTP route/controller/CLI main that is outside the submitted workspace. "
+            "Include chain thinking in the map: note whether two or more low/medium weaknesses could compose into one exploit path, and what evidence would prove or kill that chain. "
+            "If `selection.json` contains any non-empty `skills` array anywhere, including nested `hypotheses[].skills`, you MUST call exactly one best-matching `skill(\"id\")` tool before the final JSON. "
+            "Do not require a top-level `skills` field; nested hypothesis skills count and should be loaded before finalizing preflight. "
+            "If all selected skills look imperfect after reading the selected files, call the least-bad selected skill and state how you downweighted it; do not skip skill loading silently. "
+            "Call at most 1 `skill(\"id\")` tool total, at most once, before relying on its workflow. "
+            "After loading a skill, use its checklist; do not copy its body, glossary or examples into your answer. "
+            "Do not create or run scripts in this preflight phase; preserve local scripts or external commands as planned validation steps in `evidence_needed` or `chain_candidates`. Phase 3 owns execution. "
+            "Network tools are allowed only when `target.md` contains an authorized target URL/host/scope; otherwise keep validation local to the workspace. "
+            "External tools are triage aids only; do not put a scanner's clean/empty result into `kill_criteria` unless paired with the manual/code evidence that makes the scanner coverage relevant. "
+            "For crypto/signature hypotheses, explicitly map: tag comparison control, caller-controlled key material/reference, registry binding, deterministic nonce/replay policy, canonicalization, and relevant audit/config policy. If a safe control is present, record it as kill criteria for that sub-claim instead of missing adjacent defects. "
+            "Do not create a script just to restate route/path/config mismatches, missing callers, or no-issue/inconclusive evidence; cite those files directly and emit the JSON. "
+            "When a script needs the workspace path, set it explicitly to the Workspace root above; do not derive it by climbing parent directories from the run `scripts/` folder. "
+            "If a helper fails from path/import issues, make at most one repair attempt; otherwise mark it failed and continue from source evidence. "
+            "Keep this phase bounded: no more than 3 hypotheses, no narrative report, JSON only, no markdown fences, no analysis prose. "
+            "Output JSON only to be saved as preflight.json: "
+            "{\"phase\":\"preflight\",\"hypotheses\":[{\"title\":\"...\",\"entrypoints\":[\"file:line\"],"
+            "\"attacker\":\"...\",\"evidence_needed\":[\"...\"],\"kill_criteria\":[\"...\"],"
+            "\"chain_candidates\":[\"optional composed path to validate or kill\"]}]}\n",
+            workdir && workdir[0] ? workdir : "(unknown)", run_dir, run_dir);
+        json_dyn_puts(&p, "After emitting that single JSON object, stop immediately and wait for DStudio to send Phase 3.\n");
+    } else if (!strcmp(phase, "preflight")) {
+        json_dyn_printf(&p,
+            "GSA Phase 3/4: validation.\n"
+            "Workspace root: `%s`.\n"
+            "Use `%s/preflight.json`. Validate the strongest hypotheses against concrete code paths. "
+            "`gsa-task.json` lives at the Workspace root above, not in the GSA run artifact directory; if you need work_style or scope policy, read `<Workspace root>/gsa-task.json`. "
+            "Protocol hygiene: do not search or cite `.dstudio/gsa/runs/*.prompt.md`; prompt files are control data, not evidence. If a search result points under `.dstudio/`, ignore it unless it is `preflight.json`, `evidence.jsonl`, or `scripts_manifest.json` explicitly required by this phase. "
+            "Prefer one strong finding over many weak notes. Do not report speculative issues. "
+            "Do not assume a vulnerability exists; use `missing_evidence` when the code does not prove the claim. "
+            "If validation of the preflight hypotheses discovers that all selected hypotheses are dead but the already-read files contain a different concrete issue with a complete evidence chain, validate that issue instead of returning a false no-issue. Do not invent new files for this; use only cited source/artifact evidence. "
+            "Confirmation gate: for every would-be `confirmed_issue`, verify all five links before assigning medium/high confidence: (1) the defect or missing control is present, (2) an attacker-controlled or untrusted input/data source reaches it, (3) the attacker capability is realistic inside the stated scope, (4) the result propagates to execution, authorization, disclosure, persistence, or a concrete downstream consumer, and (5) impact is demonstrated. "
+            "For exported cryptographic, token, signature, serializer, parser, or policy primitives, caller-controlled function parameters plus tests/config/artifacts showing intended use can satisfy links (2) and (4) for a bounded code-level finding; missing direct service wiring should reduce severity/confidence or appear in `missing_evidence`, not automatically kill the issue. "
+            "When that local-source exception applies and the source defect, attacker-controlled parameter, exploit path inside the primitive, and impact on the primitive's security guarantee are clear, preserve the finding at medium/high confidence; put missing production caller/consumer/route/service wiring in `missing_evidence` instead of downgrading to low or inconclusive solely for that absence. "
+            "In `authorized-local-source-review` of a package/library, the exported public API is itself a valid boundary; do not require an HTTP route, controller, CLI, or service main if the workspace did not include one. "
+            "`minimum_confidence_to_report: high` applies to confidence in the reviewed-unit defect and evidence chain, not to unseen production wiring outside the submitted workspace. "
+            "If the chain says only `if an external caller passes this`, `if a downstream consumer imports this`, `if the larger service wires this path`, or equivalent, and no exported/default primitive, test, config, trace, or artifact establishes intended use, the finding is not confirmed; return inconclusive with the missing caller/consumer/trace, or no_issue when present controls kill the path. "
+            "A generic `open(path)`, CSV writer, string parser, or loader is not a confirmed vulnerability unless a reachable caller or artifact shows attacker influence over that argument and a concrete leak/write/execution/output consumer. "
+            "No-surface rule: if the mission/artifacts describe an expected attack surface but the reduced workspace does not contain the decisive production route, parser, binary path, trace, packet, image, or dataset needed to prove that surface, do not turn absence into high-confidence `no_issue`; return an `inconclusive` trail with the exact missing artifact. Use `no_issue` only when the relevant implementation/control is present and cited, and it demonstrably blocks the tested exploit path. "
+            "For inconclusive/no-surface cases, cite both sides: the missing expected surface and the real reachable pipeline that is present (entry route/parser, auth/session boundary, data/storage access, policy/control files, and contradictory artifacts when available). "
+            "Append concrete evidence to `%s/evidence.jsonl`; include file:line, script output path, HTTP status, or artifact excerpts. Do not use `edit` on evidence.jsonl; append only. "
+            "Treat planned scripts or tool commands that were not created or run as incomplete evidence, not as success. "
+            "Use external tools only if toolStatus.json marks the command enabled and found, or the shell resolves it and it is not disabled in toolStatus.json; if missing or disabled, record the unavailable command and continue with local evidence. "
+            "Never close a hypothesis solely because an external tool returned no finding. For example, if sqlmap finds nothing, still inspect request construction, parameter canonicalization, escaping, ORM/raw SQL boundaries, auth context, and reachable code paths; if manual evidence also kills it, cite that evidence. "
+            "Likewise, positive tool output is not enough without a cited reachable code path or artifact that explains why it matters. "
+            "Network scanners and recon tools require an authorized target URL/host/scope in target.md; otherwise do not run them. "
+            "When a script needs the workspace path, set it explicitly to the Workspace root above; do not derive it by climbing parent directories from the run `scripts/` folder. "
+            "For crypto/signature validation, check and cite each relevant control or gap: constant-time tag comparison, key material versus key reference, env/key-id registry binding, nonce uniqueness/replay policy, canonical request normalization, and audit/config policy. If constant-time comparison is implemented with `compare_digest` or equivalent, treat it as a blocking control for timing-only claims and keep validating the adjacent key/nonce/canonicalization chain. "
+            "Validate attack chains explicitly: if multiple weaker facts compose into impact, cite each link in order and explain the transition; if one link is missing or contradicted, keep the chain `inconclusive` with that missing link. "
+            "For library, parser, policy-engine, reverse-engineering, or production-artifact reviews, treat exported functions, config files, rulesets, tests, flow logs, function maps, strings, trace logs, reachability notes, fuzz summaries, and source excerpts as valid operational evidence when they identify intended use. "
+            "For reverse-engineering artifact packs, a source excerpt may describe a mapped production function even when the local symbol name differs; correlate behavior, strings, function maps, trace coverage, feature flags and notes before declaring it unreachable. "
+            "If current reachable source/tests demonstrate a safe control and the only vulnerable-looking evidence is stale, compatibility-only, uncalled, or not connected to dispatch, prefer no_issue or inconclusive rather than confirmed. "
+            "Do not downgrade a confirmed code defect to inconclusive merely because this copied workspace lacks a CLI/server entrypoint or the excerpt is not built by the local Makefile; downgrade only when no exported/default primitive, test, config, trace, artifact, or source excerpt shows intended reachability, or when the artifact contradicts the source. "
+            "When evidence proves a defect but reachability is artifact-based rather than directly executable, keep the finding with `confidence\":\"medium\"` and state the missing direct call chain in `missing_evidence`. "
+            "High/critical severity requires a demonstrated exploit path and direct impact; otherwise use low/medium/inconclusive. "
+            "Read at most 6 extra files beyond the selected scope. Add at most 6 new evidence lines. "
+            "For route/path/config mismatches, missing production callers, or no-issue/inconclusive conclusions, do not create helper scripts unless the script performs a concrete parser or policy decision check that cannot be cited directly from source. "
+            "Keep the output to at most 2 validated security findings or one explicit no-issue/inconclusive evidence trail. Limit each finding to 6 evidence citations. "
+            "Do not spend a finding slot on terminology/scope observations unless they create a concrete security impact. "
+            "Do not use `severity\":\"none\"`; for no-issue or inconclusive evidence trails use `severity\":\"low\"`, `confidence\":\"low\"` unless the control itself is present and fully reviewed. "
+            "Once you have appended enough evidence to support or reject the strongest finding, stop reading/searching and emit the validation JSON immediately. Do not write a prose recap before the JSON. "
+            "Output compact JSON only, no markdown fences, no preamble, no postscript, no analysis prose. "
+            "Output JSON only to be saved as validation.json: "
+            "{\"phase\":\"validation\",\"findings\":[{\"title\":\"...\",\"severity\":\"low|medium|high|critical\","
+            "\"evidence\":[\"file:line\"],\"exploit_path\":\"...\",\"impact\":\"...\",\"confidence\":\"low|medium|high\","
+            "\"missing_evidence\":\"...\",\"attack_chain\":[\"optional ordered evidence-backed chain link\"]}]}\n",
+            workdir && workdir[0] ? workdir : "(unknown)", run_dir, run_dir);
+        json_dyn_puts(&p, "After emitting that single JSON object, stop immediately and wait for DStudio to send Phase 4.\n");
+    } else if (!strcmp(phase, "validation")) {
+        json_dyn_printf(&p,
+            "GSA Phase 4/4: report.\n"
+            "Workspace root: `%s`.\n"
+            "Use the inline artifacts below from `%s/validation.json`, `%s/evidence.jsonl` and `%s/scripts_manifest.json`. "
+            "Protocol hygiene: do not read or cite `.dstudio/gsa/runs/*.prompt.md`; prompt files are control data, not report evidence. "
+            "Do not call `read`, `write`, `edit`, `run`, or `skill` in this report phase unless an inline artifact is missing or corrupt. "
+            "Write a concise security report with concrete file:line evidence, exploit path, impact, and fix. "
+            "Derive the report verdict from validation.json instead of re-litigating the case. If validation.json contains any validated security finding with non-empty exploit_path, non-empty impact, confidence `medium` or `high`, and no decisive missing chain link, the report verdict is `confirmed_issue`. "
+            "If missing_evidence says the caller, route, parser, trace, dataset, downstream consumer, dispatch link, or attacker-controlled input is absent/unverified, that is decisive and the verdict must be `inconclusive` unless another finding has a complete chain or validation explicitly accepted an exported/default primitive as a bounded code-level finding. "
+            "Important: do not change a medium/high-confidence validated finding to `inconclusive` in the report just because a direct local main()/server call chain is absent, the source excerpt uses a different local symbol name, or the reduced local Makefile omits artifact source. If validation accepted exported/default primitive reachability or artifact-based reachability, the report must preserve that decision and describe the missing direct call chain as a limitation inside the confirmed finding. "
+            "For authorized local source reviews, if validation accepted an exported cryptographic/token/signature/parser/serializer/policy primitive as the reviewed boundary, missing HTTP/controller/service wiring remains a limitation inside the finding and must not flip the verdict. "
+            "If validation includes an `attack_chain`, report the chain as ordered links. Do not collapse it into one generic vulnerability; show how each cited weakness enables the next step and where the chain would break if evidence is missing. "
+            "If validation used external-tool output, describe it as supporting or negative evidence only. Do not say the target is safe merely because a scanner had no findings unless validation also cites the manual/code evidence that gives that scanner result coverage. "
+            "If validation.json says the only finding has no exploit path/no impact, or all findings are explicitly blocked by missing/contradictory evidence, use `inconclusive`. "
+            "If the mission/artifacts describe an expected attack surface but validation only proves that the reduced workspace lacks that surface, use `inconclusive` and name the missing production artifact. Absence of the route/parser/binary/trace/dataset is not the same as a verified safe control. "
+            "If validation.json shows reviewed controls are present and no exploit path exists, use `no_issue`. "
+            "If scripts are still `planned` or evidence is missing/contradictory for every finding, the verdict must be `inconclusive`, with the exact missing evidence. "
+            "Security findings come first; put non-security scope or terminology notes in a short note, not as a primary finding. "
+            "Start with `## Verdict: confirmed_issue`, `## Verdict: no_issue`, or `## Verdict: inconclusive`. "
+            "Use `confirmed_issue` only for a validated finding grounded in cited code or artifacts. "
+            "Use `no_issue` only when the reviewed controls are present and cite the controls. "
+            "Use `inconclusive` only when validation did not validate a security finding, or when every finding is blocked by decisive missing/contradictory evidence. "
+            "Keep the report under 900 words. Output Markdown only, no preamble, no code fences. After emitting the Markdown report, stop immediately; do not start another run or phase.\n",
+            workdir && workdir[0] ? workdir : "(unknown)", run_dir, run_dir, run_dir);
+        gsa_append_run_file_excerpt(&p, run_dir, "validation.json", "Inline validation.json", 8192);
+        gsa_append_run_file_excerpt(&p, run_dir, "evidence.jsonl", "Inline evidence.jsonl", 8192);
+        gsa_append_run_file_excerpt(&p, run_dir, "scripts_manifest.json", "Inline scripts_manifest.json", 4096);
+    }
+    return p.ptr;
+}
+
+static void api_gsa_start(int fd, const char *body) {
+    char workdir[PATH_MAX] = "";
+    char mission[BODY_MAX] = "";
+    char target_url[1024] = "";
+    char parent_run_raw[PATH_MAX] = "";
+    char disabled_tools[2048] = "";
+    json_get_string(body, "workdir", workdir, sizeof workdir);
+    json_get_string(body, "mission", mission, sizeof mission);
+    json_get_string(body, "targetUrl", target_url, sizeof target_url);
+    json_get_string(body, "parentRunDir", parent_run_raw, sizeof parent_run_raw);
+    json_get_string(body, "disabledTools", disabled_tools, sizeof disabled_tools);
+    if (!target_url[0]) gsa_extract_first_url(mission, target_url, sizeof target_url);
+    char target_err[256] = "";
+    if (!gsa_target_url_ok(target_url, target_err, sizeof target_err)) {
+        char out[400], esc[300];
+        json_escape_into(esc, sizeof esc, target_err, strlen(target_err));
+        snprintf(out, sizeof out, "{\"ok\":false,\"error\":\"%s\"}", esc);
+        send_json(fd, "400 Bad Request", out);
+        return;
+    }
+    if (!workdir[0]) cstr_copy(workdir, sizeof workdir, g_workdir);
+    if (!workdir[0]) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"workdir missing\"}");
+        return;
+    }
+    char abs[PATH_MAX];
+    if (!realpath(workdir, abs)) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"workdir not found\"}");
+        return;
+    }
+    struct stat st;
+    if (stat(abs, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"workdir is not a directory\"}");
+        return;
+    }
+    char parent_run_dir[PATH_MAX] = "";
+    char parent_err[512] = "";
+    if (!gsa_validate_parent_run_dir(abs, parent_run_raw, parent_run_dir, sizeof parent_run_dir,
+                                     parent_err, sizeof parent_err))
+    {
+        char out[900], esc[700];
+        json_escape_into(esc, sizeof esc, parent_err, strlen(parent_err));
+        snprintf(out, sizeof out, "{\"ok\":false,\"error\":\"%s\"}", esc);
+        send_json(fd, "409 Conflict", out);
+        return;
+    }
+    int iteration = parent_run_dir[0]
+        ? (int)gsa_state_long_field(parent_run_dir, "iteration", 1) + 1
+        : 1;
+    unsigned long long task_id = task_begin("gsa", "GSA security analysis", "security", ENGINE_AGENT, abs, 0, 0);
+    task_mark_working(task_id, "preparing security analysis run");
+    char run_id[64];
+    snprintf(run_id, sizeof run_id, "%llu-%llu", dstudio_now_ms(), task_id);
+    char root[PATH_MAX], runs[PATH_MAX], run_dir[PATH_MAX], candidates[PATH_MAX], mission_path[PATH_MAX], target_path[PATH_MAX], target_host_path[PATH_MAX], state_path[PATH_MAX];
+    snprintf(root, sizeof root, "%s/.dstudio/gsa", abs);
+    snprintf(runs, sizeof runs, "%s/runs", root);
+    snprintf(run_dir, sizeof run_dir, "%s/%s", runs, run_id);
+    snprintf(state_path, sizeof state_path, "%s/run_state.json", run_dir);
+    mkpath(run_dir);
+    snprintf(candidates, sizeof candidates, "%s/candidates.txt", run_dir);
+    snprintf(mission_path, sizeof mission_path, "%s/mission.md", run_dir);
+    snprintf(target_path, sizeof target_path, "%s/target.md", run_dir);
+    snprintf(target_host_path, sizeof target_host_path, "%s/target_host.txt", run_dir);
+    FILE *cf = fopen(candidates, "wb");
+    if (!cf) {
+        task_mark_failed(task_id, "could not create GSA candidates file", strerror(errno));
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"could not create candidates file\"}");
+        return;
+    }
+    int count = 0, truncated = 0;
+    gsa_scan_candidates(cf, abs, "", 0, &count, &truncated);
+    fclose(cf);
+    const char *mission_text = mission[0] ? mission : "High-signal general security review. Prefer realistic vulnerabilities grounded in concrete code paths.";
+    jsonl_write_file(mission_path, mission_text, strlen(mission_text));
+    char target_host[512] = "";
+    gsa_target_host(target_url, target_host, sizeof target_host);
+    char state_err[512] = "";
+    if (!gsa_write_run_state(run_dir, run_id, "preparing", "start", iteration,
+                             parent_run_dir, target_url, target_host, "",
+                             state_err, sizeof state_err))
+    {
+        task_mark_failed(task_id, "could not write GSA run state", state_err);
+        char out[900], esc[700];
+        json_escape_into(esc, sizeof esc, state_err, strlen(state_err));
+        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"%s\"}", task_id, esc);
+        send_json(fd, "500 Internal Server Error", out);
+        return;
+    }
+    json_dyn_buf target_md = {0};
+    json_dyn_printf(&target_md,
+                    "# GSA target\n\n- Authorized target URL: %s\n- Authorized target host: %s\n- Mission: %s\n\n"
+                    "GSA can use optional external tools listed in toolStatus.json plus bounded Python helpers. "
+                    "Keep any network interaction bounded to the authorized host/scope, save command outputs in the run directory, and report disabled, missing, or errored tools explicitly. "
+                    "Treat external-tool output as advisory only: a clean scanner result is not proof of safety without manual code/artifact evidence, and a positive scanner result still needs reachable evidence. "
+                    "When multiple weaker facts compose into impact, validate the attack chain link by link instead of judging each weakness in isolation.\n",
+                    target_url[0] ? target_url : "(none)", target_host[0] ? target_host : "(none)", mission_text);
+    if (target_md.ptr) {
+        jsonl_write_file(target_path, target_md.ptr, strlen(target_md.ptr));
+        free(target_md.ptr);
+    }
+    jsonl_write_file(target_host_path, target_host, strlen(target_host));
+    char tool_summary[1800] = "", tool_err[512] = "";
+    if (!gsa_write_tool_status_file(run_dir, disabled_tools, tool_err, sizeof tool_err, tool_summary, sizeof tool_summary) ||
+        !gsa_prepare_python_scripts_dir(run_dir, tool_err, sizeof tool_err) ||
+        !gsa_write_empty_artifacts(run_dir, tool_err, sizeof tool_err) ||
+        !gsa_write_loop_context(run_dir, parent_run_dir, tool_err, sizeof tool_err))
+    {
+        gsa_write_run_state(run_dir, run_id, "incomplete", "start", iteration,
+                            parent_run_dir, target_url, target_host, tool_err,
+                            state_err, sizeof state_err);
+        task_mark_failed(task_id, "could not prepare GSA automation artifacts", tool_err);
+        char out[900], esc[700];
+        json_escape_into(esc, sizeof esc, tool_err, strlen(tool_err));
+        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"%s\"}", task_id, esc);
+        send_json(fd, "500 Internal Server Error", out);
+        return;
+    }
+    char *workspace_signals = gsa_workspace_signals(abs, candidates);
+    json_dyn_buf skill_list = {0};
+    int skill_count = 0;
+    char skill_err[512] = "";
+    if (!gsa_write_cyber_skill_shortlist(run_dir, mission_text, target_url,
+                                         workspace_signals ? workspace_signals : "",
+                                         skill_err, sizeof skill_err,
+                                         &skill_count, &skill_list))
+    {
+        free(workspace_signals);
+        gsa_write_run_state(run_dir, run_id, "incomplete", "start", iteration,
+                            parent_run_dir, target_url, target_host, skill_err,
+                            state_err, sizeof state_err);
+        task_mark_failed(task_id, "could not prepare imported cybersecurity skills", skill_err);
+        char out[900], esc[700];
+        json_escape_into(esc, sizeof esc, skill_err, strlen(skill_err));
+        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"%s\"}", task_id, esc);
+        send_json(fd, "409 Conflict", out);
+        free(skill_list.ptr);
+        return;
+    }
+    free(workspace_signals);
+    char *prompt = gsa_prompt_start(run_id, run_dir, abs, mission_text, target_url, count, truncated,
+                                    skill_list.ptr ? skill_list.ptr : "",
+                                    target_host, tool_summary, parent_run_dir, iteration);
+    free(skill_list.ptr);
+    if (!prompt) {
+        task_mark_failed(task_id, "could not build GSA prompt", "memory");
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"could not build GSA prompt\"}");
+        return;
+    }
+    char prompt_path[PATH_MAX];
+    snprintf(prompt_path, sizeof prompt_path, "%s/selection.prompt.md", run_dir);
+    jsonl_write_file(prompt_path, prompt, strlen(prompt));
+    gsa_write_run_state(run_dir, run_id, "ready", "selection", iteration,
+                        parent_run_dir, target_url, target_host, "",
+                        state_err, sizeof state_err);
+    task_mark_completed(task_id, "GSA run prepared");
+
+    char abs_esc[PATH_MAX * 2], run_esc[PATH_MAX * 2], id_esc[160], target_esc[2200], state_esc[PATH_MAX * 2], parent_esc[PATH_MAX * 2];
+    json_escape_into(abs_esc, sizeof abs_esc, abs, strlen(abs));
+    json_escape_into(run_esc, sizeof run_esc, run_dir, strlen(run_dir));
+    json_escape_into(state_esc, sizeof state_esc, state_path, strlen(state_path));
+    json_escape_into(parent_esc, sizeof parent_esc, parent_run_dir, strlen(parent_run_dir));
+    json_escape_into(id_esc, sizeof id_esc, run_id, strlen(run_id));
+    json_escape_into(target_esc, sizeof target_esc, target_url, strlen(target_url));
+    json_dyn_buf out = {0};
+    if (!json_dyn_printf(&out,
+            "{\"ok\":true,\"taskId\":%llu,\"runId\":\"%s\",\"workdir\":\"%s\","
+            "\"runDir\":\"%s\",\"statePath\":\"%s\",\"parentRunDir\":\"%s\",\"iteration\":%d,"
+            "\"targetUrl\":\"%s\",\"think\":\"max\",\"candidateCount\":%d,\"skillCount\":%d,\"truncated\":%s,\"prompt\":",
+            task_id, id_esc, abs_esc, run_esc, state_esc, parent_esc, iteration,
+            target_esc, count, skill_count, truncated ? "true" : "false") ||
+        !json_dyn_put_escaped(&out, prompt) ||
+        !json_dyn_puts(&out, ",\"gsaTools\":") ||
+        !gsa_tools_json_filtered(&out, disabled_tools) ||
+        !json_dyn_puts(&out, "}"))
+    {
+        free(prompt); free(out.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"GSA response memory\"}");
+        return;
+    }
+    free(prompt);
+    send_json(fd, "200 OK", out.ptr);
+    free(out.ptr);
+}
+
+static void api_gsa_phase(int fd, const char *body) {
+    char workdir[PATH_MAX] = "", run_id[80] = "", phase[32] = "";
+    char output[BODY_MAX] = "";
+    json_get_string(body, "workdir", workdir, sizeof workdir);
+    json_get_string(body, "runId", run_id, sizeof run_id);
+    json_get_string(body, "phase", phase, sizeof phase);
+    json_get_string(body, "output", output, sizeof output);
+    if (!workdir[0]) cstr_copy(workdir, sizeof workdir, g_workdir);
+    if (!gsa_run_id_ok(run_id)) { send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"bad runId\"}"); return; }
+    if (strcmp(phase, "selection") && strcmp(phase, "preflight") &&
+        strcmp(phase, "validation") && strcmp(phase, "report"))
+    {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"bad phase\"}");
+        return;
+    }
+    char abs[PATH_MAX];
+    if (!workdir[0] || !realpath(workdir, abs)) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"workdir not found\"}");
+        return;
+    }
+    char run_dir[PATH_MAX];
+    snprintf(run_dir, sizeof run_dir, "%s/.dstudio/gsa/runs/%s", abs, run_id);
+    struct stat st;
+    if (stat(run_dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"GSA run not found\"}");
+        return;
+    }
+    char target_url[1024] = "", target_host[512] = "", parent_run_dir[PATH_MAX] = "";
+    gsa_state_string_field(run_dir, "targetUrl", target_url, sizeof target_url);
+    gsa_state_string_field(run_dir, "targetHost", target_host, sizeof target_host);
+    gsa_state_string_field(run_dir, "parentRunDir", parent_run_dir, sizeof parent_run_dir);
+    int iteration = (int)gsa_state_long_field(run_dir, "iteration", 1);
+    unsigned long long task_id = task_begin("gsa", "GSA phase save", phase, ENGINE_AGENT, abs, 0, 0);
+    task_mark_working(task_id, "saving GSA phase output");
+    char validation_err[512] = "";
+    int output_ok = !strcmp(phase, "report")
+        ? gsa_report_valid(output, validation_err, sizeof validation_err)
+        : gsa_json_object_valid(output, phase, validation_err, sizeof validation_err);
+    if (!output_ok) {
+        char invalid_file[PATH_MAX], state_path[PATH_MAX], state_err[512] = "";
+        snprintf(invalid_file, sizeof invalid_file, "%s/%s.invalid.txt", run_dir, phase);
+        snprintf(state_path, sizeof state_path, "%s/run_state.json", run_dir);
+        jsonl_write_file(invalid_file, output, strlen(output));
+        gsa_write_run_state(run_dir, run_id, "incomplete", phase, iteration,
+                            parent_run_dir, target_url, target_host, validation_err,
+                            state_err, sizeof state_err);
+        task_mark_failed(task_id, "GSA phase output incomplete or invalid", validation_err);
+        char out[1400];
+        json_dyn_buf b = {0};
+        int ok = json_dyn_printf(&b, "{\"ok\":false,\"taskId\":%llu,\"complete\":false,\"error\":",
+                                 task_id) &&
+                 json_dyn_put_escaped(&b, validation_err) &&
+                 json_dyn_puts(&b, ",\"statePath\":") &&
+                 json_dyn_put_escaped(&b, state_path) &&
+                 json_dyn_puts(&b, ",\"invalidOutputPath\":") &&
+                 json_dyn_put_escaped(&b, invalid_file) &&
+                 json_dyn_puts(&b, "}");
+        if (ok) {
+            send_json(fd, "400 Bad Request", b.ptr);
+            free(b.ptr);
+        } else {
+            snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"GSA phase output invalid\"}", task_id);
+            send_json(fd, "400 Bad Request", out);
+            free(b.ptr);
+        }
+        return;
+    }
+    char file[PATH_MAX];
+    snprintf(file, sizeof file, "%s/%s.%s", run_dir, phase, !strcmp(phase, "report") ? "md" : "json");
+    if (!jsonl_write_file(file, output, strlen(output))) {
+        char state_err[512] = "";
+        gsa_write_run_state(run_dir, run_id, "incomplete", phase, iteration,
+                            parent_run_dir, target_url, target_host, strerror(errno),
+                            state_err, sizeof state_err);
+        task_mark_failed(task_id, "could not save GSA phase output", strerror(errno));
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"could not save phase output\"}");
+        return;
+    }
+    char *next = !strcmp(phase, "report") ? NULL : gsa_prompt_next(run_dir, abs, phase);
+    if (next) {
+        char prompt_path[PATH_MAX];
+        const char *next_name = !strcmp(phase, "selection") ? "preflight" :
+                                !strcmp(phase, "preflight") ? "validation" : "report";
+        snprintf(prompt_path, sizeof prompt_path, "%s/%s.prompt.md", run_dir, next_name);
+        jsonl_write_file(prompt_path, next, strlen(next));
+    }
+    char state_err[512] = "", status[32], next_phase[32];
+    if (!strcmp(phase, "report")) {
+        cstr_copy(status, sizeof status, "complete");
+        cstr_copy(next_phase, sizeof next_phase, "report");
+    } else {
+        cstr_copy(status, sizeof status, "working");
+        cstr_copy(next_phase, sizeof next_phase,
+                  !strcmp(phase, "selection") ? "preflight" :
+                  !strcmp(phase, "preflight") ? "validation" : "report");
+    }
+    gsa_write_run_state(run_dir, run_id, status, next_phase, iteration,
+                        parent_run_dir, target_url, target_host, "",
+                        state_err, sizeof state_err);
+    task_mark_completed(task_id, !strcmp(phase, "report") ? "GSA report saved" : "GSA phase saved");
+    char state_path[PATH_MAX];
+    snprintf(state_path, sizeof state_path, "%s/run_state.json", run_dir);
+    json_dyn_buf out = {0};
+    if (!json_dyn_printf(&out, "{\"ok\":true,\"taskId\":%llu,\"complete\":%s,\"nextPrompt\":",
+                         task_id, !strcmp(phase, "report") ? "true" : "false") ||
+        !json_dyn_put_escaped(&out, next ? next : "") ||
+        !json_dyn_puts(&out, ",\"statePath\":") ||
+        !json_dyn_put_escaped(&out, state_path) ||
+        !json_dyn_puts(&out, "}"))
+    {
+        free(next); free(out.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"GSA response memory\"}");
+        return;
+    }
+    free(next);
+    send_json(fd, "200 OK", out.ptr);
+    free(out.ptr);
+}

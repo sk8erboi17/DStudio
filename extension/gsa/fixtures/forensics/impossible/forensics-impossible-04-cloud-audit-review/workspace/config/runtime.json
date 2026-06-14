@@ -1,0 +1,7 @@
+{
+  "service": "harbor-04-cloud-audit-review",
+  "environment": "local-review",
+  "data_classification": "sanitized",
+  "external_network_allowed": false,
+  "generated_case": "forensics-impossible-04-cloud-audit-review"
+}

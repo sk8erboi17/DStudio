@@ -1,0 +1,50 @@
+{
+  "schema_version": 2,
+  "id": "web-hard-01-api-access-boundary",
+  "category": "web",
+  "difficulty": "hard",
+  "title": "API access boundary review",
+  "expected_outcome": "confirmed_issue",
+  "issue_class": "missing object ownership check",
+  "severity": "high",
+  "acceptable_aliases": [
+    "IDOR",
+    "broken object level authorization",
+    "BOLA",
+    "owner check missing"
+  ],
+  "required_evidence_paths": [
+    "workspace/src/routes/api_access_boundary.ts",
+    "workspace/src/auth/session.ts",
+    "workspace/src/data/records.ts",
+    "workspace/src/policies/accessPolicy.ts"
+  ],
+  "required_terms": [
+    "missing object ownership check",
+    "IDOR",
+    "broken object level authorization"
+  ],
+  "forbidden_terms": [
+    "CVE-",
+    "public exploit",
+    "live exploitation",
+    "internet scan"
+  ],
+  "false_positive_traps": [
+    "stale compatibility notes are not sufficient by themselves",
+    "artifacts must be correlated with reachable source paths",
+    "do not treat local test data as a live target"
+  ],
+  "clean_controls": [],
+  "missing_evidence": [],
+  "scoring": {
+    "report_supported_evidence": true,
+    "avoid_guessing": true,
+    "no_external_tool_calls": true,
+    "clean_cases_must_not_be_flagged": false,
+    "inconclusive_cases_must_state_missing_evidence": false,
+    "evidence_weight": 0.35,
+    "outcome_weight": 0.45,
+    "issue_match_weight": 0.2
+  }
+}

@@ -1,0 +1,16 @@
+Case: osint-impossible-03-repository-exposure-review
+Organization: Signal-03 Labs
+Assessment type: OSINT local artifact review
+Primary theme: repository metadata and snippets
+Difficulty: impossible
+
+Authorized local identifiers:
+- target_domain: signal-03.corp.test
+- documentation_domain: docs.signal-03.test
+- reference_network: 192.0.2.23/32
+- internal_network: 10.23.0.0/24
+
+Boundary:
+- Use only the supplied artifacts.
+- Replace placeholders only when adapting this workspace to a real authorized engagement.
+- Do not perform live network activity from this fixture.

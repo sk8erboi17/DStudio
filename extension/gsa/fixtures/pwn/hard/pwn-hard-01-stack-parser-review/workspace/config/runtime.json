@@ -1,0 +1,7 @@
+{
+  "service": "forge-01-stack-parser-review",
+  "environment": "local-review",
+  "data_classification": "sanitized",
+  "external_network_allowed": false,
+  "generated_case": "pwn-hard-01-stack-parser-review"
+}

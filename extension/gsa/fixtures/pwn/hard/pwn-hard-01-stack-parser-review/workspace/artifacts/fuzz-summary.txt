@@ -1,0 +1,3 @@
+case=pwn-hard-01-stack-parser-review
+queue_entries=42
+repro_status=local-reproducible

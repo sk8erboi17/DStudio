@@ -1,0 +1,58 @@
+name: New Skill Request
+description: Request a new cybersecurity skill to be added to the database
+title: "[Skill Request]: "
+labels: ["enhancement", "new-skill", "help wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Request a new cybersecurity skill. The more detail you provide, the faster we can add it!
+  - type: input
+    id: skill-name
+    attributes:
+      label: Proposed Skill Name
+      description: Kebab-case gerund form (e.g., analyzing-memory-dump-with-volatility)
+      placeholder: performing-task-name
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Threat Detection
+        - Incident Response
+        - Penetration Testing
+        - Digital Forensics
+        - Compliance & Governance
+        - Network Security
+        - Cloud Security
+        - Application Security
+        - Malware Analysis
+        - OSINT
+        - Zero Trust Architecture
+        - OT/ICS Security
+        - DevSecOps
+        - Ransomware Defense
+        - Threat Intelligence
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Skill Description
+      description: What should this skill teach an AI agent to do?
+    validations:
+      required: true
+  - type: input
+    id: mitre-attack
+    attributes:
+      label: MITRE ATT&CK Technique(s)
+      description: Optional - relevant technique IDs
+      placeholder: e.g., T1059, T1078
+  - type: textarea
+    id: tools
+    attributes:
+      label: Key Tools
+      description: What tools/commands should this skill cover?

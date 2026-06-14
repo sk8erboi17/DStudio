@@ -330,9 +330,14 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define WEB_HELPER_SEARCH_TIMEOUT_MS 25000
 #define WEB_HELPER_VISIT_TIMEOUT_MS 45000
 #define AGENT_BUF_CAP (4 * 1024 * 1024)   /* cap of the agent transcript in RAM */
+#define TASK_RING_CAP 128
+#define TASK_EVENT_RING_CAP 512
+#define LOG_RING_CAP 768
+#define DIAG_SSE_MAX 8
 #define DS4_REPO_URL "https://github.com/antirez/ds4"
 #define DS4_UPSTREAM_COMMIT "d881f2a05e8ff6bec001315a36b794b4aa310173"
 #define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
+#define CYBER_SKILLS_REL_DIR "extension/gsa/third_party/anthropic-cybersecurity-skills/skills"
 
 #define MODEL_STD "ds4flash.gguf"
 #define MODEL_UNC "gguf/cyberneurova-DeepSeek-V4-Flash-abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-aligned.gguf"
@@ -411,6 +416,7 @@ static int  g_load_pct = 0;
 static char g_stage[96] = "";
 static int  g_ready = 0;
 static int  g_agent_working = 0;   /* true between send and the next WAITING */
+static int  g_active_turn_compacting = 0;
 /* The agent can run patched (ds4-agent-jsonl --jsonl, structured events for the
  * UI) or stock (ds4-agent, raw text that the UI parses heuristically). The UI
  * requests it via /api/start {jsonl}; if the patch build FAILS (e.g. the agent
@@ -433,14 +439,15 @@ static char g_engine_err[256] = "";       /* why the engine last died, surfaced 
 
 /* connect-src widened to http/https: with bind on the LAN the page, loaded
  * from another host, must be able to contact ds4-server on the server IP (no
- * longer just loopback). default-src stays 'none'. */
+ * longer just loopback). img-src also allows remote favicons for cited web
+ * sources. default-src stays 'none'. */
 static const char SEC_HEADERS[] =
     "Connection: close\r\n"
     "Cache-Control: no-store\r\n"
     "X-Content-Type-Options: nosniff\r\n"
     "Referrer-Policy: no-referrer\r\n"
     "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; "
-    "script-src 'unsafe-inline'; img-src data:; connect-src http: https:; "
+    "script-src 'unsafe-inline'; img-src data: http: https:; connect-src http: https:; "
     "frame-src 'self'\r\n";
 
 /* Headers for design files served in preview iframes. The preview must behave
@@ -875,6 +882,543 @@ static int json_dyn_put_escaped(json_dyn_buf *b, const char *s) {
         }
     }
     return json_dyn_puts(b, "\"");
+}
+
+/* ==================== observability: tasks + logs ==================== */
+
+static void cstr_copy(char *dst, size_t dstsz, const char *src);
+static void reap_child(void);
+static int lan_status(char *addr, size_t addrsz);
+
+typedef struct {
+    unsigned long long seq;
+    unsigned long long task_id;
+    long long ts_ms;
+    char type[32];
+    char message[512];
+} dstudio_task_event;
+
+typedef struct {
+    unsigned long long id;
+    unsigned long long seq;
+    long long created_ms;
+    long long updated_ms;
+    long long completed_ms;
+    char kind[32];
+    char target[32];
+    char status[20];
+    char title[160];
+    int mode;
+    char workdir[1024];
+    int pid;
+    int cancelable;
+    char error[512];
+    char detail[1024];
+} dstudio_task;
+
+typedef struct {
+    unsigned long long seq;
+    long long ts_ms;
+    unsigned long long task_id;
+    char level[12];
+    char component[48];
+    char message[768];
+} dstudio_log_entry;
+
+static dstudio_task g_tasks[TASK_RING_CAP];
+static int g_task_next_slot = 0;
+static int g_task_count = 0;
+static unsigned long long g_task_next_id = 1;
+static unsigned long long g_task_seq = 0;
+static dstudio_task_event g_task_events[TASK_EVENT_RING_CAP];
+static int g_task_event_next_slot = 0;
+static int g_task_event_count = 0;
+
+static dstudio_log_entry g_logs[LOG_RING_CAP];
+static int g_log_next_slot = 0;
+static int g_log_count = 0;
+static unsigned long long g_log_seq = 0;
+
+static unsigned long long g_active_launch_task = 0;
+static int g_active_launch_mode = ENGINE_NONE;
+static unsigned long long g_active_turn_task = 0;
+static unsigned long long g_active_download_task = 0;
+static unsigned long long g_active_setup_task = 0;
+
+static int g_log_sse_fd[DIAG_SSE_MAX];
+static unsigned long long g_log_sse_since[DIAG_SSE_MAX];
+static int g_log_sse_n = 0;
+static int g_task_sse_fd[DIAG_SSE_MAX];
+static unsigned long long g_task_sse_since[DIAG_SSE_MAX];
+static int g_task_sse_n = 0;
+static int g_diag_sse_tick = 0;
+static int g_diag_sse_adopt = 0;
+
+static long long dstudio_now_ms(void) {
+#ifdef _WIN32
+    FILETIME ft;
+    ULARGE_INTEGER u;
+    GetSystemTimeAsFileTime(&ft);
+    u.LowPart = ft.dwLowDateTime;
+    u.HighPart = ft.dwHighDateTime;
+    return (long long)((u.QuadPart - 116444736000000000ULL) / 10000ULL);
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (long long)tv.tv_sec * 1000LL + (long long)(tv.tv_usec / 1000);
+#endif
+}
+
+static const char *task_mode_name(int m) {
+    return m == ENGINE_SERVER ? "server" :
+           m == ENGINE_AGENT ? "agent" :
+           m == ENGINE_DESIGN ? "design" : "none";
+}
+
+static dstudio_task *task_find(unsigned long long id) {
+    if (!id) return NULL;
+    for (int i = 0; i < g_task_count; i++)
+        if (g_tasks[i].id == id) return &g_tasks[i];
+    return NULL;
+}
+
+static int task_status_terminal(const char *status) {
+    return !strcmp(status, "completed") || !strcmp(status, "failed") ||
+           !strcmp(status, "canceled") || !strcmp(status, "incomplete");
+}
+
+static void task_add_event(unsigned long long task_id, const char *type, const char *message) {
+    if (!task_id) return;
+    int slot = g_task_event_next_slot;
+    g_task_event_next_slot = (g_task_event_next_slot + 1) % TASK_EVENT_RING_CAP;
+    if (g_task_event_count < TASK_EVENT_RING_CAP) g_task_event_count++;
+    dstudio_task_event *ev = &g_task_events[slot];
+    memset(ev, 0, sizeof *ev);
+    ev->seq = ++g_task_seq;
+    ev->task_id = task_id;
+    ev->ts_ms = dstudio_now_ms();
+    cstr_copy(ev->type, sizeof ev->type, type ? type : "event");
+    cstr_copy(ev->message, sizeof ev->message, message ? message : "");
+    dstudio_task *t = task_find(task_id);
+    if (t) {
+        t->seq = ev->seq;
+        t->updated_ms = ev->ts_ms;
+    }
+}
+
+static void dstudio_log_event(const char *level, const char *component,
+                              unsigned long long task_id, const char *fmt, ...) {
+    int slot = g_log_next_slot;
+    g_log_next_slot = (g_log_next_slot + 1) % LOG_RING_CAP;
+    if (g_log_count < LOG_RING_CAP) g_log_count++;
+    dstudio_log_entry *e = &g_logs[slot];
+    memset(e, 0, sizeof *e);
+    e->seq = ++g_log_seq;
+    e->ts_ms = dstudio_now_ms();
+    e->task_id = task_id;
+    cstr_copy(e->level, sizeof e->level, level ? level : "info");
+    cstr_copy(e->component, sizeof e->component, component ? component : "core");
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(e->message, sizeof e->message, fmt ? fmt : "", ap);
+    va_end(ap);
+}
+
+static unsigned long long task_begin(const char *kind, const char *title, const char *target,
+                                     int mode, const char *workdir, int pid, int cancelable) {
+    int slot = g_task_next_slot;
+    g_task_next_slot = (g_task_next_slot + 1) % TASK_RING_CAP;
+    if (g_task_count < TASK_RING_CAP) g_task_count++;
+    dstudio_task *t = &g_tasks[slot];
+    memset(t, 0, sizeof *t);
+    t->id = g_task_next_id++;
+    t->seq = ++g_task_seq;
+    t->created_ms = t->updated_ms = dstudio_now_ms();
+    cstr_copy(t->kind, sizeof t->kind, kind ? kind : "task");
+    cstr_copy(t->target, sizeof t->target, target ? target : "");
+    cstr_copy(t->status, sizeof t->status, "submitted");
+    cstr_copy(t->title, sizeof t->title, title ? title : t->kind);
+    t->mode = mode;
+    cstr_copy(t->workdir, sizeof t->workdir, workdir ? workdir : "");
+    t->pid = pid;
+    t->cancelable = cancelable;
+    task_add_event(t->id, "submitted", t->title);
+    dstudio_log_event("info", t->kind, t->id, "%s submitted", t->title);
+    return t->id;
+}
+
+static void task_set_status(unsigned long long id, const char *status,
+                            const char *message, const char *detail) {
+    dstudio_task *t = task_find(id);
+    if (!t) return;
+    cstr_copy(t->status, sizeof t->status, status ? status : "working");
+    if (message && *message) {
+        if (!strcmp(t->status, "failed") || !strcmp(t->status, "incomplete"))
+            cstr_copy(t->error, sizeof t->error, message);
+        else
+            cstr_copy(t->detail, sizeof t->detail, message);
+    }
+    if (detail && *detail) cstr_copy(t->detail, sizeof t->detail, detail);
+    t->updated_ms = dstudio_now_ms();
+    t->seq = ++g_task_seq;
+    if (task_status_terminal(t->status) && !t->completed_ms) {
+        t->completed_ms = t->updated_ms;
+        t->cancelable = 0;
+    }
+    task_add_event(id, t->status, message ? message : t->status);
+    dstudio_log_event((!strcmp(t->status, "failed") || !strcmp(t->status, "incomplete")) ? "error" :
+                      (!strcmp(t->status, "canceled") ? "warn" : "info"),
+                      t->kind, id, "%s: %s", t->status, message ? message : t->title);
+}
+
+static void task_mark_working(unsigned long long id, const char *message) {
+    task_set_status(id, "working", message ? message : "working", NULL);
+}
+
+static void task_mark_completed(unsigned long long id, const char *message) {
+    task_set_status(id, "completed", message ? message : "completed", NULL);
+}
+
+static void task_mark_failed(unsigned long long id, const char *message, const char *detail) {
+    task_set_status(id, "failed", message ? message : "failed", detail);
+}
+
+static void task_mark_incomplete(unsigned long long id, const char *message, const char *detail) {
+    task_set_status(id, "incomplete", message ? message : "incomplete", detail);
+}
+
+static void task_mark_canceled(unsigned long long id, const char *message) {
+    task_set_status(id, "canceled", message ? message : "canceled", NULL);
+}
+
+static void maybe_complete_launch_task(int mode) {
+    if (!g_active_launch_task) return;
+    if (mode != ENGINE_NONE && g_active_launch_mode != mode) return;
+    task_mark_completed(g_active_launch_task, "engine ready");
+    g_active_launch_task = 0;
+    g_active_launch_mode = ENGINE_NONE;
+}
+
+static const char *task_kind_for_mode(int mode) {
+    return mode == ENGINE_DESIGN ? "design-turn" :
+           mode == ENGINE_AGENT ? "agent-turn" : "turn";
+}
+
+static int json_add_task_summary(json_dyn_buf *b, const dstudio_task *t) {
+    long long duration = t->completed_ms && t->created_ms ? t->completed_ms - t->created_ms : 0;
+    int ok = json_dyn_puts(b, "{\"id\":") &&
+             json_dyn_printf(b, "%llu", t->id) &&
+             json_dyn_puts(b, ",\"seq\":") &&
+             json_dyn_printf(b, "%llu", t->seq) &&
+             json_dyn_puts(b, ",\"kind\":") &&
+             json_dyn_put_escaped(b, t->kind) &&
+             json_dyn_puts(b, ",\"target\":") &&
+             json_dyn_put_escaped(b, t->target) &&
+             json_dyn_puts(b, ",\"status\":") &&
+             json_dyn_put_escaped(b, t->status) &&
+             json_dyn_puts(b, ",\"title\":") &&
+             json_dyn_put_escaped(b, t->title) &&
+             json_dyn_puts(b, ",\"mode\":") &&
+             json_dyn_put_escaped(b, task_mode_name(t->mode)) &&
+             json_dyn_puts(b, ",\"workdir\":") &&
+             json_dyn_put_escaped(b, t->workdir) &&
+             json_dyn_printf(b, ",\"pid\":%d,\"cancelable\":%s,\"createdAt\":%lld,\"updatedAt\":%lld,\"completedAt\":%lld,\"durationMs\":%lld",
+                             t->pid, t->cancelable ? "true" : "false",
+                             t->created_ms, t->updated_ms, t->completed_ms, duration) &&
+             json_dyn_puts(b, ",\"error\":") &&
+             json_dyn_put_escaped(b, t->error) &&
+             json_dyn_puts(b, ",\"detail\":") &&
+             json_dyn_put_escaped(b, t->detail) &&
+             json_dyn_puts(b, "}");
+    return ok;
+}
+
+static int json_add_log_entry(json_dyn_buf *b, const dstudio_log_entry *e) {
+    return json_dyn_puts(b, "{\"seq\":") &&
+           json_dyn_printf(b, "%llu", e->seq) &&
+           json_dyn_printf(b, ",\"ts\":%lld,\"taskId\":%llu", e->ts_ms, e->task_id) &&
+           json_dyn_puts(b, ",\"level\":") &&
+           json_dyn_put_escaped(b, e->level) &&
+           json_dyn_puts(b, ",\"component\":") &&
+           json_dyn_put_escaped(b, e->component) &&
+           json_dyn_puts(b, ",\"message\":") &&
+           json_dyn_put_escaped(b, e->message) &&
+           json_dyn_puts(b, "}");
+}
+
+static int json_add_task_event(json_dyn_buf *b, const dstudio_task_event *ev) {
+    return json_dyn_puts(b, "{\"seq\":") &&
+           json_dyn_printf(b, "%llu", ev->seq) &&
+           json_dyn_printf(b, ",\"ts\":%lld,\"taskId\":%llu", ev->ts_ms, ev->task_id) &&
+           json_dyn_puts(b, ",\"type\":") &&
+           json_dyn_put_escaped(b, ev->type) &&
+           json_dyn_puts(b, ",\"message\":") &&
+           json_dyn_put_escaped(b, ev->message) &&
+           json_dyn_puts(b, "}");
+}
+
+static int query_ull(const char *path, const char *key, unsigned long long *out) {
+    char pat[64];
+    snprintf(pat, sizeof pat, "%s=", key);
+    const char *q = strchr(path, '?');
+    if (!q) return 0;
+    const char *p = strstr(q + 1, pat);
+    if (!p) return 0;
+    p += strlen(pat);
+    char *end = NULL;
+    unsigned long long v = strtoull(p, &end, 10);
+    if (end == p) return 0;
+    *out = v;
+    return 1;
+}
+
+static int query_int(const char *path, const char *key, int def, int lo, int hi) {
+    unsigned long long v = 0;
+    if (!query_ull(path, key, &v)) return def;
+    if (v < (unsigned long long)lo) return lo;
+    if (v > (unsigned long long)hi) return hi;
+    return (int)v;
+}
+
+static void api_tasks(int fd, const char *path) {
+    int limit = query_int(path, "limit", 50, 1, TASK_RING_CAP);
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "{\"ok\":true,\"seq\":") &&
+             json_dyn_printf(&b, "%llu", g_task_seq) &&
+             json_dyn_puts(&b, ",\"tasks\":[");
+    int emitted = 0;
+    for (int n = 0; ok && n < g_task_count && emitted < limit; n++) {
+        int idx = (g_task_next_slot - 1 - n + TASK_RING_CAP) % TASK_RING_CAP;
+        if (!g_tasks[idx].id) continue;
+        if (emitted++) ok = ok && json_dyn_puts(&b, ",");
+        ok = ok && json_add_task_summary(&b, &g_tasks[idx]);
+    }
+    ok = ok && json_dyn_puts(&b, "]}");
+    if (!ok) { free(b.ptr); send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}"); return; }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+}
+
+static void api_task(int fd, const char *path) {
+    unsigned long long id = 0;
+    if (!query_ull(path, "id", &id)) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"task id missing\"}");
+        return;
+    }
+    dstudio_task *t = task_find(id);
+    if (!t) {
+        send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"task not found\"}");
+        return;
+    }
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "{\"ok\":true,\"task\":") &&
+             json_add_task_summary(&b, t) &&
+             json_dyn_puts(&b, ",\"events\":[");
+    int emitted = 0;
+    for (int n = g_task_event_count - 1; ok && n >= 0; n--) {
+        int idx = (g_task_event_next_slot - 1 - n + TASK_EVENT_RING_CAP) % TASK_EVENT_RING_CAP;
+        if (g_task_events[idx].task_id != id) continue;
+        if (emitted++) ok = ok && json_dyn_puts(&b, ",");
+        ok = ok && json_add_task_event(&b, &g_task_events[idx]);
+    }
+    ok = ok && json_dyn_puts(&b, "]}");
+    if (!ok) { free(b.ptr); send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}"); return; }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+}
+
+static void api_logs(int fd, const char *path) {
+    int limit = query_int(path, "limit", 200, 1, LOG_RING_CAP);
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "{\"ok\":true,\"seq\":") &&
+             json_dyn_printf(&b, "%llu", g_log_seq) &&
+             json_dyn_puts(&b, ",\"logs\":[");
+    int emitted = 0;
+    for (int n = 0; ok && n < g_log_count && emitted < limit; n++) {
+        int idx = (g_log_next_slot - 1 - n + LOG_RING_CAP) % LOG_RING_CAP;
+        if (!g_logs[idx].seq) continue;
+        if (emitted++) ok = ok && json_dyn_puts(&b, ",");
+        ok = ok && json_add_log_entry(&b, &g_logs[idx]);
+    }
+    ok = ok && json_dyn_puts(&b, "]}");
+    if (!ok) { free(b.ptr); send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}"); return; }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+}
+
+static int diag_send_task_sse_event(int fd, const dstudio_task *t) {
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "event: task\ndata: ") &&
+             json_add_task_summary(&b, t) &&
+             json_dyn_puts(&b, "\n\n");
+    if (!ok) { free(b.ptr); return -1; }
+    int rc = write(fd, b.ptr, b.len) == (ssize_t)b.len ? 0 : -1;
+    free(b.ptr);
+    return rc;
+}
+
+static int diag_send_log_sse_event(int fd, const dstudio_log_entry *e) {
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "event: log\ndata: ") &&
+             json_add_log_entry(&b, e) &&
+             json_dyn_puts(&b, "\n\n");
+    if (!ok) { free(b.ptr); return -1; }
+    int rc = write(fd, b.ptr, b.len) == (ssize_t)b.len ? 0 : -1;
+    free(b.ptr);
+    return rc;
+}
+
+static void diag_sse_drop_log(int i) {
+    close(g_log_sse_fd[i]);
+    if (i < g_log_sse_n - 1) {
+        memmove(&g_log_sse_fd[i], &g_log_sse_fd[i + 1], (size_t)(g_log_sse_n - i - 1) * sizeof g_log_sse_fd[0]);
+        memmove(&g_log_sse_since[i], &g_log_sse_since[i + 1], (size_t)(g_log_sse_n - i - 1) * sizeof g_log_sse_since[0]);
+    }
+    g_log_sse_n--;
+}
+
+static void diag_sse_drop_task(int i) {
+    close(g_task_sse_fd[i]);
+    if (i < g_task_sse_n - 1) {
+        memmove(&g_task_sse_fd[i], &g_task_sse_fd[i + 1], (size_t)(g_task_sse_n - i - 1) * sizeof g_task_sse_fd[0]);
+        memmove(&g_task_sse_since[i], &g_task_sse_since[i + 1], (size_t)(g_task_sse_n - i - 1) * sizeof g_task_sse_since[0]);
+    }
+    g_task_sse_n--;
+}
+
+static void diag_sse_flush(void) {
+    int beat = (++g_diag_sse_tick % 75) == 0;
+    for (int i = 0; i < g_log_sse_n; ) {
+        int dropped = 0;
+        for (int n = g_log_count - 1; n >= 0; n--) {
+            int idx = (g_log_next_slot - 1 - n + LOG_RING_CAP) % LOG_RING_CAP;
+            if (!g_logs[idx].seq || g_logs[idx].seq <= g_log_sse_since[i]) continue;
+            if (diag_send_log_sse_event(g_log_sse_fd[i], &g_logs[idx]) != 0) { diag_sse_drop_log(i); dropped = 1; break; }
+            g_log_sse_since[i] = g_logs[idx].seq;
+        }
+        if (dropped) continue;
+        if (beat && write(g_log_sse_fd[i], ": ping\n\n", 8) != 8) { diag_sse_drop_log(i); continue; }
+        i++;
+    }
+    for (int i = 0; i < g_task_sse_n; ) {
+        int dropped = 0;
+        for (int n = g_task_count - 1; n >= 0; n--) {
+            int idx = (g_task_next_slot - 1 - n + TASK_RING_CAP) % TASK_RING_CAP;
+            if (!g_tasks[idx].id || g_tasks[idx].seq <= g_task_sse_since[i]) continue;
+            if (diag_send_task_sse_event(g_task_sse_fd[i], &g_tasks[idx]) != 0) { diag_sse_drop_task(i); dropped = 1; break; }
+            if (g_tasks[idx].seq > g_task_sse_since[i]) g_task_sse_since[i] = g_tasks[idx].seq;
+        }
+        if (dropped) continue;
+        if (beat && write(g_task_sse_fd[i], ": ping\n\n", 8) != 8) { diag_sse_drop_task(i); continue; }
+        i++;
+    }
+}
+
+static void diag_sse_close_all(void) {
+    while (g_log_sse_n) diag_sse_drop_log(0);
+    while (g_task_sse_n) diag_sse_drop_task(0);
+}
+
+static void api_stream_logs(int fd, const char *path) {
+    if (g_log_sse_n >= DIAG_SSE_MAX) {
+        send_json(fd, "503 Service Unavailable", "{\"ok\":false,\"error\":\"too many log streams\"}");
+        return;
+    }
+    unsigned long long since = 0;
+    query_ull(path, "since", &since);
+    const char *hdr = "HTTP/1.1 200 OK\r\n"
+                      "Content-Type: text/event-stream\r\n"
+                      "Cache-Control: no-cache\r\n"
+                      "Connection: keep-alive\r\n\r\n";
+    if (write(fd, hdr, strlen(hdr)) != (ssize_t)strlen(hdr)) return;
+    int fl = fcntl(fd, F_GETFL, 0);
+    if (fl >= 0) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+    g_log_sse_fd[g_log_sse_n] = fd;
+    g_log_sse_since[g_log_sse_n] = since;
+    g_log_sse_n++;
+    diag_sse_flush();
+    g_diag_sse_adopt = 1;
+}
+
+static void api_stream_tasks(int fd, const char *path) {
+    if (g_task_sse_n >= DIAG_SSE_MAX) {
+        send_json(fd, "503 Service Unavailable", "{\"ok\":false,\"error\":\"too many task streams\"}");
+        return;
+    }
+    unsigned long long since = 0;
+    query_ull(path, "since", &since);
+    const char *hdr = "HTTP/1.1 200 OK\r\n"
+                      "Content-Type: text/event-stream\r\n"
+                      "Cache-Control: no-cache\r\n"
+                      "Connection: keep-alive\r\n\r\n";
+    if (write(fd, hdr, strlen(hdr)) != (ssize_t)strlen(hdr)) return;
+    int fl = fcntl(fd, F_GETFL, 0);
+    if (fl >= 0) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+    g_task_sse_fd[g_task_sse_n] = fd;
+    g_task_sse_since[g_task_sse_n] = since;
+    g_task_sse_n++;
+    diag_sse_flush();
+    g_diag_sse_adopt = 1;
+}
+
+static void api_diagnostics(int fd) {
+    reap_child();
+    char lan_addr[80];
+    int lan_on = lan_status(lan_addr, sizeof lan_addr);
+    int recent_errors = 0, recent_incomplete = 0, active_tasks = 0;
+    for (int n = 0; n < g_task_count; n++) {
+        if (!g_tasks[n].id) continue;
+        if (!task_status_terminal(g_tasks[n].status)) active_tasks++;
+        if (!strcmp(g_tasks[n].status, "incomplete")) recent_incomplete++;
+    }
+    for (int n = 0; n < g_log_count; n++)
+        if (!strcmp(g_logs[n].level, "error")) recent_errors++;
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "{\"ok\":true,\"generatedAt\":") &&
+             json_dyn_printf(&b, "%lld", dstudio_now_ms()) &&
+             json_dyn_printf(&b, ",\"summary\":{\"activeTasks\":%d,\"recentErrors\":%d,\"recentIncomplete\":%d},",
+                             active_tasks, recent_errors, recent_incomplete) &&
+             json_dyn_puts(&b, "\"runtime\":{") &&
+             json_dyn_puts(&b, "\"mode\":") &&
+             json_dyn_put_escaped(&b, task_mode_name(g_mode)) &&
+             json_dyn_printf(&b, ",\"running\":%s,\"ready\":%s,\"pid\":%d,\"agentWorking\":%s",
+                             g_child > 0 ? "true" : "false", g_ready ? "true" : "false",
+                             (int)g_child, g_agent_working ? "true" : "false") &&
+             json_dyn_puts(&b, ",\"stage\":") &&
+             json_dyn_put_escaped(&b, g_stage) &&
+             json_dyn_puts(&b, ",\"engineError\":") &&
+             json_dyn_put_escaped(&b, g_engine_err) &&
+             json_dyn_puts(&b, ",\"engineLine\":") &&
+             json_dyn_put_escaped(&b, g_last_engine_line) &&
+             json_dyn_puts(&b, ",\"workdir\":") &&
+             json_dyn_put_escaped(&b, g_workdir) &&
+             json_dyn_puts(&b, "},\"lan\":{") &&
+             json_dyn_printf(&b, "\"enabled\":%s,\"addr\":", lan_on ? "true" : "false") &&
+             json_dyn_put_escaped(&b, lan_addr) &&
+             json_dyn_puts(&b, "},\"tasks\":{\"seq\":") &&
+             json_dyn_printf(&b, "%llu", g_task_seq) &&
+             json_dyn_puts(&b, ",\"recent\":[");
+    int emitted = 0;
+    for (int n = 0; ok && n < g_task_count && emitted < 12; n++) {
+        int idx = (g_task_next_slot - 1 - n + TASK_RING_CAP) % TASK_RING_CAP;
+        if (!g_tasks[idx].id) continue;
+        if (emitted++) ok = ok && json_dyn_puts(&b, ",");
+        ok = ok && json_add_task_summary(&b, &g_tasks[idx]);
+    }
+    ok = ok && json_dyn_puts(&b, "]},\"logs\":{\"seq\":") &&
+         json_dyn_printf(&b, "%llu", g_log_seq) &&
+         json_dyn_puts(&b, ",\"recentErrors\":[");
+    emitted = 0;
+    for (int n = 0; ok && n < g_log_count && emitted < 12; n++) {
+        int idx = (g_log_next_slot - 1 - n + LOG_RING_CAP) % LOG_RING_CAP;
+        if (!g_logs[idx].seq || strcmp(g_logs[idx].level, "error")) continue;
+        if (emitted++) ok = ok && json_dyn_puts(&b, ",");
+        ok = ok && json_add_log_entry(&b, &g_logs[idx]);
+    }
+    ok = ok && json_dyn_puts(&b, "]}}");
+    if (!ok) { free(b.ptr); send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}"); return; }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
 }
 
 static json_dyn_buf g_child_event_line = {0};
@@ -1368,17 +1912,30 @@ static int executable_on_path(const char *name) {
     char buf[4096];
     cstr_copy(buf, sizeof buf, path);
     for (char *p = buf; p && *p; ) {
-        char *colon = strchr(p, ':');
-        if (colon) *colon = '\0';
+        char *sep =
+#ifdef _WIN32
+            strchr(p, ';');
+#else
+            strchr(p, ':');
+#endif
+        if (sep) *sep = '\0';
         if (p[0]) {
             char full[PATH_MAX];
             if (!path_join(full, sizeof full, p, name)) {
-                p = colon ? colon + 1 : NULL;
+                p = sep ? sep + 1 : NULL;
                 continue;
             }
             if (access(full, X_OK) == 0) return 1;
+#ifdef _WIN32
+            const char *exts[] = { ".exe", ".cmd", ".bat", NULL };
+            for (int i = 0; exts[i]; i++) {
+                char extfull[PATH_MAX];
+                snprintf(extfull, sizeof extfull, "%s%s", full, exts[i]);
+                if (access(extfull, X_OK) == 0 || access(extfull, R_OK) == 0) return 1;
+            }
+#endif
         }
-        p = colon ? colon + 1 : NULL;
+        p = sep ? sep + 1 : NULL;
     }
     return 0;
 }
@@ -1706,7 +2263,7 @@ static void progress_from_line(const char *line) {
     else if (strstr(line, "warming") || strstr(line, "expert"))
         set_stage("Warming up…", 85);
     else if (strstr(line, "listening on"))      /* server ready */
-        { set_stage("Ready", 100); g_ready = 1; }
+        { set_stage("Ready", 100); g_ready = 1; maybe_complete_launch_task(ENGINE_SERVER); }
 }
 
 /* Scans a stream line by line, applying milestones and agent markers. */
@@ -1724,7 +2281,21 @@ static void scan_lines(const char *data, size_t n, char *acc, size_t *acc_len, i
                 if (is_err && strstr(acc, "+DWARFSTAR_WAITING")) {
                     set_stage("Ready", 100);
                     g_ready = 1;
+                    maybe_complete_launch_task(g_mode);
+                    if (g_active_turn_task) {
+                        task_mark_completed(g_active_turn_task, "agent/design turn completed");
+                        g_active_turn_task = 0;
+                    }
+                    g_active_turn_compacting = 0;
                     g_agent_working = 0;
+                } else if (g_active_turn_task && strstr(acc, "COMPACTING")) {
+                    if (!g_active_turn_compacting) {
+                        g_active_turn_compacting = 1;
+                        task_mark_working(g_active_turn_task,
+                                          "agent/design context compaction in progress; waiting for final output");
+                        dstudio_log_event("warn", "engine", g_active_turn_task,
+                                          "context compaction during active turn");
+                    }
                 }
             }
             *acc_len = 0;
@@ -1860,8 +2431,13 @@ static void reap_child(void) {
     if (g_dl_pid > 0) {
         int dst;
         if (waitpid(g_dl_pid, &dst, WNOHANG) == g_dl_pid) {
-            printf("model: download of %s finished (exit %d)\n", g_dl_variant,
-                   WIFEXITED(dst) ? WEXITSTATUS(dst) : -1);
+            int code = WIFEXITED(dst) ? WEXITSTATUS(dst) : -1;
+            printf("model: download of %s finished (exit %d)\n", g_dl_variant, code);
+            if (g_active_download_task) {
+                if (code == 0) task_mark_completed(g_active_download_task, "model download completed");
+                else task_mark_failed(g_active_download_task, "model download failed", g_dl_variant);
+                g_active_download_task = 0;
+            }
             g_dl_pid = -1;   /* keep g_dl_variant so status can report 100 / completion once */
         }
     }
@@ -1879,6 +2455,21 @@ static void reap_child(void) {
                      WIFEXITED(st) ? WEXITSTATUS(st) : -1,
                      g_last_engine_line[0] ? " — " : "", g_last_engine_line);
         printf("engine: pid %d terminated — %s\n", (int)g_child, g_engine_err);
+        dstudio_log_event("error", "engine", g_active_turn_task ? g_active_turn_task : g_active_launch_task,
+                          "pid %d terminated: %s", (int)g_child, g_engine_err);
+        if (g_active_turn_task) {
+            task_mark_incomplete(g_active_turn_task,
+                                 "engine process stopped before completing the turn",
+                                 g_engine_err[0] ? g_engine_err : "unknown process failure");
+            g_active_turn_task = 0;
+        }
+        if (g_active_launch_task) {
+            task_mark_failed(g_active_launch_task,
+                             "engine process stopped before becoming ready",
+                             g_engine_err[0] ? g_engine_err : "unknown process failure");
+            g_active_launch_task = 0;
+            g_active_launch_mode = ENGINE_NONE;
+        }
         if (MODE_IS_PIPED(g_mode) && g_agent_working) {
             char msg[640];
             int n = snprintf(msg, sizeof msg,
@@ -1887,6 +2478,7 @@ static void reap_child(void) {
             if (n > 0) agent_buf_append(msg, (size_t)n);
         }
         g_agent_working = 0;
+        g_active_turn_compacting = 0;
         g_child = -1;
 #ifdef _WIN32
         g_child_win_pid = 0;
@@ -1906,6 +2498,17 @@ static void stop_child(void) {
     sse_close_all_fwd();
     if (g_child <= 0) { g_mode = ENGINE_NONE; return; }
     printf("engine: stopping pid %d…\n", (int)g_child);
+    dstudio_log_event("info", "engine", g_active_turn_task ? g_active_turn_task : g_active_launch_task,
+                      "stopping pid %d", (int)g_child);
+    if (g_active_turn_task) {
+        task_mark_canceled(g_active_turn_task, "engine stopped by DStudio");
+        g_active_turn_task = 0;
+    }
+    if (g_active_launch_task) {
+        task_mark_canceled(g_active_launch_task, "engine stopped by DStudio");
+        g_active_launch_task = 0;
+        g_active_launch_mode = ENGINE_NONE;
+    }
     kill(g_child, SIGTERM);
     for (int i = 0; i < 30; i++) {
         int st;
@@ -1920,6 +2523,7 @@ static void stop_child(void) {
     g_mode = ENGINE_NONE;
     g_ready = 0;
     g_agent_working = 0;
+    g_active_turn_compacting = 0;
 }
 
 /* Kills the EXTERNAL process holding a port (a ds4-server started outside the
@@ -2014,6 +2618,15 @@ static void user_skills_dir(char *out, size_t outsz) {
 #endif
 }
 
+static void child_setenv_gsa_tools(void);
+
+static int cyber_skills_dir(char *out, size_t outsz) {
+    if (!g_web_dir[0]) return 0;
+    snprintf(out, outsz, "%s/%s", g_web_dir, CYBER_SKILLS_REL_DIR);
+    struct stat st;
+    return stat(out, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
 /* Point the engine's on-demand skill()/design_system() tools at this DStudio checkout's
  * shipped pack library (extension/) AND the writable user-skills directory. Set in the
  * child before exec; an absent dir → the tools fall back / report "no pack" gracefully. */
@@ -2026,6 +2639,9 @@ static void child_setenv_skills(void) {
     char u[1100];
     user_skills_dir(u, sizeof u);
     setenv("DS4UI_USER_SKILLS_DIR", u, 1);
+    char cyber[2300];
+    if (cyber_skills_dir(cyber, sizeof cyber))
+        setenv("DS4UI_CYBER_SKILLS_DIR", cyber, 1);
 }
 
 static void reset_progress(const char *stage0) {
@@ -2403,6 +3019,35 @@ static int patch_resolve_dir(const char *rel_dir, char *out, size_t outsz) {
     return patch_fail("patch directory not found: %s", rel_dir);
 }
 
+static int patch_dir_newer_than(const char *rel_dir, time_t cutoff) {
+    char dir[DSTUDIO_PATH_MAX + 512];
+    if (!patch_resolve_dir(rel_dir, dir, sizeof dir)) return 1;
+    DIR *d = opendir(dir);
+    if (!d) return 1;
+    int newer = 0;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        const char *name = de->d_name;
+        if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
+        char file[DSTUDIO_PATH_MAX + 1024];
+        if ((size_t)snprintf(file, sizeof file, "%s/%s", dir, name) >= sizeof file) {
+            newer = 1;
+            break;
+        }
+        struct stat st;
+        if (stat(file, &st) != 0) {
+            newer = 1;
+            break;
+        }
+        if (st.st_mtime > cutoff) {
+            newer = 1;
+            break;
+        }
+    }
+    closedir(d);
+    return newer;
+}
+
 static int patch_join_leaf(const ds4ui_patch_set *set, const char *leaf, char *out, size_t outsz) {
     if (!patch_leaf_ok(leaf))
         return patch_fail("invalid patch file name '%s' in %s", leaf ? leaf : "", set->rel_dir);
@@ -2574,6 +3219,112 @@ static int skill_id_ok(const char *s) {
 }
 
 static void fm_field(const char *content, const char *key, char *out, size_t outsz);  /* fwd */
+static void url_decode_into(const char *src, size_t n, char *out, size_t outsz);  /* fwd */
+
+static void query_param(const char *path, const char *key, char *out, size_t outsz) {
+    out[0] = '\0';
+    const char *q = strchr(path, '?');
+    if (!q) return;
+    q++;
+    size_t klen = strlen(key);
+    while (*q) {
+        const char *amp = strchr(q, '&');
+        size_t seglen = amp ? (size_t)(amp - q) : strlen(q);
+        if (seglen > klen && !strncmp(q, key, klen) && q[klen] == '=') {
+            url_decode_into(q + klen + 1, seglen - klen - 1, out, outsz);
+            for (char *p = out; *p; p++) if (*p == '+') *p = ' ';
+            return;
+        }
+        if (!amp) break;
+        q = amp + 1;
+    }
+}
+
+static int text_contains_ci(const char *hay, const char *needle) {
+    if (!needle || !needle[0]) return 1;
+    return hay && mem_contains_ci(hay, strlen(hay), needle);
+}
+
+static int csv_contains_ci(const char *csv, const char *needle) {
+    if (!needle || !needle[0]) return 1;
+    return text_contains_ci(csv, needle);
+}
+
+static int skill_search_match(const char *q, const char *domain_filter,
+                              const char *subdomain_filter, const char *source_filter,
+                              const char *source, const char *id, const char *name,
+                              const char *desc, const char *domain, const char *subdomain,
+                              const char *tags) {
+    if (source_filter[0] && !text_contains_ci(source, source_filter)) return 0;
+    if (domain_filter[0] && !text_contains_ci(domain, domain_filter)) return 0;
+    if (subdomain_filter[0] && !text_contains_ci(subdomain, subdomain_filter)) return 0;
+    if (!q[0]) return 1;
+    return text_contains_ci(id, q) || text_contains_ci(name, q) ||
+           text_contains_ci(desc, q) || text_contains_ci(domain, q) ||
+           text_contains_ci(subdomain, q) || csv_contains_ci(tags, q);
+}
+
+static int skill_search_scan_dir(json_dyn_buf *body, const char *dir, const char *file,
+                                 const char *source, const char *q,
+                                 const char *domain_filter, const char *subdomain_filter,
+                                 const char *source_filter, int limit,
+                                 int *count, int *truncated) {
+    DIR *d = opendir(dir);
+    if (!d) return 1;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        const char *id = de->d_name;
+        if (id[0] == '.' || !skill_id_ok(id)) continue;
+        char md[PATH_MAX];
+        if ((size_t)snprintf(md, sizeof md, "%s/%s/%s", dir, id, file) >= sizeof md)
+            continue;
+        size_t len = 0;
+        char *content = jsonl_read_file(md, &len);
+        if (!content) continue;
+        char nm[300], desc[1000], domain[120], subdomain[160], tags[600], license[120];
+        fm_field(content, "name", nm, sizeof nm);
+        fm_field(content, "description", desc, sizeof desc);
+        fm_field(content, "domain", domain, sizeof domain);
+        fm_field(content, "subdomain", subdomain, sizeof subdomain);
+        fm_field(content, "tags", tags, sizeof tags);
+        fm_field(content, "license", license, sizeof license);
+        if (!nm[0]) cstr_copy(nm, sizeof nm, id);
+        if (!skill_search_match(q, domain_filter, subdomain_filter, source_filter,
+                                source, id, nm, desc, domain, subdomain, tags)) {
+            free(content);
+            continue;
+        }
+        free(content);
+        if (*count >= limit) {
+            *truncated = 1;
+            continue;
+        }
+        char assets[PATH_MAX], refs[PATH_MAX], scripts[PATH_MAX];
+        snprintf(assets, sizeof assets, "%s/%s/assets", dir, id);
+        snprintf(refs, sizeof refs, "%s/%s/references", dir, id);
+        snprintf(scripts, sizeof scripts, "%s/%s/scripts", dir, id);
+        int has_assets = access(assets, R_OK) == 0;
+        int has_refs = access(refs, R_OK) == 0;
+        int has_scripts = access(scripts, R_OK) == 0;
+        if (!json_dyn_puts(body, *count ? ",{" : "{")) { closedir(d); return 0; }
+        if (!json_dyn_puts(body, "\"id\":") || !json_dyn_put_escaped(body, id)) { closedir(d); return 0; }
+        if (!json_dyn_puts(body, ",\"name\":") || !json_dyn_put_escaped(body, nm)) { closedir(d); return 0; }
+        if (!json_dyn_puts(body, ",\"description\":") || !json_dyn_put_escaped(body, desc)) { closedir(d); return 0; }
+        if (!json_dyn_puts(body, ",\"source\":") || !json_dyn_put_escaped(body, source)) { closedir(d); return 0; }
+        if (!json_dyn_puts(body, ",\"domain\":") || !json_dyn_put_escaped(body, domain)) { closedir(d); return 0; }
+        if (!json_dyn_puts(body, ",\"subdomain\":") || !json_dyn_put_escaped(body, subdomain)) { closedir(d); return 0; }
+        if (!json_dyn_puts(body, ",\"tags\":") || !json_dyn_put_escaped(body, tags)) { closedir(d); return 0; }
+        if (!json_dyn_puts(body, ",\"license\":") || !json_dyn_put_escaped(body, license)) { closedir(d); return 0; }
+        if (!json_dyn_puts(body, ",\"tools\":[]")) { closedir(d); return 0; }
+        if (!json_dyn_printf(body, ",\"hasAssets\":%s,\"hasReferences\":%s,\"hasScripts\":%s}",
+                             has_assets ? "true" : "false",
+                             has_refs ? "true" : "false",
+                             has_scripts ? "true" : "false")) { closedir(d); return 0; }
+        (*count)++;
+    }
+    closedir(d);
+    return 1;
+}
 
 /* Append "label:\n- id: description\n…" for every pack directly under <dir> (each a
  * <dir>/<id>/<file>) to a bounded buffer, for the on-demand catalog. */
@@ -2639,7 +3390,15 @@ static char *read_selected_skill(size_t *len) {
     char *c = jsonl_read_file(path, len);
     if (c) return c;
     snprintf(path, sizeof path, "%s/extension/skills/%s/SKILL.md", g_web_dir, g_skill);
-    return jsonl_read_file(path, len);
+    c = jsonl_read_file(path, len);
+    if (c) return c;
+    char cyber[2300];
+    if (cyber_skills_dir(cyber, sizeof cyber)) {
+        snprintf(path, sizeof path, "%s/%s/SKILL.md", cyber, g_skill);
+        c = jsonl_read_file(path, len);
+        if (c) return c;
+    }
+    return NULL;
 }
 
 /* Append a file's bytes to a growing buffer with a blank-line separator. Frees src. */
@@ -3213,6 +3972,9 @@ static int run_build_jsonl(const char *action) {
     if (access(bin, X_OK) == 0 &&
         stat(src, &sb) == 0 && stat(web_src, &wb) == 0 && stat(bin, &bb) == 0 &&
         bb.st_mtime >= sb.st_mtime && bb.st_mtime >= wb.st_mtime &&
+        !patch_dir_newer_than(JSONL_PATCH_DIR, bb.st_mtime) &&
+        !patch_dir_newer_than(WEB_CDP_PATCH_DIR, bb.st_mtime) &&
+        !patch_dir_newer_than(WEB_DIRECT_NAV_PATCH_DIR, bb.st_mtime) &&
         jsonl_sentinel_ok(ver, patch_version)) {
         return 1;
     }
@@ -3460,6 +4222,8 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     char exe[2200];
     win_join_path(exe, sizeof exe, g_ds4_dir, agent_bin);
     win_prepare_engine_runtime();
+    child_setenv_skills();
+    child_setenv_gsa_tools();
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
                      : "--think";
@@ -3497,6 +4261,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
             child_setenv_metal_sources(ds4_abs); /* absolute: survive --chdir */
         }
         child_setenv_skills();                   /* on-demand skill()/design_system() packs */
+        child_setenv_gsa_tools();                /* optional GSA scanners in managed bin */
         dup2(ip[0], STDIN_FILENO);
         dup2(op[1], STDOUT_FILENO);
         dup2(ep[1], STDERR_FILENO);
@@ -3601,6 +4366,8 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
 #ifdef _WIN32
     char exe[2200];
     win_join_path(exe, sizeof exe, g_ds4_dir, "ds4-design.exe");
+    child_setenv_skills();
+    child_setenv_gsa_tools();
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
                      : "--think";
@@ -3634,6 +4401,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         if (chdir(g_ds4_dir) != 0) _exit(127);   /* to find ./ds4-design */
         if (!remote_model) child_setenv_metal();
         child_setenv_skills();                   /* on-demand skill()/design_system() packs */
+        child_setenv_gsa_tools();                /* optional GSA scanners in managed bin */
         dup2(ip[0], STDIN_FILENO);
         dup2(op[1], STDOUT_FILENO);
         dup2(ep[1], STDERR_FILENO);
@@ -3747,17 +4515,32 @@ static void api_model_download(int fd, const char *body) {
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"unknown model/target\"}");
         return;
     }
+    unsigned long long task_id = task_begin("model-download", "Download model",
+                                            abliterated ? "flash" : target, ENGINE_NONE,
+                                            g_ds4_dir, 0, 0);
     if (g_dl_pid > 0) {
-        send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"a download is already running\"}");
+        task_mark_failed(task_id, "a download is already running", g_dl_variant);
+        char out[128];
+        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"a download is already running\"}", task_id);
+        send_json(fd, "409 Conflict", out);
         return;
     }
     char ds4_abs[DSTUDIO_PATH_MAX];
     if (!realpath(g_ds4_dir, ds4_abs)) {
-        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"ds4 dir not found\"}");
+        task_mark_failed(task_id, "ds4 dir not found", g_ds4_dir);
+        char out[128];
+        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"ds4 dir not found\"}", task_id);
+        send_json(fd, "500 Internal Server Error", out);
         return;
     }
     pid_t pid = fork();
-    if (pid < 0) { send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"fork failed\"}"); return; }
+    if (pid < 0) {
+        task_mark_failed(task_id, "fork failed", strerror(errno));
+        char out[160];
+        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"fork failed\"}", task_id);
+        send_json(fd, "500 Internal Server Error", out);
+        return;
+    }
     if (pid == 0) {
         if (chdir(ds4_abs) != 0) _exit(127);
         int log = open("/tmp/ds4-model-dl.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -3768,10 +4551,14 @@ static void api_model_download(int fd, const char *body) {
         _exit(127);
     }
     g_dl_pid = pid;
+    g_active_download_task = task_id;
+    dstudio_task *t = task_find(task_id);
+    if (t) t->pid = (int)pid;
+    task_mark_working(task_id, "model download started");
     cstr_copy(g_dl_variant, sizeof g_dl_variant, abliterated ? "flash" : target);
     printf("model: downloading %s (pid %d) — log /tmp/ds4-model-dl.log\n", abliterated ? "abliterated" : target, (int)pid);
-    char out[96];
-    snprintf(out, sizeof out, "{\"ok\":true,\"target\":\"%s\"}", abliterated ? "flash" : target);
+    char out[128];
+    snprintf(out, sizeof out, "{\"ok\":true,\"taskId\":%llu,\"target\":\"%s\"}", task_id, abliterated ? "flash" : target);
     send_json(fd, "200 OK", out);
 #endif
 }
@@ -4132,6 +4919,48 @@ oom:
 /* GET /api/skills — skill packs (extension/skills/<id>/SKILL.md). */
 static void api_skills(int fd) { md_catalog(fd, "skills", "SKILL.md", "skills"); }
 
+/* GET /api/skills/search?q=&domain=&subdomain=&source=&limit=
+ * Searches user, shipped and vendored cybersecurity skills without bloating the
+ * agent prompt. The model or UI can then load a chosen id with skill("<id>"). */
+static void api_skills_search(int fd, const char *path) {
+    char q[180], domain[120], subdomain[160], source[80], limit_s[32];
+    query_param(path, "q", q, sizeof q);
+    query_param(path, "domain", domain, sizeof domain);
+    query_param(path, "subdomain", subdomain, sizeof subdomain);
+    query_param(path, "source", source, sizeof source);
+    query_param(path, "limit", limit_s, sizeof limit_s);
+    int limit = limit_s[0] ? atoi(limit_s) : 50;
+    if (limit < 1) limit = 1;
+    if (limit > 200) limit = 200;
+
+    json_dyn_buf body = {0};
+    if (!json_dyn_puts(&body, "{\"ok\":true,\"skills\":[")) goto oom;
+    int count = 0, truncated = 0;
+    char dir[PATH_MAX];
+    char udir[1100];
+    user_skills_dir(udir, sizeof udir);
+    if (!skill_search_scan_dir(&body, udir, "SKILL.md", "user", q, domain, subdomain,
+                               source, limit, &count, &truncated)) goto oom;
+    if (g_web_dir[0]) {
+        snprintf(dir, sizeof dir, "%s/extension/skills", g_web_dir);
+        if (!skill_search_scan_dir(&body, dir, "SKILL.md", "dstudio", q, domain, subdomain,
+                                   source, limit, &count, &truncated)) goto oom;
+    }
+    if (cyber_skills_dir(dir, sizeof dir)) {
+        if (!skill_search_scan_dir(&body, dir, "SKILL.md", "anthropic-cybersecurity-skills",
+                                   q, domain, subdomain, source, limit, &count,
+                                   &truncated)) goto oom;
+    }
+    if (!json_dyn_printf(&body, "],\"count\":%d,\"truncated\":%s}",
+                         count, truncated ? "true" : "false")) goto oom;
+    send_json(fd, "200 OK", body.ptr ? body.ptr : "{\"ok\":true,\"skills\":[]}");
+    free(body.ptr);
+    return;
+oom:
+    free(body.ptr);
+    send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"skill search memory\"}");
+}
+
 /* GET /api/design-systems — brand systems (extension/design-systems/<id>/DESIGN.md). */
 static void api_design_systems(int fd) { md_catalog(fd, "design-systems", "DESIGN.md", "designSystems"); }
 
@@ -4264,6 +5093,11 @@ static void api_user_skill_delete(int fd, const char *reqbody) {
     send_json(fd, "200 OK", "{\"ok\":true}");
 }
 
+/* GSA implementation lives with the extension assets. It is included here so
+ * DStudio still builds as one C translation unit while keeping GSA ownership
+ * under extension/gsa/. */
+#include "../extension/gsa/dstudio_gsa.cfrag"
+
 static void parse_cfg(const char *body, engine_cfg *cfg, int *bad) {
     long v;
     int m = json_get_model(body, model_present(1) ? 1 : 0);
@@ -4371,6 +5205,10 @@ static void api_start(int fd, const char *body) {
     char workdir[1024] = "";
     json_get_string(body, "workdir", workdir, sizeof workdir);
     int force = json_get_bool(body, "force");
+    int requested_mode = want_agent ? ENGINE_AGENT : want_design ? ENGINE_DESIGN : ENGINE_SERVER;
+    char launch_title[96];
+    snprintf(launch_title, sizeof launch_title, "Start %s", mode);
+    unsigned long long task_id = task_begin("launch", launch_title, mode, requested_mode, workdir, 0, 1);
     /* Whether to try the jsonl patch (default on if the key is absent). */
     g_use_jsonl = strstr(body, "\"jsonl\"") ? json_get_bool(body, "jsonl") : 1;
     if (g_remote_base_url[0]) g_use_jsonl = 1;
@@ -4426,18 +5264,23 @@ static void api_start(int fd, const char *body) {
      * port first. */
     if (port_listening(ENGINE_DEFAULTS.port)) {
         if (!force) {
-            char out[320];
+            task_mark_failed(task_id, "external ds4-server is holding the engine port", "port busy");
+            char out[384];
             snprintf(out, sizeof out,
-                "{\"ok\":false,\"code\":\"external_server\",\"port\":%d,"
+                "{\"ok\":false,\"taskId\":%llu,\"code\":\"external_server\",\"port\":%d,"
                 "\"error\":\"a ds4-server is running outside the launcher (port %d). "
                 "Stop it to free the instance-lock, or let the launcher restart it.\"}",
-                ENGINE_DEFAULTS.port, ENGINE_DEFAULTS.port);
+                task_id, ENGINE_DEFAULTS.port, ENGINE_DEFAULTS.port);
             send_json(fd, "409 Conflict", out);
             return;
         }
         if (!kill_external_server(ENGINE_DEFAULTS.port)) {
-            send_json(fd, "409 Conflict",
-                "{\"ok\":false,\"error\":\"could not free the engine port — stop the external ds4-server manually\"}");
+            task_mark_failed(task_id, "could not free the engine port", "external ds4-server still listening");
+            char out[180];
+            snprintf(out, sizeof out,
+                "{\"ok\":false,\"taskId\":%llu,\"error\":\"could not free the engine port — stop the external ds4-server manually\"}",
+                task_id);
+            send_json(fd, "409 Conflict", out);
             return;
         }
     }
@@ -4447,13 +5290,21 @@ static void api_start(int fd, const char *body) {
            : want_design ? spawn_design(&cfg, workdir, err, sizeof err)
                          : spawn_server(&cfg, err, sizeof err);
     if (!ok) {
-        char out[512];
-        snprintf(out, sizeof out, "{\"ok\":false,\"error\":\"%s\"}", err);
+        task_mark_failed(task_id, err[0] ? err : "engine spawn failed", err);
+        char out[640], esc[520];
+        json_escape_into(esc, sizeof esc, err, strlen(err));
+        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"%s\"}", task_id, esc);
         send_json(fd, "409 Conflict", out);
         return;
     }
-    char out[128];
-    snprintf(out, sizeof out, "{\"ok\":true,\"mode\":\"%s\"}", mode_name(g_mode));
+    dstudio_task *t = task_find(task_id);
+    if (t) t->pid = (int)g_child;
+    g_active_launch_task = task_id;
+    g_active_launch_mode = g_mode;
+    task_mark_working(task_id, "engine process started; waiting for ready");
+    if (g_ready) maybe_complete_launch_task(g_mode);
+    char out[160];
+    snprintf(out, sizeof out, "{\"ok\":true,\"taskId\":%llu,\"mode\":\"%s\"}", task_id, mode_name(g_mode));
     send_json(fd, "200 OK", out);
 }
 
@@ -4467,29 +5318,33 @@ static void api_stop(int fd) {
     send_json(fd, "200 OK", "{\"ok\":true}");
 }
 
-static void api_agent_send_state_error(int fd, const char *status, const char *msg) {
+static void api_agent_send_state_error(int fd, const char *status, const char *msg,
+                                       unsigned long long task_id) {
     char msg_esc[512], err_esc[512], line_esc[512], out[1600];
     json_escape_into(msg_esc, sizeof msg_esc, msg ? msg : "agent/design send failed", strlen(msg ? msg : "agent/design send failed"));
     json_escape_into(err_esc, sizeof err_esc, g_engine_err, strlen(g_engine_err));
     json_escape_into(line_esc, sizeof line_esc, g_last_engine_line, strlen(g_last_engine_line));
     snprintf(out, sizeof out,
-        "{\"ok\":false,\"error\":\"%s\",\"mode\":\"%s\",\"running\":%s,\"ready\":%s,"
+        "{\"ok\":false,\"taskId\":%llu,\"error\":\"%s\",\"mode\":\"%s\",\"running\":%s,\"ready\":%s,"
         "\"agentWorking\":%s,\"engineError\":\"%s\",\"engineLine\":\"%s\"}",
-        msg_esc, mode_name(g_mode), g_child > 0 ? "true" : "false", g_ready ? "true" : "false",
+        task_id, msg_esc, mode_name(g_mode), g_child > 0 ? "true" : "false", g_ready ? "true" : "false",
         g_agent_working ? "true" : "false", err_esc, line_esc);
     send_json(fd, status, out);
 }
 
+static int display_prompt_is_gsa(const char *display) {
+    const unsigned char *p = (const unsigned char *)(display ? display : "");
+    while (*p && isspace(*p)) p++;
+    if (p[0] != '/' ||
+        tolower(p[1]) != 'g' ||
+        tolower(p[2]) != 's' ||
+        tolower(p[3]) != 'a')
+        return 0;
+    return p[4] == '\0' || isspace(p[4]);
+}
+
 static void api_agent_send(int fd, const char *body) {
     reap_child();
-    if (!MODE_IS_PIPED(g_mode) || g_in_fd < 0 || g_child <= 0) {
-        api_agent_send_state_error(fd, "409 Conflict", "agent/design runtime is not active");
-        return;
-    }
-    if (!g_ready) {
-        api_agent_send_state_error(fd, "409 Conflict", "agent/design runtime is still loading");
-        return;
-    }
     static char prompt[BODY_MAX];
     if (!json_get_string(body, "prompt", prompt, sizeof prompt) || !prompt[0]) {
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"prompt missing\"}");
@@ -4501,23 +5356,46 @@ static void api_agent_send(int fd, const char *body) {
     }
     size_t len = strlen(prompt);
     size_t display_len = strlen(display);
-    size_t from = g_alen;
-    /* send on the agent's stdin + newline as turn terminator */
-    if (!fd_write_all(g_in_fd, prompt, len) || !fd_write_all(g_in_fd, "\n", 1)) {
-        snprintf(g_engine_err, sizeof g_engine_err, "write to agent/design failed: %s", strerror(errno));
-        api_agent_send_state_error(fd, "500 Internal Server Error", "write to agent/design failed");
+    const char *kind = task_kind_for_mode(g_mode);
+    const char *target = g_mode == ENGINE_DESIGN ? "design" : "agent";
+    unsigned long long task_id = task_begin(kind, g_mode == ENGINE_DESIGN ? "Design turn" : "Agent turn",
+                                            target, g_mode, g_workdir, (int)g_child, 1);
+    if (!MODE_IS_PIPED(g_mode) || g_in_fd < 0 || g_child <= 0) {
+        task_mark_failed(task_id, "agent/design runtime is not active", g_engine_err);
+        api_agent_send_state_error(fd, "409 Conflict", "agent/design runtime is not active", task_id);
         return;
     }
+    if (!g_ready) {
+        task_mark_failed(task_id, "agent/design runtime is still loading", g_stage);
+        api_agent_send_state_error(fd, "409 Conflict", "agent/design runtime is still loading", task_id);
+        return;
+    }
+    size_t from = g_alen;
+    int force_gsa_think_max = g_mode == ENGINE_AGENT && display_prompt_is_gsa(display);
+    static const char gsa_think_max_frame[] =
+        "\x1e" "{\"type\":\"control\",\"name\":\"think\",\"value\":\"max\"}\n";
+    /* send on the agent's stdin + newline as turn terminator */
+    if ((force_gsa_think_max && !fd_write_all(g_in_fd, gsa_think_max_frame, sizeof gsa_think_max_frame - 1)) ||
+        !fd_write_all(g_in_fd, prompt, len) || !fd_write_all(g_in_fd, "\n", 1)) {
+        snprintf(g_engine_err, sizeof g_engine_err, "write to agent/design failed: %s", strerror(errno));
+        task_mark_failed(task_id, "write to agent/design failed", g_engine_err);
+        api_agent_send_state_error(fd, "500 Internal Server Error", "write to agent/design failed", task_id);
+        return;
+    }
+    if (force_gsa_think_max) g_cfg.think = 2;
     /* Echo of the prompt into the transcript, marked, so the UI shows it right
      * away. The literals are SPLIT because \x is greedy on hex: "\x01E" would be
      * read as 0x1E. "\x01" "USER" keeps 0x01 separate from 'U'/'E'. */
     agent_buf_append("\x01" "USER\x02", 6);
     agent_buf_append(display, display_len);
     agent_buf_append("\x01" "ENDUSER\x02\n", 10);
+    g_active_turn_task = task_id;
+    g_active_turn_compacting = 0;
+    task_mark_working(task_id, "prompt written; waiting for agent/design completion marker");
     g_agent_working = 1;
     g_ready = 1;
-    char out[96];
-    snprintf(out, sizeof out, "{\"ok\":true,\"from\":%zu,\"at\":%zu}", from, g_alen);
+    char out[128];
+    snprintf(out, sizeof out, "{\"ok\":true,\"taskId\":%llu,\"from\":%zu,\"at\":%zu}", task_id, from, g_alen);
     send_json(fd, "200 OK", out);
 }
 
@@ -4525,18 +5403,44 @@ static void api_agent_send(int fd, const char *body) {
  * deleted the conversation that owns the live generation). Sends SIGINT to the
  * piped child; the non-interactive loop catches it (jsonl patch) and returns the
  * worker to idle WITHOUT killing the engine, so the next prompt still works. */
-static void api_agent_interrupt(int fd) {
+static void api_agent_interrupt(int fd, const char *body) {
     if (!MODE_IS_PIPED(g_mode) || g_child <= 0) {
         send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"agent not active\"}");
         return;
     }
+    char reason[256] = {0};
+    char status[32] = {0};
+    if (body && *body) {
+        json_get_string(body, "reason", reason, sizeof reason);
+        json_get_string(body, "status", status, sizeof status);
+    }
+    const char *msg = reason[0] ? reason : "agent/design turn interrupted by user";
 #ifdef _WIN32
     if (g_child_win_pid) GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, g_child_win_pid);
 #else
     kill(g_child, SIGINT);
 #endif
+    unsigned long long task_id = g_active_turn_task;
+    const char *applied_status = "canceled";
+    if (g_active_turn_task) {
+        if (!strcmp(status, "completed")) {
+            applied_status = "completed";
+            task_mark_completed(g_active_turn_task, msg);
+        } else if (!strcmp(status, "incomplete")) {
+            applied_status = "incomplete";
+            task_mark_incomplete(g_active_turn_task, msg, msg);
+        } else {
+            task_mark_canceled(g_active_turn_task, msg);
+        }
+        g_active_turn_task = 0;
+    }
+    g_active_turn_compacting = 0;
     g_agent_working = 0; /* the WAITING marker will reconfirm; clear early so the UI does not flicker */
-    send_json(fd, "200 OK", "{\"ok\":true}");
+    char status_esc[96];
+    json_escape_into(status_esc, sizeof status_esc, applied_status, strlen(applied_status));
+    char out[192];
+    snprintf(out, sizeof out, "{\"ok\":true,\"taskId\":%llu,\"status\":\"%s\"}", task_id, status_esc);
+    send_json(fd, "200 OK", out);
 }
 
 /* Engine session commands (agent AND design): routes {action, sha?} as a
@@ -5520,8 +6424,16 @@ static void setup_send_json(int fd, const char *status, int ok, const char *targ
                             int was_running, int restarted, const char *mode,
                             const char *error) {
     json_dyn_buf b = {0};
+    unsigned long long task_id = g_active_setup_task;
+    if (task_id) {
+        if (ok) task_mark_completed(task_id, "ds4 setup completed");
+        else task_mark_failed(task_id, error && error[0] ? error : "ds4 setup failed", target ? target : g_ds4_dir);
+        g_active_setup_task = 0;
+    }
     int good = json_dyn_puts(&b, "{\"ok\":") &&
                json_dyn_puts(&b, ok ? "true" : "false") &&
+               json_dyn_puts(&b, ",\"taskId\":") &&
+               json_dyn_printf(&b, "%llu", task_id) &&
                json_dyn_puts(&b, ",\"repo\":") &&
                json_dyn_put_escaped(&b, DS4_REPO_URL) &&
                json_dyn_puts(&b, ",\"commit\":") &&
@@ -5566,6 +6478,8 @@ static void setup_send_json(int fd, const char *status, int ok, const char *targ
  * onboarding path field in a silent-fail state. */
 static void api_setup_ds4(int fd) {
     resolve_web_dir();
+    g_active_setup_task = task_begin("setup", "Install ds4", "ds4", g_mode, g_ds4_dir, 0, 0);
+    task_mark_working(g_active_setup_task, "preparing ds4 setup");
 #ifndef _WIN32
     if (!web_dir_valid()) {
         setup_send_json(fd, "409 Conflict", 0, g_ds4_dir, 0, 0, 0, 0, 0, 0, mode_name(g_mode),
@@ -6849,6 +7763,8 @@ static void web_sources_free(web_source_list *sources) {
 }
 
 static void web_json_error(int fd, const char *status, const char *msg) {
+    dstudio_log_event("error", "web", 0, "%s: %s", status ? status : "web error",
+                      msg ? msg : "web search failed");
     json_dyn_buf b = {0};
     if (!json_dyn_puts(&b, "{\"ok\":false,\"error\":") ||
         !json_dyn_put_escaped(&b, msg ? msg : "web search failed") ||
@@ -7452,6 +8368,7 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
         if (connect(efd, (struct sockaddr *)&a, sizeof a) != 0) { close(efd); efd = -1; }
     }
     if (efd < 0) {
+        dstudio_log_event("error", "proxy", 0, "/v1 proxy could not connect to local engine port %d", eport);
         const char *body = "{\"error\":{\"message\":\"the local ds4 engine is not running\"}}";
         if (cors) {
             static const char CORS_JSON_HEADERS[] =
@@ -7698,9 +8615,12 @@ static void handle_connection(int fd) {
         } else if (!strcmp(path, "/api/start"))       { api_start(fd, body); }
         else if (!strcmp(path, "/api/user-skills/delete")) { api_user_skill_delete(fd, body); }
         else if (!strcmp(path, "/api/user-skills"))   { api_user_skill_save(fd, body); }
+        else if (!strcmp(path, "/api/gsa/tools/install")) { api_gsa_tools_install(fd); }
+        else if (!strcmp(path, "/api/gsa/start"))     { api_gsa_start(fd, body); }
+        else if (!strcmp(path, "/api/gsa/phase"))     { api_gsa_phase(fd, body); }
         else if (!strcmp(path, "/api/stop"))          { api_stop(fd); }
         else if (!strcmp(path, "/api/agent/send"))    { api_agent_send(fd, body); }
-        else if (!strcmp(path, "/api/agent/interrupt")) { api_agent_interrupt(fd); }
+        else if (!strcmp(path, "/api/agent/interrupt")) { api_agent_interrupt(fd, body); }
         else if (!strcmp(path, "/api/design/session")) { api_design_session(fd, body); }
         else if (!strcmp(path, "/api/design/clean")) { api_design_clean(fd); }
         else if (!strcmp(path, "/api/design/import")) { api_design_import(fd, body); }
@@ -7734,8 +8654,24 @@ static void handle_connection(int fd) {
         api_lan_health(fd);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/doctor")) {
         api_doctor(fd);
+    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/diagnostics")) {
+        api_diagnostics(fd);
+    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/logs/stream")) {
+        api_stream_logs(fd, path);
+    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/logs")) {
+        api_logs(fd, path);
+    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/tasks/stream")) {
+        api_stream_tasks(fd, path);
+    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/tasks")) {
+        api_tasks(fd, path);
+    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/task")) {
+        api_task(fd, path);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/ggufs")) {
         api_ggufs(fd);
+    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/skills/search")) {
+        api_skills_search(fd, path);
+    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/gsa/tools")) {
+        api_gsa_tools(fd);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/skills")) {
         api_skills(fd);
     } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/design-systems")) {
@@ -7787,6 +8723,7 @@ static void handle_connection(int fd) {
 
     /* fd adopted by the SSE registry: the main loop owns it now */
     if (g_sse_adopt) { g_sse_adopt = 0; return; }
+    if (g_diag_sse_adopt) { g_diag_sse_adopt = 0; return; }
 
     /* compact log, I exclude polling so as not to flood the terminal */
     if (strncmp(path, "/api/agent/poll", 15) != 0 && strcmp(path, "/api/status") != 0 &&
@@ -7934,7 +8871,7 @@ int main(int argc, char **argv)
 
         /* server readiness via port even without traffic on the pipes */
         if (g_mode == ENGINE_SERVER && !g_ready && port_listening(g_cfg.port)) {
-            set_stage("Ready", 100); g_ready = 1;
+            set_stage("Ready", 100); g_ready = 1; maybe_complete_launch_task(ENGINE_SERVER);
         }
 
         if (pfd[0].revents & POLLIN) {
@@ -7945,8 +8882,10 @@ int main(int argc, char **argv)
         /* push to the SSE clients: new pipe data wakes poll() immediately,
          * so streamed agent output has chat-like latency. */
         sse_flush();
+        diag_sse_flush();
     }
     sse_close_all();
+    diag_sse_close_all();
     stop_child();
     return 0;
 }

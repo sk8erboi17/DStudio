@@ -1,0 +1,6 @@
+case=pwn-impossible-04-integer-boundary-review
+signal=SIGSEGV
+pc=0x41414141
+input_len=512
+reproducible=false
+mitigations=nx,partial-relro

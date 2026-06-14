@@ -1,0 +1,8 @@
+{
+  "hardening": [
+    "pie",
+    "stack-protector",
+    "relro"
+  ],
+  "fuzz_corpus": "tests/corpus/requests.txt"
+}

@@ -1,0 +1,4 @@
+signal-04.corp.test
+api.signal-04.corp.test
+cdn-signal-04.example.test
+docs.signal-04.test

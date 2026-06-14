@@ -1,0 +1,73 @@
+{
+  "schema_version": 2,
+  "id": "crypto-easy-01-jwt-boundary-review",
+  "category": "crypto",
+  "difficulty": "easy",
+  "title": "JWT trust boundary review",
+  "expected_outcome": "confirmed_issue",
+  "issue_class": "deterministic nonce derivation",
+  "severity": "medium",
+  "acceptable_aliases": [
+    "nonce reuse",
+    "predictable nonce",
+    "timing-sensitive comparison",
+    "tag verification weakness"
+  ],
+  "required_evidence_paths": [
+    "workspace/src/crypto_jwt_boundary_review/envelope.py",
+    "workspace/src/crypto_jwt_boundary_review/keys.py",
+    "workspace/config/key-policy.json",
+    "workspace/src/crypto_jwt_boundary_review/audit_policy.py"
+  ],
+  "required_terms": [
+    "deterministic nonce derivation",
+    "nonce reuse",
+    "predictable nonce"
+  ],
+  "alternate_findings": [
+    {
+      "issue_class": "weak hmac key derivation",
+      "acceptable_aliases": [
+        "non-secret string reference",
+        "key material reference",
+        "material_ref",
+        "tag forgery",
+        "hmac key"
+      ],
+      "required_terms": [
+        "hmac key",
+        "key material reference",
+        "tag forgery"
+      ],
+      "required_evidence_paths": [
+        "workspace/src/crypto_jwt_boundary_review/envelope.py",
+        "workspace/src/crypto_jwt_boundary_review/keys.py",
+        "workspace/config/key-policy.json",
+        "workspace/tests/test_envelope.py"
+      ]
+    }
+  ],
+  "forbidden_terms": [
+    "CVE-",
+    "public exploit",
+    "live exploitation",
+    "internet scan"
+  ],
+  "false_positive_traps": [
+    "stale compatibility notes are not sufficient by themselves",
+    "artifacts must be correlated with reachable source paths",
+    "do not treat local test data as a live target"
+  ],
+  "clean_controls": [],
+  "missing_evidence": [],
+  "scoring": {
+    "report_supported_evidence": true,
+    "avoid_guessing": true,
+    "no_external_tool_calls": true,
+    "clean_cases_must_not_be_flagged": false,
+    "inconclusive_cases_must_state_missing_evidence": false,
+    "evidence_weight": 0.35,
+    "outcome_weight": 0.45,
+    "issue_match_weight": 0.2
+  }
+}

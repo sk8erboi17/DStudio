@@ -1,0 +1,11 @@
+{
+  "timezone": "UTC",
+  "accepted_sources": [
+    "idp",
+    "endpoint",
+    "file",
+    "vpn",
+    "cloud"
+  ],
+  "require_ticket_context": true
+}

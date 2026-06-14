@@ -23,6 +23,10 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "${tmp}/home" "${tmp}/ds4"
+mkdir -p "${tmp}/project/src"
+printf '%s\n' 'export async function getUser(req, db) { return db.user.findUnique({ where: { id: req.query.id } }); }' >"${tmp}/project/src/api.ts"
+printf '%s\n' 'export function verifyJwt(token) { return jwt.verify(token, process.env.JWT_SECRET); }' >"${tmp}/project/src/auth.ts"
+printf '%s\n' 'POST /api/users/:id/delete requires tenant_id and admin role' >"${tmp}/project/openapi.txt"
 port="$(
   node - <<'NODE'
 const net = require('net');
@@ -34,7 +38,7 @@ s.listen(0, '127.0.0.1', () => {
 NODE
 )"
 
-HOME="${tmp}/home" DS4UI_TEST_MODE=1 DS4UI_PAGE_FROM_DISK=1 "${bin}" "${port}" "${tmp}/ds4" >"${tmp}/server.log" 2>&1 &
+HOME="${tmp}/home" DS4UI_TEST_MODE=1 DSTUDIO_GSA_INSTALL_DRY_RUN=1 DS4UI_PAGE_FROM_DISK=1 "${bin}" "${port}" "${tmp}/ds4" >"${tmp}/server.log" 2>&1 &
 pid="$!"
 
 base="http://127.0.0.1:${port}"
@@ -46,6 +50,14 @@ for _ in $(seq 1 80); do
 done
 curl -fsS --max-time 2 "${base}/api/status" >"${tmp}/status.json"
 curl -fsS --max-time 2 "${base}/api/lan-health" >"${tmp}/lan-health-local.json"
+curl -fsS --max-time 2 "${base}/api/diagnostics" >"${tmp}/diagnostics.json"
+curl -fsS --max-time 2 "${base}/api/logs?limit=10" >"${tmp}/logs.json"
+curl -fsS --max-time 2 "${base}/api/tasks?limit=10" >"${tmp}/tasks.json"
+curl -fsS --max-time 2 "${base}/api/skills/search?q=authorization&source=anthropic&limit=5" >"${tmp}/skills-search.json"
+curl -fsS --max-time 2 "${base}/api/gsa/tools" >"${tmp}/gsa-tools-before.json"
+curl -fsS --max-time 5 -X POST "${base}/api/gsa/tools/install" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' >"${tmp}/gsa-tools-install.json"
+curl -fsS --max-time 2 "${base}/api/gsa/tools" >"${tmp}/gsa-tools-after.json"
 curl -fsS --max-time 2 "${base}/loading.html" >"${tmp}/loading.html"
 grep -q 'hello are you alive' "${tmp}/loading.html"
 grep -q 'lanClientHost' "${tmp}/loading.html"
@@ -65,6 +77,134 @@ const fs = require('fs');
 const h = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (!h.ok || h.app !== 'DStudio') throw new Error('lan-health should identify DStudio');
 if (h.lan !== false) throw new Error('lan-health should start localhost-only');
+NODE
+node - "${tmp}/diagnostics.json" "${tmp}/logs.json" "${tmp}/tasks.json" <<'NODE'
+const fs = require('fs');
+const diag = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const logs = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const tasks = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
+if (!diag.ok || !diag.summary || !diag.runtime || !diag.tasks || !diag.logs) throw new Error('diagnostics shape incomplete');
+if (!logs.ok || !Array.isArray(logs.logs) || typeof logs.seq !== 'number') throw new Error('logs shape incomplete');
+if (!tasks.ok || !Array.isArray(tasks.tasks) || typeof tasks.seq !== 'number') throw new Error('tasks shape incomplete');
+NODE
+node - "${tmp}/skills-search.json" <<'NODE'
+const fs = require('fs');
+const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (!r.ok || !Array.isArray(r.skills)) throw new Error('skills search shape incomplete');
+if (!r.skills.some((s) => s.source === 'anthropic-cybersecurity-skills')) throw new Error('skills search should expose vendored cybersecurity skills');
+NODE
+node - "${tmp}/gsa-tools-before.json" "${tmp}/gsa-tools-install.json" "${tmp}/gsa-tools-after.json" <<'NODE'
+const fs = require('fs');
+const before = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const install = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const after = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
+for (const r of [before, install, after]) {
+  if (!r.ok || !r.gsaTools || !Array.isArray(r.gsaTools.tools)) throw new Error('GSA tools shape incomplete');
+}
+const names = after.gsaTools.tools.map((t) => t.name).sort();
+if (!names.includes('subfinder') || !names.includes('nuclei') || !names.includes('httpx') || !names.includes('plaso')) throw new Error(`GSA tool registry missing expected tools: ${names.join(',')}`);
+if (after.gsaTools.mode !== 'tool-assisted' || after.gsaTools.externalToolsRequired !== false) throw new Error('GSA should report optional tool-assisted mode');
+if (install.installed !== 0 || !install.installSh || !install.installPs1) throw new Error('GSA install endpoint should prepare install scripts without running network installs');
+if (!install.taskId) throw new Error('GSA tool install should return a task id');
+NODE
+
+curl -fsS --max-time 5 -X POST "${base}/api/gsa/start" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d "{\"workdir\":\"${tmp}/project\",\"mission\":\"backend API auth IDOR review\",\"targetUrl\":\"https://test.example/api/users/42\"}" >"${tmp}/gsa-start.json"
+node - "${tmp}/gsa-start.json" <<'NODE'
+const fs = require('fs');
+const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (!r.ok || !r.runDir || !r.prompt || !r.skillCount) throw new Error('GSA start should return runDir, prompt and skillCount');
+if (r.targetUrl !== 'https://test.example/api/users/42') throw new Error('GSA start should return the authorized target URL');
+if (r.think !== 'max') throw new Error('GSA start should require thinking=max');
+if (!r.statePath || !fs.existsSync(r.statePath)) throw new Error('GSA start should return a run_state path');
+if (r.iteration !== 1) throw new Error('initial GSA run should be iteration 1');
+const target = fs.readFileSync(`${r.runDir}/target.md`, 'utf8');
+if (!target.includes('https://test.example/api/users/42')) throw new Error('GSA target.md should include the authorized target URL');
+if (!target.includes('Authorized target host: test.example')) throw new Error('GSA target.md should include the derived target host');
+const toolStatus = JSON.parse(fs.readFileSync(`${r.runDir}/toolStatus.json`, 'utf8'));
+if (toolStatus.mode !== 'tool-assisted' || toolStatus.externalToolsRequired !== false || !Array.isArray(toolStatus.tools) || toolStatus.tools.length < 10) throw new Error('GSA tool status should list optional external tools without requiring them');
+if (!fs.existsSync(`${r.runDir}/scripts/README.md`)) throw new Error('GSA should prepare a local scripts directory');
+if (!fs.existsSync(`${r.runDir}/scripts_manifest.json`)) throw new Error('GSA should prepare scripts_manifest.json');
+if (!fs.existsSync(`${r.runDir}/evidence.jsonl`)) throw new Error('GSA should prepare evidence.jsonl');
+const state = JSON.parse(fs.readFileSync(`${r.runDir}/run_state.json`, 'utf8'));
+if (state.status !== 'ready' || state.phase !== 'selection' || state.targetHost !== 'test.example') throw new Error('GSA run state should be ready for selection');
+if (fs.existsSync(`${r.runDir}/recon.sh`)) throw new Error('GSA should not write an implicit recon.sh helper');
+const skills = fs.readFileSync(`${r.runDir}/skills.md`, 'utf8');
+if (!skills.includes('extension/gsa/third_party/anthropic-cybersecurity-skills/skills')) throw new Error('GSA skills.md should use the vendored cybersecurity skills catalog');
+if (!skills.includes('reason: catalog=anthropic-cybersecurity-skills') || !skills.includes('target_hits=') || !skills.includes('workspace_hits=')) throw new Error('GSA skills.md should explain catalog target/workspace ranking');
+if (!/testing-api-for-broken-object-level-authorization|exploiting-broken-function-level-authorization/.test(skills)) throw new Error('GSA shortlist should include imported auth/API skills');
+if (!r.prompt.includes('Use ONLY imported skill IDs')) throw new Error('GSA prompt should forbid generic/base skills');
+if (!r.prompt.includes('Authorized target URL:')) throw new Error('GSA prompt should expose the target URL artifact context');
+if (!r.prompt.includes('tool-assisted') || !r.prompt.includes('/scripts/')) throw new Error('GSA prompt should route automation through optional tools and local scripts');
+if (/recon\.sh|missing scanner/i.test(r.prompt)) throw new Error('GSA prompt should not require implicit recon helpers');
+NODE
+gsa_run_dir="$(node - "${tmp}/gsa-start.json" <<'NODE'
+const fs = require('fs');
+process.stdout.write(JSON.parse(fs.readFileSync(process.argv[2], 'utf8')).runDir);
+NODE
+)"
+parent_code="$(
+  curl -sS -o "${tmp}/gsa-parent-incomplete.json" -w '%{http_code}' --max-time 5 \
+    -X POST "${base}/api/gsa/start" \
+    -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+    -d "{\"workdir\":\"${tmp}/project\",\"mission\":\"loop should not continue incomplete parent\",\"targetUrl\":\"https://test.example/api/users/42\",\"parentRunDir\":\"${gsa_run_dir}\"}"
+)"
+if [ "${parent_code}" != "409" ]; then
+  echo "expected GSA parent incomplete start to return 409, got ${parent_code}" >&2
+  cat "${tmp}/gsa-parent-incomplete.json" >&2
+  exit 1
+fi
+phase_code="$(
+  curl -sS -o "${tmp}/gsa-phase-invalid.json" -w '%{http_code}' --max-time 5 \
+    -X POST "${base}/api/gsa/phase" \
+    -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+    -d "{\"workdir\":\"${tmp}/project\",\"runId\":\"$(basename "${gsa_run_dir}")\",\"phase\":\"selection\",\"output\":\"not json\"}"
+)"
+if [ "${phase_code}" != "400" ]; then
+  echo "expected invalid GSA phase to return 400, got ${phase_code}" >&2
+  cat "${tmp}/gsa-phase-invalid.json" >&2
+  exit 1
+fi
+node - "${tmp}/gsa-phase-invalid.json" "${gsa_run_dir}/run_state.json" <<'NODE'
+const fs = require('fs');
+const phase = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (phase.ok !== false || !phase.error || !phase.invalidOutputPath) throw new Error('invalid GSA phase should return structured error details');
+const state = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+if (state.status !== 'incomplete' || state.phase !== 'selection' || !state.error) throw new Error('invalid GSA phase should mark run_state incomplete');
+NODE
+node - "${gsa_run_dir}/toolStatus.json" <<'NODE'
+const fs = require('fs');
+const s = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (s.externalToolsRequired !== false || s.mode !== 'tool-assisted') throw new Error('GSA toolStatus should remain optional tool-assisted');
+NODE
+
+agent_send_code="$(
+  curl -sS -o "${tmp}/agent-send-inactive.json" -w '%{http_code}' --max-time 2 \
+    -X POST "${base}/api/agent/send" \
+    -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+    -d '{"prompt":"hello"}'
+)"
+[ "${agent_send_code}" = "409" ] || { echo "expected inactive /api/agent/send to be 409, got ${agent_send_code}"; exit 1; }
+agent_task_id="$(
+  node - "${tmp}/agent-send-inactive.json" <<'NODE'
+const fs = require('fs');
+const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (r.ok !== false || !r.taskId || !/runtime is not active/.test(r.error || '')) throw new Error('inactive agent send should include taskId and explicit error');
+process.stdout.write(String(r.taskId));
+NODE
+)"
+curl -fsS --max-time 2 "${base}/api/task?id=${agent_task_id}" >"${tmp}/agent-send-task.json"
+curl -fsS --max-time 2 "${base}/api/diagnostics" >"${tmp}/diagnostics-after-agent-send.json"
+node - "${tmp}/agent-send-task.json" "${tmp}/diagnostics-after-agent-send.json" "${agent_task_id}" <<'NODE'
+const fs = require('fs');
+const detail = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const diag = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const id = Number(process.argv[4]);
+if (!detail.ok || detail.task.id !== id || detail.task.status !== 'failed') throw new Error('inactive agent send task should be failed');
+if (!Array.isArray(detail.events) || detail.events.length < 2) throw new Error('inactive agent send task should include lifecycle events');
+if (!diag.tasks.recent.some((t) => t.id === id && t.status === 'failed')) throw new Error('diagnostics should include the failed agent task');
+if (!diag.logs.recentErrors.some((l) => l.taskId === id)) throw new Error('diagnostics should include the failed task log');
 NODE
 
 store_code="$(
@@ -232,6 +372,18 @@ NODE
     echo "expected LAN GET /api/status to be 403 or unreachable in CI, got ${lan_status_code}"
     exit 1
   fi
+
+  for ep in /api/diagnostics /api/logs /api/tasks /api/task?id=1; do
+    name="$(printf '%s' "${ep}" | tr '/?=' '---')"
+    lan_diag_code="$(
+      curl -isS -o "${tmp}/lan-${name}.txt" -w '%{http_code}' --connect-timeout 2 --max-time 4 \
+        "${lan_base}${ep}" || true
+    )"
+    if [ "${lan_diag_code}" != "000" ] && [ "${lan_diag_code}" != "403" ]; then
+      echo "expected LAN GET ${ep} to be 403 or unreachable in CI, got ${lan_diag_code}"
+      exit 1
+    fi
+  done
 
   lan_design_file_code="$(
     curl -isS -o "${tmp}/lan-design-file.txt" -w '%{http_code}' --connect-timeout 2 --max-time 4 \

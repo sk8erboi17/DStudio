@@ -1,0 +1,3 @@
+rule_id,src,dst,port,action,comment,hit_count
+r-network-security-hard-01-service-exposure-review-01,10.21.0.0/24,192.0.2.21/32,443,allow,application egress,421
+r-network-security-hard-01-service-exposure-review-02,198.51.100.0/24,10.21.0.22/32,22,allow,temporary admin window,9

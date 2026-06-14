@@ -1,0 +1,3 @@
+rule_id,src,dst,port,action,comment,hit_count
+r-network-security-medium-02-dns-egress-review-01,10.22.0.0/24,192.0.2.22/32,443,allow,application egress,421
+r-network-security-medium-02-dns-egress-review-02,198.51.100.0/24,10.22.0.22/32,22,allow,temporary admin window,9

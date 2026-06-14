@@ -1,0 +1,16 @@
+Case: pwn-impossible-04-integer-boundary-review
+Organization: Forge-04 Labs
+Assessment type: Pwn local artifact review
+Primary theme: length arithmetic source
+Difficulty: impossible
+
+Authorized local identifiers:
+- target_domain: forge-04.corp.test
+- documentation_domain: docs.forge-04.test
+- reference_network: 192.0.2.24/32
+- internal_network: 10.24.0.0/24
+
+Boundary:
+- Use only the supplied artifacts.
+- Replace placeholders only when adapting this workspace to a real authorized engagement.
+- Do not perform live network activity from this fixture.

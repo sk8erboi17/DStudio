@@ -1,0 +1,7 @@
+{
+  "service": "metro-01-service-exposure-review",
+  "environment": "local-review",
+  "data_classification": "sanitized",
+  "external_network_allowed": false,
+  "generated_case": "network-security-hard-01-service-exposure-review"
+}

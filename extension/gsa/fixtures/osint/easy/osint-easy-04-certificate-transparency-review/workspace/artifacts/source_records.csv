@@ -1,0 +1,5 @@
+source,observed_at,subject,value,confidence
+ct-log,2026-04-20,domain,api.signal-04.corp.test,medium
+repo-index,2026-04-22,repository,signal-04-mobile-client,medium
+profile-index,2026-04-23,person,engineering alias osint-easy-04-certificate-transparency-review,low
+package-index,2026-04-24,namespace,signal-04-internal-sdk,high

@@ -1,0 +1,6 @@
+timestamp,method,path,status,user,role,request_id
+2026-05-10T09:15:12Z,GET,/api/ssrf_boundary_review/summary,200,analyst-01,viewer,req-web-impossible-11-ssrf-boundary-review-001
+2026-05-10T09:16:03Z,POST,/api/ssrf_boundary_review/export,403,analyst-01,viewer,req-web-impossible-11-ssrf-boundary-review-002
+2026-05-10T09:18:44Z,GET,/api/ssrf_boundary_review/admin,302,analyst-01,viewer,req-web-impossible-11-ssrf-boundary-review-003
+2026-05-10T09:21:09Z,GET,/api/ssrf_boundary_review/object/1842,499,contractor-17,viewer,req-web-impossible-11-ssrf-boundary-review-004
+2026-05-10T09:21:11Z,GET,/api/ssrf_boundary_review/object/1843,0,contractor-17,viewer,req-web-impossible-11-ssrf-boundary-review-005

@@ -1,0 +1,16 @@
+Case: pwn-hard-01-stack-parser-review
+Organization: Forge-01 Labs
+Assessment type: Pwn local artifact review
+Primary theme: C parser and crash input
+Difficulty: hard
+
+Authorized local identifiers:
+- target_domain: forge-01.corp.test
+- documentation_domain: docs.forge-01.test
+- reference_network: 192.0.2.21/32
+- internal_network: 10.21.0.0/24
+
+Boundary:
+- Use only the supplied artifacts.
+- Replace placeholders only when adapting this workspace to a real authorized engagement.
+- Do not perform live network activity from this fixture.

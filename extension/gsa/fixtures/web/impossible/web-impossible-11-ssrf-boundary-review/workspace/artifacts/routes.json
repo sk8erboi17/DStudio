@@ -1,0 +1,23 @@
+{
+  "service": "ssrf-boundary-review",
+  "routes": [
+    {
+      "path": "/api/ssrf_boundary_review/summary",
+      "auth": "session",
+      "role_required": "viewer"
+    },
+    {
+      "path": "/api/ssrf_boundary_review/export",
+      "auth": "session",
+      "role_required": "admin"
+    },
+    {
+      "path": "/api/ssrf_boundary_review/object/:id",
+      "auth": "session",
+      "owner_check": "middleware"
+    }
+  ],
+  "deployment_notes": [
+    "single production route group"
+  ]
+}

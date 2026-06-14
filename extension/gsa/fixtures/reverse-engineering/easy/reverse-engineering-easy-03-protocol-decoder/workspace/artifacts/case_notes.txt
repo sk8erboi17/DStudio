@@ -1,0 +1,7 @@
+case_id=reverse-engineering-easy-03-protocol-decoder
+host=protocol-decoder.vector-03.corp.test
+noise=low
+record_count=14
+operator_note=Look for a directly supported issue and avoid broad speculation.
+primary_observation=packet samples and decoder notes contains an inconsistency that requires correlation
+control_status=partially_enforced

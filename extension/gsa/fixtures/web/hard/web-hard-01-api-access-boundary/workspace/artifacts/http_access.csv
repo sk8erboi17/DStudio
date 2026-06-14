@@ -1,0 +1,6 @@
+timestamp,method,path,status,user,role,request_id
+2026-05-10T09:15:12Z,GET,/api/api_access_boundary/summary,200,analyst-01,viewer,req-web-hard-01-api-access-boundary-001
+2026-05-10T09:16:03Z,POST,/api/api_access_boundary/export,403,analyst-01,viewer,req-web-hard-01-api-access-boundary-002
+2026-05-10T09:18:44Z,GET,/api/api_access_boundary/admin,302,analyst-01,viewer,req-web-hard-01-api-access-boundary-003
+2026-05-10T09:21:09Z,GET,/api/api_access_boundary/object/1842,200,contractor-17,viewer,req-web-hard-01-api-access-boundary-004
+2026-05-10T09:21:11Z,GET,/api/api_access_boundary/object/1843,200,contractor-17,viewer,req-web-hard-01-api-access-boundary-005

@@ -1161,6 +1161,7 @@ typedef struct {
     char current_artifact_id[17];
     char current_artifact_entry[PATH_MAX];
     bool stop_after_tools;
+    bool discovery_satisfied;
     char *memory_summary;
     char memory_updated_at[32];
     char critique_entry[PATH_MAX];
@@ -1682,6 +1683,8 @@ static void design_write_state(design_project *pr) {
     buf_puts(&b, pr->todos_json ? pr->todos_json : "[]");
     buf_puts(&b, ",\n  \"todosHaveInProgress\":");
     buf_puts(&b, pr->todos_have_in_progress ? "true" : "false");
+    buf_puts(&b, ",\n  \"discoverySatisfied\":");
+    buf_puts(&b, pr->discovery_satisfied ? "true" : "false");
     buf_puts(&b, ",\n  \"latestCritique\":");
     if (pr->critique_entry[0]) {
         buf_puts(&b, "{\"entry\":\"");
@@ -1752,6 +1755,40 @@ static void design_project_bootstrap(design_project *pr) {
     design_write_state(pr);
 }
 
+static bool design_ascii_ci_contains(const char *hay, const char *needle) {
+    if (!hay || !needle || !needle[0]) return false;
+    size_t nl = strlen(needle);
+    for (const char *p = hay; *p; p++) {
+        size_t k = 0;
+        while (k < nl && p[k] &&
+               tolower((unsigned char)p[k]) == tolower((unsigned char)needle[k]))
+            k++;
+        if (k == nl) return true;
+    }
+    return false;
+}
+
+static bool design_user_text_is_question_answer(const char *s) {
+    return s && strstr(s, "§QUESTION_ANSWER") != NULL;
+}
+
+static bool design_user_text_skips_discovery(const char *s) {
+    if (!s || !s[0]) return false;
+    return design_ascii_ci_contains(s, "do not ask a discovery question") ||
+           design_ascii_ci_contains(s, "don't ask a discovery question") ||
+           design_ascii_ci_contains(s, "do not ask questions") ||
+           design_ascii_ci_contains(s, "don't ask questions") ||
+           design_ascii_ci_contains(s, "no questions") ||
+           design_ascii_ci_contains(s, "build it directly") ||
+           design_ascii_ci_contains(s, "BUILD MODE (planned)");
+}
+
+static void design_project_clear_run_progress(design_project *pr) {
+    free(pr->todos_json);
+    pr->todos_json = NULL;
+    pr->todos_have_in_progress = false;
+}
+
 static void design_project_start_run(design_project *pr, const char *user_text) {
     char ts[32];
     design_utc_timestamp(ts);
@@ -1760,12 +1797,22 @@ static void design_project_start_run(design_project *pr, const char *user_text) 
     for (char *p = pr->run_id; *p; p++) {
         if (*p == ':' || *p == 'T' || *p == 'Z') *p = '-';
     }
+    bool answered_waiting_question = strcmp(pr->phase, "waiting_user") == 0;
+    if (pr->current_artifact_entry[0] ||
+        answered_waiting_question ||
+        design_user_text_is_question_answer(user_text) ||
+        design_user_text_skips_discovery(user_text))
+        pr->discovery_satisfied = true;
+    pr->stop_after_tools = false;
+    design_project_clear_run_progress(pr);
     design_project_set_phase(pr, "building");
     design_buf p = {0};
     buf_puts(&p, "{\"promptBytes\":");
     char n[32];
     snprintf(n, sizeof(n), "%zu", user_text ? strlen(user_text) : 0);
     buf_puts(&p, n);
+    buf_puts(&p, ",\"discoverySatisfied\":");
+    buf_puts(&p, pr->discovery_satisfied ? "true" : "false");
     buf_puts(&p, "}");
     design_event_log(pr, "run_started", p.ptr);
     free(p.ptr);
@@ -4131,7 +4178,8 @@ static bool design_pack_file_ext_ok(const char *rel) {
     const char *ext = strrchr(rel, '.');
     if (!ext) return false;
     static const char *ok[] = {
-        ".md", ".html", ".css", ".js", ".json", ".svg", ".txt", ".csv", NULL
+        ".md", ".html", ".css", ".js", ".json", ".svg", ".txt", ".csv",
+        ".py", ".sh", ".yaml", ".yml", ".toml", NULL
     };
     for (int i = 0; ok[i]; i++) {
         if (!strcasecmp(ext, ok[i])) return true;
@@ -4155,9 +4203,10 @@ static bool design_pack_file_rel_ok(const char *rel, char *err, size_t errsz) {
     }
     if (strcmp(rel, "example.html") &&
         strncmp(rel, "assets/", 7) &&
-        strncmp(rel, "references/", 11))
+        strncmp(rel, "references/", 11) &&
+        strncmp(rel, "scripts/", 8))
     {
-        snprintf(err, errsz, "pack_file path must be example.html, assets/*, or references/*");
+        snprintf(err, errsz, "pack_file path must be example.html, assets/*, references/*, or scripts/*");
         return false;
     }
     if (!design_pack_file_ext_ok(rel)) {
@@ -4188,7 +4237,7 @@ static bool design_pack_file_rel_ok(const char *rel, char *err, size_t errsz) {
 }
 
 static size_t design_pack_file_cap(const char *rel) {
-    if (!strcmp(rel, "example.html") || !strncmp(rel, "assets/", 7))
+    if (!strcmp(rel, "example.html") || !strncmp(rel, "assets/", 7) || !strncmp(rel, "scripts/", 8))
         return 96 * 1024;
     return 32 * 1024;
 }
@@ -4280,6 +4329,7 @@ static void design_pack_append_inventory(design_buf *out, const char *pack_root)
         design_pack_inventory_append_file(&inv, "example.html", &count);
     design_pack_inventory_append_dir(pack_root, "assets", &inv, &count);
     design_pack_inventory_append_dir(pack_root, "references", &inv, &count);
+    design_pack_inventory_append_dir(pack_root, "scripts", &inv, &count);
     if (!count) {
         free(inv.ptr);
         return;
@@ -4319,6 +4369,14 @@ static char *design_tool_pack(const design_tool_call *call, const char *subdir,
                                               !strcmp(subdir, "skills") ? skill_cap : pack_cap,
                                               &body_truncated);
             if (body) snprintf(pack_root, sizeof(pack_root), "%s/%s/%s", root, subdir, name);
+        }
+    }
+    if (!body && !strcmp(subdir, "skills")) {
+        const char *root = getenv("DS4UI_CYBER_SKILLS_DIR");
+        if (root && root[0]) {
+            snprintf(path, sizeof path, "%s/%s/%s", root, name, file);
+            body = design_read_file_buf_limit(path, skill_cap, &body_truncated);
+            if (body) snprintf(pack_root, sizeof(pack_root), "%s/%s", root, name);
         }
     }
     if (!body) {
@@ -4421,6 +4479,14 @@ static char *design_tool_pack_file(const design_tool_call *call) {
         const char *root = getenv("DS4UI_SKILLS_DIR");
         if (root && root[0]) {
             snprintf(pack_root, sizeof(pack_root), "%s/%s/%s", root, subdir, name);
+            found = design_pack_resolve_existing_file(pack_root, rel, full, sizeof(full),
+                                                      err, sizeof(err));
+        }
+    }
+    if (!found && !strcmp(subdir, "skills")) {
+        const char *root = getenv("DS4UI_CYBER_SKILLS_DIR");
+        if (root && root[0]) {
+            snprintf(pack_root, sizeof(pack_root), "%s/%s", root, name);
             found = design_pack_resolve_existing_file(pack_root, rel, full, sizeof(full),
                                                       err, sizeof(err));
         }
@@ -5032,6 +5098,44 @@ static char *execute_tool_call(design_project *pr, const design_tool_call *call)
     return buf_take(&b);
 }
 
+static bool design_tool_allowed_before_discovery(const char *name) {
+    if (!name) return false;
+    return !strcmp(name, "skill") ||
+           !strcmp(name, "design_system") ||
+           !strcmp(name, "craft") ||
+           !strcmp(name, "pack_file") ||
+           !strcmp(name, "question");
+}
+
+static bool design_discovery_gate_active(const design_project *pr) {
+    return pr && !pr->discovery_satisfied && !pr->current_artifact_entry[0];
+}
+
+static char *design_discovery_gate_result(const char *name) {
+    design_buf b = {0};
+    buf_puts(&b, "Tool error: discovery question required before building. Blocked tool: ");
+    buf_puts(&b, name && name[0] ? name : "unknown");
+    buf_puts(&b, ". Emit one short line plus a <question-form> block, or call question(), then stop and wait for the user's answer. ");
+    buf_puts(&b, "Allowed before discovery: skill, design_system, craft, pack_file, question.\n");
+    return buf_take(&b);
+}
+
+static void design_log_tool_result(design_project *pr, const char *name,
+                                   const char *res) {
+    design_buf ev = {0};
+    buf_puts(&ev, "{\"name\":\"");
+    json_escape_buf(&ev, name ? name : "", name ? strlen(name) : 0);
+    buf_puts(&ev, "\",\"ok\":");
+    buf_puts(&ev, res && strncmp(res, "Tool error", 10) ? "true" : "false");
+    buf_puts(&ev, ",\"bytes\":");
+    char n[32];
+    snprintf(n, sizeof(n), "%zu", res ? strlen(res) : 0);
+    buf_puts(&ev, n);
+    buf_puts(&ev, "}");
+    design_event_log(pr, "tool_result", ev.ptr);
+    free(ev.ptr);
+}
+
 static char *execute_tool_calls(design_project *pr, const design_tool_calls *calls) {
     design_buf all = {0};
     for (int i = 0; i < calls->len; i++) {
@@ -5049,23 +5153,23 @@ static char *execute_tool_calls(design_project *pr, const design_tool_calls *cal
             design_event_log(pr, "tool_call", ev.ptr);
             free(ev.ptr);
         }
-        char *res = execute_tool_call(pr, &calls->v[i]);
-        emit_tool_result_event(calls->v[i].name, res);
+        char *res;
+        if (design_discovery_gate_active(pr) &&
+            !design_tool_allowed_before_discovery(calls->v[i].name))
         {
+            res = design_discovery_gate_result(calls->v[i].name);
             design_buf ev = {0};
             buf_puts(&ev, "{\"name\":\"");
             json_escape_buf(&ev, calls->v[i].name ? calls->v[i].name : "",
                             calls->v[i].name ? strlen(calls->v[i].name) : 0);
-            buf_puts(&ev, "\",\"ok\":");
-            buf_puts(&ev, strncmp(res, "Tool error", 10) ? "true" : "false");
-            buf_puts(&ev, ",\"bytes\":");
-            char n[32];
-            snprintf(n, sizeof(n), "%zu", strlen(res));
-            buf_puts(&ev, n);
-            buf_puts(&ev, "}");
-            design_event_log(pr, "tool_result", ev.ptr);
+            buf_puts(&ev, "\",\"reason\":\"discovery_required\"}");
+            design_event_log(pr, "discovery_blocked", ev.ptr);
             free(ev.ptr);
+        } else {
+            res = execute_tool_call(pr, &calls->v[i]);
         }
+        emit_tool_result_event(calls->v[i].name, res);
+        design_log_tool_result(pr, calls->v[i].name, res);
         char hdr[128];
         snprintf(hdr, sizeof(hdr), "Tool result %d (%s):\n", i + 1,
                  calls->v[i].name ? calls->v[i].name : "unknown");
@@ -6509,6 +6613,8 @@ static bool design_session_new(design_agent *a, char *err, size_t err_len) {
     free(a->session_title);
     a->session_title = NULL;
     a->session_created_at = 0;
+    a->project.discovery_satisfied = false;
+    design_project_clear_run_progress(&a->project);
     return true;
 }
 
@@ -7620,6 +7726,8 @@ static void design_remote_handle_slash(design_agent *a, const char *input) {
         free(a->session_title);
         a->session_title = NULL;
         a->session_sha[0] = '\0';
+        a->project.discovery_satisfied = false;
+        design_project_clear_run_progress(&a->project);
     } else if (design_remote_slash_is(p, "/list") ||
                design_remote_slash_is(p, "/sessions")) {
         design_remote_emit_empty_sessions();

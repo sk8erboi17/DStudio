@@ -1,0 +1,9 @@
+{
+  "zones": [
+    "corp",
+    "admin",
+    "edge"
+  ],
+  "defaultAction": "deny",
+  "temporaryAccessRequiresExpiry": false
+}

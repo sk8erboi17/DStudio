@@ -1,0 +1,41 @@
+name: Skill Improvement
+description: Suggest improvements to an existing skill
+title: "[Improvement]: "
+labels: ["enhancement", "skill-improvement"]
+body:
+  - type: input
+    id: skill-name
+    attributes:
+      label: Skill Name
+      placeholder: e.g., analyzing-network-traffic-with-wireshark
+    validations:
+      required: true
+  - type: dropdown
+    id: improvement-type
+    attributes:
+      label: Type of Improvement
+      options:
+        - More accurate/updated instructions
+        - Better workflow steps
+        - Add missing tools or commands
+        - Improve description for agent discovery
+        - Add MITRE ATT&CK mapping
+        - Add NIST CSF alignment
+        - Improve scripts/assets
+        - Fix outdated content
+    validations:
+      required: true
+  - type: textarea
+    id: current-issue
+    attributes:
+      label: Current Issue
+      description: What is wrong or missing?
+    validations:
+      required: true
+  - type: textarea
+    id: suggested-improvement
+    attributes:
+      label: Suggested Improvement
+      description: What should be changed or added?
+    validations:
+      required: true

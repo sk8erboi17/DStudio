@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use this repository in your research, tools, or publications, please cite it as below."
+type: software
+title: "Anthropic-Cybersecurity-Skills"
+abstract: >
+  A structured collection of 753 cybersecurity skills for AI agents, covering
+  penetration testing, digital forensics, threat intelligence, incident response,
+  cloud security, OT/SCADA security, AI security, and more. Each skill follows
+  a standardized format with YAML frontmatter metadata, step-by-step procedures,
+  tool commands, expected outputs, and MITRE ATT&CK mappings. Compatible with
+  Claude Code, GitHub Copilot, Cursor, Windsurf, Gemini CLI, and 20+ AI agent
+  platforms.
+authors:
+  - name: "Mahipal"
+    email: mukuljangra5@gmail.com
+    alias: mukul975
+repository-code: "https://github.com/mukul975/Anthropic-Cybersecurity-Skills"
+url: "https://github.com/mukul975/Anthropic-Cybersecurity-Skills"
+license: Apache-2.0
+version: "1.1.0"
+date-released: "2026-03-21"
+keywords:
+  - cybersecurity
+  - AI agents
+  - skills
+  - penetration testing
+  - digital forensics
+  - threat intelligence
+  - incident response
+  - MITRE ATT&CK
+  - Claude Code
+  - open source

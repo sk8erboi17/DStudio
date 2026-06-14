@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "id": "web-impossible-11-ssrf-boundary-review",
+  "category": "web",
+  "difficulty": "impossible",
+  "title": "Server-side fetch boundary review",
+  "expected_outcome": "inconclusive",
+  "issue_class": null,
+  "severity": null,
+  "acceptable_aliases": [],
+  "required_evidence_paths": [
+    "workspace/src/routes/ssrf_boundary_review.ts",
+    "workspace/src/auth/session.ts",
+    "workspace/src/data/records.ts",
+    "workspace/src/policies/accessPolicy.ts"
+  ],
+  "required_terms": [
+    "insufficient evidence",
+    "cannot conclude",
+    "missing evidence"
+  ],
+  "forbidden_terms": [
+    "CVE-",
+    "public exploit",
+    "live exploitation",
+    "internet scan"
+  ],
+  "false_positive_traps": [
+    "stale compatibility notes are not sufficient by themselves",
+    "artifacts must be correlated with reachable source paths",
+    "do not treat local test data as a live target"
+  ],
+  "clean_controls": [],
+  "missing_evidence": [
+    "decisive runtime trace or original sample is absent",
+    "source and artifacts do not prove reachability",
+    "additional authorized telemetry would be needed"
+  ],
+  "scoring": {
+    "report_supported_evidence": true,
+    "avoid_guessing": true,
+    "no_external_tool_calls": true,
+    "clean_cases_must_not_be_flagged": false,
+    "inconclusive_cases_must_state_missing_evidence": true,
+    "evidence_weight": 0.35,
+    "outcome_weight": 0.45,
+    "issue_match_weight": 0.2
+  }
+}

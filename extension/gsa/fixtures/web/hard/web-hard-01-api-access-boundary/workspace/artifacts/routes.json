@@ -1,0 +1,24 @@
+{
+  "service": "api-access-boundary",
+  "routes": [
+    {
+      "path": "/api/api_access_boundary/summary",
+      "auth": "session",
+      "role_required": "viewer"
+    },
+    {
+      "path": "/api/api_access_boundary/export",
+      "auth": "session",
+      "role_required": "admin"
+    },
+    {
+      "path": "/api/api_access_boundary/object/:id",
+      "auth": "session",
+      "owner_check": "middleware"
+    }
+  ],
+  "deployment_notes": [
+    "legacy middleware still referenced in one route group",
+    "gateway logs include staging traffic"
+  ]
+}

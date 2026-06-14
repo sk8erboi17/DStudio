@@ -1,0 +1,16 @@
+.claude/
+teams/
+node_modules/
+__pycache__/
+*.py[cod]
+*.bin
+*.pt
+*.safetensors
+*.gguf
+*.onnx
+.DS_Store
+Thumbs.db
+*.swp
+launch/
+extract_attack.py
+AUDIT_REPORT.md

@@ -67,6 +67,7 @@ export function resolveDs4Dir() {
   const candidates = [
     process.env.DSTUDIO_REAL_DS4_DIR,
     process.env.DS4_DIR,
+    path.join(repoRoot, 'ds4'),
     path.join(os.homedir(), 'Documents', 'dev', 'ds4'),
     path.join(os.homedir(), 'Documents', 'ds4'),
     path.resolve(repoRoot, '..', 'ds4'),
@@ -91,7 +92,12 @@ export function listGgufs(dir) {
     for (const name of fs.readdirSync(root)) {
       if (!name.endsWith('.gguf')) continue;
       const full = path.join(root, name);
-      const st = fs.statSync(full);
+      let st = null;
+      try {
+        st = fs.statSync(full);
+      } catch {
+        continue;
+      }
       if (st.isFile() && st.size > 0) out.push({ file: sub ? `${sub}/${name}` : name, size: st.size });
     }
   }
@@ -142,6 +148,14 @@ export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreEx
   const bin = resolveDStudioBinary(binaryArg);
   const port = await freePort();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), `${label}-home-`));
+  const realHome = process.env.DSTUDIO_REAL_HOME || os.homedir();
+  const toolPath = [
+    path.join(realHome, '.local', 'share', 'flashcards', 'gsa-tools', 'bin'),
+    path.join(realHome, '.local', 'bin'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    process.env.PATH || '',
+  ].filter(Boolean).join(path.delimiter);
   const logPath = path.join(home, 'dstudio.log');
   const log = fs.openSync(logPath, 'w');
   const child = spawn(bin, [String(port), ds4Dir], {
@@ -149,6 +163,8 @@ export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreEx
     env: {
       ...process.env,
       HOME: home,
+      DSTUDIO_REAL_HOME: realHome,
+      PATH: toolPath,
       DS4UI_HOST: '127.0.0.1',
       DS4UI_PAGE_FROM_DISK: '1',
     },
@@ -319,8 +335,12 @@ export function webScriptSource() {
   return m[1];
 }
 
+export function searchRuntimeSource() {
+  return fs.readFileSync(path.join(repoRoot, 'extension', 'search', 'runtime.js'), 'utf8');
+}
+
 export function createWebPipeline(baseUrl) {
-  const js = webScriptSource();
+  const js = searchRuntimeSource();
   const names = [
     'compactText',
     'buildWebContext',
@@ -358,6 +378,13 @@ export function createWebPipeline(baseUrl) {
     'extractFactsFromReadSources',
     'judgeResearchSufficiency',
     'buildFactsContext',
+    'sourceIdForFact',
+    'buildResearchReportDraft',
+    'factIdsFromFacts',
+    'uncitedEvidenceLines',
+    'researchReportQuality',
+    'synthesizeResearchReport',
+    'buildFinalResearchContext',
     'writeFinalFromFacts',
     'addSourceToState',
     'executeWebSearchQueries',

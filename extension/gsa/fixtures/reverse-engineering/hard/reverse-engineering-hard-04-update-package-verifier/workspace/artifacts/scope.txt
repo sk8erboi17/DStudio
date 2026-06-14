@@ -1,0 +1,16 @@
+Case: reverse-engineering-hard-04-update-package-verifier
+Organization: Vector-04 Labs
+Assessment type: Reverse Engineering local artifact review
+Primary theme: manifest and verifier excerpts
+Difficulty: hard
+
+Authorized local identifiers:
+- target_domain: vector-04.corp.test
+- documentation_domain: docs.vector-04.test
+- reference_network: 192.0.2.24/32
+- internal_network: 10.24.0.0/24
+
+Boundary:
+- Use only the supplied artifacts.
+- Replace placeholders only when adapting this workspace to a real authorized engagement.
+- Do not perform live network activity from this fixture.

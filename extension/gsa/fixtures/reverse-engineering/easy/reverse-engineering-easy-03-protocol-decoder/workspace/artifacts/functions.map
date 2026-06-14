@@ -1,0 +1,5 @@
+0x1000 init_context
+0x1080 parse_header
+0x1130 validate_record
+0x1290 apply_record
+0x1320 fallback_accept_record

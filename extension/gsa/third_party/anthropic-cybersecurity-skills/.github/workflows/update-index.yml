@@ -1,0 +1,70 @@
+name: Update marketplace index
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'skills/**'
+      - '.github/workflows/update-index.yml'
+  workflow_dispatch:
+
+jobs:
+  update-index:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Regenerate index.json
+        run: |
+          python3 << 'EOF'
+          import os, json, re
+          from datetime import datetime, timezone
+
+          skills_dir = "skills"
+          skills = []
+
+          for skill_name in sorted(os.listdir(skills_dir)):
+              skill_md = os.path.join(skills_dir, skill_name, "SKILL.md")
+              if not os.path.isfile(skill_md):
+                  continue
+              with open(skill_md, "r", encoding="utf-8") as f:
+                  content = f.read()
+              fm_match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+              description = ""
+              if fm_match:
+                  m = re.search(r"^description:\s*(.+)$", fm_match.group(1), re.MULTILINE)
+                  if m:
+                      description = m.group(1).strip().strip('"')
+              skills.append({
+                  "name": skill_name,
+                  "description": description,
+                  "domain": "cybersecurity",
+                  "path": f"skills/{skill_name}"
+              })
+
+          index = {
+              "version": "1.1.0",
+              "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "repository": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills",
+              "domain": "cybersecurity",
+              "total_skills": len(skills),
+              "skills": skills
+          }
+
+          with open("index.json", "w", encoding="utf-8") as f:
+              json.dump(index, f, separators=(',', ':'))
+
+          print(f"Updated index.json: {len(skills)} skills")
+          EOF
+
+      - name: Commit updated index
+        run: |
+          git config user.name "mukul975"
+          git config user.email "mukuljangra5@gmail.com"
+          git add index.json
+          git diff --staged --quiet || git commit -m "chore: auto-update index.json"
+          git push

@@ -1,0 +1,7 @@
+{
+  "service": "forge-04-integer-boundary-review",
+  "environment": "local-review",
+  "data_classification": "sanitized",
+  "external_network_allowed": false,
+  "generated_case": "pwn-impossible-04-integer-boundary-review"
+}

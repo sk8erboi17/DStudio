@@ -1,0 +1,7 @@
+{
+  "service": "keystone-01-jwt-boundary-review",
+  "environment": "local-review",
+  "data_classification": "sanitized",
+  "external_network_allowed": false,
+  "generated_case": "crypto-easy-01-jwt-boundary-review"
+}

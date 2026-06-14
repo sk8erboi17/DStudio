@@ -1,0 +1,9 @@
+GET /api/api_access_boundary/object/1842 HTTP/1.1
+Host: api-access-boundary.corp.test
+Cookie: session=REDACTED
+X-User-Role: viewer
+
+GET /api/api_access_boundary/object/1843 HTTP/1.1
+Host: api-access-boundary.corp.test
+Cookie: session=REDACTED
+X-User-Role: viewer
