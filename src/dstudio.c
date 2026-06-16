@@ -7094,6 +7094,90 @@ static int updates_git_capture_trim(char *const argv[], char *out, size_t outsz)
     return rc;
 }
 
+static void updates_append_detail(char *dst, size_t dstsz, const char *fmt, ...) {
+    if (!dst || !dstsz) return;
+    size_t used = strlen(dst);
+    if (used >= dstsz - 1) return;
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(dst + used, dstsz - used, fmt, ap);
+    va_end(ap);
+}
+
+typedef struct {
+    int sources;
+    int stale;
+    int failed;
+    char detail[900];
+} update_skill_sources_status;
+
+static int updates_commit_same(const char *a, const char *b) {
+    if (!a || !b || !a[0] || !b[0]) return 0;
+    size_t an = strlen(a), bn = strlen(b);
+    size_t n = an < bn ? an : bn;
+    if (n < 7) return 0;
+    return !strncmp(a, b, n);
+}
+
+static int updates_skill_source_remote_head(const char *repo, const char *ref, char *out, size_t outsz) {
+    char refspec[256];
+    if (!ref || !ref[0] || !strcmp(ref, "HEAD")) snprintf(refspec, sizeof refspec, "HEAD");
+    else if (!strncmp(ref, "refs/", 5)) snprintf(refspec, sizeof refspec, "%s", ref);
+    else snprintf(refspec, sizeof refspec, "refs/heads/%s", ref);
+    char raw[1024] = "";
+    char *argv[] = { "git", "ls-remote", (char *)repo, refspec, NULL };
+    int rc = updates_git_capture_trim(argv, raw, sizeof raw);
+    if (rc != 0 || !raw[0]) {
+        if (out && outsz) out[0] = '\0';
+        return 0;
+    }
+    char *p = raw;
+    while (*p && !isspace((unsigned char)*p)) p++;
+    *p = '\0';
+    cstr_copy(out, outsz, raw);
+    return out && out[0];
+}
+
+static void updates_skill_sources_status(update_skill_sources_status *st) {
+    memset(st, 0, sizeof *st);
+    char manifest[DSTUDIO_PATH_MAX + 256];
+    if (g_web_dir[0]) snprintf(manifest, sizeof manifest, "%s/extension/skills/sources.tsv", g_web_dir);
+    else snprintf(manifest, sizeof manifest, "extension/skills/sources.tsv");
+    FILE *f = fopen(manifest, "r");
+    if (!f) {
+        st->failed = 1;
+        snprintf(st->detail, sizeof st->detail, "No imported skill source manifest found.");
+        return;
+    }
+    char line[2048];
+    while (fgets(line, sizeof line, f)) {
+        updates_trim_line(line);
+        if (!line[0] || line[0] == '#') continue;
+        char *cols[6] = {0};
+        int n = 0;
+        for (char *tok = strtok(line, "\t"); tok && n < 6; tok = strtok(NULL, "\t")) cols[n++] = tok;
+        if (n < 6) {
+            st->failed++;
+            updates_append_detail(st->detail, sizeof st->detail, "Bad source row. ");
+            continue;
+        }
+        const char *id = cols[0], *repo = cols[1], *ref = cols[2], *imported = cols[3];
+        char remote[96] = "";
+        st->sources++;
+        if (!updates_skill_source_remote_head(repo, ref, remote, sizeof remote)) {
+            st->failed++;
+            updates_append_detail(st->detail, sizeof st->detail, "%s remote could not be checked. ", id);
+            continue;
+        }
+        if (!updates_commit_same(imported, remote)) {
+            st->stale++;
+            updates_append_detail(st->detail, sizeof st->detail, "%s outdated %.*s -> %.*s. ",
+                                  id, 12, imported, 12, remote);
+        }
+    }
+    fclose(f);
+}
+
 static int updates_ds4_git_upstream(char *upstream, size_t upstreamsz) {
     if (upstream && upstreamsz) upstream[0] = '\0';
     char *up_argv[] = { "git", "-C", g_ds4_dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}", NULL };
@@ -7224,11 +7308,16 @@ static int updates_sections_json(json_dyn_buf *b) {
 
     int skills = update_count_marker_dirs("extension/skills", "SKILL.md", NULL);
     int cyber = update_count_marker_dirs("extension/gsa/third_party/anthropic-cybersecurity-skills/skills", "SKILL.md", NULL);
-    char skills_detail[512];
+    update_skill_sources_status skill_sources;
+    updates_skill_sources_status(&skill_sources);
+    char skills_detail[1200];
     snprintf(skills_detail, sizeof skills_detail,
-             "%d local skills and %d cybersecurity skills detected.", skills < 0 ? 0 : skills, cyber < 0 ? 0 : cyber);
+             "%d local skills and %d cybersecurity skills detected. Repo sources: %s",
+             skills < 0 ? 0 : skills, cyber < 0 ? 0 : cyber,
+             skill_sources.sources <= 0 ? "none configured." :
+             (skill_sources.stale || skill_sources.failed ? skill_sources.detail : "all current."));
     if (!updates_add_section(b, &first, "skills", "Imported skills",
-                             (skills > 0 && cyber > 0) ? "ok" : "warn",
+                             (skills > 0 && cyber > 0 && skill_sources.failed == 0 && skill_sources.stale == 0) ? "ok" : "warn",
                              skills_detail, "skills")) return 0;
 
     int open_skills = update_count_marker_dirs("extension/skills", "SKILL.md", "open-design/");
@@ -7351,6 +7440,22 @@ static int updates_verify_skills(unsigned long long task_id, char *err, size_t e
     return 1;
 }
 
+static int updates_run_imported_skills(unsigned long long task_id, char *log_tail, size_t logsz,
+                                       char *err, size_t errsz) {
+    char script[DSTUDIO_PATH_MAX + 256];
+    if (g_web_dir[0]) snprintf(script, sizeof script, "%s/scripts/sync-skill-sources.mjs", g_web_dir);
+    else snprintf(script, sizeof script, "scripts/sync-skill-sources.mjs");
+    struct stat st;
+    if (stat(script, &st) != 0 || !S_ISREG(st.st_mode)) {
+        snprintf(err, errsz, "imported skill source updater is missing: %s", script);
+        return 0;
+    }
+    char *argv[] = { "node", script, "--all", NULL };
+    if (!update_run_cmd(task_id, "updating imported skills from source repos", g_web_dir[0] ? g_web_dir : NULL,
+                        argv, log_tail, logsz, err, errsz)) return 0;
+    return updates_verify_skills(task_id, err, errsz);
+}
+
 static int updates_verify_open_design(unsigned long long task_id, char *err, size_t errsz) {
     task_mark_working(task_id, "verifying Open Design imports");
     int open_skills = update_count_marker_dirs("extension/skills", "SKILL.md", "open-design/");
@@ -7383,7 +7488,7 @@ static void api_updates_run(int fd, const char *body) {
     }
     if (ok && update_body_has_task(body, "skills")) {
         ran++;
-        ok = updates_verify_skills(task_id, err, sizeof err);
+        ok = updates_run_imported_skills(task_id, log_tail, sizeof log_tail, err, sizeof err);
     }
     if (ok && update_body_has_task(body, "open-design")) {
         ran++;

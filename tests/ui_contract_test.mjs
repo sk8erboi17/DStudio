@@ -17,6 +17,7 @@ const windowsDs4Build = fs.readFileSync('scripts/build-ds4-windows-cygwin.sh', '
 const gitignore = fs.readFileSync('.gitignore', 'utf8');
 const gsaBenchRunner = fs.readFileSync('extension/gsa/bench/run.mjs', 'utf8');
 const gsaRuntimeSource = fs.readFileSync('extension/gsa/dstudio_gsa.cfrag', 'utf8');
+const skillSources = fs.readFileSync('extension/skills/sources.tsv', 'utf8');
 const gsaTemplateText = fs.readdirSync('extension/gsa/templates')
   .filter((name) => ['.md', '.sh', '.ps1'].some((ext) => name.endsWith(ext)))
   .sort()
@@ -216,6 +217,7 @@ for (const [file, upstream] of [
 }
 assert.ok(fs.existsSync('extension/skills/_licenses/ecc-MIT.txt'), 'ECC imported skill license should be copied locally');
 assert.ok(fs.existsSync('extension/skills/_licenses/superpowers-MIT.txt'), 'Superpowers imported skill license should be copied locally');
+assert.match(skillSources, /superpowers\thttps:\/\/github\.com\/obra\/superpowers\tmain\t[0-9a-f]{40}\tsuperpowers-\tskills/, 'repo-imported skills should keep an updateable source manifest');
 assert.ok(fs.existsSync('extension/skills/_licenses/anthropic-claude-code-security-review-MIT.txt'), 'Anthropic security review license should be copied locally');
 assert.match(thirdPartyNotices, /ECC Agent Skills[\s\S]*extension\/skills\/ecc-\*/, 'Third-party notices should cover ECC Agent skills');
 assert.match(thirdPartyNotices, /Superpowers Agent Skills[\s\S]*extension\/skills\/superpowers-\*/, 'Third-party notices should cover Superpowers Agent skills');
@@ -664,6 +666,9 @@ assert.match(gsaRuntime, /gsa_tool_catalog_status[\s\S]*gsa_tool_found/, 'Update
 assert.match(launcher, /GSA catalog %d\/%d tools ready[\s\S]*NUCLEI_TEMPLATES_DIR/, 'Update Doctor should report full GSA catalog and nuclei template readiness');
 assert.match(launcher, /updates_ds4_managed_dirty_path[\s\S]*ds4-agent-jsonl[\s\S]*ds4-design[\s\S]*ds4_agent\.c\.ds4ui\.bak/, 'Update Doctor should recognize DStudio-generated ds4 artifacts as managed dirt');
 assert.match(launcher, /updates_ds4_git_upstream[\s\S]*@\{u\}[\s\S]*origin\/main/, 'Update Doctor should resolve the real ds4 upstream before declaring latest status');
+assert.match(launcher, /updates_skill_sources_status[\s\S]*sources\.tsv[\s\S]*updates_skill_source_remote_head/, 'Update Doctor should read repo-imported skill source metadata');
+assert.match(launcher, /updates_skill_source_remote_head[\s\S]*"git", "ls-remote"/, 'Update Doctor should compare repo-imported skills against remote refs');
+assert.match(launcher, /updates_run_imported_skills[\s\S]*sync-skill-sources\.mjs[\s\S]*"--all"/, 'Update Doctor should update repo-imported skills through the source sync script');
 assert.match(launcher, /git", "-C", g_ds4_dir, "fetch", "origin", "--prune"[\s\S]*rev-list", "--left-right", "--count", range/, 'Update Doctor check should fetch and compare local ds4 HEAD with upstream');
 assert.match(launcher, /local %s is %d commit\(s\) behind %s[\s\S]*Run Update selected to pull\/build\/verify patches/, 'Update Doctor should warn when ds4 is behind upstream');
 assert.match(launcher, /local %s matches %s[\s\S]*DStudio generated artifact\(s\) present and safe to regenerate/, 'Update Doctor should report managed generated artifacts only after confirming upstream is current');
@@ -905,11 +910,15 @@ assert.match(js, /\[User request\]/, 'Attached file prompts should separate the 
 assert.match(js, /function citationAnchorHtml\(id\)/, 'Markdown renderer should turn [S1]/[F1] citations into clickable anchors');
 assert.match(js, /function linkRawUrls\(s\)/, 'Markdown renderer should linkify raw source URLs');
 assert.match(html, /\.latex-menu[\s\S]*\.latex-menu__item/, 'LaTeX formulas should use a compact right-click context menu');
+assert.match(js, /function tableMatrixToAsciiArt\(matrix, headerRows = 1\)[\s\S]*visibleWidth[\s\S]*padRight[\s\S]*return out\.join\('\\n'\)/, 'Markdown tables should have a deterministic ASCII-art conversion algorithm');
+assert.match(js, /function tableElementToAsciiArt\(table\)[\s\S]*tableMatrixToAsciiArt\(tableElementToMatrix\(table\), headerRows\)/, 'Rendered tables should convert from DOM cells to ASCII art');
 assert.match(js, /function renderMathWithCopy\(mml, latex, display\)[\s\S]*data-latex="\$\{escapeHtml\(String\(latex \|\| ''\)\.trim\(\)\)\}"[\s\S]*mml[\s\S]*`<\/span>`/, 'Markdown math renderer should preserve original LaTeX without adding inline buttons');
 assert.match(js, /function handleMarkdownContextMenu\(e\)[\s\S]*closest\?\.\('\.math-wrap\[data-latex\]'\)[\s\S]*showLatexContextMenu\(wrap, e\.clientX, e\.clientY\)/, 'Right-clicking rendered LaTeX should open the Copy LaTeX menu');
 assert.match(js, /text: 'Copy LaTeX'/, 'LaTeX context menu should name the action explicitly');
+assert.match(js, /function handleMarkdownContextMenu\(e\)[\s\S]*closest\?\.\('\.md table'\)[\s\S]*showTableContextMenu\(table, e\.clientX, e\.clientY\)/, 'Right-clicking a rendered Markdown table should open the ASCII art copy menu');
+assert.match(js, /text: 'Copy table as ASCII art'/, 'Table context menu should name the ASCII art action explicitly');
 assert.match(js, /on\(document, 'contextmenu', handleMarkdownContextMenu\)/, 'Markdown rendered anywhere should support the LaTeX context menu');
-assert.match(js, /on\(document, 'click', closeLatexContextMenu\)/, 'LaTeX context menu should close on outside click');
+assert.match(js, /on\(document, 'click', closeMarkdownContextMenus\)/, 'Markdown context menus should close on outside click');
 assert.doesNotMatch(html + js, /math-copy-btn|data-copy-latex/, 'LaTeX copy should not use inline buttons next to every formula');
 assert.match(js, /function decorateCitationTargets\(root, sources = \[\]\)/, 'Rendered messages should resolve citation anchors to their sources/facts');
 assert.match(js, /function sourceFavicon\(url\)/, 'Source cards should derive a favicon for each web source');
