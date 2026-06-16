@@ -5668,7 +5668,6 @@
     // engine by entering a full URL in Settings.
     const PAGE_HOST = (typeof location !== 'undefined' && location.hostname) || '127.0.0.1';
     const DEFAULT_BASE_URL = '';
-    const ONBOARD_VERSION = 8;
 
     function isLoopbackHost(host) {
       const h = String(host || '').toLowerCase().replace(/^\[|\]$/g, '');
@@ -7593,10 +7592,6 @@
           delete state.settings.think;
           delete state.settings.webSearchEnabled;
         }
-        if (state.settings.onboarded === true && state.settings.onboardedVersion !== ONBOARD_VERSION) {
-          state.settings.onboardedVersion = ONBOARD_VERSION;
-          settingsChanged = true;
-        }
         if ('lanClientDs4Dir' in state.settings) {
           delete state.settings.lanClientDs4Dir;
           settingsChanged = true;
@@ -7953,7 +7948,6 @@
         baseUrl: host,
         lanClientHost: host,
         onboarded: true,
-        onboardedVersion: ONBOARD_VERSION,
       });
       Store.publishLanClientMirror();
       Api.invalidateHealth();
@@ -15061,19 +15055,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
 
       async function maybeShowInitialOnboarding() {
-        const settings = Store.getSettings();
-        if (settings.onboarded === true || settings.onboardedVersion === ONBOARD_VERSION) {
-          if (settings.onboardedVersion !== ONBOARD_VERSION) {
-            Store.setSettingsNow({ onboarded: true, onboardedVersion: ONBOARD_VERSION });
-          }
-          return;
-        }
+        if (Store.getSettings().onboarded === true) return;
         if (await setupReadyEnoughToSkipOnboarding()) {
-          Store.setSettingsNow({ onboarded: true, onboardedVersion: ONBOARD_VERSION });
+          Store.setSettingsNow({ onboarded: true });
           return;
         }
-        const refreshed = Store.getSettings();
-        if (refreshed.onboarded === true || refreshed.onboardedVersion === ONBOARD_VERSION || isLanClientMode()) return;
+        if (Store.getSettings().onboarded === true || isLanClientMode()) return;
         const tryShow = () => { if (!document.querySelector('dialog[open]')) show(); };
         if (document.querySelector('dialog[open]')) setTimeout(tryShow, 400);
         else show();
@@ -15142,7 +15129,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
               runningModel = selectedGguf;
               shouldShowLoading = true;
             }
-            Store.setSettingsNow({ onboarded: true, onboardedVersion: ONBOARD_VERSION });
+            Store.setSettingsNow({ onboarded: true });
             completingOnboarding = true;
             dialog.close();
             if (shouldShowLoading && !isLanClientMode()) location.href = '/loading.html';
@@ -15181,12 +15168,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
             return;
           }
           completingOnboarding = false;
-          Store.setSettings({ onboarded: true, onboardedVersion: ONBOARD_VERSION });
+          Store.setSettings({ onboarded: true });
         });
 
         const lanClientLanding = location.hash === '#lanClient' || pageIsLanServed();
         if (lanClientLanding) {
-          Store.setSettingsNow({ onboarded: true, onboardedVersion: ONBOARD_VERSION });
+          Store.setSettingsNow({ onboarded: true });
           try { history.replaceState(null, '', location.pathname); } catch { /* ignore */ }
         }
         if (!lanClientLanding) maybeShowInitialOnboarding();
@@ -15451,7 +15438,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (lanMsg) lanMsg.textContent = '';
         forcedSetup = false;
         completingOnboarding = true;
-        Store.setSettingsNow({ onboarded: true, onboardedVersion: ONBOARD_VERSION });
+        Store.setSettingsNow({ onboarded: true });
         dialog.close();
         toast('Connected to LAN host', 'info');
         Settings.refreshModels();

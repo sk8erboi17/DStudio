@@ -162,7 +162,6 @@ try {
       useJsonlPatch: true,
       gsaMode: 'on',
       workdirs: { agent: '/tmp/dstudio-gear-test' },
-      onboardedVersion: 8,
     }));
     localStorage.setItem('ds4web.chats.v1', JSON.stringify({
       v: 1,

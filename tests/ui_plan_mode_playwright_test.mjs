@@ -203,7 +203,6 @@ try {
       webMode: 'off',
       planMode: 'on',
       workdirs: { agent: '/tmp/dstudio-plan-mode', design: '/tmp/dstudio-plan-mode-design' },
-      onboardedVersion: 8,
     }));
     localStorage.setItem('ds4web.chats.v1', JSON.stringify({
       v: 1,

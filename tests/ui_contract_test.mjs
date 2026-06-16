@@ -1180,7 +1180,7 @@ assert.match(settingsDialog, /Network access/, 'host settings should keep the LA
 assert.match(settingsDialog, /Connect to LAN/, 'settings should allow entering LAN client mode');
 
 assert.match(loadingHtml, /lanClientHost/, 'loading gate must skip when this browser is a LAN client');
-assert.match(loadingHtml, /settings\.onboarded !== true && settings\.onboardedVersion !== 8/, 'loading gate should accept completed onboarding even when only the legacy flag is present');
+assert.match(loadingHtml, /settings\.onboarded !== true/, 'loading gate should wait until host onboarding is complete');
 assert.match(loadingHtml, /hello are you alive\?/, 'loading gate should probe the local model');
 assert.doesNotMatch(loadingHtml, /Loading the local model|Connecting to the local launcher|Waiting for the model to be ready|Open DStudio anyway/, 'loading page should show only the logo, not a status card');
 
@@ -1216,10 +1216,8 @@ assert.match(onboardingLocal, /id="onboard-ds4dir"[\s\S]*id="onboard-conn"/, 'on
 assert.doesNotMatch(onboardingLocal, /onboard__status-k/, 'onboarding connection status should not duplicate the Engine heading');
 assert.match(html, /id="ds4dir-setup"/, 'forced ds4 gate should offer one-click ds4 install');
 assert.doesNotMatch(html, /id="onboard-ds4dir-browse-btn"|id="onboard-ds4dir-browse"|id="ds4dir-input"|id="ds4dir-save"|id="lan-client-ds4dir-choose"/, 'UI should not keep manual ds4 folder fallback controls');
-assert.match(js, /const ONBOARD_VERSION = 8/, 'onboarding version should bump when first-run cache needs to be cleared');
-assert.match(js, /state\.settings\.onboarded === true && state\.settings\.onboardedVersion !== ONBOARD_VERSION[\s\S]*state\.settings\.onboardedVersion = ONBOARD_VERSION/, 'settings migration should upgrade completed onboarding without reopening first-run setup');
 assert.match(js, /async function setupReadyEnoughToSkipOnboarding\(\)[\s\S]*Engine\.doctor\(\)[\s\S]*Number\(d\.fatal \|\| 0\) === 0[\s\S]*Engine\.status\(\)/, 'onboarding first-run gate should consult Doctor/status before showing');
-assert.match(js, /async function maybeShowInitialOnboarding\(\)[\s\S]*settings\.onboarded === true \|\| settings\.onboardedVersion === ONBOARD_VERSION[\s\S]*Store\.setSettingsNow\(\{ onboarded: true, onboardedVersion: ONBOARD_VERSION \}\)[\s\S]*if \(document\.querySelector\('dialog\[open\]'\)\) setTimeout\(tryShow, 400\)/, 'onboarding should never reopen for a completed setup and should mark a ready local setup as onboarded');
+assert.match(js, /async function maybeShowInitialOnboarding\(\)[\s\S]*Store\.getSettings\(\)\.onboarded === true[\s\S]*Store\.setSettingsNow\(\{ onboarded: true \}\)[\s\S]*if \(document\.querySelector\('dialog\[open\]'\)\) setTimeout\(tryShow, 400\)/, 'onboarding should never reopen for a completed setup and should mark a ready local setup as onboarded');
 assert.match(js, /if \(!lanClientLanding\) maybeShowInitialOnboarding\(\)/, 'onboarding mount should use the idempotent first-run gate');
 assert.match(js, /on\(dialog, 'cancel', \(e\) => e\.preventDefault\(\)\)/, 'onboarding should not close when Escape is pressed');
 assert.match(js, /await refreshLocalSetupState\(\)/, 'onboarding Start should refresh /api/status before deciding it can close');
@@ -1228,7 +1226,7 @@ assert.match(js, /const localVisible = !lanPanel \|\| lanPanel\.hidden;[\s\S]*!c
 assert.match(js, /let startResult = null;[\s\S]*await Engine\.start\(\{ mode: 'server', gguf: selectedGguf \}, true\)[\s\S]*startResult\.ok === false[\s\S]*Could not start selected model/, 'onboarding Start must show /api/start failures instead of silently closing');
 assert.match(js, /function setSettingsNow\(patch\)[\s\S]*persistSettings\.cancel\(\)[\s\S]*writeKey\(STORAGE_KEYS\.settings, JSON\.stringify\(state\.settings\)\)/, 'onboarding completion needs an immediate settings write before navigation');
 assert.match(js, /let shouldShowLoading = false;[\s\S]*shouldShowLoading = true;[\s\S]*if \(shouldShowLoading && !isLanClientMode\(\)\) location\.href = '\/loading\.html'/, 'onboarding Start should only show loading after it actually starts a different model');
-assert.match(js, /async function connectLanAddress\(\)[\s\S]*await connectLanClientMode\(lanAddressInput\.value\)[\s\S]*completingOnboarding = true;[\s\S]*Store\.setSettingsNow\(\{ onboarded: true, onboardedVersion: ONBOARD_VERSION \}\);[\s\S]*dialog\.close\(\)/, 'LAN onboarding connect should complete onboarding only after a valid LAN health check');
+assert.match(js, /async function connectLanAddress\(\)[\s\S]*await connectLanClientMode\(lanAddressInput\.value\)[\s\S]*completingOnboarding = true;[\s\S]*Store\.setSettingsNow\(\{ onboarded: true \}\);[\s\S]*dialog\.close\(\)/, 'LAN onboarding connect should complete onboarding only after a valid LAN health check');
 assert.doesNotMatch(html, /onboard__cmd|onboard__list|fsfinder/, 'onboarding should not keep CSS for removed manual setup/finder UI');
 assert.match(js, /delete state\.settings\.lanClientDs4Dir/, 'settings migration should remove the old LAN client ds4 folder cache key');
 assert.match(js, /async function setupDs4\(\)[\s\S]*\/api\/ds4\/setup/, 'Engine API should call the managed ds4 setup endpoint');

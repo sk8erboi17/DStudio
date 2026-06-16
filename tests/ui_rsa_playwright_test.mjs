@@ -307,7 +307,6 @@ try {
       useJsonlPatch: true,
       webMode: 'off',
       workdirs: { agent: '/tmp/dstudio-rsa-ui-test' },
-      onboardedVersion: 8,
     }));
     localStorage.setItem('ds4web.chats.v1', JSON.stringify({
       v: 1,

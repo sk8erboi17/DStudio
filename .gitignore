@@ -44,6 +44,11 @@ __pycache__/
 .ruff_cache/
 .dstudio/
 .tmp/
+.cache/
+*.tmp
+*.swp
+*.swo
+*~
 MEMORY.MD
 
 # Generated benchmark runs and local evaluation output

@@ -396,7 +396,6 @@ async function runCase(context, c, index) {
       webMode: 'off',
       planMode: 'on',
       workdirs: { agent: '/tmp/dstudio-plan-mode-matrix' },
-      onboardedVersion: 8,
     }));
     localStorage.setItem('ds4web.chats.v1', JSON.stringify({
       v: 1,
