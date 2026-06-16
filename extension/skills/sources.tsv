@@ -1,2 +1,7 @@
-# id	repo	ref	imported_commit	local_prefix	upstream_dir
-superpowers	https://github.com/obra/superpowers	main	77879bbb91d7c6cf0d923be6fb2e764032008303	superpowers-	skills
+# id	repo	ref	imported_commit	local_prefix	upstream_path	kind	local_target
+superpowers	https://github.com/obra/superpowers	main	284be5905ed540d34ce5bcde24728b9b7f413ea0	superpowers-	skills	skills-dir	extension/skills
+ecc	https://github.com/affaan-m/ECC	main	e25f2d463383a98ab40e627288dd123e005fd8e0	ecc-	.agents/skills	skills-dir	extension/skills
+anthropic-security-review	https://github.com/anthropics/claude-code-security-review	main	0c6a49f1fa56a1d472575da86a94dbc1edb78eda	anthropic-	.claude/commands/security-review.md	anthropic-security-review	extension/skills/anthropic-claude-code-security-review
+marketingskills	https://github.com/coreyhaines31/marketingskills	main	7f4af1ea8e7809e0142c55bf19243a706f539c25	-	skills	verify-only	extension/skills
+open-design	https://github.com/nexu-io/open-design	main	8123cc69808137ff765aad782e5eabf750249ca5	-	skills	verify-only	extension/skills
+anthropic-cybersecurity-skills	https://github.com/mukul975/Anthropic-Cybersecurity-Skills	main	04450304b12645cb2b974ab96d28c0664758a88d	-	skills	verify-only	extension/gsa/third_party/anthropic-cybersecurity-skills

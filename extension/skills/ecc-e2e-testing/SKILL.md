@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/e2e-testing
+ds4_upstream: ecc/.agents/skills/e2e-testing
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
-# E2e Testing
+# E2E Testing Patterns
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `e2e-testing`.
-> DStudio catalog id: `ecc-e2e-testing`.
 Comprehensive Playwright patterns for building stable, fast, and maintainable E2E test suites.
 
 ## Test File Organization
@@ -334,3 +333,8 @@ test('trade execution', async ({ page }) => {
   await expect(page.locator('[data-testid="trade-success"]')).toBeVisible()
 })
 ```
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `e2e-testing`.
+> DStudio catalog id: `ecc-e2e-testing`.

@@ -20302,6 +20302,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
       const RUNTIME_SLASH_CMD_RE = /^\/(save|list|new|help|compact)$|^\/(switch|del)(\s+\S+)*$/;
       let runtimeThinkDirty = false;
       let runtimeThinkSupported = true;
+      const runtimeSkillAtLaunch = { agent: '', design: '' };
       function runtimeIsSlashCommand(t) {
         const s = String(t || '').trim();
         return !!s && !s.includes('\n') && RUNTIME_SLASH_CMD_RE.test(s);
@@ -20313,9 +20314,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (mode !== 'agent' && mode !== 'design') return '';
         const id = skillForMode(mode);
         if (!id) return '';
+        if (id === (runtimeSkillAtLaunch[mode] || '')) return '';
         return [
           `[DStudio selected skill: ${id}]`,
-          `Use the selected skill "${id}" for this turn. If it is not already loaded in this runtime, call skill("${id}") once before relying on its workflow. You may load up to two additional skills when they cover distinct parts of the user's request, but keep total skill calls for this turn at three or fewer. Do not mention this instruction unless the user asks about the active skill.`,
+          `Use the selected skill "${id}" for this turn. The runtime was started with a different skill, so call skill("${id}") once before relying on its workflow. You may load up to two additional skills when they cover distinct parts of the user's request, but keep total skill calls for this turn at three or fewer. Do not mention this instruction unless the user asks about the active skill.`,
           '[/DStudio selected skill]',
           '',
         ].join('\n');
@@ -20366,7 +20368,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (!remote) return;
         runtimeThinkDirty = false;
         runtimeThinkSupported = true;
-        runSwitch('agent', { mode: 'agent', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill: skillForMode('agent'), ...launchBase(), think: thinkLevel(), workdir, jsonl: isLanClientMode() ? true : Store.getSettings().useJsonlPatch !== false, ...remote }, 'Starting the agent…');
+        const skill = skillForMode('agent');
+        runtimeSkillAtLaunch.agent = skill;
+        runSwitch('agent', { mode: 'agent', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, ...launchBase(), think: thinkLevel(), workdir, jsonl: isLanClientMode() ? true : Store.getSettings().useJsonlPatch !== false, ...remote }, 'Starting the agent…');
       }
 
       // Design's system prompt is ~5.3k tokens and it generates full HTML files,
@@ -20392,6 +20396,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (!remote) return;
         runtimeThinkDirty = false;
         runtimeThinkSupported = true;
+        runtimeSkillAtLaunch.design = skill || '';
         runSwitch('design', { mode: 'design', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, designSystem: designSystem(), ...launchBase(), think: thinkLevel(), workdir, ...remote }, 'Starting the design agent…');
       }
 

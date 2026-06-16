@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/fal-ai-media
+ds4_upstream: ecc/.agents/skills/fal-ai-media
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
-# Fal Ai Media
+# fal.ai Media Generation
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `fal-ai-media`.
-> DStudio catalog id: `ecc-fal-ai-media`.
 Generate images, videos, and audio using fal.ai models via MCP.
 
 ## When to Activate
@@ -285,3 +284,8 @@ models()
 - `videodb` — Video processing, editing, and streaming
 - `video-editing` — AI-powered video editing workflows
 - `content-engine` — Content creation for social platforms
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `fal-ai-media`.
+> DStudio catalog id: `ecc-fal-ai-media`.

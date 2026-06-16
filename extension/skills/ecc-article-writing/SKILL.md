@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/article-writing
+ds4_upstream: ecc/.agents/skills/article-writing
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Article Writing
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `article-writing`.
-> DStudio catalog id: `ecc-article-writing`.
 Write long-form content that sounds like an actual person with a point of view, not an LLM smoothing itself into paste.
 
 ## When to Activate
@@ -87,3 +86,8 @@ Before delivering:
 - the voice matches the supplied examples or the agreed `VOICE PROFILE`
 - every section adds something new
 - formatting matches the intended medium
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `article-writing`.
+> DStudio catalog id: `ecc-article-writing`.

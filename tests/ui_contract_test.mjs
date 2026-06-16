@@ -206,8 +206,8 @@ assert.match(gitignore, /^MEMORY\.MD$/m, 'local memory scratch files should stay
 assert.match(gitignore, /^\.tmp\/$/m, 'local UI screenshots and scratch artifacts should stay out of git status');
 
 for (const [file, upstream] of [
-  ['extension/skills/ecc-security-review/SKILL.md', 'ECC/.agents/skills/security-review'],
-  ['extension/skills/superpowers-systematic-debugging/SKILL.md', 'superpowers/systematic-debugging'],
+  ['extension/skills/ecc-security-review/SKILL.md', 'ecc/.agents/skills/security-review'],
+  ['extension/skills/superpowers-systematic-debugging/SKILL.md', 'superpowers/skills/systematic-debugging'],
   ['extension/skills/anthropic-claude-code-security-review/SKILL.md', 'claude-code-security-review/.claude/commands/security-review.md'],
 ]) {
   assert.ok(fs.existsSync(file), `${file} should exist`);
@@ -350,6 +350,7 @@ assert.match(js, /function renderDiagnostics\(diag\)/, 'Doctor should render dia
 assert.match(js, /Recent diagnostics/, 'Doctor diagnostics section should label recent task and log failures');
 assert.match(launcher, /#define CYBER_SKILLS_REL_DIR "extension\/gsa\/third_party\/anthropic-cybersecurity-skills\/skills"/, 'GSA should pin the vendored cybersecurity skills catalog path');
 assert.match(launcher, /DS4UI_CYBER_SKILLS_DIR/, 'agent/design child processes should receive the vendored cybersecurity skills dir');
+assert.match(launcher, /cyber_skills_dir\(dir, sizeof dir\)[\s\S]*catalog_append\(cat, catcap, &o, dir, "SKILL\.md", "Cybersecurity skills"\)/, 'Agent/Design on-demand skill catalog should list vendored cybersecurity skills');
 assert.ok(Number(jsonlPatch.values.get('version')) >= 25, 'JSONL patch version should force rebuild after Agent web auto-approval changes');
 assert.match(jsonlPatch.text, /--web-tool[\s\S]*google_search[\s\S]*visit_page/, 'JSONL agent should expose Search-backed google_search and visit_page helpers');
 assert.match(jsonlPatch.text, /if \(w->cfg->non_interactive\)[\s\S]*return 1; \/\*DS4UI_JSONL: DStudio Agent web search is a managed read-only helper/, 'Agent native web tools should auto-approve managed Chrome startup in non-interactive DStudio mode');
@@ -668,7 +669,12 @@ assert.match(launcher, /updates_ds4_managed_dirty_path[\s\S]*ds4-agent-jsonl[\s\
 assert.match(launcher, /updates_ds4_git_upstream[\s\S]*@\{u\}[\s\S]*origin\/main/, 'Update Doctor should resolve the real ds4 upstream before declaring latest status');
 assert.match(launcher, /updates_skill_sources_status[\s\S]*sources\.tsv[\s\S]*updates_skill_source_remote_head/, 'Update Doctor should read repo-imported skill source metadata');
 assert.match(launcher, /updates_skill_source_remote_head[\s\S]*"git", "ls-remote"/, 'Update Doctor should compare repo-imported skills against remote refs');
+assert.match(launcher, /strcmp\(kind, "verify-only"\)[\s\S]*manual re-import required/, 'Update Doctor should identify adapted verify-only skill sources instead of pretending update can rewrite them');
 assert.match(launcher, /updates_run_imported_skills[\s\S]*sync-skill-sources\.mjs[\s\S]*"--all"/, 'Update Doctor should update repo-imported skills through the source sync script');
+assert.match(skillSources, /superpowers[\s\S]*https:\/\/github\.com\/obra\/superpowers[\s\S]*skills-dir/, 'Skill source Doctor should monitor the Superpowers repo');
+assert.match(skillSources, /ecc[\s\S]*https:\/\/github\.com\/affaan-m\/ECC[\s\S]*\.agents\/skills[\s\S]*skills-dir/, 'Skill source Doctor should monitor and sync the ECC skill repo');
+assert.match(skillSources, /anthropic-security-review[\s\S]*https:\/\/github\.com\/anthropics\/claude-code-security-review[\s\S]*anthropic-security-review/, 'Skill source Doctor should monitor and sync the Anthropic security-review repo');
+assert.match(skillSources, /marketingskills[\s\S]*verify-only[\s\S]*open-design[\s\S]*verify-only[\s\S]*anthropic-cybersecurity-skills[\s\S]*verify-only/, 'Skill source Doctor should verify adapted/imported skill repos that are not safe to rewrite generically');
 assert.match(launcher, /git", "-C", g_ds4_dir, "fetch", "origin", "--prune"[\s\S]*rev-list", "--left-right", "--count", range/, 'Update Doctor check should fetch and compare local ds4 HEAD with upstream');
 assert.match(launcher, /local %s is %d commit\(s\) behind %s[\s\S]*Run Update selected to pull\/build\/verify patches/, 'Update Doctor should warn when ds4 is behind upstream');
 assert.match(launcher, /local %s matches %s[\s\S]*DStudio generated artifact\(s\) present and safe to regenerate/, 'Update Doctor should report managed generated artifacts only after confirming upstream is current');
@@ -973,6 +979,8 @@ assert.match(js, /skill-card__edit[\s\S]*showEditor\(it\.value, it\.raw, 'picker
 assert.match(js, /Engine\.userSkillGet\(id\)[\s\S]*Engine\.skillGet\(id\)/, 'Editing a shipped skill should fall back to reading the shipped body');
 assert.match(js, /Engine\.userSkillSave\(\{ id,[\s\S]*modes: editingModes/, 'Skill editor should preserve modes when saving local overrides');
 assert.match(js, /function selectedSkillPromptForRuntime\(\)[\s\S]*DStudio selected skill/, 'Selected skills should apply to future turns without restarting the runtime');
+assert.match(js, /const runtimeSkillAtLaunch = \{ agent: '', design: '' \}/, 'Runtime should track the skill that was injected at launch');
+assert.match(js, /selectedSkillPromptForRuntime\(\)[\s\S]*id === \(runtimeSkillAtLaunch\[mode\] \|\| ''\)[\s\S]*return ''/, 'Selected skill prompt should not duplicate the skill already injected at runtime launch');
 assert.match(js, /selectedSkillPromptForRuntime\(\)[\s\S]*load up to two additional skills[\s\S]*three or fewer/, 'Selected skill runtime prompt should allow bounded multi-skill use');
 assert.match(launcher, /cap each user request at three `skill` calls total/, 'On-demand skill catalog should allow bounded multi-skill loading');
 assert.doesNotMatch(extractFunction(js, 'switchSkill'), /restartCurrent\(/, 'Changing skill should not restart the model');

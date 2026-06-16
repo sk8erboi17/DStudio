@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/dmux-workflows
+ds4_upstream: ecc/.agents/skills/dmux-workflows
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
-# Dmux Workflows
+# dmux Workflows
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `dmux-workflows`.
-> DStudio catalog id: `ecc-dmux-workflows`.
 Orchestrate parallel AI agent sessions using dmux, a tmux pane manager for agent harnesses.
 
 ## When to Activate
@@ -152,3 +151,8 @@ git merge feat/billing
 - **Merge conflicts:** Use git worktrees to isolate file changes per pane.
 - **High token usage:** Reduce number of parallel panes. Each pane is a full agent session.
 - **tmux not found:** Install with `brew install tmux` (macOS) or `apt install tmux` (Linux).
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `dmux-workflows`.
+> DStudio catalog id: `ecc-dmux-workflows`.

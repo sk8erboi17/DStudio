@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/exa-search
+ds4_upstream: ecc/.agents/skills/exa-search
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Exa Search
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `exa-search`.
-> DStudio catalog id: `ecc-exa-search`.
 Neural search for web content, code, companies, and people via the Exa MCP server.
 
 ## When to Activate
@@ -178,3 +177,8 @@ deep_researcher_check(researchId: "<id>")
 
 - `deep-research` — Full research workflow using firecrawl + exa together
 - `market-research` — Business-oriented research with decision frameworks
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `exa-search`.
+> DStudio catalog id: `ecc-exa-search`.

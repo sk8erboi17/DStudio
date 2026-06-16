@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/x-api
+ds4_upstream: ecc/.agents/skills/x-api
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
-# X Api
+# X API
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `x-api`.
-> DStudio catalog id: `ecc-x-api`.
 Programmatic interaction with X (Twitter) for posting, reading, searching, and analytics.
 
 ## When to Activate
@@ -238,3 +237,8 @@ Use `brand-voice` plus `content-engine` to generate platform-native content, the
 - `content-engine` — Generate platform-native content for X
 - `crosspost` — Distribute content across X, LinkedIn, and other platforms
 - `connections-optimizer` — Reorganize the X graph before drafting network-driven outreach
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `x-api`.
+> DStudio catalog id: `ecc-x-api`.

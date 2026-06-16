@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/mcp-server-patterns
+ds4_upstream: ecc/.agents/skills/mcp-server-patterns
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
-# Mcp Server Patterns
+# MCP Server Patterns
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `mcp-server-patterns`.
-> DStudio catalog id: `ecc-mcp-server-patterns`.
 The Model Context Protocol (MCP) lets AI assistants call tools, read resources, and use prompts from your server. Use this skill when building or maintaining MCP servers. The SDK API evolves; check Context7 (query-docs for "MCP") or the official MCP documentation for current method names and signatures.
 
 ## When to Use
@@ -75,3 +74,8 @@ Use **Zod** (or the SDK’s preferred schema format) for input validation.
 - **JavaScript/TypeScript**: `@modelcontextprotocol/sdk` (npm). Use Context7 with library name "MCP" for current registration and transport patterns.
 - **Go**: Official Go SDK on GitHub (`modelcontextprotocol/go-sdk`).
 - **C#**: Official C# SDK for .NET.
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `mcp-server-patterns`.
+> DStudio catalog id: `ecc-mcp-server-patterns`.

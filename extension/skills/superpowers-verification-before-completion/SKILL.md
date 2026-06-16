@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: superpowers
-ds4_upstream: superpowers/verification-before-completion
+ds4_upstream: superpowers/skills/verification-before-completion
 ds4_source_repo: https://github.com/obra/superpowers
+ds4_source_ref: main
+ds4_source_commit: 284be5905ed540d34ce5bcde24728b9b7f413ea0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Verification Before Completion
 
-> Imported from https://github.com/obra/superpowers.
-> Original skill id: `verification-before-completion`.
-> DStudio catalog id: `superpowers-verification-before-completion`.
 ## Overview
 
 Claiming work is complete without verification is dishonesty, not efficiency.
@@ -148,3 +147,8 @@ From 24 failure memories:
 Run the command. Read the output. THEN claim the result.
 
 This is non-negotiable.
+
+
+> Imported from https://github.com/obra/superpowers.
+> Original skill id: `verification-before-completion`.
+> DStudio catalog id: `superpowers-verification-before-completion`.

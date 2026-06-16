@@ -3721,6 +3721,8 @@ static char *build_skill_sys(int include_design_system, int include_agent_questi
         catalog_append(cat, catcap, &o, udir, "SKILL.md", "Your skills");
         snprintf(dir, sizeof dir, "%s/extension/skills", g_web_dir);
         catalog_append(cat, catcap, &o, dir, "SKILL.md", "Design skills");
+        if (cyber_skills_dir(dir, sizeof dir))
+            catalog_append(cat, catcap, &o, dir, "SKILL.md", "Cybersecurity skills");
         if (include_design_system) {
             snprintf(dir, sizeof dir, "%s/extension/design-systems", g_web_dir);
             catalog_append(cat, catcap, &o, dir, "DESIGN.md", "Available design systems");
@@ -7153,15 +7155,16 @@ static void updates_skill_sources_status(update_skill_sources_status *st) {
     while (fgets(line, sizeof line, f)) {
         updates_trim_line(line);
         if (!line[0] || line[0] == '#') continue;
-        char *cols[6] = {0};
+        char *cols[8] = {0};
         int n = 0;
-        for (char *tok = strtok(line, "\t"); tok && n < 6; tok = strtok(NULL, "\t")) cols[n++] = tok;
+        for (char *tok = strtok(line, "\t"); tok && n < 8; tok = strtok(NULL, "\t")) cols[n++] = tok;
         if (n < 6) {
             st->failed++;
             updates_append_detail(st->detail, sizeof st->detail, "Bad source row. ");
             continue;
         }
         const char *id = cols[0], *repo = cols[1], *ref = cols[2], *imported = cols[3];
+        const char *kind = n >= 7 && cols[6] ? cols[6] : "skills-dir";
         char remote[96] = "";
         st->sources++;
         if (!updates_skill_source_remote_head(repo, ref, remote, sizeof remote)) {
@@ -7171,8 +7174,12 @@ static void updates_skill_sources_status(update_skill_sources_status *st) {
         }
         if (!updates_commit_same(imported, remote)) {
             st->stale++;
-            updates_append_detail(st->detail, sizeof st->detail, "%s outdated %.*s -> %.*s. ",
-                                  id, 12, imported, 12, remote);
+            if (!strcmp(kind, "verify-only"))
+                updates_append_detail(st->detail, sizeof st->detail, "%s adapted source outdated %.*s -> %.*s; manual re-import required. ",
+                                      id, 12, imported, 12, remote);
+            else
+                updates_append_detail(st->detail, sizeof st->detail, "%s outdated %.*s -> %.*s; run Update / verify selected. ",
+                                      id, 12, imported, 12, remote);
         }
     }
     fclose(f);

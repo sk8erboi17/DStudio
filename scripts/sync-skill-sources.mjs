@@ -21,18 +21,27 @@ function parseManifest(text) {
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith('#'))
     .map((line) => {
-      const [id, repo, ref, importedCommit, localPrefix, upstreamDir] = line.split('\t');
-      if (!id || !repo || !ref || !importedCommit || !localPrefix || !upstreamDir) {
+      const [
+        id,
+        repo,
+        ref,
+        importedCommit,
+        localPrefix,
+        upstreamPath,
+        kind = 'skills-dir',
+        localTarget = 'extension/skills',
+      ] = line.split('\t');
+      if (!id || !repo || !ref || !importedCommit || !localPrefix || !upstreamPath) {
         throw new Error(`bad skill source manifest row: ${line}`);
       }
-      return { id, repo, ref, importedCommit, localPrefix, upstreamDir };
+      return { id, repo, ref, importedCommit, localPrefix, upstreamPath, kind, localTarget };
     });
 }
 
 function writeManifest(sources) {
-  const header = '# id\trepo\tref\timported_commit\tlocal_prefix\tupstream_dir\n';
+  const header = '# id\trepo\tref\timported_commit\tlocal_prefix\tupstream_path\tkind\tlocal_target\n';
   const rows = sources.map((s) =>
-    [s.id, s.repo, s.ref, s.importedCommit, s.localPrefix, s.upstreamDir].join('\t')
+    [s.id, s.repo, s.ref, s.importedCommit, s.localPrefix, s.upstreamPath, s.kind || 'skills-dir', s.localTarget || 'extension/skills'].join('\t')
   );
   fs.writeFileSync(manifestPath, `${header}${rows.join('\n')}\n`);
 }
@@ -77,6 +86,25 @@ function removeDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+function repoHead(repoDir) {
+  return run('git', ['-C', repoDir, 'rev-parse', 'HEAD']);
+}
+
+function localPath(source) {
+  const target = source.localTarget || 'extension/skills';
+  return path.isAbsolute(target) ? target : path.join(root, target);
+}
+
+function updateFrontmatterField(content, key, value) {
+  const m = content.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!m) return content;
+  const block = m[1];
+  const line = `${key}: ${value}`;
+  const re = new RegExp(`^${key}:.*$`, 'm');
+  const next = re.test(block) ? block.replace(re, line) : `${block}\n${line}`;
+  return `---\n${next}\n---\n${content.slice(m[0].length)}`;
+}
+
 function adaptSkillMd(upstreamMd, source, upstreamId, commit) {
   const { meta, body } = parseFrontmatter(upstreamMd);
   const description = (meta.description || '').trim() || `Imported ${source.id} skill.`;
@@ -92,7 +120,7 @@ function adaptSkillMd(upstreamMd, source, upstreamId, commit) {
     'ds4_local_mode: reference',
     'ds4_output_kinds: markdown',
     `ds4_provider: ${source.id}`,
-    `ds4_upstream: ${source.id}/${upstreamId}`,
+    `ds4_upstream: ${source.id}/${source.upstreamPath}/${upstreamId}`,
     `ds4_source_repo: ${source.repo}`,
     `ds4_source_ref: ${source.ref}`,
     `ds4_source_commit: ${commit}`,
@@ -106,30 +134,69 @@ function adaptSkillMd(upstreamMd, source, upstreamId, commit) {
   ].join('\n');
 }
 
+function syncSkillsDir(source, repoDir, commit) {
+  const upstreamBase = path.join(repoDir, source.upstreamPath);
+  if (!fs.existsSync(upstreamBase)) throw new Error(`${source.id}: upstream dir not found: ${source.upstreamPath}`);
+  const localBase = localPath(source);
+  let count = 0;
+  for (const ent of fs.readdirSync(upstreamBase, { withFileTypes: true })) {
+    if (!ent.isDirectory()) continue;
+    const upstreamSkill = path.join(upstreamBase, ent.name);
+    const upstreamMdPath = path.join(upstreamSkill, 'SKILL.md');
+    if (!fs.existsSync(upstreamMdPath)) continue;
+    const localSkill = path.join(localBase, `${source.localPrefix}${ent.name}`);
+    removeDir(localSkill);
+    copyDir(upstreamSkill, localSkill);
+    const adapted = adaptSkillMd(fs.readFileSync(upstreamMdPath, 'utf8'), source, ent.name, commit);
+    fs.writeFileSync(path.join(localSkill, 'SKILL.md'), adapted);
+    count++;
+  }
+  console.log(`${source.id}: imported ${count} skill(s) at ${commit.slice(0, 12)}`);
+  return count;
+}
+
+function syncAnthropicSecurityReview(source, repoDir, commit) {
+  const localDir = localPath(source);
+  const refs = path.join(localDir, 'references');
+  fs.mkdirSync(refs, { recursive: true });
+  const copies = [
+    [source.upstreamPath, 'security-review-command.md'],
+    ['docs/custom-security-scan-instructions.md', 'custom-security-scan-instructions.md'],
+    ['docs/custom-filtering-instructions.md', 'custom-filtering-instructions.md'],
+    ['examples/custom-security-scan-instructions.txt', 'custom-security-scan-instructions-example.txt'],
+    ['examples/custom-false-positive-filtering.txt', 'custom-false-positive-filtering-example.txt'],
+  ];
+  let count = 0;
+  for (const [fromRel, toName] of copies) {
+    const from = path.join(repoDir, fromRel);
+    if (!fs.existsSync(from)) throw new Error(`${source.id}: upstream file not found: ${fromRel}`);
+    fs.copyFileSync(from, path.join(refs, toName));
+    count++;
+  }
+  const skillMd = path.join(localDir, 'SKILL.md');
+  if (fs.existsSync(skillMd)) {
+    const updated = updateFrontmatterField(fs.readFileSync(skillMd, 'utf8'), 'ds4_source_commit', commit);
+    fs.writeFileSync(skillMd, updated);
+  }
+  console.log(`${source.id}: updated ${count} reference file(s) at ${commit.slice(0, 12)}`);
+  return count;
+}
+
 function syncSource(source) {
+  if (source.kind === 'verify-only') {
+    console.log(`${source.id}: verify-only source; checked by Update Doctor, not rewritten automatically`);
+    return 0;
+  }
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `dstudio-${source.id}-`));
   try {
     const repoDir = path.join(tmp, source.id);
     run('git', ['clone', '--depth', '1', '--branch', source.ref, source.repo, repoDir]);
-    const commit = run('git', ['-C', repoDir, 'rev-parse', 'HEAD']);
-    const upstreamBase = path.join(repoDir, source.upstreamDir);
-    if (!fs.existsSync(upstreamBase)) throw new Error(`${source.id}: upstream dir not found: ${source.upstreamDir}`);
-    const localBase = path.join(root, 'extension/skills');
+    const commit = repoHead(repoDir);
     let count = 0;
-    for (const ent of fs.readdirSync(upstreamBase, { withFileTypes: true })) {
-      if (!ent.isDirectory()) continue;
-      const upstreamSkill = path.join(upstreamBase, ent.name);
-      const upstreamMdPath = path.join(upstreamSkill, 'SKILL.md');
-      if (!fs.existsSync(upstreamMdPath)) continue;
-      const localSkill = path.join(localBase, `${source.localPrefix}${ent.name}`);
-      removeDir(localSkill);
-      copyDir(upstreamSkill, localSkill);
-      const adapted = adaptSkillMd(fs.readFileSync(upstreamMdPath, 'utf8'), source, ent.name, commit);
-      fs.writeFileSync(path.join(localSkill, 'SKILL.md'), adapted);
-      count++;
-    }
+    if ((source.kind || 'skills-dir') === 'skills-dir') count = syncSkillsDir(source, repoDir, commit);
+    else if (source.kind === 'anthropic-security-review') count = syncAnthropicSecurityReview(source, repoDir, commit);
+    else throw new Error(`${source.id}: unsupported sync kind: ${source.kind}`);
     source.importedCommit = commit;
-    console.log(`${source.id}: imported ${count} skill(s) at ${commit.slice(0, 12)}`);
     return count;
   } finally {
     removeDir(tmp);

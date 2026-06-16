@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/mle-workflow
+ds4_upstream: ecc/.agents/skills/mle-workflow
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
-# Mle Workflow
+# Machine Learning Engineering Workflow
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `mle-workflow`.
-> DStudio catalog id: `ecc-mle-workflow`.
 Use this skill to turn model work into a production ML system with clear data contracts, repeatable training, measurable quality gates, deployable artifacts, and operational monitoring.
 
 ## When to Activate
@@ -354,3 +353,8 @@ Every deployment should have a rollback plan that names the previous artifact, c
 ## Output Expectations
 
 When using this skill, return concrete artifacts: data contract, promotion gates, pipeline steps, test plan, deployment plan, or review findings. Call out unknowns that block production readiness instead of filling them with assumptions.
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `mle-workflow`.
+> DStudio catalog id: `ecc-mle-workflow`.

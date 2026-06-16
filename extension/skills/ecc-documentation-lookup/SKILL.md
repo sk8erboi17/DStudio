@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/documentation-lookup
+ds4_upstream: ecc/.agents/skills/documentation-lookup
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
-# Documentation Lookup
+# Documentation Lookup (Context7)
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `documentation-lookup`.
-> DStudio catalog id: `ecc-documentation-lookup`.
 When the user asks about libraries, frameworks, or APIs, fetch current documentation via the Context7 MCP (tools `resolve-library-id` and `query-docs`) instead of relying on training data.
 
 ## Core Concepts
@@ -98,3 +97,8 @@ Limit: do not call query-docs (or resolve-library-id) more than 3 times per ques
 - **Version awareness**: When users mention versions, use version-specific library IDs from the resolve step when available.
 - **Prefer official sources**: When multiple matches exist, prefer official or primary packages over community forks.
 - **No sensitive data**: Redact API keys, passwords, tokens, and other secrets from any query sent to Context7. Treat the user's question as potentially containing secrets before passing it to resolve-library-id or query-docs.
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `documentation-lookup`.
+> DStudio catalog id: `ecc-documentation-lookup`.

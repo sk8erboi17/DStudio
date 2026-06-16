@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/coding-standards
+ds4_upstream: ecc/.agents/skills/coding-standards
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
-# Coding Standards
+# Coding Standards & Best Practices
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `coding-standards`.
-> DStudio catalog id: `ecc-coding-standards`.
 Baseline coding conventions applicable across projects.
 
 This skill is the shared floor, not the detailed framework playbook.
@@ -558,3 +557,8 @@ setTimeout(callback, DEBOUNCE_DELAY_MS)
 ```
 
 **Remember**: Code quality is not negotiable. Clear, maintainable code enables rapid development and confident refactoring.
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `coding-standards`.
+> DStudio catalog id: `ecc-coding-standards`.

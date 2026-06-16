@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/product-capability
+ds4_upstream: ecc/.agents/skills/product-capability
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Product Capability
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `product-capability`.
-> DStudio catalog id: `ecc-product-capability`.
 This skill turns product intent into explicit engineering constraints.
 
 Use it when the gap is not "what should we build?" but "what exactly must be true before implementation starts?"
@@ -149,3 +148,8 @@ HANDOFF
 - Product intent is now concrete enough to implement without rediscovering hidden constraints mid-PR.
 - Engineering review has a durable artifact instead of relying on memory or Slack context.
 - The resulting plan is reusable across Claude Code, Codex, Cursor, OpenCode, and ECC 2.0 planning surfaces.
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `product-capability`.
+> DStudio catalog id: `ecc-product-capability`.

@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/video-editing
+ds4_upstream: ecc/.agents/skills/video-editing
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Video Editing
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `video-editing`.
-> DStudio catalog id: `ecc-video-editing`.
 AI-assisted editing for real footage. Not generation from prompts. Editing existing video fast.
 
 ## When to Activate
@@ -316,3 +315,8 @@ identify the 5 most engaging 30-second clips for social media."
 - `fal-ai-media` — AI image, video, and audio generation
 - `videodb` — Server-side video processing, indexing, and streaming
 - `content-engine` — Platform-native content distribution
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `video-editing`.
+> DStudio catalog id: `ecc-video-editing`.

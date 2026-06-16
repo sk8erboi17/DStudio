@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: superpowers
-ds4_upstream: superpowers/systematic-debugging
+ds4_upstream: superpowers/skills/systematic-debugging
 ds4_source_repo: https://github.com/obra/superpowers
+ds4_source_ref: main
+ds4_source_commit: 284be5905ed540d34ce5bcde24728b9b7f413ea0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Systematic Debugging
 
-> Imported from https://github.com/obra/superpowers.
-> Original skill id: `systematic-debugging`.
-> DStudio catalog id: `superpowers-systematic-debugging`.
 ## Overview
 
 Random fixes waste time and create new bugs. Quick patches mask underlying issues.
@@ -248,7 +247,7 @@ If you catch yourself thinking:
 - "Is that not happening?" - You assumed without verifying
 - "Will it show us...?" - You should have added evidence gathering
 - "Stop guessing" - You're proposing fixes without understanding
-- "Ultrathink this" - Question fundamentals, not just symptoms
+- "Ultra-think this" - Question fundamentals, not just symptoms
 - "We're stuck?" (frustrated) - Your approach isn't working
 
 **When you see these:** STOP. Return to Phase 1.
@@ -305,3 +304,8 @@ From debugging sessions:
 - Random fixes approach: 2-3 hours of thrashing
 - First-time fix rate: 95% vs 40%
 - New bugs introduced: Near zero vs common
+
+
+> Imported from https://github.com/obra/superpowers.
+> Original skill id: `systematic-debugging`.
+> DStudio catalog id: `superpowers-systematic-debugging`.

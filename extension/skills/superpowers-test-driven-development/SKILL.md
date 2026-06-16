@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: superpowers
-ds4_upstream: superpowers/test-driven-development
+ds4_upstream: superpowers/skills/test-driven-development
 ds4_source_repo: https://github.com/obra/superpowers
+ds4_source_ref: main
+ds4_source_commit: 284be5905ed540d34ce5bcde24728b9b7f413ea0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
-# Test Driven Development
+# Test-Driven Development (TDD)
 
-> Imported from https://github.com/obra/superpowers.
-> Original skill id: `test-driven-development`.
-> DStudio catalog id: `superpowers-test-driven-development`.
 ## Overview
 
 Write the test first. Watch it fail. Write minimal code to pass.
@@ -367,7 +366,7 @@ Never fix bugs without a test.
 
 ## Testing Anti-Patterns
 
-When adding mocks or test utilities, read @testing-anti-patterns.md to avoid common pitfalls:
+When adding mocks or test utilities, read [testing-anti-patterns.md](testing-anti-patterns.md) to avoid common pitfalls:
 - Testing mock behavior instead of real behavior
 - Adding test-only methods to production classes
 - Mocking without understanding dependencies
@@ -380,3 +379,8 @@ Otherwise → not TDD
 ```
 
 No exceptions without your human partner's permission.
+
+
+> Imported from https://github.com/obra/superpowers.
+> Original skill id: `test-driven-development`.
+> DStudio catalog id: `superpowers-test-driven-development`.

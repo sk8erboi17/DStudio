@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/backend-patterns
+ds4_upstream: ecc/.agents/skills/backend-patterns
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
-# Backend Patterns
+# Backend Development Patterns
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `backend-patterns`.
-> DStudio catalog id: `ecc-backend-patterns`.
 Backend architecture patterns and best practices for scalable server-side applications.
 
 ## When to Activate
@@ -606,3 +605,8 @@ export async function GET(request: Request) {
 ```
 
 **Remember**: Backend patterns enable scalable, maintainable server-side applications. Choose patterns that fit your complexity level.
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `backend-patterns`.
+> DStudio catalog id: `ecc-backend-patterns`.

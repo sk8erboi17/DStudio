@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: superpowers
-ds4_upstream: superpowers/requesting-code-review
+ds4_upstream: superpowers/skills/requesting-code-review
 ds4_source_repo: https://github.com/obra/superpowers
+ds4_source_ref: main
+ds4_source_commit: 284be5905ed540d34ce5bcde24728b9b7f413ea0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Requesting Code Review
 
-> Imported from https://github.com/obra/superpowers.
-> Original skill id: `requesting-code-review`.
-> DStudio catalog id: `superpowers-requesting-code-review`.
 Dispatch a code reviewer subagent to catch issues before they cascade. The reviewer gets precisely crafted context for evaluation — never your session's history. This keeps the reviewer focused on the work product, not your thought process, and preserves your own context for continued work.
 
 **Core principle:** Review early, review often.
@@ -42,7 +41,7 @@ HEAD_SHA=$(git rev-parse HEAD)
 
 **2. Dispatch code reviewer subagent:**
 
-Use Task tool with `general-purpose` type, fill template at `code-reviewer.md`
+Dispatch a `general-purpose` subagent, filling the template at [code-reviewer.md](code-reviewer.md)
 
 **Placeholders:**
 - `{DESCRIPTION}` - Brief summary of what you built
@@ -111,4 +110,9 @@ You: [Fix progress indicators]
 - Show code/tests that prove it works
 - Request clarification
 
-See template at: requesting-code-review/code-reviewer.md
+See template at: [code-reviewer.md](code-reviewer.md)
+
+
+> Imported from https://github.com/obra/superpowers.
+> Original skill id: `requesting-code-review`.
+> DStudio catalog id: `superpowers-requesting-code-review`.

@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/nextjs-turbopack
+ds4_upstream: ecc/.agents/skills/nextjs-turbopack
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
-# Nextjs Turbopack
+# Next.js and Turbopack
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `nextjs-turbopack`.
-> DStudio catalog id: `ecc-nextjs-turbopack`.
 Next.js 16+ uses Turbopack by default for local development: an incremental bundler written in Rust that significantly speeds up dev startup and hot updates.
 
 ## When to Use
@@ -52,3 +51,8 @@ Run `next dev` for local development with Turbopack. Use the Bundle Analyzer (se
 - Stay on a recent Next.js 16.x for stable Turbopack and caching behavior.
 - If dev is slow, ensure you're on Turbopack (default) and that the cache isn't being cleared unnecessarily.
 - For production bundle size issues, use the official Next.js bundle analysis tooling for your version.
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `nextjs-turbopack`.
+> DStudio catalog id: `ecc-nextjs-turbopack`.

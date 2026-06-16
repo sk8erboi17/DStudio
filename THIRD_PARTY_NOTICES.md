@@ -63,6 +63,7 @@ license files in place.
 DStudio includes selected Agent skill packs imported from ECC.
 
 - Source: https://github.com/affaan-m/ECC
+- Imported from commit: `e25f2d463383a98ab40e627288dd123e005fd8e0`
 - License: MIT
 - Local license copy: `extension/skills/_licenses/ecc-MIT.txt`
 - Imported location:
@@ -77,6 +78,7 @@ frontmatter metadata plus attribution.
 DStudio includes Agent workflow skill packs imported from Superpowers.
 
 - Source: https://github.com/obra/superpowers
+- Imported from commit: `284be5905ed540d34ce5bcde24728b9b7f413ea0`
 - Copyright: 2025 Jesse Vincent
 - License: MIT
 - Local license copy: `extension/skills/_licenses/superpowers-MIT.txt`
@@ -93,6 +95,7 @@ DStudio includes an Agent skill adapted from Anthropic's Claude Code Security
 Review slash command.
 
 - Source: https://github.com/anthropics/claude-code-security-review
+- Imported from commit: `0c6a49f1fa56a1d472575da86a94dbc1edb78eda`
 - Copyright: 2025 Anthropic, PBC
 - License: MIT
 - Local license copy: `extension/skills/_licenses/anthropic-claude-code-security-review-MIT.txt`

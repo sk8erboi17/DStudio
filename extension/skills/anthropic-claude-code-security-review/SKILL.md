@@ -10,6 +10,7 @@ ds4_provider: anthropic
 ds4_upstream: claude-code-security-review/.claude/commands/security-review.md
 ds4_source_repo: https://github.com/anthropics/claude-code-security-review
 ds4_modified_notice: Adapted from a Claude Code slash command into a DStudio/DS4 Agent skill.
+ds4_source_commit: 0c6a49f1fa56a1d472575da86a94dbc1edb78eda
 ---
 
 # Claude Code Security Review

@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/security-review
+ds4_upstream: ecc/.agents/skills/security-review
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
-# Security Review
+# Security Review Skill
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `security-review`.
-> DStudio catalog id: `ecc-security-review`.
 This skill ensures all code follows security best practices and identifies potential vulnerabilities.
 
 ## When to Activate
@@ -34,7 +33,7 @@ This skill ensures all code follows security best practices and identifies poten
 
 #### FAIL: NEVER Do This
 ```typescript
-const apiKey = "OPENAI_API_KEY_PLACEHOLDER"  // Hardcoded secret
+const apiKey = "sk-proj-xxxxx"  // Hardcoded secret
 const dbPassword = "password123" // In source code
 ```
 
@@ -503,3 +502,8 @@ Before ANY production deployment:
 ---
 
 **Remember**: Security is not optional. One vulnerability can compromise the entire platform. When in doubt, err on the side of caution.
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `security-review`.
+> DStudio catalog id: `ecc-security-review`.

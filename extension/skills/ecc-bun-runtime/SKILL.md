@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/bun-runtime
+ds4_upstream: ecc/.agents/skills/bun-runtime
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Bun Runtime
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `bun-runtime`.
-> DStudio catalog id: `ecc-bun-runtime`.
 Bun is a fast all-in-one JavaScript runtime and toolkit: runtime, package manager, bundler, and test runner.
 
 ## When to Use
@@ -92,3 +91,8 @@ Bun.serve({
 - Commit the lockfile (`bun.lock` or `bun.lockb`) for reproducible installs.
 - Prefer `bun run` for scripts. For TypeScript, Bun runs `.ts` natively.
 - Keep dependencies up to date; Bun and the ecosystem evolve quickly.
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `bun-runtime`.
+> DStudio catalog id: `ecc-bun-runtime`.

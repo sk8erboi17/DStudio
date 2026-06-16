@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/agent-sort
+ds4_upstream: ecc/.agents/skills/agent-sort
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Agent Sort
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `agent-sort`.
-> DStudio catalog id: `ecc-agent-sort`.
 Use this skill when a repo needs a project-specific ECC surface instead of the default full install.
 
 The goal is not to guess what "feels useful." The goal is to classify ECC components with evidence from the actual codebase.
@@ -223,3 +222,8 @@ INSTALL PLAN
 VERIFICATION
 - checks run and remaining gaps
 ```
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `agent-sort`.
+> DStudio catalog id: `ecc-agent-sort`.

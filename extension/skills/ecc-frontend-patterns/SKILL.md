@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/frontend-patterns
+ds4_upstream: ecc/.agents/skills/frontend-patterns
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
-# Frontend Patterns
+# Frontend Development Patterns
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `frontend-patterns`.
-> DStudio catalog id: `ecc-frontend-patterns`.
 Modern frontend patterns for React, Next.js, and performant user interfaces.
 
 ## When to Activate
@@ -670,3 +669,8 @@ export function Modal({ isOpen, onClose, children }: ModalProps) {
 ```
 
 **Remember**: Modern frontend patterns enable maintainable, performant user interfaces. Choose patterns that fit your project complexity.
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `frontend-patterns`.
+> DStudio catalog id: `ecc-frontend-patterns`.

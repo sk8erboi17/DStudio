@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/brand-voice
+ds4_upstream: ecc/.agents/skills/brand-voice
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Brand Voice
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `brand-voice`.
-> DStudio catalog id: `ecc-brand-voice`.
 Build a durable voice profile from real source material, then use that profile everywhere instead of re-deriving style from scratch or defaulting to generic AI copy.
 
 ## When to Activate
@@ -105,3 +104,8 @@ Use this skill before or inside:
 - cold or warm outbound across X, LinkedIn, and email
 
 If another skill already has a partial voice capture section, this skill is the canonical source of truth.
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `brand-voice`.
+> DStudio catalog id: `ecc-brand-voice`.

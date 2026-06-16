@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/eval-harness
+ds4_upstream: ecc/.agents/skills/eval-harness
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
-# Eval Harness
+# Eval Harness Skill
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `eval-harness`.
-> DStudio catalog id: `ecc-eval-harness`.
 A formal evaluation framework for Claude Code sessions, implementing eval-driven development (EDD) principles.
 
 ## When to Activate
@@ -243,3 +242,8 @@ Capability: 5/5 passed (pass@3: 100%)
 Regression: 3/3 passed (pass^3: 100%)
 Status: SHIP IT
 ```
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `eval-harness`.
+> DStudio catalog id: `ecc-eval-harness`.

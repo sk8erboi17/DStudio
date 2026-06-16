@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/investor-outreach
+ds4_upstream: ecc/.agents/skills/investor-outreach
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Investor Outreach
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `investor-outreach`.
-> DStudio catalog id: `ecc-investor-outreach`.
 Write investor communication that is short, concrete, and easy to act on.
 
 ## When to Activate
@@ -99,3 +98,8 @@ Before delivering:
 - the proof point is concrete
 - filler praise and softener language are gone
 - word count stays tight
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `investor-outreach`.
+> DStudio catalog id: `ecc-investor-outreach`.

@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/frontend-slides
+ds4_upstream: ecc/.agents/skills/frontend-slides
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Frontend Slides
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `frontend-slides`.
-> DStudio catalog id: `ecc-frontend-slides`.
 Create zero-dependency, animation-rich HTML presentations that run entirely in the browser.
 
 Inspired by the visual exploration approach showcased in work by [zarazhangrui](https://github.com/zarazhangrui).
@@ -192,3 +191,8 @@ Use these maxima unless the user explicitly asks for denser slides and readabili
 - animation is meaningful, not noisy
 - reduced motion is respected
 - file paths and customization points are explained at handoff
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `frontend-slides`.
+> DStudio catalog id: `ecc-frontend-slides`.

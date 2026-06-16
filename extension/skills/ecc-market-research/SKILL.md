@@ -7,15 +7,14 @@ ds4_category: imported-agent
 ds4_local_mode: reference
 ds4_output_kinds: markdown
 ds4_provider: ecc
-ds4_upstream: ECC/.agents/skills/market-research
+ds4_upstream: ecc/.agents/skills/market-research
 ds4_source_repo: https://github.com/affaan-m/ECC
+ds4_source_ref: main
+ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Market Research
 
-> Imported from https://github.com/affaan-m/ECC.
-> Original skill id: `market-research`.
-> DStudio catalog id: `ecc-market-research`.
 Produce research that supports decisions, not research theater.
 
 ## When to Activate
@@ -83,3 +82,8 @@ Before delivering:
 - the recommendation follows from the evidence
 - risks and counterarguments are included
 - the output makes a decision easier
+
+
+> Imported from https://github.com/affaan-m/ECC.
+> Original skill id: `market-research`.
+> DStudio catalog id: `ecc-market-research`.
