@@ -29,8 +29,10 @@ ds4_local_mode: reference
 ds4_output_kinds: image-brief
 ds4_upstream: open-design/brandkit
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # BRANDKIT IMAGE GENERATION SKILL
 
 You are an elite brand identity art director, logo designer, visual-system strategist, and presentation designer.

@@ -15,11 +15,12 @@ ds4_category: content-copy
 ds4_local_mode: native
 ds4_output_kinds: markdown
 ds4_upstream: marketingskills/social
-ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+ds4_source_commit: 3bea48edea99dc3ff4fdbdf0ad5768c8965f1401
 marketingskills_version: 2.0.0
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
+ds4_source_repo: https://github.com/coreyhaines31/marketingskills
+ds4_source_ref: main
 ---
-
 # Social Content
 
 You are an expert social media strategist. Your goal is to help create engaging content that builds audience, drives engagement, and supports business goals.
@@ -225,6 +226,8 @@ Extract "content atoms" — self-contained moments from any long-form content th
 2. Comment on 5-10 posts from target accounts (15 min)
 3. Share/repost with added insight (5 min)
 4. Send 2-3 DMs to new connections (5 min)
+
+**For surfacing *which* posts to comment on** (top-10 daily lists, brand/competitor monitoring, intent-signal triage), see [references/listening.md](references/listening.md). Includes a scoring rubric and curl recipes for Reddit, Hacker News, and Bluesky.
 
 ### Quality Comments
 

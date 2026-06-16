@@ -18,8 +18,10 @@ ds4_output_kinds: audio-script
 ds4_provider: venice
 ds4_upstream: open-design/venice-audio-speech
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # venice-audio-speech
 
 > Curated from the Venice.ai team.

@@ -1,0 +1,1071 @@
+/* ---- RSA: reverse structure analysis pipeline -------------------------------
+ * RSA is a general website reverse-structure mode. It is not GSA and does not
+ * produce security verdicts. The primary artifact is STRUCTURE.MD in the chosen
+ * workspace, enriched from passive public evidence.
+ *
+ * This file intentionally reuses the optional tool status machinery from GSA:
+ * RSA and GSA share the same managed tools and PATH setup, but keep separate
+ * run directories and prompts. */
+
+static const char *RSA_SKILL_IDS[] = {
+    "rsa-structure-reconstruction",
+    "rsa-frontend-api-map",
+    "rsa-media-storage-pipeline",
+    "rsa-product-system-model",
+    NULL
+};
+
+static int rsa_phase_ok(const char *phase) {
+    return phase && (!strcmp(phase, "inventory") ||
+                     !strcmp(phase, "capture") ||
+                     !strcmp(phase, "structure") ||
+                     !strcmp(phase, "review"));
+}
+
+static const char *rsa_next_phase_name(const char *phase) {
+    if (!strcmp(phase, "inventory")) return "capture";
+    if (!strcmp(phase, "capture")) return "structure";
+    if (!strcmp(phase, "structure")) return "review";
+    return "";
+}
+
+static int rsa_write_run_state(const char *run_dir, const char *run_id,
+                               const char *status, const char *phase,
+                               int iteration, const char *parent_run_dir,
+                               const char *target_url, const char *target_host,
+                               const char *structure_path,
+                               const char *error, const char *profile_requested_override,
+                               const char *profile_effective_override,
+                               char *err, size_t errsz) {
+    long long now = dstudio_now_ms();
+    long long started = gsa_state_long_field(run_dir, "startedMs", now);
+    if (iteration <= 0) iteration = (int)gsa_state_long_field(run_dir, "iteration", 1);
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s/run_state.json", run_dir);
+    char scope_path[PATH_MAX] = "", safety_path[PATH_MAX] = "";
+    char profile_requested[80] = "", profile_effective[80] = "";
+    snprintf(scope_path, sizeof scope_path, "%s/scope.json", run_dir);
+    snprintf(safety_path, sizeof safety_path, "%s/safety-gate.json", run_dir);
+    if (profile_requested_override && profile_requested_override[0]) {
+        cstr_copy(profile_requested, sizeof profile_requested, gsa_security_profile_normalize(profile_requested_override));
+    }
+    if (profile_effective_override && profile_effective_override[0]) {
+        cstr_copy(profile_effective, sizeof profile_effective, gsa_security_profile_normalize(profile_effective_override));
+    }
+    if (!profile_requested[0]) {
+        gsa_artifact_string_field(run_dir, "scope.json", "profileRequested", profile_requested, sizeof profile_requested);
+    }
+    if (!profile_effective[0]) {
+        gsa_artifact_string_field(run_dir, "safety-gate.json", "profileEffective", profile_effective, sizeof profile_effective);
+    }
+    if (!profile_requested[0]) {
+        gsa_state_string_field(run_dir, "profileRequested", profile_requested, sizeof profile_requested);
+    }
+    if (!profile_effective[0]) {
+        gsa_state_string_field(run_dir, "profileEffective", profile_effective, sizeof profile_effective);
+    }
+    if (!profile_requested[0]) cstr_copy(profile_requested, sizeof profile_requested, "passive");
+    if (!profile_effective[0]) cstr_copy(profile_effective, sizeof profile_effective, profile_requested);
+    if (!gsa_profile_uses_scope_gate(profile_effective)) {
+        scope_path[0] = '\0';
+        safety_path[0] = '\0';
+    }
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "{\n  \"module\": \"rsa\",\n  \"runId\": ") &&
+             json_dyn_put_escaped(&b, run_id ? run_id : "") &&
+             json_dyn_puts(&b, ",\n  \"status\": ") &&
+             json_dyn_put_escaped(&b, status ? status : "incomplete") &&
+             json_dyn_puts(&b, ",\n  \"phase\": ") &&
+             json_dyn_put_escaped(&b, phase ? phase : "start") &&
+             json_dyn_printf(&b, ",\n  \"iteration\": %d,\n  \"startedMs\": %lld,\n  \"updatedMs\": %lld,\n  \"completedMs\": %lld,\n  \"parentRunDir\": ",
+                             iteration, started, now, status && !strcmp(status, "complete") ? now : 0) &&
+             json_dyn_put_escaped(&b, parent_run_dir ? parent_run_dir : "") &&
+             json_dyn_puts(&b, ",\n  \"targetUrl\": ") &&
+             json_dyn_put_escaped(&b, target_url ? target_url : "") &&
+             json_dyn_puts(&b, ",\n  \"targetHost\": ") &&
+             json_dyn_put_escaped(&b, target_host ? target_host : "") &&
+             json_dyn_puts(&b, ",\n  \"structurePath\": ") &&
+             json_dyn_put_escaped(&b, structure_path ? structure_path : "") &&
+             json_dyn_puts(&b, ",\n  \"profileRequested\": ") &&
+             json_dyn_put_escaped(&b, profile_requested) &&
+             json_dyn_puts(&b, ",\n  \"profileEffective\": ") &&
+             json_dyn_put_escaped(&b, profile_effective) &&
+             json_dyn_puts(&b, ",\n  \"scopePath\": ") &&
+             json_dyn_put_escaped(&b, scope_path) &&
+             json_dyn_puts(&b, ",\n  \"safetyGatePath\": ") &&
+             json_dyn_put_escaped(&b, safety_path) &&
+             json_dyn_puts(&b, ",\n  \"error\": ") &&
+             json_dyn_put_escaped(&b, error ? error : "") &&
+             json_dyn_puts(&b, "\n}\n");
+    if (!ok || !jsonl_write_file(path, b.ptr ? b.ptr : "", b.len)) {
+        snprintf(err, errsz, "could not write RSA run state: %s", strerror(errno));
+        free(b.ptr);
+        return 0;
+    }
+    free(b.ptr);
+    return 1;
+}
+
+static int rsa_validate_parent_run_dir(const char *workdir_abs, const char *raw,
+                                       char *out, size_t outsz,
+                                       char *err, size_t errsz) {
+    if (out && outsz) out[0] = '\0';
+    if (!raw || !raw[0]) return 1;
+    char runs[PATH_MAX], real_runs[PATH_MAX], real_parent[PATH_MAX];
+    snprintf(runs, sizeof runs, "%s/.dstudio/rsa/runs", workdir_abs);
+    if (!realpath(runs, real_runs)) {
+        snprintf(err, errsz, "RSA runs directory does not exist for loop parent");
+        return 0;
+    }
+    if (!realpath(raw, real_parent)) {
+        snprintf(err, errsz, "parentRunDir not found");
+        return 0;
+    }
+    if (!gsa_path_under(real_parent, real_runs)) {
+        snprintf(err, errsz, "parentRunDir must be inside this workspace RSA runs directory");
+        return 0;
+    }
+    const char *base = strrchr(real_parent, '/');
+#ifdef _WIN32
+    const char *b2 = strrchr(real_parent, '\\');
+    if (!base || (b2 && b2 > base)) base = b2;
+#endif
+    base = base ? base + 1 : real_parent;
+    if (!gsa_run_id_ok(base)) {
+        snprintf(err, errsz, "parentRunDir has an invalid run id");
+        return 0;
+    }
+    char status[64] = "";
+    if (!gsa_state_string_field(real_parent, "status", status, sizeof status) ||
+        strcmp(status, "complete") != 0)
+    {
+        snprintf(err, errsz, "previous RSA run is incomplete; loop stopped before starting another run");
+        return 0;
+    }
+    if (out && outsz) cstr_copy(out, outsz, real_parent);
+    return 1;
+}
+
+static int rsa_seed_structure_md(const char *structure_path, const char *target_url,
+                                 char *err, size_t errsz) {
+    struct stat st;
+    if (stat(structure_path, &st) == 0 && S_ISREG(st.st_mode)) return 1;
+    json_dyn_buf b = {0};
+    int ok = json_dyn_printf(&b,
+        "# Reverse Structure Analysis\n\n"
+        "Target: %s\n\n"
+        "This file is maintained by RSA. Claims must be labeled `[VERIFIED]`, `[INFERRED]`, or `[UNKNOWN]`.\n\n"
+        "## 1. Public Surface Inventory\n\n### Purpose\nMap visible pages, routes, public assets, forms, and browser behaviors.\n\n### Findings\n- [UNKNOWN] Not enriched yet.\n\n### Evidence\n- Pending RSA evidence capture.\n\n### Structure Interpretation\nPending.\n\n### Confidence\nLow: not enriched yet.\n\n### Open Questions\n- What public pages and flows exist?\n\n"
+        "## 2. Frontend Architecture\n\n### Purpose\nIdentify rendering model, routing, client state, framework/build evidence, styling, responsiveness, and performance clues.\n\n### Findings\n- [UNKNOWN] Not enriched yet.\n\n### Evidence\n- Pending RSA evidence capture.\n\n### Structure Interpretation\nPending.\n\n### Confidence\nLow: not enriched yet.\n\n### Open Questions\n- What frontend stack is directly evidenced?\n\n"
+        "## 3. Public API Surface\n\n### Purpose\nMap public requests made during normal navigation and visible request/response shapes.\n\n### Findings\n- [UNKNOWN] Not enriched yet.\n\n### Evidence\n- Pending RSA evidence capture.\n\n### Structure Interpretation\nPending.\n\n### Confidence\nLow: not enriched yet.\n\n### Open Questions\n- Which public endpoints exist and which require authentication?\n\n"
+        "## 4. Authentication And Account Model\n\n### Purpose\nUnderstand visible login, signup, session, OAuth, account, and gate behavior.\n\n### Findings\n- [UNKNOWN] Not enriched yet.\n\n### Evidence\n- Pending RSA evidence capture.\n\n### Structure Interpretation\nPending.\n\n### Confidence\nLow: not enriched yet.\n\n### Open Questions\n- Which account flows are visible from public evidence?\n\n"
+        "## 5. Product Workflows\n\n### Purpose\nMap core user journeys, object pages, search/discovery flows, uploads/downloads, dashboards, and gated actions.\n\n### Findings\n- [UNKNOWN] Not enriched yet.\n\n### Evidence\n- Pending RSA evidence capture.\n\n### Structure Interpretation\nPending.\n\n### Confidence\nLow: not enriched yet.\n\n### Open Questions\n- What workflows are visible without private access?\n\n"
+        "## 6. Data Model Inference\n\n### Purpose\nInfer product entities only from public fields, URLs, metadata, and request/response bodies.\n\n### Findings\n- [UNKNOWN] Not enriched yet.\n\n### Evidence\n- Pending RSA evidence capture.\n\n### Structure Interpretation\nPending.\n\n### Confidence\nLow: not enriched yet.\n\n### Open Questions\n- Which entities are directly visible?\n\n"
+        "## 7. Storage, Media, And Delivery\n\n### Purpose\nMap public asset/media/download/CDN/storage clues.\n\n### Findings\n- [UNKNOWN] Not enriched yet.\n\n### Evidence\n- Pending RSA evidence capture.\n\n### Structure Interpretation\nPending.\n\n### Confidence\nLow: not enriched yet.\n\n### Open Questions\n- What storage and delivery components are externally visible?\n\n"
+        "## 8. Infrastructure Clues\n\n### Purpose\nRecord hosting, CDN, cache, headers, cookies, analytics, monitoring, and third-party services as public evidence.\n\n### Findings\n- [UNKNOWN] Not enriched yet.\n\n### Evidence\n- Pending RSA evidence capture.\n\n### Structure Interpretation\nPending.\n\n### Confidence\nLow: not enriched yet.\n\n### Open Questions\n- Which infrastructure components are externally verifiable?\n\n"
+        "## 9. System Design Diagram\n\n### Purpose\nMaintain a Mermaid diagram of verified and inferred components.\n\n```mermaid\nflowchart LR\n  Browser[Browser - verified public client]\n  Website[Public website - verified]\n  UnknownBackend[Backend boundary - unknown]\n  Browser --> Website\n  Website --> UnknownBackend\n```\n\n"
+        "## 10. Unknowns And Verification Plan\n\n### Purpose\nTrack what cannot be known externally and what evidence would verify it.\n\n### Findings\n- [UNKNOWN] Not enriched yet.\n\n### Evidence\n- Pending RSA evidence capture.\n\n### Structure Interpretation\nPending.\n\n### Confidence\nLow: not enriched yet.\n\n### Open Questions\n- What requires authenticated access or internal access?\n",
+        target_url && target_url[0] ? target_url : "(none)");
+    if (!ok || !jsonl_write_file(structure_path, b.ptr ? b.ptr : "", b.len)) {
+        snprintf(err, errsz, "could not create STRUCTURE.MD: %s", strerror(errno));
+        free(b.ptr);
+        return 0;
+    }
+    free(b.ptr);
+    return 1;
+}
+
+static int rsa_write_skill_catalog(const char *run_dir, char *err, size_t errsz,
+                                   json_dyn_buf *prompt_list, int *out_count) {
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s/skills.md", run_dir);
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        snprintf(err, errsz, "could not write RSA skills catalog: %s", strerror(errno));
+        return 0;
+    }
+    fprintf(f, "# RSA skill catalog\n\n");
+    fprintf(f, "These are the RSA-specific skills available for this run. This list is fixed; it is not ranked or inferred.\n\n");
+    int count = 0;
+    for (int i = 0; RSA_SKILL_IDS[i]; i++) {
+        const char *id = RSA_SKILL_IDS[i];
+        fprintf(f, "- `%s`\n", id);
+        if (!json_dyn_puts(prompt_list, "- ") ||
+            !json_dyn_puts(prompt_list, id) ||
+            !json_dyn_puts(prompt_list, "\n"))
+        {
+            fclose(f);
+            snprintf(err, errsz, "could not build RSA skill prompt list");
+            return 0;
+        }
+        count++;
+    }
+    fclose(f);
+    if (out_count) *out_count = count;
+    return 1;
+}
+
+static int rsa_write_empty_artifacts(const char *run_dir, char *err, size_t errsz) {
+    char evidence[PATH_MAX], claims[PATH_MAX], manifest[PATH_MAX], scripts[PATH_MAX], readme[PATH_MAX];
+    char collectors[PATH_MAX], route_graph[PATH_MAX], claim_audit[PATH_MAX], quality_gate[PATH_MAX];
+    snprintf(evidence, sizeof evidence, "%s/evidence.jsonl", run_dir);
+    snprintf(claims, sizeof claims, "%s/claims.jsonl", run_dir);
+    snprintf(manifest, sizeof manifest, "%s/scripts_manifest.json", run_dir);
+    snprintf(scripts, sizeof scripts, "%s/scripts", run_dir);
+    snprintf(collectors, sizeof collectors, "%s/collectors.json", run_dir);
+    snprintf(route_graph, sizeof route_graph, "%s/route-graph.json", run_dir);
+    snprintf(claim_audit, sizeof claim_audit, "%s/claim-audit.json", run_dir);
+    snprintf(quality_gate, sizeof quality_gate, "%s/quality-gate.json", run_dir);
+    mkpath(scripts);
+    snprintf(readme, sizeof readme, "%s/README.md", scripts);
+    static const char ev[] = "";
+    static const char collector_manifest[] =
+        "{\n"
+        "  \"profile\": \"public-deep\",\n"
+        "  \"deterministicCollectors\": [\n"
+        "    {\"id\":\"html_inventory\",\"purpose\":\"Capture public HTML, headings, forms, links, scripts, styles and metadata.\"},\n"
+        "    {\"id\":\"asset_inventory\",\"purpose\":\"Catalog first-party and visible third-party scripts, styles, images, fonts and media assets.\"},\n"
+        "    {\"id\":\"network_har\",\"purpose\":\"Record normal-navigation requests, methods, status codes, resource types and response headers.\"},\n"
+        "    {\"id\":\"robots_parser\",\"purpose\":\"Read robots.txt as public routing evidence.\"},\n"
+        "    {\"id\":\"sitemap_sampler\",\"purpose\":\"Sample sitemap URLs without aggressive crawling.\"},\n"
+        "    {\"id\":\"js_endpoint_extractor\",\"purpose\":\"Extract endpoint-like routes from public JavaScript bundles.\"},\n"
+        "    {\"id\":\"storage_url_extractor\",\"purpose\":\"Detect object-storage, CDN, video, download and signed URL patterns.\"},\n"
+        "    {\"id\":\"cookie_storage_snapshot\",\"purpose\":\"Capture public cookies, localStorage and sessionStorage names/values that normal navigation exposes.\"},\n"
+        "    {\"id\":\"spa_runtime_probe\",\"purpose\":\"Detect heavy SPA/runtime markers, hydration data, chunking and client routing.\"},\n"
+        "    {\"id\":\"auth_surface_probe\",\"purpose\":\"Map visible login/signup/OAuth/account gates without bypassing authentication.\"},\n"
+        "    {\"id\":\"media_player_probe\",\"purpose\":\"Detect video players, HLS/DASH manifests, player libraries and media delivery clues.\"},\n"
+        "    {\"id\":\"route_graph_builder\",\"purpose\":\"Build a graph from pages, assets, APIs, storage/media URLs and JS-discovered routes.\"},\n"
+        "    {\"id\":\"claim_evidence_audit\",\"purpose\":\"Compare generated claims against evidence references before review completion.\"}\n"
+        "  ]\n"
+        "}\n";
+    static const char empty_route_graph[] = "{\n  \"nodes\": [],\n  \"edges\": [],\n  \"generatedBy\": \"rsa-runtime-seed\"\n}\n";
+    static const char empty_audit[] = "{\n  \"status\": \"not_run\",\n  \"claims\": 0,\n  \"evidenceRefs\": 0,\n  \"unsupportedRisks\": []\n}\n";
+    static const char empty_gate[] = "{\n  \"status\": \"not_run\",\n  \"pass\": false,\n  \"checks\": []\n}\n";
+    static const char man[] =
+        "{\n"
+        "  \"scripts\": [],\n"
+        "  \"note\": \"RSA is tool-assisted. Use scripts only for bounded public evidence capture or deterministic parsing. Do not scan, fuzz, brute force, or call private endpoints outside normal navigation. If a selected external tool fails from bad flags, parameters, input shape or timeout, record it in tool-retry-ledger.jsonl and retry the same tool with corrected arguments or timeout budget before using any substitute. Normalize reusable observations into the matching workbench-*.jsonl artifact.\"\n"
+        "}\n";
+    static const char rd[] =
+        "# RSA scripts\n\n"
+        "Save bounded Playwright traces, screenshots, HTTP header captures, or parser outputs here when useful.\n"
+        "Each script must document the public URL/input it used and whether evidence is VERIFIED, INFERRED, or UNKNOWN.\n"
+        "If any external tool fails because flags, parameters, input format, usage or timeout were wrong, update ../tool-retry-ledger.jsonl, inspect that same tool help when useful, and retry that same tool with corrected arguments or timeout budget before using curl, wget, Python, or another substitute.\n"
+        "When a script or tool produces reusable evidence, append a normalized row to the matching ../workbench-*.jsonl file and link important rows from ../evidence.jsonl or ../claims.jsonl.\n";
+    if (!jsonl_write_file(evidence, ev, strlen(ev)) ||
+        !jsonl_write_file(claims, ev, strlen(ev)) ||
+        !jsonl_write_file(manifest, man, strlen(man)) ||
+        !jsonl_write_file(readme, rd, strlen(rd)) ||
+        !jsonl_write_file(collectors, collector_manifest, strlen(collector_manifest)) ||
+        !jsonl_write_file(route_graph, empty_route_graph, strlen(empty_route_graph)) ||
+        !jsonl_write_file(claim_audit, empty_audit, strlen(empty_audit)) ||
+        !jsonl_write_file(quality_gate, empty_gate, strlen(empty_gate)))
+    {
+        snprintf(err, errsz, "could not write RSA artifacts: %s", strerror(errno));
+        return 0;
+    }
+    return 1;
+}
+
+static int rsa_count_substr(const char *haystack, const char *needle) {
+    if (!haystack || !needle || !needle[0]) return 0;
+    int n = 0;
+    const char *p = haystack;
+    size_t len = strlen(needle);
+    while ((p = strstr(p, needle))) {
+        n++;
+        p += len;
+    }
+    return n;
+}
+
+static int rsa_file_nonempty(const char *path) {
+    struct stat st;
+    return path && stat(path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0;
+}
+
+static int rsa_write_claim_audit(const char *run_dir, const char *structure_path,
+                                 char *err, size_t errsz) {
+    char capture_path[PATH_MAX], structure_json_path[PATH_MAX], evidence_path[PATH_MAX], audit_path[PATH_MAX];
+    snprintf(capture_path, sizeof capture_path, "%s/capture.json", run_dir);
+    snprintf(structure_json_path, sizeof structure_json_path, "%s/structure.json", run_dir);
+    snprintf(evidence_path, sizeof evidence_path, "%s/evidence.jsonl", run_dir);
+    snprintf(audit_path, sizeof audit_path, "%s/claim-audit.json", run_dir);
+
+    size_t structure_len = 0, capture_len = 0, structure_json_len = 0, evidence_len = 0;
+    char *structure = jsonl_read_file(structure_path, &structure_len);
+    char *capture = jsonl_read_file(capture_path, &capture_len);
+    char *structure_json = jsonl_read_file(structure_json_path, &structure_json_len);
+    char *evidence = jsonl_read_file(evidence_path, &evidence_len);
+
+    int verified = rsa_count_substr(structure, "[VERIFIED]");
+    int inferred = rsa_count_substr(structure, "[INFERRED]");
+    int unknown = rsa_count_substr(structure, "[UNKNOWN]");
+    int structure_claims = rsa_count_substr(structure_json, "\"section\"");
+    int capture_evidence = rsa_count_substr(capture, "\"evidence\"");
+    int jsonl_evidence = evidence_len > 0 ? rsa_count_substr(evidence, "\n") + 1 : 0;
+    int evidence_refs = capture_evidence + jsonl_evidence + rsa_count_substr(structure_json, "\"evidence\"");
+    int has_unsupported_risk = (verified + inferred) > 0 && evidence_refs == 0;
+
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "{\n  \"status\": \"complete\",\n") &&
+             json_dyn_printf(&b, "  \"structureLabelCounts\": {\"verified\": %d, \"inferred\": %d, \"unknown\": %d},\n", verified, inferred, unknown) &&
+             json_dyn_printf(&b, "  \"structurePhaseClaims\": %d,\n  \"evidenceRefs\": %d,\n", structure_claims, evidence_refs) &&
+             json_dyn_printf(&b, "  \"captureEvidenceItems\": %d,\n  \"evidenceJsonlLines\": %d,\n", capture_evidence, jsonl_evidence) &&
+             json_dyn_puts(&b, "  \"unsupportedRisks\": [") &&
+             (has_unsupported_risk ? json_dyn_puts(&b, "\"verified_or_inferred_claims_without_evidence_reference\"") : 1) &&
+             json_dyn_puts(&b, "],\n  \"notes\": \"Automatic audit compares labels/claims against captured evidence artifacts. It is a guardrail, not a substitute for reviewer judgment.\"\n}\n");
+    free(structure);
+    free(capture);
+    free(structure_json);
+    free(evidence);
+    if (!ok || !jsonl_write_file(audit_path, b.ptr ? b.ptr : "", b.len)) {
+        snprintf(err, errsz, "could not write RSA claim audit: %s", strerror(errno));
+        free(b.ptr);
+        return 0;
+    }
+    free(b.ptr);
+    return 1;
+}
+
+static int rsa_write_quality_gate(const char *run_dir, const char *structure_path,
+                                  const char *review_output, int *out_pass,
+                                  char *err, size_t errsz) {
+    char capture_path[PATH_MAX], structure_json_path[PATH_MAX], gate_path[PATH_MAX], audit_path[PATH_MAX], route_path[PATH_MAX];
+    snprintf(capture_path, sizeof capture_path, "%s/capture.json", run_dir);
+    snprintf(structure_json_path, sizeof structure_json_path, "%s/structure.json", run_dir);
+    snprintf(gate_path, sizeof gate_path, "%s/quality-gate.json", run_dir);
+    snprintf(audit_path, sizeof audit_path, "%s/claim-audit.json", run_dir);
+    snprintf(route_path, sizeof route_path, "%s/route-graph.json", run_dir);
+
+    size_t structure_len = 0, capture_len = 0, structure_json_len = 0, review_len = review_output ? strlen(review_output) : 0;
+    char *structure = jsonl_read_file(structure_path, &structure_len);
+    char *capture = jsonl_read_file(capture_path, &capture_len);
+    char *structure_json = jsonl_read_file(structure_json_path, &structure_json_len);
+
+    char review_status[64] = "";
+    json_get_string(review_output ? review_output : "", "status", review_status, sizeof review_status);
+    int structure_exists = structure && structure_len > 32;
+    int labels_present = structure && (strstr(structure, "[VERIFIED]") || strstr(structure, "[INFERRED]") || strstr(structure, "[UNKNOWN]"));
+    int capture_has_evidence = capture && strstr(capture, "\"evidence\"");
+    int structure_has_claims = structure_json && strstr(structure_json, "\"claims\"");
+    int review_has_unknowns = review_output && (strstr(review_output, "\"remainingUnknowns\"") || strstr(review_output, "\"unknowns\""));
+    int review_complete = !strcmp(review_status, "complete");
+    int route_graph_exists = rsa_file_nonempty(route_path);
+    int audit_exists = rsa_file_nonempty(audit_path);
+    int no_prompt_leak = structure && !strstr(structure, ".prompt.md");
+    int no_security_verdict = structure && !strstr(structure, "vulnerability assessment") && !strstr(structure, "security verdict");
+    int pass = structure_exists && labels_present && capture_has_evidence &&
+               structure_has_claims && review_has_unknowns && review_complete &&
+               route_graph_exists && audit_exists && no_prompt_leak && no_security_verdict;
+    if (out_pass) *out_pass = pass;
+
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "{\n  \"status\": \"complete\",\n") &&
+             json_dyn_printf(&b, "  \"pass\": %s,\n  \"score\": %d,\n  \"total\": 10,\n  \"checks\": [\n",
+                             pass ? "true" : "false",
+                             structure_exists + labels_present + capture_has_evidence +
+                             structure_has_claims + review_has_unknowns + review_complete +
+                             route_graph_exists + audit_exists + no_prompt_leak + no_security_verdict);
+#define RSA_GATE_CHECK(ID, OK, MSG) \
+    ok = ok && json_dyn_puts(&b, "    {\"id\":\"" ID "\",\"pass\":") && \
+         json_dyn_puts(&b, (OK) ? "true" : "false") && \
+         json_dyn_puts(&b, ",\"message\":") && json_dyn_put_escaped(&b, MSG) && json_dyn_puts(&b, "}")
+    RSA_GATE_CHECK("structure_exists", structure_exists, "STRUCTURE.MD exists and is non-empty");
+    ok = ok && json_dyn_puts(&b, ",\n");
+    RSA_GATE_CHECK("labels_present", labels_present, "STRUCTURE.MD contains VERIFIED/INFERRED/UNKNOWN labels");
+    ok = ok && json_dyn_puts(&b, ",\n");
+    RSA_GATE_CHECK("capture_evidence_present", capture_has_evidence, "capture.json contains evidence items");
+    ok = ok && json_dyn_puts(&b, ",\n");
+    RSA_GATE_CHECK("claims_present", structure_has_claims, "structure.json contains a claims ledger");
+    ok = ok && json_dyn_puts(&b, ",\n");
+    RSA_GATE_CHECK("unknowns_present", review_has_unknowns, "review output carries remaining unknowns");
+    ok = ok && json_dyn_puts(&b, ",\n");
+    RSA_GATE_CHECK("review_complete", review_complete, "review status is complete");
+    ok = ok && json_dyn_puts(&b, ",\n");
+    RSA_GATE_CHECK("route_graph_exists", route_graph_exists, "route-graph.json exists");
+    ok = ok && json_dyn_puts(&b, ",\n");
+    RSA_GATE_CHECK("claim_audit_exists", audit_exists, "claim-audit.json exists");
+    ok = ok && json_dyn_puts(&b, ",\n");
+    RSA_GATE_CHECK("no_prompt_artifact_leak", no_prompt_leak, "STRUCTURE.MD does not cite internal prompt artifacts");
+    ok = ok && json_dyn_puts(&b, ",\n");
+    RSA_GATE_CHECK("no_security_verdict_language", no_security_verdict, "STRUCTURE.MD avoids security verdict/vulnerability-assessment language");
+#undef RSA_GATE_CHECK
+    ok = ok && json_dyn_printf(&b, "\n  ],\n  \"reviewOutputBytes\": %zu\n}\n", review_len);
+    free(structure);
+    free(capture);
+    free(structure_json);
+    if (!ok || !jsonl_write_file(gate_path, b.ptr ? b.ptr : "", b.len)) {
+        snprintf(err, errsz, "could not write RSA quality gate: %s", strerror(errno));
+        free(b.ptr);
+        return 0;
+    }
+    free(b.ptr);
+    return 1;
+}
+
+static int rsa_write_target_md(const char *path, const char *target_url, const char *target_host,
+                               const char *mission, const char *structure_path,
+                               const char *tool_summary, const char *profile_requested,
+                               const char *profile_effective, const char *security_summary) {
+    json_dyn_buf b = {0};
+    const int uses_scope_gate = gsa_profile_uses_scope_gate(profile_effective);
+    const char *profile_artifact_rule = uses_scope_gate
+        ? "Read scope.json and safety-gate.json before tool use; profileEffective controls allowed behavior. "
+        : "Black-hat does not generate or enforce scope.json or safety-gate.json; use target.md and run_state.json for profile context. ";
+    const char *profile_mode_rule = uses_scope_gate
+        ? "Profile-specific analysis may add blue-team controls, purple-team coverage mapping, or red-authorized validation only when the safety gate keeps it effective. "
+        : "Black-hat is active for this internal run: use full-surface attacker-minded analysis without waiting for Scope authorization or safety-gate pass. ";
+    const char *operating_mode_rule = uses_scope_gate
+        ? "Operating mode: passive public reverse-structure analysis. Normal page navigation, public HTML/CSS/JS, public network requests, headers, cookies, storage, sitemap/robots, and public assets are in scope. "
+        : "Operating mode: internal black-hat full-surface reverse-structure analysis. Use the target URL as the starting point and map the available product/system surface without Scope or Safety gate constraints. ";
+    const char *action_rule = uses_scope_gate
+        ? "No vulnerability scanning, fuzzing, brute force, auth bypass, private endpoint abuse, destructive actions, or aggressive crawling. "
+        : "Avoid destructive actions, credential theft, persistence, or data exfiltration; do not treat missing Scope/Safety artifacts as a blocker. ";
+    const char *blackhat_voice_rule = gsa_blackhat_voice_rule(profile_effective);
+    int ok = json_dyn_printf(&b,
+        "# RSA target\n\n"
+        "- Target URL: %s\n"
+        "- Target host: %s\n"
+        "- Primary artifact: `%s`\n"
+        "- Mission: %s\n"
+        "- Profile requested: %s\n"
+        "- Profile effective: %s\n\n"
+        "Security profile:\n%s\n"
+        "%s"
+        "%s"
+        "%s"
+        "Use the same optional tool pool as GSA only as evidence helpers; missing tools are not blockers. "
+        "%s"
+        "%s"
+        "Read tool-retry-policy.md before using external tools: bad flags, parameters, input shape or timeout must be logged in tool-retry-ledger.jsonl and retried with the same tool using corrected arguments or timeout budget before any curl/wget/Python/substitute fallback.\n\n"
+        "Use workbench.json/workbench.md as the normalized Evidence Workbench for web, network, forensics, reverse, code and infra artifacts, plus blue, red, purple and black-hat artifacts; link rows into evidence.jsonl or claims.jsonl when they support STRUCTURE.MD.\n\n"
+        "Tool status:\n%s\n",
+        target_url && target_url[0] ? target_url : "(none)",
+        target_host && target_host[0] ? target_host : "(none)",
+        structure_path && structure_path[0] ? structure_path : "STRUCTURE.MD",
+        mission && mission[0] ? mission : "Reverse the public site structure into STRUCTURE.MD.",
+        profile_requested && profile_requested[0] ? profile_requested : "passive",
+        profile_effective && profile_effective[0] ? profile_effective : "passive",
+        security_summary && security_summary[0] ? security_summary : "(profile summary unavailable)",
+        operating_mode_rule,
+        profile_mode_rule,
+        action_rule,
+        profile_artifact_rule,
+        blackhat_voice_rule,
+        tool_summary && tool_summary[0] ? tool_summary : "(tool status unavailable)");
+    int wrote = ok && jsonl_write_file(path, b.ptr ? b.ptr : "", b.len);
+    free(b.ptr);
+    return wrote;
+}
+
+static int rsa_write_loop_context(const char *run_dir, const char *parent_run_dir,
+                                  char *err, size_t errsz) {
+    if (!parent_run_dir || !parent_run_dir[0]) return 1;
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s/loop_context.md", run_dir);
+    json_dyn_buf b = {0};
+    int ok = json_dyn_printf(&b,
+        "# RSA loop context\n\n"
+        "Previous run: `%s`\n\n"
+        "Read previous artifacts before selecting new capture targets. Do not repeat sections that are already evidence-backed unless new public evidence changes them. "
+        "Prefer filling UNKNOWN sections, replacing weak INFERRED claims with VERIFIED evidence, or adding missing evidence references.\n",
+        parent_run_dir);
+    if (ok) gsa_append_run_file_excerpt(&b, parent_run_dir, "run_state.json", "Previous run state", 4096);
+    if (ok) gsa_append_run_file_excerpt(&b, parent_run_dir, "review.json", "Previous review", 8192);
+    if (ok) gsa_append_run_file_excerpt(&b, parent_run_dir, "structure.json", "Previous structure phase", 8192);
+    if (ok) gsa_append_run_file_excerpt(&b, parent_run_dir, "evidence.jsonl", "Previous evidence", 8192);
+    if (!ok || !jsonl_write_file(path, b.ptr ? b.ptr : "", b.len)) {
+        snprintf(err, errsz, "could not write RSA loop context: %s", strerror(errno));
+        free(b.ptr);
+        return 0;
+    }
+    free(b.ptr);
+    return 1;
+}
+
+static char *rsa_prompt_start(const char *run_id, const char *run_dir,
+                              const char *workdir, const char *mission,
+                              const char *target_url, const char *target_host,
+                              const char *structure_path, const char *skill_list,
+                              const char *profile_requested, const char *profile_effective,
+                              const char *parent_run_dir, int iteration) {
+    json_dyn_buf p = {0};
+    const int uses_scope_gate = gsa_profile_uses_scope_gate(profile_effective);
+    const char *profile_read_rule = uses_scope_gate
+        ? "- Read scope.json and safety-gate.json before collector or tool selection; `profileEffective` controls allowed behavior for this run.\n"
+        : "- Black-hat has no scope.json or safety-gate.json; use target.md and run_state.json for profile context.\n";
+    const char *profile_rule = uses_scope_gate
+        ? "- Profiles: passive maps public structure only; blue adds controls/detection/hardening; red-authorized is allowed only when safety-gate.json keeps it effective; purple maps offensive hypotheses to defensive coverage; black-hat is an ungated internal full-surface mode when selected.\n"
+        : "- Profile: black-hat is effective for this internal run, full-surface, and not downgraded by Scope or safety-gate artifacts.\n";
+    const char *workbench_rule = uses_scope_gate
+        ? "- Profile workbench rule: blue observations go to workbench-blue.jsonl, authorized red observations go to workbench-red.jsonl, purple mappings go to workbench-purple.jsonl, and black-hat observations go to workbench-blackhat.jsonl when that profile is effective.\n"
+        : "- Profile workbench rule: route full-surface attacker-minded observations to workbench-blackhat.jsonl and coverage mappings to workbench-purple.jsonl.\n";
+    const char *research_rule = uses_scope_gate
+        ? "- Use passive public research only: normal browser navigation, public HTML/CSS/JS, network requests, headers, cookies, local/session storage, robots.txt, sitemap.xml, public assets, and public API calls triggered by the UI.\n"
+        : "- Use black-hat full-surface internal research: start from the target URL, map the available product/system surface, and do not wait for Scope or Safety gate artifacts.\n";
+    const char *action_rule = uses_scope_gate
+        ? "- No fuzzing, brute force, vulnerability scanning, auth bypass, destructive testing, private endpoint abuse, or aggressive crawling.\n"
+        : "- Avoid destructive testing, credential theft, persistence, or data exfiltration; missing Scope/Safety gate artifacts must not downgrade the profile.\n";
+    const char *blackhat_voice_rule = gsa_blackhat_voice_rule(profile_effective);
+    const char *run_files_scope_gate = uses_scope_gate ? "`scope.json`, `safety-gate.json`, " : "";
+    json_dyn_printf(&p,
+        "RSA Phase 1/4: inventory.\n\n"
+        "Run id: `%s`\n"
+        "Workspace root: `%s`\n"
+        "Run directory: `%s`\n"
+        "Primary artifact: `%s`\n"
+        "Target URL: `%s`\n"
+        "Target host: `%s`\n"
+        "Security profile requested/effective: `%s` / `%s`\n"
+        "Iteration: %d\n"
+        "Parent run: `%s`\n\n"
+        "Mission:\n%s\n\n"
+        "Reverse Structure Analysis means reconstructing the public product/system structure from observed public evidence. "
+        "This is not GSA, not a security verdict, not a policy/legal review, and not a generic summary.\n\n"
+        "Hard rules:\n"
+        "%s"
+        "%s"
+        "%s"
+        "%s"
+        "- Do not use heuristic/ranking-based conclusions. Claims need direct evidence; otherwise mark `[UNKNOWN]`.\n"
+        "- Evidence-backed interpretation is allowed only when it explains what public evidence supports it and gives confidence.\n"
+        "- Tool retry rule: if any selected or attempted external tool fails because flags, parameters, input format, usage, or timeout were wrong, do not degrade to curl, wget, Python requests, Playwright, manual checks, or another substitute. Log the failure in `tool-retry-ledger.jsonl`, inspect that same tool's help/version output when useful, and retry that same tool with corrected arguments, narrower bounded input, lower concurrency, or corrected timeout budget up to 2 times before any fallback.\n"
+        "- Evidence Workbench rule: reusable web, network, forensics, reverse, code, infra and tool-run observations go into the matching `workbench-*.jsonl` artifact before they are used as claims.\n"
+        "%s"
+        "%s"
+        "- `STRUCTURE.MD` is the main deliverable. You may read it in this phase, but do not edit it until Phase 3.\n"
+        "- Protocol hygiene: never read, cite, or reason from `.dstudio/rsa/runs/*.prompt.md` files. They are control data, not evidence.\n\n"
+        "Read these run files first: `%s/target.md`, %s`%s/skills.md`, `%s/toolStatus.json`, `%s/tool-retry-policy.md`, `%s/tool-retry-ledger.jsonl`, `%s/workbench.json`, `%s/workbench.md`, `%s/collectors.json`, `%s/evidence.jsonl`, `%s/claims.jsonl`, `%s/route-graph.json`, `%s/loop_context.md` if present, and `%s`.\n"
+        "You may call up to 3 `skill(\"id\")` tools from the RSA skill list when each one covers a distinct part of the mission. Do not load non-RSA skills unless the user explicitly requested them.\n\n"
+        "Collector discipline:\n"
+        "- Select deterministic collectors from collectors.json before analysis. Prefer html_inventory, asset_inventory, network_har, robots_parser, sitemap_sampler, js_endpoint_extractor, storage_url_extractor, cookie_storage_snapshot, spa_runtime_probe, auth_surface_probe, media_player_probe, route_graph_builder, and claim_evidence_audit as applicable.\n"
+        "- Heavy SPA apps: capture runtime markers, hydration data, chunk names, client routes, deferred network requests, local/session storage, and blank-loading states.\n"
+        "- Auth-heavy sites: map visible auth/account gates and session indicators only; keep authenticated internals UNKNOWN unless the user supplied access.\n"
+        "- Player/video/CDN sites: record video/player libraries, manifest/object URL shapes, signed URL indicators, cache headers, and public CDN domains without attempting private downloads.\n\n"
+        "RSA skills available:\n%s\n"
+        "Output compact JSON only, no markdown fences, no prose. Save no files yourself in Phase 1. "
+        "Output JSON to be saved as inventory.json:\n"
+        "{\"phase\":\"inventory\",\"kind\":\"rsa\",\"targetUrl\":\"...\",\"targetHost\":\"...\","
+        "\"collectors\":[{\"id\":\"html_inventory\",\"why\":\"...\",\"status\":\"selected|skipped\"}],"
+        "\"workbench\":{\"domains\":[\"web\",\"infra\"],\"artifacts\":[\"workbench-web.jsonl\"],\"toolRuns\":0},"
+        "\"surface\":[{\"url\":\"...\",\"type\":\"page|asset|api|form|script|style|storage|cookie|other\",\"evidence\":\"what was observed\"}],"
+        "\"sections\":[{\"name\":\"STRUCTURE.MD section\",\"status\":\"empty|weak|covered\",\"nextEvidence\":\"what to capture next\"}],"
+        "\"skills\":[\"rsa-skill-id\"],\"nextActions\":[\"bounded public evidence capture step\"]}\n",
+        run_id, workdir, run_dir, structure_path,
+        target_url && target_url[0] ? target_url : "(none)",
+        target_host && target_host[0] ? target_host : "(none)",
+        gsa_security_profile_normalize(profile_requested), gsa_security_profile_normalize(profile_effective),
+        iteration,
+        parent_run_dir && parent_run_dir[0] ? parent_run_dir : "(none)",
+        mission && mission[0] ? mission : "Reverse the public site structure into STRUCTURE.MD.",
+        profile_read_rule, profile_rule, research_rule, action_rule, blackhat_voice_rule, workbench_rule,
+        run_dir, run_files_scope_gate, run_dir, run_dir, run_dir, run_dir, run_dir, run_dir,
+        run_dir, run_dir, run_dir, run_dir, run_dir, structure_path,
+        skill_list ? skill_list : "");
+    return p.ptr;
+}
+
+static char *rsa_prompt_next(const char *run_dir, const char *workdir,
+                             const char *structure_path, const char *phase) {
+    json_dyn_buf p = {0};
+    char profile_effective[80] = "passive";
+    gsa_state_string_field(run_dir, "profileEffective", profile_effective, sizeof profile_effective);
+    const int uses_scope_gate = gsa_profile_uses_scope_gate(profile_effective);
+    const char *scope_gate_files = uses_scope_gate ? "`scope.json`, `safety-gate.json`, " : "";
+    const char *capture_profile_rule = uses_scope_gate
+        ? "Profile gate: red-authorized collectors or validation are allowed only when safety-gate.json says profileEffective is red-authorized; black-hat does not use this gate. "
+        : "Profile gate: black-hat bypasses Scope/Safety gate, uses the whole available surface, and writes attacker-mindset observations to workbench-blackhat.jsonl. ";
+    const char *capture_tool_rule = uses_scope_gate
+        ? "Use Playwright/browser automation only for normal navigation and screenshots/traces. Use HTTP/header probes only against public URLs found by normal navigation, sitemap, robots, or visible page links. "
+        : "Use Playwright/browser automation, HTTP probes, crawlers and enabled analysis tools from the target URL/host as needed for full-surface internal mapping; do not block on missing Scope/Safety gate artifacts. ";
+    const char *structure_profile_rule = uses_scope_gate
+        ? "For red-authorized content, keep validation inside the authorized scope and route attacker-minded observations into workbench-red.jsonl. "
+        : "For black-hat, use full-surface attacker-minded structure analysis and route observations into workbench-blackhat.jsonl. ";
+    const char *review_profile_rule = uses_scope_gate
+        ? "Reject red content that crosses the effective safety-gated profile; black-hat is outside this gate when selected. "
+        : "Do not reject black-hat content for missing scope.json/safety-gate.json; those artifacts are intentionally absent for this internal full-surface mode. ";
+    const char *blackhat_voice_rule = gsa_blackhat_voice_rule(profile_effective);
+    if (!strcmp(phase, "inventory")) {
+        json_dyn_printf(&p,
+            "RSA Phase 2/4: capture.\n"
+            "Workspace root: `%s`.\n"
+            "Run directory: `%s`.\n"
+            "Primary artifact: `%s`.\n\n"
+            "Use `%s/inventory.json`, `%s/collectors.json`, `%s/target.md`, %s`%s/tool-retry-policy.md`, `%s/tool-retry-ledger.jsonl`, `%s/workbench.json`, and `%s/workbench.md`. Gather bounded public evidence for the selected sections and profile. "
+            "%s"
+            "%s"
+            "%s"
+            "For every selected tool in this capture phase, invocation errors and timeouts must be retried on the same tool before fallback: record the failed or timed-out command in tool-retry-ledger.jsonl, inspect that same tool help/version output when useful, and retry that same tool with corrected arguments, narrower bounded input, lower concurrency, or corrected timeout budget up to 2 times. This applies to all optional tools, including browser, HTTP, crawler, storage/media, SAST, dependency, forensics, reverse, debugger and utility tools. Do not jump directly from a failed or timed-out httpx/nuclei/katana/Playwright/semgrep/trivy/jq/sqlmap command to curl, wget, Python, Playwright, manual checks, or another substitute. "
+            "Normalize reusable observations into the Evidence Workbench domain files: workbench-web.jsonl, workbench-network.jsonl, workbench-forensics.jsonl, workbench-reverse.jsonl, workbench-code.jsonl, workbench-infra.jsonl, workbench-blue.jsonl, workbench-red.jsonl, workbench-purple.jsonl, workbench-blackhat.jsonl and workbench-tool-runs.jsonl. "
+            "Append useful observations to `%s/evidence.jsonl` as one JSON object per line with keys: label, status, source, evidence, confidence, notes. "
+            "Also update `%s/route-graph.json` with page, asset, API, media/storage, auth, and client-route nodes when discovered. "
+            "For SPA-heavy sites, wait for app hydration and capture post-load network. For auth/player/CDN sites, record visible auth/player/CDN clues but do not bypass gates. "
+            "Do not edit STRUCTURE.MD in this phase. Do not produce a narrative report.\n\n"
+            "Output compact JSON only to be saved as capture.json:\n"
+            "{\"phase\":\"capture\",\"kind\":\"rsa\","
+            "\"collectors\":[{\"id\":\"network_har\",\"status\":\"complete|partial|skipped\",\"evidenceRefs\":[\"...\"]}],"
+            "\"workbench\":{\"domains\":[\"web\",\"infra\"],\"artifacts\":[\"workbench-web.jsonl\",\"workbench-infra.jsonl\"],\"toolRuns\":1,\"notable\":[\"...\"]},"
+            "\"evidence\":[{\"status\":\"VERIFIED|INFERRED|UNKNOWN\",\"source\":\"url/request/header/asset/ui\",\"evidence\":\"...\",\"confidence\":\"high|medium|low\"}],"
+            "\"routeGraph\":{\"nodes\":0,\"edges\":0,\"notable\":[\"...\"]},"
+            "\"files\":[\"evidence.jsonl or script output paths\"],\"sectionsReady\":[\"section names ready for STRUCTURE.MD\"],\"unknowns\":[\"...\"]}\n",
+            workdir, run_dir, structure_path, run_dir, run_dir, run_dir, scope_gate_files,
+            run_dir, run_dir, run_dir, run_dir, capture_profile_rule, capture_tool_rule, blackhat_voice_rule, run_dir, run_dir);
+        gsa_append_run_file_excerpt(&p, run_dir, "inventory.json", "Inline inventory.json", 8192);
+        gsa_append_run_file_excerpt(&p, run_dir, "toolStatus.json", "Inline toolStatus.json", 8192);
+        gsa_append_run_file_excerpt(&p, run_dir, "collectors.json", "Inline collectors.json", 8192);
+    } else if (!strcmp(phase, "capture")) {
+        json_dyn_printf(&p,
+            "RSA Phase 3/4: structure.\n"
+            "Workspace root: `%s`.\n"
+            "Run directory: `%s`.\n"
+            "Primary artifact: `%s`.\n\n"
+            "Read `%s/capture.json`, `%s/evidence.jsonl`, `%s/claims.jsonl`, `%s/route-graph.json`, %s`%s/workbench.json`, `%s/workbench-web.jsonl`, `%s/workbench-network.jsonl`, `%s/workbench-forensics.jsonl`, `%s/workbench-reverse.jsonl`, `%s/workbench-code.jsonl`, `%s/workbench-infra.jsonl`, the populated workbench-blue.jsonl, workbench-red.jsonl, workbench-purple.jsonl and workbench-blackhat.jsonl files, `%s/target.md`, and the current `%s`. "
+            "Now update `%s` in place. Preserve useful existing content. Add or improve sections only where evidence supports the change. "
+            "Every claim must be labeled `[VERIFIED]`, `[INFERRED]`, or `[UNKNOWN]`, and every VERIFIED/INFERRED claim must cite concrete evidence references from evidence.jsonl, route-graph.json, workbench-*.jsonl, public requests, headers, assets, or UI observations. %s"
+            "%s"
+            "Update `%s/claims.jsonl` with one JSON line per claim: id, section, status, claim, evidenceRefs, confidence. Do not write a final summary report. Do not include security verdict language. "
+            "If evidence is weak, keep the claim `[UNKNOWN]` and add what would verify it.\n\n"
+            "After editing `%s`, output compact JSON only to be saved as structure.json:\n"
+            "{\"phase\":\"structure\",\"kind\":\"rsa\",\"structurePath\":\"%s\",\"updatedSections\":[\"...\"],"
+            "\"claims\":[{\"id\":\"C1\",\"status\":\"VERIFIED|INFERRED|UNKNOWN\",\"section\":\"...\",\"claim\":\"...\",\"evidenceRefs\":[\"evidence.jsonl:E1\"],\"confidence\":\"high|medium|low\"}],"
+            "\"claimAudit\":{\"unsupportedClaims\":0,\"missingEvidenceRefs\":0},"
+            "\"unknowns\":[\"...\"],\"nextTargets\":[\"...\"]}\n",
+            workdir, run_dir, structure_path, run_dir, run_dir, run_dir, run_dir, scope_gate_files,
+            run_dir, run_dir, run_dir, run_dir, run_dir, run_dir, run_dir, run_dir, structure_path,
+            structure_path, structure_profile_rule, blackhat_voice_rule, run_dir, structure_path, structure_path);
+        gsa_append_run_file_excerpt(&p, run_dir, "capture.json", "Inline capture.json", 8192);
+        gsa_append_run_file_excerpt(&p, run_dir, "evidence.jsonl", "Inline evidence.jsonl", 12000);
+        gsa_append_run_file_excerpt(&p, run_dir, "route-graph.json", "Inline route-graph.json", 12000);
+    } else if (!strcmp(phase, "structure")) {
+        json_dyn_printf(&p,
+            "RSA Phase 4/4: review.\n"
+            "Workspace root: `%s`.\n"
+            "Run directory: `%s`.\n"
+            "Primary artifact: `%s`.\n\n"
+            "Review `%s` against `%s/structure.json`, `%s/capture.json`, `%s/evidence.jsonl`, `%s/claims.jsonl`, `%s/route-graph.json`, `%s/claim-audit.json`, %s`%s/workbench.json`, and the populated `workbench-*.jsonl` domain files. "
+            "%s"
+            "%s"
+            "Fix the file if it contains unsupported facts, security verdict language, generic marketing summary, missing labels, or sections that claim facts without evidence. "
+            "Before declaring complete, compare claims against evidence references: VERIFIED/INFERRED claims need specific evidence from evidence.jsonl, route-graph.json, or workbench-*.jsonl; unsupported backend internals stay UNKNOWN. "
+            "Keep the quality gate strict for SPA-heavy apps, auth-gated flows, media players, signed CDN URLs, and large JS apps: visible clues are evidence, hidden internals remain UNKNOWN. "
+            "Do not browse new areas unless a contradiction must be resolved. Do not produce Markdown as the final answer.\n\n"
+            "Output compact JSON only to be saved as review.json:\n"
+            "{\"phase\":\"review\",\"kind\":\"rsa\",\"structurePath\":\"%s\",\"status\":\"complete|needs_more_evidence\","
+            "\"qualityGate\":{\"pass\":true,\"failedChecks\":[]},"
+            "\"claimAudit\":{\"unsupportedClaims\":0,\"missingEvidenceRefs\":0},"
+            "\"fixed\":[\"...\"],\"remainingUnknowns\":[\"...\"],\"nextRecommendedLoop\":\"specific next section or evidence target\"}\n",
+            workdir, run_dir, structure_path, structure_path, run_dir, run_dir, run_dir, run_dir,
+            run_dir, run_dir, scope_gate_files, run_dir, review_profile_rule, blackhat_voice_rule, structure_path);
+        gsa_append_run_file_excerpt(&p, run_dir, "structure.json", "Inline structure.json", 8192);
+        gsa_append_run_file_excerpt(&p, run_dir, "evidence.jsonl", "Inline evidence.jsonl", 12000);
+        gsa_append_run_file_excerpt(&p, run_dir, "claims.jsonl", "Inline claims.jsonl", 12000);
+        gsa_append_run_file_excerpt(&p, run_dir, "claim-audit.json", "Inline claim-audit.json", 8192);
+        gsa_append_run_file_excerpt(&p, run_dir, "route-graph.json", "Inline route-graph.json", 12000);
+    }
+    return p.ptr;
+}
+
+static void api_rsa_tools(int fd) {
+    json_dyn_buf b = {0};
+    char err[512] = "";
+    if (!json_dyn_puts(&b, "{\"ok\":true,\"rsaTools\":") || !gsa_tools_json(&b, err, sizeof err) ||
+        !json_dyn_puts(&b, "}"))
+    {
+        free(b.ptr);
+        char out[900], esc[700];
+        json_escape_into(esc, sizeof esc, err[0] ? err : "RSA tools status memory", strlen(err[0] ? err : "RSA tools status memory"));
+        snprintf(out, sizeof out, "{\"ok\":false,\"error\":\"%s\"}", esc);
+        send_json(fd, "500 Internal Server Error", out);
+        return;
+    }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+}
+
+static void api_rsa_start(int fd, const char *body) {
+    char workdir[PATH_MAX] = "";
+    char mission[BODY_MAX] = "";
+    char target_url[1024] = "";
+    char parent_run_raw[PATH_MAX] = "";
+    char disabled_tools[2048] = "";
+    char profile_requested[80] = "";
+    json_get_string(body, "workdir", workdir, sizeof workdir);
+    json_get_string(body, "mission", mission, sizeof mission);
+    json_get_string(body, "targetUrl", target_url, sizeof target_url);
+    json_get_string(body, "parentRunDir", parent_run_raw, sizeof parent_run_raw);
+    json_get_string(body, "disabledTools", disabled_tools, sizeof disabled_tools);
+    json_get_string(body, "profile", profile_requested, sizeof profile_requested);
+    int scope_authorized = json_get_bool(body, "authorized") || json_get_bool(body, "scopeAuthorized");
+    if (!gsa_security_profile_valid(profile_requested)) {
+        char out[360], esc[180];
+        json_escape_into(esc, sizeof esc, profile_requested, strlen(profile_requested));
+        snprintf(out, sizeof out, "{\"ok\":false,\"error\":\"invalid security profile: %s\"}", esc);
+        send_json(fd, "400 Bad Request", out);
+        return;
+    }
+    if (!target_url[0]) gsa_extract_first_url(mission, target_url, sizeof target_url);
+    if (!target_url[0]) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"RSA requires a target URL\"}");
+        return;
+    }
+    char target_err[256] = "";
+    if (!gsa_target_url_ok(target_url, target_err, sizeof target_err)) {
+        char out[400], esc[300];
+        json_escape_into(esc, sizeof esc, target_err, strlen(target_err));
+        snprintf(out, sizeof out, "{\"ok\":false,\"error\":\"%s\"}", esc);
+        send_json(fd, "400 Bad Request", out);
+        return;
+    }
+    if (!workdir[0]) cstr_copy(workdir, sizeof workdir, g_workdir);
+    if (!workdir[0]) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"workdir missing\"}");
+        return;
+    }
+    char abs[PATH_MAX];
+    if (!realpath(workdir, abs)) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"workdir not found\"}");
+        return;
+    }
+    struct stat st;
+    if (stat(abs, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"workdir is not a directory\"}");
+        return;
+    }
+    char parent_run_dir[PATH_MAX] = "", parent_err[512] = "";
+    if (!rsa_validate_parent_run_dir(abs, parent_run_raw, parent_run_dir, sizeof parent_run_dir,
+                                     parent_err, sizeof parent_err))
+    {
+        char out[900], esc[700];
+        json_escape_into(esc, sizeof esc, parent_err, strlen(parent_err));
+        snprintf(out, sizeof out, "{\"ok\":false,\"error\":\"%s\"}", esc);
+        send_json(fd, "409 Conflict", out);
+        return;
+    }
+    int iteration = parent_run_dir[0]
+        ? (int)gsa_state_long_field(parent_run_dir, "iteration", 1) + 1
+        : 1;
+    unsigned long long task_id = task_begin("rsa", "RSA reverse structure analysis",
+                                            "reverse-structure", ENGINE_AGENT, abs, 0, 0);
+    task_mark_working(task_id, "preparing RSA run");
+
+    char run_id[64];
+    snprintf(run_id, sizeof run_id, "%llu-%llu", dstudio_now_ms(), task_id);
+    char root[PATH_MAX], runs[PATH_MAX], run_dir[PATH_MAX], mission_path[PATH_MAX], target_path[PATH_MAX], target_host_path[PATH_MAX], state_path[PATH_MAX], structure_path[PATH_MAX];
+    snprintf(root, sizeof root, "%s/.dstudio/rsa", abs);
+    snprintf(runs, sizeof runs, "%s/runs", root);
+    snprintf(run_dir, sizeof run_dir, "%s/%s", runs, run_id);
+    snprintf(state_path, sizeof state_path, "%s/run_state.json", run_dir);
+    snprintf(structure_path, sizeof structure_path, "%s/STRUCTURE.MD", abs);
+    mkpath(run_dir);
+    snprintf(mission_path, sizeof mission_path, "%s/mission.md", run_dir);
+    snprintf(target_path, sizeof target_path, "%s/target.md", run_dir);
+    snprintf(target_host_path, sizeof target_host_path, "%s/target_host.txt", run_dir);
+
+    const char *mission_text = mission[0] ? mission : "Reverse the public website structure into STRUCTURE.MD with evidence-backed technical and product/system sections.";
+    jsonl_write_file(mission_path, mission_text, strlen(mission_text));
+    char target_host[512] = "";
+    gsa_target_host(target_url, target_host, sizeof target_host);
+    jsonl_write_file(target_host_path, target_host, strlen(target_host));
+    char profile_effective[80] = "passive", security_summary[1200] = "", profile_err[512] = "";
+    if (!gsa_write_scope_safety_artifacts(run_dir, "rsa", profile_requested,
+                                          target_url, target_host, scope_authorized,
+                                          profile_effective, sizeof profile_effective,
+                                          security_summary, sizeof security_summary,
+                                          profile_err, sizeof profile_err))
+    {
+        task_mark_failed(task_id, "could not prepare RSA scope/safety artifacts", profile_err);
+        char out[900], esc[700];
+        json_escape_into(esc, sizeof esc, profile_err, strlen(profile_err));
+        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"%s\"}", task_id, esc);
+        send_json(fd, "500 Internal Server Error", out);
+        return;
+    }
+
+    char err[512] = "";
+    if (!rsa_seed_structure_md(structure_path, target_url, err, sizeof err)) {
+        task_mark_failed(task_id, "could not create RSA structure file", err);
+        char out[900], esc[700];
+        json_escape_into(esc, sizeof esc, err, strlen(err));
+        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"%s\"}", task_id, esc);
+        send_json(fd, "500 Internal Server Error", out);
+        return;
+    }
+
+    char tool_summary[1800] = "", tool_err[512] = "";
+    if (!gsa_write_tool_status_file(run_dir, disabled_tools, tool_err, sizeof tool_err, tool_summary, sizeof tool_summary) ||
+        !gsa_write_tool_retry_artifacts(run_dir, tool_err, sizeof tool_err) ||
+        !gsa_write_workbench_artifacts(run_dir, tool_err, sizeof tool_err) ||
+        !rsa_write_empty_artifacts(run_dir, tool_err, sizeof tool_err) ||
+        !rsa_write_loop_context(run_dir, parent_run_dir, tool_err, sizeof tool_err))
+    {
+        rsa_write_run_state(run_dir, run_id, "incomplete", "start", iteration,
+                            parent_run_dir, target_url, target_host, structure_path, tool_err,
+                            profile_requested, profile_effective,
+                            err, sizeof err);
+        task_mark_failed(task_id, "could not prepare RSA artifacts", tool_err);
+        char out[900], esc[700];
+        json_escape_into(esc, sizeof esc, tool_err, strlen(tool_err));
+        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"%s\"}", task_id, esc);
+        send_json(fd, "500 Internal Server Error", out);
+        return;
+    }
+    rsa_write_target_md(target_path, target_url, target_host, mission_text, structure_path, tool_summary,
+                        gsa_security_profile_normalize(profile_requested), profile_effective, security_summary);
+
+    json_dyn_buf skill_list = {0};
+    int skill_count = 0;
+    if (!rsa_write_skill_catalog(run_dir, err, sizeof err, &skill_list, &skill_count)) {
+        rsa_write_run_state(run_dir, run_id, "incomplete", "start", iteration,
+                            parent_run_dir, target_url, target_host, structure_path, err,
+                            profile_requested, profile_effective,
+                            tool_err, sizeof tool_err);
+        task_mark_failed(task_id, "could not prepare RSA skills", err);
+        char out[900], esc[700];
+        json_escape_into(esc, sizeof esc, err, strlen(err));
+        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"%s\"}", task_id, esc);
+        send_json(fd, "500 Internal Server Error", out);
+        free(skill_list.ptr);
+        return;
+    }
+
+    char state_err[512] = "";
+    rsa_write_run_state(run_dir, run_id, "preparing", "start", iteration,
+                        parent_run_dir, target_url, target_host, structure_path, "",
+                        profile_requested, profile_effective,
+                        state_err, sizeof state_err);
+
+    char *prompt = rsa_prompt_start(run_id, run_dir, abs, mission_text, target_url, target_host,
+                                    structure_path, skill_list.ptr ? skill_list.ptr : "",
+                                    profile_requested, profile_effective,
+                                    parent_run_dir, iteration);
+    free(skill_list.ptr);
+    if (!prompt) {
+        task_mark_failed(task_id, "could not build RSA prompt", "memory");
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"could not build RSA prompt\"}");
+        return;
+    }
+    char prompt_path[PATH_MAX];
+    snprintf(prompt_path, sizeof prompt_path, "%s/inventory.prompt.md", run_dir);
+    jsonl_write_file(prompt_path, prompt, strlen(prompt));
+    rsa_write_run_state(run_dir, run_id, "ready", "inventory", iteration,
+                        parent_run_dir, target_url, target_host, structure_path, "",
+                        profile_requested, profile_effective,
+                        state_err, sizeof state_err);
+    task_mark_completed(task_id, "RSA run prepared");
+
+    const int uses_scope_gate = gsa_profile_uses_scope_gate(profile_effective);
+    char response_scope_path[PATH_MAX] = "", response_safety_path[PATH_MAX] = "";
+    if (uses_scope_gate) {
+        snprintf(response_scope_path, sizeof response_scope_path, "%s/scope.json", run_dir);
+        snprintf(response_safety_path, sizeof response_safety_path, "%s/safety-gate.json", run_dir);
+    }
+    char abs_esc[PATH_MAX * 2], run_esc[PATH_MAX * 2], id_esc[160], target_esc[2200], state_esc[PATH_MAX * 2], parent_esc[PATH_MAX * 2], structure_esc[PATH_MAX * 2], prof_req_esc[160], prof_eff_esc[160], scope_esc[PATH_MAX * 2], safety_esc[PATH_MAX * 2];
+    json_escape_into(abs_esc, sizeof abs_esc, abs, strlen(abs));
+    json_escape_into(run_esc, sizeof run_esc, run_dir, strlen(run_dir));
+    json_escape_into(state_esc, sizeof state_esc, state_path, strlen(state_path));
+    json_escape_into(parent_esc, sizeof parent_esc, parent_run_dir, strlen(parent_run_dir));
+    json_escape_into(structure_esc, sizeof structure_esc, structure_path, strlen(structure_path));
+    json_escape_into(id_esc, sizeof id_esc, run_id, strlen(run_id));
+    json_escape_into(target_esc, sizeof target_esc, target_url, strlen(target_url));
+    json_escape_into(prof_req_esc, sizeof prof_req_esc, gsa_security_profile_normalize(profile_requested), strlen(gsa_security_profile_normalize(profile_requested)));
+    json_escape_into(prof_eff_esc, sizeof prof_eff_esc, profile_effective, strlen(profile_effective));
+    json_escape_into(scope_esc, sizeof scope_esc, response_scope_path, strlen(response_scope_path));
+    json_escape_into(safety_esc, sizeof safety_esc, response_safety_path, strlen(response_safety_path));
+    json_dyn_buf out = {0};
+    char response_tools_err[512] = "";
+    if (!json_dyn_printf(&out,
+            "{\"ok\":true,\"taskId\":%llu,\"runId\":\"%s\",\"workdir\":\"%s\","
+            "\"runDir\":\"%s\",\"statePath\":\"%s\",\"parentRunDir\":\"%s\",\"structurePath\":\"%s\","
+            "\"iteration\":%d,\"targetUrl\":\"%s\",\"profileRequested\":\"%s\",\"profileEffective\":\"%s\","
+            "\"scopePath\":\"%s\",\"safetyGatePath\":\"%s\","
+            "\"think\":\"max\",\"skillCount\":%d,\"prompt\":",
+            task_id, id_esc, abs_esc, run_esc, state_esc, parent_esc, structure_esc,
+            iteration, target_esc, prof_req_esc, prof_eff_esc, scope_esc, safety_esc, skill_count) ||
+        !json_dyn_put_escaped(&out, prompt) ||
+        !json_dyn_puts(&out, ",\"rsaTools\":") ||
+        !gsa_tools_json_filtered(&out, disabled_tools, response_tools_err, sizeof response_tools_err) ||
+        !json_dyn_puts(&out, "}"))
+    {
+        free(prompt); free(out.ptr);
+        char err_out[900], err_esc[700];
+        json_escape_into(err_esc, sizeof err_esc,
+                         response_tools_err[0] ? response_tools_err : "RSA response memory",
+                         strlen(response_tools_err[0] ? response_tools_err : "RSA response memory"));
+        snprintf(err_out, sizeof err_out, "{\"ok\":false,\"error\":\"%s\"}", err_esc);
+        send_json(fd, "500 Internal Server Error", err_out);
+        return;
+    }
+    free(prompt);
+    send_json(fd, "200 OK", out.ptr);
+    free(out.ptr);
+}
+
+static void api_rsa_phase(int fd, const char *body) {
+    char workdir[PATH_MAX] = "", run_id[80] = "", phase[32] = "";
+    char output[BODY_MAX] = "";
+    json_get_string(body, "workdir", workdir, sizeof workdir);
+    json_get_string(body, "runId", run_id, sizeof run_id);
+    json_get_string(body, "phase", phase, sizeof phase);
+    json_get_string(body, "output", output, sizeof output);
+    if (!workdir[0]) cstr_copy(workdir, sizeof workdir, g_workdir);
+    if (!gsa_run_id_ok(run_id)) { send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"bad runId\"}"); return; }
+    if (!rsa_phase_ok(phase)) { send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"bad phase\"}"); return; }
+    char abs[PATH_MAX];
+    if (!workdir[0] || !realpath(workdir, abs)) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"workdir not found\"}");
+        return;
+    }
+    char run_dir[PATH_MAX];
+    snprintf(run_dir, sizeof run_dir, "%s/.dstudio/rsa/runs/%s", abs, run_id);
+    struct stat st;
+    if (stat(run_dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"RSA run not found\"}");
+        return;
+    }
+    char target_url[1024] = "", target_host[512] = "", parent_run_dir[PATH_MAX] = "", structure_path[PATH_MAX] = "";
+    gsa_state_string_field(run_dir, "targetUrl", target_url, sizeof target_url);
+    gsa_state_string_field(run_dir, "targetHost", target_host, sizeof target_host);
+    gsa_state_string_field(run_dir, "parentRunDir", parent_run_dir, sizeof parent_run_dir);
+    gsa_state_string_field(run_dir, "structurePath", structure_path, sizeof structure_path);
+    if (!structure_path[0]) snprintf(structure_path, sizeof structure_path, "%s/STRUCTURE.MD", abs);
+    int iteration = (int)gsa_state_long_field(run_dir, "iteration", 1);
+    unsigned long long task_id = task_begin("rsa", "RSA phase save", phase, ENGINE_AGENT, abs, 0, 0);
+    task_mark_working(task_id, "saving RSA phase output");
+    char validation_err[512] = "";
+    if (!gsa_json_object_valid(output, phase, validation_err, sizeof validation_err)) {
+        char invalid_file[PATH_MAX], state_path[PATH_MAX], state_err[512] = "";
+        snprintf(invalid_file, sizeof invalid_file, "%s/%s.invalid.txt", run_dir, phase);
+        snprintf(state_path, sizeof state_path, "%s/run_state.json", run_dir);
+        jsonl_write_file(invalid_file, output, strlen(output));
+        rsa_write_run_state(run_dir, run_id, "incomplete", phase, iteration,
+                            parent_run_dir, target_url, target_host, structure_path, validation_err,
+                            NULL, NULL,
+                            state_err, sizeof state_err);
+        task_mark_failed(task_id, "RSA phase output incomplete or invalid", validation_err);
+        json_dyn_buf b = {0};
+        int ok = json_dyn_printf(&b, "{\"ok\":false,\"taskId\":%llu,\"complete\":false,\"error\":",
+                                 task_id) &&
+                 json_dyn_put_escaped(&b, validation_err) &&
+                 json_dyn_puts(&b, ",\"statePath\":") &&
+                 json_dyn_put_escaped(&b, state_path) &&
+                 json_dyn_puts(&b, ",\"invalidOutputPath\":") &&
+                 json_dyn_put_escaped(&b, invalid_file) &&
+                 json_dyn_puts(&b, "}");
+        send_json(fd, "400 Bad Request", ok ? b.ptr : "{\"ok\":false,\"error\":\"RSA phase output invalid\"}");
+        free(b.ptr);
+        return;
+    }
+    char file[PATH_MAX];
+    snprintf(file, sizeof file, "%s/%s.json", run_dir, phase);
+    if (!jsonl_write_file(file, output, strlen(output))) {
+        char state_err[512] = "";
+        rsa_write_run_state(run_dir, run_id, "incomplete", phase, iteration,
+                            parent_run_dir, target_url, target_host, structure_path, strerror(errno),
+                            NULL, NULL,
+                            state_err, sizeof state_err);
+        task_mark_failed(task_id, "could not save RSA phase output", strerror(errno));
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"could not save phase output\"}");
+        return;
+    }
+    if (!strcmp(phase, "structure") || !strcmp(phase, "review")) {
+        char audit_err[512] = "";
+        if (!rsa_write_claim_audit(run_dir, structure_path, audit_err, sizeof audit_err)) {
+            char state_err[512] = "";
+            rsa_write_run_state(run_dir, run_id, "incomplete", phase, iteration,
+                                parent_run_dir, target_url, target_host, structure_path, audit_err,
+                                NULL, NULL,
+                                state_err, sizeof state_err);
+            task_mark_failed(task_id, "RSA claim audit failed", audit_err);
+            char out[1000], esc[700];
+            json_escape_into(esc, sizeof esc, audit_err, strlen(audit_err));
+            snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"complete\":false,\"error\":\"%s\"}", task_id, esc);
+            send_json(fd, "500 Internal Server Error", out);
+            return;
+        }
+    }
+    if (!strcmp(phase, "review")) {
+        char gate_err[512] = "";
+        int gate_pass = 0;
+        if (!rsa_write_quality_gate(run_dir, structure_path, output, &gate_pass, gate_err, sizeof gate_err)) {
+            char state_err[512] = "";
+            rsa_write_run_state(run_dir, run_id, "incomplete", phase, iteration,
+                                parent_run_dir, target_url, target_host, structure_path, gate_err,
+                                NULL, NULL,
+                                state_err, sizeof state_err);
+            task_mark_failed(task_id, "RSA quality gate failed to run", gate_err);
+            char out[1000], esc[700];
+            json_escape_into(esc, sizeof esc, gate_err, strlen(gate_err));
+            snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"complete\":false,\"error\":\"%s\"}", task_id, esc);
+            send_json(fd, "500 Internal Server Error", out);
+            return;
+        }
+        if (!gate_pass) {
+            char gate_path[PATH_MAX], state_path[PATH_MAX], state_err[512] = "";
+            snprintf(gate_path, sizeof gate_path, "%s/quality-gate.json", run_dir);
+            snprintf(state_path, sizeof state_path, "%s/run_state.json", run_dir);
+            rsa_write_run_state(run_dir, run_id, "incomplete", "review", iteration,
+                                parent_run_dir, target_url, target_host, structure_path,
+                                "RSA quality gate did not pass", NULL, NULL, state_err, sizeof state_err);
+            task_mark_failed(task_id, "RSA review rejected by quality gate", gate_path);
+            json_dyn_buf b = {0};
+            int ok = json_dyn_printf(&b, "{\"ok\":false,\"taskId\":%llu,\"complete\":false,\"error\":\"RSA quality gate did not pass\",\"statePath\":",
+                                     task_id) &&
+                     json_dyn_put_escaped(&b, state_path) &&
+                     json_dyn_puts(&b, ",\"qualityGatePath\":") &&
+                     json_dyn_put_escaped(&b, gate_path) &&
+                     json_dyn_puts(&b, "}");
+            send_json(fd, "409 Conflict", ok ? b.ptr : "{\"ok\":false,\"error\":\"RSA quality gate did not pass\"}");
+            free(b.ptr);
+            return;
+        }
+    }
+    const char *next_name = rsa_next_phase_name(phase);
+    char *next = next_name[0] ? rsa_prompt_next(run_dir, abs, structure_path, phase) : NULL;
+    if (next && next_name[0]) {
+        char prompt_path[PATH_MAX];
+        snprintf(prompt_path, sizeof prompt_path, "%s/%s.prompt.md", run_dir, next_name);
+        jsonl_write_file(prompt_path, next, strlen(next));
+    }
+    char state_err[512] = "", status[32], state_phase[32];
+    if (!strcmp(phase, "review")) {
+        cstr_copy(status, sizeof status, "complete");
+        cstr_copy(state_phase, sizeof state_phase, "review");
+    } else {
+        cstr_copy(status, sizeof status, "working");
+        cstr_copy(state_phase, sizeof state_phase, next_name);
+    }
+    rsa_write_run_state(run_dir, run_id, status, state_phase, iteration,
+                        parent_run_dir, target_url, target_host, structure_path, "",
+                        NULL, NULL,
+                        state_err, sizeof state_err);
+    task_mark_completed(task_id, !strcmp(phase, "review") ? "RSA review saved" : "RSA phase saved");
+    char state_path[PATH_MAX], claim_audit_path[PATH_MAX], quality_gate_path[PATH_MAX], route_graph_path[PATH_MAX];
+    snprintf(state_path, sizeof state_path, "%s/run_state.json", run_dir);
+    snprintf(claim_audit_path, sizeof claim_audit_path, "%s/claim-audit.json", run_dir);
+    snprintf(quality_gate_path, sizeof quality_gate_path, "%s/quality-gate.json", run_dir);
+    snprintf(route_graph_path, sizeof route_graph_path, "%s/route-graph.json", run_dir);
+    json_dyn_buf out = {0};
+    if (!json_dyn_printf(&out, "{\"ok\":true,\"taskId\":%llu,\"complete\":%s,\"nextPrompt\":",
+                         task_id, !strcmp(phase, "review") ? "true" : "false") ||
+        !json_dyn_put_escaped(&out, next ? next : "") ||
+        !json_dyn_puts(&out, ",\"statePath\":") ||
+        !json_dyn_put_escaped(&out, state_path) ||
+        !json_dyn_puts(&out, ",\"structurePath\":") ||
+        !json_dyn_put_escaped(&out, structure_path) ||
+        !json_dyn_puts(&out, ",\"claimAuditPath\":") ||
+        !json_dyn_put_escaped(&out, claim_audit_path) ||
+        !json_dyn_puts(&out, ",\"qualityGatePath\":") ||
+        !json_dyn_put_escaped(&out, quality_gate_path) ||
+        !json_dyn_puts(&out, ",\"routeGraphPath\":") ||
+        !json_dyn_put_escaped(&out, route_graph_path) ||
+        !json_dyn_puts(&out, "}"))
+    {
+        free(next); free(out.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"RSA response memory\"}");
+        return;
+    }
+    free(next);
+    send_json(fd, "200 OK", out.ptr);
+    free(out.ptr);
+}

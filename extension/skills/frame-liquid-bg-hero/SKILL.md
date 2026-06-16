@@ -37,8 +37,10 @@ ds4_local_mode: native
 ds4_output_kinds: hyperframes
 ds4_upstream: open-design/frame-liquid-bg-hero
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 【模板: 流体背景 Hero】
 【意图】可作为视频片头帧、SaaS landing 顶部 hero、海报底图。WebGL 流体感, 但用 CSS / canvas 退化绘制, 确保单文件可双击打开。Inspired by hyperframes vfx-liquid-background。
 

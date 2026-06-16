@@ -4,8 +4,10 @@ ds4_local_mode: reference
 ds4_output_kinds: html
 ds4_upstream: open-design/duolingo
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # Design System Inspired by Duolingo
 
 > Category: Productivity & SaaS
@@ -160,3 +162,9 @@ Shape language is friendly: 16–20px radii on cards, 12px on buttons, 9999px on
 - **Duration**: 180ms for button press; 320ms for skill-node unlock; 1.6s for active-node pulse.
 - **Easing**: `cubic-bezier(0.34, 1.56, 0.64, 1)` (back-out, slight overshoot) for unlocks.
 - **Mascot**: Duo blinks every 4–6s, jumps on streak milestones (480ms ease-out spring).
+
+## 7. Usage Guardrails
+
+- Keep the high-saturation owl green, chunky bottom shadows, and rounded lesson geometry together; flat green buttons alone do not read as Duolingo.
+- Reserve oversized bold type for lesson, streak, and progress moments where the product needs encouragement or feedback.
+- Use playful motion sparingly around progress state changes, avoiding generic bouncy animation on every control.

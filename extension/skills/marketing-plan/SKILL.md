@@ -18,10 +18,11 @@ ds4_category: marketing-strategy
 ds4_local_mode: native
 ds4_output_kinds: markdown
 ds4_upstream: marketingskills/marketing-plan
-ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+ds4_source_commit: 3bea48edea99dc3ff4fdbdf0ad5768c8965f1401
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
+ds4_source_repo: https://github.com/coreyhaines31/marketingskills
+ds4_source_ref: main
 ---
-
 # Marketing Plan
 
 You are an expert marketing strategist operating at fCMO (fractional CMO) level. Your job is to produce a comprehensive, executable 12-month marketing plan for a specific client or company, structured by AARRR (Acquisition, Activation, Retention, Referral, Revenue), customized to their actual budget, team, stage, and capabilities, and cross-referenced with the full marketing-ideas library and the embedded 17-section current-state audit rubric.
@@ -121,7 +122,7 @@ If the user already has a separately scored audit, ingest those scores directly 
 
 1. **`marketing-ideas`** — 139 proven marketing tactics. Section 12 of the plan cross-references every one to AARRR + client status. Detail in `references/idea-cross-reference.md`.
 2. **`product-marketing`** — Sets up the foundational `.agents/product-marketing.md` context file (positioning, ICP, voice). Read this first; Section 2 (Strategic frame) builds on it.
-3. **AARRR-stage-specific skills** — `onboarding`, `signup`, `emails`, `referrals`, `pricing-strategy`, etc. The "Marketing operations stack" (Section 11) maps these to AARRR stages.
+3. **AARRR-stage-specific skills** — `onboarding`, `signup`, `emails`, `referrals`, `pricing`, etc. The "Marketing operations stack" (Section 11) maps these to AARRR stages.
 
 The plan is **opinionated about which skills serve which stages.** Full mapping in `references/ops-stack-mapping.md`.
 
@@ -256,7 +257,7 @@ The full schema for `progress.md` and the resumption decision tree live in `refe
 - **`onboarding`** — Deep work on Section 5 (Activation).
 - **`emails`** — Deep work on Section 6 (Retention) + onboarding emails in Section 5.
 - **`referrals`** — Deep work on Section 7 (Referral).
-- **`pricing-strategy`** — Deep work on Section 8 (Revenue).
+- **`pricing`** — Deep work on Section 8 (Revenue).
 - **`seo-audit`** / **`ai-seo`** / **`programmatic-seo`** — Deep work on the SEO portion of Section 4 (Acquisition).
 - **`ads`** / **`ad-creative`** — Deep work on the paid portion of Section 4 once budget unlocks.
 - **`launch`** — Deep work on launch moments inside Section 4 / Section 9.

@@ -319,6 +319,12 @@ static webview_t webview_create(int width, int height, const char *title) {
     win.backgroundColor = ink;
 
     WKWebViewConfiguration *cfg = [[WKWebViewConfiguration alloc] init];
+    if ([cfg respondsToSelector:@selector(setAllowsInlineMediaPlayback:)])
+        [cfg setValue:@YES forKey:@"allowsInlineMediaPlayback"];
+    if ([cfg respondsToSelector:@selector(setMediaTypesRequiringUserActionForPlayback:)])
+        [cfg setValue:@0 forKey:@"mediaTypesRequiringUserActionForPlayback"];
+    if ([cfg respondsToSelector:@selector(setRequiresUserActionForMediaPlayback:)])
+        [cfg setValue:@NO forKey:@"requiresUserActionForMediaPlayback"];
     /* let the page recolour the title bar when the theme changes */
     DS4ThemeHandler *themeHandler = [[DS4ThemeHandler alloc] init];
     themeHandler.win = win;

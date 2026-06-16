@@ -4,8 +4,10 @@ ds4_local_mode: reference
 ds4_output_kinds: html
 ds4_upstream: open-design/canva
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # Design System Inspired by Canva
 
 > Category: Design & Creative
@@ -163,3 +165,10 @@ The shape system is ultra-soft: 12px on most cards, 16–20px on larger panels, 
 - **Duration**: 180ms for hover; 280ms for menu open; 420ms for editor sidebar collapse.
 - **Easing**: `cubic-bezier(0.4, 0, 0.2, 1)` (Material-style).
 - **Card lift**: translateY(-2px) + shadow grow on hover, single transition.
+
+## 7. Usage Guardrails
+
+- Keep the white canvas dominant; the purple-to-cyan gradient should signal brand, Pro, Magic, or one primary CTA moment.
+- Use filled rounded icons and soft 12-20px geometry rather than sharp enterprise controls.
+- Keep category colors in tags, templates, and supporting metadata; do not let them compete with the main gradient action.
+- Preserve the friendly editor/product tone: dense tool UI is fine, but it should stay approachable and visually generous.

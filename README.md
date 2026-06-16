@@ -119,11 +119,11 @@ The whole pipeline, from a one-line idea to laid-out screens:
 - **1 · Brief and questions.** Design starts with a structured interview instead of a blank prompt: what you're making, target platform, tone, brand direction, scale and constraints.
 - **2 · Generating.** It loads the right skills/design systems, writes a short plan, builds the screens and shows live progress from real runtime events instead of raw tool noise.
 - **3 · Proposal.** It can offer distinct directions to compare side by side, each with a name and rationale; pick one to refine or use.
-- **4 · Canvas and handoff.** Every screen lands on an infinite canvas with pan/zoom and artboard chrome. Refine the selected screen by describing changes, then export the project as a zip.
+- **4 · Canvas and export.** Every screen lands on an infinite canvas with pan/zoom and artboard chrome. Refine the selected screen by describing changes, then export the project as a zip.
 
 ## Plan: from a rough goal to a Markdown execution plan
 
-Toggle **Plan** in Agent mode, describe what you want, and DStudio writes a **Markdown planning file** into the selected workspace. It is intentionally planning-only: no scaffolding, no Design handoff, no hidden app builder. The agent turns the request into a concrete `plan.md` or `<topic>-plan.md` with assumptions, milestones, tasks, risks and validation steps.
+Toggle **Plan** in Agent mode, describe what you want, and DStudio writes a **Markdown planning file** into the selected workspace. It is intentionally planning-only: no scaffolding, no hidden implementation flow. The agent turns the request into a concrete `plan.md` or `<topic>-plan.md` with assumptions, milestones, tasks, risks and validation steps.
 
 **1 · You describe the outcome.** Give it a product idea, feature, workflow, migration, research task or implementation goal.
 
@@ -131,7 +131,7 @@ Toggle **Plan** in Agent mode, describe what you want, and DStudio writes a **Ma
 
 **3 · The file is useful immediately.** The plan includes objective, assumptions, deliverables, milestones, task breakdown, technical/design decisions, risks, validation checklist and next actions.
 
-**4 · Then you decide.** Turn Plan off and use Agent/Design to implement, or keep the Markdown file as a handoff document.
+**4 · Then you decide.** Turn Plan off and use Agent/Design to implement, or keep the Markdown file as the execution reference.
 
 ## Highlights
 
@@ -261,7 +261,7 @@ DeepSeek V4 keeps the conversation in ds4-server's **KV cache** instead of re-en
 Where DStudio is headed (ideas, not promises):
 
 - **Sharper Design studio**: higher-fidelity screens, more distinct directions and faster refine loops on the canvas.
-- **Sharper Plan mode**: richer Markdown plans with better assumptions, acceptance criteria and handoff quality.
+- **Sharper Plan mode**: richer Markdown plans with better assumptions, acceptance criteria and execution clarity.
 - **Cowork**: collaborative sessions for sharing a workspace and building alongside the local model.
 - **MCP**: Model Context Protocol support so the agent can plug into external tools and data sources beyond the working directory.
 

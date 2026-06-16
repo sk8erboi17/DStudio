@@ -3,6 +3,10 @@
 This directory is for optional local GSA tools installed by DStudio.
 
 - `bin/` contains downloaded tool binaries and is ignored by git.
+- `nuclei-templates/` contains the managed ProjectDiscovery nuclei template
+  checkout/update and is ignored by git.
+- `trivy-cache/` and `grype/` contain managed vulnerability database/cache data
+  when those system tools are available and are ignored by git.
 - `go/`, `cargo/`, `pipx/`, and `python/` are local dependency/runtime caches
   used by generated installers and are ignored by git.
 - `install-gsa-tools.sh` and `install-gsa-tools.ps1` are generated locally and ignored by git.

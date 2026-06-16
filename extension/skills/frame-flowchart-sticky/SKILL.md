@@ -37,8 +37,10 @@ ds4_local_mode: native
 ds4_output_kinds: hyperframes
 ds4_upstream: open-design/frame-flowchart-sticky
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 【模板: 便利贴流程图帧 (Sticky Flowchart)】
 【意图】把一个流程 / 系统 / 工作流画成"白板 + 便利贴"的样子, 适合 onboarding 视频、运营流程说明、系统架构讲解。Inspired by hyperframes flowchart。
 

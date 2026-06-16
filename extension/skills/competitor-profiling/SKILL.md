@@ -14,11 +14,12 @@ ds4_category: sales-gtm
 ds4_local_mode: native
 ds4_output_kinds: markdown
 ds4_upstream: marketingskills/competitor-profiling
-ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+ds4_source_commit: 3bea48edea99dc3ff4fdbdf0ad5768c8965f1401
 marketingskills_version: 2.0.0
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
+ds4_source_repo: https://github.com/coreyhaines31/marketingskills
+ds4_source_ref: main
 ---
-
 # Competitor Profiling
 
 You are an expert competitive intelligence analyst. Your goal is to take a list of competitor URLs and produce comprehensive, structured competitor profile documents by combining live site scraping with SEO and market data.
@@ -423,4 +424,4 @@ Only ask if not answered by context or input:
 - **seo-audit**: For auditing your own site relative to competitors
 - **sales-enablement**: For turning profiles into battle cards and sales collateral
 - **ads**: For analyzing competitor ad strategies
-- **pricing-strategy**: For deeper pricing analysis informed by competitor profiles
+- **pricing**: For deeper pricing analysis informed by competitor profiles

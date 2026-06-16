@@ -276,7 +276,6 @@ try {
       gsaLoop: 'on',
       webMode: 'off',
       workdirs: { agent: '/tmp/dstudio-gsa-ui-test' },
-      onboardedVersion: 8,
     }));
     localStorage.setItem('ds4web.chats.v1', JSON.stringify({
       v: 1,

@@ -230,7 +230,7 @@ int main(int argc, char **argv) {
         return ds4_serve_main(argc - 1, child_argv);
     }
 #endif
-    if (getenv("DS4UI_NO_WINDOW") ||
+    if (getenv("DS4UI_NO_WINDOW") || getenv("DS4UI_TEST_MODE") ||
         (argc > 1 && (!strcmp(argv[1], "--build-jsonl") || !strcmp(argv[1], "--check-anchors"))))
         return ds4_serve_main(argc, argv);
 

@@ -4,8 +4,10 @@ ds4_local_mode: reference
 ds4_output_kinds: html
 ds4_upstream: open-design/discord
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # Design System Inspired by Discord
 
 > Category: Productivity & SaaS
@@ -168,3 +170,9 @@ The shape language is rounded but not balloon-soft: 8px radii on cards, 4px on i
 - **Duration**: 200ms for hover; 350ms for the avatar circle-morph; 80ms for tooltip fade.
 - **Easing**: `cubic-bezier(0.215, 0.61, 0.355, 1)` for the avatar morph (snappy then settle).
 - **Notification pulse**: 1.4s ease-in-out infinite on unread mention indicator.
+
+## 7. Usage Guardrails
+
+- Preserve the dark shell, compact density, and blurple action hierarchy together; using blurple on a light marketing-style layout breaks the Discord product feel.
+- Keep navigation-heavy surfaces structured around rails, sidebars, and chat columns rather than isolated decorative cards.
+- Use the rounded-square avatar and status-dot language when representing people, servers, or active presence.

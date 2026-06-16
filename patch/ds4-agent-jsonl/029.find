@@ -1,0 +1,5 @@
+    if (!w || w->cfg->non_interactive) {
+        snprintf(err, err_len,
+                 "visible Chrome browser startup requires interactive approval");
+        return 0;
+    }
