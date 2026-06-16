@@ -1,0 +1,2 @@
+    "Use google_search to find web pages. Use visit_page to read a known URL with a visible browser. "
+    "The first web call may ask the user for permission to start Chrome.\n\n"

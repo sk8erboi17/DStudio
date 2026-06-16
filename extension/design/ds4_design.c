@@ -11,7 +11,7 @@
  *   <question-form> discovery block (no tools), the direction/brand is locked
  *   next, then every build starts with a todo_write plan whose live updates
  *   the UI renders as a Todos card, and a turn that shipped a new canonical
- *   HTML file ends with an artifact handoff.
+ *   HTML file ends with artifact registration.
  * - The system prompt is a purpose-built design prompt stack
  *   (discovery + philosophy rules, designer identity, the five built-in
  *   design directions with OKLch palettes, the anti-AI-slop checklist, the
@@ -1779,8 +1779,7 @@ static bool design_user_text_skips_discovery(const char *s) {
            design_ascii_ci_contains(s, "do not ask questions") ||
            design_ascii_ci_contains(s, "don't ask questions") ||
            design_ascii_ci_contains(s, "no questions") ||
-           design_ascii_ci_contains(s, "build it directly") ||
-           design_ascii_ci_contains(s, "BUILD MODE (planned)");
+           design_ascii_ci_contains(s, "build it directly");
 }
 
 static void design_project_clear_run_progress(design_project *pr) {
@@ -1971,7 +1970,7 @@ static int count_newlines(const char *s, size_t len) {
  * ============================================================================
  *
  * the agent gets generic file tools plus TodoWrite plus the
- * artifact handoff.  Same here, except every path goes through the sandbox
+ * artifact registration.  Same here, except every path goes through the sandbox
  * and `artifact` is a tool (the files are already on disk; re-emitting a
  * whole HTML document inline at tens of tokens/s would be pure waste).
  */
@@ -5581,7 +5580,7 @@ static const char design_system_prompt[] =
     "- No decorative strips: locale/time/weather (Lisbon 14:23), scroll cues, "
     "version or build stamps (v0.6)\n"
     "- At most one middle-dot (·) per metadata line; no decorative status dots\n\n"
-    "## Artifact handoff\n\n"
+    "## Artifact registration\n\n"
     "When a turn shipped a NEW canonical HTML file, end the turn by calling "
     "artifact with its entry path and a human title, after verify_artifact and "
     "a passing critique_write for the same entry. One artifact per turn at "

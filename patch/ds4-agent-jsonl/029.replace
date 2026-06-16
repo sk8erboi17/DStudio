@@ -1,0 +1,8 @@
+    if (!w) {
+        snprintf(err, err_len, "web worker is not initialized");
+        return 0;
+    }
+    if (w->cfg->non_interactive) {
+        if (err && err_len) err[0] = '\0';
+        return 1; /*DS4UI_JSONL: DStudio Agent web search is a managed read-only helper. */
+    }

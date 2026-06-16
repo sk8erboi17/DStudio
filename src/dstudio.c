@@ -34,7 +34,7 @@
  *  - anti-CSRF: POST /api requests require the custom header X-Requested-With:
  *    ds4web, which another site cannot add without a CORS preflight; workspace,
  *    agent/design and settings APIs remain host-local even when LAN is enabled.
- *  - bounded buffers (header REQ_BUF, body BODY_MAX), logging with escaping of
+ *  - bounded buffers (header REQ_BUF, normal API body BODY_MAX), logging with escaping of
  *    non-printable bytes, I/O timeout, SIGPIPE ignored, partial writes handled.
  *  - page CSP allows http/https fetches so LAN clients can call the host API.
  *  - SIGINT/SIGTERM also shut down the child engine.
@@ -61,6 +61,9 @@
 #else
 #define DSTUDIO_PATH_MAX PATH_MAX
 #endif
+#define IOGPU_WIRED_MIN_MB 86016LL
+#define IOGPU_WIRED_MAX_MB 90112LL
+#define IOGPU_WIRED_TARGET_MB IOGPU_WIRED_MIN_MB
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
@@ -285,6 +288,7 @@ static pid_t fork(void) { errno = ENOSYS; return -1; }
 #endif
 #ifdef __APPLE__
 #include <mach-o/dyld.h>   /* _NSGetExecutablePath: resolve ds4 dir from bundle */
+#include <sys/sysctl.h>
 #endif
 
 static char *ds4_strdup_local(const char *s) {
@@ -325,7 +329,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define LOADING_PATH "web/loading.html"
 #define MAX_PAGE     (8 * 1024 * 1024)
 #define REQ_BUF      65536
-#define BODY_MAX     32768   /* roomy enough for a user-authored skill body */
+#define BODY_MAX     (2 * 1024 * 1024)   /* normal /api JSON body cap; large stores use dedicated paths */
 #define IO_TIMEOUT_S 5
 #define WEB_HELPER_SEARCH_TIMEOUT_MS 25000
 #define WEB_HELPER_VISIT_TIMEOUT_MS 45000
@@ -348,6 +352,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define MODEL_PRO_EXPECTED_BYTES 430000000000LL  /* ~430 GB (pro-q2-imatrix), for the % */
 
 enum { ENGINE_NONE = 0, ENGINE_SERVER, ENGINE_AGENT, ENGINE_DESIGN };
+enum { SSD_STREAMING_OFF = 0, SSD_STREAMING_ON = 1, SSD_STREAMING_AUTO = 2 };
 
 /* The piped modes (agent and design) share transcript and protocol
  * (+DWARFSTAR_WAITING, \x1e events): same send/poll endpoints. */
@@ -361,9 +366,10 @@ typedef struct {
     int kv_space_mb;  /* server: default 24576 */
     int kv_min_tok;   /* server: default 128 */
     int think;        /* agent/design: 0 nothink, 1 think (high), 2 think-max. default 1 */
+    int ssd_streaming;/* 0 off, 1 force on, 2 auto. */
 } engine_cfg;
 
-static const engine_cfg ENGINE_DEFAULTS = { 1, 28000, 262144, 100, 24576, 128, 1 };
+static const engine_cfg ENGINE_DEFAULTS = { 1, 28000, 262144, 90, 24576, 128, 1, SSD_STREAMING_AUTO };
 
 /* ---- global engine state ---- */
 static int       g_mode = ENGINE_NONE;
@@ -377,6 +383,8 @@ static char      g_remote_base_url[1024] = ""; /* LAN client: local agent/design
 static char      g_remote_model[128] = "";
 static char      g_design_dir[1024] = "";    /* last design workspace: the preview
                                                 stays servable even after stop */
+static int       g_ssd_streaming_effective = 0;
+static char      g_ssd_streaming_reason[192] = "not launched";
 
 static int  g_in_fd  = -1;   /* agent stdin (write) */
 static int  g_out_fd = -1;   /* child stdout (read)  */
@@ -451,15 +459,16 @@ static const char SEC_HEADERS[] =
     "frame-src 'self'\r\n";
 
 /* Headers for design files served in preview iframes. The preview must behave
- * like a small local site, so relative CSS/JS/images under the same workspace
- * are allowed through 'self', while external network access remains blocked. */
+ * like the bundled template site, so relative assets and common HTTPS-hosted
+ * fonts/CSS/script CDNs used by the original examples are allowed. */
 static const char DESIGN_HEADERS[] =
     "Connection: close\r\n"
     "Cache-Control: no-store\r\n"
     "X-Content-Type-Options: nosniff\r\n"
     "Referrer-Policy: no-referrer\r\n"
-    "Content-Security-Policy: default-src 'none'; style-src 'self' 'unsafe-inline'; "
-    "script-src 'self' 'unsafe-inline'; img-src 'self' data: blob:\r\n";
+    "Content-Security-Policy: default-src 'none'; style-src 'self' 'unsafe-inline' https:; "
+    "script-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https: http:; "
+    "font-src 'self' data: https:; connect-src 'self' https: http:; media-src 'self' https: data: blob:\r\n";
 
 /* Bind address of the HTTP listener. Default 127.0.0.1 (localhost only): LAN is
  * OFF by default. The user enables it from Settings (POST /api/lan {enable}),
@@ -1319,6 +1328,12 @@ static void diag_sse_close_all(void) {
     while (g_task_sse_n) diag_sse_drop_task(0);
 }
 
+static const char *ssd_streaming_cfg_name(int mode);
+static unsigned long long dstudio_physical_memory_bytes(void);
+static long long current_model_file_size(void);
+static long long sysctl_iogpu_wired_limit_mb(void);
+static int setup_run_cmd_capture(const char *cwd, char *const argv[], char *out, size_t outsz);
+
 static void api_stream_logs(int fd, const char *path) {
     if (g_log_sse_n >= DIAG_SSE_MAX) {
         send_json(fd, "503 Service Unavailable", "{\"ok\":false,\"error\":\"too many log streams\"}");
@@ -1373,6 +1388,12 @@ static void api_diagnostics(int fd) {
     }
     for (int n = 0; n < g_log_count; n++)
         if (!strcmp(g_logs[n].level, "error")) recent_errors++;
+    unsigned long long phys_mem = dstudio_physical_memory_bytes();
+    long long iogpu_wired_mb = sysctl_iogpu_wired_limit_mb();
+    long long model_bytes = current_model_file_size();
+    char ssd_reason_esc[420];
+    json_escape_into(ssd_reason_esc, sizeof ssd_reason_esc,
+                     g_ssd_streaming_reason, strlen(g_ssd_streaming_reason));
     json_dyn_buf b = {0};
     int ok = json_dyn_puts(&b, "{\"ok\":true,\"generatedAt\":") &&
              json_dyn_printf(&b, "%lld", dstudio_now_ms()) &&
@@ -1395,7 +1416,18 @@ static void api_diagnostics(int fd) {
              json_dyn_puts(&b, "},\"lan\":{") &&
              json_dyn_printf(&b, "\"enabled\":%s,\"addr\":", lan_on ? "true" : "false") &&
              json_dyn_put_escaped(&b, lan_addr) &&
-             json_dyn_puts(&b, "},\"tasks\":{\"seq\":") &&
+             json_dyn_puts(&b, "},\"memory\":{") &&
+             json_dyn_printf(&b, "\"physicalBytes\":%llu,\"modelBytes\":%lld,\"iogpuWiredLimitMb\":%lld,\"iogpuWiredTargetMb\":%lld,\"iogpuWiredMinMb\":%lld,\"iogpuWiredMaxMb\":%lld",
+                             phys_mem, model_bytes, iogpu_wired_mb, IOGPU_WIRED_TARGET_MB,
+                             IOGPU_WIRED_MIN_MB, IOGPU_WIRED_MAX_MB) &&
+             json_dyn_printf(&b, ",\"ctx\":%d,\"power\":%d", g_cfg.ctx, g_cfg.power) &&
+             json_dyn_puts(&b, ",\"ssdStreaming\":\"") &&
+             json_dyn_puts(&b, ssd_streaming_cfg_name(g_cfg.ssd_streaming)) &&
+             json_dyn_puts(&b, "\",\"ssdStreamingEffective\":") &&
+             json_dyn_puts(&b, g_ssd_streaming_effective ? "true" : "false") &&
+             json_dyn_puts(&b, ",\"ssdStreamingReason\":\"") &&
+             json_dyn_puts(&b, ssd_reason_esc) &&
+             json_dyn_puts(&b, "\"},\"tasks\":{\"seq\":") &&
              json_dyn_printf(&b, "%llu", g_task_seq) &&
              json_dyn_puts(&b, ",\"recent\":[");
     int emitted = 0;
@@ -1419,6 +1451,107 @@ static void api_diagnostics(int fd) {
     if (!ok) { free(b.ptr); send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}"); return; }
     send_json(fd, "200 OK", b.ptr);
     free(b.ptr);
+}
+
+static void api_iogpu_wired_limit(int fd, const char *body) {
+#ifdef __APPLE__
+    long target = IOGPU_WIRED_TARGET_MB;
+    int parsed = json_get_int(body, "mb", IOGPU_WIRED_MIN_MB, IOGPU_WIRED_MAX_MB, &target);
+    if (parsed < 0) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"unsupported iogpu.wired_limit_mb target\"}");
+        return;
+    }
+    char tmp[] = "/tmp/dstudio-iogpu-wired-limit-XXXXXX";
+    int tfd = mkstemp(tmp);
+    if (tfd < 0) {
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"could not create iogpu installer script\"}");
+        return;
+    }
+    FILE *tf = fdopen(tfd, "w");
+    if (!tf) {
+        close(tfd);
+        unlink(tmp);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"could not write iogpu installer script\"}");
+        return;
+    }
+    fprintf(tf,
+            "#!/bin/sh\n"
+            "set -eu\n"
+            "install_dir='/Library/Application Support/DStudio'\n"
+            "plist='/Library/LaunchDaemons/com.dstudio.iogpu-wired-limit.plist'\n"
+            "runner=\"$install_dir/iogpu-wired-limit.sh\"\n"
+            "mkdir -p \"$install_dir\"\n"
+            "cat > \"$runner\" <<'EOS'\n"
+            "#!/bin/sh\n"
+            "/usr/sbin/sysctl -w iogpu.wired_limit_mb=%ld\n"
+            "EOS\n"
+            "chown root:wheel \"$runner\"\n"
+            "chmod 755 \"$runner\"\n"
+            "cat > \"$plist\" <<'EOP'\n"
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+            "<plist version=\"1.0\">\n"
+            "<dict>\n"
+            "  <key>Label</key>\n"
+            "  <string>com.dstudio.iogpu-wired-limit</string>\n"
+            "  <key>ProgramArguments</key>\n"
+            "  <array>\n"
+            "    <string>/Library/Application Support/DStudio/iogpu-wired-limit.sh</string>\n"
+            "  </array>\n"
+            "  <key>RunAtLoad</key>\n"
+            "  <true/>\n"
+            "  <key>StandardOutPath</key>\n"
+            "  <string>/var/log/dstudio-iogpu-wired-limit.log</string>\n"
+            "  <key>StandardErrorPath</key>\n"
+            "  <string>/var/log/dstudio-iogpu-wired-limit.err</string>\n"
+            "</dict>\n"
+            "</plist>\n"
+            "EOP\n"
+            "chown root:wheel \"$plist\"\n"
+            "chmod 644 \"$plist\"\n"
+            "/bin/launchctl bootout system \"$plist\" >/dev/null 2>&1 || true\n"
+            "/bin/launchctl bootstrap system \"$plist\"\n"
+            "/bin/launchctl kickstart -k system/com.dstudio.iogpu-wired-limit\n"
+            "/usr/sbin/sysctl -w iogpu.wired_limit_mb=%ld\n",
+            target, target);
+    int write_failed = ferror(tf);
+    if (fclose(tf) != 0) write_failed = 1;
+    if (write_failed) {
+        unlink(tmp);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"could not finish iogpu installer script\"}");
+        return;
+    }
+    chmod(tmp, 0700);
+    char script[640];
+    snprintf(script, sizeof script, "do shell script \"/bin/sh %s\" with administrator privileges", tmp);
+    char out[4096] = "";
+    char *argv[] = { "osascript", "-e", script, NULL };
+    int rc = setup_run_cmd_capture(NULL, argv, out, sizeof out);
+    unlink(tmp);
+    long long current = sysctl_iogpu_wired_limit_mb();
+    if (rc != 0 || current != target) {
+        json_dyn_buf b = {0};
+        int ok = json_dyn_puts(&b, "{\"ok\":false,\"error\":") &&
+                 json_dyn_put_escaped(&b, rc != 0 ? "admin prompt or sysctl failed" : "sysctl value did not match target") &&
+                 json_dyn_printf(&b, ",\"currentMb\":%lld,\"targetMb\":%ld,\"output\":", current, target) &&
+                 json_dyn_put_escaped(&b, out) &&
+                 json_dyn_puts(&b, "}");
+        if (!ok) {
+            free(b.ptr);
+            send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"iogpu response memory\"}");
+            return;
+        }
+        send_json(fd, "500 Internal Server Error", b.ptr);
+        free(b.ptr);
+        return;
+    }
+    char res[160];
+    snprintf(res, sizeof res, "{\"ok\":true,\"currentMb\":%lld,\"targetMb\":%ld,\"persistent\":true}", current, target);
+    send_json(fd, "200 OK", res);
+#else
+    (void)body;
+    send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"iogpu.wired_limit_mb is macOS-only\"}");
+#endif
 }
 
 static json_dyn_buf g_child_event_line = {0};
@@ -1820,8 +1953,6 @@ static char  g_dl_variant[16] = "";  /* which variant is downloading */
 static char  g_model_override[1024] = ""; /* explicit GGUF the user picked (rel to ds4 dir); "" = use the variant */
 static char  g_skill[64] = "";            /* active skill id (extension/skills/<id>); "" = none */
 static char  g_design_system[64] = "";    /* active design-system id (design only); "" = none */
-static int   g_build_mode = 0;            /* agent Plan mode: 0 off, 2 markdown plan */
-static char  g_build_dir[1024] = "";      /* selected workspace for Plan/legacy build helper endpoints */
 #ifdef _WIN32
 static DWORD g_child_win_pid = 0;
 #endif
@@ -1842,6 +1973,108 @@ static int file_present_in_dir(const char *dir, const char *rel) {
 
 static int file_present(const char *rel) {
     return file_present_in_dir(g_ds4_dir, rel);
+}
+
+static const char *ssd_streaming_cfg_name(int mode) {
+    return mode == SSD_STREAMING_ON ? "on" :
+           mode == SSD_STREAMING_OFF ? "off" : "auto";
+}
+
+static unsigned long long dstudio_physical_memory_bytes(void) {
+#ifdef _WIN32
+    MEMORYSTATUSEX st;
+    memset(&st, 0, sizeof st);
+    st.dwLength = sizeof st;
+    if (GlobalMemoryStatusEx(&st)) return (unsigned long long)st.ullTotalPhys;
+    return 0;
+#elif defined(__APPLE__)
+    uint64_t mem = 0;
+    size_t len = sizeof mem;
+    if (sysctlbyname("hw.memsize", &mem, &len, NULL, 0) == 0) return (unsigned long long)mem;
+    return 0;
+#else
+    long pages = sysconf(_SC_PHYS_PAGES);
+    long page_size = sysconf(_SC_PAGESIZE);
+    if (pages > 0 && page_size > 0) return (unsigned long long)pages * (unsigned long long)page_size;
+    return 0;
+#endif
+}
+
+static long long current_model_file_size(void) {
+    char full[2048];
+    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, current_model_rel());
+    struct stat st;
+    if (stat(full, &st) != 0 || !S_ISREG(st.st_mode)) return -1;
+    return (long long)st.st_size;
+}
+
+static long long sysctl_iogpu_wired_limit_mb(void) {
+#ifdef __APPLE__
+    int64_t v = 0;
+    size_t len = sizeof v;
+    if (sysctlbyname("iogpu.wired_limit_mb", &v, &len, NULL, 0) == 0) {
+        if (len == sizeof(int)) {
+            int vi = 0;
+            memcpy(&vi, &v, sizeof vi);
+            return (long long)vi;
+        }
+        return (long long)v;
+    }
+    int vi = 0;
+    len = sizeof vi;
+    if (sysctlbyname("iogpu.wired_limit_mb", &vi, &len, NULL, 0) == 0) return (long long)vi;
+#endif
+    return -1;
+}
+
+static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_model,
+                                          char *reason, size_t reasonsz,
+                                          char *err, size_t errsz) {
+    if (reason && reasonsz) reason[0] = '\0';
+    if (err && errsz) err[0] = '\0';
+    if (!cfg || cfg->ssd_streaming == SSD_STREAMING_OFF) {
+        snprintf(reason, reasonsz, "disabled");
+        return 0;
+    }
+    if (remote_model) {
+        if (cfg->ssd_streaming == SSD_STREAMING_ON) {
+            snprintf(err, errsz, "--ssd-streaming is local Metal-only and cannot be used with a remote model");
+            return -1;
+        }
+        snprintf(reason, reasonsz, "auto disabled for remote model");
+        return 0;
+    }
+#ifdef _WIN32
+    if (cfg->ssd_streaming == SSD_STREAMING_ON) {
+        snprintf(err, errsz, "--ssd-streaming is Metal-only; this Windows runtime launches CPU binaries");
+        return -1;
+    }
+    snprintf(reason, reasonsz, "auto disabled on Windows CPU runtime");
+    return 0;
+#elif !defined(__APPLE__)
+    if (cfg->ssd_streaming == SSD_STREAMING_ON) {
+        snprintf(err, errsz, "--ssd-streaming is currently supported only by ds4 Metal builds");
+        return -1;
+    }
+    snprintf(reason, reasonsz, "auto disabled outside macOS Metal");
+    return 0;
+#else
+    if (cfg->ssd_streaming == SSD_STREAMING_ON) {
+        snprintf(reason, reasonsz, "forced on");
+        return 1;
+    }
+    long long model_bytes = current_model_file_size();
+    unsigned long long mem_bytes = dstudio_physical_memory_bytes();
+    const unsigned long long gib = 1024ull * 1024ull * 1024ull;
+    if (!strcmp(g_variant, "pro") ||
+        (model_bytes > 64ll * 1024ll * 1024ll * 1024ll) ||
+        (mem_bytes > 0 && mem_bytes <= 192ull * gib)) {
+        snprintf(reason, reasonsz, "auto enabled for large ds4 model / memory pressure");
+        return 1;
+    }
+    snprintf(reason, reasonsz, "auto disabled: memory budget is sufficient");
+    return 0;
+#endif
 }
 
 static int model_present(int uncensored) {
@@ -2258,8 +2491,15 @@ static void progress_from_line(const char *line) {
     if (g_ready) return;
     if (strstr(line, "mapped") || strstr(line, "model views") || strstr(line, "mmap"))
         set_stage("Mapping the model…", 40);
-    else if (strstr(line, "context buffers") || strstr(line, "KV disk cache"))
-        set_stage("Allocating the context…", 75);
+    else if (strstr(line, "context buffers") || strstr(line, "KV disk cache")) {
+        if (MODE_IS_PIPED(g_mode)) {
+            set_stage("Ready", 100);
+            g_ready = 1;
+            maybe_complete_launch_task(g_mode);
+        } else {
+            set_stage("Allocating the context…", 75);
+        }
+    }
     else if (strstr(line, "warming") || strstr(line, "expert"))
         set_stage("Warming up…", 85);
     else if (strstr(line, "listening on"))      /* server ready */
@@ -2829,6 +3069,11 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     char kvdir[2048];
     kv_dir_for_model(current_model_rel(), kvdir, sizeof kvdir);  /* per-model cache */
     mkpath(kvdir);
+    char ssd_reason[192] = "";
+    int use_ssd_streaming = engine_effective_ssd_streaming(cfg, 0, ssd_reason, sizeof ssd_reason, err, errsz);
+    if (use_ssd_streaming < 0) return 0;
+    g_ssd_streaming_effective = use_ssd_streaming;
+    snprintf(g_ssd_streaming_reason, sizeof g_ssd_streaming_reason, "%s", ssd_reason);
 
 #ifdef _WIN32
     if (!file_present("ds4-server.exe")) {
@@ -2846,12 +3091,13 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     snprintf(pows,  sizeof pows,  "%d", cfg->power);
     snprintf(kvs,   sizeof kvs,   "%d", cfg->kv_space_mb);
     snprintf(mins,  sizeof mins,  "%d", cfg->kv_min_tok);
-    char *argv[] = {
-        exe, "-m", (char *)current_model_rel(), "--cpu",
-        "--host", g_bind_host, "--port", ports, "--ctx", ctxs, "--power", pows,
-        "--kv-disk-dir", kvdir, "--kv-disk-space-mb", kvs,
-        "--kv-cache-min-tokens", mins, "--cors", NULL
-    };
+    char *argv[24]; int n = 0;
+    argv[n++] = exe; argv[n++] = "-m"; argv[n++] = (char *)current_model_rel(); argv[n++] = "--cpu";
+    argv[n++] = "--host"; argv[n++] = g_bind_host; argv[n++] = "--port"; argv[n++] = ports;
+    argv[n++] = "--ctx"; argv[n++] = ctxs; argv[n++] = "--power"; argv[n++] = pows;
+    argv[n++] = "--kv-disk-dir"; argv[n++] = kvdir; argv[n++] = "--kv-disk-space-mb"; argv[n++] = kvs;
+    argv[n++] = "--kv-cache-min-tokens"; argv[n++] = mins; argv[n++] = "--cors";
+    argv[n] = NULL;
     pid_t pid = 0;
     if (!win_spawn(g_ds4_dir, argv, 0, NULL, &g_out_fd, &g_err_fd, &pid, err, errsz))
         return 0;
@@ -2880,12 +3126,14 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
         dup2(ep[1], STDERR_FILENO);
         close(op[0]); close(op[1]); close(ep[0]); close(ep[1]);
         if (g_srv_fd >= 0) close(g_srv_fd);
-        char *argv[] = {
-            "./ds4-server", "-m", (char *)current_model_rel(),
-            "--host", g_bind_host, "--port", ports, "--ctx", ctxs, "--power", pows,
-            "--kv-disk-dir", kvdir, "--kv-disk-space-mb", kvs,
-            "--kv-cache-min-tokens", mins, "--cors", NULL
-        };
+        char *argv[26]; int n = 0;
+        argv[n++] = "./ds4-server"; argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
+        argv[n++] = "--host"; argv[n++] = g_bind_host; argv[n++] = "--port"; argv[n++] = ports;
+        argv[n++] = "--ctx"; argv[n++] = ctxs; argv[n++] = "--power"; argv[n++] = pows;
+        if (use_ssd_streaming) argv[n++] = "--ssd-streaming";
+        argv[n++] = "--kv-disk-dir"; argv[n++] = kvdir; argv[n++] = "--kv-disk-space-mb"; argv[n++] = kvs;
+        argv[n++] = "--kv-cache-min-tokens"; argv[n++] = mins; argv[n++] = "--cors";
+        argv[n] = NULL;
         execv("./ds4-server", argv);
         _exit(127);
     }
@@ -3455,7 +3703,10 @@ static char *build_skill_sys(int include_design_system, int include_agent_questi
         o += (size_t)snprintf(cat + o, catcap - o,
             "## On-demand packs\n\n"
             "Load any pack below at any time WITHOUT restarting, by calling these tools "
-            "(DSML, exactly like your other tools):\n\n"
+            "(DSML, exactly like your other tools). You may call multiple `skill` tools "
+            "in one turn when each pack covers a different concern, but default to one "
+            "and cap each user request at three `skill` calls total; never load the same "
+            "skill twice:\n\n"
             "{\"type\":\"function\",\"function\":{\"name\":\"skill\",\"description\":\"Load a skill recipe (layout patterns + checklist) by id, then follow its checklist.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n"
             "{\"type\":\"function\",\"function\":{\"name\":\"design_system\",\"description\":\"Load a brand pack (color tokens, type, components, voice) by id, then bind its tokens.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n"
             "{\"type\":\"function\",\"function\":{\"name\":\"pack_file\",\"description\":\"Read an allowlisted pack file such as assets/template.html, references/checklist.md, references/layouts.md, or example.html after a pack lists available files.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"type\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"type\",\"name\",\"path\"]}}}\n");
@@ -4144,6 +4395,11 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     char ctxs[16], pows[16];
     snprintf(ctxs, sizeof ctxs, "%d", cfg->ctx);
     snprintf(pows, sizeof pows, "%d", cfg->power);
+    char ssd_reason[192] = "";
+    int use_ssd_streaming = engine_effective_ssd_streaming(cfg, remote_model, ssd_reason, sizeof ssd_reason, err, errsz);
+    if (use_ssd_streaming < 0) return 0;
+    g_ssd_streaming_effective = use_ssd_streaming;
+    snprintf(g_ssd_streaming_reason, sizeof g_ssd_streaming_reason, "%s", ssd_reason);
     char wd[1024];
     snprintf(wd, sizeof wd, "%s", (workdir && workdir[0]) ? workdir : (getenv("HOME") ? getenv("HOME") : "."));
 
@@ -4167,12 +4423,12 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
      * via the agent's own -sys flag — no change to ds4-agent itself. The design-system
      * (brand) layer is design-only, so it is excluded here (0). */
     char *skill_sys = build_skill_sys(0, use_jsonl);
-    if (!g_build_mode && use_jsonl) {
-        /* Normal agent, Plan Off: keep Claude-like discovery for direction-sensitive
+    if (use_jsonl) {
+        /* Normal agent: keep Claude-like discovery for direction-sensitive
          * work without slowing down straightforward code edits.  This is injected via
          * -sys only; antirez's ds4_agent.c stays untouched. */
         static const char *normal_agent_discovery =
-            "\n\n## NORMAL AGENT DISCOVERY (Plan Off)\n"
+            "\n\n## NORMAL AGENT DISCOVERY\n"
             "Default to action, but ask before committing to a direction when the missing "
             "choice would materially change the result.\n"
             "Ask a compact clarification first, then stop, when the user asks for a NEW "
@@ -4193,29 +4449,32 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
             "reasonable assumption and proceed.\n"
             "Never ask the same clarification twice; once the user answers, proceed with a "
             "brief plan and implementation.\n";
-        size_t cur = skill_sys ? strlen(skill_sys) : 0, dl = strlen(normal_agent_discovery);
-        char *nb = realloc(skill_sys, cur + dl + 1);
-        if (nb) { skill_sys = nb; memcpy(skill_sys + cur, normal_agent_discovery, dl + 1); }
-    } else {
-        /* Plan mode: DStudio augments each user request with a planning contract.
-         * This system layer keeps the agent out of implementation/build behavior. */
-        static const char *proto_plan =
-            "\n\n## PLAN MODE — Markdown planning file only\n"
-            "You are in DStudio Plan mode. The user describes what they want; your job is to "
-            "turn that request into a clear Markdown planning document in the selected workspace.\n"
-            "- Do not implement code, scaffold projects, run builds, or hand off to Design unless "
-            "the user explicitly turns Plan mode off and asks for implementation.\n"
-            "- Use the file write/edit tools to create exactly one Markdown plan file for the "
-            "current request. Prefer the filename requested by the UI prompt; otherwise use "
-            "`plan.md` or a concise `<topic>-plan.md`.\n"
-            "- The document should be actionable: objective, assumptions, scope, milestones, "
-            "task breakdown, technical/design decisions, risks, validation checklist, and next actions.\n"
-            "- Make reasonable assumptions when details are missing and list them in the plan. "
-            "Ask a clarification only if a useful plan is impossible.\n"
-            "- After writing the Markdown file, answer briefly with the filename and a short summary.\n";
-        size_t cur = skill_sys ? strlen(skill_sys) : 0, pl = strlen(proto_plan);
-        char *nb = realloc(skill_sys, cur + pl + 1);
-        if (nb) { skill_sys = nb; memcpy(skill_sys + cur, proto_plan, pl + 1); }
+        static const char *normal_agent_web_research =
+            "\n\n## AGENT WEB RESEARCH\n"
+            "You have read-only browser-backed web tools named `google_search` and `visit_page`; "
+            "they use the same local DStudio Search/Deep Research browser helper.\n"
+            "Use `google_search` when the user explicitly asks you to search, look up, verify, "
+            "check the latest/current information, or when you are uncertain and the answer "
+            "depends on current external facts, public docs, package/API behavior, prices, "
+            "versions, advisories, news, or public web evidence.\n"
+            "After searching, use `visit_page` on the most relevant primary sources before "
+            "relying on them. Prefer official docs, upstream repositories, standards, release "
+            "notes, advisories, and vendor pages over search snippets.\n"
+            "Do not use web tools for facts already available in the workspace or for private "
+            "local files. Keep searches bounded and cite URLs when web evidence materially "
+            "supports or changes the answer.\n"
+            "If web tools fail, say that clearly; do not invent current facts.\n";
+        const char *normal_agent_rules[] = {
+            normal_agent_discovery,
+            normal_agent_web_research
+        };
+        for (size_t i = 0; i < sizeof normal_agent_rules / sizeof normal_agent_rules[0]; i++) {
+            size_t cur = skill_sys ? strlen(skill_sys) : 0, dl = strlen(normal_agent_rules[i]);
+            char *nb = realloc(skill_sys, cur + dl + 1);
+            if (!nb) break;
+            skill_sys = nb;
+            memcpy(skill_sys + cur, normal_agent_rules[i], dl + 1);
+        }
     }
 
 #ifdef _WIN32
@@ -4227,7 +4486,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
                      : "--think";
-    char *argv[26]; int n = 0;
+    char *argv[30]; int n = 0;
     argv[n++] = exe;
     argv[n++] = "--non-interactive";
     if (use_jsonl) argv[n++] = "--jsonl";
@@ -4236,6 +4495,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
         argv[n++] = "--remote-model"; argv[n++] = g_remote_model[0] ? g_remote_model : "ds4";
     } else {
         argv[n++] = "--cpu";
+        if (use_ssd_streaming) argv[n++] = "--ssd-streaming";
         argv[n++] = "-m"; argv[n++] = model_abs;
     }
     argv[n++] = "-c"; argv[n++] = ctxs;
@@ -4272,7 +4532,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
         char *think_flag = cfg->think == 0 ? "--nothink"
                          : cfg->think == 2 ? "--think-max"
                          : "--think";
-        char *argv[26]; int n = 0;
+        char *argv[30]; int n = 0;
         argv[n++] = binpath;
         argv[n++] = "--non-interactive";
         if (use_jsonl) argv[n++] = "--jsonl";
@@ -4281,6 +4541,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
             argv[n++] = "--remote-model"; argv[n++] = g_remote_model[0] ? g_remote_model : "ds4";
         } else {
             argv[n++] = "--metal";
+            if (use_ssd_streaming) argv[n++] = "--ssd-streaming";
             argv[n++] = "-m"; argv[n++] = model_abs;
         }
         argv[n++] = "-c"; argv[n++] = ctxs;
@@ -4351,6 +4612,11 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     char ctxs[16], pows[16];
     snprintf(ctxs, sizeof ctxs, "%d", cfg->ctx);
     snprintf(pows, sizeof pows, "%d", cfg->power);
+    char ssd_reason[192] = "";
+    int use_ssd_streaming = engine_effective_ssd_streaming(cfg, remote_model, ssd_reason, sizeof ssd_reason, err, errsz);
+    if (use_ssd_streaming < 0) return 0;
+    g_ssd_streaming_effective = use_ssd_streaming;
+    snprintf(g_ssd_streaming_reason, sizeof g_ssd_streaming_reason, "%s", ssd_reason);
     char wd[1024];
     if (workdir && workdir[0]) {
         snprintf(wd, sizeof wd, "%s", workdir);
@@ -4371,7 +4637,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
                      : "--think";
-    char *argv[24]; int n = 0;
+    char *argv[28]; int n = 0;
     argv[n++] = exe;
     argv[n++] = "--jsonl";
     if (remote_model) {
@@ -4379,6 +4645,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         argv[n++] = "--remote-model"; argv[n++] = g_remote_model[0] ? g_remote_model : "ds4";
     } else {
         argv[n++] = "--cpu";
+        if (use_ssd_streaming) argv[n++] = "--ssd-streaming";
         argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
     }
     argv[n++] = "-c"; argv[n++] = ctxs;
@@ -4410,7 +4677,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         char *think_flag = cfg->think == 0 ? "--nothink"
                          : cfg->think == 2 ? "--think-max"
                          : "--think";
-        char *argv[24]; int n = 0;
+        char *argv[28]; int n = 0;
         argv[n++] = "./ds4-design";
         argv[n++] = "--jsonl";
         if (remote_model) {
@@ -4418,6 +4685,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
             argv[n++] = "--remote-model"; argv[n++] = g_remote_model[0] ? g_remote_model : "ds4";
         } else {
             argv[n++] = "--metal";
+            if (use_ssd_streaming) argv[n++] = "--ssd-streaming";
             argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
         }
         argv[n++] = "-c"; argv[n++] = ctxs;
@@ -4570,11 +4838,18 @@ static void api_status(int fd) {
     char wd_esc[1100];
     json_escape_into(wd_esc, sizeof wd_esc, g_workdir, strlen(g_workdir));
 
-    char cfg[256];
+    char ssd_reason_esc[420];
+    json_escape_into(ssd_reason_esc, sizeof ssd_reason_esc,
+                     g_ssd_streaming_reason, strlen(g_ssd_streaming_reason));
+    char cfg[640];
     if (g_child > 0)
-        snprintf(cfg, sizeof cfg, "{\"model\":\"%s\",\"port\":%d,\"ctx\":%d,\"power\":%d,\"think\":\"%s\"}",
+        snprintf(cfg, sizeof cfg,
+                 "{\"model\":\"%s\",\"port\":%d,\"ctx\":%d,\"power\":%d,\"think\":\"%s\","
+                 "\"ssdStreaming\":\"%s\",\"ssdStreamingEffective\":%s,\"ssdStreamingReason\":\"%s\"}",
                  g_cfg.uncensored ? "uncensored" : "standard", g_cfg.port, g_cfg.ctx, g_cfg.power,
-                 g_cfg.think == 0 ? "off" : g_cfg.think == 2 ? "max" : "high");
+                 g_cfg.think == 0 ? "off" : g_cfg.think == 2 ? "max" : "high",
+                 ssd_streaming_cfg_name(g_cfg.ssd_streaming),
+                 g_ssd_streaming_effective ? "true" : "false", ssd_reason_esc);
     else
         snprintf(cfg, sizeof cfg, "null");
 
@@ -4609,7 +4884,7 @@ static void api_status(int fd) {
         "\"models\":{\"standard\":%s,\"uncensored\":%s},"
         "\"variants\":{\"flash\":%s,\"pro\":%s},\"variant\":\"%s\","
         "\"download\":%s,\"downloadVariant\":\"%s\",\"downloadPct\":%lld,"
-        "\"engineError\":\"%s\",\"engineLine\":\"%s\",\"modelFile\":\"%s\",\"skill\":\"%s\",\"designSystem\":\"%s\",\"build\":%d}",
+        "\"engineError\":\"%s\",\"engineLine\":\"%s\",\"modelFile\":\"%s\",\"skill\":\"%s\",\"designSystem\":\"%s\"}",
         mode_name(g_mode), g_child > 0 ? "true" : "false", g_ready ? "true" : "false",
         g_load_pct, stage_esc, g_agent_working ? "true" : "false", wd_esc, cfg,
         g_jsonl_active ? "true" : "false",
@@ -4617,8 +4892,7 @@ static void api_status(int fd) {
         lan_on ? "true" : "false", lan_addr, g_http_port,
         model_present(0) ? "true" : "false", model_present(1) ? "true" : "false",
         file_present(MODEL_FLASH) ? "true" : "false", file_present(MODEL_PRO) ? "true" : "false",
-        g_variant, g_dl_variant[0] ? "true" : "false", g_dl_variant, dl_pct, err_esc, line_esc, mf_esc, g_skill, g_design_system,
-        g_build_mode);
+        g_variant, g_dl_variant[0] ? "true" : "false", g_dl_variant, dl_pct, err_esc, line_esc, mf_esc, g_skill, g_design_system);
     send_json(fd, "200 OK", body);
 }
 
@@ -4879,13 +5153,15 @@ static void md_catalog(int fd, const char *subdir, const char *file, const char 
                 fm_field(content, "ds4_upstream", upstream, sizeof upstream);
                 free(content);
                 if (!nm[0]) cstr_copy(nm, sizeof nm, id);
-                char assets[2300], refs[2300], example[2300];
+                char assets[2300], refs[2300], example[2300], components[2300];
                 snprintf(assets, sizeof assets, "%s/%s/assets", dir, id);
                 snprintf(refs, sizeof refs, "%s/%s/references", dir, id);
                 snprintf(example, sizeof example, "%s/%s/example.html", dir, id);
+                snprintf(components, sizeof components, "%s/%s/components.html", dir, id);
                 int has_assets = access(assets, R_OK) == 0;
                 int has_refs = access(refs, R_OK) == 0;
                 int has_example = access(example, R_OK) == 0;
+                int has_components = access(components, R_OK) == 0;
 
                 if (!json_dyn_puts(&body, n++ ? ",{" : "{")) goto oom;
                 if (!json_dyn_puts(&body, "\"id\":") || !json_dyn_put_escaped(&body, id)) goto oom;
@@ -4898,10 +5174,11 @@ static void md_catalog(int fd, const char *subdir, const char *file, const char 
                 if (!json_dyn_puts(&body, ",\"provider\":") || !json_dyn_put_escaped(&body, provider)) goto oom;
                 if (!json_dyn_puts(&body, ",\"upstream\":") || !json_dyn_put_escaped(&body, upstream)) goto oom;
                 if (!json_dyn_printf(&body,
-                                      ",\"hasAssets\":%s,\"hasReferences\":%s,\"hasExample\":%s}",
+                                      ",\"hasAssets\":%s,\"hasReferences\":%s,\"hasExample\":%s,\"hasComponents\":%s}",
                                       has_assets ? "true" : "false",
                                       has_refs ? "true" : "false",
-                                      has_example ? "true" : "false"))
+                                      has_example ? "true" : "false",
+                                      has_components ? "true" : "false"))
                     goto oom;
             }
             closedir(d);
@@ -5094,6 +5371,112 @@ static void api_skill_get(int fd, const char *path) {
     free(content);
 }
 
+static const char *design_content_type(const char *name);   /* defined below */
+
+static int preview_rel_path_ok(const char *rel) {
+    if (!rel || !rel[0] || rel[0] == '/' || strchr(rel, '\\') || strstr(rel, "..")) return 0;
+    if (rel[0] == '.' || strstr(rel, "/.")) return 0;
+    return 1;
+}
+
+static int preview_rel_asset_ok(const char *rel, const char *entry_html) {
+    if (!preview_rel_path_ok(rel)) return 0;
+    if (entry_html && !strcmp(rel, entry_html)) return 1;
+    const char *dot = strrchr(rel, '.');
+    const char *ext = dot ? dot + 1 : "";
+    static const char *allowed[] = {
+        "html", "htm", "css", "js", "mjs", "json",
+        "png", "jpg", "jpeg", "webp", "svg", "gif", "ico",
+        "woff", "woff2", "ttf", "otf", "mp4", "webm",
+        NULL
+    };
+    for (int i = 0; allowed[i]; i++) {
+        const char *a = ext, *b = allowed[i];
+        while (*a && *b && ascii_eq_ci(*a, *b)) { a++; b++; }
+        if (!*a && !*b) return 1;
+    }
+    return 0;
+}
+
+static int skill_preview_rel_ok(const char *rel) {
+    return preview_rel_asset_ok(rel, "example.html");
+}
+
+static int design_system_preview_rel_ok(const char *rel) {
+    return preview_rel_asset_ok(rel, "components.html");
+}
+
+/* GET /api/skill-preview/<id>/<preview-asset> — serve only shipped Open Design
+ * template preview files. Local CSS/JS/fonts/images are allowed so original
+ * examples render faithfully; user skills and cybersecurity packs are excluded. */
+static void api_skill_preview(int fd, const char *path, int head_only) {
+    static const char prefix[] = "/api/skill-preview/";
+    const char *raw = path + strlen(prefix);
+    const char *slash = strchr(raw, '/');
+    if (!slash) { send_text(fd, "400 Bad Request", "path missing\n", head_only); return; }
+    char id[64] = {0};
+    url_decode_into(raw, (size_t)(slash - raw), id, sizeof id);
+    if (!skill_id_ok(id)) { send_text(fd, "400 Bad Request", "bad id\n", head_only); return; }
+    char rel[1024] = {0};
+    url_decode_into(slash + 1, strcspn(slash + 1, "?"), rel, sizeof rel);
+    if (!skill_preview_rel_ok(rel)) { send_text(fd, "400 Bad Request", "bad preview path\n", head_only); return; }
+    if (!g_web_dir[0]) { send_text(fd, "404 Not Found", "web directory not found\n", head_only); return; }
+
+    char md[2048];
+    snprintf(md, sizeof md, "%s/extension/skills/%s/SKILL.md", g_web_dir, id);
+    size_t mdlen = 0;
+    char *content = jsonl_read_file(md, &mdlen);
+    if (!content) { send_text(fd, "404 Not Found", "skill not found\n", head_only); return; }
+    char upstream[400];
+    fm_field(content, "ds4_upstream", upstream, sizeof upstream);
+    free(content);
+    if (strncmp(upstream, "open-design/", 12) != 0) {
+        send_text(fd, "404 Not Found", "not an Open Design template\n", head_only);
+        return;
+    }
+
+    char file[3072];
+    snprintf(file, sizeof file, "%s/extension/skills/%s/%s", g_web_dir, id, rel);
+    size_t len = 0;
+    char *buf = read_html_disk(file, &len);
+    if (!buf) { send_text(fd, "404 Not Found", "preview file not found\n", head_only); return; }
+    send_response_hdrs(fd, "200 OK", design_content_type(rel), buf, len, head_only, DESIGN_HEADERS);
+    free(buf);
+}
+
+/* GET /api/design-system-preview/<id>/<components.html|tokens.css|preview/...>
+ * serves bundled design-system preview assets directly from extension/design-systems.
+ * No generated fallback is produced here: the gallery either shows upstream local
+ * files or a text-only card from DESIGN.md metadata. */
+static void api_design_system_preview(int fd, const char *path, int head_only) {
+    static const char prefix[] = "/api/design-system-preview/";
+    const char *raw = path + strlen(prefix);
+    const char *slash = strchr(raw, '/');
+    if (!slash) { send_text(fd, "400 Bad Request", "path missing\n", head_only); return; }
+    char id[64] = {0};
+    url_decode_into(raw, (size_t)(slash - raw), id, sizeof id);
+    if (!skill_id_ok(id)) { send_text(fd, "400 Bad Request", "bad id\n", head_only); return; }
+    char rel[1024] = {0};
+    url_decode_into(slash + 1, strcspn(slash + 1, "?"), rel, sizeof rel);
+    if (!design_system_preview_rel_ok(rel)) { send_text(fd, "400 Bad Request", "bad preview path\n", head_only); return; }
+    if (!g_web_dir[0]) { send_text(fd, "404 Not Found", "web directory not found\n", head_only); return; }
+
+    char md[2048];
+    snprintf(md, sizeof md, "%s/extension/design-systems/%s/DESIGN.md", g_web_dir, id);
+    if (access(md, R_OK) != 0) {
+        send_text(fd, "404 Not Found", "design system not found\n", head_only);
+        return;
+    }
+
+    char file[3072];
+    snprintf(file, sizeof file, "%s/extension/design-systems/%s/%s", g_web_dir, id, rel);
+    size_t len = 0;
+    char *buf = read_html_disk(file, &len);
+    if (!buf) { send_text(fd, "404 Not Found", "preview file not found\n", head_only); return; }
+    send_response_hdrs(fd, "200 OK", design_content_type(rel), buf, len, head_only, DESIGN_HEADERS);
+    free(buf);
+}
+
 /* GET /api/user-skills/get?id=<id> — one skill's name/description/body, for the editor. */
 static void api_user_skill_get(int fd, const char *path) {
     char id[64] = {0};
@@ -5164,6 +5547,10 @@ static void api_user_skill_delete(int fd, const char *reqbody) {
  * under extension/gsa/. */
 #include "../extension/gsa/dstudio_gsa.cfrag"
 
+/* RSA reuses the same optional tool pool as GSA but keeps separate run
+ * artifacts and prompts under extension/rsa/. */
+#include "../extension/rsa/dstudio_rsa.cfrag"
+
 static void parse_cfg(const char *body, engine_cfg *cfg, int *bad) {
     long v;
     int m = json_get_model(body, model_present(1) ? 1 : 0);
@@ -5175,6 +5562,13 @@ static void parse_cfg(const char *body, engine_cfg *cfg, int *bad) {
     r = json_get_int(body, "power", 1, 100, &v);         if (r < 0) *bad = 1; else if (r) cfg->power = (int)v;
     r = json_get_int(body, "kvSpaceMb", 256, 262144, &v);if (r < 0) *bad = 1; else if (r) cfg->kv_space_mb = (int)v;
     r = json_get_int(body, "kvMinTokens", 1, 100000, &v);if (r < 0) *bad = 1; else if (r) cfg->kv_min_tok = (int)v;
+    char ssd[16];
+    if (json_get_string(body, "ssdStreaming", ssd, sizeof ssd) && ssd[0]) {
+        if (!strcmp(ssd, "off")) cfg->ssd_streaming = SSD_STREAMING_OFF;
+        else if (!strcmp(ssd, "on")) cfg->ssd_streaming = SSD_STREAMING_ON;
+        else if (!strcmp(ssd, "auto")) cfg->ssd_streaming = SSD_STREAMING_AUTO;
+        else *bad = 1;
+    }
     /* think level: chat-style selector in the agent/design composer.
      * "off"/"none"/"nothink" -> 0, "high"/"think"/"on" -> 1, "max"/"think-max" -> 2. */
     char think[16];
@@ -5241,6 +5635,13 @@ static int parse_remote_start(const char *body, int allow, char *err, size_t err
     return 1;
 }
 
+static int launch_workdir_missing(int requested_mode, const char *workdir) {
+    if (requested_mode != ENGINE_AGENT && requested_mode != ENGINE_DESIGN) return 0;
+    if (!workdir || !workdir[0]) return 0;
+    struct stat st;
+    return stat(workdir, &st) != 0 || !S_ISDIR(st.st_mode);
+}
+
 static void api_start(int fd, const char *body) {
     char mode[16] = "server";
     json_get_string(body, "mode", mode, sizeof mode);
@@ -5272,6 +5673,17 @@ static void api_start(int fd, const char *body) {
     json_get_string(body, "workdir", workdir, sizeof workdir);
     int force = json_get_bool(body, "force");
     int requested_mode = want_agent ? ENGINE_AGENT : want_design ? ENGINE_DESIGN : ENGINE_SERVER;
+    if (launch_workdir_missing(requested_mode, workdir)) {
+        char wd_esc[2200], mode_esc[32], out[2600];
+        json_escape_into(wd_esc, sizeof wd_esc, workdir, strlen(workdir));
+        json_escape_into(mode_esc, sizeof mode_esc, mode, strlen(mode));
+        snprintf(out, sizeof out,
+                 "{\"ok\":false,\"code\":\"workdir_missing\",\"mode\":\"%s\","
+                 "\"workdir\":\"%s\",\"error\":\"workdir not found: %s\"}",
+                 mode_esc, wd_esc, wd_esc);
+        send_json(fd, "400 Bad Request", out);
+        return;
+    }
     char launch_title[96];
     snprintf(launch_title, sizeof launch_title, "Start %s", mode);
     unsigned long long task_id = task_begin("launch", launch_title, mode, requested_mode, workdir, 0, 1);
@@ -5306,18 +5718,6 @@ static void api_start(int fd, const char *body) {
     if (json_get_string(body, "designSystem", ds, sizeof ds)) {
         if (!ds[0] || !strcmp(ds, "none")) g_design_system[0] = '\0';
         else if (skill_id_ok(ds)) snprintf(g_design_system, sizeof g_design_system, "%s", ds);
-    }
-
-    /* Build mode (planned): on/off. The web UI sends "plan"/"on" or "off".
-     * On also remembers the workspace so the driver's /api/build endpoints
-     * (plan.md, file listing) target the right folder. */
-    if (strstr(body, "\"build\"")) {
-        char bv[16] = "";
-        json_get_string(body, "build", bv, sizeof bv);
-        if (!strcmp(bv, "plan") || !strcmp(bv, "on")) g_build_mode = 2;
-        else                                          g_build_mode = 0;
-        if (g_build_mode && (want_agent || want_design) && workdir[0])
-            snprintf(g_build_dir, sizeof g_build_dir, "%s", workdir);
     }
 
     if (g_child > 0) stop_child();
@@ -5398,15 +5798,15 @@ static void api_agent_send_state_error(int fd, const char *status, const char *m
     send_json(fd, status, out);
 }
 
-static int display_prompt_is_gsa(const char *display) {
+static int display_prompt_is_guided_analysis(const char *display) {
     const unsigned char *p = (const unsigned char *)(display ? display : "");
     while (*p && isspace(*p)) p++;
-    if (p[0] != '/' ||
-        tolower(p[1]) != 'g' ||
-        tolower(p[2]) != 's' ||
-        tolower(p[3]) != 'a')
-        return 0;
-    return p[4] == '\0' || isspace(p[4]);
+    if (p[0] != '/') return 0;
+    if (tolower(p[1]) == 'g' && tolower(p[2]) == 's' && tolower(p[3]) == 'a')
+        return p[4] == '\0' || isspace(p[4]);
+    if (tolower(p[1]) == 'r' && tolower(p[2]) == 's' && tolower(p[3]) == 'a')
+        return p[4] == '\0' || isspace(p[4]);
+    return 0;
 }
 
 static void api_agent_send(int fd, const char *body) {
@@ -5437,7 +5837,7 @@ static void api_agent_send(int fd, const char *body) {
         return;
     }
     size_t from = g_alen;
-    int force_gsa_think_max = g_mode == ENGINE_AGENT && display_prompt_is_gsa(display);
+    int force_gsa_think_max = g_mode == ENGINE_AGENT && display_prompt_is_guided_analysis(display);
     static const char gsa_think_max_frame[] =
         "\x1e" "{\"type\":\"control\",\"name\":\"think\",\"value\":\"max\"}\n";
     /* send on the agent's stdin + newline as turn terminator */
@@ -5918,83 +6318,6 @@ static void api_design_artifacts(int fd) {
 }
 
 static const char *design_content_type(const char *name);   /* defined below */
-
-/* ---- Build mode (planned) workspace endpoints -------------------------------
- * The Build driver (web UI) persists plan.md / STYLE.md into the build workspace
- * and reads back the file list to track progress DETERMINISTICALLY from disk —
- * "step done" = the expected file exists, never the model's say-so. All target
- * g_build_dir (captured when a build engine started). The write sits behind the
- * same anti-CSRF header as every other POST. */
-
-static void api_build_files(int fd) {
-    design_buf_t b = {0};
-    char wd_esc[1100];
-    json_escape_into(wd_esc, sizeof wd_esc, g_build_dir, strlen(g_build_dir));
-    char head[1300];
-    snprintf(head, sizeof head, "{\"ok\":true,\"workdir\":\"%s\",\"build\":%d,\"files\":[",
-             wd_esc, g_build_mode);
-    dbuf_puts(&b, head);
-    int count = 0;
-    if (g_build_dir[0]) design_files_json(&b, g_build_dir, "", 0, &count);
-    dbuf_puts(&b, "]}");
-    send_response(fd, "200 OK", "application/json; charset=utf-8",
-                  b.ptr ? b.ptr : "{}", b.len, 0);
-    free(b.ptr);
-}
-
-static void api_build_file(int fd, const char *path, int head_only) {
-    if (!g_build_dir[0]) { send_text(fd, "404 Not Found", "no build workspace\n", head_only); return; }
-    const char *q = strstr(path, "name=");
-    if (!q) { send_text(fd, "400 Bad Request", "name missing\n", head_only); return; }
-    q += 5;
-    size_t qlen = strcspn(q, "&");
-    char name[1024];
-    url_decode_into(q, qlen, name, sizeof name);
-    if (!design_rel_path_ok(name)) { send_text(fd, "400 Bad Request", "invalid path\n", head_only); return; }
-    char file[2048];
-    snprintf(file, sizeof file, "%s/%s", g_build_dir, name);
-    FILE *f = fopen(file, "rb");
-    if (!f) { send_text(fd, "404 Not Found", "file not found\n", head_only); return; }
-    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); send_text(fd, "500 Internal Server Error", "seek\n", head_only); return; }
-    long sz = ftell(f);
-    if (sz < 0 || sz > MAX_PAGE) { fclose(f); send_text(fd, "500 Internal Server Error", "file too large\n", head_only); return; }
-    rewind(f);
-    char *buf = malloc((size_t)sz > 0 ? (size_t)sz : 1);
-    if (!buf) { fclose(f); send_text(fd, "500 Internal Server Error", "memory\n", head_only); return; }
-    size_t got = fread(buf, 1, (size_t)sz, f);
-    fclose(f);
-    if (got != (size_t)sz) { free(buf); send_text(fd, "500 Internal Server Error", "read\n", head_only); return; }
-    send_response_hdrs(fd, "200 OK", design_content_type(name), buf, got, head_only, DESIGN_HEADERS);
-    free(buf);
-}
-
-/* POST /api/build/write {name, content} — write a small driver file (plan.md, STYLE.md)
- * to the build workspace ROOT. name is one safe component (no '/'); content is JSON-
- * unescaped from the body (bounded by BODY_MAX). */
-static void api_build_write(int fd, const char *body) {
-    if (!g_build_dir[0]) { send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"no build workspace\"}"); return; }
-    char name[256] = "";
-    json_get_string(body, "name", name, sizeof name);
-    if (!name[0] || strchr(name, '/') || !design_rel_path_ok(name)) {
-        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"invalid name\"}"); return;
-    }
-    char *content = malloc(BODY_MAX);
-    if (!content) { send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"memory\"}"); return; }
-    content[0] = '\0';
-    json_get_string(body, "content", content, BODY_MAX);   /* absent → empty file */
-    char file[2048];
-    snprintf(file, sizeof file, "%s/%s", g_build_dir, name);
-    FILE *f = fopen(file, "wb");
-    if (!f) { free(content); send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"open\"}"); return; }
-    size_t len = strlen(content);
-    size_t wrote = fwrite(content, 1, len, f);
-    int ok = (fclose(f) == 0) && (wrote == len);
-    free(content);
-    if (!ok) { send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"write\"}"); return; }
-    char out[64];
-    snprintf(out, sizeof out, "{\"ok\":true,\"bytes\":%zu}", len);
-    send_json(fd, "200 OK", out);
-}
 
 /* POST /api/fs/list {path} — directory browser for the working-dir picker:
  * lists the SUBDIRECTORIES of a path (no files, no dotdirs, no .app bundles
@@ -6672,6 +6995,423 @@ static void api_setup_ds4(int fd) {
 
     setup_send_json(fd, "200 OK", 1, g_ds4_dir, downloaded, 1, 1, design_prepared,
                     was_running, restarted, mode_name(g_mode), restart_err);
+}
+
+static int update_count_marker_dirs(const char *rel, const char *marker, const char *contains) {
+    char base[DSTUDIO_PATH_MAX + 256];
+    if (g_web_dir[0]) snprintf(base, sizeof base, "%s/%s", g_web_dir, rel);
+    else snprintf(base, sizeof base, "%s", rel);
+    DIR *d = opendir(base);
+    if (!d) return -1;
+    int count = 0;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char path[DSTUDIO_PATH_MAX + 512];
+        snprintf(path, sizeof path, "%s/%s/%s", base, e->d_name, marker);
+        struct stat st;
+        if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        if (contains && contains[0]) {
+            size_t n = 0;
+            char *content = jsonl_read_file(path, &n);
+            int hit = content && strstr(content, contains);
+            free(content);
+            if (!hit) continue;
+        }
+        count++;
+    }
+    closedir(d);
+    return count;
+}
+
+static int update_patch_anchor_failures(void) {
+    if (!ds4_dir_valid()) return 99;
+    char src[2200], web_src[2200];
+    snprintf(src, sizeof src, "%s/ds4_agent.c", g_ds4_dir);
+    snprintf(web_src, sizeof web_src, "%s/ds4_web.c", g_ds4_dir);
+    return jsonl_check_anchors(src) + web_cdp_check_anchors(web_src);
+}
+
+static int updates_add_section(json_dyn_buf *b, int *first, const char *id,
+                               const char *label, const char *state,
+                               const char *detail, const char *action) {
+    int ok = json_dyn_puts(b, *first ? "" : ",") &&
+             json_dyn_puts(b, "{\"id\":") &&
+             json_dyn_put_escaped(b, id) &&
+             json_dyn_puts(b, ",\"label\":") &&
+             json_dyn_put_escaped(b, label) &&
+             json_dyn_puts(b, ",\"state\":") &&
+             json_dyn_put_escaped(b, state) &&
+             json_dyn_puts(b, ",\"detail\":") &&
+             json_dyn_put_escaped(b, detail ? detail : "") &&
+             json_dyn_puts(b, ",\"action\":");
+    ok = ok && (action ? json_dyn_put_escaped(b, action) : json_dyn_puts(b, "null"));
+    ok = ok && json_dyn_puts(b, "}");
+    if (ok) *first = 0;
+    return ok;
+}
+
+static int updates_ds4_managed_dirty_path(const char *path) {
+    if (!path || !path[0]) return 0;
+    return !strcmp(path, "ds4-agent-jsonl") ||
+           !strcmp(path, "ds4-agent-jsonl.ver") ||
+           !strcmp(path, "ds4-design") ||
+           !strcmp(path, "ds4-design.exe") ||
+           !strcmp(path, "ds4_agent.c.ds4ui.bak");
+}
+
+static int updates_ds4_dirty_is_only_managed(const char *dirty, int *managed_count) {
+    if (managed_count) *managed_count = 0;
+    if (!dirty || !dirty[0]) return 0;
+    char buf[4096];
+    cstr_copy(buf, sizeof buf, dirty);
+    int count = 0;
+    for (char *line = strtok(buf, "\n"); line; line = strtok(NULL, "\n")) {
+        while (*line == '\r' || *line == '\n') line++;
+        if (!line[0]) continue;
+        if (strncmp(line, "?? ", 3) != 0) return 0;
+        char *path = line + 3;
+        while (*path == ' ') path++;
+        if (!updates_ds4_managed_dirty_path(path)) return 0;
+        count++;
+    }
+    if (managed_count) *managed_count = count;
+    return count > 0;
+}
+
+static void updates_trim_line(char *s) {
+    if (!s) return;
+    char *p = s;
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (p != s) memmove(s, p, strlen(p) + 1);
+    size_t n = strlen(s);
+    while (n && isspace((unsigned char)s[n - 1])) s[--n] = '\0';
+}
+
+static int updates_git_capture_trim(char *const argv[], char *out, size_t outsz) {
+    int rc = setup_run_cmd_capture(NULL, argv, out, outsz);
+    updates_trim_line(out);
+    return rc;
+}
+
+static int updates_ds4_git_upstream(char *upstream, size_t upstreamsz) {
+    if (upstream && upstreamsz) upstream[0] = '\0';
+    char *up_argv[] = { "git", "-C", g_ds4_dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}", NULL };
+    if (updates_git_capture_trim(up_argv, upstream, upstreamsz) == 0 && upstream && upstream[0]) return 1;
+    char verify[256] = "";
+    char *verify_argv[] = { "git", "-C", g_ds4_dir, "rev-parse", "--verify", "--quiet", "origin/main", NULL };
+    if (updates_git_capture_trim(verify_argv, verify, sizeof verify) == 0 && verify[0]) {
+        cstr_copy(upstream, upstreamsz, "origin/main");
+        return 1;
+    }
+    return 0;
+}
+
+static int updates_sections_json(json_dyn_buf *b) {
+    resolve_web_dir();
+    int first = 1;
+    if (!json_dyn_puts(b, "\"sections\":[")) return 0;
+
+    int nuclei_ready = gsa_nuclei_templates_found();
+    int gsa_tools_found = 0, gsa_tools_total = 0;
+    char gsa_missing[512] = "";
+    int gsa_catalog_ok = gsa_tool_catalog_status(&gsa_tools_found, &gsa_tools_total, gsa_missing, sizeof gsa_missing);
+    char gsa_detail[512];
+    if (!gsa_catalog_ok) {
+        snprintf(gsa_detail, sizeof gsa_detail,
+                 "GSA tool catalog could not be loaded; tool readiness is not verified.");
+    } else if (gsa_tools_found != gsa_tools_total) {
+        snprintf(gsa_detail, sizeof gsa_detail,
+                 "GSA catalog %d/%d tools ready; missing: %s. Nuclei templates %s under NUCLEI_TEMPLATES_DIR.",
+                 gsa_tools_found, gsa_tools_total, gsa_missing[0] ? gsa_missing : "unknown",
+                 nuclei_ready ? "found" : "missing");
+    } else {
+        snprintf(gsa_detail, sizeof gsa_detail,
+                 "GSA catalog %d/%d tools ready; nuclei templates %s under NUCLEI_TEMPLATES_DIR.",
+                 gsa_tools_found, gsa_tools_total,
+                 nuclei_ready ? "found" : "missing");
+    }
+    if (!updates_add_section(b, &first, "gsa-tools", "GSA tools/templates",
+                             (gsa_catalog_ok && gsa_tools_found == gsa_tools_total && nuclei_ready) ? "ok" : "warn",
+                             gsa_detail, "gsa-tools")) return 0;
+
+    int ds4_git = ds4_dir_valid() && file_present_in_dir(g_ds4_dir, ".git/HEAD");
+    char head[256] = "", dirty[4096] = "", fetch_log[4096] = "";
+    char upstream[256] = "", remote_head[256] = "", counts[128] = "";
+    char *rev_argv[] = { "git", "-C", g_ds4_dir, "rev-parse", "--short", "HEAD", NULL };
+    char *dirty_argv[] = { "git", "-C", g_ds4_dir, "status", "--porcelain", NULL };
+    if (ds4_git) updates_git_capture_trim(rev_argv, head, sizeof head);
+    if (ds4_git) setup_run_cmd_capture(NULL, dirty_argv, dirty, sizeof dirty);
+    int managed_dirty_count = 0;
+    int managed_dirty = ds4_git && dirty[0] && updates_ds4_dirty_is_only_managed(dirty, &managed_dirty_count);
+    int fetch_rc = -1;
+    int upstream_ok = 0;
+    int ahead = -1, behind = -1;
+    if (ds4_git) {
+        char *fetch_argv[] = { "git", "-C", g_ds4_dir, "fetch", "origin", "--prune", NULL };
+        fetch_rc = setup_run_cmd_capture(NULL, fetch_argv, fetch_log, sizeof fetch_log);
+        updates_trim_line(fetch_log);
+        if (fetch_rc == 0) {
+            upstream_ok = updates_ds4_git_upstream(upstream, sizeof upstream);
+            if (upstream_ok) {
+                char *remote_argv[] = { "git", "-C", g_ds4_dir, "rev-parse", "--short", upstream, NULL };
+                updates_git_capture_trim(remote_argv, remote_head, sizeof remote_head);
+                char range[320];
+                snprintf(range, sizeof range, "HEAD...%s", upstream);
+                char *count_argv[] = { "git", "-C", g_ds4_dir, "rev-list", "--left-right", "--count", range, NULL };
+                if (updates_git_capture_trim(count_argv, counts, sizeof counts) == 0) {
+                    sscanf(counts, "%d%*[ \t]%d", &ahead, &behind);
+                }
+            }
+        }
+    }
+    char ds4_detail[900];
+    const char *ds4_state = "ok";
+    if (!ds4_git) {
+        ds4_state = "warn";
+        snprintf(ds4_detail, sizeof ds4_detail,
+                 "ds4 is not a git checkout; latest update requires git-managed ds4.");
+    } else if (fetch_rc != 0) {
+        ds4_state = "warn";
+        snprintf(ds4_detail, sizeof ds4_detail,
+                 "Could not fetch origin, so latest status is not verified. Local HEAD %s. Output: %.520s",
+                 head, fetch_log[0] ? fetch_log : "(no output)");
+    } else if (!upstream_ok || ahead < 0 || behind < 0) {
+        ds4_state = "warn";
+        snprintf(ds4_detail, sizeof ds4_detail,
+                 "Fetched origin, but could not determine upstream comparison for local HEAD %s. Set ds4 branch upstream to origin/main.",
+                 head);
+    } else if (behind > 0 && ahead > 0) {
+        ds4_state = "warn";
+        snprintf(ds4_detail, sizeof ds4_detail,
+                 "Fetched origin; local %s and %s %s diverged (%d local commit(s), %d upstream commit(s)). Resolve before updating.",
+                 head, upstream, remote_head[0] ? remote_head : "remote", ahead, behind);
+    } else if (behind > 0) {
+        ds4_state = "warn";
+        snprintf(ds4_detail, sizeof ds4_detail,
+                 "Fetched origin; local %s is %d commit(s) behind %s %s. Run Update selected to pull/build/verify patches.%s%s",
+                 head, behind, upstream, remote_head[0] ? remote_head : "",
+                 (dirty[0] && managed_dirty) ? " " : "",
+                 (dirty[0] && managed_dirty) ? "DStudio generated artifacts are present and safe to regenerate." : "");
+    } else if (ahead > 0) {
+        ds4_state = "warn";
+        snprintf(ds4_detail, sizeof ds4_detail,
+                 "Fetched origin; local %s is %d commit(s) ahead of %s %s. Latest cannot be verified as a clean upstream checkout.",
+                 head, ahead, upstream, remote_head[0] ? remote_head : "");
+    } else if (dirty[0] && managed_dirty) {
+        snprintf(ds4_detail, sizeof ds4_detail,
+                 "Fetched origin; local %s matches %s %s; %d DStudio generated artifact(s) present and safe to regenerate.",
+                 head, upstream, remote_head[0] ? remote_head : "", managed_dirty_count);
+    } else {
+        if (dirty[0]) ds4_state = "warn";
+        snprintf(ds4_detail, sizeof ds4_detail, "Fetched origin; local %s matches %s %s%s",
+                 head, upstream, remote_head[0] ? remote_head : "",
+                 dirty[0] ? " (dirty worktree: pull may fail until local changes are resolved)" : "");
+    }
+    if (!updates_add_section(b, &first, "ds4-latest", "ds4 latest",
+                             ds4_state,
+                             ds4_detail, "ds4-latest")) return 0;
+
+    int anchor_fails = update_patch_anchor_failures();
+    char patch_detail[512];
+    snprintf(patch_detail, sizeof patch_detail,
+             anchor_fails == 0 ? "JSONL and web patch anchors match current ds4 source." :
+             "Patch anchors have %d failure(s); structured agent/design gate must be repaired before relying on latest ds4.",
+             anchor_fails);
+    if (!updates_add_section(b, &first, "patch-verify", "Patch gate",
+                             anchor_fails == 0 ? "ok" : "error",
+                             patch_detail, "patch-verify")) return 0;
+
+    int skills = update_count_marker_dirs("extension/skills", "SKILL.md", NULL);
+    int cyber = update_count_marker_dirs("extension/gsa/third_party/anthropic-cybersecurity-skills/skills", "SKILL.md", NULL);
+    char skills_detail[512];
+    snprintf(skills_detail, sizeof skills_detail,
+             "%d local skills and %d cybersecurity skills detected.", skills < 0 ? 0 : skills, cyber < 0 ? 0 : cyber);
+    if (!updates_add_section(b, &first, "skills", "Imported skills",
+                             (skills > 0 && cyber > 0) ? "ok" : "warn",
+                             skills_detail, "skills")) return 0;
+
+    int open_skills = update_count_marker_dirs("extension/skills", "SKILL.md", "open-design/");
+    int design_systems = update_count_marker_dirs("extension/design-systems", "DESIGN.md", "open-design/");
+    char design_detail[512];
+    snprintf(design_detail, sizeof design_detail,
+             "%d Open Design skill templates and %d design systems detected.",
+             open_skills < 0 ? 0 : open_skills, design_systems < 0 ? 0 : design_systems);
+    if (!updates_add_section(b, &first, "open-design", "Open Design",
+                             (open_skills > 0 && design_systems > 0) ? "ok" : "warn",
+                             design_detail, "open-design")) return 0;
+
+    return json_dyn_puts(b, "]");
+}
+
+static void api_updates_check(int fd) {
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "{\"ok\":true,") &&
+             updates_sections_json(&b) &&
+             json_dyn_puts(&b, "}");
+    if (!ok) {
+        free(b.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"updates check memory\"}");
+        return;
+    }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+}
+
+static int update_body_has_task(const char *body, const char *task) {
+    if (!body || !body[0]) return 0;
+    return strstr(body, "\"all\"") || strstr(body, task);
+}
+
+static int update_run_cmd(unsigned long long task_id, const char *label,
+                          const char *cwd, char *const argv[],
+                          char *log_tail, size_t logsz, char *err, size_t errsz) {
+    task_mark_working(task_id, label);
+    int rc = setup_run_cmd_capture(cwd, argv, log_tail, logsz);
+    if (rc != 0) {
+        snprintf(err, errsz, "%s failed (exit %d). Output: %.7000s",
+                 label, rc, log_tail && log_tail[0] ? log_tail : "(no output)");
+        return 0;
+    }
+    return 1;
+}
+
+static int updates_run_gsa_tools(unsigned long long task_id, char *log_tail, size_t logsz,
+                                 char *err, size_t errsz) {
+    char bin[1200], sh_path[1400] = "", ps_path[1400] = "";
+    gsa_tools_dir(bin, sizeof bin);
+    mkpath(bin);
+    if (!gsa_write_install_scripts(bin, sh_path, sizeof sh_path, ps_path, sizeof ps_path, err, errsz))
+        return 0;
+#ifdef _WIN32
+    char *argv[] = { "powershell", "-ExecutionPolicy", "Bypass", "-File", ps_path, NULL };
+    return update_run_cmd(task_id, "updating GSA managed tools/templates", NULL, argv, log_tail, logsz, err, errsz);
+#else
+    char *argv[] = { "sh", sh_path, NULL };
+    return update_run_cmd(task_id, "updating GSA managed tools/templates", NULL, argv, log_tail, logsz, err, errsz);
+#endif
+}
+
+static int updates_run_patch_verify(unsigned long long task_id, char *err, size_t errsz) {
+    task_mark_working(task_id, "checking DStudio patch anchors");
+    int anchor_fails = update_patch_anchor_failures();
+    if (anchor_fails != 0) {
+        snprintf(err, errsz, "DStudio patch anchors failed (%d failure(s)); latest ds4 is not accepted", anchor_fails);
+        return 0;
+    }
+    task_mark_working(task_id, "building structured agent patch");
+    if (!run_build_jsonl("build")) {
+        snprintf(err, errsz, "%s", g_engine_err[0] ? g_engine_err : "JSONL patch/build failed");
+        return 0;
+    }
+    task_mark_working(task_id, "building design runtime");
+    if (!run_ext_script("extension/design/build-design.sh", "build")) {
+        snprintf(err, errsz, "design runtime build failed after patch verification");
+        return 0;
+    }
+    return 1;
+}
+
+static int updates_run_ds4_latest(unsigned long long task_id, char *log_tail, size_t logsz,
+                                  char *err, size_t errsz) {
+    if (!ds4_dir_valid()) {
+        snprintf(err, errsz, "ds4 folder is not valid; install ds4 before updating latest");
+        return 0;
+    }
+    if (!file_present_in_dir(g_ds4_dir, ".git/HEAD")) {
+        snprintf(err, errsz, "ds4 is not a git checkout; latest mode requires a git-managed ds4 directory");
+        return 0;
+    }
+    char dirty[4096] = "";
+    char *dirty_argv[] = { "git", "-C", g_ds4_dir, "status", "--porcelain", NULL };
+    setup_run_cmd_capture(NULL, dirty_argv, dirty, sizeof dirty);
+    if (dirty[0] && !updates_ds4_dirty_is_only_managed(dirty, NULL)) {
+        snprintf(err, errsz,
+                 "ds4 worktree has non-DStudio local changes; stash or resolve them before pulling latest. Status: %.7000s",
+                 dirty);
+        return 0;
+    }
+    char *fetch_argv[] = { "git", "-C", g_ds4_dir, "fetch", "origin", NULL };
+    if (!update_run_cmd(task_id, "fetching ds4 upstream", NULL, fetch_argv, log_tail, logsz, err, errsz)) return 0;
+    char *pull_argv[] = { "git", "-C", g_ds4_dir, "pull", "--ff-only", NULL };
+    if (!update_run_cmd(task_id, "pulling ds4 latest --ff-only", NULL, pull_argv, log_tail, logsz, err, errsz)) return 0;
+    char *make_argv[] = { "make", "-C", g_ds4_dir, NULL };
+    if (!update_run_cmd(task_id, "building ds4 latest", NULL, make_argv, log_tail, logsz, err, errsz)) return 0;
+    return updates_run_patch_verify(task_id, err, errsz);
+}
+
+static int updates_verify_skills(unsigned long long task_id, char *err, size_t errsz) {
+    task_mark_working(task_id, "verifying imported skills");
+    int skills = update_count_marker_dirs("extension/skills", "SKILL.md", NULL);
+    int cyber = update_count_marker_dirs("extension/gsa/third_party/anthropic-cybersecurity-skills/skills", "SKILL.md", NULL);
+    if (skills <= 0 || cyber <= 0) {
+        snprintf(err, errsz, "imported skills are incomplete: local=%d cyber=%d", skills, cyber);
+        return 0;
+    }
+    return 1;
+}
+
+static int updates_verify_open_design(unsigned long long task_id, char *err, size_t errsz) {
+    task_mark_working(task_id, "verifying Open Design imports");
+    int open_skills = update_count_marker_dirs("extension/skills", "SKILL.md", "open-design/");
+    int design_systems = update_count_marker_dirs("extension/design-systems", "DESIGN.md", "open-design/");
+    if (open_skills <= 0 || design_systems <= 0) {
+        snprintf(err, errsz, "Open Design imports are incomplete: templates=%d designSystems=%d",
+                 open_skills, design_systems);
+        return 0;
+    }
+    return 1;
+}
+
+static void api_updates_run(int fd, const char *body) {
+    unsigned long long task_id = task_begin("updates", "Run update doctor", "updates", g_mode, g_ds4_dir, 0, 0);
+    char log_tail[8192] = "";
+    char err[8600] = "";
+    int ran = 0;
+    int ok = 1;
+    if (update_body_has_task(body, "gsa-tools")) {
+        ran++;
+        ok = updates_run_gsa_tools(task_id, log_tail, sizeof log_tail, err, sizeof err);
+    }
+    if (ok && update_body_has_task(body, "ds4-latest")) {
+        ran++;
+        ok = updates_run_ds4_latest(task_id, log_tail, sizeof log_tail, err, sizeof err);
+    }
+    if (ok && update_body_has_task(body, "patch-verify")) {
+        ran++;
+        ok = updates_run_patch_verify(task_id, err, sizeof err);
+    }
+    if (ok && update_body_has_task(body, "skills")) {
+        ran++;
+        ok = updates_verify_skills(task_id, err, sizeof err);
+    }
+    if (ok && update_body_has_task(body, "open-design")) {
+        ran++;
+        ok = updates_verify_open_design(task_id, err, sizeof err);
+    }
+    if (ran == 0) {
+        ok = 0;
+        snprintf(err, sizeof err, "no update tasks selected");
+    }
+    if (ok) task_mark_completed(task_id, "update doctor completed");
+    else task_mark_failed(task_id, err, log_tail);
+
+    json_dyn_buf b = {0};
+    int good = json_dyn_printf(&b, "{\"ok\":%s,\"taskId\":%llu,\"ran\":%d,\"error\":",
+                               ok ? "true" : "false", task_id, ran) &&
+               json_dyn_put_escaped(&b, ok ? "" : err) &&
+               json_dyn_puts(&b, ",\"logTail\":") &&
+               json_dyn_put_escaped(&b, log_tail) &&
+               json_dyn_puts(&b, ",") &&
+               updates_sections_json(&b) &&
+               json_dyn_puts(&b, "}");
+    if (!good) {
+        free(b.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"updates run memory\"}");
+        return;
+    }
+    send_json(fd, ok ? "200 OK" : "500 Internal Server Error", b.ptr);
+    free(b.ptr);
 }
 
 /* Point the launcher at a different DStudio checkout (where extension/ lives:
@@ -8519,6 +9259,146 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
 #endif
 }
 
+static int read_request_body_alloc(int fd, const char *req, size_t got, size_t header_len,
+                                   long clen, long max_len, const char *too_large_msg,
+                                   char **out, size_t *out_len) {
+    if (out) *out = NULL;
+    if (out_len) *out_len = 0;
+    if (clen < 0 || clen > max_len) {
+        send_text(fd, "413 Payload Too Large", too_large_msg, 0);
+        return 0;
+    }
+    char *buf = malloc((size_t)clen + 1);
+    if (!buf) {
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false}");
+        return 0;
+    }
+    size_t have = got > header_len ? got - header_len : 0;
+    if (have > (size_t)clen) have = (size_t)clen;
+    if (have) memcpy(buf, req + header_len, have);
+    size_t off = have, left = (size_t)clen - have;
+    while (left > 0) {
+        ssize_t n = recv(fd, buf + off, left, 0);
+        if (n <= 0) break;
+        off += (size_t)n;
+        left -= (size_t)n;
+    }
+    if (left > 0) {
+        free(buf);
+        send_text(fd, "400 Bad Request", "body read incomplete\n", 0);
+        return 0;
+    }
+    buf[off] = '\0';
+    if (out) *out = buf;
+    else free(buf);
+    if (out_len) *out_len = off;
+    return 1;
+}
+
+static int route_post_api(int fd, const char *path, const char *body) {
+    if (!strcmp(path, "/api/start"))       { api_start(fd, body); return 200; }
+    if (!strcmp(path, "/api/user-skills/delete")) { api_user_skill_delete(fd, body); return 200; }
+    if (!strcmp(path, "/api/user-skills")) { api_user_skill_save(fd, body); return 200; }
+    if (!strcmp(path, "/api/gsa/tools/install")) { api_gsa_tools_install(fd); return 200; }
+    if (!strcmp(path, "/api/updates/run")) { api_updates_run(fd, body); return 200; }
+    if (!strcmp(path, "/api/iogpu-wired-limit")) { api_iogpu_wired_limit(fd, body); return 200; }
+    if (!strcmp(path, "/api/gsa/start"))   { api_gsa_start(fd, body); return 200; }
+    if (!strcmp(path, "/api/gsa/phase"))   { api_gsa_phase(fd, body); return 200; }
+    if (!strcmp(path, "/api/rsa/start"))   { api_rsa_start(fd, body); return 200; }
+    if (!strcmp(path, "/api/rsa/phase"))   { api_rsa_phase(fd, body); return 200; }
+    if (!strcmp(path, "/api/stop"))        { api_stop(fd); return 200; }
+    if (!strcmp(path, "/api/agent/send"))  { api_agent_send(fd, body); return 200; }
+    if (!strcmp(path, "/api/agent/interrupt")) { api_agent_interrupt(fd, body); return 200; }
+    if (!strcmp(path, "/api/design/session")) { api_design_session(fd, body); return 200; }
+    if (!strcmp(path, "/api/design/clean")) { api_design_clean(fd); return 200; }
+    if (!strcmp(path, "/api/design/import")) { api_design_import(fd, body); return 200; }
+    if (!strcmp(path, "/api/model/download")) { api_model_download(fd, body); return 200; }
+    if (!strcmp(path, "/api/fs/list")) { api_fs_list(fd, body); return 200; }
+    if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); return 200; }
+    if (!strcmp(path, "/api/ds4/setup")) { api_setup_ds4(fd); return 200; }
+    if (!strcmp(path, "/api/webdir")) { api_set_webdir(fd, body); return 200; }
+    if (!strcmp(path, "/api/web-search")) { api_web_search(fd, body); return 200; }
+    if (!strcmp(path, "/api/web-read")) { api_web_read(fd, body); return 200; }
+    if (!strcmp(path, "/api/http-probe")) { api_http_probe(fd, body); return 200; }
+    if (!strcmp(path, "/api/lan")) { api_lan(fd, body); return 200; }
+    if (!strcmp(path, "/api/remote")) { api_remote_control(fd, body); return 200; }
+    if (!strcmp(path, "/api/wipe")) { api_wipe(fd); return 200; }
+    send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"unknown endpoint\"}");
+    return 404;
+}
+
+static int route_get_or_static(int fd, const char *method, const char *path, int head_only) {
+    const int is_get = !strcmp(method, "GET") || head_only;
+    if (is_get && !strcmp(path, "/api/store")) {
+        api_store_get(fd);
+        return 200;
+    }
+    if (is_get && !strcmp(path, "/api/storerev")) {
+        char out[48]; snprintf(out, sizeof out, "{\"rev\":%ld}", g_store_rev);
+        send_json(fd, "200 OK", out);
+        return 200;
+    }
+    if (is_get && path_eq_clean(path, "/api/remote/status")) { api_remote_status(fd); return 200; }
+    if (is_get && path_eq_clean(path, "/api/remote/chat")) { api_remote_chat_get(fd); return 200; }
+    if (is_get && path_eq_clean(path, "/api/lan-client/chats")) { api_lan_client_chats_get(fd); return 200; }
+    if (is_get && !strcmp(path, "/api/status")) { api_status(fd); return 200; }
+    if (is_get && path_eq_clean(path, "/api/lan-health")) { api_lan_health(fd); return 200; }
+    if (is_get && !strcmp(path, "/api/doctor")) { api_doctor(fd); return 200; }
+    if (is_get && path_eq_clean(path, "/api/diagnostics")) { api_diagnostics(fd); return 200; }
+    if (is_get && path_eq_clean(path, "/api/updates/check")) { api_updates_check(fd); return 200; }
+    if (is_get && path_eq_clean(path, "/api/logs/stream")) { api_stream_logs(fd, path); return 200; }
+    if (is_get && path_eq_clean(path, "/api/logs")) { api_logs(fd, path); return 200; }
+    if (is_get && path_eq_clean(path, "/api/tasks/stream")) { api_stream_tasks(fd, path); return 200; }
+    if (is_get && path_eq_clean(path, "/api/tasks")) { api_tasks(fd, path); return 200; }
+    if (is_get && path_eq_clean(path, "/api/task")) { api_task(fd, path); return 200; }
+    if (is_get && !strcmp(path, "/api/ggufs")) { api_ggufs(fd); return 200; }
+    if (is_get && path_eq_clean(path, "/api/skills/search")) { api_skills_search(fd, path); return 200; }
+    if (is_get && !strncmp(path, "/api/skill-preview/", 19)) { api_skill_preview(fd, path, head_only); return 200; }
+    if (is_get && !strncmp(path, "/api/design-system-preview/", 27)) { api_design_system_preview(fd, path, head_only); return 200; }
+    if (is_get && !strncmp(path, "/api/skills/get", 15)) { api_skill_get(fd, path); return 200; }
+    if (is_get && path_eq_clean(path, "/api/gsa/tools")) { api_gsa_tools(fd); return 200; }
+    if (is_get && path_eq_clean(path, "/api/rsa/tools")) { api_rsa_tools(fd); return 200; }
+    if (is_get && !strcmp(path, "/api/skills")) { api_skills(fd); return 200; }
+    if (is_get && !strcmp(path, "/api/design-systems")) { api_design_systems(fd); return 200; }
+    if (is_get && !strcmp(path, "/api/craft")) { api_craft(fd); return 200; }
+    if (is_get && !strncmp(path, "/api/user-skills/get", 20)) { api_user_skill_get(fd, path); return 200; }
+    if (is_get && !strcmp(path, "/api/user-skills")) { api_user_skills(fd); return 200; }
+    if (is_get && !strncmp(path, "/api/agent/poll", 15)) { api_agent_poll(fd, path); return 200; }
+    if (is_get && !strcmp(path, "/api/design/status")) { api_design_status(fd); return 200; }
+    if (is_get && !strncmp(path, "/api/design/events", 18)) { api_design_events(fd, path); return 200; }
+    if (is_get && !strcmp(path, "/api/design/state")) { api_design_state(fd); return 200; }
+    if (is_get && !strcmp(path, "/api/design/artifacts")) { api_design_artifacts(fd); return 200; }
+    if (is_get && !strcmp(path, "/api/design/files")) { api_design_files(fd); return 200; }
+    if (is_get && !strncmp(path, "/api/design/preview/", 20)) { api_design_preview_file(fd, path, head_only); return 200; }
+    if (is_get && !strncmp(path, "/api/design/file?", 17)) { api_design_file(fd, path, head_only); return 200; }
+    if (!head_only && strcmp(method, "GET") != 0) {
+        send_text(fd, "405 Method Not Allowed", "method not allowed\n", 0);
+        return 405;
+    }
+    if (remote_page_path(path)) {
+        serve_remote_page(fd, head_only);
+        return 200;
+    }
+    if (loading_page_path(path)) {
+        size_t len = 0;
+        char *page = read_loading_page(&len);
+        if (!page) { send_text(fd, "500 Internal Server Error", "loading.html not readable\n", head_only); return 500; }
+        send_response(fd, "200 OK", "text/html; charset=utf-8", page, len, head_only);
+        free(page);
+        return 200;
+    }
+    if (lan_root_path(path)) {
+        size_t len = 0;
+        char *page = read_page(&len);
+        if (!page) { send_text(fd, "500 Internal Server Error", "index.html not readable\n", head_only); return 500; }
+        send_response(fd, "200 OK", "text/html; charset=utf-8", page, len, head_only);
+        free(page);
+        return 200;
+    }
+    send_text(fd, "404 Not Found", "not found\n", head_only);
+    return 404;
+}
+
 /* ==================== handling a connection ==================== */
 
 static void handle_connection(int fd) {
@@ -8585,18 +9465,14 @@ static void handle_connection(int fd) {
         if (!header_has(req, header_len, "x-requested-with: ds4web")) {
             send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}"); close(fd); return;
         }
-        if (clen < 0 || clen > 8L * 1024 * 1024) { send_text(fd, "413 Payload Too Large", "remote chat too large\n", 0); close(fd); return; }
-        char *buf = malloc((size_t)clen + 1);
-        if (!buf) { send_json(fd, "500 Internal Server Error", "{\"ok\":false}"); close(fd); return; }
-        size_t have = got - header_len; if (have > (size_t)clen) have = (size_t)clen;
-        memcpy(buf, req + header_len, have);
-        size_t off = have, left = (size_t)clen - have;
-        while (left > 0) {
-            ssize_t n = recv(fd, buf + off, left, 0);
-            if (n <= 0) break;
-            off += (size_t)n; left -= (size_t)n;
+        char *buf = NULL;
+        size_t off = 0;
+        if (!read_request_body_alloc(fd, req, got, header_len, clen, 8L * 1024 * 1024,
+                                     "remote chat too large\n", &buf, &off))
+        {
+            close(fd);
+            return;
         }
-        buf[off] = '\0';
         api_remote_chat_set(fd, buf, off, local_client);
         close(fd);
         return;
@@ -8607,22 +9483,14 @@ static void handle_connection(int fd) {
      * intentionally separate from /api/store: non-loopback clients can POST
      * their snapshot, but only the host-local UI can GET the aggregate. */
     if (!strcmp(method, "POST") && path_eq_clean(path, "/api/lan-client/chats")) {
-        if (clen < 0 || clen > 16L * 1024 * 1024) {
-            send_text(fd, "413 Payload Too Large", "LAN client snapshot too large\n", 0);
+        char *buf = NULL;
+        size_t off = 0;
+        if (!read_request_body_alloc(fd, req, got, header_len, clen, 16L * 1024 * 1024,
+                                     "LAN client snapshot too large\n", &buf, &off))
+        {
             close(fd);
             return;
         }
-        char *buf = malloc((size_t)clen + 1);
-        if (!buf) { send_json_cors(fd, "500 Internal Server Error", "{\"ok\":false}"); close(fd); return; }
-        size_t have = got - header_len; if (have > (size_t)clen) have = (size_t)clen;
-        memcpy(buf, req + header_len, have);
-        size_t off = have, left = (size_t)clen - have;
-        while (left > 0) {
-            ssize_t n = recv(fd, buf + off, left, 0);
-            if (n <= 0) break;
-            off += (size_t)n; left -= (size_t)n;
-        }
-        buf[off] = '\0';
         api_lan_client_chats_set(fd, buf, off);
         close(fd);
         return;
@@ -8645,31 +9513,31 @@ static void handle_connection(int fd) {
         if (!header_has(req, header_len, "x-requested-with: ds4web")) {
             send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}"); close(fd); return;
         }
-        if (clen < 0 || clen > 64L * 1024 * 1024) { send_text(fd, "413 Payload Too Large", "store too large\n", 0); close(fd); return; }
-        char *buf = malloc((size_t)clen + 1);
-        if (!buf) { send_json(fd, "500 Internal Server Error", "{\"ok\":false}"); close(fd); return; }
-        size_t have = got - header_len; if (have > (size_t)clen) have = (size_t)clen;
-        memcpy(buf, req + header_len, have);
-        size_t off = have, left = (size_t)clen - have;
-        while (left > 0) {
-            ssize_t n = recv(fd, buf + off, left, 0);
-            if (n <= 0) break;
-            off += (size_t)n; left -= (size_t)n;
+        char *buf = NULL;
+        size_t off = 0;
+        if (!read_request_body_alloc(fd, req, got, header_len, clen, 64L * 1024 * 1024,
+                                     "store too large\n", &buf, &off))
+        {
+            close(fd);
+            return;
         }
-        buf[off] = '\0';
         api_store_set(fd, buf, off);   /* takes ownership of buf */
         close(fd);
         return;
     }
 
     if (clen < 0 || clen > BODY_MAX) { send_text(fd, "413 Payload Too Large", "body too large\n", 0); close(fd); return; }
-    while (got < header_len + (size_t)clen && got < REQ_BUF) {
-        ssize_t n = recv(fd, req + got, REQ_BUF - got, 0);
-        if (n <= 0) break;
-        got += (size_t)n;
+    char *body_buf = NULL;
+    const char *body = "";
+    if (clen > 0) {
+        if (!read_request_body_alloc(fd, req, got, header_len, clen, BODY_MAX,
+                                     "body too large\n", &body_buf, NULL))
+        {
+            close(fd);
+            return;
+        }
+        body = body_buf;
     }
-    req[got] = '\0';
-    const char *body = req + header_len;
 
     int head_only = !strcmp(method, "HEAD");
     int status = 200;
@@ -8678,120 +9546,16 @@ static void handle_connection(int fd) {
         if (!header_has(req, header_len, "x-requested-with: ds4web")) {
             send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}");
             status = 403;
-        } else if (!strcmp(path, "/api/start"))       { api_start(fd, body); }
-        else if (!strcmp(path, "/api/user-skills/delete")) { api_user_skill_delete(fd, body); }
-        else if (!strcmp(path, "/api/user-skills"))   { api_user_skill_save(fd, body); }
-        else if (!strcmp(path, "/api/gsa/tools/install")) { api_gsa_tools_install(fd); }
-        else if (!strcmp(path, "/api/gsa/start"))     { api_gsa_start(fd, body); }
-        else if (!strcmp(path, "/api/gsa/phase"))     { api_gsa_phase(fd, body); }
-        else if (!strcmp(path, "/api/stop"))          { api_stop(fd); }
-        else if (!strcmp(path, "/api/agent/send"))    { api_agent_send(fd, body); }
-        else if (!strcmp(path, "/api/agent/interrupt")) { api_agent_interrupt(fd, body); }
-        else if (!strcmp(path, "/api/design/session")) { api_design_session(fd, body); }
-        else if (!strcmp(path, "/api/design/clean")) { api_design_clean(fd); }
-        else if (!strcmp(path, "/api/design/import")) { api_design_import(fd, body); }
-        else if (!strcmp(path, "/api/build/write"))   { api_build_write(fd, body); }
-        else if (!strcmp(path, "/api/model/download")) { api_model_download(fd, body); }
-        else if (!strcmp(path, "/api/fs/list")) { api_fs_list(fd, body); }
-        else if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); }
-        else if (!strcmp(path, "/api/ds4/setup"))    { api_setup_ds4(fd); }
-        else if (!strcmp(path, "/api/webdir"))       { api_set_webdir(fd, body); }
-        else if (!strcmp(path, "/api/web-search"))   { api_web_search(fd, body); }
-        else if (!strcmp(path, "/api/web-read"))     { api_web_read(fd, body); }
-        else if (!strcmp(path, "/api/http-probe"))   { api_http_probe(fd, body); }
-        else if (!strcmp(path, "/api/lan"))          { api_lan(fd, body); }
-        else if (!strcmp(path, "/api/remote"))       { api_remote_control(fd, body); }
-        else if (!strcmp(path, "/api/wipe"))         { api_wipe(fd); }
-        else { send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"unknown endpoint\"}"); status = 404; }
-    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/store")) {
-        api_store_get(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/storerev")) {
-        char out[48]; snprintf(out, sizeof out, "{\"rev\":%ld}", g_store_rev);  /* cheap poll */
-        send_json(fd, "200 OK", out);
-    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/remote/status")) {
-        api_remote_status(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/remote/chat")) {
-        api_remote_chat_get(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/lan-client/chats")) {
-        api_lan_client_chats_get(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/status")) {
-        api_status(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/lan-health")) {
-        api_lan_health(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/doctor")) {
-        api_doctor(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/diagnostics")) {
-        api_diagnostics(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/logs/stream")) {
-        api_stream_logs(fd, path);
-    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/logs")) {
-        api_logs(fd, path);
-    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/tasks/stream")) {
-        api_stream_tasks(fd, path);
-    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/tasks")) {
-        api_tasks(fd, path);
-    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/task")) {
-        api_task(fd, path);
-    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/ggufs")) {
-        api_ggufs(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/skills/search")) {
-        api_skills_search(fd, path);
-    } else if ((!strcmp(method, "GET") || head_only) && !strncmp(path, "/api/skills/get", 15)) {
-        api_skill_get(fd, path);
-    } else if ((!strcmp(method, "GET") || head_only) && path_eq_clean(path, "/api/gsa/tools")) {
-        api_gsa_tools(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/skills")) {
-        api_skills(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/design-systems")) {
-        api_design_systems(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/craft")) {
-        api_craft(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && !strncmp(path, "/api/user-skills/get", 20)) {
-        api_user_skill_get(fd, path);
-    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/user-skills")) {
-        api_user_skills(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && !strncmp(path, "/api/agent/poll", 15)) {
-        api_agent_poll(fd, path);
-    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/design/status")) {
-        api_design_status(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && !strncmp(path, "/api/design/events", 18)) {
-        api_design_events(fd, path);
-    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/design/state")) {
-        api_design_state(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/design/artifacts")) {
-        api_design_artifacts(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/design/files")) {
-        /* before /file: it is a prefix of it */
-        api_design_files(fd);
-    } else if ((!strcmp(method, "GET") || head_only) && !strncmp(path, "/api/design/preview/", 20)) {
-        api_design_preview_file(fd, path, head_only);
-    } else if ((!strcmp(method, "GET") || head_only) && !strncmp(path, "/api/design/file?", 17)) {
-        api_design_file(fd, path, head_only);
-    } else if ((!strcmp(method, "GET") || head_only) && !strcmp(path, "/api/build/files")) {
-        api_build_files(fd);   /* before /file: it is a prefix of it */
-    } else if ((!strcmp(method, "GET") || head_only) && !strncmp(path, "/api/build/file?", 16)) {
-        api_build_file(fd, path, head_only);
-    } else if (!head_only && strcmp(method, "GET") != 0) {
-        send_text(fd, "405 Method Not Allowed", "method not allowed\n", 0); status = 405;
-    } else if (remote_page_path(path)) {
-        serve_remote_page(fd, head_only);
-    } else if (loading_page_path(path)) {
-        size_t len = 0;
-        char *page = read_loading_page(&len);
-        if (!page) { send_text(fd, "500 Internal Server Error", "loading.html not readable\n", head_only); status = 500; }
-        else { send_response(fd, "200 OK", "text/html; charset=utf-8", page, len, head_only); free(page); }
-    } else if (lan_root_path(path)) {
-        size_t len = 0;
-        char *page = read_page(&len);
-        if (!page) { send_text(fd, "500 Internal Server Error", "index.html not readable\n", head_only); status = 500; }
-        else { send_response(fd, "200 OK", "text/html; charset=utf-8", page, len, head_only); free(page); }
+        } else {
+            status = route_post_api(fd, path, body);
+        }
     } else {
-        send_text(fd, "404 Not Found", "not found\n", head_only); status = 404;
+        status = route_get_or_static(fd, method, path, head_only);
     }
 
     /* fd adopted by the SSE registry: the main loop owns it now */
-    if (g_sse_adopt) { g_sse_adopt = 0; return; }
-    if (g_diag_sse_adopt) { g_diag_sse_adopt = 0; return; }
+    if (g_sse_adopt) { g_sse_adopt = 0; free(body_buf); return; }
+    if (g_diag_sse_adopt) { g_diag_sse_adopt = 0; free(body_buf); return; }
 
     /* compact log, I exclude polling so as not to flood the terminal */
     if (strncmp(path, "/api/agent/poll", 15) != 0 && strcmp(path, "/api/status") != 0 &&
@@ -8799,12 +9563,12 @@ static void handle_connection(int fd) {
         strncmp(path, "/api/design/preview/", 20) != 0 &&
         strncmp(path, "/api/design/events", 18) != 0 &&
         strcmp(path, "/api/design/state") != 0 && strcmp(path, "/api/design/artifacts") != 0 &&
-        strcmp(path, "/api/build/files") != 0 &&
         strcmp(path, "/api/store") != 0 && strcmp(path, "/api/storerev") != 0 &&
         strcmp(path, "/api/lan-client/chats") != 0 &&
         strcmp(path, "/api/lan-health") != 0 &&
         strcmp(path, "/api/doctor") != 0)
         printf("%d %s %s\n", status, method, path);
+    free(body_buf);
     close(fd);
 }
 

@@ -43,6 +43,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .dstudio/
+.tmp/
 MEMORY.MD
 
 # Generated benchmark runs and local evaluation output
@@ -57,6 +58,10 @@ extension/gsa/tools/go/
 extension/gsa/tools/pipx/
 extension/gsa/tools/python/
 extension/gsa/tools/cargo/
+extension/gsa/tools/node/
+extension/gsa/tools/grype/
+extension/gsa/tools/trivy-cache/
+extension/gsa/tools/nuclei-templates/
 extension/gsa/tools/smoke/
 extension/gsa/tools/install-gsa-tools.sh
 extension/gsa/tools/install-gsa-tools.ps1

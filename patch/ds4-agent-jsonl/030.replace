@@ -1,0 +1,2 @@
+    "Use google_search to find web pages. Use visit_page to read a known URL with a visible browser. "
+    "In DStudio non-interactive mode, Chrome startup is handled automatically by the managed read-only web helper.\n\n"

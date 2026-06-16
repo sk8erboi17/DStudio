@@ -36,6 +36,9 @@ function usage() {
     "  --list-cases            Print selected case ids and exit without starting DStudio",
     "  --timeout-min <n>       Timeout per agent turn (default: 45)",
     "  --ctx <n>               Agent context tokens (default: 65536)",
+    "  --power <n>             ds4 --power launch parameter (default: 90)",
+    "  --ssd-streaming <mode>  off, on, or auto (default: off)",
+    "  --jsonl <on|off>        Use the structured ds4-agent-jsonl backend (default: on)",
     "  --think <ignored>        Accepted for compatibility; GSA always uses thinking=max",
     "  --gguf <relpath>        Model file relative to ds4 dir (default: first uncensored/flash gguf)",
     "  --install-tools         Install/check managed GSA tools before running",
@@ -177,10 +180,6 @@ function hasUsefulAgentOutput(raw) {
   return usefulTranscriptText(raw).length > 0;
 }
 
-function isNoUsefulOutputError(error) {
-  return /without useful output|no transcript started/i.test(error?.message || String(error || ""));
-}
-
 function eventLines(raw) {
   const out = [];
   const re = /\x1e([^\n]*)/g;
@@ -251,21 +250,12 @@ function extractBalancedObjects(text) {
 }
 
 function parsePhaseJsonCandidate(candidate, phase) {
-  const variants = [candidate];
-  if (phase === "preflight") {
-    // Schema-based repair for a common strict-JSON failure: the model closes the
-    // last hypothesis object, then emits a top-level field while the hypotheses
-    // array is still open. Keep the data, but restore the array boundary.
-    variants.push(String(candidate).replace(/(\}\s*),\s*"chain_candidates"\s*:/s, "$1],\"chain_candidates\":"));
-  }
-  for (const variant of variants) {
-    try {
-      const parsed = JSON.parse(variant);
-      if (!phase || phaseJsonIsConcrete(parsed, phase)) {
-        return JSON.stringify(parsed, null, 2) + "\n";
-      }
-    } catch {}
-  }
+  try {
+    const parsed = JSON.parse(candidate);
+    if (!phase || phaseJsonIsConcrete(parsed, phase)) {
+      return JSON.stringify(parsed, null, 2) + "\n";
+    }
+  } catch {}
   return "";
 }
 
@@ -329,221 +319,6 @@ function extractReportMarkdown(raw) {
   const verdict = cleaned.lastIndexOf("## Verdict");
   if (verdict >= 0) return cleaned.slice(verdict).trim();
   return cleaned;
-}
-
-function reportVerdict(report) {
-  const text = String(report || "");
-  const m = text.match(/^##\s*Verdict\b([\s\S]{0,240})/im);
-  if (!m) return "";
-  const v = m[1].toLowerCase().replace(/[\s-]+/g, "_");
-  if (v.includes("confirmed_issue")) return "confirmed_issue";
-  if (v.includes("no_issue")) return "no_issue";
-  if (v.includes("inconclusive")) return "inconclusive";
-  return "";
-}
-
-function meaningfulText(value) {
-  const text = fieldText(value).trim().toLowerCase();
-  return text &&
-    !["none", "n/a", "na", "unknown", "no impact", "no exploit path", "not applicable"].includes(text) &&
-    !/^no\s+(known\s+)?(impact|exploit path|vulnerability|issue)/.test(text);
-}
-
-function fieldText(value) {
-  if (Array.isArray(value)) return value.map(fieldText).join(" ");
-  if (value && typeof value === "object") return JSON.stringify(value);
-  return String(value || "");
-}
-
-function compactForPrompt(text, limit = 5000) {
-  const s = String(text || "").trim();
-  if (s.length <= limit) return s;
-  const head = Math.floor(limit * 0.35);
-  const tail = limit - head;
-  return `${s.slice(0, head)}\n\n[... ${s.length - limit} chars omitted ...]\n\n${s.slice(-tail)}`;
-}
-
-function hasDecisiveMissingLink(finding) {
-  const missing = fieldText(finding?.missing_evidence).toLowerCase();
-  if (!missing || ["none", "n/a", "na", "not applicable"].includes(missing.trim())) return false;
-  const decisive = [
-    /\bno\s+(direct\s+)?(caller|call\s*chain|callsite|entry\s*point|route|parser|trace|dataset|consumer|output\s+channel)\b/,
-    /\b(caller|route|parser|trace|dataset|consumer|dispatch|attacker[-\s]?controlled input).{0,80}\b(absent|missing|not present|unverified|unproved|cannot be demonstrated|cannot demonstrate)\b/,
-    /\b(source|artifacts|workspace).{0,80}\b(do not|does not|cannot)\s+prove\s+reachability\b/,
-    /\bwould\s+(need|require)\b.{0,80}\b(caller|consumer|route|trace|dataset|primary module|larger service)\b/,
-    /\bdepends\s+on\b.{0,80}\b(external|larger service|caller|consumer|downstream|outside)\b/,
-    /\bif\b.{0,80}\b(external caller|larger service|downstream consumer|primary module|caller passes|passes untrusted|passes attacker)\b/,
-    /\boutside\s+(this\s+)?workspace\b.{0,80}\b(caller|module|consumer|route|evidence)\b/,
-    /\bunverifiable\b|\bcontradictory evidence\b|\bdecisive .* absent\b|\bmissing decisive\b/,
-  ];
-  const limitationOnly = /\bmissing direct (source )?call chain\b/.test(missing) &&
-    /\b(functions\.map|trace\.log|reachability-notes|source_excerpt|source excerpt|fuzz-summary|strings\.txt)\b/.test(fieldText(finding).toLowerCase()) &&
-    !/\bno artifact supports reachability\b|\bartifacts contradict\b/.test(missing);
-  const primitiveLimitationOnly = findingHasExportedPrimitiveEvidence(finding) &&
-    /\b(no|missing)\s+(downstream\s+)?(production\s+)?(caller|consumer|controller|middleware|handler|route|service wiring|direct service wiring|call\s*path|caller\s*path)\b|\bservice wiring\b|\bdownstream consumer\b/.test(missing) &&
-    !/\b(no artifact supports|artifacts contradict|not exported|not public|no intended use)\b/.test(fieldText(finding).toLowerCase());
-  return decisive.some((pattern) => pattern.test(missing)) && !limitationOnly && !primitiveLimitationOnly;
-}
-
-function exploitPathIsOnlyConditional(finding) {
-  const pathText = fieldText(finding?.exploit_path || finding?.attack_chain || finding?.description || finding?.summary).toLowerCase();
-  if (findingHasExportedPrimitiveEvidence(finding)) return false;
-  return /\b(if|would|could|may|depends on|requires)\b.{0,100}\b(external caller|larger service|primary module|downstream consumer|outside workspace|not present|missing caller|no caller)\b/.test(pathText);
-}
-
-function findingHasExportedPrimitiveEvidence(finding) {
-  const text = fieldText(finding).toLowerCase();
-  const primitive =
-    /\b(crypto|cryptographic|hmac|signature|signing|token|jwt|nonce|key_ref|secret_ref|parser|serializer|policy|verify_|sign_|envelope)\b/.test(text);
-  const exported =
-    /\b(exported|exports|public api|package api|library api|module api)\b|__init__\.py/.test(text);
-  const intendedUse =
-    /\b(test|tests|config|artifact|artifacts|inventory|case_notes|policy|intended use|operational)\b/.test(text);
-  const lacksContradiction =
-    !/\b(no artifact supports reachability|artifacts contradict|not exported|not public|dead code)\b/.test(text);
-  return primitive && exported && intendedUse && lacksContradiction;
-}
-
-function findingIsReadyConfirmed(finding) {
-  const confidence = String(finding?.confidence || "").toLowerCase();
-  const severity = String(finding?.severity || "").toLowerCase();
-  const title = String(finding?.title || "").toLowerCase();
-  if (!["medium", "high"].includes(confidence)) return false;
-  if (!["medium", "high", "critical"].includes(severity)) return false;
-  if (/^no\s+|no vulnerability|no issue|not vulnerable|no .*overflow|no .*exposure/.test(title)) return false;
-  if (hasDecisiveMissingLink(finding) || exploitPathIsOnlyConditional(finding)) return false;
-  return meaningfulText(finding?.exploit_path || finding?.attack_chain) && meaningfulText(finding?.impact);
-}
-
-function validationImpliesConfirmedIssue(validationText) {
-  let parsed;
-  try {
-    parsed = JSON.parse(validationText);
-  } catch {
-    return false;
-  }
-  return (Array.isArray(parsed?.findings) ? parsed.findings : []).some(findingIsReadyConfirmed);
-}
-
-function validationBlocksConfirmedIssue(validationText) {
-  let parsed;
-  try {
-    parsed = JSON.parse(validationText);
-  } catch {
-    return false;
-  }
-  const findings = Array.isArray(parsed?.findings) ? parsed.findings : [];
-  if (!findings.length || findings.some(findingIsReadyConfirmed)) return false;
-  return findings.some((finding) =>
-    hasDecisiveMissingLink(finding) ||
-    exploitPathIsOnlyConditional(finding) ||
-    /inconclusive|insufficient|cannot conclude|missing evidence|no confirmed|no reportable/.test(fieldText(finding).toLowerCase())
-  );
-}
-
-function validationMayHaveArtifactReachabilityConflict(validationText) {
-  let parsed;
-  try {
-    parsed = JSON.parse(validationText);
-  } catch {
-    return false;
-  }
-  const text = String(validationText || "").toLowerCase();
-  const hasReachabilityArtifacts =
-    /functions\.map|trace\.log|reachability-notes|strings\.txt|fuzz-summary|source_excerpt|source excerpt/.test(text);
-  const downgraded =
-    /\bunreachable\b|not compiled|not linked|no call site|source_excerpt\.c is not in makefile|distinct function/.test(text);
-  const vulnPattern =
-    /overflow|out-of-bounds|memcpy|strcpy|format string|signature bypass|policy bypass|authorization bypass|exposure/.test(text);
-  const hasOnlyLow = (Array.isArray(parsed?.findings) ? parsed.findings : []).some((f) =>
-    String(f?.confidence || "").toLowerCase() === "low" &&
-    String(f?.severity || "").toLowerCase() === "low"
-  );
-  const localSourcePrimitiveDowngrade = (Array.isArray(parsed?.findings) ? parsed.findings : []).some((f) => {
-    const fText = fieldText(f).toLowerCase();
-    return findingHasExportedPrimitiveEvidence(f) &&
-      /\b(inconclusive|low)\b/.test(fText) &&
-      /\b(no|missing)\s+(downstream\s+)?(production\s+)?(caller|consumer|controller|middleware|handler|route|service wiring|direct service wiring|call\s*path|caller\s*path)\b|\bservice wiring\b|\bdownstream consumer\b/.test(fieldText(f?.missing_evidence).toLowerCase());
-  });
-  return (hasReachabilityArtifacts && downgraded && vulnPattern && hasOnlyLow) || localSourcePrimitiveDowngrade;
-}
-
-function validationRepairPrompt(validationText, evidenceText, preflightText) {
-  return [
-    "Repair the GSA Phase 3 validation JSON.",
-    "The validation appears to treat artifact-based or local-source API reachability as impossible solely because a local Makefile, exact local symbol/call-site, HTTP route, controller, or service wiring is missing.",
-    "Use only preflight.json, evidence.jsonl and the existing validation JSON below. Do not use answer keys and do not invent findings.",
-    "General rule: in reverse-engineering and production-artifact reviews, function maps, strings, trace logs, reachability notes, fuzz summaries, source excerpts and config may establish intended operational reachability.",
-    "A source excerpt may describe a mapped production function even if the local symbol name differs. If multiple artifacts consistently point to a fallback/parser path and the excerpt shows a concrete memory-safety defect, preserve it as a security finding with confidence `medium`; put the missing direct source call chain in `missing_evidence` instead of marking the whole finding unreachable.",
-    "Authorized-local-source-review rule: when the reviewed unit is a library/package and an exported cryptographic, token, signature, serializer, parser, or policy primitive is cited with tests/config/artifacts showing intended use, the public API parameter is the reviewed trust boundary. Missing HTTP/server wiring is a limitation, not a decisive missing link.",
-    "`minimum_confidence_to_report: high` means high confidence in the defect within the submitted reviewed unit; it does not require proof of an outside service that was not included in the workspace.",
-    "Tool-output rule: external scanner output is advisory only. A clean/empty tool result must not erase a finding unless source/artifact evidence also kills the path; a positive tool result still needs reachability evidence.",
-    "Attack-chain rule: if several weaker facts compose into impact, preserve the chain as ordered `attack_chain` links instead of judging each weakness in isolation.",
-    "Confirmation gate: confirmed findings require defect/control gap, reachable untrusted input, attacker capability, propagation/consumer or execution path, and concrete impact. If the chain depends on an external caller/consumer/route/dataset that is absent or unverified, return inconclusive or no_issue instead of confirmed.",
-    "Local-source exception: for exported cryptographic, token, signature, serializer, parser, or policy primitives, caller-controlled function parameters plus tests/config/artifacts showing intended use can satisfy reachable data-source/consumer links for a bounded code-level finding; missing service wiring belongs in missing_evidence instead of automatic kill criteria.",
-    "If that local-source exception applies and the source defect, attacker-controlled parameter, exploit path inside the primitive, and impact on the primitive's security guarantee are clear, preserve the finding at medium/high confidence. Put missing production caller/consumer/route/service wiring in `missing_evidence`; do not downgrade the verdict solely for that absence.",
-    "Generic helper rule: open(path), CSV output, string parsing, or loader defects are not confirmed vulnerabilities unless a caller/artifact/test shows attacker influence over the argument and a concrete consumer/impact.",
-    "If the artifacts truly contradict each other or no artifact supports reachability, keep the low/no-issue/inconclusive conclusion.",
-    "Return one strict JSON object only with phase `validation` and the same schema.",
-    "",
-    "preflight.json:",
-    preflightText.trim(),
-    "",
-    "evidence.jsonl:",
-    String(evidenceText || "").trim() || "(empty)",
-    "",
-    "Previous validation.json:",
-    validationText.trim(),
-  ].join("\n");
-}
-
-function reportRepairPrompt(report, validationText, evidenceText) {
-  return [
-    "Repair the GSA Phase 4 report.",
-    "The report verdict contradicts validation.json.",
-    "Use only validation.json and evidence.jsonl below. Do not add new findings, do not call tools, and do not re-litigate validation.",
-    "If validation.json contains a medium/high-confidence security finding with non-empty exploit_path and impact, the Markdown must start with `## Verdict: confirmed_issue`.",
-    "Exception: if missing_evidence or the exploit path says the caller, route, parser, trace, dataset, downstream consumer, dispatch link, or attacker-controlled input is absent/unverified, the report must not be confirmed_issue unless another finding has a complete chain or validation explicitly accepted an exported/default primitive as a bounded code-level finding.",
-    "For authorized local source reviews, if validation accepted an exported cryptographic/token/signature/parser/serializer/policy primitive as the reviewed boundary, missing HTTP/controller/service wiring stays as a limitation inside the finding and must not flip the verdict.",
-    "If validation.json contains `attack_chain`, preserve it as ordered chain links in the report.",
-    "If validation mentions external-tool output, present it as advisory evidence and keep the manual/code citations as the deciding evidence.",
-    "If validation only proves that an expected attack surface is absent from a reduced or contradictory workspace, the report verdict must be `inconclusive`, not `no_issue`, unless validation cites a present reviewed control that blocks the exploit path.",
-    "Mention missing_evidence as a limitation inside the confirmed finding; do not convert it into the overall verdict unless validation blocked every finding.",
-    "Start with `## Verdict: confirmed_issue`, `## Verdict: no_issue`, or `## Verdict: inconclusive`.",
-    "Return Markdown only, no preamble and no code fences.",
-    "",
-    "validation.json:",
-    validationText.trim(),
-    "",
-    "evidence.jsonl:",
-    String(evidenceText || "").trim() || "(empty)",
-    "",
-    "Previous report:",
-    report.trim(),
-  ].join("\n");
-}
-
-function reportOverconfirmRepairPrompt(report, validationText, evidenceText) {
-  return [
-    "Repair the GSA Phase 4 report.",
-    "The report appears over-confirmed: validation.json does not contain a complete medium/high-confidence finding after applying the confirmation gate.",
-    "Use only validation.json and evidence.jsonl below. Do not add findings, do not call tools, and do not use answer keys.",
-    "Confirmation gate: confirmed_issue requires defect/control gap, reachable untrusted input, attacker capability, propagation/consumer or execution path, and concrete impact.",
-    "If the report relies on phrases like `if an external caller passes`, `larger service would need`, no caller present, no downstream consumer, no route/parser/trace/dataset, or unverified dispatch, start with `## Verdict: inconclusive` and name the missing link unless validation explicitly accepted an exported/default primitive as a bounded code-level finding.",
-    "For authorized local source reviews, do not overrule validation solely because the submitted package lacks a server/controller when the validated boundary is an exported primitive with tests/config/artifacts.",
-    "Use `## Verdict: no_issue` only when validation cites present reviewed controls that block the exploit path.",
-    "Start with exactly one verdict heading: `## Verdict: confirmed_issue`, `## Verdict: no_issue`, or `## Verdict: inconclusive`.",
-    "Return Markdown only, no preamble and no code fences.",
-    "",
-    "validation.json:",
-    validationText.trim(),
-    "",
-    "evidence.jsonl:",
-    String(evidenceText || "").trim() || "(empty)",
-    "",
-    "Previous report:",
-    report.trim(),
-  ].join("\n");
 }
 
 function thinkControl(value) {
@@ -681,84 +456,6 @@ function invalidSelectionPaths(jsonText, workspace, caseDir) {
     if (!candidates.has(rel) || !relExists(workspace, rel)) invalid.push(rel);
   }
   return [...new Set(invalid)];
-}
-
-function selectionRepairPrompt(jsonText, caseDir) {
-  const candidates = candidatePaths(caseDir);
-  return [
-    "Repair the Phase 1 selection JSON.",
-    "Some `files[].path` values were not exact entries from candidates.txt.",
-    "Output one JSON object only with phase `selection` and the same schema.",
-    "Rules:",
-    "- Every `files[].path` must be copied exactly from the candidate list below.",
-    "- Drop any file that does not have an exact listed candidate.",
-    "- Do not add prose, markdown, tool calls, scripts, or evidence.",
-    "",
-    "Candidate list:",
-    candidates.map((c) => `- ${c}`).join("\n"),
-    "",
-    "Previous JSON:",
-    jsonText.trim(),
-  ].join("\n");
-}
-
-function selectionFinalizePrompt(rawText, caseDir) {
-  const candidates = candidatePaths(caseDir);
-  return [
-    "Finalize GSA Phase 1 selection JSON.",
-    "The previous selection turn produced useful analysis but did not emit a valid JSON artifact.",
-    "Use only the previous raw transcript excerpt and the candidate list below. Do not read files, call tools, write scripts, or use answer keys.",
-    "Return one compact strict JSON object only with this schema:",
-    "{\"phase\":\"selection\",\"files\":[{\"path\":\"candidate/path\",\"why\":\"why this file matters\"}],\"targetUrl\":\"\",\"localScripts\":[{\"path\":\"scripts/name.py\",\"purpose\":\"optional targeted helper\"}],\"hypotheses\":[{\"title\":\"...\",\"why\":\"...\",\"skills\":[\"skill-id\"]}],\"stop_if\":\"what would make this audit not worth continuing\"}",
-    "Rules:",
-    "- The first non-whitespace character must be `{` and the last non-whitespace character must be `}`.",
-    "- Every files[].path must be copied exactly from the candidate list.",
-    "- Candidate paths are relative to the workspace root, not the GSA run directory.",
-    "- Select only files that the previous transcript already made relevant.",
-    "- Keep at most 6 files, 3 hypotheses, and 2 localScripts.",
-    "- Leave localScripts empty unless the previous transcript explicitly justified a targeted Python helper.",
-    "- Do not add prose, markdown, or code fences.",
-    "",
-    "Candidate list:",
-    candidates.map((c) => `- ${c}`).join("\n"),
-    "",
-    "Previous selection raw excerpt:",
-    usefulTranscriptText(rawText).slice(-9000) || "(empty)",
-  ].join("\n");
-}
-
-function projectReadCount(rawText, workspace) {
-  const root = String(workspace || "").replace(/\/+$/, "");
-  if (!root) return 0;
-  const seen = new Set();
-  const re = new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "/[^\\s\"\\u001e]+", "g");
-  for (const match of String(rawText || "").matchAll(re)) {
-    const file = match[0];
-    if (file.includes("/.dstudio/")) continue;
-    seen.add(file.split(":")[0]);
-  }
-  return seen.size;
-}
-
-function selectionEvidencePrompt(rawText, workspace, caseDir) {
-  const candidates = candidatePaths(caseDir);
-  return [
-    "Redo GSA Phase 1 selection with evidence.",
-    "The previous selection returned JSON before reading enough real project files.",
-    `Workspace root: ${workspace}`,
-    "Before the final JSON, use the read tool on 4-6 candidate files from the workspace root: include core source plus at least one config/test/artifact when available.",
-    "After those reads, output one compact strict JSON object with phase `selection` and the same schema.",
-    "Do not use answer keys. Do not create scripts. Do not write files. Do not use conventional filenames that are not in the candidate list.",
-    "Every files[].path must be copied exactly from the candidate list below.",
-    "Candidate paths are relative to the workspace root, not the GSA run directory.",
-    "If the title/theme is misleading, select the actual pipeline files and hypotheses supported by the reads.",
-    "",
-    "Candidate list:",
-    candidates.map((c) => `- ${c}`).join("\n"),
-    "",
-    "Previous selection JSON/raw excerpt:",
-    usefulTranscriptText(rawText).slice(-5000) || "(empty)",
-  ].join("\n");
 }
 
 function parseShortlistedSkills(text) {
@@ -911,93 +608,6 @@ async function sendAgentTurn(baseUrl, prompt, displayPrompt, timeoutMs, caseDir,
   throw new Error(`agent turn timed out during ${phase}; last poll: ${JSON.stringify(last)}`);
 }
 
-async function sendAgentTurnWithRetry(baseUrl, prompt, displayPrompt, timeoutMs, caseDir, phase, thinkLevel, manifest, opts = {}) {
-  try {
-    return await sendAgentTurn(baseUrl, prompt, displayPrompt, timeoutMs, caseDir, phase, thinkLevel, opts);
-  } catch (e) {
-    if (!isNoUsefulOutputError(e)) throw e;
-    const key = `${phase.replace(/[^a-z0-9]+/gi, "_")}Retry`;
-    manifest[key] = {
-      reason: e?.message || String(e),
-      attempts: 1,
-    };
-    await resetAgentSession(baseUrl);
-    const raw = await sendAgentTurn(
-      baseUrl,
-      prompt,
-      `${displayPrompt} retry`,
-      timeoutMs,
-      caseDir,
-      phase,
-      thinkLevel,
-      opts,
-    );
-    manifest[key].attempts = 2;
-    return raw;
-  }
-}
-
-function preflightFinalizePrompt(selectionText, rawText) {
-  return [
-    "Finalize GSA Phase 2 preflight JSON.",
-    "The previous preflight turn did not emit the required JSON artifact before it was interrupted.",
-    "Use only selection.json and the previous raw transcript excerpt below. Do not call tools, do not read files, do not write scripts.",
-    "Return one compact strict JSON object only with phase `preflight` and this schema:",
-    "{\"phase\":\"preflight\",\"hypotheses\":[{\"title\":\"...\",\"entrypoints\":[\"file:line\"],\"attacker\":\"...\",\"evidence_needed\":[\"...\"],\"kill_criteria\":[\"...\"],\"chain_candidates\":[\"optional evidence-backed composed path\"]}]}",
-    "Top-level keys must be exactly `phase` and `hypotheses`; `chain_candidates` belongs inside each hypothesis object, never beside the hypotheses array.",
-    "Every `[` must be closed before adding any next object key. If unsure, omit optional fields instead of adding invalid JSON.",
-    "Do not continue debating once the entrypoint, missing link, and kill criteria are clear. Preserve that as JSON.",
-    "If a selected hypothesis does not apply, keep it only if it is important to kill in validation; otherwise include the strongest 1-3 hypotheses.",
-    "For generic helper hypotheses, include the concrete caller/artifact/test that supplies untrusted input; if none exists, put that absence in kill_criteria.",
-    "For exported cryptographic, token, signature, serializer, parser, or policy primitives, do not use missing service wiring as automatic kill criteria when tests/config/artifacts show intended use; carry it as missing_evidence.",
-    "If selected files show a different concrete security issue than the original selection guess, include that stronger issue and state which guess was killed.",
-    "",
-    "selection.json:",
-    String(selectionText || "").trim() || "(missing)",
-    "",
-    "Previous preflight raw excerpt:",
-    stripTranscript(String(rawText || "")).slice(-7000) || "(empty)",
-  ].join("\n");
-}
-
-function validationFinalizePrompt(preflightText, evidenceText, rawText) {
-  return [
-    "Finalize GSA Phase 3 validation JSON.",
-    "The previous validation turn produced evidence but did not emit the required JSON artifact before it was interrupted.",
-    "Use only preflight.json, evidence.jsonl, and the previous raw transcript excerpt below. Do not call tools, do not read files, and do not invent new evidence.",
-    "If evidence.jsonl is empty but the raw transcript excerpt contains concrete source reads, file:line citations, script output, or artifact excerpts, treat that raw transcript as provisional evidence and cite it in the validation JSON.",
-    "Do not return inconclusive solely because evidence.jsonl is empty or because the prior turn was interrupted; return inconclusive only when the raw transcript and preflight still lack a decisive chain.",
-    "Return one compact strict JSON object only with phase `validation` and this schema:",
-    "{\"phase\":\"validation\",\"findings\":[{\"title\":\"...\",\"severity\":\"low|medium|high|critical\",\"evidence\":[\"file:line\"],\"exploit_path\":\"...\",\"impact\":\"...\",\"confidence\":\"low|medium|high\",\"missing_evidence\":\"...\",\"attack_chain\":[\"optional ordered evidence-backed chain link\"]}]}",
-    "Make one decision matrix pass only: complete chain -> medium/high confidence finding; missing decisive caller/route/dataset/consumer -> inconclusive; present blocking controls -> no_issue. Then emit JSON immediately.",
-    "If evidence is insufficient or contradictory, return one finding whose title clearly says inconclusive/no confirmed issue, with confidence `low` and explicit missing_evidence.",
-    "Confirmed findings require all five links: defect/control gap, reachable untrusted input, attacker capability, propagation/consumer or execution path, and concrete impact.",
-    "For exported cryptographic, token, signature, serializer, parser, or policy primitives, caller-controlled function parameters plus tests/config/artifacts showing intended use can satisfy reachable data-source/consumer links for a bounded code-level finding.",
-    "In an authorized local source review of a package/library, the exported public API is itself a valid boundary; do not require an HTTP route, controller, CLI, or service main if the workspace did not include one.",
-    "`minimum_confidence_to_report: high` applies to confidence in the reviewed-unit defect and evidence chain, not to unseen production wiring outside the submitted workspace.",
-    "If all preflight hypotheses are dead but the same evidence contains a different concrete issue with a complete chain, validate that issue instead of returning a false no-issue.",
-    "If the chain depends on an absent external caller, missing route/parser/trace/dataset, unverified dispatch, or unknown downstream consumer, return inconclusive or no_issue instead of confirmed unless the exported/default primitive rule above establishes a bounded code-level finding.",
-    "Generic helper issues such as open(path), CSV output, string parsing, or loader behavior are not confirmed unless a caller/artifact/test proves attacker influence over that argument and a concrete impact.",
-    "Do not treat clean/empty external-tool output as decisive unless manual source/artifact evidence gives it coverage.",
-    "If an external tool is missing or failed, record that limitation and continue from source/artifact/Python evidence instead of failing the audit.",
-    "If scripts or external commands are still only planned, treat them as incomplete evidence; do not count them as validation.",
-    "Positive tool output is advisory too: confirm with reachable code, artifacts, traces, configs, or a bounded Python helper before reporting.",
-    "If the mission/artifacts describe an expected attack surface but the reduced workspace lacks the decisive production route, parser, binary path, trace, packet, image, or dataset needed to prove that surface, return inconclusive with that missing artifact; do not convert absence into high-confidence no_issue.",
-    "Use no_issue only when the relevant implementation/control is present, cited, and demonstrably blocks the tested exploit path.",
-    "For inconclusive/no-surface cases, cite both the missing expected surface and the real reachable pipeline that is present: entry route/parser, auth/session boundary, data/storage access, policy/control files, and contradictory artifacts when available.",
-    "Do not use severity `none`; use severity `low` for no-issue/inconclusive evidence trails.",
-    "",
-    "preflight.json:",
-    String(preflightText || "").trim() || "(missing)",
-    "",
-    "evidence.jsonl:",
-    String(evidenceText || "").trim() || "(empty)",
-    "",
-    "Previous validation raw excerpt:",
-    compactForPrompt(stripTranscript(String(rawText || "")), 3500) || "(empty)",
-  ].join("\n");
-}
-
 async function resetAgentSession(baseUrl) {
   try {
     const r = await pollAgent(baseUrl, 0);
@@ -1022,6 +632,22 @@ function copyGsaArtifacts(runDir, caseDir) {
   return dst;
 }
 
+async function stopAgentRuntime(baseUrl) {
+  try {
+    await jsonFetch(baseUrl, "/api/stop", {
+      method: "POST",
+      headers: csrfHeaders,
+      timeoutMs: 10_000,
+    });
+  } catch {}
+  await sleep(1000);
+}
+
+async function restartAgentRuntime(baseUrl, launchBody) {
+  await stopAgentRuntime(baseUrl);
+  await startMode(baseUrl, launchBody, 30 * 60_000);
+}
+
 async function runCase(baseUrl, item, outRoot, opts) {
   const caseDir = path.join(outRoot, item.id);
   if (opts.resume && (fs.existsSync(path.join(caseDir, "report.md")) || fs.existsSync(path.join(caseDir, "run-error.json")))) {
@@ -1039,7 +665,7 @@ async function runCase(baseUrl, item, outRoot, opts) {
     workspace,
   });
 
-  await resetAgentSession(baseUrl);
+  await restartAgentRuntime(baseUrl, opts.launchBody);
   const startedAt = Date.now();
   const transcriptParts = [];
   const manifest = {
@@ -1084,195 +710,24 @@ async function runCase(baseUrl, item, outRoot, opts) {
         manifest.phaseFreshSessions ||= [];
         manifest.phaseFreshSessions.push(phase);
       }
-      let raw;
-      let rawReadEvidence = "";
-      try {
-        raw = await sendAgentTurnWithRetry(
-          baseUrl,
-          prompt,
-          `/gsa ${item.id} ${phase}`,
-          phaseTimeoutMs(phase, opts),
-          caseDir,
-          phase,
-          phaseThinkLevel(phase, opts),
-          manifest,
-          phase === "selection"
-            ? { stallTimeoutMs: 90_000, maxRawBytes: 75_000 }
-            : phase === "preflight"
-              ? { stallTimeoutMs: 120_000, maxRawBytes: 90_000 }
-              : phase === "validation"
-                ? { stallTimeoutMs: 120_000, maxRawBytes: 140_000 }
-                : {},
-        );
-        rawReadEvidence = raw;
-      } catch (e) {
-        if (phase === "selection") {
-          const rawPath = path.join(caseDir, `${phase}.raw.txt`);
-          const rawText = fs.existsSync(rawPath) ? fs.readFileSync(rawPath, "utf8") : "";
-          if (!hasUsefulAgentOutput(rawText)) throw e;
-          rawReadEvidence = rawText;
-          manifest.selectionFinalize = {
-            reason: e?.message || String(e),
-            rawBytes: rawText.length,
-            freshSession: true,
-          };
-          await resetAgentSession(baseUrl);
-          const finalizeRaw = await sendAgentTurnWithRetry(
-            baseUrl,
-            selectionFinalizePrompt(rawText, caseDir),
-            `/gsa ${item.id} selection finalize`,
-            phaseTimeoutMs("selection-finalize", opts),
-            caseDir,
-            "selection-finalize",
-            phaseThinkLevel("selection-finalize", opts),
-            manifest,
-            { stallTimeoutMs: 60_000, maxRawBytes: 30_000 },
-          );
-          transcriptParts.push(`\n\n===== SELECTION INTERRUPTED BEFORE JSON =====\n\n${rawText}`);
-          raw = finalizeRaw;
-        } else if (phase === "preflight") {
-          const rawPath = path.join(caseDir, `${phase}.raw.txt`);
-          const rawText = fs.existsSync(rawPath) ? fs.readFileSync(rawPath, "utf8") : "";
-          if (!hasUsefulAgentOutput(rawText)) throw e;
-          rawReadEvidence = rawText;
-          const selectionText = fs.existsSync(path.join(caseDir, "selection.json"))
-            ? fs.readFileSync(path.join(caseDir, "selection.json"), "utf8")
-            : "";
-          manifest.preflightFinalize = {
-            reason: e?.message || String(e),
-            rawBytes: rawText.length,
-            freshSession: true,
-          };
-          await resetAgentSession(baseUrl);
-          const finalizeRaw = await sendAgentTurnWithRetry(
-            baseUrl,
-            preflightFinalizePrompt(selectionText, rawText),
-            `/gsa ${item.id} preflight finalize`,
-            phaseTimeoutMs("preflight-finalize", opts),
-            caseDir,
-            "preflight",
-            phaseThinkLevel("preflight-finalize", opts),
-            manifest,
-            { stallTimeoutMs: 60_000, maxRawBytes: 30_000 },
-          );
-          transcriptParts.push(`\n\n===== PREFLIGHT INTERRUPTED BEFORE JSON =====\n\n${rawText}`);
-          raw = finalizeRaw;
-        } else {
-          copyGsaArtifacts(start.runDir, caseDir);
-          const rawPath = path.join(caseDir, `${phase}.raw.txt`);
-          const rawText = fs.existsSync(rawPath) ? fs.readFileSync(rawPath, "utf8") : "";
-          rawReadEvidence = rawText;
-          const evidenceText = fs.existsSync(path.join(caseDir, "gsa", "evidence.jsonl"))
-            ? fs.readFileSync(path.join(caseDir, "gsa", "evidence.jsonl"), "utf8")
-            : "";
-          if (!evidenceText.trim() && !hasUsefulAgentOutput(rawText)) throw e;
-          const preflightText = fs.existsSync(path.join(caseDir, "preflight.json"))
-            ? fs.readFileSync(path.join(caseDir, "preflight.json"), "utf8")
-            : "";
-          manifest.validationFinalize = {
-            reason: e?.message || String(e),
-            evidenceBytes: evidenceText.length,
-            rawBytes: rawText.length,
-            freshSession: true,
-          };
-          await resetAgentSession(baseUrl);
-          const finalizeRaw = await sendAgentTurnWithRetry(
-            baseUrl,
-            validationFinalizePrompt(preflightText, evidenceText, rawText),
-            `/gsa ${item.id} validation finalize`,
-            phaseTimeoutMs("validation-finalize", opts),
-            caseDir,
-            "validation",
-            phaseThinkLevel("validation-finalize", opts),
-            manifest,
-            { stallTimeoutMs: 90_000, maxRawBytes: 80_000 },
-          );
-          transcriptParts.push(`\n\n===== VALIDATION INTERRUPTED BEFORE JSON =====\n\n${rawText}`);
-          raw = finalizeRaw;
-        }
-      }
-      const projectReadTranscript = [rawReadEvidence, raw].filter(Boolean).join("\n");
-      if (phase === "selection" && projectReadCount(projectReadTranscript, workspace) < 2) {
-        manifest.selectionEvidencePass = {
-          reason: "selection returned before reading project files",
-          projectReadsBefore: projectReadCount(projectReadTranscript, workspace),
-        };
-        const evidenceRaw = await sendAgentTurnWithRetry(
-          baseUrl,
-          selectionEvidencePrompt(projectReadTranscript || raw, workspace, caseDir),
-          `/gsa ${item.id} selection evidence`,
-          phaseTimeoutMs("selection", opts),
-          caseDir,
-          "selection",
-          phaseThinkLevel("selection-evidence", opts),
-          manifest,
-          { stallTimeoutMs: 90_000, maxRawBytes: 75_000 },
-        );
-        transcriptParts.push(`\n\n===== SELECTION EVIDENCE PASS =====\n\n${evidenceRaw}`);
-        const evidenceUse = collectToolUse(evidenceRaw);
-        manifest.skillCalls.push(...evidenceUse.skillCalls);
-        manifest.toolCalls.push(...evidenceUse.toolCalls);
-        manifest.selectionEvidencePass.projectReadsAfter = projectReadCount(evidenceRaw, workspace);
-        raw = evidenceRaw;
-      }
+      const raw = await sendAgentTurn(
+        baseUrl,
+        prompt,
+        `/gsa ${item.id} ${phase}`,
+        phaseTimeoutMs(phase, opts),
+        caseDir,
+        phase,
+        phaseThinkLevel(phase, opts),
+      );
       transcriptParts.push(`\n\n===== ${phase.toUpperCase()} =====\n\n${raw}`);
-      const phaseToolText = [rawReadEvidence, raw].filter(Boolean).join("\n");
-      const use = collectToolUse(phaseToolText);
+      const use = collectToolUse(raw);
       manifest.skillCalls.push(...use.skillCalls);
       manifest.toolCalls.push(...use.toolCalls);
-      let json;
-      try {
-        json = extractPhaseJson(raw, phase);
-      } catch (e) {
-        if (phase !== "selection" || !hasUsefulAgentOutput(raw)) throw e;
-          manifest.selectionFinalize = {
-            reason: e?.message || String(e),
-            rawBytes: raw.length,
-            freshSession: true,
-        };
-        await resetAgentSession(baseUrl);
-          const finalizeRaw = await sendAgentTurnWithRetry(
-            baseUrl,
-            selectionFinalizePrompt(raw, caseDir),
-            `/gsa ${item.id} selection finalize`,
-            phaseTimeoutMs("selection-finalize", opts),
-          caseDir,
-          "selection-finalize",
-          phaseThinkLevel("selection-finalize", opts),
-          manifest,
-          { stallTimeoutMs: 60_000, maxRawBytes: 30_000 },
-        );
-        transcriptParts.push(`\n\n===== SELECTION FINALIZE =====\n\n${finalizeRaw}`);
-        const finalizeUse = collectToolUse(finalizeRaw);
-        manifest.skillCalls.push(...finalizeUse.skillCalls);
-        manifest.toolCalls.push(...finalizeUse.toolCalls);
-        raw = finalizeRaw;
-        json = extractPhaseJson(finalizeRaw, "selection");
-      }
+      let json = extractPhaseJson(raw, phase);
       if (phase === "selection") {
         json = normalizeSelectionJson(json, workspace, caseDir, manifest);
         manifest.selectedSkillIds = selectionSkillIds(json);
-        let invalid = invalidSelectionPaths(json, workspace, caseDir);
-        if (invalid.length) {
-          manifest.selectionRepair = { invalidBeforeRepair: invalid };
-          const repairRaw = await sendAgentTurnWithRetry(
-            baseUrl,
-            selectionRepairPrompt(json, caseDir),
-            `/gsa ${item.id} selection repair`,
-            phaseTimeoutMs("selection-repair", opts),
-            caseDir,
-            "selection-repair",
-            phaseThinkLevel("selection-repair", opts),
-            manifest,
-          );
-          transcriptParts.push(`\n\n===== SELECTION REPAIR =====\n\n${repairRaw}`);
-          const repairUse = collectToolUse(repairRaw);
-          manifest.skillCalls.push(...repairUse.skillCalls);
-          manifest.toolCalls.push(...repairUse.toolCalls);
-          json = normalizeSelectionJson(extractPhaseJson(repairRaw, "selection"), workspace, caseDir, manifest);
-          invalid = invalidSelectionPaths(json, workspace, caseDir);
-          manifest.selectionRepair.invalidAfterRepair = invalid;
-        }
+        const invalid = invalidSelectionPaths(json, workspace, caseDir);
         if (invalid.length) {
           throw new Error(`selection contains non-candidate paths: ${invalid.join(", ")}`);
         }
@@ -1293,99 +748,15 @@ async function runCase(baseUrl, item, outRoot, opts) {
       if (!prompt) throw new Error(`GSA phase ${phase} did not return a nextPrompt`);
     }
 
-    let validationText = fs.existsSync(path.join(caseDir, "validation.json"))
-      ? fs.readFileSync(path.join(caseDir, "validation.json"), "utf8")
-      : "";
-    if (validationMayHaveArtifactReachabilityConflict(validationText)) {
-      manifest.validationRepair = {
-        reason: "validation downgraded artifact-supported reachability to unreachable",
-      };
-      const evidenceText = fs.existsSync(path.join(caseDir, "gsa", "evidence.jsonl"))
-        ? fs.readFileSync(path.join(caseDir, "gsa", "evidence.jsonl"), "utf8")
-        : "";
-      const preflightText = fs.existsSync(path.join(caseDir, "preflight.json"))
-        ? fs.readFileSync(path.join(caseDir, "preflight.json"), "utf8")
-        : "";
-      await resetAgentSession(baseUrl);
-      const repairRaw = await sendAgentTurnWithRetry(
-        baseUrl,
-        validationRepairPrompt(validationText, evidenceText, preflightText),
-        `/gsa ${item.id} validation repair`,
-        phaseTimeoutMs("validation-repair", opts),
-        caseDir,
-        "validation",
-        phaseThinkLevel("validation-repair", opts),
-        manifest,
-      );
-      transcriptParts.push(`\n\n===== VALIDATION REPAIR =====\n\n${repairRaw}`);
-      const repairedValidation = extractPhaseJson(repairRaw, "validation");
-      writeText(path.join(caseDir, "validation.json"), repairedValidation);
-      validationText = repairedValidation;
-      const next = await jsonFetch(baseUrl, "/api/gsa/phase", {
-        method: "POST",
-        headers: csrfHeaders,
-        body: JSON.stringify({ workdir: workspace, runId: start.runId, phase: "validation", output: repairedValidation }),
-        timeoutMs: 30_000,
-      });
-      writeJson(path.join(caseDir, "validation.repair-phase-response.json"), next);
-      prompt = next.nextPrompt;
-      if (!prompt) throw new Error("GSA validation repair did not return a report prompt");
-      copyGsaArtifacts(start.runDir, caseDir);
-    }
-
     await resetAgentSession(baseUrl);
     manifest.phaseFreshSessions ||= [];
     manifest.phaseFreshSessions.push("report");
-    let rawReport = await sendAgentTurnWithRetry(baseUrl, prompt, `/gsa ${item.id} report`, phaseTimeoutMs("report", opts), caseDir, "report", phaseThinkLevel("report", opts), manifest);
+    const rawReport = await sendAgentTurn(baseUrl, prompt, `/gsa ${item.id} report`, phaseTimeoutMs("report", opts), caseDir, "report", phaseThinkLevel("report", opts));
     transcriptParts.push(`\n\n===== REPORT =====\n\n${rawReport}`);
     const use = collectToolUse(rawReport);
     manifest.skillCalls.push(...use.skillCalls);
     manifest.toolCalls.push(...use.toolCalls);
     let report = extractReportMarkdown(rawReport);
-    const evidenceText = fs.existsSync(path.join(caseDir, "gsa", "evidence.jsonl"))
-      ? fs.readFileSync(path.join(caseDir, "gsa", "evidence.jsonl"), "utf8")
-      : "";
-    if (validationImpliesConfirmedIssue(validationText) && reportVerdict(report) !== "confirmed_issue") {
-      manifest.reportRepair = {
-        reason: "report verdict contradicted medium/high-confidence validation finding",
-        before: reportVerdict(report) || "unknown",
-      };
-      await resetAgentSession(baseUrl);
-      const repairRaw = await sendAgentTurnWithRetry(
-        baseUrl,
-        reportRepairPrompt(report, validationText, evidenceText),
-        `/gsa ${item.id} report repair`,
-        phaseTimeoutMs("report-repair", opts),
-        caseDir,
-        "report",
-        phaseThinkLevel("report-repair", opts),
-        manifest,
-      );
-      transcriptParts.push(`\n\n===== REPORT REPAIR =====\n\n${repairRaw}`);
-      rawReport = repairRaw;
-      report = extractReportMarkdown(repairRaw);
-      manifest.reportRepair.after = reportVerdict(report) || "unknown";
-    } else if (validationBlocksConfirmedIssue(validationText) && reportVerdict(report) === "confirmed_issue") {
-      manifest.reportRepair = {
-        reason: "report over-confirmed a validation with decisive missing evidence",
-        before: reportVerdict(report) || "unknown",
-      };
-      await resetAgentSession(baseUrl);
-      const repairRaw = await sendAgentTurnWithRetry(
-        baseUrl,
-        reportOverconfirmRepairPrompt(report, validationText, evidenceText),
-        `/gsa ${item.id} report overconfirm repair`,
-        phaseTimeoutMs("report-repair", opts),
-        caseDir,
-        "report",
-        phaseThinkLevel("report-repair", opts),
-        manifest,
-      );
-      transcriptParts.push(`\n\n===== REPORT OVERCONFIRM REPAIR =====\n\n${repairRaw}`);
-      rawReport = repairRaw;
-      report = extractReportMarkdown(repairRaw);
-      manifest.reportRepair.after = reportVerdict(report) || "unknown";
-    }
     writeText(path.join(caseDir, "report.md"), report + "\n");
     writeText(path.join(caseDir, `${item.id}.md`), report + "\n");
     await jsonFetch(baseUrl, "/api/gsa/phase", {
@@ -1402,9 +773,11 @@ async function runCase(baseUrl, item, outRoot, opts) {
     manifest.skillCalls = [...new Set(manifest.skillCalls)];
     writeText(path.join(caseDir, "transcript.txt"), transcriptParts.join("\n"));
     writeJson(path.join(caseDir, "manifest.json"), manifest);
+    await stopAgentRuntime(baseUrl);
     return manifest;
   } catch (e) {
     await safeInterruptAgent(baseUrl, `case ${item.id} failed`).catch(() => {});
+    await stopAgentRuntime(baseUrl);
     if (start?.runDir) copyGsaArtifacts(start.runDir, caseDir);
     manifest.status = "failed";
     manifest.error = e?.message || String(e);
@@ -1590,6 +963,9 @@ try {
   const ds4Dir = status.ds4dir || process.env.DSTUDIO_REAL_DS4_DIR;
   const gguf = chooseGguf(ds4Dir, args.gguf);
   const ctx = Number(args.ctx || 65536);
+  const power = Math.min(100, Math.max(1, Number(args.power || 90)));
+  const ssdStreaming = ["off", "on", "auto"].includes(args["ssd-streaming"]) ? args["ssd-streaming"] : "off";
+  const jsonl = String(args.jsonl || "on").toLowerCase() !== "off";
   const think = "max";
   const turnTimeoutMs = Number(args["timeout-min"] || 45) * 60_000;
   writeJson(path.join(outRoot, "run-config.json"), {
@@ -1597,6 +973,9 @@ try {
     ds4Dir,
     gguf,
     ctx,
+    power,
+    ssdStreaming,
+    jsonl,
     think,
     selectedCases: items.length,
     startedAt: new Date().toISOString(),
@@ -1615,18 +994,19 @@ try {
     writeJson(path.join(outRoot, "gsa-tools.json"), tools);
   }
 
-  await startMode(baseUrl, {
+  const launchBody = {
     mode: "agent",
     model: "uncensored",
     variant: "flash",
     gguf,
     ctx,
-    power: 100,
+    power,
+    ssdStreaming,
     think,
     workdir: root,
-    jsonl: true,
+    jsonl,
     build: "off",
-  }, 30 * 60_000);
+  };
 
   const results = [];
   for (let i = 0; i < items.length; i++) {
@@ -1637,6 +1017,7 @@ try {
         resume: !!args.resume,
         turnTimeoutMs,
         think,
+        launchBody,
       });
       results.push(result);
       if (result.skipped) console.log(`  skipped`);

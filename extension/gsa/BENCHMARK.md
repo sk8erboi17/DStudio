@@ -16,50 +16,33 @@
 
 ## Run
 
-- Run directory: `extension/gsa/benchmark/gsa-fixcheck-local-source-report-20260614`
-- Selected cases this invocation: 1
-- Completed reports: 1
-- Failed runs: 0
+- Run directory: `extension/gsa/benchmark/gsa-re-malware-loop-20260615-90112-64k-nosssd`
+- Selected cases this invocation: 2
+- Completed reports: 0
+- Failed runs: 2
 - Agent ctx: 65536
 - Thinking: max
 - GGUF: gguf/cyberneurova-DeepSeek-V4-Flash-abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-aligned.gguf
 
-## Score
-
-- Reports found by scorer: 1/1
-- Average score: 1
-- True positives: 1
-- False negatives: 0
-- True negatives: 0
-- False positives: 0
-- Correct inconclusive: 0
-
-### By Category
-
-| Category | Cases | Reports | Outcome Correct | Average Score |
-|---|---:|---:|---:|---:|
-| crypto | 1 | 1 | 1 | 1 |
-
-### By Difficulty
-
-| Difficulty | Cases | Reports | Outcome Correct | Average Score |
-|---|---:|---:|---:|---:|
-| easy | 1 | 1 | 1 | 1 |
-
 ## Skill Routing
 
-- Cases with at least one actual `skill()` call: 1/1
+- Cases with at least one actual `skill()` call: 0/2
 
 | Skill | Cases |
 |---|---:|
-| exploiting-jwt-algorithm-confusion-attack | 1 |
+| (none recorded) | 0 |
 
 ## Reproduce
 
 ```sh
 node extension/gsa/bench/validate.mjs
-node extension/gsa/bench/run.mjs --out extension/gsa/benchmark/gsa-fixcheck-local-source-report-20260614
-node extension/gsa/bench/score.mjs --reports extension/gsa/benchmark/gsa-fixcheck-local-source-report-20260614 --out extension/gsa/benchmark/gsa-fixcheck-local-source-report-20260614
+node extension/gsa/bench/run.mjs --out extension/gsa/benchmark/gsa-re-malware-loop-20260615-90112-64k-nosssd
+node extension/gsa/bench/score.mjs --reports extension/gsa/benchmark/gsa-re-malware-loop-20260615-90112-64k-nosssd --out extension/gsa/benchmark/gsa-re-malware-loop-20260615-90112-64k-nosssd
 ```
 
 Detailed per-case artifacts are in each project folder: `manifest.json`, `skills.md` under `gsa/`, raw phase output, parsed phase JSON and `report.md`.
+
+## Failed Runs
+
+- malware-analysis-easy-01-powershell-triage: agent turn stalled during selection; no transcript progress for 93s; last poll: {"base":0,"len":59586,"working":true,"ready":true,"loadPct":100,"text":""}
+- reverse-engineering-easy-03-protocol-decoder: agent turn stalled during selection; no transcript progress for 92s; last poll: {"base":0,"len":56017,"working":true,"ready":true,"loadPct":100,"text":""}

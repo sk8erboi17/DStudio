@@ -139,6 +139,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
       'When you intentionally create downloadable file(s), append one fenced block with info string dstudio-files as the final block of your assistant message.',
       'For the file payload fence, use exactly ```dstudio-files, not ```json.',
       'The fenced block must be strict JSON: {"files":[{"filename":"name.ext","mime":"text/plain","content":"full file content"}]}.',
+      'Never print the file body outside the JSON content field. Never stream the file body as escaped text with literal \\n, \\t, or ``` markers in the visible answer.',
+      'The visible answer before the fence must be a short confirmation only; the full deliverable belongs only inside the dstudio-files JSON fence.',
       'Use UTF-8 text content. For PDFs, set mime to "application/pdf" and put the document text or markdown in content; DStudio will package it as a PDF.',
       'Do not mention the protocol. Do not emit the block unless you are intentionally attaching files.',
       ].join('\n');

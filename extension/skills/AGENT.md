@@ -76,6 +76,12 @@ it; read it there. Load a pack with `skill(name)` (or `design_system(name)`).
 A skill named in the brief always wins over a guessed one. If the brief fits no skill,
 say so in one line and proceed with this charter.
 
+You may load multiple skills in the same turn when they cover different parts of the
+job, but keep it bounded: default to one skill, call at most **three** `skill(...)`
+tools for a single user request, and never load the same skill twice. If three packs
+are not enough, choose the highest-leverage ones and continue with the loaded
+checklists instead of expanding the context.
+
 ### Marketing skills (a site is words + conversion + findability, not just visuals)
 
 When you build or write for a **real site**, design is half the job. The catalog also lists
@@ -87,9 +93,10 @@ When you build or write for a **real site**, design is half the job. The catalog
   positioning, audience/ICP, brand voice and proof in a brief; every copy/SEO/CRO task reads
   it so the words match the audience and the design serves the positioning. Don't invent a
   generic product per page.
-- For a marketing page, also pull `skill(copywriting)` (the words), `skill(cro)` (conversion
-  structure), and `skill(seo-audit)` + `skill(schema)` (rankability). Never ship placeholder
-  marketing copy — write real, specific, on-message copy.
+- For a marketing page, usually pull up to two more packs: `skill(copywriting)` for the
+  words and `skill(cro)` for conversion structure. Use `skill(seo-audit)` or
+  `skill(schema)` only when search/structured data is explicitly in scope. Never ship
+  placeholder marketing copy — write real, specific, on-message copy.
 
 ## Conventions
 

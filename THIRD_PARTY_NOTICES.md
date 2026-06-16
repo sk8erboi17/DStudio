@@ -58,6 +58,51 @@ The upstream skill files are kept unmodified. DStudio indexes and loads them as
 external skills from the vendored directory, preserving upstream attribution and
 license files in place.
 
+## ECC Agent Skills
+
+DStudio includes selected Agent skill packs imported from ECC.
+
+- Source: https://github.com/affaan-m/ECC
+- License: MIT
+- Local license copy: `extension/skills/_licenses/ecc-MIT.txt`
+- Imported location:
+  - `extension/skills/ecc-*`
+
+Imported skill files were copied from `.agents/skills/*`, namespaced with the
+`ecc-` prefix to avoid collisions, and modified only to add DStudio/DS4
+frontmatter metadata plus attribution.
+
+## Superpowers Agent Skills
+
+DStudio includes Agent workflow skill packs imported from Superpowers.
+
+- Source: https://github.com/obra/superpowers
+- Copyright: 2025 Jesse Vincent
+- License: MIT
+- Local license copy: `extension/skills/_licenses/superpowers-MIT.txt`
+- Imported location:
+  - `extension/skills/superpowers-*`
+
+Imported skill files were namespaced with the `superpowers-` prefix and modified
+only to add DStudio/DS4 frontmatter metadata plus attribution. Supporting files
+inside each skill directory are preserved.
+
+## Anthropic Claude Code Security Review
+
+DStudio includes an Agent skill adapted from Anthropic's Claude Code Security
+Review slash command.
+
+- Source: https://github.com/anthropics/claude-code-security-review
+- Copyright: 2025 Anthropic, PBC
+- License: MIT
+- Local license copy: `extension/skills/_licenses/anthropic-claude-code-security-review-MIT.txt`
+- Imported location:
+  - `extension/skills/anthropic-claude-code-security-review`
+
+The upstream `.claude/commands/security-review.md` command was adapted into a
+DStudio Agent skill and its supporting documentation/examples were copied under
+`references/`.
+
 ## Optional GSA Recon Tools
 
 DStudio can install the following command-line tools into the user's local app

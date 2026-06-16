@@ -68,7 +68,7 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check check-fast check-real test-lan-unit test-ui-contract test-ui-browser test-http-lan test-gsa-bench-validate test-real-search-research test-real-remote clean app windows install-desktop uninstall-desktop
+.PHONY: all run check check-fast check-real test-lan-unit test-ui-contract test-ui-browser test-ui-plan test-http-lan test-gsa-bench-validate test-real-search-research test-real-remote clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
@@ -251,7 +251,16 @@ test-ui-contract:
 	@if command -v node >/dev/null 2>&1; then node tests/ui_contract_test.mjs; else echo "node missing: skipping UI contract tests"; fi
 
 test-ui-browser:
-	@if command -v node >/dev/null 2>&1; then node tests/ui_agent_design_playwright_test.mjs; else echo "node missing: skipping UI browser tests"; fi
+	@if command -v node >/dev/null 2>&1; then node tests/ui_agent_design_playwright_test.mjs && node tests/ui_gear_popover_test.mjs; else echo "node missing: skipping UI browser tests"; fi
+
+test-ui-plan:
+	@if command -v node >/dev/null 2>&1; then node tests/ui_plan_mode_playwright_test.mjs && node tests/ui_plan_mode_matrix_test.mjs; else echo "node missing: skipping Plan mode UI tests"; fi
+
+test-ui-rsa:
+	@if command -v node >/dev/null 2>&1; then node tests/ui_rsa_playwright_test.mjs; else echo "node missing: skipping RSA UI tests"; fi
+
+test-rsa-collectors:
+	@if command -v node >/dev/null 2>&1; then node tests/rsa_collectors_matrix_test.mjs; else echo "node missing: skipping RSA collector tests"; fi
 
 test-http-lan: $(TEST_SERVER)
 	@tests/http_lan_test.sh $(TEST_SERVER)
@@ -259,7 +268,7 @@ test-http-lan: $(TEST_SERVER)
 test-gsa-bench-validate:
 	@if command -v node >/dev/null 2>&1; then node extension/gsa/bench/validate.mjs; else echo "node missing: skipping GSA benchmark validation"; fi
 
-check-fast: $(BIN) test-lan-unit test-ui-contract test-ui-browser test-http-lan test-gsa-bench-validate
+check-fast: $(BIN) test-lan-unit test-ui-contract test-ui-browser test-ui-plan test-ui-rsa test-rsa-collectors test-http-lan test-gsa-bench-validate
 	@file $(PAGE) | grep -q text && echo "$(PAGE): text OK" || (echo "$(PAGE) is not text!" && exit 1)
 	@file $(LOADING) | grep -q text && echo "$(LOADING): text OK" || (echo "$(LOADING) is not text!" && exit 1)
 	@command -v node >/dev/null 2>&1 && { \
