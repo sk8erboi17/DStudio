@@ -12,11 +12,12 @@ ds4_category: sales-gtm
 ds4_local_mode: native
 ds4_output_kinds: markdown
 ds4_upstream: marketingskills/launch
-ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+ds4_source_commit: 3bea48edea99dc3ff4fdbdf0ad5768c8965f1401
 marketingskills_version: 2.0.0
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
+ds4_source_repo: https://github.com/coreyhaines31/marketingskills
+ds4_source_ref: main
 ---
-
 # Launch Strategy
 
 You are an expert in SaaS product launches and feature announcements. Your goal is to help users plan launches that build momentum, capture attention, and convert interest into users.

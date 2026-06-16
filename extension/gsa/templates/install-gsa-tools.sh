@@ -10,6 +10,7 @@ FAILURES=()
 warn() { WARNINGS+=("$1"); echo "warning: $1" >&2; }
 fail() { FAILURES+=("$1"); echo "error: $1" >&2; }
 mkdir -p "$BIN" "$NUCLEI_TEMPLATES_DIR" "$TRIVY_CACHE_DIR" "$GRYPE_DB_CACHE_DIR" "$ROOT/go" "$ROOT/cargo/home" "$ROOT/cargo/target" "$ROOT/pipx" "$ROOT/python"
+export PATH="$BIN:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 export GOBIN="$BIN"
 export GOPATH="$ROOT/go"
 export GOMODCACHE="$ROOT/go/pkg/mod"
@@ -22,7 +23,23 @@ export NUCLEI_TEMPLATES_DIR
 export TRIVY_CACHE_DIR
 export GRYPE_DB_CACHE_DIR
 echo "Preparing optional GSA tools in $BIN"
+ensure_brew_tool() {
+  label="$1"
+  command_name="$2"
+  brew_pkg="$3"
+  if command -v "$command_name" >/dev/null 2>&1; then
+    return 0
+  fi
+  if command -v brew >/dev/null 2>&1; then
+    echo "  - $label missing; installing Homebrew package $brew_pkg"
+    brew install "$brew_pkg" || fail "$label install failed via Homebrew package $brew_pkg"
+  fi
+  command -v "$command_name" >/dev/null 2>&1
+}
 echo "Installing Go-based GSA tools"
+if ! command -v go >/dev/null 2>&1; then
+  ensure_brew_tool "Go" "go" "go" || true
+fi
 if command -v go >/dev/null 2>&1; then
 {{GO_INSTALL_LINES}}else
   fail "Go is not installed; cannot install Go-based GSA tools. Install Go, then rerun this script."
@@ -109,9 +126,18 @@ if command -v cargo >/dev/null 2>&1; then
   echo "Installing Cargo-based tools"
   cargo install binwalk --root "$ROOT" --locked --force || fail "binwalk install failed via cargo"
 else
-  fail "Cargo is not installed; cannot install binwalk. Install Rust/Cargo, then rerun this script."
+  ensure_brew_tool "Rust/Cargo" "cargo" "rust" || true
+  if command -v cargo >/dev/null 2>&1; then
+    echo "Installing Cargo-based tools"
+    cargo install binwalk --root "$ROOT" --locked --force || fail "binwalk install failed via cargo"
+  else
+    fail "Cargo is not installed; cannot install binwalk. Install Rust/Cargo, then rerun this script."
+  fi
 fi
 echo "Installing Node-based optional tools"
+if ! command -v npm >/dev/null 2>&1; then
+  ensure_brew_tool "Node.js/npm" "npm" "node" || true
+fi
 if command -v npm >/dev/null 2>&1; then
   mkdir -p "$ROOT/node"
   npm install --prefix "$ROOT/node" playwright || fail "playwright npm install failed"
@@ -126,6 +152,11 @@ else
 fi
 echo "Installing Python-based optional tools"
 PY_PKGS="plaso volatility3 semgrep sqlmap arjun uro pwntools"
+PY_CONSTRAINTS="$ROOT/python/constraints.txt"
+cat > "$PY_CONSTRAINTS" <<'EOF'
+setuptools<81
+EOF
+export PIP_CONSTRAINT="$PY_CONSTRAINTS"
 if command -v pipx >/dev/null 2>&1; then
   pipx_install_managed() {
     pkg="$1"
@@ -135,13 +166,13 @@ if command -v pipx >/dev/null 2>&1; then
       echo "    refreshing managed pipx venv $venv"
       rm -rf "$venv" || { fail "could not remove existing managed pipx venv for $pkg"; return; }
     fi
-    pipx install --force "$pkg" || fail "$pkg install failed via pipx"
+    pipx install --force --pip-args="--constraint $PY_CONSTRAINTS" "$pkg" || fail "$pkg install failed via pipx"
   }
   for pkg in $PY_PKGS; do pipx_install_managed "$pkg"; done
 elif command -v python3 >/dev/null 2>&1; then
   rm -rf "$ROOT/python/venv" || fail "could not remove existing managed Python venv"
   if python3 -m venv "$ROOT/python/venv"; then
-    "$ROOT/python/venv/bin/python" -m pip install --upgrade pip || fail "pip upgrade failed in managed Python venv"
+    "$ROOT/python/venv/bin/python" -m pip install --upgrade pip "setuptools<81" wheel || fail "pip/setuptools/wheel bootstrap failed in managed Python venv"
     "$ROOT/python/venv/bin/python" -m pip install $PY_PKGS || fail "one or more Python tools failed to install in managed venv"
     find "$ROOT/python/venv/bin" -maxdepth 1 -type f -perm -111 -exec ln -sf {} "$BIN" \; || fail "could not link Python tool entrypoints into $BIN"
   else

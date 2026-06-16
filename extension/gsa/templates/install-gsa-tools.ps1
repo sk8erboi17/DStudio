@@ -17,6 +17,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $Root 'cargo\home') | Out-N
 New-Item -ItemType Directory -Force -Path (Join-Path $Root 'cargo\target') | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Root 'pipx') | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Root 'python') | Out-Null
+$env:Path = "$Bin;$env:ProgramFiles\Go\bin;$env:ProgramFiles\nodejs;$env:USERPROFILE\.cargo\bin;$env:Path"
 $env:GOBIN = $Bin
 $env:GOPATH = Join-Path $Root 'go'
 $env:GOMODCACHE = Join-Path $env:GOPATH 'pkg\mod'
@@ -112,6 +113,9 @@ if (Get-Command npm -ErrorAction SilentlyContinue) {
   } else { Add-Fail 'playwright binary was not produced by npm install' }
 } else { Add-Fail 'Node.js/npm is not installed; cannot install Playwright. Install Node.js, then rerun this script.' }
 $PyPkgs = @('plaso','volatility3','semgrep','sqlmap','arjun','uro','pwntools')
+$PyConstraints = Join-Path $Root 'python\constraints.txt'
+Set-Content -Path $PyConstraints -Value 'setuptools<81'
+$env:PIP_CONSTRAINT = $PyConstraints
 if (Get-Command pipx -ErrorAction SilentlyContinue) {
   function Install-ManagedPipxPackage([string]$Pkg) {
     Write-Host "  - $Pkg"
@@ -120,7 +124,7 @@ if (Get-Command pipx -ErrorAction SilentlyContinue) {
       Write-Host "    refreshing managed pipx venv $Venv"
       try { Remove-Item $Venv -Recurse -Force -ErrorAction Stop } catch { Add-Fail "could not remove existing managed pipx venv for $Pkg"; return }
     }
-    pipx install --force $Pkg
+    pipx install --force --pip-args "--constraint $PyConstraints" $Pkg
     if ($LASTEXITCODE -ne 0) { Add-Fail "$Pkg install failed via pipx" }
   }
   foreach ($Pkg in $PyPkgs) { Install-ManagedPipxPackage $Pkg }
@@ -130,7 +134,7 @@ if (Get-Command pipx -ErrorAction SilentlyContinue) {
   if (Test-Path $Venv) { try { Remove-Item $Venv -Recurse -Force -ErrorAction Stop } catch { Add-Fail 'could not remove existing managed Python venv' } }
   & $Python -m venv $Venv
   if ($LASTEXITCODE -eq 0) {
-    & (Join-Path $Venv 'Scripts\python.exe') -m pip install --upgrade pip; if ($LASTEXITCODE -ne 0) { Add-Fail 'pip upgrade failed in managed Python venv' }
+    & (Join-Path $Venv 'Scripts\python.exe') -m pip install --upgrade pip 'setuptools<81' wheel; if ($LASTEXITCODE -ne 0) { Add-Fail 'pip/setuptools/wheel bootstrap failed in managed Python venv' }
     & (Join-Path $Venv 'Scripts\python.exe') -m pip install $PyPkgs; if ($LASTEXITCODE -ne 0) { Add-Fail 'one or more Python tools failed to install in managed venv' }
     Get-ChildItem (Join-Path $Venv 'Scripts') -File | Where-Object { $_.Extension -in '.exe','.cmd','.bat' } | ForEach-Object { Copy-Item $_.FullName (Join-Path $Bin $_.Name) -Force }
   } else { Add-Fail 'Python exists, but venv creation failed. Install venv support or use pipx, then rerun this script.' }

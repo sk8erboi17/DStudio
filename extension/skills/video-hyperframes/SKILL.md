@@ -38,8 +38,10 @@ ds4_local_mode: native
 ds4_output_kinds: hyperframes
 ds4_upstream: open-design/video-hyperframes
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 【模板: Hyperframes 视频帧】
 - 输出 N 个连续 `<section class="frame">`, 每个 `w-[1920px] h-[1080px]`; N 由【用户内容】信息密度决定 (短脚本 6-10 帧起步, 长脚本应更多, 每帧只承载一个镜头/概念)。
 - 每帧表达一个镜头/概念: 文字 + 视觉构图 (中央构图 / 黄金分割 / 三分法)。

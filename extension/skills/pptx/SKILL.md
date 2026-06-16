@@ -17,8 +17,10 @@ ds4_local_mode: native
 ds4_output_kinds: deck
 ds4_upstream: open-design/pptx
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # pptx
 
 > Curated from Anthropic's official skills repository.
@@ -29,7 +31,7 @@ Read, generate, and adjust PowerPoint slides, layouts, and templates. Useful for
 
 ## Source
 
-- Upstream: https://github.com/anthropics/skills/tree/main/pptx
+- Upstream: https://github.com/anthropics/skills/tree/main/skills/pptx
 - Category: `slides`
 
 ## How to use
@@ -41,7 +43,7 @@ bundle into your active agent's skills directory:
 
 ```bash
 # Inspect the upstream README for exact paths
-open https://github.com/anthropics/skills/tree/main/pptx
+open https://github.com/anthropics/skills/tree/main/skills/pptx
 ```
 
 Then ask the agent to invoke this skill by name (`pptx`) or with

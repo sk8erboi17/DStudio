@@ -37,8 +37,10 @@ ds4_local_mode: native
 ds4_output_kinds: hyperframes
 ds4_upstream: open-design/frame-light-leak-cinema
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 【模板: 胶片漏光电影帧】
 【意图】纪录片 / 个人短片 / 视频章节卡的开场单帧 —— 暖橙漏光 + 35mm 颗粒 + 衬线大字, 古典胶片质感。Inspired by hyperframes light-leak。
 

@@ -17,8 +17,10 @@ ds4_local_mode: native
 ds4_output_kinds: pdf-brief
 ds4_upstream: open-design/pdf
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # pdf
 
 > Curated from Anthropic's official skills repository.
@@ -29,7 +31,7 @@ Extract text, create PDFs, and handle forms. Useful for press releases, branded 
 
 ## Source
 
-- Upstream: https://github.com/anthropics/skills/tree/main/pdf
+- Upstream: https://github.com/anthropics/skills/tree/main/skills/pdf
 - Category: `documents`
 
 ## How to use
@@ -41,7 +43,7 @@ bundle into your active agent's skills directory:
 
 ```bash
 # Inspect the upstream README for exact paths
-open https://github.com/anthropics/skills/tree/main/pdf
+open https://github.com/anthropics/skills/tree/main/skills/pdf
 ```
 
 Then ask the agent to invoke this skill by name (`pdf`) or with

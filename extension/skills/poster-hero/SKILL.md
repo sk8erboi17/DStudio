@@ -35,8 +35,10 @@ ds4_local_mode: native
 ds4_output_kinds: image-brief
 ds4_upstream: open-design/poster-hero
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 【模板: 营销海报】
 - 容器 `w-[1080px] h-[1920px] mx-auto`, 全屏渐变 / mesh 背景。
 - 上部 30% 留白 + 一个大 emoji 或抽象几何图形。

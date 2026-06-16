@@ -17,8 +17,10 @@ ds4_local_mode: reference
 ds4_output_kinds: html
 ds4_upstream: open-design/theme-factory
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # theme-factory
 
 > Curated from Anthropic's official skills repository.
@@ -29,7 +31,7 @@ Apply professional font and color themes to artifacts including slides, docs, re
 
 ## Source
 
-- Upstream: https://github.com/anthropics/skills/tree/main/theme-factory
+- Upstream: https://github.com/anthropics/skills/tree/main/skills/theme-factory
 - Category: `design-systems`
 
 ## How to use
@@ -41,7 +43,7 @@ bundle into your active agent's skills directory:
 
 ```bash
 # Inspect the upstream README for exact paths
-open https://github.com/anthropics/skills/tree/main/theme-factory
+open https://github.com/anthropics/skills/tree/main/skills/theme-factory
 ```
 
 Then ask the agent to invoke this skill by name (`theme-factory`) or with

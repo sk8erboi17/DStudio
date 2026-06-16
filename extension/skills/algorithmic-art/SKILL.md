@@ -18,8 +18,10 @@ ds4_local_mode: reference
 ds4_output_kinds: image-brief
 ds4_upstream: open-design/algorithmic-art
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # algorithmic-art
 
 > Curated from Anthropic's official skills repository.
@@ -30,7 +32,7 @@ Create generative art using p5.js with seeded randomness so every render is repr
 
 ## Source
 
-- Upstream: https://github.com/anthropics/skills/tree/main/algorithmic-art
+- Upstream: https://github.com/anthropics/skills/tree/main/skills/algorithmic-art
 - Category: `image-generation`
 
 ## How to use
@@ -42,7 +44,7 @@ bundle into your active agent's skills directory:
 
 ```bash
 # Inspect the upstream README for exact paths
-open https://github.com/anthropics/skills/tree/main/algorithmic-art
+open https://github.com/anthropics/skills/tree/main/skills/algorithmic-art
 ```
 
 Then ask the agent to invoke this skill by name (`algorithmic-art`) or with

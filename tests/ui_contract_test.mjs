@@ -392,6 +392,8 @@ assert.match(gsaRuntime, /notInstallable/, 'GSA tool status should count tools b
 assert.match(gsaRuntime, /Go is not installed; cannot install Go-based GSA tools/, 'GSA install scripts should fail loudly when Go-based managed tools cannot be installed');
 assert.match(gsaRuntime, /Python 3 or pipx is not installed; cannot install Python-based GSA tools/, 'GSA install scripts should fail loudly when Python-based managed tools cannot be installed');
 assert.match(gsaRuntime, /Installer failed\. Missing required managed tools\/data:[\s\S]*exit 1/, 'GSA install scripts should exit non-zero when managed tools or required data packs are missing');
+assert.match(gsaRuntime, /export PATH="\$BIN:\/opt\/homebrew\/bin:\/usr\/local\/bin:\/usr\/bin:\/bin:\/usr\/sbin:\/sbin:\$\{PATH:-\}"/, 'GSA shell installer should see Homebrew and system toolchains when launched from the macOS app environment');
+assert.match(gsaRuntime, /ensure_brew_tool "Go" "go" "go"[\s\S]*brew install "\$brew_pkg"/, 'GSA shell installer should install Go through Homebrew when Homebrew exists');
 assert.match(gsaRuntime, /github\.com\/projectdiscovery\/subfinder/, 'GSA should include ProjectDiscovery subfinder support');
 assert.match(gsaRuntime, /github\.com\/projectdiscovery\/nuclei/, 'GSA should include ProjectDiscovery nuclei support');
 assert.match(gsaRuntime, /NUCLEI_TEMPLATES_DIR[\s\S]*-update-templates[\s\S]*-update-template-dir/, 'GSA tool installer should install/update managed nuclei templates');
@@ -403,6 +405,7 @@ assert.match(gsaRuntime, /apt-get update[\s\S]*apt-get install -y/, 'GSA tool in
 assert.match(gsaRuntime, /TRIVY_CACHE_DIR[\s\S]*--download-db-only[\s\S]*--download-java-db-only/, 'GSA tool installer should prefetch Trivy vulnerability databases when Trivy is installed');
 assert.match(gsaRuntime, /GRYPE_DB_CACHE_DIR[\s\S]*grype[\s\S]*db update/, 'GSA tool installer should prefetch Grype vulnerability database when Grype is installed');
 assert.match(gsaRuntime, /refreshing managed pipx venv[\s\S]*rm -rf[\s\S]*pipx install --force/, 'GSA tool installer should refresh managed pipx venvs before reinstalling Python tools');
+assert.match(gsaRuntime, /PIP_CONSTRAINT[\s\S]*setuptools<81[\s\S]*pip install --upgrade pip "setuptools<81" wheel/, 'GSA Python installer should pin setuptools for legacy packages such as dtfabric/plaso');
 assert.doesNotMatch(gsaRuntime, /Manual\/system tools still need OS packages|skipping trivy DB prefetch|skipping grype DB prefetch/, 'GSA installer should not keep silent manual-tool skips');
 assert.match(gsaRuntime, /templatesDir[\s\S]*templatesFound[\s\S]*templateHint/, 'GSA tool status should expose nuclei template directory and readiness');
 assert.match(gsaRuntime, /Do not pass guessed labels such as `xss`[\s\S]*to `nuclei -t`[\s\S]*Use `-tags`, `-id`, or explicit template paths/, 'GSA prompt policy should prevent invalid guessed nuclei template labels');
@@ -669,12 +672,12 @@ assert.match(launcher, /updates_ds4_managed_dirty_path[\s\S]*ds4-agent-jsonl[\s\
 assert.match(launcher, /updates_ds4_git_upstream[\s\S]*@\{u\}[\s\S]*origin\/main/, 'Update Doctor should resolve the real ds4 upstream before declaring latest status');
 assert.match(launcher, /updates_skill_sources_status[\s\S]*sources\.tsv[\s\S]*updates_skill_source_remote_head/, 'Update Doctor should read repo-imported skill source metadata');
 assert.match(launcher, /updates_skill_source_remote_head[\s\S]*"git", "ls-remote"/, 'Update Doctor should compare repo-imported skills against remote refs');
-assert.match(launcher, /strcmp\(kind, "verify-only"\)[\s\S]*manual re-import required/, 'Update Doctor should identify adapted verify-only skill sources instead of pretending update can rewrite them');
+assert.match(launcher, /strcmp\(kind, "verify-only"\)[\s\S]*manual re-import required/, 'Update Doctor should identify truly verify-only skill sources instead of pretending update can rewrite them');
 assert.match(launcher, /updates_run_imported_skills[\s\S]*sync-skill-sources\.mjs[\s\S]*"--all"/, 'Update Doctor should update repo-imported skills through the source sync script');
 assert.match(skillSources, /superpowers[\s\S]*https:\/\/github\.com\/obra\/superpowers[\s\S]*skills-dir/, 'Skill source Doctor should monitor the Superpowers repo');
 assert.match(skillSources, /ecc[\s\S]*https:\/\/github\.com\/affaan-m\/ECC[\s\S]*\.agents\/skills[\s\S]*skills-dir/, 'Skill source Doctor should monitor and sync the ECC skill repo');
 assert.match(skillSources, /anthropic-security-review[\s\S]*https:\/\/github\.com\/anthropics\/claude-code-security-review[\s\S]*anthropic-security-review/, 'Skill source Doctor should monitor and sync the Anthropic security-review repo');
-assert.match(skillSources, /marketingskills[\s\S]*verify-only[\s\S]*open-design[\s\S]*verify-only[\s\S]*anthropic-cybersecurity-skills[\s\S]*verify-only/, 'Skill source Doctor should verify adapted/imported skill repos that are not safe to rewrite generically');
+assert.match(skillSources, /marketingskills[\s\S]*preserve-skill-bodies[\s\S]*open-design[\s\S]*open-design-preserve[\s\S]*anthropic-cybersecurity-skills[\s\S]*verify-only/, 'Skill source Doctor should auto-update adapted skill repos through metadata-preserving importers and keep only raw cybersecurity skills verify-only');
 assert.match(launcher, /git", "-C", g_ds4_dir, "fetch", "origin", "--prune"[\s\S]*rev-list", "--left-right", "--count", range/, 'Update Doctor check should fetch and compare local ds4 HEAD with upstream');
 assert.match(launcher, /local %s is %d commit\(s\) behind %s[\s\S]*Run Update selected to pull\/build\/verify patches/, 'Update Doctor should warn when ds4 is behind upstream');
 assert.match(launcher, /local %s matches %s[\s\S]*DStudio generated artifact\(s\) present and safe to regenerate/, 'Update Doctor should report managed generated artifacts only after confirming upstream is current');

@@ -222,7 +222,7 @@ Cross-reference both for high-confidence tech stack signals.
 ### Browserbase
 
 - **Best for**: When you need real Chromium — JS-heavy pages, cookie consent dialogs, form submission to reach a contact page, session state
-- **Strengths**: Full browser control through managed Chromium sessions; Stagehand provides AI-friendly natural-language extraction; session recordings for debugging
+- **Strengths**: Full browser control via Playwright/Puppeteer; Stagehand provides AI-friendly natural-language extraction; session recordings for debugging
 - **API + MCP (Stagehand) + SDKs**: Node, Python
 
 ### Critical compliance line

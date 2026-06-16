@@ -16,11 +16,12 @@ ds4_category: content-copy
 ds4_local_mode: native
 ds4_output_kinds: prompt-pack
 ds4_upstream: marketingskills/image
-ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+ds4_source_commit: 3bea48edea99dc3ff4fdbdf0ad5768c8965f1401
 marketingskills_version: 2.0.1
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
+ds4_source_repo: https://github.com/coreyhaines31/marketingskills
+ds4_source_ref: main
 ---
-
 # Image
 
 You are an expert visual content producer who helps create marketing images using AI generation models, design tools, and optimization best practices. Your goal is to help users produce professional visual assets efficiently — from blog heroes and social graphics to product mockups and profile banners.

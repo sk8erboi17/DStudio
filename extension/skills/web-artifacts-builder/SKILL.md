@@ -16,8 +16,10 @@ ds4_local_mode: native
 ds4_output_kinds: html
 ds4_upstream: open-design/web-artifacts-builder
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # web-artifacts-builder
 
 > Curated from Anthropic's official skills repository.
@@ -28,7 +30,7 @@ Build complex claude.ai HTML artifacts with React and Tailwind. Anthropic's refe
 
 ## Source
 
-- Upstream: https://github.com/anthropics/skills/tree/main/web-artifacts-builder
+- Upstream: https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder
 - Category: `web-artifacts`
 
 ## How to use
@@ -40,7 +42,7 @@ bundle into your active agent's skills directory:
 
 ```bash
 # Inspect the upstream README for exact paths
-open https://github.com/anthropics/skills/tree/main/web-artifacts-builder
+open https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder
 ```
 
 Then ask the agent to invoke this skill by name (`web-artifacts-builder`) or with

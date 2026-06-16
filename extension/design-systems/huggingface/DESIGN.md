@@ -4,8 +4,10 @@ ds4_local_mode: reference
 ds4_output_kinds: audio-script
 ds4_upstream: open-design/huggingface
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # Design System Inspired by Hugging Face
 
 > Category: AI & LLM
@@ -155,3 +157,9 @@ Shapes are crisp, not soft: 4–6px radii, 1px solid borders that announce thems
 - **Duration**: 120ms for hover; 200ms for menu open.
 - **Easing**: `ease-out`.
 - **Tag pop**: a 1.05× scale on hover at 120ms — the only exception to flat-on-hover.
+
+## 7. Usage Guardrails
+
+- Preserve the yellow accent, mono metadata, and dense model-card layout together; yellow alone does not create a Hugging Face-like surface.
+- Use tags, tables, and repository-style metadata for model browsing or evaluation contexts rather than decorative marketing cards.
+- Keep motion minimal and functional, reserving the small tag pop for interactive taxonomy chips.

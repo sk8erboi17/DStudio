@@ -4,8 +4,10 @@ ds4_local_mode: reference
 ds4_output_kinds: html
 ds4_upstream: open-design/github
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # Design System Inspired by GitHub
 
 > Category: Developer Tools
@@ -161,3 +163,9 @@ Typography uses the **system-ui** stack across the entire product so text render
 - **Duration**: 80ms for hover; 200ms for menu/popover open.
 - **Easing**: `ease-out` for opens, `ease-in` for closes.
 - **Avoided**: page-load animation, parallax, persistent micro-interactions. Things appear; they do not perform.
+
+## 7. Usage Guardrails
+
+- Keep dense lists, bordered boxes, and system typography together; isolated green buttons are not enough to create a GitHub-like product surface.
+- Use green for constructive repository actions, blue for links and focus, and red/purple/gray only for issue, PR, and workflow states.
+- Prefer quiet chrome, explicit borders, and compact spacing over decorative shadows or large marketing-style cards.

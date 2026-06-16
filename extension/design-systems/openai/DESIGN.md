@@ -4,8 +4,10 @@ ds4_local_mode: reference
 ds4_output_kinds: html
 ds4_upstream: open-design/openai
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # Design System Inspired by OpenAI
 
 > Category: AI & LLM
@@ -146,3 +148,9 @@ The shape system is uniformly soft: 8px–12px radii, 9999px pills for tags and 
 - **Duration**: 150–220ms for hover; 280–360ms for layout transitions.
 - **Easing**: `cubic-bezier(0.16, 1, 0.3, 1)` (smooth out) for entrances.
 - **Restraint**: no parallax, no scroll-jacking. Subtle fade and translate only.
+
+## 7. Usage Guardrails
+
+- Preserve the neutral editorial restraint, soft radius, and sparse accent usage together; green accents alone do not create an OpenAI-like surface.
+- Use Signifier-style display moments only for editorial or announcement hierarchy, keeping product controls in the sans system.
+- Avoid ornamental motion, heavy shadows, and oversized decorative cards; the system should feel calm, readable, and deliberate.

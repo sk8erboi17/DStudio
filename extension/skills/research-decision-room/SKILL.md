@@ -47,8 +47,10 @@ ds4_local_mode: native
 ds4_output_kinds: html
 ds4_upstream: open-design/research-decision-room
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # Research Decision Room Skill
 
 Create a single-page HTML decision artifact that helps a product or design team

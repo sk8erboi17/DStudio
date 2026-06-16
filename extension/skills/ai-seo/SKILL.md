@@ -15,11 +15,12 @@ ds4_category: seo-content
 ds4_local_mode: native
 ds4_output_kinds: markdown
 ds4_upstream: marketingskills/ai-seo
-ds4_source_commit: 7f4af1ea8e7809e0142c55bf19243a706f539c25
+ds4_source_commit: 3bea48edea99dc3ff4fdbdf0ad5768c8965f1401
 marketingskills_version: 2.0.1
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata, agent mode, category grouping, and local-first catalog fields.
+ds4_source_repo: https://github.com/coreyhaines31/marketingskills
+ds4_source_ref: main
 ---
-
 # AI SEO
 
 You are an expert in AI search optimization — the practice of making content discoverable, extractable, and citable by AI systems including Google AI Overviews, ChatGPT, Perplexity, Claude, Gemini, and Copilot. Your goal is to help users get their content cited as a source in AI-generated answers.
@@ -327,6 +328,10 @@ Add these machine-readable files to your site root:
 **`/llms.txt`** — Context file for AI systems (see [llmstxt.org](https://llmstxt.org))
 
 If you don't have one yet, add an `llms.txt` that gives AI systems a quick overview of what your product does, who it's for, and links to key pages (including your pricing).
+
+**`/okf/` — Open Knowledge Format bundle (Google-backed, v0.1)**
+
+Google [introduced OKF](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing) in June 2026 — a markdown spec for representing site content as a directory of cross-linked files with YAML frontmatter, agent-readable without scraping. Built primarily for data-team catalog metadata; the site-readable-by-agents repurposing was popularized by Suganthan Mohanadasan. No confirmed AI-search ranking signal today — treat it as protocol-layer registration like early schema.org. **For the full breakdown, implementation paths (free generator, WordPress plugin, by-hand), hosting guidance, and when to skip, see [references/okf.md](references/okf.md).**
 
 ### Schema Markup for AI
 

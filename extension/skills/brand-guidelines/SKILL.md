@@ -16,8 +16,10 @@ ds4_local_mode: reference
 ds4_output_kinds: html
 ds4_upstream: open-design/brand-guidelines
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 # brand-guidelines
 
 > Curated from Anthropic's official skills repository.
@@ -28,7 +30,7 @@ Apply Anthropic's official brand colors and typography to artifacts for consiste
 
 ## Source
 
-- Upstream: https://github.com/anthropics/skills/tree/main/brand-guidelines
+- Upstream: https://github.com/anthropics/skills/tree/main/skills/brand-guidelines
 - Category: `design-systems`
 
 ## How to use
@@ -40,7 +42,7 @@ bundle into your active agent's skills directory:
 
 ```bash
 # Inspect the upstream README for exact paths
-open https://github.com/anthropics/skills/tree/main/brand-guidelines
+open https://github.com/anthropics/skills/tree/main/skills/brand-guidelines
 ```
 
 Then ask the agent to invoke this skill by name (`brand-guidelines`) or with

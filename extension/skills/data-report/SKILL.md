@@ -36,8 +36,10 @@ ds4_local_mode: native
 ds4_output_kinds: image-brief
 ds4_upstream: open-design/data-report
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
+ds4_source_repo: https://github.com/nexu-io/open-design
+ds4_source_ref: main
+ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
 ---
-
 【模板: 数据可视化报告】
 - 头部: 报告标题 + 时间区间 + 数据来源说明。
 - KPI 卡片网格: 3-5 个最重要指标, 每个卡片显示数值 + 同比变化 + 微型趋势线。
