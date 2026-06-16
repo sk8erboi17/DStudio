@@ -9,7 +9,7 @@
       try {
         const settings = JSON.parse(localStorage.getItem('ds4web.settings.v1') || '{}');
         if (settings && settings.lanClientHost) location.replace('/');
-        if (!settings || settings.onboardedVersion !== 8) location.replace('/');
+        if (!settings || (settings.onboarded !== true && settings.onboardedVersion !== 8)) location.replace('/');
       } catch {
         location.replace('/');
       }

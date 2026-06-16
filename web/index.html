@@ -7593,6 +7593,10 @@
           delete state.settings.think;
           delete state.settings.webSearchEnabled;
         }
+        if (state.settings.onboarded === true && state.settings.onboardedVersion !== ONBOARD_VERSION) {
+          state.settings.onboardedVersion = ONBOARD_VERSION;
+          settingsChanged = true;
+        }
         if ('lanClientDs4Dir' in state.settings) {
           delete state.settings.lanClientDs4Dir;
           settingsChanged = true;
@@ -15057,12 +15061,19 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
 
       async function maybeShowInitialOnboarding() {
-        if (Store.getSettings().onboardedVersion === ONBOARD_VERSION) return;
+        const settings = Store.getSettings();
+        if (settings.onboarded === true || settings.onboardedVersion === ONBOARD_VERSION) {
+          if (settings.onboardedVersion !== ONBOARD_VERSION) {
+            Store.setSettingsNow({ onboarded: true, onboardedVersion: ONBOARD_VERSION });
+          }
+          return;
+        }
         if (await setupReadyEnoughToSkipOnboarding()) {
           Store.setSettingsNow({ onboarded: true, onboardedVersion: ONBOARD_VERSION });
           return;
         }
-        if (Store.getSettings().onboardedVersion === ONBOARD_VERSION || isLanClientMode()) return;
+        const refreshed = Store.getSettings();
+        if (refreshed.onboarded === true || refreshed.onboardedVersion === ONBOARD_VERSION || isLanClientMode()) return;
         const tryShow = () => { if (!document.querySelector('dialog[open]')) show(); };
         if (document.querySelector('dialog[open]')) setTimeout(tryShow, 400);
         else show();
