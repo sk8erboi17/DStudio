@@ -674,44 +674,6 @@ static const char *gsa_tool_install_hint(const char *mode) {
     return "";
 }
 
-static void child_setenv_gsa_tools(void) {
-    char bin[1200];
-    char nuclei_templates[1200];
-    gsa_tools_dir(bin, sizeof bin);
-    gsa_nuclei_templates_dir(nuclei_templates, sizeof nuclei_templates);
-    char root[1200], trivy_cache[1400], grype_db[1400];
-    cstr_copy(root, sizeof root, bin);
-    char *slash = strrchr(root, '/');
-#ifdef _WIN32
-    char *bslash = strrchr(root, '\\');
-    if (bslash && (!slash || bslash > slash)) slash = bslash;
-#endif
-    if (slash) *slash = '\0';
-#ifdef _WIN32
-    snprintf(trivy_cache, sizeof trivy_cache, "%s\\trivy-cache", root);
-    snprintf(grype_db, sizeof grype_db, "%s\\grype\\db", root);
-#else
-    snprintf(trivy_cache, sizeof trivy_cache, "%s/trivy-cache", root);
-    snprintf(grype_db, sizeof grype_db, "%s/grype/db", root);
-#endif
-    const char *old = getenv("PATH");
-    char pathbuf[4096];
-#ifdef _WIN32
-    snprintf(pathbuf, sizeof pathbuf, "%s;%s", bin, old ? old : "");
-#else
-    const char *home = getenv("HOME");
-    char localbin[1200];
-    snprintf(localbin, sizeof localbin, "%s/.local/bin", home ? home : "");
-    snprintf(pathbuf, sizeof pathbuf, "%s:%s:/opt/homebrew/bin:/usr/local/bin:%s",
-             bin, localbin, old ? old : "");
-#endif
-    setenv("PATH", pathbuf, 1);
-    setenv("DSTUDIO_GSA_TOOLS_BIN", bin, 1);
-    setenv("NUCLEI_TEMPLATES_DIR", nuclei_templates, 1);
-    setenv("TRIVY_CACHE_DIR", trivy_cache, 1);
-    setenv("GRYPE_DB_CACHE_DIR", grype_db, 1);
-}
-
 static int gsa_build_go_install_lines(const gsa_tool_catalog *catalog,
                                       json_dyn_buf *sh_lines,
                                       json_dyn_buf *ps_lines) {

@@ -5019,6 +5019,18 @@ static char *design_verify_after(design_project *pr, const design_tool_call *cal
         }
     }
 
+    /* 5. full artifact quality lint — same P0 gates as verify_artifact,
+     *    so the model sees ALL issues immediately, not just the subset above.
+     *    Prevents the blindside "Artifact check: fail" loop. */
+    {
+        design_check_report report = {0};
+        design_artifact_quality_lint(body, &report);
+        if (report.errors) {
+            design_check_report_text(&issues, &report);
+        }
+        design_check_report_free(&report);
+    }
+
     free(body);
     if (!issues.len) { if (issues.ptr) free(issues.ptr); return result; }
     char *iss = buf_take(&issues);
