@@ -1823,7 +1823,6 @@
     .cbar-think-item.on { background: var(--accent-soft); color: var(--text); }
     .cbar-think-ck { color: var(--accent-2); opacity: 0; }
     .cbar-think-item.on .cbar-think-ck { opacity: 1; }
-    .cbar-meta { display: none; }   /* token/workdir counter removed from the bar (folder lives in the gear) */
     .field-note { font-weight: 400; color: var(--faint); font-size: 0.72rem; }
     .composer__files {
       grid-column: 1 / -1;
@@ -5110,7 +5109,6 @@
                 <option value="max">Thinking: max</option>
               </select>
               <div class="cbar-think" id="cbar-think"></div>
-              <span class="cbar-meta" id="composer-meta"></span>
               <button type="submit" id="btn-send" class="btn btn--primary btn--send" aria-label="Send" title="Send (Enter)"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V4M4 8l4-4 4 4"/></svg></button>
               <button type="button" id="btn-stop" class="btn btn--danger btn--send" hidden aria-label="Stop generation" title="Stop generation"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.1"/></svg></button>
             </div>
@@ -12123,7 +12121,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         input = qs('#composer-input');
         sendBtn = qs('#btn-send');
         stopBtn = qs('#btn-stop');
-        meta = qs('#composer-meta');
         slashMenu = qs('#slash-menu');
         fileInput = qs('#chat-file-input');
         filesEl = qs('#composer-files');
@@ -12928,9 +12925,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
           : 'Reasoning level — applies from the next message';
         layoutControls();   // gear popover controls for chat, agent and design
         renderGsaTargetPanel();
-        meta.textContent = '';
-        meta.classList.remove('warn');
-        loadModelList();    // refresh present GGUFs + which one is running
         refreshMeta();
         if (mode !== 'server') clearPendingAttachments();
         if (cbarAttach) {
@@ -14043,9 +14037,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
       // (re)built by layoutControls() on setMode, which runs whenever the folder
       // changes (a folder change restarts the engine → setMode).
       function renderPipeMeta() {
-        meta.replaceChildren();
-        meta.classList.remove('warn');
-        // keep the gear's workdir label fresh without disturbing an open popover
         if (agentMode && !gearOpen && cbarGear && !cbarGear.hidden) {
           const span = cbarPop.querySelector('.cbar-pop-wd span');
           if (span) span.textContent = Store.getState().ui.agentWorkdir || 'choose folder…';
@@ -14073,15 +14064,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
       // Chat: a compact token count (optional context readout). Empty until a
       // turn has usage; warns past 80% of the window.
-      function renderMeta() {
-        const active = Store.getActiveChat();
-        const last = active?.messages.findLast((m) => m.usage);
-        if (!last) { meta.textContent = ''; meta.classList.remove('warn'); return; }
-        const used = last.usage.totalTokens;
-        const ctx = Store.getState().ui.models.find((m) => m.id === active.model)?.context_length;
-        meta.textContent = `${fmtK(used)} tok`;
-        meta.classList.toggle('warn', !!ctx && used / ctx > 0.8);
-      }
+      function renderMeta() {}
 
       let planActionsEl = null;
       const planActionsHost = () => planActionsEl || (planActionsEl = qs('#plan-actions'));

@@ -2654,7 +2654,7 @@ static void agent_buf_reset(void) {
     if (g_child_event_line.ptr) g_child_event_line.ptr[0] = '\0';
 }
 
-static void sse_close_all_fwd(void);
+static void sse_close_all(void);
 static void close_pipes(void);
 
 /* ==================== process management ==================== */
@@ -2739,7 +2739,7 @@ static void close_pipes(void) {
 }
 
 static void stop_child(void) {
-    sse_close_all_fwd();
+    sse_close_all();
     if (g_child <= 0) { g_mode = ENGINE_NONE; return; }
     printf("engine: stopping pid %d…\n", (int)g_child);
     dstudio_log_event("info", "engine", g_active_turn_task ? g_active_turn_task : g_active_launch_task,
@@ -2862,8 +2862,6 @@ static void user_skills_dir(char *out, size_t outsz) {
     snprintf(out, outsz, "%s/.local/share/flashcards/ds4-skills", home ? home : ".");
 #endif
 }
-
-static void child_setenv_gsa_tools(void);
 
 static int cyber_skills_dir(char *out, size_t outsz) {
     if (!g_web_dir[0]) return 0;
@@ -4483,7 +4481,6 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     win_join_path(exe, sizeof exe, g_ds4_dir, agent_bin);
     win_prepare_engine_runtime();
     child_setenv_skills();
-    child_setenv_gsa_tools();
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
                      : "--think";
@@ -4522,7 +4519,6 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
             child_setenv_metal_sources(ds4_abs); /* absolute: survive --chdir */
         }
         child_setenv_skills();                   /* on-demand skill()/design_system() packs */
-        child_setenv_gsa_tools();                /* optional GSA scanners in managed bin */
         dup2(ip[0], STDIN_FILENO);
         dup2(op[1], STDOUT_FILENO);
         dup2(ep[1], STDERR_FILENO);
@@ -4630,7 +4626,6 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     char exe[2200];
     win_join_path(exe, sizeof exe, g_ds4_dir, "ds4-design.exe");
     child_setenv_skills();
-    child_setenv_gsa_tools();
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
                      : "--think";
@@ -4665,7 +4660,6 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         if (chdir(g_ds4_dir) != 0) _exit(127);   /* to find ./ds4-design */
         if (!remote_model) child_setenv_metal();
         child_setenv_skills();                   /* on-demand skill()/design_system() packs */
-        child_setenv_gsa_tools();                /* optional GSA scanners in managed bin */
         dup2(ip[0], STDIN_FILENO);
         dup2(op[1], STDOUT_FILENO);
         dup2(ep[1], STDERR_FILENO);
@@ -5994,7 +5988,6 @@ static void sse_drop(int i) {
 }
 
 static void sse_close_all(void) { while (g_sse_n) sse_drop(0); }
-static void sse_close_all_fwd(void) { sse_close_all(); }
 
 /* One event with the SAME JSON shape as the poll response. */
 static int sse_send_chunk(int fd, size_t *since, int *last_working) {
