@@ -252,7 +252,6 @@ static int ds4_kill(pid_t pid, int sig) {
     return (pid > 0 && TerminateProcess((HANDLE)pid, 1)) ? 0 : -1;
 }
 static DWORD g_last_spawn_win_pid = 0;
-static pid_t fork(void) { errno = ENOSYS; return -1; }
 #define dup2 _dup2
 #define execl(path, ...) (-1)
 #define execlp(path, ...) (-1)
@@ -424,6 +423,7 @@ static int  g_load_pct = 0;
 static char g_stage[96] = "";
 static int  g_ready = 0;
 static int  g_agent_working = 0;   /* true between send and the next WAITING */
+static int  g_interrupt_pending = 0; /* SIGINT sent; wait for WAITING or child exit */
 static int  g_active_turn_compacting = 0;
 /* The agent can run patched (ds4-agent-jsonl --jsonl, structured events for the
  * UI) or stock (ds4-agent, raw text that the UI parses heuristically). The UI
@@ -493,19 +493,20 @@ static int send_all(int fd, const char *p, size_t n) {
     return 0;
 }
 
+static const char CORS_HEADERS[] =
+    "Access-Control-Allow-Origin: *\r\n"
+    "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+    "Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With\r\n";
+
 static void send_response_hdrs(int fd, const char *status, const char *ctype,
                                const char *body, size_t blen, int head_only,
                                const char *extra_headers) {
     char hdr[1024];
-    static const char CORS_RESPONSE_HEADERS[] =
-        "Access-Control-Allow-Origin: *\r\n"
-        "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-        "Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With\r\n";
     int add_cors = g_reply_cors && !(extra_headers && strstr(extra_headers, "Access-Control-Allow-Origin:"));
     int n = snprintf(hdr, sizeof hdr,
                      "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n%s%s\r\n",
                      status, ctype, blen, extra_headers ? extra_headers : "",
-                     add_cors ? CORS_RESPONSE_HEADERS : "");
+                     add_cors ? CORS_HEADERS : "");
     if (n < 0 || (size_t)n >= sizeof hdr) return;
     if (send_all(fd, hdr, (size_t)n) < 0) return;
     if (!head_only && blen > 0) send_all(fd, body, blen);
@@ -535,22 +536,8 @@ static void send_json(int fd, const char *status, const char *body) {
 }
 
 static void send_json_cors(int fd, const char *status, const char *body) {
-    static const char CORS_JSON_HEADERS[] =
-        "Access-Control-Allow-Origin: *\r\n"
-        "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-        "Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With\r\n";
     send_response_hdrs(fd, status, "application/json; charset=utf-8", body, strlen(body), 0,
-                       CORS_JSON_HEADERS);
-}
-
-static void send_cors_options(int fd) {
-    static const char CORS_OPTIONS_HEADERS[] =
-        "Access-Control-Allow-Origin: *\r\n"
-        "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-        "Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With\r\n"
-        "Access-Control-Max-Age: 600\r\n";
-    send_response_hdrs(fd, "204 No Content", "text/plain; charset=utf-8", "", 0, 0,
-                       CORS_OPTIONS_HEADERS);
+                       CORS_HEADERS);
 }
 
 static int ascii_eq_ci(char a, char b) {
@@ -1328,7 +1315,6 @@ static void diag_sse_close_all(void) {
     while (g_task_sse_n) diag_sse_drop_task(0);
 }
 
-static const char *ssd_streaming_cfg_name(int mode);
 static unsigned long long dstudio_physical_memory_bytes(void);
 static long long current_model_file_size(void);
 static long long sysctl_iogpu_wired_limit_mb(void);
@@ -1422,7 +1408,7 @@ static void api_diagnostics(int fd) {
                              IOGPU_WIRED_MIN_MB, IOGPU_WIRED_MAX_MB) &&
              json_dyn_printf(&b, ",\"ctx\":%d,\"power\":%d", g_cfg.ctx, g_cfg.power) &&
              json_dyn_puts(&b, ",\"ssdStreaming\":\"") &&
-             json_dyn_puts(&b, ssd_streaming_cfg_name(g_cfg.ssd_streaming)) &&
+             json_dyn_puts(&b, g_cfg.ssd_streaming == SSD_STREAMING_ON ? "on" : g_cfg.ssd_streaming == SSD_STREAMING_OFF ? "off" : "auto") &&
              json_dyn_puts(&b, "\",\"ssdStreamingEffective\":") &&
              json_dyn_puts(&b, g_ssd_streaming_effective ? "true" : "false") &&
              json_dyn_puts(&b, ",\"ssdStreamingReason\":\"") &&
@@ -1943,8 +1929,6 @@ static int model_rpc_start(int id, char *body) {
 
 /* ==================== model / kv / port ==================== */
 
-static const char *model_rel(int uncensored) { return uncensored ? MODEL_UNC : MODEL_STD; }
-
 /* Active model variant the UI picked ("flash" | "pro"). Flash is the default
  * (the abliterated Flash GGUF). When "pro", the engine launches with MODEL_PRO. */
 static char g_variant[16] = "flash";
@@ -1973,11 +1957,6 @@ static int file_present_in_dir(const char *dir, const char *rel) {
 
 static int file_present(const char *rel) {
     return file_present_in_dir(g_ds4_dir, rel);
-}
-
-static const char *ssd_streaming_cfg_name(int mode) {
-    return mode == SSD_STREAMING_ON ? "on" :
-           mode == SSD_STREAMING_OFF ? "off" : "auto";
 }
 
 static unsigned long long dstudio_physical_memory_bytes(void) {
@@ -2077,9 +2056,19 @@ static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_mode
 #endif
 }
 
+static int cfg_ssd_streaming(const engine_cfg *cfg, int remote_model,
+                             char *err, size_t errsz) {
+    char reason[192] = "";
+    int use = engine_effective_ssd_streaming(cfg, remote_model, reason, sizeof reason, err, errsz);
+    if (use < 0) return 0;
+    g_ssd_streaming_effective = use;
+    snprintf(g_ssd_streaming_reason, sizeof g_ssd_streaming_reason, "%s", reason);
+    return 1;
+}
+
 static int model_present(int uncensored) {
     char full[2048];
-    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, model_rel(uncensored));
+    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, uncensored ? MODEL_UNC : MODEL_STD);
     return access(full, R_OK) == 0;
 }
 
@@ -2528,6 +2517,7 @@ static void scan_lines(const char *data, size_t n, char *acc, size_t *acc_len, i
                     }
                     g_active_turn_compacting = 0;
                     g_agent_working = 0;
+                    g_interrupt_pending = 0;
                 } else if (g_active_turn_task && strstr(acc, "COMPACTING")) {
                     if (!g_active_turn_compacting) {
                         g_active_turn_compacting = 1;
@@ -2657,6 +2647,7 @@ static void drain_child_stdout_data(const char *data, size_t n) {
 
 static void agent_buf_reset(void) {
     g_alen = g_abase = 0;
+    g_interrupt_pending = 0;
     g_line_out_len = g_line_err_len = 0;
     g_child_event_active = 0;
     g_child_event_line.len = 0;
@@ -2664,6 +2655,7 @@ static void agent_buf_reset(void) {
 }
 
 static void sse_close_all_fwd(void);
+static void close_pipes(void);
 
 /* ==================== process management ==================== */
 
@@ -2684,10 +2676,16 @@ static void reap_child(void) {
     if (g_child <= 0) return;
     int st;
     if (waitpid(g_child, &st, WNOHANG) == g_child) {
+        int interrupted_exit = g_interrupt_pending &&
+            g_last_engine_line[0] &&
+            (strstr(g_last_engine_line, "ds4-agent: interrupted") ||
+             !strcmp(g_last_engine_line, "interrupted"));
         /* The child died on its own (a clean stop goes through stop_child, which
          * reaps it there). Record WHY — exit code/signal + its last line — so the
          * UI can show the reason instead of just "Server unreachable". */
-        if (WIFSIGNALED(st))
+        if (interrupted_exit)
+            snprintf(g_engine_err, sizeof g_engine_err, "agent/design turn interrupted");
+        else if (WIFSIGNALED(st))
             snprintf(g_engine_err, sizeof g_engine_err, "engine stopped (signal %d)%s%.200s",
                      WTERMSIG(st), g_last_engine_line[0] ? " — " : "", g_last_engine_line);
         else
@@ -2695,12 +2693,16 @@ static void reap_child(void) {
                      WIFEXITED(st) ? WEXITSTATUS(st) : -1,
                      g_last_engine_line[0] ? " — " : "", g_last_engine_line);
         printf("engine: pid %d terminated — %s\n", (int)g_child, g_engine_err);
-        dstudio_log_event("error", "engine", g_active_turn_task ? g_active_turn_task : g_active_launch_task,
+        dstudio_log_event(interrupted_exit ? "info" : "error", "engine",
+                          g_active_turn_task ? g_active_turn_task : g_active_launch_task,
                           "pid %d terminated: %s", (int)g_child, g_engine_err);
         if (g_active_turn_task) {
-            task_mark_incomplete(g_active_turn_task,
-                                 "engine process stopped before completing the turn",
-                                 g_engine_err[0] ? g_engine_err : "unknown process failure");
+            if (interrupted_exit)
+                task_mark_canceled(g_active_turn_task, "agent/design turn interrupted");
+            else
+                task_mark_incomplete(g_active_turn_task,
+                                     "engine process stopped before completing the turn",
+                                     g_engine_err[0] ? g_engine_err : "unknown process failure");
             g_active_turn_task = 0;
         }
         if (g_active_launch_task) {
@@ -2710,7 +2712,7 @@ static void reap_child(void) {
             g_active_launch_task = 0;
             g_active_launch_mode = ENGINE_NONE;
         }
-        if (MODE_IS_PIPED(g_mode) && g_agent_working) {
+        if (!interrupted_exit && MODE_IS_PIPED(g_mode) && g_agent_working) {
             char msg[640];
             int n = snprintf(msg, sizeof msg,
                 "\nEngine process stopped before completing the turn: %s\n",
@@ -2718,11 +2720,13 @@ static void reap_child(void) {
             if (n > 0) agent_buf_append(msg, (size_t)n);
         }
         g_agent_working = 0;
+        g_interrupt_pending = 0;
         g_active_turn_compacting = 0;
         g_child = -1;
 #ifdef _WIN32
         g_child_win_pid = 0;
 #endif
+        close_pipes();
         g_mode = ENGINE_NONE;
         g_ready = 0;
     }
@@ -2763,6 +2767,7 @@ static void stop_child(void) {
     g_mode = ENGINE_NONE;
     g_ready = 0;
     g_agent_working = 0;
+    g_interrupt_pending = 0;
     g_active_turn_compacting = 0;
 }
 
@@ -3069,11 +3074,14 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     char kvdir[2048];
     kv_dir_for_model(current_model_rel(), kvdir, sizeof kvdir);  /* per-model cache */
     mkpath(kvdir);
-    char ssd_reason[192] = "";
-    int use_ssd_streaming = engine_effective_ssd_streaming(cfg, 0, ssd_reason, sizeof ssd_reason, err, errsz);
-    if (use_ssd_streaming < 0) return 0;
-    g_ssd_streaming_effective = use_ssd_streaming;
-    snprintf(g_ssd_streaming_reason, sizeof g_ssd_streaming_reason, "%s", ssd_reason);
+    if (!cfg_ssd_streaming(cfg, 0, err, errsz)) return 0;
+
+    char ports[16], ctxs[16], pows[16], kvs[16], mins[16];
+    snprintf(ports, sizeof ports, "%d", cfg->port);
+    snprintf(ctxs,  sizeof ctxs,  "%d", cfg->ctx);
+    snprintf(pows,  sizeof pows,  "%d", cfg->power);
+    snprintf(kvs,   sizeof kvs,   "%d", cfg->kv_space_mb);
+    snprintf(mins,  sizeof mins,  "%d", cfg->kv_min_tok);
 
 #ifdef _WIN32
     if (!file_present("ds4-server.exe")) {
@@ -3085,12 +3093,6 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     (void)op; (void)ep;
     char exe[2200];
     win_join_path(exe, sizeof exe, g_ds4_dir, "ds4-server.exe");
-    char ports[16], ctxs[16], pows[16], kvs[16], mins[16];
-    snprintf(ports, sizeof ports, "%d", cfg->port);
-    snprintf(ctxs,  sizeof ctxs,  "%d", cfg->ctx);
-    snprintf(pows,  sizeof pows,  "%d", cfg->power);
-    snprintf(kvs,   sizeof kvs,   "%d", cfg->kv_space_mb);
-    snprintf(mins,  sizeof mins,  "%d", cfg->kv_min_tok);
     char *argv[24]; int n = 0;
     argv[n++] = exe; argv[n++] = "-m"; argv[n++] = (char *)current_model_rel(); argv[n++] = "--cpu";
     argv[n++] = "--host"; argv[n++] = g_bind_host; argv[n++] = "--port"; argv[n++] = ports;
@@ -3110,13 +3112,6 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     int op[2], ep[2];
     if (pipe(op) != 0 || pipe(ep) != 0) { snprintf(err, errsz, "pipe failed"); return 0; }
 
-    char ports[16], ctxs[16], pows[16], kvs[16], mins[16];
-    snprintf(ports, sizeof ports, "%d", cfg->port);
-    snprintf(ctxs,  sizeof ctxs,  "%d", cfg->ctx);
-    snprintf(pows,  sizeof pows,  "%d", cfg->power);
-    snprintf(kvs,   sizeof kvs,   "%d", cfg->kv_space_mb);
-    snprintf(mins,  sizeof mins,  "%d", cfg->kv_min_tok);
-
     pid_t pid = fork();
     if (pid < 0) { snprintf(err, errsz, "fork: %s", strerror(errno)); return 0; }
     if (pid == 0) {
@@ -3130,7 +3125,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
         argv[n++] = "./ds4-server"; argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
         argv[n++] = "--host"; argv[n++] = g_bind_host; argv[n++] = "--port"; argv[n++] = ports;
         argv[n++] = "--ctx"; argv[n++] = ctxs; argv[n++] = "--power"; argv[n++] = pows;
-        if (use_ssd_streaming) argv[n++] = "--ssd-streaming";
+        if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
         argv[n++] = "--kv-disk-dir"; argv[n++] = kvdir; argv[n++] = "--kv-disk-space-mb"; argv[n++] = kvs;
         argv[n++] = "--kv-cache-min-tokens"; argv[n++] = mins; argv[n++] = "--cors";
         argv[n] = NULL;
@@ -3691,11 +3686,11 @@ static char *build_skill_sys(int include_design_system, int include_agent_questi
         sys_append(&buf, &len, &cap, read_selected_skill(&n), n);  /* user pref over shipped */
     }
 
-    /* On-demand catalog: the packs the model can pull at any time via the skill() /
-     * design_system() tools, plus the tool schemas (the agent's native prompt lacks
-     * them; design also has them natively). The user's selected packs above are already
-     * loaded — this lets the model reach the OTHERS without a restart. */
-    const size_t catcap = 256 * 1024;
+    /* On-demand pack tools. Do not dump the full shipped/cybersecurity catalog into
+     * every Agent launch: local model startup pays that prefill cost even for a one-word prompt.
+     * The UI and /api/skills/search expose the searchable catalog; the model can load
+     * exact ids supplied by the user, by the selected-skill UI, or by GSA/RSA flows. */
+    const size_t catcap = include_design_system ? 64 * 1024 : 8192;
     char *cat = malloc(catcap);
     if (cat) {
         size_t o = 0;
@@ -3717,17 +3712,25 @@ static char *build_skill_sys(int include_design_system, int include_agent_questi
             o += (size_t)snprintf(cat + o, catcap - o,
                 "{\"type\":\"function\",\"function\":{\"name\":\"craft\",\"description\":\"Load a universal craft rules pack by id (accessibility before shipping; layout-responsive before any resize).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n");
         o += (size_t)snprintf(cat + o, catcap - o, "\n");
-        user_skills_dir(udir, sizeof udir);
-        catalog_append(cat, catcap, &o, udir, "SKILL.md", "Your skills");
-        snprintf(dir, sizeof dir, "%s/extension/skills", g_web_dir);
-        catalog_append(cat, catcap, &o, dir, "SKILL.md", "Design skills");
-        if (cyber_skills_dir(dir, sizeof dir))
-            catalog_append(cat, catcap, &o, dir, "SKILL.md", "Cybersecurity skills");
         if (include_design_system) {
+            o += (size_t)snprintf(cat + o, catcap - o,
+                "Use `skill(\"id\")`, `design_system(\"id\")` and `craft(\"id\")` when the user "
+                "selects or names an exact id. The searchable skill and cybersecurity catalogs "
+                "live in the DStudio UI, so they are not injected here.\n\n");
             snprintf(dir, sizeof dir, "%s/extension/design-systems", g_web_dir);
             catalog_append(cat, catcap, &o, dir, "DESIGN.md", "Available design systems");
             snprintf(dir, sizeof dir, "%s/extension/craft", g_web_dir);
             catalog_append(cat, catcap, &o, dir, "CRAFT.md", "Craft rules (universal)");
+        } else {
+            (void)udir;
+            o += (size_t)snprintf(cat + o, catcap - o,
+                "Use `skill(\"id\")` only when the user selected/named an exact id or a "
+                "DStudio workflow provides one. The full local and cybersecurity skill "
+                "catalogs are searchable in the DStudio UI and backend, but are intentionally "
+                "not injected into this prompt to keep Agent startup responsive. You may load "
+                "multiple skills when they cover different concerns, but keep it bounded: "
+                "default to one skill, cap each user request at three `skill` calls total, "
+                "and never load the same skill twice. Do not guess unknown ids.\n\n");
         }
         if (g_skill[0] || (include_design_system && g_design_system[0]))
             o += (size_t)snprintf(cat + o, catcap - o,
@@ -4397,11 +4400,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     char ctxs[16], pows[16];
     snprintf(ctxs, sizeof ctxs, "%d", cfg->ctx);
     snprintf(pows, sizeof pows, "%d", cfg->power);
-    char ssd_reason[192] = "";
-    int use_ssd_streaming = engine_effective_ssd_streaming(cfg, remote_model, ssd_reason, sizeof ssd_reason, err, errsz);
-    if (use_ssd_streaming < 0) return 0;
-    g_ssd_streaming_effective = use_ssd_streaming;
-    snprintf(g_ssd_streaming_reason, sizeof g_ssd_streaming_reason, "%s", ssd_reason);
+    if (!cfg_ssd_streaming(cfg, remote_model, err, errsz)) return 0;
     char wd[1024];
     snprintf(wd, sizeof wd, "%s", (workdir && workdir[0]) ? workdir : (getenv("HOME") ? getenv("HOME") : "."));
 
@@ -4497,7 +4496,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
         argv[n++] = "--remote-model"; argv[n++] = g_remote_model[0] ? g_remote_model : "ds4";
     } else {
         argv[n++] = "--cpu";
-        if (use_ssd_streaming) argv[n++] = "--ssd-streaming";
+        if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
         argv[n++] = "-m"; argv[n++] = model_abs;
     }
     argv[n++] = "-c"; argv[n++] = ctxs;
@@ -4543,7 +4542,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
             argv[n++] = "--remote-model"; argv[n++] = g_remote_model[0] ? g_remote_model : "ds4";
         } else {
             argv[n++] = "--metal";
-            if (use_ssd_streaming) argv[n++] = "--ssd-streaming";
+            if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
             argv[n++] = "-m"; argv[n++] = model_abs;
         }
         argv[n++] = "-c"; argv[n++] = ctxs;
@@ -4614,11 +4613,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     char ctxs[16], pows[16];
     snprintf(ctxs, sizeof ctxs, "%d", cfg->ctx);
     snprintf(pows, sizeof pows, "%d", cfg->power);
-    char ssd_reason[192] = "";
-    int use_ssd_streaming = engine_effective_ssd_streaming(cfg, remote_model, ssd_reason, sizeof ssd_reason, err, errsz);
-    if (use_ssd_streaming < 0) return 0;
-    g_ssd_streaming_effective = use_ssd_streaming;
-    snprintf(g_ssd_streaming_reason, sizeof g_ssd_streaming_reason, "%s", ssd_reason);
+    if (!cfg_ssd_streaming(cfg, remote_model, err, errsz)) return 0;
     char wd[1024];
     if (workdir && workdir[0]) {
         snprintf(wd, sizeof wd, "%s", workdir);
@@ -4647,7 +4642,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         argv[n++] = "--remote-model"; argv[n++] = g_remote_model[0] ? g_remote_model : "ds4";
     } else {
         argv[n++] = "--cpu";
-        if (use_ssd_streaming) argv[n++] = "--ssd-streaming";
+        if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
         argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
     }
     argv[n++] = "-c"; argv[n++] = ctxs;
@@ -4687,7 +4682,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
             argv[n++] = "--remote-model"; argv[n++] = g_remote_model[0] ? g_remote_model : "ds4";
         } else {
             argv[n++] = "--metal";
-            if (use_ssd_streaming) argv[n++] = "--ssd-streaming";
+            if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
             argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
         }
         argv[n++] = "-c"; argv[n++] = ctxs;
@@ -4850,7 +4845,7 @@ static void api_status(int fd) {
                  "\"ssdStreaming\":\"%s\",\"ssdStreamingEffective\":%s,\"ssdStreamingReason\":\"%s\"}",
                  g_cfg.uncensored ? "uncensored" : "standard", g_cfg.port, g_cfg.ctx, g_cfg.power,
                  g_cfg.think == 0 ? "off" : g_cfg.think == 2 ? "max" : "high",
-                 ssd_streaming_cfg_name(g_cfg.ssd_streaming),
+                 g_cfg.ssd_streaming == SSD_STREAMING_ON ? "on" : g_cfg.ssd_streaming == SSD_STREAMING_OFF ? "off" : "auto",
                  g_ssd_streaming_effective ? "true" : "false", ssd_reason_esc);
     else
         snprintf(cfg, sizeof cfg, "null");
@@ -5833,6 +5828,11 @@ static void api_agent_send(int fd, const char *body) {
         api_agent_send_state_error(fd, "409 Conflict", "agent/design runtime is not active", task_id);
         return;
     }
+    if (g_interrupt_pending) {
+        task_mark_failed(task_id, "agent/design interrupt is still settling", g_engine_err);
+        api_agent_send_state_error(fd, "409 Conflict", "agent/design interrupt is still settling", task_id);
+        return;
+    }
     if (!g_ready) {
         task_mark_failed(task_id, "agent/design runtime is still loading", g_stage);
         api_agent_send_state_error(fd, "409 Conflict", "agent/design runtime is still loading", task_id);
@@ -5888,6 +5888,7 @@ static void api_agent_interrupt(int fd, const char *body) {
 #else
     kill(g_child, SIGINT);
 #endif
+    g_interrupt_pending = 1;
     unsigned long long task_id = g_active_turn_task;
     const char *applied_status = "canceled";
     if (g_active_turn_task) {
@@ -5903,7 +5904,7 @@ static void api_agent_interrupt(int fd, const char *body) {
         g_active_turn_task = 0;
     }
     g_active_turn_compacting = 0;
-    g_agent_working = 0; /* the WAITING marker will reconfirm; clear early so the UI does not flicker */
+    g_agent_working = 1; /* WAITING or child exit will clear this; do not accept another prompt mid-SIGINT */
     char status_esc[96];
     json_escape_into(status_esc, sizeof status_esc, applied_status, strlen(applied_status));
     char out[192];
@@ -9289,12 +9290,8 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
         dstudio_log_event("error", "proxy", 0, "/v1 proxy could not connect to local engine port %d", eport);
         const char *body = "{\"error\":{\"message\":\"the local ds4 engine is not running\"}}";
         if (cors) {
-            static const char CORS_JSON_HEADERS[] =
-                "Access-Control-Allow-Origin: *\r\n"
-                "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-                "Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With\r\n";
             send_response_hdrs(client_fd, "503 Service Unavailable", "application/json; charset=utf-8",
-                               body, strlen(body), 0, CORS_JSON_HEADERS);
+                               body, strlen(body), 0, CORS_HEADERS);
         } else {
             send_json(client_fd, "503 Service Unavailable", body);
         }
@@ -9554,7 +9551,11 @@ static void handle_connection(int fd) {
     }
 
     if (!strcmp(method, "OPTIONS") && lan_public_path_allowed(method, path)) {
-        send_cors_options(fd);
+        send_response_hdrs(fd, "204 No Content", "text/plain; charset=utf-8", "", 0, 0,
+                           "Access-Control-Allow-Origin: *\r\n"
+                           "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+                           "Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With\r\n"
+                           "Access-Control-Max-Age: 600\r\n");
         close(fd);
         return;
     }

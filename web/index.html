@@ -484,12 +484,42 @@
     .foot-btn svg { opacity: 0.85; }
 
     /* ==================== Connection indicator ==================== */
-    .conn { color: var(--muted); }
+    .conn-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+    .conn {
+      min-width: 0;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .conn::before { content: '●'; margin-right: 0.4rem; }
     .conn--ok::before { color: var(--ok); }
     .conn--down::before { color: var(--danger); }
     .conn--unknown::before { color: var(--muted); }
     .conn .conn-model { color: var(--text-2); font-weight: 500; }
+    .conn-info {
+      flex: 0 0 auto;
+      min-height: 24px;
+      padding: 2px 8px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 0.68rem;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .conn-info:hover {
+      color: var(--text);
+      border-color: var(--border-2);
+      background: var(--surface-2);
+    }
 
     /* ==================== Chat header ==================== */
     .chat__head {
@@ -3646,6 +3676,105 @@
       color: var(--muted);
     }
     .updates-msg.is-error { color: var(--danger); }
+    .updates-progress-dialog { width: min(92vw, 34rem); }
+    .updates-progress {
+      padding: 1.1rem 1.25rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+    }
+    .updates-progress__top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .updates-progress__title {
+      margin: 0;
+      color: var(--text);
+      font-size: 1rem;
+      font-weight: 700;
+    }
+    .updates-progress__sub {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 0.75rem;
+      line-height: 1.45;
+    }
+    .updates-progress__pct {
+      flex: 0 0 auto;
+      color: var(--accent);
+      font-size: 1.35rem;
+      font-weight: 750;
+      font-variant-numeric: tabular-nums;
+    }
+    .updates-progress__current {
+      min-height: 1.2rem;
+      color: var(--text-2);
+      font-size: 0.8rem;
+      line-height: 1.45;
+    }
+    .updates-progress__steps {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .updates-progress__step {
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      min-height: 34px;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 0.76rem;
+    }
+    .updates-progress__step b {
+      color: var(--text-2);
+      font-weight: 650;
+    }
+    .updates-progress__step span:first-child {
+      width: 22px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 750;
+      color: var(--muted);
+    }
+    .updates-progress__step.is-running span:first-child {
+      border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+      color: var(--accent);
+    }
+    .updates-progress__step.is-done span:first-child {
+      border-color: color-mix(in srgb, var(--ok) 50%, var(--border));
+      color: var(--ok);
+    }
+    .updates-progress__step.is-error span:first-child {
+      border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
+      color: var(--danger);
+    }
+    .updates-progress__log {
+      max-height: 110px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-2);
+      padding: 0.55rem 0.65rem;
+      color: var(--faint);
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    .updates-progress__log:empty { display: none; }
     @media (max-width: 780px) {
       .updates-panel__top { display: block; }
       .updates-panel__actions { margin-top: 10px; }
@@ -4811,6 +4940,15 @@
       padding: 0.2rem 0.3rem;
     }
 
+    .agent-working .agent-rate {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--faint);
+      font-style: normal;
+      margin-left: 0.4rem;
+      animation: ratepulse 1.4s ease-in-out infinite;
+    }
+
     .agent-working::after {
       content: '▍';
       color: var(--accent);
@@ -4919,7 +5057,10 @@
         <div class="foot-actions">
           <button type="button" id="btn-settings" class="foot-btn" aria-haspopup="dialog"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5h6.5M11.5 5h2M2.5 11h2M7 11h6.5"/><circle cx="10" cy="5" r="1.5"/><circle cx="5" cy="11" r="1.5"/></svg><span>Settings</span></button>
         </div>
-        <span id="conn-indicator" class="conn conn--unknown" role="status">Connecting…</span>
+        <div class="conn-wrap">
+          <span id="conn-indicator" class="conn conn--unknown" role="status">Connecting…</span>
+          <button type="button" id="conn-info" class="conn-info" hidden>Info</button>
+        </div>
       </div>
     </aside>
 
@@ -5424,6 +5565,25 @@
     </form>
   </dialog>
 
+  <dialog id="updates-progress-dialog" class="dialog updates-progress-dialog" aria-label="Update progress">
+    <form method="dialog" class="updates-progress">
+      <div class="updates-progress__top">
+        <div>
+          <h3 class="updates-progress__title">Update Doctor</h3>
+          <p class="updates-progress__sub" id="updates-progress-summary">Preparing selected tasks…</p>
+        </div>
+        <div class="updates-progress__pct" id="updates-progress-pct">0%</div>
+      </div>
+      <div class="progress" aria-hidden="true"><div class="progress__bar" id="updates-progress-bar"></div></div>
+      <div class="updates-progress__current" id="updates-progress-current" aria-live="polite">Waiting to start…</div>
+      <ul class="updates-progress__steps" id="updates-progress-steps"></ul>
+      <pre class="updates-progress__log" id="updates-progress-log"></pre>
+      <div class="dialog__actions">
+        <button type="button" id="updates-progress-close" class="btn" disabled>Close</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="lan-client-settings-dialog" class="dialog settings-dialog" aria-label="LAN connection">
     <form method="dialog" class="settings">
       <header class="set-head">
@@ -5660,6 +5820,7 @@
       chats: 'ds4web.chats.v1',
       settings: 'ds4web.settings.v1',
       active: 'ds4web.active.v1',
+      onboarded: 'ds4web.onboarded.v1',
     };
 
     // The page talks to serve SAME-ORIGIN for the engine API: serve reverse-proxies
@@ -5867,10 +6028,6 @@
       return out.slice(0, 140);
     }
 
-    function utf8ByteSize(text) {
-      return new TextEncoder().encode(String(text || '')).byteLength;
-    }
-
     function parseGeneratedFilePayload(raw) {
       const parsed = JSON.parse(String(raw || '').trim());
       const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.files) ? parsed.files : [];
@@ -5884,7 +6041,7 @@
           filename,
           mime,
           content: fileContent,
-          size: utf8ByteSize(fileContent),
+          size: utf8ByteLength(fileContent),
         });
       }
       return files;
@@ -5960,7 +6117,7 @@
           filename: 'generated.md',
           mime: 'text/markdown',
           content: body,
-          size: utf8ByteSize(body),
+          size: utf8ByteLength(body),
         },
       };
     }
@@ -6182,7 +6339,7 @@
         title.textContent = file.filename || 'Generated file';
         meta.textContent = [
           attachmentKindLabel({ name: file.filename, type: file.mime }),
-          fmtFileSize(file.size || utf8ByteSize(file.content || '')),
+          fmtFileSize(file.size || utf8ByteLength(file.content || '')),
           file.mime || '',
         ].filter(Boolean).join(' · ');
         const lang = generatedFileLanguage(file);
@@ -7330,6 +7487,8 @@
       // Pre-existing chats (schema without `mode`) are chat conversations.
       const chatMode = (c) => c?.mode || 'chat';
       const localChats = () => state.chats.filter((c) => !c.lanMirror);
+      const hasLocalConversationHistory = () => localChats().some((c) =>
+        (c.messages?.length || 0) > 0 || !!(c.transcript && c.transcript.length));
 
       // ---- pub/sub ----
 
@@ -7374,6 +7533,15 @@
           } catch { /* ignore */ }
           return null;
         }
+      }
+
+      function onboardingMarkerDone() {
+        const marker = readKey(STORAGE_KEYS.onboarded);
+        return marker?.v === SCHEMA_VERSION && marker.done === true;
+      }
+
+      function persistOnboardingMarker() {
+        writeKey(STORAGE_KEYS.onboarded, JSON.stringify({ v: SCHEMA_VERSION, done: true, at: Date.now() }));
       }
 
       /** Frees space by removing the saved reasoning (the heaviest and least critical data). */
@@ -7683,6 +7851,11 @@
           state.settings.lanClientName = `${platform} ${state.settings.lanClientId.slice(-5)}`;
           settingsChanged = true;
         }
+        if (!state.settings.onboarded && (onboardingMarkerDone() || hasLocalConversationHistory())) {
+          state.settings.onboarded = true;
+          settingsChanged = true;
+          persistOnboardingMarker();
+        }
         if (settingsChanged) writeKey(STORAGE_KEYS.settings, JSON.stringify(state.settings));
 
         // If the saved baseUrl points to loopback but the page arrives from a
@@ -7942,6 +8115,18 @@
         emit('settings');
       }
 
+      function markOnboarded() {
+        state.settings.onboarded = true;
+        persistSettings.cancel();
+        writeKey(STORAGE_KEYS.settings, JSON.stringify(state.settings));
+        persistOnboardingMarker();
+        emit('settings');
+      }
+
+      function onboardingComplete() {
+        return state.settings.onboarded === true || onboardingMarkerDone() || hasLocalConversationHistory();
+      }
+
       function setConnection(status) {
         if (state.ui.connection === status) return;
         state.ui.connection = status;
@@ -7982,6 +8167,7 @@
         appendMessage, patchMessage, commitMessage, removeMessage, editUserMessage,
         appendTranscript, setChatMeta,
         setSettings, setSettingsNow, setConnection, setModels, setModelState,
+        markOnboarded, onboardingComplete,
         setChatStreaming, isChatStreaming, getChatAbort, anyStreaming,
         syncFromServer, pollStore, syncLanClientMirrors, publishLanClientMirror, clearAll,
       };
@@ -8947,11 +9133,13 @@
     /* ==================== UI: connection indicator ==================== */
 
     const Statusbar = (() => {
-      let indicator;
+      let indicator, infoBtn;
 
       function mount() {
         indicator = qs('#conn-indicator');
+        infoBtn = qs('#conn-info');
         on(indicator, 'click', restartEngineIfDown);   // "Server unreachable" → one-click restart
+        on(infoBtn, 'click', openConnectionInfo);
         Store.subscribe('connection', render);
         Store.subscribe('settings', render); // show the model name when it arrives
         render();
@@ -8981,6 +9169,7 @@
         if (launching === 'agent' || launching === 'design') {
           indicator.className = 'conn conn--ok';
           indicator.textContent = launching === 'design' ? 'Starting design agent...' : 'Starting coding agent...';
+          if (infoBtn) infoBtn.hidden = true;
           indicator.style.cursor = '';
           indicator.title = '';
           return;
@@ -8988,6 +9177,7 @@
         if (mode === 'agent' || mode === 'design') {
           indicator.className = 'conn conn--ok';
           indicator.textContent = mode === 'design' ? 'Design agent active' : 'Coding agent active';
+          if (infoBtn) infoBtn.hidden = true;
           indicator.style.cursor = '';
           indicator.title = '';
           return;
@@ -8996,6 +9186,7 @@
         const status = st.ui.connection;
         indicator.className = `conn conn--${status}`;
         if (status === 'ok') {
+          if (infoBtn) infoBtn.hidden = true;
           if (isLanHostMode()) {
             indicator.textContent = 'LAN host · read-only';
             indicator.style.cursor = '';
@@ -9018,11 +9209,23 @@
           indicator.textContent = status === 'down'
             ? (lanClient ? 'LAN host unreachable' : 'Server unreachable')
             : 'Connecting…';
+          if (infoBtn) {
+            infoBtn.hidden = status !== 'down';
+            infoBtn.title = lanClient ? 'Show LAN diagnostics' : 'Show engine diagnostics';
+          }
           indicator.style.cursor = status === 'down' ? 'pointer' : '';
           indicator.title = status === 'down'
             ? (lanClient ? 'Click for LAN diagnostics' : 'Click to restart the engine')
             : '';
         }
+      }
+
+      async function openConnectionInfo(e) {
+        e?.preventDefault?.();
+        e?.stopPropagation?.();
+        if (Store.getState().ui.connection !== 'down') return;
+        toast(isLanClientMode() ? 'Opening LAN diagnostics…' : 'Opening engine diagnostics…', 'info');
+        Doctor.open();
       }
 
       async function restartEngineIfDown() {
@@ -13956,6 +14159,14 @@ Your report must be precise, of high-quality, and written by an expert using an 
           updatesRun: qs('#updates-run'),
           updatesList: qs('#updates-list'),
           updatesMsg: qs('#updates-msg'),
+          updatesProgressDialog: qs('#updates-progress-dialog'),
+          updatesProgressSummary: qs('#updates-progress-summary'),
+          updatesProgressPct: qs('#updates-progress-pct'),
+          updatesProgressBar: qs('#updates-progress-bar'),
+          updatesProgressCurrent: qs('#updates-progress-current'),
+          updatesProgressSteps: qs('#updates-progress-steps'),
+          updatesProgressLog: qs('#updates-progress-log'),
+          updatesProgressClose: qs('#updates-progress-close'),
         };
         lf = {
           address: qs('#lan-client-address'),
@@ -14059,6 +14270,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         on(f.system, 'change', () => Store.setSettings({ systemPrompt: f.system.value }));
         on(f.updatesCheck, 'click', () => refreshUpdates(true));
         on(f.updatesRun, 'click', () => runUpdates());
+        on(f.updatesProgressClose, 'click', () => f.updatesProgressDialog?.close());
         on(f.iogpuLimit, 'click', () => applyIogpuLimit());
 
         // Clear all conversations (local store + KV when idle).
@@ -14311,6 +14523,88 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return [...document.querySelectorAll('.updates-task:checked')].map((i) => i.value).filter(Boolean);
       }
 
+      const UPDATE_TASK_LABELS = {
+        'gsa-tools': 'GSA tools/templates',
+        'ds4-latest': 'ds4 latest + patch gate',
+        'patch-verify': 'Patch verification',
+        'skills': 'Imported skills',
+        'open-design': 'Open Design',
+      };
+
+      const UPDATE_TASK_DETAILS = {
+        'gsa-tools': 'Installing and verifying managed security tools, nuclei templates and runtime data.',
+        'ds4-latest': 'Fetching upstream ds4, fast-forwarding, rebuilding and verifying DStudio patches.',
+        'patch-verify': 'Checking patch anchors, rebuilding the structured agent patch and design runtime.',
+        'skills': 'Syncing repo-backed skill sources while preserving DStudio metadata.',
+        'open-design': 'Verifying Open Design skills and design-system imports.',
+      };
+
+      const updateTaskLabel = (task) => UPDATE_TASK_LABELS[task] || task;
+
+      function setUpdateControlsDisabled(disabled) {
+        if (f.updatesRun) f.updatesRun.disabled = disabled;
+        if (f.updatesCheck) f.updatesCheck.disabled = disabled;
+        document.querySelectorAll('.updates-task').forEach((i) => { i.disabled = disabled; });
+      }
+
+      function paintUpdatesProgressPct(done, total) {
+        const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((done / total) * 100))) : 0;
+        if (f.updatesProgressPct) f.updatesProgressPct.textContent = `${pct}%`;
+        if (f.updatesProgressBar) f.updatesProgressBar.style.width = `${pct}%`;
+      }
+
+      async function openUpdatesProgress(tasks) {
+        const dlg = f.updatesProgressDialog;
+        if (!dlg) return;
+        if (qs('#settings-dialog')?.open) qs('#settings-dialog').close();
+        f.updatesProgressClose.disabled = true;
+        f.updatesProgressSummary.textContent = `${tasks.length} selected task${tasks.length === 1 ? '' : 's'}`;
+        f.updatesProgressCurrent.textContent = 'Preparing update run...';
+        f.updatesProgressLog.textContent = '';
+        paintUpdatesProgressPct(0, tasks.length);
+        f.updatesProgressSteps.replaceChildren(...tasks.map((task, idx) => el('li', {
+          class: 'updates-progress__step',
+          'data-task': task,
+        }, [
+          el('span', { text: String(idx + 1) }),
+          el('b', { text: updateTaskLabel(task) }),
+        ])));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        if (!dlg.open) {
+          try { dlg.showModal(); } catch { dlg.show(); }
+        }
+      }
+
+      function markUpdatesProgressStep(index, state, tasks, message, logTail = '') {
+        const nodes = [...(f.updatesProgressSteps?.children || [])];
+        nodes.forEach((node, i) => {
+          node.classList.toggle('is-running', i === index && state === 'running');
+          node.classList.toggle('is-done', i < index || (i === index && state === 'done'));
+          node.classList.toggle('is-error', i === index && state === 'error');
+          const icon = node.firstElementChild;
+          if (icon) {
+            icon.textContent = i < index || (i === index && state === 'done') ? 'OK'
+              : i === index && state === 'running' ? '>'
+              : i === index && state === 'error' ? '!'
+              : String(i + 1);
+          }
+        });
+        const done = state === 'done' ? index + 1 : index;
+        paintUpdatesProgressPct(done, tasks.length);
+        if (f.updatesProgressCurrent) f.updatesProgressCurrent.textContent = message || '';
+        if (logTail && f.updatesProgressLog) f.updatesProgressLog.textContent = String(logTail).slice(-5000);
+      }
+
+      function finishUpdatesProgress(ok, message, tasks) {
+        paintUpdatesProgressPct(ok ? tasks.length : Math.max(0, [...(f.updatesProgressSteps?.children || [])].filter((n) => n.classList.contains('is-done')).length), tasks.length);
+        if (f.updatesProgressSummary) f.updatesProgressSummary.textContent = ok ? 'Update complete' : 'Update stopped';
+        if (f.updatesProgressCurrent) f.updatesProgressCurrent.textContent = message || (ok ? 'All selected tasks completed.' : 'Update failed.');
+        if (f.updatesProgressClose) {
+          f.updatesProgressClose.disabled = false;
+          f.updatesProgressClose.textContent = ok ? 'Done' : 'Close';
+        }
+      }
+
       async function runUpdates() {
         const tasks = selectedUpdateTasks();
         if (!tasks.length) {
@@ -14318,21 +14612,38 @@ Your report must be precise, of high-quality, and written by an expert using an 
           f.updatesMsg.textContent = 'Select at least one update task.';
           return;
         }
-        f.updatesRun.disabled = true;
+        setUpdateControlsDisabled(true);
         f.updatesMsg.classList.remove('is-error');
         f.updatesMsg.textContent = 'Running selected updates...';
+        await openUpdatesProgress(tasks);
+        let lastTaskId = '';
         try {
-          const r = await Engine.updatesRun(tasks);
-          renderUpdates(r);
-          f.updatesMsg.classList.toggle('is-error', !r.ok);
-          f.updatesMsg.textContent = r.ok ? `Updates complete (task #${r.taskId}).` : (r.error || 'Updates failed.');
-          toast(r.ok ? 'Updates complete' : 'Updates failed', r.ok ? 'info' : 'error');
+          for (let i = 0; i < tasks.length; i++) {
+            const task = tasks[i];
+            const label = updateTaskLabel(task);
+            markUpdatesProgressStep(i, 'running', tasks, `${label}: ${UPDATE_TASK_DETAILS[task] || 'Running update task...'}`);
+            f.updatesMsg.textContent = `Running ${label}...`;
+            const r = await Engine.updatesRun([task]);
+            renderUpdates(r);
+            if (!r.ok) {
+              markUpdatesProgressStep(i, 'error', tasks, r.error || `${label} failed.`, r.logTail || '');
+              throw new Error(r.error || `${label} failed.`);
+            }
+            lastTaskId = r.taskId || lastTaskId;
+            markUpdatesProgressStep(i, 'done', tasks, `${label} complete.`, r.logTail || '');
+          }
+          const check = await Engine.updatesCheck().catch(() => null);
+          if (check) renderUpdates(check);
+          f.updatesMsg.textContent = `Updates complete${lastTaskId ? ` (last task #${lastTaskId})` : ''}.`;
+          finishUpdatesProgress(true, 'All selected tasks completed.', tasks);
+          toast('Updates complete', 'info');
         } catch (e) {
           f.updatesMsg.classList.add('is-error');
           f.updatesMsg.textContent = e?.message || 'Updates failed.';
+          finishUpdatesProgress(false, e?.message || 'Updates failed.', tasks);
           toast('Updates failed', 'error');
         } finally {
-          f.updatesRun.disabled = false;
+          setUpdateControlsDisabled(false);
         }
       }
 
@@ -15133,12 +15444,15 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
 
       async function maybeShowInitialOnboarding() {
-        if (Store.getSettings().onboarded === true) return;
-        if (await setupReadyEnoughToSkipOnboarding()) {
-          Store.setSettingsNow({ onboarded: true });
+        if (Store.onboardingComplete()) {
+          Store.markOnboarded();
           return;
         }
-        if (Store.getSettings().onboarded === true || isLanClientMode()) return;
+        if (await setupReadyEnoughToSkipOnboarding()) {
+          Store.markOnboarded();
+          return;
+        }
+        if (Store.onboardingComplete() || isLanClientMode()) return;
         const tryShow = () => { if (!document.querySelector('dialog[open]')) show(); };
         if (document.querySelector('dialog[open]')) setTimeout(tryShow, 400);
         else show();
@@ -15207,7 +15521,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
               runningModel = selectedGguf;
               shouldShowLoading = true;
             }
-            Store.setSettingsNow({ onboarded: true });
+            Store.markOnboarded();
             completingOnboarding = true;
             dialog.close();
             if (shouldShowLoading && !isLanClientMode()) location.href = '/loading.html';
@@ -15246,12 +15560,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
             return;
           }
           completingOnboarding = false;
-          Store.setSettings({ onboarded: true });
+          Store.markOnboarded();
         });
 
         const lanClientLanding = location.hash === '#lanClient' || pageIsLanServed();
         if (lanClientLanding) {
-          Store.setSettingsNow({ onboarded: true });
+          Store.markOnboarded();
           try { history.replaceState(null, '', location.pathname); } catch { /* ignore */ }
         }
         if (!lanClientLanding) maybeShowInitialOnboarding();
@@ -15516,7 +15830,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (lanMsg) lanMsg.textContent = '';
         forcedSetup = false;
         completingOnboarding = true;
-        Store.setSettingsNow({ onboarded: true });
+        Store.markOnboarded();
         dialog.close();
         toast('Connected to LAN host', 'info');
         Settings.refreshModels();
@@ -16093,7 +16407,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         d.diagnostics = diag;
         last = d;
         renderDialog(d);
-        if (d.fatal > 0 && Store.getSettings().onboarded === true && !autoShown && !document.querySelector('dialog[open]')) {
+        if (d.fatal > 0 && Store.onboardingComplete() && !autoShown && !document.querySelector('dialog[open]')) {
           autoShown = true;
           open();
         }
@@ -16560,6 +16874,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
       let activeView = false;  // true between start() and stop()
       let liveTail = null;     // live assistant/build tail rendered without rebuilding history
       let liveTurnStartedAt = 0;
+      let liveTurnTextStartLen = 0;
       let liveTurnResponseIndex = null;
       let liveElapsedTimer = null;
       let agentFollowBottom = false;
@@ -16622,10 +16937,36 @@ Your report must be precise, of high-quality, and written by an expert using an 
         });
       }
 
+      function liveTurnTokPerSec() {
+        if (!liveTurnStartedAt || !liveTurnTextStartLen) return 0;
+        const chars = text.length - liveTurnTextStartLen;
+        const sec = (performance.now() - liveTurnStartedAt) / 1000;
+        if (sec < 0.25 || chars < 10) return 0;
+        return Math.round((chars / 4) / sec);
+      }
+
+      function buildAgentRate() {
+        const rate = liveTurnTokPerSec();
+        if (rate <= 0) return null;
+        return el('span', { class: 'agent-rate', text: `${rate} tok/s` });
+      }
+
+      function buildAgentWorking() {
+        const label = viewMode === 'design' ? 'The design agent is working' : 'The agent is working';
+        const elt = el('div', { class: 'agent-working' }, [el('span', { text: label })]);
+        const rate = buildAgentRate();
+        if (rate) elt.append(rate);
+        return elt;
+      }
+
       function updateLiveElapsedBadges() {
         if (!liveTurnStartedAt) return;
         const txt = `Time elapsed · ${formatElapsed(performance.now() - liveTurnStartedAt)}`;
         view?.querySelectorAll('.agent-elapsed--live').forEach((node) => { node.textContent = txt; });
+        const rate = liveTurnTokPerSec();
+        view?.querySelectorAll('.agent-rate').forEach((node) => {
+          node.textContent = `${rate} tok/s`;
+        });
       }
 
       function startElapsedTicker() {
@@ -16640,6 +16981,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
       function startTurnTimer(targetConvId, responseIndex) {
         liveTurnStartedAt = performance.now();
+        liveTurnTextStartLen = text.length;
         liveTurnResponseIndex = responseIndex || null;
         startElapsedTicker();
       }
@@ -16659,6 +17001,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         let idx = liveTurnResponseIndex || realUserTurnCount(conv?.transcript || text);
         if (!conv || !idx) {
           liveTurnStartedAt = 0;
+          liveTurnTextStartLen = 0;
           liveTurnResponseIndex = null;
           stopElapsedTicker();
           return;
@@ -16667,12 +17010,14 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const next = { ...(conv.turnElapsed || {}), [String(idx)]: elapsedMs };
         Store.setChatMeta(conv.id, { turnElapsed: next });
         liveTurnStartedAt = 0;
+        liveTurnTextStartLen = 0;
         liveTurnResponseIndex = null;
         stopElapsedTicker();
       }
 
       function resetLiveTurnTimer() {
         liveTurnStartedAt = 0;
+        liveTurnTextStartLen = 0;
         liveTurnResponseIndex = null;
         stopElapsedTicker();
       }
@@ -18419,10 +18764,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         });
         for (let i = 0; i < todoCards.length - 1; i++) todoCards[i].remove();
         if (liveTurnStartedAt) draft.append(buildElapsed(performance.now() - liveTurnStartedAt, true));
-        if (displayedWorking()) {
-          draft.append(el('div', { class: 'agent-working',
-            text: viewMode === 'design' ? 'The design agent is working' : 'The agent is working' }));
-        }
+        if (displayedWorking()) draft.append(buildAgentWorking());
         syncLiveTailChildren(liveTail.el, draft);
       }
 
@@ -18605,7 +18947,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (liveStart != null) mountLiveTail(liveStart);
         else if (displayedWorking()) {
           if (liveTurnStartedAt) inner.append(buildElapsed(performance.now() - liveTurnStartedAt, true));
-          inner.append(el('div', { class: 'agent-working', text: viewMode === 'design' ? 'The design agent is working' : 'The agent is working' }));
+          inner.append(buildAgentWorking());
         }
         settleAgentScroll(stick, prevScrollTop);
       }
