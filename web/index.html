@@ -12992,7 +12992,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           const left = Math.max(margin, Math.min(rect.left, window.innerWidth - margin - width));
           const above = Math.max(0, rect.top - gap - margin);
           const below = Math.max(0, window.innerHeight - rect.bottom - gap - margin);
-          const openDown = below >= above;
+          const openDown = curMode !== 'design' && below >= above;
           const room = openDown ? below : above;
           const maxHeight = Math.max(84, Math.min(360, Math.floor(room)));
           menu.classList.toggle('drop-down', openDown);
@@ -13903,6 +13903,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const height = Math.min(cbarPop.scrollHeight || popRect.height || 0, window.innerHeight - margin * 2);
         let left = anchor.left;
         let top = anchor.bottom + gap;
+        if (curMode === 'design') {
+          top = anchor.top - gap - height;
+          if (top < margin) top = margin;
+        }
         if (left + width > window.innerWidth - margin) left = window.innerWidth - margin - width;
         if (top + height > window.innerHeight - margin) top = window.innerHeight - margin - height;
         left = Math.max(margin, left);
