@@ -6924,17 +6924,43 @@
       S: '§', P: '¶', dag: '†', ddag: '‡', checkmark: '✓',
       eth: 'ð', hslash: '\u210f', imath: '\u0131', jmath: '\u0237',
       Finv: '\u2132', Game: '\u2141',
+      lVert: '\u2016', rVert: '\u2016', lvert: '|', rvert: '|',
+      lgroup: '\u27ee', rgroup: '\u27ef', lmoustache: '\u23b0', rmoustache: '\u23b1',
+      ulcorner: '\u231c', urcorner: '\u231d', llcorner: '\u231e', lrcorner: '\u231f',
+      updownarrow: '\u2195', Updownarrow: '\u21d5', Uparrow: '\u21d1', Downarrow: '\u21d3',
+      backslash: '\\', surd: '\u221a', copyright: '\u00a9', textregistered: '\u00ae',
+      texttrademark: '\u2122', textdegree: '\u00b0',
+      triangleleft: '\u25c1', triangleright: '\u25b7',
+      vartriangleleft: '\u22b2', vartriangleright: '\u22b3',
+      frown: '\u2322', smile: '\u2323', wr: '\u2240',
+      bowtie: '\u22c8', Join: '\u22c8', ltimes: '\u22c9', rtimes: '\u22ca',
+      leftthreetimes: '\u22cb', rightthreetimes: '\u22cc',
+      curlywedge: '\u22cf', curlyvee: '\u22ce',
+      circleddash: '\u229d', circledast: '\u229b', circledcirc: '\u229a',
+      centerdot: '\u00b7', intercal: '\u22ba',
+      doublebarwedge: '\u2a5e', barwedge: '\u22bc', veebar: '\u22bb', barvee: '\u22bd',
+      doublecap: '\u22d2', doublecup: '\u22d3', Cap: '\u22d2', Cup: '\u22d3',
+      smallint: '\u222b', leftrightsquigarrow: '\u21ad', nleftrightarrow: '↮',
+      textasciicircum: '^', textasciitilde: '~', textbackslash: '\\',
+      textbardbl: '\u2016', textbar: '|', textbraceleft: '{', textbraceright: '}',
+      textless: '<', textgreater: '>', textdollar: '$', textunderscore: '_',
     };
     const TEX_FUNCS = new Set(['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'arcsin',
       'arccos', 'arctan', 'sinh', 'cosh', 'tanh', 'coth', 'log', 'ln', 'lg', 'exp',
       'lim', 'limsup', 'liminf', 'min', 'max', 'sup', 'inf', 'det', 'dim', 'ker',
-      'gcd', 'deg', 'arg', 'Pr', 'mod', 'bmod']);
+      'gcd', 'deg', 'arg', 'Pr', 'mod', 'bmod', 'hom',
+      'injlim', 'projlim', 'varlimsup', 'varliminf', 'varinjlim', 'varprojlim',
+      'lcm', 'glb', 'lub', 'sgn', 'tr', 'rank', 'diag', 'cl', 'span', 'vol']);
     const TEX_SPACE = { ',': '0.17em', ';': '0.28em', ':': '0.22em', '!': '0',
       quad: '1em', qquad: '2em', ' ': '0.25em', enspace: '0.5em', thinspace: '0.17em' };
     // Cosmetic-only commands: the delimiter that follows renders on its own.
     const TEX_SKIP = new Set(['left', 'right', 'big', 'Big', 'bigg', 'Bigg',
       'bigl', 'bigr', 'Bigl', 'Bigr', 'biggl', 'biggr', 'bigm', 'displaystyle',
-      'textstyle', 'scriptstyle', 'limits', 'nolimits']);
+      'textstyle', 'scriptstyle', 'limits', 'nolimits', 'displaylimits',
+      'mathop', 'mathbin', 'mathrel', 'mathopen', 'mathclose', 'mathpunct', 'mathinner',
+      'phantom', 'vphantom', 'hphantom', 'smash', 'mathclap', 'mathllap', 'mathrlap',
+      'llap', 'rlap', 'mathstrut', 'notag', 'nonumber', 'tag',
+      'allowbreak', 'nobreak', 'linebreak', 'nolinebreak', 'pagebreak', 'nopagebreak']);
     const TEX_ACCENT = { hat: '^', widehat: '^', bar: '‾', overline: '‾',
       vec: '→', tilde: '\u02dc', widetilde: '\u02dc', dot: '˙', ddot: '¨',
       acute: '\u00b4', grave: '\u0060', breve: '\u02d8', check: '\u02c7' };
@@ -7013,12 +7039,26 @@
           return `<msqrt>${parseArg()}</msqrt>`;
         }
         if (name === 'begin') return environment();
-        if (name === 'text' || name === 'textrm' || name === 'mbox' || name === 'operatorname')
+        if (name === 'text' || name === 'textrm' || name === 'mbox' || name === 'textnormal' || name === 'textsf' || name === 'texttt')
           return `<mtext>${escapeHtml(readBraced())}</mtext>`;
+        if (name === 'operatorname') {
+          skipWs();
+          if (src[i] === '*') i++;
+          skipWs();
+          return `<mtext>${escapeHtml(readBraced())}</mtext>`;
+        }
+        if (name === 'ce') { const ct = readBraced(); return `<mtext>${escapeHtml(ct)}</mtext>`; }
+        if (name === 'href') { readBraced(); return parseArg(); }
         if (name === 'overbrace')
           return `<mover accent="false">${parseArg()}<mo>\u23de</mo></mover>`;
         if (name === 'underbrace')
           return `<munder accentunder="false">${parseArg()}<mo>\u23df</mo></munder>`;
+        if (name === 'boxed')
+          return `<menclose notation="box">${parseArg()}</menclose>`;
+        if (name === 'cancel' || name === 'bcancel')
+          return `<menclose notation="updiagonalstrike">${parseArg()}</menclose>`;
+        if (name === 'xcancel')
+          return `<menclose notation="updiagonalstrike downdiagonalstrike">${parseArg()}</menclose>`;
         if (name === 'not') {
           skipWs();
           const saveI = i;
@@ -7142,6 +7182,29 @@
         }
         if (name === 'pod')
           return `<mspace width="0.44em"></mspace><mo>(</mo>${parseArg()}<mo>)</mo>`;
+        if (name === 'sideset') {
+          const readScriptGroup = () => {
+            skipWs();
+            if (src[i] !== '{') fail();
+            i++;
+            let sub = null, sup = null;
+            for (let p = 0; p < 2; p++) {
+              skipWs();
+              if (src[i] === '_') { i++; sub = parseArg(); }
+              else if (src[i] === '^') { i++; sup = parseArg(); }
+              else break;
+            }
+            if (src[i] !== '}') fail();
+            i++;
+            return { sub, sup };
+          };
+          const left = readScriptGroup();
+          const right = readScriptGroup();
+          skipWs();
+          const op = parseArg();
+          const empty = '<mrow></mrow>';
+          return `<mmultiscripts>${op}${right.sub || empty}${right.sup || empty}<mprescripts/>${left.sub || empty}${left.sup || empty}</mmultiscripts>`;
+        }
         function xArrow(arrowChar) {
           skipWs();
           let under = null;
