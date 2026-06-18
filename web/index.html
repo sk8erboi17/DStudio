@@ -6875,20 +6875,23 @@
       infty: '∞', partial: '∂', nabla: '∇', ell: 'ℓ', hbar: 'ℏ', Re: 'ℜ', Im: 'ℑ',
       aleph: 'ℵ', beth: 'ℶ', gimel: 'ℷ', daleth: 'ℸ', wp: '℘', Bbbk: '𝕜',
       top: '⊤', bot: '⊥', complement: '∁', therefore: '∴', because: '∵',
+      digamma: '\u03dd', varkappa: '\u03f0',
     };
     const TEX_OPS = {
       times: '×', cdot: '⋅', div: '÷', pm: '±', mp: '∓', ast: '∗', star: '⋆',
       circ: '∘', bullet: '•', le: '≤', leq: '≤', ge: '≥', geq: '≥', ne: '≠',
       neq: '≠', approx: '≈', equiv: '≡', sim: '∼', simeq: '≃', cong: '≅',
-      propto: '∝', ll: '≪', gg: '≫', to: '→', rightarrow: '→', leftarrow: '←',
+      propto: '∝', varpropto: '∝', ll: '≪', gg: '≫', to: '→', rightarrow: '→', leftarrow: '←',
       Rightarrow: '⇒', Leftarrow: '⇐', leftrightarrow: '↔', Leftrightarrow: '⇔',
-      mapsto: '↦', uparrow: '↑', downarrow: '↓', sum: '∑', prod: '∏', int: '∫',
-      oint: '∮', cup: '∪', cap: '∩', setminus: '∖', in: '∈', notin: '∉',
+      mapsto: '↦', longmapsto: '\u27fc', uparrow: '↑', downarrow: '↓', sum: '∑', prod: '∏', int: '∫',
+      iint: '∬', iiint: '∭', oint: '∮', oiint: '∯',
+      cup: '∪', cap: '∩', setminus: '∖', in: '∈', notin: '∉',
       ni: '∋', subset: '⊂', subseteq: '⊆', supset: '⊃', supseteq: '⊇',
-      forall: '∀', exists: '∃', neg: '¬', lnot: '¬', land: '∧', lor: '∨',
+      forall: '∀', exists: '∃', nexists: '∄', neg: '¬', lnot: '¬', land: '∧', lor: '∨',
       wedge: '∧', vee: '∨', emptyset: '∅', varnothing: '∅', angle: '∠',
+      measuredangle: '∡', sphericalangle: '∢',
       perp: '⊥', parallel: '∥', mid: '∣', ldots: '…', cdots: '⋯', dots: '…',
-      vdots: '⋮', ddots: '⋱', prime: '′', degree: '°', langle: '⟨', rangle: '⟩',
+      vdots: '⋮', ddots: '⋱', prime: '′', backprime: '‵', degree: '°', langle: '⟨', rangle: '⟩',
       lfloor: '⌊', rfloor: '⌋', lceil: '⌈', rceil: '⌉', oplus: '⊕', otimes: '⊗',
       bigcup: '⋃', bigcap: '⋂', bigsqcup: '⨆', bigoplus: '⨁', bigotimes: '⨂',
       bigvee: '⋁', bigwedge: '⋀', bigodot: '⨀', coprod: '∐', sqcup: '⊔', sqcap: '⊓',
@@ -6898,6 +6901,29 @@
       gtrsim: '≳', lesssim: '≲', preceq: '⪯', succeq: '⪰', prec: '≺', succ: '≻',
       hookrightarrow: '↪', hookleftarrow: '↩', longrightarrow: '⟶', longleftarrow: '⟵',
       triangleq: '≜', doteq: '≐', asymp: '≍', colon: ':', smallsetminus: '∖',
+      coloneqq: '≔', eqcolon: '≕', doteqdot: '≑', risingdotseq: '≓', fallingdotseq: '≒',
+      circeq: '≗', bumpeq: '≎', Bumpeq: '≎', between: '≬', pitchfork: '⋔',
+      backepsilon: '\u03f6', vartriangle: '△', triangledown: '▽',
+      blacktriangle: '▲', blacktriangledown: '▼', blacktriangleleft: '◀', blacktriangleright: '▶',
+      square: '□', Box: '□', blacksquare: '■', lozenge: '◊', blacklozenge: '⧫',
+      mho: '℧', bigstar: '★', bigcirc: '○', bigtriangleup: '△', bigtriangledown: '▽',
+      Rrightarrow: '⇛', Lleftarrow: '⇚', dashrightarrow: '⇢', dashleftarrow: '⇠',
+      circlearrowleft: '↺', circlearrowright: '↻', curvearrowleft: '↶', curvearrowright: '↷',
+      downdownarrows: '⇊', upuparrows: '⇈', downharpoonleft: '⇃', downharpoonright: '⇂',
+      upharpoonleft: '↿', upharpoonright: '↾', leftleftarrows: '⇇', rightrightarrows: '⇉',
+      leftrightarrows: '⇆', rightleftarrows: '⇄', looparrowleft: '↫', looparrowright: '↬',
+      Lsh: '↰', Rsh: '↱', multimap: '⊸',
+      rightsquigarrow: '⇝', leadsto: '⇝', rightleftharpoons: '⇌', leftrightharpoons: '⇋',
+      searrow: '↘', nearrow: '↗', swarrow: '↙', nwarrow: '↖',
+      twoheadrightarrow: '↠', twoheadleftarrow: '↞', rightarrowtail: '↣', leftarrowtail: '↢',
+      nLeftarrow: '⇍', nRightarrow: '⇏', nLeftrightarrow: '⇎',
+      nleftarrow: '↚', nrightarrow: '↛', nleftrightarrow: '↮',
+      diagdown: '╲', diagup: '╱', flat: '♭', natural: '♮', sharp: '♯',
+      clubsuit: '♣', diamondsuit: '♢', heartsuit: '♡', spadesuit: '♠',
+      maltese: '✠', circledR: '®', circledS: 'Ⓢ', yen: '¥', pounds: '£',
+      S: '§', P: '¶', dag: '†', ddag: '‡', checkmark: '✓',
+      eth: 'ð', hslash: '\u210f', imath: '\u0131', jmath: '\u0237',
+      Finv: '\u2132', Game: '\u2141',
     };
     const TEX_FUNCS = new Set(['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'arcsin',
       'arccos', 'arctan', 'sinh', 'cosh', 'tanh', 'coth', 'log', 'ln', 'lg', 'exp',
@@ -6910,7 +6936,8 @@
       'bigl', 'bigr', 'Bigl', 'Bigr', 'biggl', 'biggr', 'bigm', 'displaystyle',
       'textstyle', 'scriptstyle', 'limits', 'nolimits']);
     const TEX_ACCENT = { hat: '^', widehat: '^', bar: '‾', overline: '‾',
-      vec: '→', tilde: '\u02dc', widetilde: '\u02dc', dot: '˙', ddot: '¨' };
+      vec: '→', tilde: '\u02dc', widetilde: '\u02dc', dot: '˙', ddot: '¨',
+      acute: '\u00b4', grave: '\u0060', breve: '\u02d8', check: '\u02c7' };
     const TEX_UNDER_ACCENT = { underline: '‾' };
     // Style wrappers: the style is lost, the content stays (better than nothing).
     const TEX_STYLE = new Set(['mathrm', 'mathbf', 'mathit', 'mathbb', 'mathcal',
@@ -7004,8 +7031,10 @@
               subseteq: '\u2288', supseteq: '\u2289',
               sqsubseteq: '\u22e2', sqsupseteq: '\u22e3',
               prec: '\u2280', succ: '\u2281', preceq: '\u22e0', succeq: '\u22e1',
-              parallel: '\u2226', mid: '\u2224',
-              exists: '\u2204', ni: '\u220c',
+              parallel: '\u2226', mid: '\u2224', models: '\u22ad',
+              exists: '\u2204', ni: '\u220c', in: '\u2209',
+              Leftarrow: '\u21cd', Rightarrow: '\u21cf', Leftrightarrow: '\u21ce',
+              leftarrow: '\u219a', rightarrow: '\u219b', leftrightarrow: '\u21ae',
             };
             if (NEGATED[next]) return `<mo>${NEGATED[next]}</mo>`;
             i = saveI;
@@ -7030,13 +7059,90 @@
         }
         if (name === 'pmod')
           return `<mspace width="0.44em"></mspace><mo>(</mo><mtext>mod</mtext><mspace width="0.33em"></mspace>${parseArg()}<mo>)</mo>`;
-        if (name === 'stackrel') {
+        if (name === 'stackrel' || name === 'overset') {
           const top = parseArg();
-          const bottom = parseArg();
-          return `<mover>${bottom}${top}</mover>`;
+          const base = parseArg();
+          return `<mover>${base}${top}</mover>`;
         }
-        if (name === 'xrightarrow' || name === 'xleftarrow') {
-          const arrow = name === 'xrightarrow' ? '\u2192' : '\u2190';
+        if (name === 'underset') {
+          const bottom = parseArg();
+          const base = parseArg();
+          return `<munder>${base}${bottom}</munder>`;
+        }
+        if (name === 'overrightarrow')
+          return `<mover accent="true">${parseArg()}<mo stretchy="true">\u2192</mo></mover>`;
+        if (name === 'overleftarrow')
+          return `<mover accent="true">${parseArg()}<mo stretchy="true">\u2190</mo></mover>`;
+        if (name === 'overleftrightarrow')
+          return `<mover accent="true">${parseArg()}<mo stretchy="true">\u2194</mo></mover>`;
+        if (name === 'underrightarrow')
+          return `<munder accentunder="true">${parseArg()}<mo stretchy="true">\u2192</mo></munder>`;
+        if (name === 'underleftarrow')
+          return `<munder accentunder="true">${parseArg()}<mo stretchy="true">\u2190</mo></munder>`;
+        if (name === 'underleftrightarrow')
+          return `<munder accentunder="true">${parseArg()}<mo stretchy="true">\u2194</mo></munder>`;
+        if (name === 'substack') {
+          skipWs();
+          if (src[i] !== '{') fail();
+          i++;
+          let rows = [[]], cell = '', depth = 1;
+          for (;;) {
+            if (i >= src.length) fail();
+            const c = src[i];
+            if (c === '{') { depth++; cell += c; i++; }
+            else if (c === '}') { depth--; if (depth === 0) { i++; break; } cell += c; i++; }
+            else if (c === '\\' && src[i + 1] === '\\') {
+              i += 2; rows[rows.length - 1].push(cell); cell = '';
+              if (src[i] === '[') { while (i < src.length && src[i] !== ']') i++; if (src[i] === ']') i++; }
+              rows.push([]);
+            }
+            else { cell += c; i++; }
+          }
+          rows[rows.length - 1].push(cell);
+          const parsed = rows.map(r => {
+            const cellText = r[0] || '';
+            const saveI = i, saveSrc = src;
+            src = cellText; i = 0;
+            let result;
+            try { result = parseSeq(); } catch { result = `<mtext>${escapeHtml(cellText)}</mtext>`; }
+            src = saveSrc; i = saveI;
+            return result;
+          });
+          return `<mstyle scriptlevel="2"><mtable rowspacing="0.15em" columnalign="center">${parsed.map(r => `<mtr><mtd>${r}</mtd></mtr>`).join('')}</mtable></mstyle>`;
+        }
+        if (name === 'dbinom' || name === 'tbinom') {
+          const readArg = () => {
+            skipWs();
+            if (src[i] === '{') { i++; return `<mrow>${parseSeq('}')}</mrow>`; }
+            if (src[i] === '\\') { i++; return command(); }
+            const c = src[i];
+            if (c === undefined) fail();
+            if (/[0-9]/.test(c)) { i++; return `<mn>${c}</mn>`; }
+            if (/[a-zA-Z]/.test(c)) { i++; return `<mi>${c}</mi>`; }
+            i++;
+            if ("+-*/=().,;:!?|[]'".includes(c) || c === '<' || c === '>')
+              return `<mo>${escapeHtml(c)}</mo>`;
+            return `<mi>${escapeHtml(c)}</mi>`;
+          };
+          return `<mrow><mo>(</mo><mfrac linethickness="0">${readArg()}${readArg()}</mfrac><mo>)</mo></mrow>`;
+        }
+        if (name === 'cfrac') {
+          skipWs();
+          let pos = 'center';
+          if (src[i] === '[') {
+            i++;
+            let p = '';
+            while (i < src.length && src[i] !== ']') p += src[i++];
+            if (src[i] !== ']') fail();
+            i++;
+            if (p.trim() === 'l') pos = 'left';
+            else if (p.trim() === 'r') pos = 'right';
+          }
+          return `<mfrac numalign="${pos}" denomalign="${pos}">${parseArg()}${parseArg()}</mfrac>`;
+        }
+        if (name === 'pod')
+          return `<mspace width="0.44em"></mspace><mo>(</mo>${parseArg()}<mo>)</mo>`;
+        function xArrow(arrowChar) {
           skipWs();
           let under = null;
           if (src[i] === '[') {
@@ -7050,9 +7156,19 @@
           skipWs();
           const over = parseArg();
           if (under)
-            return `<munderover><mo stretchy="true">${arrow}</mo>${under}${over}</munderover>`;
-          return `<mover><mo stretchy="true">${arrow}</mo>${over}</mover>`;
+            return `<munderover><mo stretchy="true">${arrowChar}</mo>${under}${over}</munderover>`;
+          return `<mover><mo stretchy="true">${arrowChar}</mo>${over}</mover>`;
         }
+        if (name === 'xrightarrow') return xArrow('\u2192');
+        if (name === 'xleftarrow') return xArrow('\u2190');
+        if (name === 'xleftrightarrow') return xArrow('\u2194');
+        if (name === 'xrightleftharpoons') return xArrow('\u21cc');
+        if (name === 'xLeftarrow') return xArrow('\u21d0');
+        if (name === 'xRightarrow') return xArrow('\u21d2');
+        if (name === 'xLeftrightarrow') return xArrow('\u21d4');
+        if (name === 'xhookrightarrow') return xArrow('\u21aa');
+        if (name === 'xhookleftarrow') return xArrow('\u21a9');
+        if (name === 'xmapsto') return xArrow('\u21a6');
         if (TEX_STYLE.has(name)) return parseArg();
         if (TEX_ACCENT[name])
           return `<mover accent="true">${parseArg()}<mo>${TEX_ACCENT[name]}</mo></mover>`;
@@ -7070,13 +7186,25 @@
         const FENCE = {
           pmatrix: ['(', ')'], bmatrix: ['[', ']'], Bmatrix: ['{', '}'],
           vmatrix: ['|', '|'], Vmatrix: ['‖', '‖'], matrix: ['', ''],
-          smallmatrix: ['', ''], cases: ['{', ''], aligned: ['', ''],
-          align: ['', ''], 'align*': ['', ''], gathered: ['', ''],
-          gather: ['', ''], 'gather*': ['', ''], array: ['', ''],
+          smallmatrix: ['', ''], cases: ['{', ''], dcases: ['{', ''],
+          'dcases*': ['{', ''], rcases: ['', '}'], 'rcases*': ['', '}'],
+          aligned: ['', ''], align: ['', ''], 'align*': ['', ''],
+          alignat: ['', ''], 'alignat*': ['', ''],
+          gathered: ['', ''], gather: ['', ''], 'gather*': ['', ''],
+          array: ['', ''], subarray: ['', ''],
           equation: ['', ''], 'equation*': ['', ''], split: ['', ''],
           multline: ['', ''], 'multline*': ['', ''],
         };
         if (!(env in FENCE)) fail();
+        if (env === 'alignat' || env === 'alignat*') {
+          skipWs();
+          if (src[i] === '{') { readBraced(); }
+        }
+        // star-variant matrix environments may have [colspec]
+        if (env.endsWith('*') && (env.startsWith('matrix') || env.startsWith('pmatrix') || env.startsWith('bmatrix') || env.startsWith('Bmatrix') || env.startsWith('vmatrix') || env.startsWith('Vmatrix') || env.startsWith('smallmatrix') || env.startsWith('cases') || env.startsWith('dcases') || env.startsWith('rcases'))) {
+          skipWs();
+          if (src[i] === '[') { i++; while (i < src.length && src[i] !== ']') i++; if (src[i] === ']') i++; }
+        }
         let colLines = '';   // augmented matrix: a vertical rule from the array colspec
         if (env === 'array') {
           skipWs();
