@@ -6908,7 +6908,7 @@
     // Cosmetic-only commands: the delimiter that follows renders on its own.
     const TEX_SKIP = new Set(['left', 'right', 'big', 'Big', 'bigg', 'Bigg',
       'bigl', 'bigr', 'Bigl', 'Bigr', 'biggl', 'biggr', 'bigm', 'displaystyle',
-      'textstyle', 'scriptstyle', 'limits', 'nolimits', 'not']);
+      'textstyle', 'scriptstyle', 'limits', 'nolimits']);
     const TEX_ACCENT = { hat: '^', widehat: '^', bar: '‾', overline: '‾',
       vec: '→', tilde: '\u02dc', widetilde: '\u02dc', dot: '˙', ddot: '¨' };
     const TEX_UNDER_ACCENT = { underline: '‾' };
@@ -6992,6 +6992,67 @@
           return `<mover accent="false">${parseArg()}<mo>\u23de</mo></mover>`;
         if (name === 'underbrace')
           return `<munder accentunder="false">${parseArg()}<mo>\u23df</mo></munder>`;
+        if (name === 'not') {
+          skipWs();
+          const saveI = i;
+          if (src[i] === '\\') {
+            i++;
+            let next = '';
+            while (i < src.length && /[a-zA-Z]/.test(src[i])) next += src[i++];
+            const NEGATED = {
+              equiv: '\u2262', sim: '\u2241', simeq: '\u2244',
+              subseteq: '\u2288', supseteq: '\u2289',
+              sqsubseteq: '\u22e2', sqsupseteq: '\u22e3',
+              prec: '\u2280', succ: '\u2281', preceq: '\u22e0', succeq: '\u22e1',
+              parallel: '\u2226', mid: '\u2224',
+              exists: '\u2204', ni: '\u220c',
+            };
+            if (NEGATED[next]) return `<mo>${NEGATED[next]}</mo>`;
+            i = saveI;
+          } else { i = saveI; }
+          return '';
+        }
+        if (name === 'binom') {
+          const readArg = () => {
+            skipWs();
+            if (src[i] === '{') { i++; return `<mrow>${parseSeq('}')}</mrow>`; }
+            if (src[i] === '\\') { i++; return command(); }
+            const c = src[i];
+            if (c === undefined) fail();
+            if (/[0-9]/.test(c)) { i++; return `<mn>${c}</mn>`; }
+            if (/[a-zA-Z]/.test(c)) { i++; return `<mi>${c}</mi>`; }
+            i++;
+            if ("+-*/=().,;:!?|[]'".includes(c) || c === '<' || c === '>')
+              return `<mo>${escapeHtml(c)}</mo>`;
+            return `<mi>${escapeHtml(c)}</mi>`;
+          };
+          return `<mrow><mo>(</mo><mfrac linethickness="0">${readArg()}${readArg()}</mfrac><mo>)</mo></mrow>`;
+        }
+        if (name === 'pmod')
+          return `<mspace width="0.44em"></mspace><mo>(</mo><mtext>mod</mtext><mspace width="0.33em"></mspace>${parseArg()}<mo>)</mo>`;
+        if (name === 'stackrel') {
+          const top = parseArg();
+          const bottom = parseArg();
+          return `<mover>${bottom}${top}</mover>`;
+        }
+        if (name === 'xrightarrow' || name === 'xleftarrow') {
+          const arrow = name === 'xrightarrow' ? '\u2192' : '\u2190';
+          skipWs();
+          let under = null;
+          if (src[i] === '[') {
+            i++;
+            let u = '';
+            while (i < src.length && src[i] !== ']') u += src[i++];
+            if (src[i] !== ']') fail();
+            i++;
+            under = `<mtext>${escapeHtml(u.trim())}</mtext>`;
+          }
+          skipWs();
+          const over = parseArg();
+          if (under)
+            return `<munderover><mo stretchy="true">${arrow}</mo>${under}${over}</munderover>`;
+          return `<mover><mo stretchy="true">${arrow}</mo>${over}</mover>`;
+        }
         if (TEX_STYLE.has(name)) return parseArg();
         if (TEX_ACCENT[name])
           return `<mover accent="true">${parseArg()}<mo>${TEX_ACCENT[name]}</mo></mover>`;
@@ -7010,7 +7071,10 @@
           pmatrix: ['(', ')'], bmatrix: ['[', ']'], Bmatrix: ['{', '}'],
           vmatrix: ['|', '|'], Vmatrix: ['‖', '‖'], matrix: ['', ''],
           smallmatrix: ['', ''], cases: ['{', ''], aligned: ['', ''],
-          align: ['', ''], gathered: ['', ''], gather: ['', ''], array: ['', ''],
+          align: ['', ''], 'align*': ['', ''], gathered: ['', ''],
+          gather: ['', ''], 'gather*': ['', ''], array: ['', ''],
+          equation: ['', ''], 'equation*': ['', ''], split: ['', ''],
+          multline: ['', ''], 'multline*': ['', ''],
         };
         if (!(env in FENCE)) fail();
         let colLines = '';   // augmented matrix: a vertical rule from the array colspec
