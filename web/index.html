@@ -6875,20 +6875,23 @@
       infty: '∞', partial: '∂', nabla: '∇', ell: 'ℓ', hbar: 'ℏ', Re: 'ℜ', Im: 'ℑ',
       aleph: 'ℵ', beth: 'ℶ', gimel: 'ℷ', daleth: 'ℸ', wp: '℘', Bbbk: '𝕜',
       top: '⊤', bot: '⊥', complement: '∁', therefore: '∴', because: '∵',
+      digamma: '\u03dd', varkappa: '\u03f0',
     };
     const TEX_OPS = {
       times: '×', cdot: '⋅', div: '÷', pm: '±', mp: '∓', ast: '∗', star: '⋆',
       circ: '∘', bullet: '•', le: '≤', leq: '≤', ge: '≥', geq: '≥', ne: '≠',
       neq: '≠', approx: '≈', equiv: '≡', sim: '∼', simeq: '≃', cong: '≅',
-      propto: '∝', ll: '≪', gg: '≫', to: '→', rightarrow: '→', leftarrow: '←',
+      propto: '∝', varpropto: '∝', ll: '≪', gg: '≫', to: '→', rightarrow: '→', leftarrow: '←',
       Rightarrow: '⇒', Leftarrow: '⇐', leftrightarrow: '↔', Leftrightarrow: '⇔',
-      mapsto: '↦', uparrow: '↑', downarrow: '↓', sum: '∑', prod: '∏', int: '∫',
-      oint: '∮', cup: '∪', cap: '∩', setminus: '∖', in: '∈', notin: '∉',
+      mapsto: '↦', longmapsto: '\u27fc', uparrow: '↑', downarrow: '↓', sum: '∑', prod: '∏', int: '∫',
+      iint: '∬', iiint: '∭', oint: '∮', oiint: '∯',
+      cup: '∪', cap: '∩', setminus: '∖', in: '∈', notin: '∉',
       ni: '∋', subset: '⊂', subseteq: '⊆', supset: '⊃', supseteq: '⊇',
-      forall: '∀', exists: '∃', neg: '¬', lnot: '¬', land: '∧', lor: '∨',
+      forall: '∀', exists: '∃', nexists: '∄', neg: '¬', lnot: '¬', land: '∧', lor: '∨',
       wedge: '∧', vee: '∨', emptyset: '∅', varnothing: '∅', angle: '∠',
+      measuredangle: '∡', sphericalangle: '∢',
       perp: '⊥', parallel: '∥', mid: '∣', ldots: '…', cdots: '⋯', dots: '…',
-      vdots: '⋮', ddots: '⋱', prime: '′', degree: '°', langle: '⟨', rangle: '⟩',
+      vdots: '⋮', ddots: '⋱', prime: '′', backprime: '‵', degree: '°', langle: '⟨', rangle: '⟩',
       lfloor: '⌊', rfloor: '⌋', lceil: '⌈', rceil: '⌉', oplus: '⊕', otimes: '⊗',
       bigcup: '⋃', bigcap: '⋂', bigsqcup: '⨆', bigoplus: '⨁', bigotimes: '⨂',
       bigvee: '⋁', bigwedge: '⋀', bigodot: '⨀', coprod: '∐', sqcup: '⊔', sqcap: '⊓',
@@ -6898,19 +6901,130 @@
       gtrsim: '≳', lesssim: '≲', preceq: '⪯', succeq: '⪰', prec: '≺', succ: '≻',
       hookrightarrow: '↪', hookleftarrow: '↩', longrightarrow: '⟶', longleftarrow: '⟵',
       triangleq: '≜', doteq: '≐', asymp: '≍', colon: ':', smallsetminus: '∖',
+      coloneqq: '≔', eqcolon: '≕', doteqdot: '≑', risingdotseq: '≓', fallingdotseq: '≒',
+      circeq: '≗', bumpeq: '≎', Bumpeq: '≎', between: '≬', pitchfork: '⋔',
+      backepsilon: '\u03f6', vartriangle: '△', triangledown: '▽',
+      blacktriangle: '▲', blacktriangledown: '▼', blacktriangleleft: '◀', blacktriangleright: '▶',
+      square: '□', Box: '□', blacksquare: '■', lozenge: '◊', blacklozenge: '⧫',
+      mho: '℧', bigstar: '★', bigcirc: '○', bigtriangleup: '△', bigtriangledown: '▽',
+      Rrightarrow: '⇛', Lleftarrow: '⇚', dashrightarrow: '⇢', dashleftarrow: '⇠',
+      circlearrowleft: '↺', circlearrowright: '↻', curvearrowleft: '↶', curvearrowright: '↷',
+      downdownarrows: '⇊', upuparrows: '⇈', downharpoonleft: '⇃', downharpoonright: '⇂',
+      upharpoonleft: '↿', upharpoonright: '↾', leftleftarrows: '⇇', rightrightarrows: '⇉',
+      leftrightarrows: '⇆', rightleftarrows: '⇄', looparrowleft: '↫', looparrowright: '↬',
+      Lsh: '↰', Rsh: '↱', multimap: '⊸',
+      rightsquigarrow: '⇝', leadsto: '⇝', rightleftharpoons: '⇌', leftrightharpoons: '⇋',
+      searrow: '↘', nearrow: '↗', swarrow: '↙', nwarrow: '↖',
+      twoheadrightarrow: '↠', twoheadleftarrow: '↞', rightarrowtail: '↣', leftarrowtail: '↢',
+      nLeftarrow: '⇍', nRightarrow: '⇏', nLeftrightarrow: '⇎',
+      nleftarrow: '↚', nrightarrow: '↛', nleftrightarrow: '↮',
+      diagdown: '╲', diagup: '╱', flat: '♭', natural: '♮', sharp: '♯',
+      clubsuit: '♣', diamondsuit: '♢', heartsuit: '♡', spadesuit: '♠',
+      maltese: '✠', circledR: '®', circledS: 'Ⓢ', yen: '¥', pounds: '£',
+      S: '§', P: '¶', dag: '†', ddag: '‡', checkmark: '✓',
+      eth: 'ð', hslash: '\u210f', imath: '\u0131', jmath: '\u0237',
+      Finv: '\u2132', Game: '\u2141',
+      lVert: '\u2016', rVert: '\u2016', lvert: '|', rvert: '|',
+      lgroup: '\u27ee', rgroup: '\u27ef', lmoustache: '\u23b0', rmoustache: '\u23b1',
+      ulcorner: '\u231c', urcorner: '\u231d', llcorner: '\u231e', lrcorner: '\u231f',
+      updownarrow: '\u2195', Updownarrow: '\u21d5', Uparrow: '\u21d1', Downarrow: '\u21d3',
+      backslash: '\\', surd: '\u221a', copyright: '\u00a9', textregistered: '\u00ae',
+      texttrademark: '\u2122', textdegree: '\u00b0',
+      triangleleft: '\u25c1', triangleright: '\u25b7',
+      vartriangleleft: '\u22b2', vartriangleright: '\u22b3',
+      frown: '\u2322', smile: '\u2323', wr: '\u2240',
+      bowtie: '\u22c8', Join: '\u22c8', ltimes: '\u22c9', rtimes: '\u22ca',
+      leftthreetimes: '\u22cb', rightthreetimes: '\u22cc',
+      curlywedge: '\u22cf', curlyvee: '\u22ce',
+      circleddash: '\u229d', circledast: '\u229b', circledcirc: '\u229a',
+      centerdot: '\u00b7', intercal: '\u22ba',
+      doublebarwedge: '\u2a5e', barwedge: '\u22bc', veebar: '\u22bb', barvee: '\u22bd',
+      doublecap: '\u22d2', doublecup: '\u22d3', Cap: '\u22d2', Cup: '\u22d3',
+      smallint: '\u222b', leftrightsquigarrow: '\u21ad', nleftrightarrow: '↮',
+      textasciicircum: '^', textasciitilde: '~', textbackslash: '\\',
+      textbardbl: '\u2016', textbar: '|', textbraceleft: '{', textbraceright: '}',
+      textless: '<', textgreater: '>', textdollar: '$', textunderscore: '_',
+      textvisiblespace: '\u2423', textellipsis: '\u2026',
+      textquotedblleft: '\u201c', textquotedblright: '\u201d',
+      textquoteleft: '\u2018', textquoteright: '\u2019',
+      textendash: '\u2013', textemdash: '\u2014',
+      dotplus: '\u2214', divideontimes: '\u22c7',
+      boxminus: '\u229f', boxplus: '\u229e', boxtimes: '\u22a0', boxdot: '\u22a1',
+      nleq: '\u2270', ngeq: '\u2271', lneq: '\u2268', gneq: '\u2269',
+      lneqq: '\u2268', gneqq: '\u2269', nless: '\u226e', ngtr: '\u226f',
+      nleqslant: '\u2a87', ngeqslant: '\u2a88',
+      lnapprox: '\u2a89', gnapprox: '\u2a8a', ncong: '\u2247',
+      nsubseteqq: '\u2ac5', nsupseteqq: '\u2ac6',
+      subsetneqq: '\u2acb', supsetneqq: '\u2acc',
+      lvertneqq: '\u2268', gvertneqq: '\u2269',
+      ntriangleleft: '\u22ea', ntriangleright: '\u22eb',
+      ntrianglelefteq: '\u22ec', ntrianglerighteq: '\u22ed',
+      nVDash: '\u22af', nVdash: '\u22ae', nvDash: '\u22ad', nvdash: '\u22ac',
+      precnsim: '\u22e8', succnsim: '\u22e9',
+      precnapprox: '\u2ab9', succnapprox: '\u2aba',
+      preccurlyeq: '\u227c', succcurlyeq: '\u227d',
+      curlyeqprec: '\u22de', curlyeqsucc: '\u22df',
+      precsim: '\u227e', succsim: '\u227f',
+      precapprox: '\u2ab7', succapprox: '\u2ab8',
+      gtrdot: '\u22d7', lessdot: '\u22d6', eqcirc: '\u2256',
+      gtrless: '\u2277', lessgtr: '\u2276', gtreqless: '\u22db', lesseqgtr: '\u22da',
+      gtreqqless: '\u2a8c', lesseqqgtr: '\u2a8b',
+      oiiint: '\u2230', varointclockwise: '\u2232', ointctrclockwise: '\u2233',
+      intop: '\u222b', iintop: '\u222c', iiintop: '\u222d', ointop: '\u222e',
+      buildrel: 'buildrel', oiint: '\u222f',
+      // Relations (KaTeX complete)
+      approxeq: '\u224a', backsimeq: '\u22cd', backsim: '\u223d', backcong: '\u224c',
+      eqsim: '\u2242', eqslantgtr: '\u2a96', eqslantless: '\u2a95',
+      geqq: '\u2267', geqslant: '\u2a7e', leqq: '\u2266', leqslant: '\u2a7d',
+      ggg: '\u22d9', gggtr: '\u22d9', lll: '\u22d8', llless: '\u22d8',
+      gnsim: '\u22e7', lnsim: '\u22e6',
+      gtrapprox: '\u2a86', lessapprox: '\u2a85',
+      precneqq: '\u2ab5', succneqq: '\u2ab6',
+      sqsubset: '\u228f', sqsupset: '\u2290',
+      Subset: '\u22d0', Supset: '\u22d1',
+      subseteqq: '\u2ac5', supseteqq: '\u2ac6',
+      trianglelefteq: '\u22b4', trianglerighteq: '\u22b5',
+      shortmid: '\u2223', shortparallel: '\u2225',
+      thickapprox: '\u2248', thicksim: '\u223c',
+      // Negated relations (direct access, also reachable via \not)
+      nsubset: '\u2284', nsupset: '\u2285',
+      nsubseteq: '\u2288', nsupseteq: '\u2289',
+      nprec: '\u2280', nsucc: '\u2281', npreceq: '\u22e0', nsucceq: '\u22e1',
+      varsubsetneq: '\u228a', varsupsetneq: '\u228b',
+      varsubsetneqq: '\u2acb', varsupsetneqq: '\u2acc',
+      // Fences
+      lbag: '\u27c5', rbag: '\u27c6',
+      // Misc
+      vDash: '\u22a8', Vdash: '\u22a9', Vvdash: '\u22aa', VDash: '\u22ab',
+      Coloneqq: '\u2a74', colonsim: '\u2a74', Colonapprox: '\u2a74',
+      // Greek uppercase (KaTeX \Alpha, \Beta, etc.)
+      Alpha: '\u0391', Beta: '\u0392', Epsilon: '\u0395', Zeta: '\u0396',
+      Eta: '\u0397', Iota: '\u0399', Kappa: '\u039a', Mu: '\u039c',
+      Nu: '\u039d', Omicron: '\u039f', Rho: '\u03a1', Tau: '\u03a4', Chi: '\u03a7',
+      // Extra integrals
+      oiiint: '\u2230', ointctrclockwise: '\u2233', varointclockwise: '\u2232',
     };
     const TEX_FUNCS = new Set(['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'arcsin',
       'arccos', 'arctan', 'sinh', 'cosh', 'tanh', 'coth', 'log', 'ln', 'lg', 'exp',
       'lim', 'limsup', 'liminf', 'min', 'max', 'sup', 'inf', 'det', 'dim', 'ker',
-      'gcd', 'deg', 'arg', 'Pr', 'mod', 'bmod']);
+      'gcd', 'deg', 'arg', 'Pr', 'mod', 'bmod', 'hom',
+      'injlim', 'projlim', 'varlimsup', 'varliminf', 'varinjlim', 'varprojlim',
+      'lcm', 'glb', 'lub', 'sgn', 'tr', 'rank', 'diag', 'cl', 'span', 'vol']);
     const TEX_SPACE = { ',': '0.17em', ';': '0.28em', ':': '0.22em', '!': '0',
       quad: '1em', qquad: '2em', ' ': '0.25em', enspace: '0.5em', thinspace: '0.17em' };
     // Cosmetic-only commands: the delimiter that follows renders on its own.
     const TEX_SKIP = new Set(['left', 'right', 'big', 'Big', 'bigg', 'Bigg',
       'bigl', 'bigr', 'Bigl', 'Bigr', 'biggl', 'biggr', 'bigm', 'displaystyle',
-      'textstyle', 'scriptstyle', 'limits', 'nolimits']);
+      'textstyle', 'scriptstyle', 'limits', 'nolimits', 'displaylimits',
+      'mathop', 'mathbin', 'mathrel', 'mathopen', 'mathclose', 'mathpunct', 'mathinner',
+      'phantom', 'vphantom', 'hphantom', 'smash', 'mathclap', 'mathllap', 'mathrlap',
+      'llap', 'rlap', 'mathstrut', 'notag', 'nonumber', 'tag',
+      'allowbreak', 'nobreak', 'linebreak', 'nolinebreak', 'pagebreak', 'nopagebreak']);
     const TEX_ACCENT = { hat: '^', widehat: '^', bar: '‾', overline: '‾',
-      vec: '→', tilde: '~', widetilde: '~', dot: '˙', ddot: '¨' };
+      vec: '→', tilde: '\u02dc', widetilde: '\u02dc', dot: '˙', ddot: '¨',
+      acute: '\u00b4', grave: '\u0060', breve: '\u02d8', check: '\u02c7',
+      dddot: '\u22ef', ddddot: '\u22ef', mathring: '\u02da' };
+    const TEX_UNDER_ACCENT = { underline: '‾' };
     // Style wrappers: the style is lost, the content stays (better than nothing).
     const TEX_STYLE = new Set(['mathrm', 'mathbf', 'mathit', 'mathbb', 'mathcal',
       'mathsf', 'mathtt', 'mathfrak', 'boldsymbol', 'bm', 'textbf', 'textit', 'emph']);
@@ -6953,8 +7067,22 @@
           if ((name === 'left' || name === 'right') && src[i] === '.') i++; // \left. invisible
           return '';
         }
-        if (name === 'frac' || name === 'dfrac' || name === 'tfrac')
-          return `<mfrac>${parseArg()}${parseArg()}</mfrac>`;
+        if (name === 'frac' || name === 'dfrac' || name === 'tfrac') {
+          const readArg = () => {
+            skipWs();
+            if (src[i] === '{') { i++; return `<mrow>${parseSeq('}')}</mrow>`; }
+            if (src[i] === '\\') { i++; return command(); }
+            const c = src[i];
+            if (c === undefined) fail();
+            if (/[0-9]/.test(c)) { i++; return `<mn>${c}</mn>`; }
+            if (/[a-zA-Z]/.test(c)) { i++; return `<mi>${c}</mi>`; }
+            i++;
+            if ("+-*/=().,;:!?|[]'".includes(c) || c === '<' || c === '>')
+              return `<mo>${escapeHtml(c)}</mo>`;
+            return `<mi>${escapeHtml(c)}</mi>`;
+          };
+          return `<mfrac>${readArg()}${readArg()}</mfrac>`;
+        }
         if (name === 'sqrt') {
           skipWs();
           if (src[i] === '[') {         // nth root
@@ -6971,11 +7099,209 @@
           return `<msqrt>${parseArg()}</msqrt>`;
         }
         if (name === 'begin') return environment();
-        if (name === 'text' || name === 'textrm' || name === 'mbox' || name === 'operatorname')
+        if (name === 'text' || name === 'textrm' || name === 'mbox' || name === 'textnormal' || name === 'textsf' || name === 'texttt')
           return `<mtext>${escapeHtml(readBraced())}</mtext>`;
+        if (name === 'operatorname') {
+          skipWs();
+          if (src[i] === '*') i++;
+          skipWs();
+          return `<mtext>${escapeHtml(readBraced())}</mtext>`;
+        }
+        if (name === 'ce') { const ct = readBraced(); return `<mtext>${escapeHtml(ct)}</mtext>`; }
+        if (name === 'href') { readBraced(); return parseArg(); }
+        if (name === 'overbrace')
+          return `<mover accent="false">${parseArg()}<mo>\u23de</mo></mover>`;
+        if (name === 'underbrace')
+          return `<munder accentunder="false">${parseArg()}<mo>\u23df</mo></munder>`;
+        if (name === 'boxed')
+          return `<menclose notation="box">${parseArg()}</menclose>`;
+        if (name === 'cancel' || name === 'bcancel')
+          return `<menclose notation="updiagonalstrike">${parseArg()}</menclose>`;
+        if (name === 'xcancel')
+          return `<menclose notation="updiagonalstrike downdiagonalstrike">${parseArg()}</menclose>`;
+        if (name === 'not') {
+          skipWs();
+          const saveI = i;
+          if (src[i] === '\\') {
+            i++;
+            let next = '';
+            while (i < src.length && /[a-zA-Z]/.test(src[i])) next += src[i++];
+            const NEGATED = {
+              equiv: '\u2262', sim: '\u2241', simeq: '\u2244', cong: '\u2247',
+              subseteq: '\u2288', supseteq: '\u2289',
+              sqsubseteq: '\u22e2', sqsupseteq: '\u22e3',
+              prec: '\u2280', succ: '\u2281', preceq: '\u22e0', succeq: '\u22e1',
+              parallel: '\u2226', mid: '\u2224', models: '\u22ad',
+              vdash: '\u22ac', Vdash: '\u22ae', VDash: '\u22af',
+              exists: '\u2204', ni: '\u220c', in: '\u2209',
+              Leftarrow: '\u21cd', Rightarrow: '\u21cf', Leftrightarrow: '\u21ce',
+              leftarrow: '\u219a', rightarrow: '\u219b', leftrightarrow: '\u21ae',
+              le: '\u2270', ge: '\u2271', leq: '\u2270', geq: '\u2271',
+              less: '\u226e', greater: '\u226f', triangleleft: '\u22ea',
+              triangleright: '\u22eb', trianglelefteq: '\u22ec', trianglerighteq: '\u22ed',
+              approx: '\u2249', asymp: '\u226d', lesssim: '\u2274', gtrsim: '\u2275',
+            };
+            if (NEGATED[next]) return `<mo>${NEGATED[next]}</mo>`;
+            i = saveI;
+          } else { i = saveI; }
+          return '';
+        }
+        if (name === 'binom') {
+          const readArg = () => {
+            skipWs();
+            if (src[i] === '{') { i++; return `<mrow>${parseSeq('}')}</mrow>`; }
+            if (src[i] === '\\') { i++; return command(); }
+            const c = src[i];
+            if (c === undefined) fail();
+            if (/[0-9]/.test(c)) { i++; return `<mn>${c}</mn>`; }
+            if (/[a-zA-Z]/.test(c)) { i++; return `<mi>${c}</mi>`; }
+            i++;
+            if ("+-*/=().,;:!?|[]'".includes(c) || c === '<' || c === '>')
+              return `<mo>${escapeHtml(c)}</mo>`;
+            return `<mi>${escapeHtml(c)}</mi>`;
+          };
+          return `<mrow><mo>(</mo><mfrac linethickness="0">${readArg()}${readArg()}</mfrac><mo>)</mo></mrow>`;
+        }
+        if (name === 'pmod')
+          return `<mspace width="0.44em"></mspace><mo>(</mo><mtext>mod</mtext><mspace width="0.33em"></mspace>${parseArg()}<mo>)</mo>`;
+        if (name === 'stackrel' || name === 'overset' || name === 'buildrel') {
+          const top = parseArg();
+          const base = parseArg();
+          return `<mover>${base}${top}</mover>`;
+        }
+        if (name === 'underset') {
+          const bottom = parseArg();
+          const base = parseArg();
+          return `<munder>${base}${bottom}</munder>`;
+        }
+        if (name === 'overrightarrow')
+          return `<mover accent="true">${parseArg()}<mo stretchy="true">\u2192</mo></mover>`;
+        if (name === 'overleftarrow')
+          return `<mover accent="true">${parseArg()}<mo stretchy="true">\u2190</mo></mover>`;
+        if (name === 'overleftrightarrow')
+          return `<mover accent="true">${parseArg()}<mo stretchy="true">\u2194</mo></mover>`;
+        if (name === 'underrightarrow')
+          return `<munder accentunder="true">${parseArg()}<mo stretchy="true">\u2192</mo></munder>`;
+        if (name === 'underleftarrow')
+          return `<munder accentunder="true">${parseArg()}<mo stretchy="true">\u2190</mo></munder>`;
+        if (name === 'underleftrightarrow')
+          return `<munder accentunder="true">${parseArg()}<mo stretchy="true">\u2194</mo></munder>`;
+        if (name === 'substack') {
+          skipWs();
+          if (src[i] !== '{') fail();
+          i++;
+          let rows = [[]], cell = '', depth = 1;
+          for (;;) {
+            if (i >= src.length) fail();
+            const c = src[i];
+            if (c === '{') { depth++; cell += c; i++; }
+            else if (c === '}') { depth--; if (depth === 0) { i++; break; } cell += c; i++; }
+            else if (c === '\\' && src[i + 1] === '\\') {
+              i += 2; rows[rows.length - 1].push(cell); cell = '';
+              if (src[i] === '[') { while (i < src.length && src[i] !== ']') i++; if (src[i] === ']') i++; }
+              rows.push([]);
+            }
+            else { cell += c; i++; }
+          }
+          rows[rows.length - 1].push(cell);
+          const parsed = rows.map(r => {
+            const cellText = r[0] || '';
+            const saveI = i, saveSrc = src;
+            src = cellText; i = 0;
+            let result;
+            try { result = parseSeq(); } catch { result = `<mtext>${escapeHtml(cellText)}</mtext>`; }
+            src = saveSrc; i = saveI;
+            return result;
+          });
+          return `<mstyle scriptlevel="2"><mtable rowspacing="0.15em" columnalign="center">${parsed.map(r => `<mtr><mtd>${r}</mtd></mtr>`).join('')}</mtable></mstyle>`;
+        }
+        if (name === 'dbinom' || name === 'tbinom') {
+          const readArg = () => {
+            skipWs();
+            if (src[i] === '{') { i++; return `<mrow>${parseSeq('}')}</mrow>`; }
+            if (src[i] === '\\') { i++; return command(); }
+            const c = src[i];
+            if (c === undefined) fail();
+            if (/[0-9]/.test(c)) { i++; return `<mn>${c}</mn>`; }
+            if (/[a-zA-Z]/.test(c)) { i++; return `<mi>${c}</mi>`; }
+            i++;
+            if ("+-*/=().,;:!?|[]'".includes(c) || c === '<' || c === '>')
+              return `<mo>${escapeHtml(c)}</mo>`;
+            return `<mi>${escapeHtml(c)}</mi>`;
+          };
+          return `<mrow><mo>(</mo><mfrac linethickness="0">${readArg()}${readArg()}</mfrac><mo>)</mo></mrow>`;
+        }
+        if (name === 'cfrac') {
+          skipWs();
+          let pos = 'center';
+          if (src[i] === '[') {
+            i++;
+            let p = '';
+            while (i < src.length && src[i] !== ']') p += src[i++];
+            if (src[i] !== ']') fail();
+            i++;
+            if (p.trim() === 'l') pos = 'left';
+            else if (p.trim() === 'r') pos = 'right';
+          }
+          return `<mfrac numalign="${pos}" denomalign="${pos}">${parseArg()}${parseArg()}</mfrac>`;
+        }
+        if (name === 'pod')
+          return `<mspace width="0.44em"></mspace><mo>(</mo>${parseArg()}<mo>)</mo>`;
+        if (name === 'sideset') {
+          const readScriptGroup = () => {
+            skipWs();
+            if (src[i] !== '{') fail();
+            i++;
+            let sub = null, sup = null;
+            for (let p = 0; p < 2; p++) {
+              skipWs();
+              if (src[i] === '_') { i++; sub = parseArg(); }
+              else if (src[i] === '^') { i++; sup = parseArg(); }
+              else break;
+            }
+            if (src[i] !== '}') fail();
+            i++;
+            return { sub, sup };
+          };
+          const left = readScriptGroup();
+          const right = readScriptGroup();
+          skipWs();
+          const op = parseArg();
+          const empty = '<mrow></mrow>';
+          return `<mmultiscripts>${op}${right.sub || empty}${right.sup || empty}<mprescripts/>${left.sub || empty}${left.sup || empty}</mmultiscripts>`;
+        }
+        function xArrow(arrowChar) {
+          skipWs();
+          let under = null;
+          if (src[i] === '[') {
+            i++;
+            let u = '';
+            while (i < src.length && src[i] !== ']') u += src[i++];
+            if (src[i] !== ']') fail();
+            i++;
+            under = `<mtext>${escapeHtml(u.trim())}</mtext>`;
+          }
+          skipWs();
+          const over = parseArg();
+          if (under)
+            return `<munderover><mo stretchy="true">${arrowChar}</mo>${under}${over}</munderover>`;
+          return `<mover><mo stretchy="true">${arrowChar}</mo>${over}</mover>`;
+        }
+        if (name === 'xrightarrow') return xArrow('\u2192');
+        if (name === 'xleftarrow') return xArrow('\u2190');
+        if (name === 'xleftrightarrow') return xArrow('\u2194');
+        if (name === 'xrightleftharpoons') return xArrow('\u21cc');
+        if (name === 'xLeftarrow') return xArrow('\u21d0');
+        if (name === 'xRightarrow') return xArrow('\u21d2');
+        if (name === 'xLeftrightarrow') return xArrow('\u21d4');
+        if (name === 'xhookrightarrow') return xArrow('\u21aa');
+        if (name === 'xhookleftarrow') return xArrow('\u21a9');
+        if (name === 'xmapsto') return xArrow('\u21a6');
         if (TEX_STYLE.has(name)) return parseArg();
         if (TEX_ACCENT[name])
           return `<mover accent="true">${parseArg()}<mo>${TEX_ACCENT[name]}</mo></mover>`;
+        if (TEX_UNDER_ACCENT[name])
+          return `<munder accentunder="true">${parseArg()}<mo>${TEX_UNDER_ACCENT[name]}</mo></munder>`;
         if (TEX_GREEK[name]) return `<mi>${TEX_GREEK[name]}</mi>`;
         if (TEX_OPS[name]) return `<mo>${TEX_OPS[name]}</mo>`;
         if (TEX_FUNCS.has(name)) return `<mi>${name}</mi>`;
@@ -6988,10 +7314,25 @@
         const FENCE = {
           pmatrix: ['(', ')'], bmatrix: ['[', ']'], Bmatrix: ['{', '}'],
           vmatrix: ['|', '|'], Vmatrix: ['‖', '‖'], matrix: ['', ''],
-          smallmatrix: ['', ''], cases: ['{', ''], aligned: ['', ''],
-          align: ['', ''], gathered: ['', ''], gather: ['', ''], array: ['', ''],
+          smallmatrix: ['', ''], cases: ['{', ''], dcases: ['{', ''],
+          'dcases*': ['{', ''], rcases: ['', '}'], 'rcases*': ['', '}'],
+          aligned: ['', ''], align: ['', ''], 'align*': ['', ''],
+          alignat: ['', ''], 'alignat*': ['', ''], alignedat: ['', ''],
+          gathered: ['', ''], gather: ['', ''], 'gather*': ['', ''],
+          array: ['', ''], subarray: ['', ''],
+          equation: ['', ''], 'equation*': ['', ''], split: ['', ''],
+          multline: ['', ''], 'multline*': ['', ''],
         };
         if (!(env in FENCE)) fail();
+        if (env === 'alignat' || env === 'alignat*' || env === 'alignedat') {
+          skipWs();
+          if (src[i] === '{') { readBraced(); }
+        }
+        // star-variant matrix environments may have [colspec]
+        if (env.endsWith('*') && (env.startsWith('matrix') || env.startsWith('pmatrix') || env.startsWith('bmatrix') || env.startsWith('Bmatrix') || env.startsWith('vmatrix') || env.startsWith('Vmatrix') || env.startsWith('smallmatrix') || env.startsWith('cases') || env.startsWith('dcases') || env.startsWith('rcases'))) {
+          skipWs();
+          if (src[i] === '[') { i++; while (i < src.length && src[i] !== ']') i++; if (src[i] === ']') i++; }
+        }
         let colLines = '';   // augmented matrix: a vertical rule from the array colspec
         if (env === 'array') {
           skipWs();
@@ -7042,6 +7383,7 @@
         if (c === '^' || c === '_') return '<mrow></mrow>'; // script without base
         if (c === '&') fail();          // alignment: an environment would be needed
         if (c === '{') { i++; return `<mrow>${parseSeq('}')}</mrow>`; }
+        if (c === '(') { i++; return `<mrow><mo>(</mo>${parseSeq(')')}<mo>)</mo></mrow>`; }
         if (c === '\\') { i++; return command(); }
         if (/[0-9]/.test(c)) {
           let n = '';
