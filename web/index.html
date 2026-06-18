@@ -6944,6 +6944,34 @@
       textasciicircum: '^', textasciitilde: '~', textbackslash: '\\',
       textbardbl: '\u2016', textbar: '|', textbraceleft: '{', textbraceright: '}',
       textless: '<', textgreater: '>', textdollar: '$', textunderscore: '_',
+      textvisiblespace: '\u2423', textellipsis: '\u2026',
+      textquotedblleft: '\u201c', textquotedblright: '\u201d',
+      textquoteleft: '\u2018', textquoteright: '\u2019',
+      textendash: '\u2013', textemdash: '\u2014',
+      dotplus: '\u2214', divideontimes: '\u22c7',
+      boxminus: '\u229f', boxplus: '\u229e', boxtimes: '\u22a0', boxdot: '\u22a1',
+      nleq: '\u2270', ngeq: '\u2271', lneq: '\u2268', gneq: '\u2269',
+      lneqq: '\u2268', gneqq: '\u2269', nless: '\u226e', ngtr: '\u226f',
+      nleqslant: '\u2a87', ngeqslant: '\u2a88',
+      lnapprox: '\u2a89', gnapprox: '\u2a8a', ncong: '\u2247',
+      nsubseteqq: '\u2ac5', nsupseteqq: '\u2ac6',
+      subsetneqq: '\u2acb', supsetneqq: '\u2acc',
+      lvertneqq: '\u2268', gvertneqq: '\u2269',
+      ntriangleleft: '\u22ea', ntriangleright: '\u22eb',
+      ntrianglelefteq: '\u22ec', ntrianglerighteq: '\u22ed',
+      nVDash: '\u22af', nVdash: '\u22ae', nvDash: '\u22ad', nvdash: '\u22ac',
+      precnsim: '\u22e8', succnsim: '\u22e9',
+      precnapprox: '\u2ab9', succnapprox: '\u2aba',
+      preccurlyeq: '\u227c', succcurlyeq: '\u227d',
+      curlyeqprec: '\u22de', curlyeqsucc: '\u22df',
+      precsim: '\u227e', succsim: '\u227f',
+      precapprox: '\u2ab7', succapprox: '\u2ab8',
+      gtrdot: '\u22d7', lessdot: '\u22d6', eqcirc: '\u2256',
+      gtrless: '\u2277', lessgtr: '\u2276', gtreqless: '\u22db', lesseqgtr: '\u22da',
+      gtreqqless: '\u2a8c', lesseqqgtr: '\u2a8b',
+      oiiint: '\u2230', varointclockwise: '\u2232', ointctrclockwise: '\u2233',
+      intop: '\u222b', iintop: '\u222c', iiintop: '\u222d', ointop: '\u222e',
+      buildrel: 'buildrel', oiint: '\u222f',
     };
     const TEX_FUNCS = new Set(['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'arcsin',
       'arccos', 'arctan', 'sinh', 'cosh', 'tanh', 'coth', 'log', 'ln', 'lg', 'exp',
@@ -6963,7 +6991,8 @@
       'allowbreak', 'nobreak', 'linebreak', 'nolinebreak', 'pagebreak', 'nopagebreak']);
     const TEX_ACCENT = { hat: '^', widehat: '^', bar: '‾', overline: '‾',
       vec: '→', tilde: '\u02dc', widetilde: '\u02dc', dot: '˙', ddot: '¨',
-      acute: '\u00b4', grave: '\u0060', breve: '\u02d8', check: '\u02c7' };
+      acute: '\u00b4', grave: '\u0060', breve: '\u02d8', check: '\u02c7',
+      dddot: '\u22ef', ddddot: '\u22ef', mathring: '\u02da' };
     const TEX_UNDER_ACCENT = { underline: '‾' };
     // Style wrappers: the style is lost, the content stays (better than nothing).
     const TEX_STYLE = new Set(['mathrm', 'mathbf', 'mathit', 'mathbb', 'mathcal',
@@ -7067,14 +7096,19 @@
             let next = '';
             while (i < src.length && /[a-zA-Z]/.test(src[i])) next += src[i++];
             const NEGATED = {
-              equiv: '\u2262', sim: '\u2241', simeq: '\u2244',
+              equiv: '\u2262', sim: '\u2241', simeq: '\u2244', cong: '\u2247',
               subseteq: '\u2288', supseteq: '\u2289',
               sqsubseteq: '\u22e2', sqsupseteq: '\u22e3',
               prec: '\u2280', succ: '\u2281', preceq: '\u22e0', succeq: '\u22e1',
               parallel: '\u2226', mid: '\u2224', models: '\u22ad',
+              vdash: '\u22ac', Vdash: '\u22ae', VDash: '\u22af',
               exists: '\u2204', ni: '\u220c', in: '\u2209',
               Leftarrow: '\u21cd', Rightarrow: '\u21cf', Leftrightarrow: '\u21ce',
               leftarrow: '\u219a', rightarrow: '\u219b', leftrightarrow: '\u21ae',
+              le: '\u2270', ge: '\u2271', leq: '\u2270', geq: '\u2271',
+              less: '\u226e', greater: '\u226f', triangleleft: '\u22ea',
+              triangleright: '\u22eb', trianglelefteq: '\u22ec', trianglerighteq: '\u22ed',
+              approx: '\u2249', asymp: '\u226d', lesssim: '\u2274', gtrsim: '\u2275',
             };
             if (NEGATED[next]) return `<mo>${NEGATED[next]}</mo>`;
             i = saveI;
@@ -7099,7 +7133,7 @@
         }
         if (name === 'pmod')
           return `<mspace width="0.44em"></mspace><mo>(</mo><mtext>mod</mtext><mspace width="0.33em"></mspace>${parseArg()}<mo>)</mo>`;
-        if (name === 'stackrel' || name === 'overset') {
+        if (name === 'stackrel' || name === 'overset' || name === 'buildrel') {
           const top = parseArg();
           const base = parseArg();
           return `<mover>${base}${top}</mover>`;
@@ -7252,14 +7286,14 @@
           smallmatrix: ['', ''], cases: ['{', ''], dcases: ['{', ''],
           'dcases*': ['{', ''], rcases: ['', '}'], 'rcases*': ['', '}'],
           aligned: ['', ''], align: ['', ''], 'align*': ['', ''],
-          alignat: ['', ''], 'alignat*': ['', ''],
+          alignat: ['', ''], 'alignat*': ['', ''], alignedat: ['', ''],
           gathered: ['', ''], gather: ['', ''], 'gather*': ['', ''],
           array: ['', ''], subarray: ['', ''],
           equation: ['', ''], 'equation*': ['', ''], split: ['', ''],
           multline: ['', ''], 'multline*': ['', ''],
         };
         if (!(env in FENCE)) fail();
-        if (env === 'alignat' || env === 'alignat*') {
+        if (env === 'alignat' || env === 'alignat*' || env === 'alignedat') {
           skipWs();
           if (src[i] === '{') { readBraced(); }
         }
