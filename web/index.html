@@ -6908,9 +6908,10 @@
     // Cosmetic-only commands: the delimiter that follows renders on its own.
     const TEX_SKIP = new Set(['left', 'right', 'big', 'Big', 'bigg', 'Bigg',
       'bigl', 'bigr', 'Bigl', 'Bigr', 'biggl', 'biggr', 'bigm', 'displaystyle',
-      'textstyle', 'scriptstyle', 'limits', 'nolimits']);
+      'textstyle', 'scriptstyle', 'limits', 'nolimits', 'not']);
     const TEX_ACCENT = { hat: '^', widehat: '^', bar: '‾', overline: '‾',
-      vec: '→', tilde: '~', widetilde: '~', dot: '˙', ddot: '¨' };
+      vec: '→', tilde: '\u02dc', widetilde: '\u02dc', dot: '˙', ddot: '¨' };
+    const TEX_UNDER_ACCENT = { underline: '‾' };
     // Style wrappers: the style is lost, the content stays (better than nothing).
     const TEX_STYLE = new Set(['mathrm', 'mathbf', 'mathit', 'mathbb', 'mathcal',
       'mathsf', 'mathtt', 'mathfrak', 'boldsymbol', 'bm', 'textbf', 'textit', 'emph']);
@@ -6953,8 +6954,22 @@
           if ((name === 'left' || name === 'right') && src[i] === '.') i++; // \left. invisible
           return '';
         }
-        if (name === 'frac' || name === 'dfrac' || name === 'tfrac')
-          return `<mfrac>${parseArg()}${parseArg()}</mfrac>`;
+        if (name === 'frac' || name === 'dfrac' || name === 'tfrac') {
+          const readArg = () => {
+            skipWs();
+            if (src[i] === '{') { i++; return `<mrow>${parseSeq('}')}</mrow>`; }
+            if (src[i] === '\\') { i++; return command(); }
+            const c = src[i];
+            if (c === undefined) fail();
+            if (/[0-9]/.test(c)) { i++; return `<mn>${c}</mn>`; }
+            if (/[a-zA-Z]/.test(c)) { i++; return `<mi>${c}</mi>`; }
+            i++;
+            if ("+-*/=().,;:!?|[]'".includes(c) || c === '<' || c === '>')
+              return `<mo>${escapeHtml(c)}</mo>`;
+            return `<mi>${escapeHtml(c)}</mi>`;
+          };
+          return `<mfrac>${readArg()}${readArg()}</mfrac>`;
+        }
         if (name === 'sqrt') {
           skipWs();
           if (src[i] === '[') {         // nth root
@@ -6973,9 +6988,15 @@
         if (name === 'begin') return environment();
         if (name === 'text' || name === 'textrm' || name === 'mbox' || name === 'operatorname')
           return `<mtext>${escapeHtml(readBraced())}</mtext>`;
+        if (name === 'overbrace')
+          return `<mover accent="false">${parseArg()}<mo>\u23de</mo></mover>`;
+        if (name === 'underbrace')
+          return `<munder accentunder="false">${parseArg()}<mo>\u23df</mo></munder>`;
         if (TEX_STYLE.has(name)) return parseArg();
         if (TEX_ACCENT[name])
           return `<mover accent="true">${parseArg()}<mo>${TEX_ACCENT[name]}</mo></mover>`;
+        if (TEX_UNDER_ACCENT[name])
+          return `<munder accentunder="true">${parseArg()}<mo>${TEX_UNDER_ACCENT[name]}</mo></munder>`;
         if (TEX_GREEK[name]) return `<mi>${TEX_GREEK[name]}</mi>`;
         if (TEX_OPS[name]) return `<mo>${TEX_OPS[name]}</mo>`;
         if (TEX_FUNCS.has(name)) return `<mi>${name}</mi>`;
@@ -7042,6 +7063,7 @@
         if (c === '^' || c === '_') return '<mrow></mrow>'; // script without base
         if (c === '&') fail();          // alignment: an environment would be needed
         if (c === '{') { i++; return `<mrow>${parseSeq('}')}</mrow>`; }
+        if (c === '(') { i++; return `<mrow><mo>(</mo>${parseSeq(')')}<mo>)</mo></mrow>`; }
         if (c === '\\') { i++; return command(); }
         if (/[0-9]/.test(c)) {
           let n = '';
