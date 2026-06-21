@@ -465,6 +465,29 @@
       white-space: nowrap;
     }
 
+    /* Pin toggle: appears on hover like delete; stays put once pinned. */
+    .chat-item__pin {
+      visibility: hidden;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 0 0.1rem;
+      line-height: 0;
+    }
+    .chat-item:hover .chat-item__pin,
+    .chat-item:focus-within .chat-item__pin { visibility: visible; }
+    .chat-item__pin:hover { color: var(--text); }
+    .chat-item__pin--on {
+      visibility: visible;
+      color: var(--accent);
+    }
+    .chat-item__pin--on svg { fill: var(--accent-soft); }
+
     .sidebar__foot {
       padding: 0.75rem;
       font-size: 0.8rem;
@@ -5987,6 +6010,7 @@
       folder: '<path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h6.8c.7 0 1.2.5 1.2 1.2v6.6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2z"/>',
       file: '<path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3M6.2 8.5h3.6M6.2 10.7h3.6"/>',
       paperclip: '<path d="M5.2 8.7l3.9-3.9a2.2 2.2 0 1 1 3.1 3.1l-5 5a3.4 3.4 0 0 1-4.8-4.8l5.2-5.2"/>',
+      pin: '<path d="M6 2.5h4"/><path d="M6.6 2.5l-.5 5.3c-1 .5-1.6 1.1-1.6 1.7h7c0-.6-.6-1.2-1.6-1.7l-.5-5.3"/><path d="M8 9.5V13.5"/>',
     };
     const iconSvg = (name, size = 15) =>
       `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ICONS.spark}</svg>`;
@@ -8304,6 +8328,17 @@
         emit('chats');
       }
 
+      // Pin/unpin a conversation. Works in every mode (chat/agent/design): it is
+      // a plain per-chat flag, so the per-mode sidebar shows pinned items first.
+      // We deliberately do NOT touch updatedAt — pinning is not "activity".
+      function togglePin(id) {
+        const chat = getChat(id);
+        if (!chat || chat.lanMirror) return;
+        chat.pinned = !chat.pinned;
+        persistChatsNow();
+        emit('chats');
+      }
+
       function setActiveChat(id) {
         const chat = getChat(id);
         if (!chat) return;
@@ -8503,7 +8538,7 @@
         subscribe, load,
         getState, getSettings, listChats, getChat, getActiveChat, mkMessage,
         sidebarMode, setSidebarMode,
-        createChat, ensureActiveChat, deleteChat, renameChat, setActiveChat, maybeAutoTitle,
+        createChat, ensureActiveChat, deleteChat, renameChat, togglePin, setActiveChat, maybeAutoTitle,
         appendMessage, patchMessage, commitMessage, removeMessage, editUserMessage,
         appendTranscript, setChatMeta,
         setSettings, setSettingsNow, setConnection, setModels, setModelState,
@@ -15487,6 +15522,11 @@ Your report must be precise, of high-quality, and written by an expert using an 
         on(listEl, 'click', (e) => {
           const item = e.target.closest('.chat-item');
           if (!item || e.target.closest('input')) return;
+          const pin = e.target.closest('.chat-item__pin');
+          if (pin) {
+            Store.togglePin(item.dataset.id);
+            return;
+          }
           const del = e.target.closest('.chat-item__del');
           if (del) {
             // Two-step inline confirm: blocking confirm() does not work in
@@ -15563,10 +15603,13 @@ Your report must be precise, of high-quality, and written by an expert using an 
           newBtn.title = isLanHostMode() ? 'LAN host supervision is read-only' : (NEW_LABELS[Store.sidebarMode()] ?? NEW_LABELS.chat);
         }
         listEl.replaceChildren();
-        const chats = [...Store.listChats()].sort((a, b) => b.updatedAt - a.updatedAt);
+        // Pinned chats float to the top (under a "Pinned" group), then the rest
+        // by recency. Within each bucket, newest first.
+        const chats = [...Store.listChats()].sort((a, b) =>
+          (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.updatedAt - a.updatedAt);
         let lastGroup = null;
         for (const c of chats) {
-          const group = dayLabel(c.updatedAt);
+          const group = c.pinned ? 'Pinned' : dayLabel(c.updatedAt);
           if (group !== lastGroup) {
             lastGroup = group;
             listEl.append(el('div', { class: 'chat-group', text: group }));
@@ -15591,10 +15634,21 @@ Your report must be precise, of high-quality, and written by an expert using an 
           } else {
             kids.push(el('span', { class: 'chat-item__time', text: relativeTime(c.updatedAt) }));
           }
-          if (!c.lanMirror) kids.push(el('button', { class: 'chat-item__del', type: 'button', text: '×', 'aria-label': `Delete ${c.title}` }));
+          if (!c.lanMirror) {
+            const pinBtn = el('button', {
+              class: `chat-item__pin${c.pinned ? ' chat-item__pin--on' : ''}`,
+              type: 'button',
+              title: c.pinned ? 'Unpin' : 'Pin',
+              'aria-label': `${c.pinned ? 'Unpin' : 'Pin'} ${c.title}`,
+              'aria-pressed': c.pinned ? 'true' : 'false',
+            });
+            pinBtn.innerHTML = iconSvg('pin', 13);
+            kids.push(pinBtn);
+            kids.push(el('button', { class: 'chat-item__del', type: 'button', text: '×', 'aria-label': `Delete ${c.title}` }));
+          }
           listEl.append(
             el('div', {
-              class: `chat-item${c.id === activeId ? ' chat-item--active' : ''}${gen ? ' chat-item--gen' : ''}`,
+              class: `chat-item${c.id === activeId ? ' chat-item--active' : ''}${gen ? ' chat-item--gen' : ''}${c.pinned ? ' chat-item--pinned' : ''}`,
               'data-id': c.id,
               'data-mirror': c.lanMirror ? '1' : '0',
               role: 'button',
@@ -15658,7 +15712,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
           on(btn, 'click', () => { closeCtxMenu(); fn(); });
           return btn;
         };
+        const pinned = !!Store.getChat(id)?.pinned;
         const menu = el('div', { class: 'ctx-menu' }, [
+          mk(pinned ? 'Unpin' : 'Pin', false, () => Store.togglePin(id)),
           mk('Rename', false, () => startRename(live())),
           mk('Delete', true, () => deleteConv(live())),
         ]);

@@ -215,7 +215,23 @@ static int spawn_server_process(int argc, char **argv, int port) {
 #else
 static pid_t g_server_pid = 0;
 static void stop_server(void) {
-    if (g_server_pid > 0) { kill(g_server_pid, SIGTERM); g_server_pid = 0; }
+    pid_t pid = g_server_pid;
+    if (pid <= 0) return;
+    g_server_pid = 0;   /* idempotent: webview_run return + atexit both call this */
+    /* The server child is a process-group LEADER (see setpgid after the fork), so
+     * its group holds the HTTP child, the ds4 engine it supervises AND any
+     * streaming relay/worker subprocesses. Signal the whole GROUP — not just the
+     * child — so a running chat/agent/design generation is actually torn down when
+     * the window closes, instead of being orphaned and left holding the GPU. */
+    kill(-pid, SIGTERM);   /* graceful: the child's handler stops the engine + saves KV */
+    kill(pid, SIGTERM);    /* belt-and-suspenders if setpgid did not take */
+    for (int i = 0; i < 8; i++) {   /* up to ~800ms grace, but return early once gone */
+        if (waitpid(pid, NULL, WNOHANG) == pid) return;   /* exited cleanly → engine already stopped */
+        usleep(100 * 1000);
+    }
+    kill(-pid, SIGKILL);   /* still running (busy mid-generation) → force the whole group down */
+    kill(pid, SIGKILL);
+    waitpid(pid, NULL, 0);
 }
 #endif
 
@@ -257,9 +273,14 @@ int main(int argc, char **argv) {
     pid_t pid = fork();
     if (pid < 0) { perror("fork"); return 1; }
     if (pid == 0) {
-        /* child: HTTP server + engine supervision only */
+        /* child: HTTP server + engine supervision only. Become a process-group
+         * leader so the parent can tear down the WHOLE tree (server + engine +
+         * streaming relays) in one shot when the window closes — otherwise a busy
+         * agent/design generation can outlive the window. */
+        setpgid(0, 0);
         _exit(ds4_serve_main(argc, argv));
     }
+    setpgid(pid, pid);   /* race-safe: also set from the parent (harmless if the child won the race) */
 
     g_server_pid = pid;
 #endif
