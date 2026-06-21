@@ -16428,6 +16428,13 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (!r.ok && data && !data.error) data.error = `/api/ds4/setup returned HTTP ${r.status}`;
         return data;
       }
+      async function setupContent() {   // download skills/design-systems/gsa bundled content
+        const r = await apiFetch('/api/setup/content', { method: 'POST', headers: H });
+        const data = await r.json().catch(() => ({ ok: false, error: `/api/setup/content returned HTTP ${r.status} with invalid JSON` }));
+        if (!r.ok && data && data.ok !== false) data.ok = false;
+        if (!r.ok && data && !data.error) data.error = `/api/setup/content returned HTTP ${r.status}`;
+        return data;
+      }
       async function ggufs() {   // the actual .gguf files in the engine folder
         const r = await apiFetch('/api/ggufs', { signal: AbortSignal.timeout(4000) });
         return r.json();
@@ -16646,7 +16653,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return r.json();
       }
 
-      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setWebDir, webSearch, webRead, httpProbe, ggufs, skills, skillsSearch, skillGet, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
+      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, skills, skillsSearch, skillGet, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
     })();
 
     /* ==================== Remote LAN chat ==================== */
@@ -16902,6 +16909,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
       function actionLabel(action) {
         return {
           'setup-ds4': 'Install',
+          'setup-content': 'Download',
           'download-model': 'Download',
           'start-engine': 'Start',
           'open-settings': 'Settings',
@@ -16916,6 +16924,22 @@ Your report must be precise, of high-quality, and written by an expert using an 
             await Onboarding.setupDs4();
             refresh();
           });
+          return;
+        }
+        if (action === 'setup-content') {
+          toast('Downloading skills & design systems…', 'info');
+          const r = await Engine.setupContent().catch(() => null);
+          if (!r || r.ok === false) { toast(r?.error || 'Could not start content download', 'error'); refresh(); return; }
+          if (r.already || r.contentOk) { toast('Skills & design systems installed', 'info'); refresh(); return; }
+          // Background download: poll status until it lands (or stops running).
+          for (let i = 0; i < 200; i++) {
+            await new Promise((res) => setTimeout(res, 1500));
+            const st = await Engine.status().catch(() => null);
+            if (st?.contentOk) { toast('Skills & design systems installed', 'info'); break; }
+            if (st && !st.contentDownloading) { toast('Content download failed — see logs', 'error'); break; }
+            refresh();
+          }
+          refresh();
           return;
         }
         if (action === 'download-model') {

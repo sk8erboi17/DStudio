@@ -342,6 +342,14 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
 #define CYBER_SKILLS_REL_DIR "extension/gsa/third_party/anthropic-cybersecurity-skills/skills"
 
+/* Bundled content (skills, design systems, imported GSA cybersecurity skills) is
+ * downloaded at first run instead of being committed to git. The doctor pulls
+ * THIS repo's own tree at a pinned commit from codeload (no git needed, same as
+ * the ds4 source) and extracts only the content dirs into extension/. */
+#define DS4_CONTENT_REPO "sk8erboi17/DStudio"
+#define DS4_CONTENT_COMMIT "66401282c5c5e3922a5f555a009de24cde149749"
+#define DS4_CONTENT_ARCHIVE_URL "https://codeload.github.com/" DS4_CONTENT_REPO "/tar.gz/" DS4_CONTENT_COMMIT
+
 #define MODEL_STD "ds4flash.gguf"
 #define MODEL_UNC "gguf/cyberneurova-DeepSeek-V4-Flash-abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-aligned.gguf"
 /* Model variants the UI can pick: flash = the abliterated Flash above, pro =
@@ -2098,6 +2106,36 @@ static int web_dir_valid(void) {
     return stat(marker, &st) == 0 && S_ISREG(st.st_mode);
 }
 
+/* Background download of the bundled content (skills/design systems/gsa skills),
+ * forked so the single-threaded server stays responsive; reaped in reap_child. */
+static pid_t g_content_dl_pid = -1;
+static unsigned long long g_content_dl_task = 0;
+
+/* True if a single bundled-content dir under extension/ exists and is non-empty. */
+static int content_subdir_present(const char *sub) {
+    if (!g_web_dir[0]) return 1;   /* base unknown: never trigger a bogus download */
+    char p[DSTUDIO_PATH_MAX];
+    int n = snprintf(p, sizeof p, "%s/extension/%s", g_web_dir, sub);
+    if (n < 0 || (size_t)n >= sizeof p) return 1;
+    DIR *d = opendir(p);
+    if (!d) return 0;
+    int has = 0;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (strcmp(e->d_name, ".") && strcmp(e->d_name, "..")) { has = 1; break; }
+    }
+    closedir(d);
+    return has;
+}
+
+/* True once the downloadable content (skills, design systems, imported GSA
+ * cybersecurity skills) is installed under extension/. */
+static int content_present(void) {
+    return content_subdir_present("skills") &&
+           content_subdir_present("design-systems") &&
+           content_subdir_present("gsa/third_party");
+}
+
 static int rel_exists(const char *rel) {
     char full[2048];
     snprintf(full, sizeof full, "%s/%s", g_ds4_dir, rel);
@@ -2671,6 +2709,21 @@ static void reap_child(void) {
                 g_active_download_task = 0;
             }
             g_dl_pid = -1;   /* keep g_dl_variant so status can report 100 / completion once */
+        }
+    }
+    if (g_content_dl_pid > 0) {
+        int cst;
+        if (waitpid(g_content_dl_pid, &cst, WNOHANG) == g_content_dl_pid) {
+            int code = WIFEXITED(cst) ? WEXITSTATUS(cst) : -1;
+            printf("content: download child (pid %d) finished (exit %d)\n", (int)g_content_dl_pid, code);
+            if (g_content_dl_task) {
+                if (code == 0) task_mark_completed(g_content_dl_task, "bundled content installed");
+                else task_mark_failed(g_content_dl_task, "content download failed", "see /tmp/ds4-content-dl.log");
+                g_content_dl_task = 0;
+            }
+            dstudio_log_event(code == 0 ? "info" : "error", "setup", 0,
+                              "bundled content download %s", code == 0 ? "completed" : "failed");
+            g_content_dl_pid = -1;
         }
     }
     if (g_child <= 0) return;
@@ -4875,7 +4928,8 @@ static void api_status(int fd) {
         "\"models\":{\"standard\":%s,\"uncensored\":%s},"
         "\"variants\":{\"flash\":%s,\"pro\":%s},\"variant\":\"%s\","
         "\"download\":%s,\"downloadVariant\":\"%s\",\"downloadPct\":%lld,"
-        "\"engineError\":\"%s\",\"engineLine\":\"%s\",\"modelFile\":\"%s\",\"skill\":\"%s\",\"designSystem\":\"%s\"}",
+        "\"engineError\":\"%s\",\"engineLine\":\"%s\",\"modelFile\":\"%s\",\"skill\":\"%s\",\"designSystem\":\"%s\","
+        "\"contentOk\":%s,\"contentDownloading\":%s}",
         mode_name(g_mode), g_child > 0 ? "true" : "false", g_ready ? "true" : "false",
         g_load_pct, stage_esc, g_agent_working ? "true" : "false", wd_esc, cfg,
         g_jsonl_active ? "true" : "false",
@@ -4883,7 +4937,8 @@ static void api_status(int fd) {
         lan_on ? "true" : "false", lan_addr, g_http_port,
         model_present(0) ? "true" : "false", model_present(1) ? "true" : "false",
         file_present(MODEL_FLASH) ? "true" : "false", file_present(MODEL_PRO) ? "true" : "false",
-        g_variant, g_dl_variant[0] ? "true" : "false", g_dl_variant, dl_pct, err_esc, line_esc, mf_esc, g_skill, g_design_system);
+        g_variant, g_dl_variant[0] ? "true" : "false", g_dl_variant, dl_pct, err_esc, line_esc, mf_esc, g_skill, g_design_system,
+        content_present() ? "true" : "false", g_content_dl_pid > 0 ? "true" : "false");
     send_json(fd, "200 OK", body);
 }
 
@@ -4944,6 +4999,16 @@ static void api_doctor(int fd) {
     if (!ds4_ok) fatal++;
     ok = ok && doctor_add_check(&b, &first, "ds4", "Engine folder",
         ds4_ok ? "ok" : "error", ds4_msg, ds4_ok ? NULL : "setup-ds4");
+
+    int content_ok = content_present();
+    int content_dl = g_content_dl_pid > 0;
+    if (!content_ok && !content_dl) warn++;
+    ok = ok && doctor_add_check(&b, &first, "content", "Skills & design systems",
+        content_ok ? "ok" : (content_dl ? "warn" : "warn"),
+        content_ok ? "Skill packs and design systems are installed."
+                   : (content_dl ? "Downloading skill packs and design systems…"
+                                  : "Download the skill packs and design systems."),
+        (content_ok || content_dl) ? NULL : "setup-content");
 
     if (!model_ok) fatal++;
     else if (!current_model_ok) warn++;
@@ -6653,6 +6718,159 @@ static int setup_download_ds4_archive(const char *target, char *log_tail, size_t
     unlink(archive);
     setup_remove_tree(extract);
     return 1;
+}
+
+/* Downloads this repo's tree at the pinned content commit and installs only the
+ * bundled-content dirs (skills, design-systems, gsa/third_party) under
+ * extension/. Mirrors setup_download_ds4_archive: curl the codeload tarball, tar
+ * -xzf into a temp dir on the SAME filesystem (so the rename is atomic), then
+ * move each content dir into place. Runs in a forked child (start_content_download)
+ * or synchronously on Windows. Returns 1 on success. */
+static int setup_download_content_archive(char *log_tail, size_t logsz, char *err, size_t errsz) {
+    if (!g_web_dir[0]) { snprintf(err, errsz, "content target unknown (extension/ not found)"); return 0; }
+
+    char ext[DSTUDIO_PATH_MAX];
+    int e = snprintf(ext, sizeof ext, "%s/extension", g_web_dir);
+    if (e < 0 || (size_t)e >= sizeof ext) { snprintf(err, errsz, "extension path too long"); return 0; }
+
+    char archive[DSTUDIO_PATH_MAX], extract[DSTUDIO_PATH_MAX];
+    int n = snprintf(archive, sizeof archive, "%s/.dstudio-content-%s.tar.gz", g_web_dir, DS4_CONTENT_COMMIT);
+    int m = snprintf(extract, sizeof extract, "%s/.dstudio-content-extract-%ld", g_web_dir, (long)getpid());
+    if (n < 0 || (size_t)n >= sizeof archive || m < 0 || (size_t)m >= sizeof extract) {
+        snprintf(err, errsz, "temporary content archive path too long");
+        return 0;
+    }
+
+    unlink(archive);
+    setup_remove_tree(extract);
+    if (mkdir(extract, 0755) != 0) {
+        snprintf(err, errsz, "could not create temp extract folder %s: %s", extract, strerror(errno));
+        return 0;
+    }
+
+    char *curl_argv[] = {
+        "curl", "-L", "--fail", "--show-error", "--retry", "2",
+        "--connect-timeout", "20", "--max-time", "600",
+        "-o", archive, (char *)DS4_CONTENT_ARCHIVE_URL, NULL
+    };
+    int rc = setup_run_cmd_capture(NULL, curl_argv, log_tail, logsz);
+    if (rc != 0) {
+        snprintf(err, errsz,
+                 "content archive download failed (exit %d). DStudio setup needs curl and tar. URL: %s. Output: %.5000s",
+                 rc, DS4_CONTENT_ARCHIVE_URL, log_tail && log_tail[0] ? log_tail : "(no output)");
+        unlink(archive); setup_remove_tree(extract); return 0;
+    }
+
+    char *tar_argv[] = { "tar", "-xzf", archive, "-C", extract, NULL };
+    rc = setup_run_cmd_capture(NULL, tar_argv, log_tail, logsz);
+    if (rc != 0) {
+        snprintf(err, errsz, "content archive extraction failed (exit %d). DStudio setup needs tar. Output: %.5600s",
+                 rc, log_tail && log_tail[0] ? log_tail : "(no output)");
+        unlink(archive); setup_remove_tree(extract); return 0;
+    }
+
+    char top[DSTUDIO_PATH_MAX];
+    if (!setup_first_extracted_dir(extract, top, sizeof top)) {
+        snprintf(err, errsz, "content archive did not contain a source folder");
+        unlink(archive); setup_remove_tree(extract); return 0;
+    }
+
+    /* gsa/third_party needs extension/gsa to exist (harmless if it already does). */
+    char gsadir[DSTUDIO_PATH_MAX];
+    snprintf(gsadir, sizeof gsadir, "%s/gsa", ext);
+    mkdir(gsadir, 0755);
+
+    static const char *subs[] = { "skills", "design-systems", "gsa/third_party" };
+    for (int i = 0; i < 3; i++) {
+        char src[DSTUDIO_PATH_MAX], dst[DSTUDIO_PATH_MAX];
+        int a = snprintf(src, sizeof src, "%s/extension/%s", top, subs[i]);
+        int b = snprintf(dst, sizeof dst, "%s/%s", ext, subs[i]);
+        if (a < 0 || (size_t)a >= sizeof src || b < 0 || (size_t)b >= sizeof dst) {
+            snprintf(err, errsz, "content path too long for %s", subs[i]);
+            unlink(archive); setup_remove_tree(extract); return 0;
+        }
+        struct stat sst;
+        if (stat(src, &sst) != 0 || !S_ISDIR(sst.st_mode)) {
+            snprintf(err, errsz, "content archive missing extension/%s", subs[i]);
+            unlink(archive); setup_remove_tree(extract); return 0;
+        }
+        setup_remove_tree(dst);   /* replace any partial/stale copy */
+        if (rename(src, dst) != 0) {
+            snprintf(err, errsz, "could not install extension/%s: %s", subs[i], strerror(errno));
+            unlink(archive); setup_remove_tree(extract); return 0;
+        }
+    }
+
+    unlink(archive);
+    setup_remove_tree(extract);
+    return 1;
+}
+
+/* Kicks off the bundled-content download. On POSIX it forks a child so the
+ * single-threaded server keeps serving; reap_child() observes the exit and
+ * closes the task. On Windows it runs synchronously. Returns the task id (0 if
+ * it could not even start). */
+static unsigned long long start_content_download(void) {
+    if (g_content_dl_pid > 0) return g_content_dl_task;   /* already running */
+    unsigned long long task_id = task_begin("setup", "Download bundled content", "content",
+                                            ENGINE_NONE, g_web_dir, 0, 0);
+#ifdef _WIN32
+    task_mark_working(task_id, "downloading bundled content");
+    char clog[4096] = "", cerr[1024] = "";
+    if (setup_download_content_archive(clog, sizeof clog, cerr, sizeof cerr))
+        task_mark_completed(task_id, "bundled content installed");
+    else
+        task_mark_failed(task_id, "content download failed", cerr);
+    return task_id;
+#else
+    pid_t pid = fork();
+    if (pid < 0) {
+        task_mark_failed(task_id, "fork failed", strerror(errno));
+        return 0;
+    }
+    if (pid == 0) {
+        int log = open("/tmp/ds4-content-dl.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (log >= 0) { dup2(log, STDOUT_FILENO); dup2(log, STDERR_FILENO); close(log); }
+        int dn = open("/dev/null", O_RDONLY); if (dn >= 0) { dup2(dn, STDIN_FILENO); close(dn); }
+        if (g_srv_fd >= 0) close(g_srv_fd);
+        char clog[4096] = "", cerr[1024] = "";
+        int ok = setup_download_content_archive(clog, sizeof clog, cerr, sizeof cerr);
+        if (!ok) fprintf(stderr, "content download failed: %s\n", cerr);
+        _exit(ok ? 0 : 1);
+    }
+    g_content_dl_pid = pid;
+    g_content_dl_task = task_id;
+    dstudio_task *t = task_find(task_id);
+    if (t) t->pid = (int)pid;
+    task_mark_working(task_id, "downloading bundled content");
+    printf("content: downloading bundled content (pid %d) — log /tmp/ds4-content-dl.log\n", (int)pid);
+    return task_id;
+#endif
+}
+
+/* POST /api/setup/content — download/install the bundled content on demand. */
+static void api_setup_content(int fd) {
+    reap_child();
+    if (content_present()) {
+        send_json(fd, "200 OK", "{\"ok\":true,\"already\":true,\"contentOk\":true}");
+        return;
+    }
+    if (g_content_dl_pid > 0) {
+        char out[160];
+        snprintf(out, sizeof out, "{\"ok\":true,\"taskId\":%llu,\"started\":true,\"running\":true}", g_content_dl_task);
+        send_json(fd, "200 OK", out);
+        return;
+    }
+    unsigned long long task_id = start_content_download();
+    if (!task_id) {
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"could not start content download\"}");
+        return;
+    }
+    char out[192];
+    int done = content_present();   /* on Windows the download already finished synchronously */
+    snprintf(out, sizeof out, "{\"ok\":true,\"taskId\":%llu,\"started\":true,\"contentOk\":%s}",
+             task_id, done ? "true" : "false");
+    send_json(fd, "200 OK", out);
 }
 
 static int setup_gguf_dir_path(const char *ds4dir, char *out, size_t outsz) {
@@ -9418,6 +9636,7 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/fs/list")) { api_fs_list(fd, body); return 200; }
     if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); return 200; }
     if (!strcmp(path, "/api/ds4/setup")) { api_setup_ds4(fd); return 200; }
+    if (!strcmp(path, "/api/setup/content")) { api_setup_content(fd); return 200; }
     if (!strcmp(path, "/api/webdir")) { api_set_webdir(fd, body); return 200; }
     if (!strcmp(path, "/api/web-search")) { api_web_search(fd, body); return 200; }
     if (!strcmp(path, "/api/web-read")) { api_web_read(fd, body); return 200; }
@@ -9765,6 +9984,16 @@ int main(int argc, char **argv)
     /* Crash-clean: if a previous launch died with the ds4_agent.c source
      * still patched, restore it from the .bak before anything else. */
     if (!test_mode) run_build_jsonl("restore");
+
+    /* First-run / fresh-clone: the skill packs, design systems and imported GSA
+     * skills are NOT committed — download them now (in the background so the
+     * server stays responsive). The doctor/onboarding also exposes a manual
+     * retry via /api/setup/content. */
+    if (!test_mode && !content_present()) {
+        set_stage("Downloading skills & design systems…", 3);
+        printf("content: bundled skills/design-systems/gsa not found — downloading in background\n");
+        start_content_download();
+    }
 
     int lan = strcmp(g_bind_host, "127.0.0.1") != 0;
     printf("DStudio: http://%s:%d  (page %s, ds4 %s)\n", g_bind_host, port, PAGE_PATH, g_ds4_dir);
