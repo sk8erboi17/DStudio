@@ -40,7 +40,7 @@ ds4_upstream: open-design/social-spotify-card
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
 ds4_source_repo: https://github.com/nexu-io/open-design
 ds4_source_ref: main
-ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
+ds4_source_commit: 618a07d8db3a0e75e6d0e49f99a6eb9048f57036
 ---
 【模板: Spotify Now-Playing 卡】
 【意图】把一首歌、一段播客、或一段个人介绍渲染成 Spotify 正在播放卡, 适合 video overlay / 个人 about page / 创作者 hero。Inspired by hyperframes spotify-card。

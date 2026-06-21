@@ -10,7 +10,7 @@ ds4_provider: superpowers
 ds4_upstream: superpowers/skills/subagent-driven-development
 ds4_source_repo: https://github.com/obra/superpowers
 ds4_source_ref: main
-ds4_source_commit: 284be5905ed540d34ce5bcde24728b9b7f413ea0
+ds4_source_commit: 896224c4b1879920ab573417e68fd51d2ccc9072
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Subagent-Driven Development
@@ -261,7 +261,7 @@ sequences — the single most expensive failure observed. Track progress in
 a ledger file, not only in todos.
 
 - At skill start, check for a ledger:
-  `cat "$(git rev-parse --git-path sdd)/progress.md"`. Tasks listed there
+  `cat "$(git rev-parse --show-toplevel)/.superpowers/sdd/progress.md"`. Tasks listed there
   as complete are DONE — do not re-dispatch them; resume at the first task
   not marked complete.
 - When a task's review comes back clean, append one line to the ledger in
@@ -270,6 +270,8 @@ a ledger file, not only in todos.
 - The ledger is your recovery map: the commits it names exist in git even
   when your context no longer remembers creating them. After compaction,
   trust the ledger and `git log` over your own recollection.
+- `git clean -fdx` will destroy the ledger (it's git-ignored scratch); if
+  that happens, recover from `git log`.
 
 ## Prompt Templates
 

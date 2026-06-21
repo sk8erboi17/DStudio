@@ -40,7 +40,7 @@ ds4_upstream: open-design/article-magazine
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
 ds4_source_repo: https://github.com/nexu-io/open-design
 ds4_source_ref: main
-ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
+ds4_source_commit: 618a07d8db3a0e75e6d0e49f99a6eb9048f57036
 ---
 【模板: 杂志文章】
 - 顶部 hero: 大标题 (text-5xl/6xl) + 可选副标题 + 作者 / 阅读时间 / 日期元数据。

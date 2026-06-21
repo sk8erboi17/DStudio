@@ -10,7 +10,7 @@ ds4_provider: superpowers
 ds4_upstream: superpowers/skills/verification-before-completion
 ds4_source_repo: https://github.com/obra/superpowers
 ds4_source_ref: main
-ds4_source_commit: 284be5905ed540d34ce5bcde24728b9b7f413ea0
+ds4_source_commit: 896224c4b1879920ab573417e68fd51d2ccc9072
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Verification Before Completion

@@ -42,7 +42,7 @@ ds4_upstream: open-design/doc-kami-parchment
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
 ds4_source_repo: https://github.com/nexu-io/open-design
 ds4_source_ref: main
-ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
+ds4_source_commit: 618a07d8db3a0e75e6d0e49f99a6eb9048f57036
 ---
 【模板: Kami 羊皮纸文档】
 【意图】严肃排版文档: one-pager / 长报告 / 信函 / 简历 / 财报 / changelog / portfolio。Inspired by tw93/kami。强调"写得像被排过版的纸", 不是 dashboard, 不是网页。

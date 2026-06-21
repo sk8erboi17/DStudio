@@ -10,7 +10,7 @@ ds4_provider: ecc
 ds4_upstream: ecc/.agents/skills/product-capability
 ds4_source_repo: https://github.com/affaan-m/ECC
 ds4_source_ref: main
-ds4_source_commit: e25f2d463383a98ab40e627288dd123e005fd8e0
+ds4_source_commit: 71d22d0a77b7e0684f4e51cba03749b788993cdb
 ds4_modified_notice: Adapted for DStudio/DS4 Agent catalog; namespaced to avoid local skill collisions.
 ---
 # Product Capability

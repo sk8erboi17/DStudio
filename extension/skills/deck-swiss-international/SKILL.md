@@ -41,7 +41,7 @@ ds4_upstream: open-design/deck-swiss-international
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
 ds4_source_repo: https://github.com/nexu-io/open-design
 ds4_source_ref: main
-ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
+ds4_source_commit: 618a07d8db3a0e75e6d0e49f99a6eb9048f57036
 ---
 【模板: 瑞士国际主义 Deck (Swiss International)】
 【意图】事实、产品、分析、方法论表达。极度冷静、理性、学院派, 没有任何手绘 / 噪点 / 装饰。Inspired by op7418/guizang-ppt-skill Style B。

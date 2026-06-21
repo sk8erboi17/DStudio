@@ -39,7 +39,7 @@ ds4_upstream: open-design/frame-macos-notification
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
 ds4_source_repo: https://github.com/nexu-io/open-design
 ds4_source_ref: main
-ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
+ds4_source_commit: 618a07d8db3a0e75e6d0e49f99a6eb9048f57036
 ---
 【模板: macOS 通知横幅】
 【意图】把一段公告 / 消息 / 提示渲染成 macOS Big Sur+ 风格的通知横幅, 适合视频角落叠加、产品发布预告、社媒图。Inspired by hyperframes macos-notification。

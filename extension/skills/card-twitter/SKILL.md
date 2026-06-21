@@ -37,7 +37,7 @@ ds4_upstream: open-design/card-twitter
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
 ds4_source_repo: https://github.com/nexu-io/open-design
 ds4_source_ref: main
-ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
+ds4_source_commit: 618a07d8db3a0e75e6d0e49f99a6eb9048f57036
 ---
 【模板: Twitter 分享卡】
 - 容器 `w-[1600px] h-[900px]`, 暗色 / 亮色二选一根据内容情绪。

@@ -41,7 +41,7 @@ ds4_upstream: open-design/frame-glitch-title
 ds4_modified_notice: Adapted for DStudio/DS4; added ds4_* metadata and local-first blueprint classification where needed.
 ds4_source_repo: https://github.com/nexu-io/open-design
 ds4_source_ref: main
-ds4_source_commit: 2ff2d79bd54832696799984c05506fa4ed5dfcf3
+ds4_source_commit: 618a07d8db3a0e75e6d0e49f99a6eb9048f57036
 ---
 【模板: 故障艺术标题帧 (Glitch Title)】
 【意图】单帧 hero / 视频转场 / cyberpunk 风格标题。Inspired by hyperframes glitch。

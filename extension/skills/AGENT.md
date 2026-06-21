@@ -39,8 +39,8 @@ your job is to make it *specific*.
 ## Craft rules
 
 Universal, brand-agnostic standards live in **craft packs** (design mode) — accessibility,
-anti-slop, color, typography, state-coverage, motion, and **layout-responsive**. They're in
-the on-demand catalog below; load the relevant ones with `craft(name)` for depth. Two are
+anti-slop, color, typography, state-coverage, motion, and **layout-responsive**. Load the
+relevant ones with `craft(name)` when the user or UI gives an exact id. Two are
 non-negotiable and apply to every edit:
 
 - **Resizing is structural, not local.** When you change a size, aspect ratio or orientation
@@ -69,9 +69,10 @@ When no skill is active, fall back to this charter and the engine's defaults.
 
 ### Available skills
 
-The full, current list of skills (and design systems) you can load — with one-line
-descriptions — is in the **on-demand catalog** appended to this context. Don't memorize
-it; read it there. Load a pack with `skill(name)` (or `design_system(name)`).
+The full, current skill and design-system catalog lives in the DStudio UI. To keep
+local CPU startup responsive, it is not dumped into every prompt. Load a pack with
+`skill(name)` or `design_system(name)` only when the user selected or named an exact
+id, or when a DStudio workflow provides one.
 
 A skill named in the brief always wins over a guessed one. If the brief fits no skill,
 say so in one line and proceed with this charter.
