@@ -71,3 +71,11 @@ extension/gsa/tools/smoke/
 extension/gsa/tools/install-gsa-tools.sh
 extension/gsa/tools/install-gsa-tools.ps1
 extension/gsa/tools/.crates*
+
+# Bundled content downloaded by the setup doctor at first run (imported skill
+# packs, design systems and GSA cybersecurity skills). Not committed: the doctor
+# pulls them from the pinned content commit. See setup_download_content_archive
+# in src/dstudio.c (DS4_CONTENT_COMMIT).
+/extension/skills/
+/extension/design-systems/
+/extension/gsa/third_party/
