@@ -2200,6 +2200,45 @@ static int executable_on_path(const char *name) {
     return 0;
 }
 
+/* Resolve a program to an absolute path, searching $PATH first and then a set
+ * of well-known install directories. GUI-launched apps (Finder/Dock on macOS,
+ * launchd) start with a minimal PATH that omits Homebrew/MacPorts, so a bare
+ * execvp("node", ...) fails with exit 127 even when node is installed. Returns
+ * 1 and fills `out` on success, 0 if the program cannot be located. */
+static int resolve_program_path(const char *name, const char *const extra_dirs[],
+                                char *out, size_t outsz) {
+    const char *path = getenv("PATH");
+    if (path && path[0]) {
+        char buf[4096];
+        cstr_copy(buf, sizeof buf, path);
+        for (char *p = buf; p && *p; ) {
+#ifdef _WIN32
+            char *sep = strchr(p, ';');
+#else
+            char *sep = strchr(p, ':');
+#endif
+            if (sep) *sep = '\0';
+            if (p[0]) {
+                char full[PATH_MAX];
+                if (path_join(full, sizeof full, p, name) && access(full, X_OK) == 0) {
+                    cstr_copy(out, outsz, full);
+                    return 1;
+                }
+            }
+            p = sep ? sep + 1 : NULL;
+        }
+    }
+    for (int i = 0; extra_dirs && extra_dirs[i]; i++) {
+        if (!extra_dirs[i][0]) continue;
+        char full[PATH_MAX];
+        if (path_join(full, sizeof full, extra_dirs[i], name) && access(full, X_OK) == 0) {
+            cstr_copy(out, outsz, full);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int chrome_available(void) {
 #ifdef _WIN32
     return 1; /* The Windows portable build does not use the ds4_web helper yet. */
@@ -7669,7 +7708,21 @@ static int updates_run_imported_skills(unsigned long long task_id, char *log_tai
         snprintf(err, errsz, "imported skill source updater is missing: %s", script);
         return 0;
     }
-    char *argv[] = { "node", script, "--all", NULL };
+    /* Resolve node to an absolute path: when DStudio is launched from the GUI
+     * the server inherits a minimal PATH that omits Homebrew, so a bare "node"
+     * exec fails with exit 127. */
+    char node_bin[PATH_MAX];
+    static const char *node_dirs[] = {
+        "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin",
+        "/opt/local/bin", "/snap/bin", NULL
+    };
+    if (!resolve_program_path("node", node_dirs, node_bin, sizeof node_bin)) {
+        snprintf(err, errsz,
+                 "Node.js is required to update imported skills but 'node' could not be found "
+                 "on PATH or in common install locations. Install Node.js (e.g. 'brew install node') and retry.");
+        return 0;
+    }
+    char *argv[] = { node_bin, script, "--all", NULL };
     if (!update_run_cmd(task_id, "updating imported skills from source repos", g_web_dir[0] ? g_web_dir : NULL,
                         argv, log_tail, logsz, err, errsz)) return 0;
     return updates_verify_skills(task_id, err, errsz);
