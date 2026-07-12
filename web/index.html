@@ -13143,10 +13143,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const isRsa = gsaRunState.kind === 'rsa';
         const name = isRsa ? 'RSA' : 'GSA';
         if (!output || !output.output) {
-          const msg = `${name} ${label} did not return the required ${phase === 'report' ? 'Markdown report' : 'JSON object'}. Pipeline stopped; the run state remains incomplete.`;
-          toast(msg, 'error');
-          gsaRunState.active = false;
-          return true;
+          // Don't kill the run here: the working->idle edge can fire before the
+          // final phase JSON lands (long turns), or a stuck backend working flag
+          // can make it fire on stale state. Leave the run active; gsaAdvanceWatch
+          // retries once the transcript settles and reports a genuine failure only
+          // after a long quiet period with still no valid JSON.
+          return false;
         }
         if ((isRsa || phase !== 'report') && output.phase && output.phase !== phase) {
           toast(`${name} phase mismatch: expected ${phase}, got ${output.phase}. Pipeline stopped.`, 'error');
@@ -13235,6 +13237,16 @@ Your report must be precise, of high-quality, and written by an expert using an 
           + `\nPrevious run: ${previousRunDir || '(none)'}`;
         toast(`GSA Loop: starting run #${gsaLoopState.iteration}.`, 'info');
         AgentView.send(res.prompt, display, { forceThink: 'max' });
+      }
+
+      // Called by the quiescence watchdog when a GSA phase turn has gone quiet
+      // for a long time with no valid phase JSON to commit: this is a genuine
+      // failure (the model never produced the required output), so stop.
+      function gsaAbortStuck(phase) {
+        if (!gsaRunState?.active || gsaRunState.saving || gsaRunState.phase !== phase) return;
+        const name = gsaRunState.kind === 'rsa' ? 'RSA' : 'GSA';
+        toast(`${name} ${gsaPhaseDisplayName(phase)} did not return the required ${phase === 'report' ? 'Markdown report' : 'JSON object'}. Pipeline stopped; the run state remains incomplete.`, 'error');
+        gsaRunState.active = false;
       }
 
       async function onAgentTurnIdle(gsaPhaseOutput = null) {
@@ -14646,7 +14658,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (host) { if (host._keyh) { document.removeEventListener('keydown', host._keyh); host._keyh = null; } host.replaceChildren(); host.hidden = true; }
       }
 
-      return { mount, setMode, setAgentBusy, setQuestionMode, isQuestionMode: () => questionMode, invalidateUserSkills, openDesignGallery, buildDesignGalleryInline, showPlanActions, hidePlanActions, onAgentTurnIdle, stopGsaLoop, currentGsaPhase };
+      return { mount, setMode, setAgentBusy, setQuestionMode, isQuestionMode: () => questionMode, invalidateUserSkills, openDesignGallery, buildDesignGalleryInline, showPlanActions, hidePlanActions, onAgentTurnIdle, gsaAbortStuck, stopGsaLoop, currentGsaPhase };
     })();
 
     /* ==================== UI: settings ==================== */
@@ -18535,6 +18547,32 @@ Your report must be precise, of high-quality, and written by an expert using an 
           finally { idleWatchBusy = false; }
         }, 1200);
       }
+
+      // GSA phase-advance watchdog. The working->idle edge that drives
+      // onAgentTurnIdle can be missed on long turns, or fire on a stuck backend
+      // working flag, leaving a valid captured phase JSON uncommitted forever.
+      // Independently of the working flag: once the transcript has been quiet
+      // for GSA_ADVANCE_QUIET_MS, commit any valid JSON for the current phase;
+      // after GSA_ADVANCE_FAIL_MS still quiet with no valid JSON, report a
+      // genuine failure. No-op unless a GSA/RSA run is active.
+      const GSA_WATCH_MS = 3000;
+      const GSA_ADVANCE_QUIET_MS = 12000;
+      const GSA_ADVANCE_FAIL_MS = 180000;
+      let gsaWatchLastLen = -1, gsaWatchQuiet = 0;
+      setInterval(() => {
+        const phase = Composer.currentGsaPhase && Composer.currentGsaPhase();
+        if (!phase) { gsaWatchLastLen = -1; gsaWatchQuiet = 0; return; }
+        const tx = (liveConvId && Store.getChat(liveConvId)?.transcript) || '';
+        if (tx.length !== gsaWatchLastLen) { gsaWatchLastLen = tx.length; gsaWatchQuiet = 0; return; }
+        gsaWatchQuiet += GSA_WATCH_MS;
+        if (gsaWatchQuiet < GSA_ADVANCE_QUIET_MS) return;
+        const out = extractLastGsaPhaseOutput(tx, phase);
+        if (out && out.output) { gsaWatchQuiet = 0; Composer.onAgentTurnIdle(out); return; }
+        if (gsaWatchQuiet >= GSA_ADVANCE_FAIL_MS && Composer.gsaAbortStuck) {
+          gsaWatchQuiet = 0;
+          Composer.gsaAbortStuck(phase);
+        }
+      }, GSA_WATCH_MS);
 
       async function reconcileIdle() {
         try {
