@@ -1,0 +1,3 @@
+    v->param_kind = agent_tool_param_kind_for(v->tool_name, v->param_name);
+    v->param_active = true;
+    v->param_end_len = 0;

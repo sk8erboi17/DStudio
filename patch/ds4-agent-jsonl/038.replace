@@ -1,0 +1,3 @@
+static void agent_tool_viz_param_end(agent_stream_renderer *sr) {
+    ds4ui_tool_stream_flush(sr->renderer ? sr->renderer->worker : NULL);   /*DS4UI_JSONL*/
+    agent_tool_visualizer *v = &sr->viz;

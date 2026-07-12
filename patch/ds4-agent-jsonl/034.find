@@ -1,0 +1,1 @@
+static void agent_tool_viz_tool(agent_stream_renderer *sr, const char *name) {

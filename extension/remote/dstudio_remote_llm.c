@@ -264,8 +264,8 @@ int dstudio_remote_chat_stream(const char *base_url,
         remote_err(err, err_len, "remote model host is missing");
         return 1;
     }
-    if (strncmp(base_url, "http://", 7) != 0) {
-        remote_err(err, err_len, "remote model host must be http:// on LAN");
+    if (strncmp(base_url, "http://", 7) != 0 && strncmp(base_url, "https://", 8) != 0) {
+        remote_err(err, err_len, "remote model host must be http:// (LAN) or https:// (cloud API)");
         return 1;
     }
 

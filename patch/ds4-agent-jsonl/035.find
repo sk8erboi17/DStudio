@@ -1,0 +1,2 @@
+    snprintf(v->tool_name, sizeof(v->tool_name), "%s", name ? name : "tool");
+    v->tool_announced = true;

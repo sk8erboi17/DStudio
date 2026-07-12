@@ -1244,6 +1244,31 @@
     .thinking summary::-webkit-details-marker { display: none; }
     .thinking summary::marker { content: ''; }
 
+    /* Per-kind accents: reasoning (violet), web search (blue), page visits
+       (teal). Fixed hues chosen to read on both light and dark surfaces. */
+    .thinking--reasoning { border-left-color: #8b5cf6; }
+    .thinking--reasoning > .thinking__cap,
+    .thinking--reasoning > summary { color: #8b5cf6; }
+    .toolfold--web { border-left-color: #3b82f6; }
+    .toolfold--web > summary { color: #3b82f6; }
+    .toolfold--visit { border-left-color: #0d9488; }
+    .toolfold--visit > summary { color: #0d9488; }
+
+    /* Live tool block: the stanza is still streaming from the model */
+    .diffcard--live .diff-verb { animation: livepulse 1.2s ease-in-out infinite; }
+    @keyframes livepulse { 50% { opacity: 0.45; } }
+
+    /* Skill chip next to the live working label */
+    .agent-skill-chip {
+      margin-left: 8px;
+      padding: 1px 8px;
+      border: 1px solid var(--border-2);
+      border-radius: 999px;
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
     .thinking__body {
       padding: 9px 0 0;
       color: var(--muted);
@@ -4971,10 +4996,19 @@
       animation: ratepulse 1.4s ease-in-out infinite;
     }
 
-    .agent-working::after {
+    .agent-working__label::after {
       content: '▍';
       color: var(--accent);
       animation: blink 1s steps(2, start) infinite;
+    }
+
+    /* Second row under the live label: elapsed (same font, inherited) with
+       the active-skill chip beside it. */
+    .agent-working__sub {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-top: 0.25rem;
     }
 
     /* Agent quick-commands row */
@@ -5440,6 +5474,17 @@
             <span>Server URL <small class="field-note">empty = the local engine (default, also over the LAN)</small></span>
             <input type="url" id="set-baseurl" placeholder="Local engine — or http://host:port for a different one" spellcheck="false">
           </label>
+          <label class="field">
+            <span>Model backend <small class="field-note">Chat, Agent, Design, GSA and RSA — tools always run locally on this Mac</small></span>
+            <select id="set-chat-backend" aria-label="Chat engine">
+              <option value="local">Local ds4</option>
+              <option value="deepseek">DeepSeek API (cloud)</option>
+            </select>
+          </label>
+          <label class="field" id="set-deepseek-key-row">
+            <span>DeepSeek API key <small class="field-note">stored only on this Mac; sent only to api.deepseek.com</small></span>
+            <input type="password" id="set-deepseek-key" placeholder="sk-…" spellcheck="false" autocomplete="off">
+          </label>
           <div class="field">
             <span>Model <small class="field-note">the GGUF the engine loads — picking another restarts it</small></span>
             <div class="onboard__models set-models" id="set-models"></div>
@@ -5473,7 +5518,7 @@
               <option value="auto">Auto</option>
               <option value="on">On</option>
             </select>
-            <p class="set-help">Default is Off. Auto or On can be selected manually, but they are launch parameters and require an engine restart.</p>
+            <p class="set-help">Default is Auto: streaming engages by itself when the model does not comfortably fit in memory. Off forces full residency (fast only when there is real headroom); all values are launch parameters and require an engine restart.</p>
             <p class="set-inline-msg" id="set-memory-msg"></p>
             <div class="field__row" style="margin-top:0.45rem">
               <input type="number" id="set-iogpu-limit-mb" min="86016" max="90112" step="1024" value="86016" aria-label="IOGPU wired limit MB">
@@ -5894,6 +5939,9 @@
     const DEFAULT_SETTINGS = {
       v: SCHEMA_VERSION,
       baseUrl: DEFAULT_BASE_URL,
+      chatBackend: 'local',   // 'local' | 'deepseek' — Chat only; Agent/Design/GSA/RSA are always local
+      deepseekApiKey: '',
+      deepseekModel: 'deepseek-chat',   // cloud model used by chat and remote agent/design launches
       lanClientHost: '',     // when set, this local UI uses that DStudio host for model + Chat web tools
       lanClientId: '',       // stable browser id used only for host-side LAN mirrors
       lanClientName: '',     // display label for the host's mirrored sidebar entries
@@ -5906,7 +5954,7 @@
       modelVariant: 'flash',// 'flash' | 'pro' — which GGUF the engine launches with
       ctxSize: 65536,       // engine context window (-c); 64k default, changeable in onboarding/settings
       enginePower: 90,      // ds4 --power launch parameter
-      ssdStreaming: 'off',  // off | on | auto — Metal SSD model streaming
+      ssdStreaming: 'auto',  // off | on | auto — Metal SSD model streaming; auto engages it under memory pressure
       useJsonlPatch: true,  // agent: try the structured-output patch (off = stock ds4-agent, raw output)
       webMode: 'off',       // chat web context: 'off' | 'search' | 'research'
       planMode: 'off',      // agent Plan mode: 'off' | 'on' for the next planning turn
@@ -8206,6 +8254,16 @@
           delete state.settings.lanClientDs4Dir;
           settingsChanged = true;
         }
+        // One-time migration: 'off' used to be the SHIPPED default for SSD
+        // streaming, so stores carry it without any deliberate user choice —
+        // and on machines where the model barely fits it forces full
+        // residency and cripples decode. Rewrite it to 'auto' once; a user
+        // who re-selects Off afterwards keeps it (the flag blocks re-runs).
+        if (!state.settings.ssdStreamingAutoMigrated) {
+          if (state.settings.ssdStreaming === 'off') state.settings.ssdStreaming = 'auto';
+          state.settings.ssdStreamingAutoMigrated = 1;
+          settingsChanged = true;
+        }
         if (!state.settings.lanClientId) {
           state.settings.lanClientId = `client-${uid().replace(/[^a-z0-9_.-]/gi, '').slice(0, 48)}`;
           settingsChanged = true;
@@ -8632,10 +8690,22 @@
     /* ==================== ds4-server API client ==================== */
 
     const Api = (() => {
-      const baseUrl = () => Store.getSettings().baseUrl.replace(/\/+$/, '');
+      // Chat-only cloud backend: when the DeepSeek API is selected and a key
+      // is present, chat requests go straight to api.deepseek.com (the API is
+      // CORS-enabled and format-compatible: ds4 mimics it). Agent, Design,
+      // GSA and RSA never use this path - they run on the local runtime.
+      const deepseekMode = () => !isLanClientMode() &&
+        Store.getSettings().chatBackend === 'deepseek' &&
+        !!(Store.getSettings().deepseekApiKey || '').trim();
+      const baseUrl = () => deepseekMode()
+        ? 'https://api.deepseek.com'
+        : Store.getSettings().baseUrl.replace(/\/+$/, '');
+      const authHeaders = () => deepseekMode()
+        ? { Authorization: `Bearer ${Store.getSettings().deepseekApiKey.trim()}` }
+        : {};
 
       async function getModels() {
-        const res = await fetch(`${baseUrl()}/v1/models`, { signal: AbortSignal.timeout(MODELS_TIMEOUT_MS) });
+        const res = await fetch(`${baseUrl()}/v1/models`, { headers: authHeaders(), signal: AbortSignal.timeout(MODELS_TIMEOUT_MS) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         return Array.isArray(json?.data) ? json.data : [];
@@ -8661,7 +8731,7 @@
             await probeLanHost(currentLanClientHost());
             ok = true;
           } else {
-            const res = await fetch(`${baseUrl()}/v1/models`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) });
+            const res = await fetch(`${baseUrl()}/v1/models`, { headers: authHeaders(), signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) });
             ok = res.ok;
           }
         } catch {
@@ -8673,15 +8743,14 @@
 
       function buildBody({ model, messages, temperature, maxTokens, thinkLevel, stream = true }) {
         const off = thinkLevel === 'off';
-        const body = {
-          model,
-          messages,
-          stream,
-          think: !off, // native ds4 parameter, always explicit
-        };
+        const cloud = deepseekMode();
+        const body = { model, messages, stream };
+        if (!cloud) body.think = !off; // native ds4 parameter, always explicit
         if (stream) body.stream_options = { include_usage: true };
-        // Above zero, ds4 exposes only two real levels: high and max.
-        if (!off) body.reasoning_effort = thinkLevel === 'max' ? 'max' : 'high';
+        // Above zero, ds4 exposes only two real levels: high and max. The
+        // DeepSeek cloud API has no think/reasoning_effort params - reasoning
+        // is a model choice there (deepseek-reasoner vs deepseek-chat).
+        if (!cloud && !off) body.reasoning_effort = thinkLevel === 'max' ? 'max' : 'high';
         if (typeof temperature === 'number') body.temperature = temperature;
         if (maxTokens > 0) body.max_tokens = maxTokens;
         return body;
@@ -8772,7 +8841,7 @@
           res = await fetch(`${baseUrl()}/v1/chat/completions`, {
             method: 'POST',
             signal,
-            headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+            headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', ...authHeaders() },
             body: JSON.stringify(buildBody(req)),
           });
         } catch (e) {
@@ -8829,7 +8898,7 @@
         const res = await fetch(`${baseUrl()}/v1/chat/completions`, {
           method: 'POST',
           signal,
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', ...authHeaders() },
           body: JSON.stringify(buildBody({ ...req, stream: false })),
         });
         if (!res.ok) throw new Error(await readErrorMessage(res));
@@ -13944,7 +14013,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const groups = [{
           id: 'session',
           label: mode === 'design' ? 'Session' : 'Session',
-          items: [{ value: '', lead: mode === 'design' ? 'Default' : 'No skill', sub: mode === 'design' ? 'No focused recipe' : 'The charter only' }],
+          items: [
+            { value: '', lead: mode === 'design' ? 'Default' : 'No skill', sub: mode === 'design' ? 'No focused recipe' : 'The charter only' },
+            ...(mode === 'agent' ? [{ value: 'auto', lead: 'Auto — route by prompt', sub: 'Each message gets the best-matching skill, chosen automatically' }] : []),
+          ],
         }];
         const seen = new Set(['']);
         const addItem = (group, s) => {
@@ -13978,6 +14050,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
           const hit = (group.items || []).find((it) => it.value === value);
           if (hit) return hit.lead || hit.value || 'No skill';
         }
+        // A persisted selection whose pack no longer exists on disk: make the
+        // stale state visible instead of silently injecting nothing.
+        if (value && Array.isArray(groups) && groups.length) return `${value} — missing`;
         return value || (curMode === 'design' ? 'Default' : 'No skill');
       }
 
@@ -14015,7 +14090,11 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
 
       function setThinkingLevel(v) {
-        if ((Store.getSettings().gsaMode === 'on' || Store.getSettings().gsaLoop === 'on' || Store.getSettings().rsaMode === 'on') && v !== 'max') {
+        // The GSA/RSA thinking lock only applies where guided analysis actually
+        // runs (agent mode) — the persisted gsa/rsa flags must not block the
+        // thinking picker in chat or design.
+        if (Switcher.mode() === 'agent' &&
+            (Store.getSettings().gsaMode === 'on' || Store.getSettings().gsaLoop === 'on' || Store.getSettings().rsaMode === 'on') && v !== 'max') {
           v = 'max';
           toast('Guided analysis always runs with Thinking: max.', 'info');
         }
@@ -14316,7 +14395,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
          another model's cache — it reloads cleanly, keeping the conversation.
          Downloading new models lives in onboarding and Settings, not here. */
       let modelMenuOpen = false;
+      let cloudModels = null;     // [{id}] from the DeepSeek API when the cloud backend is on
+      const cloudBackendOn = () => Store.getSettings().chatBackend === 'deepseek' && !!(Store.getSettings().deepseekApiKey || '').trim();
       let ggufList = null;        // [{file,path,size}] present in the engine folder
+      let checkoutList = null;    // [{dir,name,branch,hasServer,active}] ds4 checkouts
       let runningModelFile = '';  // status.modelFile — the GGUF currently loaded
       function closeModelMenu() {
         if (!modelMenuOpen) return;
@@ -14326,13 +14408,22 @@ Your report must be precise, of high-quality, and written by an expert using an 
       async function loadModelList() {
         if (isLanClientMode()) {
           ggufList = [];
+          checkoutList = [];
           runningModelFile = '';
           modelMenuOpen = false;
           renderModelPill();
           return;
         }
+        if (cloudBackendOn()) {
+          try { cloudModels = await Api.getModels(); }
+          catch { cloudModels = cloudModels || []; }
+          renderModelPill();
+          return;
+        }
         try { const r = await Engine.ggufs(); ggufList = (r && r.ggufs) || []; }
         catch { ggufList = ggufList || []; }
+        try { const r = await Engine.engineCheckouts(); checkoutList = (r && r.checkouts) || []; }
+        catch { checkoutList = checkoutList || []; }
         try { const st = await Engine.status(); runningModelFile = st.modelFile || ''; }
         catch { /* keep last known */ }
         renderModelPill();
@@ -14350,11 +14441,57 @@ Your report must be precise, of high-quality, and written by an expert using an 
           cbarModel.replaceChildren();
           return;
         }
+        if (cloudBackendOn()) {
+          const cur = Store.getSettings().deepseekModel || 'deepseek-chat';
+          const btn = el('button', { class: 'cbar-model-btn', type: 'button' });
+          btn.append(
+            el('span', { class: 'cbar-model-dot' }),
+            el('span', { text: `${cur} · cloud` }),
+            el('span', { class: 'cbar-model-cv', text: '▾' }),
+          );
+          on(btn, 'click', (e) => {
+            e.stopPropagation();
+            const next = !modelMenuOpen;
+            closeGear(); closeThinkMenu();
+            modelMenuOpen = next;
+            if (modelMenuOpen) loadModelList(); else renderModelPill();
+          });
+          cbarModel.hidden = false;
+          cbarModel.replaceChildren(btn);
+          if (!modelMenuOpen) return;
+          const menu = el('div', { class: 'cbar-model-menu' });
+          menu.append(el('div', { class: 'cbar-model-empty', text: 'DeepSeek API models' }));
+          const models = cloudModels || [];
+          if (!models.length) {
+            menu.append(el('div', { class: 'cbar-model-empty', text: cloudModels === null ? 'Loading models…' : 'No models — check the API key in Settings.' }));
+          }
+          models.forEach((mo) => {
+            const id = mo.id || String(mo);
+            const active = id === cur;
+            const item = el('button', { class: 'cbar-model-item', type: 'button' }, [
+              el('span', { class: 'cbar-model-dot', style: active ? '' : 'background:var(--faint)' }),
+              el('div', { class: 'mi-body' }, [el('div', { class: 'mi-name', text: id })]),
+              el('span', { class: 'mi-badge', text: active ? '✓ active' : 'use' }),
+            ]);
+            on(item, 'click', (e) => {
+              e.stopPropagation();
+              modelMenuOpen = false;
+              Store.setSettings({ deepseekModel: id, model: id });
+              toast(`Cloud model: ${id} — chat immediately; agent/design from their next start.`, 'info');
+              renderModelPill();
+            });
+            menu.append(item);
+          });
+          cbarModel.append(menu);
+          return;
+        }
         const dl = Store.getState().ui.modelDownload;     // {variant, pct} | null
         const ggufs = ggufList || [];
         const running = ggufs.find((g) => g.path === runningModelFile);
+        const activeCo = (checkoutList || []).find((c) => c.active);
+        const coTag = activeCo && activeCo.name !== 'ds4' ? ` · ${activeCo.branch || activeCo.name}` : '';
         const label = dl ? `Downloading ${dl.pct}%`
-          : running ? modelLabel(running.file, false)
+          : running ? modelLabel(running.file, false) + coTag
           : ggufs.length ? 'Pick a model' : 'No model';
         const btn = el('button', { class: 'cbar-model-btn', type: 'button' });
         btn.append(
@@ -14373,6 +14510,25 @@ Your report must be precise, of high-quality, and written by an expert using an 
         cbarModel.replaceChildren(btn);
         if (!modelMenuOpen) return;
         const menu = el('div', { class: 'cbar-model-menu' });
+        /* Engine-branch section: only when there is more than one ds4 checkout
+           next to DStudio (e.g. ./ds4 on main and a ./ds4-glm52 worktree). */
+        const cos = checkoutList || [];
+        if (cos.length > 1) {
+          menu.append(el('div', { class: 'cbar-model-empty', text: 'Engine branch' }));
+          cos.forEach((c) => {
+            const item = el('button', { class: 'cbar-model-item', type: 'button' }, [
+              el('span', { class: 'cbar-model-dot', style: c.active ? '' : 'background:var(--faint)' }),
+              el('div', { class: 'mi-body' }, [
+                el('div', { class: 'mi-name', text: c.branch || c.name }),
+                el('div', { class: 'mi-sub', text: c.name + (c.hasServer ? '' : ' — not built (run make)') }),
+              ]),
+              el('span', { class: 'mi-badge', text: c.active ? '✓ active' : 'switch' }),
+            ]);
+            on(item, 'click', (e) => { e.stopPropagation(); modelMenuOpen = false; pickCheckout(c); });
+            menu.append(item);
+          });
+          menu.append(el('div', { class: 'cbar-model-empty', text: 'Model' }));
+        }
         if (!ggufs.length) {
           menu.append(el('div', { class: 'cbar-model-empty',
             text: 'No model in the engine folder — download one from Settings or the welcome screen.' }));
@@ -14398,6 +14554,13 @@ Your report must be precise, of high-quality, and written by an expert using an 
         renderModelPill();
         if (active) return;                       // already running this model
         Switcher.switchToGguf(g.path, modelLabel(g.file, true));
+      }
+      function pickCheckout(c) {
+        if (isLanClientMode()) return;
+        renderModelPill();
+        if (c.active) return;                     // already on this checkout
+        if (!c.hasServer) { toast(`${c.name} is not built yet — run make in ${c.dir}.`, 'warn'); return; }
+        Switcher.switchEngineDir(c.dir, c.branch || c.name);
       }
       // close the model menu on an outside click
       on(document, 'click', (e) => {
@@ -14499,6 +14662,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
         lanDialog = qs('#lan-client-settings-dialog');
         f = {
           baseUrl: qs('#set-baseurl'),
+          chatBackend: qs('#set-chat-backend'),
+          deepseekKey: qs('#set-deepseek-key'),
+          deepseekKeyRow: qs('#set-deepseek-key-row'),
           models: qs('#set-models'),
           temp: qs('#set-temp'),
           tempOut: qs('#set-temp-out'),
@@ -14576,6 +14742,26 @@ Your report must be precise, of high-quality, and written by an expert using an 
           Statusbar.refresh();
           refreshModels();
         });
+        const syncDeepseekRow = () => {
+          if (f.deepseekKeyRow) f.deepseekKeyRow.style.display = f.chatBackend.value === 'deepseek' ? '' : 'none';
+        };
+        on(f.chatBackend, 'change', () => {
+          const v = f.chatBackend.value === 'deepseek' ? 'deepseek' : 'local';
+          Store.setSettings({ chatBackend: v });
+          syncDeepseekRow();
+          if (v === 'deepseek' && !(Store.getSettings().deepseekApiKey || '').trim()) {
+            toast('Add your DeepSeek API key below to activate the cloud chat.', 'info');
+          }
+          Api.invalidateHealth();
+          Statusbar.refresh();
+          refreshModels();
+        });
+        on(f.deepseekKey, 'change', () => {
+          Store.setSettings({ deepseekApiKey: f.deepseekKey.value.trim() });
+          Api.invalidateHealth();
+          Statusbar.refresh();
+          refreshModels();
+        });
         on(f.temp, 'input', () => {
           f.tempOut.textContent = f.temp.value;
           Store.setSettings({ temperature: +f.temp.value });
@@ -14602,7 +14788,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           Switcher.applyEngineConfig();
         });
         on(f.ssdStreaming, 'change', () => {
-          const v = ['off', 'on', 'auto'].includes(f.ssdStreaming.value) ? f.ssdStreaming.value : 'off';
+          const v = ['off', 'on', 'auto'].includes(f.ssdStreaming.value) ? f.ssdStreaming.value : 'auto';
           if (v === Store.getSettings().ssdStreaming) return;
           Store.setSettings({ ssdStreaming: v });
           refreshMemoryDoctor();
@@ -14758,13 +14944,16 @@ Your report must be precise, of high-quality, and written by an expert using an 
       function syncFields() {
         const s = Store.getSettings();
         f.baseUrl.value = s.baseUrl;
+        f.chatBackend.value = s.chatBackend === 'deepseek' ? 'deepseek' : 'local';
+        f.deepseekKey.value = s.deepseekApiKey || '';
+        if (f.deepseekKeyRow) f.deepseekKeyRow.style.display = f.chatBackend.value === 'deepseek' ? '' : 'none';
         f.temp.value = s.temperature;
         f.tempOut.textContent = s.temperature;
         f.maxTok.value = s.maxTokens ?? '';
         setThemeActive(s.theme || 'light');
         f.ctx.value = String(s.ctxSize ?? 65536);
         f.power.value = String(s.enginePower ?? 90);
-        f.ssdStreaming.value = ['off', 'on', 'auto'].includes(s.ssdStreaming) ? s.ssdStreaming : 'off';
+        f.ssdStreaming.value = ['off', 'on', 'auto'].includes(s.ssdStreaming) ? s.ssdStreaming : 'auto';
         f.jsonl.value = s.useJsonlPatch === false ? 'off' : 'on';
         f.system.value = s.systemPrompt ?? '';
         updateCtxNote();
@@ -15767,7 +15956,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
         sync();
         on(sel, 'change', () => {
           let next = sel.value;
-          if ((Store.getSettings().gsaMode === 'on' || Store.getSettings().gsaLoop === 'on' || Store.getSettings().rsaMode === 'on') && next !== 'max') {
+          // Same scoping as the composer pill: the GSA/RSA max-thinking lock
+          // only matters in agent mode, not in chat/design.
+          if (Switcher.mode() === 'agent' &&
+              (Store.getSettings().gsaMode === 'on' || Store.getSettings().gsaLoop === 'on' || Store.getSettings().rsaMode === 'on') && next !== 'max') {
             next = 'max';
             sel.value = next;
             toast('Guided analysis always runs with Thinking: max.', 'info');
@@ -16428,6 +16620,13 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (!r.ok && data && !data.error) data.error = `/api/ds4/setup returned HTTP ${r.status}`;
         return data;
       }
+      async function setupGlm() {   // optional GLM 5.2 engine checkout (download + patch + make)
+        const r = await apiFetch('/api/glm/setup', { method: 'POST', headers: H });
+        const data = await r.json().catch(() => ({ ok: false, error: `/api/glm/setup returned HTTP ${r.status} with invalid JSON` }));
+        if (!r.ok && data && data.ok !== false) data.ok = false;
+        if (!r.ok && data && !data.error) data.error = `/api/glm/setup returned HTTP ${r.status}`;
+        return data;
+      }
       async function setupContent() {   // download skills/design-systems/gsa bundled content
         const r = await apiFetch('/api/setup/content', { method: 'POST', headers: H });
         const data = await r.json().catch(() => ({ ok: false, error: `/api/setup/content returned HTTP ${r.status} with invalid JSON` }));
@@ -16438,6 +16637,16 @@ Your report must be precise, of high-quality, and written by an expert using an 
       async function ggufs() {   // the actual .gguf files in the engine folder
         const r = await apiFetch('/api/ggufs', { signal: AbortSignal.timeout(4000) });
         return r.json();
+      }
+      async function engineCheckouts() {  // sibling ds4 checkouts (git branches)
+        const r = await apiFetch('/api/engine/checkouts', { signal: AbortSignal.timeout(4000) });
+        return r.json();
+      }
+      async function setEngineCheckout(dir) {  // swap the active ds4 checkout (restart applies it)
+        const r = await apiFetch('/api/engine/checkout', { method: 'POST', headers: H, body: JSON.stringify({ dir }) });
+        const data = await r.json().catch(() => ({ ok: false, error: `/api/engine/checkout returned HTTP ${r.status}` }));
+        if (!r.ok && data && data.ok !== false) data.ok = false;
+        return data;
       }
       async function skills() {  // the skill packs in extension/skills (for agent/design)
         const r = await apiFetch('/api/skills', { signal: AbortSignal.timeout(4000) });
@@ -16653,7 +16862,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return r.json();
       }
 
-      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, skills, skillsSearch, skillGet, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
+      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupGlm, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, engineCheckouts, setEngineCheckout, skills, skillsSearch, skillGet, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
     })();
 
     /* ==================== Remote LAN chat ==================== */
@@ -16909,6 +17118,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
       function actionLabel(action) {
         return {
           'setup-ds4': 'Install',
+          'setup-glm': 'Install',
           'setup-content': 'Download',
           'download-model': 'Download',
           'start-engine': 'Start',
@@ -16924,6 +17134,14 @@ Your report must be precise, of high-quality, and written by an expert using an 
             await Onboarding.setupDs4();
             refresh();
           });
+          return;
+        }
+        if (action === 'setup-glm') {
+          toast('Installing the GLM 5.2 engine — download and build take a few minutes…', 'info');
+          const r = await Engine.setupGlm().catch(() => null);
+          if (!r || r.ok === false) toast(r?.error || 'GLM engine setup failed', 'error');
+          else toast('GLM 5.2 engine installed — pick the glm5.2 branch from the model menu, then download a GLM GGUF.', 'info');
+          refresh();
           return;
         }
         if (action === 'setup-content') {
@@ -17360,18 +17578,75 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return el('span', { class: 'agent-rate', text: `${rate} tok/s` });
       }
 
+      // Live engine stats streamed by the jsonl agent as \x1e status events:
+      // they replace the generic working label with real prefill/decode
+      // numbers. Ephemeral: never persisted, freshness-gated.
+
+      // With Auto routing the chip shows the skill the model ACTUALLY loaded:
+      // captured from the skill(name) tool_call events in the live stream.
+      let liveRoutedSkill = '';
+      const SKILL_CALL_RE = /\u001e\{"type":"tool_call","name":"skill","input":\{"name":"([A-Za-z0-9_-]+)"/g;
+      function captureRoutedSkill(delta) {
+        const s = String(delta);
+        SKILL_CALL_RE.lastIndex = 0;
+        let m, last = null;
+        while ((m = SKILL_CALL_RE.exec(s))) last = m[1];
+        if (last) liveRoutedSkill = last;
+      }
+      function skillChipText() {
+        const picked = viewMode === 'agent' ? ((Store.getSettings().skillByMode || {}).agent || '') : '';
+        if (!picked) return '';
+        if (picked === 'auto') return liveRoutedSkill ? `skill \u00b7 ${liveRoutedSkill}` : 'skill \u00b7 auto';
+        return `skill \u00b7 ${picked}`;
+      }
+      let engineStatus = null;
+      const STATUS_EV_RE = /\u001e\{"type":"status"[^\n]*\n/g;
+      function captureEngineStatus(delta) {
+        const m = String(delta).match(STATUS_EV_RE);
+        if (!m) return;
+        try { engineStatus = { ...JSON.parse(m[m.length - 1].slice(1)), at: performance.now() }; }
+        catch { /* partial line: keep the previous snapshot */ }
+      }
+      function agentWorkingLabel() {
+        const st = engineStatus;
+        const fresh = st && performance.now() - st.at < 8000;
+        if (fresh && st.state === 'prefill' && st.prefillTotal > 0) {
+          const pct = Math.min(100, Math.round(100 * (st.prefillDone || 0) / st.prefillTotal));
+          const tps = st.prefillTps || 0;
+          return `prefill ${pct}% · ${tps >= 100 ? Math.round(tps) : tps.toFixed(1)} tok/s`;
+        }
+        if (fresh && (st.state === 'generating' || st.state === 'compacting') && (st.genTps || 0) > 0) {
+          return `${st.state === 'compacting' ? 'compacting' : 'decode'} ${st.genTps.toFixed(1)} tok/s · ${st.generated} token`;
+        }
+        return viewMode === 'design' ? 'The design agent is working' : 'The agent is working';
+      }
+
+      // Two rows: the live stats label on top; below it "Time elapsed · X"
+      // in the SAME font, with the active-skill chip beside it.
       function buildAgentWorking() {
-        const label = viewMode === 'design' ? 'The design agent is working' : 'The agent is working';
-        const elt = el('div', { class: 'agent-working' }, [el('span', { text: label })]);
-        const rate = buildAgentRate();
-        if (rate) elt.append(rate);
+        const elt = el('div', { class: 'agent-working' });
+        elt.append(el('div', {}, [el('span', { class: 'agent-working__label', text: agentWorkingLabel() })]));
+        const sub = el('div', { class: 'agent-working__sub' });
+        if (liveTurnStartedAt) {
+          sub.append(el('span', {
+            class: 'agent-elapsed--live',
+            text: `Time elapsed · ${formatElapsed(performance.now() - liveTurnStartedAt)}`,
+          }));
+        }
+        const chip = skillChipText();
+        if (chip) sub.append(el('span', { class: 'agent-skill-chip', text: chip }));
+        if (sub.childNodes.length) elt.append(sub);
         return elt;
       }
 
       function updateLiveElapsedBadges() {
+        clearStaleWorkingFooter();
         if (!liveTurnStartedAt) return;
         const txt = `Time elapsed · ${formatElapsed(performance.now() - liveTurnStartedAt)}`;
         view?.querySelectorAll('.agent-elapsed--live').forEach((node) => { node.textContent = txt; });
+        view?.querySelectorAll('.agent-working__label').forEach((node) => { node.textContent = agentWorkingLabel(); });
+        const chip = skillChipText();
+        view?.querySelectorAll('.agent-skill-chip').forEach((node) => { if (chip) node.textContent = chip; });
         const rate = liveTurnTokPerSec();
         view?.querySelectorAll('.agent-rate').forEach((node) => {
           node.textContent = `${rate} tok/s`;
@@ -17397,13 +17672,23 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
       function ensureLiveTurnTimer() {
         if (liveTurnStartedAt || !working) return;
+        liveRoutedSkill = '';   // a fresh turn may route to a different skill
         const target = liveConvId || convId;
         const conv = Store.getChat(target);
         const idx = realUserTurnCount(conv?.transcript || text);
         if (idx > 0) startTurnTimer(target, idx);
       }
 
+      // The empty-view hero does not re-render on the working→idle poll
+      // transition when the finished turn belongs to ANOTHER conversation
+      // (e.g. a /new session created while its predecessor was prefilling):
+      // drop any lingering live footer explicitly.
+      function clearStaleWorkingFooter() {
+        if (!working) view?.querySelectorAll('.agent-working').forEach((n) => n.remove());
+      }
+
       function finishLiveTurnTimer() {
+        clearStaleWorkingFooter();
         if (!liveTurnStartedAt) return;
         const target = liveConvId || convId;
         const conv = Store.getChat(target);
@@ -17511,6 +17796,17 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
 
       function settleAgentScroll(stick, previousTop) {
+        // Never fight an actively scrolling user: the live repaint runs a few
+        // times per second and settleScroll re-applies the captured scrollTop
+        // for two more frames — with the user mid-scroll that kept yanking
+        // the view back to where it was BEFORE their gesture. The scroller
+        // node persists across repaints, so the browser already preserves the
+        // position; the numeric restore is only for when nobody is scrolling.
+        const userScrolling = !stick && performance.now() - agentScrollInputAt < 1500;
+        if (userScrolling) {
+          if (view) agentLastScrollTop = view.scrollTop;
+          return;
+        }
         settleScroll(view, stick, previousTop);
         if (view) agentLastScrollTop = view.scrollTop;
       }
@@ -17917,7 +18213,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
       // so they do not count toward deciding whether the conversation is "empty". The
       // other events (proposal, artifact, todos, tool…) do render.
       const strippedVisibleText = (raw = text) => String(raw || '')
-        .replace(/\u001e\{"type":"(?:sessions|session_status)"[^\n]*(\n|$)/g, '')
+        .replace(/\u001e\{"type":"(?:sessions|session_status|status)"[^\n]*(\n|$)/g, '')
         .replace(/\u0001USER\u0002\/(?:(?:save|list|new|help|compact)|(?:switch|del)[^\u0001]*)\u0001ENDUSER\u0002\n?/g, '')
         .split('\n').filter((ln) => !SYS_LINE_RE.test(ln.trim())).join('\n')
         .trim();
@@ -18388,6 +18684,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const delta = agentDeltaFromResponse(res);
         if (delta) {
           since = res.len;
+          captureEngineStatus(delta);
+          captureRoutedSkill(delta);
           if (viewMode === 'design') DesignRuntime.ingestText(delta);
           // Deltas land ONLY in the LIVE conversation (persisted in the
           // Store); the view updates only if I am looking at it. If the live
@@ -19012,11 +19310,11 @@ Your report must be precise, of high-quality, and written by an expert using an 
               setMarkdown(rb, seg.text);
               // Agent and Design reasoning is live narration, so keep it open.
               if (viewMode === 'agent' || viewMode === 'design') {
-                host.append(el('div', { class: 'thinking' }, [
+                host.append(el('div', { class: 'thinking thinking--reasoning' }, [
                   el('div', { class: 'thinking__cap', text: 'Reasoning' }), rb,
                 ]));
               } else {
-                const d = el('details', { class: 'thinking' });
+                const d = el('details', { class: 'thinking thinking--reasoning' });
                 d.append(el('summary', { text: 'Reasoning' }), rb);
                 host.append(d);
               }
@@ -19038,6 +19336,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
             } else {
               host.append(buildQForm(qseg, partIdx < lastRealUser));
             }
+          } else if (seg.kind === 'tool_live') {
+            host.append(buildLiveToolBlock(seg));
+            hadOutput = true;
           } else if (seg.kind === 'todos') {
             const card = buildTodosCard(seg.ev.todos);
             if (card) { host.append(card); if (todoCards) todoCards.push(card); }
@@ -19172,7 +19473,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
           deferFreeText: working,
         });
         for (let i = 0; i < todoCards.length - 1; i++) todoCards[i].remove();
-        if (liveTurnStartedAt) draft.append(buildElapsed(performance.now() - liveTurnStartedAt, true));
         if (displayedWorking()) draft.append(buildAgentWorking());
         syncLiveTailChildren(liveTail.el, draft);
       }
@@ -19355,7 +19655,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (trackQuestionCard && !activeQuestionRenderSeen) hideActiveQuestion();
         if (liveStart != null) mountLiveTail(liveStart);
         else if (displayedWorking()) {
-          if (liveTurnStartedAt) inner.append(buildElapsed(performance.now() - liveTurnStartedAt, true));
           inner.append(buildAgentWorking());
         }
         settleAgentScroll(stick, prevScrollTop);
@@ -19457,8 +19756,16 @@ Your report must be precise, of high-quality, and written by an expert using an 
       // folds), the body is the result output. Collapsed by default.
       const TOOL_EMOJI_RE = /^[^\w$/.~"'-]+\s*/u;
 
+      // Per-kind accent so web activity is visually distinct from reasoning
+      // and from the other tools at a glance.
+      function toolKindClass(name) {
+        if (name === 'google_search') return ' toolfold--web';
+        if (name === 'visit_page') return ' toolfold--visit';
+        return '';
+      }
+
       function buildToolFold(ev) {
-        const d = el('details', { class: 'thinking toolfold' });
+        const d = el('details', { class: 'thinking toolfold' + toolKindClass(ev.name) });
         const label = toolHead(ev).text.replace(TOOL_EMOJI_RE, '').trim() || ev.name || 'tool';
         d.append(el('summary', { text: label }));
         return d;
@@ -19475,7 +19782,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
       // Result with no preceding call in the delta (e.g. cut transcript).
       function buildResultFold(ev) {
-        const d = el('details', { class: 'thinking toolfold' });
+        const d = el('details', { class: 'thinking toolfold' + toolKindClass(ev.name) });
         d.append(el('summary', { text: ev.name || 'result' }));
         attachToolOutput(d, ev);
         return d;
@@ -19533,6 +19840,30 @@ Your report must be precise, of high-quality, and written by an expert using an 
       function fileOpPendingVerb(name) {
         return (name === 'delete' || name === 'remove') ? 'deleting'
           : (name === 'write' || name === 'create' || name === 'new_file') ? 'writing' : 'editing';
+      }
+
+      // Live tool stanza (the model is STILL WRITING the call): the block is
+      // born with the first byte and the body streams inside it. File ops use
+      // the diffcard look; everything else a fold kept open.
+      function buildLiveToolBlock(seg) {
+        if (DIFF_TOOLS.has(seg.name)) {
+          const card = el('div', { class: 'diffcard diffcard--live' });
+          card.append(el('div', { class: 'diff-head' }, [
+            el('span', { class: 'diff-verb', text: fileOpPendingVerb(seg.name) + '…' }),
+            el('span', { class: 'diff-path', text: seg.path || '' }),
+          ]));
+          const body = el('div', { class: 'diff-body' });
+          if (seg.oldText) diffLines(body, seg.oldText, '-');
+          if (seg.text) diffLines(body, seg.text, '+');
+          if (body.childNodes.length) card.append(body);
+          return card;
+        }
+        const d = el('details', { class: 'thinking toolfold' + toolKindClass(seg.name) });
+        d.open = true;
+        const label = (TOOL_LABEL[seg.name] || ('🛠 ' + seg.name)).replace(TOOL_EMOJI_RE, '').trim();
+        d.append(el('summary', { text: `${label} ${seg.path || ''} …`.trim() }));
+        if (seg.oldText || seg.text) d.append(el('pre', { class: 'tool-out', text: (seg.oldText || '') + (seg.text || '') }));
+        return d;
       }
 
       function buildDiffPending(ev) {
@@ -19795,6 +20126,11 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
 
       function segmentAgent(raw) {
+        // Status events interleave with the token stream every ~300ms: strip
+        // them BEFORE tokenizing (event + trailing newline), otherwise every
+        // event boundary becomes a spurious line break in the middle of prose
+        // (the tokenizer joins text parts with '\n').
+        raw = String(raw || '').replace(/\u001e\{"type":"status"[^\n]*(\n|$)/g, '');
         // Compaction spans become synthetic events (before ANSI is stripped,
         // since detection keys off the ANSI), then drop any remaining ANSI so
         // colour codes never render as literal "[0m" garbage.
@@ -19884,7 +20220,13 @@ Your report must be precise, of high-quality, and written by an expert using an 
             }
           } else {
             const ty = p.ev.type;
+            if (ty === 'status') continue; // live stats: shown in the working label, never rendered
             if (ty === 'reasoning_start') { flush(); inReasoning = true; }
+            else if (ty === 'tool_call_begin' || ty === 'tool_call_param' || ty === 'tool_body_delta') {
+              // Live tool-stanza events: pushed as-is, coalesced in the
+              // post-pass below into one streaming block.
+              flush(); segs.push({ kind: ty, ev: p.ev });
+            }
             // The template opens <think> IMPLICITLY for every block (only
             // reasoning_end is emitted, never reasoning_start), so the text
             // pending right before a reasoning_end IS reasoning — fold it as
@@ -19895,7 +20237,33 @@ Your report must be precise, of high-quality, and written by an expert using an 
           }
         }
         flush();
-        return segs;
+        // Coalesce the live tool-stanza events into ONE streaming block seg.
+        // While the model is still writing the stanza the block renders live;
+        // once the real tool_call lands (execution) the live run is dropped
+        // and the parsed diff/fold takes over.
+        const out = [];
+        let live = null;
+        for (const s of segs) {
+          if (s.kind === 'tool_call_begin') {
+            live = { kind: 'tool_live', name: s.ev.name || 'tool', path: '', param: '', oldText: '', text: '' };
+            continue;
+          }
+          if (s.kind === 'tool_call_param') {
+            if (live) { live.param = s.ev.param || ''; if (s.ev.path) live.path = s.ev.path; }
+            continue;
+          }
+          if (s.kind === 'tool_body_delta') {
+            if (live) {
+              const key = live.param === 'old' ? 'oldText' : 'text';
+              live[key] += s.ev.text || '';
+            }
+            continue;
+          }
+          if (s.kind === 'tool_call') { live = null; out.push(s); continue; }
+          out.push(s);
+        }
+        if (live) out.push(live);
+        return out;
       }
 
       function extractLastGsaPhaseOutput(raw, expectedPhase = '') {
@@ -21035,7 +21403,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
       const ctxSize = () => Store.getSettings().ctxSize || 65536;
       const enginePower = () => Math.max(1, Math.min(100, parseInt(Store.getSettings().enginePower ?? 90, 10) || 90));
-      const ssdStreaming = () => ['off', 'on', 'auto'].includes(Store.getSettings().ssdStreaming) ? Store.getSettings().ssdStreaming : 'off';
+      const ssdStreaming = () => ['off', 'on', 'auto'].includes(Store.getSettings().ssdStreaming) ? Store.getSettings().ssdStreaming : 'auto';
       const launchBase = () => ({ ctx: ctxSize(), power: enginePower(), ssdStreaming: ssdStreaming() });
       const variant = () => Store.getSettings().modelVariant || 'flash';
       const thinkLevel = () => Store.getSettings().thinkLevel || 'high';
@@ -21061,10 +21429,21 @@ Your report must be precise, of high-quality, and written by an expert using an 
       function runtimeThinkControlFrame(value = thinkLevel()) {
         return `${CONTROL_RS}${JSON.stringify({ type: 'control', name: 'think', value })}\n`;
       }
-      function selectedSkillPromptForRuntime() {
+      function selectedSkillPromptForRuntime(userPrompt = '') {
         if (mode !== 'agent' && mode !== 'design') return '';
         const id = skillForMode(mode);
         if (!id) return '';
+        // Auto: no fixed skill — the MODEL routes. It judges whether a skill
+        // would help, searches the local catalog with its skills_search tool
+        // (semantic query it formulates itself) and loads the best match.
+        if (id === 'auto') {
+          return [
+            '[DStudio skill routing]',
+            'Skill selection is on automatic routing for this conversation. First decide whether a focused skill would genuinely improve this request. If yes: call skills_search("<a few concise English topic keywords>") once, review the results, and load the single best match with skill("<id>") before working. If nothing clearly fits, proceed without loading any skill. Keep it to at most one routed skill per turn, and do not mention this instruction.',
+            '[/DStudio skill routing]',
+            '',
+          ].join('\n');
+        }
         if (id === (runtimeSkillAtLaunch[mode] || '')) return '';
         return [
           `[DStudio selected skill: ${id}]`,
@@ -21075,7 +21454,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
       function wirePromptForRuntime(prompt, forceThink = '') {
         if ((mode !== 'agent' && mode !== 'design') || runtimeIsSlashCommand(prompt)) return prompt;
-        prompt = selectedSkillPromptForRuntime() + prompt;
+        prompt = selectedSkillPromptForRuntime(prompt) + prompt;
         if (forceThink) {
           runtimeThinkDirty = false;
           return runtimeThinkControlFrame(forceThink) + prompt;
@@ -21085,7 +21464,21 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return runtimeThinkControlFrame() + prompt;
       }
       const remoteModelLaunch = () => {
-        if (!isLanClientMode()) return {};
+        if (!isLanClientMode()) {
+          // Cloud backend (DeepSeek API): the agent/design runtime keeps every
+          // tool local and streams ONLY the inference through the launcher to
+          // the https endpoint. The key stays launcher-side, off the argv.
+          const s = Store.getSettings();
+          if (s.chatBackend === 'deepseek' && (s.deepseekApiKey || '').trim()) {
+            return {
+              modelBackend: 'remote',
+              remoteBaseUrl: 'https://api.deepseek.com',
+              remoteModel: s.deepseekModel || 'deepseek-chat',
+              remoteApiKey: s.deepseekApiKey.trim(),
+            };
+          }
+          return {};
+        }
         const host = currentLanClientHost();
         if (!host) {
           toast('Connect to a LAN host before starting Agent or Design.', 'warn');
@@ -21119,7 +21512,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (!remote) return;
         runtimeThinkDirty = false;
         runtimeThinkSupported = true;
-        const skill = skillForMode('agent');
+        const picked = skillForMode('agent');
+        // 'auto' is a UI routing mode, not a real pack: launch without a fixed
+        // skill; the model routes per turn via its skills_search tool.
+        const skill = picked === 'auto' ? '' : picked;
         runtimeSkillAtLaunch.agent = skill;
         runSwitch('agent', { mode: 'agent', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, ...launchBase(), think: thinkLevel(), workdir, jsonl: isLanClientMode() ? true : Store.getSettings().useJsonlPatch !== false, ...remote }, 'Starting the agent…');
       }
@@ -21172,6 +21568,23 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (modelGguf() === path) return;
         Store.setSettings({ modelGguf: path });
         toast(`Loading ${label || 'the model'}…`, 'info');
+        restartCurrent();
+      }
+
+      // Switch the ds4 checkout (git branch) the engine runs from. Process-local
+      // and not persisted: the next DStudio launch resolves ./ds4 again. The
+      // explicit GGUF pick is cleared — the new checkout has its own gguf/ list.
+      async function switchEngineDir(dir, label) {
+        if (isLanClientMode()) { toast('The LAN host controls the engine', 'warn'); return; }
+        let res;
+        try { res = await Engine.setEngineCheckout(dir); }
+        catch { res = null; }
+        if (!res || res.ok === false) {
+          toast((res && res.error) || 'Could not switch the engine checkout.', 'error');
+          return;
+        }
+        Store.setSettings({ modelGguf: '' });
+        toast(`Engine: ${label || res.branch || 'checkout'} — restarting…`, 'info');
         restartCurrent();
       }
 
@@ -21683,7 +22096,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         openWorkdirDialog(target);
       }
 
-      return { mount, mode: () => mode, launching: () => launchTarget, changeWorkdir, applyCtxSize, applyJsonl, applyEngineConfig, applyThinkLevel, openImport, switchModel, switchToGguf, switchSkill, switchDesignSystem, switchPlan, switchGsa, switchRsa, downloadModel, newSession,
+      return { mount, mode: () => mode, launching: () => launchTarget, changeWorkdir, applyCtxSize, applyJsonl, applyEngineConfig, applyThinkLevel, openImport, switchModel, switchToGguf, switchEngineDir, switchSkill, switchDesignSystem, switchPlan, switchGsa, switchRsa, downloadModel, newSession,
                wirePromptForRuntime,
                planArmed: () => PlanDriver.armed(), planArm: (g) => PlanDriver.arm(g),
                planPending: () => PlanDriver.pending(), planAction: (a) => PlanDriver.action(a),

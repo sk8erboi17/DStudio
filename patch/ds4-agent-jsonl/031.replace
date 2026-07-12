@@ -1,0 +1,28 @@
+/*DS4UI_JSONL*/
+/* Live prefill/decode stats for the UI status line: one compact jsonl event,
+ * rate-limited so the poll stream is not flooded. Reads the status under
+ * w->mu and publishes OUTSIDE it (agent_publish takes w->mu). Active only
+ * with --jsonl, like the other ds4ui events. */
+static void ds4ui_emit_status(agent_worker *w) {
+    if (!w || !w->cfg || !w->cfg->jsonl) return;
+    static double ds4ui_status_last;
+    double now = now_sec();
+    if (now - ds4ui_status_last < 0.3) return;
+    ds4ui_status_last = now;
+    pthread_mutex_lock(&w->mu);
+    agent_status st = w->status;
+    pthread_mutex_unlock(&w->mu);
+    const char *state =
+        st.state == AGENT_WORKER_PREFILL ? "prefill" :
+        st.state == AGENT_WORKER_GENERATING ? "generating" :
+        st.state == AGENT_WORKER_COMPACTING ? "compacting" : "working";
+    char line[288];
+    int k = snprintf(line, sizeof line,
+        "\x1e{\"type\":\"status\",\"state\":\"%s\",\"prefillDone\":%d,\"prefillTotal\":%d,"
+        "\"prefillTps\":%.1f,\"generated\":%d,\"genTps\":%.2f,\"ctxUsed\":%d,\"ctxSize\":%d}\n",
+        state, st.prefill_done, st.prefill_total, st.prefill_tps,
+        st.generated, st.gen_tps, st.ctx_used, st.ctx_size);
+    if (k > 0 && k < (int)sizeof line) agent_publish(w, line, (size_t)k);
+}
+
+static void worker_progress_cb(void *ud, const char *event, int current, int total) {

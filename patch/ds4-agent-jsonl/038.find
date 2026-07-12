@@ -1,0 +1,2 @@
+static void agent_tool_viz_param_end(agent_stream_renderer *sr) {
+    agent_tool_visualizer *v = &sr->viz;

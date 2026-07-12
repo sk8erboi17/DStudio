@@ -340,6 +340,17 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define DS4_REPO_URL "https://github.com/antirez/ds4"
 #define DS4_UPSTREAM_COMMIT "d881f2a05e8ff6bec001315a36b794b4aa310173"
 #define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
+
+/* Optional second engine checkout: antirez/ds4 branch glm5.2 (GLM 5.2 support),
+ * pinned like the main engine. /api/glm/setup installs it on demand into
+ * ./ds4-glm52 (gitignored, like ./ds4), applies the local fixes from
+ * patch/ds4-glm52/ on top of the pristine source, and builds. The UI then
+ * offers it in the model menu's Engine-branch section. */
+#define DS4_GLM_UPSTREAM_COMMIT "bd89932c4a0029a911b9f0f0a82688a4bbf69208"
+#define DS4_GLM_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_GLM_UPSTREAM_COMMIT
+#define DS4_GLM_DIR_NAME "ds4-glm52"
+#define DS4_GLM_METAL_PATCH "patch/ds4-glm52/metal-model-views.patch"
+#define DS4_GLM_PATCH_MARK "DS4UI_GLM_VIEWS"
 #define CYBER_SKILLS_REL_DIR "extension/gsa/third_party/anthropic-cybersecurity-skills/skills"
 
 /* Bundled content (skills, design systems, imported GSA cybersecurity skills) is
@@ -387,6 +398,7 @@ static int       g_ds4_dir_explicit = 0;  /* CLI path: do not override with ./ds
 static char      g_web_dir[1024] = "";       /* this DStudio checkout (holds extension/) */
 static char      g_workdir[1024] = "";       /* agent: --chdir; design: --workspace */
 static char      g_remote_base_url[1024] = ""; /* LAN client: local agent/design, remote model */
+static char      g_remote_api_key[256] = "";   /* cloud backend (e.g. DeepSeek API): Bearer key, held launcher-side only */
 static char      g_remote_model[128] = "";
 static char      g_design_dir[1024] = "";    /* last design workspace: the preview
                                                 stays servable even after stop */
@@ -1788,7 +1800,80 @@ static int model_rpc_chunked_bytes(model_rpc_job *job,
     return 1;
 }
 
+/* HTTPS remote endpoints (e.g. the DeepSeek API): the launcher's plain-socket
+ * relay cannot do TLS, so stream through curl — the same dependency first-run
+ * setup already requires. The Bearer key and the request body travel in 0600
+ * temp files (never on the argv); curl de-chunks the response, so its stdout
+ * is plain SSE bytes for the same parser as the LAN path. */
+static int model_rpc_curl_stream(model_rpc_job *job, char *err, size_t errsz) {
+#ifdef _WIN32
+    snprintf(err, errsz, "https model endpoints are not supported on the Windows portable build yet");
+    return 0;
+#else
+    const char *tmp = getenv("TMPDIR");
+    if (!tmp || !tmp[0]) tmp = "/tmp";
+    char hpath[600], bpath[600];
+    snprintf(hpath, sizeof hpath, "%s/ds4ui-remote-h.XXXXXX", tmp);
+    snprintf(bpath, sizeof bpath, "%s/ds4ui-remote-b.XXXXXX", tmp);
+    int hfd = mkstemp(hpath);
+    if (hfd < 0) { snprintf(err, errsz, "could not create remote header file"); return 0; }
+    int bfd = mkstemp(bpath);
+    if (bfd < 0) { close(hfd); unlink(hpath); snprintf(err, errsz, "could not create remote body file"); return 0; }
+
+    json_dyn_buf hdrs = {0};
+    int ok = json_dyn_puts(&hdrs, "Content-Type: application/json\nAccept: text/event-stream\n");
+    if (g_remote_api_key[0])
+        ok = ok && json_dyn_printf(&hdrs, "Authorization: Bearer %s\n", g_remote_api_key);
+    const char *body = job->body ? job->body : "{}";
+    ok = ok && fd_write_all(hfd, hdrs.ptr ? hdrs.ptr : "", hdrs.len) &&
+         fd_write_all(bfd, body, strlen(body));
+    free(hdrs.ptr);
+    close(hfd);
+    close(bfd);
+    if (!ok) {
+        unlink(hpath); unlink(bpath);
+        snprintf(err, errsz, "could not stage the remote model request");
+        return 0;
+    }
+
+    /* base_url passed remote_value_safe (no quotes/spaces/control bytes); the
+     * temp paths come from mkstemp under TMPDIR. Single-quote everything. */
+    size_t blen = strlen(job->base_url);
+    while (blen > 0 && job->base_url[blen - 1] == '/') job->base_url[--blen] = '\0';
+    char cmd[2200];
+    snprintf(cmd, sizeof cmd,
+             "curl -sN --fail --max-time 1800 -H @'%s' --data-binary @'%s' '%s/v1/chat/completions'",
+             hpath, bpath, job->base_url);
+    FILE *p = popen(cmd, "r");
+    if (!p) {
+        unlink(hpath); unlink(bpath);
+        snprintf(err, errsz, "could not start curl for the remote model");
+        return 0;
+    }
+    json_dyn_buf sse_line = {0};
+    char buf[8192];
+    size_t n;
+    while (!job->done && (n = fread(buf, 1, sizeof buf, p)) > 0)
+        model_rpc_sse_bytes(job, buf, n, &sse_line);
+    if (!job->done && sse_line.len) model_rpc_sse_line(job, sse_line.ptr);
+    int rc = pclose(p);
+    free(sse_line.ptr);
+    unlink(hpath);
+    unlink(bpath);
+    if (!job->done) {
+        int code = rc > 255 ? rc >> 8 : rc;
+        snprintf(err, errsz, code == 22
+                 ? "remote API refused the request (HTTP error — check the API key and model)"
+                 : "remote model stream ended before completion (curl exit %d)", code);
+        return 0;
+    }
+    return 1;
+#endif
+}
+
 static int model_rpc_http_stream(model_rpc_job *job, char *err, size_t errsz) {
+    if (!strncmp(job->base_url, "https://", 8))
+        return model_rpc_curl_stream(job, err, errsz);
     int fd = model_rpc_connect(job->base_url, err, errsz);
     if (fd < 0) return 0;
 #ifdef _WIN32
@@ -2901,11 +2986,25 @@ static int kill_external_server(int port) {
 }
 
 /* Common to both spawns: prepares the Metal env in the child. */
+/* GLM GGUFs (ds4 glm5.2 branch) reject --power below 100 at engine init and
+ * need the full-layer streaming prefill path; detect them by filename so the
+ * spawns can adapt flags and env. */
+static int model_is_glm(void) {
+    const char *rel = current_model_rel();
+    const char *base = strrchr(rel, '/');
+    return strstr(base ? base + 1 : rel, "GLM") != NULL;
+}
+
 static void child_setenv_metal(void) {
     setenv("DS4_METAL_NO_RESIDENCY", "1", 1);
     setenv("DS4_METAL_NO_MODEL_WARMUP", "1", 1);
     setenv("DS4_METAL_PREFILL_CHUNK", "1024", 1);
     setenv("DS4_METAL_GRAPH_TOKEN_SPLIT_LAYERS", "0", 1);
+    /* GLM streaming: the batch-selected-addr prefill path fails on partial
+     * model maps (model >> RAM); the full-layer prefill path is the one that
+     * works with the on-demand exact-view fallback. */
+    if (model_is_glm())
+        setenv("DS4_METAL_GLM_STREAMING_PREFILL_FULL_LAYER", "1", 1);
 }
 
 /* The 19 Metal sources are loaded relative to the cwd (ds4_metal.m). With
@@ -3186,7 +3285,8 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     char *argv[24]; int n = 0;
     argv[n++] = exe; argv[n++] = "-m"; argv[n++] = (char *)current_model_rel(); argv[n++] = "--cpu";
     argv[n++] = "--host"; argv[n++] = g_bind_host; argv[n++] = "--port"; argv[n++] = ports;
-    argv[n++] = "--ctx"; argv[n++] = ctxs; argv[n++] = "--power"; argv[n++] = pows;
+    argv[n++] = "--ctx"; argv[n++] = ctxs;
+    if (!model_is_glm()) { argv[n++] = "--power"; argv[n++] = pows; }
     argv[n++] = "--kv-disk-dir"; argv[n++] = kvdir; argv[n++] = "--kv-disk-space-mb"; argv[n++] = kvs;
     argv[n++] = "--kv-cache-min-tokens"; argv[n++] = mins; argv[n++] = "--cors";
     argv[n] = NULL;
@@ -3214,8 +3314,15 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
         char *argv[26]; int n = 0;
         argv[n++] = "./ds4-server"; argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
         argv[n++] = "--host"; argv[n++] = g_bind_host; argv[n++] = "--port"; argv[n++] = ports;
-        argv[n++] = "--ctx"; argv[n++] = ctxs; argv[n++] = "--power"; argv[n++] = pows;
+        argv[n++] = "--ctx"; argv[n++] = ctxs;
+        if (!model_is_glm()) { argv[n++] = "--power"; argv[n++] = pows; }
         if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
+        /* GLM: the auto expert-cache budget lands under the per-token working
+         * set (heavy thrashing); a larger explicit budget decodes ~2x faster.
+         * The engine still self-caps it after context/KV accounting. */
+        if (g_ssd_streaming_effective && model_is_glm()) {
+            argv[n++] = "--ssd-streaming-cache-experts"; argv[n++] = "32GB";
+        }
         argv[n++] = "--kv-disk-dir"; argv[n++] = kvdir; argv[n++] = "--kv-disk-space-mb"; argv[n++] = kvs;
         argv[n++] = "--kv-cache-min-tokens"; argv[n++] = mins; argv[n++] = "--cors";
         argv[n] = NULL;
@@ -3794,7 +3901,8 @@ static char *build_skill_sys(int include_design_system, int include_agent_questi
             "skill twice:\n\n"
             "{\"type\":\"function\",\"function\":{\"name\":\"skill\",\"description\":\"Load a skill recipe (layout patterns + checklist) by id, then follow its checklist.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n"
             "{\"type\":\"function\",\"function\":{\"name\":\"design_system\",\"description\":\"Load a brand pack (color tokens, type, components, voice) by id, then bind its tokens.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n"
-            "{\"type\":\"function\",\"function\":{\"name\":\"pack_file\",\"description\":\"Read an allowlisted pack file such as assets/template.html, references/checklist.md, references/layouts.md, or example.html after a pack lists available files.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"type\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"type\",\"name\",\"path\"]}}}\n");
+            "{\"type\":\"function\",\"function\":{\"name\":\"pack_file\",\"description\":\"Read an allowlisted pack file such as assets/template.html, references/checklist.md, references/layouts.md, or example.html after a pack lists available files.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"type\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"type\",\"name\",\"path\"]}}}\n"
+            "{\"type\":\"function\",\"function\":{\"name\":\"skills_search\",\"description\":\"Search the local skill catalog by topic (a few concise English keywords) and get matching skill ids with one-line descriptions, best first.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}}}\n");
         if (!include_design_system && include_agent_question)
             o += (size_t)snprintf(cat + o, catcap - o,
                 "{\"type\":\"function\",\"function\":{\"name\":\"question\",\"description\":\"Emit a structured question event for the UI. Use when you need the user to choose or clarify, then stop the turn.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"questions\":{\"type\":\"string\",\"description\":\"JSON array of question objects, e.g. [{id,label,type,options}].\"}},\"required\":[\"id\",\"title\",\"questions\"]}}}\n");
@@ -3814,13 +3922,14 @@ static char *build_skill_sys(int include_design_system, int include_agent_questi
         } else {
             (void)udir;
             o += (size_t)snprintf(cat + o, catcap - o,
-                "Use `skill(\"id\")` only when the user selected/named an exact id or a "
-                "DStudio workflow provides one. The full local and cybersecurity skill "
-                "catalogs are searchable in the DStudio UI and backend, but are intentionally "
-                "not injected into this prompt to keep Agent startup responsive. You may load "
-                "multiple skills when they cover different concerns, but keep it bounded: "
-                "default to one skill, cap each user request at three `skill` calls total, "
-                "and never load the same skill twice. Do not guess unknown ids.\n\n");
+                "Use `skill(\"id\")` when the user selected/named an exact id or a "
+                "DStudio workflow provides one. To DISCOVER ids by topic, call "
+                "`skills_search(\"a few English keywords\")` and pick from its results — "
+                "the full catalog is intentionally not injected into this prompt to keep "
+                "Agent startup responsive. You may load multiple skills when they cover "
+                "different concerns, but keep it bounded: default to one skill, cap each "
+                "user request at three `skill` calls total, and never load the same skill "
+                "twice. Never guess ids that neither the user nor skills_search gave you.\n\n");
         }
         if (g_skill[0] || (include_design_system && g_design_system[0]))
             o += (size_t)snprintf(cat + o, catcap - o,
@@ -4589,7 +4698,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
         argv[n++] = "-m"; argv[n++] = model_abs;
     }
     argv[n++] = "-c"; argv[n++] = ctxs;
-    argv[n++] = "--power"; argv[n++] = pows;
+    if (!model_is_glm()) { argv[n++] = "--power"; argv[n++] = pows; }
     argv[n++] = think_flag;
     argv[n++] = "--chdir"; argv[n++] = wd;
     if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
@@ -4634,7 +4743,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
             argv[n++] = "-m"; argv[n++] = model_abs;
         }
         argv[n++] = "-c"; argv[n++] = ctxs;
-        argv[n++] = "--power"; argv[n++] = pows;
+        if (!model_is_glm()) { argv[n++] = "--power"; argv[n++] = pows; }
         argv[n++] = think_flag;
         argv[n++] = "--chdir"; argv[n++] = wd;
         if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
@@ -4733,7 +4842,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
     }
     argv[n++] = "-c"; argv[n++] = ctxs;
-    argv[n++] = "--power"; argv[n++] = pows;
+    if (!model_is_glm()) { argv[n++] = "--power"; argv[n++] = pows; }
     argv[n++] = think_flag;
     argv[n++] = "--workspace"; argv[n++] = wd;
     if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
@@ -4772,7 +4881,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
             argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
         }
         argv[n++] = "-c"; argv[n++] = ctxs;
-        argv[n++] = "--power"; argv[n++] = pows;
+        if (!model_is_glm()) { argv[n++] = "--power"; argv[n++] = pows; }
         argv[n++] = think_flag;
         argv[n++] = "--workspace"; argv[n++] = wd;
         if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
@@ -4991,6 +5100,10 @@ static void api_lan_health(int fd) {
     send_json_cors(fd, "200 OK", body);
 }
 
+/* GLM checkout helpers (defined next to /api/glm/setup below). */
+static int glm_dir_path(char *out, size_t outsz);
+static int glm_checkout_ready(const char *dir);
+
 static int doctor_add_check(json_dyn_buf *b, int *first, const char *id, const char *label,
                             const char *state, const char *message, const char *action) {
     int ok = json_dyn_puts(b, *first ? "" : ",") &&
@@ -5082,6 +5195,23 @@ static void api_doctor(int fd) {
                  (chrome_available() ? "Web Search will build the DS4 helper on first use." : "Install Chrome or Chromium for Web Search."),
         web_ok ? NULL : "open-settings");
 
+#ifndef _WIN32
+    /* Optional GLM 5.2 engine (a second ds4 checkout on the glm5.2 branch).
+     * Never fatal: when absent the row just offers an Install action for those
+     * who want to run GLM GGUFs; present-but-broken is a warning. */
+    char glm_dir[DSTUDIO_PATH_MAX];
+    int glm_have_path = glm_dir_path(glm_dir, sizeof glm_dir);
+    int glm_present = glm_have_path && ds4_dir_valid_path(glm_dir);
+    int glm_ready = glm_present && glm_checkout_ready(glm_dir);
+    if (glm_present && !glm_ready) warn++;
+    ok = ok && doctor_add_check(&b, &first, "glm", "GLM engine (optional)",
+        glm_present && !glm_ready ? "warn" : "ok",
+        glm_ready ? "GLM 5.2 engine installed — pick the glm5.2 branch from the model menu." :
+        glm_present ? "GLM checkout found but not patched/built — reinstall it." :
+                      "Not installed. Optional: adds GLM 5.2 model support (ds4 glm5.2 branch).",
+        glm_ready ? NULL : "setup-glm");
+#endif
+
     if (engine_port_busy) warn++;
     ok = ok && doctor_add_check(&b, &first, "port", "Port",
         engine_port_busy ? "warn" : "ok",
@@ -5147,6 +5277,165 @@ static void api_ggufs(int fd) {
     }
     snprintf(body + o, sizeof body - o, "]}");
     send_json(fd, "200 OK", body);
+}
+
+/* ---- Engine checkout (ds4 git branch) picker ----
+ * DStudio can sit next to several ds4 checkouts (e.g. ./ds4 on main and a
+ * ./ds4-glm52 worktree on glm5.2). These endpoints let the UI list them and
+ * swap the active one at runtime. The swap is process-local and deliberately
+ * NOT persisted: the next DStudio launch resolves ./ds4 again. */
+
+/* Best-effort current git branch of a checkout. Handles both a regular clone
+ * (.git is a directory) and a linked worktree (.git is a "gitdir: ..." pointer
+ * file). Leaves out empty when it cannot be determined. */
+static void git_branch_of(const char *dir, char *out, size_t outsz) {
+    if (!outsz) return;
+    out[0] = '\0';
+    char gitpath[DSTUDIO_PATH_MAX + 8];
+    snprintf(gitpath, sizeof gitpath, "%s/.git", dir);
+    struct stat st;
+    if (stat(gitpath, &st) != 0) return;
+    char headpath[DSTUDIO_PATH_MAX * 2 + 16];
+    if (S_ISREG(st.st_mode)) {                 /* worktree: .git is a pointer file */
+        size_t n = 0;
+        char *ptr = jsonl_read_file(gitpath, &n);
+        if (!ptr) return;
+        char target[DSTUDIO_PATH_MAX] = "";
+        if (!strncmp(ptr, "gitdir:", 7)) {
+            const char *p = ptr + 7;
+            while (*p == ' ') p++;
+            size_t l = strcspn(p, "\r\n");
+            if (l > 0 && l < sizeof target) { memcpy(target, p, l); target[l] = '\0'; }
+        }
+        free(ptr);
+        if (!target[0]) return;
+        if (target[0] == '/')
+            snprintf(headpath, sizeof headpath, "%s/HEAD", target);
+        else
+            snprintf(headpath, sizeof headpath, "%s/%s/HEAD", dir, target);
+    } else {
+        snprintf(headpath, sizeof headpath, "%s/.git/HEAD", dir);
+    }
+    size_t n = 0;
+    char *head = jsonl_read_file(headpath, &n);
+    if (!head) return;
+    const char *p = head;
+    if (!strncmp(p, "ref: refs/heads/", 16)) p += 16;
+    size_t l = strcspn(p, "\r\n");
+    if (p == head && l > 12) l = 12;           /* detached HEAD: short hash */
+    if (l >= outsz) l = outsz - 1;
+    memcpy(out, p, l);
+    out[l] = '\0';
+    free(head);
+}
+
+/* GET /api/engine/checkouts — the active ds4 dir plus every ds4* sibling under
+ * the DStudio dir and next to the active one, with git branch and whether the
+ * server binary is built. */
+static void api_engine_checkouts(int fd) {
+    char active[DSTUDIO_PATH_MAX];
+    if (!realpath(g_ds4_dir, active)) cstr_copy(active, sizeof active, g_ds4_dir);
+
+    static char dirs[16][DSTUDIO_PATH_MAX];
+    int ndirs = 0;
+
+    char parent[DSTUDIO_PATH_MAX];
+    cstr_copy(parent, sizeof parent, active);
+    char *slash = strrchr(parent, '/');
+    if (slash && slash != parent) *slash = '\0'; else cstr_copy(parent, sizeof parent, "/");
+    const char *bases[2] = { g_web_dir[0] ? g_web_dir : NULL, parent };
+
+    for (int bi = 0; bi < 2; bi++) {
+        if (!bases[bi] || !bases[bi][0]) continue;
+        DIR *d = opendir(bases[bi]);
+        if (!d) continue;
+        struct dirent *de;
+        while ((de = readdir(d)) != NULL && ndirs < 16) {
+            if (strncmp(de->d_name, "ds4", 3)) continue;
+            char full[DSTUDIO_PATH_MAX + 300], abs[DSTUDIO_PATH_MAX];
+            snprintf(full, sizeof full, "%s/%s", bases[bi], de->d_name);
+            struct stat st;
+            if (stat(full, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+            if (!ds4_dir_valid_path(full)) continue;
+            if (!realpath(full, abs)) continue;
+            int dup = 0;
+            for (int i = 0; i < ndirs && !dup; i++) dup = !strcmp(dirs[i], abs);
+            if (!dup) cstr_copy(dirs[ndirs++], sizeof dirs[0], abs);
+        }
+        closedir(d);
+    }
+    int have_active = 0;
+    for (int i = 0; i < ndirs && !have_active; i++) have_active = !strcmp(dirs[i], active);
+    if (!have_active && ndirs < 16 && ds4_dir_valid_path(active))
+        cstr_copy(dirs[ndirs++], sizeof dirs[0], active);
+
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "{\"ok\":true,\"active\":") &&
+             json_dyn_put_escaped(&b, active) &&
+             json_dyn_puts(&b, ",\"checkouts\":[");
+    for (int i = 0; i < ndirs && ok; i++) {
+        const char *name = strrchr(dirs[i], '/');
+        name = name ? name + 1 : dirs[i];
+        char branch[128];
+        git_branch_of(dirs[i], branch, sizeof branch);
+        /* Archive-based checkouts have no .git; label the managed GLM one. */
+        if (!branch[0] && !strcmp(name, DS4_GLM_DIR_NAME))
+            cstr_copy(branch, sizeof branch, "glm5.2");
+        int has_server = file_present_in_dir(dirs[i], "ds4-server") ||
+                         file_present_in_dir(dirs[i], "ds4-server.exe");
+        ok = ok && json_dyn_puts(&b, i ? ",{\"dir\":" : "{\"dir\":") &&
+             json_dyn_put_escaped(&b, dirs[i]) &&
+             json_dyn_puts(&b, ",\"name\":") && json_dyn_put_escaped(&b, name) &&
+             json_dyn_puts(&b, ",\"branch\":") && json_dyn_put_escaped(&b, branch) &&
+             json_dyn_printf(&b, ",\"hasServer\":%s,\"active\":%s}",
+                             has_server ? "true" : "false",
+                             !strcmp(dirs[i], active) ? "true" : "false");
+    }
+    ok = ok && json_dyn_puts(&b, "]}");
+    if (!ok) {
+        free(b.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}");
+        return;
+    }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+}
+
+/* POST /api/engine/checkout {dir} — swap the active ds4 checkout. The dir must
+ * exist and look like a ds4 checkout; the engine (if running) keeps serving
+ * from the old one until the UI restarts it via /api/start. */
+static void api_engine_checkout_set(int fd, const char *body) {
+    char dir[DSTUDIO_PATH_MAX];
+    if (!json_get_string(body, "dir", dir, sizeof dir) || !dir[0]) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"missing dir\"}");
+        return;
+    }
+    char abs[DSTUDIO_PATH_MAX];
+    if (!realpath(dir, abs) || !ds4_dir_valid_path(abs)) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"not a ds4 checkout\"}");
+        return;
+    }
+    char branch[128];
+    git_branch_of(abs, branch, sizeof branch);
+    int changed = strcmp(abs, g_ds4_dir) != 0;
+    if (changed) {
+        cstr_copy(g_ds4_dir, sizeof g_ds4_dir, abs);
+        g_ds4_dir_explicit = 1;      /* survives resolve_ds4_dir() re-runs */
+        g_model_override[0] = '\0';  /* the old checkout's explicit GGUF may not exist here */
+        printf("engine: checkout switched to %s (branch %s)\n", abs, branch[0] ? branch : "?");
+    }
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "{\"ok\":true,\"dir\":") &&
+             json_dyn_put_escaped(&b, abs) &&
+             json_dyn_puts(&b, ",\"branch\":") && json_dyn_put_escaped(&b, branch) &&
+             json_dyn_printf(&b, ",\"changed\":%s}", changed ? "true" : "false");
+    if (!ok) {
+        free(b.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}");
+        return;
+    }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
 }
 
 /* Extract a top-of-file YAML frontmatter scalar (a `key: value` line) into out.
@@ -5702,6 +5991,7 @@ static int parse_remote_start(const char *body, int allow, char *err, size_t err
         }
         g_remote_base_url[0] = '\0';
         g_remote_model[0] = '\0';
+        g_remote_api_key[0] = '\0';
         return 1;
     }
     if (!allow) {
@@ -5716,8 +6006,9 @@ static int parse_remote_start(const char *body, int allow, char *err, size_t err
         snprintf(err, errsz, "remoteBaseUrl is required");
         return 0;
     }
-    if (strncmp(base, "http://", 7) != 0 || !remote_value_safe(base)) {
-        snprintf(err, errsz, "remoteBaseUrl must be a safe http:// LAN URL");
+    if ((strncmp(base, "http://", 7) != 0 && strncmp(base, "https://", 8) != 0) ||
+        !remote_value_safe(base)) {
+        snprintf(err, errsz, "remoteBaseUrl must be a safe http:// LAN URL or an https:// API endpoint");
         return 0;
     }
     if (!model[0]) snprintf(model, sizeof model, "ds4");
@@ -5725,6 +6016,15 @@ static int parse_remote_start(const char *body, int allow, char *err, size_t err
         snprintf(err, errsz, "remoteModel is invalid");
         return 0;
     }
+    /* Optional Bearer key for https cloud endpoints: held by the launcher
+     * only — the agent/design child never sees it. */
+    char key[256] = "";
+    json_get_string(body, "remoteApiKey", key, sizeof key);
+    if (key[0] && !remote_value_safe(key)) {
+        snprintf(err, errsz, "remoteApiKey contains invalid characters");
+        return 0;
+    }
+    snprintf(g_remote_api_key, sizeof g_remote_api_key, "%s", key);
     snprintf(g_remote_base_url, sizeof g_remote_base_url, "%s", base);
     snprintf(g_remote_model, sizeof g_remote_model, "%s", model);
     return 1;
@@ -5972,6 +6272,20 @@ static void api_agent_send(int fd, const char *body) {
 static void api_agent_interrupt(int fd, const char *body) {
     if (!MODE_IS_PIPED(g_mode) || g_child <= 0) {
         send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"agent not active\"}");
+        return;
+    }
+    /* A SIGINT is only safe when a turn is actually running: during model
+     * load the jsonl SIGINT handler is not installed yet, and ds4-design
+     * never installs one while idle — the signal would kill the freshly
+     * spawned engine outright ("engine stopped (signal 2)" right after a
+     * mode switch). With no active turn there is nothing to interrupt:
+     * acknowledge and clear any stale turn task without signaling. */
+    if (!g_ready || !g_agent_working) {
+        if (g_active_turn_task) {
+            task_mark_canceled(g_active_turn_task, "turn already idle at interrupt");
+            g_active_turn_task = 0;
+        }
+        send_json(fd, "200 OK", "{\"ok\":true,\"taskId\":0,\"status\":\"idle\"}");
         return;
     }
     char reason[256] = {0};
@@ -6672,7 +6986,8 @@ static int setup_first_extracted_dir(const char *dir, char *out, size_t outsz) {
     return found;
 }
 
-static int setup_download_ds4_archive(const char *target, char *log_tail, size_t logsz,
+static int setup_download_ds4_archive(const char *url, const char *tag, const char *target,
+                                      char *log_tail, size_t logsz,
                                       char *err, size_t errsz) {
     char parent[DSTUDIO_PATH_MAX];
     if (!setup_parent_dir(target, parent, sizeof parent)) {
@@ -6682,7 +6997,7 @@ static int setup_download_ds4_archive(const char *target, char *log_tail, size_t
 
     char archive[DSTUDIO_PATH_MAX];
     char extract[DSTUDIO_PATH_MAX];
-    int n = snprintf(archive, sizeof archive, "%s/.dstudio-ds4-%s.tar.gz", parent, DS4_UPSTREAM_COMMIT);
+    int n = snprintf(archive, sizeof archive, "%s/.dstudio-ds4-%s.tar.gz", parent, tag);
     int m = snprintf(extract, sizeof extract, "%s/.dstudio-ds4-extract-%ld", parent, (long)getpid());
     if (n < 0 || (size_t)n >= sizeof archive || m < 0 || (size_t)m >= sizeof extract) {
         snprintf(err, errsz, "temporary ds4 archive path is too long");
@@ -6699,13 +7014,13 @@ static int setup_download_ds4_archive(const char *target, char *log_tail, size_t
     char *curl_argv[] = {
         "curl", "-L", "--fail", "--show-error", "--retry", "2",
         "--connect-timeout", "20", "--max-time", "300",
-        "-o", archive, DS4_ARCHIVE_URL, NULL
+        "-o", archive, (char *)url, NULL
     };
     int rc = setup_run_cmd_capture(NULL, curl_argv, log_tail, logsz);
     if (rc != 0) {
         snprintf(err, errsz,
                  "ds4 archive download failed (exit %d). DStudio setup needs curl and tar, not git. URL: %s. Output: %.7000s",
-                 rc, DS4_ARCHIVE_URL, log_tail && log_tail[0] ? log_tail : "(no output)");
+                 rc, url, log_tail && log_tail[0] ? log_tail : "(no output)");
         unlink(archive);
         setup_remove_tree(extract);
         return 0;
@@ -7164,7 +7479,8 @@ static void api_setup_ds4(int fd) {
             return;
         }
         char err[8600];
-        if (!setup_download_ds4_archive(target, log_tail, sizeof log_tail, err, sizeof err)) {
+        if (!setup_download_ds4_archive(DS4_ARCHIVE_URL, DS4_UPSTREAM_COMMIT, target,
+                                        log_tail, sizeof log_tail, err, sizeof err)) {
             setup_send_json(fd, "500 Internal Server Error", 0, target, 0, 0, 0, 0, 0, 0, mode_name(g_mode), err);
             return;
         }
@@ -7248,6 +7564,160 @@ static void api_setup_ds4(int fd) {
 
     setup_send_json(fd, "200 OK", 1, g_ds4_dir, downloaded, 1, 1, design_prepared,
                     was_running, restarted, mode_name(g_mode), restart_err);
+}
+
+/* ---- Optional GLM 5.2 engine checkout (ds4 branch glm5.2) ---- */
+
+static int glm_dir_path(char *out, size_t outsz) {
+    if (!g_web_dir[0]) return 0;
+    int n = snprintf(out, outsz, "%s/%s", g_web_dir, DS4_GLM_DIR_NAME);
+    return n > 0 && (size_t)n < outsz;
+}
+
+/* True when the local Metal model-view fix from patch/ds4-glm52/ is present in
+ * the checkout (the patch adds a DS4_GLM_PATCH_MARK marker comment). */
+static int glm_patch_applied(const char *dir) {
+    char src[DSTUDIO_PATH_MAX + 32];
+    snprintf(src, sizeof src, "%s/ds4_metal.m", dir);
+    size_t n = 0;
+    char *body = jsonl_read_file(src, &n);
+    if (!body) return 0;
+    int found = strstr(body, DS4_GLM_PATCH_MARK) != NULL;
+    free(body);
+    return found;
+}
+
+/* Fully usable: looks like a ds4 checkout, server binary built, patch applied. */
+static int glm_checkout_ready(const char *dir) {
+    return ds4_dir_valid_path(dir) &&
+           (file_present_in_dir(dir, "ds4-server") || file_present_in_dir(dir, "ds4-server.exe")) &&
+           glm_patch_applied(dir);
+}
+
+static void glm_send_json(int fd, const char *status, int ok, unsigned long long task_id,
+                          const char *dir, int downloaded, int patched, int built,
+                          const char *error) {
+    if (task_id) {
+        if (ok) task_mark_completed(task_id, "GLM engine setup completed");
+        else task_mark_failed(task_id, error && error[0] ? error : "GLM engine setup failed",
+                              dir ? dir : "");
+    }
+    json_dyn_buf b = {0};
+    int good = json_dyn_puts(&b, "{\"ok\":") &&
+               json_dyn_puts(&b, ok ? "true" : "false") &&
+               json_dyn_printf(&b, ",\"taskId\":%llu", task_id) &&
+               json_dyn_puts(&b, ",\"commit\":") &&
+               json_dyn_put_escaped(&b, DS4_GLM_UPSTREAM_COMMIT) &&
+               json_dyn_puts(&b, ",\"dir\":") &&
+               json_dyn_put_escaped(&b, dir ? dir : "") &&
+               json_dyn_printf(&b, ",\"downloaded\":%s,\"patched\":%s,\"built\":%s",
+                               downloaded ? "true" : "false",
+                               patched ? "true" : "false",
+                               built ? "true" : "false") &&
+               json_dyn_puts(&b, ",\"error\":") &&
+               json_dyn_put_escaped(&b, error ? error : "") &&
+               json_dyn_puts(&b, "}");
+    if (!good) {
+        free(b.ptr);
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}");
+        return;
+    }
+    send_json(fd, status, b.ptr);
+    free(b.ptr);
+}
+
+/* POST /api/glm/setup — optional second engine: downloads antirez/ds4 at the
+ * pinned glm5.2 commit into ./ds4-glm52 (curl + tar, no git), applies the local
+ * Metal model-view fix from patch/ds4-glm52/ (the fix is never vendored into
+ * the checkout sources in git — it is re-applied on every fresh install), and
+ * builds. The running engine is left alone: swapping to the GLM checkout
+ * happens from the model menu's Engine-branch section. */
+static void api_setup_glm(int fd) {
+#ifdef _WIN32
+    send_json(fd, "409 Conflict",
+              "{\"ok\":false,\"error\":\"the GLM engine checkout is not supported on the Windows portable build yet\"}");
+#else
+    resolve_web_dir();
+    if (!web_dir_valid()) {
+        glm_send_json(fd, "409 Conflict", 0, 0, "", 0, 0, 0,
+                      "DStudio checkout not found; cannot locate patch/ds4-glm52");
+        return;
+    }
+    char target[DSTUDIO_PATH_MAX];
+    if (!glm_dir_path(target, sizeof target)) {
+        glm_send_json(fd, "500 Internal Server Error", 0, 0, "", 0, 0, 0,
+                      "GLM checkout path is too long");
+        return;
+    }
+    unsigned long long task_id = task_begin("setup", "Install GLM engine", "glm",
+                                            g_mode, target, 0, 1);
+    task_mark_working(task_id, "preparing the GLM engine checkout");
+
+    char log_tail[8192] = "";
+    int downloaded = 0;
+    struct stat st;
+    int exists = stat(target, &st) == 0;
+    if (exists && !S_ISDIR(st.st_mode)) {
+        glm_send_json(fd, "409 Conflict", 0, task_id, target, 0, 0, 0,
+                      "DStudio/ds4-glm52 exists but is not a folder");
+        return;
+    }
+    if (!exists || !ds4_dir_valid_path(target)) {
+        int can_download = !exists;
+        if (exists) {
+            int empty = 0;
+            if (!setup_dir_empty(target, &empty)) {
+                glm_send_json(fd, "409 Conflict", 0, task_id, target, 0, 0, 0,
+                              "DStudio/ds4-glm52 exists but could not be inspected");
+                return;
+            }
+            can_download = empty;
+        }
+        if (!can_download) {
+            glm_send_json(fd, "409 Conflict", 0, task_id, target, 0, 0, 0,
+                          "DStudio/ds4-glm52 exists but is not a ds4 checkout; remove it and run setup again");
+            return;
+        }
+        char err[8600];
+        if (!setup_download_ds4_archive(DS4_GLM_ARCHIVE_URL, DS4_GLM_UPSTREAM_COMMIT, target,
+                                        log_tail, sizeof log_tail, err, sizeof err)) {
+            glm_send_json(fd, "500 Internal Server Error", 0, task_id, target, 0, 0, 0, err);
+            return;
+        }
+        downloaded = 1;
+    }
+
+    int patched = glm_patch_applied(target);
+    if (!patched) {
+        char patch_file[DSTUDIO_PATH_MAX + 64];
+        snprintf(patch_file, sizeof patch_file, "%s/%s", g_web_dir, DS4_GLM_METAL_PATCH);
+        char *patch_argv[] = { "patch", "-p1", "-N", "-d", target, "-i", patch_file, NULL };
+        int rc = setup_run_cmd_capture(NULL, patch_argv, log_tail, sizeof log_tail);
+        if (rc != 0 || !glm_patch_applied(target)) {
+            char err[8600];
+            snprintf(err, sizeof err,
+                     "GLM metal patch failed (exit %d). DStudio setup needs curl, tar and patch. Output: %.7700s",
+                     rc, log_tail[0] ? log_tail : "(no output)");
+            glm_send_json(fd, "500 Internal Server Error", 0, task_id, target, downloaded, 0, 0, err);
+            return;
+        }
+        patched = 1;
+    }
+
+    task_mark_working(task_id, "building the GLM engine (make)");
+    char *make_argv[] = { "make", "-C", target, NULL };
+    int rc = setup_run_cmd_capture(NULL, make_argv, log_tail, sizeof log_tail);
+    if (rc != 0) {
+        char err[8600];
+        snprintf(err, sizeof err, "GLM engine make failed (exit %d). Output: %.7800s",
+                 rc, log_tail[0] ? log_tail : "(no output)");
+        glm_send_json(fd, "500 Internal Server Error", 0, task_id, target, downloaded, patched, 0, err);
+        return;
+    }
+
+    printf("glm: engine checkout ready at %s (commit %.12s)\n", target, DS4_GLM_UPSTREAM_COMMIT);
+    glm_send_json(fd, "200 OK", 1, task_id, target, downloaded, patched, 1, "");
+#endif
 }
 
 static int update_count_marker_dirs(const char *rel, const char *marker, const char *contains) {
@@ -9689,6 +10159,8 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/fs/list")) { api_fs_list(fd, body); return 200; }
     if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); return 200; }
     if (!strcmp(path, "/api/ds4/setup")) { api_setup_ds4(fd); return 200; }
+    if (!strcmp(path, "/api/glm/setup")) { api_setup_glm(fd); return 200; }
+    if (!strcmp(path, "/api/engine/checkout")) { api_engine_checkout_set(fd, body); return 200; }
     if (!strcmp(path, "/api/setup/content")) { api_setup_content(fd); return 200; }
     if (!strcmp(path, "/api/webdir")) { api_set_webdir(fd, body); return 200; }
     if (!strcmp(path, "/api/web-search")) { api_web_search(fd, body); return 200; }
@@ -9726,6 +10198,7 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
     if (is_get && path_eq_clean(path, "/api/tasks")) { api_tasks(fd, path); return 200; }
     if (is_get && path_eq_clean(path, "/api/task")) { api_task(fd, path); return 200; }
     if (is_get && !strcmp(path, "/api/ggufs")) { api_ggufs(fd); return 200; }
+    if (is_get && path_eq_clean(path, "/api/engine/checkouts")) { api_engine_checkouts(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/skills/search")) { api_skills_search(fd, path); return 200; }
     if (is_get && !strncmp(path, "/api/skill-preview/", 19)) { api_skill_preview(fd, path, head_only); return 200; }
     if (is_get && !strncmp(path, "/api/design-system-preview/", 27)) { api_design_system_preview(fd, path, head_only); return 200; }

@@ -7841,6 +7841,11 @@ int main(int argc, char **argv) {
      * child outlives the design agent. The handler reads a->project.bash_jobs. */
     g_term_project = &a.project;
     signal(SIGTERM, design_on_term);
+    /* The launcher's turn-interrupt is a SIGINT (shared with ds4-agent's jsonl
+     * mode). Design has no mid-turn interrupt flag, so treat it like SIGTERM:
+     * a clean shutdown (bash children reaped, temp files unlinked) instead of
+     * the default hard death that left "engine stopped (signal 2)" errors. */
+    signal(SIGINT, design_on_term);
 
     /* Web tooling: Chrome is a RUNTIME dependency, launched lazily on the first
      * google_search/visit_page. Headless design auto-approves startup. */

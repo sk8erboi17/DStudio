@@ -1,0 +1,1 @@
+static void worker_progress_cb(void *ud, const char *event, int current, int total) {
