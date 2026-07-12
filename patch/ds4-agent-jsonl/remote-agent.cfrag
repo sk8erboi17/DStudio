@@ -269,13 +269,85 @@ static char *ds4ui_remote_system_prompt(agent_config *cfg) {
     return agent_buf_take(&b);
 }
 
-static void ds4ui_remote_messages_reset(dstudio_remote_buf *messages,
-                                        int *message_count,
-                                        agent_config *cfg) {
-    dstudio_remote_buf_free(messages);
-    *message_count = 0;
+/* Structured remote transcript. Unlike the opaque JSON buffer the remote path
+ * used before, this is the single source of truth so a long run can drop old
+ * turns as it approaches the remote model's context window (the cloud/API path
+ * has no KV-side compaction). msg[0] is always the system prompt and is never
+ * dropped. */
+typedef struct { char *role; char *content; } ds4ui_msg;
+typedef struct { ds4ui_msg *v; int n, cap; size_t content_bytes; } ds4ui_msg_list;
+
+/* Keep the system message plus at least this many of the most recent messages
+ * intact, so compaction never eats the live tool/answer context. */
+#define DS4UI_REMOTE_KEEP_RECENT 8
+/* Byte budget for the transcript content, ~3 bytes/token of the configured
+ * context, which leaves headroom for reasoning and the response. */
+#define DS4UI_REMOTE_CTX_BUDGET_BYTES(ctx) ((size_t)((ctx) > 0 ? (ctx) : 8192) * 3u)
+
+static void ds4ui_msg_list_free(ds4ui_msg_list *m) {
+    if (!m) return;
+    for (int i = 0; i < m->n; i++) { free(m->v[i].role); free(m->v[i].content); }
+    free(m->v);
+    m->v = NULL; m->n = 0; m->cap = 0; m->content_bytes = 0;
+}
+
+static void ds4ui_msg_list_add(ds4ui_msg_list *m, const char *role, const char *content) {
+    if (!m) return;
+    if (m->n == m->cap) {
+        int ncap = m->cap ? m->cap * 2 : 16;
+        ds4ui_msg *nv = realloc(m->v, (size_t)ncap * sizeof(*nv));
+        if (!nv) return;
+        m->v = nv; m->cap = ncap;
+    }
+    m->v[m->n].role = xstrdup(role && role[0] ? role : "user");
+    m->v[m->n].content = xstrdup(content ? content : "");
+    m->content_bytes += strlen(m->v[m->n].content);
+    m->n++;
+}
+
+static char *ds4ui_msg_list_snapshot(const ds4ui_msg_list *m) {
+    dstudio_remote_buf out = {0};
+    dstudio_remote_buf_puts(&out, "[");
+    for (int i = 0; m && i < m->n; i++) {
+        if (i) dstudio_remote_buf_puts(&out, ",");
+        dstudio_remote_buf_puts(&out, "{\"role\":");
+        dstudio_remote_json_string(&out, m->v[i].role);
+        dstudio_remote_buf_puts(&out, ",\"content\":");
+        dstudio_remote_json_string(&out, m->v[i].content);
+        dstudio_remote_buf_puts(&out, "}");
+    }
+    dstudio_remote_buf_puts(&out, "]");
+    return dstudio_remote_buf_take(&out);
+}
+
+/* Drop the oldest non-system messages until the transcript fits budget_bytes,
+ * always keeping msg[0] and the last DS4UI_REMOTE_KEEP_RECENT messages. Pass
+ * budget_bytes 0 to force a compaction down to that floor. */
+static void ds4ui_msg_list_compact(ds4ui_msg_list *m, size_t budget_bytes, agent_worker *w) {
+    if (!m) return;
+    int dropped = 0;
+    size_t freed = 0;
+    while (m->content_bytes > budget_bytes && m->n > 1 + DS4UI_REMOTE_KEEP_RECENT) {
+        size_t vlen = strlen(m->v[1].content);
+        free(m->v[1].role);
+        free(m->v[1].content);
+        memmove(&m->v[1], &m->v[2], (size_t)(m->n - 2) * sizeof(*m->v));
+        m->n--;
+        m->content_bytes -= vlen;
+        freed += vlen;
+        dropped++;
+    }
+    if (dropped > 0)
+        agent_publishf(w,
+            "\n[context compaction: dropped %d old message(s), ~%zu bytes, "
+            "to stay within the remote context window]\n",
+            dropped, freed);
+}
+
+static void ds4ui_remote_messages_reset(ds4ui_msg_list *m, agent_config *cfg) {
+    ds4ui_msg_list_free(m);
     char *sys = ds4ui_remote_system_prompt(cfg);
-    dstudio_remote_messages_append(messages, message_count, "system", sys);
+    ds4ui_msg_list_add(m, "system", sys);
     free(sys);
 }
 
@@ -407,11 +479,10 @@ static char *ds4ui_remote_tool_result(agent_worker *w,
 }
 
 static int ds4ui_remote_run_turn(agent_worker *w,
-                                 dstudio_remote_buf *messages,
-                                 int *message_count,
+                                 ds4ui_msg_list *msgs,
                                  const char *user_text) {
     agent_config *cfg = w->cfg;
-    dstudio_remote_messages_append(messages, message_count, "user", user_text ? user_text : "");
+    ds4ui_msg_list_add(msgs, "user", user_text ? user_text : "");
     if (!w->session_title) {
         w->session_title = agent_session_title_from_prompt(user_text, 0);
         w->session_created_at = (uint64_t)time(NULL);
@@ -452,7 +523,8 @@ static int ds4ui_remote_run_turn(agent_worker *w,
             .raw = &raw,
             .started_at = now_sec(),
         };
-        char *snapshot = dstudio_remote_messages_snapshot(messages);
+        ds4ui_msg_list_compact(msgs, DS4UI_REMOTE_CTX_BUDGET_BYTES(cfg->gen.ctx_size), w);
+        char *snapshot = ds4ui_msg_list_snapshot(msgs);
         char err[512] = {0};
 
         pthread_mutex_lock(&w->mu);
@@ -484,7 +556,7 @@ static int ds4ui_remote_run_turn(agent_worker *w,
 
         char *assistant_raw = dstudio_remote_buf_take(&raw);
         if (assistant_raw && assistant_raw[0])
-            dstudio_remote_messages_append(messages, message_count, "assistant", assistant_raw);
+            ds4ui_msg_list_add(msgs, "assistant", assistant_raw);
 
         if (rc != 0) {
             if (ds4ui_remote_retryable_model_error(err) &&
@@ -492,7 +564,7 @@ static int ds4ui_remote_run_turn(agent_worker *w,
                 auto_continues++;
                 char *cont = ds4ui_remote_continue_prompt(&dsml, err,
                     auto_continues, DS4UI_REMOTE_AUTO_CONTINUES);
-                dstudio_remote_messages_append(messages, message_count, "user", cont);
+                ds4ui_msg_list_add(msgs, "user", cont);
                 free(cont);
                 agent_publishf(w,
                     "\x1e{\"type\":\"model_retry\",\"attempt\":%d,\"max\":%d}\n",
@@ -531,10 +603,10 @@ static int ds4ui_remote_run_turn(agent_worker *w,
             dstudio_remote_buf_puts(&tr, "[tool result]\n");
             dstudio_remote_buf_puts(&tr, tool_result);
             char *wrapped = dstudio_remote_buf_take(&tr);
-            dstudio_remote_messages_append(messages, message_count, "user", wrapped);
+            ds4ui_msg_list_add(msgs, "user", wrapped);
             free(wrapped);
         } else {
-            dstudio_remote_messages_append(messages, message_count, "tool", tool_result);
+            ds4ui_msg_list_add(msgs, "tool", tool_result);
         }
         free(tool_result);
 
@@ -544,7 +616,7 @@ static int ds4ui_remote_run_turn(agent_worker *w,
                     /* One firm nudge: keep the transcript, drop the tool loop. */
                     forced_plain = true;
                     tool_error_streak = 0;
-                    dstudio_remote_messages_append(messages, message_count, "user",
+                    ds4ui_msg_list_add(msgs, "user",
                         "Stop calling tools: your last several tool calls were invalid. "
                         "Do not attempt any more tool calls. Give your final answer now as "
                         "plain text only.");
@@ -569,22 +641,23 @@ static int ds4ui_remote_run_turn(agent_worker *w,
 }
 
 static bool ds4ui_remote_handle_slash(agent_worker *w,
-                                      dstudio_remote_buf *messages,
-                                      int *message_count,
+                                      ds4ui_msg_list *msgs,
                                       const char *line) {
     char cmd[256];
     ds4ui_slash_trim(line, cmd, sizeof(cmd));
     if (cmd[0] != '/') return false;
     if (!strcmp(cmd, "/new")) {
-        ds4ui_remote_messages_reset(messages, message_count, w->cfg);
+        ds4ui_remote_messages_reset(msgs, w->cfg);
         free(w->session_title);
         w->session_title = NULL;
         w->session_sha[0] = '\0';
         printf("new remote-model session started (workspace stays local)\n");
+    } else if (!strcmp(cmd, "/compact")) {
+        ds4ui_msg_list_compact(msgs, 0, w);   /* force down to system + recent turns */
+        printf("compacted remote transcript (kept the system prompt and the most recent turns)\n");
     } else if (!strcmp(cmd, "/help")) {
-        printf("commands: /new /help. KV session save/list/switch are host-side in LAN remote-model mode.\n");
+        printf("commands: /new /compact /help. KV session save/list/switch are host-side in LAN remote-model mode.\n");
     } else if (!strcmp(cmd, "/save") || !strcmp(cmd, "/list") ||
-               !strcmp(cmd, "/compact") ||
                agent_slash_command_with_args(cmd, "/switch") ||
                agent_slash_command_with_args(cmd, "/del")) {
         printf("remote-model mode keeps the live KV on the LAN host; this local agent does not manage host KV sessions. Use /new to reset this local transcript.\n");
@@ -605,9 +678,8 @@ static int ds4ui_run_remote_agent(agent_config *cfg) {
         fprintf(stderr, "ds4-agent: failed to initialize remote worker\n");
         return 1;
     }
-    dstudio_remote_buf messages = {0};
-    int message_count = 0;
-    ds4ui_remote_messages_reset(&messages, &message_count, cfg);
+    ds4ui_msg_list messages = {0};
+    ds4ui_remote_messages_reset(&messages, cfg);
 
     struct sigaction old_int;
     struct sigaction sa;
@@ -619,7 +691,7 @@ static int ds4ui_run_remote_agent(agent_config *cfg) {
     const bool one_shot = cfg->gen.prompt != NULL;
     int rc = 0;
     if (one_shot) {
-        rc = ds4ui_remote_run_turn(&worker, &messages, &message_count, cfg->gen.prompt);
+        rc = ds4ui_remote_run_turn(&worker, &messages, cfg->gen.prompt);
     } else {
         bool stdin_eof = false;
         bool waiting_announced = false;
@@ -671,8 +743,8 @@ static int ds4ui_run_remote_agent(agent_config *cfg) {
                 char *prompt = agent_input_buf_take(&input);
                 ds4ui_remote_apply_control(cfg, prompt);
                 if (prompt[0] && (!ds4ui_pipe_slash(prompt) ||
-                    !ds4ui_remote_handle_slash(&worker, &messages, &message_count, prompt)))
-                    rc = ds4ui_remote_run_turn(&worker, &messages, &message_count, prompt);
+                    !ds4ui_remote_handle_slash(&worker, &messages, prompt)))
+                    rc = ds4ui_remote_run_turn(&worker, &messages, prompt);
                 free(prompt);
                 waiting_announced = false;
             }
@@ -683,7 +755,7 @@ static int ds4ui_run_remote_agent(agent_config *cfg) {
     }
 
     if (sigint_installed) sigaction(SIGINT, &old_int, NULL);
-    dstudio_remote_buf_free(&messages);
+    ds4ui_msg_list_free(&messages);
     ds4ui_remote_worker_free(&worker);
     return rc;
 }
