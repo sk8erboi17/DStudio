@@ -281,23 +281,36 @@ int dstudio_remote_chat_stream(const char *base_url,
         return 1;
     }
 
+    /* Cloud endpoints (https) speak plain OpenAI-compatible JSON: the ds4-only
+     * knobs (think, reasoning_effort, min_p) get requests rejected outright,
+     * and DeepSeek caps max_tokens at 8192. LAN ds4 hosts keep the full set. */
+    int cloud = strncmp(base_url, "https://", 8) == 0;
     dstudio_remote_buf body = {0};
     dstudio_remote_buf_puts(&body, "{\"model\":");
     dstudio_remote_json_string(&body, model && model[0] ? model : "ds4");
     dstudio_remote_buf_puts(&body, ",\"stream\":true,\"messages\":");
     dstudio_remote_buf_puts(&body, messages_json && messages_json[0] ? messages_json : "[]");
-    dstudio_remote_buf_puts(&body, ",\"think\":");
-    dstudio_remote_buf_puts(&body, think_level > 0 ? "true" : "false");
-    if (think_level > 0) {
-        dstudio_remote_buf_puts(&body, ",\"reasoning_effort\":");
-        dstudio_remote_json_string(&body, think_level >= 2 ? "max" : "high");
+    if (!cloud) {
+        dstudio_remote_buf_puts(&body, ",\"think\":");
+        dstudio_remote_buf_puts(&body, think_level > 0 ? "true" : "false");
+        if (think_level > 0) {
+            dstudio_remote_buf_puts(&body, ",\"reasoning_effort\":");
+            dstudio_remote_json_string(&body, think_level >= 2 ? "max" : "high");
+        }
     }
     char num[160];
-    snprintf(num, sizeof(num), ",\"temperature\":%.4g,\"top_p\":%.4g,\"min_p\":%.4g",
-             (double)temperature, (double)top_p, (double)min_p);
+    if (cloud) {
+        snprintf(num, sizeof(num), ",\"temperature\":%.4g,\"top_p\":%.4g",
+                 (double)temperature, (double)top_p);
+    } else {
+        snprintf(num, sizeof(num), ",\"temperature\":%.4g,\"top_p\":%.4g,\"min_p\":%.4g",
+                 (double)temperature, (double)top_p, (double)min_p);
+    }
     dstudio_remote_buf_puts(&body, num);
-    if (max_tokens > 0) {
-        snprintf(num, sizeof(num), ",\"max_tokens\":%d", max_tokens);
+    int mt = max_tokens;
+    if (cloud && (mt <= 0 || mt > 8192)) mt = 8192;
+    if (mt > 0) {
+        snprintf(num, sizeof(num), ",\"max_tokens\":%d", mt);
         dstudio_remote_buf_puts(&body, num);
     }
     dstudio_remote_buf_puts(&body, "}");

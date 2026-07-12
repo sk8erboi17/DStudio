@@ -1843,9 +1843,11 @@ static int model_rpc_curl_stream(model_rpc_job *job, char *err, size_t errsz) {
     /* --http1.1: SSE through CDN-fronted APIs (CloudFront et al) is prone to
      * mid-stream h2 RST; plain HTTP/1.1 chunked streaming is the boring,
      * reliable path. */
+    /* No --fail: on a 4xx/5xx the provider's JSON error document reaches
+     * stdout, and quoting it verbatim beats guessing what went wrong. */
     char cmd[2200];
     snprintf(cmd, sizeof cmd,
-             "curl -sN --http1.1 --fail --max-time 1800 -H @'%s' --data-binary @'%s' '%s/v1/chat/completions'",
+             "curl -sN --http1.1 --max-time 1800 -H @'%s' --data-binary @'%s' '%s/v1/chat/completions'",
              hpath, bpath, job->base_url);
     FILE *p = popen(cmd, "r");
     if (!p) {
@@ -1854,10 +1856,20 @@ static int model_rpc_curl_stream(model_rpc_job *job, char *err, size_t errsz) {
         return 0;
     }
     json_dyn_buf sse_line = {0};
+    char preview[400];
+    size_t pn = 0;
     char buf[8192];
     size_t n;
-    while (!job->done && (n = fread(buf, 1, sizeof buf, p)) > 0)
+    while (!job->done && (n = fread(buf, 1, sizeof buf, p)) > 0) {
+        if (pn < sizeof preview - 1) {
+            size_t c = sizeof preview - 1 - pn;
+            if (c > n) c = n;
+            memcpy(preview + pn, buf, c);
+            pn += c;
+            preview[pn] = '\0';
+        }
         model_rpc_sse_bytes(job, buf, n, &sse_line);
+    }
     if (!job->done && sse_line.len) model_rpc_sse_line(job, sse_line.ptr);
     int rc = pclose(p);
     free(sse_line.ptr);
@@ -1869,10 +1881,14 @@ static int model_rpc_curl_stream(model_rpc_job *job, char *err, size_t errsz) {
          * CDN-fronted providers reset the connection right after the final
          * chunk (curl exit 56) and retrying would only re-bill the turn. */
         if (job->finish_reason[0]) return 1;
+        if (pn && strncmp(preview, "data:", 5) != 0) {
+            for (size_t i = 0; i < pn; i++)
+                if ((unsigned char)preview[i] < 0x20) preview[i] = ' ';
+            snprintf(err, errsz, "remote API error: %.300s", preview);
+            return 0;
+        }
         int code = rc > 255 ? rc >> 8 : rc;
-        snprintf(err, errsz, code == 22
-                 ? "remote API refused the request (HTTP error — check the API key and model)"
-                 : "remote model stream ended before completion (curl exit %d)", code);
+        snprintf(err, errsz, "remote model stream ended before completion (curl exit %d)", code);
         return 0;
     }
     return 1;
