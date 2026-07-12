@@ -1840,9 +1840,12 @@ static int model_rpc_curl_stream(model_rpc_job *job, char *err, size_t errsz) {
      * temp paths come from mkstemp under TMPDIR. Single-quote everything. */
     size_t blen = strlen(job->base_url);
     while (blen > 0 && job->base_url[blen - 1] == '/') job->base_url[--blen] = '\0';
+    /* --http1.1: SSE through CDN-fronted APIs (CloudFront et al) is prone to
+     * mid-stream h2 RST; plain HTTP/1.1 chunked streaming is the boring,
+     * reliable path. */
     char cmd[2200];
     snprintf(cmd, sizeof cmd,
-             "curl -sN --fail --max-time 1800 -H @'%s' --data-binary @'%s' '%s/v1/chat/completions'",
+             "curl -sN --http1.1 --fail --max-time 1800 -H @'%s' --data-binary @'%s' '%s/v1/chat/completions'",
              hpath, bpath, job->base_url);
     FILE *p = popen(cmd, "r");
     if (!p) {
@@ -1861,6 +1864,11 @@ static int model_rpc_curl_stream(model_rpc_job *job, char *err, size_t errsz) {
     unlink(hpath);
     unlink(bpath);
     if (!job->done) {
+        /* No [DONE] sentinel — but if the stream already delivered a
+         * finish_reason the completion is semantically finished: some
+         * CDN-fronted providers reset the connection right after the final
+         * chunk (curl exit 56) and retrying would only re-bill the turn. */
+        if (job->finish_reason[0]) return 1;
         int code = rc > 255 ? rc >> 8 : rc;
         snprintf(err, errsz, code == 22
                  ? "remote API refused the request (HTTP error — check the API key and model)"
