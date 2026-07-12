@@ -289,6 +289,11 @@ typedef struct {
 } ds4ui_remote_stream_ctx;
 
 #define DS4UI_REMOTE_AUTO_CONTINUES 3
+/* Cap on consecutive INVALID tool calls in a single turn. The remote agent has
+ * no context compaction, so an unbounded malformed-tool loop both spins forever
+ * and grows the message list until the API rejects it. After this many invalid
+ * tool calls we ask once for a plain-text answer, then stop. */
+#define DS4UI_REMOTE_MAX_TOOL_ERRORS 4
 
 static bool ds4ui_remote_retryable_model_error(const char *err) {
     if (!err || !err[0]) return false;
@@ -420,6 +425,8 @@ static int ds4ui_remote_run_turn(agent_worker *w,
     pthread_mutex_unlock(&w->mu);
 
     int auto_continues = 0;
+    int tool_error_streak = 0;
+    bool forced_plain = false;
     for (;;) {
         bool think_enabled = cfg->gen.think_mode != DS4_THINK_NONE;
         bool use_color = isatty(STDOUT_FILENO) != 0;
@@ -512,6 +519,10 @@ static int ds4ui_remote_run_turn(agent_worker *w,
             ds4ui_remote_flush(w);
             return 0;
         }
+        /* A non-NULL result is either a real tool execution (state DONE) or a
+         * tool error string; only the clean DONE path counts as success. */
+        bool tool_errored = dsml.state != AGENT_DSML_DONE ||
+                            stream.tool_preflight_error || stream.dsml_in_think;
         if (cfg->remote_base_url && strncmp(cfg->remote_base_url, "https://", 8) == 0) {
             /* Cloud OpenAI-compatible APIs require tool_call_id for role
              * "tool" messages, but ds4's tool protocol is textual: ship the
@@ -526,6 +537,33 @@ static int ds4ui_remote_run_turn(agent_worker *w,
             dstudio_remote_messages_append(messages, message_count, "tool", tool_result);
         }
         free(tool_result);
+
+        if (tool_errored) {
+            if (++tool_error_streak >= DS4UI_REMOTE_MAX_TOOL_ERRORS) {
+                if (!forced_plain) {
+                    /* One firm nudge: keep the transcript, drop the tool loop. */
+                    forced_plain = true;
+                    tool_error_streak = 0;
+                    dstudio_remote_messages_append(messages, message_count, "user",
+                        "Stop calling tools: your last several tool calls were invalid. "
+                        "Do not attempt any more tool calls. Give your final answer now as "
+                        "plain text only.");
+                    agent_publishf(w,
+                        "\n[too many invalid tool calls \xE2\x80\x94 requesting a plain-text answer]\n");
+                } else {
+                    /* Still failing after the nudge: stop so the turn cannot spin
+                     * or grow the message list past the remote context window. */
+                    agent_publishf(w,
+                        "\n[stopping this turn after repeated invalid tool calls]\n");
+                    agent_dsml_parser_free(&dsml);
+                    agent_set_status(w, AGENT_WORKER_IDLE);
+                    ds4ui_remote_flush(w);
+                    return 0;
+                }
+            }
+        } else {
+            tool_error_streak = 0;
+        }
         agent_dsml_parser_free(&dsml);
     }
 }
