@@ -1,0 +1,3 @@
+    snprintf(v->tool_name, sizeof(v->tool_name), "%s", name ? name : "tool");
+    v->tool_announced = true;
+    ds4ui_tool_stream_begin(sr, v->tool_name);   /*DS4UI_JSONL*/

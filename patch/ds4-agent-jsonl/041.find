@@ -1,0 +1,8 @@
+static char *agent_dsml_find_close_tag(const char *s, const char *name, size_t *tag_len) {
+    const char *p = s;
+    while ((p = strstr(p, "</｜DSML｜")) != NULL) {
+        if (agent_dsml_close_tag_at(p, name, tag_len)) return (char *)p;
+        p++;
+    }
+    return NULL;
+}

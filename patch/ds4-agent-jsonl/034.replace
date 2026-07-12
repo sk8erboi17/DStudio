@@ -1,0 +1,62 @@
+/*DS4UI_JSONL*/
+/* Live tool-call blocks for the UI: mirror the DSML visualizer's incremental
+ * parse as jsonl events so the tool block opens the MOMENT the model starts
+ * writing the stanza, and the body (file content, diff old/new, bash command)
+ * streams inside it. The complete tool_call event still follows at execution
+ * time and finalizes the block.
+ *   tool_call_begin {name}            stanza announced
+ *   tool_call_param {param, path}     a param value opened (path is the
+ *                                     accumulated path once that param closed)
+ *   tool_body_delta {text}            body bytes in small, time-capped batches */
+static void ds4ui_json_escape(const char *s, char *out, size_t cap);
+static char   ds4ui_toolbuf[384];
+static size_t ds4ui_toolbuf_len;
+static bool   ds4ui_tool_body_on;
+static double ds4ui_toolbuf_last_flush;
+static void ds4ui_tool_stream_flush(agent_worker *w) {
+    if (!w || !w->cfg || !w->cfg->jsonl || !ds4ui_toolbuf_len) { ds4ui_toolbuf_len = 0; return; }
+    char esc[384 * 6 + 8];
+    ds4ui_toolbuf[ds4ui_toolbuf_len] = '\0';
+    ds4ui_json_escape(ds4ui_toolbuf, esc, sizeof esc);
+    char line[384 * 6 + 64];
+    int k = snprintf(line, sizeof line, "\x1e{\"type\":\"tool_body_delta\",\"text\":\"%s\"}\n", esc);
+    if (k > 0 && k < (int)sizeof line) agent_publish(w, line, (size_t)k);
+    ds4ui_toolbuf_len = 0;
+    ds4ui_toolbuf_last_flush = now_sec();
+}
+static void ds4ui_tool_stream_begin(agent_stream_renderer *sr, const char *name) {
+    agent_worker *w = sr && sr->renderer ? sr->renderer->worker : NULL;
+    if (!w || !w->cfg || !w->cfg->jsonl) return;
+    ds4ui_toolbuf_len = 0;
+    ds4ui_tool_body_on = false;
+    char nm[128], line[256];
+    ds4ui_json_escape(name ? name : "tool", nm, sizeof nm);
+    int k = snprintf(line, sizeof line, "\x1e{\"type\":\"tool_call_begin\",\"name\":\"%s\"}\n", nm);
+    if (k > 0 && k < (int)sizeof line) agent_publish(w, line, (size_t)k);
+}
+static void ds4ui_tool_stream_param_begin(agent_stream_renderer *sr) {
+    agent_worker *w = sr && sr->renderer ? sr->renderer->worker : NULL;
+    if (!w || !w->cfg || !w->cfg->jsonl) return;
+    agent_tool_visualizer *v = &sr->viz;
+    ds4ui_tool_body_on =
+        v->param_kind == AGENT_TOOL_PARAM_CONTENT ||
+        v->param_kind == AGENT_TOOL_PARAM_DIFF_OLD ||
+        v->param_kind == AGENT_TOOL_PARAM_DIFF_NEW ||
+        v->param_kind == AGENT_TOOL_PARAM_BASH_COMMAND;
+    char pn[96], pv[1600], line[2048];
+    ds4ui_json_escape(v->param_name, pn, sizeof pn);
+    ds4ui_json_escape(v->tool_path, pv, sizeof pv);
+    int k = snprintf(line, sizeof line,
+        "\x1e{\"type\":\"tool_call_param\",\"param\":\"%s\",\"path\":\"%s\"}\n", pn, pv);
+    if (k > 0 && k < (int)sizeof line) agent_publish(w, line, (size_t)k);
+}
+static void ds4ui_tool_stream_byte(agent_stream_renderer *sr, char c) {
+    agent_worker *w = sr && sr->renderer ? sr->renderer->worker : NULL;
+    if (!w || !w->cfg || !w->cfg->jsonl || !ds4ui_tool_body_on) return;
+    ds4ui_toolbuf[ds4ui_toolbuf_len++] = c;
+    if (ds4ui_toolbuf_len >= sizeof(ds4ui_toolbuf) - 1 ||
+        (ds4ui_toolbuf_len && now_sec() - ds4ui_toolbuf_last_flush > 0.2))
+        ds4ui_tool_stream_flush(w);
+}
+
+static void agent_tool_viz_tool(agent_stream_renderer *sr, const char *name) {

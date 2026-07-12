@@ -163,6 +163,34 @@ This is a serious local AI setup. DStudio removes product friction, not physics:
 
 `ds4-design` lives in **this** repo (`extension/design/ds4_design.c`) and is compiled into the ds4 repo automatically the first time you open Design.
 
+### GLM 5.2 (experimental, optional)
+
+DStudio can run **GLM 5.2** GGUFs through a second engine checkout on ds4's
+[`glm5.2` branch](https://github.com/antirez/ds4/tree/glm5.2), kept side by side
+with the main DeepSeek engine and swappable at runtime:
+
+- **Install**: open the system check (doctor) and press **Install** on the
+  *GLM engine (optional)* row — or `POST /api/glm/setup`. DStudio downloads the
+  pinned `glm5.2` commit into `./ds4-glm52` (curl + tar, no Git), applies the
+  local fix from `patch/ds4-glm52/` on top of the pristine source, and builds.
+- **Model**: download a supported GLM GGUF from inside `ds4-glm52/`
+  (`./download_model.sh glm-antirez-q2`, ~262 GB; see that branch's README for
+  the other quantizations).
+- **Use**: in the composer's model pill, the **Engine branch** section switches
+  between `main` (DeepSeek) and `glm5.2`; then pick the GLM GGUF from the model
+  list. DStudio automatically drops `--power` (unsupported by GLM), forces the
+  full-layer streaming prefill path and passes a 32 GB expert-cache budget.
+- **Expectations**: GLM 5.2 Q2 is ~262 GB, so on 96-128 GB machines it runs via
+  **SSD streaming** — roughly 7-8 t/s prefill and ~1 t/s generation on a 96 GB
+  M2 Max. Usable for inspection, not for fluid chat. Turning Thinking off helps
+  latency a lot.
+
+The `patch/ds4-glm52/metal-model-views.patch` fix makes Metal fall back to
+on-demand exact model views when a streamed range is not covered by the boot
+model map (upstream `glm5.2` fails multi-token prefill without it). Like the
+agent patch set, it is applied to the downloaded checkout — upstream sources
+are never vendored into this repo.
+
 ### Windows notes
 
 For normal use, download/extract the Windows portable zip and run `DStudio.exe`. Keep the files together: `DStudio.exe`, `ds4-server.exe`, `ds4-agent.exe`, `ds4-agent-jsonl.exe`, `ds4-agent-jsonl.ver` and `ds4-design.exe` are meant to live in the same portable folder.

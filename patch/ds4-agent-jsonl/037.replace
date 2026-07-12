@@ -1,0 +1,3 @@
+static void agent_tool_viz_param_raw_byte(agent_stream_renderer *sr, char c) {
+    ds4ui_tool_stream_byte(sr, c);   /*DS4UI_JSONL*/
+    agent_tool_visualizer *v = &sr->viz;

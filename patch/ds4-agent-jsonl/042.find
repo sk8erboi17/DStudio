@@ -1,0 +1,32 @@
+
+/* Recognize a streamed parameter close tag prefix.  Full close detection is
+ * handled by agent_dsml_close_tag_at(); this helper exists for online behavior:
+ * terminal rendering must hide partial close tags without waiting for the whole
+ * parameter to finish. */
+static bool agent_dsml_parameter_close_tail(const char *tail, size_t len,
+                                            bool *complete) {
+    static const char prefix[] = "</｜DSML｜parameter";
+    static const char dsml_bar[] = "｜";
+    const size_t prefix_len = sizeof(prefix) - 1;
+    const size_t bar_len = sizeof(dsml_bar) - 1;
+    *complete = false;
+    if (len <= prefix_len) return memcmp(prefix, tail, len) == 0;
+    if (memcmp(prefix, tail, prefix_len) != 0) return false;
+    size_t i = prefix_len;
+    while (i < len && (tail[i] == ' ' || tail[i] == '\t' ||
+                       tail[i] == '\r' || tail[i] == '\n')) i++;
+    if (i < len && len - i <= bar_len) {
+        if (memcmp(dsml_bar, tail + i, len - i) == 0) return true;
+    }
+    if (i + bar_len <= len && memcmp(tail + i, dsml_bar, bar_len) == 0)
+        i += bar_len;
+    for (; i < len; i++) {
+        if (tail[i] == '>') {
+            *complete = i == len - 1;
+            return *complete;
+        }
+        if (tail[i] != ' ' && tail[i] != '\t' && tail[i] != '\r' && tail[i] != '\n')
+            return false;
+    }
+    return true;
+}

@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <poll.h>
 #include <unistd.h>
 
 static void remote_err(char *err, size_t err_len, const char *fmt, ...) {
@@ -138,6 +139,17 @@ static int read_line_fd(int fd, dstudio_remote_buf *line) {
         char c;
         ssize_t n = read(fd, &c, 1);
         if (n < 0 && errno == EINTR) continue;
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            /* The runtime's pipe loop runs stdin in non-blocking mode: a gap
+             * between streamed model frames is NOT end-of-stream. Wait for
+             * more bytes (generous cap: remote models can stall on long
+             * prefills) instead of misreading EAGAIN as EOF. */
+            struct pollfd p = { .fd = fd, .events = POLLIN };
+            int prc = poll(&p, 1, 1800000);
+            if (prc < 0 && errno == EINTR) continue;
+            if (prc <= 0) return line->len ? 1 : 0;
+            continue;
+        }
         if (n <= 0) return line->len ? 1 : 0;
         dstudio_remote_buf_append(line, &c, 1);
         if (c == '\n') return 1;
@@ -264,28 +276,41 @@ int dstudio_remote_chat_stream(const char *base_url,
         remote_err(err, err_len, "remote model host is missing");
         return 1;
     }
-    if (strncmp(base_url, "http://", 7) != 0) {
-        remote_err(err, err_len, "remote model host must be http:// on LAN");
+    if (strncmp(base_url, "http://", 7) != 0 && strncmp(base_url, "https://", 8) != 0) {
+        remote_err(err, err_len, "remote model host must be http:// (LAN) or https:// (cloud API)");
         return 1;
     }
 
+    /* Cloud endpoints (https) speak plain OpenAI-compatible JSON: the ds4-only
+     * knobs (think, reasoning_effort, min_p) get requests rejected outright,
+     * and DeepSeek caps max_tokens at 8192. LAN ds4 hosts keep the full set. */
+    int cloud = strncmp(base_url, "https://", 8) == 0;
     dstudio_remote_buf body = {0};
     dstudio_remote_buf_puts(&body, "{\"model\":");
     dstudio_remote_json_string(&body, model && model[0] ? model : "ds4");
     dstudio_remote_buf_puts(&body, ",\"stream\":true,\"messages\":");
     dstudio_remote_buf_puts(&body, messages_json && messages_json[0] ? messages_json : "[]");
-    dstudio_remote_buf_puts(&body, ",\"think\":");
-    dstudio_remote_buf_puts(&body, think_level > 0 ? "true" : "false");
-    if (think_level > 0) {
-        dstudio_remote_buf_puts(&body, ",\"reasoning_effort\":");
-        dstudio_remote_json_string(&body, think_level >= 2 ? "max" : "high");
+    if (!cloud) {
+        dstudio_remote_buf_puts(&body, ",\"think\":");
+        dstudio_remote_buf_puts(&body, think_level > 0 ? "true" : "false");
+        if (think_level > 0) {
+            dstudio_remote_buf_puts(&body, ",\"reasoning_effort\":");
+            dstudio_remote_json_string(&body, think_level >= 2 ? "max" : "high");
+        }
     }
     char num[160];
-    snprintf(num, sizeof(num), ",\"temperature\":%.4g,\"top_p\":%.4g,\"min_p\":%.4g",
-             (double)temperature, (double)top_p, (double)min_p);
+    if (cloud) {
+        snprintf(num, sizeof(num), ",\"temperature\":%.4g,\"top_p\":%.4g",
+                 (double)temperature, (double)top_p);
+    } else {
+        snprintf(num, sizeof(num), ",\"temperature\":%.4g,\"top_p\":%.4g,\"min_p\":%.4g",
+                 (double)temperature, (double)top_p, (double)min_p);
+    }
     dstudio_remote_buf_puts(&body, num);
-    if (max_tokens > 0) {
-        snprintf(num, sizeof(num), ",\"max_tokens\":%d", max_tokens);
+    int mt = max_tokens;
+    if (cloud && (mt <= 0 || mt > 8192)) mt = 8192;
+    if (mt > 0) {
+        snprintf(num, sizeof(num), ",\"max_tokens\":%d", mt);
         dstudio_remote_buf_puts(&body, num);
     }
     dstudio_remote_buf_puts(&body, "}");

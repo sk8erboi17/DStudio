@@ -1,4 +1,5 @@
     if (!strcmp(call->name, "read")) return agent_tool_read(w, call);
     if (!strcmp(call->name, "skill")) return ds4ui_tool_skill(call);   /*DS4UI_JSONL*/
+    if (!strcmp(call->name, "skills_search")) return ds4ui_tool_skills_search(call);   /*DS4UI_JSONL*/
     if (!strcmp(call->name, "design_system")) return ds4ui_tool_design_system(call);   /*DS4UI_JSONL*/
     if (!strcmp(call->name, "pack_file")) return ds4ui_tool_pack_file(call);   /*DS4UI_JSONL*/

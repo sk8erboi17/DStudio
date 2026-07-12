@@ -1,0 +1,12 @@
+/*DS4UI_JSONL: reworded so the reminder does not embed the raw ｜DSML｜ control
+ * markers. It is appended as a plain-text tool message (not tokenized as
+ * rendered chat), so literal markers here get learned as ordinary text tokens
+ * and push the model to hand-type the markers instead of emitting the dedicated
+ * DSML control token — the exact drift that makes retries fail worse each round.*/
+static const char agent_dsml_syntax_reminder[] =
+    "Re-emit the tool call using the DSML tool-call format defined in the system "
+    "prompt: a tool_calls block wrapping one invoke (with the tool name), each "
+    "argument in its own parameter tag, and every tag paired with its closing "
+    "tag. Produce the DSML markers as their native control tokens rather than "
+    "typing the marker characters by hand. If you cannot produce a valid tool "
+    "call, answer in plain text instead of retrying.\n";

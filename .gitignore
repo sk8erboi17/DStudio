@@ -24,9 +24,15 @@ log2timeline-*.log.gz
 core
 core.*
 
-# Managed upstream engine checkout. DStudio can clone antirez/ds4 here and
-# apply its reversible patch sets without vendoring upstream source.
+# Managed upstream engine checkouts. DStudio downloads antirez/ds4 here (the
+# pinned main commit as ./ds4, the glm5.2 branch as ./ds4-glm52 installed on
+# demand by /api/glm/setup) and applies its reversible patch sets without
+# vendoring upstream source.
 /ds4/
+/ds4-glm52/
+
+# Runtime diagnostic dump
+diagnostics.log
 
 # macOS
 .DS_Store
