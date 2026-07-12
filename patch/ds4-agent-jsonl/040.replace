@@ -1,13 +1,17 @@
 static bool agent_dsml_close_tag_at(const char *s, const char *name, size_t *tag_len) {
-    char prefix[64];
-    static const char dsml_bar[] = "｜";
-    /*DS4UI_JSONL: tolerate the dropped leading fullwidth bar on close tags too.*/
-    static const char *const pre[2] = { "</｜DSML｜", "</DSML｜" };
-    size_t prefix_len = 0;
-    int matched = 0;
-    for (int v = 0; v < 2 && !matched; v++) {
-        snprintf(prefix, sizeof(prefix), "%s%s", pre[v], name);
-        prefix_len = strlen(prefix);
-        if (strncmp(s, prefix, prefix_len) == 0) matched = 1;
-    }
-    if (!matched) return false;
+    /*DS4UI_JSONL: tolerant DSML close matcher. Cloud models mangle the ｜ bars —
+     * dropping the leading bar or swapping a bar for a zero-width space (U+200B) —
+     * so treat both bars as optional and skip any bar/zero-width/whitespace glue
+     * between "</", "DSML", the tag name and ">". */
+    const char *p = s;
+    if (p[0] != '<' || p[1] != '/') return false;
+    p = agent_dsml_skip_sep(p + 2);
+    if (strncmp(p, "DSML", 4) != 0) return false;
+    p = agent_dsml_skip_sep(p + 4);
+    size_t nlen = strlen(name);
+    if (strncmp(p, name, nlen) != 0) return false;
+    p = agent_dsml_skip_sep(p + nlen);
+    if (*p != '>') return false;
+    if (tag_len) *tag_len = (size_t)(p - s) + 1;
+    return true;
+}

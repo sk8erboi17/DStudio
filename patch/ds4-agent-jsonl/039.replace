@@ -1,14 +1,38 @@
-static bool agent_dsml_open_tag_is(const char *tag, const char *name) {
-    char prefix[64];
-    /*DS4UI_JSONL: cloud DeepSeek models sometimes drop the leading fullwidth
-      bar, emitting <DSML｜invoke ...> instead of <｜DSML｜invoke ...>. Accept both.*/
-    static const char *const pre[2] = { "<｜DSML｜", "<DSML｜" };
-    for (int v = 0; v < 2; v++) {
-        snprintf(prefix, sizeof(prefix), "%s%s", pre[v], name);
-        size_t prefix_len = strlen(prefix);
-        if (strncmp(tag, prefix, prefix_len) != 0) continue;
-        char c = tag[prefix_len];
-        if (c == '>' || c == ' ' || c == '\t' || c == '\r' || c == '\n') return true;
+/*DS4UI_JSONL: skip a run of DSML marker "glue" — the ｜ (U+FF5C) bars, the
+  zero-width chars (U+200B/C/D, U+FEFF) some cloud models emit in their place,
+  and ASCII whitespace. Cloud DeepSeek reproduces DStudio's ｜DSML｜ markers as
+  plain text and mangles the bars (drops them or swaps a bar for a U+200B), so
+  every marker matcher treats the bars as optional and skips this glue.*/
+static const char *agent_dsml_skip_sep(const char *p) {
+    static const char *const seps[] = {
+        "\xEF\xBD\x9C", /* U+FF5C fullwidth vertical bar */
+        "\xE2\x80\x8B", /* U+200B zero-width space */
+        "\xE2\x80\x8C", /* U+200C zero-width non-joiner */
+        "\xE2\x80\x8D", /* U+200D zero-width joiner */
+        "\xEF\xBB\xBF", /* U+FEFF zero-width no-break space / BOM */
+        NULL
+    };
+    for (;;) {
+        if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') { p++; continue; }
+        int matched = 0;
+        for (int i = 0; seps[i]; i++) {
+            size_t n = strlen(seps[i]);
+            if (strncmp(p, seps[i], n) == 0) { p += n; matched = 1; break; }
+        }
+        if (!matched) return p;
     }
-    return false;
+}
+
+static bool agent_dsml_open_tag_is(const char *tag, const char *name) {
+    /*DS4UI_JSONL: accept a mangled leading/separating bar (dropped, or a
+      zero-width space) around the ｜DSML｜ marker.*/
+    const char *p = tag;
+    if (*p != '<') return false;
+    p = agent_dsml_skip_sep(p + 1);
+    if (strncmp(p, "DSML", 4) != 0) return false;
+    p = agent_dsml_skip_sep(p + 4);
+    size_t nlen = strlen(name);
+    if (strncmp(p, name, nlen) != 0) return false;
+    char c = p[nlen];
+    return c == '>' || c == ' ' || c == '\t' || c == '\r' || c == '\n';
 }
