@@ -44,8 +44,6 @@ static int gsa_nuclei_templates_found(void) {
     return gsa_nuclei_templates_marker_dir(nested);
 }
 
-static void child_setenv_gsa_tools(void);
-
 /* ---- GSA: guided security analysis pipeline ----------------------------------
  * GSA is intentionally file-backed and task-tracked. The API prepares bounded,
  * deterministic inputs and phase prompts; the Agent still performs the analysis

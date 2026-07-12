@@ -10447,6 +10447,37 @@ static void handle_connection(int fd) {
     close(fd);
 }
 
+/* GUI-launched DStudio inherits a minimal launchd PATH without Homebrew, so
+ * tools invoked via `#!/usr/bin/env node` (e.g. the GSA playwright validation
+ * adapter) fail with exit 127 "node: No such file or directory". Resolve node
+ * once at startup and prepend its directory to PATH, so both the GSA validation
+ * executor (which runs in this process) and the spawned agent's bash tools
+ * (which inherit this environment) can find it. */
+static void ensure_node_on_path(void) {
+    static const char *node_dirs[] = {
+        "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin",
+        "/opt/local/bin", "/snap/bin", NULL
+    };
+    char node_bin[PATH_MAX];
+    if (!resolve_program_path("node", node_dirs, node_bin, sizeof node_bin)) return;
+    char *slash = strrchr(node_bin, '/');
+    if (!slash || slash == node_bin) return;
+    *slash = '\0';                       /* node_bin is now node's directory */
+    const char *cur = getenv("PATH");
+    if (cur && cur[0]) {
+        size_t dlen = strlen(node_bin);
+        for (const char *p = cur; p; ) {
+            const char *sep = strchr(p, ':');
+            size_t seglen = sep ? (size_t)(sep - p) : strlen(p);
+            if (seglen == dlen && strncmp(p, node_bin, dlen) == 0) return; /* already present */
+            p = sep ? sep + 1 : NULL;
+        }
+    }
+    char buf[PATH_MAX + 4096];
+    snprintf(buf, sizeof buf, "%s%s%s", node_bin, (cur && cur[0]) ? ":" : "", cur ? cur : "");
+    setenv("PATH", buf, 1);
+}
+
 /* ==================== main ==================== */
 
 /* When the binary embeds the webview window (app.mm), main() lives there
@@ -10488,6 +10519,7 @@ int main(int argc, char **argv)
         int web_fails = web_cdp_check_anchors(web_src);
         return fails == 0 && web_fails == 0 ? 0 : 1;
     }
+    ensure_node_on_path();   /* so GSA node-based tools (playwright) resolve under a GUI launch */
     int port = DEFAULT_PORT;
     if (argc > 1) {
         char *end = NULL;
