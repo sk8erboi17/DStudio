@@ -1,0 +1,8 @@
+static bool agent_dsml_open_tag_is(const char *tag, const char *name) {
+    char prefix[64];
+    snprintf(prefix, sizeof(prefix), "<｜DSML｜%s", name);
+    size_t prefix_len = strlen(prefix);
+    if (strncmp(tag, prefix, prefix_len) != 0) return false;
+    char c = tag[prefix_len];
+    return c == '>' || c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}

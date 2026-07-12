@@ -1,0 +1,14 @@
+static bool agent_dsml_open_tag_is(const char *tag, const char *name) {
+    char prefix[64];
+    /*DS4UI_JSONL: cloud DeepSeek models sometimes drop the leading fullwidth
+      bar, emitting <DSML｜invoke ...> instead of <｜DSML｜invoke ...>. Accept both.*/
+    static const char *const pre[2] = { "<｜DSML｜", "<DSML｜" };
+    for (int v = 0; v < 2; v++) {
+        snprintf(prefix, sizeof(prefix), "%s%s", pre[v], name);
+        size_t prefix_len = strlen(prefix);
+        if (strncmp(tag, prefix, prefix_len) != 0) continue;
+        char c = tag[prefix_len];
+        if (c == '>' || c == ' ' || c == '\t' || c == '\r' || c == '\n') return true;
+    }
+    return false;
+}

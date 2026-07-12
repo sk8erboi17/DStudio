@@ -512,7 +512,19 @@ static int ds4ui_remote_run_turn(agent_worker *w,
             ds4ui_remote_flush(w);
             return 0;
         }
-        dstudio_remote_messages_append(messages, message_count, "tool", tool_result);
+        if (cfg->remote_base_url && strncmp(cfg->remote_base_url, "https://", 8) == 0) {
+            /* Cloud OpenAI-compatible APIs require tool_call_id for role
+             * "tool" messages, but ds4's tool protocol is textual: ship the
+             * result as a plainly marked user message instead. */
+            dstudio_remote_buf tr = {0};
+            dstudio_remote_buf_puts(&tr, "[tool result]\n");
+            dstudio_remote_buf_puts(&tr, tool_result);
+            char *wrapped = dstudio_remote_buf_take(&tr);
+            dstudio_remote_messages_append(messages, message_count, "user", wrapped);
+            free(wrapped);
+        } else {
+            dstudio_remote_messages_append(messages, message_count, "tool", tool_result);
+        }
         free(tool_result);
         agent_dsml_parser_free(&dsml);
     }
