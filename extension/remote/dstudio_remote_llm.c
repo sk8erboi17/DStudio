@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <poll.h>
 #include <unistd.h>
 
 static void remote_err(char *err, size_t err_len, const char *fmt, ...) {
@@ -138,6 +139,17 @@ static int read_line_fd(int fd, dstudio_remote_buf *line) {
         char c;
         ssize_t n = read(fd, &c, 1);
         if (n < 0 && errno == EINTR) continue;
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            /* The runtime's pipe loop runs stdin in non-blocking mode: a gap
+             * between streamed model frames is NOT end-of-stream. Wait for
+             * more bytes (generous cap: remote models can stall on long
+             * prefills) instead of misreading EAGAIN as EOF. */
+            struct pollfd p = { .fd = fd, .events = POLLIN };
+            int prc = poll(&p, 1, 1800000);
+            if (prc < 0 && errno == EINTR) continue;
+            if (prc <= 0) return line->len ? 1 : 0;
+            continue;
+        }
         if (n <= 0) return line->len ? 1 : 0;
         dstudio_remote_buf_append(line, &c, 1);
         if (c == '\n') return 1;
