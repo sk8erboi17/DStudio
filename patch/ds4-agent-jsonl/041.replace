@@ -1,0 +1,10 @@
+static char *agent_dsml_find_close_tag(const char *s, const char *name, size_t *tag_len) {
+    /*DS4UI_JSONL: scan each '<' so the dropped-leading-bar close variant
+     * "</DSML｜parameter>" is found too; agent_dsml_close_tag_at decides which
+     * forms are valid. Without this the parameter value never closes and the
+     * turn ends as "incomplete DSML tool call".*/
+    for (const char *p = strchr(s, '<'); p != NULL; p = strchr(p + 1, '<')) {
+        if (agent_dsml_close_tag_at(p, name, tag_len)) return (char *)p;
+    }
+    return NULL;
+}

@@ -1,0 +1,45 @@
+static bool agent_dsml_close_tail_for_prefix(const char *tail, size_t len,
+                                             const char *prefix, size_t prefix_len,
+                                             bool *complete) {
+    static const char dsml_bar[] = "｜";
+    const size_t bar_len = sizeof(dsml_bar) - 1;
+    *complete = false;
+    if (len <= prefix_len) return memcmp(prefix, tail, len) == 0;
+    if (memcmp(prefix, tail, prefix_len) != 0) return false;
+    size_t i = prefix_len;
+    while (i < len && (tail[i] == ' ' || tail[i] == '\t' ||
+                       tail[i] == '\r' || tail[i] == '\n')) i++;
+    if (i < len && len - i <= bar_len) {
+        if (memcmp(dsml_bar, tail + i, len - i) == 0) return true;
+    }
+    if (i + bar_len <= len && memcmp(tail + i, dsml_bar, bar_len) == 0)
+        i += bar_len;
+    for (; i < len; i++) {
+        if (tail[i] == '>') {
+            *complete = i == len - 1;
+            return *complete;
+        }
+        if (tail[i] != ' ' && tail[i] != '\t' && tail[i] != '\r' && tail[i] != '\n')
+            return false;
+    }
+    return true;
+}
+
+/* Recognize a streamed parameter close tag prefix.  Full close detection is
+ * handled by agent_dsml_close_tag_at(); this helper exists for online behavior:
+ * terminal rendering must hide partial close tags without waiting for the whole
+ * parameter to finish.  Both the canonical marker and the "missing leading bar"
+ * drift are accepted, mirroring agent_dsml_close_tag_at(). */
+static bool agent_dsml_parameter_close_tail(const char *tail, size_t len,
+                                            bool *complete) {
+    /*DS4UI_JSONL: accept the dropped-leading-bar close prefix too.*/
+    static const char canonical[] = "</｜DSML｜parameter";
+    static const char missing_bar[] = "</DSML｜parameter";
+    bool c1 = false, c2 = false;
+    bool m1 = agent_dsml_close_tail_for_prefix(tail, len, canonical,
+                                               sizeof(canonical) - 1, &c1);
+    bool m2 = agent_dsml_close_tail_for_prefix(tail, len, missing_bar,
+                                               sizeof(missing_bar) - 1, &c2);
+    *complete = (m1 && c1) || (m2 && c2);
+    return m1 || m2;
+}
