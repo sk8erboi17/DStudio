@@ -4987,15 +4987,6 @@
       padding: 0.2rem 0.3rem;
     }
 
-    .agent-working .agent-rate {
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
-      color: var(--faint);
-      font-style: normal;
-      margin-left: 0.4rem;
-      animation: ratepulse 1.4s ease-in-out infinite;
-    }
-
     .agent-working__label::after {
       content: '▍';
       color: var(--accent);
@@ -5928,14 +5919,6 @@
       return url.origin;
     }
 
-    function normalizeRemoteLanAddress(raw) {
-      const url = new URL(normalizeLanHostUrl(raw));
-      url.pathname = '/remote';
-      url.search = '';
-      url.hash = '';
-      return url.toString();
-    }
-
     const DEFAULT_SETTINGS = {
       v: SCHEMA_VERSION,
       baseUrl: DEFAULT_BASE_URL,
@@ -6486,12 +6469,10 @@
       return wrapped;
     }
 
+    const SCROLL_KEYS = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '];
+
     function isNearBottom(scroller, px = 80) {
       return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < px;
-    }
-
-    function scrollToBottom(scroller) {
-      scroller.scrollTop = scroller.scrollHeight;
     }
 
     function selectionInside(node) {
@@ -6534,21 +6515,91 @@
       return !!scroller && isNearBottom(scroller) && !selectionInside(scroller);
     }
 
-    function settleScroll(scroller, stick, previousTop) {
-      if (!scroller) return;
-      const targetTop = Number.isFinite(previousTop) ? Math.max(0, previousTop) : null;
-      const apply = () => {
-        if (!scroller.isConnected) return;
-        if (stick) scrollToBottom(scroller);
-        else if (targetTop !== null) scroller.scrollTop = targetTop;
-      };
-      apply();
-      if (stick || targetTop !== null) {
-        requestAnimationFrame(() => {
-          apply();
-          if (!stick && targetTop !== null) requestAnimationFrame(apply);
-        });
+    /** Follow-to-bottom scroll controller shared by the chat and agent views.
+     * User scrolls are told apart from programmatic ones by POSITION, not by
+     * input events: a scrollbar drag fires no wheel/pointer events in WebKit,
+     * so every programmatic write goes through write()/toBottom() and any
+     * scroll that lands elsewhere is the user's. Wheel up disengages follow
+     * immediately — waiting for the scroll event loses the race against the
+     * per-frame toBottom of a fast stream and the view feels stuck. */
+    function createFollowScroll(getScroller, { isSelecting = () => false } = {}) {
+      let following = false;
+      let inputAt = 0;   // last user scroll input (wheel/touch/pointer/keys or detected scroll)
+      let lastTop = 0;
+      let progAt = 0;    // when write() last set scrollTop, and where:
+      let progTop = -1;  // scrolls matching it are ours, not the user's
+
+      const markInput = () => { inputAt = performance.now(); };
+
+      function write(top) {
+        const s = getScroller();
+        if (!s) return;
+        s.scrollTop = Math.max(0, top);
+        progAt = performance.now();
+        progTop = s.scrollTop;
+        lastTop = s.scrollTop;
       }
+
+      const toBottom = () => { const s = getScroller(); if (s) write(s.scrollHeight); };
+
+      function onWheel(e) {
+        markInput();
+        if (e.deltaY < 0) following = false;
+      }
+
+      function onKey(e) {
+        if (SCROLL_KEYS.includes(e.key)) markInput();
+      }
+
+      function onScroll() {
+        const s = getScroller();
+        if (!s) return;
+        const prog = performance.now() - progAt < 150 && Math.abs(s.scrollTop - progTop) <= 2;
+        if (prog) { lastTop = s.scrollTop; return; }
+        markInput();
+        const movedUp = s.scrollTop < lastTop - 2;
+        const movedDown = s.scrollTop > lastTop + 2;
+        if (movedUp) following = false;
+        else if (movedDown && isNearBottom(s, 120) && !isSelecting()) following = true;
+        lastTop = s.scrollTop;
+      }
+
+      function shouldFollow() {
+        const s = getScroller();
+        return !!s && following && !isSelecting() && !selectionInside(s);
+      }
+
+      /** After a repaint: stick to the bottom, or restore the captured
+       * position once — never fighting an actively scrolling/selecting user. */
+      function settle(stick, previousTop) {
+        const s = getScroller();
+        if (!s) return;
+        if (stick) {
+          // Re-check follow on the deferred pass: a blind re-apply used to
+          // yank the view down right after the user scrolled up, and the
+          // near-bottom scroll event it caused re-armed follow — the "cannot
+          // scroll up while streaming" loop.
+          toBottom();
+          requestAnimationFrame(() => {
+            if (s.isConnected && shouldFollow()) toBottom();
+          });
+          return;
+        }
+        // The scroller node persists across repaints so the browser already
+        // preserves the position; the restore only covers a rebuild that
+        // clamped it.
+        if (performance.now() - inputAt < 1500 || isSelecting()) { lastTop = s.scrollTop; return; }
+        const targetTop = Number.isFinite(previousTop) ? Math.max(0, previousTop) : null;
+        if (targetTop !== null && Math.abs(s.scrollTop - targetTop) > 1) write(targetTop);
+        lastTop = s.scrollTop;
+      }
+
+      return {
+        markInput, onWheel, onKey, onScroll, shouldFollow, settle, toBottom,
+        isFollowing: () => following,
+        setFollowing: (v) => { following = !!v; },
+        syncTop: () => { const s = getScroller(); if (s) lastTop = s.scrollTop; },
+      };
     }
 
     const UTF8_ENCODER = new TextEncoder();
@@ -6579,20 +6630,52 @@
       setTimeout(() => node.remove(), 4000);
     }
 
-    async function copyTextToClipboard(btn, text) {
-      try {
-        await navigator.clipboard.writeText(String(text ?? ''));
-        const orig = btn.innerHTML;
-        btn.classList.add('is-copied');
-        btn.innerHTML = 'Copied ✓';
-        setTimeout(() => {
-          btn.innerHTML = orig;
-          btn.classList.remove('is-copied');
-        }, 1200);
-      } catch {
-        toast('Copy failed.', 'error');
+    // execCommand fallback: navigator.clipboard is missing on non-secure
+    // origins (e.g. the UI opened from another machine over LAN) and can be
+    // denied by the webview — the hidden-textarea path still works there.
+    function legacyCopyText(value) {
+      const ta = document.createElement('textarea');
+      ta.value = value;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0;';
+      document.body.append(ta);
+      const sel = window.getSelection?.();
+      const saved = sel ? Array.from({ length: sel.rangeCount }, (_, i) => sel.getRangeAt(i)) : [];
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch { ok = false; }
+      ta.remove();
+      if (sel && saved.length) {
+        sel.removeAllRanges();
+        for (const r of saved) sel.addRange(r);
       }
+      return ok;
     }
+
+    async function copyTextToClipboard(btn, text) {
+      const value = String(text ?? '');
+      let ok = false;
+      try { await navigator.clipboard.writeText(value); ok = true; }
+      catch { ok = legacyCopyText(value); }
+      if (!ok) { toast('Copy failed.', 'error'); return; }
+      const orig = btn.innerHTML;
+      btn.classList.add('is-copied');
+      btn.innerHTML = 'Copied ✓';
+      setTimeout(() => {
+        btn.innerHTML = orig;
+        btn.classList.remove('is-copied');
+      }, 1200);
+    }
+
+    // ONE delegated handler for every code-block Copy button: the markdown
+    // renderer emits them in the chat, agent, and artifact-canvas surfaces
+    // alike, so per-view handlers kept missing one (dead buttons).
+    on(document, 'click', (e) => {
+      const btn = e.target.closest?.('[data-copy]');
+      if (!btn) return;
+      const code = btn.closest('.code-block')?.querySelector('code')?.textContent ?? '';
+      copyTextToClipboard(btn, code);
+    });
 
     let latexContextMenu = null;
     let tableContextMenu = null;
@@ -8920,8 +9003,7 @@
       let handlers = {}; // { onRegenerate, onContinue }
       let editingUserMsgId = null;
       let followBottomChatId = null;
-      let followBottom = false;
-      let scrollInputAt = 0;
+      const follow = createFollowScroll(() => root);
       // Active stream views (msgId → view). They allow re-attach: if the
       // user switches chat and comes back, the re-rendered bubble is reconnected
       // to the still-running stream.
@@ -8943,12 +9025,13 @@
       function mount(rootEl, h) {
         root = rootEl;
         handlers = h;
+        follow.syncTop();
         on(root, 'click', onClick);
         on(root, 'scroll', onScroll);
-        on(root, 'wheel', markScrollInput, { passive: true });
-        on(root, 'touchstart', markScrollInput, { passive: true });
-        on(root, 'pointerdown', markScrollInput);
-        on(root, 'keydown', onScrollKey);
+        on(root, 'wheel', follow.onWheel, { passive: true });
+        on(root, 'touchstart', follow.markInput, { passive: true });
+        on(root, 'pointerdown', follow.markInput);
+        on(root, 'keydown', follow.onKey);
       }
 
       function announce(text) {
@@ -9012,30 +9095,19 @@
         return out.length ? out : (chat.messages || []);
       }
 
-      function markScrollInput() {
-        scrollInputAt = performance.now();
-      }
-
-      function onScrollKey(e) {
-        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) markScrollInput();
-      }
-
       function onScroll() {
+        follow.onScroll();
         updateScrollBtn();
-        const chatId = Store.getActiveChat()?.id;
-        const userDriven = performance.now() - scrollInputAt < 1800;
-        if (!userDriven || !chatId || followBottomChatId !== chatId || !Store.isChatStreaming(chatId)) return;
-        followBottom = isNearBottom(root, 120);
       }
 
       function shouldAutoFollow(chatId) {
-        return !!root && !!chatId && followBottomChatId === chatId && followBottom && !selectionInside(root);
+        return !!chatId && followBottomChatId === chatId && follow.shouldFollow();
       }
 
       function finishAutoFollow(chatId) {
         if (followBottomChatId !== chatId) return;
         followBottomChatId = null;
-        followBottom = false;
+        follow.setFollowing(false);
       }
 
       function renderChat(chat, opts = {}) {
@@ -9048,11 +9120,11 @@
         scrollBtn = el('button', { class: 'btn scroll-down', type: 'button', text: '↓', 'aria-label': 'Scroll to bottom' });
         scrollBtn.hidden = true;
         on(scrollBtn, 'click', () => {
-          scrollToBottom(root);
+          follow.toBottom();
           const chatId = Store.getActiveChat()?.id;
           if (chatId && Store.isChatStreaming(chatId)) {
             followBottomChatId = chatId;
-            followBottom = true;
+            follow.setFollowing(true);
           }
           updateScrollBtn();
         });
@@ -9081,10 +9153,10 @@
             if (messageNodes.size <= 700) break;
           }
         }
-        settleScroll(root, stick, prevScrollTop);
+        follow.settle(stick, prevScrollTop);
         if (stick) {
           requestAnimationFrame(() => {
-            if ((forceBottom || shouldAutoFollow(chat?.id)) && !selectionInside(root)) scrollToBottom(root);
+            if ((forceBottom || shouldAutoFollow(chat?.id)) && !selectionInside(root)) follow.toBottom();
             updateScrollBtn();
           });
         }
@@ -9416,12 +9488,12 @@
         // Create the bubble immediately in the current view (if it is the active chat).
         const stick = shouldStickToBottom(root);
         followBottomChatId = Store.getActiveChat()?.id || followBottomChatId;
-        followBottom = stick;
+        follow.setFollowing(stick);
         const initial = el('article', { class: 'msg msg--assistant msg--streaming', 'data-id': msg.id });
         initial.append(buildMessageStart('assistant', true));
         initial.append(el('div', { class: 'msg__content md' }));
         inner.append(initial);
-        if (stick) scrollToBottom(root);
+        if (stick) follow.toBottom();
 
         // State accumulated during the stream. The view does NOT capture DOM
         // nodes: it re-resolves them by id on each paint, so it survives re-renders
@@ -9460,7 +9532,7 @@
             if (!rateEl) { rateEl = el('span', { class: 'msg__rate' }); (content || article).append(rateEl); }
             rateEl.textContent = `${rate} tok/s`;
           } else if (rateEl) rateEl.remove();
-          if (stick) scrollToBottom(root);
+          if (stick) follow.toBottom();
           updateScrollBtn();
         }
 
@@ -9488,18 +9560,7 @@
         if (scrollBtn) scrollBtn.hidden = isNearBottom(root);
       }
 
-      async function copyToClipboard(btn, text) {
-        return copyTextToClipboard(btn, text);
-      }
-
       function onClick(e) {
-        const copyCode = e.target.closest('[data-copy]');
-        if (copyCode) {
-          const code = copyCode.closest('.code-block')?.querySelector('code')?.textContent ?? '';
-          copyToClipboard(copyCode, code);
-          return;
-        }
-
         const actBtn = e.target.closest('[data-act]');
         if (!actBtn) {
           if (shouldFocusComposerFromSurfaceClick(e)) focusComposerInput();
@@ -9509,7 +9570,7 @@
         if (act === 'copy') {
           const id = actBtn.closest('.msg')?.dataset.id;
           const m = Store.getActiveChat()?.messages.find((x) => x.id === id);
-          if (m) copyToClipboard(actBtn, m.content);
+          if (m) copyTextToClipboard(actBtn, m.content);
         } else if (act === 'preview-attachment') {
           const id = actBtn.closest('.msg')?.dataset.id;
           const idx = Number(actBtn.dataset.attachmentIndex || -1);
@@ -13526,10 +13587,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return ['passive', 'blue', 'red-authorized', 'purple', 'black-hat'].includes(v) ? v : v;
       }
 
-      function isOffensiveSecurityProfile(v = securityProfileValue()) {
-        return v === 'red-authorized' || v === 'black-hat';
-      }
-
       function isRedSecurityProfile(v = securityProfileValue()) {
         return v === 'red-authorized';
       }
@@ -13551,10 +13608,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         Store.setSettings({ gsaDisabledTools: [...disabled].sort() });
         renderGsaToolsDialog();
         rebuildGearIfOpen();
-      }
-
-      function gsaMissingTools() {
-        return gsaToolList().filter((t) => gsaToolIsEnabled(t) && !t.found).map((t) => t.name);
       }
 
       async function loadGsaTools(force = false) {
@@ -17513,16 +17566,11 @@ Your report must be precise, of high-quality, and written by an expert using an 
       let activeView = false;  // true between start() and stop()
       let liveTail = null;     // live assistant/build tail rendered without rebuilding history
       let liveTurnStartedAt = 0;
-      let liveTurnTextStartLen = 0;
       let liveTurnResponseIndex = null;
       let liveElapsedTimer = null;
-      let agentFollowBottom = false;
-      let agentScrollInputAt = 0;
-      let agentLastScrollTop = 0;
       let agentSelectionPendingRender = false;
       let agentSelectPointerDown = false;
-      let agentSelectScrollLock = false;
-      let agentSelectScrollTop = 0;
+      const agentFollow = createFollowScroll(() => view, { isSelecting: () => agentSelectPointerDown });
       let pendingUserTurn = null; // optimistic UI until the backend echo lands in the stream
       let sendSerial = 0;         // invalidates async engine-buffer syncs started before a send
 
@@ -17574,20 +17622,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
           class: `agent-elapsed${live ? ' agent-elapsed--live' : ''}`,
           text: `Time elapsed · ${formatElapsed(ms)}`,
         });
-      }
-
-      function liveTurnTokPerSec() {
-        if (!liveTurnStartedAt || !liveTurnTextStartLen) return 0;
-        const chars = text.length - liveTurnTextStartLen;
-        const sec = (performance.now() - liveTurnStartedAt) / 1000;
-        if (sec < 0.25 || chars < 10) return 0;
-        return Math.round((chars / 4) / sec);
-      }
-
-      function buildAgentRate() {
-        const rate = liveTurnTokPerSec();
-        if (rate <= 0) return null;
-        return el('span', { class: 'agent-rate', text: `${rate} tok/s` });
       }
 
       // Live engine stats streamed by the jsonl agent as \x1e status events:
@@ -17659,10 +17693,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         view?.querySelectorAll('.agent-working__label').forEach((node) => { node.textContent = agentWorkingLabel(); });
         const chip = skillChipText();
         view?.querySelectorAll('.agent-skill-chip').forEach((node) => { if (chip) node.textContent = chip; });
-        const rate = liveTurnTokPerSec();
-        view?.querySelectorAll('.agent-rate').forEach((node) => {
-          node.textContent = `${rate} tok/s`;
-        });
       }
 
       function startElapsedTicker() {
@@ -17677,7 +17707,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
       function startTurnTimer(targetConvId, responseIndex) {
         liveTurnStartedAt = performance.now();
-        liveTurnTextStartLen = text.length;
         liveTurnResponseIndex = responseIndex || null;
         startElapsedTicker();
       }
@@ -17707,7 +17736,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         let idx = liveTurnResponseIndex || realUserTurnCount(conv?.transcript || text);
         if (!conv || !idx) {
           liveTurnStartedAt = 0;
-          liveTurnTextStartLen = 0;
           liveTurnResponseIndex = null;
           stopElapsedTicker();
           return;
@@ -17716,20 +17744,14 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const next = { ...(conv.turnElapsed || {}), [String(idx)]: elapsedMs };
         Store.setChatMeta(conv.id, { turnElapsed: next });
         liveTurnStartedAt = 0;
-        liveTurnTextStartLen = 0;
         liveTurnResponseIndex = null;
         stopElapsedTicker();
       }
 
       function resetLiveTurnTimer() {
         liveTurnStartedAt = 0;
-        liveTurnTextStartLen = 0;
         liveTurnResponseIndex = null;
         stopElapsedTicker();
-      }
-
-      function markAgentScrollInput() {
-        agentScrollInputAt = performance.now();
       }
 
       function canStartAgentTextSelection(e) {
@@ -17744,87 +17766,28 @@ Your report must be precise, of high-quality, and written by an expert using an 
         ].join(','));
       }
 
-      function lockAgentSelectionScroll() {
-        if (!view || !agentSelectScrollLock) return;
-        if (Math.abs(view.scrollTop - agentSelectScrollTop) > 1) view.scrollTop = agentSelectScrollTop;
-        agentLastScrollTop = view.scrollTop;
-      }
-
       function beginAgentSelectionPointer(e) {
-        markAgentScrollInput();
+        agentFollow.markInput();
         if (!canStartAgentTextSelection(e)) return;
         agentSelectPointerDown = true;
-        agentSelectScrollLock = false;
-        agentSelectScrollTop = view.scrollTop || 0;
       }
 
       function endAgentSelectionPointer() {
-        if (!agentSelectPointerDown && !agentSelectScrollLock) return;
+        if (!agentSelectPointerDown) return;
         agentSelectPointerDown = false;
-        if (agentSelectScrollLock) {
-          lockAgentSelectionScroll();
-          agentSelectScrollLock = false;
-        }
-        if (view) agentLastScrollTop = view.scrollTop;
+        agentFollow.syncTop();
         if (agentSelectionPendingRender && !shouldDeferAgentRenderForSelection()) {
           agentSelectionPendingRender = false;
           if (activeView) render();
         }
       }
 
-      function maybeLockAgentSelectionScroll() {
-        if (!agentSelectPointerDown || !selectionInside(view)) return;
-        agentSelectScrollLock = true;
-        lockAgentSelectionScroll();
-      }
-
-      function onAgentScrollKey(e) {
-        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) {
-          markAgentScrollInput();
-        }
-      }
-
-      function onAgentScroll() {
-        if (!view) return;
-        if (agentSelectScrollLock) {
-          lockAgentSelectionScroll();
-          return;
-        }
-        const nearBottom = isNearBottom(view, 120);
-        const userWindow = performance.now() - agentScrollInputAt < 1800;
-        const movedUp = view.scrollTop < agentLastScrollTop - 2;
-        if (userWindow) agentFollowBottom = nearBottom && !movedUp;
-        else if (movedUp) agentFollowBottom = false;
-        agentLastScrollTop = view.scrollTop;
-      }
-
-      function shouldAgentFollow() {
-        return !!view && agentFollowBottom && !agentSelectPointerDown && !agentSelectScrollLock && !selectionInside(view);
-      }
-
       function shouldDeferAgentRenderForSelection() {
-        return !!view && (agentSelectPointerDown || agentSelectScrollLock || selectionInside(view)) &&
+        return !!view && (agentSelectPointerDown || selectionInside(view)) &&
           (working || agentSelectionPendingRender);
       }
 
-      function settleAgentScroll(stick, previousTop) {
-        // Never fight an actively scrolling user: the live repaint runs a few
-        // times per second and settleScroll re-applies the captured scrollTop
-        // for two more frames — with the user mid-scroll that kept yanking
-        // the view back to where it was BEFORE their gesture. The scroller
-        // node persists across repaints, so the browser already preserves the
-        // position; the numeric restore is only for when nobody is scrolling.
-        const userScrolling = !stick && performance.now() - agentScrollInputAt < 1500;
-        if (userScrolling) {
-          if (view) agentLastScrollTop = view.scrollTop;
-          return;
-        }
-        settleScroll(view, stick, previousTop);
-        if (view) agentLastScrollTop = view.scrollTop;
-      }
-
       function onAgentSelectionChange() {
-        maybeLockAgentSelectionScroll();
         if (!agentSelectionPendingRender || shouldDeferAgentRenderForSelection()) return;
         agentSelectionPendingRender = false;
         if (activeView) render();
@@ -17832,16 +17795,15 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
       function mount() {
         view = qs('#agent-view');
-        agentLastScrollTop = view.scrollTop || 0;
+        agentFollow.syncTop();
         on(view, 'click', onClick);
-        on(view, 'scroll', onAgentScroll);
-        on(view, 'wheel', markAgentScrollInput, { passive: true });
-        on(view, 'touchstart', markAgentScrollInput, { passive: true });
+        on(view, 'scroll', agentFollow.onScroll);
+        on(view, 'wheel', agentFollow.onWheel, { passive: true });
+        on(view, 'touchstart', agentFollow.markInput, { passive: true });
         on(view, 'pointerdown', beginAgentSelectionPointer);
-        on(view, 'pointermove', maybeLockAgentSelectionScroll);
         on(document, 'pointerup', endAgentSelectionPointer);
         on(document, 'pointercancel', endAgentSelectionPointer);
-        on(view, 'keydown', onAgentScrollKey);
+        on(view, 'keydown', agentFollow.onKey);
         on(document, 'selectionchange', onAgentSelectionChange);
         // Conversation switch from the sidebar (applies only when the pipe view is active).
         Store.subscribe('activeChat', () => {
@@ -18087,11 +18049,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         designGalleryInlineOpen = true;
       }
 
-      function toggleDesignGalleryInline() {
-        if (viewMode !== 'design') return;
-        openDesignGalleryInline();
-      }
-
       // Last question form in the transcript (the staged Questions screen).
       function findLastQform() {
         let last = null;
@@ -18229,7 +18186,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         .replace(/\u0001USER\u0002\/(?:(?:save|list|new|help|compact)|(?:switch|del)[^\u0001]*)\u0001ENDUSER\u0002\n?/g, '')
         .split('\n').filter((ln) => !SYS_LINE_RE.test(ln.trim())).join('\n')
         .trim();
-      const visibleText = () => strippedVisibleText(text);
 
       function hasRenderableConversation(raw = text) {
         raw = String(raw || '');
@@ -18433,8 +18389,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
         liveConvId = null;
         pendingCmd = null;
         turnArtifact = null;
-        agentFollowBottom = false;
-        agentLastScrollTop = view?.scrollTop || 0;
+        agentFollow.setFollowing(false);
+        agentFollow.syncTop();
         agentSelectionPendingRender = false;
         const conv = activeConversationForMode(viewMode);
         openConversation(conv, { deferRestore: true }); // the restore is decided by the probe
@@ -18461,8 +18417,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
         clearLiveTail();
         hideActiveQuestion();
         resetLiveTurnTimer();
-        agentFollowBottom = false;
-        agentLastScrollTop = view?.scrollTop || 0;
+        agentFollow.setFollowing(false);
+        agentFollow.syncTop();
         agentSelectionPendingRender = false;
         working = false;
         pendingUserTurn = null;
@@ -18493,8 +18449,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
         pendingUserTurn = null;
         clearLiveTail();
         resetLiveTurnTimer();
-        agentFollowBottom = false;
-        agentLastScrollTop = view?.scrollTop || 0;
+        agentFollow.setFollowing(false);
+        agentFollow.syncTop();
         agentSelectionPendingRender = false;
         syncComposerBusy();
         syncSpinner();
@@ -18746,7 +18702,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const drainingAfterMarker = !!delta && wasWorking && !backendWorking;
         working = backendWorking || drainingAfterMarker;
         if (!wasWorking && working) ensureLiveTurnTimer();
-        if (!wasWorking && working && !agentFollowBottom) agentFollowBottom = shouldStickToBottom(view);
+        if (!wasWorking && working && !agentFollow.isFollowing()) agentFollow.setFollowing(shouldStickToBottom(view));
         if (wasWorking && !working) finishLiveTurnTimer();
         if (working) ensureIdleWatch();
         else stopIdleWatch();
@@ -18948,7 +18904,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         }
         working = true;
         ensureIdleWatch();
-        agentFollowBottom = !isSlashCommand(displayPrompt) || shouldStickToBottom(view);
+        agentFollow.setFollowing(!isSlashCommand(displayPrompt) || shouldStickToBottom(view));
         agentSelectionPendingRender = false;
         syncComposerBusy();
         syncSpinner();
@@ -19533,10 +19489,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
             agentSelectionPendingRender = true;
             return;
           }
-          const stick = shouldAgentFollow();
+          const stick = agentFollow.shouldFollow();
           const prevScrollTop = view.scrollTop;
           paintLiveTail();
-          settleAgentScroll(stick, prevScrollTop);
+          agentFollow.settle(stick, prevScrollTop);
         });
         return true;
       }
@@ -19547,7 +19503,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           return;
         }
         agentSelectionPendingRender = false;
-        const stick = shouldAgentFollow();
+        const stick = agentFollow.shouldFollow();
         const prevScrollTop = view.scrollTop;
         if (viewMode !== 'agent') hideActiveQuestion();
         // FAST PATH while the design Generating screen is up: refresh it IN PLACE
@@ -19559,7 +19515,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (genEl && genEl.parentNode === inner && viewMode === 'design' &&
             working && convId === liveConvId && designPhase() !== 'questions') {
           syncGeneratingScreen(genEl);
-          settleAgentScroll(stick, prevScrollTop);
+          agentFollow.settle(stick, prevScrollTop);
           return;
         }
         const hasContent = viewMode === 'design' ? hasDesignConversationContent(text) : hasRenderableConversation(text);
@@ -19623,7 +19579,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           // keep running instead of restarting (looking frozen) every render.
           if (!genEl) genEl = buildGeneratingScreen(); else syncGeneratingScreen(genEl);
           inner.append(genEl);
-          settleAgentScroll(stick, prevScrollTop);
+          agentFollow.settle(stick, prevScrollTop);
           return;
         }
         genEl = null; // left the generating phase: next one starts fresh
@@ -19631,7 +19587,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           const lastQ = findLastQform();
           if (lastQ) {
             inner.append(buildQForm(lastQ));
-            settleAgentScroll(stick, prevScrollTop);
+            agentFollow.settle(stick, prevScrollTop);
             return;
           }
         }
@@ -19695,7 +19651,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         else if (displayedWorking()) {
           inner.append(buildAgentWorking());
         }
-        settleAgentScroll(stick, prevScrollTop);
+        agentFollow.settle(stick, prevScrollTop);
       }
 
       /* ---- Compaction card: the engine summarizes the conversation to free
