@@ -1,0 +1,1 @@
+    if (!strcmp(call->name, "see_image")) return ds4ui_tool_see_image(call);   /*DS4UI_JSONL*/

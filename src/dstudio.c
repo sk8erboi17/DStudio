@@ -43,6 +43,7 @@
 #define _GNU_SOURCE
 #endif
 #include <ctype.h>
+#include <math.h>
 #include <errno.h>
 #include <limits.h>
 #include <signal.h>
@@ -642,10 +643,11 @@ static char *read_loading_disk(size_t *out_len) {
     return read_html_disk(LOADING_PATH, out_len);
 }
 
-#if defined(HAVE_EMBEDDED_PAGE) || defined(HAVE_EMBEDDED_LOADING)
+#if defined(HAVE_EMBEDDED_PAGE) || defined(HAVE_EMBEDDED_LOADING) || !defined(_WIN32)
 /* Decodes base64 → malloc'd buffer. Ignores spaces/newlines. Returns
  * NULL on malformed input. Table: value+1 for valid characters, 0 = not
- * valid (so 'A'→1 is distinguished from the default zeroed entries). */
+ * valid (so 'A'→1 is distinguished from the default zeroed entries).
+ * Used for the embedded page and by /api/agent/attach-image (non-Windows). */
 static char *base64_decode(const char *in, size_t *out_len) {
     static const unsigned char T[256] = {
         ['A']=1,['B']=2,['C']=3,['D']=4,['E']=5,['F']=6,['G']=7,['H']=8,
@@ -3094,6 +3096,12 @@ static void child_setenv_skills(void) {
         snprintf(p, sizeof p, "%s/extension", g_web_dir);
         setenv("DS4UI_SKILLS_DIR", p, 1);
     }
+    /* The see_image agent tool posts images to this DStudio server's
+     * /api/vision/describe (which runs the local vision model), so the agent
+     * needs no vision code of its own. */
+    char vurl[64];
+    snprintf(vurl, sizeof vurl, "http://127.0.0.1:%d", g_http_port);
+    setenv("DS4UI_DSTUDIO_URL", vurl, 1);
     char u[1100];
     user_skills_dir(u, sizeof u);
     setenv("DS4UI_USER_SKILLS_DIR", u, 1);
@@ -3709,30 +3717,47 @@ static int text_contains_ci(const char *hay, const char *needle) {
     return hay && mem_contains_ci(hay, strlen(hay), needle);
 }
 
-static int csv_contains_ci(const char *csv, const char *needle) {
-    if (!needle || !needle[0]) return 1;
-    return text_contains_ci(csv, needle);
+
+/* Skill search is SEMANTIC (embedding cosine), not lexical — the corpus is
+ * enumerated here and ranked by the embedding provider further below. */
+
+/* One ranked search hit (owns its strings). */
+typedef struct {
+    char *id, *name, *desc, *source, *domain, *subdomain, *tags, *license;
+    int has_assets, has_refs, has_scripts;
+    int score, order;
+} skill_hit;
+typedef struct { skill_hit *v; int n, cap; } skill_hit_list;
+
+static int skill_hits_push(skill_hit_list *L, skill_hit h) {
+    if (L->n >= L->cap) {
+        int nc = L->cap ? L->cap * 2 : 64;
+        skill_hit *nv = realloc(L->v, (size_t)nc * sizeof *nv);
+        if (!nv) return 0;
+        L->v = nv; L->cap = nc;
+    }
+    L->v[L->n++] = h;
+    return 1;
+}
+static void skill_hit_free_fields(skill_hit *h) {
+    free(h->id); free(h->name); free(h->desc); free(h->source);
+    free(h->domain); free(h->subdomain); free(h->tags); free(h->license);
+}
+static void skill_hits_free(skill_hit_list *L) {
+    for (int i = 0; i < L->n; i++) skill_hit_free_fields(&L->v[i]);
+    free(L->v);
+}
+static int skill_hit_cmp(const void *a, const void *b) {
+    const skill_hit *x = a, *y = b;
+    if (x->score != y->score) return y->score - x->score;   /* score desc */
+    return x->order - y->order;                             /* else stable scan order */
 }
 
-static int skill_search_match(const char *q, const char *domain_filter,
-                              const char *subdomain_filter, const char *source_filter,
-                              const char *source, const char *id, const char *name,
-                              const char *desc, const char *domain, const char *subdomain,
-                              const char *tags) {
-    if (source_filter[0] && !text_contains_ci(source, source_filter)) return 0;
-    if (domain_filter[0] && !text_contains_ci(domain, domain_filter)) return 0;
-    if (subdomain_filter[0] && !text_contains_ci(subdomain, subdomain_filter)) return 0;
-    if (!q[0]) return 1;
-    return text_contains_ci(id, q) || text_contains_ci(name, q) ||
-           text_contains_ci(desc, q) || text_contains_ci(domain, q) ||
-           text_contains_ci(subdomain, q) || csv_contains_ci(tags, q);
-}
-
-static int skill_search_scan_dir(json_dyn_buf *body, const char *dir, const char *file,
-                                 const char *source, const char *q,
-                                 const char *domain_filter, const char *subdomain_filter,
-                                 const char *source_filter, int limit,
-                                 int *count, int *truncated) {
+/* Enumerate every skill under <dir> into L (no scoring — the embedding cosine
+ * ranks them). `embed_text` per hit = name + description + tags, used to build
+ * the embedding index; the display fields feed the JSON result. Order/score are
+ * filled by the semantic ranker. */
+static int skill_enum_dir(skill_hit_list *L, const char *dir, const char *file, const char *source) {
     DIR *d = opendir(dir);
     if (!d) return 1;
     struct dirent *de;
@@ -3752,41 +3777,57 @@ static int skill_search_scan_dir(json_dyn_buf *body, const char *dir, const char
         fm_field(content, "subdomain", subdomain, sizeof subdomain);
         fm_field(content, "tags", tags, sizeof tags);
         fm_field(content, "license", license, sizeof license);
-        if (!nm[0]) cstr_copy(nm, sizeof nm, id);
-        if (!skill_search_match(q, domain_filter, subdomain_filter, source_filter,
-                                source, id, nm, desc, domain, subdomain, tags)) {
-            free(content);
-            continue;
-        }
         free(content);
-        if (*count >= limit) {
-            *truncated = 1;
-            continue;
-        }
+        if (!nm[0]) cstr_copy(nm, sizeof nm, id);
         char assets[PATH_MAX], refs[PATH_MAX], scripts[PATH_MAX];
         snprintf(assets, sizeof assets, "%s/%s/assets", dir, id);
         snprintf(refs, sizeof refs, "%s/%s/references", dir, id);
         snprintf(scripts, sizeof scripts, "%s/%s/scripts", dir, id);
-        int has_assets = access(assets, R_OK) == 0;
-        int has_refs = access(refs, R_OK) == 0;
-        int has_scripts = access(scripts, R_OK) == 0;
-        if (!json_dyn_puts(body, *count ? ",{" : "{")) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, "\"id\":") || !json_dyn_put_escaped(body, id)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"name\":") || !json_dyn_put_escaped(body, nm)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"description\":") || !json_dyn_put_escaped(body, desc)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"source\":") || !json_dyn_put_escaped(body, source)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"domain\":") || !json_dyn_put_escaped(body, domain)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"subdomain\":") || !json_dyn_put_escaped(body, subdomain)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"tags\":") || !json_dyn_put_escaped(body, tags)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"license\":") || !json_dyn_put_escaped(body, license)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"tools\":[]")) { closedir(d); return 0; }
-        if (!json_dyn_printf(body, ",\"hasAssets\":%s,\"hasReferences\":%s,\"hasScripts\":%s}",
-                             has_assets ? "true" : "false",
-                             has_refs ? "true" : "false",
-                             has_scripts ? "true" : "false")) { closedir(d); return 0; }
-        (*count)++;
+        skill_hit h = {0};
+        h.id = ds4_strdup_local(id);   h.name = ds4_strdup_local(nm);
+        h.desc = ds4_strdup_local(desc); h.source = ds4_strdup_local(source);
+        h.domain = ds4_strdup_local(domain); h.subdomain = ds4_strdup_local(subdomain);
+        h.tags = ds4_strdup_local(tags); h.license = ds4_strdup_local(license);
+        h.has_assets = access(assets, R_OK) == 0;
+        h.has_refs = access(refs, R_OK) == 0;
+        h.has_scripts = access(scripts, R_OK) == 0;
+        h.score = 0; h.order = 0;
+        if (!skill_hits_push(L, h)) { skill_hit_free_fields(&h); closedir(d); return 0; }
     }
     closedir(d);
+    return 1;
+}
+
+/* embed_text for one skill (name + description + tags) → malloc'd. */
+static char *skill_embed_text(const skill_hit *h) {
+    size_t need = strlen(h->name) + strlen(h->desc) + strlen(h->tags) + 4;
+    char *t = malloc(need);
+    if (!t) return NULL;
+    snprintf(t, need, "%s\n%s\n%s", h->name, h->desc, h->tags);
+    return t;
+}
+
+/* Deterministic ordering (source, id) so the on-disk index rows line up with a
+ * re-enumeration regardless of readdir() order. */
+static int skill_hit_id_cmp(const void *a, const void *b) {
+    const skill_hit *x = a, *y = b;
+    int c = strcmp(x->source, y->source);
+    return c ? c : strcmp(x->id, y->id);
+}
+
+/* Enumerate all skill sources (user + shipped + cyber) into L, sorted stably. */
+static int skill_enum_all(skill_hit_list *L) {
+    char dir[PATH_MAX], udir[1100];
+    user_skills_dir(udir, sizeof udir);
+    if (!skill_enum_dir(L, udir, "SKILL.md", "user")) return 0;
+    if (g_web_dir[0]) {
+        snprintf(dir, sizeof dir, "%s/extension/skills", g_web_dir);
+        if (!skill_enum_dir(L, dir, "SKILL.md", "dstudio")) return 0;
+    }
+    if (cyber_skills_dir(dir, sizeof dir))
+        if (!skill_enum_dir(L, dir, "SKILL.md", "anthropic-cybersecurity-skills")) return 0;
+    if (L->n > 1) qsort(L->v, (size_t)L->n, sizeof *L->v, skill_hit_id_cmp);
+    for (int i = 0; i < L->n; i++) L->v[i].order = i;
     return 1;
 }
 
@@ -3927,6 +3968,29 @@ static char *build_skill_sys(int include_design_system, int include_agent_questi
             "{\"type\":\"function\",\"function\":{\"name\":\"design_system\",\"description\":\"Load a brand pack (color tokens, type, components, voice) by id, then bind its tokens.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n"
             "{\"type\":\"function\",\"function\":{\"name\":\"pack_file\",\"description\":\"Read an allowlisted pack file such as assets/template.html, references/checklist.md, references/layouts.md, or example.html after a pack lists available files.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"type\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"type\",\"name\",\"path\"]}}}\n"
             "{\"type\":\"function\",\"function\":{\"name\":\"skills_search\",\"description\":\"Search the local skill catalog by topic (a few concise English keywords) and get matching skill ids with one-line descriptions, best first.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}}}\n");
+        /* Vision: ds4 is text-only, but see_image runs a local vision model over
+         * an image file in the workspace and returns a text description (with any
+         * transcribed text). The dispatch exists only in the patched jsonl agent
+         * and in the design agent — the STOCK agent (e.g. the GLM 5.2 checkout,
+         * where the jsonl patch never applies) must not be told about a tool it
+         * does not have, or every call ends in "unknown tool". */
+        if (include_design_system || include_agent_question)
+            o += (size_t)snprintf(cat + o, catcap - o,
+                "\nVision: you cannot see pixels directly, but you can inspect an image file in the "
+                "workspace by calling the `see_image` tool — a local vision model returns a text "
+                "description plus any transcribed text. Use it before reasoning about a screenshot, "
+                "photo, diagram, or scanned page; to zoom in, crop the region to a new file (e.g. via "
+                "the bash tool) and call see_image on it.\n"
+                "{\"type\":\"function\",\"function\":{\"name\":\"see_image\",\"description\":\"Look at a local image file (png/jpg/webp/gif) and get a text description plus any transcribed text.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the image file in the workspace.\"},\"question\":{\"type\":\"string\",\"description\":\"Optional: what to look for, or a question about the image.\"}},\"required\":[\"path\"]}}}\n");
+        /* read_pdf dispatches only in the patched jsonl agent (edits 047/048):
+         * neither the stock agent nor the design agent has it. */
+        if (include_agent_question)
+            o += (size_t)snprintf(cat + o, catcap - o,
+                "\nPDF: to read a PDF file in the workspace call the `read_pdf` tool — pages with a "
+                "text layer come back verbatim, scanned pages and large figures are read by the "
+                "local vision model (slower). Results are cached, so re-reading the same file is "
+                "instant.\n"
+                "{\"type\":\"function\",\"function\":{\"name\":\"read_pdf\",\"description\":\"Read a local PDF file: verbatim text of digital pages plus a vision reading of scanned pages and large figures.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the PDF file in the workspace.\"}},\"required\":[\"path\"]}}}\n");
         if (!include_design_system && include_agent_question)
             o += (size_t)snprintf(cat + o, catcap - o,
                 "{\"type\":\"function\",\"function\":{\"name\":\"question\",\"description\":\"Emit a structured question event for the UI. Use when you need the user to choose or clarify, then stop the turn.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"questions\":{\"type\":\"string\",\"description\":\"JSON array of question objects, e.g. [{id,label,type,options}].\"}},\"required\":[\"id\",\"title\",\"questions\"]}}}\n");
@@ -3948,12 +4012,14 @@ static char *build_skill_sys(int include_design_system, int include_agent_questi
             o += (size_t)snprintf(cat + o, catcap - o,
                 "Use `skill(\"id\")` when the user selected/named an exact id or a "
                 "DStudio workflow provides one. To DISCOVER ids by topic, call "
-                "`skills_search(\"a few English keywords\")` and pick from its results — "
-                "the full catalog is intentionally not injected into this prompt to keep "
-                "Agent startup responsive. You may load multiple skills when they cover "
-                "different concerns, but keep it bounded: default to one skill, cap each "
-                "user request at three `skill` calls total, and never load the same skill "
-                "twice. Never guess ids that neither the user nor skills_search gave you.\n\n");
+                "`skills_search(\"...\")` describing in your own words (any language is fine) "
+                "what you need — the search is SEMANTIC, so a short natural description works "
+                "better than bare keywords — then pick from its results. The full catalog is "
+                "intentionally not injected into this prompt to keep Agent startup responsive. "
+                "You may load multiple skills when they cover different concerns, but keep it "
+                "bounded: default to one skill, cap each user request at three `skill` calls "
+                "total, and never load the same skill twice. Never guess ids that neither the "
+                "user nor skills_search gave you.\n\n");
         }
         if (g_skill[0] || (include_design_system && g_design_system[0]))
             o += (size_t)snprintf(cat + o, catcap - o,
@@ -5127,6 +5193,21 @@ static void api_lan_health(int fd) {
 /* GLM checkout helpers (defined next to /api/glm/setup below). */
 static int glm_dir_path(char *out, size_t outsz);
 static int glm_checkout_ready(const char *dir);
+/* Vision sidecar doctor row (defined next to the vision handlers below). */
+static int vision_doctor_row(char *msg, size_t msgsz);
+/* Generic sidecar helpers reused by the embedding sidecar (defined with the
+ * vision provider below); safe to share — they take dir/pid arguments. */
+static int  vision_pid_is_llama(pid_t pid);
+static int  vision_scan_for_bin(const char *dir, int depth, char *out, size_t outsz);
+static long long vision_tree_bytes(const char *dir, int depth);
+static void vision_model_cache_path(char *out, size_t outsz);
+static int pdf_find_tool(const char *name, char *out, size_t outsz);
+static const char *pdf_poppler_hint(void);
+static char *web_curl_capture(char *const argv[], int timeout_ms, int *exit_status);
+static long long web_now_ms(void);
+static void web_json_error(int fd, const char *status, const char *msg);
+/* Embedding sidecar doctor row + setup (defined with the embedding provider). */
+static int embed_doctor_row(char *msg, size_t msgsz);
 
 static int doctor_add_check(json_dyn_buf *b, int *first, const char *id, const char *label,
                             const char *state, const char *message, const char *action) {
@@ -5234,6 +5315,34 @@ static void api_doctor(int fd) {
         glm_present ? "GLM checkout found but not patched/built — reinstall it." :
                       "Not installed. Optional: adds GLM 5.2 model support (ds4 glm5.2 branch).",
         glm_ready ? NULL : "setup-glm");
+
+    /* Vision sidecar (optional): local image understanding for chat + agent. */
+    {
+        char vmsg[420];
+        int vinst = vision_doctor_row(vmsg, sizeof vmsg);
+        ok = ok && doctor_add_check(&b, &first, "vision", "Vision (optional)", "ok", vmsg,
+                                    vinst ? NULL : "open-settings");
+    }
+    /* Embedding sidecar (optional): semantic skill routing for the Agent. */
+    {
+        char emsg[420];
+        int einst = embed_doctor_row(emsg, sizeof emsg);
+        ok = ok && doctor_add_check(&b, &first, "embed", "Semantic skill search (optional)", "ok", emsg,
+                                    einst ? NULL : "open-settings");
+    }
+    /* PDF reading (optional): needs poppler for the text layer + page render. */
+    {
+        char ptool[256];
+        int phave = pdf_find_tool("pdftoppm", ptool, sizeof ptool) &&
+                    pdf_find_tool("pdftotext", ptool, sizeof ptool);
+        ok = ok && doctor_add_check(&b, &first, "pdf", "PDF reading (optional)",
+            phave ? "ok" : "warn",
+            phave ? "poppler found — PDF attachments and the agent's read_pdf tool are available "
+                    "(text pages are instant; scanned pages use the vision model)."
+                  : pdf_poppler_hint(),
+            NULL);
+        if (!phave) warn++;
+    }
 #endif
 
     if (engine_port_busy) warn++;
@@ -5604,46 +5713,449 @@ oom:
 /* GET /api/skills — skill packs (extension/skills/<id>/SKILL.md). */
 static void api_skills(int fd) { md_catalog(fd, "skills", "SKILL.md", "skills"); }
 
-/* GET /api/skills/search?q=&domain=&subdomain=&source=&limit=
- * Searches user, shipped and vendored cybersecurity skills without bloating the
- * agent prompt. The model or UI can then load a chosen id with skill("<id>"). */
-static void api_skills_search(int fd, const char *path) {
-    char q[180], domain[120], subdomain[160], source[80], limit_s[32];
+/* ============================================================================
+ * Embedding provider (local llama.cpp sidecar) + SEMANTIC skill search.
+ *
+ * A SECOND llama-server in embedding mode (EMBED_PORT) embeds skill texts and
+ * each query; /api/skills/search ranks by cosine. Same install/spawn/idle
+ * pattern as the vision sidecar (helpers below mirror the vision_* ones; a few
+ * dir/pid-generic vision helpers are reused). Skill search is SEMANTIC ONLY —
+ * no lexical fallback by design: if the sidecar/index is not ready the search
+ * returns 503 and the agent proceeds without a skill.
+ * ==========================================================================*/
+#define EMBED_PORT 28101
+#define EMBED_HF_DEFAULT "Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0"
+#define EMBED_MAX_DIM 4096
+/* Qwen3-Embedding retrieval works best with an instruction on the QUERY side;
+ * documents (skill texts) are embedded verbatim. */
+#define EMBED_QUERY_INSTRUCT \
+    "Instruct: Given a user request, retrieve the skill that best helps.\nQuery: "
+
+#ifndef _WIN32
+static void embed_dir_path(char *out, size_t outsz) {
+    const char *env = getenv("DSTUDIO_EMBED_DIR");
+    if (env && env[0]) { cstr_copy(out, outsz, env); return; }
+    const char *home = getenv("HOME");
+    snprintf(out, outsz, "%s/.dstudio/llama-embed", home ? home : ".");
+}
+static void embed_touch_last_use(void) {
+    char dir[DSTUDIO_PATH_MAX]; embed_dir_path(dir, sizeof dir);
+    const char *home = getenv("HOME");
+    char parent[DSTUDIO_PATH_MAX];
+    snprintf(parent, sizeof parent, "%s/.dstudio", home ? home : ".");
+    (void)mkdir(parent, 0755); (void)mkdir(dir, 0755);
+    char stamp[DSTUDIO_PATH_MAX + 16];
+    snprintf(stamp, sizeof stamp, "%s/.last-use", dir);
+    int f = open(stamp, O_WRONLY | O_CREAT, 0644);
+    if (f >= 0) close(f);
+    (void)utimes(stamp, NULL);
+}
+static pid_t embed_lock_pid(void) {
+    char p[DSTUDIO_PATH_MAX + 16]; embed_dir_path(p, sizeof p);
+    size_t l = strlen(p); snprintf(p + l, sizeof p - l, "/.server.pid");
+    size_t n = 0; char *b = jsonl_read_file(p, &n);
+    if (!b) return 0;
+    long pid = strtol(b, NULL, 10); free(b);
+    return pid > 1 ? (pid_t)pid : 0;
+}
+static int embed_kill_server(void) {
+    pid_t pid = embed_lock_pid();
+    if (!vision_pid_is_llama(pid)) return 0;
+    kill(pid, SIGTERM);
+    for (int i = 0; i < 20; i++) { struct timespec ts = { 0, 100 * 1000000 }; nanosleep(&ts, NULL); if (kill(pid, 0) != 0) break; }
+    if (kill(pid, 0) == 0) kill(pid, SIGKILL);
+    char p[DSTUDIO_PATH_MAX + 16]; embed_dir_path(p, sizeof p);
+    size_t l = strlen(p); snprintf(p + l, sizeof p - l, "/.server.pid"); unlink(p);
+    return 1;
+}
+static int embed_port_open(void) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return 0;
+    struct sockaddr_in a; memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET; a.sin_port = htons(EMBED_PORT); a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    struct timeval tv = { 1, 0 };
+    (void)setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    (void)setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    int ok = connect(s, (struct sockaddr *)&a, sizeof a) == 0;
+    close(s);
+    return ok;
+}
+static int embed_server_ready(void) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return 0;
+    struct sockaddr_in a; memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET; a.sin_port = htons(EMBED_PORT); a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    struct timeval tv = { 3, 0 };
+    (void)setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    (void)setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    if (connect(s, (struct sockaddr *)&a, sizeof a) != 0) { close(s); return 0; }
+    static const char *req = "GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    if (write(s, req, strlen(req)) < 0) { close(s); return 0; }
+    char buf[64]; ssize_t n = read(s, buf, sizeof buf - 1); close(s);
+    if (n <= 0) return 0;
+    buf[n] = '\0';
+    return strstr(buf, " 200") != NULL;
+}
+static int embed_spawn_detached(void) {
+    if (!g_web_dir[0]) return 0;
+    char script[DSTUDIO_PATH_MAX + 64];
+    snprintf(script, sizeof script, "%s/scripts/embed-server.sh", g_web_dir);
+    struct stat stt;
+    if (stat(script, &stt) != 0) return 0;
+    pid_t pid = fork();
+    if (pid < 0) return 0;
+    if (pid == 0) {
+        if (fork() > 0) _exit(0);
+        setsid();
+        if (chdir(g_web_dir) != 0) _exit(127);
+        child_setenv_metal();
+        for (int cfd = 3; cfd < 256; cfd++) close(cfd);
+        int dn = open("/dev/null", O_RDWR);
+        if (dn >= 0) { dup2(dn, STDIN_FILENO); if (dn != STDIN_FILENO) close(dn); }
+        int lg = open("/tmp/dstudio-embed.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (lg >= 0) { dup2(lg, STDOUT_FILENO); dup2(lg, STDERR_FILENO); if (lg > STDERR_FILENO) close(lg); }
+        char *argv[] = { "/bin/sh", script, NULL };
+        execv("/bin/sh", argv);
+        _exit(127);
+    }
+    waitpid(pid, NULL, 0);
+    return 1;
+}
+static int embed_ensure_server(int timeout_ms) {
+    if (embed_server_ready()) return 1;
+    if (!embed_port_open()) embed_spawn_detached();
+    long long deadline = web_now_ms() + (timeout_ms > 0 ? timeout_ms : 120000);
+    while (web_now_ms() < deadline) {
+        struct timespec ts = { 0, 500 * 1000000 };
+        nanosleep(&ts, NULL);
+        if (embed_server_ready()) return 1;
+    }
+    return 0;
+}
+static void embed_hf_pref(char *out, size_t outsz) {
+    char p[DSTUDIO_PATH_MAX + 8]; embed_dir_path(p, sizeof p);
+    size_t l = strlen(p); snprintf(p + l, sizeof p - l, "/.hf");
+    size_t n = 0; char *b = jsonl_read_file(p, &n);
+    if (b) {
+        while (n > 0 && (b[n - 1] == '\n' || b[n - 1] == '\r' || b[n - 1] == ' ')) b[--n] = '\0';
+        if (b[0]) { cstr_copy(out, outsz, b); free(b); return; }
+        free(b);
+    }
+    cstr_copy(out, outsz, EMBED_HF_DEFAULT);
+}
+
+/* Parse the next "embedding":[...] float array at *pp; advances *pp past ']'.
+ * Writes up to cap floats; returns the count read (0 on failure). */
+static int embed_parse_vec(const char **pp, float *out, int cap) {
+    const char *p = strstr(*pp, "\"embedding\"");
+    if (!p) return 0;
+    p = strchr(p, '[');
+    if (!p) return 0;
+    p++;
+    int n = 0;
+    while (*p && *p != ']') {
+        while (*p == ' ' || *p == ',' || *p == '\n' || *p == '\r' || *p == '\t') p++;
+        if (*p == ']' || !*p) break;
+        char *end = NULL;
+        double v = strtod(p, &end);
+        if (end == p) break;
+        if (n < cap) out[n] = (float)v;
+        n++;
+        p = end;
+    }
+    if (*p == ']') p++;
+    *pp = p;
+    return n;
+}
+
+/* Embed `count` texts (each optionally prefixed) via the sidecar's
+ * /v1/embeddings. Writes count*(*dim) floats into out with stride `stride`
+ * (>= the model dim), L2-normalized. Returns 1 on success. */
+static int embed_call(char *const *texts, int count, const char *prefix,
+                      float *out, int stride, int *dim) {
+    json_dyn_buf b = {0};
+    if (!json_dyn_puts(&b, "{\"input\":[")) { free(b.ptr); return 0; }
+    for (int i = 0; i < count; i++) {
+        if (i && !json_dyn_puts(&b, ",")) { free(b.ptr); return 0; }
+        if (prefix && prefix[0]) {
+            size_t need = strlen(prefix) + strlen(texts[i]) + 1;
+            char *combo = malloc(need);
+            if (!combo) { free(b.ptr); return 0; }
+            snprintf(combo, need, "%s%s", prefix, texts[i]);
+            int ok = json_dyn_put_escaped(&b, combo);
+            free(combo);
+            if (!ok) { free(b.ptr); return 0; }
+        } else if (!json_dyn_put_escaped(&b, texts[i])) { free(b.ptr); return 0; }
+    }
+    if (!json_dyn_puts(&b, "],\"model\":\"x\"}")) { free(b.ptr); return 0; }
+
+    char tmpl[] = "/tmp/dstudio-embed-req-XXXXXX";
+    int tf = mkstemp(tmpl);
+    if (tf < 0) { free(b.ptr); return 0; }
+    size_t off = 0;
+    while (off < b.len) { ssize_t w = write(tf, b.ptr + off, b.len - off); if (w <= 0) break; off += (size_t)w; }
+    int wrote_ok = off == b.len;
+    close(tf); free(b.ptr);
+    if (!wrote_ok) { unlink(tmpl); return 0; }
+
+    char url[80];  snprintf(url, sizeof url, "http://127.0.0.1:%d/v1/embeddings", EMBED_PORT);
+    char dataarg[80]; snprintf(dataarg, sizeof dataarg, "@%s", tmpl);
+    char *argv[16]; int n = 0;
+    argv[n++] = "curl"; argv[n++] = "-sS"; argv[n++] = "-X"; argv[n++] = "POST";
+    argv[n++] = "-H"; argv[n++] = "Content-Type: application/json";
+    argv[n++] = "--data-binary"; argv[n++] = dataarg;
+    argv[n++] = "--max-time"; argv[n++] = "120";
+    argv[n++] = url; argv[n] = NULL;
+    int st = 0;
+    char *resp = web_curl_capture(argv, 125000, &st);
+    unlink(tmpl);
+    if (!resp || !resp[0]) { free(resp); return 0; }
+
+    const char *p = resp;
+    int d = 0;
+    for (int i = 0; i < count; i++) {
+        float *slot = out + (size_t)i * stride;
+        int got = embed_parse_vec(&p, slot, stride);
+        if (got == 0) { free(resp); return 0; }
+        if (d == 0) d = got;
+        else if (got != d) { free(resp); return 0; }
+        double s = 0; for (int k = 0; k < got; k++) s += (double)slot[k] * slot[k];
+        double nr = s > 0 ? 1.0 / sqrt(s) : 0;
+        for (int k = 0; k < got; k++) slot[k] = (float)(slot[k] * nr);
+    }
+    free(resp);
+    *dim = d;
+    return d > 0;
+}
+
+/* FNV-1a over the model tag + every (id, embed_text) → cache invalidation key. */
+static unsigned long long skill_corpus_sig(const skill_hit_list *L, char *const *texts, const char *model) {
+    unsigned long long h = 1469598103934665603ULL;
+    for (const char *s = model; s && *s; s++) { h ^= (unsigned char)*s; h *= 1099511628211ULL; }
+    for (int i = 0; i < L->n; i++) {
+        for (const char *s = L->v[i].id; *s; s++) { h ^= (unsigned char)*s; h *= 1099511628211ULL; }
+        h ^= 0; h *= 1099511628211ULL;
+        for (const char *s = texts[i]; *s; s++) { h ^= (unsigned char)*s; h *= 1099511628211ULL; }
+        h ^= '\n'; h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+/* On-disk index: header {magic,dim,count,sig,model} + count*dim normalized
+ * floats in enum order. */
+#define SKILL_INDEX_MAGIC 0x44534531u  /* "DSE1" */
+typedef struct { unsigned magic; int dim, count; unsigned long long sig; char model[128]; } skill_index_hdr;
+
+static void skill_index_path(char *out, size_t outsz) {
+    char dir[DSTUDIO_PATH_MAX]; embed_dir_path(dir, sizeof dir);
+    snprintf(out, outsz, "%s/skill-index.bin", dir);
+}
+static float *skill_index_load(const skill_index_hdr *want) {
+    char path[DSTUDIO_PATH_MAX + 32]; skill_index_path(path, sizeof path);
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    skill_index_hdr h;
+    if (fread(&h, sizeof h, 1, f) != 1 || h.magic != SKILL_INDEX_MAGIC ||
+        h.dim != want->dim || h.count != want->count || h.sig != want->sig ||
+        strncmp(h.model, want->model, sizeof h.model) != 0) { fclose(f); return NULL; }
+    size_t nf = (size_t)h.dim * h.count;
+    float *v = malloc(nf * sizeof *v);
+    if (!v) { fclose(f); return NULL; }
+    if (fread(v, sizeof *v, nf, f) != nf) { free(v); fclose(f); return NULL; }
+    fclose(f);
+    return v;
+}
+static void skill_index_save(const skill_index_hdr *h, const float *v) {
+    char path[DSTUDIO_PATH_MAX + 32]; skill_index_path(path, sizeof path);
+    char tmp[DSTUDIO_PATH_MAX + 40]; snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return;
+    size_t nf = (size_t)h->dim * h->count;
+    if (fwrite(h, sizeof *h, 1, f) == 1 && fwrite(v, sizeof *v, nf, f) == nf) {
+        fclose(f); rename(tmp, path);
+    } else { fclose(f); unlink(tmp); }
+}
+
+/* Get (load or build) the embedding matrix for the enumerated skills. On a
+ * cache miss embeds every skill via the sidecar and persists the index. Returns
+ * malloc'd count*dim floats (caller frees) and sets *dim; NULL on failure. */
+static float *skill_index_ensure(const skill_hit_list *L, char *const *texts, int *dim_out) {
+    char model[128]; embed_hf_pref(model, sizeof model);
+    int dim = 0;
+    /* Probe the model dim with a tiny embed (also confirms the server answers). */
+    static float probe[EMBED_MAX_DIM];
+    char *ping[1]; ping[0] = (char *)"ping";
+    if (!embed_call(ping, 1, NULL, probe, EMBED_MAX_DIM, &dim) || dim <= 0 || dim > EMBED_MAX_DIM)
+        return NULL;
+
+    skill_index_hdr want = { SKILL_INDEX_MAGIC, dim, L->n, 0, {0} };
+    cstr_copy(want.model, sizeof want.model, model);
+    want.sig = skill_corpus_sig(L, texts, model);
+
+    float *cached = skill_index_load(&want);
+    if (cached) { *dim_out = dim; return cached; }
+
+    /* Build: embed every skill text in batches, directly into the matrix. */
+    float *vecs = malloc((size_t)L->n * dim * sizeof *vecs);
+    if (!vecs) return NULL;
+    const int BATCH = 16;
+    for (int start = 0; start < L->n; start += BATCH) {
+        int cnt = L->n - start < BATCH ? L->n - start : BATCH;
+        int gd = 0;
+        if (!embed_call(texts + start, cnt, NULL, vecs + (size_t)start * dim, dim, &gd) || gd != dim) {
+            free(vecs); return NULL;
+        }
+        embed_touch_last_use();
+    }
+    skill_index_save(&want, vecs);
+    *dim_out = dim;
+    return vecs;
+}
+
+/* The semantic search worker: enumerate skills, ensure the index, embed the
+ * query, rank by cosine, emit the top `limit`. Runs in a detached child. */
+static void api_skills_search_run(int fd, const char *path) {
+    char q[512], domain[120], subdomain[160], source[80], limit_s[32], fmt[16] = "";
     query_param(path, "q", q, sizeof q);
     query_param(path, "domain", domain, sizeof domain);
     query_param(path, "subdomain", subdomain, sizeof subdomain);
     query_param(path, "source", source, sizeof source);
     query_param(path, "limit", limit_s, sizeof limit_s);
-    int limit = limit_s[0] ? atoi(limit_s) : 50;
+    query_param(path, "format", fmt, sizeof fmt);
+    int want_text = !strcmp(fmt, "text");   /* plain "id: desc" lines, for the agent tool */
+    int limit = limit_s[0] ? atoi(limit_s) : 20;
     if (limit < 1) limit = 1;
     if (limit > 200) limit = 200;
 
+    if (!q[0]) {
+        if (want_text) send_text(fd, "400 Bad Request", "skills_search error: query is required\n", 0);
+        else web_json_error(fd, "400 Bad Request", "q is required");
+        return;
+    }
+    embed_touch_last_use();
+    /* Short wait: the heavy model download happens in /api/embed/setup. */
+    if (!embed_ensure_server(60000)) {
+        if (want_text) send_text(fd, "503 Service Unavailable",
+                                 "skills_search: semantic search is not available; proceed without a skill.\n", 0);
+        else web_json_error(fd, "503 Service Unavailable",
+                       "semantic skill search is not ready; install it once via POST /api/embed/setup");
+        return;
+    }
+
+    skill_hit_list L = {0};
+    if (!skill_enum_all(&L) || L.n == 0) { skill_hits_free(&L); web_json_error(fd, "500 Internal Server Error", "no skills"); return; }
+    char **texts = calloc((size_t)L.n, sizeof *texts);
+    if (!texts) { skill_hits_free(&L); web_json_error(fd, "500 Internal Server Error", "oom"); return; }
+    for (int i = 0; i < L.n; i++) texts[i] = skill_embed_text(&L.v[i]);
+
+    int dim = 0;
+    float *vecs = skill_index_ensure(&L, texts, &dim);
+    if (!vecs) {
+        for (int i = 0; i < L.n; i++) free(texts[i]);
+        free(texts); skill_hits_free(&L);
+        if (want_text) send_text(fd, "503 Service Unavailable", "skills_search: index unavailable; proceed without a skill.\n", 0);
+        else web_json_error(fd, "503 Service Unavailable", "could not build the semantic skill index");
+        return;
+    }
+    for (int i = 0; i < L.n; i++) free(texts[i]);
+    free(texts);
+
+    /* Embed the query (with the Qwen3 retrieval instruction) and rank by cosine. */
+    static float qv[EMBED_MAX_DIM];
+    char *qq[1]; qq[0] = q;
+    int qd = 0;
+    if (!embed_call(qq, 1, EMBED_QUERY_INSTRUCT, qv, EMBED_MAX_DIM, &qd) || qd != dim) {
+        free(vecs); skill_hits_free(&L);
+        if (want_text) send_text(fd, "503 Service Unavailable", "skills_search: query embedding failed; proceed without a skill.\n", 0);
+        else web_json_error(fd, "503 Service Unavailable", "query embedding failed");
+        return;
+    }
+    for (int i = 0; i < L.n; i++) {
+        /* Optional hard filters (domain/subdomain/source) before ranking. */
+        if (source[0] && !text_contains_ci(L.v[i].source, source)) { L.v[i].score = -1000000; continue; }
+        if (domain[0] && !text_contains_ci(L.v[i].domain, domain)) { L.v[i].score = -1000000; continue; }
+        if (subdomain[0] && !text_contains_ci(L.v[i].subdomain, subdomain)) { L.v[i].score = -1000000; continue; }
+        const float *v = vecs + (size_t)i * dim;
+        double dot = 0; for (int k = 0; k < dim; k++) dot += (double)qv[k] * v[k];
+        L.v[i].score = (int)(dot * 1000000.0);   /* cosine → int for the sort */
+    }
+    free(vecs);
+    if (L.n > 1) qsort(L.v, (size_t)L.n, sizeof *L.v, skill_hit_cmp);
+
+    int total = 0;
+    for (int i = 0; i < L.n; i++) if (L.v[i].score > -1000000) total++;
+    int emit = total < limit ? total : limit;
+
+    /* Plain-text form for the agent's skills_search tool: "id: description" lines
+     * it can hand straight to the model (no JSON parsing in the agent). */
+    if (want_text) {
+        json_dyn_buf tb = {0};
+        int okt = json_dyn_puts(&tb, emit ? "Matching skills (best first) — load one with skill(\"<id>\"):\n"
+                                          : "No skills matched. Proceed without a skill.\n");
+        for (int i = 0; okt && i < emit; i++) {
+            skill_hit *h = &L.v[i];
+            okt = json_dyn_puts(&tb, "- ") && json_dyn_puts(&tb, h->id);
+            if (okt && h->desc[0]) okt = json_dyn_puts(&tb, ": ") && json_dyn_puts(&tb, h->desc);
+            if (okt) okt = json_dyn_puts(&tb, "\n");
+        }
+        skill_hits_free(&L);
+        if (!okt) { free(tb.ptr); send_text(fd, "500 Internal Server Error", "skills_search error: out of memory\n", 0); return; }
+        send_text(fd, "200 OK", tb.ptr ? tb.ptr : "No skills.\n", 0);
+        free(tb.ptr);
+        return;
+    }
+
     json_dyn_buf body = {0};
-    if (!json_dyn_puts(&body, "{\"ok\":true,\"skills\":[")) goto oom;
-    int count = 0, truncated = 0;
-    char dir[PATH_MAX];
-    char udir[1100];
-    user_skills_dir(udir, sizeof udir);
-    if (!skill_search_scan_dir(&body, udir, "SKILL.md", "user", q, domain, subdomain,
-                               source, limit, &count, &truncated)) goto oom;
-    if (g_web_dir[0]) {
-        snprintf(dir, sizeof dir, "%s/extension/skills", g_web_dir);
-        if (!skill_search_scan_dir(&body, dir, "SKILL.md", "dstudio", q, domain, subdomain,
-                                   source, limit, &count, &truncated)) goto oom;
+    int ok = json_dyn_puts(&body, "{\"ok\":true,\"semantic\":true,\"skills\":[");
+    for (int i = 0; ok && i < emit; i++) {
+        skill_hit *h = &L.v[i];
+        ok = json_dyn_puts(&body, i ? ",{" : "{") &&
+             json_dyn_puts(&body, "\"id\":")           && json_dyn_put_escaped(&body, h->id) &&
+             json_dyn_puts(&body, ",\"name\":")        && json_dyn_put_escaped(&body, h->name) &&
+             json_dyn_puts(&body, ",\"description\":") && json_dyn_put_escaped(&body, h->desc) &&
+             json_dyn_puts(&body, ",\"source\":")      && json_dyn_put_escaped(&body, h->source) &&
+             json_dyn_puts(&body, ",\"domain\":")      && json_dyn_put_escaped(&body, h->domain) &&
+             json_dyn_puts(&body, ",\"subdomain\":")   && json_dyn_put_escaped(&body, h->subdomain) &&
+             json_dyn_puts(&body, ",\"tags\":")        && json_dyn_put_escaped(&body, h->tags) &&
+             json_dyn_puts(&body, ",\"license\":")     && json_dyn_put_escaped(&body, h->license) &&
+             json_dyn_puts(&body, ",\"tools\":[]") &&
+             json_dyn_printf(&body, ",\"score\":%d,\"hasAssets\":%s,\"hasReferences\":%s,\"hasScripts\":%s}",
+                             h->score, h->has_assets ? "true" : "false",
+                             h->has_refs ? "true" : "false", h->has_scripts ? "true" : "false");
     }
-    if (cyber_skills_dir(dir, sizeof dir)) {
-        if (!skill_search_scan_dir(&body, dir, "SKILL.md", "anthropic-cybersecurity-skills",
-                                   q, domain, subdomain, source, limit, &count,
-                                   &truncated)) goto oom;
+    ok = ok && json_dyn_printf(&body, "],\"count\":%d,\"truncated\":%s}", emit, total > emit ? "true" : "false");
+    skill_hits_free(&L);
+    if (!ok) { free(body.ptr); web_json_error(fd, "500 Internal Server Error", "skill search memory"); return; }
+    send_json(fd, "200 OK", body.ptr);
+    free(body.ptr);
+}
+#endif /* !_WIN32 */
+
+/* GET /api/skills/search?q=&domain=&subdomain=&source=&limit=
+ * Semantic (embedding cosine) search over user, shipped and cyber skills. Forks
+ * a detached worker (embedding + first-run index build are slow) so the single-
+ * threaded main loop never blocks — same pattern as the vision handlers. */
+static void api_skills_search(int fd, const char *path) {
+#ifdef _WIN32
+    (void)path;
+    web_json_error(fd, "501 Not Implemented", "semantic skill search is not available on the Windows build yet");
+#else
+    pid_t pid = fork();
+    if (pid < 0) { api_skills_search_run(fd, path); return; }
+    if (pid == 0) {
+        if (fork() > 0) _exit(0);
+        if (g_srv_fd >= 0) close(g_srv_fd);
+        if (g_out_fd >= 0) close(g_out_fd);
+        if (g_err_fd >= 0) close(g_err_fd);
+        if (g_in_fd  >= 0) close(g_in_fd);
+        struct timeval tv = { 620, 0 };
+        (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+        api_skills_search_run(fd, path);
+        close(fd);
+        _exit(0);
     }
-    if (!json_dyn_printf(&body, "],\"count\":%d,\"truncated\":%s}",
-                         count, truncated ? "true" : "false")) goto oom;
-    send_json(fd, "200 OK", body.ptr ? body.ptr : "{\"ok\":true,\"skills\":[]}");
-    free(body.ptr);
-    return;
-oom:
-    free(body.ptr);
-    send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"skill search memory\"}");
+    waitpid(pid, NULL, 0);
+#endif
 }
 
 /* GET /api/design-systems — brand systems (extension/design-systems/<id>/DESIGN.md). */
@@ -9219,13 +9731,21 @@ static int lan_public_path_allowed(const char *method, const char *path) {
     int lan_on = strcmp(g_bind_host, "127.0.0.1") != 0;
     if (!strcmp(method, "OPTIONS") &&
         (!strncmp(path, "/v1/", 4) || path_eq_clean(path, "/api/lan-client/chats") ||
-         path_eq_clean(path, "/api/lan-health") || (lan_on && lan_web_tool_path(path)))) return 1;
+         path_eq_clean(path, "/api/lan-health") || (lan_on && lan_web_tool_path(path)) ||
+         (lan_on && (path_eq_clean(path, "/api/vision/describe") ||
+                     path_eq_clean(path, "/api/pdf/thumb") || path_eq_clean(path, "/api/pdf/describe"))))) return 1;
     if (get && (remote_page_path(path) || lan_root_path(path))) return 1;
     if (get && (path_eq_clean(path, "/api/remote/status") || path_eq_clean(path, "/api/remote/chat"))) return 1;
     if (get && path_eq_clean(path, "/api/lan-health")) return 1;
     if (!strcmp(method, "POST") && path_eq_clean(path, "/api/remote/chat")) return 1;
     if (!strcmp(method, "POST") && path_eq_clean(path, "/api/lan-client/chats")) return 1;
     if (lan_on && !strcmp(method, "POST") && lan_web_tool_path(path)) return 1;
+    /* Image describe for LAN clients (inline data only: the handler rejects
+     * `path` sources from non-loopback peers). Setup/stop/status stay host-local. */
+    if (lan_on && !strcmp(method, "POST") && path_eq_clean(path, "/api/vision/describe")) return 1;
+    /* PDF preview/read for LAN clients (inline data only, same guard). */
+    if (lan_on && !strcmp(method, "POST") &&
+        (path_eq_clean(path, "/api/pdf/thumb") || path_eq_clean(path, "/api/pdf/describe"))) return 1;
     if (lan_on && !strncmp(path, "/v1/", 4)) return 1;
     return 0;
 }
@@ -9471,7 +9991,7 @@ static char *web_curl_capture(char *const argv[], int timeout_ms, int *exit_stat
         close(pfd[0]); close(pfd[1]);
         int dn = open("/dev/null", O_RDONLY);
         if (dn >= 0) { dup2(dn, STDIN_FILENO); close(dn); }
-        execvp("curl", argv);
+        execvp(argv[0], argv);   /* argv[0] is the program (curl for most callers, pdftoppm/pdfinfo for PDFs) */
         _exit(127);
     }
     close(pfd[1]);
@@ -9720,6 +10240,2003 @@ static char *web_helper_capture(const char *tool, const char *arg_kind, const ch
     }
     if (exit_status) *exit_status = WIFEXITED(st) ? WEXITSTATUS(st) : 127;
     return out.ptr ? out.ptr : ds4_strdup_local("");
+#endif
+}
+
+/* ============================================================================
+ * Vision provider (local llama.cpp sidecar).
+ *
+ * ds4 is text-only at every layer (engine takes token IDs only; ds4-server
+ * fail-closes 400 on image content blocks). Image understanding is therefore
+ * delegated to a local vision model server (llama-server + Qwen2.5-VL,
+ * OpenAI-compatible) that runs as a SEPARATE sidecar process on VISION_PORT —
+ * a different runtime, so it never trips ds4's single-instance lock. The exact
+ * incantation lives in scripts/vision-server.sh (launch + idle watchdog) and
+ * scripts/vision-setup.sh (install) so it is easy to adjust without touching
+ * this C.
+ *
+ *   POST /api/vision/setup    — install the llama.cpp runtime (on demand);
+ *                               {hf} switches the vision model (3B <-> 7B)
+ *   POST /api/vision/describe — proxy {images[]|data_uri|image_b64|path,
+ *                               question?} to the sidecar, return the text
+ *   POST /api/vision/stop     — stop the sidecar now (it restarts on demand)
+ *   GET  /api/vision/status   — install/server state, disk usage, log tail
+ *
+ * Both the chat preprocess path (browser) and the agent see_image tool (C) hit
+ * /api/vision/describe, so the sidecar wiring lives in one place. Every
+ * describe/setup touches $VISION_DIR/.last-use; the launch script's watchdog
+ * stops an idle sidecar so the multi-GB model does not stay resident forever.
+ * ==========================================================================*/
+#define VISION_PORT 28100
+/* llama-server ignores the request's "model" field (it serves the loaded GGUF),
+ * so any label works. The actual model is chosen in scripts/vision-server.sh. */
+#define VISION_MODEL "qwen2.5-vl"
+/* Keep in sync with the HFREPO default in scripts/vision-server.sh: a model
+ * pref written to $VISION_DIR/.hf (via /api/vision/setup {hf}) overrides both. */
+#define VISION_HF_DEFAULT "ggml-org/Qwen2.5-VL-7B-Instruct-GGUF"
+/* Multi-image describe cap: 4 images at >=1024 image tokens each still fit the
+ * sidecar's default context (DSTUDIO_VISION_CTX 12288) with room to answer. */
+#define VISION_MAX_IMAGES 4
+
+#ifndef _WIN32
+/* Install dir of the vision sidecar (llama-server + lockfile + prefs). Must
+ * match the DSTUDIO_VISION_DIR default in scripts/vision-*.sh. */
+static void vision_dir_path(char *out, size_t outsz) {
+    const char *env = getenv("DSTUDIO_VISION_DIR");
+    if (env && env[0]) { cstr_copy(out, outsz, env); return; }
+    const char *home = getenv("HOME");
+    snprintf(out, outsz, "%s/.dstudio/llama-vision", home ? home : ".");
+}
+
+/* Idle-stop stamp: scripts/vision-server.sh's watchdog shuts the sidecar down
+ * when this file has not been touched for DSTUDIO_VISION_IDLE_MIN minutes.
+ * Touched on every vision request so active use keeps the server alive. */
+static void vision_touch_last_use(void) {
+    char dir[DSTUDIO_PATH_MAX];
+    vision_dir_path(dir, sizeof dir);
+    char parent[DSTUDIO_PATH_MAX];
+    const char *home = getenv("HOME");
+    snprintf(parent, sizeof parent, "%s/.dstudio", home ? home : ".");
+    (void)mkdir(parent, 0755);
+    (void)mkdir(dir, 0755);
+    char stamp[DSTUDIO_PATH_MAX + 16];
+    snprintf(stamp, sizeof stamp, "%s/.last-use", dir);
+    int fd = open(stamp, O_WRONLY | O_CREAT, 0644);
+    if (fd >= 0) close(fd);
+    (void)utimes(stamp, NULL);
+}
+
+/* PID of the running llama-server from the launcher's lockfile (0 = none). */
+static pid_t vision_lock_pid(void) {
+    char p[DSTUDIO_PATH_MAX + 16];
+    vision_dir_path(p, sizeof p);
+    size_t l = strlen(p);
+    snprintf(p + l, sizeof p - l, "/.server.pid");
+    size_t n = 0;
+    char *b = jsonl_read_file(p, &n);
+    if (!b) return 0;
+    long pid = strtol(b, NULL, 10);
+    free(b);
+    return pid > 1 ? (pid_t)pid : 0;
+}
+
+/* A reboot can hand a lockfile pid to an unrelated process: never signal it
+ * without checking that the pid actually runs llama-server. */
+static int vision_pid_is_llama(pid_t pid) {
+    if (pid <= 1 || kill(pid, 0) != 0) return 0;
+    char cmd[64];
+    snprintf(cmd, sizeof cmd, "ps -p %d -o comm=", (int)pid);
+    FILE *f = popen(cmd, "r");
+    if (!f) return 0;
+    char line[512] = "";
+    if (!fgets(line, sizeof line, f)) line[0] = '\0';
+    pclose(f);
+    return strstr(line, "llama-server") != NULL;
+}
+
+/* SIGTERM (then SIGKILL) the sidecar named by the lockfile. Returns 1 when a
+ * verified llama-server was stopped. The launcher's watchdog notices the child
+ * exit and removes the lockfile; unlinking here too is harmless. */
+static int vision_kill_server(void) {
+    pid_t pid = vision_lock_pid();
+    if (!vision_pid_is_llama(pid)) return 0;
+    kill(pid, SIGTERM);
+    for (int i = 0; i < 20; i++) {              /* up to ~2s of polite wait */
+        struct timespec ts = { 0, 100 * 1000000 };
+        nanosleep(&ts, NULL);
+        if (kill(pid, 0) != 0) break;
+    }
+    if (kill(pid, 0) == 0) kill(pid, SIGKILL);
+    char p[DSTUDIO_PATH_MAX + 16];
+    vision_dir_path(p, sizeof p);
+    size_t l = strlen(p);
+    snprintf(p + l, sizeof p - l, "/.server.pid");
+    unlink(p);
+    return 1;
+}
+
+/* Locate the installed llama-server under the vision dir (the release tarball
+ * layout varies across llama.cpp builds, so scan a few levels). */
+static int vision_scan_for_bin(const char *dir, int depth, char *out, size_t outsz) {
+    if (depth > 5) return 0;
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    struct dirent *e;
+    int found = 0;
+    while (!found && (e = readdir(d)) != NULL) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char p[DSTUDIO_PATH_MAX];
+        if ((size_t)snprintf(p, sizeof p, "%s/%s", dir, e->d_name) >= sizeof p) continue;
+        struct stat st;
+        if (stat(p, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) found = vision_scan_for_bin(p, depth + 1, out, outsz);
+        else if (S_ISREG(st.st_mode) && !strcmp(e->d_name, "llama-server")) {
+            cstr_copy(out, outsz, p);
+            found = 1;
+        }
+    }
+    closedir(d);
+    return found;
+}
+
+/* Recursive size of a directory tree (regular files only, bounded depth) —
+ * surfaces how much disk the runtime + cached model take. */
+static long long vision_tree_bytes(const char *dir, int depth) {
+    if (depth > 6) return 0;
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    struct dirent *e;
+    long long sum = 0;
+    while ((e = readdir(d)) != NULL) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char p[DSTUDIO_PATH_MAX];
+        if ((size_t)snprintf(p, sizeof p, "%s/%s", dir, e->d_name) >= sizeof p) continue;
+        struct stat st;
+        if (lstat(p, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) sum += vision_tree_bytes(p, depth + 1);
+        else if (S_ISREG(st.st_mode)) sum += (long long)st.st_size;
+    }
+    closedir(d);
+    return sum;
+}
+
+/* Where llama-server's -hf downloader caches the GGUFs (not inside the vision
+ * dir): $LLAMA_CACHE, else the per-OS user cache. */
+static void vision_model_cache_path(char *out, size_t outsz) {
+    const char *env = getenv("LLAMA_CACHE");
+    if (env && env[0]) { cstr_copy(out, outsz, env); return; }
+    const char *home = getenv("HOME");
+    if (!home) home = ".";
+#ifdef __APPLE__
+    snprintf(out, outsz, "%s/Library/Caches/llama.cpp", home);
+#else
+    const char *xdg = getenv("XDG_CACHE_HOME");
+    if (xdg && xdg[0]) snprintf(out, outsz, "%s/llama.cpp", xdg);
+    else snprintf(out, outsz, "%s/.cache/llama.cpp", home);
+#endif
+}
+
+/* Recent llama.cpp builds download -hf models into the Hugging Face hub cache
+ * (~/.cache/huggingface/hub/models--<owner>--<repo>), NOT into LLAMA_CACHE —
+ * without counting it, Settings reports "0 bytes" with multiple GB on disk. */
+static long long vision_hf_hub_bytes(const char *hf) {
+    if (!hf || !hf[0]) return 0;
+    char id[256];
+    size_t o = 0;
+    /* "owner/repo:QUANT" → "owner--repo" (the :quant suffix picks a file, it is
+     * not part of the hub directory name). */
+    for (const char *p = hf; *p && *p != ':' && o < sizeof id - 3; p++) {
+        if (*p == '/') { id[o++] = '-'; id[o++] = '-'; }
+        else id[o++] = *p;
+    }
+    id[o] = '\0';
+    char root[DSTUDIO_PATH_MAX];
+    const char *hub = getenv("HF_HUB_CACHE");
+    const char *hfhome = getenv("HF_HOME");
+    const char *home = getenv("HOME");
+    if (hub && hub[0]) cstr_copy(root, sizeof root, hub);
+    else if (hfhome && hfhome[0]) snprintf(root, sizeof root, "%s/hub", hfhome);
+    else snprintf(root, sizeof root, "%s/.cache/huggingface/hub", home ? home : ".");
+    char dir[DSTUDIO_PATH_MAX + 300];
+    snprintf(dir, sizeof dir, "%s/models--%s", root, id);
+    return vision_tree_bytes(dir, 0);
+}
+
+/* Non-blocking-ish TCP connect probe: is the sidecar listening on loopback? */
+static int vision_port_open(void) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return 0;
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET;
+    a.sin_port = htons(VISION_PORT);
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    struct timeval tv = { 1, 0 };
+    (void)setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    (void)setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    int ok = connect(s, (struct sockaddr *)&a, sizeof a) == 0;
+    close(s);
+    return ok;
+}
+
+/* True only when the sidecar is FULLY ready: llama-server binds the port before
+ * the model finishes loading and answers 503 "Loading model" meanwhile, so a bare
+ * TCP check isn't enough — GET /health and require 200. */
+static int vision_server_ready(void) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return 0;
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET;
+    a.sin_port = htons(VISION_PORT);
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    struct timeval tv = { 3, 0 };
+    (void)setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    (void)setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    if (connect(s, (struct sockaddr *)&a, sizeof a) != 0) { close(s); return 0; }
+    static const char *req = "GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    if (write(s, req, strlen(req)) < 0) { close(s); return 0; }
+    char buf[64];
+    ssize_t n = read(s, buf, sizeof buf - 1);
+    close(s);
+    if (n <= 0) return 0;
+    buf[n] = '\0';
+    return strstr(buf, " 200") != NULL;   /* "HTTP/1.1 200 OK" */
+}
+
+/* Launch scripts/vision-server.sh detached (double-fork → reparents to init).
+ * Callers gate on vision_port_open() first. Output → /tmp/dstudio-vision.log. */
+static int vision_spawn_detached(void) {
+    if (!g_web_dir[0]) return 0;
+    char script[DSTUDIO_PATH_MAX + 64];
+    snprintf(script, sizeof script, "%s/scripts/vision-server.sh", g_web_dir);
+    struct stat stt;
+    if (stat(script, &stt) != 0) return 0;
+    pid_t pid = fork();
+    if (pid < 0) return 0;
+    if (pid == 0) {
+        if (fork() > 0) _exit(0);       /* grandchild survives us, reparents to init */
+        setsid();
+        if (chdir(g_web_dir) != 0) _exit(127);
+        child_setenv_metal();           /* Metal/MPS env for the vision runtime */
+        /* Close EVERY inherited fd (the DStudio instance-lock fd, the HTTP
+         * listener, engine pipes, sockets). This sidecar is long-lived and
+         * detached, so any fd it kept open would outlive DStudio — in particular
+         * the instance-lock fd, which would then block the next app launch. */
+        for (int cfd = 3; cfd < 256; cfd++) close(cfd);
+        int dn = open("/dev/null", O_RDWR);
+        if (dn >= 0) { dup2(dn, STDIN_FILENO); if (dn != STDIN_FILENO) close(dn); }
+        int lg = open("/tmp/dstudio-vision.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (lg >= 0) { dup2(lg, STDOUT_FILENO); dup2(lg, STDERR_FILENO); if (lg > STDERR_FILENO) close(lg); }
+        char *argv[] = { "/bin/sh", script, NULL };
+        execv("/bin/sh", argv);
+        _exit(127);
+    }
+    waitpid(pid, NULL, 0);              /* reap the immediate child */
+    return 1;
+}
+
+/* Ensure the sidecar is reachable, spawning it if needed. Bounded wait in ms
+ * (first run loads/downloads the model). Runs inside the forked describe/setup
+ * handler, so blocking here never stalls the main server loop. */
+static int vision_ensure_server(int timeout_ms) {
+    if (vision_server_ready()) return 1;
+    /* Spawn only if nothing is listening yet; if the port is up but still loading
+     * the model (503), don't spawn a second one — just wait for /health. */
+    if (!vision_port_open()) vision_spawn_detached();
+    long long deadline = web_now_ms() + (timeout_ms > 0 ? timeout_ms : 120000);
+    while (web_now_ms() < deadline) {
+        struct timespec ts = { 0, 500 * 1000000 };  /* 500 ms */
+        nanosleep(&ts, NULL);
+        if (vision_server_ready()) return 1;
+    }
+    return 0;
+}
+
+/* POST /api/vision/describe — proxy an image to the local vision sidecar. */
+/* Minimal base64 encoder (used for the path branch: read an image file
+ * server-side and inline it as a data: URI). */
+static char *base64_encode(const unsigned char *data, size_t len) {
+    static const char T[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t olen = 4 * ((len + 2) / 3);
+    char *out = malloc(olen + 1);
+    if (!out) return NULL;
+    size_t o = 0;
+    for (size_t i = 0; i < len; i += 3) {
+        unsigned int v = (unsigned int)data[i] << 16;
+        if (i + 1 < len) v |= (unsigned int)data[i + 1] << 8;
+        if (i + 2 < len) v |= (unsigned int)data[i + 2];
+        out[o++] = T[(v >> 18) & 63];
+        out[o++] = T[(v >> 12) & 63];
+        out[o++] = (i + 1 < len) ? T[(v >> 6) & 63] : '=';
+        out[o++] = (i + 2 < len) ? T[v & 63] : '=';
+    }
+    out[o] = '\0';
+    return out;
+}
+
+static const char *vision_mime_for(const char *path) {
+    const char *dot = strrchr(path, '.');
+    if (!dot) return "image/png";
+    char ext[8] = {0};
+    size_t j = 0;
+    for (const char *p = dot + 1; *p && j < sizeof ext - 1; p++) ext[j++] = (char)tolower((unsigned char)*p);
+    if (!strcmp(ext, "jpg") || !strcmp(ext, "jpeg")) return "image/jpeg";
+    if (!strcmp(ext, "webp")) return "image/webp";
+    if (!strcmp(ext, "gif"))  return "image/gif";
+    if (!strcmp(ext, "bmp"))  return "image/bmp";
+    return "image/png";
+}
+
+/* Normalize one image source (a data: URI or bare base64) into a malloc'd
+ * data: URI. */
+static char *vision_data_url_from(const char *image) {
+    if (!image || !image[0]) return NULL;
+    char *out = NULL;
+    if (strncmp(image, "data:", 5) == 0) {
+        size_t need = strlen(image) + 1;
+        if ((out = malloc(need))) memcpy(out, image, need);
+    } else {
+        size_t need = strlen(image) + 40;
+        if ((out = malloc(need))) snprintf(out, need, "data:image/png;base64,%s", image);
+    }
+    return out;
+}
+
+static void vision_free_urls(char **urls, int n) {
+    for (int i = 0; i < n; i++) free(urls[i]);
+}
+
+/* Parse "images":["...", ...] from the request body — up to max entries,
+ * malloc'd into out[]; returns the count (0 when the key is absent). Elements
+ * are data: URIs / base64 straight from JSON.stringify, so only the basic
+ * string escapes need handling. */
+static int vision_parse_images(const char *body, char **out, int max) {
+    const char *p = body ? strstr(body, "\"images\"") : NULL;
+    while (p && p > body && p[-1] == '\\') p = strstr(p + 1, "\"images\"");
+    if (!p) return 0;
+    p += 8;
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+    if (*p != ':') return 0;
+    p++;
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+    if (*p != '[') return 0;
+    p++;
+    int n = 0;
+    while (n < max) {
+        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' || *p == ',') p++;
+        if (*p != '"') break;
+        p++;
+        size_t cap = 4096, len = 0;
+        char *s = malloc(cap);
+        if (!s) break;
+        int ok = 1;
+        while (*p && *p != '"') {
+            char c = *p++;
+            if (c == '\\' && *p) {
+                char e = *p++;
+                switch (e) {
+                    case 'n': c = '\n'; break;
+                    case 't': c = '\t'; break;
+                    case 'r': c = '\r'; break;
+                    case 'u':
+                        /* data URIs never carry \u escapes; skip the 4 hex
+                         * digits and emit a placeholder to stay in sync. */
+                        for (int k = 0; k < 4 && *p; k++) p++;
+                        c = '?';
+                        break;
+                    default:  c = e; break;   /* \" \\ \/ */
+                }
+            }
+            if (len + 2 > cap) {
+                cap *= 2;
+                char *ns = realloc(s, cap);
+                if (!ns) { ok = 0; break; }
+                s = ns;
+            }
+            s[len++] = c;
+        }
+        if (*p == '"') p++;
+        if (!ok || !len) { free(s); break; }
+        s[len] = '\0';
+        out[n++] = s;
+    }
+    return n;
+}
+
+/* POST /api/vision/describe — image source is images[] (up to
+ * VISION_MAX_IMAGES, one joint request so the model can compare them) |
+ * data_uri | image_b64 | path. `path` is read + base64'd server-side (used by
+ * the agent see_image tool, so the agent needs no base64/JSON code of its own)
+ * and is HOST-LOCAL ONLY: for non-loopback clients (allow_path 0) it would be
+ * arbitrary host-file disclosure, so only inline data is accepted from them.
+ * format:"text" → respond text/plain with the description; otherwise JSON
+ * {ok,text}. */
+static void api_vision_describe_run(int fd, const char *body, int allow_path) {
+    char fmt[16] = "";
+    (void)json_get_string(body, "format", fmt, sizeof fmt);
+    int want_text = !strcmp(fmt, "text");
+
+    char *urls[VISION_MAX_IMAGES];   /* malloc'd data: URIs */
+    int nimg = 0;
+    char *raw[VISION_MAX_IMAGES];
+    int nraw = vision_parse_images(body, raw, VISION_MAX_IMAGES);
+    if (nraw > 0) {
+        for (int i = 0; i < nraw; i++) {
+            char *u = vision_data_url_from(raw[i]);
+            free(raw[i]);
+            if (u) urls[nimg++] = u;
+        }
+    } else {
+        char *image = json_get_string_alloc_rpc(body, "data_uri");
+        if (!image) image = json_get_string_alloc_rpc(body, "image_b64");
+        if (image && image[0]) {
+            char *u = vision_data_url_from(image);
+            if (u) urls[nimg++] = u;
+        } else {
+            char *path = json_get_string_alloc_rpc(body, "path");
+            if (path && path[0] && !allow_path) {
+                free(image); free(path);
+                if (want_text) send_text(fd, "403 Forbidden", "see_image error: path is host-local only\n", 0);
+                else web_json_error(fd, "403 Forbidden", "path is host-local only; send data_uri instead");
+                return;
+            }
+            if (path && path[0]) {
+                size_t ilen = 0;
+                char *bytes = jsonl_read_file(path, &ilen);
+                if (!bytes) {
+                    free(image); free(path);
+                    if (want_text) send_text(fd, "400 Bad Request", "see_image error: cannot read image file\n", 0);
+                    else web_json_error(fd, "400 Bad Request", "cannot read image path");
+                    return;
+                }
+                char *b64 = base64_encode((const unsigned char *)bytes, ilen);
+                free(bytes);
+                if (b64) {
+                    const char *mime = vision_mime_for(path);
+                    size_t need = strlen(b64) + strlen(mime) + 24;
+                    char *u = malloc(need);
+                    if (u) { snprintf(u, need, "data:%s;base64,%s", mime, b64); urls[nimg++] = u; }
+                }
+                free(b64);
+            }
+            free(path);
+        }
+        free(image);
+    }
+    if (nimg == 0) {
+        if (want_text) send_text(fd, "400 Bad Request", "see_image error: no image (path/data_uri) supplied\n", 0);
+        else web_json_error(fd, "400 Bad Request", "images, data_uri, image_b64, or path is required");
+        return;
+    }
+
+    /* Frame the vision prompt in ENGLISH. The small Qwen2.5-VL model refuses
+     * non-English requests ("Mi dispiace, non posso…") even though it sees the
+     * image fine; an English frame makes it comply, and it can still address a
+     * request written in another language when embedded here. */
+    char qbuf[4096];
+    int has_q = json_get_string(body, "question", qbuf, sizeof qbuf) && qbuf[0];
+    char question[5500];
+    /* Anti-hallucination framing (measured on real images): told to "answer the
+     * question", the small VL model over-commits — wrong connector types, invented
+     * "connected/plugged" relationships, phantom counts. Grounding it in "describe
+     * only clearly-visible facts, don't infer connections, admit uncertainty" is
+     * far more accurate; the question only STEERS attention, it does not force a
+     * committed answer. English on purpose (the model refuses non-English asks). */
+    static const char *base =
+        "You are a precise vision analyzer. Describe what is clearly visible in this image: state only "
+        "facts, do NOT assume separate items are connected or plugged together unless clearly shown, "
+        "name port/connector types precisely, and if a detail is too small or blurry to be sure, say "
+        "you are not certain instead of guessing.";
+    /* Joint multi-image request: number the images so the answer can compare
+     * and cross-reference them ("what changed between these screenshots?"). */
+    char multi[240] = "";
+    if (nimg > 1)
+        snprintf(multi, sizeof multi,
+                 " You are given %d images, numbered in the order provided (Image 1 first). Briefly "
+                 "describe each one, then note the differences or relations between them that matter, "
+                 "referring to them as Image 1..Image %d.", nimg, nimg);
+    if (has_q)
+        snprintf(question, sizeof question,
+                 "%s%s Pay particular attention to anything relevant to this request (do not guess — say "
+                 "if you cannot tell): \"%s\"", base, multi, qbuf);
+    else
+        snprintf(question, sizeof question, "%s%s", base, multi);
+
+    /* Short safety-net only: the heavy one-time model download happens in
+     * /api/vision/setup, so by now the sidecar is normally already serving.
+     * 60s covers a restart with the model already cached, not a fresh download. */
+    if (!vision_ensure_server(60000)) {
+        vision_free_urls(urls, nimg);
+        if (want_text) send_text(fd, "503 Service Unavailable",
+                                 "see_image error: vision server is not running; run vision setup once\n", 0);
+        else web_json_error(fd, "503 Service Unavailable",
+                       "vision model server is not running; call POST /api/vision/setup once to install it");
+        return;
+    }
+
+    /* Build the upstream OpenAI chat body: one image_url content part per
+     * image, then the text prompt. temperature 0: perception/OCR is a factual
+     * task — greedy decoding is more precise and hallucinates fewer invented
+     * details. max_tokens is higher for the agent's text format, where dense
+     * OCR transcriptions were hitting the old 1024 cap; callers with denser
+     * output (the PDF page reader) can raise it further via the request's
+     * max_tokens — the sidecar ctx (12288) has room for a 4k answer. */
+    long mt = want_text ? 1536 : 1024;
+    (void)json_get_int(body, "max_tokens", 256, 4096, &mt);
+    json_dyn_buf up = {0};
+    int okb = json_dyn_puts(&up, "{\"model\":") &&
+              json_dyn_put_escaped(&up, VISION_MODEL) &&
+              json_dyn_printf(&up, ",\"max_tokens\":%d,\"temperature\":0,"
+                                   "\"messages\":[{\"role\":\"user\",\"content\":[",
+                              (int)mt);
+    for (int i = 0; okb && i < nimg; i++) {
+        okb = json_dyn_puts(&up, "{\"type\":\"image_url\",\"image_url\":{\"url\":") &&
+              json_dyn_put_escaped(&up, urls[i]) &&
+              json_dyn_puts(&up, "}},");
+    }
+    okb = okb &&
+          json_dyn_puts(&up, "{\"type\":\"text\",\"text\":") &&
+          json_dyn_put_escaped(&up, question) &&
+          json_dyn_puts(&up, "}]}]}");
+    vision_free_urls(urls, nimg);
+    if (!okb) { free(up.ptr);
+        if (want_text) send_text(fd, "500 Internal Server Error", "see_image error: out of memory\n", 0);
+        else web_json_error(fd, "500 Internal Server Error", "out of memory");
+        return; }
+
+    /* curl cannot take a multi-MB body on argv → write it to a temp file. */
+    char tmpl[] = "/tmp/dstudio-vision-req-XXXXXX";
+    int tf = mkstemp(tmpl);
+    if (tf < 0) { free(up.ptr);
+        if (want_text) send_text(fd, "500 Internal Server Error", "see_image error: temp file\n", 0);
+        else web_json_error(fd, "500 Internal Server Error", "cannot create temp file");
+        return; }
+    size_t total = up.len, off = 0;
+    while (off < total) {
+        ssize_t w = write(tf, up.ptr + off, total - off);
+        if (w <= 0) break;
+        off += (size_t)w;
+    }
+    close(tf);
+    free(up.ptr);
+    if (off < total) { unlink(tmpl);
+        if (want_text) send_text(fd, "500 Internal Server Error", "see_image error: temp write\n", 0);
+        else web_json_error(fd, "500 Internal Server Error", "cannot write temp file");
+        return; }
+
+    char url[80];  snprintf(url, sizeof url, "http://127.0.0.1:%d/v1/chat/completions", VISION_PORT);
+    char dataarg[80]; snprintf(dataarg, sizeof dataarg, "@%s", tmpl);
+    char *argv[16]; int n = 0;
+    argv[n++] = "curl"; argv[n++] = "-sS"; argv[n++] = "-X"; argv[n++] = "POST";
+    argv[n++] = "-H"; argv[n++] = "Content-Type: application/json";
+    argv[n++] = "--data-binary"; argv[n++] = dataarg;
+    argv[n++] = "--max-time"; argv[n++] = "300";
+    argv[n++] = url; argv[n] = NULL;
+
+    int st = 0;
+    char *resp = web_curl_capture(argv, 310000, &st);
+    unlink(tmpl);
+    if (!resp || !resp[0]) { free(resp);
+        if (want_text) send_text(fd, "502 Bad Gateway", "see_image error: vision server did not respond\n", 0);
+        else web_json_error(fd, "502 Bad Gateway", "vision server did not respond");
+        return; }
+
+    char *text = json_get_string_alloc_rpc(resp, "content");
+    if (!text || !text[0]) {
+        free(text);
+        char *cap = web_strndup_cap(resp, strlen(resp), want_text ? 1500 : 4000);
+        if (want_text) {
+            char msg[1800];
+            snprintf(msg, sizeof msg, "see_image error: vision server returned no content. %s\n", cap ? cap : "");
+            free(cap); free(resp);
+            send_text(fd, "502 Bad Gateway", msg, 0);
+            return;
+        }
+        json_dyn_buf e = {0};
+        int oke = json_dyn_puts(&e, "{\"ok\":false,\"error\":\"vision server returned no content\",\"raw\":") &&
+                  json_dyn_put_escaped(&e, cap ? cap : "") &&
+                  json_dyn_puts(&e, "}");
+        free(cap); free(resp);
+        send_json(fd, "502 Bad Gateway", oke && e.ptr ? e.ptr : "{\"ok\":false,\"error\":\"no content\"}");
+        free(e.ptr);
+        return;
+    }
+    /* Silent truncation is worse than a longer answer: when generation stopped
+     * at max_tokens (finish_reason "length"), say so, so the model downstream
+     * knows the description (e.g. a dense OCR transcription) is incomplete. */
+    char fr[24] = "";
+    (void)json_get_string(resp, "finish_reason", fr, sizeof fr);
+    free(resp);
+    if (!strcmp(fr, "length")) {
+        static const char *tnote =
+            "\n\n[Note: description truncated at the token limit — details may be missing.]";
+        size_t tl = strlen(text), nl = strlen(tnote);
+        char *nt = realloc(text, tl + nl + 1);
+        if (nt) { text = nt; memcpy(text + tl, tnote, nl + 1); }
+    }
+
+    if (want_text) { send_text(fd, "200 OK", text, 0); free(text); return; }
+
+    json_dyn_buf out = {0};
+    int oko = json_dyn_puts(&out, "{\"ok\":true,\"text\":") &&
+              json_dyn_put_escaped(&out, text) &&
+              json_dyn_puts(&out, "}");
+    free(text);
+    if (!oko) { free(out.ptr); web_json_error(fd, "500 Internal Server Error", "out of memory"); return; }
+    send_json(fd, "200 OK", out.ptr);
+    free(out.ptr);
+}
+
+/* Current vision model pref: $VISION_DIR/.hf when present (written below on a
+ * {hf} switch and read by scripts/vision-server.sh), else the built-in default. */
+static void vision_hf_pref(char *out, size_t outsz) {
+    char p[DSTUDIO_PATH_MAX + 8];
+    vision_dir_path(p, sizeof p);
+    size_t l = strlen(p);
+    snprintf(p + l, sizeof p - l, "/.hf");
+    size_t n = 0;
+    char *b = jsonl_read_file(p, &n);
+    if (b) {
+        while (n > 0 && (b[n - 1] == '\n' || b[n - 1] == '\r' || b[n - 1] == ' ')) b[--n] = '\0';
+        if (b[0]) { cstr_copy(out, outsz, b); free(b); return; }
+        free(b);
+    }
+    cstr_copy(out, outsz, VISION_HF_DEFAULT);
+}
+
+/* POST /api/vision/setup — install the llama.cpp runtime on demand
+ * (scripts/vision-setup.sh), then warm the sidecar so the first describe is
+ * fast. Optional body {hf:"owner/Repo-GGUF"} switches the vision model (e.g.
+ * Qwen2.5-VL 3B <-> 7B): the pref is persisted to $VISION_DIR/.hf, a running
+ * sidecar is stopped so the warm-up below reloads with the new model. */
+static void api_vision_setup_run(int fd, const char *body) {
+    resolve_web_dir();
+    if (!web_dir_valid()) {
+        send_json(fd, "409 Conflict",
+                  "{\"ok\":false,\"error\":\"DStudio checkout not found; cannot locate scripts/vision-setup.sh\"}");
+        return;
+    }
+    char script[DSTUDIO_PATH_MAX + 64];
+    snprintf(script, sizeof script, "%s/scripts/vision-setup.sh", g_web_dir);
+    struct stat stt;
+    if (stat(script, &stt) != 0) {
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"scripts/vision-setup.sh missing\"}");
+        return;
+    }
+
+    char hf[200] = "";
+    if (body && json_get_string(body, "hf", hf, sizeof hf) && hf[0]) {
+        int sane = strchr(hf, '/') != NULL && strlen(hf) > 3;
+        for (const char *p = hf; sane && *p; p++)
+            if (!isalnum((unsigned char)*p) && !strchr("._/-", *p)) sane = 0;
+        if (!sane) {
+            send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"invalid hf repo\"}");
+            return;
+        }
+        char cur[200];
+        vision_hf_pref(cur, sizeof cur);
+        if (strcmp(cur, hf) != 0) {
+            char dir[DSTUDIO_PATH_MAX];
+            vision_dir_path(dir, sizeof dir);
+            char parent[DSTUDIO_PATH_MAX];
+            const char *home = getenv("HOME");
+            snprintf(parent, sizeof parent, "%s/.dstudio", home ? home : ".");
+            (void)mkdir(parent, 0755);
+            (void)mkdir(dir, 0755);
+            char pref[DSTUDIO_PATH_MAX + 8];
+            snprintf(pref, sizeof pref, "%s/.hf", dir);
+            if (!jsonl_write_file(pref, hf, strlen(hf))) {
+                send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"cannot write model pref\"}");
+                return;
+            }
+            /* The running sidecar still serves the old model: stop it so the
+             * warm-up below loads the new one. */
+            (void)vision_kill_server();
+        }
+    }
+
+    char *argv[] = { "/bin/sh", script, NULL };
+    char log_tail[8192] = "";
+    int rc = setup_run_cmd_capture(g_web_dir, argv, log_tail, sizeof log_tail);
+    /* Warm the sidecar AS PART OF SETUP: this triggers + completes the one-time
+     * model download (multi-GB, llama.cpp -hf) and BLOCKS until the server is
+     * actually serving, so every later /api/vision/describe is instant. Long cap
+     * because a fresh download can take many minutes on a slow link. */
+    vision_touch_last_use();
+    int server_up = (rc == 0) ? vision_ensure_server(1000000) : 0;   /* ~16 min */
+    if (server_up) vision_touch_last_use();   /* warm-up counts as use for the idle watchdog */
+    int ok = rc == 0 && server_up;
+    const char *err = rc != 0 ? "vision runtime install failed (see log)"
+                    : !server_up ? "vision model did not come up in time (download too slow?); retry"
+                    : "";
+
+    char hf_now[200];
+    vision_hf_pref(hf_now, sizeof hf_now);
+    json_dyn_buf b = {0};
+    char *cap = web_strndup_cap(log_tail, strlen(log_tail), 6000);
+    int good = json_dyn_puts(&b, "{\"ok\":") &&
+               json_dyn_puts(&b, ok ? "true" : "false") &&
+               json_dyn_printf(&b, ",\"exit\":%d,\"serverUp\":%s,\"hf\":", rc, server_up ? "true" : "false") &&
+               json_dyn_put_escaped(&b, hf_now) &&
+               json_dyn_puts(&b, ",\"model\":") &&
+               json_dyn_put_escaped(&b, VISION_MODEL) &&
+               json_dyn_puts(&b, ",\"error\":") &&
+               json_dyn_put_escaped(&b, err) &&
+               json_dyn_puts(&b, ",\"log\":") &&
+               json_dyn_put_escaped(&b, cap ? cap : "") &&
+               json_dyn_puts(&b, "}");
+    free(cap);
+    if (!good) { free(b.ptr); send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}"); return; }
+    send_json(fd, ok ? "200 OK" : "500 Internal Server Error", b.ptr);
+    free(b.ptr);
+}
+
+/* Both vision handlers fork a detached worker (vision inference + the one-time
+ * runtime install are slow) so the single-threaded main loop is never blocked —
+ * same pattern as api_http_probe. */
+static void api_vision_fork(int fd, const char *body, int is_setup, int allow_path) {
+    pid_t pid = fork();
+    if (pid < 0) { if (is_setup) api_vision_setup_run(fd, body); else api_vision_describe_run(fd, body, allow_path); return; }
+    if (pid == 0) {
+        if (fork() > 0) _exit(0);
+        if (g_srv_fd >= 0) close(g_srv_fd);
+        if (g_out_fd >= 0) close(g_out_fd);
+        if (g_err_fd >= 0) close(g_err_fd);
+        if (g_in_fd  >= 0) close(g_in_fd);
+        struct timeval tv = { 620, 0 };
+        (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+        if (is_setup) api_vision_setup_run(fd, body);
+        else          api_vision_describe_run(fd, body, allow_path);
+        close(fd);
+        _exit(0);
+    }
+    waitpid(pid, NULL, 0);
+}
+#endif /* !_WIN32 */
+
+static void api_vision_describe(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    web_json_error(fd, "501 Not Implemented", "vision is not available in the Windows build yet");
+#else
+    /* Every request keeps the idle-stop watchdog fed; `path` sources stay
+     * host-local (arbitrary-file disclosure for a LAN peer otherwise). */
+    vision_touch_last_use();
+    api_vision_fork(fd, body, 0, client_is_loopback(fd));
+#endif
+}
+
+static void api_vision_setup(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"vision setup is not supported on the Windows build yet\"}");
+#else
+    api_vision_fork(fd, body, 1, 1);
+#endif
+}
+
+/* POST /api/vision/stop — stop the sidecar now (Settings action / doctor). It
+ * restarts on demand at the next describe; with the model already cached that
+ * is a matter of seconds. */
+static void api_vision_stop(int fd) {
+#ifdef _WIN32
+    send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"vision is not supported on the Windows build yet\"}");
+#else
+    int stopped = vision_kill_server();
+    send_json(fd, "200 OK", stopped ? "{\"ok\":true,\"stopped\":true}"
+                                    : "{\"ok\":true,\"stopped\":false,\"error\":\"not running\"}");
+#endif
+}
+
+/* GET /api/vision/status — host-local status surface for Settings and the
+ * doctor: install state, server state, model pref, disk usage, and the tail of
+ * the sidecar log (turns the multi-GB first download from a blind toast into
+ * visible progress). */
+static void api_vision_status(int fd) {
+#ifdef _WIN32
+    send_json(fd, "200 OK",
+              "{\"ok\":true,\"supported\":false,\"installed\":false,\"state\":\"unsupported\","
+              "\"pid\":0,\"diskBytes\":0,\"cacheBytes\":0,\"lastUse\":0,\"hf\":\"\",\"logTail\":\"\"}");
+#else
+    char dir[DSTUDIO_PATH_MAX];
+    vision_dir_path(dir, sizeof dir);
+    char bin[DSTUDIO_PATH_MAX] = "";
+    int installed = vision_scan_for_bin(dir, 0, bin, sizeof bin);
+    pid_t pid = vision_lock_pid();
+    int pid_live = vision_pid_is_llama(pid);
+    const char *state = "stopped";
+    if (vision_server_ready()) state = "ready";
+    else if (vision_port_open() || pid_live) state = "starting";
+    long long run_bytes = installed ? vision_tree_bytes(dir, 0) : 0;
+    char cache[DSTUDIO_PATH_MAX];
+    vision_model_cache_path(cache, sizeof cache);
+    char hf[200];
+    vision_hf_pref(hf, sizeof hf);
+    long long cache_bytes = vision_tree_bytes(cache, 0) + vision_hf_hub_bytes(hf);
+    char stamp[DSTUDIO_PATH_MAX + 16];
+    snprintf(stamp, sizeof stamp, "%s/.last-use", dir);
+    struct stat st;
+    long long last_use = stat(stamp, &st) == 0 ? (long long)st.st_mtime : 0;
+
+    char tail[1600] = "";
+    FILE *lf = fopen("/tmp/dstudio-vision.log", "r");
+    if (lf) {
+        if (fseek(lf, 0, SEEK_END) == 0) {
+            long sz = ftell(lf);
+            long want = (long)sizeof tail - 1;
+            long from = sz > want ? sz - want : 0;
+            if (fseek(lf, from, SEEK_SET) == 0) {
+                size_t got = fread(tail, 1, sizeof tail - 1, lf);
+                tail[got] = '\0';
+            }
+        }
+        fclose(lf);
+    }
+
+    json_dyn_buf b = {0};
+    int okb = json_dyn_printf(&b, "{\"ok\":true,\"supported\":true,\"installed\":%s,\"state\":",
+                              installed ? "true" : "false") &&
+              json_dyn_put_escaped(&b, state) &&
+              json_dyn_printf(&b, ",\"pid\":%d,\"port\":%d,\"diskBytes\":%lld,\"cacheBytes\":%lld,"
+                                  "\"lastUse\":%lld,\"hf\":",
+                              pid_live ? (int)pid : 0, VISION_PORT, run_bytes, cache_bytes, last_use) &&
+              json_dyn_put_escaped(&b, hf) &&
+              json_dyn_puts(&b, ",\"dir\":") && json_dyn_put_escaped(&b, dir) &&
+              json_dyn_puts(&b, ",\"cacheDir\":") && json_dyn_put_escaped(&b, cache) &&
+              json_dyn_puts(&b, ",\"logTail\":") && json_dyn_put_escaped(&b, tail) &&
+              json_dyn_puts(&b, "}");
+    if (!okb) { free(b.ptr); web_json_error(fd, "500 Internal Server Error", "out of memory"); return; }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+#endif
+}
+
+/* Doctor row: 1 = installed (message describes the live state). Kept cheap —
+ * no health probe beyond the ones the vision section already provides. */
+static int vision_doctor_row(char *msg, size_t msgsz) {
+#ifdef _WIN32
+    cstr_copy(msg, msgsz, "Not supported on the Windows build yet.");
+    return 0;
+#else
+    char dir[DSTUDIO_PATH_MAX];
+    vision_dir_path(dir, sizeof dir);
+    char bin[DSTUDIO_PATH_MAX] = "";
+    if (!vision_scan_for_bin(dir, 0, bin, sizeof bin)) {
+        cstr_copy(msg, msgsz,
+                  "Not installed. Optional: local image understanding for chat attachments and the "
+                  "agent's see_image tool — attach an image in chat, or install it from Settings.");
+        return 0;
+    }
+    char hf[200];
+    vision_hf_pref(hf, sizeof hf);
+    if (vision_server_ready())
+        snprintf(msg, msgsz, "Serving %s — used by chat image attachments and the agent's see_image tool.", hf);
+    else if (vision_port_open() || vision_pid_is_llama(vision_lock_pid()))
+        snprintf(msg, msgsz, "Starting (%s) — loading or downloading the model.", hf);
+    else
+        snprintf(msg, msgsz, "Installed (%s). Starts on demand at the first image and stops itself when idle.", hf);
+    return 1;
+#endif
+}
+
+/* ---- Embedding sidecar endpoints (semantic skill search) ---- */
+#ifndef _WIN32
+/* Read the row count stored in the skill index header (0 if absent). */
+static int embed_index_count(void) {
+    char path[DSTUDIO_PATH_MAX + 32]; skill_index_path(path, sizeof path);
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    skill_index_hdr h;
+    int n = (fread(&h, sizeof h, 1, f) == 1 && h.magic == SKILL_INDEX_MAGIC) ? h.count : 0;
+    fclose(f);
+    return n;
+}
+
+/* POST /api/embed/setup — install the llama.cpp runtime (shared with vision) on
+ * demand, warm the embedding model, and BUILD the skill index so the first
+ * search is instant. Optional body {hf} switches the embedding model. */
+static void api_embed_setup_run(int fd, const char *body) {
+    resolve_web_dir();
+    if (!web_dir_valid()) {
+        send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"DStudio checkout not found\"}");
+        return;
+    }
+    char setup_script[DSTUDIO_PATH_MAX + 64];
+    snprintf(setup_script, sizeof setup_script, "%s/scripts/vision-setup.sh", g_web_dir);
+    struct stat stt;
+    if (stat(setup_script, &stt) != 0) {
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"scripts/vision-setup.sh missing\"}");
+        return;
+    }
+    char embed_dir[DSTUDIO_PATH_MAX]; embed_dir_path(embed_dir, sizeof embed_dir);
+    const char *home = getenv("HOME");
+    char parent[DSTUDIO_PATH_MAX];
+    snprintf(parent, sizeof parent, "%s/.dstudio", home ? home : ".");
+    (void)mkdir(parent, 0755); (void)mkdir(embed_dir, 0755);
+
+    char hf[200] = "";
+    if (body && json_get_string(body, "hf", hf, sizeof hf) && hf[0]) {
+        int sane = strchr(hf, '/') != NULL && strlen(hf) > 3;
+        for (const char *p = hf; sane && *p; p++)
+            if (!isalnum((unsigned char)*p) && !strchr("._/:-", *p)) sane = 0;
+        if (!sane) { send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"invalid hf repo\"}"); return; }
+        char cur[200]; embed_hf_pref(cur, sizeof cur);
+        if (strcmp(cur, hf) != 0) {
+            char pref[DSTUDIO_PATH_MAX + 8];
+            snprintf(pref, sizeof pref, "%s/.hf", embed_dir);
+            if (!jsonl_write_file(pref, hf, strlen(hf))) {
+                send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"cannot write model pref\"}");
+                return;
+            }
+            (void)embed_kill_server();   /* reload with the new model */
+        }
+    }
+
+    /* Ensure a llama-server binary exists: reuse the vision runtime if present,
+     * else install one INTO the embed dir (vision-setup.sh honors this env). */
+    char probe[DSTUDIO_PATH_MAX] = "", vdir[DSTUDIO_PATH_MAX];
+    vision_dir_path(vdir, sizeof vdir);
+    int have_bin = vision_scan_for_bin(embed_dir, 0, probe, sizeof probe) ||
+                   vision_scan_for_bin(vdir, 0, probe, sizeof probe);
+    int rc = 0;
+    char log_tail[8192] = "";
+    if (!have_bin) {
+        setenv("DSTUDIO_VISION_DIR", embed_dir, 1);
+        char *argv[] = { "/bin/sh", setup_script, NULL };
+        rc = setup_run_cmd_capture(g_web_dir, argv, log_tail, sizeof log_tail);
+        unsetenv("DSTUDIO_VISION_DIR");
+    }
+
+    embed_touch_last_use();
+    int server_up = (rc == 0) ? embed_ensure_server(1000000) : 0;
+    int indexed = 0;
+    if (server_up) {
+        embed_touch_last_use();
+        skill_hit_list L = {0};
+        if (skill_enum_all(&L) && L.n > 0) {
+            char **texts = calloc((size_t)L.n, sizeof *texts);
+            if (texts) {
+                for (int i = 0; i < L.n; i++) texts[i] = skill_embed_text(&L.v[i]);
+                int dim = 0;
+                float *v = skill_index_ensure(&L, texts, &dim);
+                if (v) { indexed = L.n; free(v); }
+                for (int i = 0; i < L.n; i++) free(texts[i]);
+                free(texts);
+            }
+        }
+        skill_hits_free(&L);
+    }
+    int ok = rc == 0 && server_up && indexed > 0;
+    const char *err = rc != 0 ? "embedding runtime install failed (see log)"
+                    : !server_up ? "embedding model did not come up in time; retry"
+                    : indexed == 0 ? "index build failed"
+                    : "";
+    char hf_now[200]; embed_hf_pref(hf_now, sizeof hf_now);
+    json_dyn_buf b = {0};
+    char *cap = web_strndup_cap(log_tail, strlen(log_tail), 6000);
+    int good = json_dyn_puts(&b, "{\"ok\":") && json_dyn_puts(&b, ok ? "true" : "false") &&
+               json_dyn_printf(&b, ",\"serverUp\":%s,\"indexed\":%d,\"hf\":", server_up ? "true" : "false", indexed) &&
+               json_dyn_put_escaped(&b, hf_now) &&
+               json_dyn_puts(&b, ",\"error\":") && json_dyn_put_escaped(&b, err) &&
+               json_dyn_puts(&b, ",\"log\":") && json_dyn_put_escaped(&b, cap ? cap : "") &&
+               json_dyn_puts(&b, "}");
+    free(cap);
+    if (!good) { free(b.ptr); send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}"); return; }
+    send_json(fd, ok ? "200 OK" : "500 Internal Server Error", b.ptr);
+    free(b.ptr);
+}
+
+/* Detached worker for the slow embed setup (download + index build). */
+static void api_embed_fork(int fd, const char *body) {
+    pid_t pid = fork();
+    if (pid < 0) { api_embed_setup_run(fd, body); return; }
+    if (pid == 0) {
+        if (fork() > 0) _exit(0);
+        if (g_srv_fd >= 0) close(g_srv_fd);
+        if (g_out_fd >= 0) close(g_out_fd);
+        if (g_err_fd >= 0) close(g_err_fd);
+        if (g_in_fd  >= 0) close(g_in_fd);
+        struct timeval tv = { 1220, 0 };
+        (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+        api_embed_setup_run(fd, body);
+        close(fd);
+        _exit(0);
+    }
+    waitpid(pid, NULL, 0);
+}
+#endif /* !_WIN32 */
+
+static void api_embed_setup(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"semantic skill search is not supported on the Windows build yet\"}");
+#else
+    api_embed_fork(fd, body);
+#endif
+}
+
+static void api_embed_stop(int fd) {
+#ifdef _WIN32
+    send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"not supported on the Windows build yet\"}");
+#else
+    int stopped = embed_kill_server();
+    send_json(fd, "200 OK", stopped ? "{\"ok\":true,\"stopped\":true}"
+                                    : "{\"ok\":true,\"stopped\":false,\"error\":\"not running\"}");
+#endif
+}
+
+/* GET /api/embed/status — install/server/index state for Settings + doctor. */
+static void api_embed_status(int fd) {
+#ifdef _WIN32
+    send_json(fd, "200 OK",
+              "{\"ok\":true,\"supported\":false,\"installed\":false,\"state\":\"unsupported\","
+              "\"pid\":0,\"indexed\":0,\"diskBytes\":0,\"lastUse\":0,\"hf\":\"\",\"logTail\":\"\"}");
+#else
+    char dir[DSTUDIO_PATH_MAX]; embed_dir_path(dir, sizeof dir);
+    char vdir[DSTUDIO_PATH_MAX]; vision_dir_path(vdir, sizeof vdir);
+    char bin[DSTUDIO_PATH_MAX] = "";
+    int installed = vision_scan_for_bin(dir, 0, bin, sizeof bin) || vision_scan_for_bin(vdir, 0, bin, sizeof bin);
+    pid_t pid = embed_lock_pid();
+    int pid_live = vision_pid_is_llama(pid);
+    const char *state = "stopped";
+    if (embed_server_ready()) state = "ready";
+    else if (embed_port_open() || pid_live) state = "starting";
+    long long run_bytes = vision_tree_bytes(dir, 0);
+    char cache[DSTUDIO_PATH_MAX]; vision_model_cache_path(cache, sizeof cache);
+    char hf[200]; embed_hf_pref(hf, sizeof hf);
+    long long cache_bytes = vision_tree_bytes(cache, 0) + vision_hf_hub_bytes(hf);
+    char stamp[DSTUDIO_PATH_MAX + 16]; snprintf(stamp, sizeof stamp, "%s/.last-use", dir);
+    struct stat st;
+    long long last_use = stat(stamp, &st) == 0 ? (long long)st.st_mtime : 0;
+    int indexed = embed_index_count();
+    char tail[1600] = "";
+    FILE *lf = fopen("/tmp/dstudio-embed.log", "r");
+    if (lf) {
+        if (fseek(lf, 0, SEEK_END) == 0) {
+            long sz = ftell(lf), want = (long)sizeof tail - 1, from = sz > want ? sz - want : 0;
+            if (fseek(lf, from, SEEK_SET) == 0) { size_t got = fread(tail, 1, sizeof tail - 1, lf); tail[got] = '\0'; }
+        }
+        fclose(lf);
+    }
+    json_dyn_buf b = {0};
+    int okb = json_dyn_printf(&b, "{\"ok\":true,\"supported\":true,\"installed\":%s,\"state\":", installed ? "true" : "false") &&
+              json_dyn_put_escaped(&b, state) &&
+              json_dyn_printf(&b, ",\"pid\":%d,\"port\":%d,\"indexed\":%d,\"diskBytes\":%lld,\"cacheBytes\":%lld,\"lastUse\":%lld,\"hf\":",
+                              pid_live ? (int)pid : 0, EMBED_PORT, indexed, run_bytes, cache_bytes, last_use) &&
+              json_dyn_put_escaped(&b, hf) &&
+              json_dyn_puts(&b, ",\"logTail\":") && json_dyn_put_escaped(&b, tail) &&
+              json_dyn_puts(&b, "}");
+    if (!okb) { free(b.ptr); web_json_error(fd, "500 Internal Server Error", "out of memory"); return; }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+#endif
+}
+
+/* Doctor row: semantic skill search availability. */
+static int embed_doctor_row(char *msg, size_t msgsz) {
+#ifdef _WIN32
+    cstr_copy(msg, msgsz, "Not supported on the Windows build yet.");
+    return 0;
+#else
+    char dir[DSTUDIO_PATH_MAX]; embed_dir_path(dir, sizeof dir);
+    char vdir[DSTUDIO_PATH_MAX]; vision_dir_path(vdir, sizeof vdir);
+    char bin[DSTUDIO_PATH_MAX] = "";
+    int installed = vision_scan_for_bin(dir, 0, bin, sizeof bin) || vision_scan_for_bin(vdir, 0, bin, sizeof bin);
+    int indexed = embed_index_count();
+    if (!installed || indexed == 0) {
+        cstr_copy(msg, msgsz,
+                  "Not installed. Semantic skill routing for the Agent (handles any language) — install it once from Settings.");
+        return 0;
+    }
+    char hf[200]; embed_hf_pref(hf, sizeof hf);
+    if (embed_server_ready())
+        snprintf(msg, msgsz, "Serving %s — %d skills indexed for semantic Agent routing.", hf, indexed);
+    else
+        snprintf(msg, msgsz, "Installed (%s), %d skills indexed. Starts on demand and stops when idle.", hf, indexed);
+    return 1;
+#endif
+}
+
+/* POST /api/agent/attach-image {dir, name?, data_uri} — write a dropped/pasted
+ * image into the agent workspace so the model can inspect it with see_image
+ * (drop/paste used to be chat-only; in agent mode the pixels had no way in).
+ * Host-local only (not in the LAN allowlist) + CSRF header; the UI sends its
+ * selected agent workdir — the same trust boundary as /api/start's workdir. */
+#ifndef _WIN32
+static void agent_attach_image_name(const char *in, const char *mime, char *out, size_t outsz) {
+    const char *base = in ? in : "";
+    const char *s1 = strrchr(base, '/');
+    const char *s2 = strrchr(base, '\\');
+    if (s1) base = s1 + 1;
+    if (s2 && s2 + 1 > base) base = s2 + 1;
+    char clean[96];
+    size_t o = 0;
+    for (const char *p = base; *p && o < sizeof clean - 1; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (isalnum(c) || c == '.' || c == '_' || c == '-') clean[o++] = (char)c;
+        else if (c == ' ') clean[o++] = '-';
+    }
+    clean[o] = '\0';
+    while (clean[0] == '.') memmove(clean, clean + 1, strlen(clean));   /* no hidden files */
+    if (!clean[0]) cstr_copy(clean, sizeof clean, "image");
+    /* Ensure an image extension consistent with the payload (see_image and the
+     * describe path branch pick the mime from it). */
+    const char *ext = ".png";
+    if (mime) {
+        if (strstr(mime, "jpeg") || strstr(mime, "jpg")) ext = ".jpg";
+        else if (strstr(mime, "webp")) ext = ".webp";
+        else if (strstr(mime, "gif")) ext = ".gif";
+        else if (strstr(mime, "bmp")) ext = ".bmp";
+    }
+    char *dot = strrchr(clean, '.');
+    int has_img_ext = 0;
+    if (dot && dot != clean) {
+        char e[8] = {0};
+        size_t j = 0;
+        for (const char *p = dot + 1; *p && j < sizeof e - 1; p++) e[j++] = (char)tolower((unsigned char)*p);
+        has_img_ext = !strcmp(e, "png") || !strcmp(e, "jpg") || !strcmp(e, "jpeg") ||
+                      !strcmp(e, "webp") || !strcmp(e, "gif") || !strcmp(e, "bmp");
+    }
+    if (has_img_ext) cstr_copy(out, outsz, clean);
+    else snprintf(out, outsz, "%s%s", clean, ext);
+}
+#endif
+
+/* ============================================================================
+ * PDF attachments — hybrid reader: text layer first, vision for scanned pages.
+ *
+ * pdftotext (poppler) extracts each page's embedded text layer — instant and
+ * verbatim, so a long digital PDF costs no vision time at all. Pages with no
+ * usable text layer (scans, pure-image pages) are rasterized by pdftoppm and
+ * READ by the local vision sidecar via a loopback POST to /api/vision/describe
+ * (format=text) — no duplication of the vision wiring. ONE page per vision
+ * call: a dense scan gets the whole answer-token budget and the per-page
+ * attribution stays exact. The combined page-by-page text becomes the
+ * attachment content that the ds4/DeepSeek chat model reads.
+ *
+ * Pages are rasterized as JPEG (not PNG) on purpose: a scanned page at 1400px
+ * is ~2MB as PNG — one page alone overflows the 2MB /api body cap once
+ * base64'd — but a few hundred KB as JPEG q85, which OCRs the same. A page
+ * that still exceeds the per-request budget is re-rendered smaller before
+ * being reported unreadable.
+ *
+ * Reads are question-INDEPENDENT (pure extraction/transcription; the chat or
+ * agent model does the answering), so caching works across questions: the full
+ * result is cached by content hash (pdf bytes + vision model + caps) and every
+ * single page's vision transcription is also cached by its rendered image —
+ * re-sending the same document, with any question, is instant, and a partial
+ * failure retries only the failed pages. Text pages that also carry a
+ * meaningful raster figure (>=5% of the page and >=3 in², via pdfimages
+ * -list) get an extra figures-only vision pass so charts/diagrams are not
+ * silently dropped; vector-drawn figures are a known blind spot.
+ *
+ *   POST /api/pdf/thumb    — render page 1 → {ok, thumb: data-URI} (attach-time preview)
+ *   POST /api/pdf/describe — hybrid read → {ok, text, pages, total, textPages,
+ *                            visionPages, truncated, cached}. format:"text" →
+ *                            text/plain (the agent's read_pdf tool). Optional
+ *                            job:"<id>" → progress readable at GET
+ *                            /api/pdf/progress?job=<id> while the read runs.
+ * ==========================================================================*/
+#ifndef _WIN32
+#define PDF_MAX_VISION_PAGES 10          /* vision-read pages cap (env DSTUDIO_PDF_MAX_PAGES) */
+#define PDF_MAX_VISION_PAGES_HARD 200
+#define PDF_MAX_TOTAL_PAGES 2000         /* sanity cap for the per-page bookkeeping */
+#define PDF_TEXT_MIN_CHARS 24            /* page text layer below this → treat as scanned */
+#define PDF_TEXT_TOTAL_CAP (160 * 1024)  /* total text-layer bytes shipped to the model */
+#define PDF_PAGE_B64_BUDGET (1500 * 1024) /* per-page data-URI budget (loopback 2MB body cap) */
+
+/* Absolute path of a poppler tool (pdftoppm/pdfinfo/pdftotext), or 0 if not
+ * found. */
+static int pdf_find_tool(const char *name, char *out, size_t outsz) {
+    const char *dirs[] = { "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", NULL };
+    for (int i = 0; dirs[i]; i++) {
+        snprintf(out, outsz, "%s/%s", dirs[i], name);
+        if (access(out, X_OK) == 0) return 1;
+    }
+    out[0] = '\0';
+    return 0;
+}
+
+/* Platform-appropriate "install poppler" hint, appended to the 503 errors so
+ * the toast tells the user the exact command instead of a bare "needs poppler". */
+static const char *pdf_poppler_hint(void) {
+#ifdef __APPLE__
+    return "PDF reading needs poppler. Install it with: brew install poppler";
+#else
+    return "PDF reading needs poppler. Install it with: sudo apt install poppler-utils "
+           "(or your distro's poppler package)";
+#endif
+}
+
+/* Progress for long describe runs: the forked worker rewrites
+ * /tmp/dstudio-pdfjob-<id>.json at each step; GET /api/pdf/progress?job=<id>
+ * serves it. The id is client-generated and sanitized here to [A-Za-z0-9_-]. */
+static int pdf_job_path(const char *job, char *out, size_t outsz) {
+    if (!job || !job[0]) return 0;
+    char clean[48];
+    size_t o = 0;
+    for (const char *p = job; *p && o < sizeof clean - 1; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (isalnum(c) || c == '_' || c == '-') clean[o++] = (char)c;
+    }
+    clean[o] = '\0';
+    if (!clean[0]) return 0;
+    snprintf(out, outsz, "/tmp/dstudio-pdfjob-%s.json", clean);
+    return 1;
+}
+
+static void pdf_job_write(const char *jobpath, const char *fmt, ...) {
+    if (!jobpath || !jobpath[0]) return;
+    char msg[512];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof msg, fmt, ap);
+    va_end(ap);
+    char tmp[DSTUDIO_PATH_MAX];
+    snprintf(tmp, sizeof tmp, "%s.tmp", jobpath);
+    int f = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (f < 0) return;
+    size_t len = strlen(msg), off = 0;
+    while (off < len) { ssize_t w = write(f, msg + off, len - off); if (w <= 0) break; off += (size_t)w; }
+    close(f);
+    if (off == len) rename(tmp, jobpath);   /* atomic swap: the poller never sees a torn write */
+    else unlink(tmp);
+}
+
+/* Decode the PDF from body {data_uri|pdf_b64|path} into a temp .pdf file.
+ * Returns malloc'd path (caller unlink+free) or NULL; *forbidden set if a
+ * non-loopback client passed a `path` source. *fnv (optional) receives an
+ * FNV-1a of the decoded bytes — the content half of the describe cache key. */
+static char *pdf_write_temp(const char *body, int allow_path, int *forbidden,
+                            unsigned long long *fnv) {
+    *forbidden = 0;
+    char *bytes = NULL; size_t blen = 0;
+    char *data = json_get_string_alloc_rpc(body, "data_uri");
+    if (!data) data = json_get_string_alloc_rpc(body, "pdf_b64");
+    if (data && data[0]) {
+        const char *b64 = data;
+        if (!strncmp(data, "data:", 5)) { const char *c = strchr(data, ','); if (c) b64 = c + 1; }
+        size_t dl = 0; char *dec = base64_decode(b64, &dl);
+        if (dec) { bytes = dec; blen = dl; }
+        free(data);
+    } else {
+        free(data);
+        char *path = json_get_string_alloc_rpc(body, "path");
+        if (path && path[0] && !allow_path) { free(path); *forbidden = 1; return NULL; }
+        if (path && path[0]) { size_t n = 0; char *b = jsonl_read_file(path, &n); if (b) { bytes = b; blen = n; } }
+        free(path);
+    }
+    if (!bytes || blen == 0) { free(bytes); return NULL; }
+    if (fnv) {
+        unsigned long long h = 1469598103934665603ULL;
+        for (size_t i = 0; i < blen; i++) { h ^= (unsigned char)bytes[i]; h *= 1099511628211ULL; }
+        *fnv = h;
+    }
+    char tmpl[] = "/tmp/dstudio-pdfin-XXXXXX";
+    int tf = mkstemp(tmpl);
+    if (tf < 0) { free(bytes); return NULL; }
+    size_t off = 0; while (off < blen) { ssize_t w = write(tf, bytes + off, blen - off); if (w <= 0) break; off += (size_t)w; }
+    close(tf); free(bytes);
+    if (off < blen) { unlink(tmpl); return NULL; }
+    return ds4_strdup_local(tmpl);
+}
+
+/* Rasterize pages [first..last] of pdfpath to <prefix>[-N].{jpg,png} via
+ * pdftoppm. JPEG for the vision pages (a 1400px scan is ~2MB as PNG — over the
+ * loopback body cap on its own — but a few hundred KB as JPEG); quality only
+ * applies to JPEG. */
+static int pdf_render(const char *pdftoppm, const char *pdfpath, const char *prefix,
+                      int first, int last, int scale_to, int singlefile,
+                      int jpeg, int quality) {
+    char f[12], l[12], s[12], q[32];
+    snprintf(f, sizeof f, "%d", first);
+    snprintf(l, sizeof l, "%d", last);
+    snprintf(s, sizeof s, "%d", scale_to);
+    snprintf(q, sizeof q, "quality=%d", quality > 0 ? quality : 85);
+    char *argv[16]; int n = 0;
+    argv[n++] = (char *)pdftoppm;
+    if (jpeg) { argv[n++] = "-jpeg"; argv[n++] = "-jpegopt"; argv[n++] = q; }
+    else argv[n++] = "-png";
+    argv[n++] = "-f"; argv[n++] = f;
+    argv[n++] = "-l"; argv[n++] = l;
+    argv[n++] = "-scale-to"; argv[n++] = s;
+    if (singlefile) argv[n++] = "-singlefile";
+    argv[n++] = (char *)pdfpath;
+    argv[n++] = (char *)prefix;
+    argv[n] = NULL;
+    int st = -1;
+    char *o = web_curl_capture(argv, 120000, &st);
+    free(o);
+    return st == 0;
+}
+
+/* Read a rendered page image → "data:image/…;base64,…" (malloc'd) or NULL. */
+static char *pdf_img_data_uri(const char *imgpath) {
+    size_t n = 0;
+    char *bytes = jsonl_read_file(imgpath, &n);
+    if (!bytes || n == 0) { free(bytes); return NULL; }
+    char *b64 = base64_encode((const unsigned char *)bytes, n);
+    free(bytes);
+    if (!b64) return NULL;
+    size_t l = strlen(imgpath);
+    const char *mime = (l > 4 && !strcmp(imgpath + l - 4, ".jpg")) ? "image/jpeg" : "image/png";
+    size_t need = strlen(b64) + strlen(mime) + 24;
+    char *uri = malloc(need);
+    if (uri) snprintf(uri, need, "data:%s;base64,%s", mime, b64);
+    free(b64);
+    return uri;
+}
+
+/* POST /api/pdf/thumb — render page 1 to an image for the attachment preview. */
+static void api_pdf_thumb_run(int fd, const char *body, int allow_path) {
+    char tool[256];
+    if (!pdf_find_tool("pdftoppm", tool, sizeof tool)) {
+        web_json_error(fd, "503 Service Unavailable", pdf_poppler_hint());
+        return;
+    }
+    int forbidden = 0;
+    char *pdf = pdf_write_temp(body, allow_path, &forbidden, NULL);
+    if (forbidden) { web_json_error(fd, "403 Forbidden", "path is host-local only; send data_uri"); return; }
+    if (!pdf) { web_json_error(fd, "400 Bad Request", "a PDF (data_uri or host-local path) is required"); return; }
+    char dir[] = "/tmp/dstudio-pdfr-XXXXXX";
+    if (!mkdtemp(dir)) { unlink(pdf); free(pdf); web_json_error(fd, "500 Internal Server Error", "temp dir"); return; }
+    char prefix[DSTUDIO_PATH_MAX];
+    snprintf(prefix, sizeof prefix, "%s/p", dir);
+    char *uri = NULL;
+    if (pdf_render(tool, pdf, prefix, 1, 1, 1000, 1, 1, 88)) {
+        char img[DSTUDIO_PATH_MAX];
+        snprintf(img, sizeof img, "%s/p.jpg", dir);
+        uri = pdf_img_data_uri(img);
+        unlink(img);
+    }
+    rmdir(dir); unlink(pdf); free(pdf);
+    if (!uri) { web_json_error(fd, "502 Bad Gateway", "could not render the PDF's first page"); return; }
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "{\"ok\":true,\"thumb\":") && json_dyn_put_escaped(&b, uri) && json_dyn_puts(&b, "}");
+    free(uri);
+    if (!ok) { free(b.ptr); web_json_error(fd, "500 Internal Server Error", "oom"); return; }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+}
+
+/* Per-page transcription cache path: pg-<fnv>.txt in the pdf-cache dir. Key =
+ * rendered page image + vision model + prompt mode — question-INDEPENDENT by
+ * design: the vision pass is pure perception, so a new question over the same
+ * document reuses every already-read page instead of ~35s of OCR each. */
+static void pdf_page_cache_path(unsigned long long key, char *out, size_t outsz) {
+    const char *home = getenv("HOME");
+    snprintf(out, outsz, "%s/.dstudio/pdf-cache/pg-%016llx.txt", home ? home : ".", key);
+}
+static void pdf_cache_write(const char *cpath, const char *data, const char *suffix, int cap);
+
+/* POST ONE page image to the local /api/vision/describe (format=text) over
+ * loopback; returns the vision text (malloc'd) or NULL. One page per call on
+ * purpose: a dense scan needs the whole answer-token budget, and per-page
+ * attribution ("--- Pagina N ---") stays exact. figures_only = the page's text
+ * layer already ships verbatim, so the model describes only charts/photos. */
+static char *pdf_vision_page(const char *data_uri, int figures_only) {
+    static const char *scan_prompt =
+        "Transcribe and describe this document page precisely and completely: all text "
+        "(verbatim), tables, figures and layout. State only what is visible.";
+    static const char *figs_prompt =
+        "This document page's plain text is already extracted separately, so do NOT re-transcribe "
+        "the body text. Describe the page's non-text content precisely: every figure, chart, "
+        "graph, diagram or photo — type, axes, labels, series, values and visible trends. "
+        "State only what is visible.";
+
+    /* Per-page cache first. */
+    char hf[256] = "";
+    vision_hf_pref(hf, sizeof hf);
+    unsigned long long key = 1469598103934665603ULL;
+    for (const char *s = data_uri; *s; s++) { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
+    for (const char *s = hf; *s; s++)       { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
+    key ^= (unsigned long long)(figures_only ? 'f' : 's');
+    key *= 1099511628211ULL;
+    static const char *psalt = "|pg-v1|";
+    for (const char *s = psalt; *s; s++)    { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
+    char ppath[DSTUDIO_PATH_MAX];
+    pdf_page_cache_path(key, ppath, sizeof ppath);
+    {
+        size_t hn = 0;
+        char *hit = jsonl_read_file(ppath, &hn);
+        if (hit && hn > 0) { (void)utimes(ppath, NULL); return hit; }   /* LRU touch */
+        free(hit);
+    }
+
+    /* max_tokens 3584: a dense scanned page transcribes to well past the 1536
+     * default (measured: 52 invoice lines truncated at ~2/3); the sidecar ctx
+     * (12288) minus image tokens (>=1024) and prompt leaves comfortable room. */
+    json_dyn_buf up = {0};
+    int okb = json_dyn_puts(&up, "{\"data_uri\":") &&
+              json_dyn_put_escaped(&up, data_uri) &&
+              json_dyn_puts(&up, ",\"format\":\"text\",\"max_tokens\":3584,\"question\":") &&
+              json_dyn_put_escaped(&up, figures_only ? figs_prompt : scan_prompt) &&
+              json_dyn_puts(&up, "}");
+    if (!okb) { free(up.ptr); return NULL; }
+
+    char tmpl[] = "/tmp/dstudio-pdfvis-XXXXXX";
+    int tf = mkstemp(tmpl);
+    if (tf < 0) { free(up.ptr); return NULL; }
+    size_t off = 0, tot = up.len;
+    while (off < tot) { ssize_t w = write(tf, up.ptr + off, tot - off); if (w <= 0) break; off += (size_t)w; }
+    close(tf); free(up.ptr);
+    if (off < tot) { unlink(tmpl); return NULL; }
+
+    char url[80]; snprintf(url, sizeof url, "http://127.0.0.1:%d/api/vision/describe", g_http_port);
+    char dataarg[80]; snprintf(dataarg, sizeof dataarg, "@%s", tmpl);
+    char *argv[16]; int n = 0;
+    argv[n++] = "curl"; argv[n++] = "-sS"; argv[n++] = "-X"; argv[n++] = "POST";
+    argv[n++] = "-H"; argv[n++] = "Content-Type: application/json";
+    argv[n++] = "-H"; argv[n++] = "X-Requested-With: ds4web";
+    argv[n++] = "--data-binary"; argv[n++] = dataarg;
+    argv[n++] = "--max-time"; argv[n++] = "320";
+    argv[n++] = url; argv[n] = NULL;
+    int st = 0;
+    char *resp = web_curl_capture(argv, 330000, &st);
+    unlink(tmpl);
+    /* Cache only good reads: a "see_image error: …" body must never be frozen
+     * into future hits. Page files are small (a few KB), cap 256. */
+    if (resp && resp[0] && strncmp(resp, "see_image error", 15) != 0)
+        pdf_cache_write(ppath, resp, ".txt", 256);
+    return resp;
+}
+
+/* The page's extracted text layer via pdftotext (all pages, form-feed
+ * separated), or NULL when pdftotext is missing/fails. -layout preserves
+ * columns and table alignment, which the chat model reads far better. */
+static char *pdf_text_layer(const char *pdfpath) {
+    char tool[256];
+    if (!pdf_find_tool("pdftotext", tool, sizeof tool)) return NULL;
+    char *argv[] = { tool, "-layout", "-enc", "UTF-8", (char *)pdfpath, "-", NULL };
+    int st = -1;
+    char *o = web_curl_capture(argv, 60000, &st);
+    if (st != 0) { free(o); return NULL; }
+    return o;
+}
+
+/* Describe cache: ~/.dstudio/pdf-cache/<fnv16>.json holds the full response
+ * JSON of a successful read, keyed by document bytes + vision model + caps
+ * (NOT the question — reads are pure extraction/transcription, so any question
+ * over the same document is the same read). pg-<fnv16>.txt holds single-page
+ * vision transcriptions. Both pruned oldest-first per suffix. */
+#define PDF_CACHE_MAX_FILES 32
+static void pdf_cache_path(unsigned long long key, char *out, size_t outsz) {
+    const char *home = getenv("HOME");
+    snprintf(out, outsz, "%s/.dstudio/pdf-cache/%016llx.json", home ? home : ".", key);
+}
+
+static void pdf_cache_write(const char *cpath, const char *data, const char *suffix, int cap) {
+    char dir[DSTUDIO_PATH_MAX];
+    cstr_copy(dir, sizeof dir, cpath);
+    char *slash = strrchr(dir, '/');
+    if (!slash) return;
+    *slash = '\0';
+    char parent[DSTUDIO_PATH_MAX];
+    cstr_copy(parent, sizeof parent, dir);
+    char *pslash = strrchr(parent, '/');
+    if (pslash) { *pslash = '\0'; (void)mkdir(parent, 0755); }
+    (void)mkdir(dir, 0755);
+    char tmp[DSTUDIO_PATH_MAX + 8];
+    snprintf(tmp, sizeof tmp, "%s.tmp", cpath);
+    int f = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (f < 0) return;
+    size_t len = strlen(data), off = 0;
+    while (off < len) { ssize_t w = write(f, data + off, len - off); if (w <= 0) break; off += (size_t)w; }
+    close(f);
+    if (off != len) { unlink(tmp); return; }
+    rename(tmp, cpath);
+    /* Prune: drop the oldest same-suffix entries beyond the cap (tiny dir). */
+    size_t sl = strlen(suffix);
+    for (int guard = 0; guard < 16; guard++) {
+        DIR *d = opendir(dir);
+        if (!d) return;
+        struct dirent *e;
+        int count = 0;
+        time_t oldest_t = 0;
+        char oldest[DSTUDIO_PATH_MAX] = "";
+        while ((e = readdir(d)) != NULL) {
+            size_t l = strlen(e->d_name);
+            if (l <= sl || strcmp(e->d_name + l - sl, suffix) != 0) continue;
+            char p[DSTUDIO_PATH_MAX];
+            if ((size_t)snprintf(p, sizeof p, "%s/%s", dir, e->d_name) >= sizeof p) continue;
+            struct stat st;
+            if (stat(p, &st) != 0) continue;
+            count++;
+            if (!oldest[0] || st.st_mtime < oldest_t) { oldest_t = st.st_mtime; cstr_copy(oldest, sizeof oldest, p); }
+        }
+        closedir(d);
+        if (count <= cap || !oldest[0]) return;
+        unlink(oldest);
+    }
+}
+
+/* Error reply in the caller's format: JSON for the UI, plain text for the
+ * agent's read_pdf tool (format:"text"). */
+static void pdf_describe_fail(int fd, int want_text, const char *status, const char *msg) {
+    if (want_text) {
+        char m[640];
+        snprintf(m, sizeof m, "read_pdf error: %s\n", msg);
+        send_text(fd, status, m, 0);
+    } else {
+        web_json_error(fd, status, msg);
+    }
+}
+
+/* POST /api/pdf/describe — hybrid read: text layer first, vision for scans. */
+static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
+    char fmt[16] = "";
+    (void)json_get_string(body, "format", fmt, sizeof fmt);
+    int want_text = !strcmp(fmt, "text");
+
+    char toppm[256];
+    if (!pdf_find_tool("pdftoppm", toppm, sizeof toppm)) {
+        pdf_describe_fail(fd, want_text, "503 Service Unavailable", pdf_poppler_hint());
+        return;
+    }
+    /* NOTE: a body "question" is accepted but intentionally UNUSED: reads are
+     * pure extraction/transcription (question-independent), so the cache works
+     * across questions and the chat/agent model does the answering. */
+    char jobid[64] = "", jobpath[DSTUDIO_PATH_MAX] = "";
+    if (json_get_string(body, "job", jobid, sizeof jobid) && jobid[0])
+        (void)pdf_job_path(jobid, jobpath, sizeof jobpath);
+
+    int vcap = PDF_MAX_VISION_PAGES;
+    const char *envc = getenv("DSTUDIO_PDF_MAX_PAGES");
+    if (envc && envc[0]) { int v = atoi(envc); if (v > 0 && v <= PDF_MAX_VISION_PAGES_HARD) vcap = v; }
+
+    int forbidden = 0;
+    unsigned long long docfnv = 0;
+    char *pdf = pdf_write_temp(body, allow_path, &forbidden, &docfnv);
+    if (forbidden) { pdf_describe_fail(fd, want_text, "403 Forbidden", "path is host-local only; send data_uri"); return; }
+    if (!pdf) { pdf_describe_fail(fd, want_text, "400 Bad Request", "a PDF (data_uri or host-local path) is required"); return; }
+    pdf_job_write(jobpath, "{\"phase\":\"start\",\"done\":false}");
+
+    /* Cache lookup — document bytes + vision model + caps (question-free: any
+     * question over the same document is the same read). A hit skips rendering
+     * AND the vision sidecar entirely. */
+    unsigned long long key = docfnv;
+    {
+        char hf[256] = "";
+        vision_hf_pref(hf, sizeof hf);
+        /* Bump this salt on ANY pipeline-behavior change (thresholds, prompts,
+         * classification): cached entries carry the OLD behavior and would
+         * silently mask the fix for already-seen documents. */
+        static const char *salt = "|hybrid-v3|";
+        for (const char *s = salt; *s; s++)     { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
+        for (const char *s = hf; *s; s++)       { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
+        key ^= (unsigned long long)vcap;        key *= 1099511628211ULL;
+    }
+    char cpath[DSTUDIO_PATH_MAX];
+    pdf_cache_path(key, cpath, sizeof cpath);
+    {
+        size_t cn = 0;
+        char *cached = jsonl_read_file(cpath, &cn);
+        if (cached && cn > 2 && cached[0] == '{') {
+            (void)utimes(cpath, NULL);          /* LRU touch so pruning keeps hot docs */
+            unlink(pdf); free(pdf);
+            pdf_job_write(jobpath, "{\"phase\":\"done\",\"done\":true,\"cached\":true}");
+            if (want_text) {
+                char *t = json_get_string_alloc_rpc(cached, "text");
+                send_text(fd, "200 OK", t && t[0] ? t : "(empty PDF)", 0);
+                free(t);
+            } else {
+                json_dyn_buf hit = {0};
+                if (json_dyn_puts(&hit, "{\"cached\":true,") && json_dyn_puts(&hit, cached + 1))
+                    send_json(fd, "200 OK", hit.ptr);
+                else
+                    send_json(fd, "200 OK", cached);
+                free(hit.ptr);
+            }
+            free(cached);
+            return;
+        }
+        free(cached);
+    }
+
+    /* Total page count + page size via pdfinfo (drives the per-page walk, the
+     * truncation note, and the figure-coverage math below). */
+    int total = 0;
+    double page_w_pts = 612, page_h_pts = 792;   /* Letter fallback */
+    char pdfinfo[256];
+    if (pdf_find_tool("pdfinfo", pdfinfo, sizeof pdfinfo)) {
+        char *ia[] = { pdfinfo, pdf, NULL };
+        int ist = 0; char *iout = web_curl_capture(ia, 20000, &ist);
+        if (iout) {
+            const char *p = strstr(iout, "Pages:");
+            if (p) { int v = atoi(p + 6); if (v > 0) total = v; }
+            const char *ps = strstr(iout, "Page size:");
+            if (ps) {
+                double w = 0, h = 0;
+                if (sscanf(ps + 10, " %lf x %lf", &w, &h) == 2 && w > 1 && h > 1) {
+                    page_w_pts = w; page_h_pts = h;
+                }
+            }
+            free(iout);
+        }
+    }
+
+    /* Text layer, split per page on pdftotext's form-feeds. pvis[] counts the
+     * VISIBLE characters of each page: a page under PDF_TEXT_MIN_CHARS has no
+     * usable text layer (scan / pure image) and goes to the vision model. */
+    pdf_job_write(jobpath, "{\"phase\":\"text\",\"done\":false}");
+    char *layer = pdf_text_layer(pdf);
+    static const char *pstart[PDF_MAX_TOTAL_PAGES];
+    static int plen[PDF_MAX_TOTAL_PAGES], pvis[PDF_MAX_TOTAL_PAGES];
+    int tpages = 0;
+    if (layer) {
+        const char *p = layer;
+        while (*p && tpages < PDF_MAX_TOTAL_PAGES) {
+            const char *ff = strchr(p, '\f');
+            size_t len = ff ? (size_t)(ff - p) : strlen(p);
+            int vis = 0;
+            for (size_t i = 0; i < len; i++)
+                if (!isspace((unsigned char)p[i])) vis++;
+            pstart[tpages] = p;
+            plen[tpages] = (int)len;
+            pvis[tpages] = vis;
+            tpages++;
+            if (!ff) break;
+            p = ff + 1;                 /* a trailing form-feed ends the loop via *p */
+        }
+    }
+    if (total < tpages) total = tpages;
+    if (total <= 0) {
+        free(layer); unlink(pdf); free(pdf);
+        pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
+        pdf_describe_fail(fd, want_text, "502 Bad Gateway", "could not read the PDF (no pages found)");
+        return;
+    }
+    int npages = total > PDF_MAX_TOTAL_PAGES ? PDF_MAX_TOTAL_PAGES : total;
+
+    /* Mixed pages: a TEXT page that also carries a meaningful raster image
+     * (chart, diagram, photo) additionally gets a figures-only vision pass —
+     * pdftotext alone would silently drop the visual content of such pages.
+     * One pdfimages -list call per document; placed size = pixels / x-ppi,
+     * page size from pdfinfo above. Threshold: >=5% of the page AND >=3 in²
+     * (letterhead logos are ~1-2 in²; real inline charts measured at ~7-15 in²
+     * — a 6.8x2.1in Gantt strip is only ~15% of an A4 page, so a bare
+     * fraction-of-page rule missed it). Vector-drawn figures (no raster) are a
+     * known blind spot: pdfimages cannot see them. */
+    static unsigned char page_has_fig[PDF_MAX_TOTAL_PAGES];
+    memset(page_has_fig, 0, sizeof page_has_fig);
+    char pimg[256];
+    if (pdf_find_tool("pdfimages", pimg, sizeof pimg)) {
+        char *la[] = { pimg, "-list", pdf, NULL };
+        int lst = 0; char *lout = web_curl_capture(la, 30000, &lst);
+        if (lout) {
+            double page_in2 = (page_w_pts / 72.0) * (page_h_pts / 72.0);
+            for (char *line = lout; line && *line; ) {
+                char *nl = strchr(line, '\n');
+                if (nl) *nl = '\0';
+                int pg = 0, num = 0, w = 0, h = 0, comp = 0, bpc = 0, obj = 0, oid = 0;
+                char type[16] = "", color[16] = "", enc[16] = "", interp[8] = "";
+                double xppi = 0, yppi = 0;
+                if (sscanf(line, "%d %d %15s %d %d %15s %d %d %15s %7s %d %d %lf %lf",
+                           &pg, &num, type, &w, &h, color, &comp, &bpc, enc, interp,
+                           &obj, &oid, &xppi, &yppi) == 14 &&
+                    !strcmp(type, "image") && pg >= 1 && pg <= npages &&
+                    xppi > 1 && yppi > 1 && page_in2 > 0.1) {
+                    double in2 = ((double)w / xppi) * ((double)h / yppi);
+                    if (in2 / page_in2 >= 0.05 && in2 >= 3.0) page_has_fig[pg - 1] = 1;
+                }
+                line = nl ? nl + 1 : NULL;
+            }
+            free(lout);
+        }
+    }
+
+    /* Count the vision passes up front so the work is announced (and the
+     * sidecar started) only when actually needed: a plain digital PDF never
+     * touches the multi-GB vision model. Scanned pages take one full-page
+     * transcription pass; mixed text+figure pages take one figures-only pass. */
+    int nvis_wanted = 0;
+    for (int i = 0; i < npages; i++) {
+        int is_text = (i < tpages && pvis[i] >= PDF_TEXT_MIN_CHARS);
+        if (!is_text || page_has_fig[i]) nvis_wanted++;
+    }
+    int nvis = nvis_wanted > vcap ? vcap : nvis_wanted;
+
+    char dir[] = "/tmp/dstudio-pdfr-XXXXXX";
+    int have_dir = 0;
+    if (nvis > 0) {
+        pdf_job_write(jobpath, "{\"phase\":\"vision\",\"page\":0,\"pages\":%d,\"done\":false}", nvis);
+        if (!vision_ensure_server(60000)) {
+            free(layer); unlink(pdf); free(pdf);
+            pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
+            pdf_describe_fail(fd, want_text, "503 Service Unavailable",
+                              "vision model is not running (needed for this PDF's scanned pages); "
+                              "attach an image once or run vision setup");
+            return;
+        }
+        if (!mkdtemp(dir)) {
+            free(layer); unlink(pdf); free(pdf);
+            pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
+            pdf_describe_fail(fd, want_text, "500 Internal Server Error", "temp dir");
+            return;
+        }
+        have_dir = 1;
+    }
+
+    json_dyn_buf text = {0};
+    int ok = 1, text_used = 0, text_skipped = 0;
+    int vdone = 0, vfail = 0, vskipped = 0, scan_pass = 0, fig_pass = 0, fig_skipped = 0;
+    size_t text_bytes = 0;
+    for (int i = 0; ok && i < npages; i++) {
+        int is_text = (i < tpages && pvis[i] >= PDF_TEXT_MIN_CHARS);
+        int wants_fig = is_text && page_has_fig[i];
+        if (is_text) {
+            if (text_bytes >= PDF_TEXT_TOTAL_CAP) { text_skipped++; continue; }
+            size_t take = (size_t)plen[i];
+            if (text_bytes + take > PDF_TEXT_TOTAL_CAP) take = PDF_TEXT_TOTAL_CAP - text_bytes;
+            ok = json_dyn_printf(&text, "\n--- Pagina %d (testo) ---\n", i + 1) &&
+                 json_dyn_putn(&text, pstart[i], take) &&
+                 json_dyn_puts(&text, "\n");
+            text_bytes += take;
+            text_used++;
+        }
+        if (!ok || (is_text && !wants_fig)) continue;
+        /* Vision pass: full transcription for scans, figures-only for mixed
+         * text+figure pages (their body text already shipped above). */
+        if (vdone >= vcap) {
+            if (wants_fig) fig_skipped++; else vskipped++;
+            continue;
+        }
+        vdone++;
+        if (wants_fig) fig_pass++; else scan_pass++;
+        pdf_job_write(jobpath, "{\"phase\":\"vision\",\"page\":%d,\"pages\":%d,\"done\":false}", vdone, nvis);
+        char pfx[sizeof dir + 16], img[sizeof dir + 24];
+        snprintf(pfx, sizeof pfx, "%s/pg%d", dir, i + 1);
+        snprintf(img, sizeof img, "%s.jpg", pfx);
+        /* Adaptive size: re-render smaller until the data URI fits the
+         * loopback body budget (a photo-dense scan can exceed it at 1400px
+         * even as JPEG). */
+        static const int scales[]    = { 1400, 1000, 800 };
+        static const int qualities[] = { 85,   78,   70  };
+        char *uri = NULL;
+        for (int a = 0; a < 3 && !uri; a++) {
+            if (!pdf_render(toppm, pdf, pfx, i + 1, i + 1, scales[a], 1, 1, qualities[a])) break;
+            char *u = pdf_img_data_uri(img);
+            unlink(img);
+            if (u && strlen(u) <= PDF_PAGE_B64_BUDGET) uri = u;
+            else free(u);
+        }
+        char *vt = uri ? pdf_vision_page(uri, wants_fig) : NULL;
+        free(uri);
+        /* format=text errors come back as a "see_image error: …" body. */
+        int good = vt && vt[0] && strncmp(vt, "see_image error", 15) != 0;
+        if (!good) vfail++;
+        ok = json_dyn_printf(&text, wants_fig
+                                 ? "\n--- Pagina %d (figure/grafici, letti dal modello vision locale) ---\n"
+                                 : "\n--- Pagina %d (scansione, letta dal modello vision locale) ---\n",
+                             i + 1) &&
+             json_dyn_puts(&text, good ? vt : (wants_fig ? "(figure non leggibili)" : "(pagina non leggibile)")) &&
+             json_dyn_puts(&text, "\n");
+        free(vt);
+    }
+    int pages_read = text_used + scan_pass;   /* distinct pages with content */
+    int truncated = vskipped > 0 || fig_skipped > 0 || text_skipped > 0 || total > npages;
+    if (ok && vskipped > 0)
+        ok = json_dyn_printf(&text, "\n[PDF troncato: %d pagine scansionate oltre il limite di %d non lette.]\n",
+                             vskipped, vcap);
+    if (ok && fig_skipped > 0)
+        ok = json_dyn_printf(&text, "\n[%d pagine con figure oltre il limite vision: incluso solo il loro testo.]\n",
+                             fig_skipped);
+    if (ok && text_skipped > 0)
+        ok = json_dyn_printf(&text, "\n[Testo troncato: %d pagine di testo oltre il limite di %dKB omesse.]\n",
+                             text_skipped, (int)(PDF_TEXT_TOTAL_CAP / 1024));
+    if (ok && total > npages)
+        ok = json_dyn_printf(&text, "\n[PDF troncato alle prime %d di %d pagine.]\n", npages, total);
+
+    free(layer);
+    if (have_dir) rmdir(dir);
+    unlink(pdf); free(pdf);
+
+    if (!ok) {
+        free(text.ptr);
+        pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
+        pdf_describe_fail(fd, want_text, "500 Internal Server Error", "oom");
+        return;
+    }
+    json_dyn_buf out = {0};
+    int good = json_dyn_printf(&out, "{\"ok\":true,\"pages\":%d,\"total\":%d,\"textPages\":%d,"
+                                     "\"visionPages\":%d,\"figPages\":%d,\"truncated\":%s,\"text\":",
+                               pages_read, total, text_used, vdone, fig_pass,
+                               truncated ? "true" : "false") &&
+               json_dyn_put_escaped(&out, text.ptr ? text.ptr : "") &&
+               json_dyn_puts(&out, "}");
+    if (!good) {
+        free(text.ptr); free(out.ptr);
+        pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
+        pdf_describe_fail(fd, want_text, "500 Internal Server Error", "oom");
+        return;
+    }
+    /* Cache only clean, non-empty reads: a transient vision failure must not
+     * freeze "(pagina non leggibile)" into every future hit. (Successful pages
+     * are still cached individually by pdf_vision_page, so a retry after a
+     * partial failure redoes only the failed pages.) */
+    if (vfail == 0 && pages_read > 0) pdf_cache_write(cpath, out.ptr, ".json", PDF_CACHE_MAX_FILES);
+    pdf_job_write(jobpath, "{\"phase\":\"done\",\"done\":true}");
+    if (want_text) send_text(fd, "200 OK", text.ptr && text.ptr[0] ? text.ptr : "(empty PDF)", 0);
+    else           send_json(fd, "200 OK", out.ptr);
+    free(text.ptr);
+    free(out.ptr);
+}
+
+/* Fork a detached worker (rendering + per-page vision are slow) — like vision. */
+static void api_pdf_fork(int fd, const char *body, int is_describe, int allow_path) {
+    pid_t pid = fork();
+    if (pid < 0) { if (is_describe) api_pdf_describe_run(fd, body, allow_path); else api_pdf_thumb_run(fd, body, allow_path); return; }
+    if (pid == 0) {
+        if (fork() > 0) _exit(0);
+        if (g_srv_fd >= 0) close(g_srv_fd);
+        if (g_out_fd >= 0) close(g_out_fd);
+        if (g_err_fd >= 0) close(g_err_fd);
+        if (g_in_fd  >= 0) close(g_in_fd);
+        struct timeval tv = { 620, 0 };
+        (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+        if (is_describe) api_pdf_describe_run(fd, body, allow_path);
+        else             api_pdf_thumb_run(fd, body, allow_path);
+        close(fd);
+        _exit(0);
+    }
+    waitpid(pid, NULL, 0);
+}
+#endif /* !_WIN32 */
+
+static void api_pdf_thumb(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    web_json_error(fd, "501 Not Implemented", "PDF is not available on the Windows build yet");
+#else
+    api_pdf_fork(fd, body, 0, client_is_loopback(fd));
+#endif
+}
+static void api_pdf_describe(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    web_json_error(fd, "501 Not Implemented", "PDF is not available on the Windows build yet");
+#else
+    vision_touch_last_use();
+    api_pdf_fork(fd, body, 1, client_is_loopback(fd));
+#endif
+}
+
+/* GET /api/pdf/progress?job=<id> — the live state of a running describe (the
+ * worker rewrites the job file at every step). Host-local surface for the UI's
+ * per-page progress label. */
+static void api_pdf_progress(int fd, const char *path) {
+#ifdef _WIN32
+    (void)path;
+    web_json_error(fd, "501 Not Implemented", "PDF is not available on the Windows build yet");
+#else
+    const char *q = strchr(path, '?');
+    char jobid[64] = "";
+    if (q) {
+        const char *j = strstr(q, "job=");
+        if (j) {
+            j += 4;
+            size_t o = 0;
+            while (*j && *j != '&' && o < sizeof jobid - 1) jobid[o++] = *j++;
+            jobid[o] = '\0';
+        }
+    }
+    char jobpath[DSTUDIO_PATH_MAX];
+    if (!jobid[0] || !pdf_job_path(jobid, jobpath, sizeof jobpath)) {
+        web_json_error(fd, "400 Bad Request", "job id is required");
+        return;
+    }
+    size_t n = 0;
+    char *b = jsonl_read_file(jobpath, &n);
+    if (!b || n == 0 || b[0] != '{') {
+        free(b);
+        send_json(fd, "200 OK", "{\"phase\":\"unknown\",\"done\":false}");
+        return;
+    }
+    send_json(fd, "200 OK", b);
+    free(b);
+#endif
+}
+
+static void api_agent_attach_image(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    web_json_error(fd, "501 Not Implemented", "not available in the Windows build yet");
+#else
+    char dir[DSTUDIO_PATH_MAX] = "";
+    if (!json_get_string(body, "dir", dir, sizeof dir) || dir[0] != '/') {
+        web_json_error(fd, "400 Bad Request", "dir (absolute workspace path) is required");
+        return;
+    }
+    struct stat st;
+    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        web_json_error(fd, "400 Bad Request", "workspace dir does not exist");
+        return;
+    }
+    char *data = json_get_string_alloc_rpc(body, "data_uri");
+    if (!data || !data[0]) {
+        free(data);
+        web_json_error(fd, "400 Bad Request", "data_uri is required");
+        return;
+    }
+    const char *b64 = data;
+    char mime[64] = "image/png";
+    if (!strncmp(data, "data:", 5)) {
+        const char *comma = strchr(data, ',');
+        if (!comma) { free(data); web_json_error(fd, "400 Bad Request", "malformed data URI"); return; }
+        const char *semi = strchr(data, ';');
+        const char *mend = (semi && semi < comma) ? semi : comma;
+        size_t ml = (size_t)(mend - (data + 5));
+        if (ml > 0 && ml < sizeof mime) { memcpy(mime, data + 5, ml); mime[ml] = '\0'; }
+        b64 = comma + 1;
+    }
+    if (strncmp(mime, "image/", 6) != 0) {
+        free(data);
+        web_json_error(fd, "415 Unsupported Media Type", "only images are accepted");
+        return;
+    }
+    size_t blen = 0;
+    char *bytes = base64_decode(b64, &blen);
+    free(data);
+    if (!bytes || blen == 0 || blen > 16u * 1024 * 1024) {
+        free(bytes);
+        web_json_error(fd, "400 Bad Request", "invalid or oversized image payload (16MB max)");
+        return;
+    }
+
+    char reqname[300] = "";
+    (void)json_get_string(body, "name", reqname, sizeof reqname);
+    char name[128];
+    agent_attach_image_name(reqname, mime, name, sizeof name);
+
+    /* O_EXCL collision loop: never overwrite something already in the workspace. */
+    char final[160], full[DSTUDIO_PATH_MAX + 176];
+    int wfd = -1;
+    for (int i = 0; i < 100; i++) {
+        if (i == 0) cstr_copy(final, sizeof final, name);
+        else {
+            char stem[128];
+            cstr_copy(stem, sizeof stem, name);
+            char *dot = strrchr(stem, '.');
+            const char *ext = "";
+            if (dot) { *dot = '\0'; ext = dot + 1; }
+            if (ext[0]) snprintf(final, sizeof final, "%s-%d.%s", stem, i + 1, ext);
+            else snprintf(final, sizeof final, "%s-%d", stem, i + 1);
+        }
+        snprintf(full, sizeof full, "%s/%s", dir, final);
+        wfd = open(full, O_WRONLY | O_CREAT | O_EXCL, 0644);
+        if (wfd >= 0 || errno != EEXIST) break;
+    }
+    if (wfd < 0) {
+        free(bytes);
+        web_json_error(fd, "500 Internal Server Error", "cannot create the image file");
+        return;
+    }
+    size_t off = 0;
+    while (off < blen) {
+        ssize_t w = write(wfd, bytes + off, blen - off);
+        if (w <= 0) break;
+        off += (size_t)w;
+    }
+    close(wfd);
+    free(bytes);
+    if (off < blen) {
+        unlink(full);
+        web_json_error(fd, "500 Internal Server Error", "short write");
+        return;
+    }
+
+    json_dyn_buf b = {0};
+    int okb = json_dyn_printf(&b, "{\"ok\":true,\"bytes\":%lld,\"name\":", (long long)blen) &&
+              json_dyn_put_escaped(&b, final) &&
+              json_dyn_puts(&b, ",\"rel\":") &&
+              json_dyn_printf(&b, "\"./%s\"", final) &&   /* sanitized: no quotes/backslashes */
+              json_dyn_puts(&b, ",\"path\":") &&
+              json_dyn_put_escaped(&b, full) &&
+              json_dyn_puts(&b, "}");
+    if (!okb) { free(b.ptr); web_json_error(fd, "500 Internal Server Error", "out of memory"); return; }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
 #endif
 }
 
@@ -10184,6 +12701,11 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); return 200; }
     if (!strcmp(path, "/api/ds4/setup")) { api_setup_ds4(fd); return 200; }
     if (!strcmp(path, "/api/glm/setup")) { api_setup_glm(fd); return 200; }
+    if (!strcmp(path, "/api/vision/setup")) { api_vision_setup(fd, body); return 200; }
+    if (!strcmp(path, "/api/vision/describe")) { api_vision_describe(fd, body); return 200; }
+    if (!strcmp(path, "/api/vision/stop")) { api_vision_stop(fd); return 200; }
+    if (!strcmp(path, "/api/embed/setup")) { api_embed_setup(fd, body); return 200; }
+    if (!strcmp(path, "/api/embed/stop")) { api_embed_stop(fd); return 200; }
     if (!strcmp(path, "/api/engine/checkout")) { api_engine_checkout_set(fd, body); return 200; }
     if (!strcmp(path, "/api/setup/content")) { api_setup_content(fd); return 200; }
     if (!strcmp(path, "/api/webdir")) { api_set_webdir(fd, body); return 200; }
@@ -10208,6 +12730,9 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
         send_json(fd, "200 OK", out);
         return 200;
     }
+    if (is_get && !strcmp(path, "/api/vision/status")) { api_vision_status(fd); return 200; }
+    if (is_get && path_eq_clean(path, "/api/pdf/progress")) { api_pdf_progress(fd, path); return 200; }
+    if (is_get && !strcmp(path, "/api/embed/status")) { api_embed_status(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/remote/status")) { api_remote_status(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/remote/chat")) { api_remote_chat_get(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/lan-client/chats")) { api_lan_client_chats_get(fd); return 200; }
@@ -10397,6 +12922,54 @@ static void handle_connection(int fd) {
             return;
         }
         api_store_set(fd, buf, off);   /* takes ownership of buf */
+        close(fd);
+        return;
+    }
+
+    /* POST /api/agent/attach-image carries a full-resolution image (base64) —
+     * larger than BODY_MAX, so it reads its own body like /api/store. It is not
+     * in the LAN allowlist, so non-loopback clients were already rejected above. */
+    if (!strcmp(method, "POST") && path_eq_clean(path, "/api/agent/attach-image")) {
+        if (!header_has(req, header_len, "x-requested-with: ds4web")) {
+            send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}"); close(fd); return;
+        }
+        char *buf = NULL;
+        size_t off = 0;
+        if (!read_request_body_alloc(fd, req, got, header_len, clen, 24L * 1024 * 1024,
+                                     "image too large\n", &buf, &off))
+        {
+            close(fd);
+            return;
+        }
+        api_agent_attach_image(fd, buf);
+        free(buf);
+        close(fd);
+        return;
+    }
+
+    /* POST /api/pdf/{thumb,describe} carry a full PDF (base64) — larger than
+     * BODY_MAX, so they read their own body like /api/store. Cap 1.5GB: the UI
+     * allows PDFs up to 1GB binary, which is ~1.37GB once base64'd (x4/3) plus
+     * JSON overhead. Local-first trade-off: the worker briefly holds body +
+     * decoded copies in RAM, so a 1GB PDF peaks at a few GB in the forked
+     * child. CSRF-guarded; LAN clients reach these only via the allowlist
+     * (data_uri-only enforced inside). */
+    if (!strcmp(method, "POST") &&
+        (path_eq_clean(path, "/api/pdf/thumb") || path_eq_clean(path, "/api/pdf/describe"))) {
+        if (!header_has(req, header_len, "x-requested-with: ds4web")) {
+            send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}"); close(fd); return;
+        }
+        char *buf = NULL;
+        size_t off = 0;
+        if (!read_request_body_alloc(fd, req, got, header_len, clen, 1536L * 1024 * 1024,
+                                     "pdf too large\n", &buf, &off))
+        {
+            close(fd);
+            return;
+        }
+        if (path_eq_clean(path, "/api/pdf/thumb")) api_pdf_thumb(fd, buf);
+        else                                       api_pdf_describe(fd, buf);
+        free(buf);
         close(fd);
         return;
     }

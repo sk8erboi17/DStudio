@@ -147,6 +147,7 @@ static int acquire_single_instance_lock(void) {
     snprintf(path, sizeof path, "%s/dstudio-%ld.lock", tmp, (long)getuid());
     int fd = open(path, O_RDWR | O_CREAT, 0600);
     if (fd < 0) return 1; /* fail open: a broken tmp dir should not brick startup */
+    fcntl(fd, F_SETFD, FD_CLOEXEC); /* never let an exec'd child inherit/hold the lock */
     if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
         close(fd);
         return 0;

@@ -1,0 +1,2 @@
+    if (!strcmp(call->name, "pack_file")) return ds4ui_tool_pack_file(call);   /*DS4UI_JSONL*/
+    if (!strcmp(call->name, "see_image")) return ds4ui_tool_see_image(call);   /*DS4UI_JSONL*/

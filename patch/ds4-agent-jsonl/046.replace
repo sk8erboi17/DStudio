@@ -1,0 +1,64 @@
+/* skills_search: SEMANTIC retrieval over the skill packs. The DStudio server
+ * embeds the query AND the skill descriptions and ranks by cosine similarity —
+ * so it works in any language and on paraphrases, not just literal keywords. It
+ * returns candidate "id: description" lines, best match first; the MODEL makes
+ * the final choice with skill("<id>"). This tool just GETs the DStudio server's
+ * /api/skills/search (format=text) — no local disk scan, no lexical fallback. If
+ * the endpoint is unavailable it says so and the model proceeds without a skill. */
+static char *ds4ui_tool_skills_search(const agent_tool_call *call) {
+    const char *q = agent_tool_arg_value(call, "query");
+    if (!q || !*q) return xstrdup("Tool error: skills_search requires query\n");
+    const char *base = getenv("DS4UI_DSTUDIO_URL");
+    if (!base || !base[0])
+        return xstrdup("skills_search: skill search is not available here; proceed without a skill.\n");
+
+    char url[512];
+    snprintf(url, sizeof url, "%s/api/skills/search", base);
+    /* curl -G --data-urlencode encodes the value safely; the query is an argv
+     * element (no shell), so arbitrary model text cannot inject. */
+    size_t qneed = strlen(q) + 4;
+    char *qarg = malloc(qneed);
+    if (!qarg) return xstrdup("Tool error: skills_search out of memory\n");
+    snprintf(qarg, qneed, "q=%s", q);
+
+    int pfd[2];
+    if (pipe(pfd) != 0) { free(qarg); return xstrdup("Tool error: skills_search pipe failed\n"); }
+    pid_t pid = fork();
+    if (pid < 0) { close(pfd[0]); close(pfd[1]); free(qarg); return xstrdup("Tool error: skills_search fork failed\n"); }
+    if (pid == 0) {
+        dup2(pfd[1], STDOUT_FILENO);
+        dup2(pfd[1], STDERR_FILENO);
+        close(pfd[0]); close(pfd[1]);
+        int dn = open("/dev/null", O_RDONLY);
+        if (dn >= 0) { dup2(dn, STDIN_FILENO); close(dn); }
+        char *av[20]; int a = 0;
+        av[a++] = (char *)"curl";
+        av[a++] = (char *)"-sS";
+        av[a++] = (char *)"-G";
+        av[a++] = (char *)"--data-urlencode"; av[a++] = qarg;
+        av[a++] = (char *)"--data-urlencode"; av[a++] = (char *)"limit=12";
+        av[a++] = (char *)"--data-urlencode"; av[a++] = (char *)"format=text";
+        av[a++] = (char *)"--max-time"; av[a++] = (char *)"120";
+        av[a++] = url;
+        av[a] = NULL;
+        execvp("curl", av);
+        _exit(127);
+    }
+    close(pfd[1]);
+    free(qarg);
+    agent_buf out = {0};
+    char rbuf[4096];
+    ssize_t rd;
+    while ((rd = read(pfd[0], rbuf, sizeof rbuf)) > 0) {
+        if (out.len > 256 * 1024) break;
+        agent_buf_append(&out, rbuf, (size_t)rd);
+    }
+    close(pfd[0]);
+    waitpid(pid, NULL, 0);
+    char *body = agent_buf_take(&out);
+    if (!body || !body[0]) {
+        free(body);
+        return xstrdup("skills_search: no response from the skill server; proceed without a skill.\n");
+    }
+    return body;
+}
