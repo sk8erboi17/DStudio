@@ -43,6 +43,7 @@
 #define _GNU_SOURCE
 #endif
 #include <ctype.h>
+#include <math.h>
 #include <errno.h>
 #include <limits.h>
 #include <signal.h>
@@ -3716,30 +3717,47 @@ static int text_contains_ci(const char *hay, const char *needle) {
     return hay && mem_contains_ci(hay, strlen(hay), needle);
 }
 
-static int csv_contains_ci(const char *csv, const char *needle) {
-    if (!needle || !needle[0]) return 1;
-    return text_contains_ci(csv, needle);
+
+/* Skill search is SEMANTIC (embedding cosine), not lexical — the corpus is
+ * enumerated here and ranked by the embedding provider further below. */
+
+/* One ranked search hit (owns its strings). */
+typedef struct {
+    char *id, *name, *desc, *source, *domain, *subdomain, *tags, *license;
+    int has_assets, has_refs, has_scripts;
+    int score, order;
+} skill_hit;
+typedef struct { skill_hit *v; int n, cap; } skill_hit_list;
+
+static int skill_hits_push(skill_hit_list *L, skill_hit h) {
+    if (L->n >= L->cap) {
+        int nc = L->cap ? L->cap * 2 : 64;
+        skill_hit *nv = realloc(L->v, (size_t)nc * sizeof *nv);
+        if (!nv) return 0;
+        L->v = nv; L->cap = nc;
+    }
+    L->v[L->n++] = h;
+    return 1;
+}
+static void skill_hit_free_fields(skill_hit *h) {
+    free(h->id); free(h->name); free(h->desc); free(h->source);
+    free(h->domain); free(h->subdomain); free(h->tags); free(h->license);
+}
+static void skill_hits_free(skill_hit_list *L) {
+    for (int i = 0; i < L->n; i++) skill_hit_free_fields(&L->v[i]);
+    free(L->v);
+}
+static int skill_hit_cmp(const void *a, const void *b) {
+    const skill_hit *x = a, *y = b;
+    if (x->score != y->score) return y->score - x->score;   /* score desc */
+    return x->order - y->order;                             /* else stable scan order */
 }
 
-static int skill_search_match(const char *q, const char *domain_filter,
-                              const char *subdomain_filter, const char *source_filter,
-                              const char *source, const char *id, const char *name,
-                              const char *desc, const char *domain, const char *subdomain,
-                              const char *tags) {
-    if (source_filter[0] && !text_contains_ci(source, source_filter)) return 0;
-    if (domain_filter[0] && !text_contains_ci(domain, domain_filter)) return 0;
-    if (subdomain_filter[0] && !text_contains_ci(subdomain, subdomain_filter)) return 0;
-    if (!q[0]) return 1;
-    return text_contains_ci(id, q) || text_contains_ci(name, q) ||
-           text_contains_ci(desc, q) || text_contains_ci(domain, q) ||
-           text_contains_ci(subdomain, q) || csv_contains_ci(tags, q);
-}
-
-static int skill_search_scan_dir(json_dyn_buf *body, const char *dir, const char *file,
-                                 const char *source, const char *q,
-                                 const char *domain_filter, const char *subdomain_filter,
-                                 const char *source_filter, int limit,
-                                 int *count, int *truncated) {
+/* Enumerate every skill under <dir> into L (no scoring — the embedding cosine
+ * ranks them). `embed_text` per hit = name + description + tags, used to build
+ * the embedding index; the display fields feed the JSON result. Order/score are
+ * filled by the semantic ranker. */
+static int skill_enum_dir(skill_hit_list *L, const char *dir, const char *file, const char *source) {
     DIR *d = opendir(dir);
     if (!d) return 1;
     struct dirent *de;
@@ -3759,41 +3777,57 @@ static int skill_search_scan_dir(json_dyn_buf *body, const char *dir, const char
         fm_field(content, "subdomain", subdomain, sizeof subdomain);
         fm_field(content, "tags", tags, sizeof tags);
         fm_field(content, "license", license, sizeof license);
-        if (!nm[0]) cstr_copy(nm, sizeof nm, id);
-        if (!skill_search_match(q, domain_filter, subdomain_filter, source_filter,
-                                source, id, nm, desc, domain, subdomain, tags)) {
-            free(content);
-            continue;
-        }
         free(content);
-        if (*count >= limit) {
-            *truncated = 1;
-            continue;
-        }
+        if (!nm[0]) cstr_copy(nm, sizeof nm, id);
         char assets[PATH_MAX], refs[PATH_MAX], scripts[PATH_MAX];
         snprintf(assets, sizeof assets, "%s/%s/assets", dir, id);
         snprintf(refs, sizeof refs, "%s/%s/references", dir, id);
         snprintf(scripts, sizeof scripts, "%s/%s/scripts", dir, id);
-        int has_assets = access(assets, R_OK) == 0;
-        int has_refs = access(refs, R_OK) == 0;
-        int has_scripts = access(scripts, R_OK) == 0;
-        if (!json_dyn_puts(body, *count ? ",{" : "{")) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, "\"id\":") || !json_dyn_put_escaped(body, id)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"name\":") || !json_dyn_put_escaped(body, nm)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"description\":") || !json_dyn_put_escaped(body, desc)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"source\":") || !json_dyn_put_escaped(body, source)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"domain\":") || !json_dyn_put_escaped(body, domain)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"subdomain\":") || !json_dyn_put_escaped(body, subdomain)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"tags\":") || !json_dyn_put_escaped(body, tags)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"license\":") || !json_dyn_put_escaped(body, license)) { closedir(d); return 0; }
-        if (!json_dyn_puts(body, ",\"tools\":[]")) { closedir(d); return 0; }
-        if (!json_dyn_printf(body, ",\"hasAssets\":%s,\"hasReferences\":%s,\"hasScripts\":%s}",
-                             has_assets ? "true" : "false",
-                             has_refs ? "true" : "false",
-                             has_scripts ? "true" : "false")) { closedir(d); return 0; }
-        (*count)++;
+        skill_hit h = {0};
+        h.id = ds4_strdup_local(id);   h.name = ds4_strdup_local(nm);
+        h.desc = ds4_strdup_local(desc); h.source = ds4_strdup_local(source);
+        h.domain = ds4_strdup_local(domain); h.subdomain = ds4_strdup_local(subdomain);
+        h.tags = ds4_strdup_local(tags); h.license = ds4_strdup_local(license);
+        h.has_assets = access(assets, R_OK) == 0;
+        h.has_refs = access(refs, R_OK) == 0;
+        h.has_scripts = access(scripts, R_OK) == 0;
+        h.score = 0; h.order = 0;
+        if (!skill_hits_push(L, h)) { skill_hit_free_fields(&h); closedir(d); return 0; }
     }
     closedir(d);
+    return 1;
+}
+
+/* embed_text for one skill (name + description + tags) → malloc'd. */
+static char *skill_embed_text(const skill_hit *h) {
+    size_t need = strlen(h->name) + strlen(h->desc) + strlen(h->tags) + 4;
+    char *t = malloc(need);
+    if (!t) return NULL;
+    snprintf(t, need, "%s\n%s\n%s", h->name, h->desc, h->tags);
+    return t;
+}
+
+/* Deterministic ordering (source, id) so the on-disk index rows line up with a
+ * re-enumeration regardless of readdir() order. */
+static int skill_hit_id_cmp(const void *a, const void *b) {
+    const skill_hit *x = a, *y = b;
+    int c = strcmp(x->source, y->source);
+    return c ? c : strcmp(x->id, y->id);
+}
+
+/* Enumerate all skill sources (user + shipped + cyber) into L, sorted stably. */
+static int skill_enum_all(skill_hit_list *L) {
+    char dir[PATH_MAX], udir[1100];
+    user_skills_dir(udir, sizeof udir);
+    if (!skill_enum_dir(L, udir, "SKILL.md", "user")) return 0;
+    if (g_web_dir[0]) {
+        snprintf(dir, sizeof dir, "%s/extension/skills", g_web_dir);
+        if (!skill_enum_dir(L, dir, "SKILL.md", "dstudio")) return 0;
+    }
+    if (cyber_skills_dir(dir, sizeof dir))
+        if (!skill_enum_dir(L, dir, "SKILL.md", "anthropic-cybersecurity-skills")) return 0;
+    if (L->n > 1) qsort(L->v, (size_t)L->n, sizeof *L->v, skill_hit_id_cmp);
+    for (int i = 0; i < L->n; i++) L->v[i].order = i;
     return 1;
 }
 
@@ -3965,12 +3999,14 @@ static char *build_skill_sys(int include_design_system, int include_agent_questi
             o += (size_t)snprintf(cat + o, catcap - o,
                 "Use `skill(\"id\")` when the user selected/named an exact id or a "
                 "DStudio workflow provides one. To DISCOVER ids by topic, call "
-                "`skills_search(\"a few English keywords\")` and pick from its results — "
-                "the full catalog is intentionally not injected into this prompt to keep "
-                "Agent startup responsive. You may load multiple skills when they cover "
-                "different concerns, but keep it bounded: default to one skill, cap each "
-                "user request at three `skill` calls total, and never load the same skill "
-                "twice. Never guess ids that neither the user nor skills_search gave you.\n\n");
+                "`skills_search(\"...\")` describing in your own words (any language is fine) "
+                "what you need — the search is SEMANTIC, so a short natural description works "
+                "better than bare keywords — then pick from its results. The full catalog is "
+                "intentionally not injected into this prompt to keep Agent startup responsive. "
+                "You may load multiple skills when they cover different concerns, but keep it "
+                "bounded: default to one skill, cap each user request at three `skill` calls "
+                "total, and never load the same skill twice. Never guess ids that neither the "
+                "user nor skills_search gave you.\n\n");
         }
         if (g_skill[0] || (include_design_system && g_design_system[0]))
             o += (size_t)snprintf(cat + o, catcap - o,
@@ -5146,6 +5182,17 @@ static int glm_dir_path(char *out, size_t outsz);
 static int glm_checkout_ready(const char *dir);
 /* Vision sidecar doctor row (defined next to the vision handlers below). */
 static int vision_doctor_row(char *msg, size_t msgsz);
+/* Generic sidecar helpers reused by the embedding sidecar (defined with the
+ * vision provider below); safe to share — they take dir/pid arguments. */
+static int  vision_pid_is_llama(pid_t pid);
+static int  vision_scan_for_bin(const char *dir, int depth, char *out, size_t outsz);
+static long long vision_tree_bytes(const char *dir, int depth);
+static void vision_model_cache_path(char *out, size_t outsz);
+static char *web_curl_capture(char *const argv[], int timeout_ms, int *exit_status);
+static long long web_now_ms(void);
+static void web_json_error(int fd, const char *status, const char *msg);
+/* Embedding sidecar doctor row + setup (defined with the embedding provider). */
+static int embed_doctor_row(char *msg, size_t msgsz);
 
 static int doctor_add_check(json_dyn_buf *b, int *first, const char *id, const char *label,
                             const char *state, const char *message, const char *action) {
@@ -5260,6 +5307,13 @@ static void api_doctor(int fd) {
         int vinst = vision_doctor_row(vmsg, sizeof vmsg);
         ok = ok && doctor_add_check(&b, &first, "vision", "Vision (optional)", "ok", vmsg,
                                     vinst ? NULL : "open-settings");
+    }
+    /* Embedding sidecar (optional): semantic skill routing for the Agent. */
+    {
+        char emsg[420];
+        int einst = embed_doctor_row(emsg, sizeof emsg);
+        ok = ok && doctor_add_check(&b, &first, "embed", "Semantic skill search (optional)", "ok", emsg,
+                                    einst ? NULL : "open-settings");
     }
 #endif
 
@@ -5631,46 +5685,449 @@ oom:
 /* GET /api/skills — skill packs (extension/skills/<id>/SKILL.md). */
 static void api_skills(int fd) { md_catalog(fd, "skills", "SKILL.md", "skills"); }
 
-/* GET /api/skills/search?q=&domain=&subdomain=&source=&limit=
- * Searches user, shipped and vendored cybersecurity skills without bloating the
- * agent prompt. The model or UI can then load a chosen id with skill("<id>"). */
-static void api_skills_search(int fd, const char *path) {
-    char q[180], domain[120], subdomain[160], source[80], limit_s[32];
+/* ============================================================================
+ * Embedding provider (local llama.cpp sidecar) + SEMANTIC skill search.
+ *
+ * A SECOND llama-server in embedding mode (EMBED_PORT) embeds skill texts and
+ * each query; /api/skills/search ranks by cosine. Same install/spawn/idle
+ * pattern as the vision sidecar (helpers below mirror the vision_* ones; a few
+ * dir/pid-generic vision helpers are reused). Skill search is SEMANTIC ONLY —
+ * no lexical fallback by design: if the sidecar/index is not ready the search
+ * returns 503 and the agent proceeds without a skill.
+ * ==========================================================================*/
+#define EMBED_PORT 28101
+#define EMBED_HF_DEFAULT "Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0"
+#define EMBED_MAX_DIM 4096
+/* Qwen3-Embedding retrieval works best with an instruction on the QUERY side;
+ * documents (skill texts) are embedded verbatim. */
+#define EMBED_QUERY_INSTRUCT \
+    "Instruct: Given a user request, retrieve the skill that best helps.\nQuery: "
+
+#ifndef _WIN32
+static void embed_dir_path(char *out, size_t outsz) {
+    const char *env = getenv("DSTUDIO_EMBED_DIR");
+    if (env && env[0]) { cstr_copy(out, outsz, env); return; }
+    const char *home = getenv("HOME");
+    snprintf(out, outsz, "%s/.dstudio/llama-embed", home ? home : ".");
+}
+static void embed_touch_last_use(void) {
+    char dir[DSTUDIO_PATH_MAX]; embed_dir_path(dir, sizeof dir);
+    const char *home = getenv("HOME");
+    char parent[DSTUDIO_PATH_MAX];
+    snprintf(parent, sizeof parent, "%s/.dstudio", home ? home : ".");
+    (void)mkdir(parent, 0755); (void)mkdir(dir, 0755);
+    char stamp[DSTUDIO_PATH_MAX + 16];
+    snprintf(stamp, sizeof stamp, "%s/.last-use", dir);
+    int f = open(stamp, O_WRONLY | O_CREAT, 0644);
+    if (f >= 0) close(f);
+    (void)utimes(stamp, NULL);
+}
+static pid_t embed_lock_pid(void) {
+    char p[DSTUDIO_PATH_MAX + 16]; embed_dir_path(p, sizeof p);
+    size_t l = strlen(p); snprintf(p + l, sizeof p - l, "/.server.pid");
+    size_t n = 0; char *b = jsonl_read_file(p, &n);
+    if (!b) return 0;
+    long pid = strtol(b, NULL, 10); free(b);
+    return pid > 1 ? (pid_t)pid : 0;
+}
+static int embed_kill_server(void) {
+    pid_t pid = embed_lock_pid();
+    if (!vision_pid_is_llama(pid)) return 0;
+    kill(pid, SIGTERM);
+    for (int i = 0; i < 20; i++) { struct timespec ts = { 0, 100 * 1000000 }; nanosleep(&ts, NULL); if (kill(pid, 0) != 0) break; }
+    if (kill(pid, 0) == 0) kill(pid, SIGKILL);
+    char p[DSTUDIO_PATH_MAX + 16]; embed_dir_path(p, sizeof p);
+    size_t l = strlen(p); snprintf(p + l, sizeof p - l, "/.server.pid"); unlink(p);
+    return 1;
+}
+static int embed_port_open(void) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return 0;
+    struct sockaddr_in a; memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET; a.sin_port = htons(EMBED_PORT); a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    struct timeval tv = { 1, 0 };
+    (void)setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    (void)setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    int ok = connect(s, (struct sockaddr *)&a, sizeof a) == 0;
+    close(s);
+    return ok;
+}
+static int embed_server_ready(void) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return 0;
+    struct sockaddr_in a; memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET; a.sin_port = htons(EMBED_PORT); a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    struct timeval tv = { 3, 0 };
+    (void)setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    (void)setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    if (connect(s, (struct sockaddr *)&a, sizeof a) != 0) { close(s); return 0; }
+    static const char *req = "GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    if (write(s, req, strlen(req)) < 0) { close(s); return 0; }
+    char buf[64]; ssize_t n = read(s, buf, sizeof buf - 1); close(s);
+    if (n <= 0) return 0;
+    buf[n] = '\0';
+    return strstr(buf, " 200") != NULL;
+}
+static int embed_spawn_detached(void) {
+    if (!g_web_dir[0]) return 0;
+    char script[DSTUDIO_PATH_MAX + 64];
+    snprintf(script, sizeof script, "%s/scripts/embed-server.sh", g_web_dir);
+    struct stat stt;
+    if (stat(script, &stt) != 0) return 0;
+    pid_t pid = fork();
+    if (pid < 0) return 0;
+    if (pid == 0) {
+        if (fork() > 0) _exit(0);
+        setsid();
+        if (chdir(g_web_dir) != 0) _exit(127);
+        child_setenv_metal();
+        for (int cfd = 3; cfd < 256; cfd++) close(cfd);
+        int dn = open("/dev/null", O_RDWR);
+        if (dn >= 0) { dup2(dn, STDIN_FILENO); if (dn != STDIN_FILENO) close(dn); }
+        int lg = open("/tmp/dstudio-embed.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (lg >= 0) { dup2(lg, STDOUT_FILENO); dup2(lg, STDERR_FILENO); if (lg > STDERR_FILENO) close(lg); }
+        char *argv[] = { "/bin/sh", script, NULL };
+        execv("/bin/sh", argv);
+        _exit(127);
+    }
+    waitpid(pid, NULL, 0);
+    return 1;
+}
+static int embed_ensure_server(int timeout_ms) {
+    if (embed_server_ready()) return 1;
+    if (!embed_port_open()) embed_spawn_detached();
+    long long deadline = web_now_ms() + (timeout_ms > 0 ? timeout_ms : 120000);
+    while (web_now_ms() < deadline) {
+        struct timespec ts = { 0, 500 * 1000000 };
+        nanosleep(&ts, NULL);
+        if (embed_server_ready()) return 1;
+    }
+    return 0;
+}
+static void embed_hf_pref(char *out, size_t outsz) {
+    char p[DSTUDIO_PATH_MAX + 8]; embed_dir_path(p, sizeof p);
+    size_t l = strlen(p); snprintf(p + l, sizeof p - l, "/.hf");
+    size_t n = 0; char *b = jsonl_read_file(p, &n);
+    if (b) {
+        while (n > 0 && (b[n - 1] == '\n' || b[n - 1] == '\r' || b[n - 1] == ' ')) b[--n] = '\0';
+        if (b[0]) { cstr_copy(out, outsz, b); free(b); return; }
+        free(b);
+    }
+    cstr_copy(out, outsz, EMBED_HF_DEFAULT);
+}
+
+/* Parse the next "embedding":[...] float array at *pp; advances *pp past ']'.
+ * Writes up to cap floats; returns the count read (0 on failure). */
+static int embed_parse_vec(const char **pp, float *out, int cap) {
+    const char *p = strstr(*pp, "\"embedding\"");
+    if (!p) return 0;
+    p = strchr(p, '[');
+    if (!p) return 0;
+    p++;
+    int n = 0;
+    while (*p && *p != ']') {
+        while (*p == ' ' || *p == ',' || *p == '\n' || *p == '\r' || *p == '\t') p++;
+        if (*p == ']' || !*p) break;
+        char *end = NULL;
+        double v = strtod(p, &end);
+        if (end == p) break;
+        if (n < cap) out[n] = (float)v;
+        n++;
+        p = end;
+    }
+    if (*p == ']') p++;
+    *pp = p;
+    return n;
+}
+
+/* Embed `count` texts (each optionally prefixed) via the sidecar's
+ * /v1/embeddings. Writes count*(*dim) floats into out with stride `stride`
+ * (>= the model dim), L2-normalized. Returns 1 on success. */
+static int embed_call(char *const *texts, int count, const char *prefix,
+                      float *out, int stride, int *dim) {
+    json_dyn_buf b = {0};
+    if (!json_dyn_puts(&b, "{\"input\":[")) { free(b.ptr); return 0; }
+    for (int i = 0; i < count; i++) {
+        if (i && !json_dyn_puts(&b, ",")) { free(b.ptr); return 0; }
+        if (prefix && prefix[0]) {
+            size_t need = strlen(prefix) + strlen(texts[i]) + 1;
+            char *combo = malloc(need);
+            if (!combo) { free(b.ptr); return 0; }
+            snprintf(combo, need, "%s%s", prefix, texts[i]);
+            int ok = json_dyn_put_escaped(&b, combo);
+            free(combo);
+            if (!ok) { free(b.ptr); return 0; }
+        } else if (!json_dyn_put_escaped(&b, texts[i])) { free(b.ptr); return 0; }
+    }
+    if (!json_dyn_puts(&b, "],\"model\":\"x\"}")) { free(b.ptr); return 0; }
+
+    char tmpl[] = "/tmp/dstudio-embed-req-XXXXXX";
+    int tf = mkstemp(tmpl);
+    if (tf < 0) { free(b.ptr); return 0; }
+    size_t off = 0;
+    while (off < b.len) { ssize_t w = write(tf, b.ptr + off, b.len - off); if (w <= 0) break; off += (size_t)w; }
+    int wrote_ok = off == b.len;
+    close(tf); free(b.ptr);
+    if (!wrote_ok) { unlink(tmpl); return 0; }
+
+    char url[80];  snprintf(url, sizeof url, "http://127.0.0.1:%d/v1/embeddings", EMBED_PORT);
+    char dataarg[80]; snprintf(dataarg, sizeof dataarg, "@%s", tmpl);
+    char *argv[16]; int n = 0;
+    argv[n++] = "curl"; argv[n++] = "-sS"; argv[n++] = "-X"; argv[n++] = "POST";
+    argv[n++] = "-H"; argv[n++] = "Content-Type: application/json";
+    argv[n++] = "--data-binary"; argv[n++] = dataarg;
+    argv[n++] = "--max-time"; argv[n++] = "120";
+    argv[n++] = url; argv[n] = NULL;
+    int st = 0;
+    char *resp = web_curl_capture(argv, 125000, &st);
+    unlink(tmpl);
+    if (!resp || !resp[0]) { free(resp); return 0; }
+
+    const char *p = resp;
+    int d = 0;
+    for (int i = 0; i < count; i++) {
+        float *slot = out + (size_t)i * stride;
+        int got = embed_parse_vec(&p, slot, stride);
+        if (got == 0) { free(resp); return 0; }
+        if (d == 0) d = got;
+        else if (got != d) { free(resp); return 0; }
+        double s = 0; for (int k = 0; k < got; k++) s += (double)slot[k] * slot[k];
+        double nr = s > 0 ? 1.0 / sqrt(s) : 0;
+        for (int k = 0; k < got; k++) slot[k] = (float)(slot[k] * nr);
+    }
+    free(resp);
+    *dim = d;
+    return d > 0;
+}
+
+/* FNV-1a over the model tag + every (id, embed_text) → cache invalidation key. */
+static unsigned long long skill_corpus_sig(const skill_hit_list *L, char *const *texts, const char *model) {
+    unsigned long long h = 1469598103934665603ULL;
+    for (const char *s = model; s && *s; s++) { h ^= (unsigned char)*s; h *= 1099511628211ULL; }
+    for (int i = 0; i < L->n; i++) {
+        for (const char *s = L->v[i].id; *s; s++) { h ^= (unsigned char)*s; h *= 1099511628211ULL; }
+        h ^= 0; h *= 1099511628211ULL;
+        for (const char *s = texts[i]; *s; s++) { h ^= (unsigned char)*s; h *= 1099511628211ULL; }
+        h ^= '\n'; h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+/* On-disk index: header {magic,dim,count,sig,model} + count*dim normalized
+ * floats in enum order. */
+#define SKILL_INDEX_MAGIC 0x44534531u  /* "DSE1" */
+typedef struct { unsigned magic; int dim, count; unsigned long long sig; char model[128]; } skill_index_hdr;
+
+static void skill_index_path(char *out, size_t outsz) {
+    char dir[DSTUDIO_PATH_MAX]; embed_dir_path(dir, sizeof dir);
+    snprintf(out, outsz, "%s/skill-index.bin", dir);
+}
+static float *skill_index_load(const skill_index_hdr *want) {
+    char path[DSTUDIO_PATH_MAX + 32]; skill_index_path(path, sizeof path);
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    skill_index_hdr h;
+    if (fread(&h, sizeof h, 1, f) != 1 || h.magic != SKILL_INDEX_MAGIC ||
+        h.dim != want->dim || h.count != want->count || h.sig != want->sig ||
+        strncmp(h.model, want->model, sizeof h.model) != 0) { fclose(f); return NULL; }
+    size_t nf = (size_t)h.dim * h.count;
+    float *v = malloc(nf * sizeof *v);
+    if (!v) { fclose(f); return NULL; }
+    if (fread(v, sizeof *v, nf, f) != nf) { free(v); fclose(f); return NULL; }
+    fclose(f);
+    return v;
+}
+static void skill_index_save(const skill_index_hdr *h, const float *v) {
+    char path[DSTUDIO_PATH_MAX + 32]; skill_index_path(path, sizeof path);
+    char tmp[DSTUDIO_PATH_MAX + 40]; snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return;
+    size_t nf = (size_t)h->dim * h->count;
+    if (fwrite(h, sizeof *h, 1, f) == 1 && fwrite(v, sizeof *v, nf, f) == nf) {
+        fclose(f); rename(tmp, path);
+    } else { fclose(f); unlink(tmp); }
+}
+
+/* Get (load or build) the embedding matrix for the enumerated skills. On a
+ * cache miss embeds every skill via the sidecar and persists the index. Returns
+ * malloc'd count*dim floats (caller frees) and sets *dim; NULL on failure. */
+static float *skill_index_ensure(const skill_hit_list *L, char *const *texts, int *dim_out) {
+    char model[128]; embed_hf_pref(model, sizeof model);
+    int dim = 0;
+    /* Probe the model dim with a tiny embed (also confirms the server answers). */
+    static float probe[EMBED_MAX_DIM];
+    char *ping[1]; ping[0] = (char *)"ping";
+    if (!embed_call(ping, 1, NULL, probe, EMBED_MAX_DIM, &dim) || dim <= 0 || dim > EMBED_MAX_DIM)
+        return NULL;
+
+    skill_index_hdr want = { SKILL_INDEX_MAGIC, dim, L->n, 0, {0} };
+    cstr_copy(want.model, sizeof want.model, model);
+    want.sig = skill_corpus_sig(L, texts, model);
+
+    float *cached = skill_index_load(&want);
+    if (cached) { *dim_out = dim; return cached; }
+
+    /* Build: embed every skill text in batches, directly into the matrix. */
+    float *vecs = malloc((size_t)L->n * dim * sizeof *vecs);
+    if (!vecs) return NULL;
+    const int BATCH = 16;
+    for (int start = 0; start < L->n; start += BATCH) {
+        int cnt = L->n - start < BATCH ? L->n - start : BATCH;
+        int gd = 0;
+        if (!embed_call(texts + start, cnt, NULL, vecs + (size_t)start * dim, dim, &gd) || gd != dim) {
+            free(vecs); return NULL;
+        }
+        embed_touch_last_use();
+    }
+    skill_index_save(&want, vecs);
+    *dim_out = dim;
+    return vecs;
+}
+
+/* The semantic search worker: enumerate skills, ensure the index, embed the
+ * query, rank by cosine, emit the top `limit`. Runs in a detached child. */
+static void api_skills_search_run(int fd, const char *path) {
+    char q[512], domain[120], subdomain[160], source[80], limit_s[32], fmt[16] = "";
     query_param(path, "q", q, sizeof q);
     query_param(path, "domain", domain, sizeof domain);
     query_param(path, "subdomain", subdomain, sizeof subdomain);
     query_param(path, "source", source, sizeof source);
     query_param(path, "limit", limit_s, sizeof limit_s);
-    int limit = limit_s[0] ? atoi(limit_s) : 50;
+    query_param(path, "format", fmt, sizeof fmt);
+    int want_text = !strcmp(fmt, "text");   /* plain "id: desc" lines, for the agent tool */
+    int limit = limit_s[0] ? atoi(limit_s) : 20;
     if (limit < 1) limit = 1;
     if (limit > 200) limit = 200;
 
+    if (!q[0]) {
+        if (want_text) send_text(fd, "400 Bad Request", "skills_search error: query is required\n", 0);
+        else web_json_error(fd, "400 Bad Request", "q is required");
+        return;
+    }
+    embed_touch_last_use();
+    /* Short wait: the heavy model download happens in /api/embed/setup. */
+    if (!embed_ensure_server(60000)) {
+        if (want_text) send_text(fd, "503 Service Unavailable",
+                                 "skills_search: semantic search is not available; proceed without a skill.\n", 0);
+        else web_json_error(fd, "503 Service Unavailable",
+                       "semantic skill search is not ready; install it once via POST /api/embed/setup");
+        return;
+    }
+
+    skill_hit_list L = {0};
+    if (!skill_enum_all(&L) || L.n == 0) { skill_hits_free(&L); web_json_error(fd, "500 Internal Server Error", "no skills"); return; }
+    char **texts = calloc((size_t)L.n, sizeof *texts);
+    if (!texts) { skill_hits_free(&L); web_json_error(fd, "500 Internal Server Error", "oom"); return; }
+    for (int i = 0; i < L.n; i++) texts[i] = skill_embed_text(&L.v[i]);
+
+    int dim = 0;
+    float *vecs = skill_index_ensure(&L, texts, &dim);
+    if (!vecs) {
+        for (int i = 0; i < L.n; i++) free(texts[i]);
+        free(texts); skill_hits_free(&L);
+        if (want_text) send_text(fd, "503 Service Unavailable", "skills_search: index unavailable; proceed without a skill.\n", 0);
+        else web_json_error(fd, "503 Service Unavailable", "could not build the semantic skill index");
+        return;
+    }
+    for (int i = 0; i < L.n; i++) free(texts[i]);
+    free(texts);
+
+    /* Embed the query (with the Qwen3 retrieval instruction) and rank by cosine. */
+    static float qv[EMBED_MAX_DIM];
+    char *qq[1]; qq[0] = q;
+    int qd = 0;
+    if (!embed_call(qq, 1, EMBED_QUERY_INSTRUCT, qv, EMBED_MAX_DIM, &qd) || qd != dim) {
+        free(vecs); skill_hits_free(&L);
+        if (want_text) send_text(fd, "503 Service Unavailable", "skills_search: query embedding failed; proceed without a skill.\n", 0);
+        else web_json_error(fd, "503 Service Unavailable", "query embedding failed");
+        return;
+    }
+    for (int i = 0; i < L.n; i++) {
+        /* Optional hard filters (domain/subdomain/source) before ranking. */
+        if (source[0] && !text_contains_ci(L.v[i].source, source)) { L.v[i].score = -1000000; continue; }
+        if (domain[0] && !text_contains_ci(L.v[i].domain, domain)) { L.v[i].score = -1000000; continue; }
+        if (subdomain[0] && !text_contains_ci(L.v[i].subdomain, subdomain)) { L.v[i].score = -1000000; continue; }
+        const float *v = vecs + (size_t)i * dim;
+        double dot = 0; for (int k = 0; k < dim; k++) dot += (double)qv[k] * v[k];
+        L.v[i].score = (int)(dot * 1000000.0);   /* cosine → int for the sort */
+    }
+    free(vecs);
+    if (L.n > 1) qsort(L.v, (size_t)L.n, sizeof *L.v, skill_hit_cmp);
+
+    int total = 0;
+    for (int i = 0; i < L.n; i++) if (L.v[i].score > -1000000) total++;
+    int emit = total < limit ? total : limit;
+
+    /* Plain-text form for the agent's skills_search tool: "id: description" lines
+     * it can hand straight to the model (no JSON parsing in the agent). */
+    if (want_text) {
+        json_dyn_buf tb = {0};
+        int okt = json_dyn_puts(&tb, emit ? "Matching skills (best first) — load one with skill(\"<id>\"):\n"
+                                          : "No skills matched. Proceed without a skill.\n");
+        for (int i = 0; okt && i < emit; i++) {
+            skill_hit *h = &L.v[i];
+            okt = json_dyn_puts(&tb, "- ") && json_dyn_puts(&tb, h->id);
+            if (okt && h->desc[0]) okt = json_dyn_puts(&tb, ": ") && json_dyn_puts(&tb, h->desc);
+            if (okt) okt = json_dyn_puts(&tb, "\n");
+        }
+        skill_hits_free(&L);
+        if (!okt) { free(tb.ptr); send_text(fd, "500 Internal Server Error", "skills_search error: out of memory\n", 0); return; }
+        send_text(fd, "200 OK", tb.ptr ? tb.ptr : "No skills.\n", 0);
+        free(tb.ptr);
+        return;
+    }
+
     json_dyn_buf body = {0};
-    if (!json_dyn_puts(&body, "{\"ok\":true,\"skills\":[")) goto oom;
-    int count = 0, truncated = 0;
-    char dir[PATH_MAX];
-    char udir[1100];
-    user_skills_dir(udir, sizeof udir);
-    if (!skill_search_scan_dir(&body, udir, "SKILL.md", "user", q, domain, subdomain,
-                               source, limit, &count, &truncated)) goto oom;
-    if (g_web_dir[0]) {
-        snprintf(dir, sizeof dir, "%s/extension/skills", g_web_dir);
-        if (!skill_search_scan_dir(&body, dir, "SKILL.md", "dstudio", q, domain, subdomain,
-                                   source, limit, &count, &truncated)) goto oom;
+    int ok = json_dyn_puts(&body, "{\"ok\":true,\"semantic\":true,\"skills\":[");
+    for (int i = 0; ok && i < emit; i++) {
+        skill_hit *h = &L.v[i];
+        ok = json_dyn_puts(&body, i ? ",{" : "{") &&
+             json_dyn_puts(&body, "\"id\":")           && json_dyn_put_escaped(&body, h->id) &&
+             json_dyn_puts(&body, ",\"name\":")        && json_dyn_put_escaped(&body, h->name) &&
+             json_dyn_puts(&body, ",\"description\":") && json_dyn_put_escaped(&body, h->desc) &&
+             json_dyn_puts(&body, ",\"source\":")      && json_dyn_put_escaped(&body, h->source) &&
+             json_dyn_puts(&body, ",\"domain\":")      && json_dyn_put_escaped(&body, h->domain) &&
+             json_dyn_puts(&body, ",\"subdomain\":")   && json_dyn_put_escaped(&body, h->subdomain) &&
+             json_dyn_puts(&body, ",\"tags\":")        && json_dyn_put_escaped(&body, h->tags) &&
+             json_dyn_puts(&body, ",\"license\":")     && json_dyn_put_escaped(&body, h->license) &&
+             json_dyn_puts(&body, ",\"tools\":[]") &&
+             json_dyn_printf(&body, ",\"score\":%d,\"hasAssets\":%s,\"hasReferences\":%s,\"hasScripts\":%s}",
+                             h->score, h->has_assets ? "true" : "false",
+                             h->has_refs ? "true" : "false", h->has_scripts ? "true" : "false");
     }
-    if (cyber_skills_dir(dir, sizeof dir)) {
-        if (!skill_search_scan_dir(&body, dir, "SKILL.md", "anthropic-cybersecurity-skills",
-                                   q, domain, subdomain, source, limit, &count,
-                                   &truncated)) goto oom;
+    ok = ok && json_dyn_printf(&body, "],\"count\":%d,\"truncated\":%s}", emit, total > emit ? "true" : "false");
+    skill_hits_free(&L);
+    if (!ok) { free(body.ptr); web_json_error(fd, "500 Internal Server Error", "skill search memory"); return; }
+    send_json(fd, "200 OK", body.ptr);
+    free(body.ptr);
+}
+#endif /* !_WIN32 */
+
+/* GET /api/skills/search?q=&domain=&subdomain=&source=&limit=
+ * Semantic (embedding cosine) search over user, shipped and cyber skills. Forks
+ * a detached worker (embedding + first-run index build are slow) so the single-
+ * threaded main loop never blocks — same pattern as the vision handlers. */
+static void api_skills_search(int fd, const char *path) {
+#ifdef _WIN32
+    (void)path;
+    web_json_error(fd, "501 Not Implemented", "semantic skill search is not available on the Windows build yet");
+#else
+    pid_t pid = fork();
+    if (pid < 0) { api_skills_search_run(fd, path); return; }
+    if (pid == 0) {
+        if (fork() > 0) _exit(0);
+        if (g_srv_fd >= 0) close(g_srv_fd);
+        if (g_out_fd >= 0) close(g_out_fd);
+        if (g_err_fd >= 0) close(g_err_fd);
+        if (g_in_fd  >= 0) close(g_in_fd);
+        struct timeval tv = { 620, 0 };
+        (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+        api_skills_search_run(fd, path);
+        close(fd);
+        _exit(0);
     }
-    if (!json_dyn_printf(&body, "],\"count\":%d,\"truncated\":%s}",
-                         count, truncated ? "true" : "false")) goto oom;
-    send_json(fd, "200 OK", body.ptr ? body.ptr : "{\"ok\":true,\"skills\":[]}");
-    free(body.ptr);
-    return;
-oom:
-    free(body.ptr);
-    send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"skill search memory\"}");
+    waitpid(pid, NULL, 0);
+#endif
 }
 
 /* GET /api/design-systems — brand systems (extension/design-systems/<id>/DESIGN.md). */
@@ -10601,6 +11058,224 @@ static int vision_doctor_row(char *msg, size_t msgsz) {
 #endif
 }
 
+/* ---- Embedding sidecar endpoints (semantic skill search) ---- */
+#ifndef _WIN32
+/* Read the row count stored in the skill index header (0 if absent). */
+static int embed_index_count(void) {
+    char path[DSTUDIO_PATH_MAX + 32]; skill_index_path(path, sizeof path);
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    skill_index_hdr h;
+    int n = (fread(&h, sizeof h, 1, f) == 1 && h.magic == SKILL_INDEX_MAGIC) ? h.count : 0;
+    fclose(f);
+    return n;
+}
+
+/* POST /api/embed/setup — install the llama.cpp runtime (shared with vision) on
+ * demand, warm the embedding model, and BUILD the skill index so the first
+ * search is instant. Optional body {hf} switches the embedding model. */
+static void api_embed_setup_run(int fd, const char *body) {
+    resolve_web_dir();
+    if (!web_dir_valid()) {
+        send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"DStudio checkout not found\"}");
+        return;
+    }
+    char setup_script[DSTUDIO_PATH_MAX + 64];
+    snprintf(setup_script, sizeof setup_script, "%s/scripts/vision-setup.sh", g_web_dir);
+    struct stat stt;
+    if (stat(setup_script, &stt) != 0) {
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"scripts/vision-setup.sh missing\"}");
+        return;
+    }
+    char embed_dir[DSTUDIO_PATH_MAX]; embed_dir_path(embed_dir, sizeof embed_dir);
+    const char *home = getenv("HOME");
+    char parent[DSTUDIO_PATH_MAX];
+    snprintf(parent, sizeof parent, "%s/.dstudio", home ? home : ".");
+    (void)mkdir(parent, 0755); (void)mkdir(embed_dir, 0755);
+
+    char hf[200] = "";
+    if (body && json_get_string(body, "hf", hf, sizeof hf) && hf[0]) {
+        int sane = strchr(hf, '/') != NULL && strlen(hf) > 3;
+        for (const char *p = hf; sane && *p; p++)
+            if (!isalnum((unsigned char)*p) && !strchr("._/:-", *p)) sane = 0;
+        if (!sane) { send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"invalid hf repo\"}"); return; }
+        char cur[200]; embed_hf_pref(cur, sizeof cur);
+        if (strcmp(cur, hf) != 0) {
+            char pref[DSTUDIO_PATH_MAX + 8];
+            snprintf(pref, sizeof pref, "%s/.hf", embed_dir);
+            if (!jsonl_write_file(pref, hf, strlen(hf))) {
+                send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"cannot write model pref\"}");
+                return;
+            }
+            (void)embed_kill_server();   /* reload with the new model */
+        }
+    }
+
+    /* Ensure a llama-server binary exists: reuse the vision runtime if present,
+     * else install one INTO the embed dir (vision-setup.sh honors this env). */
+    char probe[DSTUDIO_PATH_MAX] = "", vdir[DSTUDIO_PATH_MAX];
+    vision_dir_path(vdir, sizeof vdir);
+    int have_bin = vision_scan_for_bin(embed_dir, 0, probe, sizeof probe) ||
+                   vision_scan_for_bin(vdir, 0, probe, sizeof probe);
+    int rc = 0;
+    char log_tail[8192] = "";
+    if (!have_bin) {
+        setenv("DSTUDIO_VISION_DIR", embed_dir, 1);
+        char *argv[] = { "/bin/sh", setup_script, NULL };
+        rc = setup_run_cmd_capture(g_web_dir, argv, log_tail, sizeof log_tail);
+        unsetenv("DSTUDIO_VISION_DIR");
+    }
+
+    embed_touch_last_use();
+    int server_up = (rc == 0) ? embed_ensure_server(1000000) : 0;
+    int indexed = 0;
+    if (server_up) {
+        embed_touch_last_use();
+        skill_hit_list L = {0};
+        if (skill_enum_all(&L) && L.n > 0) {
+            char **texts = calloc((size_t)L.n, sizeof *texts);
+            if (texts) {
+                for (int i = 0; i < L.n; i++) texts[i] = skill_embed_text(&L.v[i]);
+                int dim = 0;
+                float *v = skill_index_ensure(&L, texts, &dim);
+                if (v) { indexed = L.n; free(v); }
+                for (int i = 0; i < L.n; i++) free(texts[i]);
+                free(texts);
+            }
+        }
+        skill_hits_free(&L);
+    }
+    int ok = rc == 0 && server_up && indexed > 0;
+    const char *err = rc != 0 ? "embedding runtime install failed (see log)"
+                    : !server_up ? "embedding model did not come up in time; retry"
+                    : indexed == 0 ? "index build failed"
+                    : "";
+    char hf_now[200]; embed_hf_pref(hf_now, sizeof hf_now);
+    json_dyn_buf b = {0};
+    char *cap = web_strndup_cap(log_tail, strlen(log_tail), 6000);
+    int good = json_dyn_puts(&b, "{\"ok\":") && json_dyn_puts(&b, ok ? "true" : "false") &&
+               json_dyn_printf(&b, ",\"serverUp\":%s,\"indexed\":%d,\"hf\":", server_up ? "true" : "false", indexed) &&
+               json_dyn_put_escaped(&b, hf_now) &&
+               json_dyn_puts(&b, ",\"error\":") && json_dyn_put_escaped(&b, err) &&
+               json_dyn_puts(&b, ",\"log\":") && json_dyn_put_escaped(&b, cap ? cap : "") &&
+               json_dyn_puts(&b, "}");
+    free(cap);
+    if (!good) { free(b.ptr); send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}"); return; }
+    send_json(fd, ok ? "200 OK" : "500 Internal Server Error", b.ptr);
+    free(b.ptr);
+}
+
+/* Detached worker for the slow embed setup (download + index build). */
+static void api_embed_fork(int fd, const char *body) {
+    pid_t pid = fork();
+    if (pid < 0) { api_embed_setup_run(fd, body); return; }
+    if (pid == 0) {
+        if (fork() > 0) _exit(0);
+        if (g_srv_fd >= 0) close(g_srv_fd);
+        if (g_out_fd >= 0) close(g_out_fd);
+        if (g_err_fd >= 0) close(g_err_fd);
+        if (g_in_fd  >= 0) close(g_in_fd);
+        struct timeval tv = { 1220, 0 };
+        (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+        api_embed_setup_run(fd, body);
+        close(fd);
+        _exit(0);
+    }
+    waitpid(pid, NULL, 0);
+}
+#endif /* !_WIN32 */
+
+static void api_embed_setup(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"semantic skill search is not supported on the Windows build yet\"}");
+#else
+    api_embed_fork(fd, body);
+#endif
+}
+
+static void api_embed_stop(int fd) {
+#ifdef _WIN32
+    send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"not supported on the Windows build yet\"}");
+#else
+    int stopped = embed_kill_server();
+    send_json(fd, "200 OK", stopped ? "{\"ok\":true,\"stopped\":true}"
+                                    : "{\"ok\":true,\"stopped\":false,\"error\":\"not running\"}");
+#endif
+}
+
+/* GET /api/embed/status — install/server/index state for Settings + doctor. */
+static void api_embed_status(int fd) {
+#ifdef _WIN32
+    send_json(fd, "200 OK",
+              "{\"ok\":true,\"supported\":false,\"installed\":false,\"state\":\"unsupported\","
+              "\"pid\":0,\"indexed\":0,\"diskBytes\":0,\"lastUse\":0,\"hf\":\"\",\"logTail\":\"\"}");
+#else
+    char dir[DSTUDIO_PATH_MAX]; embed_dir_path(dir, sizeof dir);
+    char vdir[DSTUDIO_PATH_MAX]; vision_dir_path(vdir, sizeof vdir);
+    char bin[DSTUDIO_PATH_MAX] = "";
+    int installed = vision_scan_for_bin(dir, 0, bin, sizeof bin) || vision_scan_for_bin(vdir, 0, bin, sizeof bin);
+    pid_t pid = embed_lock_pid();
+    int pid_live = vision_pid_is_llama(pid);
+    const char *state = "stopped";
+    if (embed_server_ready()) state = "ready";
+    else if (embed_port_open() || pid_live) state = "starting";
+    long long run_bytes = vision_tree_bytes(dir, 0);
+    char cache[DSTUDIO_PATH_MAX]; vision_model_cache_path(cache, sizeof cache);
+    long long cache_bytes = vision_tree_bytes(cache, 0);
+    char hf[200]; embed_hf_pref(hf, sizeof hf);
+    char stamp[DSTUDIO_PATH_MAX + 16]; snprintf(stamp, sizeof stamp, "%s/.last-use", dir);
+    struct stat st;
+    long long last_use = stat(stamp, &st) == 0 ? (long long)st.st_mtime : 0;
+    int indexed = embed_index_count();
+    char tail[1600] = "";
+    FILE *lf = fopen("/tmp/dstudio-embed.log", "r");
+    if (lf) {
+        if (fseek(lf, 0, SEEK_END) == 0) {
+            long sz = ftell(lf), want = (long)sizeof tail - 1, from = sz > want ? sz - want : 0;
+            if (fseek(lf, from, SEEK_SET) == 0) { size_t got = fread(tail, 1, sizeof tail - 1, lf); tail[got] = '\0'; }
+        }
+        fclose(lf);
+    }
+    json_dyn_buf b = {0};
+    int okb = json_dyn_printf(&b, "{\"ok\":true,\"supported\":true,\"installed\":%s,\"state\":", installed ? "true" : "false") &&
+              json_dyn_put_escaped(&b, state) &&
+              json_dyn_printf(&b, ",\"pid\":%d,\"port\":%d,\"indexed\":%d,\"diskBytes\":%lld,\"cacheBytes\":%lld,\"lastUse\":%lld,\"hf\":",
+                              pid_live ? (int)pid : 0, EMBED_PORT, indexed, run_bytes, cache_bytes, last_use) &&
+              json_dyn_put_escaped(&b, hf) &&
+              json_dyn_puts(&b, ",\"logTail\":") && json_dyn_put_escaped(&b, tail) &&
+              json_dyn_puts(&b, "}");
+    if (!okb) { free(b.ptr); web_json_error(fd, "500 Internal Server Error", "out of memory"); return; }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+#endif
+}
+
+/* Doctor row: semantic skill search availability. */
+static int embed_doctor_row(char *msg, size_t msgsz) {
+#ifdef _WIN32
+    cstr_copy(msg, msgsz, "Not supported on the Windows build yet.");
+    return 0;
+#else
+    char dir[DSTUDIO_PATH_MAX]; embed_dir_path(dir, sizeof dir);
+    char vdir[DSTUDIO_PATH_MAX]; vision_dir_path(vdir, sizeof vdir);
+    char bin[DSTUDIO_PATH_MAX] = "";
+    int installed = vision_scan_for_bin(dir, 0, bin, sizeof bin) || vision_scan_for_bin(vdir, 0, bin, sizeof bin);
+    int indexed = embed_index_count();
+    if (!installed || indexed == 0) {
+        cstr_copy(msg, msgsz,
+                  "Not installed. Semantic skill routing for the Agent (handles any language) — install it once from Settings.");
+        return 0;
+    }
+    char hf[200]; embed_hf_pref(hf, sizeof hf);
+    if (embed_server_ready())
+        snprintf(msg, msgsz, "Serving %s — %d skills indexed for semantic Agent routing.", hf, indexed);
+    else
+        snprintf(msg, msgsz, "Installed (%s), %d skills indexed. Starts on demand and stops when idle.", hf, indexed);
+    return 1;
+#endif
+}
+
 /* POST /api/agent/attach-image {dir, name?, data_uri} — write a dropped/pasted
  * image into the agent workspace so the model can inspect it with see_image
  * (drop/paste used to be chat-only; in agent mode the pixels had no way in).
@@ -11212,6 +11887,8 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/vision/setup")) { api_vision_setup(fd, body); return 200; }
     if (!strcmp(path, "/api/vision/describe")) { api_vision_describe(fd, body); return 200; }
     if (!strcmp(path, "/api/vision/stop")) { api_vision_stop(fd); return 200; }
+    if (!strcmp(path, "/api/embed/setup")) { api_embed_setup(fd, body); return 200; }
+    if (!strcmp(path, "/api/embed/stop")) { api_embed_stop(fd); return 200; }
     if (!strcmp(path, "/api/engine/checkout")) { api_engine_checkout_set(fd, body); return 200; }
     if (!strcmp(path, "/api/setup/content")) { api_setup_content(fd); return 200; }
     if (!strcmp(path, "/api/webdir")) { api_set_webdir(fd, body); return 200; }
@@ -11237,6 +11914,7 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
         return 200;
     }
     if (is_get && !strcmp(path, "/api/vision/status")) { api_vision_status(fd); return 200; }
+    if (is_get && !strcmp(path, "/api/embed/status")) { api_embed_status(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/remote/status")) { api_remote_status(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/remote/chat")) { api_remote_chat_get(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/lan-client/chats")) { api_lan_client_chats_get(fd); return 200; }

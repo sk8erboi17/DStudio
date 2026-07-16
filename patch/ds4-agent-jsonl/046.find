@@ -1,0 +1,103 @@
+/* skills_search: bounded retrieval over the local skill packs. The MODEL forms
+ * the query and makes the final choice; this tool only returns candidates
+ * (id + one-line description), best match first. Scans user skills, shipped
+ * skills and the imported cybersecurity briefs. */
+typedef struct { char id[96]; char desc[200]; int score; } ds4ui_skill_hit;
+static void ds4ui_lower_into(const char *s, char *out, size_t cap) {
+    size_t o = 0;
+    for (; s && *s && o + 1 < cap; s++) out[o++] = (char)tolower((unsigned char)*s);
+    out[o] = '\0';
+}
+static void ds4ui_skill_desc_from_md(const char *body, char *out, size_t cap) {
+    out[0] = '\0';
+    const char *p = body ? strstr(body, "description:") : NULL;
+    if (p && (p == body || p[-1] == '\n')) {
+        p += 12;
+        while (*p == ' ' || *p == '\t') p++;
+        size_t l = strcspn(p, "\r\n");
+        if (l >= cap) l = cap - 1;
+        memcpy(out, p, l); out[l] = '\0';
+        return;
+    }
+    /* fallback: first prose line outside frontmatter/headings */
+    const char *q = body;
+    int fm = 0;
+    while (q && *q) {
+        size_t l = strcspn(q, "\n");
+        if (l >= 3 && !strncmp(q, "---", 3)) fm++;
+        else if (fm != 1 && l > 8 && *q != '#' && *q != '-' && *q != '<') {
+            if (l >= cap) l = cap - 1;
+            memcpy(out, q, l); out[l] = '\0';
+            return;
+        }
+        q += l + (q[l] == '\n' ? 1 : 0);
+        if (!q[0]) break;
+    }
+}
+static int ds4ui_skill_hit_cmp(const void *a, const void *b) {
+    return ((const ds4ui_skill_hit *)b)->score - ((const ds4ui_skill_hit *)a)->score;
+}
+static void ds4ui_skills_scan_dir(const char *dir, char qw[][24], int nq,
+                                  ds4ui_skill_hit *hits, int cap, int *n) {
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL && *n < cap) {
+        if (de->d_name[0] == '.' || !ds4ui_pack_name_ok(de->d_name)) continue;
+        char md[2600];
+        snprintf(md, sizeof md, "%s/%s/SKILL.md", dir, de->d_name);
+        char *body = ds4ui_read_file_buf_limit(md, 2048, NULL);
+        if (!body) continue;
+        char desc[200], lid[96], ldesc[200];
+        ds4ui_skill_desc_from_md(body, desc, sizeof desc);
+        ds4ui_lower_into(de->d_name, lid, sizeof lid);
+        ds4ui_lower_into(desc, ldesc, sizeof ldesc);
+        int score = 0;
+        for (int i = 0; i < nq; i++) {
+            if (strstr(lid, qw[i])) score += 4;
+            if (strstr(ldesc, qw[i])) score += 1;
+        }
+        if (score > 0) {
+            ds4ui_skill_hit *h = &hits[(*n)++];
+            snprintf(h->id, sizeof h->id, "%s", de->d_name);
+            snprintf(h->desc, sizeof h->desc, "%s", desc);
+            h->score = score;
+        }
+        free(body);
+    }
+    closedir(d);
+}
+static char *ds4ui_tool_skills_search(const agent_tool_call *call) {
+    const char *q = agent_tool_arg_value(call, "query");
+    if (!q || !*q) return xstrdup("Tool error: skills_search requires query\n");
+    char qbuf[256];
+    ds4ui_lower_into(q, qbuf, sizeof qbuf);
+    char qw[8][24];
+    int nq = 0;
+    for (char *tok = strtok(qbuf, " \t,;:.\"'()"); tok && nq < 8; tok = strtok(NULL, " \t,;:.\"'()")) {
+        if (strlen(tok) < 3) continue;
+        snprintf(qw[nq], sizeof qw[nq], "%s", tok);
+        nq++;
+    }
+    if (!nq) return xstrdup("Tool error: give skills_search a few topic keywords\n");
+    static ds4ui_skill_hit hits[256];
+    int n = 0;
+    char dir[2300];
+    const char *u = getenv("DS4UI_USER_SKILLS_DIR");
+    if (u && u[0]) ds4ui_skills_scan_dir(u, qw, nq, hits, 256, &n);
+    const char *r = getenv("DS4UI_SKILLS_DIR");
+    if (r && r[0]) { snprintf(dir, sizeof dir, "%s/skills", r); ds4ui_skills_scan_dir(dir, qw, nq, hits, 256, &n); }
+    const char *c = getenv("DS4UI_CYBER_SKILLS_DIR");
+    if (c && c[0]) ds4ui_skills_scan_dir(c, qw, nq, hits, 256, &n);
+    if (!n) return xstrdup("No skills matched that query. Try different English keywords, or proceed without a skill.\n");
+    qsort(hits, (size_t)n, sizeof hits[0], ds4ui_skill_hit_cmp);
+    agent_buf out = {0};
+    agent_buf_puts(&out, "Matching skills (best first) - load one with skill(\"<id>\"):\n");
+    for (int i = 0; i < n && i < 10; i++) {
+        agent_buf_puts(&out, "- ");
+        agent_buf_puts(&out, hits[i].id);
+        if (hits[i].desc[0]) { agent_buf_puts(&out, ": "); agent_buf_puts(&out, hits[i].desc); }
+        agent_buf_puts(&out, "\n");
+    }
+    return agent_buf_take(&out);
+}
