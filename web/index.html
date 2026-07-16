@@ -3423,9 +3423,56 @@
        but rendered invisible ("just a dark screen"). Header/footer stay put via
        position:sticky. */
     .settings-dialog { padding: 0; width: min(94vw, 30rem); max-height: 88vh; overflow-x: hidden; overflow-y: auto; }
+    /* Settings modal (two-pane redesign): sidebar section nav on the left, ONE
+       section pane at a time on the right — the sections that used to stack in
+       a two-column grid are now switched via .set-nav (see Settings.setPane).
+       The DIALOG itself still scrolls (the WKWebView-safe pattern above): the
+       sidebar column stretches with the content while its inner nav sticks to
+       the top, and the footer sticks to the bottom of the scroll. */
     #settings-dialog.settings-dialog {
-      width: min(94vw, 58rem);
-      max-height: min(88vh, 48rem);
+      width: min(96vw, 62rem);
+      max-height: min(90vh, 47rem);
+      border-radius: 18px;
+    }
+    #settings-dialog .settings {
+      display: grid;
+      grid-template-columns: 218px minmax(0, 1fr);
+      min-height: min(88vh, 45rem);
+    }
+    #settings-dialog .set-side {
+      background: var(--bg);
+      border-right: 1px solid var(--border);
+      min-width: 0;
+    }
+    #settings-dialog .set-side__in {
+      position: sticky; top: 0;
+      display: flex; flex-direction: column; gap: 2px;
+      padding: 16px 10px 14px;
+    }
+    #settings-dialog .set-side .set-brand { padding: 2px 6px 16px; }
+    #settings-dialog .set-nav { display: flex; flex-direction: column; gap: 2px; }
+    #settings-dialog .set-nav__b {
+      display: block; width: 100%; text-align: left;
+      padding: 8px 12px; border: 0; border-radius: 9px;
+      background: transparent; color: var(--muted);
+      font: inherit; font-size: 0.85rem; font-weight: 500;
+      cursor: pointer; transition: background 0.12s, color 0.12s;
+    }
+    #settings-dialog .set-nav__b:hover { background: var(--surface-2); color: var(--text); }
+    #settings-dialog .set-nav__b.is-on {
+      background: color-mix(in srgb, var(--accent) 14%, transparent);
+      color: var(--accent-2);
+      font-weight: 600;
+    }
+    #settings-dialog .set-side__note {
+      margin: 14px 12px 0;
+      font-size: 0.7rem; color: var(--faint); line-height: 1.5;
+    }
+    #settings-dialog .set-main { position: relative; min-width: 0; display: flex; flex-direction: column; }
+    #settings-dialog .set-main > .set-x {
+      position: sticky; top: 14px; z-index: 3;
+      align-self: flex-end;
+      margin: 14px 16px -46px 0;
     }
     .settings { display: block; }
     .set-head {
@@ -3454,17 +3501,112 @@
 
     .set-body { padding: 0 1.2rem; }
     #settings-dialog .set-body {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      column-gap: 1.45rem;
-      align-items: start;
-      padding: 0 1.35rem;
+      display: block;
+      flex: 1;
+      width: 100%;
+      max-width: 46.5rem;
+      box-sizing: border-box;
+      padding: 24px 34px 30px;
     }
     .set-grp { padding: 0.95rem 0; border-top: 1px solid var(--border); }
     .set-grp:first-child { border-top: none; padding-top: 0.4rem; }
-    #settings-dialog .set-grp { min-width: 0; }
-    #settings-dialog .set-grp:nth-child(-n + 2) { border-top: none; padding-top: 0.4rem; }
-    #settings-dialog .set-grp:last-child { grid-column: 1 / -1; }
+    #settings-dialog .set-grp { min-width: 0; border-top: 0; padding: 0; }
+    #settings-dialog .set-grp[hidden] { display: none; }
+    #settings-dialog .set-eye { margin-bottom: 1.15rem; }
+
+    /* Reference field language: 14px/600 labels with an inline muted note,
+       roomy 10px-radius inputs with an accent focus ring, chevroned selects. */
+    #settings-dialog .field { margin-bottom: 1.3rem; font-size: 0.88rem; }
+    #settings-dialog .field > span:first-child { font-weight: 600; color: var(--text); margin-bottom: 0.45rem; }
+    #settings-dialog .field .field-note { font-size: 0.79rem; }
+    #settings-dialog .field input[type="url"],
+    #settings-dialog .field input[type="text"],
+    #settings-dialog .field input[type="password"],
+    #settings-dialog .field input[type="number"],
+    #settings-dialog .field select,
+    #settings-dialog .field textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 9px 13px;
+      border: 1px solid var(--border-2);
+      border-radius: 10px;
+      background: var(--surface-2);
+      color: var(--text);
+      font: inherit;
+      font-size: 0.86rem;
+      outline: none;
+      transition: border-color 0.12s, box-shadow 0.12s;
+    }
+    #settings-dialog .field input:focus,
+    #settings-dialog .field select:focus,
+    #settings-dialog .field textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+    }
+    #settings-dialog .field select {
+      appearance: none;
+      -webkit-appearance: none;
+      padding-right: 36px;
+      cursor: pointer;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='14' viewBox='0 0 12 14'%3E%3Cpath d='M2.5 5.2 6 1.8l3.5 3.4M2.5 8.8 6 12.2l3.5-3.4' stroke='%238b93a1' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+    }
+    #settings-dialog .field textarea { resize: vertical; line-height: 1.5; }
+    #settings-dialog .field input[type="range"] {
+      width: 100%; display: block;
+      margin: 12px 0 6px;
+      accent-color: var(--accent);
+    }
+    #settings-dialog .field__val {
+      background: color-mix(in srgb, var(--accent) 13%, transparent);
+      border: 0; color: var(--accent-2);
+      font-size: 0.76rem; padding: 3px 11px; border-radius: 8px;
+    }
+    #settings-dialog .set-help { font-size: 0.76rem; margin-top: 8px; color: var(--muted); }
+    #settings-dialog .set-help strong { color: var(--text-2); }
+
+    /* Segmented theme control, reference look: quiet track, elevated active. */
+    #settings-dialog .set-seg { border-radius: 11px; background: var(--bg); }
+    #settings-dialog .set-seg__b { padding: 8px 6px; border-radius: 8px; }
+    #settings-dialog .set-seg__b.on {
+      background: var(--surface);
+      border-color: transparent;
+      box-shadow: 0 1px 5px rgb(0 0 0 / 0.2);
+    }
+
+    /* Model radio cards. */
+    #settings-dialog .set-models { display: flex; flex-direction: column; gap: 10px; margin-top: 0.55rem; }
+    #settings-dialog .set-models .onboard__model {
+      padding: 13px 15px;
+      border-radius: 12px;
+      border-width: 1.5px;
+      background: var(--surface-2);
+      align-items: flex-start;
+      gap: 12px;
+    }
+    #settings-dialog .set-models .onboard__model-radio { width: 17px; height: 17px; margin-top: 2px; }
+    #settings-dialog .set-models .onboard__model-name { font-size: 0.88rem; }
+    #settings-dialog .set-models .onboard__model-sub { margin: 2px 0 5px; }
+    #settings-dialog .set-models .onboard__model-file { line-height: 1.5; }
+    #settings-dialog .set-models .onboard__model-state { font-weight: 600; font-size: 0.78rem; }
+    #settings-dialog .onboard__dl { margin-top: 4px; }
+
+    /* Danger action as an outline pill (reference Data pane). */
+    #settings-dialog #set-clear-all {
+      align-self: flex-start;
+      border-radius: 999px;
+      padding: 0.55rem 1.35rem;
+    }
+
+    /* Vision status line is informational, not an error (.set-inline-msg
+       defaults to the danger color for validation messages). */
+    #settings-dialog #set-vision-status { color: var(--muted); font-size: 0.78rem; }
+
+    /* Maintenance panel polish. */
+    #settings-dialog .updates-panel { border-radius: 12px; }
+    #settings-dialog .updates-task-item { border-radius: 10px; padding: 9px 11px; font-size: 0.78rem; }
+    #settings-dialog .set-foot { padding: 0.8rem 1.5rem; }
     .set-eye {
       font-size: 10px; letter-spacing: 1.6px; text-transform: uppercase;
       color: var(--faint); font-weight: 600; margin-bottom: 0.7rem;
@@ -3886,10 +4028,17 @@
     }
 
     @media (max-width: 780px) {
-      #settings-dialog.settings-dialog { width: min(94vw, 30rem); }
-      #settings-dialog .set-body { display: block; padding: 0 1.2rem; }
-      #settings-dialog .set-grp:nth-child(2) { border-top: 1px solid var(--border); padding-top: 0.95rem; }
-      #settings-dialog .set-grp:last-child { grid-column: auto; }
+      /* Narrow screens: the sidebar becomes a wrapping tab row on top. */
+      #settings-dialog.settings-dialog { width: min(96vw, 30rem); }
+      #settings-dialog .settings { grid-template-columns: 1fr; min-height: 0; }
+      #settings-dialog .set-side { border-right: 0; border-bottom: 1px solid var(--border); }
+      #settings-dialog .set-side__in { position: static; padding: 12px 10px 10px; }
+      #settings-dialog .set-side .set-brand { padding-bottom: 10px; }
+      #settings-dialog .set-nav { flex-direction: row; flex-wrap: wrap; gap: 4px; }
+      #settings-dialog .set-nav__b { width: auto; padding: 6px 11px; font-size: 0.78rem; }
+      #settings-dialog .set-side__note { display: none; }
+      #settings-dialog .set-main > .set-x { top: 10px; margin: 10px 10px -40px 0; }
+      #settings-dialog .set-body { padding: 16px 16px 22px; }
     }
 
     .field > span {
@@ -5463,19 +5612,33 @@
 
   <dialog id="settings-dialog" class="dialog settings-dialog" aria-label="Settings">
     <form method="dialog" class="settings">
-      <header class="set-head">
-        <div class="set-brand">
-          <span class="set-brand__ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5h6.5M11.5 5h2M2.5 11h2M7 11h6.5"/><circle cx="10" cy="5" r="1.5"/><circle cx="5" cy="11" r="1.5"/></svg></span>
-          <span class="set-brand__t">
-            <span class="set-brand__eye">Preferences</span>
-            <span class="set-brand__h">Settings</span>
-          </span>
+      <aside class="set-side">
+        <div class="set-side__in">
+          <div class="set-brand">
+            <span class="set-brand__ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5h6.5M11.5 5h2M2.5 11h2M7 11h6.5"/><circle cx="10" cy="5" r="1.5"/><circle cx="5" cy="11" r="1.5"/></svg></span>
+            <span class="set-brand__t">
+              <span class="set-brand__eye">Preferences</span>
+              <span class="set-brand__h">Settings</span>
+            </span>
+          </div>
+          <nav class="set-nav" id="set-nav" aria-label="Settings sections">
+            <button type="button" class="set-nav__b is-on" data-pane="connection">Connection</button>
+            <button type="button" class="set-nav__b" data-pane="generation">Generation</button>
+            <button type="button" class="set-nav__b" data-pane="interface">Interface</button>
+            <button type="button" class="set-nav__b" data-pane="vision">Vision</button>
+            <button type="button" class="set-nav__b" data-pane="data">Data</button>
+            <button type="button" class="set-nav__b" data-pane="network">Network</button>
+            <button type="button" class="set-nav__b" data-pane="maintenance">Maintenance</button>
+          </nav>
+          <p class="set-side__note">All changes apply to this Mac only.</p>
         </div>
-        <button type="button" id="set-close" class="set-x" aria-label="Close settings"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
-      </header>
+      </aside>
+
+      <div class="set-main">
+      <button type="button" id="set-close" class="set-x" aria-label="Close settings"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
 
       <div class="set-body">
-        <section class="set-grp">
+        <section class="set-grp" data-pane="connection">
           <div class="set-eye">Connection</div>
           <label class="field">
             <span>Server URL <small class="field-note">empty = the local engine (default, also over the LAN)</small></span>
@@ -5535,7 +5698,7 @@
           </label>
         </section>
 
-        <section class="set-grp">
+        <section class="set-grp" data-pane="generation" hidden>
           <div class="set-eye">Generation</div>
           <label class="field">
             <span class="field__hd"><span class="field__hd-l">Temperature</span><output id="set-temp-out" class="field__val">0.7</output></span>
@@ -5552,10 +5715,10 @@
           </label>
         </section>
 
-        <section class="set-grp">
+        <section class="set-grp" data-pane="interface" hidden>
           <div class="set-eye">Interface</div>
           <div class="field">
-            <span>Theme</span>
+            <span>Theme <small class="field-note">applies immediately, everywhere in the app</small></span>
             <div class="set-seg" id="set-theme" role="radiogroup" aria-label="Theme">
               <button type="button" class="set-seg__b" data-theme="dark" role="radio"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.2 9.4A5.5 5.5 0 0 1 6.6 2.8 5.5 5.5 0 1 0 13.2 9.4z"/></svg>Dark</button>
               <button type="button" class="set-seg__b" data-theme="light" role="radio"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3"/><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1"/></svg>Light</button>
@@ -5570,6 +5733,36 @@
             </select>
             <p class="set-help"><strong>Structured</strong> gives the cleanest chat — tool calls, results and reasoning are parsed and folded — via a small, reversible patch applied to ds4-agent when the engine builds. <strong>Raw</strong> runs the stock ds4-agent untouched and the UI parses its plain text instead: lower fidelity, but nothing in the upstream code is modified. The raw fallback also kicks in automatically if the patch ever fails to apply.</p>
           </label>
+        </section>
+
+        <section class="set-grp" data-pane="vision" hidden>
+          <div class="set-eye">Vision</div>
+          <div class="field">
+            <span>Local image understanding <small class="field-note">chat image attachments + the agent's see_image tool</small></span>
+            <p class="set-inline-msg" id="set-vision-status">Checking…</p>
+            <div class="field__row">
+              <select id="set-vision-model" aria-label="Vision model">
+                <option value="ggml-org/Qwen2.5-VL-3B-Instruct-GGUF">Qwen2.5-VL 3B — lighter, ~3 GB</option>
+                <option value="ggml-org/Qwen2.5-VL-7B-Instruct-GGUF">Qwen2.5-VL 7B — better, ~6 GB</option>
+              </select>
+              <button type="button" id="set-vision-install" class="btn">Install</button>
+              <button type="button" id="set-vision-stop" class="btn" hidden>Stop server</button>
+            </div>
+            <p class="set-help">A local Qwen2.5-VL served by llama.cpp analyzes attached images into text. It starts on demand and <strong>stops itself when idle</strong>, so the multi-GB model is not resident all day. Switching model downloads the new weights once; files live in <code id="set-vision-dir">~/.dstudio/llama-vision</code> and the llama.cpp cache.</p>
+          </div>
+        </section>
+
+        <section class="set-grp" data-pane="data" hidden>
+          <div class="set-eye">Data</div>
+          <div class="field">
+            <span>Conversations <small class="field-note">removes every local conversation</small></span>
+            <button type="button" id="set-clear-all" class="btn btn--danger-outline">Clear all conversations</button>
+            <p class="set-help">Wipes the chat / agent / design history on this machine, plus the on-disk model cache (KV) when the engine is idle. This cannot be undone.</p>
+          </div>
+        </section>
+
+        <section class="set-grp" data-pane="network" hidden>
+          <div class="set-eye">Network</div>
           <label class="field">
             <span>Network access <small class="field-note">open DStudio from other devices on your Wi-Fi</small></span>
             <select id="set-lan" aria-label="Network access (LAN)">
@@ -5593,33 +5786,7 @@
           </div>
         </section>
 
-        <section class="set-grp">
-          <div class="set-eye">Vision</div>
-          <div class="field">
-            <span>Local image understanding <small class="field-note">chat image attachments + the agent's see_image tool</small></span>
-            <p class="set-inline-msg" id="set-vision-status">Checking…</p>
-            <div class="field__row">
-              <select id="set-vision-model" aria-label="Vision model">
-                <option value="ggml-org/Qwen2.5-VL-3B-Instruct-GGUF">Qwen2.5-VL 3B — lighter, ~3 GB</option>
-                <option value="ggml-org/Qwen2.5-VL-7B-Instruct-GGUF">Qwen2.5-VL 7B — better, ~6 GB</option>
-              </select>
-              <button type="button" id="set-vision-install" class="btn">Install</button>
-              <button type="button" id="set-vision-stop" class="btn" hidden>Stop server</button>
-            </div>
-            <p class="set-help">A local Qwen2.5-VL served by llama.cpp analyzes attached images into text. It starts on demand and <strong>stops itself when idle</strong>, so the multi-GB model is not resident all day. Switching model downloads the new weights once; files live in <code id="set-vision-dir">~/.dstudio/llama-vision</code> and the llama.cpp cache.</p>
-          </div>
-        </section>
-
-        <section class="set-grp">
-          <div class="set-eye">Data</div>
-          <div class="field">
-            <span>Conversations <small class="field-note">removes every local conversation</small></span>
-            <button type="button" id="set-clear-all" class="btn btn--danger-outline">Clear all conversations</button>
-            <p class="set-help">Wipes the chat / agent / design history on this machine, plus the on-disk model cache (KV) when the engine is idle. This cannot be undone.</p>
-          </div>
-        </section>
-
-        <section class="set-grp">
+        <section class="set-grp" data-pane="maintenance" hidden>
           <div class="set-eye">Maintenance</div>
           <div class="field updates-panel">
             <div class="updates-panel__top">
@@ -5652,6 +5819,7 @@
           <button class="btn btn--primary" value="close">Done</button>
         </div>
       </footer>
+      </div>
     </form>
   </dialog>
 
@@ -15386,8 +15554,29 @@ Your report must be precise, of high-quality, and written by an expert using an 
         on(qs('#set-vision-install'), 'click', visionInstall);
         on(qs('#set-vision-stop'), 'click', visionStop);
 
+        // Sidebar section nav: one pane at a time.
+        on(qs('#set-nav'), 'click', (e) => {
+          const b = e.target.closest('.set-nav__b');
+          if (b?.dataset.pane) setPane(b.dataset.pane);
+        });
+
         Store.subscribe('models', renderSetModels);
         Store.subscribe('modelDownload', renderSetModels);
+      }
+
+      // Two-pane settings: the sidebar switches which .set-grp pane is shown.
+      // The picked pane is kept for the session so reopening lands where you were.
+      let setPaneId = 'connection';
+      function setPane(id) {
+        setPaneId = id;
+        dialog.querySelectorAll('#set-nav .set-nav__b').forEach((b) => {
+          b.classList.toggle('is-on', b.dataset.pane === id);
+        });
+        dialog.querySelectorAll('.set-grp[data-pane]').forEach((s) => {
+          s.hidden = s.dataset.pane !== id;
+        });
+        if (id === 'vision') refreshVisionStatus();
+        dialog.scrollTop = 0;   // the dialog is the scroll container
       }
 
       // ---- Vision sidecar controls (host-local /api/vision/*) ----
@@ -15413,7 +15602,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
           if (btnS) btnS.hidden = true;
           return;
         }
-        const gb = (n) => `${(Number(n || 0) / (1024 ** 3)).toFixed(1)} GB`;
+        const gb = (n) => {
+          n = Number(n || 0);
+          return n >= 1024 ** 3 ? `${(n / (1024 ** 3)).toFixed(1)} GB` : `${Math.max(1, Math.round(n / (1024 ** 2)))} MB`;
+        };
         const disk = Number(v.diskBytes || 0) + Number(v.cacheBytes || 0);
         stat.textContent = !v.installed
           ? 'Not installed — installs on demand at the first image, or from here.'
@@ -15489,6 +15681,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         refreshMemoryDoctor();
         refreshUpdates(false);
         refreshVisionStatus();
+        setPane(setPaneId);
         requestAnimationFrame(() => { if (!dialog.open) { try { dialog.showModal(); } catch { dialog.show(); } } });
       }
 
