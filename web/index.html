@@ -48,25 +48,27 @@
        Newsreader is replaced by a SYSTEM serif (Georgia) to stay
        zero-dependency/offline — dstudio.c's CSP blocks CDN fonts. */
     :root {
-      /* Neutral black theme (no warm/brown cast). */
-      --bg: #0a0a0a;
-      --surface: #161616;
-      --surface-2: #1f1f1f;
-      --inset: #050505;
-      --text: #ededed;
-      --text-2: #c9c9c9;
-      --muted: #8c8c8c;
-      --faint: #5c5c5c;
-      --accent: #79aef0;
-      --accent-2: #a9cdf7;
-      --accent-soft: rgba(121, 174, 240, 0.12);
-      --accent-dim: rgba(121, 174, 240, 0.22);
-      --border: #272727;
-      --border-2: #363636;
+      /* Dark theme — cool blue-grey palette from the "Chat Animation" mock
+       * (design-agent artifact): panel #1e222a on a #12151a well, slate
+       * borders, #2563eb accent shared with the light theme. */
+      --bg: #1e222a;
+      --surface: #181b22;
+      --surface-2: #252b35;
+      --inset: #12151a;
+      --text: #e8ebf1;
+      --text-2: #bfc6d1;
+      --muted: #99a1ae;
+      --faint: #6d7583;
+      --accent: #2563eb;
+      --accent-2: #6f9cf5;
+      --accent-soft: rgba(37, 99, 235, 0.14);
+      --accent-dim: rgba(37, 99, 235, 0.26);
+      --border: #2c323d;
+      --border-2: #3a4150;
       --danger: #e08a7d;
-      --ok: #7cc08a;
+      --ok: #43bd77;
       --warn: #d29922;
-      --code-bg: #050505;
+      --code-bg: #12151a;
 
       --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -634,6 +636,29 @@
     body.composer-raised .messages__inner { padding-bottom: 0; }
     body.composer-raised .ec-hero { min-height: auto; justify-content: flex-start; padding-bottom: 18px; }
     body.composer-raised .composer { padding-top: 0; }
+
+    /* First-send choreography (mockup "Chat Animation"): the raised composer
+       FLIP-glides to its bottom seat (inline transform set by
+       playComposerDrop), the hero exits as a fixed ghost, and the incoming
+       transcript fades up. Compositor-only properties on purpose. */
+    .hero-ghost {
+      position: fixed;
+      z-index: 6;
+      margin: 0;
+      min-height: 0 !important;
+      justify-content: flex-start !important;
+      pointer-events: none;
+      overflow: hidden;
+      opacity: 1;
+      transition: opacity 0.45s ease, transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      will-change: opacity, transform;
+    }
+    .hero-ghost--out { opacity: 0; transform: translateY(-34px); }
+    @keyframes chat-drop-in {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: none; }
+    }
+    body.chat-drop-anim .messages { animation: chat-drop-in 0.5s ease 0.1s both; }
     body.design-gallery-inline .messages {
       overflow-y: auto;
       padding-bottom: 1rem;
@@ -664,7 +689,7 @@
     .flow-step--done { color: var(--muted); }
     .flow-step--done .fs-dot { color: var(--accent); border-color: var(--accent); }
     .flow-step--active { color: var(--text); }
-    .flow-step--active .fs-dot { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+    .flow-step--active .fs-dot { color: #fff; background: var(--accent); border-color: var(--accent); }
     .fs-label { white-space: nowrap; }
 
     /* Multi-direction proposal (Stage B) */
@@ -964,7 +989,12 @@
       padding: 0.75rem 1rem;
       line-height: 1.55;
       content-visibility: auto;
-      contain-intrinsic-size: 120px;
+      /* `auto 120px`: after the first render the browser REMEMBERS the real
+         size as the estimate. A fixed 120px made every offscreen/unrendered
+         message measure 120px during a transcript rebuild — scrollHeight
+         collapsed (a 6000px reply counted as 120), toBottom/restore landed at
+         the top, and the content "popped" a frame later. */
+      contain-intrinsic-size: auto 120px;
     }
 
     .msg__start {
@@ -1732,6 +1762,7 @@
        (model · thinking · meta · send). The focus border stays subtle — no
        loud accent ring while you type. */
     .composer__card {
+      position: relative;   /* seats the .composer-drop overlay */
       max-width: var(--msg-maxw);
       margin-inline: auto;
       display: grid;
@@ -1918,16 +1949,86 @@
       padding: 12px;
       text-align: left;
     }
+    /* Composer chips (mockup "Chat Animation"): compact row chip — 32px typed
+       icon, single-line name, muted meta, round ×, springy pop-in. */
     .composer__file {
       cursor: pointer;
-      width: min(100%, 420px);
-      min-height: 72px;
+      width: auto;
+      max-width: 300px;
+      min-height: 0;
       aspect-ratio: auto;
       flex-direction: row;
       align-items: center;
       justify-content: flex-start;
-      padding: 10px 42px 10px 10px;
+      gap: 9px;
+      border-radius: 11px;
+      border-color: var(--border-2);
+      padding: 6px 34px 6px 6px;
+      animation: chip-pop 0.35s cubic-bezier(0.34, 1.45, 0.5, 1) both;
     }
+    .composer__file--settled { animation: none; }
+    @keyframes chip-pop {
+      from { opacity: 0; transform: scale(0.82); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .composer__file .file-tile-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .chip-ext {
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+    .composer__file .composer__file-name {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text);
+      -webkit-line-clamp: 1;
+    }
+    .composer__file .composer__file-meta {
+      border: 0;
+      background: none;
+      padding: 0;
+      font-family: var(--font);
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: none;
+    }
+    .composer__file .composer__file-remove {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      top: 50%;
+      right: 8px;
+      transform: translateY(-50%);
+    }
+
+    /* Drag&drop overlay on the composer card (mockup): dashed accent inset
+       with "Rilascia per allegare", shown while files are dragged over. */
+    .composer-drop {
+      position: absolute;
+      inset: -1px;
+      z-index: 6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      border: 2px dashed var(--accent);
+      border-radius: 20px;
+      background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+      color: var(--accent-2);
+      font-size: 14.5px;
+      font-weight: 600;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    body.drag-attach .composer-drop { opacity: 1; }
     .msg-attachment {
       cursor: pointer;
       appearance: none;
@@ -2013,6 +2114,46 @@
       gap: 12px;
       margin-top: 0;
       padding: 10px 14px;
+    }
+    /* Media attachments (images + rendered PDF page): a large preview, not a
+       chip. Placed after the row-card rule so it wins the specificity tie. */
+    .msg-attachment--media,
+    .msg-attachments--user .msg-attachment--media {
+      width: auto;
+      max-width: min(100%, 360px);
+      height: auto;
+      min-height: 0;
+      aspect-ratio: auto;
+      flex-direction: column;
+      gap: 0;
+      padding: 0;
+      overflow: hidden;
+      border-radius: 14px;
+      background: var(--surface-2);
+      box-shadow: 0 2px 10px rgb(0 0 0 / 0.10);
+      position: relative;
+      cursor: pointer;
+    }
+    .msg-attachment--media .msg-attachment__img {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: 440px;
+      object-fit: contain;
+      background: var(--surface-2);
+    }
+    .msg-attachment--media:hover { border-color: var(--border-2); }
+    .msg-attachment__badge {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      background: rgba(0, 0, 0, 0.62);
+      color: #fff;
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      padding: 2px 7px;
+      border-radius: 6px;
     }
     .msg-generated-files {
       margin-top: 12px;
@@ -5033,7 +5174,7 @@
       min-width: 0;
       line-height: 1.55;
       content-visibility: auto;
-      contain-intrinsic-size: 96px;
+      contain-intrinsic-size: auto 96px;   /* remember real size once rendered (see .msg) */
     }
 
     .seg--user {
@@ -5295,6 +5436,10 @@
         <!-- Plan follow-up actions and agent clarification cards. -->
         <div id="plan-actions" class="plan-actions" hidden></div>
         <form id="composer-form" class="composer__card">
+          <div class="composer-drop" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2 L9 11 M5.5 7.5 L9 11 L12.5 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 12.5 L2.5 15.5 L15.5 15.5 L15.5 12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Rilascia per allegare
+          </div>
           <div id="composer-files" class="composer__files" aria-label="Attached files" hidden></div>
           <div id="gsa-target-panel" class="gsa-target" hidden>
             <label class="gsa-target__row">
@@ -6287,12 +6432,21 @@
     // Tile visual for an attachment: the image thumbnail (session full-res while
     // in the composer, or the small persisted thumb in a sent message) — else a
     // generic file icon. Shared by the composer tiles and message tiles.
+    // Media (image / rendered PDF first page) preview URI: session full-res if
+    // cached, else the small persisted thumbnail. null for non-media files.
+    function attachMediaUri(a) {
+      if (!a || (a.kind !== 'image' && a.kind !== 'pdf')) return null;
+      return imageAttachData.get(a.id)?.dataUri || a.thumb || null;
+    }
     function attachVisualEl(a) {
-      const uri = (a && a.kind === 'image') ? (imageAttachData.get(a.id)?.dataUri || a.thumb) : null;
+      const uri = attachMediaUri(a);
       if (uri) return el('span', { class: 'file-tile-icon', style: 'padding:0;overflow:hidden' }, [
         el('img', { src: uri, alt: '', style: 'width:100%;height:100%;object-fit:cover' }),
       ]);
-      return buildFileTileIcon();
+      // Typed color square (mockup): PDF red, image accent, everything else slate.
+      const label = (attachmentKindLabel(a) || 'FILE').slice(0, 4);
+      const bg = a?.kind === 'pdf' ? '#d4483e' : a?.kind === 'image' ? 'var(--accent)' : '#64748b';
+      return el('span', { class: 'file-tile-icon chip-ext', style: `background:${bg}`, text: label });
     }
 
     function fmtFileSize(bytes) {
@@ -6537,12 +6691,12 @@
           file.type || '',
           file.truncated ? 'truncated' : '',
         ].filter(Boolean).join(' · ');
-        if (file.kind === 'image') {
+        if (file.kind === 'image' || file.kind === 'pdf') {
           const uri = imageAttachData.get(file.id)?.dataUri || file.thumb;
           body.textContent = '';
-          if (uri) body.append(el('img', { src: uri, alt: file.name || 'image', style: 'max-width:100%;height:auto;border-radius:8px;display:block' }));
+          if (uri) body.append(el('img', { src: uri, alt: file.name || file.kind, style: 'max-width:100%;height:auto;border-radius:8px;display:block' }));
           if (file.content) body.append(el('pre', { style: 'white-space:pre-wrap;margin-top:10px', text: file.content }));
-          if (!uri && !file.content) body.textContent = '(image)';
+          if (!uri && !file.content) body.textContent = file.kind === 'pdf' ? '(PDF)' : '(image)';
         } else {
           body.textContent = file.content || '';
         }
@@ -6675,8 +6829,84 @@
       requestAnimationFrame(() => ArtifactCanvas.open(file));
     }
 
+    /* First-send choreography (mockup "Chat Animation"): while the composer is
+     * raised (hero empty state), render paths snapshot its on-screen position
+     * BEFORE rebuilding the transcript; when the raised class then drops, the
+     * composer FLIP-glides down to its bottom seat, the hero fades out in a
+     * fixed overlay, and the incoming transcript fades up. All three run on
+     * the compositor (transform/opacity) — no layout thrash. */
+    let composerFlip = null;   // { rect, hero, heroRect, at }
+    function snapshotComposerTransition(scroller) {
+      if (!document.body.classList.contains('composer-raised')) { composerFlip = null; return; }
+      const card = qs('#composer-form');
+      if (!card) { composerFlip = null; return; }
+      // The hero node is grabbed while still attached; the coming rebuild
+      // detaches it and playComposerDrop() re-seats it as a ghost overlay.
+      const hero = scroller?.querySelector?.('.ec-hero, .brief-copy') || null;
+      composerFlip = {
+        rect: card.getBoundingClientRect(),
+        hero,
+        heroRect: hero ? hero.getBoundingClientRect() : null,
+        at: performance.now(),
+      };
+    }
+    function playComposerDrop() {
+      const snap = composerFlip;
+      composerFlip = null;
+      if (!snap || performance.now() - snap.at > 1000) return;
+      const card = qs('#composer-form');
+      if (card) {
+        const after = card.getBoundingClientRect();
+        const dy = snap.rect.top - after.top;
+        // Skip degenerate targets: a composer hidden by a staged design phase
+        // measures 0-height, and a bogus delta would fling the card offscreen.
+        if (after.height > 0 && Math.abs(dy) > 8 && Math.abs(dy) < window.innerHeight) {
+          card.style.transition = 'none';
+          card.style.transform = `translateY(${dy}px)`;
+          requestAnimationFrame(() => {
+            card.style.transition = 'transform 0.65s cubic-bezier(0.35, 0, 0.15, 1)';
+            card.style.transform = '';
+            setTimeout(() => { card.style.transition = ''; card.style.transform = ''; }, 720);
+          });
+        }
+      }
+      if (snap.hero && snap.heroRect && snap.heroRect.height > 0 && !snap.hero.isConnected) {
+        const ghost = snap.hero;
+        ghost.classList.add('hero-ghost');
+        ghost.style.left = `${snap.heroRect.left}px`;
+        ghost.style.top = `${snap.heroRect.top}px`;
+        ghost.style.width = `${snap.heroRect.width}px`;
+        ghost.style.height = `${snap.heroRect.height}px`;
+        document.body.append(ghost);
+        requestAnimationFrame(() => ghost.classList.add('hero-ghost--out'));
+        setTimeout(() => ghost.remove(), 600);
+      }
+      // One-shot fade-up of the incoming transcript. The class sits on <body>
+      // and the animation on the PERSISTENT scroller (.messages / #agent-view),
+      // so mid-animation repaints do not restart it.
+      document.body.classList.add('chat-drop-anim');
+      setTimeout(() => document.body.classList.remove('chat-drop-anim'), 750);
+    }
     function setComposerRaised(active) {
+      const was = document.body.classList.contains('composer-raised');
       document.body.classList.toggle('composer-raised', !!active);
+      if (was && !active) playComposerDrop();
+      else if (active) composerFlip = null;
+    }
+
+    /* Composer pill menus (model/think): drop toward the REAL available space.
+     * The static `body.composer-raised → open downward` rule assumed a high
+     * composer (chat hero), but the design brief keeps the raised composer near
+     * the bottom — its menus opened downward straight off screen. Inline styles
+     * override both static rules. */
+    function orientComposerMenu(menu) {
+      if (!menu || !menu.parentElement) return;
+      const anchor = menu.parentElement.getBoundingClientRect();
+      const need = Math.min(menu.scrollHeight || 320, 340) + 14;
+      const openDown = document.body.classList.contains('composer-raised') &&
+        (window.innerHeight - anchor.bottom) >= need;
+      menu.style.top = openDown ? 'calc(100% + 6px)' : 'auto';
+      menu.style.bottom = openDown ? 'auto' : 'calc(100% + 6px)';
     }
 
     // Editorial empty-state hero (mockup ds4-design "DS4 Empty Chat") shared by
@@ -6822,27 +7052,57 @@
       }
 
       /** After a repaint: stick to the bottom, or restore the captured
-       * position once — never fighting an actively scrolling/selecting user. */
-      function settle(stick, previousTop) {
+       * position once — never fighting an actively scrolling/selecting user.
+       * rebuilt = the repaint emptied and re-filled the scroller (its content
+       * momentarily collapsed, clamping scrollTop to ~0). In that case the
+       * restore must ALWAYS run: previousTop was captured right before the
+       * rebuild, so re-applying it IS honoring the user's position — skipping
+       * it (the old recent-input guard) landed the view at the top of the
+       * chat whenever a stream finished within 1.5s of a user scroll. */
+      function settle(stick, previousTop, { rebuilt = false } = {}) {
         const s = getScroller();
         if (!s) return;
         if (stick) {
-          // Re-check follow on the deferred pass: a blind re-apply used to
-          // yank the view down right after the user scrolled up, and the
-          // near-bottom scroll event it caused re-armed follow — the "cannot
-          // scroll up while streaming" loop.
+          // Multi-frame convergence: freshly built messages use
+          // content-visibility:auto, so right after a rebuild an unrendered
+          // reply measures only its intrinsic estimate (120px) — one toBottom
+          // lands at a bogus "bottom" near the TOP, and even a single rAF runs
+          // BEFORE the paint that resolves the real height. Re-apply across a
+          // few frames until the height stops changing, re-checking follow
+          // each pass so a user scrolling up still wins immediately.
           toBottom();
-          requestAnimationFrame(() => {
-            if (s.isConnected && shouldFollow()) toBottom();
-          });
+          // NOTE: do not gate the passes on shouldFollow() — the stream-end
+          // path calls finishAutoFollow() right after the render, which drops
+          // `following` before the first frame. "Nobody moved it but us"
+          // (scrollTop still equals our last write, no fresh user input) is
+          // the correct condition to keep converging.
+          const t0 = performance.now();
+          let passes = 0;
+          const converge = () => {
+            if (!s.isConnected || isSelecting()) return;
+            if (inputAt > t0) return;                          // the user took over
+            if (Math.abs(s.scrollTop - progTop) > 2) return;   // someone else moved it
+            toBottom();
+            if (++passes < 5) requestAnimationFrame(converge);
+          };
+          requestAnimationFrame(converge);
           return;
         }
-        // The scroller node persists across repaints so the browser already
-        // preserves the position; the restore only covers a rebuild that
-        // clamped it.
-        if (performance.now() - inputAt < 1500 || isSelecting()) { lastTop = s.scrollTop; return; }
+        // Without a rebuild the scroller node kept its content, so the browser
+        // already preserves the position — leave an actively scrolling or
+        // selecting user alone.
+        if (!rebuilt && (performance.now() - inputAt < 1500 || isSelecting())) { lastTop = s.scrollTop; return; }
         const targetTop = Number.isFinite(previousTop) ? Math.max(0, previousTop) : null;
-        if (targetTop !== null && Math.abs(s.scrollTop - targetTop) > 1) write(targetTop);
+        if (targetTop !== null) {
+          if (Math.abs(s.scrollTop - targetTop) > 1) write(targetTop);
+          // Post-paint re-apply: content-visibility can reshuffle heights on
+          // the first paint after a rebuild; re-anchor once unless the user
+          // scrolled in the meantime (their write would not match ours).
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            if (!s.isConnected || isSelecting()) return;
+            if (Math.abs(s.scrollTop - progTop) <= 2 && Math.abs(s.scrollTop - targetTop) > 1) write(targetTop);
+          }));
+        }
         lastTop = s.scrollTop;
       }
 
@@ -9367,6 +9627,7 @@
         const streaming = !!chat?.id && Store.isChatStreaming(chat.id);
         const stick = forceBottom || shouldAutoFollow(chat?.id) || (!streaming && shouldStickToBottom(root));
         const prevScrollTop = root.scrollTop;
+        snapshotComposerTransition(root);   // hero-state positions, BEFORE the rebuild
         root.replaceChildren();
         inner = el('div', { class: 'messages__inner' });
         scrollBtn = el('button', { class: 'btn scroll-down', type: 'button', text: '↓', 'aria-label': 'Scroll to bottom' });
@@ -9405,7 +9666,7 @@
             if (messageNodes.size <= 700) break;
           }
         }
-        follow.settle(stick, prevScrollTop);
+        follow.settle(stick, prevScrollTop, { rebuilt: true });
         if (stick) {
           requestAnimationFrame(() => {
             if ((forceBottom || shouldAutoFollow(chat?.id)) && !selectionInside(root)) follow.toBottom();
@@ -9532,6 +9793,22 @@
       function buildAttachments(attachments, variant = '') {
         const wrap = el('div', { class: `msg-attachments${variant === 'user' ? ' msg-attachments--user' : ''}`, 'aria-label': 'Attached files' });
         (attachments || []).forEach((a, i) => {
+          const mediaUri = attachMediaUri(a);
+          if (mediaUri) {
+            // Images and PDFs (rendered first page) show as a large preview, not
+            // a file chip. Click opens the full-size viewer.
+            wrap.append(el('button', {
+              class: 'msg-attachment msg-attachment--media',
+              type: 'button',
+              title: a.name || 'attachment',
+              'data-act': 'preview-attachment',
+              'data-attachment-index': String(i),
+            }, [
+              el('img', { class: 'msg-attachment__img', src: mediaUri, alt: a.name || '' }),
+              a.kind === 'pdf' ? el('span', { class: 'msg-attachment__badge', text: 'PDF' }) : null,
+            ].filter(Boolean)));
+            return;
+          }
           wrap.append(el('button', {
             class: 'msg-attachment',
             type: 'button',
@@ -10026,6 +10303,7 @@
         ];
         files.forEach((a, i) => {
           const kind = a.kind === 'image' ? 'image'
+            : a.kind === 'pdf' ? 'PDF document (pages with a text layer are verbatim; scanned pages and detected figures were read by a local vision model — below is the content, page by page; small or vector-drawn figures may not be described, so absence of a figure description does not prove the page has no figures)'
             : a.kind === 'image-followup' ? 'image follow-up (a fresh look at the previously attached image, answering the current question)'
             : 'file';
           lines.push(
@@ -13145,10 +13423,19 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return /^image\/(png|jpe?g|webp|gif|bmp)$/i.test(type) || /\.(png|jpe?g|webp|gif|bmp)$/i.test(name);
       }
 
+      // PDFs are read visually: every page is rendered to an image and passed to
+      // the vision model (server-side), whose text becomes the attachment content.
+      function attachmentIsPdf(file) {
+        const name = file?.name || '';
+        const type = file?.type || '';
+        return /^application\/pdf$/i.test(type) || /\.pdf$/i.test(name);
+      }
+
       function attachmentAllowed(file) {
         const name = file?.name || '';
         const type = file?.type || '';
         return attachmentIsImage(file) ||
+          attachmentIsPdf(file) ||
           type.startsWith('text/') ||
           /^(application\/(json|xml|x-ndjson|javascript|typescript|yaml|toml)|image\/svg\+xml)$/i.test(type) ||
           CHAT_ATTACH_TEXT_EXT_RE.test(name) ||
@@ -13159,12 +13446,13 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return Array.from(e.dataTransfer?.types || []).includes('Files');
       }
 
-      // Drops are accepted in chat mode (attachments) and in AGENT mode, where
-      // images are saved into the workspace for see_image instead — the agent
-      // is file-based, so chat-style attachments would have nowhere to go.
-      // Design mode is excluded: its native agent has no see_image tool.
+      // Drops are accepted in chat mode (attachments) and in AGENT/DESIGN
+      // mode, where images are saved into the workspace for see_image instead
+      // — those agents are file-based, so chat-style attachments would have
+      // nowhere to go. Both dispatch see_image (the design agent natively,
+      // the normal agent via the jsonl patch).
       function isAgentImageDropMode() {
-        return agentMode && curMode === 'agent';
+        return agentMode && (curMode === 'agent' || curMode === 'design');
       }
 
       function acceptsFileDrop() {
@@ -13179,6 +13467,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           e.stopPropagation();
           dropDepth++;
           target.classList.add('chat--drop');
+          document.body.classList.add('drag-attach');   // composer card overlay
         });
         on(target, 'dragover', (e) => {
           if (!acceptsFileDrop() || !dragHasFiles(e)) return;
@@ -13191,7 +13480,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
           e.preventDefault();
           e.stopPropagation();
           dropDepth = Math.max(0, dropDepth - 1);
-          if (!dropDepth) target.classList.remove('chat--drop');
+          if (!dropDepth) {
+            target.classList.remove('chat--drop');
+            document.body.classList.remove('drag-attach');
+          }
         });
         on(target, 'drop', (e) => {
           if (!acceptsFileDrop() || !dragHasFiles(e)) return;
@@ -13199,23 +13491,24 @@ Your report must be precise, of high-quality, and written by an expert using an 
           e.stopPropagation();
           dropDepth = 0;
           target.classList.remove('chat--drop');
+          document.body.classList.remove('drag-attach');
           if (isAgentImageDropMode()) agentAttachImages(e.dataTransfer.files);
           else readChatFiles(e.dataTransfer.files);
         });
       }
 
-      // Agent mode: dropped/pasted images land IN THE WORKSPACE (via
+      // Agent/Design mode: dropped/pasted images land IN THE WORKSPACE (via
       // /api/agent/attach-image) and the composer gets a see_image hint, so the
       // model knows the file exists and how to look at it.
       async function agentAttachImages(fileList) {
         const files = Array.from(fileList || []).filter((f) => attachmentIsImage(f));
         if (!files.length) {
-          toast('Only images can be dropped in Agent mode (they are saved into the workspace).', 'warn');
+          toast('Only images can be dropped here (they are saved into the workspace).', 'warn');
           return;
         }
-        const wd = Store.getState().ui.agentWorkdir || Store.getSettings().workdirs?.agent || '';
+        const wd = Store.getState().ui.agentWorkdir || Store.getSettings().workdirs?.[curMode] || '';
         if (!wd) {
-          toast('Choose the Agent working folder first — images are saved into the workspace.', 'warn');
+          toast('Choose the working folder first — images are saved into the workspace.', 'warn');
           return;
         }
         for (const file of files) {
@@ -13375,6 +13668,72 @@ Your report must be precise, of high-quality, and written by an expert using an 
         }
       }
 
+      // Read a PDF at send. The server is hybrid: pages with a text layer are
+      // extracted verbatim by pdftotext (instant), scanned pages and large
+      // figures are read by the vision model; the combined page-by-page text
+      // becomes attachment.content. The read is question-INDEPENDENT on
+      // purpose (pure extraction; the chat model answers the question), so the
+      // server cache works across questions — re-sending the same PDF with a
+      // new question is instant. Auto-installs the vision model once on 503
+      // (only returned when the PDF actually needs vision). While the read
+      // runs, a progress poll turns the tile label into "Reading page n/m…".
+      // Never throws.
+      async function analyzePdfAttachment(att) {
+        const entry = imageAttachData.get(att.id);
+        if (!entry || !entry.pdfBytes) return;
+        entry.status = 'analyzing';
+        entry.progress = '';
+        renderPendingAttachments();
+        const H = { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' };
+        const job = `pdf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+        const post = () => fetch('/api/pdf/describe', { method: 'POST', headers: H, body: JSON.stringify({ data_uri: entry.pdfBytes, job }) });
+        const poll = setInterval(() => {
+          fetch(`/api/pdf/progress?job=${job}`)
+            .then((r) => r.json())
+            .then((p) => {
+              if (p?.phase === 'vision' && p.pages) {
+                entry.progress = `page ${Math.max(1, p.page | 0)}/${p.pages}`;
+                renderPendingAttachments();
+              }
+            })
+            .catch(() => { /* progress is best-effort */ });
+        }, 1200);
+        try {
+          let res = await post();
+          if (res.status === 503) {   // vision model not installed yet
+            entry.status = 'installing';
+            renderPendingAttachments();
+            await ensureVisionSetup();
+            res = await post();
+          }
+          const r = await res.json().catch(() => ({}));
+          if (!res.ok || !r.ok) throw new Error(r.error || `HTTP ${res.status}`);
+          const t = String(r.text || '').trim();
+          const txt = r.textPages | 0, figs = r.figPages | 0;
+          const scans = (r.visionPages | 0) - figs;
+          const parts = [];
+          if (txt > 0) parts.push('text layer extracted locally');
+          if (scans > 0) parts.push(`${scans} scanned page${scans > 1 ? 's' : ''} read by the local vision model`);
+          if (figs > 0) parts.push(`figures on ${figs} page${figs > 1 ? 's' : ''} described by the local vision model`);
+          const how = parts.join('; ') || 'no readable content';
+          att.content = t
+            ? `[PDF "${att.name}" — ${how}${r.truncated ? '; truncated to the first pages' : ''}]\n${t}`
+            : `[PDF "${att.name}" attached, but no readable content was found.]`;
+          entry.status = 'ok';
+        } catch (e) {
+          att.content = `[PDF "${att.name}" attached, but reading it failed: ${e?.message || e}.]`;
+          entry.status = 'failed';
+        } finally {
+          clearInterval(poll);
+          entry.progress = '';
+          // The PDF bytes exist only to feed this read — a 1GB PDF is ~1.37GB
+          // of data URI, which must not linger in the session LRU (the small
+          // rendered-page preview in entry.dataUri is all later UI needs).
+          delete entry.pdfBytes;
+          renderPendingAttachments();
+        }
+      }
+
       // ONE joint describe for multiple images: the vision model sees them
       // together, so "what changed between these screenshots?" actually works
       // (each image described blind to the others cannot compare anything).
@@ -13420,11 +13779,15 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
 
       function attachTileMeta(a) {
-        if (a?.kind === 'image') {
+        if (a?.kind === 'image' || a?.kind === 'pdf') {
+          const label = a.kind === 'pdf' ? 'PDF' : 'Image';
           const entry = imageAttachData.get(a.id);
           if (entry?.status === 'installing') return 'Installing vision model…';
-          if (entry?.status === 'analyzing') return 'Analyzing…';
-          return entry?.status === 'failed' ? 'Image · not read' : 'Image';
+          if (entry?.status === 'analyzing') {
+            if (a.kind !== 'pdf') return 'Analyzing…';
+            return entry.progress ? `Reading ${entry.progress}…` : 'Reading pages…';
+          }
+          return entry?.status === 'failed' ? `${label} · not read` : label;
         }
         return attachmentKindLabel(a);
       }
@@ -13500,6 +13863,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
       async function finalizeAndSendChat(text) {
         const q = text && text.trim() ? text.trim() : undefined;
         const imgs = pendingAttachments.filter((a) => a.kind === 'image' && !a.content);
+        const pdfs = pendingAttachments.filter((a) => a.kind === 'pdf' && !a.content);
         if (sendBtn) sendBtn.disabled = true;
         if (input) input.disabled = true;
         let followups = [];
@@ -13507,6 +13871,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           if (imgs.length > 1) await analyzeImagesJointly(imgs, q);
           else if (imgs.length === 1) await analyzeImageAttachment(imgs[0], q);
           else if (visionFollowupArmed && q) followups = await runVisionFollowup(q);
+          if (pdfs.length) await Promise.all(pdfs.map((a) => analyzePdfAttachment(a)));
         } finally {
           if (sendBtn) sendBtn.disabled = false;
           if (input) input.disabled = false;
@@ -13567,7 +13932,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
                 const png = await imageFileToDataUri(file, 1568, 1, 'image/png');
                 dataUri = png.length <= 1_400_000 ? png : await imageFileToDataUri(file, 1568, 0.9, 'image/jpeg');
               }
-              thumb = await imageFileToDataUri(file, 160, 0.6, 'image/jpeg');   // small, persisted with the message
+              // Persisted preview (survives reload). 640px keeps the big message
+            // bubble crisp; JPEG q0.82 keeps it small in localStorage.
+            thumb = await imageFileToDataUri(file, 640, 0.82, 'image/jpeg');
             } catch { toast(`Could not read image ${file.name}.`, 'error'); continue; }
             const att = {
               id,
@@ -13582,6 +13949,42 @@ Your report must be precise, of high-quality, and written by an expert using an 
             // user's question (targeted VQA is far more precise than a blind
             // "describe everything"). Just hold the pixels for that call.
             rememberImageData(id, { dataUri, status: 'ready', name: att.name });
+            pendingAttachments.push(att);
+            added++;
+            continue;
+          }
+          if (attachmentIsPdf(file)) {
+            // 1GB binary → ~1.37GB once base64'd, under the server's 1.5GB
+            // body cap for /api/pdf/*. Local-first: the transfer is loopback
+            // and the memory cost is transient (bytes are dropped after the
+            // read), so huge scans are allowed.
+            if (file.size > 1024 * 1024 * 1024) { toast(`${file.name}: PDF too large (max 1GB).`, 'warn'); continue; }
+            const id = `att_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+            let pdfBytes;
+            try { pdfBytes = await fileToDataURL(file); }   // data:application/pdf;base64,…
+            catch { toast(`Could not read ${file.name}.`, 'error'); continue; }
+            // Render the first page server-side for a real preview (best-effort).
+            let previewUri = '', thumb = '';
+            try {
+              const r = await fetch('/api/pdf/thumb', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
+                body: JSON.stringify({ data_uri: pdfBytes }),
+              }).then((x) => x.json()).catch(() => ({}));
+              if (r?.ok && r.thumb) { previewUri = r.thumb; thumb = await shrinkDataUri(r.thumb, 640, 0.82); }
+            } catch { /* no preview → generic PDF tile */ }
+            const att = {
+              id,
+              name: file.name || 'document.pdf',
+              type: 'application/pdf',
+              size: file.size || 0,
+              kind: 'pdf',
+              content: '',
+              thumb,
+            };
+            // Session cache: the rendered page IS the visual; the PDF bytes are
+            // kept for the read-at-send call. No analysis at attach time.
+            rememberImageData(id, { dataUri: previewUri || thumb, status: 'ready', name: att.name, pdfBytes });
             pendingAttachments.push(att);
             added++;
             continue;
@@ -13617,12 +14020,16 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (added) toast(`Attached ${added} file${added === 1 ? '' : 's'}.`, 'info');
       }
 
+      const seenChipIds = new Set();   // pop-in only on first appearance, not every repaint
       function renderPendingAttachments() {
         if (!filesEl) return;
         filesEl.hidden = pendingAttachments.length === 0;
         filesEl.replaceChildren(...pendingAttachments.map((a) => {
+          const settled = seenChipIds.has(a.id);
+          seenChipIds.add(a.id);
+          const meta = attachTileMeta(a) + (a.size ? ` · ${fmtFileSize(a.size)}` : '');
           const row = el('div', {
-            class: 'composer__file',
+            class: `composer__file${settled ? ' composer__file--settled' : ''}`,
             title: a.name,
             role: 'button',
             tabindex: '0',
@@ -13631,7 +14038,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
             attachVisualEl(a),
             el('span', { class: 'file-tile-body' }, [
               el('span', { class: 'composer__file-name', text: a.name }),
-              el('span', { class: 'composer__file-meta', text: attachTileMeta(a) }),
+              el('span', { class: 'composer__file-meta', text: meta }),
             ]),
             el('button', {
               class: 'composer__file-remove',
@@ -14895,6 +15302,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           menu.append(item);
         });
         cbarThinkWrap.append(menu);
+        orientComposerMenu(menu);
       }
 
       function placePrimaryControls() {
@@ -15212,6 +15620,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
             menu.append(item);
           });
           cbarModel.append(menu);
+          orientComposerMenu(menu);
           return;
         }
         const dl = Store.getState().ui.modelDownload;     // {variant, pct} | null
@@ -15277,6 +15686,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           menu.append(item);
         });
         cbarModel.append(menu);
+          orientComposerMenu(menu);
       }
       function pickGguf(g, active) {
         if (isLanClientMode()) return;
@@ -20357,6 +20767,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         agentSelectionPendingRender = false;
         const stick = agentFollow.shouldFollow();
         const prevScrollTop = view.scrollTop;
+        snapshotComposerTransition(view);   // hero-state positions, BEFORE the rebuild
         if (viewMode !== 'agent') hideActiveQuestion();
         // FAST PATH while the design Generating screen is up: refresh it IN PLACE
         // without rebuilding `inner`. The old code cleared `inner` (detaching genEl)
@@ -20431,7 +20842,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           // keep running instead of restarting (looking frozen) every render.
           if (!genEl) genEl = buildGeneratingScreen(); else syncGeneratingScreen(genEl);
           inner.append(genEl);
-          agentFollow.settle(stick, prevScrollTop);
+          agentFollow.settle(stick, prevScrollTop, { rebuilt: true });
           return;
         }
         genEl = null; // left the generating phase: next one starts fresh
@@ -20439,7 +20850,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           const lastQ = findLastQform();
           if (lastQ) {
             inner.append(buildQForm(lastQ));
-            agentFollow.settle(stick, prevScrollTop);
+            agentFollow.settle(stick, prevScrollTop, { rebuilt: true });
             return;
           }
         }
@@ -20503,7 +20914,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         else if (displayedWorking()) {
           inner.append(buildAgentWorking());
         }
-        agentFollow.settle(stick, prevScrollTop);
+        agentFollow.settle(stick, prevScrollTop, { rebuilt: true });
       }
 
       /* ---- Compaction card: the engine summarizes the conversation to free
