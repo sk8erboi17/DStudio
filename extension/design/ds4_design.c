@@ -862,25 +862,59 @@ static void dsml_set_error(dsml_parser *p, const char *msg) {
     snprintf(p->error, sizeof(p->error), "%s", msg);
 }
 
+/* Skip a run of DSML marker "glue" — the ｜ (U+FF5C) bars, the zero-width chars
+ * (U+200B/C/D, U+FEFF) some cloud models emit in their place, and ASCII
+ * whitespace. Cloud DeepSeek reproduces DStudio's ｜DSML｜ markers as plain text
+ * and mangles the bars (drops them or swaps a bar for a zero-width), so every
+ * marker matcher treats the bars as optional and skips this glue. Ported from
+ * the agent parser (ds4-agent-jsonl edits 039-040) which the design port
+ * predated — without it, a mangled cloud close tag falls through and the whole
+ * tool_calls block is emitted as raw prose (and its multi-byte bars render as
+ * ��), stalling the run. */
+static const char *dsml_skip_sep(const char *p) {
+    static const char *const seps[] = {
+        "\xEF\xBD\x9C", /* U+FF5C fullwidth vertical bar */
+        "\xE2\x80\x8B", /* U+200B zero-width space */
+        "\xE2\x80\x8C", /* U+200C zero-width non-joiner */
+        "\xE2\x80\x8D", /* U+200D zero-width joiner */
+        "\xEF\xBB\xBF", /* U+FEFF zero-width no-break space / BOM */
+        NULL
+    };
+    for (;;) {
+        if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') { p++; continue; }
+        int matched = 0;
+        for (int i = 0; seps[i]; i++) {
+            size_t n = strlen(seps[i]);
+            if (strncmp(p, seps[i], n) == 0) { p += n; matched = 1; break; }
+        }
+        if (!matched) return p;
+    }
+}
+
 static bool dsml_open_tag_is(const char *tag, const char *name) {
-    char prefix[64];
-    snprintf(prefix, sizeof(prefix), "<｜DSML｜%s", name);
-    size_t prefix_len = strlen(prefix);
-    if (strncmp(tag, prefix, prefix_len) != 0) return false;
-    char c = tag[prefix_len];
+    /* Accept a mangled leading/separating bar around the ｜DSML｜ marker. */
+    const char *p = tag;
+    if (*p != '<') return false;
+    p = dsml_skip_sep(p + 1);
+    if (strncmp(p, "DSML", 4) != 0) return false;
+    p = dsml_skip_sep(p + 4);
+    size_t nlen = strlen(name);
+    if (strncmp(p, name, nlen) != 0) return false;
+    char c = p[nlen];
     return c == '>' || c == ' ' || c == '\t' || c == '\r' || c == '\n';
 }
 
 static bool dsml_close_tag_at(const char *s, const char *name, size_t *tag_len) {
-    char prefix[64];
-    static const char dsml_bar[] = "｜";
-    snprintf(prefix, sizeof(prefix), "</｜DSML｜%s", name);
-    size_t prefix_len = strlen(prefix);
-    if (strncmp(s, prefix, prefix_len) != 0) return false;
-    const char *p = s + prefix_len;
-    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
-    if (strncmp(p, dsml_bar, strlen(dsml_bar)) == 0) p += strlen(dsml_bar);
-    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+    /* Tolerant close matcher: treat both ｜ bars as optional and skip any
+     * bar/zero-width/whitespace glue between "</", "DSML", the name and ">". */
+    const char *p = s;
+    if (p[0] != '<' || p[1] != '/') return false;
+    p = dsml_skip_sep(p + 2);
+    if (strncmp(p, "DSML", 4) != 0) return false;
+    p = dsml_skip_sep(p + 4);
+    size_t nlen = strlen(name);
+    if (strncmp(p, name, nlen) != 0) return false;
+    p = dsml_skip_sep(p + nlen);
     if (*p != '>') return false;
     if (tag_len) *tag_len = (size_t)(p - s) + 1;
     return true;
@@ -5397,7 +5431,10 @@ static const char design_system_prompt[] =
     "ALWAYS ask in a <question-form> — at ANY turn, not just the first. Whenever "
     "you need the user to choose or clarify something, emit a <question-form> "
     "(same shape and rules as above) and stop; never ask questions as plain "
-    "prose with a question mark. The styled form is the only way you ask. If "
+    "prose with a question mark. The styled form is the only way you ask. "
+    "Write the form — its title, every question, and every option — in the SAME "
+    "language as the user's brief; if the brief is in English, write English; "
+    "never switch to another language (never Japanese, Chinese, etc.). If "
     "you are already in a tool-calling round and need a structured UI question, "
     "you may instead call question(id,title,questions) with the same JSON shape; "
     "after question() stop and wait for the user's answer.\n\n"
@@ -7706,10 +7743,28 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
         } else {
             tool_result = execute_tool_calls(&a->project, &dsml.calls);
         }
-        dstudio_remote_messages_append(&a->remote_messages,
-                                       &a->remote_message_count,
-                                       "tool",
-                                       tool_result);
+        /* Cloud OpenAI-compatible APIs (e.g. DeepSeek) require a tool_call_id for
+         * role "tool" messages; DStudio drives tools via DSML, not the JSON
+         * tool_calls schema, so on https backends ship the result as a plain user
+         * message instead (same workaround the agent's remote path uses). Local /
+         * LAN backends accept the "tool" role as-is. */
+        if (a->cfg->remote_base_url &&
+            strncmp(a->cfg->remote_base_url, "https://", 8) == 0) {
+            design_buf tr = {0};
+            buf_puts(&tr, "[tool result]\n");
+            buf_puts(&tr, tool_result ? tool_result : "");
+            char *wrapped = buf_take(&tr);
+            dstudio_remote_messages_append(&a->remote_messages,
+                                           &a->remote_message_count,
+                                           "user",
+                                           wrapped ? wrapped : "");
+            free(wrapped);
+        } else {
+            dstudio_remote_messages_append(&a->remote_messages,
+                                           &a->remote_message_count,
+                                           "tool",
+                                           tool_result);
+        }
         free(tool_result);
         free(assistant);
         dsml_parser_free(&dsml);
