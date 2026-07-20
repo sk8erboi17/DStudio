@@ -355,6 +355,7 @@ static int lan_public_path_allowed(const char *method, const char *path) {
         (!strncmp(path, "/v1/", 4) || path_eq_clean(path, "/api/lan-client/chats") ||
          path_eq_clean(path, "/api/lan-health") || (lan_on && lan_web_tool_path(path)) ||
          (lan_on && (path_eq_clean(path, "/api/vision/describe") ||
+                     path_eq_clean(path, "/api/image/generate") ||
                      path_eq_clean(path, "/api/pdf/thumb") || path_eq_clean(path, "/api/pdf/describe"))))) return 1;
     if (get && (remote_page_path(path) || lan_root_path(path))) return 1;
     if (get && (path_eq_clean(path, "/api/remote/status") || path_eq_clean(path, "/api/remote/chat"))) return 1;
@@ -365,6 +366,8 @@ static int lan_public_path_allowed(const char *method, const char *path) {
     /* Image describe for LAN clients (inline data only: the handler rejects
      * `path` sources from non-loopback peers). Setup/stop/status stay host-local. */
     if (lan_on && !strcmp(method, "POST") && path_eq_clean(path, "/api/vision/describe")) return 1;
+    if (lan_on && !strcmp(method, "POST") && path_eq_clean(path, "/api/image/generate")) return 1;
+    if (lan_on && get && path_eq_clean(path, "/api/image/file")) return 1;
     /* PDF preview/read for LAN clients (inline data only, same guard). */
     if (lan_on && !strcmp(method, "POST") &&
         (path_eq_clean(path, "/api/pdf/thumb") || path_eq_clean(path, "/api/pdf/describe"))) return 1;

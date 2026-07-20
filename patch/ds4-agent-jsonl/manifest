@@ -1,6 +1,6 @@
 # DStudio anchored patch manifest
 name=ds4-agent-jsonl
-version=44
+version=45
 edit=001
 edit=002
 edit=003

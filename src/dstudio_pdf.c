@@ -765,8 +765,11 @@ static void api_pdf_fork(int fd, const char *body, int is_describe, int allow_pa
         if (g_in_fd  >= 0) close(g_in_fd);
         struct timeval tv = { 620, 0 };
         (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+        qwen_memory_lease lease = {0};
+        if (is_describe) lease = qwen_memory_begin("pdf");
         if (is_describe) api_pdf_describe_run(fd, body, allow_path);
         else             api_pdf_thumb_run(fd, body, allow_path);
+        qwen_memory_end(&lease);
         close(fd);
         _exit(0);
     }

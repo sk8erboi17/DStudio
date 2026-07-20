@@ -761,6 +761,12 @@ static void api_setup_ds4(int fd) {
         return;
     }
 #else
+    if (!run_ext_script("scripts/apply-ds4-qwen-hot-memory.sh", "apply")) {
+        setup_send_json(fd, "500 Internal Server Error", 0, g_ds4_dir, downloaded, 0, 0, 0,
+                        was_running, 0, mode_name(prev_mode),
+                        "ds4 Qwen hot-memory patch failed; upstream anchors may have changed");
+        return;
+    }
     char *make_argv[] = { "make", "-C", g_ds4_dir, NULL };
     int rc = setup_run_cmd_capture(NULL, make_argv, log_tail, sizeof log_tail);
     if (rc != 0) {

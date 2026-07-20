@@ -114,6 +114,32 @@ function extractFunction(src, name) {
 }
 
 const js = scriptSource();
+const imageIntentHelpers = new Function(`
+${extractFunction(js, 'imageGenerationIntent')}
+return { imageGenerationIntent };
+`)();
+for (const prompt of [
+  'generate this image: a fox in Venice',
+  'Generami un’immagine di un robot blu',
+  'cremai un immagin di un gatto astronauta',
+  'fammi una foto cinematografica del mare',
+  'draw a picture of a lunar base',
+]) {
+  assert.ok(imageIntentHelpers.imageGenerationIntent(prompt), `image intent should match: ${prompt}`);
+}
+for (const prompt of [
+  'come posso generare un’immagine?',
+  'spiegami come creare immagini con Python',
+  'analizza questa immagine',
+  'write a function called generateImage',
+]) {
+  assert.equal(imageIntentHelpers.imageGenerationIntent(prompt), null, `image intent should reject: ${prompt}`);
+}
+assert.equal(
+  imageIntentHelpers.imageGenerationIntent('Generami un’immagine: una balena nello spazio').prompt,
+  'una balena nello spazio',
+  'image intent should strip the imperative wrapper',
+);
 const helpers = new Function(`
 ${extractFunction(js, 'isLoopbackHost')}
 ${extractFunction(js, 'adaptBaseUrl')}
@@ -1282,6 +1308,16 @@ assert.match(js, /Onboarding\.setupDs4\(\)/, 'system check setup action should l
 assert.doesNotMatch(js, /choose-ds4|verifyPath|toggleFinder|loadFinder|PATHS/, 'UI should not keep manual ds4 path fallback code');
 
 assert.match(js, /function classifyResearchRequest\(/, 'web research should classify the request before searching');
+assert.match(js, /async function runImageGeneration\(/, 'chat should route image-generation intent to the local Qwen pipeline');
+assert.match(js, /\/api\/image\/generate/, 'chat should call the local image generation endpoint');
+assert.match(launcher, /qwen_memory_begin\("vision"\)/, 'Vision calls should acquire a temporary DS4 memory lease');
+assert.match(launcher, /qwen_memory_begin\("pdf"\)/, 'PDF calls should acquire a nested temporary DS4 memory lease');
+assert.match(launcher, /qwen_memory_begin\("image-generation"\)/, 'image generation should acquire a temporary DS4 memory lease');
+assert.match(launcher, /model \+ reserve \+ 8ull \* gib > ram \* 82ull \/ 100ull/, 'Qwen lease policy should evaluate model, pipeline reserve and physical RAM');
+assert.match(remoteDesign, /ds4_engine_memory_pressure_begin/, 'Design vision tools should release DS4 memory in-process');
+assert.match(jsonlPatch.text, /ds4ui_tool_with_qwen_memory/, 'agent image and PDF tools should release DS4 memory in-process');
+assert.match(fs.readFileSync('patch/ds4-qwen-hot-memory/hot-memory.patch', 'utf8'), /ds4_gpu_model_residency_clear/, 'DS4 patch should suspend Metal model residency');
+assert.match(fs.readFileSync('scripts/qwen-image-generate.sh', 'utf8'), /fe70bd7b245307143d95cde5bc62c9aeff401e69/, 'qwen-image-mps runtime should be pinned');
 assert.match(searchRuntime, /function classifyResearchRequest\(/, 'Search extension should own the research classifier runtime');
 assert.match(searchRuntime, /async function runResearchPipeline\(/, 'Search extension should own the shared search/deep research pipeline');
 assert.match(searchRuntime, /async function runDeepResearch\(/, 'Search extension should own Deep Research runtime');

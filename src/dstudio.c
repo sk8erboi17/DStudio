@@ -2137,7 +2137,7 @@ static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_mode
     }
     if (remote_model) {
         if (cfg->ssd_streaming == SSD_STREAMING_ON) {
-            snprintf(err, errsz, "--ssd-streaming is local Metal-only and cannot be used with a remote model");
+            snprintf(err, errsz, "--ssd-streaming is local-engine-only and cannot be used with a remote model");
             return -1;
         }
         snprintf(reason, reasonsz, "auto disabled for remote model");
@@ -2152,10 +2152,19 @@ static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_mode
     return 0;
 #elif !defined(__APPLE__)
     if (cfg->ssd_streaming == SSD_STREAMING_ON) {
-        snprintf(err, errsz, "--ssd-streaming is currently supported only by ds4 Metal builds");
-        return -1;
+        snprintf(reason, reasonsz, "forced on for local CUDA/ROCm/CPU backend");
+        return 1;
     }
-    snprintf(reason, reasonsz, "auto disabled outside macOS Metal");
+    long long model_bytes = current_model_file_size();
+    unsigned long long mem_bytes = dstudio_physical_memory_bytes();
+    const unsigned long long gib = 1024ull * 1024ull * 1024ull;
+    if (!strcmp(g_variant, "pro") ||
+        (model_bytes > 64ll * 1024ll * 1024ll * 1024ll) ||
+        (mem_bytes > 0 && mem_bytes <= 192ull * gib)) {
+        snprintf(reason, reasonsz, "auto enabled for large model / CUDA-ROCm-CPU memory pressure");
+        return 1;
+    }
+    snprintf(reason, reasonsz, "auto disabled: local backend memory budget is sufficient");
     return 0;
 #else
     if (cfg->ssd_streaming == SSD_STREAMING_ON) {
@@ -6683,6 +6692,8 @@ typedef struct {
 #include "dstudio_remote.c"
 #include "dstudio_websearch.c"
 
+#include "dstudio_qwen_memory.c"
+#include "dstudio_image.c"
 #include "dstudio_vision.c"
 
 /* ---- Embedding sidecar endpoints (semantic skill search) ---- */
@@ -7516,6 +7527,7 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/vision/setup")) { api_vision_setup(fd, body); return 200; }
     if (!strcmp(path, "/api/vision/describe")) { api_vision_describe(fd, body); return 200; }
     if (!strcmp(path, "/api/vision/stop")) { api_vision_stop(fd); return 200; }
+    if (!strcmp(path, "/api/image/generate")) { api_image_generate(fd, body); return 200; }
     if (!strcmp(path, "/api/embed/setup")) { api_embed_setup(fd, body); return 200; }
     if (!strcmp(path, "/api/embed/stop")) { api_embed_stop(fd); return 200; }
     if (!strcmp(path, "/api/engine/checkout")) { api_engine_checkout_set(fd, body); return 200; }
@@ -7543,6 +7555,7 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
         return 200;
     }
     if (is_get && !strcmp(path, "/api/vision/status")) { api_vision_status(fd); return 200; }
+    if (is_get && path_eq_clean(path, "/api/image/file")) { api_image_file(fd, path, head_only); return 200; }
     if (is_get && path_eq_clean(path, "/api/pdf/progress")) { api_pdf_progress(fd, path); return 200; }
     if (is_get && !strcmp(path, "/api/embed/status")) { api_embed_status(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/remote/status")) { api_remote_status(fd); return 200; }

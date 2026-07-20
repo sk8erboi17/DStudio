@@ -69,7 +69,13 @@ static int updates_ds4_managed_dirty_path(const char *path) {
            !strcmp(path, "ds4-agent-jsonl.ver") ||
            !strcmp(path, "ds4-design") ||
            !strcmp(path, "ds4-design.exe") ||
-           !strcmp(path, "ds4_agent.c.ds4ui.bak");
+           !strcmp(path, "ds4_agent.c.ds4ui.bak") ||
+           !strcmp(path, "ds4.c") ||
+           !strcmp(path, "ds4.h") ||
+           !strcmp(path, "ds4_gpu.h") ||
+           !strcmp(path, "ds4_metal.m") ||
+           !strcmp(path, "ds4_cuda.cu") ||
+           !strcmp(path, "ds4_server.c");
 }
 
 static int updates_ds4_dirty_is_only_managed(const char *dirty, int *managed_count) {
@@ -81,7 +87,7 @@ static int updates_ds4_dirty_is_only_managed(const char *dirty, int *managed_cou
     for (char *line = strtok(buf, "\n"); line; line = strtok(NULL, "\n")) {
         while (*line == '\r' || *line == '\n') line++;
         if (!line[0]) continue;
-        if (strncmp(line, "?? ", 3) != 0) return 0;
+        if (strlen(line) < 4 || line[2] != ' ') return 0;
         char *path = line + 3;
         while (*path == ' ') path++;
         if (!updates_ds4_managed_dirty_path(path)) return 0;
@@ -399,6 +405,11 @@ static int updates_run_gsa_tools(unsigned long long task_id, char *log_tail, siz
 }
 
 static int updates_run_patch_verify(unsigned long long task_id, char *err, size_t errsz) {
+    task_mark_working(task_id, "applying Qwen hot-memory patch");
+    if (!run_ext_script("scripts/apply-ds4-qwen-hot-memory.sh", "apply")) {
+        snprintf(err, errsz, "Qwen hot-memory patch failed; latest ds4 is not accepted");
+        return 0;
+    }
     task_mark_working(task_id, "checking DStudio patch anchors");
     int anchor_fails = update_patch_anchor_failures();
     if (anchor_fails != 0) {
@@ -437,10 +448,18 @@ static int updates_run_ds4_latest(unsigned long long task_id, char *log_tail, si
                  dirty);
         return 0;
     }
+    if (!run_ext_script("scripts/apply-ds4-qwen-hot-memory.sh", "restore")) {
+        snprintf(err, errsz, "could not restore the managed Qwen patch before pulling ds4");
+        return 0;
+    }
     char *fetch_argv[] = { "git", "-C", g_ds4_dir, "fetch", "origin", NULL };
     if (!update_run_cmd(task_id, "fetching ds4 upstream", NULL, fetch_argv, log_tail, logsz, err, errsz)) return 0;
     char *pull_argv[] = { "git", "-C", g_ds4_dir, "pull", "--ff-only", NULL };
     if (!update_run_cmd(task_id, "pulling ds4 latest --ff-only", NULL, pull_argv, log_tail, logsz, err, errsz)) return 0;
+    if (!run_ext_script("scripts/apply-ds4-qwen-hot-memory.sh", "apply")) {
+        snprintf(err, errsz, "latest ds4 no longer accepts the Qwen hot-memory patch");
+        return 0;
+    }
     char *make_argv[] = { "make", "-C", g_ds4_dir, NULL };
     if (!update_run_cmd(task_id, "building ds4 latest", NULL, make_argv, log_tail, logsz, err, errsz)) return 0;
     return updates_run_patch_verify(task_id, err, errsz);

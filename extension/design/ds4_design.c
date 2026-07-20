@@ -1246,6 +1246,7 @@ struct design_bash_job; /* forward: bash jobs are owned by the project */
 
 typedef struct {
     char dir[PATH_MAX];
+    ds4_engine *engine; /* local engine, used for temporary Qwen memory leases */
     /* "more" continuation state, populated by tool_read on a truncated read and
      * consumed by tool_more. The path is project-relative and re-resolved
      * through project_resolve() on every use, so stale/corrupted state cannot
@@ -5575,6 +5576,26 @@ static char *design_verify_after(design_project *pr, const design_tool_call *cal
     return buf_take(&out);
 }
 
+typedef char *(*design_qwen_tool_fn)(design_project *, const design_tool_call *);
+
+static char *design_execute_qwen_tool(design_project *pr,
+                                      const design_tool_call *call,
+                                      design_qwen_tool_fn fn) {
+    if (!pr->engine) return fn(pr, call);
+    uint64_t advised = 0;
+    if (ds4_engine_memory_pressure_begin(pr->engine, &advised) != 0)
+        return tool_error("cannot free DS4 memory for the Qwen pipeline");
+    char *result = fn(pr, call);
+    if (ds4_engine_memory_pressure_end(pr->engine) != 0) {
+        design_buf b = {0};
+        buf_puts(&b, result ? result : "");
+        buf_puts(&b, "\n[warning: DS4 residency restore failed]\n");
+        free(result);
+        result = buf_take(&b);
+    }
+    return result;
+}
+
 static char *execute_tool_call(design_project *pr, const design_tool_call *call) {
     const char *name = call->name ? call->name : "";
     if (!strcmp(name, "skill")) return design_tool_pack(call, "skills", "SKILL.md", 1);
@@ -5595,8 +5616,10 @@ static char *execute_tool_call(design_project *pr, const design_tool_call *call)
     if (!strcmp(name, "propose")) return tool_propose(pr, call);
     if (!strcmp(name, "google_search")) return design_tool_google_search(pr, call);
     if (!strcmp(name, "visit_page")) return design_tool_visit_page(pr, call);
-    if (!strcmp(name, "see_image")) return design_tool_see_image(pr, call);
-    if (!strcmp(name, "see_page")) return design_tool_see_page(pr, call);
+    if (!strcmp(name, "see_image"))
+        return design_execute_qwen_tool(pr, call, design_tool_see_image);
+    if (!strcmp(name, "see_page"))
+        return design_execute_qwen_tool(pr, call, design_tool_see_page);
 
     if (!strcmp(name, "bash")) {
         const char *cmd = tool_arg_value(call, "command");
@@ -8543,6 +8566,7 @@ int main(int argc, char **argv) {
     }
 
     if (ds4_engine_open(&a.engine, &cfg.engine) != 0) return 1;
+    a.project.engine = a.engine;
 
     ds4_context_memory mem = ds4_context_memory_estimate_with_prefill(
         cfg.engine.backend, cfg.ctx_size, cfg.engine.prefill_chunk);

@@ -105,4 +105,24 @@ static char *ds4ui_tool_read_pdf(const agent_tool_call *call) {
     return agent_buf_take(&res);
 }
 
+typedef char *(*ds4ui_qwen_tool_fn)(const agent_tool_call *);
+
+static char *ds4ui_tool_with_qwen_memory(agent_worker *w,
+                                          const agent_tool_call *call,
+                                          ds4ui_qwen_tool_fn fn) {
+    uint64_t advised = 0;
+    if (!w || !w->engine ||
+        ds4_engine_memory_pressure_begin(w->engine, &advised) != 0)
+        return xstrdup("Tool error: cannot free DS4 memory for the Qwen pipeline.\n");
+    char *result = fn(call);
+    if (ds4_engine_memory_pressure_end(w->engine) != 0) {
+        agent_buf b = {0};
+        agent_buf_puts(&b, result ? result : "");
+        agent_buf_puts(&b, "\n[warning: DS4 residency restore failed]\n");
+        free(result);
+        result = agent_buf_take(&b);
+    }
+    return result;
+}
+
 static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {
