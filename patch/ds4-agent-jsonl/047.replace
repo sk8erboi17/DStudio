@@ -2,21 +2,31 @@
 /* read_pdf: reads a PDF in the workspace via the DStudio server's hybrid
  * /api/pdf/describe (DS4UI_DSTUDIO_URL): pages with a text layer come back
  * verbatim (pdftotext), scanned pages are read by the local vision model.
- * The slow work and the by-content-hash result cache live server-side. */
+ * The slow work and the by-content-hash result cache live server-side. An
+ * optional pages range ("N" | "N-M" | "N-") is passed through verbatim — how
+ * the model continues past the server's caps on a long document. */
 static char *ds4ui_tool_read_pdf(const agent_tool_call *call) {
     const char *path = agent_tool_arg_value(call, "path");
     const char *question = agent_tool_arg_value(call, "question");
+    const char *pages = agent_tool_arg_value(call, "pages");
     if (!path || !path[0]) return xstrdup("Tool error: read_pdf requires a path\n");
     const char *base = getenv("DS4UI_DSTUDIO_URL");
     if (!base || !base[0]) return xstrdup("Tool error: PDF reading is not available here (DS4UI_DSTUDIO_URL unset).\n");
 
-    /* Build {path,question,format:"text"} and write it to a temp file for curl. */
+    /* Build {path,question,pages?,format:"text"} and write it to a temp file
+     * for curl. */
     agent_buf req = {0};
     agent_buf_puts(&req, "{\"path\":\"");
     ds4ui_json_escape_into(&req, path);
     agent_buf_puts(&req, "\",\"question\":\"");
     ds4ui_json_escape_into(&req, (question && question[0]) ? question : "");
-    agent_buf_puts(&req, "\",\"format\":\"text\"}");
+    agent_buf_puts(&req, "\"");
+    if (pages && pages[0]) {
+        agent_buf_puts(&req, ",\"pages\":\"");
+        ds4ui_json_escape_into(&req, pages);
+        agent_buf_puts(&req, "\"");
+    }
+    agent_buf_puts(&req, ",\"format\":\"text\"}");
 
     char tmpl[] = "/tmp/ds4ui-read-pdf-XXXXXX";
     int tf = mkstemp(tmpl);
@@ -79,6 +89,10 @@ static char *ds4ui_tool_read_pdf(const agent_tool_call *call) {
     agent_buf res = {0};
     agent_buf_puts(&res, "[read_pdf: ");
     agent_buf_puts(&res, path);
+    if (pages && pages[0]) {
+        agent_buf_puts(&res, " pages ");
+        agent_buf_puts(&res, pages);
+    }
     agent_buf_puts(&res, "]\n");
     /* Prompt-injection guard: text from an arbitrary document must never be
      * read as directives (a PDF can literally contain "ignore your
@@ -89,6 +103,26 @@ static char *ds4ui_tool_read_pdf(const agent_tool_call *call) {
     if (bl == 0 || bodytext[bl - 1] != '\n') agent_buf_puts(&res, "\n");
     free(bodytext);
     return agent_buf_take(&res);
+}
+
+typedef char *(*ds4ui_qwen_tool_fn)(const agent_tool_call *);
+
+static char *ds4ui_tool_with_qwen_memory(agent_worker *w,
+                                          const agent_tool_call *call,
+                                          ds4ui_qwen_tool_fn fn) {
+    uint64_t advised = 0;
+    if (!w || !w->engine ||
+        ds4_engine_memory_pressure_begin(w->engine, &advised) != 0)
+        return xstrdup("Tool error: cannot free DS4 memory for the Qwen pipeline.\n");
+    char *result = fn(call);
+    if (ds4_engine_memory_pressure_end(w->engine) != 0) {
+        agent_buf b = {0};
+        agent_buf_puts(&b, result ? result : "");
+        agent_buf_puts(&b, "\n[warning: DS4 residency restore failed]\n");
+        free(result);
+        result = agent_buf_take(&b);
+    }
+    return result;
 }
 
 static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {

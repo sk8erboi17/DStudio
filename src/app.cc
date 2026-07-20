@@ -265,6 +265,16 @@ int main(int argc, char **argv) {
     if (port != requested_port)
         fprintf(stderr, "DStudio: port %d busy on %s — opening on %d instead\n", requested_port, bind_host, port);
 
+    /* The native loading page owns engine startup because it can read the
+     * user's persisted browser settings (ctx/power/SSD mode/model). Starting
+     * here would race ahead with the C defaults and make a saved `Off` appear
+     * as an effective `Auto` runtime. The server child inherits this flag. */
+#ifdef _WIN32
+    _putenv_s("DS4UI_DEFER_ENGINE_START", "1");
+#else
+    setenv("DS4UI_DEFER_ENGINE_START", "1", 1);
+#endif
+
 #ifdef _WIN32
     if (!spawn_server_process(argc, argv, port)) {
         fprintf(stderr, "DStudio: failed to start server child\n");

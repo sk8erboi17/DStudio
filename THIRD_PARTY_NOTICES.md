@@ -3,6 +3,19 @@
 This repository includes third-party packs imported from Open Design and
 marketingskills.
 
+## qwen-image-mps (optional runtime)
+
+DStudio can install qwen-image-mps on demand for local text-to-image generation.
+The project and its Python dependencies are not vendored into this repository.
+
+- Source: https://github.com/ivanfioravanti/qwen-image-mps
+- Pinned commit: `fe70bd7b245307143d95cde5bc62c9aeff401e69`
+- License: MIT
+- Install location: `~/.dstudio/qwen-image/venv`
+
+Model weights are downloaded separately by the upstream Hugging Face pipeline
+and remain subject to their respective model licenses and terms.
+
 ## Open Design
 
 - Source: https://github.com/nexu-io/open-design

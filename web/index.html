@@ -2160,6 +2160,28 @@
       border-top: 1px solid var(--border);
       padding-top: 12px;
     }
+    .msg-generated-images {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 420px));
+      gap: 12px;
+      max-width: var(--msg-maxw);
+      margin-top: 12px;
+    }
+    .msg-generated-image {
+      padding: 0;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface-2);
+      cursor: zoom-in;
+    }
+    .msg-generated-image img {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: 520px;
+      object-fit: contain;
+    }
     .chat--drop .composer__card {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-soft);
@@ -5829,7 +5851,7 @@
             </select>
           </label>
           <label class="field">
-            <span>SSD streaming <small class="field-note">Metal-only; disabled by default</small></span>
+            <span>SSD streaming <small class="field-note">Metal-only; applied at engine start, default Auto</small></span>
             <select id="set-ssd-streaming" aria-label="SSD streaming">
               <option value="off">Off</option>
               <option value="auto">Auto</option>
@@ -7375,6 +7397,14 @@
       else if (/chat/i.test(file)) kind = 'chat';
       const qm = file.match(/\b(IQ\d[A-Z0-9]*|Q\d[A-Z0-9]*K?[A-Z0-9]*|BF16|F16|F32)\b/i);
       return { model, kind, quant: qm ? qm[1].toUpperCase() : '' };
+    }
+    function modelIdForEngineStatus(st) {
+      const file = String(st?.modelFile || '');
+      if (/\bpro\b/i.test(file)) return 'deepseek-v4-pro';
+      if (/\bflash\b/i.test(file)) return 'deepseek-v4-flash';
+      if (st?.variant === 'pro') return 'deepseek-v4-pro';
+      if (st?.variant === 'flash') return 'deepseek-v4-flash';
+      return '';
     }
     function fmtGgufSize(b) {
       const gb = b / 1e9;
@@ -9693,6 +9723,7 @@
           m.webTrace ? JSON.stringify(m.webTrace) : '',
           m.researchReport ? JSON.stringify(m.researchReport) : '',
           m.generatedFiles ? JSON.stringify(m.generatedFiles.map((f) => [f.filename, f.mime, f.size])) : '',
+          m.generatedImages ? JSON.stringify(m.generatedImages.map((f) => [f.url, f.name])) : '',
           m.attachments ? JSON.stringify(m.attachments.map((a) => [a.name, a.size, a.truncated])) : '',
           editingUserMsgId === m.id ? 'editing' : '',
           chat?.model || '',
@@ -9758,6 +9789,7 @@
         decorateCitationTargets(article, m.sources || []);
         if (m.researchReport?.markdown) article.append(buildResearchReport(m.researchReport));
         if (generatedFiles.length) article.append(buildGeneratedFiles(generatedFiles));
+        if (m.generatedImages?.length) article.append(buildGeneratedImages(m.generatedImages));
 
         const meta = buildMeta(m, chat);
         if (meta) article.append(meta);
@@ -9842,6 +9874,19 @@
               el('span', { class: 'msg-attachment__meta', text: attachmentKindLabel({ name: f.filename, type: f.mime }) }),
             ]),
           ]));
+        });
+        return wrap;
+      }
+
+      function buildGeneratedImages(images) {
+        const wrap = el('div', { class: 'msg-generated-images', 'aria-label': 'Generated images' });
+        (images || []).forEach((image, i) => {
+          wrap.append(el('button', {
+            class: 'msg-generated-image', type: 'button',
+            'data-act': 'preview-generated-image',
+            'data-generated-image-index': String(i),
+            title: `Open ${image.name || 'generated image'}`,
+          }, [el('img', { src: image.url, alt: image.name || 'Qwen generated image' })]));
         });
         return wrap;
       }
@@ -10128,6 +10173,15 @@
           const files = generatedFilesForMessage(m);
           const file = Number.isFinite(idx) ? files?.[idx] : null;
           if (file) ArtifactCanvas.open(file);
+        } else if (act === 'preview-generated-image') {
+          const id = actBtn.closest('.msg')?.dataset.id;
+          const idx = Number(actBtn.dataset.generatedImageIndex || -1);
+          const m = Store.getActiveChat()?.messages.find((x) => x.id === id);
+          const image = Number.isFinite(idx) ? m?.generatedImages?.[idx] : null;
+          if (image) AttachmentPreview.open({
+            id: `generated-${id}-${idx}`, kind: 'image', name: image.name,
+            type: 'image/png', thumb: image.url,
+          });
         } else if (act === 'regen' || act === 'retry') {
           handlers.onRegenerate?.();
         } else if (act === 'continue') {
@@ -13036,10 +13090,67 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return true;
       }
 
+      function imageGenerationIntent(text) {
+        const raw = String(text || '').trim();
+        if (!raw) return null;
+        const s = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        if (/\b(come|how)\s+(posso\s+|si\s+|do\s+i\s+)?(gener|cre|make|draw)/i.test(s) ||
+            /\b(spiega|spiegami|tutorial|guida)\b.*\b(gener|cre|immagin|image)/i.test(s)) return null;
+        const noun = /\b(imm+agin\w*|image|images|picture|photo|foto|illustrazion\w*|disegno|artwork)\b/i.test(s);
+        const verb = /\b(gener\w*|crea\w*|crem\w*|cremai|fammi|disegna\w*|realizza\w*|produce|make|draw)\b/i.test(s);
+        if (!noun || !verb) return null;
+        const prompt = raw
+          .replace(/^\s*(puoi\s+|please\s+|per favore\s+)?(gener\w*|crea\w*|crem\w*|cremai|fammi|disegna\w*|realizza\w*|produce|make|draw)\s+(questa?\s+|un['’]?\s*|una?\s+|an?\s+|the\s+)?(imm+agin\w*|image|picture|photo|foto|illustrazion\w*|disegno|artwork)\s*[:,-]?\s*/i, '')
+          .trim();
+        return { prompt: prompt || raw };
+      }
+
+      async function runImageGeneration(chat, text) {
+        const intent = imageGenerationIntent(text);
+        if (!intent) return false;
+        const userMsg = Store.appendMessage(chat.id, Store.mkMessage('user', text.trim()));
+        const asst = Store.mkMessage('assistant', 'Avvio Qwen Image… il primo utilizzo può scaricare il modello locale.');
+        asst.streaming = true;
+        Store.appendMessage(chat.id, asst);
+        Store.maybeAutoTitle(chat.id);
+        Messages.renderChat(chat, { stickToBottom: true });
+        const controller = new AbortController();
+        Store.setChatStreaming(chat.id, controller);
+        try {
+          const res = await fetch('/api/image/generate', {
+            method: 'POST', signal: controller.signal,
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
+            body: JSON.stringify({ prompt: intent.prompt }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.ok) throw new Error(data.error || data.log || `HTTP ${res.status}`);
+          Store.commitMessage(chat.id, asst.id, {
+            streaming: false, content: 'Immagine generata localmente con Qwen Image.',
+            finishReason: 'stop',
+            generatedImages: [{ url: data.url, name: data.filename || 'qwen-image.png' }],
+          });
+        } catch (e) {
+          const message = e?.name === 'AbortError' ? 'Generazione immagine annullata.' : `Generazione immagine fallita: ${e?.message || e}`;
+          Store.commitMessage(chat.id, asst.id, {
+            streaming: false, content: message, finishReason: 'error', error: { message },
+          });
+        } finally {
+          if (Store.getChatAbort(chat.id) === controller) Store.setChatStreaming(chat.id, null);
+          renderChatIfActive(chat.id);
+        }
+        if (chat.remote) RemoteShare.publishDebounced(chat);
+        return true;
+      }
+
       async function sendMessage(text, { regenerate = false, attachments = [] } = {}) {
         const chat = Store.ensureActiveChat();
         if (chat.lanMirror) {
           toast('LAN mirrored chats are read-only.', 'warn');
+          return;
+        }
+        if (!regenerate && !(attachments || []).length && imageGenerationIntent(text)) {
+          if (Store.isChatStreaming(chat.id) || pendingPreflight.has(chat.id)) return;
+          await runImageGeneration(chat, text);
           return;
         }
         let settings = Store.getSettings();
@@ -16315,7 +16426,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
           if (m.physicalBytes) notes.push(`RAM ${fmtGib(m.physicalBytes)}`);
           if (m.modelBytes > 0) notes.push(`model ${fmtGib(m.modelBytes)}`);
           if (m.iogpuWiredLimitMb >= 0) notes.push(`iogpu.wired_limit_mb ${m.iogpuWiredLimitMb}`);
-          notes.push(`SSD streaming ${m.ssdStreamingEffective ? 'effective' : (m.ssdStreaming || Store.getSettings().ssdStreaming || 'off')}`);
+          const desiredSsd = Store.getSettings().ssdStreaming || 'auto';
+          const runningSsd = m.ssdStreaming || 'off';
+          notes.push(`SSD streaming running ${runningSsd}${m.ssdStreamingEffective ? ' (active)' : ''}`);
+          if (desiredSsd !== runningSsd) notes.push(`next restart ${desiredSsd}`);
           const modelResidencyRisk = m.modelBytes > 64 * 1073741824 && m.ssdStreamingEffective === false;
           const iogpuLimitRisk = m.iogpuWiredLimitMb > maxMb;
           const iogpuAggressive = m.iogpuWiredLimitMb > targetMb && m.iogpuWiredLimitMb <= maxMb;
@@ -22281,6 +22395,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
           checkEngineHealth(st);
           Store.getState().ui.agentWorkdir = st.workdir || '';
           if (st.variants) Store.setModelState({ variants: st.variants, current: st.variant || variant() });
+          if (!isLanClientMode() && st.mode === 'server' && st.running) {
+            const liveModelId = modelIdForEngineStatus(st);
+            if (liveModelId && Store.getSettings().model !== liveModelId) {
+              Store.setSettings({ model: liveModelId });
+            }
+          }
           if (st.download && st.downloadPct >= 0 && st.downloadPct < 100) {
             Store.setModelState({ download: { variant: st.downloadVariant, pct: st.downloadPct } });
             if (!dlPoll) dlPoll = setInterval(pollDownload, 2000); // resume polling after a reload

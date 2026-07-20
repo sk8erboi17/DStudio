@@ -49,10 +49,10 @@ int main(void) {
         1, err, sizeof err));
     assert(strcmp(g_remote_base_url, "http://25.17.235.135:5500") == 0);
     assert(strcmp(g_remote_model, "ds4") == 0);
-    assert(!parse_remote_start(
+    assert(parse_remote_start(
         "{\"modelBackend\":\"remote\",\"remoteBaseUrl\":\"https://25.17.235.135:5500\"}",
         1, err, sizeof err));
-    assert(strstr(err, "http:// LAN URL") != NULL);
+    assert(strcmp(g_remote_base_url, "https://25.17.235.135:5500") == 0);
     assert(!parse_remote_start(
         "{\"modelBackend\":\"remote\",\"remoteBaseUrl\":\"http://25.17.235.135:5500\"}",
         0, err, sizeof err));

@@ -1,0 +1,13 @@
+    static const char canonical[] = "<｜DSML｜tool_calls>";
+    static const char missing_bar[] = "<DSML｜tool_calls>";
+    static const char invoke[] = "<｜DSML｜invoke";
+    static const char invoke_missing_bar[] = "<DSML｜invoke";
+    struct {
+        const char *text;
+        bool implicit_invoke;
+    } forms[] = {
+        {canonical, false},
+        {missing_bar, false},
+        {invoke, true},
+        {invoke_missing_bar, true},
+    };

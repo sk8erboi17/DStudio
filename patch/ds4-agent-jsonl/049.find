@@ -1,0 +1,12 @@
+    static const char fullwidth_marker[] = "｜DSML｜";
+    static const char ascii_marker[] = "|DSML|";
+    static const char missing_open[] = "<DSML｜";
+    static const char missing_close[] = "</DSML｜";
+    return agent_tail_matches(d->tail, d->len,
+                              fullwidth_marker, sizeof(fullwidth_marker) - 1) ||
+           agent_tail_matches(d->tail, d->len,
+                              ascii_marker, sizeof(ascii_marker) - 1) ||
+           agent_tail_matches(d->tail, d->len,
+                              missing_open, sizeof(missing_open) - 1) ||
+           agent_tail_matches(d->tail, d->len,
+                              missing_close, sizeof(missing_close) - 1);

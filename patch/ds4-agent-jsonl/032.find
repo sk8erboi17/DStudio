@@ -1,5 +1,7 @@
+    if (progress_total < 0) progress_total = 0;
     if (done < 0) done = 0;
-    if (done > w->status.prefill_total) done = w->status.prefill_total;
+    if (done > progress_total) done = progress_total;
+    w->status.prefill_total = progress_total;
     w->status.prefill_done = done;
     double elapsed = now_sec() - w->progress_started_at;
     w->status.prefill_tps =

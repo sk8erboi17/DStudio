@@ -1,0 +1,226 @@
+diff --git a/ds4.c b/ds4.c
+--- a/ds4.c
++++ b/ds4.c
+@@ -35307,6 +35307,8 @@ struct ds4_engine {
+     bool metal_ready;
+     bool mtp_ready;
+     bool share_session_prefill_workspace;
++    unsigned memory_pressure_depth;
++    uint64_t memory_pressure_advised_bytes;
+ #ifndef DS4_NO_GPU
+     bool shared_prefill_workspace_ready;
+     ds4_gpu_graph shared_prefill_workspace;
+@@ -56037,6 +56039,64 @@ int ds4_engine_set_power(ds4_engine *e, int power_percent) {
+     return 0;
+ }
+ 
++static uint64_t ds4_model_memory_dontneed(ds4_model *m) {
++#if defined(POSIX_MADV_DONTNEED)
++    if (!m || !m->map || m->size == 0 || m->size > (uint64_t)SIZE_MAX) return 0;
++    const int rc = posix_madvise((void *)m->map, (size_t)m->size,
++                                 POSIX_MADV_DONTNEED);
++    return rc == 0 ? m->size : 0;
++#else
++    (void)m;
++    return 0;
++#endif
++}
++
++int ds4_engine_memory_pressure_begin(ds4_engine *e, uint64_t *advised_bytes) {
++    if (advised_bytes) *advised_bytes = 0;
++    if (!e) return 1;
++    if (e->memory_pressure_depth++ != 0) {
++        if (advised_bytes) *advised_bytes = e->memory_pressure_advised_bytes;
++        return 0;
++    }
++#ifndef DS4_NO_GPU
++    if (e->backend != DS4_BACKEND_CPU && !ds4_gpu_memory_pressure_begin()) {
++        e->memory_pressure_depth = 0;
++        return 1;
++    }
++#endif
++    uint64_t total = ds4_model_memory_dontneed(&e->model);
++    uint64_t support = ds4_model_memory_dontneed(&e->mtp_model);
++    total = UINT64_MAX - total < support ? UINT64_MAX : total + support;
++    e->memory_pressure_advised_bytes = total;
++    if (advised_bytes) *advised_bytes = total;
++    fprintf(stderr,
++            "ds4: temporary Qwen memory pressure active backend=%s advised=%.2f GiB configured_ssd_streaming=%s\n",
++            ds4_backend_name(e->backend), (double)total / 1073741824.0,
++            e->ssd_streaming ? "on" : "off");
++    return 0;
++}
++
++int ds4_engine_memory_pressure_end(ds4_engine *e) {
++    if (!e || e->memory_pressure_depth == 0) return 1;
++    if (--e->memory_pressure_depth != 0) return 0;
++#ifndef DS4_NO_GPU
++    if (e->backend != DS4_BACKEND_CPU && !ds4_gpu_memory_pressure_end()) return 1;
++#endif
++    e->memory_pressure_advised_bytes = 0;
++    fprintf(stderr,
++            "ds4: temporary Qwen memory pressure released backend=%s configured_ssd_streaming=%s\n",
++            ds4_backend_name(e->backend), e->ssd_streaming ? "on" : "off");
++    return 0;
++}
++
++unsigned ds4_engine_memory_pressure_depth(ds4_engine *e) {
++    return e ? e->memory_pressure_depth : 0;
++}
++
++const char *ds4_engine_backend_name(ds4_engine *e) {
++    return e ? ds4_backend_name(e->backend) : "unknown";
++}
++
+ const char *ds4_engine_model_name(ds4_engine *e) {
+     (void)e;
+     return DS4_MODEL_SHAPE_NAME;
+diff --git a/ds4.h b/ds4.h
+--- a/ds4.h
++++ b/ds4.h
+@@ -222,6 +222,13 @@ int ds4_engine_vocab_size(ds4_engine *e);
+ uint32_t ds4_engine_prefill_chunk(ds4_engine *e);
+ int ds4_engine_power(ds4_engine *e);
+ int ds4_engine_set_power(ds4_engine *e, int power_percent);
++/* Temporarily yield model residency/page-cache to a co-located accelerator
++ * pipeline (vision, PDF OCR or image generation). Calls are nestable. This
++ * does not change the engine's configured --ssd-streaming mode. */
++int ds4_engine_memory_pressure_begin(ds4_engine *e, uint64_t *advised_bytes);
++int ds4_engine_memory_pressure_end(ds4_engine *e);
++unsigned ds4_engine_memory_pressure_depth(ds4_engine *e);
++const char *ds4_engine_backend_name(ds4_engine *e);
+ const char *ds4_engine_model_name(ds4_engine *e);
+ int ds4_engine_layer_count(ds4_engine *e);
+ /* Decode gate schedule for the TP transport; see ds4_tp_identity. */
+diff --git a/ds4_cuda.cu b/ds4_cuda.cu
+--- a/ds4_cuda.cu
++++ b/ds4_cuda.cu
+@@ -27377,6 +27377,18 @@ extern "C" void ds4_gpu_set_ssd_streaming(bool enabled) {
+     if (!g_ssd_streaming_mode) cuda_stream_selected_cache_release();
+ }
+ 
++extern "C" int ds4_gpu_memory_pressure_begin(void) {
++    if (!ds4_gpu_synchronize()) return 0;
++    cuda_stream_selected_cache_release();
++    /* CUDA allocations containing non-streamed weights cannot be evicted
++     * without rebuilding the engine. Streaming caches are still returned. */
++    return 1;
++}
++
++extern "C" int ds4_gpu_memory_pressure_end(void) {
++    return 1;
++}
++
+ extern "C" void ds4_gpu_set_streaming_expert_cache_budget(uint32_t experts) {
+     (void)experts;
+ }
+diff --git a/ds4_gpu.h b/ds4_gpu.h
+--- a/ds4_gpu.h
++++ b/ds4_gpu.h
+@@ -139,6 +139,10 @@ int ds4_gpu_should_use_managed_kv_cache(uint64_t kv_cache_bytes, uint64_t contex
+ void ds4_gpu_set_quality(bool quality);
+ void ds4_gpu_set_glm_model(bool enabled);
+ void ds4_gpu_set_ssd_streaming(bool enabled);
++/* Hot residency suspension used while another local model needs the device.
++ * It deliberately leaves the inference-mode flag unchanged. */
++int ds4_gpu_memory_pressure_begin(void);
++int ds4_gpu_memory_pressure_end(void);
+ void ds4_gpu_set_glm_streaming_prefill_full_layer(bool enabled);
+ #ifdef __APPLE__
+ void ds4_gpu_release_zero_prefix_prefill_mask_cache(void);
+diff --git a/ds4_metal.m b/ds4_metal.m
+--- a/ds4_metal.m
++++ b/ds4_metal.m
+@@ -3561,6 +3561,22 @@ void ds4_gpu_set_ssd_streaming(bool enabled) {
+     }
+ }
+ 
++int ds4_gpu_memory_pressure_begin(void) {
++    if (!g_initialized && !ds4_gpu_init()) return 0;
++    if (!ds4_gpu_synchronize()) return 0;
++    ds4_gpu_model_residency_clear();
++    ds4_gpu_stream_expert_cache_clear_all(1);
++    fprintf(stderr, "ds4: Metal model residency suspended for Qwen\n");
++    return 1;
++}
++
++int ds4_gpu_memory_pressure_end(void) {
++    if (!g_initialized) return 1;
++    if (!ds4_gpu_model_residency_request_views()) return 0;
++    fprintf(stderr, "ds4: Metal model residency restored after Qwen\n");
++    return 1;
++}
++
+ void ds4_gpu_set_glm_streaming_prefill_full_layer(bool enabled) {
+     g_glm_streaming_prefill_full_layer_runtime = enabled ? 1 : 0;
+ }
+diff --git a/ds4_server.c b/ds4_server.c
+--- a/ds4_server.c
++++ b/ds4_server.c
+@@ -12286,6 +12286,46 @@ typedef struct {
+     int fd;
+ } client_arg;
+ 
++static bool client_peer_is_loopback(int fd) {
++    struct sockaddr_storage ss;
++    socklen_t n = sizeof ss;
++    memset(&ss, 0, sizeof ss);
++    if (getpeername(fd, (struct sockaddr *)&ss, &n) != 0) return false;
++    if (ss.ss_family == AF_INET) {
++        const struct sockaddr_in *a = (const struct sockaddr_in *)&ss;
++        return (ntohl(a->sin_addr.s_addr) >> 24) == 127;
++    }
++#ifdef AF_INET6
++    if (ss.ss_family == AF_INET6) {
++        const struct sockaddr_in6 *a = (const struct sockaddr_in6 *)&ss;
++        return IN6_IS_ADDR_LOOPBACK(&a->sin6_addr);
++    }
++#endif
++    return false;
++}
++
++static void send_memory_pressure(server *s, int fd, bool begin) {
++    uint64_t advised = 0;
++    int rc;
++    /* All backend work and residency changes must be between inference calls. */
++    pthread_mutex_lock(&s->inference_mu);
++    rc = begin ? ds4_engine_memory_pressure_begin(s->engine, &advised)
++               : ds4_engine_memory_pressure_end(s->engine);
++    unsigned depth = ds4_engine_memory_pressure_depth(s->engine);
++    pthread_mutex_unlock(&s->inference_mu);
++
++    buf b = {0};
++    buf_printf(&b,
++               "{\"ok\":%s,\"active\":%s,\"depth\":%u,"
++               "\"backend\":\"%s\",\"advisedBytes\":%llu}\n",
++               rc == 0 ? "true" : "false", depth ? "true" : "false",
++               depth, ds4_engine_backend_name(s->engine),
++               (unsigned long long)advised);
++    http_response(fd, s->enable_cors, rc == 0 ? 200 : 409,
++                  "application/json", b.ptr);
++    buf_free(&b);
++}
++
+ static void append_model_json_values(buf *b, const char *id, const char *name,
+                                      int ctx, int default_tokens) {
+     const int max_completion = default_tokens < ctx ? default_tokens : ctx;
+@@ -12386,6 +12426,19 @@ static void *client_main(void *arg) {
+         goto done;
+     }
+ 
++    if (!strcmp(hr.method, "POST") &&
++        (!strcmp(hr.path, "/v1/dstudio/memory-pressure/begin") ||
++         !strcmp(hr.path, "/v1/dstudio/memory-pressure/end"))) {
++        if (!client_peer_is_loopback(fd)) {
++            http_error(fd, s->enable_cors, 404, "unknown endpoint");
++        } else {
++            send_memory_pressure(s, fd,
++                                 strstr(hr.path, "/begin") != NULL);
++        }
++        http_request_free(&hr);
++        goto done;
++    }
++
+     if (!strcmp(hr.method, "GET") && !strcmp(hr.path, "/v1/models")) {
+         send_models(s, fd);
+         http_request_free(&hr);

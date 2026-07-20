@@ -1,0 +1,6 @@
+    const char *p = s;
+    if (p[0] != '<' || p[1] != '/') return false;
+    p = agent_dsml_skip_sep(p + 2);
+    p = agent_dsml_match_marker(p);   /*DS4UI_JSONL: tolerate the DSMI typo */
+    if (!p) return false;
+    p = agent_dsml_skip_sep(p);

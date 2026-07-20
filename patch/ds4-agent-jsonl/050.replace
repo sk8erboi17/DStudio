@@ -1,0 +1,10 @@
+    static const char *const seps[] = {
+        "\xEF\xBD\x9C", /* U+FF5C fullwidth vertical bar */
+        "\xE2\x80\x8B", /* U+200B zero-width space */
+        "\xE2\x80\x8C", /* U+200C zero-width non-joiner */
+        "\xE2\x80\x8D", /* U+200D zero-width joiner */
+        "\xEF\xBB\xBF", /* U+FEFF zero-width no-break space / BOM */
+        ":",            /* DS4UI_JSONL: cloud DeepSeek rewrites |DSML|x as DSML:x */
+        "|",            /* DS4UI_JSONL: ...or with a plain ASCII pipe */
+        NULL
+    };

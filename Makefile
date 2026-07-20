@@ -30,6 +30,10 @@ DS4_DIR ?= ../ds4
 
 BIN      := dstudio
 SRC      := src/dstudio.c
+# Per-domain sub-files #included into dstudio.c (one translation unit, all
+# static — same pattern as the GSA/RSA .cfrag includes). Listed as build
+# prerequisites so editing a domain file triggers a rebuild.
+SUBSRC   := $(wildcard src/dstudio_*.c)
 APP      := src/app.cc
 HDR      := src/webview.h
 PAGE     := web/index.html
@@ -154,7 +158,7 @@ $(LOGO_HDR): $(LOGO)
 	@echo "$(LOGO_HDR): embedded $$(wc -c < $(LOGO) | tr -d ' ') bytes of $(LOGO)"
 
 # HTTP server (dstudio.c) as an object: its main becomes ds4_serve_main.
-dstudio.o: $(SRC) $(GEN) $(LOADING_GEN)
+dstudio.o: $(SRC) $(SUBSRC) $(GEN) $(LOADING_GEN)
 	$(CC) $(CFLAGS) -DDS4_WITH_WEBVIEW -c $(SRC) -o dstudio.o
 
 # Entry point + native webview window. On Linux $(APP_DEPS) pulls in logo_data.h.
@@ -236,7 +240,7 @@ run: $(BIN)
 
 # Lightweight check without dependencies: the page must stay text (not binary)
 # and, if node is present, the pure modules (sse/holdback/markdown) must pass the tests.
-$(TEST_UNIT): tests/lan_unit.c $(SRC) $(GEN) $(LOADING_GEN)
+$(TEST_UNIT): tests/lan_unit.c $(SRC) $(SUBSRC) $(GEN) $(LOADING_GEN)
 	@mkdir -p $(TEST_BUILD)
 	$(CC) $(CFLAGS) tests/lan_unit.c -o $@
 
@@ -251,7 +255,7 @@ test-ui-contract:
 	@if command -v node >/dev/null 2>&1; then node tests/ui_contract_test.mjs; else echo "node missing: skipping UI contract tests"; fi
 
 test-ui-browser:
-	@if command -v node >/dev/null 2>&1; then node tests/ui_agent_design_playwright_test.mjs && node tests/ui_gear_popover_test.mjs; else echo "node missing: skipping UI browser tests"; fi
+	@if command -v node >/dev/null 2>&1; then node tests/ui_loading_playwright_test.mjs && node tests/ui_agent_design_playwright_test.mjs && node tests/ui_gear_popover_test.mjs; else echo "node missing: skipping UI browser tests"; fi
 
 test-ui-plan:
 	@if command -v node >/dev/null 2>&1; then node tests/ui_plan_mode_playwright_test.mjs && node tests/ui_plan_mode_matrix_test.mjs; else echo "node missing: skipping Plan mode UI tests"; fi

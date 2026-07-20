@@ -1,0 +1,8 @@
+static bool agent_dsml_open_tag_is(const char *tag, const char *name) {
+    /*DS4UI_JSONL: accept a mangled leading/separating bar (dropped, or a
+      zero-width space) around the ｜DSML｜ marker.*/
+    const char *p = tag;
+    if (*p != '<') return false;
+    p = agent_dsml_skip_sep(p + 1);
+    if (strncmp(p, "DSML", 4) != 0) return false;
+    p = agent_dsml_skip_sep(p + 4);
