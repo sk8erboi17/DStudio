@@ -2,21 +2,31 @@
 /* read_pdf: reads a PDF in the workspace via the DStudio server's hybrid
  * /api/pdf/describe (DS4UI_DSTUDIO_URL): pages with a text layer come back
  * verbatim (pdftotext), scanned pages are read by the local vision model.
- * The slow work and the by-content-hash result cache live server-side. */
+ * The slow work and the by-content-hash result cache live server-side. An
+ * optional pages range ("N" | "N-M" | "N-") is passed through verbatim — how
+ * the model continues past the server's caps on a long document. */
 static char *ds4ui_tool_read_pdf(const agent_tool_call *call) {
     const char *path = agent_tool_arg_value(call, "path");
     const char *question = agent_tool_arg_value(call, "question");
+    const char *pages = agent_tool_arg_value(call, "pages");
     if (!path || !path[0]) return xstrdup("Tool error: read_pdf requires a path\n");
     const char *base = getenv("DS4UI_DSTUDIO_URL");
     if (!base || !base[0]) return xstrdup("Tool error: PDF reading is not available here (DS4UI_DSTUDIO_URL unset).\n");
 
-    /* Build {path,question,format:"text"} and write it to a temp file for curl. */
+    /* Build {path,question,pages?,format:"text"} and write it to a temp file
+     * for curl. */
     agent_buf req = {0};
     agent_buf_puts(&req, "{\"path\":\"");
     ds4ui_json_escape_into(&req, path);
     agent_buf_puts(&req, "\",\"question\":\"");
     ds4ui_json_escape_into(&req, (question && question[0]) ? question : "");
-    agent_buf_puts(&req, "\",\"format\":\"text\"}");
+    agent_buf_puts(&req, "\"");
+    if (pages && pages[0]) {
+        agent_buf_puts(&req, ",\"pages\":\"");
+        ds4ui_json_escape_into(&req, pages);
+        agent_buf_puts(&req, "\"");
+    }
+    agent_buf_puts(&req, ",\"format\":\"text\"}");
 
     char tmpl[] = "/tmp/ds4ui-read-pdf-XXXXXX";
     int tf = mkstemp(tmpl);
@@ -79,6 +89,10 @@ static char *ds4ui_tool_read_pdf(const agent_tool_call *call) {
     agent_buf res = {0};
     agent_buf_puts(&res, "[read_pdf: ");
     agent_buf_puts(&res, path);
+    if (pages && pages[0]) {
+        agent_buf_puts(&res, " pages ");
+        agent_buf_puts(&res, pages);
+    }
     agent_buf_puts(&res, "]\n");
     /* Prompt-injection guard: text from an arbitrary document must never be
      * read as directives (a PDF can literally contain "ignore your

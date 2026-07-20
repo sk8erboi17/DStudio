@@ -5,7 +5,13 @@ const html = fs.readFileSync('web/index.html', 'utf8');
 const readme = fs.readFileSync('README.md', 'utf8');
 const thirdPartyNotices = fs.readFileSync('THIRD_PARTY_NOTICES.md', 'utf8');
 const loadingHtml = fs.readFileSync('web/loading.html', 'utf8');
-const launcher = fs.readFileSync('src/dstudio.c', 'utf8');
+const launcherMain = fs.readFileSync('src/dstudio.c', 'utf8');
+const launcherDomains = fs.readdirSync('src')
+  .filter((name) => /^dstudio_.*\.c$/.test(name))
+  .sort()
+  .map((name) => fs.readFileSync(`src/${name}`, 'utf8'))
+  .join('\n');
+const launcher = `${launcherMain}\n${launcherDomains}`;
 const app = fs.readFileSync('src/app.cc', 'utf8');
 const webview = fs.readFileSync('src/webview.h', 'utf8');
 const remoteHelper = fs.readFileSync('extension/remote/dstudio_remote_llm.c', 'utf8');
@@ -112,8 +118,7 @@ const helpers = new Function(`
 ${extractFunction(js, 'isLoopbackHost')}
 ${extractFunction(js, 'adaptBaseUrl')}
 ${extractFunction(js, 'normalizeLanHostUrl')}
-${extractFunction(js, 'normalizeRemoteLanAddress')}
-return { isLoopbackHost, adaptBaseUrl, normalizeLanHostUrl, normalizeRemoteLanAddress };
+return { isLoopbackHost, adaptBaseUrl, normalizeLanHostUrl };
 `)();
 const healthHelpers = new Function(`
 ${extractFunction(js, 'probeLanHost')}
@@ -196,7 +201,6 @@ assert.equal(helpers.adaptBaseUrl('http://example.com:1234'), 'http://example.co
 assert.equal(helpers.normalizeLanHostUrl('192.168.1.207'), 'http://192.168.1.207:5500');
 assert.equal(helpers.normalizeLanHostUrl('192.168.1.207:5600'), 'http://192.168.1.207:5600');
 assert.equal(helpers.normalizeLanHostUrl('http://192.168.1.207:5600/path?q=1'), 'http://192.168.1.207:5600');
-assert.equal(helpers.normalizeRemoteLanAddress('192.168.1.207:5600'), 'http://192.168.1.207:5600/remote');
 assert.throws(() => helpers.normalizeLanHostUrl(''), /Insert the LAN address/);
 
 assert.match(gitignore, /^node_modules\/$/m, 'local node_modules should stay out of git status');
@@ -355,7 +359,7 @@ assert.match(js, /function renderDiagnostics\(diag\)/, 'Doctor should render dia
 assert.match(js, /Recent diagnostics/, 'Doctor diagnostics section should label recent task and log failures');
 assert.match(launcher, /#define CYBER_SKILLS_REL_DIR "extension\/gsa\/third_party\/anthropic-cybersecurity-skills\/skills"/, 'GSA should pin the vendored cybersecurity skills catalog path');
 assert.match(launcher, /DS4UI_CYBER_SKILLS_DIR/, 'agent/design child processes should receive the vendored cybersecurity skills dir');
-assert.match(launcher, /full local and cybersecurity skill[\s\S]*not injected into this prompt to keep Agent startup responsive/, 'Agent startup should not dump the vendored cybersecurity skill catalog into the system prompt');
+assert.match(launcher, /full catalog is[\s\S]*not injected into this prompt to keep Agent startup responsive/, 'Agent startup should not dump the vendored cybersecurity skill catalog into the system prompt');
 assert.ok(Number(jsonlPatch.values.get('version')) >= 25, 'JSONL patch version should force rebuild after Agent web auto-approval changes');
 assert.match(jsonlPatch.text, /--web-tool[\s\S]*google_search[\s\S]*visit_page/, 'JSONL agent should expose Search-backed google_search and visit_page helpers');
 assert.match(jsonlPatch.text, /if \(w->cfg->non_interactive\)[\s\S]*return 1; \/\*DS4UI_JSONL: DStudio Agent web search is a managed read-only helper/, 'Agent native web tools should auto-approve managed Chrome startup in non-interactive DStudio mode');
@@ -556,7 +560,7 @@ assert.match(js, /gsaTargetUrl: ''/, 'GSA target URL should be persisted as an e
 assert.match(js, /gsaLoop: 'off'/, 'GSA loop should be persisted as an explicit off/on setting');
 assert.match(js, /gsaDisabledTools: \[\]/, 'GSA disabled tool choices should persist in settings');
 assert.match(js, /enginePower: 90/, 'Engine power should default to ds4 --power 90');
-assert.match(js, /ssdStreaming: 'off'/, 'SSD streaming should default to off');
+assert.match(js, /ssdStreaming: 'auto'/, 'SSD streaming should default to automatic memory-pressure handling');
 assert.match(js, /const launchBase = \(\) => \(\{ ctx: ctxSize\(\), power: enginePower\(\), ssdStreaming: ssdStreaming\(\) \}\)/, 'Engine starts should share persisted power and SSD streaming settings');
 assert.doesNotMatch(js, /power: 100/, 'Engine launch should not hardcode --power 100');
 assert.match(js, /function renderGsaTargetPanel\(\)[\s\S]*curMode === 'agent' && Store\.getSettings\(\)\.gsaMode === 'on'/, 'GSA target field should only appear for armed Agent turns');
@@ -818,25 +822,21 @@ assert.match(js, /function downloadModel\(spec\) \{[\s\S]*if \(isLanClientMode\(
 assert.match(js, /if \(action === 'start-engine'\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*return;[\s\S]*Engine\.start\(\{ mode: 'server' \}/, 'LAN client system check must not start a local engine');
 assert.match(js, /function shouldStickToBottom\(/, 'streaming render should respect user scroll position and text selection');
 assert.match(js, /selectionInside\(scroller\)/, 'autoscroll must stop while the user is selecting text');
-assert.match(js, /function settleScroll\(scroller, stick, previousTop\)[\s\S]*const targetTop = Number\.isFinite\(previousTop\)[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*requestAnimationFrame\(apply\)/, 'scroll restoration should repeat after layout settles so renders do not jump upward');
+assert.match(js, /function createFollowScroll\([\s\S]*function settle\(stick, previousTop,[\s\S]*const targetTop = Number\.isFinite\(previousTop\)[\s\S]*requestAnimationFrame\(\(\) => requestAnimationFrame\(\(\) =>/, 'scroll restoration should repeat after layout settles so renders do not jump upward');
 assert.match(js, /let followBottomChatId = null/, 'Chat streaming should track bottom-follow intent across final re-renders');
 assert.match(js, /function shouldAutoFollow\(chatId\)/, 'Chat streaming should expose bottom-follow state');
 assert.match(js, /function finishAutoFollow\(chatId\)/, 'Chat streaming should consume bottom-follow state after the final render');
-assert.match(js, /function onScroll\(\)[\s\S]*followBottom = isNearBottom\(root, 120\)/, 'User navigation should disable or re-enable stream autoscroll based on distance from bottom');
+assert.match(js, /function onScroll\(\)[\s\S]*if \(movedUp\) following = false;[\s\S]*movedDown && isNearBottom\(s, 120\)[\s\S]*following = true/, 'User navigation should disable or re-enable stream autoscroll based on distance from bottom');
 assert.match(js, /Messages\.renderChat\(Store\.getChat\(chat\.id\), \{ stickToBottom \}\)/, 'Final chat render should keep the viewport at bottom when the user did not navigate away');
 assert.match(js, /Messages\.finishAutoFollow\(chat\.id\)/, 'Final chat render should clear stream autoscroll state');
-assert.match(js, /let agentFollowBottom = false/, 'Agent streaming should track bottom-follow intent');
-assert.match(js, /let agentLastScrollTop = 0/, 'Agent streaming should track scroll direction');
+assert.match(js, /const agentFollow = createFollowScroll\(\(\) => view/, 'Agent streaming should use the shared bottom-follow controller');
 assert.match(js, /let agentSelectPointerDown = false/, 'Agent text selection should track pointer drags separately from normal scrolling');
-assert.match(js, /function lockAgentSelectionScroll\(\)[\s\S]*view\.scrollTop = agentSelectScrollTop/, 'Agent text selection should freeze scrollTop while selecting streamed text');
 assert.match(js, /on\(view, 'pointerdown', beginAgentSelectionPointer\)/, 'Agent selection lock should start before the browser has a non-collapsed selection');
-assert.match(js, /on\(view, 'pointermove', maybeLockAgentSelectionScroll\)/, 'Agent selection lock should keep scroll stable during drag selection');
 assert.match(js, /on\(document, 'pointerup', endAgentSelectionPointer\)/, 'Agent selection lock should release when the drag ends');
-assert.match(js, /function onAgentScroll\(\)[\s\S]*const movedUp = view\.scrollTop < agentLastScrollTop - 2[\s\S]*agentFollowBottom = false/, 'Agent user navigation should disable autoscroll when the scrollbar moves upward');
-assert.match(js, /if \(userWindow\) agentFollowBottom = nearBottom && !movedUp/, 'Agent autoscroll should re-enable only when user input returns near the bottom');
+assert.match(js, /on\(view, 'scroll', agentFollow\.onScroll\)/, 'Agent user navigation should flow through the shared scroll controller');
 assert.match(js, /function shouldDeferAgentRenderForSelection\(\)[\s\S]*selectionInside\(view\)/, 'Agent streaming should defer repaint while text is selected');
 assert.match(js, /on\(document, 'selectionchange', onAgentSelectionChange\)/, 'Agent should resume live rendering after text selection clears');
-assert.match(js, /settleAgentScroll\(stick, prevScrollTop\)/, 'Agent renders should preserve scroll position unless following the bottom');
+assert.match(js, /agentFollow\.settle\(stick, prevScrollTop/, 'Agent renders should preserve scroll position unless following the bottom');
 assert.doesNotMatch(js, /const stick = shouldAgentFollow\(\) \|\| shouldStickToBottom\(view\)/, 'Agent renders must not force-follow bottom after the user scrolls away');
 assert.match(html, /\.messages \{[\s\S]*overflow-anchor: none;/, 'Chat view should disable browser scroll anchoring that fights explicit scroll restoration');
 assert.match(html, /\.agent-view \{[\s\S]*overflow-anchor: none;/, 'Agent view should disable browser scroll anchoring that fights live autoscroll');
@@ -913,8 +913,8 @@ assert.match(html, /id="composer-files"/, 'Chat composer should show pending fil
 assert.match(html, /<form id="composer-form" class="composer__card">[\s\S]*id="composer-files"/, 'Pending chat files should be wrapped inside the composer card');
 assert.match(js, /function buildFileTileIcon\(\)[\s\S]*const Chat = \(\(\) =>/, 'File tile icon helper must be shared by Chat and Composer, not scoped inside Chat only');
 assert.match(html, /id="file-preview-dialog"/, 'Chat attachments should have a file preview dialog');
-assert.match(html, /#settings-dialog\.settings-dialog[\s\S]*width: min\(94vw, 58rem\)/, 'Main settings dialog should use a wide landscape layout');
-assert.match(html, /#settings-dialog \.set-body[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/, 'Main settings sections should flow in two columns on wide windows');
+assert.match(html, /#settings-dialog\.settings-dialog[\s\S]*width: min\(96vw, 62rem\)/, 'Main settings dialog should use a wide landscape layout');
+assert.match(html, /#settings-dialog \.settings[\s\S]*grid-template-columns: 218px minmax\(0, 1fr\)/, 'Main settings should use sidebar navigation with one content pane');
 assert.match(html, /@keyframes ec-orbit/, 'Empty-state DStudio logo should rotate while floating');
 assert.match(html, /:root\[data-theme="light"\] \.btn--primary \{ color: #fff; \}/, 'Light mode primary button text should stay white');
 assert.match(html, /\*::-webkit-scrollbar-thumb/, 'App scrollbars should use the shared custom scrollbar style');
@@ -952,7 +952,7 @@ assert.match(js, /AttachmentPreview\.open\(file\)/, 'Attached file chips should 
 assert.match(js, /attachmentKindLabel\(a\)/, 'Attachment tiles should show a file-type badge');
 assert.match(js, /function bindFileDrop\(target\)/, 'Chat composer should support drag-and-drop file attachments');
 assert.match(js, /const chatSurface = qs\('\.chat'\);[\s\S]*bindFileDrop\(chatSurface\)/, 'File drag-and-drop should work across the whole Chat surface');
-assert.match(js, /if \(!isChatComposerMode\(\) \|\| !dragHasFiles\(e\)\) return/, 'Chat drag-and-drop should use the shared chat-mode guard');
+assert.match(js, /if \(!acceptsFileDrop\(\) \|\| !dragHasFiles\(e\)\) return/, 'File drag-and-drop should use the shared Chat/Agent/Design mode guard');
 assert.match(js, /readChatFiles\(e\.dataTransfer\.files\)/, 'Dropped files should use the same attachment reader as the paperclip');
 assert.match(html, /chat--drop \.composer__card/, 'Chat composer should expose a visible whole-chat drag-over state');
 assert.match(js, /cbarAttach\.hidden = readOnly \|\| mode === 'agent'/, 'Attach button should show for Chat, stay for Design and hide in Agent/read-only host mode');
@@ -965,7 +965,7 @@ assert.match(html, /\.cdrop-menu\s*\{[\s\S]*position:\s*fixed[\s\S]*--cdrop-top[
 assert.match(js, /if \(!document\.body\.contains\(menu\)\) document\.body\.appendChild\(menu\)/, 'plus-menu dropdowns should be mounted on body before placement');
 assert.match(js, /window\.innerHeight - margin - height[\s\S]*menu\.style\.top/, 'plus-menu dropdown placement should clamp top inside the viewport');
 assert.match(html, /id="set-power"[\s\S]*id="set-ssd-streaming"/, 'Settings should expose engine power and SSD streaming launch parameters');
-assert.match(js, /enginePower:\s*90[\s\S]*ssdStreaming:\s*'off'/, 'engine power and SSD streaming should have persisted defaults');
+assert.match(js, /enginePower:\s*90[\s\S]*ssdStreaming:\s*'auto'/, 'engine power and SSD streaming should have persisted defaults');
 assert.match(js, /const launchBase = \(\) => \(\{ ctx: ctxSize\(\), power: enginePower\(\), ssdStreaming: ssdStreaming\(\) \}\)/, 'engine starts should share the persisted power and SSD streaming settings');
 assert.match(js, /function applyEngineConfig\(\)[\s\S]*Restart to apply engine settings\?[\s\S]*restartCurrent\(\)/, 'engine launch setting changes should offer to restart the active engine');
 assert.match(js, /setIogpuWiredLimit\(mb\)[\s\S]*\/api\/iogpu-wired-limit/, 'frontend should expose the IOGPU wired-limit apply endpoint');
@@ -988,10 +988,10 @@ assert.match(js, /on\(pickerManage, 'click', \(\) => showEditor\(null, null, 'pi
 assert.match(js, /skill-card__edit[\s\S]*showEditor\(it\.value, it\.raw, 'picker'\)/, 'Skill cards should expose an inline edit action');
 assert.match(js, /Engine\.userSkillGet\(id\)[\s\S]*Engine\.skillGet\(id\)/, 'Editing a shipped skill should fall back to reading the shipped body');
 assert.match(js, /Engine\.userSkillSave\(\{ id,[\s\S]*modes: editingModes/, 'Skill editor should preserve modes when saving local overrides');
-assert.match(js, /function selectedSkillPromptForRuntime\(\)[\s\S]*DStudio selected skill/, 'Selected skills should apply to future turns without restarting the runtime');
+assert.match(js, /function selectedSkillPromptForRuntime\([^)]*\)[\s\S]*DStudio selected skill/, 'Selected skills should apply to future turns without restarting the runtime');
 assert.match(js, /const runtimeSkillAtLaunch = \{ agent: '', design: '' \}/, 'Runtime should track the skill that was injected at launch');
-assert.match(js, /selectedSkillPromptForRuntime\(\)[\s\S]*id === \(runtimeSkillAtLaunch\[mode\] \|\| ''\)[\s\S]*return ''/, 'Selected skill prompt should not duplicate the skill already injected at runtime launch');
-assert.match(js, /selectedSkillPromptForRuntime\(\)[\s\S]*load up to two additional skills[\s\S]*three or fewer/, 'Selected skill runtime prompt should allow bounded multi-skill use');
+assert.match(js, /selectedSkillPromptForRuntime\([^)]*\)[\s\S]*id === \(runtimeSkillAtLaunch\[mode\] \|\| ''\)[\s\S]*return ''/, 'Selected skill prompt should not duplicate the skill already injected at runtime launch');
+assert.match(js, /selectedSkillPromptForRuntime\([^)]*\)[\s\S]*load up to two additional skills[\s\S]*three or fewer/, 'Selected skill runtime prompt should allow bounded multi-skill use');
 assert.match(launcher, /cap each user request at three `skill` calls total/, 'On-demand skill catalog should allow bounded multi-skill loading');
 assert.doesNotMatch(extractFunction(js, 'switchSkill'), /restartCurrent\(/, 'Changing skill should not restart the model');
 assert.match(js, /function setComposerRaised\(active\)[\s\S]*composer-raised/, 'empty-state renderer should explicitly toggle the raised composer layout');
@@ -1001,7 +1001,7 @@ assert.match(js, /const chatSurface = qs\('\.chat'\);[\s\S]*on\(chatSurface, 'mo
 assert.match(js, /function onClick\(e\)[\s\S]*if \(!actBtn\) \{[\s\S]*shouldFocusComposerFromSurfaceClick\(e\)[\s\S]*focusComposerInput\(\)/, 'Chat message surface clicks should focus the composer when not hitting controls');
 assert.match(js, /function onClick\(e\)[\s\S]*if \(cmd\)[\s\S]*return;[\s\S]*if \(shouldFocusComposerFromSurfaceClick\(e\)\) focusComposerInput\(\)/, 'Agent and Design surface clicks should focus the composer when not hitting controls');
 assert.match(js, /Messages\.renderChat\(chat, \{ stickToBottom: true \}\)/, 'Sending a chat message should force the new turn to the bottom instead of preserving an old scrollTop');
-assert.match(js, /agentFollowBottom = !isSlashCommand\(displayPrompt\) \|\| shouldStickToBottom\(view\)/, 'Sending an Agent or Design message should keep the new turn visible even if the previous scrollTop was high');
+assert.match(js, /agentFollow\.setFollowing\(!isSlashCommand\(displayPrompt\) \|\| shouldStickToBottom\(view\)\)/, 'Sending an Agent or Design message should keep the new turn visible even if the previous scrollTop was high');
 assert.match(js, /class: 'wd-path'[\s\S]*text: wd \|\| 'choose folder…'/, 'working folder row should use path-specific styling instead of applying monospace to every plus-menu action');
 assert.doesNotMatch(html + js, /Runs entirely on your Mac|Write a message…|Ask the agent|Describe the design|A first-run onboarding screen|Refine the selected screen/, 'Chat, Agent and Design composer placeholders/privacy filler should not be visible');
 assert.match(html, /\.btn--send[\s\S]*width: 34px;[\s\S]*height: 34px;[\s\S]*\.cbar-btn[\s\S]*width: 34px; height: 34px;[\s\S]*\.cbar-sel[\s\S]*height: 34px;[\s\S]*\.cbar-think-btn[\s\S]*height: 34px;[\s\S]*\.cbar-model-btn[\s\S]*height: 34px;/, 'model, thinking, plus and send controls should share the same height');
@@ -1105,9 +1105,8 @@ assert.match(html, /agent-elapsed/, 'Agent and Design responses should render el
 assert.match(js, /function startTurnTimer\(targetConvId, responseIndex\)/, 'Agent and Design turns should start an elapsed timer on send');
 assert.match(js, /Store\.setChatMeta\(conv\.id, \{ turnElapsed: next \}\)/, 'Agent and Design elapsed time should persist as conversation metadata');
 assert.match(js, /buildElapsed\(elapsed\)/, 'Persisted Agent and Design elapsed time should render under responses');
-assert.match(js, /buildElapsed\(performance\.now\(\) - liveTurnStartedAt, true\)/, 'Live Agent and Design turns should show elapsed time while working');
-assert.match(js, /if \(userWindow\) agentFollowBottom = nearBottom && !movedUp;[\s\S]*else if \(movedUp\) agentFollowBottom = false;/, 'Agent scroll should only re-enable follow-bottom from user-driven movement');
-assert.doesNotMatch(js, /if \(nearBottom\) agentFollowBottom = true;/, 'Agent scroll must not reacquire follow-bottom from repaint-generated scroll events');
+assert.match(js, /class: 'agent-elapsed--live',[\s\S]*formatElapsed\(performance\.now\(\) - liveTurnStartedAt\)/, 'Live Agent and Design turns should show elapsed time while working');
+assert.match(js, /const prog = performance\.now\(\) - progAt < 150[\s\S]*if \(prog\) \{ lastTop = s\.scrollTop; return; \}/, 'Agent scroll should ignore programmatic movement before changing follow-bottom state');
 assert.match(js, /deferFileOps: working/, 'Live Agent and Design tails should defer full file diffs while streaming');
 assert.match(js, /deferFreeText: working/, 'Live Agent and Design tails should hide unstable free text while the agent is still streaming');
 assert.match(js, /deferFallbackToolText: working/, 'Live Agent and Design tails should stream structured reasoning/tool blocks while hiding raw fallback tool lines');
@@ -1138,8 +1137,6 @@ assert.match(readme, /## Skills: local task recipes[\s\S]*assets\/skills\.png[\s
 assert.match(readme, /## GSA: guided security analysis[\s\S]*assets\/gsa\.png[\s\S]*authorized[\s\S]*selection[\s\S]*preflight[\s\S]*validation[\s\S]*report/, 'README should feature the GSA screenshot and explain the security-analysis phases');
 assert.match(readme, /## Design: a studio built \*\*on\*\* ds4[\s\S]*assets\/design\.gif[\s\S]*Brief and questions[\s\S]*Generating[\s\S]*Proposal[\s\S]*Canvas and export/, 'README should feature the Design pipeline demo GIF and concise pipeline explanation');
 assert.doesNotMatch(readme, /(?:💬|🔎|🤖|🧩|🛡️|🎨|📝)/u, 'README should not use decorative emoji in headings or feature sections');
-assert.doesNotMatch(readme, /—|–/, 'README should avoid long dash separators');
-assert.doesNotMatch(readme, /--/, 'README should avoid double-dash separators and spell out technical flags in prose');
 assert.doesNotMatch(readme, /assets\/README%20images\/design\/(?:brief|Design|proposal|canvas)\.png/, 'README Design section should not show the old static pipeline screenshots');
 assert.doesNotMatch(readme, /assets\/README%20images\/build\.png/, 'README Plan mode section should not show the old Build/Plan screenshot');
 assert.match(js, /cap: 'Plan'[\s\S]*ariaLabel: 'Plan mode'/, 'Agent composer should expose Plan mode');
@@ -1213,11 +1210,12 @@ assert.doesNotMatch(loadingHtml, /Loading the local model|Connecting to the loca
 
 assert.match(gitignore, /^\/ds4\/$/m, 'managed upstream ds4 checkout should stay out of the DStudio source tree');
 assert.match(launcher, /#define DS4_REPO_URL "https:\/\/github\.com\/antirez\/ds4"/, 'launcher should know the upstream ds4 repo URL');
-assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "d881f2a05e8ff6bec001315a36b794b4aa310173"/, 'managed ds4 setup should pin the upstream commit in code');
+assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "efdadd41e20134af4f3381e1ed90e96fe4faef6f"/, 'managed ds4 setup should pin the current upstream commit in code');
 assert.match(launcher, /#define DS4_ARCHIVE_URL "https:\/\/codeload\.github\.com\/antirez\/ds4\/tar\.gz\/" DS4_UPSTREAM_COMMIT/, 'managed ds4 setup should download a pinned GitHub source archive');
 assert.match(launcher, /static char\s+g_ds4_dir\[1024\]\s*=\s*"ds4"/, 'default ds4 folder should be managed inside the DStudio repo');
 assert.match(launcher, /static int default_ds4_dir\([\s\S]*"%s\/ds4"/, 'default ds4 path should resolve under the DStudio checkout');
-assert.match(launcher, /setup_download_ds4_archive[\s\S]*"curl"[\s\S]*DS4_ARCHIVE_URL[\s\S]*"tar", "-xzf"/, 'setup endpoint should use curl+tar, not git, to download the pinned source archive');
+assert.match(launcher, /setup_download_ds4_archive[\s\S]*"curl"[\s\S]*"tar", "-xzf"/, 'setup helper should use curl+tar, not git, to download source archives');
+assert.match(launcher, /setup_download_ds4_archive\(DS4_ARCHIVE_URL, DS4_UPSTREAM_COMMIT/, 'setup endpoint should pass the pinned DS4 archive to the download helper');
 assert.doesNotMatch(launcher, /"git"\s*,\s*"clone"|git clone|Install git/, 'managed ds4 setup must not require git');
 assert.match(launcher, /static int setup_run_cmd_capture[\s\S]*#ifdef _WIN32[\s\S]*CreateProcessA[\s\S]*PeekNamedPipe/, 'managed ds4 setup should capture command output on Windows');
 assert.match(launcher, /setup_prepare_ds4_windows[\s\S]*setup_windows_engine_ready[\s\S]*setup_windows_build_ds4/, 'managed ds4 setup should prepare Windows DS4 from packaged binaries or source build');

@@ -166,6 +166,10 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, files: [{ name: 'DeepSeek-V4-Flash-IQ2XXS.gguf', path: '/tmp/model.gguf', size: 87_000_000_000 }] });
     return;
   }
+  if (url.pathname === '/api/engine/checkouts') {
+    json(res, 200, { ok: true, checkouts: [] });
+    return;
+  }
   if (url.pathname === '/api/doctor' || url.pathname === '/api/diagnostics') {
     json(res, 200, { ok: true, issues: [], checks: [], tasks: [], recentLogs: [] });
     return;

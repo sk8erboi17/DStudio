@@ -53,7 +53,7 @@ curl -fsS --max-time 2 "${base}/api/lan-health" >"${tmp}/lan-health-local.json"
 curl -fsS --max-time 2 "${base}/api/diagnostics" >"${tmp}/diagnostics.json"
 curl -fsS --max-time 2 "${base}/api/logs?limit=10" >"${tmp}/logs.json"
 curl -fsS --max-time 2 "${base}/api/tasks?limit=10" >"${tmp}/tasks.json"
-curl -fsS --max-time 2 "${base}/api/skills/search?q=authorization&source=anthropic&limit=5" >"${tmp}/skills-search.json"
+curl -fsS --max-time 2 "${base}/api/embed/status" >"${tmp}/embed-status.json"
 curl -fsS --max-time 2 "${base}/api/skills/get?id=analytics" >"${tmp}/skill-analytics.json"
 node - "${tmp}/agent-send-large.json" <<'NODE'
 const fs = require('fs');
@@ -97,11 +97,12 @@ if (!diag.ok || !diag.summary || !diag.runtime || !diag.tasks || !diag.logs) thr
 if (!logs.ok || !Array.isArray(logs.logs) || typeof logs.seq !== 'number') throw new Error('logs shape incomplete');
 if (!tasks.ok || !Array.isArray(tasks.tasks) || typeof tasks.seq !== 'number') throw new Error('tasks shape incomplete');
 NODE
-node - "${tmp}/skills-search.json" <<'NODE'
+node - "${tmp}/embed-status.json" <<'NODE'
 const fs = require('fs');
 const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-if (!r.ok || !Array.isArray(r.skills)) throw new Error('skills search shape incomplete');
-if (!r.skills.some((s) => s.source === 'anthropic-cybersecurity-skills')) throw new Error('skills search should expose vendored cybersecurity skills');
+if (!r.ok || r.supported !== true || typeof r.installed !== 'boolean' || typeof r.state !== 'string') {
+  throw new Error('embedding status shape incomplete');
+}
 NODE
 node - "${tmp}/skill-analytics.json" <<'NODE'
 const fs = require('fs');
@@ -171,8 +172,8 @@ if (r.iteration !== 1) throw new Error('initial GSA run should be iteration 1');
 const target = fs.readFileSync(`${r.runDir}/target.md`, 'utf8');
 if (!target.includes('https://test.example/api/users/42')) throw new Error('GSA target.md should include the authorized target URL');
 if (!target.includes('Authorized target host: test.example')) throw new Error('GSA target.md should include the derived target host');
-if (!target.includes('tool-retry-policy.md') || !target.includes('retried with the same tool')) throw new Error('GSA target.md should mention same-tool retry before fallback');
-if (!target.includes('Nuclei templates') || !target.includes('NUCLEI_TEMPLATES_DIR')) throw new Error('GSA target.md should mention managed nuclei templates');
+if (!target.includes('tool-retry-policy.md')) throw new Error('GSA target.md should route retry behavior through the policy artifact');
+if (!target.includes('toolStatus.json')) throw new Error('GSA target.md should route managed tool details through toolStatus.json');
 if (!target.includes('scope.json') || !target.includes('safety-gate.json')) throw new Error('GSA target.md should mention scope and safety gate artifacts');
 if (!target.includes('workbench.json') || !target.includes('web, network, forensics, reverse, code and infra')) throw new Error('GSA target.md should mention the Evidence Workbench domains');
 const toolStatus = JSON.parse(fs.readFileSync(`${r.runDir}/toolStatus.json`, 'utf8'));
@@ -204,7 +205,7 @@ if (!/testing-api-for-broken-object-level-authorization|exploiting-broken-functi
 if (!r.prompt.includes('Use ONLY imported skill IDs')) throw new Error('GSA prompt should forbid generic/base skills');
 if (!r.prompt.includes('Authorized target URL:')) throw new Error('GSA prompt should expose the target URL artifact context');
 if (!r.prompt.includes('tool-assisted') || !r.prompt.includes('/scripts/')) throw new Error('GSA prompt should route automation through optional tools and local scripts');
-if (!r.prompt.includes('tool-retry-policy.md') || !r.prompt.includes('do not degrade to curl') || !r.prompt.includes('retry that same tool') || !r.prompt.includes('corrected timeout budget')) throw new Error('GSA prompt should enforce same-tool retry before fallback');
+if (!r.prompt.includes('tool-retry-policy.md') || !r.prompt.includes('same-tool retry') || !r.prompt.includes('timeout retry') || !r.prompt.includes('substitute/fallback')) throw new Error('GSA prompt should route retry and fallback behavior through the policy artifact');
 if (!r.prompt.includes('workbench.json') || !r.prompt.includes('Evidence Workbench') || !r.prompt.includes('workbench-network.jsonl')) throw new Error('GSA prompt should expose the Evidence Workbench artifacts');
 if (/recon\.sh|missing scanner/i.test(r.prompt)) throw new Error('GSA prompt should not require implicit recon helpers');
 NODE

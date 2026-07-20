@@ -245,7 +245,10 @@ static bool ds4ui_remote_apply_control(agent_config *cfg, char *line) {
 }
 
 static char *ds4ui_remote_system_prompt(agent_config *cfg) {
-    char *tools = agent_build_tools_prompt();
+    /* Remote DeepSeek endpoints use DSML and do not initialize a local
+     * ds4_engine. Upstream's generic helper now requires an engine so it can
+     * choose DSML versus GLM syntax; select the remote protocol directly. */
+    char *tools = agent_build_dsml_tools_prompt();
     agent_buf b = {0};
     agent_buf_puts(&b, tools);
     free(tools);
@@ -414,6 +417,18 @@ static void ds4ui_remote_chunk(void *ud, const char *kind, const char *text, siz
         if (!ctx->reasoning_open) {
             ds4ui_emit_event(w, "reasoning_start");
             ctx->reasoning_open = true;
+        }
+        /* The executable DSML parser never sees this channel (remote backends
+         * deliver reasoning separately), so a tool call emitted INSIDE the
+         * model's reasoning used to end the turn silently — the model believed
+         * it acted. Feed the stock marker detector so the existing "tool
+         * calling is not allowed inside <think>" net fires at round end with
+         * the syntax reminder, and the model re-emits in the answer channel. */
+        if (ctx->stream) {
+            for (size_t si = 0; si < len && !ctx->stream->dsml_in_think; si++) {
+                if (agent_dsml_marker_detector_feed(&ctx->stream->think_dsml, text[si]))
+                    ctx->stream->dsml_in_think = true;
+            }
         }
         agent_publish(w, text, len);
         ds4ui_remote_flush(w);

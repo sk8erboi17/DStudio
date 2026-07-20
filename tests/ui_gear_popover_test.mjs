@@ -101,6 +101,10 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, files: [] });
     return;
   }
+  if (url.pathname === '/api/engine/checkouts') {
+    json(res, 200, { ok: true, checkouts: [] });
+    return;
+  }
   if (url.pathname === '/api/gsa/tools') {
     json(res, 200, { ok: true, gsaTools: { mode: 'tool-assisted', tools: [] } });
     return;
