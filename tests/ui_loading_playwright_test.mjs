@@ -13,7 +13,6 @@ try {
 const loadingHtml = fs.readFileSync('web/loading.html');
 let started = false;
 let startBody = null;
-let probeCount = 0;
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -56,12 +55,6 @@ const server = http.createServer(async (req, res) => {
     startBody = JSON.parse(await readBody(req) || '{}');
     started = true;
     json(res, 200, { ok: true, mode: 'server' });
-    return;
-  }
-  if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
-    await readBody(req);
-    probeCount++;
-    json(res, 200, { model: 'deepseek-v4-flash', choices: [{ message: { role: 'assistant', content: 'yes' } }] });
     return;
   }
   if (url.pathname === '/') {
@@ -121,7 +114,6 @@ try {
   assert.equal(startBody.ctx, 131072);
   assert.equal(startBody.power, 70);
   assert.equal(startBody.ssdStreaming, 'off', 'saved Off must reach the launcher unchanged');
-  assert.equal(probeCount, 1, 'loading gate should probe the started model once');
   assert.deepEqual(pageErrors, []);
   console.log('ui_loading_playwright_test: ok');
 } finally {

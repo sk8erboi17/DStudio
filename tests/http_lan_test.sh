@@ -69,7 +69,11 @@ curl -fsS --max-time 5 -X POST "${base}/api/gsa/tools/install" \
   -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' >"${tmp}/gsa-tools-install.json"
 curl -fsS --max-time 2 "${base}/api/gsa/tools" >"${tmp}/gsa-tools-after.json"
 curl -fsS --max-time 2 "${base}/loading.html" >"${tmp}/loading.html"
-grep -q 'hello are you alive' "${tmp}/loading.html"
+grep -q 'startWithSavedSettings' "${tmp}/loading.html"
+if grep -q 'hello are you alive' "${tmp}/loading.html"; then
+  echo "loading page must not block startup on a model generation" >&2
+  exit 1
+fi
 grep -q 'lanClientHost' "${tmp}/loading.html"
 grep -q 'settings.onboarded !== true' "${tmp}/loading.html"
 curl -fsS --max-time 2 "${base}/?firstLaunch=1" >"${tmp}/root-query.html"

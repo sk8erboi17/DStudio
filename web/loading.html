@@ -223,7 +223,7 @@
         try {
           const st = await fetchJson('/api/status', {}, 3500);
           if (st.ready === true && st.running === true) {
-            showProgress(96, 'Engine ready', 'Checking the model response');
+            showProgress(100, 'Ready', 'Opening DStudio');
             return true;
           }
           if (st.download && st.downloadPct >= 0) {
@@ -253,44 +253,11 @@
       }
     }
 
-    async function askAlive() {
-      showProgress(98, 'Checking the model…', 'Running a short local readiness test');
-      const body = {
-        model: 'ds4',
-        stream: false,
-        temperature: 0,
-        max_tokens: 16,
-        messages: [{ role: 'user', content: 'hello are you alive?' }]
-      };
-      let failures = 0;
-      for (;;) {
-        try {
-          const json = await fetchJson('/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-          }, 45000);
-          if (json && Array.isArray(json.choices) && json.choices.length > 0) {
-            showProgress(100, 'Ready', 'Opening DStudio');
-            await sleep(220);
-            location.replace('/');
-            return;
-          }
-          throw new Error('empty model response');
-        } catch (e) {
-          failures++;
-          showProgress(98, 'Model check failed', 'Retrying the local engine…');
-          if (failures >= 3) {
-            location.replace('/');
-            return;
-          }
-          await sleep(1400);
-        }
-      }
-    }
-
     (async () => {
-      if (await startWithSavedSettings() && await waitForReady()) await askAlive();
+      if (await startWithSavedSettings() && await waitForReady()) {
+        await sleep(220);
+        location.replace('/');
+      }
     })();
   </script>
 </body>
