@@ -5829,7 +5829,7 @@
             </select>
           </label>
           <label class="field">
-            <span>SSD streaming <small class="field-note">Metal-only; disabled by default</small></span>
+            <span>SSD streaming <small class="field-note">Metal-only; applied at engine start, default Auto</small></span>
             <select id="set-ssd-streaming" aria-label="SSD streaming">
               <option value="off">Off</option>
               <option value="auto">Auto</option>
@@ -7375,6 +7375,14 @@
       else if (/chat/i.test(file)) kind = 'chat';
       const qm = file.match(/\b(IQ\d[A-Z0-9]*|Q\d[A-Z0-9]*K?[A-Z0-9]*|BF16|F16|F32)\b/i);
       return { model, kind, quant: qm ? qm[1].toUpperCase() : '' };
+    }
+    function modelIdForEngineStatus(st) {
+      const file = String(st?.modelFile || '');
+      if (/\bpro\b/i.test(file)) return 'deepseek-v4-pro';
+      if (/\bflash\b/i.test(file)) return 'deepseek-v4-flash';
+      if (st?.variant === 'pro') return 'deepseek-v4-pro';
+      if (st?.variant === 'flash') return 'deepseek-v4-flash';
+      return '';
     }
     function fmtGgufSize(b) {
       const gb = b / 1e9;
@@ -16315,7 +16323,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
           if (m.physicalBytes) notes.push(`RAM ${fmtGib(m.physicalBytes)}`);
           if (m.modelBytes > 0) notes.push(`model ${fmtGib(m.modelBytes)}`);
           if (m.iogpuWiredLimitMb >= 0) notes.push(`iogpu.wired_limit_mb ${m.iogpuWiredLimitMb}`);
-          notes.push(`SSD streaming ${m.ssdStreamingEffective ? 'effective' : (m.ssdStreaming || Store.getSettings().ssdStreaming || 'off')}`);
+          const desiredSsd = Store.getSettings().ssdStreaming || 'auto';
+          const runningSsd = m.ssdStreaming || 'off';
+          notes.push(`SSD streaming running ${runningSsd}${m.ssdStreamingEffective ? ' (active)' : ''}`);
+          if (desiredSsd !== runningSsd) notes.push(`next restart ${desiredSsd}`);
           const modelResidencyRisk = m.modelBytes > 64 * 1073741824 && m.ssdStreamingEffective === false;
           const iogpuLimitRisk = m.iogpuWiredLimitMb > maxMb;
           const iogpuAggressive = m.iogpuWiredLimitMb > targetMb && m.iogpuWiredLimitMb <= maxMb;
@@ -22281,6 +22292,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
           checkEngineHealth(st);
           Store.getState().ui.agentWorkdir = st.workdir || '';
           if (st.variants) Store.setModelState({ variants: st.variants, current: st.variant || variant() });
+          if (!isLanClientMode() && st.mode === 'server' && st.running) {
+            const liveModelId = modelIdForEngineStatus(st);
+            if (liveModelId && Store.getSettings().model !== liveModelId) {
+              Store.setSettings({ model: liveModelId });
+            }
+          }
           if (st.download && st.downloadPct >= 0 && st.downloadPct < 100) {
             Store.setModelState({ download: { variant: st.downloadVariant, pct: st.downloadPct } });
             if (!dlPoll) dlPoll = setInterval(pollDownload, 2000); // resume polling after a reload

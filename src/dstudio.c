@@ -7988,6 +7988,9 @@ int main(int argc, char **argv)
             snprintf(g_stage, sizeof g_stage, "Engine port is busy");
             printf("engine: %s\n", g_engine_err);
         }
+    } else if (getenv("DS4UI_DEFER_ENGINE_START")) {
+        set_stage("Applying saved engine settings…", 2);
+        printf("engine: waiting for the native loading page to apply saved launch settings\n");
     } else {
         engine_cfg boot = ENGINE_DEFAULTS;
         boot.uncensored = model_present(1) ? 1 : 0;

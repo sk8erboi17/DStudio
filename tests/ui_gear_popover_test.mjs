@@ -14,6 +14,7 @@ try {
 const repoRoot = process.cwd();
 const webRoot = path.join(repoRoot, 'web');
 const missingRequests = [];
+let statusMode = 'agent';
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -34,7 +35,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
   if (url.pathname === '/api/status') {
     json(res, 200, {
-      mode: 'agent',
+      mode: statusMode,
       running: true,
       ready: true,
       loadPct: 100,
@@ -47,6 +48,7 @@ const server = http.createServer(async (req, res) => {
       lan: false,
       variants: { flash: true, pro: false },
       variant: 'flash',
+      modelFile: 'gguf/DeepSeek-V4-Flash-test.gguf',
       engineLine: 'gear test ready',
     });
     return;
@@ -157,7 +159,7 @@ try {
       v: 1,
       onboarded: true,
       theme: 'light',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-v4-pro',
       modelVariant: 'flash',
       thinkLevel: 'max',
       ctxSize: 65536,
@@ -200,6 +202,16 @@ try {
     assert.ok(r.bottom <= boxes.viewport.height + 1, `${name} overflows bottom: ${JSON.stringify(boxes)}`);
     assert.ok(r.width > 100 && r.height > 30, `${name} is not visibly sized: ${JSON.stringify(boxes)}`);
   }
+  statusMode = 'server';
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('#conn-indicator .conn-model').filter({ hasText: 'deepseek-v4-flash' }).waitFor();
+  await page.waitForFunction(() =>
+    JSON.parse(localStorage.getItem('ds4web.settings.v1') || '{}').model === 'deepseek-v4-flash');
+  assert.equal(
+    await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v1') || '{}').model),
+    'deepseek-v4-flash',
+    'running Flash status should replace a stale Pro model label',
+  );
   assert.deepEqual(pageErrors, [], `page errors: ${JSON.stringify({ pageErrors, missingRequests }, null, 2)}`);
   console.log('ui_gear_popover_test: ok');
 } finally {

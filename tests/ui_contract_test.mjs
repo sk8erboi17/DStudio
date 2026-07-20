@@ -562,6 +562,9 @@ assert.match(js, /gsaDisabledTools: \[\]/, 'GSA disabled tool choices should per
 assert.match(js, /enginePower: 90/, 'Engine power should default to ds4 --power 90');
 assert.match(js, /ssdStreaming: 'auto'/, 'SSD streaming should default to automatic memory-pressure handling');
 assert.match(js, /const launchBase = \(\) => \(\{ ctx: ctxSize\(\), power: enginePower\(\), ssdStreaming: ssdStreaming\(\) \}\)/, 'Engine starts should share persisted power and SSD streaming settings');
+assert.match(js, /function modelIdForEngineStatus\(st\)[\s\S]*modelFile[\s\S]*deepseek-v4-pro[\s\S]*deepseek-v4-flash/, 'live engine status should map the running GGUF to the correct API model id');
+assert.match(js, /liveModelId = modelIdForEngineStatus\(st\)[\s\S]*Store\.setSettings\(\{ model: liveModelId \}\)/, 'status sync should replace stale Flash/Pro labels with the running model id');
+assert.match(js, /SSD streaming running \$\{runningSsd\}[\s\S]*next restart \$\{desiredSsd\}/, 'Settings should distinguish the running SSD mode from a pending restart preference');
 assert.doesNotMatch(js, /power: 100/, 'Engine launch should not hardcode --power 100');
 assert.match(js, /function renderGsaTargetPanel\(\)[\s\S]*curMode === 'agent' && Store\.getSettings\(\)\.gsaMode === 'on'/, 'GSA target field should only appear for armed Agent turns');
 assert.match(js, /Engine\.gsaStart\(workdir, mission, targetUrl, '', gsaDisabledToolsPayload\(\), securityProfileValue\(\), securityAuthorizedValue\(\)\)/, 'GSA command should pass target URL, disabled tools and security profile context through to the backend');
@@ -1208,6 +1211,8 @@ assert.match(loadingHtml, /settings\.onboarded !== true/, 'loading gate should w
 assert.match(loadingHtml, /hello are you alive\?/, 'loading gate should probe the local model');
 assert.match(loadingHtml, /class="logo"[\s\S]*id="loading-progress"[\s\S]*id="loading-bar"[\s\S]*id="loading-stage"[\s\S]*id="loading-pct"/, 'loading page should show the DStudio logo above a labeled progress bar');
 assert.match(loadingHtml, /showProgress\(st\.loadPct,[\s\S]*st\.stage/, 'loading progress should consume the launcher percentage and stage');
+assert.match(loadingHtml, /startWithSavedSettings\(\)[\s\S]*saved\.ctxSize[\s\S]*saved\.enginePower[\s\S]*saved\.ssdStreaming[\s\S]*\/api\/start/, 'native loading gate should start the engine with the persisted browser launch settings');
+assert.match(loadingHtml, /ssdStreaming,[\s\S]*jsonl: saved\.useJsonlPatch !== false/, 'native loading gate should pass SSD Off/On/Auto through without rewriting it');
 assert.match(loadingHtml, /idlePolls >= 3[\s\S]*location\.replace\('\/'\)/, 'loading gate should open the workspace instead of waiting forever when no engine launch is active');
 assert.doesNotMatch(loadingHtml, /class="mark"|@keyframes spin/, 'loading page should not use the old rotating mark');
 
@@ -1217,6 +1222,8 @@ assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "efdadd41e20134af4f3381e1ed9
 assert.match(launcher, /#define DS4_ARCHIVE_URL "https:\/\/codeload\.github\.com\/antirez\/ds4\/tar\.gz\/" DS4_UPSTREAM_COMMIT/, 'managed ds4 setup should download a pinned GitHub source archive');
 assert.match(launcher, /static int ds4_server_compatible\(int port\)[\s\S]*GET \/v1\/models[\s\S]*owned_by/, 'launcher should identify a compatible DS4 server before reusing an occupied engine port');
 assert.match(launcher, /ds4_server_compatible\(ENGINE_DEFAULTS\.port\)[\s\S]*g_mode = ENGINE_SERVER;[\s\S]*g_ready = 1;/, 'startup should adopt a compatible DS4 engine already running locally');
+assert.match(app, /native loading page owns engine startup[\s\S]*DS4UI_DEFER_ENGINE_START/, 'native wrapper should defer engine launch until persisted browser settings are available');
+assert.match(launcher, /getenv\("DS4UI_DEFER_ENGINE_START"\)[\s\S]*Applying saved engine settings/, 'native server child should wait for the loading page instead of launching C defaults');
 assert.match(launcher, /static char\s+g_ds4_dir\[1024\]\s*=\s*"ds4"/, 'default ds4 folder should be managed inside the DStudio repo');
 assert.match(launcher, /static int default_ds4_dir\([\s\S]*"%s\/ds4"/, 'default ds4 path should resolve under the DStudio checkout');
 assert.match(launcher, /setup_download_ds4_archive[\s\S]*"curl"[\s\S]*"tar", "-xzf"/, 'setup helper should use curl+tar, not git, to download source archives');

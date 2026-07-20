@@ -165,6 +165,57 @@
       }
     }
 
+    async function startWithSavedSettings() {
+      let st;
+      try {
+        st = await fetchJson('/api/status', {}, 3500);
+      } catch {
+        return true; // waitForReady handles a launcher that is still connecting
+      }
+      if (st.running) return true;
+      const models = st.models || {};
+      const variants = st.variants || {};
+      if (!st.ds4dirOk || !(models.standard || models.uncensored || variants.flash || variants.pro || st.modelFile)) {
+        showProgress(visualPct, 'Setup required', 'Opening DStudio');
+        await sleep(250);
+        location.replace('/');
+        return false;
+      }
+
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem('ds4web.settings.v1') || '{}') || {}; }
+      catch { saved = {}; }
+      const ctx = Math.max(1024, Math.min(1048576, parseInt(saved.ctxSize, 10) || 65536));
+      const power = Math.max(1, Math.min(100, parseInt(saved.enginePower, 10) || 90));
+      const ssdStreaming = ['off', 'on', 'auto'].includes(saved.ssdStreaming) ? saved.ssdStreaming : 'auto';
+      const variant = saved.modelVariant === 'pro' ? 'pro' : 'flash';
+      const gguf = typeof saved.modelGguf === 'string' ? saved.modelGguf : '';
+      showProgress(5, 'Applying saved engine settings…',
+        `${Math.round(ctx / 1024)}k context · SSD streaming ${ssdStreaming}`);
+      try {
+        await fetchJson('/api/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
+          body: JSON.stringify({
+            mode: 'server',
+            model: models.uncensored ? 'uncensored' : 'standard',
+            variant,
+            gguf,
+            ctx,
+            power,
+            ssdStreaming,
+            jsonl: saved.useJsonlPatch !== false,
+          }),
+        }, 15000);
+        return true;
+      } catch (e) {
+        showProgress(visualPct, 'Could not start the engine', 'Opening DStudio diagnostics');
+        await sleep(500);
+        location.replace('/');
+        return false;
+      }
+    }
+
     async function waitForReady() {
       let failures = 0;
       let idlePolls = 0;
@@ -239,7 +290,7 @@
     }
 
     (async () => {
-      if (await waitForReady()) await askAlive();
+      if (await startWithSavedSettings() && await waitForReady()) await askAlive();
     })();
   </script>
 </body>
