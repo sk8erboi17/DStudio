@@ -1206,12 +1206,17 @@ assert.match(settingsDialog, /Connect to LAN/, 'settings should allow entering L
 assert.match(loadingHtml, /lanClientHost/, 'loading gate must skip when this browser is a LAN client');
 assert.match(loadingHtml, /settings\.onboarded !== true/, 'loading gate should wait until host onboarding is complete');
 assert.match(loadingHtml, /hello are you alive\?/, 'loading gate should probe the local model');
-assert.doesNotMatch(loadingHtml, /Loading the local model|Connecting to the local launcher|Waiting for the model to be ready|Open DStudio anyway/, 'loading page should show only the logo, not a status card');
+assert.match(loadingHtml, /class="logo"[\s\S]*id="loading-progress"[\s\S]*id="loading-bar"[\s\S]*id="loading-stage"[\s\S]*id="loading-pct"/, 'loading page should show the DStudio logo above a labeled progress bar');
+assert.match(loadingHtml, /showProgress\(st\.loadPct,[\s\S]*st\.stage/, 'loading progress should consume the launcher percentage and stage');
+assert.match(loadingHtml, /idlePolls >= 3[\s\S]*location\.replace\('\/'\)/, 'loading gate should open the workspace instead of waiting forever when no engine launch is active');
+assert.doesNotMatch(loadingHtml, /class="mark"|@keyframes spin/, 'loading page should not use the old rotating mark');
 
 assert.match(gitignore, /^\/ds4\/$/m, 'managed upstream ds4 checkout should stay out of the DStudio source tree');
 assert.match(launcher, /#define DS4_REPO_URL "https:\/\/github\.com\/antirez\/ds4"/, 'launcher should know the upstream ds4 repo URL');
 assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "efdadd41e20134af4f3381e1ed90e96fe4faef6f"/, 'managed ds4 setup should pin the current upstream commit in code');
 assert.match(launcher, /#define DS4_ARCHIVE_URL "https:\/\/codeload\.github\.com\/antirez\/ds4\/tar\.gz\/" DS4_UPSTREAM_COMMIT/, 'managed ds4 setup should download a pinned GitHub source archive');
+assert.match(launcher, /static int ds4_server_compatible\(int port\)[\s\S]*GET \/v1\/models[\s\S]*owned_by/, 'launcher should identify a compatible DS4 server before reusing an occupied engine port');
+assert.match(launcher, /ds4_server_compatible\(ENGINE_DEFAULTS\.port\)[\s\S]*g_mode = ENGINE_SERVER;[\s\S]*g_ready = 1;/, 'startup should adopt a compatible DS4 engine already running locally');
 assert.match(launcher, /static char\s+g_ds4_dir\[1024\]\s*=\s*"ds4"/, 'default ds4 folder should be managed inside the DStudio repo');
 assert.match(launcher, /static int default_ds4_dir\([\s\S]*"%s\/ds4"/, 'default ds4 path should resolve under the DStudio checkout');
 assert.match(launcher, /setup_download_ds4_archive[\s\S]*"curl"[\s\S]*"tar", "-xzf"/, 'setup helper should use curl+tar, not git, to download source archives');

@@ -393,6 +393,7 @@ static const engine_cfg ENGINE_DEFAULTS = { 1, 28000, 262144, 90, 24576, 128, 1,
 /* ---- global engine state ---- */
 static int       g_mode = ENGINE_NONE;
 static pid_t     g_child = -1;
+static int       g_external_server = 0; /* compatible ds4-server reused, never owned/stopped by DStudio */
 static engine_cfg g_cfg;
 static char      g_ds4_dir[1024] = "ds4";
 static int       g_ds4_dir_explicit = 0;  /* CLI path: do not override with ./ds4 discovery */
@@ -2445,6 +2446,51 @@ static int port_listening(int port) {
     return ok;
 }
 
+/* A listener on the default port may belong to another DStudio-family app.
+ * Reuse it only when its OpenAI model catalog identifies a DS4 server; a bare
+ * TCP accept is not enough because an unrelated service must not be treated as
+ * a ready local model. */
+static int ds4_server_compatible(int port) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return 0;
+#ifdef _WIN32
+    int tv = 1200;
+    (void)setsockopt((SOCKET)(intptr_t)s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
+    (void)setsockopt((SOCKET)(intptr_t)s, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tv, sizeof tv);
+#else
+    struct timeval tv = { 1, 200000 };
+    (void)setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    (void)setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+#endif
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET;
+    a.sin_port = htons((uint16_t)port);
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (connect(s, (struct sockaddr *)&a, sizeof a) != 0) { close(s); return 0; }
+
+    static const char req[] =
+        "GET /v1/models HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    size_t sent = 0;
+    while (sent < sizeof req - 1) {
+        ssize_t n = send(s, req + sent, sizeof req - 1 - sent, 0);
+        if (n <= 0) { close(s); return 0; }
+        sent += (size_t)n;
+    }
+    char response[4097];
+    size_t used = 0;
+    while (used < sizeof response - 1) {
+        ssize_t n = recv(s, response + used, sizeof response - 1 - used, 0);
+        if (n <= 0) break;
+        used += (size_t)n;
+    }
+    close(s);
+    response[used] = '\0';
+    return strstr(response, " 200 OK") != NULL &&
+           (strstr(response, "\"owned_by\":\"ds4.c\"") != NULL ||
+            strstr(response, "\"id\":\"deepseek-v4-") != NULL);
+}
+
 /* Opens an HTTP listen socket bound to `host`:`port`. Returns the fd or -1. */
 static int open_listener(const char *host, int port) {
     int s = socket(AF_INET, SOCK_STREAM, 0);
@@ -2943,7 +2989,7 @@ static void close_pipes(void) {
 
 static void stop_child(void) {
     sse_close_all();
-    if (g_child <= 0) { g_mode = ENGINE_NONE; return; }
+    if (g_child <= 0) { g_mode = ENGINE_NONE; g_external_server = 0; return; }
     printf("engine: stopping pid %d…\n", (int)g_child);
     dstudio_log_event("info", "engine", g_active_turn_task ? g_active_turn_task : g_active_launch_task,
                       "stopping pid %d", (int)g_child);
@@ -2968,6 +3014,7 @@ static void stop_child(void) {
 #endif
     close_pipes();
     g_mode = ENGINE_NONE;
+    g_external_server = 0;
     g_ready = 0;
     g_agent_working = 0;
     g_interrupt_pending = 0;
@@ -3326,7 +3373,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     if (!win_spawn(g_ds4_dir, argv, 0, NULL, &g_out_fd, &g_err_fd, &pid, err, errsz))
         return 0;
     g_child_win_pid = g_last_spawn_win_pid;
-    g_child = pid; g_mode = ENGINE_SERVER; g_cfg = *cfg;
+    g_child = pid; g_mode = ENGINE_SERVER; g_external_server = 0; g_cfg = *cfg;
     reset_progress("Starting the server…");
     printf("engine: server pid %ld (port %d, windows cpu)\n", (long)pid, cfg->port);
     return 1;
@@ -3364,7 +3411,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     close(op[1]); close(ep[1]);
     g_out_fd = op[0]; g_err_fd = ep[0];
     set_nonblock(g_out_fd); set_nonblock(g_err_fd);
-    g_child = pid; g_mode = ENGINE_SERVER; g_cfg = *cfg;
+    g_child = pid; g_mode = ENGINE_SERVER; g_external_server = 0; g_cfg = *cfg;
     reset_progress("Starting the server…");
     printf("engine: server pid %d (port %d, %s)\n", (int)pid, cfg->port,
            cfg->uncensored ? "uncensored" : "standard");
@@ -4568,6 +4615,24 @@ static void api_model_download(int fd, const char *body) {
 
 static void api_status(int fd) {
     reap_child();
+    int engine_running = g_child > 0;
+    if (!engine_running && g_mode == ENGINE_SERVER && g_external_server) {
+        engine_running = port_listening(g_cfg.port);
+        if (engine_running && !g_ready) {
+            engine_running = ds4_server_compatible(g_cfg.port);
+            if (engine_running) {
+                g_ready = 1;
+                g_load_pct = 100;
+                snprintf(g_stage, sizeof g_stage, "Using the existing local DS4 engine");
+                g_engine_err[0] = '\0';
+            }
+        }
+        if (!engine_running && g_ready) {
+            g_ready = 0;
+            snprintf(g_engine_err, sizeof g_engine_err, "the shared local DS4 engine disconnected");
+            snprintf(g_stage, sizeof g_stage, "Engine disconnected");
+        }
+    }
     char stage_esc[192];
     json_escape_into(stage_esc, sizeof stage_esc, g_stage, strlen(g_stage));
     char wd_esc[1100];
@@ -4577,7 +4642,7 @@ static void api_status(int fd) {
     json_escape_into(ssd_reason_esc, sizeof ssd_reason_esc,
                      g_ssd_streaming_reason, strlen(g_ssd_streaming_reason));
     char cfg[640];
-    if (g_child > 0)
+    if (engine_running)
         snprintf(cfg, sizeof cfg,
                  "{\"model\":\"%s\",\"port\":%d,\"ctx\":%d,\"power\":%d,\"think\":\"%s\","
                  "\"ssdStreaming\":\"%s\",\"ssdStreamingEffective\":%s,\"ssdStreamingReason\":\"%s\"}",
@@ -4621,7 +4686,7 @@ static void api_status(int fd) {
         "\"download\":%s,\"downloadVariant\":\"%s\",\"downloadPct\":%lld,"
         "\"engineError\":\"%s\",\"engineLine\":\"%s\",\"modelFile\":\"%s\",\"skill\":\"%s\",\"designSystem\":\"%s\","
         "\"contentOk\":%s,\"contentDownloading\":%s}",
-        mode_name(g_mode), g_child > 0 ? "true" : "false", g_ready ? "true" : "false",
+        mode_name(g_mode), engine_running ? "true" : "false", g_ready ? "true" : "false",
         g_load_pct, stage_esc, g_agent_working ? "true" : "false", wd_esc, cfg,
         g_jsonl_active ? "true" : "false",
         d4_esc, ds4_dir_valid() ? "true" : "false", web_esc, web_dir_valid() ? "true" : "false",
@@ -5389,6 +5454,7 @@ static void api_start(int fd, const char *body) {
             send_json(fd, "409 Conflict", out);
             return;
         }
+        g_external_server = 0;
     }
 
     char err[256] = "";
@@ -7908,7 +7974,20 @@ int main(int argc, char **argv)
     if (test_mode) {
         printf("engine: test mode - not starting ds4\n");
     } else if (port_listening(ENGINE_DEFAULTS.port)) {
-        printf("engine: :%d already in use - I start nothing, manage it from the page\n", ENGINE_DEFAULTS.port);
+        if (ds4_server_compatible(ENGINE_DEFAULTS.port)) {
+            g_mode = ENGINE_SERVER;
+            g_external_server = 1;
+            g_cfg = ENGINE_DEFAULTS;
+            g_ready = 1;
+            g_load_pct = 100;
+            snprintf(g_stage, sizeof g_stage, "Using the existing local DS4 engine");
+            printf("engine: reusing compatible ds4-server already listening on :%d\n", ENGINE_DEFAULTS.port);
+        } else {
+            snprintf(g_engine_err, sizeof g_engine_err,
+                     "port %d is occupied by a service that is not DS4", ENGINE_DEFAULTS.port);
+            snprintf(g_stage, sizeof g_stage, "Engine port is busy");
+            printf("engine: %s\n", g_engine_err);
+        }
     } else {
         engine_cfg boot = ENGINE_DEFAULTS;
         boot.uncensored = model_present(1) ? 1 : 0;

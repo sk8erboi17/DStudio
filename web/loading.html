@@ -20,10 +20,17 @@
       color-scheme: light dark;
       --bg: #f7f7f4;
       --accent: #7aa7ff;
+      --accent-strong: #568fe8;
+      --text: #202124;
+      --muted: #73777f;
+      --track: rgba(32, 33, 36, 0.10);
     }
     @media (prefers-color-scheme: dark) {
       :root {
         --bg: #070707;
+        --text: #f2f4f8;
+        --muted: #8f949d;
+        --track: rgba(255, 255, 255, 0.10);
       }
     }
     * { box-sizing: border-box; }
@@ -33,34 +40,118 @@
       display: grid;
       place-items: center;
       background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
     }
     main {
       display: grid;
       place-items: center;
+      width: min(360px, calc(100vw - 64px));
     }
-    .mark {
-      width: 78px;
-      height: 78px;
-      border-radius: 50%;
-      position: relative;
-      background:
-        radial-gradient(circle at center, var(--accent) 0 8px, transparent 9px),
-        conic-gradient(from 0deg, transparent 0 16deg, var(--accent) 16deg 58deg, transparent 58deg 106deg, var(--accent) 106deg 148deg, transparent 148deg 196deg, var(--accent) 196deg 238deg, transparent 238deg 286deg, var(--accent) 286deg 328deg, transparent 328deg);
-      box-shadow: inset 0 0 0 16px color-mix(in srgb, var(--bg), transparent 18%);
-      animation: spin 1.4s linear infinite;
+    .logo {
+      width: 116px;
+      height: 116px;
+      margin-bottom: 32px;
+      filter: drop-shadow(0 12px 28px rgba(86, 143, 232, 0.16));
     }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    .progress {
+      width: 100%;
+      height: 6px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: var(--track);
+    }
+    .progress__bar {
+      width: 4%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent-strong), #8ab3ff);
+      box-shadow: 0 0 16px rgba(122, 167, 255, 0.42);
+      transition: width 420ms cubic-bezier(.2, .8, .2, 1);
+    }
+    .progress-meta {
+      width: 100%;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 20px;
+      margin-top: 13px;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .stage {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--text);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pct {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .detail {
+      width: 100%;
+      min-height: 18px;
+      margin: 7px 0 0;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+      text-align: left;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .progress__bar { transition: none; }
+    }
   </style>
 </head>
 <body>
   <main aria-label="DStudio is starting">
-    <span class="mark" aria-hidden="true"></span>
+    <svg class="logo" viewBox="0 0 100 100" role="img" aria-label="DStudio">
+      <defs>
+        <linearGradient id="logo-gradient" x1="12" y1="12" x2="88" y2="88" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#a9caff"/>
+          <stop offset="1" stop-color="#568fe8"/>
+        </linearGradient>
+      </defs>
+      <g fill="none" stroke="url(#logo-gradient)" stroke-width="10.5" stroke-linecap="round">
+        <path d="M30 24C41 15 59 15 70 24"/>
+        <path d="M76 30C85 41 85 59 76 70"/>
+        <path d="M70 76C59 85 41 85 30 76"/>
+        <path d="M24 70C15 59 15 41 24 30"/>
+      </g>
+      <circle cx="50" cy="50" r="8" fill="url(#logo-gradient)"/>
+    </svg>
+    <div class="progress" id="loading-progress" role="progressbar" aria-label="DStudio loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="4">
+      <div class="progress__bar" id="loading-bar"></div>
+    </div>
+    <div class="progress-meta">
+      <span class="stage" id="loading-stage">Starting DStudio…</span>
+      <span class="pct" id="loading-pct">4%</span>
+    </div>
+    <p class="detail" id="loading-detail" aria-live="polite">Connecting to the local engine</p>
   </main>
   <script>
-    const step = () => {};
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    const err = { textContent: '' };
-    const actions = { style: { display: 'none' } };
+    const progress = document.querySelector('#loading-progress');
+    const bar = document.querySelector('#loading-bar');
+    const stage = document.querySelector('#loading-stage');
+    const pct = document.querySelector('#loading-pct');
+    const detail = document.querySelector('#loading-detail');
+    let visualPct = 4;
+
+    function showProgress(value, label, message = '') {
+      const numeric = Number.isFinite(Number(value)) ? Number(value) : visualPct;
+      visualPct = Math.max(visualPct, Math.min(100, Math.max(0, Math.round(numeric))));
+      bar.style.width = `${visualPct}%`;
+      progress.setAttribute('aria-valuenow', String(visualPct));
+      pct.textContent = `${visualPct}%`;
+      if (label) stage.textContent = label;
+      detail.textContent = message || '';
+    }
 
     async function fetchJson(url, opts = {}, timeout = 4000) {
       const ctl = new AbortController();
@@ -76,27 +167,43 @@
 
     async function waitForReady() {
       let failures = 0;
+      let idlePolls = 0;
       for (;;) {
         try {
           const st = await fetchJson('/api/status', {}, 3500);
-          step('s-launcher', 'done');
-          step('s-ready', 'on');
           if (st.ready === true && st.running === true) {
-            step('s-ready', 'done');
-            return;
+            showProgress(96, 'Engine ready', 'Checking the model response');
+            return true;
           }
-          err.textContent = st.stage ? st.stage : 'Model is still starting...';
+          if (st.download && st.downloadPct >= 0) {
+            idlePolls = 0;
+            showProgress(st.downloadPct, `Downloading ${st.downloadVariant || 'model'}…`, st.engineLine || 'This may take a while');
+          } else if (st.running || st.stage) {
+            idlePolls = 0;
+            showProgress(st.loadPct, st.stage || 'Starting the local engine…', st.engineLine || st.engineError || '');
+          } else {
+            idlePolls++;
+            showProgress(st.loadPct, st.engineError ? 'Engine needs attention' : 'Preparing DStudio…', st.engineError || 'Opening the workspace');
+            if (idlePolls >= 3) {
+              await sleep(350);
+              location.replace('/');
+              return false;
+            }
+          }
         } catch (e) {
           failures++;
-          err.textContent = 'Waiting for the local launcher...';
-          if (failures > 8) actions.style.display = 'block';
+          showProgress(visualPct, 'Connecting to DStudio…', failures > 2 ? 'The local launcher is taking longer than expected' : '');
+          if (failures > 8) {
+            location.replace('/');
+            return false;
+          }
         }
         await sleep(900);
       }
     }
 
     async function askAlive() {
-      step('s-alive', 'on');
+      showProgress(98, 'Checking the model…', 'Running a short local readiness test');
       const body = {
         model: 'ds4',
         stream: false,
@@ -104,6 +211,7 @@
         max_tokens: 16,
         messages: [{ role: 'user', content: 'hello are you alive?' }]
       };
+      let failures = 0;
       for (;;) {
         try {
           const json = await fetchJson('/v1/chat/completions', {
@@ -112,22 +220,26 @@
             body: JSON.stringify(body)
           }, 45000);
           if (json && Array.isArray(json.choices) && json.choices.length > 0) {
-            step('s-alive', 'done');
+            showProgress(100, 'Ready', 'Opening DStudio');
+            await sleep(220);
             location.replace('/');
             return;
           }
           throw new Error('empty model response');
         } catch (e) {
-          err.textContent = 'Model probe failed, retrying...';
-          actions.style.display = 'block';
+          failures++;
+          showProgress(98, 'Model check failed', 'Retrying the local engine…');
+          if (failures >= 3) {
+            location.replace('/');
+            return;
+          }
           await sleep(1400);
         }
       }
     }
 
     (async () => {
-      await waitForReady();
-      await askAlive();
+      if (await waitForReady()) await askAlive();
     })();
   </script>
 </body>
