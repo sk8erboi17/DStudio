@@ -40,6 +40,7 @@ button such as **Choose**, **Download**, **Start** or **Settings**.
 - Run **DeepSeek V4 locally** through a native macOS/Linux desktop interface.
 - Use a **private AI chat** with persistent KV cache, reasoning display, citations from optional Web Search and local history.
 - Run **Web Search or Deep Research** through DStudio's local browser/search helper, with read-page evidence and source cards.
+- Generate new images or edit an existing image through a dedicated local pipeline that keeps the source pixels on your machine.
 - Use a **local coding agent** that reads, edits and verifies files inside a folder you choose.
 - Browse and load **Skills**: focused local instructions for Agent, Design and imported cybersecurity workflows.
 - Run **Guided Security Analysis (GSA)** for authorized local source reviews or target-scoped security work, using imported cybersecurity skills and optional local tools.
@@ -66,13 +67,21 @@ Streaming DeepSeek V4 chat backed by the ds4 server KV cache: the context lives 
 
 <img src="assets/pdf.gif" width="820" alt="DStudio multimodal PDF demo showing local document understanding and semantic page retrieval">
 
-<br><br>
-
-<img src="assets/generating.png" width="820" alt="DStudio generating an image locally with live progress">
-
 </div>
 
 Attach a PDF and ask naturally in any language. DeepSeek V4 decides whether to build a bounded whole-document overview, read an exact physical page or search semantically across every page. DStudio extracts the text locally, reads scans and meaningful figures when needed, caches a multilingual page index and sends only the strongest evidence back to DeepSeek for the final answer. This keeps the prompt bounded even for 1,000-page books while later searches reuse the local index.
+
+## Local Image Generation
+
+<div align="center">
+
+<img src="assets/generating.png" width="820" alt="DStudio local image-generation pipeline showing live model preparation and generation progress">
+
+</div>
+
+Ask for an image naturally in any language. DeepSeek V4 understands the intent and emits a structured image instruction, so routing is based on the model's interpretation rather than a list of phrases or regular expressions. DStudio then hands the prompt to a dedicated local generator. A new-image request starts from text; an edit request passes the actual pixels of the most relevant recent image together with the requested change, preserving visual context instead of reducing the source to a text description.
+
+The reply gets a placeholder immediately while DStudio reports the real pipeline stages: preparing cached weights, loading the local model, applying its fast-generation adapter and producing pixels. The first run downloads the large model once; later runs reuse the local cache, although loading it into accelerator memory can still take several minutes. On machines where the chat model and image pipeline do not comfortably fit together, DStudio temporarily releases the chat model's accelerator residency, runs the image job and then restores the previous memory and SSD-streaming state. The generated file is saved locally and attached to the conversation for follow-up edits.
 
 ## Search & Deep Research
 
