@@ -3836,28 +3836,20 @@
        defaults to the danger color for validation messages). */
     #settings-dialog #set-vision-status,
     #settings-dialog #set-embed-status { color: var(--muted); font-size: 0.78rem; }
-    #settings-dialog .vision-models { margin-top: 0.55rem; }
-    #settings-dialog .vision-models .onboard__model {
-      width: 100%;
-      color: var(--text);
-      font: inherit;
-      text-align: left;
-      appearance: none;
-      -webkit-appearance: none;
+    #settings-dialog .vision-role-map {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 0.9rem;
     }
-    #settings-dialog .vision-models .onboard__model-body { display: block; flex: 1; }
-    #settings-dialog .vision-models .onboard__model-name,
-    #settings-dialog .vision-models .onboard__model-sub,
-    #settings-dialog .vision-models .onboard__model-file { display: block; }
-    #settings-dialog .vision-models .onboard__model:not(.sel) { border-color: var(--border); }
-    #settings-dialog .vision-models .onboard__model:hover { border-color: var(--accent); }
-    #settings-dialog .vision-models .onboard__model:focus-visible {
-      outline: none;
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+    #settings-dialog .vision-role {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
     }
-    #settings-dialog .vision-models .onboard__model-state { color: var(--muted); }
-    #settings-dialog .vision-models .onboard__model-state.active { color: var(--ok); }
-    #settings-dialog .vision-actions { margin-top: 0.65rem; justify-content: flex-end; }
+    #settings-dialog .vision-role strong { display: block; color: var(--text); font-size: 0.82rem; }
+    #settings-dialog .vision-role span { display: block; margin-top: 3px; color: var(--muted); font-size: 0.72rem; }
 
     /* Maintenance panel polish. */
     #settings-dialog .updates-panel { border-radius: 12px; }
@@ -5999,34 +5991,28 @@
         <section class="set-grp" data-pane="vision" hidden>
           <div class="set-eye">Vision</div>
           <div class="field">
-            <span>Local image understanding <small class="field-note">chat image attachments + the agent's see_image tool</small></span>
+            <span>Image understanding · reads images <small class="field-note">chat image attachments + the agent's see_image tool</small></span>
             <p class="set-inline-msg" id="set-vision-status">Checking…</p>
-            <input type="hidden" id="set-vision-model" value="ggml-org/Qwen2.5-VL-7B-Instruct-GGUF">
-            <div class="onboard__models set-models vision-models" id="set-vision-models" role="radiogroup" aria-label="Vision model">
-              <button type="button" class="onboard__model ready selectable" data-vision-hf="ggml-org/Qwen2.5-VL-3B-Instruct-GGUF" role="radio" aria-checked="false">
-                <span class="onboard__model-radio"></span>
-                <span class="onboard__model-body">
-                  <span class="onboard__model-name">Qwen2.5-VL 3B</span>
-                  <span class="onboard__model-sub">Lighter · about 3 GB · lower RAM use</span>
-                  <span class="onboard__model-file">ggml-org/Qwen2.5-VL-3B-Instruct-GGUF</span>
-                </span>
-                <span class="onboard__model-state" data-vision-state></span>
-              </button>
-              <button type="button" class="onboard__model ready selectable sel" data-vision-hf="ggml-org/Qwen2.5-VL-7B-Instruct-GGUF" role="radio" aria-checked="true">
-                <span class="onboard__model-radio on"></span>
-                <span class="onboard__model-body">
-                  <span class="onboard__model-name">Qwen2.5-VL 7B</span>
-                  <span class="onboard__model-sub">Better quality · about 6 GB · recommended</span>
-                  <span class="onboard__model-file">ggml-org/Qwen2.5-VL-7B-Instruct-GGUF</span>
-                </span>
-                <span class="onboard__model-state" data-vision-state></span>
-              </button>
-            </div>
-            <div class="field__row vision-actions">
+            <div class="field__row">
+              <select id="set-vision-model" aria-label="Image understanding model">
+                <option value="ggml-org/Qwen2.5-VL-3B-Instruct-GGUF">Reads images · Qwen2.5-VL 3B — lighter, ~3 GB</option>
+                <option value="ggml-org/Qwen2.5-VL-7B-Instruct-GGUF">Reads images · Qwen2.5-VL 7B — better, ~6 GB</option>
+              </select>
               <button type="button" id="set-vision-install" class="btn">Install</button>
               <button type="button" id="set-vision-stop" class="btn" hidden>Stop server</button>
             </div>
             <p class="set-help">A local Qwen2.5-VL served by llama.cpp analyzes attached images into text. It starts on demand and <strong>stops itself when idle</strong>, so the multi-GB model is not resident all day. Switching model downloads the new weights once; files live in <code id="set-vision-dir">~/.dstudio/llama-vision</code> and the llama.cpp cache.</p>
+            <div class="vision-role-map" aria-label="Image creation model routing">
+              <div class="vision-role">
+                <strong>Qwen Image · generates images</strong>
+                <span>Creates a new image from the user's prompt.</span>
+              </div>
+              <div class="vision-role">
+                <strong>Qwen Image Edit · edits images</strong>
+                <span>Receives the source pixels and modifies an existing image.</span>
+              </div>
+            </div>
+            <p class="set-help">DStudio chooses Qwen Image or Qwen Image Edit automatically from the request. These generation pipelines are separate from the Qwen2.5-VL reader selected above.</p>
           </div>
         </section>
 
@@ -16599,11 +16585,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
         on(qs('#set-vision-install'), 'click', visionInstall);
         on(qs('#set-vision-stop'), 'click', visionStop);
-        on(qs('#set-vision-models'), 'click', (e) => {
-          const card = e.target.closest('[data-vision-hf]');
-          if (!card || card.disabled) return;
-          setVisionModelChoice(card.dataset.visionHf);
-        });
         on(qs('#set-embed-install'), 'click', embedInstall);
         on(qs('#set-embed-stop'), 'click', embedStop);
 
@@ -16709,24 +16690,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
       // ---- Vision sidecar controls (host-local /api/vision/*) ----
       let visionBusy = false;
-      let visionActiveHf = '';
-
-      function setVisionModelChoice(hf, activeHf = visionActiveHf) {
-        const input = qs('#set-vision-model');
-        if (input && hf) input.value = hf;
-        qsa('#set-vision-models [data-vision-hf]').forEach((card) => {
-          const selected = card.dataset.visionHf === hf;
-          card.classList.toggle('sel', selected);
-          card.setAttribute('aria-checked', selected ? 'true' : 'false');
-          card.querySelector('.onboard__model-radio')?.classList.toggle('on', selected);
-          const state = card.querySelector('[data-vision-state]');
-          if (state) {
-            const active = card.dataset.visionHf === activeHf;
-            state.textContent = active ? '● Active' : '';
-            state.classList.toggle('active', active);
-          }
-        });
-      }
 
       async function refreshVisionStatus() {
         const stat = qs('#set-vision-status');
@@ -16743,7 +16706,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (!v?.ok) { stat.textContent = 'Status unavailable (launcher offline?).'; return; }
         if (v.supported === false) {
           stat.textContent = 'Not available on the Windows build yet.';
-          qsa('#set-vision-models [data-vision-hf]').forEach((card) => { card.disabled = true; });
+          if (sel) sel.disabled = true;
           if (btnI) btnI.disabled = true;
           if (btnS) btnS.hidden = true;
           return;
@@ -16759,8 +16722,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
           : v.state === 'starting' ? `Starting ${v.hf}… (loading or downloading the model)`
           : `Installed: ${v.hf} — ${gb(disk)} on disk. Starts on demand.`;
         if (sel && v.hf) {
-          visionActiveHf = v.hf;
-          setVisionModelChoice(v.hf);
+          if (![...sel.options].some((o) => o.value === v.hf)) sel.add(new Option(v.hf, v.hf));
+          sel.value = v.hf;
         }
         if (btnI) btnI.textContent = v.installed ? 'Apply / reinstall' : 'Install';
         if (btnS) btnS.hidden = !(v.state === 'ready' || v.state === 'starting');

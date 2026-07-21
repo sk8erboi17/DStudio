@@ -1335,8 +1335,8 @@ assert.doesNotMatch(js, /choose-ds4|verifyPath|toggleFinder|loadFinder|PATHS/, '
 
 assert.match(js, /function classifyResearchRequest\(/, 'web research should classify the request before searching');
 assert.match(js, /async function generateImageFromDirective\(/, 'chat should route the model image directive to the local Qwen pipeline');
-assert.match(html, /id="set-vision-models"[\s\S]*data-vision-hf="ggml-org\/Qwen2\.5-VL-3B-Instruct-GGUF"[\s\S]*data-vision-hf="ggml-org\/Qwen2\.5-VL-7B-Instruct-GGUF"/, 'Vision settings should show both supported local models at the same time');
-assert.match(js, /let visionActiveHf = '';[\s\S]*function setVisionModelChoice\(hf, activeHf = visionActiveHf\)[\s\S]*aria-checked[\s\S]*Active/, 'Vision model cards should expose selection and preserve the active-model state');
+assert.match(html, /id="set-vision-model"[\s\S]*Reads images · Qwen2\.5-VL 3B[\s\S]*Reads images · Qwen2\.5-VL 7B/, 'Vision settings should keep both image-reader models in the dropdown');
+assert.match(html, /Qwen Image · generates images[\s\S]*Qwen Image Edit · edits images[\s\S]*generation pipelines are separate from the Qwen2\.5-VL reader/, 'Vision settings should distinguish image reading, generation, and editing roles');
 assert.match(js, /Understand the request semantically in whatever language the user uses; never depend on a keyword list/, 'the model prompt should classify image intent semantically in any language');
 assert.match(js, /exactly one fenced block with info string dstudio-image/, 'the model prompt should emit a structured image-generation directive');
 assert.match(js, /\{"action":"edit","prompt":"precise editing instructions","preserve":"none"\}/, 'the model prompt should distinguish edits that require source pixels');
