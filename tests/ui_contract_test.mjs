@@ -18,6 +18,7 @@ const remoteHelper = fs.readFileSync('extension/remote/dstudio_remote_llm.c', 'u
 const remoteAgent = fs.readFileSync('patch/ds4-agent-jsonl/remote-agent.cfrag', 'utf8');
 const remoteDesign = fs.readFileSync('extension/design/ds4_design.c', 'utf8');
 const searchRuntime = fs.readFileSync('extension/search/runtime.js', 'utf8');
+const embedServer = fs.readFileSync('scripts/embed-server.sh', 'utf8');
 const windowsBuild = fs.readFileSync('scripts/build-windows.ps1', 'utf8');
 const windowsDs4Build = fs.readFileSync('scripts/build-ds4-windows-cygwin.sh', 'utf8');
 const gitignore = fs.readFileSync('.gitignore', 'utf8');
@@ -1379,10 +1380,16 @@ assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /if args\.act
 assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def preserve_original_face\([\s\S]*Image\.composite\(source, edited, mask\)/, 'Qwen edits should be able to restore original face pixels with a feathered mask');
 assert.match(launcher, /qwen_memory_begin\("vision"\)/, 'Vision calls should acquire a temporary DS4 memory lease');
 assert.match(launcher, /qwen_memory_begin\("pdf"\)/, 'PDF calls should acquire a nested temporary DS4 memory lease');
-assert.match(js, /profile:\s*'interactive'[\s\S]*max_chars:\s*maxChars/, 'Chat PDFs should request the bounded adaptive reader profile');
+assert.match(js, /function routePdfReadPlan\([\s\S]*multilingual semantic PDF read planner[\s\S]*overview\|pages\|search/, 'Chat PDFs should use an LLM semantic read planner');
+assert.doesNotMatch(extractFunction(js, 'routePdfReadPlan'), /\.test\(/, 'PDF read intent must not use regular-expression classification');
+assert.match(js, /profile:\s*readPlan\.mode === 'search' \? 'semantic' : 'interactive'[\s\S]*max_chars:\s*maxChars/, 'Chat PDFs should route to bounded overview/page reads or semantic retrieval');
 assert.match(js, /cloudChat\s*\?\s*48\s*\*\s*1024[\s\S]*20\s*\*\s*1024/, 'PDF prompt budgets should stay bounded and adapt local versus cloud chat');
 assert.match(launcher, /PDF_INTERACTIVE_MAX_TEXT_PAGES\s+48/, 'Long PDF chat reads should cap the representative page set');
 assert.match(launcher, /pdf_select_interactive_pages[\s\S]*Farthest-point fill/, 'Long PDF selection should cover the whole document rather than only its first pages');
+assert.match(launcher, /pdf_semantic_page_scores[\s\S]*embed_call[\s\S]*pdf_select_semantic_pages/, 'Targeted PDF questions should retrieve across every page with multilingual embeddings');
+assert.match(js, /readPlan\.mode === 'pages'[\s\S]*payload\.pages = readPlan\.pages/, 'LLM-selected physical page ranges should be sent directly to the PDF reader');
+assert.match(js, /need\.needs === 'embedding'[\s\S]*ensureEmbeddingSetup/, 'Semantic PDF retrieval should install its local embedding sidecar on demand');
+assert.match(embedServer, /--parallel 1[\s\S]*--batch-size \$CTX[\s\S]*--ubatch-size \$CTX/, 'Metal embeddings should use one stable slot with a full-context physical batch');
 assert.match(launcher, /PDF_INTERACTIVE_SCAN_PASSES\s+8[\s\S]*PDF_INTERACTIVE_FIG_PASSES\s+2/, 'Interactive PDF vision work should have separate bounded scan and figure budgets');
 assert.match(launcher, /vision_lease\s*=\s*qwen_memory_begin\("pdf"\)/, 'PDFs should acquire DS4 memory pressure only when a vision pass is actually required');
 assert.match(launcher, /qwen_memory_begin\("image-generation"\)/, 'image generation should acquire a temporary DS4 memory lease');

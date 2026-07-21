@@ -17,11 +17,11 @@
  * being reported unreadable.
  *
  * Full/Agent reads are question-independent and page-addressable. Interactive
- * chat reads instead use a fixed configurable content budget (20KB for local
- * chat, 48KB for cloud): for long books they select front/back matter,
- * question-relevant pages and an even whole-book sample. This keeps a
- * 1000-page book bounded instead of growing with page count. Results are
- * cached by document + profile/query; every single page's
+ * chat uses one of three LLM-selected read plans: exact physical pages, a
+ * bounded whole-book overview, or semantic retrieval across every page. This
+ * keeps a 1000-page book bounded without losing the ability to find evidence
+ * outside the prompt sample. Results are cached by document + profile/query;
+ * every single page's
  * vision transcription is cached by its rendered image, so a partial failure
  * retries only failed pages. Text pages that also carry a
  * meaningful raster figure (>=5% of the page and >=3 in², via pdfimages
@@ -49,14 +49,16 @@
 #define PDF_INTERACTIVE_MAX_TEXT_PAGES 48 /* enough context per selected page even for 1000-page books */
 #define PDF_INTERACTIVE_SCAN_PASSES 8    /* representative OCR for a fully scanned long document */
 #define PDF_INTERACTIVE_FIG_PASSES 2     /* figures supplement text; do not make chat wait for every chart */
+#define PDF_SEMANTIC_MAX_PAGES 6         /* targeted RAG: enough budget to read each hit deeply */
+#define PDF_EMBED_PAGE_CHARS 6000        /* one multilingual embedding per page, cached on disk */
 #define PDF_PAGE_B64_BUDGET (1500 * 1024) /* per-page data-URI budget (loopback 2MB body cap) */
-#define PDF_QUERY_MAX_TERMS 16
-#define PDF_QUERY_TERM_MAX 48
-
+#define PDF_EMBED_INDEX_MAGIC 0x44504531u /* "DPE1" */
 typedef struct {
-    char term[PDF_QUERY_TERM_MAX];
-    int len;
-} pdf_query_term;
+    unsigned magic;
+    int dim, count;
+    unsigned long long docfnv;
+    char model[128];
+} pdf_embed_index_hdr;
 
 /* Absolute path of a poppler tool (pdftoppm/pdfinfo/pdftotext), or 0 if not
  * found. */
@@ -327,75 +329,16 @@ static char *pdf_text_layer(const char *pdfpath) {
     return o;
 }
 
-/* Split the user's question into a tiny language-agnostic retrieval query.
- * This is relevance ranking, not intent classification: UTF-8 bytes are kept
- * verbatim and ASCII is folded, so words in any language still match the same
- * document text. Very short terms add noise and are ignored. */
-static int pdf_query_terms(const char *question, pdf_query_term *terms, int cap) {
-    int n = 0;
-    const unsigned char *p = (const unsigned char *)(question ? question : "");
-    while (*p && n < cap) {
-        while (*p && (isspace(*p) || ispunct(*p))) p++;
-        const unsigned char *start = p;
-        while (*p && !(isspace(*p) || ispunct(*p))) p++;
-        size_t len = (size_t)(p - start);
-        if (len < 3 || len >= PDF_QUERY_TERM_MAX) continue;
-        char word[PDF_QUERY_TERM_MAX];
-        for (size_t i = 0; i < len; i++)
-            word[i] = start[i] < 0x80 ? (char)tolower(start[i]) : (char)start[i];
-        word[len] = '\0';
-        int duplicate = 0;
-        for (int i = 0; i < n; i++)
-            if (!strcmp(terms[i].term, word)) { duplicate = 1; break; }
-        if (duplicate) continue;
-        cstr_copy(terms[n].term, sizeof terms[n].term, word);
-        terms[n].len = (int)len;
-        n++;
-    }
-    return n;
-}
-
-/* Count query-term occurrences on one page and optionally return the first
- * match. The scan is bounded to that page (pdftotext pages are not NUL-ended).
- * ASCII folding covers the common case; non-ASCII UTF-8 remains exact. */
-static int pdf_page_relevance(const char *page, int len,
-                              const pdf_query_term *terms, int nterms,
-                              int *first_match) {
-    int score = 0;
-    if (first_match) *first_match = -1;
-    for (int t = 0; t < nterms; t++) {
-        int hits = 0;
-        for (int i = 0; i + terms[t].len <= len; i++) {
-            int same = 1;
-            for (int j = 0; j < terms[t].len; j++) {
-                unsigned char c = (unsigned char)page[i + j];
-                char folded = c < 0x80 ? (char)tolower(c) : (char)c;
-                if (folded != terms[t].term[j]) { same = 0; break; }
-            }
-            if (!same) continue;
-            if (first_match && *first_match < 0) *first_match = i;
-            hits++;
-            i += terms[t].len - 1;
-            if (hits == 8) break; /* repeated boilerplate must not dominate */
-        }
-        if (hits) score += 2 + hits;
-    }
-    return score;
-}
-
 static int pdf_selected_count(const unsigned char *selected, int first, int last) {
     int n = 0;
     for (int i = first; i <= last; i++) if (selected[i]) n++;
     return n;
 }
 
-/* Interactive chat never grows its prompt with the document. Small PDFs keep
- * every page; long books keep anchors, the pages most relevant to the current
- * question, then fill the remaining slots by maximum-distance coverage. The
- * latter gives a stable sample across the entire book instead of silently
- * returning only its beginning. */
+/* A broad overview never grows its prompt with the document. Small PDFs keep
+ * every page; long books keep front/back anchors and maximum-distance coverage
+ * across the whole book. Targeted questions use the separate semantic path. */
 static int pdf_select_interactive_pages(unsigned char *selected,
-                                        const int *scores,
                                         int first, int last,
                                         int limit) {
     memset(selected, 0, PDF_MAX_TOTAL_PAGES);
@@ -411,20 +354,6 @@ static int pdf_select_interactive_pages(unsigned char *selected,
     /* Front/back matter anchors: title/abstract/TOC plus conclusion/index. */
     for (int k = 0; k < 3 && k < count; k++) selected[first + k] = 1;
     for (int k = 0; k < 3 && k < count; k++) selected[last - k] = 1;
-
-    /* Up to half the budget goes to pages matching the actual question. */
-    int relevant_cap = limit / 2;
-    while (pdf_selected_count(selected, first, last) < limit && relevant_cap-- > 0) {
-        int best = -1, best_score = 0;
-        for (int i = first; i <= last; i++) {
-            if (!selected[i] && scores[i] > best_score) {
-                best = i;
-                best_score = scores[i];
-            }
-        }
-        if (best < 0 || best_score <= 0) break;
-        selected[best] = 1;
-    }
 
     /* Farthest-point fill produces even coverage without assuming chapters or
      * a particular language/layout. At 2000x48 this is still tiny. */
@@ -483,9 +412,180 @@ static int pdf_append_page_excerpt(json_dyn_buf *out, const char *page, size_t l
            json_dyn_putn(out, page + tail_start, len - tail_start);
 }
 
+static void pdf_embed_index_path(unsigned long long docfnv, char *out, size_t outsz) {
+    const char *home = getenv("HOME");
+    snprintf(out, outsz, "%s/.dstudio/pdf-cache/emb-%016llx.bin",
+             home ? home : ".", docfnv);
+}
+
+static float *pdf_embed_index_load(const pdf_embed_index_hdr *want) {
+    char path[DSTUDIO_PATH_MAX];
+    pdf_embed_index_path(want->docfnv, path, sizeof path);
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    pdf_embed_index_hdr got;
+    if (fread(&got, sizeof got, 1, f) != 1 || got.magic != want->magic ||
+        got.dim != want->dim || got.count != want->count || got.docfnv != want->docfnv ||
+        strncmp(got.model, want->model, sizeof got.model) != 0) {
+        fclose(f);
+        return NULL;
+    }
+    size_t nf = (size_t)got.dim * (size_t)got.count;
+    float *vecs = malloc(nf * sizeof *vecs);
+    if (!vecs || fread(vecs, sizeof *vecs, nf, f) != nf) {
+        free(vecs);
+        fclose(f);
+        return NULL;
+    }
+    fclose(f);
+    (void)utimes(path, NULL);
+    return vecs;
+}
+
+static void pdf_embed_index_save(const pdf_embed_index_hdr *h, const float *vecs) {
+    char path[DSTUDIO_PATH_MAX], dir[DSTUDIO_PATH_MAX];
+    pdf_embed_index_path(h->docfnv, path, sizeof path);
+    cstr_copy(dir, sizeof dir, path);
+    char *slash = strrchr(dir, '/');
+    if (!slash) return;
+    *slash = '\0';
+    char parent[DSTUDIO_PATH_MAX];
+    cstr_copy(parent, sizeof parent, dir);
+    char *pslash = strrchr(parent, '/');
+    if (pslash) { *pslash = '\0'; (void)mkdir(parent, 0755); }
+    (void)mkdir(dir, 0755);
+    char tmp[DSTUDIO_PATH_MAX + 8];
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return;
+    size_t nf = (size_t)h->dim * (size_t)h->count;
+    int ok = fwrite(h, sizeof *h, 1, f) == 1 && fwrite(vecs, sizeof *vecs, nf, f) == nf;
+    fclose(f);
+    if (ok) rename(tmp, path);
+    else unlink(tmp);
+}
+
+/* Build/load one multilingual embedding per physical page, then score all
+ * pages against the semantic query produced by the LLM router. No keywords,
+ * language lists or regex participate in retrieval. */
+static int pdf_semantic_page_scores(unsigned long long docfnv,
+                                    const char *const *pstart, const int *plen,
+                                    int tpages, int npages,
+                                    const char *query, int *scores) {
+    if (!query || !query[0] || npages <= 0) return 0;
+    embed_touch_last_use();
+    if (!embed_ensure_server(60000)) return 0;
+
+    char model[128];
+    embed_hf_pref(model, sizeof model);
+    int dim = 0;
+    float probe[EMBED_MAX_DIM];
+    char *ping[1] = { (char *)"document page" };
+    if (!embed_call(ping, 1, NULL, probe, EMBED_MAX_DIM, &dim) ||
+        dim <= 0 || dim > EMBED_MAX_DIM) return 0;
+
+    pdf_embed_index_hdr want = { PDF_EMBED_INDEX_MAGIC, dim, npages, docfnv, {0} };
+    cstr_copy(want.model, sizeof want.model, model);
+    float *vecs = pdf_embed_index_load(&want);
+    if (!vecs) {
+        vecs = malloc((size_t)npages * (size_t)dim * sizeof *vecs);
+        if (!vecs) return 0;
+        /* One full page per call keeps every sequence below the server context
+         * and avoids llama.cpp treating a multi-page array as one oversized
+         * Metal embedding batch. The resulting index is persisted, so this
+         * cost is paid only once per PDF/model version. */
+        const int batch = 1;
+        for (int start = 0; start < npages; start += batch) {
+            int count = npages - start < batch ? npages - start : batch;
+            char *texts[16] = {0};
+            int alloc_ok = 1;
+            for (int j = 0; j < count; j++) {
+                int pg = start + j;
+                size_t take = pg < tpages && plen[pg] > 0 ? (size_t)plen[pg] : 0;
+                if (take > PDF_EMBED_PAGE_CHARS) take = PDF_EMBED_PAGE_CHARS;
+                size_t need = take + 48;
+                texts[j] = malloc(need);
+                if (!texts[j]) { alloc_ok = 0; break; }
+                int head = snprintf(texts[j], need, "Physical PDF page %d.\n", pg + 1);
+                if (head < 0 || (size_t)head >= need) { alloc_ok = 0; break; }
+                if (take) memcpy(texts[j] + head, pstart[pg], take);
+                texts[j][head + take] = '\0';
+            }
+            int got_dim = 0;
+            int embedded = alloc_ok && embed_call(texts, count, NULL,
+                                                  vecs + (size_t)start * (size_t)dim,
+                                                  dim, &got_dim) && got_dim == dim;
+            for (int j = 0; j < count; j++) free(texts[j]);
+            if (!embedded) { free(vecs); return 0; }
+            embed_touch_last_use();
+        }
+        pdf_embed_index_save(&want, vecs);
+    }
+
+    static const char *prefix =
+        "Instruct: Given a user question, retrieve the document pages that contain the answer.\nQuery: ";
+    float qv[EMBED_MAX_DIM];
+    char *queries[1] = { (char *)query };
+    int qdim = 0;
+    if (!embed_call(queries, 1, prefix, qv, EMBED_MAX_DIM, &qdim) || qdim != dim) {
+        free(vecs);
+        return 0;
+    }
+    for (int i = 0; i < npages; i++) {
+        const float *v = vecs + (size_t)i * (size_t)dim;
+        double dot = 0;
+        for (int k = 0; k < dim; k++) dot += (double)qv[k] * v[k];
+        scores[i] = (int)(dot * 1000000.0);
+    }
+    free(vecs);
+    embed_touch_last_use();
+    return 1;
+}
+
+/* Targeted semantic reads keep only the strongest pages, plus immediate
+ * neighbors while room remains. This spends the fixed character budget on
+ * complete evidence instead of thin excerpts from dozens of unrelated pages. */
+static int pdf_select_semantic_pages(unsigned char *selected, const int *scores,
+                                     int first, int last, int limit) {
+    memset(selected, 0, PDF_MAX_TOTAL_PAGES);
+    int count = last - first + 1;
+    if (limit > count) limit = count;
+    if (limit < 1) return 0;
+    int primary[PDF_SEMANTIC_MAX_PAGES];
+    int nprimary = 0;
+    int primary_cap = limit < 4 ? limit : 4;
+    while (nprimary < primary_cap) {
+        int best = -1, best_score = INT_MIN;
+        for (int i = first; i <= last; i++) {
+            if (!selected[i] && scores[i] > best_score) {
+                best = i;
+                best_score = scores[i];
+            }
+        }
+        if (best < 0) break;
+        selected[best] = 1;
+        primary[nprimary++] = best;
+    }
+    int selected_count = nprimary;
+    for (int distance = 1; selected_count < limit && distance <= 2; distance++) {
+        for (int p = 0; p < nprimary && selected_count < limit; p++) {
+            int around[2] = { primary[p] - distance, primary[p] + distance };
+            for (int a = 0; a < 2 && selected_count < limit; a++) {
+                int pg = around[a];
+                if (pg >= first && pg <= last && !selected[pg]) {
+                    selected[pg] = 1;
+                    selected_count++;
+                }
+            }
+        }
+    }
+    return selected_count;
+}
+
 /* Describe cache: ~/.dstudio/pdf-cache/<fnv16>.json holds the full response
  * JSON of a successful read. Full reads use document + vision model + caps;
- * adaptive reads also include the query and content budget. pg-<fnv16>.txt
+ * overview reads include their content budget; semantic reads also include
+ * the retrieval query. pg-<fnv16>.txt
  * holds query-independent single-page vision transcriptions. Both stores are
  * pruned oldest-first per suffix. */
 #define PDF_CACHE_MAX_FILES 32
@@ -551,16 +651,31 @@ static void pdf_describe_fail(int fd, int want_text, const char *status, const c
     }
 }
 
+static void pdf_describe_need_embedding(int fd, int want_text) {
+    if (want_text) {
+        send_text(fd, "503 Service Unavailable",
+                  "read_pdf error: semantic PDF search needs the local embedding model\n", 0);
+    } else {
+        send_json(fd, "503 Service Unavailable",
+                  "{\"ok\":false,\"needs\":\"embedding\",\"error\":\"semantic PDF search needs the local embedding model\"}");
+    }
+}
+
 /* POST /api/pdf/describe — hybrid read: text layer first, vision for scans. */
 static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     char fmt[16] = "";
     (void)json_get_string(body, "format", fmt, sizeof fmt);
     int want_text = !strcmp(fmt, "text");
 
-    char profile[24] = "", question[1024] = "";
+    char profile[24] = "", semantic_query[1024] = "";
     (void)json_get_string(body, "profile", profile, sizeof profile);
-    (void)json_get_string(body, "question", question, sizeof question);
-    int interactive = !strcmp(profile, "interactive");
+    (void)json_get_string(body, "semantic_query", semantic_query, sizeof semantic_query);
+    int semantic = !strcmp(profile, "semantic");
+    int interactive = semantic || !strcmp(profile, "interactive");
+    if (semantic && !semantic_query[0]) {
+        pdf_describe_fail(fd, want_text, "400 Bad Request", "semantic_query is required");
+        return;
+    }
     long interactive_cap_long = PDF_INTERACTIVE_TEXT_CAP;
     if (interactive) {
         int cr = json_get_int(body, "max_chars", PDF_INTERACTIVE_TEXT_CAP_MIN,
@@ -633,9 +748,9 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     if (!pdf) { pdf_describe_fail(fd, want_text, "400 Bad Request", "a PDF (data_uri or host-local path) is required"); return; }
     pdf_job_write(jobpath, "{\"phase\":\"start\",\"done\":false}");
 
-    /* Cache lookup — full reads remain question-independent. Interactive reads
-     * are query-ranked, so their key includes the question. Per-page vision is
-     * cached separately and remains reusable across every question. */
+    /* Cache lookup — overview/full reads are question-independent. Semantic
+     * reads include the LLM-produced retrieval query. Per-page embeddings and
+     * vision remain reusable across questions. */
     unsigned long long key = docfnv;
     {
         char hf[256] = "";
@@ -643,15 +758,19 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         /* Bump this salt on ANY pipeline-behavior change (thresholds, prompts,
          * classification): cached entries carry the OLD behavior and would
          * silently mask the fix for already-seen documents. */
-        static const char *salt = "|hybrid-v5-adaptive|";
+        static const char *salt = "|hybrid-v6-semantic|";
         for (const char *s = salt; *s; s++)     { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
         for (const char *s = hf; *s; s++)       { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
         key ^= (unsigned long long)vcap;        key *= 1099511628211ULL;
         if (interactive) {
             static const char *ip = "|interactive-adaptive|";
             for (const char *s = ip; *s; s++)       { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
-            for (const char *s = question; *s; s++) { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
             key ^= (unsigned long long)interactive_cap; key *= 1099511628211ULL;
+        }
+        if (semantic) {
+            static const char *sp = "|semantic-rag|";
+            for (const char *s = sp; *s; s++)             { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
+            for (const char *s = semantic_query; *s; s++) { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
         }
         /* Range requests get their own cache slot; the no-range key stays as
          * before, so existing full-read entries remain valid. Keyed on the
@@ -766,43 +885,32 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         if (rq_last > 0 && rq_last < plast) plast = rq_last;
     }
 
-    /* The chat profile has a fixed prompt budget. Rank every page against the
-     * current question, then select a representative subset before doing any
-     * vision work. Explicit Agent read_pdf ranges keep the full/read-verbatim
-     * behavior and can be used repeatedly for exhaustive book analysis. */
+    /* The LLM router chooses overview, an explicit physical page range, or a
+     * semantic search. Overview uses deterministic whole-book coverage;
+     * semantic mode ranks every page with multilingual embeddings. Explicit
+     * Agent read_pdf ranges keep the full/read-verbatim behavior. */
     static int pscore[PDF_MAX_TOTAL_PAGES], pmatch[PDF_MAX_TOTAL_PAGES];
     static unsigned char page_selected[PDF_MAX_TOTAL_PAGES];
     memset(pscore, 0, sizeof pscore);
     for (int i = 0; i < PDF_MAX_TOTAL_PAGES; i++) pmatch[i] = -1;
     memset(page_selected, interactive ? 0 : 1, sizeof page_selected);
     int selected_pages = plast - pfirst + 1;
-    if (interactive) {
-        pdf_query_term terms[PDF_QUERY_MAX_TERMS];
-        int nterms = pdf_query_terms(question, terms, PDF_QUERY_MAX_TERMS);
-        int df[PDF_QUERY_MAX_TERMS] = {0};
-        for (int t = 0; t < nterms; t++) {
-            for (int i = pfirst - 1; i < plast; i++) {
-                if (i < tpages && plen[i] > 0 &&
-                    pdf_page_relevance(pstart[i], plen[i], &terms[t], 1, NULL) > 0)
-                    df[t]++;
-            }
+    if (semantic) {
+        pdf_job_write(jobpath, "{\"phase\":\"semantic\",\"done\":false}");
+        if (!pdf_semantic_page_scores(docfnv, pstart, plen, tpages, npages,
+                                      semantic_query, pscore)) {
+            free(layer); unlink(pdf); free(pdf);
+            pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
+            pdf_describe_need_embedding(fd, want_text);
+            return;
         }
-        pdf_query_term focused[PDF_QUERY_MAX_TERMS];
-        int nfocused = 0;
-        int common_cutoff = (plast - pfirst + 1) / 5;
-        if (common_cutoff < 2) common_cutoff = 2;
-        for (int t = 0; t < nterms; t++) {
-            /* Ignore both absent request boilerplate and words spread across
-             * the whole book. Rare terms carry the useful retrieval signal. */
-            if (df[t] > 0 && df[t] <= common_cutoff) focused[nfocused++] = terms[t];
-        }
-        for (int i = pfirst - 1; i < plast; i++) {
-            if (i < tpages && plen[i] > 0)
-                pscore[i] = pdf_page_relevance(pstart[i], plen[i], focused, nfocused, &pmatch[i]);
-        }
+        selected_pages = pdf_select_semantic_pages(page_selected, pscore,
+                                                    pfirst - 1, plast - 1,
+                                                    PDF_SEMANTIC_MAX_PAGES);
+    } else if (interactive) {
         int page_limit = (int)(interactive_cap / 512);
         if (page_limit > PDF_INTERACTIVE_MAX_TEXT_PAGES) page_limit = PDF_INTERACTIVE_MAX_TEXT_PAGES;
-        selected_pages = pdf_select_interactive_pages(page_selected, pscore,
+        selected_pages = pdf_select_interactive_pages(page_selected,
                                                        pfirst - 1, plast - 1,
                                                        page_limit);
     }
@@ -1008,10 +1116,14 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     if (ok && text_skipped > 0)
         ok = json_dyn_printf(&text, "\n[Testo troncato: %d pagine di testo oltre il limite di %dKB omesse.]\n",
                              text_skipped, (int)(text_cap / 1024));
-    if (ok && sampled)
+    if (ok && sampled && semantic)
+        ok = json_dyn_printf(&text,
+            "\n[Ricerca semantica PDF: lette %d pagine candidate su %d, %zu caratteri di contenuto.]\n",
+            selected_pages, plast - pfirst + 1, text_bytes + vision_bytes);
+    else if (ok && sampled)
         ok = json_dyn_printf(&text,
             "\n[Contesto PDF adattivo: %d pagine rappresentative su %d, %zu caratteri di contenuto; "
-            "estratti distribuiti tra inizio, fine e pagine pertinenti alla domanda.]\n",
+            "estratti distribuiti tra inizio e fine del documento.]\n",
             selected_pages, plast - pfirst + 1, text_bytes + vision_bytes);
     if (ok && has_range)
         ok = json_dyn_printf(&text, "\n[Intervallo letto: pagine %d-%d di %d totali.]\n", pfirst, plast, total);
@@ -1032,10 +1144,10 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     int good = json_dyn_printf(&out, "{\"ok\":true,\"pages\":%d,\"total\":%d,\"first\":%d,\"last\":%d,"
                                      "\"textPages\":%d,\"visionPages\":%d,\"figPages\":%d,"
                                      "\"selectedPages\":%d,\"textChars\":%zu,\"visionChars\":%zu,"
-                                     "\"contentChars\":%zu,\"sampled\":%s,\"truncated\":%s,\"text\":",
+                                     "\"contentChars\":%zu,\"semantic\":%s,\"sampled\":%s,\"truncated\":%s,\"text\":",
                                pages_read, total, pfirst, plast, text_used, vdone, fig_pass,
                                selected_pages, text_bytes, vision_bytes, text_bytes + vision_bytes,
-                               sampled ? "true" : "false",
+                               semantic ? "true" : "false", sampled ? "true" : "false",
                                truncated ? "true" : "false") &&
                json_dyn_put_escaped(&out, text.ptr ? text.ptr : "") &&
                json_dyn_puts(&out, "}");
