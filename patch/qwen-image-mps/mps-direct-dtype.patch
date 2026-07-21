@@ -1,0 +1,44 @@
+--- a/cli.py
++++ b/cli.py
+@@ -1488,7 +1488,10 @@ def edit_image(args) -> None:
+         if pipeline is None:
+             print("GGUF models for editing may not be available yet.")
+             print("Falling back to standard edit model...")
+-            pipeline = EditPipeline.from_pretrained(EDIT_MODEL_ID)
++            pipeline = EditPipeline.from_pretrained(
++                EDIT_MODEL_ID,
++                torch_dtype=torch_dtype,
++            )
+             pipeline = pipeline.to(device)
+             # Convert all components to desired dtype for MPS compatibility
+             pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
+@@ -1500,6 +1503,7 @@ def edit_image(args) -> None:
+             pipeline = EditPipeline.from_pretrained(
+                 EDIT_MODEL_ID,
+                 transformer=rapid_transformer,
++                torch_dtype=torch_dtype,
+             )
+             pipeline = pipeline.to(device)
+             # Convert all components to desired dtype for MPS compatibility
+@@ -1512,14 +1516,20 @@ def edit_image(args) -> None:
+             )
+             print("Loading Qwen-Image-Edit model for image editing...")
+-            pipeline = EditPipeline.from_pretrained(EDIT_MODEL_ID)
++            pipeline = EditPipeline.from_pretrained(
++                EDIT_MODEL_ID,
++                torch_dtype=torch_dtype,
++            )
+             pipeline = pipeline.to(device)
+             # Convert all components to desired dtype for MPS compatibility
+             pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
+     else:
+         # Use standard transformer (Rapid-AIO disabled)
+         print("Loading Qwen-Image-Edit model with standard transformer...")
+-        pipeline = EditPipeline.from_pretrained(EDIT_MODEL_ID)
++        pipeline = EditPipeline.from_pretrained(
++            EDIT_MODEL_ID,
++            torch_dtype=torch_dtype,
++        )
+         pipeline = pipeline.to(device)
+         # Convert all components to desired dtype for MPS compatibility
+         pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)

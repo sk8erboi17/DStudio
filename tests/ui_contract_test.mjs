@@ -1346,6 +1346,7 @@ assert.match(js, /First use downloads the Qwen Image model once/, 'first-run mod
 assert.match(fs.readFileSync('src/dstudio_image.c', 'utf8'), /static void api_image_progress\(/, 'backend should expose image job progress');
 assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /"loading_model": \("model", "Downloading or loading Qwen Image model weights/, 'Qwen runner should publish model-loading progress');
 assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def report_edit_model_progress[\s\S]*Downloading Qwen Image Edit[\s\S]*loading Qwen Image Edit into Metal/, 'Qwen edit should distinguish live model download progress from Metal loading');
+assert.match(fs.readFileSync('patch/qwen-image-mps/mps-direct-dtype.patch', 'utf8'), /EditPipeline\.from_pretrained[\s\S]*torch_dtype=torch_dtype/, 'Qwen edit should load weights in the target dtype before transferring them to Metal');
 assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /if args\.action == "edit":[\s\S]*edit_image\(edit_ns\)/, 'Qwen runner should invoke the upstream image-edit pipeline');
 assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def preserve_original_face\([\s\S]*Image\.composite\(source, edited, mask\)/, 'Qwen edits should be able to restore original face pixels with a feathered mask');
 assert.match(launcher, /qwen_memory_begin\("vision"\)/, 'Vision calls should acquire a temporary DS4 memory lease');
