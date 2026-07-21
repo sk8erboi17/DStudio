@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import struct
+import threading
 import time
 import zlib
 from pathlib import Path
@@ -85,6 +86,101 @@ def write_status(path, state: str, stage: str, label: str, progress: int) -> Non
     tmp.replace(path)
 
 
+def huggingface_model_cache(model_name: str) -> Path:
+    """Return the on-disk Hugging Face cache directory for a model."""
+    explicit = os.environ.get("HF_HUB_CACHE")
+    if explicit:
+        hub = Path(explicit).expanduser()
+    elif os.environ.get("HF_HOME"):
+        hub = Path(os.environ["HF_HOME"]).expanduser() / "hub"
+    elif os.environ.get("XDG_CACHE_HOME"):
+        hub = Path(os.environ["XDG_CACHE_HOME"]).expanduser() / "huggingface" / "hub"
+    else:
+        hub = Path.home() / ".cache" / "huggingface" / "hub"
+    return hub / f"models--{model_name.replace('/', '--')}"
+
+
+def model_download_bytes(model_dir: Path):
+    """Return downloaded/expected bytes using huggingface_hub tree metadata."""
+    trees = model_dir / "trees"
+    blobs = model_dir / "blobs"
+    if not trees.is_dir() or not blobs.is_dir():
+        return 0, 0
+    metadata_files = sorted(trees.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    if not metadata_files:
+        return 0, 0
+    try:
+        files = json.loads(metadata_files[0].read_text(encoding="utf-8")).get("files", {})
+    except (OSError, ValueError, TypeError):
+        return 0, 0
+    expected = {}
+    for entry in files.values():
+        if not isinstance(entry, dict):
+            continue
+        key = entry.get("lfs_sha256") or entry.get("blob_id")
+        size = entry.get("lfs_size") or entry.get("size")
+        if key and isinstance(size, int):
+            expected[str(key)] = max(expected.get(str(key), 0), size)
+    downloaded = 0
+    for key, size in expected.items():
+        complete = blobs / key
+        partial = blobs / f"{key}.incomplete"
+        try:
+            present = complete.stat().st_size
+        except OSError:
+            try:
+                present = partial.stat().st_size
+            except OSError:
+                present = 0
+        downloaded += min(size, present)
+    total = sum(expected.values())
+    # Snapshot metadata can list small optional files (README, attributes, etc.)
+    # which the pipeline never requests. Once all weight transfers are closed,
+    # treat a cache within 0.1% of the manifest as complete.
+    if total and downloaded / total >= 0.999 and not any(blobs.glob("*.incomplete")):
+        downloaded = total
+    return downloaded, total
+
+
+def report_edit_model_progress(status_file: Path, stop: threading.Event) -> None:
+    """Publish truthful progress while upstream's synchronous edit loader runs."""
+    model_dir = huggingface_model_cache("Qwen/Qwen-Image-Edit-2511")
+    while not stop.is_set():
+        try:
+            downloaded, expected = model_download_bytes(model_dir)
+            if expected and downloaded < expected:
+                ratio = downloaded / expected
+                current_gib = downloaded / (1024 ** 3)
+                total_gib = expected / (1024 ** 3)
+                write_status(
+                    status_file,
+                    "running",
+                    "download",
+                    f"Downloading Qwen Image Edit · {current_gib:.1f} / {total_gib:.1f} GiB…",
+                    12 + round(36 * ratio),
+                )
+            elif expected:
+                write_status(
+                    status_file,
+                    "running",
+                    "model-load",
+                    "Download complete · loading Qwen Image Edit into Metal…",
+                    50,
+                )
+            else:
+                write_status(
+                    status_file,
+                    "running",
+                    "model",
+                    "Downloading or loading Qwen Image Edit model weights…",
+                    12,
+                )
+        except Exception as exc:
+            # Progress reporting must never abort a valid image-edit operation.
+            print(f"Qwen Image Edit progress probe skipped: {exc}", flush=True)
+        stop.wait(1.0)
+
+
 def mock_png(path: Path) -> None:
     width, height = 96, 96
     rows = []
@@ -152,7 +248,19 @@ def main() -> int:
             batman=False, quantization=None,
         )
         write_status(status_file, "running", "model", "Loading Qwen Image Edit and the source image…", 12)
-        saved_path = edit_image(edit_ns)
+        progress_stop = threading.Event()
+        progress_thread = threading.Thread(
+            target=report_edit_model_progress,
+            args=(status_file, progress_stop),
+            name="qwen-edit-progress",
+            daemon=True,
+        )
+        progress_thread.start()
+        try:
+            saved_path = edit_image(edit_ns)
+        finally:
+            progress_stop.set()
+            progress_thread.join(timeout=2)
         if not saved_path or not Path(saved_path).is_file():
             write_status(status_file, "error", "error", "Qwen Image Edit returned no output.", 100)
             raise SystemExit("Qwen Image Edit returned no output")

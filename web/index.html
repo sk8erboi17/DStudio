@@ -10010,8 +10010,10 @@
         const src = qs('.brand-logo')?.src;
         if (src) logo.append(el('img', { src, alt: '' }));
         else logo.textContent = 'D';
-        const hint = status?.stage === 'model'
+        const hint = status?.stage === 'download'
           ? 'First use downloads the Qwen Image model once; later generations reuse the local cache.'
+          : status?.stage === 'model' || status?.stage === 'model-load'
+            ? 'The local model is being prepared for this machine; this can take several minutes on first use.'
           : status?.stage === 'inference'
             ? 'The model is loaded and is rendering the image locally.'
             : 'Qwen Image is running locally on this machine.';
