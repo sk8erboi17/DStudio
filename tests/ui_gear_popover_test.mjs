@@ -42,7 +42,6 @@ const server = http.createServer(async (req, res) => {
       stage: 'Ready',
       agentWorking: false,
       workdir: '/tmp/dstudio-gear-test',
-      jsonl: true,
       ds4dirOk: true,
       webdirOk: true,
       lan: false,
@@ -155,8 +154,8 @@ try {
   page.on('console', (msg) => { if (msg.type() === 'error') pageErrors.push(msg.text()); });
   await page.addInitScript(() => {
     const now = Date.now();
-    localStorage.setItem('ds4web.settings.v1', JSON.stringify({
-      v: 1,
+    localStorage.setItem('ds4web.settings.v2', JSON.stringify({
+      v: 2,
       onboarded: true,
       theme: 'light',
       model: 'deepseek-v4-pro',
@@ -165,16 +164,15 @@ try {
       ctxSize: 65536,
       enginePower: 90,
       ssdStreaming: 'auto',
-      useJsonlPatch: true,
       gsaMode: 'on',
       workdirs: { agent: '/tmp/dstudio-gear-test' },
     }));
-    localStorage.setItem('ds4web.chats.v1', JSON.stringify({
-      v: 1,
+    localStorage.setItem('ds4web.chats.v2', JSON.stringify({
+      v: 2,
       deleted: [],
       chats: [{ id: 'agent-gear', mode: 'agent', title: 'Gear', createdAt: now, updatedAt: now, messages: [], transcript: '' }],
     }));
-    localStorage.setItem('ds4web.active.v1', JSON.stringify({ v: 1, ids: { chat: null, agent: 'agent-gear', design: null } }));
+    localStorage.setItem('ds4web.active.v2', JSON.stringify({ v: 2, ids: { chat: null, agent: 'agent-gear', design: null } }));
   });
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
@@ -206,9 +204,9 @@ try {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('#conn-indicator .conn-model').filter({ hasText: 'deepseek-v4-flash' }).waitFor();
   await page.waitForFunction(() =>
-    JSON.parse(localStorage.getItem('ds4web.settings.v1') || '{}').model === 'deepseek-v4-flash');
+    JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}').model === 'deepseek-v4-flash');
   assert.equal(
-    await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v1') || '{}').model),
+    await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}').model),
     'deepseek-v4-flash',
     'running Flash status should replace a stale Pro model label',
   );

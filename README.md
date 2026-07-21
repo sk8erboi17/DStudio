@@ -160,7 +160,7 @@ Toggle **Plan** in Agent mode, describe what you want, and DStudio writes a **Ma
 
 - **Local-first & private.** Everything runs on your machine. No telemetry, no cloud backend, strict CSP. The app speaks only to your local engine.
 - **Self-contained native app.** The UI is one vanilla file base64-embedded in the binary. No Electron, no asset server, no CDN.
-- **Non-invasive integration.** The agent's structured output comes from a small, **reversible, build-time patch** of the engine source: DStudio backs it up, builds a separately-named binary, and restores the original immediately. The ds4 repo stays pristine, and if the patch ever fails it falls back to the stock agent.
+- **Non-invasive integration.** The agent's structured output comes from a small, **reversible, build-time patch** of the engine source: DStudio backs it up, builds a separately-named binary and restores the original immediately. The current DStudio release requires this structured runtime and fails clearly if its pinned patch cannot be built.
 - **Setup doctor.** First run checks the ds4 folder, GGUF model, chat engine, agent, design runtime, Web Search, port and LAN state, then gives a direct fix button.
 - **Pick model & reasoning per chat.** A gear in the composer collapses model selection, reasoning level, Web Search and working folder into one popover.
 - **Zero-config networking.** Localhost by default; one toggle exposes it on your Wi-Fi, and the engine still never leaves localhost (see below).
@@ -216,7 +216,7 @@ are never vendored into this repo.
 
 ### Windows notes
 
-For normal use, download/extract the Windows portable zip and run `DStudio.exe`. Keep the files together: `DStudio.exe`, `ds4-server.exe`, `ds4-agent.exe`, `ds4-agent-jsonl.exe`, `ds4-agent-jsonl.ver` and `ds4-design.exe` are meant to live in the same portable folder.
+For normal use, download/extract the Windows portable zip and run `DStudio.exe`. Keep the files together: `DStudio.exe`, `ds4-server.exe`, `ds4-agent-jsonl.exe`, `ds4-agent-jsonl.ver` and `ds4-design.exe` are meant to live in the same portable folder.
 
 If you build DStudio or use Agent/Design from a LAN client with your own local DS4 checkout, install:
 
@@ -263,7 +263,7 @@ Behind the scenes DStudio **reverse-proxies the engine API** (`/v1`) to the loca
 
 ## How it works
 
-- **C launcher, not a script.** `dstudio.c` is both the local HTTP server and the engine supervisor: it starts/stops `ds4-server` for chat, `ds4-agent` for coding and `ds4-design` for design, manages working directories, runs the setup doctor, proxies `/v1`, serves Web Search and exposes a small local API.
+- **C launcher, not a script.** `dstudio.c` is both the local HTTP server and the engine supervisor: it starts/stops `ds4-server` for chat, `ds4-agent-jsonl` for coding and `ds4-design` for design, manages working directories, runs the setup doctor, proxies `/v1`, serves Web Search and exposes a small local API.
 - **Native window.** `app.cc` forks the server and opens a WKWebView (macOS) / WebKitGTK (Linux) window via `webview.h`; the page is base64-embedded (`page_data.h`).
 - **Same-origin proxy.** The page calls DStudio for `/v1`; DStudio forwards streaming requests to the local engine, which is why LAN works with no engine exposure and no settings.
 
@@ -276,21 +276,13 @@ ds4's agent is a separate, fast-moving codebase that can't be modified permanent
 3. builds a **separately-named** binary (`ds4-agent-jsonl`), reusing the existing object files,
 4. **restores the original source immediately.**
 
-The canonical `ds4-agent` source is restored after the JSONL build; the build is idempotent (a version stamp forces a rebuild only when the patch itself changes), and it self-heals on the next launch even after a crash. If the patch ever fails to apply, for example because upstream code was reworked, DStudio **falls back to the stock agent** and the UI parses its raw output instead. The separate multimodal hot-memory patch remains applied to the engine core and is reversed/reapplied automatically around upstream pulls. (`ds4-design` is *our* code, in this repo, so it emits these events natively with no patch needed.)
+The canonical `ds4-agent` source is restored after the JSONL build; the build is idempotent (a version stamp forces a rebuild only when the patch itself changes), and it self-heals on the next launch even after a crash. A patch mismatch is a startup error: DStudio does not maintain a second raw-output parser or silently downgrade the Agent. The separate multimodal hot-memory patch remains applied to the engine core and is reversed/reapplied automatically around upstream pulls. (`ds4-design` is *our* code, in this repo, so it emits these events natively with no patch needed.)
 
-#### ⚠️ The patch targets antirez's **original** ds4: forks must disable it
+#### ⚠️ The patch targets DStudio's pinned ds4 commit
 
-The structured (patched) mode works against the **unmodified upstream [ds4](https://github.com/antirez/ds4)**: the patch finds its insertion points by **exact source anchors** in `ds4_agent.c`. On the original repo those anchors match and you get the full experience.
+The structured runtime is built against the **unmodified, pinned [ds4](https://github.com/antirez/ds4)** source: the patch finds its insertion points by exact anchors in `ds4_agent.c`. DStudio updates that pin and the patch together as one breaking release boundary.
 
-If you run a **fork of ds4** that changes the agent source, the anchors may no longer line up. The patch then refuses to apply (and DStudio auto-falls-back to the stock agent), but to skip the failing attempt entirely, **disable the patch**:
-
-> **Settings → Agent output → Raw.** This runs the stock `ds4-agent` untouched and the UI parses its plain text. Lower fidelity, but it works on any ds4. (The choice is persisted, so set it once.)
-
-<div align="center">
-  <img src="assets/README%20images/disable-patch.png" width="640" alt="Settings: Agent output set to Raw (no patch)">
-</div>
-
-**Why it's done this way.** ds4 is antirez's project: fast-moving, and not the kind of repo that takes a UI's structured-output hooks upstream. So instead of forking it (which would mean maintaining a divergent copy forever) or shipping a modified binary, the integration stays **non-invasive and reversible**: it patches by anchor, builds a separate binary, and restores the source immediately. The trade-off is deliberate: the rich mode is bound to the *specific* source it was written against, and the **Raw fallback is what keeps the app working on anything else** (a fork, or a future upstream that moved the anchors). You keep the engine pristine; you opt into fidelity only where the source matches.
+Forks that change those anchors are unsupported by that release and the Agent refuses to start instead of running with partial behavior. This keeps one protocol, one renderer and one test surface while leaving the upstream checkout pristine.
 
 ### KV cache: how context is kept
 

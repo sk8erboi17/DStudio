@@ -6,7 +6,7 @@
  * two large processes together):
  *
  *   - server : ds4-server, the HTTP API for normal chat (port 28000)
- *   - agent  : ds4-agent --non-interactive, the coding agent via pipe
+ *   - agent  : ds4-agent-jsonl --non-interactive, the coding agent via pipe
  *   - design : ds4-design --jsonl, the design agent (HTML in a workspace)
  *
  * Makes start.sh obsolete: all of its parameters are here.
@@ -449,12 +449,6 @@ static int  g_ready = 0;
 static int  g_agent_working = 0;   /* true between send and the next WAITING */
 static int  g_interrupt_pending = 0; /* SIGINT sent; wait for WAITING or child exit */
 static int  g_active_turn_compacting = 0;
-/* The agent can run patched (ds4-agent-jsonl --jsonl, structured events for the
- * UI) or stock (ds4-agent, raw text that the UI parses heuristically). The UI
- * requests it via /api/start {jsonl}; if the patch build FAILS (e.g. the agent
- * was reworked upstream and the anchors no longer apply) we fall back to stock. */
-static int  g_use_jsonl = 1;       /* requested by the UI (default on) */
-static int  g_jsonl_active = 0;    /* effective: 1 = patched, 0 = stock/raw */
 
 /* agent transcript (absolute offsets, with a base that advances if truncated) */
 static char  *g_abuf = NULL;
@@ -3103,7 +3097,7 @@ static void stop_child(void) {
  * touches the user's own processes. */
 static int kill_external_server(int port) {
 #ifdef _WIN32
-    /* Windows v1 avoids taskkill heuristics: DStudio can supervise processes it
+    /* Windows avoids taskkill heuristics: DStudio can supervise processes it
      * starts, but external listeners must be stopped explicitly by the user. */
     return !port_listening(port);
 #else
@@ -3292,7 +3286,6 @@ static void win_copy_packaged_file_to_ds4(const char *name) {
 static void win_copy_packaged_engine_to_ds4(void) {
     static const char *files[] = {
         "ds4-server.exe",
-        "ds4-agent.exe",
         "ds4-agent-jsonl.exe",
         "ds4-agent-jsonl.ver",
         "ds4-design.exe",
@@ -3500,8 +3493,8 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
  * stays freshest. Returns a malloc'd string the caller frees, or NULL when there is
  * nothing to inject. The packs live in this DStudio checkout (g_web_dir), read here —
  * NOT through an engine tool — so the agents need no change and no access outside their
- * workspace. include_design_system gates the brand layer to design mode. */
-static char *build_skill_sys(int include_design_system, int include_agent_question) {
+ * workspace. design_mode gates the brand layer and design-only tools. */
+static char *build_skill_sys(int design_mode) {
     if (!g_web_dir[0]) return NULL;
     char path[2300];
     char *buf = NULL; size_t len = 0, cap = 0;
@@ -3510,7 +3503,7 @@ static char *build_skill_sys(int include_design_system, int include_agent_questi
     snprintf(path, sizeof path, "%s/extension/skills/AGENT.md", g_web_dir);
     sys_append(&buf, &len, &cap, jsonl_read_file(path, &n), n);
 
-    if (include_design_system && g_design_system[0]) {
+    if (design_mode && g_design_system[0]) {
         snprintf(path, sizeof path, "%s/extension/design-systems/%s/DESIGN.md", g_web_dir, g_design_system);
         n = 0;
         sys_append(&buf, &len, &cap, jsonl_read_file(path, &n), n);
@@ -3524,7 +3517,7 @@ static char *build_skill_sys(int include_design_system, int include_agent_questi
      * every Agent launch: local model startup pays that prefill cost even for a one-word prompt.
      * The UI and /api/skills/search expose the searchable catalog; the model can load
      * exact ids supplied by the user, by the selected-skill UI, or by GSA/RSA flows. */
-    const size_t catcap = include_design_system ? 64 * 1024 : 8192;
+    const size_t catcap = design_mode ? 64 * 1024 : 8192;
     char *cat = malloc(catcap);
     if (cat) {
         size_t o = 0;
@@ -3540,23 +3533,16 @@ static char *build_skill_sys(int include_design_system, int include_agent_questi
             "{\"type\":\"function\",\"function\":{\"name\":\"design_system\",\"description\":\"Load a brand pack (color tokens, type, components, voice) by id, then bind its tokens.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n"
             "{\"type\":\"function\",\"function\":{\"name\":\"pack_file\",\"description\":\"Read an allowlisted pack file such as assets/template.html, references/checklist.md, references/layouts.md, or example.html after a pack lists available files.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"type\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"type\",\"name\",\"path\"]}}}\n"
             "{\"type\":\"function\",\"function\":{\"name\":\"skills_search\",\"description\":\"Search the local skill catalog by topic (a few concise English keywords) and get matching skill ids with one-line descriptions, best first.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}}}\n");
-        /* Vision: ds4 is text-only, but see_image runs a local vision model over
-         * an image file in the workspace and returns a text description (with any
-         * transcribed text). The dispatch exists only in the patched jsonl agent
-         * and in the design agent — the STOCK agent (e.g. the GLM 5.2 checkout,
-         * where the jsonl patch never applies) must not be told about a tool it
-         * does not have, or every call ends in "unknown tool". */
-        if (include_design_system || include_agent_question)
-            o += (size_t)snprintf(cat + o, catcap - o,
-                "\nVision: you cannot see pixels directly, but you can inspect an image file in the "
-                "workspace by calling the `see_image` tool — a local vision model returns a text "
-                "description plus any transcribed text. Use it before reasoning about a screenshot, "
-                "photo, diagram, or scanned page; to zoom in, crop the region to a new file (e.g. via "
-                "the bash tool) and call see_image on it.\n"
-                "{\"type\":\"function\",\"function\":{\"name\":\"see_image\",\"description\":\"Look at a local image file (png/jpg/webp/gif) and get a text description plus any transcribed text.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the image file in the workspace.\"},\"question\":{\"type\":\"string\",\"description\":\"Optional: what to look for, or a question about the image.\"}},\"required\":[\"path\"]}}}\n");
-        /* read_pdf dispatches only in the patched jsonl agent (edits 047/048):
-         * neither the stock agent nor the design agent has it. */
-        if (include_agent_question)
+        /* Both current runtimes expose see_image. */
+        o += (size_t)snprintf(cat + o, catcap - o,
+            "\nVision: you cannot see pixels directly, but you can inspect an image file in the "
+            "workspace by calling the `see_image` tool — a local vision model returns a text "
+            "description plus any transcribed text. Use it before reasoning about a screenshot, "
+            "photo, diagram, or scanned page; to zoom in, crop the region to a new file (e.g. via "
+            "the bash tool) and call see_image on it.\n"
+            "{\"type\":\"function\",\"function\":{\"name\":\"see_image\",\"description\":\"Look at a local image file (png/jpg/webp/gif) and get a text description plus any transcribed text.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the image file in the workspace.\"},\"question\":{\"type\":\"string\",\"description\":\"Optional: what to look for, or a question about the image.\"}},\"required\":[\"path\"]}}}\n");
+        /* read_pdf and question are Agent-only tools. */
+        if (!design_mode)
             o += (size_t)snprintf(cat + o, catcap - o,
                 "\nPDF: to read a PDF file in the workspace call the `read_pdf` tool — pages with a "
                 "text layer come back verbatim, scanned pages and large figures are read by the "
@@ -3564,14 +3550,14 @@ static char *build_skill_sys(int include_design_system, int include_agent_questi
                 "instant. A long document comes back truncated (the text notes where it stops): "
                 "call the tool again with pages (e.g. \"11-25\") to continue from there.\n"
                 "{\"type\":\"function\",\"function\":{\"name\":\"read_pdf\",\"description\":\"Read a local PDF file: verbatim text of digital pages plus a vision reading of scanned pages and large figures. Long PDFs are truncated at a page cap; pass pages to read a specific range.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the PDF file in the workspace.\"},\"pages\":{\"type\":\"string\",\"description\":\"Optional page range: \\\"N\\\" (one page), \\\"N-M\\\", or \\\"N-\\\" (from N to the end).\"}},\"required\":[\"path\"]}}}\n");
-        if (!include_design_system && include_agent_question)
+        if (!design_mode)
             o += (size_t)snprintf(cat + o, catcap - o,
                 "{\"type\":\"function\",\"function\":{\"name\":\"question\",\"description\":\"Emit a structured question event for the UI. Use when you need the user to choose or clarify, then stop the turn.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"questions\":{\"type\":\"string\",\"description\":\"JSON array of question objects, e.g. [{id,label,type,options}].\"}},\"required\":[\"id\",\"title\",\"questions\"]}}}\n");
-        if (include_design_system)
+        if (design_mode)
             o += (size_t)snprintf(cat + o, catcap - o,
                 "{\"type\":\"function\",\"function\":{\"name\":\"craft\",\"description\":\"Load a universal craft rules pack by id (accessibility before shipping; layout-responsive before any resize).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n");
         o += (size_t)snprintf(cat + o, catcap - o, "\n");
-        if (include_design_system) {
+        if (design_mode) {
             o += (size_t)snprintf(cat + o, catcap - o,
                 "Use `skill(\"id\")`, `design_system(\"id\")` and `craft(\"id\")` when the user "
                 "selects or names an exact id. The searchable skill and cybersecurity catalogs "
@@ -3594,7 +3580,7 @@ static char *build_skill_sys(int include_design_system, int include_agent_questi
                 "total, and never load the same skill twice. Never guess ids that neither the "
                 "user nor skills_search gave you.\n\n");
         }
-        if (g_skill[0] || (include_design_system && g_design_system[0]))
+        if (g_skill[0] || (design_mode && g_design_system[0]))
             o += (size_t)snprintf(cat + o, catcap - o,
                 "The pack(s) the user selected are already loaded above; use the tools to pull others.\n");
         sys_append(&buf, &len, &cap, cat, o);  /* frees cat */
@@ -4223,29 +4209,23 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
                  ENGINE_DEFAULTS.port);
         return 0;
     }
-    /* Patched agent if requested AND the jsonl build succeeds (idempotent build,
-     * restores the source immediately). If the patch is off, or its build FAILS
-     * (e.g. the agent was reworked upstream and the anchors no longer apply), run
-     * the STOCK ds4-agent — the UI parses its raw output instead. */
-    int use_jsonl = g_use_jsonl && run_build_jsonl("build");
-    if (remote_model && !use_jsonl) {
+    /* The current UI consumes structured events exclusively. Building the
+     * derived agent is therefore a launch requirement, not an optional mode. */
+    if (!run_build_jsonl("build")) {
 #ifdef _WIN32
         snprintf(err, errsz,
-                 "remote agent requires the updated DStudio Windows runtime "
+                 "agent requires the current DStudio Windows runtime "
                  "(ds4-agent-jsonl.exe + ds4-agent-jsonl.ver)");
 #else
-        snprintf(err, errsz, "remote agent requires the structured ds4-agent-jsonl build%s%s",
+        snprintf(err, errsz, "agent requires the structured ds4-agent-jsonl build%s%s",
                  g_engine_err[0] ? ": " : "", g_engine_err[0] ? g_engine_err : "");
 #endif
         return 0;
     }
-    if (g_use_jsonl && !use_jsonl)
-        printf("engine: jsonl patch unavailable — falling back to stock ds4-agent (raw output)\n");
-    const char *agent_bin = use_jsonl
 #ifdef _WIN32
-        ? "ds4-agent-jsonl.exe" : "ds4-agent.exe";
+    const char *agent_bin = "ds4-agent-jsonl.exe";
 #else
-        ? "ds4-agent-jsonl" : "ds4-agent";
+    const char *agent_bin = "ds4-agent-jsonl";
 #endif
     if (!file_present(agent_bin)) {
         snprintf(err, errsz, "%.32s not found in %.150s — build ds4 first (make)", agent_bin, g_ds4_dir);
@@ -4285,11 +4265,11 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
      * parent frees its copy after the fork. The shared charter + active skill go in
      * via the agent's own -sys flag — no change to ds4-agent itself. The design-system
      * (brand) layer is design-only, so it is excluded here (0). */
-    char *skill_sys = build_skill_sys(0, use_jsonl);
-    if (use_jsonl) {
-        /* Normal agent: keep Claude-like discovery for direction-sensitive
-         * work without slowing down straightforward code edits.  This is injected via
-         * -sys only; antirez's ds4_agent.c stays untouched. */
+    char *skill_sys = build_skill_sys(0);
+    {
+        /* Keep Claude-like discovery for direction-sensitive work without
+         * slowing down straightforward code edits. This is injected via -sys;
+         * antirez's ds4_agent.c stays untouched. */
         static const char *normal_agent_discovery =
             "\n\n## NORMAL AGENT DISCOVERY\n"
             "Default to action, but ask before committing to a direction when the missing "
@@ -4351,7 +4331,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     char *argv[30]; int n = 0;
     argv[n++] = exe;
     argv[n++] = "--non-interactive";
-    if (use_jsonl) argv[n++] = "--jsonl";
+    argv[n++] = "--jsonl";
     if (remote_model) {
         argv[n++] = "--remote-base-url"; argv[n++] = g_remote_base_url;
         argv[n++] = "--remote-model"; argv[n++] = g_remote_model[0] ? g_remote_model : "ds4";
@@ -4377,7 +4357,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     pid_t pid = fork();
     if (pid < 0) { snprintf(err, errsz, "fork: %s", strerror(errno)); free(skill_sys); return 0; }
     if (pid == 0) {
-        if (chdir(g_ds4_dir) != 0) _exit(127);   /* to find ./ds4-agent */
+        if (chdir(g_ds4_dir) != 0) _exit(127);   /* to find ./ds4-agent-jsonl */
         if (!remote_model) {
             child_setenv_metal();
             child_setenv_metal_sources(ds4_abs); /* absolute: survive --chdir */
@@ -4396,7 +4376,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
         char *argv[30]; int n = 0;
         argv[n++] = binpath;
         argv[n++] = "--non-interactive";
-        if (use_jsonl) argv[n++] = "--jsonl";
+        argv[n++] = "--jsonl";
         if (remote_model) {
             argv[n++] = "--remote-base-url"; argv[n++] = g_remote_base_url;
             argv[n++] = "--remote-model"; argv[n++] = g_remote_model[0] ? g_remote_model : "ds4";
@@ -4420,14 +4400,13 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     set_nonblock(g_out_fd); set_nonblock(g_err_fd);
 #endif
     g_child = pid; g_mode = ENGINE_AGENT; g_cfg = *cfg;
-    g_jsonl_active = use_jsonl;
     snprintf(g_workdir, sizeof g_workdir, "%s", wd);
     agent_buf_reset();
     reset_progress("Starting the agent…");
     g_agent_working = 0;
     printf("engine: agent pid %d (chdir %s, %s, %s)\n", (int)pid, wd,
            cfg->uncensored ? "uncensored" : "standard",
-           remote_model ? "jsonl/remote-model" : (use_jsonl ? "jsonl" : "stock/raw"));
+           remote_model ? "jsonl/remote-model" : "jsonl");
     return 1;
 }
 
@@ -4484,7 +4463,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
 
     /* Same as the agent, but design also gets the active design-system (brand) layer (1):
      * charter + DESIGN.md + SKILL.md, injected via ds4-design's -sys flag. */
-    char *skill_sys = build_skill_sys(1, 0);
+    char *skill_sys = build_skill_sys(1);
 
 #ifdef _WIN32
     char exe[2200];
@@ -4558,7 +4537,6 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     set_nonblock(g_out_fd); set_nonblock(g_err_fd);
 #endif
     g_child = pid; g_mode = ENGINE_DESIGN; g_cfg = *cfg;
-    g_jsonl_active = 1; /* design uses its own native --jsonl (DStudio's extension) */
     snprintf(g_workdir, sizeof g_workdir, "%s", wd);
     snprintf(g_design_dir, sizeof g_design_dir, "%s", wd);
     agent_buf_reset();
@@ -4608,10 +4586,9 @@ static const char *mode_name(int m) {
            m == ENGINE_DESIGN ? "design" : "none";
 }
 
-/* POST /api/model/download {variant} — fetch a model variant's GGUF in the
- * background by running ds4's download script (pro → download_model.sh
- * pro-q2-imatrix; flash → download-abliterated.sh), logging to a file. The
- * percentage is read from the growing file in /api/status. */
+/* POST /api/model/download {target} — fetch a GGUF in the background by
+ * running the matching ds4 download script. The percentage is read from the
+ * growing file in /api/status. */
 static void api_model_download(int fd, const char *body) {
 #ifdef _WIN32
     (void)body;
@@ -4619,8 +4596,7 @@ static void api_model_download(int fd, const char *body) {
               "{\"ok\":false,\"error\":\"model download scripts are not available in the Windows portable build yet\"}");
     return;
 #else
-    char variant[16] = {0}, target[48] = {0};
-    json_get_string(body, "variant", variant, sizeof variant);
+    char target[48] = {0};
     json_get_string(body, "target", target, sizeof target);
 
     /* Whitelist of download_model.sh targets (the different quantizations). */
@@ -4631,9 +4607,7 @@ static void api_model_download(int fd, const char *body) {
     int valid = 0;
     for (size_t i = 0; i < sizeof TARGETS / sizeof TARGETS[0]; i++)
         if (!strcmp(target, TARGETS[i])) valid = 1;
-    /* Legacy: variant=flash → the abliterated script; variant=pro → pro-q2 target. */
-    int abliterated = !target[0] && !strcmp(variant, "flash");
-    if (!target[0] && !strcmp(variant, "pro")) { snprintf(target, sizeof target, "pro-q2-imatrix"); valid = 1; }
+    int abliterated = !strcmp(target, "flash-abliterated");
     if (!valid && !abliterated) {
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"unknown model/target\"}");
         return;
@@ -4722,7 +4696,7 @@ static void api_status(int fd) {
                 if (owner > 0)
                     snprintf(g_stage, sizeof g_stage, "Attaching to existing DS4 engine (pid %ld)…", (long)owner);
             } else if (owner == 0) {
-                /* The old process died before opening the port. Its lock is now
+                /* The previous process died before opening the port. Its lock is now
                  * free, so transparently take over with the saved configuration. */
                 engine_cfg retry_cfg = g_cfg;
                 g_external_server = 0;
@@ -4803,7 +4777,7 @@ static void api_status(int fd) {
     char body[12288];
     snprintf(body, sizeof body,
         "{\"mode\":\"%s\",\"running\":%s,\"ready\":%s,\"loadPct\":%d,\"stage\":\"%s\","
-        "\"agentWorking\":%s,\"workdir\":\"%s\",\"config\":%s,\"jsonl\":%s,"
+        "\"agentWorking\":%s,\"workdir\":\"%s\",\"config\":%s,"
         "\"ds4dir\":\"%s\",\"ds4dirOk\":%s,\"webdir\":\"%s\",\"webdirOk\":%s,"
         "\"lan\":%s,\"lanAddr\":\"%s\",\"httpPort\":%d,"
         "\"models\":{\"standard\":%s,\"uncensored\":%s},"
@@ -4813,7 +4787,6 @@ static void api_status(int fd) {
         "\"contentOk\":%s,\"contentDownloading\":%s}",
         mode_name(g_mode), engine_running ? "true" : "false", g_ready ? "true" : "false",
         g_load_pct, stage_esc, g_agent_working ? "true" : "false", wd_esc, cfg,
-        g_jsonl_active ? "true" : "false",
         d4_esc, ds4_dir_valid() ? "true" : "false", web_esc, web_dir_valid() ? "true" : "false",
         lan_on ? "true" : "false", lan_addr, g_http_port,
         model_present(0) ? "true" : "false", model_present(1) ? "true" : "false",
@@ -4878,9 +4851,9 @@ static void api_doctor(int fd) {
     int ds4_ok = ds4_dir_valid();
     int model_ok = ds4_ok && (file_present(current_model_rel()) || any_gguf_present());
     int current_model_ok = ds4_ok && file_present(current_model_rel());
-    int agent_ok = ds4_ok && (rel_exists("ds4-agent") || rel_exists("ds4-agent.exe") ||
-                              rel_exists("ds4-agent-jsonl") || rel_exists("ds4-agent-jsonl.exe"));
     int agent_src_ok = ds4_ok && rel_exists("ds4_agent.c");
+    int agent_ok = ds4_ok && (agent_src_ok || rel_exists("ds4-agent-jsonl") ||
+                              rel_exists("ds4-agent-jsonl.exe"));
     int design_ok = ds4_ok && (rel_exists("ds4-design") || rel_exists("ds4-design.exe") ||
                                rel_exists("ds4_design.c"));
     int web_ok = ds4_ok && agent_src_ok && chrome_available();
@@ -4927,7 +4900,7 @@ static void api_doctor(int fd) {
     if (!agent_ok) warn++;
     ok = ok && doctor_add_check(&b, &first, "agent", "Agent",
         agent_ok ? "ok" : "warn",
-        agent_ok ? "Agent binary is available." : "Build ds4 once, then Agent can start from the workspace picker.",
+        agent_ok ? "Structured Agent runtime is available." : "Install the current Agent runtime before opening a workspace.",
         agent_ok ? NULL : "open-settings");
 
     if (!design_ok) warn++;
@@ -5179,7 +5152,7 @@ static void api_engine_checkouts(int fd) {
 
 /* POST /api/engine/checkout {dir} — swap the active ds4 checkout. The dir must
  * exist and look like a ds4 checkout; the engine (if running) keeps serving
- * from the old one until the UI restarts it via /api/start. */
+ * from the previous one until the UI restarts it via /api/start. */
 static void api_engine_checkout_set(int fd, const char *body) {
     char dir[DSTUDIO_PATH_MAX];
     if (!json_get_string(body, "dir", dir, sizeof dir) || !dir[0]) {
@@ -5514,9 +5487,6 @@ static void api_start(int fd, const char *body) {
     char launch_title[96];
     snprintf(launch_title, sizeof launch_title, "Start %s", mode);
     unsigned long long task_id = task_begin("launch", launch_title, mode, requested_mode, workdir, 0, 1);
-    /* Whether to try the jsonl patch (default on if the key is absent). */
-    g_use_jsonl = strstr(body, "\"jsonl\"") ? json_get_bool(body, "jsonl") : 1;
-    if (g_remote_base_url[0]) g_use_jsonl = 1;
 
     /* Model variant ("flash"|"pro") — picked in the composer. Default stays. */
     char variant[16] = {0};
@@ -7060,7 +7030,7 @@ static int embed_doctor_row(char *msg, size_t msgsz) {
 
 /* POST /api/agent/attach-image {dir, name?, data_uri} — write a dropped/pasted
  * image into the agent workspace so the model can inspect it with see_image
- * (drop/paste used to be chat-only; in agent mode the pixels had no way in).
+ * so Agent receives the same pixel payload as Chat.
  * Host-local only (not in the LAN allowlist) + CSRF header; the UI sends its
  * selected agent workdir — the same trust boundary as /api/start's workdir. */
 #ifndef _WIN32

@@ -5986,14 +5986,6 @@
               <button type="button" class="set-seg__b" data-theme="system" role="radio"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="8" rx="1.2"/><path d="M6 13.5h4M8 11v2.5"/></svg>System</button>
             </div>
           </div>
-          <label class="field">
-            <span>Agent output <small class="field-note">structured needs the build-time patch; raw leaves ds4-agent untouched</small></span>
-            <select id="set-jsonl" aria-label="Agent output mode">
-              <option value="on">Structured (recommended)</option>
-              <option value="off">Raw (no patch)</option>
-            </select>
-            <p class="set-help"><strong>Structured</strong> gives the cleanest chat — tool calls, results and reasoning are parsed and folded — via a small, reversible patch applied to ds4-agent when the engine builds. <strong>Raw</strong> runs the stock ds4-agent untouched and the UI parses its plain text instead: lower fidelity, but nothing in the upstream code is modified. The raw fallback also kicks in automatically if the patch ever fails to apply.</p>
-          </label>
         </section>
 
         <section class="set-grp" data-pane="vision" hidden>
@@ -6356,13 +6348,13 @@
   <script type="module">
     /* ==================== Config ==================== */
 
-    const SCHEMA_VERSION = 1;
+    const SCHEMA_VERSION = 2;
 
     const STORAGE_KEYS = {
-      chats: 'ds4web.chats.v1',
-      settings: 'ds4web.settings.v1',
-      active: 'ds4web.active.v1',
-      onboarded: 'ds4web.onboarded.v1',
+      chats: 'ds4web.chats.v2',
+      settings: 'ds4web.settings.v2',
+      active: 'ds4web.active.v2',
+      onboarded: 'ds4web.onboarded.v2',
     };
 
     // The page talks to serve SAME-ORIGIN for the engine API: serve reverse-proxies
@@ -6382,10 +6374,9 @@
       return !!PAGE_HOST && !isLoopbackHost(PAGE_HOST);
     }
 
-    // Old saved baseUrls pointed straight at the engine (http://host:28000). The
-    // page now reaches the engine through serve's same-origin /v1 proxy, so
-    // collapse any local-engine URL (the :28000 port) to '' (use the proxy). A
-    // custom REMOTE engine on a different port is left untouched.
+    // The managed engine is always reached through serve's same-origin /v1
+    // proxy. Collapse its direct :28000 URL to the canonical empty base; keep a
+    // custom remote engine on any other port untouched.
     function adaptBaseUrl(url) {
       if (!url) return '';
       try { if (new URL(url).port === '28000') return ''; } catch { return ''; }
@@ -6407,7 +6398,7 @@
     const DEFAULT_SETTINGS = {
       v: SCHEMA_VERSION,
       baseUrl: DEFAULT_BASE_URL,
-      chatBackend: 'local',   // 'local' | 'deepseek' — Chat only; Agent/Design/GSA/RSA are always local
+      chatBackend: 'local',   // 'local' | 'deepseek' — shared model backend for every mode
       deepseekApiKey: '',
       deepseekModel: 'deepseek-v4-flash', // cloud model used by chat and remote agent/design launches
       lanClientHost: '',     // when set, this local UI uses that DStudio host for model + Chat web tools
@@ -6423,7 +6414,6 @@
       ctxSize: 65536,       // engine context window (-c); 64k default, changeable in onboarding/settings
       enginePower: 90,      // ds4 --power launch parameter
       ssdStreaming: 'auto',  // off | on | auto — Metal SSD model streaming; auto engages it under memory pressure
-      useJsonlPatch: true,  // agent: try the structured-output patch (off = stock ds4-agent, raw output)
       webMode: 'off',       // chat web context: 'off' | 'search' | 'research'
       planMode: 'off',      // agent Plan mode: 'off' | 'on' for the next planning turn
       gsaMode: 'off',       // agent GSA pipeline: 'off' | 'on' for the next security-analysis turn
@@ -7555,7 +7545,7 @@
     // Quantizations ds4's download scripts can fetch (download_model.sh targets +
     // abliterated). Shared by the onboarding and Settings model pickers.
     const MODEL_DOWNLOADS = [
-      { id: 'flash', label: 'Flash · uncensored (abliterated) — IQ2_XXS, ~87 GB', body: { variant: 'flash' }, match: /abliterat|uncensor|cyberneurova/i },
+      { id: 'flash', label: 'Flash · uncensored (abliterated) — IQ2_XXS, ~87 GB', body: { target: 'flash-abliterated' }, match: /abliterat|uncensor|cyberneurova/i },
       { id: 'q2-imatrix', label: 'Flash · chat — IQ2_XXS, ~87 GB', body: { target: 'q2-imatrix' }, match: /^DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix\.gguf$/i },
       { id: 'q2-q4-imatrix', label: 'Flash · mixed Q2/Q4 — ~98 GB', body: { target: 'q2-q4-imatrix' }, match: /Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown.*imatrix/i },
       { id: 'q4-imatrix', label: 'Flash · chat — Q4, higher quality & larger', body: { target: 'q4-imatrix' }, match: /^DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix\.gguf$/i },
@@ -8663,8 +8653,7 @@
               modelVariants: {}, modelCurrent: 'flash', modelDownload: null },
       };
 
-      // Pre-existing chats (schema without `mode`) are chat conversations.
-      const chatMode = (c) => c?.mode || 'chat';
+      const chatMode = (c) => c?.mode;
       const localChats = () => state.chats.filter((c) => !c.lanMirror);
       const hasLocalConversationHistory = () => localChats().some((c) =>
         (c.messages?.length || 0) > 0 || !!(c.transcript && c.transcript.length));
@@ -8779,7 +8768,7 @@
         JSON.stringify({ v: SCHEMA_VERSION, chats: localChats().filter(hasContent), deleted: state.deleted });
 
       function mergeRemote(remote) {
-        if (!remote || typeof remote !== 'object') return false;
+        if (!remote || remote.v !== SCHEMA_VERSION || !Array.isArray(remote.chats)) return false;
         const before = serializeChats();
         const mirrors = state.chats.filter((c) => c.lanMirror);
         const tomb = new Map();
@@ -8793,7 +8782,6 @@
           if (!l || (r.updatedAt || 0) > (l.updatedAt || 0)) byId.set(r.id, r);
         }
         state.chats = [...byId.values()].filter((c) => !(tomb.has(c.id) && tomb.get(c.id) >= (c.updatedAt || 0))).concat(mirrors);
-        for (const c of state.chats) c.mode ||= 'chat';
         state.deleted = [...tomb].filter(([, at]) => now - at < TOMB_TTL).map(([id, at]) => ({ id, at }));
         return serializeChats() !== before; // did anything change?
       }
@@ -8839,6 +8827,7 @@
           .map((c) => [c.id, c.updatedAt, c.title, c.messages?.length || 0, c.transcript?.length || 0]));
         const mirrors = [];
         for (const client of data.clients) {
+          if (client?.v !== SCHEMA_VERSION) continue;
           const rawId = String(client?.clientId || client?.id || '').trim();
           const clientId = rawId.replace(/[^\w.-]/g, '').slice(0, 119);
           if (!clientId) continue;
@@ -8992,56 +8981,14 @@
         writeKey(STORAGE_KEYS.active, JSON.stringify({ v: SCHEMA_VERSION, ids: state.active }));
       }
 
-      /** Updates a slice from a previous schema version (placeholder for v>1). */
-      function migrate(slice) {
-        return slice; // v1: no previous migration
-      }
-
       function load() {
-        const chats = migrate(readKey(STORAGE_KEYS.chats));
+        const chats = readKey(STORAGE_KEYS.chats);
         if (chats?.v === SCHEMA_VERSION && Array.isArray(chats.chats)) state.chats = chats.chats.filter((c) => !c.lanMirror);
         if (Array.isArray(chats?.deleted)) state.deleted = chats.deleted; // tombstones
-        for (const c of state.chats) c.mode ||= 'chat'; // pre-mode → chat
 
         let settingsChanged = false;
-        const settings = migrate(readKey(STORAGE_KEYS.settings));
-        if (settings?.v === SCHEMA_VERSION) {
-          state.settings = { ...DEFAULT_SETTINGS, ...settings };
-          // Migration from the old boolean `think` field (pre-thinkLevel).
-          if (settings.thinkLevel === undefined && typeof settings.think === 'boolean') {
-            state.settings.thinkLevel = settings.think ? 'high' : 'off';
-          }
-          if (settings.webMode === undefined) {
-            state.settings.webMode = settings.webSearchEnabled ? 'search' : 'off';
-          }
-          delete state.settings.think;
-          delete state.settings.webSearchEnabled;
-        }
-        if ('lanClientDs4Dir' in state.settings) {
-          delete state.settings.lanClientDs4Dir;
-          settingsChanged = true;
-        }
-        // One-time migration: 'off' used to be the SHIPPED default for SSD
-        // streaming, so stores carry it without any deliberate user choice —
-        // and on machines where the model barely fits it forces full
-        // residency and cripples decode. Rewrite it to 'auto' once; a user
-        // who re-selects Off afterwards keeps it (the flag blocks re-runs).
-        if (!state.settings.ssdStreamingAutoMigrated) {
-          if (state.settings.ssdStreaming === 'off') state.settings.ssdStreaming = 'auto';
-          state.settings.ssdStreamingAutoMigrated = 1;
-          settingsChanged = true;
-        }
-        // DeepSeek's legacy cloud aliases are retired in July 2026. They both
-        // map to V4 Flash during the compatibility window, so move old stores
-        // to the stable model id once; the live /v1/models picker remains the
-        // source of truth and lets the user choose V4 Pro instead.
-        if (!state.settings.deepseekV4ModelMigrated) {
-          if (state.settings.deepseekModel === 'deepseek-chat' || state.settings.deepseekModel === 'deepseek-reasoner') {
-            state.settings.deepseekModel = 'deepseek-v4-flash';
-          }
-          state.settings.deepseekV4ModelMigrated = 1;
-          settingsChanged = true;
-        }
+        const settings = readKey(STORAGE_KEYS.settings);
+        if (settings?.v === SCHEMA_VERSION) state.settings = { ...DEFAULT_SETTINGS, ...settings };
         if (!state.settings.lanClientId) {
           state.settings.lanClientId = `client-${uid().replace(/[^a-z0-9_.-]/gi, '').slice(0, 48)}`;
           settingsChanged = true;
@@ -9065,9 +9012,8 @@
         if (state.settings.lanClientHost) state.settings.baseUrl = state.settings.lanClientHost;
         else if (pageIsLanServed()) state.settings.baseUrl = '';
 
-        // Active per-mode; the old format {id} migrates as the active chat.
         const active = readKey(STORAGE_KEYS.active);
-        const savedIds = active?.ids ?? (active?.id ? { chat: active.id } : {});
+        const savedIds = active?.v === SCHEMA_VERSION && active.ids ? active.ids : {};
         for (const m of ['chat', 'agent', 'design']) {
           const c = getChat(savedIds[m]);
           state.active[m] = (c && chatMode(c) === m ? c.id : null) ??
@@ -13473,7 +13419,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
 
       async function ensureWebContext(chat, userMsg, settings) {
-        const webMode = settings.webMode || (settings.webSearchEnabled ? 'search' : 'off');
+        const webMode = settings.webMode;
         if (webMode === 'off' || !userMsg || userMsg.web?.context) return true;
         if (!settings.webSearchBrowserAllowed) {
           const browserPlace = isLanClientMode() ? 'the LAN host browser/search helper' : 'the local browser';
@@ -16075,7 +16021,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           cbarPop.append(cbarAttach);
         }
         if (!agentMode) {
-          const webMode = Store.getSettings().webMode || (Store.getSettings().webSearchEnabled ? 'search' : 'off');
+          const webMode = Store.getSettings().webMode;
           cbarPop.append(cdrop({
             cap: 'Web',
             ariaLabel: 'Web Search',
@@ -16564,7 +16510,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
           memoryMsg: qs('#set-memory-msg'),
           iogpuLimitMb: qs('#set-iogpu-limit-mb'),
           iogpuLimit: qs('#set-iogpu-limit'),
-          jsonl: qs('#set-jsonl'),
           lan: qs('#set-lan'),
           lanAddr: qs('#set-lan-addr'),
           lanUrl: qs('#set-lan-url'),
@@ -16696,12 +16641,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         on(lf.theme, 'click', applyThemeChoice);
         on(qs('#set-close'), 'click', () => dialog.close());
         on(qs('#set-cancel'), 'click', () => dialog.close());
-        on(f.jsonl, 'change', () => {
-          const on_ = f.jsonl.value !== 'off';
-          if (on_ === (Store.getSettings().useJsonlPatch !== false)) return;
-          Store.setSettings({ useJsonlPatch: on_ });
-          Switcher.applyJsonl();
-        });
         // Network (LAN) toggle: rebinds the listener live (serve closes the
         // localhost socket and reopens on 0.0.0.0, or vice-versa). Default OFF.
         on(f.lan, 'change', () => toggleLan(f.lan.value === 'on'));
@@ -17044,7 +16983,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         f.ctx.value = String(s.ctxSize ?? 65536);
         f.power.value = String(s.enginePower ?? 90);
         f.ssdStreaming.value = ['off', 'on', 'auto'].includes(s.ssdStreaming) ? s.ssdStreaming : 'auto';
-        f.jsonl.value = s.useJsonlPatch === false ? 'off' : 'on';
         f.system.value = s.systemPrompt ?? '';
         updateCtxNote();
         renderSetModels();
@@ -19531,7 +19469,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           if (rs < 0) break;
           const nl = delta.indexOf('\n', rs + 1);
           if (nl < 0) break;
-          try { changed = applyEvent(JSON.parse(delta.slice(rs + 1, nl))) || changed; } catch { /* partial/legacy */ }
+          try { changed = applyEvent(JSON.parse(delta.slice(rs + 1, nl))) || changed; } catch { /* partial event */ }
           i = nl + 1;
         }
         if (changed) notify();
@@ -21149,7 +21087,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const validationPlan = data.validationPlan && typeof data.validationPlan === 'object' ? data.validationPlan : null;
         const validationExecutor = data.validationExecutor && typeof data.validationExecutor === 'object'
           ? data.validationExecutor
-          : (data.validationResults && typeof data.validationResults === 'object' ? data.validationResults : null);
+          : null;
         const validationSummary = validationExecutor?.summary && typeof validationExecutor.summary === 'object' ? validationExecutor.summary : validationExecutor;
         const validationSteps = Array.isArray(validationExecutor?.steps) ? validationExecutor.steps : [];
         const evidenceGraph = data.evidenceGraph && typeof data.evidenceGraph === 'object' ? data.evidenceGraph : null;
@@ -21317,7 +21255,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return card;
       }
 
-      function appendAgentPart(host, partText, { partIdx = 0, lastRealUser = -1, todoCards = null, deferFileOps = false, deferLiveText = false, deferFallbackToolText = false, deferFreeText = false } = {}) {
+      function appendAgentPart(host, partText, { partIdx = 0, lastRealUser = -1, todoCards = null, deferFileOps = false, deferFreeText = false } = {}) {
         let hadOutput = false; // text/artifact/proposal = "real" design output
         const segs = [...segmentAgent(partText)];
         if (viewMode === 'agent') {
@@ -21331,7 +21269,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         let lastWork = -1;
         segs.forEach((sg, i) => {
           if (sg.kind === 'artifact' || sg.kind === 'tool_call' ||
-              sg.kind === 'tool_result' || sg.kind === 'tool_text' || sg.kind === 'todos') lastWork = i;
+              sg.kind === 'tool_result' || sg.kind === 'todos') lastWork = i;
         });
         let worklog = null;
         const worklogAdd = (text) => {
@@ -21417,15 +21355,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
             else if (viewMode !== 'design') {
               if (openToolFold) { attachToolOutput(openToolFold, seg.ev); openToolFold = null; }
               else host.append(buildResultFold(seg.ev));
-            }
-          } else if (seg.kind === 'tool_text') {
-            if (deferLiveText || deferFallbackToolText) return;
-            // Raw fallback: a 🛠 line with no structured event — show it in the
-            // same tool-fold style, summary only (no parsed output body).
-            if (viewMode !== 'design') {
-              const d = el('details', { class: 'thinking toolfold' });
-              d.append(el('summary', { text: seg.text || 'tool' }));
-              host.append(d);
             }
           } else if (seg.kind === 'compact') {
             host.append(buildCompactCard(seg.ev));
@@ -21522,7 +21451,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         appendAgentPart(draft, text.slice(liveTail.start), {
           todoCards,
           deferFileOps: working,
-          deferFallbackToolText: working,
           deferFreeText: working,
         });
         for (let i = 0; i < todoCards.length - 1; i++) todoCards[i].remove();
@@ -22209,14 +22137,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
         // on its own): only </think> arrives in the stream. So if the turn has
         // a reasoning_end, the text preceding it is reasoning.
         const hasEnd = parts.some((p) => p.ev && p.ev.type === 'reasoning_end');
-        const hasEvents = parts.some((p) => p.ev);
-        // Stock agent (patch off, or patch build failed): no \x1e events. Parse
-        // the raw output — 🛠 lines become tool folds, </think> closes the
-        // implicit reasoning. Lower fidelity, but never touches ds4-agent source.
-        const fallback = !hasEvents;
         const segs = [];
         let prose = [];
-        let inReasoning = hasEnd || (fallback && raw.indexOf('</think>') >= 0);
+        let inReasoning = hasEnd;
         const flush = () => {
           if (!prose.length) return;
           const t = cleanRuntimeMarkup(prose.join('\n').replace(CTRL_RE, '')).replace(/\n+$/, '').trim();
@@ -22249,11 +22172,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           pushDisplayText(rest);
         };
         const pushLine = (ln) => {
-          if (/^\s*🛠/u.test(ln)) {
-            if (!fallback) return; // with events the 🛠 line is redundant noise
-            flush(); segs.push({ kind: 'tool_text', text: ln.replace(/^\s*🛠\ufe0f?\s*/u, '').trim() });
-            return;
-          }
+          if (/^\s*🛠/u.test(ln)) return; // structured tool events own the UI
           ln = ln.replace(/<\/?think>/g, ''); // a literal think tag never belongs in prose
           const t = ln.trim();
           if (SYS_LINE_RE.test(t)) { flush(); segs.push({ kind: 'sys', text: t }); return; }
@@ -22261,17 +22180,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         };
         for (const p of parts) {
           if (p.text !== undefined) {
-            for (let ln of p.text.split('\n')) {
-              // raw mode: a </think> on the line closes the implicit reasoning here
-              if (fallback && inReasoning && ln.indexOf('</think>') >= 0) {
-                const idx = ln.indexOf('</think>');
-                if (idx > 0) prose.push(ln.slice(0, idx));
-                flush(); inReasoning = false;
-                ln = ln.slice(idx + 8);
-                if (!ln.trim()) continue;
-              }
-              pushLine(ln);
-            }
+            for (const ln of p.text.split('\n')) pushLine(ln);
           } else {
             const ty = p.ev.type;
             if (ty === 'status') continue; // live stats: shown in the working label, never rendered
@@ -23484,7 +23393,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
       const CONTROL_RS = String.fromCharCode(0x1e);
       const RUNTIME_SLASH_CMD_RE = /^\/(save|list|new|help|compact)$|^\/(switch|del)(\s+\S+)*$/;
       let runtimeThinkDirty = false;
-      let runtimeThinkSupported = true;
       const runtimeSkillAtLaunch = { agent: '', design: '' };
       function runtimeIsSlashCommand(t) {
         const s = String(t || '').trim();
@@ -23523,7 +23431,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           runtimeThinkDirty = false;
           return runtimeThinkControlFrame(forceThink) + prompt;
         }
-        if (!runtimeThinkDirty || !runtimeThinkSupported) return prompt;
+        if (!runtimeThinkDirty) return prompt;
         runtimeThinkDirty = false;
         return runtimeThinkControlFrame() + prompt;
       }
@@ -23575,13 +23483,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const remote = remoteModelLaunch();
         if (!remote) return;
         runtimeThinkDirty = false;
-        runtimeThinkSupported = true;
         const picked = skillForMode('agent');
         // 'auto' is a UI routing mode, not a real pack: launch without a fixed
         // skill; the model routes per turn via its skills_search tool.
         const skill = picked === 'auto' ? '' : picked;
         runtimeSkillAtLaunch.agent = skill;
-        runSwitch('agent', { mode: 'agent', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, jsonl: isLanClientMode() ? true : Store.getSettings().useJsonlPatch !== false, ...remote }, 'Starting the agent…');
+        runSwitch('agent', { mode: 'agent', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, ...remote }, 'Starting the agent…');
       }
 
       // Design's system prompt is ~5.3k tokens and it generates full HTML files,
@@ -23606,7 +23513,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const remote = remoteModelLaunch();
         if (!remote) return;
         runtimeThinkDirty = false;
-        runtimeThinkSupported = true;
         runtimeSkillAtLaunch.design = skill || '';
         runSwitch('design', { mode: 'design', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, designSystem: designSystem(), ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, ...remote }, 'Starting the design agent…');
       }
@@ -23819,11 +23725,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
       function applyThinkLevel() {
         if (mode === 'server') return; // chat: per-message, no restart needed
         if (mode !== 'agent' && mode !== 'design') return;
-        if (!runtimeThinkSupported) {
-          toast(`Thinking: ${THINK_LABEL[thinkLevel()] || thinkLevel()} — restarting raw agent…`, 'info');
-          restartCurrent();
-          return;
-        }
         runtimeThinkDirty = true;
         toast(`Thinking: ${THINK_LABEL[thinkLevel()] || thinkLevel()} — applies to the next ${mode} turn.`, 'info');
       }
@@ -23836,9 +23737,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
           toast('The LAN host controls the model', 'warn');
           return;
         }
-        // spec: a variant id string (legacy) OR a body object {variant}|{target:<quant>}
-        const body = typeof spec === 'string' ? { variant: spec } : spec;
-        const label = body.target || body.variant || 'model';
+        const body = spec;
+        const label = body.target || 'model';
         fetch('/api/model/download', { method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
           body: JSON.stringify(body) })
@@ -23909,19 +23809,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (mode === 'server') { startServer(); return; }
         const wd = Store.getSettings().workdirs?.[mode] || Store.getState().ui.agentWorkdir || '';
         if (mode === 'agent') startAgent(wd); else startDesign(wd);
-      }
-
-      // Agent output mode (structured/raw) changed in Settings: it's an agent
-      // LAUNCH choice (which binary serve spawns), so offer to restart the agent
-      // now. Only relevant while the agent is the active engine.
-      function applyJsonl() {
-        if (mode !== 'agent') return; // takes effect on the next agent start
-        qs('#settings-dialog')?.close();
-        askConfirm({
-          title: 'Restart the agent to apply?',
-          body: 'The agent output mode (structured vs raw) takes effect when the agent restarts. Your conversation is kept — the saved session is restored.',
-          cta: 'Restart now',
-        }).then((yes) => { if (yes) restartCurrent(); });
       }
 
       function applyEngineConfig() {
@@ -24046,21 +23933,13 @@ Your report must be precise, of high-quality, and written by an expert using an 
                 const wd = cfg.workdir || st.workdir || '';
                 if (wd) Store.setSettingsNow({ workdirs: { ...cur, [target]: wd } });
               }
-              // Patch requested but serve fell back to the stock agent (anchors
-              // no longer apply / build failed): tell the user the output is raw.
-              if (target === 'agent' && cfg.jsonl && st.jsonl === false) {
-                runtimeThinkSupported = false;
-                toast('Structured-output patch unavailable — running the stock agent (raw output).', 'warn');
-              } else if (target === 'agent' || target === 'design') {
-                runtimeThinkSupported = true;
-              }
               setMode(target);
               if (target === 'server') invalidateAndRefreshServer();
               return;
             }
             // Early death: the engine exited during startup (path, lock, error). Surface the
-            // REAL reason (status.engineError = exit code + the engine's last stderr line) so a
-            // failed legacy build driver shows WHY, not a generic message.
+            // REAL reason (status.engineError = exit code + the engine's last stderr line)
+            // instead of replacing it with a generic message.
             if (!st.running && ++deaths >= 2) {
               failOverlay('Engine terminated during startup' + (launchTaskId ? ` (task #${launchTaskId})` : '') + (st.engineError ? ' — ' + st.engineError : '. Check the engine log') + '.');
               switching = false;
@@ -24180,7 +24059,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         openWorkdirDialog(target);
       }
 
-      return { mount, mode: () => mode, launching: () => launchTarget, changeWorkdir, applyCtxSize, applyJsonl, applyEngineConfig, applyThinkLevel, openImport, switchModel, switchToGguf, switchEngineDir, switchSkill, switchDesignSystem, switchPlan, switchGsa, switchRsa, downloadModel, newSession,
+      return { mount, mode: () => mode, launching: () => launchTarget, changeWorkdir, applyCtxSize, applyEngineConfig, applyThinkLevel, openImport, switchModel, switchToGguf, switchEngineDir, switchSkill, switchDesignSystem, switchPlan, switchGsa, switchRsa, downloadModel, newSession,
                wirePromptForRuntime,
                planArmed: () => PlanDriver.armed(), planArm: (g) => PlanDriver.arm(g),
                planPending: () => PlanDriver.pending(), planAction: (a) => PlanDriver.action(a),

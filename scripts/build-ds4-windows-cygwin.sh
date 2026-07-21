@@ -60,7 +60,7 @@ echo "windows-cygwin: building ds4-design"
   METAL_LDLIBS="-lm -pthread" \
   ds4-design
 
-for exe in ds4-server ds4-agent ds4-agent-jsonl ds4-design; do
+for exe in ds4-server ds4-agent-jsonl ds4-design; do
   if [ ! -f "$DS4_DIR/$exe" ] && [ ! -f "$DS4_DIR/$exe.exe" ]; then
     echo "missing expected engine binary: $exe" >&2
     exit 1

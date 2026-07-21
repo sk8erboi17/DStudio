@@ -105,7 +105,6 @@ const server = http.createServer(async (req, res) => {
       stage: 'Ready',
       agentWorking: false,
       workdir: '/tmp/dstudio-gsa-ui-test',
-      jsonl: true,
       ds4dirOk: true,
       webdirOk: true,
       lan: false,
@@ -264,25 +263,24 @@ try {
   });
   await page.addInitScript(() => {
     const now = Date.now();
-    localStorage.setItem('ds4web.settings.v1', JSON.stringify({
-      v: 1,
+    localStorage.setItem('ds4web.settings.v2', JSON.stringify({
+      v: 2,
       onboarded: true,
       theme: 'light',
       model: 'deepseek-v4-flash',
       modelVariant: 'flash',
       thinkLevel: 'max',
       ctxSize: 65536,
-      useJsonlPatch: true,
       gsaLoop: 'on',
       webMode: 'off',
       workdirs: { agent: '/tmp/dstudio-gsa-ui-test' },
     }));
-    localStorage.setItem('ds4web.chats.v1', JSON.stringify({
-      v: 1,
+    localStorage.setItem('ds4web.chats.v2', JSON.stringify({
+      v: 2,
       deleted: [],
       chats: [{ id: 'agent-gsa', mode: 'agent', title: 'GSA seed', createdAt: now, updatedAt: now, messages: [], transcript: '' }],
     }));
-    localStorage.setItem('ds4web.active.v1', JSON.stringify({ v: 1, ids: { chat: null, agent: 'agent-gsa', design: null } }));
+    localStorage.setItem('ds4web.active.v2', JSON.stringify({ v: 2, ids: { chat: null, agent: 'agent-gsa', design: null } }));
   });
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });

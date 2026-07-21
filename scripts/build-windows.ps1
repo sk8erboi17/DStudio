@@ -179,7 +179,7 @@ Assert-NativeOk "cygpath ds4"
 Assert-NativeOk "build DS4 Windows engine"
 
 Write-Host "windows: copying engine binaries and runtime"
-$Engine = @("ds4-server.exe", "ds4-agent.exe", "ds4-agent-jsonl.exe", "ds4-design.exe")
+$Engine = @("ds4-server.exe", "ds4-agent-jsonl.exe", "ds4-design.exe")
 foreach ($e in $Engine) {
   $src = Join-Path $Ds4Dir $e
   if (-not (Test-Path $src)) { throw "missing engine binary: $src" }
