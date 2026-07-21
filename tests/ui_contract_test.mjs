@@ -145,7 +145,8 @@ assert.equal(editDirective?.preserve, 'face', 'image edits should carry semantic
 assert.doesNotMatch(js, /function imageGenerationIntent\(/, 'the UI must not classify multilingual image intent with a keyword regex');
 const routingHelpers = new Function(`
 ${extractFunction(js, 'imageDirectiveFromRoutingCode')}
-return { imageDirectiveFromRoutingCode };
+${extractFunction(js, 'imageDirectiveFromRoutingPlan')}
+return { imageDirectiveFromRoutingCode, imageDirectiveFromRoutingPlan };
 `)();
 assert.deepEqual(
   routingHelpers.imageDirectiveFromRoutingCode('3', 'metti quella faccia sul cane'),
@@ -153,6 +154,15 @@ assert.deepEqual(
   'semantic router code 3 should activate face-preserving editing',
 );
 assert.equal(routingHelpers.imageDirectiveFromRoutingCode('0', 'descrivi questa immagine'), null, 'ordinary visual questions should not activate Qwen Image');
+assert.deepEqual(
+  routingHelpers.imageDirectiveFromRoutingPlan(
+    '{"action":"edit","base":"img-2","references":["img-1"],"preserve":"face"}',
+    'metti quella faccia sul cane supersayan',
+    [{ id: 'img-1' }, { id: 'img-2' }],
+  ).sourceIds,
+  ['img-2', 'img-1'],
+  'semantic routing should pass the referenced generated dog first and the face source second',
+);
 const helpers = new Function(`
 ${extractFunction(js, 'isLoopbackHost')}
 ${extractFunction(js, 'adaptBaseUrl')}
@@ -1330,7 +1340,7 @@ assert.match(js, /exactly one fenced block with info string dstudio-image/, 'the
 assert.match(js, /\{"action":"edit","prompt":"precise editing instructions","preserve":"none"\}/, 'the model prompt should distinguish edits that require source pixels');
 assert.match(js, /Set preserve to "face" only when the user explicitly asks/, 'the model should semantically select exact face preservation without a language regex');
 assert.match(js, /function sourceImageForDirective\(chat, userMsg, directive, signal\)/, 'image edits should resolve the latest attached or generated source image');
-assert.match(js, /async function classifyImageRequestWithSource\([\s\S]*Reply with exactly one digit[\s\S]*thinkLevel: 'off'/, 'visual follow-ups should use a fast semantic router instead of relying only on model formatting');
+assert.match(js, /async function classifyImageRequestWithSource\([\s\S]*semantic router for local image models[\s\S]*thinkLevel: 'off'/, 'visual follow-ups should use a fast semantic router instead of relying only on model formatting');
 assert.match(js, /async function runRoutedImageReply\([\s\S]*executeImageDirective/, 'semantic image routes should start Qwen directly without waiting for a prose reply');
 assert.doesNotMatch(js, /function classifyImageRequestWithSource\([\s\S]{0,3000}\.test\(/, 'image routing must not classify user intent with regular expressions');
 assert.match(js, /imageAttachData\.get\(attachment\.id\)\?\.dataUri \|\| attachment\.thumb/, 'image edits should prefer original session pixels and fall back to the persisted preview');
@@ -1349,6 +1359,11 @@ assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def report_e
 assert.match(fs.readFileSync('patch/qwen-image-mps/mps-direct-dtype.patch', 'utf8'), /EditPipeline\.from_pretrained[\s\S]*torch_dtype=torch_dtype/, 'Qwen edit should load weights in the target dtype before transferring them to Metal');
 assert.match(js, /function updateImageGeneration\(messageId, status\)[\s\S]*bar\.style\.width[\s\S]*return true/, 'image progress polling should update the existing placeholder without rebuilding the transcript');
 assert.match(js, /Messages\.updateImageGeneration\(asst\.id, imageGeneration\)/, 'Qwen progress should use the stable in-place placeholder update');
+assert.match(js, /return \[priorGenerated\[0\], currentAttachments\[0\]\]/, 'identity-preserving edits should use the prior generated image as base and the current attachment as face reference');
+assert.match(js, /referenceImage: sourceImages\?\.\[1\]/, 'multi-reference image edits should send the second source to the backend');
+assert.match(js, /function imageDirectiveFromRoutingPlan[\s\S]*sourceIds:[\s\S]*visualCandidates/, 'DeepSeek should map conversational image references to stable visual asset IDs');
+assert.match(js, /visualCandidateDataUri\(chat, candidate, signal\)/, 'semantic visual asset IDs should resolve to real image pixels before Qwen runs');
+assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /input=args\.input[\s\S]*preserve_original_face\(args\.input\[-1\]/, 'Qwen edit should pass all references upstream and preserve pixels from the identity source');
 assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /if args\.action == "edit":[\s\S]*edit_image\(edit_ns\)/, 'Qwen runner should invoke the upstream image-edit pipeline');
 assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def preserve_original_face\([\s\S]*Image\.composite\(source, edited, mask\)/, 'Qwen edits should be able to restore original face pixels with a feathered mask');
 assert.match(launcher, /qwen_memory_begin\("vision"\)/, 'Vision calls should acquire a temporary DS4 memory lease');

@@ -203,7 +203,7 @@ def main() -> int:
     p.add_argument("--outdir", required=True)
     p.add_argument("--status-file")
     p.add_argument("--action", choices=("generate", "edit"), default="generate")
-    p.add_argument("--input")
+    p.add_argument("--input", action="append", default=[])
     p.add_argument("--preserve", choices=("none", "face"), default="none")
     p.add_argument("--aspect", default="16:9")
     args = p.parse_args()
@@ -213,7 +213,7 @@ def main() -> int:
     outdir = Path(args.outdir)
     status_file = Path(args.status_file) if args.status_file else None
     outdir.mkdir(parents=True, exist_ok=True)
-    if args.action == "edit" and (not args.input or not Path(args.input).is_file()):
+    if args.action == "edit" and (not args.input or any(not Path(path).is_file() for path in args.input)):
         write_status(status_file, "error", "error", "The source image is unavailable.", 100)
         raise SystemExit("edit action requires an existing --input image")
     if os.environ.get("DSTUDIO_IMAGE_TEST_MODE") == "1":
@@ -242,8 +242,13 @@ def main() -> int:
     )
     if args.action == "edit":
         edit_ns = SimpleNamespace(
-            prompt=prompt, negative_prompt=None, steps=50, fast=False,
-            ultra_fast=True, seed=None, input=[args.input], output=None,
+            prompt=(
+                "Use input image 1 as the base image and preserve its subject, body, pose, and composition. "
+                "Use input image 2 only as the face and identity reference. " + prompt
+                if len(args.input) > 1 else prompt
+            ),
+            negative_prompt=None, steps=50, fast=False,
+            ultra_fast=True, seed=None, input=args.input, output=None,
             output_dir=str(outdir), anime=False, lora=None, cfg_scale=None,
             batman=False, quantization=None,
         )
@@ -266,7 +271,7 @@ def main() -> int:
             raise SystemExit("Qwen Image Edit returned no output")
         if args.preserve == "face":
             write_status(status_file, "running", "compositing", "Preserving the original face pixels…", 94)
-            preserved = preserve_original_face(args.input, saved_path)
+            preserved = preserve_original_face(args.input[-1], saved_path)
             label = "Edited image ready; original face pixels preserved." if preserved else "Edited image ready; no source face was detected to preserve."
         else:
             label = "Edited image ready."
