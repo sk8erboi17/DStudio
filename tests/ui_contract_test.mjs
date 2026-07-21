@@ -1345,8 +1345,8 @@ assert.doesNotMatch(js, /choose-ds4|verifyPath|toggleFinder|loadFinder|PATHS/, '
 
 assert.match(js, /function classifyResearchRequest\(/, 'web research should classify the request before searching');
 assert.match(js, /async function generateImageFromDirective\(/, 'chat should route the model image directive to the local Qwen pipeline');
-assert.match(html, /id="set-vision-model"[\s\S]*Reads images · Qwen2\.5-VL 3B[\s\S]*Reads images · Qwen2\.5-VL 7B/, 'Vision settings should keep both image-reader models in the dropdown');
-assert.match(html, /Qwen Image · generates images[\s\S]*Qwen Image Edit · edits images[\s\S]*generation pipelines are separate from the Qwen2\.5-VL reader/, 'Vision settings should distinguish image reading, generation, and editing roles');
+assert.match(html, /id="set-vision-model"[\s\S]*Reads images · 3B[\s\S]*Reads images · 7B/, 'Vision settings should keep both image-reader sizes in the dropdown without exposing implementation branding');
+assert.match(html, /Image generation · creates images[\s\S]*Image editing · edits images[\s\S]*image pipelines are separate from the vision reader/, 'Vision settings should distinguish image reading, generation, and editing roles without exposing implementation branding');
 assert.match(js, /Understand the request semantically in whatever language the user uses; never depend on a keyword list/, 'the model prompt should classify image intent semantically in any language');
 assert.match(js, /exactly one fenced block with info string dstudio-image/, 'the model prompt should emit a structured image-generation directive');
 assert.match(js, /\{"action":"edit","prompt":"precise editing instructions","preserve":"none"\}/, 'the model prompt should distinguish edits that require source pixels');
@@ -1364,10 +1364,10 @@ assert.match(js, /\/api\/image\/progress\?id=/, 'image generation should poll li
 assert.match(js, /function buildImageGenerationStatus\(status\)/, 'chat should render a dedicated image placeholder with progress');
 assert.match(html, /\.msg-image-generation__[\s\S]*\.msg-image-generation__track[\s\S]*\.msg-image-generation__bar/, 'image placeholder should include progress UI styling');
 assert.match(js, /imageGeneration = \{[\s\S]*stage: 'queued'[\s\S]*startedAt: Date\.now\(\)/, 'assistant messages should enter a visible image-generation state');
-assert.match(js, /First use downloads the Qwen Image model once/, 'first-run model download should be explained in the placeholder');
+assert.match(js, /First use downloads the local image model once/, 'first-run model download should be explained in the placeholder without exposing implementation branding');
 assert.match(fs.readFileSync('src/dstudio_image.c', 'utf8'), /static void api_image_progress\(/, 'backend should expose image job progress');
-assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /"loading_model": \("model", "Downloading or loading Qwen Image model weights/, 'Qwen runner should publish model-loading progress');
-assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def report_edit_model_progress[\s\S]*Downloading Qwen Image Edit[\s\S]*loading Qwen Image Edit into Metal/, 'Qwen edit should distinguish live model download progress from Metal loading');
+assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /"loading_model": \("model", "Downloading or loading the local image generator/, 'Image runner should publish model-loading progress without exposing implementation branding');
+assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def report_edit_model_progress[\s\S]*Downloading the local image editor[\s\S]*loading the image editor into Metal/, 'Image editing should distinguish live model download progress from Metal loading');
 assert.match(fs.readFileSync('patch/qwen-image-mps/mps-direct-dtype.patch', 'utf8'), /EditPipeline\.from_pretrained[\s\S]*torch_dtype=torch_dtype/, 'Qwen edit should load weights in the target dtype before transferring them to Metal');
 assert.match(js, /function updateImageGeneration\(messageId, status\)[\s\S]*bar\.style\.width[\s\S]*return true/, 'image progress polling should update the existing placeholder without rebuilding the transcript');
 assert.match(js, /Messages\.updateImageGeneration\(asst\.id, imageGeneration\)/, 'Qwen progress should use the stable in-place placeholder update');
