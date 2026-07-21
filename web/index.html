@@ -10574,7 +10574,7 @@
         ];
         files.forEach((a, i) => {
           const kind = a.kind === 'image' ? 'image'
-            : a.kind === 'pdf' ? 'PDF document (pages with a text layer are verbatim; scanned pages and detected figures were read by a local vision model — below is the content, page by page; small or vector-drawn figures may not be described, so absence of a figure description does not prove the page has no figures)'
+            : a.kind === 'pdf' ? 'PDF document (short documents may be verbatim; long documents use a bounded adaptive excerpt across representative and question-relevant pages; selected scans and figures were read by a local vision model; absence of a figure description does not prove the page has no figures)'
             : a.kind === 'image-followup' ? 'image follow-up (a fresh look at the previously attached image, answering the current question)'
             : 'file';
           lines.push(
@@ -14055,8 +14055,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return /^image\/(png|jpe?g|webp|gif|bmp)$/i.test(type) || /\.(png|jpe?g|webp|gif|bmp)$/i.test(name);
       }
 
-      // PDFs are read visually: every page is rendered to an image and passed to
-      // the vision model (server-side), whose text becomes the attachment content.
+      // PDFs use their embedded text first. Scans/selected figures go through
+      // local vision; long documents are sampled under a fixed prompt budget.
       function attachmentIsPdf(file) {
         const name = file?.name || '';
         const type = file?.type || '';
@@ -14300,17 +14300,17 @@ Your report must be precise, of high-quality, and written by an expert using an 
         }
       }
 
-      // Read a PDF at send. The server is hybrid: pages with a text layer are
-      // extracted verbatim by pdftotext (instant), scanned pages and large
-      // figures are read by the vision model; the combined page-by-page text
-      // becomes attachment.content. The read is question-INDEPENDENT on
-      // purpose (pure extraction; the chat model answers the question), so the
-      // server cache works across questions — re-sending the same PDF with a
-      // new question is instant. Auto-installs the vision model once on 503
+      // Read a PDF at send. Interactive chat uses an adaptive fixed-size context:
+      // small PDFs keep every page; long books select front/back matter, pages
+      // relevant to the question and an even whole-document sample. Text is
+      // capped near 20K characters locally (~5K tokens) or 48K on cloud,
+      // regardless of page count.
+      // Scanned pages and a small number of selected figures use local vision;
+      // per-page vision results stay cached across questions. Auto-installs it on 503
       // (only returned when the PDF actually needs vision). While the read
       // runs, a progress poll turns the tile label into "Reading page n/m…".
       // Never throws.
-      async function analyzePdfAttachment(att) {
+      async function analyzePdfAttachment(att, question) {
         const entry = imageAttachData.get(att.id);
         if (!entry || !entry.pdfBytes) return;
         entry.status = 'analyzing';
@@ -14318,7 +14318,17 @@ Your report must be precise, of high-quality, and written by an expert using an 
         renderPendingAttachments();
         const H = { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' };
         const job = `pdf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-        const post = () => fetch('/api/pdf/describe', { method: 'POST', headers: H, body: JSON.stringify({ data_uri: entry.pdfBytes, job }) });
+        const settings = Store.getSettings();
+        const cloudChat = !isLanClientMode() && settings.chatBackend === 'deepseek' &&
+          !!String(settings.deepseekApiKey || '').trim();
+        const maxChars = cloudChat ? 48 * 1024 : (isLanClientMode() ? 24 * 1024 : 20 * 1024);
+        const post = () => fetch('/api/pdf/describe', {
+          method: 'POST', headers: H,
+          body: JSON.stringify({
+            data_uri: entry.pdfBytes, job, profile: 'interactive',
+            question: question || '', max_chars: maxChars,
+          }),
+        });
         const poll = setInterval(() => {
           fetch(`/api/pdf/progress?job=${job}`)
             .then((r) => r.json())
@@ -14345,12 +14355,15 @@ Your report must be precise, of high-quality, and written by an expert using an 
           const scans = (r.visionPages | 0) - figs;
           const parts = [];
           if (txt > 0) parts.push('text layer extracted locally');
+          if (r.sampled) parts.push(`${r.selectedPages || r.pages}/${r.total || r.pages} representative pages selected for the prompt`);
           if (scans > 0) parts.push(`${scans} scanned page${scans > 1 ? 's' : ''} read by the local vision model`);
           if (figs > 0) parts.push(`figures on ${figs} page${figs > 1 ? 's' : ''} described by the local vision model`);
           const how = parts.join('; ') || 'no readable content';
+          const limited = r.sampled ? '; adaptive excerpt' : (r.truncated ? '; truncated' : '');
           att.content = t
-            ? `[PDF "${att.name}" — ${how}${r.truncated ? '; truncated to the first pages' : ''}]\n${t}`
+            ? `[PDF "${att.name}" — ${how}${limited}]\n${t}`
             : `[PDF "${att.name}" attached, but no readable content was found.]`;
+          att.truncated = !!r.truncated;
           entry.status = 'ok';
         } catch (e) {
           att.content = `[PDF "${att.name}" attached, but reading it failed: ${e?.message || e}.]`;
@@ -14503,7 +14516,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           if (imgs.length > 1) await analyzeImagesJointly(imgs, q);
           else if (imgs.length === 1) await analyzeImageAttachment(imgs[0], q);
           else if (visionFollowupArmed && q) followups = await runVisionFollowup(q);
-          if (pdfs.length) await Promise.all(pdfs.map((a) => analyzePdfAttachment(a)));
+          if (pdfs.length) await Promise.all(pdfs.map((a) => analyzePdfAttachment(a, q)));
         } finally {
           if (sendBtn) sendBtn.disabled = false;
           if (input) input.disabled = false;

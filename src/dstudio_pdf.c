@@ -16,12 +16,14 @@
  * that still exceeds the per-request budget is re-rendered smaller before
  * being reported unreadable.
  *
- * Reads are question-INDEPENDENT (pure extraction/transcription; the chat or
- * agent model does the answering), so caching works across questions: the full
- * result is cached by content hash (pdf bytes + vision model + caps) and every
- * single page's vision transcription is also cached by its rendered image —
- * re-sending the same document, with any question, is instant, and a partial
- * failure retries only the failed pages. Text pages that also carry a
+ * Full/Agent reads are question-independent and page-addressable. Interactive
+ * chat reads instead use a fixed configurable content budget (20KB for local
+ * chat, 48KB for cloud): for long books they select front/back matter,
+ * question-relevant pages and an even whole-book sample. This keeps a
+ * 1000-page book bounded instead of growing with page count. Results are
+ * cached by document + profile/query; every single page's
+ * vision transcription is cached by its rendered image, so a partial failure
+ * retries only failed pages. Text pages that also carry a
  * meaningful raster figure (>=5% of the page and >=3 in², via pdfimages
  * -list) get an extra figures-only vision pass so charts/diagrams are not
  * silently dropped; vector-drawn figures are a known blind spot.
@@ -41,7 +43,20 @@
 #define PDF_MAX_TOTAL_PAGES 2000         /* sanity cap for the per-page bookkeeping */
 #define PDF_TEXT_MIN_CHARS 24            /* page text layer below this → treat as scanned */
 #define PDF_TEXT_TOTAL_CAP (160 * 1024)  /* total text-layer bytes shipped to the model */
+#define PDF_INTERACTIVE_TEXT_CAP (24 * 1024) /* bounded chat prompt: ~6k tokens, independent of page count */
+#define PDF_INTERACTIVE_TEXT_CAP_MIN (8 * 1024)
+#define PDF_INTERACTIVE_TEXT_CAP_MAX (64 * 1024)
+#define PDF_INTERACTIVE_MAX_TEXT_PAGES 48 /* enough context per selected page even for 1000-page books */
+#define PDF_INTERACTIVE_SCAN_PASSES 8    /* representative OCR for a fully scanned long document */
+#define PDF_INTERACTIVE_FIG_PASSES 2     /* figures supplement text; do not make chat wait for every chart */
 #define PDF_PAGE_B64_BUDGET (1500 * 1024) /* per-page data-URI budget (loopback 2MB body cap) */
+#define PDF_QUERY_MAX_TERMS 16
+#define PDF_QUERY_TERM_MAX 48
+
+typedef struct {
+    char term[PDF_QUERY_TERM_MAX];
+    int len;
+} pdf_query_term;
 
 /* Absolute path of a poppler tool (pdftoppm/pdfinfo/pdftotext), or 0 if not
  * found. */
@@ -312,11 +327,167 @@ static char *pdf_text_layer(const char *pdfpath) {
     return o;
 }
 
+/* Split the user's question into a tiny language-agnostic retrieval query.
+ * This is relevance ranking, not intent classification: UTF-8 bytes are kept
+ * verbatim and ASCII is folded, so words in any language still match the same
+ * document text. Very short terms add noise and are ignored. */
+static int pdf_query_terms(const char *question, pdf_query_term *terms, int cap) {
+    int n = 0;
+    const unsigned char *p = (const unsigned char *)(question ? question : "");
+    while (*p && n < cap) {
+        while (*p && (isspace(*p) || ispunct(*p))) p++;
+        const unsigned char *start = p;
+        while (*p && !(isspace(*p) || ispunct(*p))) p++;
+        size_t len = (size_t)(p - start);
+        if (len < 3 || len >= PDF_QUERY_TERM_MAX) continue;
+        char word[PDF_QUERY_TERM_MAX];
+        for (size_t i = 0; i < len; i++)
+            word[i] = start[i] < 0x80 ? (char)tolower(start[i]) : (char)start[i];
+        word[len] = '\0';
+        int duplicate = 0;
+        for (int i = 0; i < n; i++)
+            if (!strcmp(terms[i].term, word)) { duplicate = 1; break; }
+        if (duplicate) continue;
+        cstr_copy(terms[n].term, sizeof terms[n].term, word);
+        terms[n].len = (int)len;
+        n++;
+    }
+    return n;
+}
+
+/* Count query-term occurrences on one page and optionally return the first
+ * match. The scan is bounded to that page (pdftotext pages are not NUL-ended).
+ * ASCII folding covers the common case; non-ASCII UTF-8 remains exact. */
+static int pdf_page_relevance(const char *page, int len,
+                              const pdf_query_term *terms, int nterms,
+                              int *first_match) {
+    int score = 0;
+    if (first_match) *first_match = -1;
+    for (int t = 0; t < nterms; t++) {
+        int hits = 0;
+        for (int i = 0; i + terms[t].len <= len; i++) {
+            int same = 1;
+            for (int j = 0; j < terms[t].len; j++) {
+                unsigned char c = (unsigned char)page[i + j];
+                char folded = c < 0x80 ? (char)tolower(c) : (char)c;
+                if (folded != terms[t].term[j]) { same = 0; break; }
+            }
+            if (!same) continue;
+            if (first_match && *first_match < 0) *first_match = i;
+            hits++;
+            i += terms[t].len - 1;
+            if (hits == 8) break; /* repeated boilerplate must not dominate */
+        }
+        if (hits) score += 2 + hits;
+    }
+    return score;
+}
+
+static int pdf_selected_count(const unsigned char *selected, int first, int last) {
+    int n = 0;
+    for (int i = first; i <= last; i++) if (selected[i]) n++;
+    return n;
+}
+
+/* Interactive chat never grows its prompt with the document. Small PDFs keep
+ * every page; long books keep anchors, the pages most relevant to the current
+ * question, then fill the remaining slots by maximum-distance coverage. The
+ * latter gives a stable sample across the entire book instead of silently
+ * returning only its beginning. */
+static int pdf_select_interactive_pages(unsigned char *selected,
+                                        const int *scores,
+                                        int first, int last,
+                                        int limit) {
+    memset(selected, 0, PDF_MAX_TOTAL_PAGES);
+    int count = last - first + 1;
+    if (count <= 0) return 0;
+    if (limit > count) limit = count;
+    if (limit < 1) limit = 1;
+    if (count <= limit) {
+        for (int i = first; i <= last; i++) selected[i] = 1;
+        return count;
+    }
+
+    /* Front/back matter anchors: title/abstract/TOC plus conclusion/index. */
+    for (int k = 0; k < 3 && k < count; k++) selected[first + k] = 1;
+    for (int k = 0; k < 3 && k < count; k++) selected[last - k] = 1;
+
+    /* Up to half the budget goes to pages matching the actual question. */
+    int relevant_cap = limit / 2;
+    while (pdf_selected_count(selected, first, last) < limit && relevant_cap-- > 0) {
+        int best = -1, best_score = 0;
+        for (int i = first; i <= last; i++) {
+            if (!selected[i] && scores[i] > best_score) {
+                best = i;
+                best_score = scores[i];
+            }
+        }
+        if (best < 0 || best_score <= 0) break;
+        selected[best] = 1;
+    }
+
+    /* Farthest-point fill produces even coverage without assuming chapters or
+     * a particular language/layout. At 2000x48 this is still tiny. */
+    while (pdf_selected_count(selected, first, last) < limit) {
+        int best = -1, best_dist = -1;
+        for (int i = first; i <= last; i++) {
+            if (selected[i]) continue;
+            int nearest = last - first + 1;
+            for (int j = first; j <= last; j++) {
+                if (!selected[j]) continue;
+                int d = i > j ? i - j : j - i;
+                if (d < nearest) nearest = d;
+            }
+            if (nearest > best_dist) { best = i; best_dist = nearest; }
+        }
+        if (best < 0) break;
+        selected[best] = 1;
+    }
+    return pdf_selected_count(selected, first, last);
+}
+
+static size_t pdf_utf8_safe_start(const char *s, size_t pos, size_t len) {
+    while (pos < len && (((unsigned char)s[pos] & 0xc0) == 0x80)) pos++;
+    return pos;
+}
+
+static size_t pdf_utf8_safe_end(const char *s, size_t pos) {
+    while (pos > 0 && (((unsigned char)s[pos] & 0xc0) == 0x80)) pos--;
+    return pos;
+}
+
+/* Append a bounded page excerpt. Relevant pages center the window around the
+ * first query hit. Generic pages retain both their beginning and end, which
+ * captures headings plus page-ending conclusions/captions. */
+static int pdf_append_page_excerpt(json_dyn_buf *out, const char *page, size_t len,
+                                   size_t quota, int match_at) {
+    if (quota >= len) return json_dyn_putn(out, page, len);
+    if (quota < 32) quota = 32;
+    if (match_at >= 0) {
+        size_t before = quota / 3;
+        size_t start = (size_t)match_at > before ? (size_t)match_at - before : 0;
+        if (start + quota > len) start = len - quota;
+        start = pdf_utf8_safe_start(page, start, len);
+        size_t end = start + quota < len ? start + quota : len;
+        end = pdf_utf8_safe_end(page, end);
+        return (start == 0 || json_dyn_puts(out, "[...]") ) &&
+               json_dyn_putn(out, page + start, end - start) &&
+               (end == len || json_dyn_puts(out, "[...]"));
+    }
+    size_t head = quota * 2 / 3;
+    size_t tail = quota - head;
+    head = pdf_utf8_safe_end(page, head);
+    size_t tail_start = pdf_utf8_safe_start(page, len - tail, len);
+    return json_dyn_putn(out, page, head) &&
+           json_dyn_puts(out, "\n[... excerpt ...]\n") &&
+           json_dyn_putn(out, page + tail_start, len - tail_start);
+}
+
 /* Describe cache: ~/.dstudio/pdf-cache/<fnv16>.json holds the full response
- * JSON of a successful read, keyed by document bytes + vision model + caps
- * (NOT the question — reads are pure extraction/transcription, so any question
- * over the same document is the same read). pg-<fnv16>.txt holds single-page
- * vision transcriptions. Both pruned oldest-first per suffix. */
+ * JSON of a successful read. Full reads use document + vision model + caps;
+ * adaptive reads also include the query and content budget. pg-<fnv16>.txt
+ * holds query-independent single-page vision transcriptions. Both stores are
+ * pruned oldest-first per suffix. */
 #define PDF_CACHE_MAX_FILES 32
 static void pdf_cache_path(unsigned long long key, char *out, size_t outsz) {
     const char *home = getenv("HOME");
@@ -386,6 +557,22 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     (void)json_get_string(body, "format", fmt, sizeof fmt);
     int want_text = !strcmp(fmt, "text");
 
+    char profile[24] = "", question[1024] = "";
+    (void)json_get_string(body, "profile", profile, sizeof profile);
+    (void)json_get_string(body, "question", question, sizeof question);
+    int interactive = !strcmp(profile, "interactive");
+    long interactive_cap_long = PDF_INTERACTIVE_TEXT_CAP;
+    if (interactive) {
+        int cr = json_get_int(body, "max_chars", PDF_INTERACTIVE_TEXT_CAP_MIN,
+                              PDF_INTERACTIVE_TEXT_CAP_MAX, &interactive_cap_long);
+        if (cr < 0) {
+            pdf_describe_fail(fd, want_text, "400 Bad Request",
+                              "max_chars must be between 8192 and 65536");
+            return;
+        }
+    }
+    size_t interactive_cap = (size_t)interactive_cap_long;
+
     /* Optional pages:"N" | "N-M" | "N-" — read only that page range. This is
      * how a caller reaches pages past the text/vision caps of a long document
      * (the caps then apply within the range). rq_last 0 = to the end. */
@@ -431,9 +618,6 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         pdf_describe_fail(fd, want_text, "503 Service Unavailable", pdf_poppler_hint());
         return;
     }
-    /* NOTE: a body "question" is accepted but intentionally UNUSED: reads are
-     * pure extraction/transcription (question-independent), so the cache works
-     * across questions and the chat/agent model does the answering. */
     char jobid[64] = "", jobpath[DSTUDIO_PATH_MAX] = "";
     if (json_get_string(body, "job", jobid, sizeof jobid) && jobid[0])
         (void)pdf_job_path(jobid, jobpath, sizeof jobpath);
@@ -449,9 +633,9 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     if (!pdf) { pdf_describe_fail(fd, want_text, "400 Bad Request", "a PDF (data_uri or host-local path) is required"); return; }
     pdf_job_write(jobpath, "{\"phase\":\"start\",\"done\":false}");
 
-    /* Cache lookup — document bytes + vision model + caps (question-free: any
-     * question over the same document is the same read). A hit skips rendering
-     * AND the vision sidecar entirely. */
+    /* Cache lookup — full reads remain question-independent. Interactive reads
+     * are query-ranked, so their key includes the question. Per-page vision is
+     * cached separately and remains reusable across every question. */
     unsigned long long key = docfnv;
     {
         char hf[256] = "";
@@ -459,10 +643,16 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         /* Bump this salt on ANY pipeline-behavior change (thresholds, prompts,
          * classification): cached entries carry the OLD behavior and would
          * silently mask the fix for already-seen documents. */
-        static const char *salt = "|hybrid-v3|";
+        static const char *salt = "|hybrid-v5-adaptive|";
         for (const char *s = salt; *s; s++)     { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
         for (const char *s = hf; *s; s++)       { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
         key ^= (unsigned long long)vcap;        key *= 1099511628211ULL;
+        if (interactive) {
+            static const char *ip = "|interactive-adaptive|";
+            for (const char *s = ip; *s; s++)       { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
+            for (const char *s = question; *s; s++) { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
+            key ^= (unsigned long long)interactive_cap; key *= 1099511628211ULL;
+        }
         /* Range requests get their own cache slot; the no-range key stays as
          * before, so existing full-read entries remain valid. Keyed on the
          * REQUESTED range (the real page count is not known yet here): "5-999"
@@ -576,6 +766,47 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         if (rq_last > 0 && rq_last < plast) plast = rq_last;
     }
 
+    /* The chat profile has a fixed prompt budget. Rank every page against the
+     * current question, then select a representative subset before doing any
+     * vision work. Explicit Agent read_pdf ranges keep the full/read-verbatim
+     * behavior and can be used repeatedly for exhaustive book analysis. */
+    static int pscore[PDF_MAX_TOTAL_PAGES], pmatch[PDF_MAX_TOTAL_PAGES];
+    static unsigned char page_selected[PDF_MAX_TOTAL_PAGES];
+    memset(pscore, 0, sizeof pscore);
+    for (int i = 0; i < PDF_MAX_TOTAL_PAGES; i++) pmatch[i] = -1;
+    memset(page_selected, interactive ? 0 : 1, sizeof page_selected);
+    int selected_pages = plast - pfirst + 1;
+    if (interactive) {
+        pdf_query_term terms[PDF_QUERY_MAX_TERMS];
+        int nterms = pdf_query_terms(question, terms, PDF_QUERY_MAX_TERMS);
+        int df[PDF_QUERY_MAX_TERMS] = {0};
+        for (int t = 0; t < nterms; t++) {
+            for (int i = pfirst - 1; i < plast; i++) {
+                if (i < tpages && plen[i] > 0 &&
+                    pdf_page_relevance(pstart[i], plen[i], &terms[t], 1, NULL) > 0)
+                    df[t]++;
+            }
+        }
+        pdf_query_term focused[PDF_QUERY_MAX_TERMS];
+        int nfocused = 0;
+        int common_cutoff = (plast - pfirst + 1) / 5;
+        if (common_cutoff < 2) common_cutoff = 2;
+        for (int t = 0; t < nterms; t++) {
+            /* Ignore both absent request boilerplate and words spread across
+             * the whole book. Rare terms carry the useful retrieval signal. */
+            if (df[t] > 0 && df[t] <= common_cutoff) focused[nfocused++] = terms[t];
+        }
+        for (int i = pfirst - 1; i < plast; i++) {
+            if (i < tpages && plen[i] > 0)
+                pscore[i] = pdf_page_relevance(pstart[i], plen[i], focused, nfocused, &pmatch[i]);
+        }
+        int page_limit = (int)(interactive_cap / 512);
+        if (page_limit > PDF_INTERACTIVE_MAX_TEXT_PAGES) page_limit = PDF_INTERACTIVE_MAX_TEXT_PAGES;
+        selected_pages = pdf_select_interactive_pages(page_selected, pscore,
+                                                       pfirst - 1, plast - 1,
+                                                       page_limit);
+    }
+
     /* Mixed pages: a TEXT page that also carries a meaningful raster image
      * (chart, diagram, photo) additionally gets a figures-only vision pass —
      * pdftotext alone would silently drop the visual content of such pages.
@@ -603,6 +834,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
                            &pg, &num, type, &w, &h, color, &comp, &bpc, enc, interp,
                            &obj, &oid, &xppi, &yppi) == 14 &&
                     !strcmp(type, "image") && pg >= 1 && pg <= npages &&
+                    page_selected[pg - 1] &&
                     xppi > 1 && yppi > 1 && page_in2 > 0.1) {
                     double in2 = ((double)w / xppi) * ((double)h / yppi);
                     if (in2 / page_in2 >= 0.05 && in2 >= 3.0) page_has_fig[pg - 1] = 1;
@@ -617,18 +849,30 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
      * sidecar started) only when actually needed: a plain digital PDF never
      * touches the multi-GB vision model. Scanned pages take one full-page
      * transcription pass; mixed text+figure pages take one figures-only pass. */
-    int nvis_wanted = 0;
+    int nvis_wanted = 0, scans_wanted = 0, figs_wanted = 0;
     for (int i = pfirst - 1; i < plast; i++) {
+        if (!page_selected[i]) continue;
         int is_text = (i < tpages && pvis[i] >= PDF_TEXT_MIN_CHARS);
-        if (!is_text || page_has_fig[i]) nvis_wanted++;
+        if (!is_text) scans_wanted++;
+        else if (page_has_fig[i]) figs_wanted++;
+    }
+    if (interactive) {
+        int ns = scans_wanted > PDF_INTERACTIVE_SCAN_PASSES ? PDF_INTERACTIVE_SCAN_PASSES : scans_wanted;
+        int nf = figs_wanted > PDF_INTERACTIVE_FIG_PASSES ? PDF_INTERACTIVE_FIG_PASSES : figs_wanted;
+        nvis_wanted = ns + nf;
+    } else {
+        nvis_wanted = scans_wanted + figs_wanted;
     }
     int nvis = nvis_wanted > vcap ? vcap : nvis_wanted;
 
     char dir[] = "/tmp/dstudio-pdfr-XXXXXX";
     int have_dir = 0;
+    qwen_memory_lease vision_lease = {0};
     if (nvis > 0) {
         pdf_job_write(jobpath, "{\"phase\":\"vision\",\"page\":0,\"pages\":%d,\"done\":false}", nvis);
+        vision_lease = qwen_memory_begin("pdf");
         if (!vision_ensure_server(60000)) {
+            qwen_memory_end(&vision_lease);
             free(layer); unlink(pdf); free(pdf);
             pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
             pdf_describe_fail(fd, want_text, "503 Service Unavailable",
@@ -637,6 +881,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
             return;
         }
         if (!mkdtemp(dir)) {
+            qwen_memory_end(&vision_lease);
             free(layer); unlink(pdf); free(pdf);
             pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
             pdf_describe_fail(fd, want_text, "500 Internal Server Error", "temp dir");
@@ -646,26 +891,62 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     }
 
     json_dyn_buf text = {0};
-    int ok = 1, text_used = 0, text_skipped = 0;
+    int ok = 1, text_used = 0, text_skipped = 0, text_partial = 0;
     int vdone = 0, vfail = 0, vskipped = 0, scan_pass = 0, fig_pass = 0, fig_skipped = 0;
-    size_t text_bytes = 0;
+    int pages_omitted = (plast - pfirst + 1) - selected_pages;
+    size_t text_bytes = 0, vision_bytes = 0;
+    size_t content_cap = interactive ? interactive_cap : PDF_TEXT_TOTAL_CAP;
+    size_t text_cap = content_cap;
+    int total_weight = 0;
+    for (int i = pfirst - 1; i < plast; i++) {
+        if (!page_selected[i] || i >= tpages || pvis[i] < PDF_TEXT_MIN_CHARS) continue;
+        int weight = 1;
+        if (i == pfirst - 1) weight += 5;
+        else if (i == pfirst || i == plast - 1) weight += 1;
+        if (pscore[i] > 0) weight += pscore[i] > 3 ? 3 : pscore[i];
+        total_weight += weight;
+    }
+    /* The advertised interactive limit covers perception text too. A mixed
+     * digital document reserves 25% for charts; a scan-only document gives the
+     * whole budget to OCR. This prevents eight dense Qwen transcriptions from
+     * quietly turning a 20KB book context back into an 80KB prompt. */
+    if (interactive && nvis > 0)
+        text_cap = total_weight > 0 ? content_cap * 3 / 4 : 0;
+    size_t vision_cap = interactive ? content_cap - text_cap : (size_t)-1;
     for (int i = pfirst - 1; ok && i < plast; i++) {
+        if (!page_selected[i]) continue;
         int is_text = (i < tpages && pvis[i] >= PDF_TEXT_MIN_CHARS);
         int wants_fig = is_text && page_has_fig[i];
         if (is_text) {
-            if (text_bytes >= PDF_TEXT_TOTAL_CAP) { text_skipped++; continue; }
             size_t take = (size_t)plen[i];
-            if (text_bytes + take > PDF_TEXT_TOTAL_CAP) take = PDF_TEXT_TOTAL_CAP - text_bytes;
+            if (interactive && total_weight > 0) {
+                int weight = 1;
+                if (i == pfirst - 1) weight += 5;
+                else if (i == pfirst || i == plast - 1) weight += 1;
+                if (pscore[i] > 0) weight += pscore[i] > 3 ? 3 : pscore[i];
+                take = text_cap * (size_t)weight / (size_t)total_weight;
+                if (take < 32) take = 32;
+                if (take > (size_t)plen[i]) take = (size_t)plen[i];
+            } else {
+                if (text_bytes >= text_cap) { text_skipped++; continue; }
+                if (text_bytes + take > text_cap) take = text_cap - text_bytes;
+            }
+            int excerpt_match = pmatch[i];
+            if (i == pfirst - 1 && excerpt_match < 0) excerpt_match = 0;
             ok = json_dyn_printf(&text, "\n--- Pagina %d (testo) ---\n", i + 1) &&
-                 json_dyn_putn(&text, pstart[i], take) &&
+                 pdf_append_page_excerpt(&text, pstart[i], (size_t)plen[i], take, excerpt_match) &&
                  json_dyn_puts(&text, "\n");
             text_bytes += take;
             text_used++;
+            if (take < (size_t)plen[i]) text_partial++;
         }
         if (!ok || (is_text && !wants_fig)) continue;
         /* Vision pass: full transcription for scans, figures-only for mixed
          * text+figure pages (their body text already shipped above). */
-        if (vdone >= vcap) {
+        int pass_cap_hit = vdone >= vcap ||
+            (interactive && wants_fig && fig_pass >= PDF_INTERACTIVE_FIG_PASSES) ||
+            (interactive && !wants_fig && scan_pass >= PDF_INTERACTIVE_SCAN_PASSES);
+        if (pass_cap_hit) {
             if (wants_fig) fig_skipped++; else vskipped++;
             continue;
         }
@@ -696,14 +977,28 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         ok = json_dyn_printf(&text, wants_fig
                                  ? "\n--- Pagina %d (figure/grafici, letti dal modello vision locale) ---\n"
                                  : "\n--- Pagina %d (scansione, letta dal modello vision locale) ---\n",
-                             i + 1) &&
-             json_dyn_puts(&text, good ? vt : (wants_fig ? "(figure non leggibili)" : "(pagina non leggibile)")) &&
-             json_dyn_puts(&text, "\n");
+                             i + 1);
+        if (ok && good && interactive) {
+            size_t remain = vision_bytes < vision_cap ? vision_cap - vision_bytes : 0;
+            int passes_left = nvis - vdone + 1;
+            size_t take = passes_left > 0 ? remain / (size_t)passes_left : remain;
+            size_t vlen = strlen(vt);
+            if (take > vlen) take = vlen;
+            ok = take > 0 && pdf_append_page_excerpt(&text, vt, vlen, take, -1);
+            vision_bytes += take;
+        } else if (ok) {
+            const char *shown = good ? vt : (wants_fig ? "(figure non leggibili)" : "(pagina non leggibile)");
+            ok = json_dyn_puts(&text, shown);
+            if (good) vision_bytes += strlen(vt);
+        }
+        if (ok) ok = json_dyn_puts(&text, "\n");
         free(vt);
     }
+    qwen_memory_end(&vision_lease);
     int pages_read = text_used + scan_pass;   /* distinct pages with content */
     int range_partial = has_range ? (pfirst > 1 || plast < total) : (total > npages);
-    int truncated = vskipped > 0 || fig_skipped > 0 || text_skipped > 0 || range_partial;
+    int sampled = interactive && (pages_omitted > 0 || text_partial > 0);
+    int truncated = vskipped > 0 || fig_skipped > 0 || text_skipped > 0 || range_partial || sampled;
     if (ok && vskipped > 0)
         ok = json_dyn_printf(&text, "\n[PDF troncato: %d pagine scansionate oltre il limite di %d non lette.]\n",
                              vskipped, vcap);
@@ -712,7 +1007,12 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
                              fig_skipped);
     if (ok && text_skipped > 0)
         ok = json_dyn_printf(&text, "\n[Testo troncato: %d pagine di testo oltre il limite di %dKB omesse.]\n",
-                             text_skipped, (int)(PDF_TEXT_TOTAL_CAP / 1024));
+                             text_skipped, (int)(text_cap / 1024));
+    if (ok && sampled)
+        ok = json_dyn_printf(&text,
+            "\n[Contesto PDF adattivo: %d pagine rappresentative su %d, %zu caratteri di contenuto; "
+            "estratti distribuiti tra inizio, fine e pagine pertinenti alla domanda.]\n",
+            selected_pages, plast - pfirst + 1, text_bytes + vision_bytes);
     if (ok && has_range)
         ok = json_dyn_printf(&text, "\n[Intervallo letto: pagine %d-%d di %d totali.]\n", pfirst, plast, total);
     else if (ok && total > npages)
@@ -730,8 +1030,12 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     }
     json_dyn_buf out = {0};
     int good = json_dyn_printf(&out, "{\"ok\":true,\"pages\":%d,\"total\":%d,\"first\":%d,\"last\":%d,"
-                                     "\"textPages\":%d,\"visionPages\":%d,\"figPages\":%d,\"truncated\":%s,\"text\":",
+                                     "\"textPages\":%d,\"visionPages\":%d,\"figPages\":%d,"
+                                     "\"selectedPages\":%d,\"textChars\":%zu,\"visionChars\":%zu,"
+                                     "\"contentChars\":%zu,\"sampled\":%s,\"truncated\":%s,\"text\":",
                                pages_read, total, pfirst, plast, text_used, vdone, fig_pass,
+                               selected_pages, text_bytes, vision_bytes, text_bytes + vision_bytes,
+                               sampled ? "true" : "false",
                                truncated ? "true" : "false") &&
                json_dyn_put_escaped(&out, text.ptr ? text.ptr : "") &&
                json_dyn_puts(&out, "}");
@@ -765,11 +1069,8 @@ static void api_pdf_fork(int fd, const char *body, int is_describe, int allow_pa
         if (g_in_fd  >= 0) close(g_in_fd);
         struct timeval tv = { 620, 0 };
         (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
-        qwen_memory_lease lease = {0};
-        if (is_describe) lease = qwen_memory_begin("pdf");
         if (is_describe) api_pdf_describe_run(fd, body, allow_path);
         else             api_pdf_thumb_run(fd, body, allow_path);
-        qwen_memory_end(&lease);
         close(fd);
         _exit(0);
     }

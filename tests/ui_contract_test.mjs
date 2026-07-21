@@ -1379,6 +1379,12 @@ assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /if args\.act
 assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def preserve_original_face\([\s\S]*Image\.composite\(source, edited, mask\)/, 'Qwen edits should be able to restore original face pixels with a feathered mask');
 assert.match(launcher, /qwen_memory_begin\("vision"\)/, 'Vision calls should acquire a temporary DS4 memory lease');
 assert.match(launcher, /qwen_memory_begin\("pdf"\)/, 'PDF calls should acquire a nested temporary DS4 memory lease');
+assert.match(js, /profile:\s*'interactive'[\s\S]*max_chars:\s*maxChars/, 'Chat PDFs should request the bounded adaptive reader profile');
+assert.match(js, /cloudChat\s*\?\s*48\s*\*\s*1024[\s\S]*20\s*\*\s*1024/, 'PDF prompt budgets should stay bounded and adapt local versus cloud chat');
+assert.match(launcher, /PDF_INTERACTIVE_MAX_TEXT_PAGES\s+48/, 'Long PDF chat reads should cap the representative page set');
+assert.match(launcher, /pdf_select_interactive_pages[\s\S]*Farthest-point fill/, 'Long PDF selection should cover the whole document rather than only its first pages');
+assert.match(launcher, /PDF_INTERACTIVE_SCAN_PASSES\s+8[\s\S]*PDF_INTERACTIVE_FIG_PASSES\s+2/, 'Interactive PDF vision work should have separate bounded scan and figure budgets');
+assert.match(launcher, /vision_lease\s*=\s*qwen_memory_begin\("pdf"\)/, 'PDFs should acquire DS4 memory pressure only when a vision pass is actually required');
 assert.match(launcher, /qwen_memory_begin\("image-generation"\)/, 'image generation should acquire a temporary DS4 memory lease');
 assert.match(remoteDesign, /--ssd-streaming[\s\S]*c\.engine\.ssd_streaming = true/, 'design agent should accept the SSD-streaming launch option passed by DStudio');
 assert.match(launcher, /model \+ reserve \+ 8ull \* gib > ram \* 82ull \/ 100ull/, 'Qwen lease policy should evaluate model, pipeline reserve and physical RAM');
