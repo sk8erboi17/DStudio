@@ -143,6 +143,16 @@ assert.equal(editDirective?.action, 'edit', 'image edit directives should preser
 assert.equal(editDirective?.prompt, 'Replace the body but preserve the face', 'image edit directives should preserve editing instructions');
 assert.equal(editDirective?.preserve, 'face', 'image edits should carry semantic face pixel-preservation intent');
 assert.doesNotMatch(js, /function imageGenerationIntent\(/, 'the UI must not classify multilingual image intent with a keyword regex');
+const routingHelpers = new Function(`
+${extractFunction(js, 'imageDirectiveFromRoutingCode')}
+return { imageDirectiveFromRoutingCode };
+`)();
+assert.deepEqual(
+  routingHelpers.imageDirectiveFromRoutingCode('3', 'metti quella faccia sul cane'),
+  { action: 'edit', prompt: 'metti quella faccia sul cane', preserve: 'face' },
+  'semantic router code 3 should activate face-preserving editing',
+);
+assert.equal(routingHelpers.imageDirectiveFromRoutingCode('0', 'descrivi questa immagine'), null, 'ordinary visual questions should not activate Qwen Image');
 const helpers = new Function(`
 ${extractFunction(js, 'isLoopbackHost')}
 ${extractFunction(js, 'adaptBaseUrl')}
@@ -1317,6 +1327,9 @@ assert.match(js, /exactly one fenced block with info string dstudio-image/, 'the
 assert.match(js, /\{"action":"edit","prompt":"precise editing instructions","preserve":"none"\}/, 'the model prompt should distinguish edits that require source pixels');
 assert.match(js, /Set preserve to "face" only when the user explicitly asks/, 'the model should semantically select exact face preservation without a language regex');
 assert.match(js, /function sourceImageForDirective\(chat, userMsg, directive, signal\)/, 'image edits should resolve the latest attached or generated source image');
+assert.match(js, /async function classifyImageRequestWithSource\([\s\S]*Reply with exactly one digit[\s\S]*thinkLevel: 'off'/, 'visual follow-ups should use a fast semantic router instead of relying only on model formatting');
+assert.match(js, /async function runRoutedImageReply\([\s\S]*executeImageDirective/, 'semantic image routes should start Qwen directly without waiting for a prose reply');
+assert.doesNotMatch(js, /function classifyImageRequestWithSource\([\s\S]{0,3000}\.test\(/, 'image routing must not classify user intent with regular expressions');
 assert.match(js, /imageAttachData\.get\(attachment\.id\)\?\.dataUri \|\| attachment\.thumb/, 'image edits should prefer original session pixels and fall back to the persisted preview');
 assert.match(js, /preserve: directive\.preserve \|\| 'none'/, 'image edits should send semantic pixel-preservation intent to the backend');
 assert.match(js, /never claim that the image is already generated/, 'the model confirmation must not claim completion before Qwen returns');
