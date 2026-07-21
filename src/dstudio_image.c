@@ -8,6 +8,14 @@ static int image_safe_component(const char *s) {
     return strstr(s, "..") == NULL;
 }
 
+static int image_safe_job_id(const char *s) {
+    size_t n = s ? strlen(s) : 0;
+    if (n < 3 || n > 72) return 0;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++)
+        if (!(isalnum(*p) || *p == '-' || *p == '_')) return 0;
+    return 1;
+}
+
 static int image_jobs_dir(char *out, size_t outsz) {
     const char *home = getenv("HOME");
     if (!home || !home[0]) return 0;
@@ -35,6 +43,21 @@ static int image_find_png(const char *dir, char *name, size_t namesz) {
     return ok;
 }
 
+static void image_write_status(const char *dir, const char *state, const char *stage,
+                               const char *label, int progress) {
+    char path[DSTUDIO_PATH_MAX], tmp[DSTUDIO_PATH_MAX];
+    snprintf(path, sizeof path, "%s/status.json", dir);
+    snprintf(tmp, sizeof tmp, "%s/status.%d.tmp", dir, (int)getpid());
+    json_dyn_buf b = {0};
+    json_dyn_puts(&b, "{\"ok\":true,\"state\":") && json_dyn_put_escaped(&b, state) &&
+    json_dyn_puts(&b, ",\"stage\":") && json_dyn_put_escaped(&b, stage) &&
+    json_dyn_puts(&b, ",\"label\":") && json_dyn_put_escaped(&b, label) &&
+    json_dyn_printf(&b, ",\"progress\":%d,\"updatedAt\":%lld}", progress, dstudio_now_ms());
+    if (b.ptr && jsonl_write_file(tmp, b.ptr, strlen(b.ptr))) (void)rename(tmp, path);
+    else (void)unlink(tmp);
+    free(b.ptr);
+}
+
 static void api_image_generate_run(int fd, const char *body) {
     char *prompt = json_get_string_alloc_rpc(body, "prompt");
     if (!prompt || !prompt[0] || strlen(prompt) > 12000) {
@@ -42,11 +65,14 @@ static void api_image_generate_run(int fd, const char *body) {
         web_json_error(fd, "400 Bad Request", "prompt is required (max 12000 bytes)");
         return;
     }
-    char base[DSTUDIO_PATH_MAX], id[64], dir[DSTUDIO_PATH_MAX];
+    char base[DSTUDIO_PATH_MAX], id[80], dir[DSTUDIO_PATH_MAX];
     if (!image_jobs_dir(base, sizeof base)) {
         free(prompt); web_json_error(fd, "500 Internal Server Error", "cannot create image job directory"); return;
     }
-    snprintf(id, sizeof id, "%lld-%d", dstudio_now_ms(), (int)getpid());
+    char *requested_id = json_get_string_alloc_rpc(body, "job");
+    if (requested_id && image_safe_job_id(requested_id)) cstr_copy(id, sizeof id, requested_id);
+    else snprintf(id, sizeof id, "image-%lld-%d", dstudio_now_ms(), (int)getpid());
+    free(requested_id);
     snprintf(dir, sizeof dir, "%s/%s", base, id);
     mkpath(dir);
     struct stat dst;
@@ -59,17 +85,22 @@ static void api_image_generate_run(int fd, const char *body) {
         free(prompt); web_json_error(fd, "500 Internal Server Error", "cannot write image prompt"); return;
     }
     free(prompt);
+    image_write_status(dir, "running", "preparing", "Preparing the local Qwen Image runtime…", 3);
 
     char script[DSTUDIO_PATH_MAX + 256];
     snprintf(script, sizeof script, "%s/scripts/qwen-image-generate.sh", g_web_dir);
     char log[16384] = "";
-    char *argv[] = { "/bin/sh", script, prompt_path, dir, NULL };
+    char status_path[DSTUDIO_PATH_MAX];
+    snprintf(status_path, sizeof status_path, "%s/status.json", dir);
+    char *argv[] = { "/bin/sh", script, prompt_path, dir, status_path, NULL };
     qwen_memory_lease lease = qwen_memory_begin("image-generation");
     int rc = setup_run_cmd_capture(NULL, argv, log, sizeof log);
     qwen_memory_end(&lease);
 
     char filename[256] = "";
     if (rc != 0 || !image_find_png(dir, filename, sizeof filename)) {
+        image_write_status(dir, "error", "error",
+                           rc != 0 ? "Qwen Image generation failed." : "Qwen Image produced no PNG.", 100);
         json_dyn_buf b = {0};
         json_dyn_puts(&b, "{\"ok\":false,\"error\":") &&
         json_dyn_put_escaped(&b, rc != 0 ? "Qwen image generation failed" : "Qwen produced no PNG") &&
@@ -78,12 +109,41 @@ static void api_image_generate_run(int fd, const char *body) {
         free(b.ptr);
         return;
     }
+    image_write_status(dir, "complete", "complete", "Image ready.", 100);
     json_dyn_buf b = {0};
     json_dyn_puts(&b, "{\"ok\":true,\"id\":") && json_dyn_put_escaped(&b, id) &&
     json_dyn_puts(&b, ",\"filename\":") && json_dyn_put_escaped(&b, filename) &&
     json_dyn_puts(&b, ",\"url\":") && json_dyn_printf(&b, "\"/api/image/file?id=%s&name=%s\"}", id, filename);
     send_json(fd, "200 OK", b.ptr ? b.ptr : "{\"ok\":false}");
     free(b.ptr);
+}
+
+static void api_image_progress(int fd, const char *path) {
+    char id[80] = "";
+    query_param(path, "id", id, sizeof id);
+    if (!image_safe_job_id(id)) {
+        web_json_error(fd, "400 Bad Request", "invalid image job"); return;
+    }
+    char base[DSTUDIO_PATH_MAX], dir[DSTUDIO_PATH_MAX], status[DSTUDIO_PATH_MAX];
+    if (!image_jobs_dir(base, sizeof base)) {
+        web_json_error(fd, "404 Not Found", "image job not found"); return;
+    }
+    snprintf(dir, sizeof dir, "%s/%s", base, id);
+    snprintf(status, sizeof status, "%s/status.json", dir);
+    struct stat st;
+    if (stat(status, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0 || st.st_size > 65536) {
+        if (stat(dir, &st) == 0 && S_ISDIR(st.st_mode)) {
+            send_json(fd, "200 OK", "{\"ok\":true,\"state\":\"queued\",\"stage\":\"queued\",\"label\":\"Waiting for Qwen Image…\",\"progress\":1}");
+        } else {
+            web_json_error(fd, "404 Not Found", "image job not found");
+        }
+        return;
+    }
+    size_t n = 0;
+    char *data = jsonl_read_file(status, &n);
+    if (!data) { web_json_error(fd, "500 Internal Server Error", "cannot read image progress"); return; }
+    send_json(fd, "200 OK", data);
+    free(data);
 }
 
 static void api_image_generate(int fd, const char *body) {

@@ -7555,6 +7555,7 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
         return 200;
     }
     if (is_get && !strcmp(path, "/api/vision/status")) { api_vision_status(fd); return 200; }
+    if (is_get && path_eq_clean(path, "/api/image/progress")) { api_image_progress(fd, path); return 200; }
     if (is_get && path_eq_clean(path, "/api/image/file")) { api_image_file(fd, path, head_only); return 200; }
     if (is_get && path_eq_clean(path, "/api/pdf/progress")) { api_pdf_progress(fd, path); return 200; }
     if (is_get && !strcmp(path, "/api/embed/status")) { api_embed_status(fd); return 200; }

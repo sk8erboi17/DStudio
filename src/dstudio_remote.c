@@ -367,7 +367,8 @@ static int lan_public_path_allowed(const char *method, const char *path) {
      * `path` sources from non-loopback peers). Setup/stop/status stay host-local. */
     if (lan_on && !strcmp(method, "POST") && path_eq_clean(path, "/api/vision/describe")) return 1;
     if (lan_on && !strcmp(method, "POST") && path_eq_clean(path, "/api/image/generate")) return 1;
-    if (lan_on && get && path_eq_clean(path, "/api/image/file")) return 1;
+    if (lan_on && get && (path_eq_clean(path, "/api/image/file") ||
+                          path_eq_clean(path, "/api/image/progress"))) return 1;
     /* PDF preview/read for LAN clients (inline data only, same guard). */
     if (lan_on && !strcmp(method, "POST") &&
         (path_eq_clean(path, "/api/pdf/thumb") || path_eq_clean(path, "/api/pdf/describe"))) return 1;

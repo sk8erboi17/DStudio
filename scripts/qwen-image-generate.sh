@@ -3,10 +3,11 @@ set -eu
 
 prompt_file=${1:?prompt file required}
 outdir=${2:?output directory required}
+status_file=${3:-${outdir}/status.json}
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 if [ "${DSTUDIO_IMAGE_TEST_MODE:-0}" = "1" ]; then
-    exec /usr/bin/python3 "$script_dir/qwen-image-run.py" --prompt-file "$prompt_file" --outdir "$outdir"
+    exec /usr/bin/python3 "$script_dir/qwen-image-run.py" --prompt-file "$prompt_file" --outdir "$outdir" --status-file "$status_file"
 fi
 
 # qwen-image-mps selects MPS, CUDA/HIP or CPU itself. On NVIDIA, inspect the
@@ -49,4 +50,4 @@ if [ ! -f "$stamp" ]; then
         "git+https://github.com/ivanfioravanti/qwen-image-mps.git@fe70bd7b245307143d95cde5bc62c9aeff401e69"
     : > "$stamp"
 fi
-exec "$venv/bin/python" "$script_dir/qwen-image-run.py" --prompt-file "$prompt_file" --outdir "$outdir"
+exec "$venv/bin/python" "$script_dir/qwen-image-run.py" --prompt-file "$prompt_file" --outdir "$outdir" --status-file "$status_file"

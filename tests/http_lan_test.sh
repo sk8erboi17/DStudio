@@ -38,7 +38,7 @@ s.listen(0, '127.0.0.1', () => {
 NODE
 )"
 
-HOME="${tmp}/home" DS4UI_TEST_MODE=1 DSTUDIO_GSA_INSTALL_DRY_RUN=1 DS4UI_PAGE_FROM_DISK=1 "${bin}" "${port}" "${tmp}/ds4" >"${tmp}/server.log" 2>&1 &
+HOME="${tmp}/home" DS4UI_TEST_MODE=1 DSTUDIO_IMAGE_TEST_MODE=1 DSTUDIO_GSA_INSTALL_DRY_RUN=1 DS4UI_PAGE_FROM_DISK=1 "${bin}" "${port}" "${tmp}/ds4" >"${tmp}/server.log" 2>&1 &
 pid="$!"
 
 base="http://127.0.0.1:${port}"
@@ -55,6 +55,10 @@ curl -fsS --max-time 2 "${base}/api/logs?limit=10" >"${tmp}/logs.json"
 curl -fsS --max-time 2 "${base}/api/tasks?limit=10" >"${tmp}/tasks.json"
 curl -fsS --max-time 2 "${base}/api/embed/status" >"${tmp}/embed-status.json"
 curl -fsS --max-time 2 "${base}/api/skills/get?id=analytics" >"${tmp}/skill-analytics.json"
+curl -fsS --max-time 10 -X POST "${base}/api/image/generate" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d '{"prompt":"test image","job":"image-http-test"}' >"${tmp}/image-generate.json"
+curl -fsS --max-time 2 "${base}/api/image/progress?id=image-http-test" >"${tmp}/image-progress.json"
 node - "${tmp}/agent-send-large.json" <<'NODE'
 const fs = require('fs');
 const text = 'technical architecture prompt '.repeat(3000);
@@ -114,6 +118,13 @@ const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (!r.ok || r.id !== 'analytics' || r.source !== 'dstudio') throw new Error('skill get should load shipped analytics metadata');
 if (!String(r.body || '').includes('Analytics Tracking')) throw new Error('skill get should include the shipped skill body');
 if (!String(r.modes || '').includes('agent')) throw new Error('skill get should preserve shipped modes');
+NODE
+node - "${tmp}/image-generate.json" "${tmp}/image-progress.json" <<'NODE'
+const fs = require('fs');
+const generated = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const progress = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+if (!generated.ok || !generated.url || generated.id !== 'image-http-test') throw new Error(`image generation response incomplete: ${JSON.stringify(generated)}`);
+if (!progress.ok || progress.state !== 'complete' || progress.progress !== 100) throw new Error(`image progress should reach complete: ${JSON.stringify(progress)}`);
 NODE
 node - "${tmp}/agent-send-large-code.txt" "${tmp}/agent-send-large-response.json" <<'NODE'
 const fs = require('fs');

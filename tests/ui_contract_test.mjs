@@ -1308,8 +1308,16 @@ assert.match(js, /function classifyResearchRequest\(/, 'web research should clas
 assert.match(js, /async function generateImageFromDirective\(/, 'chat should route the model image directive to the local Qwen pipeline');
 assert.match(js, /Understand the request semantically in whatever language the user uses; never depend on a keyword list/, 'the model prompt should classify image intent semantically in any language');
 assert.match(js, /exactly one fenced block with info string dstudio-image/, 'the model prompt should emit a structured image-generation directive');
+assert.match(js, /never claim that the image is already generated/, 'the model confirmation must not claim completion before Qwen returns');
 assert.match(js, /function extractImageGenerationDirectiveFromAssistant\(text\)/, 'chat should parse model-emitted image-generation directives');
 assert.match(js, /\/api\/image\/generate/, 'chat should call the local image generation endpoint');
+assert.match(js, /\/api\/image\/progress\?id=/, 'image generation should poll live job progress');
+assert.match(js, /function buildImageGenerationStatus\(status\)/, 'chat should render a dedicated image placeholder with progress');
+assert.match(html, /\.msg-image-generation__[\s\S]*\.msg-image-generation__track[\s\S]*\.msg-image-generation__bar/, 'image placeholder should include progress UI styling');
+assert.match(js, /imageGeneration = \{[\s\S]*stage: 'queued'[\s\S]*startedAt: Date\.now\(\)/, 'assistant messages should enter a visible image-generation state');
+assert.match(js, /First use downloads the Qwen Image model once/, 'first-run model download should be explained in the placeholder');
+assert.match(fs.readFileSync('src/dstudio_image.c', 'utf8'), /static void api_image_progress\(/, 'backend should expose image job progress');
+assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /"loading_model": \("model", "Downloading or loading Qwen Image model weights/, 'Qwen runner should publish model-loading progress');
 assert.match(launcher, /qwen_memory_begin\("vision"\)/, 'Vision calls should acquire a temporary DS4 memory lease');
 assert.match(launcher, /qwen_memory_begin\("pdf"\)/, 'PDF calls should acquire a nested temporary DS4 memory lease');
 assert.match(launcher, /qwen_memory_begin\("image-generation"\)/, 'image generation should acquire a temporary DS4 memory lease');
