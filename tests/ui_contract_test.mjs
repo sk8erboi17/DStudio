@@ -114,32 +114,29 @@ function extractFunction(src, name) {
 }
 
 const js = scriptSource();
-const imageIntentHelpers = new Function(`
-${extractFunction(js, 'imageGenerationIntent')}
-return { imageGenerationIntent };
+const imageDirectiveHelpers = new Function(`
+${extractFunction(js, 'stripReasoningTagFragments')}
+${extractFunction(js, 'parseImageGenerationDirective')}
+${extractFunction(js, 'extractImageGenerationDirectiveFromAssistant')}
+return { extractImageGenerationDirectiveFromAssistant };
 `)();
-for (const prompt of [
-  'generate this image: a fox in Venice',
-  'Generami un’immagine di un robot blu',
-  'cremai un immagin di un gatto astronauta',
-  'fammi una foto cinematografica del mare',
-  'draw a picture of a lunar base',
+for (const [label, prompt] of [
+  ['Italian', 'Una balena nello spazio'],
+  ['Arabic', 'حوت يسبح بين النجوم'],
+  ['Japanese', '星空を泳ぐクジラ'],
 ]) {
-  assert.ok(imageIntentHelpers.imageGenerationIntent(prompt), `image intent should match: ${prompt}`);
-}
-for (const prompt of [
-  'come posso generare un’immagine?',
-  'spiegami come creare immagini con Python',
-  'analizza questa immagine',
-  'write a function called generateImage',
-]) {
-  assert.equal(imageIntentHelpers.imageGenerationIntent(prompt), null, `image intent should reject: ${prompt}`);
+  const parsed = imageDirectiveHelpers.extractImageGenerationDirectiveFromAssistant(
+    `Va bene.\n\n\`\`\`dstudio-image\n${JSON.stringify({ prompt })}\n\`\`\``,
+  );
+  assert.equal(parsed.directive?.prompt, prompt, `${label} image directive should preserve the model-selected prompt`);
+  assert.equal(parsed.content, 'Va bene.', `${label} directive should be removed from visible chat content`);
 }
 assert.equal(
-  imageIntentHelpers.imageGenerationIntent('Generami un’immagine: una balena nello spazio').prompt,
-  'una balena nello spazio',
-  'image intent should strip the imperative wrapper',
+  imageDirectiveHelpers.extractImageGenerationDirectiveFromAssistant('Analizzo questa immagine senza crearne una.').directive,
+  null,
+  'ordinary assistant answers should not activate image generation',
 );
+assert.doesNotMatch(js, /function imageGenerationIntent\(/, 'the UI must not classify multilingual image intent with a keyword regex');
 const helpers = new Function(`
 ${extractFunction(js, 'isLoopbackHost')}
 ${extractFunction(js, 'adaptBaseUrl')}
@@ -1308,7 +1305,10 @@ assert.match(js, /Onboarding\.setupDs4\(\)/, 'system check setup action should l
 assert.doesNotMatch(js, /choose-ds4|verifyPath|toggleFinder|loadFinder|PATHS/, 'UI should not keep manual ds4 path fallback code');
 
 assert.match(js, /function classifyResearchRequest\(/, 'web research should classify the request before searching');
-assert.match(js, /async function runImageGeneration\(/, 'chat should route image-generation intent to the local Qwen pipeline');
+assert.match(js, /async function generateImageFromDirective\(/, 'chat should route the model image directive to the local Qwen pipeline');
+assert.match(js, /Understand the request semantically in whatever language the user uses; never depend on a keyword list/, 'the model prompt should classify image intent semantically in any language');
+assert.match(js, /exactly one fenced block with info string dstudio-image/, 'the model prompt should emit a structured image-generation directive');
+assert.match(js, /function extractImageGenerationDirectiveFromAssistant\(text\)/, 'chat should parse model-emitted image-generation directives');
 assert.match(js, /\/api\/image\/generate/, 'chat should call the local image generation endpoint');
 assert.match(launcher, /qwen_memory_begin\("vision"\)/, 'Vision calls should acquire a temporary DS4 memory lease');
 assert.match(launcher, /qwen_memory_begin\("pdf"\)/, 'PDF calls should acquire a nested temporary DS4 memory lease');
