@@ -229,6 +229,14 @@
           if (st.download && st.downloadPct >= 0) {
             idlePolls = 0;
             showProgress(st.downloadPct, `Downloading ${st.downloadVariant || 'model'}…`, st.engineLine || 'This may take a while');
+          } else if (!st.running && st.engineError) {
+            idlePolls++;
+            showProgress(st.loadPct, st.stage || 'Engine needs attention', st.engineError);
+            if (idlePolls >= 3) {
+              await sleep(350);
+              location.replace('/');
+              return false;
+            }
           } else if (st.running || st.stage) {
             idlePolls = 0;
             showProgress(st.loadPct, st.stage || 'Starting the local engine…', st.engineLine || st.engineError || '');

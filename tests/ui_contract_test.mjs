@@ -114,31 +114,54 @@ function extractFunction(src, name) {
 }
 
 const js = scriptSource();
-const imageIntentHelpers = new Function(`
-${extractFunction(js, 'imageGenerationIntent')}
-return { imageGenerationIntent };
+const imageDirectiveHelpers = new Function(`
+${extractFunction(js, 'stripReasoningTagFragments')}
+${extractFunction(js, 'parseImageGenerationDirective')}
+${extractFunction(js, 'extractImageGenerationDirectiveFromAssistant')}
+return { extractImageGenerationDirectiveFromAssistant };
 `)();
-for (const prompt of [
-  'generate this image: a fox in Venice',
-  'Generami un’immagine di un robot blu',
-  'cremai un immagin di un gatto astronauta',
-  'fammi una foto cinematografica del mare',
-  'draw a picture of a lunar base',
+for (const [label, prompt] of [
+  ['Italian', 'Una balena nello spazio'],
+  ['Arabic', 'حوت يسبح بين النجوم'],
+  ['Japanese', '星空を泳ぐクジラ'],
 ]) {
-  assert.ok(imageIntentHelpers.imageGenerationIntent(prompt), `image intent should match: ${prompt}`);
-}
-for (const prompt of [
-  'come posso generare un’immagine?',
-  'spiegami come creare immagini con Python',
-  'analizza questa immagine',
-  'write a function called generateImage',
-]) {
-  assert.equal(imageIntentHelpers.imageGenerationIntent(prompt), null, `image intent should reject: ${prompt}`);
+  const parsed = imageDirectiveHelpers.extractImageGenerationDirectiveFromAssistant(
+    `Va bene.\n\n\`\`\`dstudio-image\n${JSON.stringify({ prompt })}\n\`\`\``,
+  );
+  assert.equal(parsed.directive?.prompt, prompt, `${label} image directive should preserve the model-selected prompt`);
+  assert.equal(parsed.content, 'Va bene.', `${label} directive should be removed from visible chat content`);
 }
 assert.equal(
-  imageIntentHelpers.imageGenerationIntent('Generami un’immagine: una balena nello spazio').prompt,
-  'una balena nello spazio',
-  'image intent should strip the imperative wrapper',
+  imageDirectiveHelpers.extractImageGenerationDirectiveFromAssistant('Analizzo questa immagine senza crearne una.').directive,
+  null,
+  'ordinary assistant answers should not activate image generation',
+);
+const editDirective = imageDirectiveHelpers.extractImageGenerationDirectiveFromAssistant(
+  'Procedo.\n```dstudio-image\n{"action":"edit","prompt":"Replace the body but preserve the face","preserve":"face"}\n```',
+).directive;
+assert.equal(editDirective?.action, 'edit', 'image edit directives should preserve the semantic action');
+assert.equal(editDirective?.prompt, 'Replace the body but preserve the face', 'image edit directives should preserve editing instructions');
+assert.equal(editDirective?.preserve, 'face', 'image edits should carry semantic face pixel-preservation intent');
+assert.doesNotMatch(js, /function imageGenerationIntent\(/, 'the UI must not classify multilingual image intent with a keyword regex');
+const routingHelpers = new Function(`
+${extractFunction(js, 'imageDirectiveFromRoutingCode')}
+${extractFunction(js, 'imageDirectiveFromRoutingPlan')}
+return { imageDirectiveFromRoutingCode, imageDirectiveFromRoutingPlan };
+`)();
+assert.deepEqual(
+  routingHelpers.imageDirectiveFromRoutingCode('3', 'metti quella faccia sul cane'),
+  { action: 'edit', prompt: 'metti quella faccia sul cane', preserve: 'face' },
+  'semantic router code 3 should activate face-preserving editing',
+);
+assert.equal(routingHelpers.imageDirectiveFromRoutingCode('0', 'descrivi questa immagine'), null, 'ordinary visual questions should not activate Qwen Image');
+assert.deepEqual(
+  routingHelpers.imageDirectiveFromRoutingPlan(
+    '{"action":"edit","base":"img-2","references":["img-1"],"preserve":"face"}',
+    'metti quella faccia sul cane supersayan',
+    [{ id: 'img-1' }, { id: 'img-2' }],
+  ).sourceIds,
+  ['img-2', 'img-1'],
+  'semantic routing should pass the referenced generated dog first and the face source second',
 );
 const helpers = new Function(`
 ${extractFunction(js, 'isLoopbackHost')}
@@ -1247,7 +1270,10 @@ assert.match(launcher, /#define DS4_REPO_URL "https:\/\/github\.com\/antirez\/ds
 assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "efdadd41e20134af4f3381e1ed90e96fe4faef6f"/, 'managed ds4 setup should pin the current upstream commit in code');
 assert.match(launcher, /#define DS4_ARCHIVE_URL "https:\/\/codeload\.github\.com\/antirez\/ds4\/tar\.gz\/" DS4_UPSTREAM_COMMIT/, 'managed ds4 setup should download a pinned GitHub source archive');
 assert.match(launcher, /static int ds4_server_compatible\(int port\)[\s\S]*GET \/v1\/models[\s\S]*owned_by/, 'launcher should identify a compatible DS4 server before reusing an occupied engine port');
-assert.match(launcher, /ds4_server_compatible\(ENGINE_DEFAULTS\.port\)[\s\S]*g_mode = ENGINE_SERVER;[\s\S]*g_ready = 1;/, 'startup should adopt a compatible DS4 engine already running locally');
+assert.match(launcher, /static pid_t ds4_instance_lock_owner\(void\)[\s\S]*flock\(fd, LOCK_EX \| LOCK_NB\)/, 'launcher should detect a DS4 process that owns the model lock before its port opens');
+assert.match(launcher, /requested_mode == ENGINE_SERVER[\s\S]*reuse_external_ds4\(&cfg, 0, owner\)/, 'server startup should wait for and attach to an existing DS4 process instead of spawning into its lock');
+assert.match(loadingHtml, /!st\.running && st\.engineError[\s\S]*location\.replace\('\/'\)/, 'loading page should leave a terminal engine error instead of remaining stuck on its stage');
+assert.match(launcher, /ds4_server_compatible\(ENGINE_DEFAULTS\.port\)[\s\S]*reuse_external_ds4\(&ENGINE_DEFAULTS, 1, 0\)/, 'startup should adopt a compatible DS4 engine already running locally');
 assert.match(app, /native loading page owns engine startup[\s\S]*DS4UI_DEFER_ENGINE_START/, 'native wrapper should defer engine launch until persisted browser settings are available');
 assert.match(launcher, /getenv\("DS4UI_DEFER_ENGINE_START"\)[\s\S]*Applying saved engine settings/, 'native server child should wait for the loading page instead of launching C defaults');
 assert.match(launcher, /static char\s+g_ds4_dir\[1024\]\s*=\s*"ds4"/, 'default ds4 folder should be managed inside the DStudio repo');
@@ -1308,11 +1334,44 @@ assert.match(js, /Onboarding\.setupDs4\(\)/, 'system check setup action should l
 assert.doesNotMatch(js, /choose-ds4|verifyPath|toggleFinder|loadFinder|PATHS/, 'UI should not keep manual ds4 path fallback code');
 
 assert.match(js, /function classifyResearchRequest\(/, 'web research should classify the request before searching');
-assert.match(js, /async function runImageGeneration\(/, 'chat should route image-generation intent to the local Qwen pipeline');
+assert.match(js, /async function generateImageFromDirective\(/, 'chat should route the model image directive to the local Qwen pipeline');
+assert.match(html, /id="set-vision-model"[\s\S]*Reads images · Qwen2\.5-VL 3B[\s\S]*Reads images · Qwen2\.5-VL 7B/, 'Vision settings should keep both image-reader models in the dropdown');
+assert.match(html, /Qwen Image · generates images[\s\S]*Qwen Image Edit · edits images[\s\S]*generation pipelines are separate from the Qwen2\.5-VL reader/, 'Vision settings should distinguish image reading, generation, and editing roles');
+assert.match(js, /Understand the request semantically in whatever language the user uses; never depend on a keyword list/, 'the model prompt should classify image intent semantically in any language');
+assert.match(js, /exactly one fenced block with info string dstudio-image/, 'the model prompt should emit a structured image-generation directive');
+assert.match(js, /\{"action":"edit","prompt":"precise editing instructions","preserve":"none"\}/, 'the model prompt should distinguish edits that require source pixels');
+assert.match(js, /Set preserve to "face" only when the user explicitly asks/, 'the model should semantically select exact face preservation without a language regex');
+assert.match(js, /function sourceImageForDirective\(chat, userMsg, directive, signal\)/, 'image edits should resolve the latest attached or generated source image');
+assert.match(js, /async function classifyImageRequestWithSource\([\s\S]*semantic router for local image models[\s\S]*thinkLevel: 'off'/, 'visual follow-ups should use a fast semantic router instead of relying only on model formatting');
+assert.match(js, /async function runRoutedImageReply\([\s\S]*executeImageDirective/, 'semantic image routes should start Qwen directly without waiting for a prose reply');
+assert.doesNotMatch(js, /function classifyImageRequestWithSource\([\s\S]{0,3000}\.test\(/, 'image routing must not classify user intent with regular expressions');
+assert.match(js, /imageAttachData\.get\(attachment\.id\)\?\.dataUri \|\| attachment\.thumb/, 'image edits should prefer original session pixels and fall back to the persisted preview');
+assert.match(js, /preserve: directive\.preserve \|\| 'none'/, 'image edits should send semantic pixel-preservation intent to the backend');
+assert.match(js, /never claim that the image is already generated/, 'the model confirmation must not claim completion before Qwen returns');
+assert.match(js, /function extractImageGenerationDirectiveFromAssistant\(text\)/, 'chat should parse model-emitted image-generation directives');
 assert.match(js, /\/api\/image\/generate/, 'chat should call the local image generation endpoint');
+assert.match(js, /\/api\/image\/progress\?id=/, 'image generation should poll live job progress');
+assert.match(js, /function buildImageGenerationStatus\(status\)/, 'chat should render a dedicated image placeholder with progress');
+assert.match(html, /\.msg-image-generation__[\s\S]*\.msg-image-generation__track[\s\S]*\.msg-image-generation__bar/, 'image placeholder should include progress UI styling');
+assert.match(js, /imageGeneration = \{[\s\S]*stage: 'queued'[\s\S]*startedAt: Date\.now\(\)/, 'assistant messages should enter a visible image-generation state');
+assert.match(js, /First use downloads the Qwen Image model once/, 'first-run model download should be explained in the placeholder');
+assert.match(fs.readFileSync('src/dstudio_image.c', 'utf8'), /static void api_image_progress\(/, 'backend should expose image job progress');
+assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /"loading_model": \("model", "Downloading or loading Qwen Image model weights/, 'Qwen runner should publish model-loading progress');
+assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def report_edit_model_progress[\s\S]*Downloading Qwen Image Edit[\s\S]*loading Qwen Image Edit into Metal/, 'Qwen edit should distinguish live model download progress from Metal loading');
+assert.match(fs.readFileSync('patch/qwen-image-mps/mps-direct-dtype.patch', 'utf8'), /EditPipeline\.from_pretrained[\s\S]*torch_dtype=torch_dtype/, 'Qwen edit should load weights in the target dtype before transferring them to Metal');
+assert.match(js, /function updateImageGeneration\(messageId, status\)[\s\S]*bar\.style\.width[\s\S]*return true/, 'image progress polling should update the existing placeholder without rebuilding the transcript');
+assert.match(js, /Messages\.updateImageGeneration\(asst\.id, imageGeneration\)/, 'Qwen progress should use the stable in-place placeholder update');
+assert.match(js, /return \[priorGenerated\[0\], currentAttachments\[0\]\]/, 'identity-preserving edits should use the prior generated image as base and the current attachment as face reference');
+assert.match(js, /referenceImage: sourceImages\?\.\[1\]/, 'multi-reference image edits should send the second source to the backend');
+assert.match(js, /function imageDirectiveFromRoutingPlan[\s\S]*sourceIds:[\s\S]*visualCandidates/, 'DeepSeek should map conversational image references to stable visual asset IDs');
+assert.match(js, /visualCandidateDataUri\(chat, candidate, signal\)/, 'semantic visual asset IDs should resolve to real image pixels before Qwen runs');
+assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /input=args\.input[\s\S]*preserve_original_face\(args\.input\[-1\]/, 'Qwen edit should pass all references upstream and preserve pixels from the identity source');
+assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /if args\.action == "edit":[\s\S]*edit_image\(edit_ns\)/, 'Qwen runner should invoke the upstream image-edit pipeline');
+assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def preserve_original_face\([\s\S]*Image\.composite\(source, edited, mask\)/, 'Qwen edits should be able to restore original face pixels with a feathered mask');
 assert.match(launcher, /qwen_memory_begin\("vision"\)/, 'Vision calls should acquire a temporary DS4 memory lease');
 assert.match(launcher, /qwen_memory_begin\("pdf"\)/, 'PDF calls should acquire a nested temporary DS4 memory lease');
 assert.match(launcher, /qwen_memory_begin\("image-generation"\)/, 'image generation should acquire a temporary DS4 memory lease');
+assert.match(remoteDesign, /--ssd-streaming[\s\S]*c\.engine\.ssd_streaming = true/, 'design agent should accept the SSD-streaming launch option passed by DStudio');
 assert.match(launcher, /model \+ reserve \+ 8ull \* gib > ram \* 82ull \/ 100ull/, 'Qwen lease policy should evaluate model, pipeline reserve and physical RAM');
 assert.match(remoteDesign, /ds4_engine_memory_pressure_begin/, 'Design vision tools should release DS4 memory in-process');
 assert.match(jsonlPatch.text, /ds4ui_tool_with_qwen_memory/, 'agent image and PDF tools should release DS4 memory in-process');

@@ -6213,6 +6213,7 @@ static void usage(FILE *fp) {
         "  --seed <n>              sampling seed\n"
         "  --think|--think-max|--nothink   reasoning effort (default nothink)\n"
         "  --metal|--cuda|--cpu    backend\n"
+        "  --ssd-streaming         stream routed experts from SSD\n"
         "  --power <1-100>         power limit\n"
         "  --remote-base-url <url> use a DStudio LAN host for model inference\n"
         "  --remote-model <id>     remote model id (default ds4)\n"
@@ -6290,6 +6291,8 @@ static design_config parse_options(int argc, char **argv) {
             c.engine.backend = DS4_BACKEND_CUDA;
         } else if (!strcmp(arg, "--cpu")) {
             c.engine.backend = DS4_BACKEND_CPU;
+        } else if (!strcmp(arg, "--ssd-streaming")) {
+            c.engine.ssd_streaming = true;
         } else if (!strcmp(arg, "--power")) {
             c.engine.power_percent = parse_int_arg(need_arg(&i, argc, argv, arg), arg);
             if (c.engine.power_percent < 1 || c.engine.power_percent > 100) {
