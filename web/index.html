@@ -5942,7 +5942,7 @@
               <option value="100">100</option>
             </select>
           </label>
-          <label class="field">
+          <label class="field" id="set-ssd-streaming-row">
             <span>SSD streaming <small class="field-note">Metal-only; applied at engine start, default Auto</small></span>
             <select id="set-ssd-streaming" aria-label="SSD streaming">
               <option value="off">Off</option>
@@ -16449,6 +16449,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           ctxNote: qs('#set-ctx-note'),
           power: qs('#set-power'),
           ssdStreaming: qs('#set-ssd-streaming'),
+          ssdStreamingRow: qs('#set-ssd-streaming-row'),
           memoryMsg: qs('#set-memory-msg'),
           iogpuLimitMb: qs('#set-iogpu-limit-mb'),
           iogpuLimit: qs('#set-iogpu-limit'),
@@ -16522,6 +16523,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           if (f.deepseekKeyRow) f.deepseekKeyRow.style.display = cloud ? '' : 'none';
           if (f.deepseekModelRow) f.deepseekModelRow.hidden = !cloud;
           if (f.localModelRow) f.localModelRow.hidden = cloud;
+          if (f.ssdStreamingRow) f.ssdStreamingRow.hidden = cloud;
         };
         on(f.chatBackend, 'change', () => {
           const v = f.chatBackend.value === 'deepseek' ? 'deepseek' : 'local';
@@ -16922,6 +16924,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (f.deepseekKeyRow) f.deepseekKeyRow.style.display = cloud ? '' : 'none';
         if (f.deepseekModelRow) f.deepseekModelRow.hidden = !cloud;
         if (f.localModelRow) f.localModelRow.hidden = cloud;
+        if (f.ssdStreamingRow) f.ssdStreamingRow.hidden = cloud;
         if (f.deepseekModel) f.deepseekModel.value = s.deepseekModel || 'deepseek-v4-flash';
         f.temp.value = s.temperature;
         f.tempOut.textContent = s.temperature;
@@ -23350,7 +23353,11 @@ Your report must be precise, of high-quality, and written by an expert using an 
       const ctxSize = () => Store.getSettings().ctxSize || 65536;
       const enginePower = () => Math.max(1, Math.min(100, parseInt(Store.getSettings().enginePower ?? 90, 10) || 90));
       const ssdStreaming = () => ['off', 'on', 'auto'].includes(Store.getSettings().ssdStreaming) ? Store.getSettings().ssdStreaming : 'auto';
-      const launchBase = () => ({ ctx: ctxSize(), power: enginePower(), ssdStreaming: ssdStreaming() });
+      const launchBase = (remote = false) => ({
+        ctx: ctxSize(),
+        power: enginePower(),
+        ...(remote ? {} : { ssdStreaming: ssdStreaming() }),
+      });
       const variant = () => Store.getSettings().modelVariant || 'flash';
       const thinkLevel = () => Store.getSettings().thinkLevel || 'high';
       // An explicit GGUF the user picked (chat model menu / Settings / onboarding).
@@ -23463,7 +23470,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         // skill; the model routes per turn via its skills_search tool.
         const skill = picked === 'auto' ? '' : picked;
         runtimeSkillAtLaunch.agent = skill;
-        runSwitch('agent', { mode: 'agent', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, ...launchBase(), think: thinkLevel(), workdir, jsonl: isLanClientMode() ? true : Store.getSettings().useJsonlPatch !== false, ...remote }, 'Starting the agent…');
+        runSwitch('agent', { mode: 'agent', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, jsonl: isLanClientMode() ? true : Store.getSettings().useJsonlPatch !== false, ...remote }, 'Starting the agent…');
       }
 
       // Design's system prompt is ~5.3k tokens and it generates full HTML files,
@@ -23490,7 +23497,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         runtimeThinkDirty = false;
         runtimeThinkSupported = true;
         runtimeSkillAtLaunch.design = skill || '';
-        runSwitch('design', { mode: 'design', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, designSystem: designSystem(), ...launchBase(), think: thinkLevel(), workdir, ...remote }, 'Starting the design agent…');
+        runSwitch('design', { mode: 'design', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, designSystem: designSystem(), ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, ...remote }, 'Starting the design agent…');
       }
 
       // Switch the active model variant (v4-flash / v4-pro): persist the choice
@@ -23885,6 +23892,15 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const timeoutMs = target === 'server' ? 180000 : 15 * 60 * 1000;
         let deaths = 0;
         let lastStatusError = '';
+        const launchWasSuperseded = async () => {
+          if (!launchTaskId) return false;
+          try {
+            const detail = await Engine.task(launchTaskId);
+            return detail?.task?.status === 'canceled';
+          } catch {
+            return false;
+          }
+        };
         const tick = async () => {
           let st = null;
           try { st = await Engine.status(); lastStatusError = ''; }
@@ -23893,6 +23909,17 @@ Your report must be precise, of high-quality, and written by an expert using an 
             updateOverlay(st.loadPct, st.stage, st.engineLine || st.engineError || '');
             Store.getState().ui.agentWorkdir = st.workdir || '';
             if (st.ready && (st.mode !== target || st.running !== true)) {
+              // Another window or a newer launch request may intentionally
+              // supersede this task. The task ring is authoritative: adopt the
+              // newer ready mode instead of showing a false startup failure.
+              if (await launchWasSuperseded()) {
+                hideOverlay();
+                switching = false;
+                launchTarget = null;
+                Statusbar.render();
+                if (st.running && (st.mode === 'server' || st.mode === 'agent' || st.mode === 'design')) setMode(st.mode);
+                return;
+              }
               failOverlay(`${target} did not start${launchTaskId ? ` (task #${launchTaskId})` : ''} — /api/status reports mode=${st.mode || 'unknown'}, running=${st.running === true}, ready=${st.ready === true}${st.engineError ? `, engineError=${st.engineError}` : ''}.`);
               switching = false;
               launchTarget = null;

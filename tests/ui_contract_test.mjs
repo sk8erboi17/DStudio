@@ -610,7 +610,7 @@ assert.match(js, /gsaLoop: 'off'/, 'GSA loop should be persisted as an explicit 
 assert.match(js, /gsaDisabledTools: \[\]/, 'GSA disabled tool choices should persist in settings');
 assert.match(js, /enginePower: 90/, 'Engine power should default to ds4 --power 90');
 assert.match(js, /ssdStreaming: 'auto'/, 'SSD streaming should default to automatic memory-pressure handling');
-assert.match(js, /const launchBase = \(\) => \(\{ ctx: ctxSize\(\), power: enginePower\(\), ssdStreaming: ssdStreaming\(\) \}\)/, 'Engine starts should share persisted power and SSD streaming settings');
+assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\) \}\)/, 'Engine starts should omit the local SSD preference for remote models');
 assert.match(js, /function modelIdForEngineStatus\(st\)[\s\S]*modelFile[\s\S]*deepseek-v4-pro[\s\S]*deepseek-v4-flash/, 'live engine status should map the running GGUF to the correct API model id');
 assert.match(js, /liveModelId = modelIdForEngineStatus\(st\)[\s\S]*Store\.setSettings\(\{ model: liveModelId \}\)/, 'status sync should replace stale Flash/Pro labels with the running model id');
 assert.match(js, /SSD streaming running \$\{runningSsd\}[\s\S]*next restart \$\{desiredSsd\}/, 'Settings should distinguish the running SSD mode from a pending restart preference');
@@ -865,6 +865,8 @@ assert.doesNotMatch(js, /build:\s*'off'/, 'Agent/Design should keep Plan mode as
 assert.match(js, /jsonl:\s*isLanClientMode\(\) \? true : Store\.getSettings\(\)\.useJsonlPatch !== false/, 'LAN Agent must force structured output for local tools');
 assert.match(js, /startAgent[\s\S]*const remote = remoteModelLaunch\(\)[\s\S]*\.\.\.remote/, 'Agent start payload should include the remote model fields');
 assert.match(js, /startDesign[\s\S]*const remote = remoteModelLaunch\(\)[\s\S]*\.\.\.remote/, 'Design start payload should include the remote model fields');
+assert.match(js, /startAgent[\s\S]*launchBase\(remote\.modelBackend === 'remote'\)/, 'Agent cloud/LAN launches should omit SSD streaming');
+assert.match(js, /startDesign[\s\S]*launchBase\(remote\.modelBackend === 'remote'\)/, 'Design cloud/LAN launches should omit SSD streaming');
 assert.match(js, /if \(isLanClientMode\(\)\)[\s\S]*return;[\s\S]*loadSetModels\(\)/, 'LAN clients should not scan local GGUFs from settings refresh');
 assert.match(js, /async function loadSetModels\(\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*return;[\s\S]*Engine\.ggufs\(\)/, 'LAN client settings must not scan local GGUFs even if called directly');
 assert.match(js, /async function loadModelList\(\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*return;[\s\S]*Engine\.ggufs\(\)/, 'LAN clients should not scan local GGUFs from the composer model picker');
@@ -1018,7 +1020,7 @@ assert.match(js, /if \(!document\.body\.contains\(menu\)\) document\.body\.appen
 assert.match(js, /window\.innerHeight - margin - height[\s\S]*menu\.style\.top/, 'plus-menu dropdown placement should clamp top inside the viewport');
 assert.match(html, /id="set-power"[\s\S]*id="set-ssd-streaming"/, 'Settings should expose engine power and SSD streaming launch parameters');
 assert.match(js, /enginePower:\s*90[\s\S]*ssdStreaming:\s*'auto'/, 'engine power and SSD streaming should have persisted defaults');
-assert.match(js, /const launchBase = \(\) => \(\{ ctx: ctxSize\(\), power: enginePower\(\), ssdStreaming: ssdStreaming\(\) \}\)/, 'engine starts should share the persisted power and SSD streaming settings');
+assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\) \}\)/, 'engine starts should keep SSD streaming local-only');
 assert.match(js, /function applyEngineConfig\(\)[\s\S]*Restart to apply engine settings\?[\s\S]*restartCurrent\(\)/, 'engine launch setting changes should offer to restart the active engine');
 assert.match(js, /setIogpuWiredLimit\(mb\)[\s\S]*\/api\/iogpu-wired-limit/, 'frontend should expose the IOGPU wired-limit apply endpoint');
 assert.match(html, /id="set-iogpu-limit-mb"[\s\S]*min="86016"[\s\S]*max="90112"[\s\S]*id="set-iogpu-limit"[\s\S]*Apply wired limit[\s\S]*LaunchDaemon/, 'Settings should offer a custom persistent macOS IOGPU limit action');
@@ -1235,6 +1237,8 @@ assert.match(launcher, /agent\/design runtime is not active/, 'Backend should re
 assert.match(launcher, /Engine process stopped before completing the turn[\s\S]*g_agent_working = 0;/, 'Backend should make child crashes visible and clear Agent/Design working state');
 assert.match(js, /appendLocalSendFailure\(displayPrompt, msg, thisSend\)/, 'Agent/Design send failures should be persisted in the transcript');
 assert.match(js, /target} did not start[\s\S]*\/api\/status reports mode=/, 'Startup should fail visibly if /api/status disagrees with the requested mode');
+assert.match(js, /const launchWasSuperseded = async \(\)[\s\S]*Engine\.task\(launchTaskId\)[\s\S]*status === 'canceled'/, 'startup polling should detect a launch superseded by another window or request');
+assert.match(js, /if \(await launchWasSuperseded\(\)\)[\s\S]*setMode\(st\.mode\)/, 'a superseded launch should adopt the newer ready mode without a false startup error');
 
 assert.match(js, /copy\.lanMirror\s*=\s*true/, 'LAN mirror rows should be marked read-only');
 assert.match(js, /for \(const mode of \['chat', 'agent', 'design'\]\)/, 'mirror sync must cover chat, agent and design');
