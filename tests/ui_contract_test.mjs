@@ -1325,6 +1325,11 @@ assert.match(js, /async function setupDs4\(\)[\s\S]*\/api\/ds4\/setup/, 'Engine 
 assert.match(js, /async function setupDs4FromUi\(\)[\s\S]*Engine\.setupDs4\(\)/, 'onboarding setup button should call the managed setup endpoint');
 assert.match(js, /function availableModelDownloads\(ggufs\)[\s\S]*MODEL_DOWNLOADS\.filter[\s\S]*d\.match\.test\(file\)/, 'download picker should hide model targets already present in the engine folder');
 assert.match(js, /function renderSetModels\(\)[\s\S]*const choices = availableModelDownloads\(ggufs\)/, 'settings model download picker should use only missing model targets');
+assert.match(html, /id="set-local-model-row"[\s\S]*id="set-deepseek-model-row"[\s\S]*deepseek-v4-flash[\s\S]*deepseek-v4-pro/, 'settings should provide separate local GGUF and DeepSeek cloud model pickers');
+assert.match(js, /const syncBackendRows = \(\) =>[\s\S]*localModelRow\.hidden = cloud/, 'choosing the cloud backend should hide the local GGUF catalog');
+assert.match(js, /async function refreshModels\(\)[\s\S]*cloudSelected[\s\S]*Api\.getModels[\s\S]*s\.chatBackend === 'deepseek'[\s\S]*deepseekModel: selected, model: selected/, 'settings should populate and persist the live DeepSeek cloud catalog');
+assert.match(js, /const effectiveModel = cloud[\s\S]*deepseekModel \|\| 'deepseek-v4-flash'/, 'cloud chat requests should always use the selected DeepSeek model rather than a stale local model id');
+assert.match(js, /if \(cloud\) \{[\s\S]*body\.thinking = \{ type: off \? 'disabled' : 'enabled' \}[\s\S]*body\.reasoning_effort = thinkLevel === 'max' \? 'max' : 'high'/, 'DeepSeek V4 cloud requests should honor the visible thinking control');
 assert.match(js, /function renderModels\(\)[\s\S]*const choices = availableModelDownloads\(ggufs\)/, 'onboarding model download picker should use only missing model targets');
 assert.match(js, /async function recheckModels\(\)[\s\S]*refreshModels\(\)[\s\S]*loadGgufs\(\)/, 'onboarding model Recheck should rescan status and GGUF files');
 assert.match(js, /async function setupOnboardLanDs4\(\)[\s\S]*Engine\.setupDs4\(\)/, 'LAN onboarding local ds4 install should use the managed setup endpoint');

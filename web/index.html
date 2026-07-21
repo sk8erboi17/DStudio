@@ -5908,10 +5908,18 @@
             <span>DeepSeek API key <small class="field-note">stored only on this Mac; sent only to api.deepseek.com</small></span>
             <input type="password" id="set-deepseek-key" placeholder="sk-…" spellcheck="false" autocomplete="off">
           </label>
-          <div class="field">
+          <div class="field" id="set-local-model-row">
             <span>Model <small class="field-note">the GGUF the engine loads — picking another restarts it</small></span>
             <div class="onboard__models set-models" id="set-models"></div>
           </div>
+          <label class="field" id="set-deepseek-model-row" hidden>
+            <span>Cloud model <small class="field-note">loaded from the models available to this DeepSeek API key</small></span>
+            <select id="set-deepseek-model" aria-label="DeepSeek cloud model">
+              <option value="deepseek-v4-flash">DeepSeek V4 Flash · cloud</option>
+              <option value="deepseek-v4-pro">DeepSeek V4 Pro · cloud</option>
+            </select>
+            <p class="set-help" id="set-deepseek-model-msg">Choose the cloud model used by Chat, Agent, Design, GSA and RSA. Tools still run locally.</p>
+          </label>
           <label class="field">
             <span>Context size <small id="set-ctx-note" class="field-note"></small></span>
             <select id="set-ctx" aria-label="Context size (tokens)">
@@ -6401,7 +6409,7 @@
       baseUrl: DEFAULT_BASE_URL,
       chatBackend: 'local',   // 'local' | 'deepseek' — Chat only; Agent/Design/GSA/RSA are always local
       deepseekApiKey: '',
-      deepseekModel: 'deepseek-chat',   // cloud model used by chat and remote agent/design launches
+      deepseekModel: 'deepseek-v4-flash', // cloud model used by chat and remote agent/design launches
       lanClientHost: '',     // when set, this local UI uses that DStudio host for model + Chat web tools
       lanClientId: '',       // stable browser id used only for host-side LAN mirrors
       lanClientName: '',     // display label for the host's mirrored sidebar entries
@@ -9023,6 +9031,17 @@
           state.settings.ssdStreamingAutoMigrated = 1;
           settingsChanged = true;
         }
+        // DeepSeek's legacy cloud aliases are retired in July 2026. They both
+        // map to V4 Flash during the compatibility window, so move old stores
+        // to the stable model id once; the live /v1/models picker remains the
+        // source of truth and lets the user choose V4 Pro instead.
+        if (!state.settings.deepseekV4ModelMigrated) {
+          if (state.settings.deepseekModel === 'deepseek-chat' || state.settings.deepseekModel === 'deepseek-reasoner') {
+            state.settings.deepseekModel = 'deepseek-v4-flash';
+          }
+          state.settings.deepseekV4ModelMigrated = 1;
+          settingsChanged = true;
+        }
         if (!state.settings.lanClientId) {
           state.settings.lanClientId = `client-${uid().replace(/[^a-z0-9_.-]/gi, '').slice(0, 48)}`;
           settingsChanged = true;
@@ -9503,14 +9522,20 @@
       function buildBody({ model, messages, temperature, maxTokens, thinkLevel, stream = true }) {
         const off = thinkLevel === 'off';
         const cloud = deepseekMode();
-        const body = { model, messages, stream };
-        if (!cloud) body.think = !off; // native ds4 parameter, always explicit
+        const effectiveModel = cloud
+          ? (Store.getSettings().deepseekModel || 'deepseek-v4-flash')
+          : model;
+        const body = { model: effectiveModel, messages, stream };
+        if (cloud) {
+          body.thinking = { type: off ? 'disabled' : 'enabled' };
+          if (!off) body.reasoning_effort = thinkLevel === 'max' ? 'max' : 'high';
+        } else {
+          body.think = !off; // native ds4 parameter, always explicit
+          if (!off) body.reasoning_effort = thinkLevel === 'max' ? 'max' : 'high';
+        }
         if (stream) body.stream_options = { include_usage: true };
-        // Above zero, ds4 exposes only two real levels: high and max. The
-        // DeepSeek cloud API has no think/reasoning_effort params - reasoning
-        // is a model choice there (deepseek-reasoner vs deepseek-chat).
-        if (!cloud && !off) body.reasoning_effort = thinkLevel === 'max' ? 'max' : 'high';
-        if (typeof temperature === 'number') body.temperature = temperature;
+        // DeepSeek V4 ignores sampling temperature while thinking is enabled.
+        if (typeof temperature === 'number' && (!cloud || off)) body.temperature = temperature;
         if (maxTokens > 0) body.max_tokens = maxTokens;
         return body;
       }
@@ -16186,7 +16211,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           return;
         }
         if (cloudBackendOn()) {
-          const cur = Store.getSettings().deepseekModel || 'deepseek-chat';
+          const cur = Store.getSettings().deepseekModel || 'deepseek-v4-flash';
           const btn = el('button', { class: 'cbar-model-btn', type: 'button' });
           btn.append(
             el('span', { class: 'cbar-model-dot' }),
@@ -16411,6 +16436,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
           chatBackend: qs('#set-chat-backend'),
           deepseekKey: qs('#set-deepseek-key'),
           deepseekKeyRow: qs('#set-deepseek-key-row'),
+          deepseekModel: qs('#set-deepseek-model'),
+          deepseekModelRow: qs('#set-deepseek-model-row'),
+          deepseekModelMsg: qs('#set-deepseek-model-msg'),
+          localModelRow: qs('#set-local-model-row'),
           models: qs('#set-models'),
           temp: qs('#set-temp'),
           tempOut: qs('#set-temp-out'),
@@ -16488,13 +16517,16 @@ Your report must be precise, of high-quality, and written by an expert using an 
           Statusbar.refresh();
           refreshModels();
         });
-        const syncDeepseekRow = () => {
-          if (f.deepseekKeyRow) f.deepseekKeyRow.style.display = f.chatBackend.value === 'deepseek' ? '' : 'none';
+        const syncBackendRows = () => {
+          const cloud = f.chatBackend.value === 'deepseek';
+          if (f.deepseekKeyRow) f.deepseekKeyRow.style.display = cloud ? '' : 'none';
+          if (f.deepseekModelRow) f.deepseekModelRow.hidden = !cloud;
+          if (f.localModelRow) f.localModelRow.hidden = cloud;
         };
         on(f.chatBackend, 'change', () => {
           const v = f.chatBackend.value === 'deepseek' ? 'deepseek' : 'local';
           Store.setSettings({ chatBackend: v });
-          syncDeepseekRow();
+          syncBackendRows();
           if (v === 'deepseek' && !(Store.getSettings().deepseekApiKey || '').trim()) {
             toast('Add your DeepSeek API key below to activate the cloud chat.', 'info');
           }
@@ -16507,6 +16539,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
           Api.invalidateHealth();
           Statusbar.refresh();
           refreshModels();
+        });
+        on(f.deepseekModel, 'change', () => {
+          const id = f.deepseekModel.value || 'deepseek-v4-flash';
+          Store.setSettings({ deepseekModel: id, model: id });
+          if (f.deepseekModelMsg) f.deepseekModelMsg.textContent = `${id} selected. Chat uses it immediately; Agent and Design use it from their next start.`;
+          toast(`Cloud model: ${id}`, 'info');
         });
         on(f.temp, 'input', () => {
           f.tempOut.textContent = f.temp.value;
@@ -16786,7 +16824,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (dialog.open) return;
         syncFields();
         syncLan();      // reflect the live listener state (LAN on/off + address)
-        loadSetModels(); // scan the engine folder + read the running GGUF
+        refreshModels(); // live cloud catalog, or local GGUF scan
         refreshMemoryDoctor();
         refreshUpdates(false);
         refreshVisionStatus();
@@ -16880,7 +16918,11 @@ Your report must be precise, of high-quality, and written by an expert using an 
         f.baseUrl.value = s.baseUrl;
         f.chatBackend.value = s.chatBackend === 'deepseek' ? 'deepseek' : 'local';
         f.deepseekKey.value = s.deepseekApiKey || '';
-        if (f.deepseekKeyRow) f.deepseekKeyRow.style.display = f.chatBackend.value === 'deepseek' ? '' : 'none';
+        const cloud = f.chatBackend.value === 'deepseek';
+        if (f.deepseekKeyRow) f.deepseekKeyRow.style.display = cloud ? '' : 'none';
+        if (f.deepseekModelRow) f.deepseekModelRow.hidden = !cloud;
+        if (f.localModelRow) f.localModelRow.hidden = cloud;
+        if (f.deepseekModel) f.deepseekModel.value = s.deepseekModel || 'deepseek-v4-flash';
         f.temp.value = s.temperature;
         f.tempOut.textContent = s.temperature;
         f.maxTok.value = s.maxTokens ?? '';
@@ -17240,14 +17282,45 @@ Your report must be precise, of high-quality, and written by an expert using an 
       // the engine actually serves — the GGUF cards are the visible picker, this
       // just tracks the served id so requests address the right model.
       async function refreshModels() {
+        const before = Store.getSettings();
+        const cloudSelected = before.chatBackend === 'deepseek' && !isLanClientMode();
+        const hasCloudKey = !!(before.deepseekApiKey || '').trim();
         let models = [];
-        try {
-          models = await Api.getModels();
-        } catch {
-          models = [];
+        if (!cloudSelected || hasCloudKey) {
+          try {
+            models = await Api.getModels();
+          } catch {
+            models = [];
+          }
         }
         Store.setModels(models);
         const s = Store.getSettings();
+        if (s.chatBackend === 'deepseek' && !isLanClientMode()) {
+          const ids = models.map((m) => m?.id).filter(Boolean);
+          const fallbacks = ['deepseek-v4-flash', 'deepseek-v4-pro'];
+          const choices = [...new Set(ids.length ? ids : fallbacks)];
+          let selected = s.deepseekModel || 'deepseek-v4-flash';
+          if (!choices.includes(selected)) selected = choices[0];
+          if (f.deepseekModel) {
+            f.deepseekModel.replaceChildren(...choices.map((id) => el('option', {
+              value: id,
+              text: id === 'deepseek-v4-flash' ? 'DeepSeek V4 Flash · cloud'
+                : id === 'deepseek-v4-pro' ? 'DeepSeek V4 Pro · cloud' : `${id} · cloud`,
+            })));
+            f.deepseekModel.value = selected;
+          }
+          if (f.deepseekModelMsg) {
+            f.deepseekModelMsg.textContent = models.length
+              ? `${models.length} cloud model${models.length === 1 ? '' : 's'} available to this API key. Tools still run locally.`
+              : (s.deepseekApiKey || '').trim()
+                ? 'Could not load the live cloud catalog; showing the official V4 fallback models.'
+                : 'Add the DeepSeek API key to load the cloud models available to your account.';
+          }
+          if (s.deepseekModel !== selected || s.model !== selected) {
+            Store.setSettings({ deepseekModel: selected, model: selected });
+          }
+          return;
+        }
         if (models.length && !models.some((m) => m.id === s.model)) {
           Store.setSettings({ model: models[0].id });
         }
@@ -23346,7 +23419,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
             return {
               modelBackend: 'remote',
               remoteBaseUrl: 'https://api.deepseek.com',
-              remoteModel: s.deepseekModel || 'deepseek-chat',
+              remoteModel: s.deepseekModel || 'deepseek-v4-flash',
               remoteApiKey: s.deepseekApiKey.trim(),
             };
           }
