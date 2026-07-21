@@ -10002,6 +10002,16 @@
         return wrap;
       }
 
+      function imageGenerationHint(status) {
+        return status?.stage === 'download'
+          ? 'First use downloads the Qwen Image model once; later generations reuse the local cache.'
+          : status?.stage === 'model' || status?.stage === 'model-load'
+            ? 'The local model is being prepared for this machine; this can take several minutes on first use.'
+            : status?.stage === 'inference'
+              ? 'The model is loaded and is rendering the image locally.'
+              : 'Qwen Image is running locally on this machine.';
+      }
+
       function buildImageGenerationStatus(status) {
         const progress = Math.max(1, Math.min(100, Number(status?.progress) || 1));
         const running = status?.state !== 'complete' && status?.state !== 'error';
@@ -10010,27 +10020,42 @@
         const src = qs('.brand-logo')?.src;
         if (src) logo.append(el('img', { src, alt: '' }));
         else logo.textContent = 'D';
-        const hint = status?.stage === 'download'
-          ? 'First use downloads the Qwen Image model once; later generations reuse the local cache.'
-          : status?.stage === 'model' || status?.stage === 'model-load'
-            ? 'The local model is being prepared for this machine; this can take several minutes on first use.'
-          : status?.stage === 'inference'
-            ? 'The model is loaded and is rendering the image locally.'
-            : 'Qwen Image is running locally on this machine.';
         return el('section', { class: 'msg-image-generation', 'aria-label': 'Image generation progress' }, [
           el('div', { class: 'msg-image-generation__preview' }, [logo]),
           el('div', { class: 'msg-image-generation__body' }, [
             el('div', { class: 'msg-image-generation__top' }, [
-              el('strong', { text: status?.label || 'Preparing Qwen Image…' }),
+              el('strong', { class: 'msg-image-generation__label', text: status?.label || 'Preparing Qwen Image…' }),
               el('span', { class: 'msg-image-generation__elapsed', text: fmtElapsedCompact(Date.now() - startedAt) }),
             ]),
             el('div', { class: 'msg-image-generation__track', role: 'progressbar',
               'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(progress) }, [
               el('div', { class: `msg-image-generation__bar${running ? ' is-working' : ''}`, style: `width:${progress}%` }),
             ]),
-            el('div', { class: 'msg-image-generation__hint', text: hint }),
+            el('div', { class: 'msg-image-generation__hint', text: imageGenerationHint(status) }),
           ]),
         ]);
+      }
+
+      function updateImageGeneration(messageId, status) {
+        const article = root?.querySelector(`.msg[data-id="${cssEscape(messageId)}"]`);
+        const panel = article?.querySelector('.msg-image-generation');
+        if (!panel) return false;
+        const progress = Math.max(1, Math.min(100, Number(status?.progress) || 1));
+        const running = status?.state !== 'complete' && status?.state !== 'error';
+        const label = panel.querySelector('.msg-image-generation__label');
+        const elapsed = panel.querySelector('.msg-image-generation__elapsed');
+        const track = panel.querySelector('.msg-image-generation__track');
+        const bar = panel.querySelector('.msg-image-generation__bar');
+        const hint = panel.querySelector('.msg-image-generation__hint');
+        if (label) label.textContent = status?.label || 'Preparing Qwen Image…';
+        if (elapsed) elapsed.textContent = fmtElapsedCompact(Date.now() - (Number(status?.startedAt) || Date.now()));
+        if (track) track.setAttribute('aria-valuenow', String(progress));
+        if (bar) {
+          bar.style.width = `${progress}%`;
+          bar.classList.toggle('is-working', running);
+        }
+        if (hint) hint.textContent = imageGenerationHint(status);
+        return true;
       }
 
       function buildMessageStart(role, loading = false) {
@@ -10357,7 +10382,7 @@
         Chat.sendMessage('', { regenerate: true });
       }
 
-      return { mount, renderChat, beginAssistant, shouldAutoFollow, finishAutoFollow, announce };
+      return { mount, renderChat, updateImageGeneration, beginAssistant, shouldAutoFollow, finishAutoFollow, announce };
     })();
 
     /* ==================== UI: connection indicator ==================== */
@@ -12990,7 +13015,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
           const image = await generateImageFromDirective(directive, sourceImage, controller.signal, (progress) => {
             imageGeneration = { ...imageGeneration, ...progress, startedAt: imageGeneration.startedAt };
             Store.patchMessage(chat.id, asst.id, { content, reasoning, imageGeneration });
-            renderChatIfActive(chat.id);
+            if (Store.getActiveChat()?.id === chat.id && !Messages.updateImageGeneration(asst.id, imageGeneration)) {
+              renderChatIfActive(chat.id);
+            }
           });
           return {
             content: completionContent || (editing
