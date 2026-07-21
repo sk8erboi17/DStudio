@@ -60,6 +60,16 @@ A sidebar switches between Chat, Agent and Design. Each mode has its own reopena
 
 Streaming DeepSeek V4 chat backed by the ds4 server KV cache: the context lives server-side (prefix reuse, shown as *cached* tokens) and every message is saved locally. You get live tokens/s, collapsible reasoning, native MathML for LaTeX, syntax-highlighted code and optional Web Search sources through the local browser.
 
+## Multimodal PDFs
+
+<div align="center">
+
+<img src="assets/pdf.gif" width="820" alt="DStudio multimodal PDF demo showing local document understanding and semantic page retrieval">
+
+</div>
+
+Attach a PDF and ask naturally in any language. DeepSeek V4 decides whether to build a bounded whole-document overview, read an exact physical page or search semantically across every page. DStudio extracts the text locally, reads scans and meaningful figures when needed, caches a multilingual page index and sends only the strongest evidence back to DeepSeek for the final answer. This keeps the prompt bounded even for 1,000-page books while later searches reuse the local index.
+
 ## Search & Deep Research
 
 <div align="center">
