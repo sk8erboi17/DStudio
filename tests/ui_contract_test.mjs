@@ -137,10 +137,11 @@ assert.equal(
   'ordinary assistant answers should not activate image generation',
 );
 const editDirective = imageDirectiveHelpers.extractImageGenerationDirectiveFromAssistant(
-  'Procedo.\n```dstudio-image\n{"action":"edit","prompt":"Replace the body but preserve the face"}\n```',
+  'Procedo.\n```dstudio-image\n{"action":"edit","prompt":"Replace the body but preserve the face","preserve":"face"}\n```',
 ).directive;
 assert.equal(editDirective?.action, 'edit', 'image edit directives should preserve the semantic action');
 assert.equal(editDirective?.prompt, 'Replace the body but preserve the face', 'image edit directives should preserve editing instructions');
+assert.equal(editDirective?.preserve, 'face', 'image edits should carry semantic face pixel-preservation intent');
 assert.doesNotMatch(js, /function imageGenerationIntent\(/, 'the UI must not classify multilingual image intent with a keyword regex');
 const helpers = new Function(`
 ${extractFunction(js, 'isLoopbackHost')}
@@ -1313,10 +1314,11 @@ assert.match(js, /function classifyResearchRequest\(/, 'web research should clas
 assert.match(js, /async function generateImageFromDirective\(/, 'chat should route the model image directive to the local Qwen pipeline');
 assert.match(js, /Understand the request semantically in whatever language the user uses; never depend on a keyword list/, 'the model prompt should classify image intent semantically in any language');
 assert.match(js, /exactly one fenced block with info string dstudio-image/, 'the model prompt should emit a structured image-generation directive');
-assert.match(js, /\{"action":"edit","prompt":"precise editing instructions"\}/, 'the model prompt should distinguish edits that require source pixels');
+assert.match(js, /\{"action":"edit","prompt":"precise editing instructions","preserve":"none"\}/, 'the model prompt should distinguish edits that require source pixels');
+assert.match(js, /Set preserve to "face" only when the user explicitly asks/, 'the model should semantically select exact face preservation without a language regex');
 assert.match(js, /function sourceImageForDirective\(chat, userMsg, directive, signal\)/, 'image edits should resolve the latest attached or generated source image');
 assert.match(js, /imageAttachData\.get\(attachment\.id\)\?\.dataUri \|\| attachment\.thumb/, 'image edits should prefer original session pixels and fall back to the persisted preview');
-assert.match(js, /body: JSON\.stringify\(\{ action: directive\.action \|\| 'generate', prompt: directive\.prompt, image: sourceImage \|\| undefined, job \}\)/, 'image edits should send source pixels and the model-selected action to the backend');
+assert.match(js, /preserve: directive\.preserve \|\| 'none'/, 'image edits should send semantic pixel-preservation intent to the backend');
 assert.match(js, /never claim that the image is already generated/, 'the model confirmation must not claim completion before Qwen returns');
 assert.match(js, /function extractImageGenerationDirectiveFromAssistant\(text\)/, 'chat should parse model-emitted image-generation directives');
 assert.match(js, /\/api\/image\/generate/, 'chat should call the local image generation endpoint');
@@ -1328,6 +1330,7 @@ assert.match(js, /First use downloads the Qwen Image model once/, 'first-run mod
 assert.match(fs.readFileSync('src/dstudio_image.c', 'utf8'), /static void api_image_progress\(/, 'backend should expose image job progress');
 assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /"loading_model": \("model", "Downloading or loading Qwen Image model weights/, 'Qwen runner should publish model-loading progress');
 assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /if args\.action == "edit":[\s\S]*edit_image\(edit_ns\)/, 'Qwen runner should invoke the upstream image-edit pipeline');
+assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def preserve_original_face\([\s\S]*Image\.composite\(source, edited, mask\)/, 'Qwen edits should be able to restore original face pixels with a feathered mask');
 assert.match(launcher, /qwen_memory_begin\("vision"\)/, 'Vision calls should acquire a temporary DS4 memory lease');
 assert.match(launcher, /qwen_memory_begin\("pdf"\)/, 'PDF calls should acquire a nested temporary DS4 memory lease');
 assert.match(launcher, /qwen_memory_begin\("image-generation"\)/, 'image generation should acquire a temporary DS4 memory lease');

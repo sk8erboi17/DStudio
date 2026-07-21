@@ -61,7 +61,7 @@ curl -fsS --max-time 10 -X POST "${base}/api/image/generate" \
 curl -fsS --max-time 2 "${base}/api/image/progress?id=image-http-test" >"${tmp}/image-progress.json"
 curl -fsS --max-time 10 -X POST "${base}/api/image/generate" \
   -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
-  -d '{"action":"edit","prompt":"make it blue","image":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=","job":"image-edit-http-test"}' >"${tmp}/image-edit.json"
+  -d '{"action":"edit","prompt":"make it blue","preserve":"face","image":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=","job":"image-edit-http-test"}' >"${tmp}/image-edit.json"
 curl -fsS --max-time 2 "${base}/api/image/progress?id=image-edit-http-test" >"${tmp}/image-edit-progress.json"
 node - "${tmp}/agent-send-large.json" <<'NODE'
 const fs = require('fs');

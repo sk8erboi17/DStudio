@@ -32,7 +32,8 @@ static int image_find_png(const char *dir, char *name, size_t namesz) {
     int ok = 0;
     while ((e = readdir(d)) != NULL) {
         size_t n = strlen(e->d_name);
-        if (n > 4 && !strcasecmp(e->d_name + n - 4, ".png") &&
+        if (n > 4 && strcasecmp(e->d_name, "source.png") &&
+            !strcasecmp(e->d_name + n - 4, ".png") &&
             image_safe_component(e->d_name)) {
             cstr_copy(name, namesz, e->d_name);
             ok = 1;
@@ -108,6 +109,12 @@ static void api_image_generate_run(int fd, const char *body) {
     if (strcmp(action, "generate") && strcmp(action, "edit")) {
         free(prompt); web_json_error(fd, "400 Bad Request", "action must be generate or edit"); return;
     }
+    char preserve[16] = "none";
+    (void)json_get_string(body, "preserve", preserve, sizeof preserve);
+    if (strcmp(preserve, "none") && strcmp(preserve, "face")) {
+        free(prompt); web_json_error(fd, "400 Bad Request", "preserve must be none or face"); return;
+    }
+    if (strcmp(action, "edit")) cstr_copy(preserve, sizeof preserve, "none");
     char base[DSTUDIO_PATH_MAX], id[80], dir[DSTUDIO_PATH_MAX];
     if (!image_jobs_dir(base, sizeof base)) {
         free(prompt); web_json_error(fd, "500 Internal Server Error", "cannot create image job directory"); return;
@@ -143,7 +150,7 @@ static void api_image_generate_run(int fd, const char *body) {
     char log[16384] = "";
     char status_path[DSTUDIO_PATH_MAX];
     snprintf(status_path, sizeof status_path, "%s/status.json", dir);
-    char *argv[] = { "/bin/sh", script, prompt_path, dir, status_path, action, input_path, NULL };
+    char *argv[] = { "/bin/sh", script, prompt_path, dir, status_path, action, input_path, preserve, NULL };
     qwen_memory_lease lease = qwen_memory_begin("image-generation");
     int rc = setup_run_cmd_capture(NULL, argv, log, sizeof log);
     qwen_memory_end(&lease);

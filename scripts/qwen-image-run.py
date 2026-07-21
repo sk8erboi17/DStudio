@@ -9,6 +9,65 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
+def detect_largest_face(image):
+    """Return the largest frontal-face rectangle, or None when detection is unavailable."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        print("Pixel preservation skipped: OpenCV face detector is unavailable.", flush=True)
+        return None
+    gray = cv2.cvtColor(np.asarray(image.convert("RGB")), cv2.COLOR_RGB2GRAY)
+    cascade_path = str(Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml")
+    cascade = cv2.CascadeClassifier(cascade_path)
+    if cascade.empty():
+        print("Pixel preservation skipped: face detector data is unavailable.", flush=True)
+        return None
+    minimum = max(24, min(image.size) // 12)
+    faces = cascade.detectMultiScale(
+        gray, scaleFactor=1.08, minNeighbors=5, minSize=(minimum, minimum)
+    )
+    if len(faces) == 0:
+        print("Pixel preservation skipped: no face was detected in the source image.", flush=True)
+        return None
+    return max((tuple(map(int, face)) for face in faces), key=lambda face: face[2] * face[3])
+
+
+def preserve_original_face(source_path: str, edited_path: str) -> bool:
+    """Composite original head pixels over an edit, with a feathered boundary."""
+    from PIL import Image, ImageDraw, ImageFilter
+
+    source = Image.open(source_path).convert("RGB")
+    face = detect_largest_face(source)
+    if face is None:
+        return False
+    x, y, width, height = face
+    # Haar detects the inner face. Expand upward and sideways to retain hair/head.
+    left = max(0, int(x - width * 0.22))
+    top = max(0, int(y - height * 0.48))
+    right = min(source.width, int(x + width * 1.22))
+    bottom = min(source.height, int(y + height * 1.18))
+    if right - left < 8 or bottom - top < 8:
+        return False
+
+    edited = Image.open(edited_path).convert("RGB")
+    if edited.size != source.size:
+        edited = edited.resize(source.size, Image.Resampling.LANCZOS)
+
+    mask = Image.new("L", source.size, 0)
+    draw = ImageDraw.Draw(mask)
+    draw.ellipse((left, top, right, bottom), fill=255)
+    feather = max(3, int(min(right - left, bottom - top) * 0.055))
+    mask = mask.filter(ImageFilter.GaussianBlur(feather))
+    Image.composite(source, edited, mask).save(edited_path, format="PNG")
+    print(
+        f"Preserved original face/head pixels at {left},{top},{right},{bottom} "
+        f"with a {feather}px feather.",
+        flush=True,
+    )
+    return True
+
+
 def write_status(path, state: str, stage: str, label: str, progress: int) -> None:
     if path is None:
         return
@@ -49,6 +108,7 @@ def main() -> int:
     p.add_argument("--status-file")
     p.add_argument("--action", choices=("generate", "edit"), default="generate")
     p.add_argument("--input")
+    p.add_argument("--preserve", choices=("none", "face"), default="none")
     p.add_argument("--aspect", default="16:9")
     args = p.parse_args()
     prompt = Path(args.prompt_file).read_text(encoding="utf-8").strip()
@@ -96,7 +156,13 @@ def main() -> int:
         if not saved_path or not Path(saved_path).is_file():
             write_status(status_file, "error", "error", "Qwen Image Edit returned no output.", 100)
             raise SystemExit("Qwen Image Edit returned no output")
-        write_status(status_file, "complete", "complete", "Edited image ready.", 100)
+        if args.preserve == "face":
+            write_status(status_file, "running", "compositing", "Preserving the original face pixels…", 94)
+            preserved = preserve_original_face(args.input, saved_path)
+            label = "Edited image ready; original face pixels preserved." if preserved else "Edited image ready; no source face was detected to preserve."
+        else:
+            label = "Edited image ready."
+        write_status(status_file, "complete", "complete", label, 100)
         print(saved_path)
         return 0
     event_status = {
