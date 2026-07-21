@@ -66,6 +66,10 @@ Streaming DeepSeek V4 chat backed by the ds4 server KV cache: the context lives 
 
 <img src="assets/pdf.gif" width="820" alt="DStudio multimodal PDF demo showing local document understanding and semantic page retrieval">
 
+<br><br>
+
+<img src="assets/generating.png" width="820" alt="DStudio generating an image locally with live progress">
+
 </div>
 
 Attach a PDF and ask naturally in any language. DeepSeek V4 decides whether to build a bounded whole-document overview, read an exact physical page or search semantically across every page. DStudio extracts the text locally, reads scans and meaningful figures when needed, caches a multilingual page index and sends only the strongest evidence back to DeepSeek for the final answer. This keeps the prompt bounded even for 1,000-page books while later searches reuse the local index.
@@ -173,25 +177,6 @@ This is a serious local AI setup. DStudio removes product friction, not physics:
 
 `ds4-design` lives in **this** repo (`extension/design/ds4_design.c`) and is compiled into the ds4 repo automatically the first time you open Design.
 
-### Local Qwen image and document pipelines
-
-DStudio routes image-understanding, scanned-PDF and explicit image-generation
-requests through local Qwen pipelines. Prompts such as “generate this image”,
-“generami un’immagine” and common misspellings are sent to the pinned
-[`ivanfioravanti/qwen-image-mps`](https://github.com/ivanfioravanti/qwen-image-mps)
-runtime. Its isolated Python 3.12 environment is installed under
-`~/.dstudio/qwen-image` on first use; model weights are downloaded by the
-upstream Hugging Face pipeline and are not bundled with DStudio.
-
-On constrained machines these pipelines share memory with the large DS4 model.
-The patch in `patch/ds4-qwen-hot-memory/` therefore adds a temporary, nestable
-memory lease: before Qwen runs, DS4 synchronizes the accelerator, suspends Metal
-model residency, releases streaming caches and marks mmap pages reclaimable.
-After Qwen finishes it restores residency without changing the saved SSD
-streaming setting. The policy accounts for physical RAM, model size, pipeline
-reserve and backend; an ~87 GB Flash model on a 96 GB unified-memory Mac always
-uses the lease even when the persistent setting is **Off**.
-
 ### GLM 5.2 (experimental, optional)
 
 DStudio can run **GLM 5.2** GGUFs through a second engine checkout on ds4's
@@ -282,7 +267,7 @@ ds4's agent is a separate, fast-moving codebase that can't be modified permanent
 3. builds a **separately-named** binary (`ds4-agent-jsonl`), reusing the existing object files,
 4. **restores the original source immediately.**
 
-The canonical `ds4-agent` source is restored after the JSONL build; the build is idempotent (a version stamp forces a rebuild only when the patch itself changes), and it self-heals on the next launch even after a crash. If the patch ever fails to apply, for example because upstream code was reworked, DStudio **falls back to the stock `ds4-agent`** and the UI parses its raw output instead. The separate Qwen hot-memory patch remains applied to the engine core and is reversed/reapplied automatically around upstream pulls. (`ds4-design` is *our* code, in this repo, so it emits these events natively with no patch needed.)
+The canonical `ds4-agent` source is restored after the JSONL build; the build is idempotent (a version stamp forces a rebuild only when the patch itself changes), and it self-heals on the next launch even after a crash. If the patch ever fails to apply, for example because upstream code was reworked, DStudio **falls back to the stock agent** and the UI parses its raw output instead. The separate multimodal hot-memory patch remains applied to the engine core and is reversed/reapplied automatically around upstream pulls. (`ds4-design` is *our* code, in this repo, so it emits these events natively with no patch needed.)
 
 #### ⚠️ The patch targets antirez's **original** ds4: forks must disable it
 
