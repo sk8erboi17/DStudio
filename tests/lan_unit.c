@@ -78,6 +78,13 @@ int main(void) {
     assert(g_remote_base_url[0] == '\0');
     assert(g_remote_model[0] == '\0');
 
+    engine_cfg remote_cfg = ENGINE_DEFAULTS;
+    remote_cfg.ssd_streaming = SSD_STREAMING_ON;
+    char ssd_reason[192] = "", ssd_err[256] = "";
+    assert(engine_effective_ssd_streaming(&remote_cfg, 1, ssd_reason, sizeof ssd_reason,
+                                          ssd_err, sizeof ssd_err) == -1);
+    assert(strstr(ssd_err, "local-engine-only") != NULL);
+
     snprintf(g_bind_host, sizeof g_bind_host, "127.0.0.1");
     assert(lan_public_path_allowed("GET", "/"));
     assert(lan_public_path_allowed("GET", "/remote"));

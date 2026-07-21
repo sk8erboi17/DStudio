@@ -517,7 +517,6 @@ static int setup_windows_engine_ready(void) {
     snprintf(ver, sizeof ver, "%s\\ds4-agent-jsonl.ver", g_ds4_dir);
     int patch_version = jsonl_patch_version();
     return file_present("ds4-server.exe") &&
-           file_present("ds4-agent.exe") &&
            file_present("ds4-agent-jsonl.exe") &&
            file_present("ds4-design.exe") &&
            patch_version > 0 &&

@@ -49,7 +49,6 @@ const server = http.createServer(async (req, res) => {
       stage: 'Ready',
       agentWorking: false,
       workdir: currentWorkdir,
-      jsonl: true,
       ds4dirOk: true,
       webdirOk: true,
       lan: false,
@@ -237,27 +236,26 @@ try {
     window.ds4PickDirectory = async ({ mode }) => (
       mode === 'design' ? '/tmp/dstudio-ui-design' : '/tmp/dstudio-ui-agent'
     );
-    localStorage.setItem('ds4web.settings.v1', JSON.stringify({
-      v: 1,
+    localStorage.setItem('ds4web.settings.v2', JSON.stringify({
+      v: 2,
       onboarded: true,
       theme: 'light',
       model: 'deepseek-v4-flash',
       modelVariant: 'flash',
       thinkLevel: 'high',
       ctxSize: 65536,
-      useJsonlPatch: true,
       webMode: 'off',
       workdirs: { agent: '/tmp/dstudio-missing-agent', design: '/tmp/dstudio-ui-design' },
     }));
-    localStorage.setItem('ds4web.chats.v1', JSON.stringify({
-      v: 1,
+    localStorage.setItem('ds4web.chats.v2', JSON.stringify({
+      v: 2,
       deleted: [],
       chats: [
         { id: 'agent-seed', mode: 'agent', title: 'Agent seed', createdAt: now - 2, updatedAt: now - 2, messages: [], transcript: 'seed' },
         { id: 'design-seed', mode: 'design', title: 'Design seed', createdAt: now - 1, updatedAt: now - 1, messages: [], transcript: 'seed' },
       ],
     }));
-    localStorage.setItem('ds4web.active.v1', JSON.stringify({ v: 1, ids: { chat: null, agent: 'agent-seed', design: 'design-seed' } }));
+    localStorage.setItem('ds4web.active.v2', JSON.stringify({ v: 2, ids: { chat: null, agent: 'agent-seed', design: 'design-seed' } }));
   });
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
@@ -275,8 +273,8 @@ try {
     'stale Agent workdir should be rejected, cleared and replaced through the picker',
     () => JSON.stringify({ starts, pageErrors }, null, 2),
   );
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v1')).workdirs.agent === '/tmp/dstudio-ui-agent');
-  const agentWorkdirSetting = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v1')).workdirs.agent);
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).workdirs.agent === '/tmp/dstudio-ui-agent');
+  const agentWorkdirSetting = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).workdirs.agent);
   assert.equal(agentWorkdirSetting, '/tmp/dstudio-ui-agent', 'Agent workdir setting should be repaired after a stale path');
   const startsBeforeSkillPick = starts.length;
   await page.locator('#cbar-gear').click();

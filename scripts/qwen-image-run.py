@@ -156,7 +156,7 @@ def report_edit_model_progress(status_file: Path, stop: threading.Event) -> None
                     status_file,
                     "running",
                     "download",
-                    f"Downloading Qwen Image Edit · {current_gib:.1f} / {total_gib:.1f} GiB…",
+                    f"Downloading the local image editor · {current_gib:.1f} / {total_gib:.1f} GiB…",
                     12 + round(36 * ratio),
                 )
             elif expected:
@@ -164,7 +164,7 @@ def report_edit_model_progress(status_file: Path, stop: threading.Event) -> None
                     status_file,
                     "running",
                     "model-load",
-                    "Download complete · loading Qwen Image Edit into Metal…",
+                    "Download complete · loading the image editor into Metal…",
                     50,
                 )
             else:
@@ -172,12 +172,12 @@ def report_edit_model_progress(status_file: Path, stop: threading.Event) -> None
                     status_file,
                     "running",
                     "model",
-                    "Downloading or loading Qwen Image Edit model weights…",
+                    "Downloading or loading the local image editor…",
                     12,
                 )
         except Exception as exc:
             # Progress reporting must never abort a valid image-edit operation.
-            print(f"Qwen Image Edit progress probe skipped: {exc}", flush=True)
+            print(f"Local image editor progress probe skipped: {exc}", flush=True)
         stop.wait(1.0)
 
 
@@ -224,14 +224,14 @@ def main() -> int:
         print(output.resolve())
         return 0
 
-    write_status(status_file, "running", "preparing", "Preparing the local Qwen Image runtime…", 5)
+    write_status(status_file, "running", "preparing", "Preparing the local image pipeline…", 5)
     from qwen_image_mps.cli import edit_image, generate_image
     write_status(
         status_file,
         "running",
         "model",
-        "Downloading or loading Qwen Image Edit model weights…" if args.action == "edit"
-        else "Downloading or loading Qwen Image model weights…",
+        "Downloading or loading the local image editor…" if args.action == "edit"
+        else "Downloading or loading the local image generator…",
         12,
     )
     ns = SimpleNamespace(
@@ -252,7 +252,7 @@ def main() -> int:
             output_dir=str(outdir), anime=False, lora=None, cfg_scale=None,
             batman=False, quantization=None,
         )
-        write_status(status_file, "running", "model", "Loading Qwen Image Edit and the source image…", 12)
+        write_status(status_file, "running", "model", "Loading the image editor and the source image…", 12)
         progress_stop = threading.Event()
         progress_thread = threading.Thread(
             target=report_edit_model_progress,
@@ -267,8 +267,8 @@ def main() -> int:
             progress_stop.set()
             progress_thread.join(timeout=2)
         if not saved_path or not Path(saved_path).is_file():
-            write_status(status_file, "error", "error", "Qwen Image Edit returned no output.", 100)
-            raise SystemExit("Qwen Image Edit returned no output")
+            write_status(status_file, "error", "error", "The local image editor returned no output.", 100)
+            raise SystemExit("Local image editor returned no output")
         if args.preserve == "face":
             write_status(status_file, "running", "compositing", "Preserving the original face pixels…", 94)
             preserved = preserve_original_face(args.input[-1], saved_path)
@@ -279,20 +279,20 @@ def main() -> int:
         print(saved_path)
         return 0
     event_status = {
-        "init": ("model", "Initializing Qwen Image…", 10),
-        "loading_model": ("model", "Downloading or loading Qwen Image model weights…", 12),
-        "model_loaded": ("model-ready", "Qwen Image model loaded.", 48),
+        "init": ("model", "Initializing the local image generator…", 10),
+        "loading_model": ("model", "Downloading or loading the local image generator…", 12),
+        "model_loaded": ("model-ready", "Local image model loaded.", 48),
         "loading_custom_lora": ("adapter", "Loading image adapter…", 52),
         "loading_ultra_fast_lora": ("adapter", "Loading the 4-step Lightning adapter…", 54),
         "loading_fast_lora": ("adapter", "Loading the 8-step Lightning adapter…", 54),
         "lora_loaded": ("adapter-ready", "Image adapter ready.", 62),
         "preparing_generation": ("preparing-image", "Preparing image tensors…", 68),
-        "inference_start": ("inference", "Generating pixels with Qwen Image…", 74),
+        "inference_start": ("inference", "Generating pixels locally…", 74),
         "inference_complete": ("inference-complete", "Image inference complete.", 92),
         "saving_image": ("saving", "Saving the generated image…", 96),
         "image_saved": ("saved", "Generated image saved.", 99),
         "complete": ("complete", "Image ready.", 100),
-        "error": ("error", "Qwen Image generation failed.", 100),
+        "error": ("error", "Local image generation failed.", 100),
     }
     saved = []
     for event in generate_image(ns):
@@ -300,7 +300,7 @@ def main() -> int:
             saved = event
         elif hasattr(event, "value"):
             stage, label, progress = event_status.get(
-                str(event.value), ("working", "Qwen Image is working…", 50)
+                str(event.value), ("working", "The local image pipeline is working…", 50)
             )
             write_status(
                 status_file,
@@ -311,8 +311,8 @@ def main() -> int:
             )
             print(f"step:{event.value}", flush=True)
     if not saved:
-        write_status(status_file, "error", "error", "Qwen Image returned no output.", 100)
-        raise SystemExit("Qwen image pipeline returned no output")
+        write_status(status_file, "error", "error", "The local image generator returned no output.", 100)
+        raise SystemExit("Local image pipeline returned no output")
     write_status(status_file, "complete", "complete", "Image ready.", 100)
     print(saved[0])
     return 0

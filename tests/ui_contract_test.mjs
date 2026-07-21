@@ -18,6 +18,7 @@ const remoteHelper = fs.readFileSync('extension/remote/dstudio_remote_llm.c', 'u
 const remoteAgent = fs.readFileSync('patch/ds4-agent-jsonl/remote-agent.cfrag', 'utf8');
 const remoteDesign = fs.readFileSync('extension/design/ds4_design.c', 'utf8');
 const searchRuntime = fs.readFileSync('extension/search/runtime.js', 'utf8');
+const embedServer = fs.readFileSync('scripts/embed-server.sh', 'utf8');
 const windowsBuild = fs.readFileSync('scripts/build-windows.ps1', 'utf8');
 const windowsDs4Build = fs.readFileSync('scripts/build-ds4-windows-cygwin.sh', 'utf8');
 const gitignore = fs.readFileSync('.gitignore', 'utf8');
@@ -610,7 +611,7 @@ assert.match(js, /gsaLoop: 'off'/, 'GSA loop should be persisted as an explicit 
 assert.match(js, /gsaDisabledTools: \[\]/, 'GSA disabled tool choices should persist in settings');
 assert.match(js, /enginePower: 90/, 'Engine power should default to ds4 --power 90');
 assert.match(js, /ssdStreaming: 'auto'/, 'SSD streaming should default to automatic memory-pressure handling');
-assert.match(js, /const launchBase = \(\) => \(\{ ctx: ctxSize\(\), power: enginePower\(\), ssdStreaming: ssdStreaming\(\) \}\)/, 'Engine starts should share persisted power and SSD streaming settings');
+assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\) \}\)/, 'Engine starts should omit the local SSD preference for remote models');
 assert.match(js, /function modelIdForEngineStatus\(st\)[\s\S]*modelFile[\s\S]*deepseek-v4-pro[\s\S]*deepseek-v4-flash/, 'live engine status should map the running GGUF to the correct API model id');
 assert.match(js, /liveModelId = modelIdForEngineStatus\(st\)[\s\S]*Store\.setSettings\(\{ model: liveModelId \}\)/, 'status sync should replace stale Flash/Pro labels with the running model id');
 assert.match(js, /SSD streaming running \$\{runningSsd\}[\s\S]*next restart \$\{desiredSsd\}/, 'Settings should distinguish the running SSD mode from a pending restart preference');
@@ -798,6 +799,7 @@ assert.doesNotMatch(windowsBuild, /pacman --noconfirm -S --needed make git patch
 assert.doesNotMatch(windowsBuild, /mingw-w64-ucrt-x86_64-gcc/, 'Windows DS4 build must not use UCRT GCC for ds4 POSIX sources');
 assert.doesNotMatch(windowsBuild, /curl\.exe/, 'Windows package should not depend on curl.exe for LAN client remote model calls');
 assert.match(windowsBuild, /ds4-agent-jsonl\.ver/, 'Windows package should include the JSONL runtime version marker');
+assert.doesNotMatch(windowsBuild, /\$Engine\s*=\s*@\([^\n]*ds4-agent\.exe/, 'Windows package should not ship the retired raw Agent binary');
 assert.match(launcher, /win_prepare_engine_runtime/, 'Windows launcher should prepare runtime DLL lookup before spawning DS4 tools');
 assert.match(launcher, /win_remove_copied_posix_runtime_from_ds4/, 'Windows launcher should remove stale copied MSYS/Cygwin DLLs from the selected DS4 folder');
 assert.doesNotMatch(launcher, /win_copy_runtime_dlls_to_ds4/, 'Windows launcher must not copy packaged runtime DLLs into the selected DS4 folder');
@@ -862,9 +864,11 @@ assert.match(js, /gguf:\s*isLanClientMode\(\) \? '' : modelGguf\(\)/, 'LAN Agent
 assert.match(js, /function startServer\(\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*setMode\('server'\)[\s\S]*return;[\s\S]*runSwitch\('server'/, 'LAN clients must not start a local server when switching back to Chat');
 assert.match(js, /if \(!isLanClientMode\(\) && selectedGguf && selectedGguf !== runningModel\)/, 'LAN onboarding must not start a local selected model');
 assert.doesNotMatch(js, /build:\s*'off'/, 'Agent/Design should keep Plan mode as a per-turn UI contract instead of a launch mode');
-assert.match(js, /jsonl:\s*isLanClientMode\(\) \? true : Store\.getSettings\(\)\.useJsonlPatch !== false/, 'LAN Agent must force structured output for local tools');
+assert.doesNotMatch(js, /useJsonlPatch|set-jsonl/, 'Agent should expose one structured protocol instead of a legacy raw mode');
 assert.match(js, /startAgent[\s\S]*const remote = remoteModelLaunch\(\)[\s\S]*\.\.\.remote/, 'Agent start payload should include the remote model fields');
 assert.match(js, /startDesign[\s\S]*const remote = remoteModelLaunch\(\)[\s\S]*\.\.\.remote/, 'Design start payload should include the remote model fields');
+assert.match(js, /startAgent[\s\S]*launchBase\(remote\.modelBackend === 'remote'\)/, 'Agent cloud/LAN launches should omit SSD streaming');
+assert.match(js, /startDesign[\s\S]*launchBase\(remote\.modelBackend === 'remote'\)/, 'Design cloud/LAN launches should omit SSD streaming');
 assert.match(js, /if \(isLanClientMode\(\)\)[\s\S]*return;[\s\S]*loadSetModels\(\)/, 'LAN clients should not scan local GGUFs from settings refresh');
 assert.match(js, /async function loadSetModels\(\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*return;[\s\S]*Engine\.ggufs\(\)/, 'LAN client settings must not scan local GGUFs even if called directly');
 assert.match(js, /async function loadModelList\(\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*return;[\s\S]*Engine\.ggufs\(\)/, 'LAN clients should not scan local GGUFs from the composer model picker');
@@ -928,8 +932,9 @@ assert.match(launcher, /remoteBaseUrl/, 'launcher must accept a remote model URL
 assert.match(launcher, /remoteBaseUrl must be a safe http:\/\/ LAN URL/, 'remote model URL must be constrained to http LAN use');
 assert.match(launcher, /json_get_bool\(body, "lanClient"\)/, 'launcher must recognize LAN-client remote model starts');
 assert.match(launcher, /LAN client Agent\/Design requires a remote model host/, 'LAN-client Agent\/Design must not fall back to local model discovery');
-assert.match(launcher, /if \(g_remote_base_url\[0\]\) g_use_jsonl = 1/, 'remote Agent must force structured JSONL output');
-assert.match(launcher, /remote agent requires the structured ds4-agent-jsonl build/, 'remote Agent must not fall back to stock raw output');
+assert.match(launcher, /if \(!run_build_jsonl\("build"\)\)[\s\S]*agent requires the structured ds4-agent-jsonl build/, 'Agent startup must require the current structured runtime');
+assert.doesNotMatch(launcher, /g_use_jsonl|stock\/raw|falling back to stock ds4-agent/, 'launcher must not retain the retired raw Agent path');
+assert.doesNotMatch(launcher, /setup_windows_engine_ready\(void\)[\s\S]{0,500}file_present\("ds4-agent\.exe"\)/, 'Windows setup readiness should require only the structured Agent runtime');
 assert.match(launcher, /"--remote-base-url"/, 'launcher must pass --remote-base-url to Agent\/Design');
 assert.match(launcher, /"--remote-model"/, 'launcher must pass --remote-model to Agent\/Design');
 assert.match(launcher, /!remote_model && port_listening\(ENGINE_DEFAULTS\.port\)/, 'remote Agent\/Design must not be blocked by a local engine port');
@@ -1018,7 +1023,7 @@ assert.match(js, /if \(!document\.body\.contains\(menu\)\) document\.body\.appen
 assert.match(js, /window\.innerHeight - margin - height[\s\S]*menu\.style\.top/, 'plus-menu dropdown placement should clamp top inside the viewport');
 assert.match(html, /id="set-power"[\s\S]*id="set-ssd-streaming"/, 'Settings should expose engine power and SSD streaming launch parameters');
 assert.match(js, /enginePower:\s*90[\s\S]*ssdStreaming:\s*'auto'/, 'engine power and SSD streaming should have persisted defaults');
-assert.match(js, /const launchBase = \(\) => \(\{ ctx: ctxSize\(\), power: enginePower\(\), ssdStreaming: ssdStreaming\(\) \}\)/, 'engine starts should share the persisted power and SSD streaming settings');
+assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\) \}\)/, 'engine starts should keep SSD streaming local-only');
 assert.match(js, /function applyEngineConfig\(\)[\s\S]*Restart to apply engine settings\?[\s\S]*restartCurrent\(\)/, 'engine launch setting changes should offer to restart the active engine');
 assert.match(js, /setIogpuWiredLimit\(mb\)[\s\S]*\/api\/iogpu-wired-limit/, 'frontend should expose the IOGPU wired-limit apply endpoint');
 assert.match(html, /id="set-iogpu-limit-mb"[\s\S]*min="86016"[\s\S]*max="90112"[\s\S]*id="set-iogpu-limit"[\s\S]*Apply wired limit[\s\S]*LaunchDaemon/, 'Settings should offer a custom persistent macOS IOGPU limit action');
@@ -1161,10 +1166,9 @@ assert.match(js, /class: 'agent-elapsed--live',[\s\S]*formatElapsed\(performance
 assert.match(js, /const prog = performance\.now\(\) - progAt < 150[\s\S]*if \(prog\) \{ lastTop = s\.scrollTop; return; \}/, 'Agent scroll should ignore programmatic movement before changing follow-bottom state');
 assert.match(js, /deferFileOps: working/, 'Live Agent and Design tails should defer full file diffs while streaming');
 assert.match(js, /deferFreeText: working/, 'Live Agent and Design tails should hide unstable free text while the agent is still streaming');
-assert.match(js, /deferFallbackToolText: working/, 'Live Agent and Design tails should stream structured reasoning/tool blocks while hiding raw fallback tool lines');
 assert.match(js, /const drainingAfterMarker = !!delta && wasWorking && !backendWorking;[\s\S]*working = backendWorking \|\| drainingAfterMarker;/, 'Agent UI should stay busy while buffered output drains after the backend completion marker');
 assert.doesNotMatch(js, /seg\.kind === 'reasoning'\) \{\s*if \(deferLiveText\) return;/, 'Live Agent and Design tails should not hide reasoning until the final transcript render');
-assert.match(js, /seg\.kind === 'tool_text'\) \{[\s\S]*if \(deferLiveText \|\| deferFallbackToolText\) return;/, 'Live Agent and Design tails should suppress raw fallback tool/prose while streaming');
+assert.doesNotMatch(js, /tool_text|deferFallbackToolText|fallback = !hasEvents/, 'structured Agent rendering must not retain the raw transcript parser');
 assert.match(js, /seg\.text && seg\.text\.trim\(\)\) \{[\s\S]*if \(deferFreeText\) return;/, 'Live Agent and Design tails should not render raw free-text payloads before the turn is stable');
 assert.doesNotMatch(js, /activity\.push\(\{ t: 'say'/, 'Design generating activity should not stream raw free text as a live block');
 assert.match(js, /function syncLiveTailChildren\(target, draft\)/, 'Live Agent and Design tails should morph DOM in place instead of flashing every update');
@@ -1235,6 +1239,8 @@ assert.match(launcher, /agent\/design runtime is not active/, 'Backend should re
 assert.match(launcher, /Engine process stopped before completing the turn[\s\S]*g_agent_working = 0;/, 'Backend should make child crashes visible and clear Agent/Design working state');
 assert.match(js, /appendLocalSendFailure\(displayPrompt, msg, thisSend\)/, 'Agent/Design send failures should be persisted in the transcript');
 assert.match(js, /target} did not start[\s\S]*\/api\/status reports mode=/, 'Startup should fail visibly if /api/status disagrees with the requested mode');
+assert.match(js, /const launchWasSuperseded = async \(\)[\s\S]*Engine\.task\(launchTaskId\)[\s\S]*status === 'canceled'/, 'startup polling should detect a launch superseded by another window or request');
+assert.match(js, /if \(await launchWasSuperseded\(\)\)[\s\S]*setMode\(st\.mode\)/, 'a superseded launch should adopt the newer ready mode without a false startup error');
 
 assert.match(js, /copy\.lanMirror\s*=\s*true/, 'LAN mirror rows should be marked read-only');
 assert.match(js, /for \(const mode of \['chat', 'agent', 'design'\]\)/, 'mirror sync must cover chat, agent and design');
@@ -1254,6 +1260,9 @@ assert.match(js, /window\.location\.href = '\/loading\.html'/, 'Switch to host s
 const settingsDialog = html.match(/<dialog id="settings-dialog"[\s\S]*?<dialog id="lan-client-settings-dialog"/)?.[0] || '';
 assert.match(settingsDialog, /Network access/, 'host settings should keep the LAN toggle');
 assert.match(settingsDialog, /Connect to LAN/, 'settings should allow entering LAN client mode');
+assert.match(js, /const SCHEMA_VERSION = 2;[\s\S]*settings: 'ds4web\.settings\.v2'/, 'current UI storage must use the breaking v2 schema');
+assert.doesNotMatch(js, /function migrate\(|webSearchEnabled|ssdStreamingAutoMigrated|deepseekV4ModelMigrated|lanClientDs4Dir/, 'current UI must not carry previous-schema migration branches');
+assert.match(js, /function mergeRemote\(remote\) \{[\s\S]*remote\.v !== SCHEMA_VERSION/, 'server chat sync must reject stores from a different schema');
 
 assert.match(loadingHtml, /lanClientHost/, 'loading gate must skip when this browser is a LAN client');
 assert.match(loadingHtml, /settings\.onboarded !== true/, 'loading gate should wait until host onboarding is complete');
@@ -1261,7 +1270,8 @@ assert.doesNotMatch(loadingHtml, /hello are you alive\?|askAlive/, 'loading gate
 assert.match(loadingHtml, /class="logo"[\s\S]*id="loading-progress"[\s\S]*id="loading-bar"[\s\S]*id="loading-stage"[\s\S]*id="loading-pct"/, 'loading page should show the DStudio logo above a labeled progress bar');
 assert.match(loadingHtml, /showProgress\(st\.loadPct,[\s\S]*st\.stage/, 'loading progress should consume the launcher percentage and stage');
 assert.match(loadingHtml, /startWithSavedSettings\(\)[\s\S]*saved\.ctxSize[\s\S]*saved\.enginePower[\s\S]*saved\.ssdStreaming[\s\S]*\/api\/start/, 'native loading gate should start the engine with the persisted browser launch settings');
-assert.match(loadingHtml, /ssdStreaming,[\s\S]*jsonl: saved\.useJsonlPatch !== false/, 'native loading gate should pass SSD Off/On/Auto through without rewriting it');
+assert.match(loadingHtml, /startWithSavedSettings\(\)[\s\S]*\/api\/start[\s\S]*ssdStreaming,/, 'native loading gate should pass SSD Off/On/Auto through without rewriting it');
+assert.doesNotMatch(loadingHtml, /useJsonlPatch|jsonl:/, 'native loading gate should use the single current Agent protocol');
 assert.match(loadingHtml, /idlePolls >= 3[\s\S]*location\.replace\('\/'\)/, 'loading gate should open the workspace instead of waiting forever when no engine launch is active');
 assert.doesNotMatch(loadingHtml, /class="mark"|@keyframes spin/, 'loading page should not use the old rotating mark');
 
@@ -1306,7 +1316,7 @@ assert.doesNotMatch(onboardingLocal, /onboard__status-k/, 'onboarding connection
 assert.match(html, /id="ds4dir-setup"/, 'forced ds4 gate should offer one-click ds4 install');
 assert.doesNotMatch(html, /id="onboard-ds4dir-browse-btn"|id="onboard-ds4dir-browse"|id="ds4dir-input"|id="ds4dir-save"|id="lan-client-ds4dir-choose"/, 'UI should not keep manual ds4 folder fallback controls');
 assert.match(js, /async function setupReadyEnoughToSkipOnboarding\(\)[\s\S]*Engine\.doctor\(\)[\s\S]*Number\(d\.fatal \|\| 0\) === 0[\s\S]*Engine\.status\(\)/, 'onboarding first-run gate should consult Doctor/status before showing');
-assert.match(js, /onboarded:\s*'ds4web\.onboarded\.v1'/, 'onboarding should have a durable marker independent from settings');
+assert.match(js, /onboarded:\s*'ds4web\.onboarded\.v2'/, 'onboarding should have a durable marker independent from settings');
 assert.match(js, /function onboardingComplete\(\)[\s\S]*state\.settings\.onboarded === true[\s\S]*onboardingMarkerDone\(\)[\s\S]*hasLocalConversationHistory\(\)/, 'onboarding completion should survive settings reset when marker or local history exists');
 assert.match(js, /function markOnboarded\(\)[\s\S]*writeKey\(STORAGE_KEYS\.settings, JSON\.stringify\(state\.settings\)\)[\s\S]*persistOnboardingMarker\(\)/, 'onboarding completion should write settings and the durable marker immediately');
 assert.match(js, /async function maybeShowInitialOnboarding\(\)[\s\S]*Store\.onboardingComplete\(\)[\s\S]*Store\.markOnboarded\(\)[\s\S]*setupReadyEnoughToSkipOnboarding\(\)[\s\S]*Store\.markOnboarded\(\)[\s\S]*if \(document\.querySelector\('dialog\[open\]'\)\) setTimeout\(tryShow, 400\)/, 'onboarding should never reopen for a completed setup and should mark a ready local setup as onboarded');
@@ -1320,12 +1330,21 @@ assert.match(js, /function setSettingsNow\(patch\)[\s\S]*persistSettings\.cancel
 assert.match(js, /let shouldShowLoading = false;[\s\S]*shouldShowLoading = true;[\s\S]*if \(shouldShowLoading && !isLanClientMode\(\)\) location\.href = '\/loading\.html'/, 'onboarding Start should only show loading after it actually starts a different model');
 assert.match(js, /async function connectLanAddress\(\)[\s\S]*await connectLanClientMode\(lanAddressInput\.value\)[\s\S]*completingOnboarding = true;[\s\S]*Store\.markOnboarded\(\);[\s\S]*dialog\.close\(\)/, 'LAN onboarding connect should complete onboarding only after a valid LAN health check');
 assert.doesNotMatch(html, /onboard__cmd|onboard__list|fsfinder/, 'onboarding should not keep CSS for removed manual setup/finder UI');
-assert.match(js, /delete state\.settings\.lanClientDs4Dir/, 'settings migration should remove the old LAN client ds4 folder cache key');
 assert.match(js, /async function setupDs4\(\)[\s\S]*\/api\/ds4\/setup/, 'Engine API should call the managed ds4 setup endpoint');
 assert.match(js, /async function setupDs4FromUi\(\)[\s\S]*Engine\.setupDs4\(\)/, 'onboarding setup button should call the managed setup endpoint');
 assert.match(js, /function availableModelDownloads\(ggufs\)[\s\S]*MODEL_DOWNLOADS\.filter[\s\S]*d\.match\.test\(file\)/, 'download picker should hide model targets already present in the engine folder');
 assert.match(js, /function renderSetModels\(\)[\s\S]*const choices = availableModelDownloads\(ggufs\)/, 'settings model download picker should use only missing model targets');
+assert.match(html, /id="set-local-model-row"[\s\S]*id="set-deepseek-model-row"[\s\S]*deepseek-v4-flash[\s\S]*deepseek-v4-pro/, 'settings should provide separate local GGUF and DeepSeek cloud model pickers');
+assert.match(js, /const syncBackendRows = \(\) =>[\s\S]*localModelRow\.hidden = cloud/, 'choosing the cloud backend should hide the local GGUF catalog');
+assert.match(js, /async function refreshModels\(\)[\s\S]*cloudSelected[\s\S]*Api\.getModels[\s\S]*s\.chatBackend === 'deepseek'[\s\S]*deepseekModel: selected, model: selected/, 'settings should populate and persist the live DeepSeek cloud catalog');
+assert.match(js, /const effectiveModel = cloud[\s\S]*deepseekModel \|\| 'deepseek-v4-flash'/, 'cloud chat requests should always use the selected DeepSeek model rather than a stale local model id');
+assert.match(js, /if \(cloud\) \{[\s\S]*body\.thinking = \{ type: off \? 'disabled' : 'enabled' \}[\s\S]*body\.reasoning_effort = thinkLevel === 'max' \? 'max' : 'high'/, 'DeepSeek V4 cloud requests should honor the visible thinking control');
 assert.match(js, /function renderModels\(\)[\s\S]*const choices = availableModelDownloads\(ggufs\)/, 'onboarding model download picker should use only missing model targets');
+assert.match(js, /target: 'flash-abliterated'/, 'the uncensored model download should use the current target-based API');
+assert.doesNotMatch(js, /body:\s*\{\s*variant:|typeof spec === 'string'/, 'model downloads should not retain the retired variant/string request formats');
+const modelDownloadHandler = launcher.match(/static void api_model_download[\s\S]*?\nstatic void api_status/)?.[0] || '';
+assert.match(modelDownloadHandler, /json_get_string\(body, "target"/, 'model download API should accept the current target field');
+assert.doesNotMatch(modelDownloadHandler, /json_get_string\(body, "variant"|Legacy:/, 'model download API should reject retired variant aliases');
 assert.match(js, /async function recheckModels\(\)[\s\S]*refreshModels\(\)[\s\S]*loadGgufs\(\)/, 'onboarding model Recheck should rescan status and GGUF files');
 assert.match(js, /async function setupOnboardLanDs4\(\)[\s\S]*Engine\.setupDs4\(\)/, 'LAN onboarding local ds4 install should use the managed setup endpoint');
 assert.match(html, /\.onboard__ctx[\s\S]*background-image:\s*url[\s\S]*appearance:\s*none/, 'onboarding dropdowns should use the polished custom select styling');
@@ -1335,8 +1354,8 @@ assert.doesNotMatch(js, /choose-ds4|verifyPath|toggleFinder|loadFinder|PATHS/, '
 
 assert.match(js, /function classifyResearchRequest\(/, 'web research should classify the request before searching');
 assert.match(js, /async function generateImageFromDirective\(/, 'chat should route the model image directive to the local Qwen pipeline');
-assert.match(html, /id="set-vision-model"[\s\S]*Reads images · Qwen2\.5-VL 3B[\s\S]*Reads images · Qwen2\.5-VL 7B/, 'Vision settings should keep both image-reader models in the dropdown');
-assert.match(html, /Qwen Image · generates images[\s\S]*Qwen Image Edit · edits images[\s\S]*generation pipelines are separate from the Qwen2\.5-VL reader/, 'Vision settings should distinguish image reading, generation, and editing roles');
+assert.match(html, /id="set-vision-model"[\s\S]*Reads images · 3B[\s\S]*Reads images · 7B/, 'Vision settings should keep both image-reader sizes in the dropdown without exposing implementation branding');
+assert.match(html, /Image generation · creates images[\s\S]*Image editing · edits images[\s\S]*image pipelines are separate from the vision reader/, 'Vision settings should distinguish image reading, generation, and editing roles without exposing implementation branding');
 assert.match(js, /Understand the request semantically in whatever language the user uses; never depend on a keyword list/, 'the model prompt should classify image intent semantically in any language');
 assert.match(js, /exactly one fenced block with info string dstudio-image/, 'the model prompt should emit a structured image-generation directive');
 assert.match(js, /\{"action":"edit","prompt":"precise editing instructions","preserve":"none"\}/, 'the model prompt should distinguish edits that require source pixels');
@@ -1354,10 +1373,10 @@ assert.match(js, /\/api\/image\/progress\?id=/, 'image generation should poll li
 assert.match(js, /function buildImageGenerationStatus\(status\)/, 'chat should render a dedicated image placeholder with progress');
 assert.match(html, /\.msg-image-generation__[\s\S]*\.msg-image-generation__track[\s\S]*\.msg-image-generation__bar/, 'image placeholder should include progress UI styling');
 assert.match(js, /imageGeneration = \{[\s\S]*stage: 'queued'[\s\S]*startedAt: Date\.now\(\)/, 'assistant messages should enter a visible image-generation state');
-assert.match(js, /First use downloads the Qwen Image model once/, 'first-run model download should be explained in the placeholder');
+assert.match(js, /First use downloads the local image model once/, 'first-run model download should be explained in the placeholder without exposing implementation branding');
 assert.match(fs.readFileSync('src/dstudio_image.c', 'utf8'), /static void api_image_progress\(/, 'backend should expose image job progress');
-assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /"loading_model": \("model", "Downloading or loading Qwen Image model weights/, 'Qwen runner should publish model-loading progress');
-assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def report_edit_model_progress[\s\S]*Downloading Qwen Image Edit[\s\S]*loading Qwen Image Edit into Metal/, 'Qwen edit should distinguish live model download progress from Metal loading');
+assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /"loading_model": \("model", "Downloading or loading the local image generator/, 'Image runner should publish model-loading progress without exposing implementation branding');
+assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def report_edit_model_progress[\s\S]*Downloading the local image editor[\s\S]*loading the image editor into Metal/, 'Image editing should distinguish live model download progress from Metal loading');
 assert.match(fs.readFileSync('patch/qwen-image-mps/mps-direct-dtype.patch', 'utf8'), /EditPipeline\.from_pretrained[\s\S]*torch_dtype=torch_dtype/, 'Qwen edit should load weights in the target dtype before transferring them to Metal');
 assert.match(js, /function updateImageGeneration\(messageId, status\)[\s\S]*bar\.style\.width[\s\S]*return true/, 'image progress polling should update the existing placeholder without rebuilding the transcript');
 assert.match(js, /Messages\.updateImageGeneration\(asst\.id, imageGeneration\)/, 'Qwen progress should use the stable in-place placeholder update');
@@ -1370,6 +1389,18 @@ assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /if args\.act
 assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def preserve_original_face\([\s\S]*Image\.composite\(source, edited, mask\)/, 'Qwen edits should be able to restore original face pixels with a feathered mask');
 assert.match(launcher, /qwen_memory_begin\("vision"\)/, 'Vision calls should acquire a temporary DS4 memory lease');
 assert.match(launcher, /qwen_memory_begin\("pdf"\)/, 'PDF calls should acquire a nested temporary DS4 memory lease');
+assert.match(js, /function routePdfReadPlan\([\s\S]*multilingual semantic PDF read planner[\s\S]*overview\|pages\|search/, 'Chat PDFs should use an LLM semantic read planner');
+assert.doesNotMatch(extractFunction(js, 'routePdfReadPlan'), /\.test\(/, 'PDF read intent must not use regular-expression classification');
+assert.match(js, /profile:\s*readPlan\.mode === 'search' \? 'semantic' : 'interactive'[\s\S]*max_chars:\s*maxChars/, 'Chat PDFs should route to bounded overview/page reads or semantic retrieval');
+assert.match(js, /cloudChat\s*\?\s*48\s*\*\s*1024[\s\S]*20\s*\*\s*1024/, 'PDF prompt budgets should stay bounded and adapt local versus cloud chat');
+assert.match(launcher, /PDF_INTERACTIVE_MAX_TEXT_PAGES\s+48/, 'Long PDF chat reads should cap the representative page set');
+assert.match(launcher, /pdf_select_interactive_pages[\s\S]*Farthest-point fill/, 'Long PDF selection should cover the whole document rather than only its first pages');
+assert.match(launcher, /pdf_semantic_page_scores[\s\S]*embed_call[\s\S]*pdf_select_semantic_pages/, 'Targeted PDF questions should retrieve across every page with multilingual embeddings');
+assert.match(js, /readPlan\.mode === 'pages'[\s\S]*payload\.pages = readPlan\.pages/, 'LLM-selected physical page ranges should be sent directly to the PDF reader');
+assert.match(js, /need\.needs === 'embedding'[\s\S]*ensureEmbeddingSetup/, 'Semantic PDF retrieval should install its local embedding sidecar on demand');
+assert.match(embedServer, /--parallel 1[\s\S]*--batch-size \$CTX[\s\S]*--ubatch-size \$CTX/, 'Metal embeddings should use one stable slot with a full-context physical batch');
+assert.match(launcher, /PDF_INTERACTIVE_SCAN_PASSES\s+8[\s\S]*PDF_INTERACTIVE_FIG_PASSES\s+2/, 'Interactive PDF vision work should have separate bounded scan and figure budgets');
+assert.match(launcher, /vision_lease\s*=\s*qwen_memory_begin\("pdf"\)/, 'PDFs should acquire DS4 memory pressure only when a vision pass is actually required');
 assert.match(launcher, /qwen_memory_begin\("image-generation"\)/, 'image generation should acquire a temporary DS4 memory lease');
 assert.match(remoteDesign, /--ssd-streaming[\s\S]*c\.engine\.ssd_streaming = true/, 'design agent should accept the SSD-streaming launch option passed by DStudio');
 assert.match(launcher, /model \+ reserve \+ 8ull \* gib > ram \* 82ull \/ 100ull/, 'Qwen lease policy should evaluate model, pipeline reserve and physical RAM');

@@ -40,6 +40,7 @@ button such as **Choose**, **Download**, **Start** or **Settings**.
 - Run **DeepSeek V4 locally** through a native macOS/Linux desktop interface.
 - Use a **private AI chat** with persistent KV cache, reasoning display, citations from optional Web Search and local history.
 - Run **Web Search or Deep Research** through DStudio's local browser/search helper, with read-page evidence and source cards.
+- Generate new images or edit an existing image through a dedicated local pipeline that keeps the source pixels on your machine.
 - Use a **local coding agent** that reads, edits and verifies files inside a folder you choose.
 - Browse and load **Skills**: focused local instructions for Agent, Design and imported cybersecurity workflows.
 - Run **Guided Security Analysis (GSA)** for authorized local source reviews or target-scoped security work, using imported cybersecurity skills and optional local tools.
@@ -59,6 +60,28 @@ A sidebar switches between Chat, Agent and Design. Each mode has its own reopena
 </div>
 
 Streaming DeepSeek V4 chat backed by the ds4 server KV cache: the context lives server-side (prefix reuse, shown as *cached* tokens) and every message is saved locally. You get live tokens/s, collapsible reasoning, native MathML for LaTeX, syntax-highlighted code and optional Web Search sources through the local browser.
+
+## Multimodal PDFs
+
+<div align="center">
+
+<img src="assets/pdf.gif" width="820" alt="DStudio multimodal PDF demo showing local document understanding and semantic page retrieval">
+
+</div>
+
+Attach a PDF and ask naturally in any language. DeepSeek V4 decides whether to build a bounded whole-document overview, read an exact physical page or search semantically across every page. DStudio extracts the text locally, reads scans and meaningful figures when needed, caches a multilingual page index and sends only the strongest evidence back to DeepSeek for the final answer. This keeps the prompt bounded even for 1,000-page books while later searches reuse the local index.
+
+## Local Image Generation
+
+<div align="center">
+
+<img src="assets/generating.png" width="820" alt="DStudio local image-generation pipeline showing live model preparation and generation progress">
+
+</div>
+
+Ask for an image naturally in any language. DeepSeek V4 understands the intent and emits a structured image instruction, so routing is based on the model's interpretation rather than a list of phrases or regular expressions. DStudio then hands the prompt to a dedicated local generator. A new-image request starts from text; an edit request passes the actual pixels of the most relevant recent image together with the requested change, preserving visual context instead of reducing the source to a text description.
+
+The reply gets a placeholder immediately while DStudio reports the real pipeline stages: preparing cached weights, loading the local model, applying its fast-generation adapter and producing pixels. The first run downloads the large model once; later runs reuse the local cache, although loading it into accelerator memory can still take several minutes. On machines where the chat model and image pipeline do not comfortably fit together, DStudio temporarily releases the chat model's accelerator residency, runs the image job and then restores the previous memory and SSD-streaming state. The generated file is saved locally and attached to the conversation for follow-up edits.
 
 ## Search & Deep Research
 
@@ -137,7 +160,7 @@ Toggle **Plan** in Agent mode, describe what you want, and DStudio writes a **Ma
 
 - **Local-first & private.** Everything runs on your machine. No telemetry, no cloud backend, strict CSP. The app speaks only to your local engine.
 - **Self-contained native app.** The UI is one vanilla file base64-embedded in the binary. No Electron, no asset server, no CDN.
-- **Non-invasive integration.** The agent's structured output comes from a small, **reversible, build-time patch** of the engine source: DStudio backs it up, builds a separately-named binary, and restores the original immediately. The ds4 repo stays pristine, and if the patch ever fails it falls back to the stock agent.
+- **Non-invasive integration.** The agent's structured output comes from a small, **reversible, build-time patch** of the engine source: DStudio backs it up, builds a separately-named binary and restores the original immediately. The current DStudio release requires this structured runtime and fails clearly if its pinned patch cannot be built.
 - **Setup doctor.** First run checks the ds4 folder, GGUF model, chat engine, agent, design runtime, Web Search, port and LAN state, then gives a direct fix button.
 - **Pick model & reasoning per chat.** A gear in the composer collapses model selection, reasoning level, Web Search and working folder into one popover.
 - **Zero-config networking.** Localhost by default; one toggle exposes it on your Wi-Fi, and the engine still never leaves localhost (see below).
@@ -162,25 +185,6 @@ This is a serious local AI setup. DStudio removes product friction, not physics:
 > Not packing a 96 GB Mac? The screenshots above show every mode in action: chat, the coding agent, the design pipeline and LAN access.
 
 `ds4-design` lives in **this** repo (`extension/design/ds4_design.c`) and is compiled into the ds4 repo automatically the first time you open Design.
-
-### Local Qwen image and document pipelines
-
-DStudio routes image-understanding, scanned-PDF and explicit image-generation
-requests through local Qwen pipelines. Prompts such as “generate this image”,
-“generami un’immagine” and common misspellings are sent to the pinned
-[`ivanfioravanti/qwen-image-mps`](https://github.com/ivanfioravanti/qwen-image-mps)
-runtime. Its isolated Python 3.12 environment is installed under
-`~/.dstudio/qwen-image` on first use; model weights are downloaded by the
-upstream Hugging Face pipeline and are not bundled with DStudio.
-
-On constrained machines these pipelines share memory with the large DS4 model.
-The patch in `patch/ds4-qwen-hot-memory/` therefore adds a temporary, nestable
-memory lease: before Qwen runs, DS4 synchronizes the accelerator, suspends Metal
-model residency, releases streaming caches and marks mmap pages reclaimable.
-After Qwen finishes it restores residency without changing the saved SSD
-streaming setting. The policy accounts for physical RAM, model size, pipeline
-reserve and backend; an ~87 GB Flash model on a 96 GB unified-memory Mac always
-uses the lease even when the persistent setting is **Off**.
 
 ### GLM 5.2 (experimental, optional)
 
@@ -212,7 +216,7 @@ are never vendored into this repo.
 
 ### Windows notes
 
-For normal use, download/extract the Windows portable zip and run `DStudio.exe`. Keep the files together: `DStudio.exe`, `ds4-server.exe`, `ds4-agent.exe`, `ds4-agent-jsonl.exe`, `ds4-agent-jsonl.ver` and `ds4-design.exe` are meant to live in the same portable folder.
+For normal use, download/extract the Windows portable zip and run `DStudio.exe`. Keep the files together: `DStudio.exe`, `ds4-server.exe`, `ds4-agent-jsonl.exe`, `ds4-agent-jsonl.ver` and `ds4-design.exe` are meant to live in the same portable folder.
 
 If you build DStudio or use Agent/Design from a LAN client with your own local DS4 checkout, install:
 
@@ -259,7 +263,7 @@ Behind the scenes DStudio **reverse-proxies the engine API** (`/v1`) to the loca
 
 ## How it works
 
-- **C launcher, not a script.** `dstudio.c` is both the local HTTP server and the engine supervisor: it starts/stops `ds4-server` for chat, `ds4-agent` for coding and `ds4-design` for design, manages working directories, runs the setup doctor, proxies `/v1`, serves Web Search and exposes a small local API.
+- **C launcher, not a script.** `dstudio.c` is both the local HTTP server and the engine supervisor: it starts/stops `ds4-server` for chat, `ds4-agent-jsonl` for coding and `ds4-design` for design, manages working directories, runs the setup doctor, proxies `/v1`, serves Web Search and exposes a small local API.
 - **Native window.** `app.cc` forks the server and opens a WKWebView (macOS) / WebKitGTK (Linux) window via `webview.h`; the page is base64-embedded (`page_data.h`).
 - **Same-origin proxy.** The page calls DStudio for `/v1`; DStudio forwards streaming requests to the local engine, which is why LAN works with no engine exposure and no settings.
 
@@ -272,21 +276,13 @@ ds4's agent is a separate, fast-moving codebase that can't be modified permanent
 3. builds a **separately-named** binary (`ds4-agent-jsonl`), reusing the existing object files,
 4. **restores the original source immediately.**
 
-The canonical `ds4-agent` source is restored after the JSONL build; the build is idempotent (a version stamp forces a rebuild only when the patch itself changes), and it self-heals on the next launch even after a crash. If the patch ever fails to apply, for example because upstream code was reworked, DStudio **falls back to the stock `ds4-agent`** and the UI parses its raw output instead. The separate Qwen hot-memory patch remains applied to the engine core and is reversed/reapplied automatically around upstream pulls. (`ds4-design` is *our* code, in this repo, so it emits these events natively with no patch needed.)
+The canonical `ds4-agent` source is restored after the JSONL build; the build is idempotent (a version stamp forces a rebuild only when the patch itself changes), and it self-heals on the next launch even after a crash. A patch mismatch is a startup error: DStudio does not maintain a second raw-output parser or silently downgrade the Agent. The separate multimodal hot-memory patch remains applied to the engine core and is reversed/reapplied automatically around upstream pulls. (`ds4-design` is *our* code, in this repo, so it emits these events natively with no patch needed.)
 
-#### ⚠️ The patch targets antirez's **original** ds4: forks must disable it
+#### ⚠️ The patch targets DStudio's pinned ds4 commit
 
-The structured (patched) mode works against the **unmodified upstream [ds4](https://github.com/antirez/ds4)**: the patch finds its insertion points by **exact source anchors** in `ds4_agent.c`. On the original repo those anchors match and you get the full experience.
+The structured runtime is built against the **unmodified, pinned [ds4](https://github.com/antirez/ds4)** source: the patch finds its insertion points by exact anchors in `ds4_agent.c`. DStudio updates that pin and the patch together as one breaking release boundary.
 
-If you run a **fork of ds4** that changes the agent source, the anchors may no longer line up. The patch then refuses to apply (and DStudio auto-falls-back to the stock agent), but to skip the failing attempt entirely, **disable the patch**:
-
-> **Settings → Agent output → Raw.** This runs the stock `ds4-agent` untouched and the UI parses its plain text. Lower fidelity, but it works on any ds4. (The choice is persisted, so set it once.)
-
-<div align="center">
-  <img src="assets/README%20images/disable-patch.png" width="640" alt="Settings: Agent output set to Raw (no patch)">
-</div>
-
-**Why it's done this way.** ds4 is antirez's project: fast-moving, and not the kind of repo that takes a UI's structured-output hooks upstream. So instead of forking it (which would mean maintaining a divergent copy forever) or shipping a modified binary, the integration stays **non-invasive and reversible**: it patches by anchor, builds a separate binary, and restores the source immediately. The trade-off is deliberate: the rich mode is bound to the *specific* source it was written against, and the **Raw fallback is what keeps the app working on anything else** (a fork, or a future upstream that moved the anchors). You keep the engine pristine; you opt into fidelity only where the source matches.
+Forks that change those anchors are unsupported by that release and the Agent refuses to start instead of running with partial behavior. This keeps one protocol, one renderer and one test surface while leaving the upstream checkout pristine.
 
 ### KV cache: how context is kept
 

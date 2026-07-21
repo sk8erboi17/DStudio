@@ -90,8 +90,8 @@ try {
   page.on('pageerror', (e) => pageErrors.push(e?.stack || e?.message || String(e)));
   page.on('console', (msg) => { if (msg.type() === 'error') pageErrors.push(msg.text()); });
   await page.addInitScript(() => {
-    localStorage.setItem('ds4web.settings.v1', JSON.stringify({
-      v: 1,
+    localStorage.setItem('ds4web.settings.v2', JSON.stringify({
+      v: 2,
       onboarded: true,
       model: 'deepseek-v4-pro',
       modelVariant: 'flash',
@@ -99,7 +99,6 @@ try {
       ctxSize: 131072,
       enginePower: 70,
       ssdStreaming: 'off',
-      useJsonlPatch: true,
     }));
   });
 

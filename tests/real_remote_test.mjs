@@ -40,7 +40,6 @@ async function assertRemoteWorkspaceWrite({ mode, workspace, file, content, prom
     power: 100,
     think: 'off',
     workdir: workspace,
-    jsonl: true,
     modelBackend: 'remote',
     remoteBaseUrl: host.baseUrl,
     remoteModel: 'ds4',

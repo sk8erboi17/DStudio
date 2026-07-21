@@ -274,7 +274,6 @@ const server = http.createServer(async (req, res) => {
       stage: 'Ready',
       agentWorking: false,
       workdir: '/tmp/dstudio-plan-mode-matrix',
-      jsonl: true,
       ds4dirOk: true,
       webdirOk: true,
       lan: false,
@@ -384,25 +383,24 @@ async function runCase(context, c, index) {
   await page.addInitScript(({ caseId }) => {
     const now = Date.now();
     window.ds4PickDirectory = async () => '/tmp/dstudio-plan-mode-matrix';
-    localStorage.setItem('ds4web.settings.v1', JSON.stringify({
-      v: 1,
+    localStorage.setItem('ds4web.settings.v2', JSON.stringify({
+      v: 2,
       onboarded: true,
       theme: 'light',
       model: 'deepseek-v4-flash',
       modelVariant: 'flash',
       thinkLevel: 'high',
       ctxSize: 65536,
-      useJsonlPatch: true,
       webMode: 'off',
       planMode: 'on',
       workdirs: { agent: '/tmp/dstudio-plan-mode-matrix' },
     }));
-    localStorage.setItem('ds4web.chats.v1', JSON.stringify({
-      v: 1,
+    localStorage.setItem('ds4web.chats.v2', JSON.stringify({
+      v: 2,
       deleted: [],
       chats: [{ id: `agent-plan-${caseId}`, mode: 'agent', title: `Plan ${caseId}`, createdAt: now, updatedAt: now, messages: [], transcript: '' }],
     }));
-    localStorage.setItem('ds4web.active.v1', JSON.stringify({ v: 1, ids: { chat: null, agent: `agent-plan-${caseId}`, design: null } }));
+    localStorage.setItem('ds4web.active.v2', JSON.stringify({ v: 2, ids: { chat: null, agent: `agent-plan-${caseId}`, design: null } }));
   }, { caseId: c.id });
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });

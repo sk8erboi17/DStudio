@@ -7,7 +7,7 @@
   <script>
     (() => {
       try {
-        const settings = JSON.parse(localStorage.getItem('ds4web.settings.v1') || '{}');
+        const settings = JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}');
         if (settings && settings.lanClientHost) location.replace('/');
         if (!settings || settings.onboarded !== true) location.replace('/');
       } catch {
@@ -183,7 +183,7 @@
       }
 
       let saved = {};
-      try { saved = JSON.parse(localStorage.getItem('ds4web.settings.v1') || '{}') || {}; }
+      try { saved = JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}') || {}; }
       catch { saved = {}; }
       const ctx = Math.max(1024, Math.min(1048576, parseInt(saved.ctxSize, 10) || 65536));
       const power = Math.max(1, Math.min(100, parseInt(saved.enginePower, 10) || 90));
@@ -204,7 +204,6 @@
             ctx,
             power,
             ssdStreaming,
-            jsonl: saved.useJsonlPatch !== false,
           }),
         }, 15000);
         return true;

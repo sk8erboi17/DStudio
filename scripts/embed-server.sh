@@ -60,8 +60,11 @@ export LD_LIBRARY_PATH="$BINDIR:${LD_LIBRARY_PATH:-}"
 
 # --embeddings puts llama-server in embedding mode (serves /v1/embeddings). No
 # --pooling: let the model's own default (Qwen3-Embedding uses last-token) apply.
-echo "embed-server: $SERVER -hf $HFREPO --embeddings --host $HOST --port $PORT -c $CTX -ngl $NGL (idle-stop ${IDLE_MIN}m)" >&2
-"$SERVER" -hf "$HFREPO" --embeddings --host "$HOST" --port "$PORT" -c "$CTX" -ngl "$NGL" &
+# One server slot is intentional. A batched /v1/embeddings request is already
+# evaluated efficiently by llama.cpp, while multiple Metal slots duplicate the
+# embedding graph and can make current Apple builds abort when a batch fans out.
+echo "embed-server: $SERVER -hf $HFREPO --embeddings --parallel 1 --batch-size $CTX --ubatch-size $CTX --host $HOST --port $PORT -c $CTX -ngl $NGL (idle-stop ${IDLE_MIN}m)" >&2
+"$SERVER" -hf "$HFREPO" --embeddings --parallel 1 --batch-size "$CTX" --ubatch-size "$CTX" --host "$HOST" --port "$PORT" -c "$CTX" -ngl "$NGL" &
 CHILD=$!
 echo "$CHILD" > "$LOCK"
 touch "$STAMP"
