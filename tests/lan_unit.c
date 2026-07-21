@@ -17,6 +17,21 @@ static uint32_t ip4(const char *s) {
 }
 
 int main(void) {
+#ifndef _WIN32
+    char lock_path[] = "/tmp/dstudio-lock-test.XXXXXX";
+    int lock_fd = mkstemp(lock_path);
+    assert(lock_fd >= 0);
+    assert(setenv("DS4_LOCK_FILE", lock_path, 1) == 0);
+    assert(flock(lock_fd, LOCK_EX | LOCK_NB) == 0);
+    assert(ftruncate(lock_fd, 0) == 0);
+    dprintf(lock_fd, "%ld\n", (long)getpid());
+    assert(ds4_instance_lock_owner() == getpid());
+    assert(flock(lock_fd, LOCK_UN) == 0);
+    assert(ds4_instance_lock_owner() == 0);
+    close(lock_fd);
+    unlink(lock_path);
+    unsetenv("DS4_LOCK_FILE");
+#endif
     assert(!ipv4_usable_lan(ip4("127.0.0.1")));
     assert(!ipv4_usable_lan(ip4("169.254.1.10")));
     assert(ipv4_usable_lan(ip4("192.168.1.10")));

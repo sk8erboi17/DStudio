@@ -1260,7 +1260,10 @@ assert.match(launcher, /#define DS4_REPO_URL "https:\/\/github\.com\/antirez\/ds
 assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "efdadd41e20134af4f3381e1ed90e96fe4faef6f"/, 'managed ds4 setup should pin the current upstream commit in code');
 assert.match(launcher, /#define DS4_ARCHIVE_URL "https:\/\/codeload\.github\.com\/antirez\/ds4\/tar\.gz\/" DS4_UPSTREAM_COMMIT/, 'managed ds4 setup should download a pinned GitHub source archive');
 assert.match(launcher, /static int ds4_server_compatible\(int port\)[\s\S]*GET \/v1\/models[\s\S]*owned_by/, 'launcher should identify a compatible DS4 server before reusing an occupied engine port');
-assert.match(launcher, /ds4_server_compatible\(ENGINE_DEFAULTS\.port\)[\s\S]*g_mode = ENGINE_SERVER;[\s\S]*g_ready = 1;/, 'startup should adopt a compatible DS4 engine already running locally');
+assert.match(launcher, /static pid_t ds4_instance_lock_owner\(void\)[\s\S]*flock\(fd, LOCK_EX \| LOCK_NB\)/, 'launcher should detect a DS4 process that owns the model lock before its port opens');
+assert.match(launcher, /requested_mode == ENGINE_SERVER[\s\S]*reuse_external_ds4\(&cfg, 0, owner\)/, 'server startup should wait for and attach to an existing DS4 process instead of spawning into its lock');
+assert.match(loadingHtml, /!st\.running && st\.engineError[\s\S]*location\.replace\('\/'\)/, 'loading page should leave a terminal engine error instead of remaining stuck on its stage');
+assert.match(launcher, /ds4_server_compatible\(ENGINE_DEFAULTS\.port\)[\s\S]*reuse_external_ds4\(&ENGINE_DEFAULTS, 1, 0\)/, 'startup should adopt a compatible DS4 engine already running locally');
 assert.match(app, /native loading page owns engine startup[\s\S]*DS4UI_DEFER_ENGINE_START/, 'native wrapper should defer engine launch until persisted browser settings are available');
 assert.match(launcher, /getenv\("DS4UI_DEFER_ENGINE_START"\)[\s\S]*Applying saved engine settings/, 'native server child should wait for the loading page instead of launching C defaults');
 assert.match(launcher, /static char\s+g_ds4_dir\[1024\]\s*=\s*"ds4"/, 'default ds4 folder should be managed inside the DStudio repo');

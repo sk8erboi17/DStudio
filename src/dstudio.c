@@ -280,6 +280,7 @@ static DWORD g_last_spawn_win_pid = 0;
 #include <net/if.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/wait.h>
@@ -393,7 +394,8 @@ static const engine_cfg ENGINE_DEFAULTS = { 1, 28000, 262144, 90, 24576, 128, 1,
 /* ---- global engine state ---- */
 static int       g_mode = ENGINE_NONE;
 static pid_t     g_child = -1;
-static int       g_external_server = 0; /* compatible ds4-server reused, never owned/stopped by DStudio */
+static int       g_external_server = 0; /* compatible or still-starting ds4-server reused, never owned/stopped by DStudio */
+static long long g_external_wait_started_ms = 0;
 static engine_cfg g_cfg;
 static char      g_ds4_dir[1024] = "ds4";
 static int       g_ds4_dir_explicit = 0;  /* CLI path: do not override with ./ds4 discovery */
@@ -2433,6 +2435,8 @@ static void mkpath(const char *path) {
     mkdir(tmp, 0755);
 }
 
+static void close_pipes(void);
+
 static int port_listening(int port) {
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return 0;
@@ -2453,6 +2457,66 @@ static int port_listening(int port) {
     int ok = connect(s, (struct sockaddr *)&a, sizeof a) == 0;
     close(s);
     return ok;
+}
+
+/* Return the PID written by the process currently holding DS4's global model
+ * lock. Zero means the lock is free; -1 means it is held but the owner PID is
+ * unavailable. This lets a restarted DStudio wait for and attach to an older
+ * ds4-server that is still loading and has not opened its HTTP port yet. */
+static pid_t ds4_instance_lock_owner(void) {
+#ifdef _WIN32
+    return 0;
+#else
+    const char *path = getenv("DS4_LOCK_FILE");
+    if (!path || !path[0]) path = "/tmp/ds4.lock";
+    int fd = open(path, O_RDWR | O_CREAT, 0600);
+    if (fd < 0) return 0;
+    if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
+        (void)flock(fd, LOCK_UN);
+        close(fd);
+        return 0;
+    }
+    if (errno != EWOULDBLOCK) { close(fd); return 0; }
+    char buf[64] = "";
+    ssize_t n = pread(fd, buf, sizeof buf - 1, 0);
+    close(fd);
+    if (n <= 0) return -1;
+    buf[n] = '\0';
+    char *end = NULL;
+    long owner = strtol(buf, &end, 10);
+    return owner > 0 ? (pid_t)owner : -1;
+#endif
+}
+
+static void reuse_external_ds4(const engine_cfg *cfg, int ready, pid_t owner) {
+    close_pipes();
+    g_child = -1;
+#ifdef _WIN32
+    g_child_win_pid = 0;
+#endif
+    g_mode = ENGINE_SERVER;
+    g_external_server = 1;
+    g_cfg = *cfg;
+    g_ready = ready;
+    g_engine_err[0] = '\0';
+    char ssd_err[128] = "";
+    if (!cfg_ssd_streaming(cfg, 0, ssd_err, sizeof ssd_err)) {
+        g_ssd_streaming_effective = 0;
+        snprintf(g_ssd_streaming_reason, sizeof g_ssd_streaming_reason,
+                 "shared engine; saved SSD setting could not be evaluated: %.96s", ssd_err);
+    }
+    if (ready) {
+        g_external_wait_started_ms = 0;
+        g_load_pct = 100;
+        snprintf(g_stage, sizeof g_stage, "Using the existing local DS4 engine");
+    } else {
+        g_external_wait_started_ms = dstudio_now_ms();
+        g_load_pct = 5;
+        if (owner > 0)
+            snprintf(g_stage, sizeof g_stage, "Attaching to existing DS4 engine (pid %ld)…", (long)owner);
+        else
+            snprintf(g_stage, sizeof g_stage, "Attaching to existing DS4 engine…");
+    }
 }
 
 /* A listener on the default port may belong to another DStudio-family app.
@@ -4626,17 +4690,69 @@ static void api_status(int fd) {
     reap_child();
     int engine_running = g_child > 0;
     if (!engine_running && g_mode == ENGINE_SERVER && g_external_server) {
-        engine_running = port_listening(g_cfg.port);
-        if (engine_running && !g_ready) {
-            engine_running = ds4_server_compatible(g_cfg.port);
-            if (engine_running) {
+        int port_open = port_listening(g_cfg.port);
+        engine_running = port_open;
+        if (port_open && !g_ready) {
+            if (ds4_server_compatible(g_cfg.port)) {
+                engine_running = 1;
                 g_ready = 1;
+                g_external_wait_started_ms = 0;
                 g_load_pct = 100;
                 snprintf(g_stage, sizeof g_stage, "Using the existing local DS4 engine");
                 g_engine_err[0] = '\0';
+                maybe_complete_launch_task(ENGINE_SERVER);
+            } else {
+                engine_running = 0;
+                g_external_server = 0;
+                snprintf(g_engine_err, sizeof g_engine_err,
+                         "port %d opened but is not a compatible DS4 server", g_cfg.port);
+                snprintf(g_stage, sizeof g_stage, "Existing engine is incompatible");
+                if (g_active_launch_task) {
+                    task_mark_failed(g_active_launch_task, g_engine_err, "incompatible listener");
+                    g_active_launch_task = 0;
+                    g_active_launch_mode = ENGINE_NONE;
+                }
             }
-        }
-        if (!engine_running && g_ready) {
+        } else if (!port_open && !g_ready) {
+            pid_t owner = ds4_instance_lock_owner();
+            if (owner != 0 && (!g_external_wait_started_ms ||
+                dstudio_now_ms() - g_external_wait_started_ms < 180000)) {
+                engine_running = 1; /* loading but alive: keep the startup UI waiting */
+                g_load_pct = g_load_pct < 5 ? 5 : g_load_pct;
+                if (owner > 0)
+                    snprintf(g_stage, sizeof g_stage, "Attaching to existing DS4 engine (pid %ld)…", (long)owner);
+            } else if (owner == 0) {
+                /* The old process died before opening the port. Its lock is now
+                 * free, so transparently take over with the saved configuration. */
+                engine_cfg retry_cfg = g_cfg;
+                g_external_server = 0;
+                g_external_wait_started_ms = 0;
+                char retry_err[256] = "";
+                if (spawn_server(&retry_cfg, retry_err, sizeof retry_err)) {
+                    engine_running = 1;
+                    if (g_active_launch_task) task_mark_working(g_active_launch_task, "previous DS4 exited; starting replacement engine");
+                } else {
+                    snprintf(g_engine_err, sizeof g_engine_err, "%s", retry_err[0] ? retry_err : "could not start replacement DS4 engine");
+                    snprintf(g_stage, sizeof g_stage, "Could not start the engine");
+                    if (g_active_launch_task) {
+                        task_mark_failed(g_active_launch_task, g_engine_err, "replacement spawn failed");
+                        g_active_launch_task = 0;
+                        g_active_launch_mode = ENGINE_NONE;
+                    }
+                }
+            } else {
+                engine_running = 0;
+                g_external_server = 0;
+                snprintf(g_engine_err, sizeof g_engine_err,
+                         "existing DS4 process did not open port %d within 180 seconds", g_cfg.port);
+                snprintf(g_stage, sizeof g_stage, "Existing DS4 engine unavailable");
+                if (g_active_launch_task) {
+                    task_mark_failed(g_active_launch_task, g_engine_err, "attach timeout");
+                    g_active_launch_task = 0;
+                    g_active_launch_mode = ENGINE_NONE;
+                }
+            }
+        } else if (!port_open && g_ready) {
             g_ready = 0;
             snprintf(g_engine_err, sizeof g_engine_err, "the shared local DS4 engine disconnected");
             snprintf(g_stage, sizeof g_stage, "Engine disconnected");
@@ -5443,6 +5559,17 @@ static void api_start(int fd, const char *body) {
      * remote) — blocking them on an unrelated local server was a bug. */
     int remote_engine = g_remote_base_url[0] && (want_agent || want_design);
     if (!remote_engine && port_listening(ENGINE_DEFAULTS.port)) {
+        if (requested_mode == ENGINE_SERVER && ds4_server_compatible(ENGINE_DEFAULTS.port)) {
+            reuse_external_ds4(&cfg, 1, 0);
+            dstudio_task *t = task_find(task_id);
+            if (t) t->pid = 0;
+            task_mark_completed(task_id, "attached to existing compatible DS4 engine");
+            char out[192];
+            snprintf(out, sizeof out,
+                     "{\"ok\":true,\"taskId\":%llu,\"mode\":\"server\",\"shared\":true}", task_id);
+            send_json(fd, "200 OK", out);
+            return;
+        }
         if (!force) {
             task_mark_failed(task_id, "external ds4-server is holding the engine port", "port busy");
             char out[384];
@@ -5464,6 +5591,23 @@ static void api_start(int fd, const char *body) {
             return;
         }
         g_external_server = 0;
+    }
+
+    if (requested_mode == ENGINE_SERVER && !port_listening(cfg.port)) {
+        pid_t owner = ds4_instance_lock_owner();
+        if (owner != 0) {
+            reuse_external_ds4(&cfg, 0, owner);
+            dstudio_task *t = task_find(task_id);
+            if (t) t->pid = owner > 0 ? (int)owner : 0;
+            g_active_launch_task = task_id;
+            g_active_launch_mode = ENGINE_SERVER;
+            task_mark_working(task_id, "waiting to attach to existing DS4 engine");
+            char out[224];
+            snprintf(out, sizeof out,
+                     "{\"ok\":true,\"taskId\":%llu,\"mode\":\"server\",\"shared\":true,\"waiting\":true}", task_id);
+            send_json(fd, "200 OK", out);
+            return;
+        }
     }
 
     char err[256] = "";
@@ -8010,12 +8154,7 @@ int main(int argc, char **argv)
         printf("engine: test mode - not starting ds4\n");
     } else if (port_listening(ENGINE_DEFAULTS.port)) {
         if (ds4_server_compatible(ENGINE_DEFAULTS.port)) {
-            g_mode = ENGINE_SERVER;
-            g_external_server = 1;
-            g_cfg = ENGINE_DEFAULTS;
-            g_ready = 1;
-            g_load_pct = 100;
-            snprintf(g_stage, sizeof g_stage, "Using the existing local DS4 engine");
+            reuse_external_ds4(&ENGINE_DEFAULTS, 1, 0);
             printf("engine: reusing compatible ds4-server already listening on :%d\n", ENGINE_DEFAULTS.port);
         } else {
             snprintf(g_engine_err, sizeof g_engine_err,
