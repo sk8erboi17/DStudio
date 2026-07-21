@@ -1369,6 +1369,7 @@ assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def preserve
 assert.match(launcher, /qwen_memory_begin\("vision"\)/, 'Vision calls should acquire a temporary DS4 memory lease');
 assert.match(launcher, /qwen_memory_begin\("pdf"\)/, 'PDF calls should acquire a nested temporary DS4 memory lease');
 assert.match(launcher, /qwen_memory_begin\("image-generation"\)/, 'image generation should acquire a temporary DS4 memory lease');
+assert.match(remoteDesign, /--ssd-streaming[\s\S]*c\.engine\.ssd_streaming = true/, 'design agent should accept the SSD-streaming launch option passed by DStudio');
 assert.match(launcher, /model \+ reserve \+ 8ull \* gib > ram \* 82ull \/ 100ull/, 'Qwen lease policy should evaluate model, pipeline reserve and physical RAM');
 assert.match(remoteDesign, /ds4_engine_memory_pressure_begin/, 'Design vision tools should release DS4 memory in-process');
 assert.match(jsonlPatch.text, /ds4ui_tool_with_qwen_memory/, 'agent image and PDF tools should release DS4 memory in-process');
