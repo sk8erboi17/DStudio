@@ -7773,6 +7773,27 @@ static void handle_connection(int fd) {
         return;
     }
 
+    /* Image editing carries the source pixels as a data URI. Generation without
+     * a source also uses this path so both modes share one authorization and
+     * body-handling contract. */
+    if (!strcmp(method, "POST") && path_eq_clean(path, "/api/image/generate")) {
+        if (!header_has(req, header_len, "x-requested-with: ds4web")) {
+            send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}"); close(fd); return;
+        }
+        char *buf = NULL;
+        size_t off = 0;
+        if (!read_request_body_alloc(fd, req, got, header_len, clen, 24L * 1024 * 1024,
+                                     "source image too large\n", &buf, &off))
+        {
+            close(fd);
+            return;
+        }
+        api_image_generate(fd, buf);
+        free(buf);
+        close(fd);
+        return;
+    }
+
     /* POST /api/pdf/{thumb,describe} carry a full PDF (base64) — larger than
      * BODY_MAX, so they read their own body like /api/store. Cap 1.5GB: the UI
      * allows PDFs up to 1GB binary, which is ~1.37GB once base64'd (x4/3) plus

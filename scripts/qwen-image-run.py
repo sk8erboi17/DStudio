@@ -47,6 +47,8 @@ def main() -> int:
     p.add_argument("--prompt-file", required=True)
     p.add_argument("--outdir", required=True)
     p.add_argument("--status-file")
+    p.add_argument("--action", choices=("generate", "edit"), default="generate")
+    p.add_argument("--input")
     p.add_argument("--aspect", default="16:9")
     args = p.parse_args()
     prompt = Path(args.prompt_file).read_text(encoding="utf-8").strip()
@@ -55,8 +57,11 @@ def main() -> int:
     outdir = Path(args.outdir)
     status_file = Path(args.status_file) if args.status_file else None
     outdir.mkdir(parents=True, exist_ok=True)
+    if args.action == "edit" and (not args.input or not Path(args.input).is_file()):
+        write_status(status_file, "error", "error", "The source image is unavailable.", 100)
+        raise SystemExit("edit action requires an existing --input image")
     if os.environ.get("DSTUDIO_IMAGE_TEST_MODE") == "1":
-        write_status(status_file, "running", "inference", "Generating image (test mode)…", 75)
+        write_status(status_file, "running", "inference", f"Running image {args.action} (test mode)…", 75)
         output = outdir / "generated-test.png"
         mock_png(output)
         write_status(status_file, "complete", "complete", "Image ready.", 100)
@@ -64,14 +69,36 @@ def main() -> int:
         return 0
 
     write_status(status_file, "running", "preparing", "Preparing the local Qwen Image runtime…", 5)
-    from qwen_image_mps.cli import generate_image
-    write_status(status_file, "running", "model", "Downloading or loading Qwen Image model weights…", 12)
+    from qwen_image_mps.cli import edit_image, generate_image
+    write_status(
+        status_file,
+        "running",
+        "model",
+        "Downloading or loading Qwen Image Edit model weights…" if args.action == "edit"
+        else "Downloading or loading Qwen Image model weights…",
+        12,
+    )
     ns = SimpleNamespace(
         prompt=prompt, negative_prompt=None, steps=50, fast=False,
         ultra_fast=True, seed=None, num_images=1, aspect=args.aspect,
         lora=None, cfg_scale=None, output_dir=str(outdir), output_path=None,
         batman=False, quantization=None, event_callback=None,
     )
+    if args.action == "edit":
+        edit_ns = SimpleNamespace(
+            prompt=prompt, negative_prompt=None, steps=50, fast=False,
+            ultra_fast=True, seed=None, input=[args.input], output=None,
+            output_dir=str(outdir), anime=False, lora=None, cfg_scale=None,
+            batman=False, quantization=None,
+        )
+        write_status(status_file, "running", "model", "Loading Qwen Image Edit and the source image…", 12)
+        saved_path = edit_image(edit_ns)
+        if not saved_path or not Path(saved_path).is_file():
+            write_status(status_file, "error", "error", "Qwen Image Edit returned no output.", 100)
+            raise SystemExit("Qwen Image Edit returned no output")
+        write_status(status_file, "complete", "complete", "Edited image ready.", 100)
+        print(saved_path)
+        return 0
     event_status = {
         "init": ("model", "Initializing Qwen Image…", 10),
         "loading_model": ("model", "Downloading or loading Qwen Image model weights…", 12),

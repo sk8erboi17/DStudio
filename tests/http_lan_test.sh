@@ -59,6 +59,10 @@ curl -fsS --max-time 10 -X POST "${base}/api/image/generate" \
   -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
   -d '{"prompt":"test image","job":"image-http-test"}' >"${tmp}/image-generate.json"
 curl -fsS --max-time 2 "${base}/api/image/progress?id=image-http-test" >"${tmp}/image-progress.json"
+curl -fsS --max-time 10 -X POST "${base}/api/image/generate" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d '{"action":"edit","prompt":"make it blue","image":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=","job":"image-edit-http-test"}' >"${tmp}/image-edit.json"
+curl -fsS --max-time 2 "${base}/api/image/progress?id=image-edit-http-test" >"${tmp}/image-edit-progress.json"
 node - "${tmp}/agent-send-large.json" <<'NODE'
 const fs = require('fs');
 const text = 'technical architecture prompt '.repeat(3000);
@@ -125,6 +129,13 @@ const generated = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const progress = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 if (!generated.ok || !generated.url || generated.id !== 'image-http-test') throw new Error(`image generation response incomplete: ${JSON.stringify(generated)}`);
 if (!progress.ok || progress.state !== 'complete' || progress.progress !== 100) throw new Error(`image progress should reach complete: ${JSON.stringify(progress)}`);
+NODE
+node - "${tmp}/image-edit.json" "${tmp}/image-edit-progress.json" <<'NODE'
+const fs = require('fs');
+const edited = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const progress = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+if (!edited.ok || !edited.url || edited.id !== 'image-edit-http-test') throw new Error(`image edit response incomplete: ${JSON.stringify(edited)}`);
+if (!progress.ok || progress.state !== 'complete' || progress.progress !== 100) throw new Error(`image edit progress should reach complete: ${JSON.stringify(progress)}`);
 NODE
 node - "${tmp}/agent-send-large-code.txt" "${tmp}/agent-send-large-response.json" <<'NODE'
 const fs = require('fs');

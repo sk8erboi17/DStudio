@@ -58,12 +58,55 @@ static void image_write_status(const char *dir, const char *state, const char *s
     free(b.ptr);
 }
 
+static int image_write_edit_source(const char *body, const char *dir,
+                                   char *out, size_t outsz, char *err, size_t errsz) {
+    char *data = json_get_string_alloc_rpc(body, "image");
+    if (!data || !data[0]) {
+        free(data);
+        cstr_copy(err, errsz, "edit action requires an attached source image");
+        return 0;
+    }
+    const char *b64 = data;
+    const char *ext = ".png";
+    if (!strncmp(data, "data:", 5)) {
+        const char *comma = strchr(data, ',');
+        const char *semi = strchr(data, ';');
+        if (!comma || !semi || semi > comma || strncmp(semi, ";base64", 7) || semi + 7 != comma) {
+            free(data); cstr_copy(err, errsz, "malformed source image data URI"); return 0;
+        }
+        size_t ml = (size_t)(semi - (data + 5));
+        if (ml == strlen("image/jpeg") && !strncmp(data + 5, "image/jpeg", ml)) ext = ".jpg";
+        else if (ml == strlen("image/png") && !strncmp(data + 5, "image/png", ml)) ext = ".png";
+        else if (ml == strlen("image/webp") && !strncmp(data + 5, "image/webp", ml)) ext = ".webp";
+        else {
+            free(data); cstr_copy(err, errsz, "source image must be PNG, JPEG or WebP"); return 0;
+        }
+        b64 = comma + 1;
+    }
+    size_t n = 0;
+    char *bytes = base64_decode(b64, &n);
+    free(data);
+    if (!bytes || n == 0 || n > 16u * 1024 * 1024) {
+        free(bytes); cstr_copy(err, errsz, "invalid or oversized source image (16MB max)"); return 0;
+    }
+    snprintf(out, outsz, "%s/source%s", dir, ext);
+    int ok = jsonl_write_file(out, bytes, n);
+    free(bytes);
+    if (!ok) { cstr_copy(err, errsz, "cannot save source image"); return 0; }
+    return 1;
+}
+
 static void api_image_generate_run(int fd, const char *body) {
     char *prompt = json_get_string_alloc_rpc(body, "prompt");
     if (!prompt || !prompt[0] || strlen(prompt) > 12000) {
         free(prompt);
         web_json_error(fd, "400 Bad Request", "prompt is required (max 12000 bytes)");
         return;
+    }
+    char action[16] = "generate";
+    (void)json_get_string(body, "action", action, sizeof action);
+    if (strcmp(action, "generate") && strcmp(action, "edit")) {
+        free(prompt); web_json_error(fd, "400 Bad Request", "action must be generate or edit"); return;
     }
     char base[DSTUDIO_PATH_MAX], id[80], dir[DSTUDIO_PATH_MAX];
     if (!image_jobs_dir(base, sizeof base)) {
@@ -79,6 +122,14 @@ static void api_image_generate_run(int fd, const char *body) {
     if (stat(dir, &dst) != 0 || !S_ISDIR(dst.st_mode)) {
         free(prompt); web_json_error(fd, "500 Internal Server Error", "cannot create image output directory"); return;
     }
+    char input_path[DSTUDIO_PATH_MAX] = "";
+    if (!strcmp(action, "edit")) {
+        char source_err[160] = "";
+        if (!image_write_edit_source(body, dir, input_path, sizeof input_path, source_err, sizeof source_err)) {
+            free(prompt); image_write_status(dir, "error", "error", source_err, 100);
+            web_json_error(fd, "400 Bad Request", source_err); return;
+        }
+    }
     char prompt_path[DSTUDIO_PATH_MAX];
     snprintf(prompt_path, sizeof prompt_path, "%s/prompt.txt", dir);
     if (!jsonl_write_file(prompt_path, prompt, strlen(prompt))) {
@@ -92,7 +143,7 @@ static void api_image_generate_run(int fd, const char *body) {
     char log[16384] = "";
     char status_path[DSTUDIO_PATH_MAX];
     snprintf(status_path, sizeof status_path, "%s/status.json", dir);
-    char *argv[] = { "/bin/sh", script, prompt_path, dir, status_path, NULL };
+    char *argv[] = { "/bin/sh", script, prompt_path, dir, status_path, action, input_path, NULL };
     qwen_memory_lease lease = qwen_memory_begin("image-generation");
     int rc = setup_run_cmd_capture(NULL, argv, log, sizeof log);
     qwen_memory_end(&lease);
