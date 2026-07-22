@@ -48,6 +48,7 @@ ICNS     := ds4.icns
 PLIST    := assets/Info.plist
 TEST_BUILD := tests/.build
 TEST_UNIT  := $(TEST_BUILD)/lan_unit
+TEST_REMOTE_UTF8 := $(TEST_BUILD)/remote_utf8_unit
 TEST_SERVER := $(TEST_BUILD)/dstudio-server-test
 LINUX_APP_ID := dev.ds4.DStudio
 DESKTOP  := $(LINUX_APP_ID).desktop
@@ -72,7 +73,7 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check check-fast check-real test-lan-unit test-ui-contract test-ui-browser test-ui-plan test-http-lan test-gsa-bench-validate test-real-search-research test-real-remote clean app windows install-desktop uninstall-desktop
+.PHONY: all run check check-fast check-real test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-http-lan test-gsa-bench-validate test-real-search-research test-real-remote clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
@@ -251,6 +252,13 @@ $(TEST_SERVER): $(SRC) $(PAGE) $(LOADING)
 test-lan-unit: $(TEST_UNIT)
 	@$(TEST_UNIT)
 
+$(TEST_REMOTE_UTF8): tests/remote_utf8_unit.c extension/remote/dstudio_remote_llm.c extension/remote/dstudio_remote_llm.h
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/remote_utf8_unit.c extension/remote/dstudio_remote_llm.c -o $@
+
+test-remote-utf8: $(TEST_REMOTE_UTF8)
+	@$(TEST_REMOTE_UTF8)
+
 test-ui-contract:
 	@if command -v node >/dev/null 2>&1; then node tests/ui_contract_test.mjs; else echo "node missing: skipping UI contract tests"; fi
 
@@ -272,7 +280,7 @@ test-http-lan: $(TEST_SERVER)
 test-gsa-bench-validate:
 	@if command -v node >/dev/null 2>&1; then node extension/gsa/bench/validate.mjs; else echo "node missing: skipping GSA benchmark validation"; fi
 
-check-fast: $(BIN) test-lan-unit test-ui-contract test-ui-browser test-ui-plan test-ui-rsa test-rsa-collectors test-http-lan test-gsa-bench-validate
+check-fast: $(BIN) test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-rsa test-rsa-collectors test-http-lan test-gsa-bench-validate
 	@file $(PAGE) | grep -q text && echo "$(PAGE): text OK" || (echo "$(PAGE) is not text!" && exit 1)
 	@file $(LOADING) | grep -q text && echo "$(LOADING): text OK" || (echo "$(LOADING) is not text!" && exit 1)
 	@command -v node >/dev/null 2>&1 && { \

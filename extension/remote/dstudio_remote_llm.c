@@ -55,6 +55,10 @@ char *dstudio_remote_buf_take(dstudio_remote_buf *b) {
 static void remote_utf8_append(dstudio_remote_buf *b, unsigned cp) {
     char out[4];
     size_t n = 0;
+    /* UTF-16 surrogate halves are not Unicode scalar values. Emitting their
+     * UTF-8 byte form creates JSON that strict APIs (including DeepSeek)
+     * reject as an invalid code point. */
+    if ((cp >= 0xd800 && cp <= 0xdfff) || cp > 0x10ffff) cp = 0xfffd;
     if (cp <= 0x7f) {
         out[n++] = (char)cp;
     } else if (cp <= 0x7ff) {
@@ -73,26 +77,75 @@ static void remote_utf8_append(dstudio_remote_buf *b, unsigned cp) {
     if (n) dstudio_remote_buf_append(b, out, n);
 }
 
+/* Returns the byte length of the valid UTF-8 scalar at s, or zero for an
+ * invalid/truncated/overlong sequence. JSON requires Unicode text, but tool
+ * output can contain arbitrary bytes, so every remote request must validate
+ * content at the final serialization boundary. */
+static size_t remote_utf8_scalar_len(const unsigned char *s) {
+    unsigned char c = s ? s[0] : 0;
+    if (c < 0x80) return c ? 1 : 0;
+    if (c >= 0xc2 && c <= 0xdf)
+        return s[1] >= 0x80 && s[1] <= 0xbf ? 2 : 0;
+    if (c == 0xe0)
+        return s[1] >= 0xa0 && s[1] <= 0xbf &&
+               s[2] >= 0x80 && s[2] <= 0xbf ? 3 : 0;
+    if ((c >= 0xe1 && c <= 0xec) || (c >= 0xee && c <= 0xef))
+        return s[1] >= 0x80 && s[1] <= 0xbf &&
+               s[2] >= 0x80 && s[2] <= 0xbf ? 3 : 0;
+    if (c == 0xed) /* excludes UTF-16 surrogate halves */
+        return s[1] >= 0x80 && s[1] <= 0x9f &&
+               s[2] >= 0x80 && s[2] <= 0xbf ? 3 : 0;
+    if (c == 0xf0)
+        return s[1] >= 0x90 && s[1] <= 0xbf &&
+               s[2] >= 0x80 && s[2] <= 0xbf &&
+               s[3] >= 0x80 && s[3] <= 0xbf ? 4 : 0;
+    if (c >= 0xf1 && c <= 0xf3)
+        return s[1] >= 0x80 && s[1] <= 0xbf &&
+               s[2] >= 0x80 && s[2] <= 0xbf &&
+               s[3] >= 0x80 && s[3] <= 0xbf ? 4 : 0;
+    if (c == 0xf4)
+        return s[1] >= 0x80 && s[1] <= 0x8f &&
+               s[2] >= 0x80 && s[2] <= 0xbf &&
+               s[3] >= 0x80 && s[3] <= 0xbf ? 4 : 0;
+    return 0;
+}
+
 void dstudio_remote_json_string(dstudio_remote_buf *b, const char *s) {
     dstudio_remote_buf_puts(b, "\"");
-    for (; s && *s; s++) {
-        unsigned char c = (unsigned char)*s;
+    const unsigned char *p = (const unsigned char *)s;
+    while (p && *p) {
+        unsigned char c = *p;
         char tmp[8];
         if (c == '"' || c == '\\') {
             tmp[0] = '\\';
             tmp[1] = (char)c;
             dstudio_remote_buf_append(b, tmp, 2);
+            p++;
         } else if (c == '\n') {
             dstudio_remote_buf_puts(b, "\\n");
+            p++;
         } else if (c == '\r') {
             dstudio_remote_buf_puts(b, "\\r");
+            p++;
         } else if (c == '\t') {
             dstudio_remote_buf_puts(b, "\\t");
+            p++;
         } else if (c < 0x20) {
             snprintf(tmp, sizeof(tmp), "\\u%04x", c);
             dstudio_remote_buf_puts(b, tmp);
+            p++;
+        } else if (c < 0x80) {
+            dstudio_remote_buf_append(b, (const char *)p, 1);
+            p++;
         } else {
-            dstudio_remote_buf_append(b, (const char *)&c, 1);
+            size_t n = remote_utf8_scalar_len(p);
+            if (n) {
+                dstudio_remote_buf_append(b, (const char *)p, n);
+                p += n;
+            } else {
+                remote_utf8_append(b, 0xfffd);
+                p++;
+            }
         }
     }
     dstudio_remote_buf_puts(b, "\"");

@@ -410,7 +410,7 @@ assert.match(js, /Recent diagnostics/, 'Doctor diagnostics section should label 
 assert.match(launcher, /#define CYBER_SKILLS_REL_DIR "extension\/gsa\/third_party\/anthropic-cybersecurity-skills\/skills"/, 'GSA should pin the vendored cybersecurity skills catalog path');
 assert.match(launcher, /DS4UI_CYBER_SKILLS_DIR/, 'agent/design child processes should receive the vendored cybersecurity skills dir');
 assert.match(launcher, /full catalog is[\s\S]*not injected into this prompt to keep Agent startup responsive/, 'Agent startup should not dump the vendored cybersecurity skill catalog into the system prompt');
-assert.ok(Number(jsonlPatch.values.get('version')) >= 25, 'JSONL patch version should force rebuild after Agent web auto-approval changes');
+assert.ok(Number(jsonlPatch.values.get('version')) >= 46, 'JSONL patch version should force rebuild after remote transcript UTF-8 validation changes');
 assert.match(jsonlPatch.text, /--web-tool[\s\S]*google_search[\s\S]*visit_page/, 'JSONL agent should expose Search-backed google_search and visit_page helpers');
 assert.match(jsonlPatch.text, /if \(w->cfg->non_interactive\)[\s\S]*return 1; \/\*DS4UI_JSONL: DStudio Agent web search is a managed read-only helper/, 'Agent native web tools should auto-approve managed Chrome startup in non-interactive DStudio mode');
 assert.match(jsonlPatch.text, /Chrome startup is handled automatically by the managed read-only web helper/, 'Agent web prompt should not tell the model to wait for interactive Chrome approval in DStudio');
@@ -811,6 +811,8 @@ assert.match(remoteHelper, /model_request/, 'remote model helper should request 
 assert.match(remoteHelper, /model_delta/, 'remote model helper should consume streamed model deltas from DStudio');
 assert.match(remoteHelper, /model_done/, 'remote model helper should consume model completion frames from DStudio');
 assert.match(remoteHelper, /model_error/, 'remote model helper should surface model error frames from DStudio');
+assert.match(remoteHelper, /remote_utf8_scalar_len/, 'remote model requests should validate every Unicode scalar before JSON serialization');
+assert.match(remoteHelper, /remote_utf8_append\(b, 0xfffd\)/, 'invalid tool-output bytes should be replaced instead of corrupting a remote request');
 assert.match(remoteAgent, /\.in_think = false,[\s\S]*\.in_think = false,/, 'remote Agent stream state should not treat LAN content chunks as already inside a think block');
 assert.match(remoteAgent, /if \(ctx->stream && ctx->stream->in_think\)[\s\S]*<\/think>\\n\\n[\s\S]*ctx->stream->dsml_in_think = false/, 'remote Agent should close stale thinking before streaming non-reasoning content or DSML tool calls');
 assert.match(remoteAgent, /DS4UI_REMOTE_AUTO_CONTINUES 3/, 'remote Agent should automatically continue interrupted model streams');
