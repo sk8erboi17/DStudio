@@ -22,8 +22,37 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "${tmp}/home" "${tmp}/ds4"
+mkdir -p "${tmp}/home" \
+  "${tmp}/ds4/gguf" "${tmp}/ds4/.git" \
+  "${tmp}/ds4-laguna-s21/gguf" "${tmp}/ds4-laguna-s21/.git"
+printf '%s\n' 'all:' >"${tmp}/ds4/Makefile"
+printf '%s\n' 'all:' >"${tmp}/ds4-laguna-s21/Makefile"
+printf '%s\n' 'ref: refs/heads/main' >"${tmp}/ds4/.git/HEAD"
+printf '%s\n' 'ref: refs/heads/laguna-s2.1' >"${tmp}/ds4-laguna-s21/.git/HEAD"
+printf '%s' 'main-test' >"${tmp}/ds4/gguf/main-test.gguf"
+printf '%s' 'glm-test' >"${tmp}/ds4/gguf/glm-test.gguf"
+printf '%s' 'laguna-test' >"${tmp}/ds4-laguna-s21/gguf/laguna-test.gguf"
 mkdir -p "${tmp}/project/src"
+mkdir -p "${tmp}/home/.local/share/flashcards/ds4-skills/analytics"
+mkdir -p "${tmp}/home/.local/share/flashcards/ds4-skills/api-auth-review"
+printf '%s\n' \
+  '---' \
+  'name: Analytics Tracking' \
+  'description: User-authored analytics implementation workflow.' \
+  'modes: [agent]' \
+  '---' \
+  'Review analytics tracking with explicit consent and validation.' \
+  >"${tmp}/home/.local/share/flashcards/ds4-skills/analytics/SKILL.md"
+printf '%s\n' \
+  '---' \
+  'name: API authorization review' \
+  'description: Review API authorization, tenant boundaries, object access and authentication.' \
+  'modes: [agent]' \
+  'domain: web security' \
+  'tags: api authorization authentication tenant object access' \
+  '---' \
+  'Trace authorization and object ownership across every API boundary.' \
+  >"${tmp}/home/.local/share/flashcards/ds4-skills/api-auth-review/SKILL.md"
 printf '%s\n' 'export async function getUser(req, db) { return db.user.findUnique({ where: { id: req.query.id } }); }' >"${tmp}/project/src/api.ts"
 printf '%s\n' 'export function verifyJwt(token) { return jwt.verify(token, process.env.JWT_SECRET); }' >"${tmp}/project/src/auth.ts"
 printf '%s\n' 'POST /api/users/:id/delete requires tenant_id and admin role' >"${tmp}/project/openapi.txt"
@@ -54,7 +83,8 @@ curl -fsS --max-time 2 "${base}/api/diagnostics" >"${tmp}/diagnostics.json"
 curl -fsS --max-time 2 "${base}/api/logs?limit=10" >"${tmp}/logs.json"
 curl -fsS --max-time 2 "${base}/api/tasks?limit=10" >"${tmp}/tasks.json"
 curl -fsS --max-time 2 "${base}/api/embed/status" >"${tmp}/embed-status.json"
-curl -fsS --max-time 2 "${base}/api/skills/get?id=analytics" >"${tmp}/skill-analytics.json"
+curl -fsS --max-time 2 "${base}/api/ggufs" >"${tmp}/ggufs.json"
+curl -fsS --max-time 2 "${base}/api/user-skills/get?id=analytics" >"${tmp}/skill-analytics.json"
 curl -fsS --max-time 10 -X POST "${base}/api/image/generate" \
   -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
   -d '{"prompt":"test image","job":"image-http-test"}' >"${tmp}/image-generate.json"
@@ -118,12 +148,34 @@ if (!r.ok || r.supported !== true || typeof r.installed !== 'boolean' || typeof 
   throw new Error('embedding status shape incomplete');
 }
 NODE
+node - "${tmp}/ggufs.json" "${tmp}" <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const root = fs.realpathSync(process.argv[3]);
+if (!r.ok || !Array.isArray(r.ggufs)) throw new Error('GGUF catalog shape incomplete');
+const expected = new Map([
+  ['main-test.gguf', ['ds4', 'main']],
+  ['glm-test.gguf', ['ds4', 'main']],
+  ['laguna-test.gguf', ['ds4-laguna-s21', 'laguna-s2.1']],
+]);
+for (const [file, [checkout, branch]] of expected) {
+  const row = r.ggufs.find((g) => g.file === file);
+  if (!row) throw new Error(`aggregate GGUF catalog missing ${file}`);
+  if (row.engineDir !== path.join(root, checkout) || row.branch !== branch) {
+    throw new Error(`wrong checkout metadata for ${file}: ${JSON.stringify(row)}`);
+  }
+}
+if (r.activeEngine !== path.join(root, 'ds4')) throw new Error(`wrong active GGUF engine: ${r.activeEngine}`);
+if (!r.ggufs.find((g) => g.file === 'main-test.gguf').activeEngine) throw new Error('active GGUF row should be marked');
+if (!r.ggufs.find((g) => g.file === 'glm-test.gguf').activeEngine) throw new Error('GLM should share the active main checkout');
+NODE
 node - "${tmp}/skill-analytics.json" <<'NODE'
 const fs = require('fs');
 const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-if (!r.ok || r.id !== 'analytics' || r.source !== 'dstudio') throw new Error('skill get should load shipped analytics metadata');
-if (!String(r.body || '').includes('Analytics Tracking')) throw new Error('skill get should include the shipped skill body');
-if (!String(r.modes || '').includes('agent')) throw new Error('skill get should preserve shipped modes');
+if (!r.ok || r.id !== 'analytics' || r.source !== 'user') throw new Error('skill get should load user-created analytics metadata');
+if (!String(r.body || '').includes('Review analytics tracking')) throw new Error('skill get should include the user-created skill body');
+if (!String(r.modes || '').includes('agent')) throw new Error('skill get should preserve user-created modes');
 NODE
 node - "${tmp}/image-generate.json" "${tmp}/image-progress.json" <<'NODE'
 const fs = require('fs');
@@ -192,7 +244,8 @@ curl -fsS --max-time 5 -X POST "${base}/api/gsa/start" \
 node - "${tmp}/gsa-start.json" <<'NODE'
 const fs = require('fs');
 const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-if (!r.ok || !r.runDir || !r.prompt || !r.skillCount) throw new Error('GSA start should return runDir, prompt and skillCount');
+if (!r.ok || !r.runDir || !r.prompt) throw new Error('GSA start should return runDir and prompt');
+if ('skillCount' in r) throw new Error('GSA start must not expose skillCount');
 if (r.targetUrl !== 'https://test.example/api/users/42') throw new Error('GSA start should return the authorized target URL');
 if (r.think !== 'max') throw new Error('GSA start should require thinking=max');
 if (!r.statePath || !fs.existsSync(r.statePath)) throw new Error('GSA start should return a run_state path');
@@ -226,11 +279,8 @@ if (fs.readFileSync(`${r.runDir}/tool-retry-ledger.jsonl`, 'utf8') !== '') throw
 const state = JSON.parse(fs.readFileSync(`${r.runDir}/run_state.json`, 'utf8'));
 if (state.status !== 'ready' || state.phase !== 'selection' || state.targetHost !== 'test.example' || state.profileEffective !== 'passive') throw new Error('GSA run state should be ready for selection with a passive default profile');
 if (fs.existsSync(`${r.runDir}/recon.sh`)) throw new Error('GSA should not write an implicit recon.sh helper');
-const skills = fs.readFileSync(`${r.runDir}/skills.md`, 'utf8');
-if (!skills.includes('extension/gsa/third_party/anthropic-cybersecurity-skills/skills')) throw new Error('GSA skills.md should use the vendored cybersecurity skills catalog');
-if (!skills.includes('reason: catalog=anthropic-cybersecurity-skills') || !skills.includes('target_hits=') || !skills.includes('workspace_hits=')) throw new Error('GSA skills.md should explain catalog target/workspace ranking');
-if (!/testing-api-for-broken-object-level-authorization|exploiting-broken-function-level-authorization/.test(skills)) throw new Error('GSA shortlist should include imported auth/API skills');
-if (!r.prompt.includes('Use ONLY imported skill IDs')) throw new Error('GSA prompt should forbid generic/base skills');
+if (fs.existsSync(`${r.runDir}/skills.md`)) throw new Error('GSA must not create skills.md');
+if (!r.prompt.includes('GSA is tool-only')) throw new Error('GSA prompt should route only through tools');
 if (!r.prompt.includes('Authorized target URL:')) throw new Error('GSA prompt should expose the target URL artifact context');
 if (!r.prompt.includes('tool-assisted') || !r.prompt.includes('/scripts/')) throw new Error('GSA prompt should route automation through optional tools and local scripts');
 if (!r.prompt.includes('tool-retry-policy.md') || !r.prompt.includes('same-tool retry') || !r.prompt.includes('timeout retry') || !r.prompt.includes('substitute/fallback')) throw new Error('GSA prompt should route retry and fallback behavior through the policy artifact');
@@ -283,7 +333,7 @@ const output = {
   targetUrl: 'https://test.example/',
   files: ['src/api.ts', 'src/auth.ts'],
   hypotheses: [{ title: 'API authorization path can be validated', why: 'Exercise backend validation runtime.' }],
-  skills: ['testing-api-for-broken-object-level-authorization']
+  tools: ['semgrep']
 };
 fs.writeFileSync(process.argv[2], JSON.stringify({ workdir: process.argv[3], runId: process.argv[4], phase: 'selection', output: JSON.stringify(output) }));
 NODE
@@ -422,7 +472,7 @@ const fs = require('fs');
 const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (!r.ok || !r.runId || !r.runDir || !r.statePath || !r.structurePath || !r.prompt) throw new Error('RSA start should return run metadata and prompt');
 if (r.think !== 'max') throw new Error('RSA start should force thinking=max');
-if (r.skillCount < 4) throw new Error('RSA should expose dedicated RSA skills');
+if ('skillCount' in r) throw new Error('RSA start must not expose skillCount');
 if (r.targetUrl !== 'https://streamrecorder.io/') throw new Error('RSA start should preserve target URL');
 if (!fs.existsSync(r.statePath)) throw new Error('RSA run_state should exist');
 if (!fs.existsSync(r.structurePath)) throw new Error('RSA should seed STRUCTURE.MD');
@@ -449,11 +499,8 @@ if (!Array.isArray(collectors.deterministicCollectors) || collectors.determinist
 if (!collectors.deterministicCollectors.some((c) => c.id === 'claim_evidence_audit')) throw new Error('RSA collector manifest should include claim_evidence_audit');
 const state = JSON.parse(fs.readFileSync(r.statePath, 'utf8'));
 if (state.module !== 'rsa' || state.status !== 'ready' || state.phase !== 'inventory' || state.iteration !== 1 || state.profileEffective !== 'passive') throw new Error('RSA run_state should start at inventory with passive default profile');
-const skills = fs.readFileSync(`${r.runDir}/skills.md`, 'utf8');
-for (const id of ['rsa-structure-reconstruction', 'rsa-frontend-api-map', 'rsa-media-storage-pipeline', 'rsa-product-system-model']) {
-  if (!skills.includes(id)) throw new Error(`RSA skills.md missing ${id}`);
-}
-if (skills.includes('web-app')) throw new Error('RSA skills should not fall back to the removed web-app skill');
+if (fs.existsSync(`${r.runDir}/skills.md`)) throw new Error('RSA must not create skills.md');
+if (!r.prompt.includes('RSA is tool-only')) throw new Error('RSA prompt should route only through tools');
 if (!r.prompt.includes('RSA Phase 1/4: inventory') || !r.prompt.includes('No fuzzing')) throw new Error('RSA prompt should describe the bounded passive inventory phase');
 if (!r.prompt.includes('Tool retry rule') || !r.prompt.includes('do not degrade to curl') || !r.prompt.includes('retry that same tool') || !r.prompt.includes('corrected timeout budget')) throw new Error('RSA prompt should enforce same-tool retry before fallback');
 if (!r.prompt.includes('Evidence Workbench rule') || !r.prompt.includes('workbench.json') || !r.prompt.includes('workbench.md')) throw new Error('RSA prompt should expose the Evidence Workbench artifacts');
@@ -511,7 +558,7 @@ const output = {
   targetHost: 'streamrecorder.io',
   surface: [{ url: 'https://streamrecorder.io/', type: 'page', evidence: 'Public homepage selected for capture.' }],
   sections: [{ name: 'Frontend Architecture', status: 'weak', nextEvidence: 'Capture public HTML, scripts and initial network requests.' }],
-  skills: ['rsa-structure-reconstruction'],
+  tools: ['playwright'],
   nextActions: ['Capture public homepage HTML and asset URLs.']
 };
 fs.writeFileSync(process.argv[2], JSON.stringify({ workdir: process.argv[3], runId: process.argv[4], phase: 'inventory', output: JSON.stringify(output) }));

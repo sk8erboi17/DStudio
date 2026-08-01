@@ -1,0 +1,8 @@
+static const char agent_dsml_syntax_reminder[] =
+    "Discard the malformed call and re-emit the complete tool call from its "
+    "tool_calls opening tag, using exactly the DSML structure defined in the "
+    "system prompt: one tool_calls block wrapping invoke tags, with the tool "
+    "name on invoke, every argument in a parameter tag, and all tags closed. "
+    "Do not insert spaces inside the DSML marker and never emit a bare DSML "
+    "marker as a tag. Produce the markers in their canonical form. If you "
+    "cannot produce a valid complete call, answer in plain text instead.\n";

@@ -2,7 +2,7 @@
  * Self-update subsystem.
  *
  * Checks and applies updates to this DStudio checkout: git status of the
- * engine/skill sources and the staged update run steps. Purely operational;
+ * engine/design-system sources and the staged update run steps. Purely operational;
  * every step goes through the task/log API for UI progress.
  *
  * Extracted from dstudio.c into a per-domain file (one translation unit, all
@@ -31,6 +31,24 @@ static int update_count_marker_dirs(const char *rel, const char *marker, const c
             if (!hit) continue;
         }
         count++;
+    }
+    closedir(d);
+    return count;
+}
+
+static int update_count_user_skills(void) {
+    char base[DSTUDIO_PATH_MAX];
+    user_skills_dir(base, sizeof base);
+    DIR *d = opendir(base);
+    if (!d) return 0;
+    int count = 0;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char path[DSTUDIO_PATH_MAX + 256];
+        snprintf(path, sizeof path, "%s/%s/SKILL.md", base, e->d_name);
+        struct stat st;
+        if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) count++;
     }
     closedir(d);
     return count;
@@ -110,95 +128,6 @@ static int updates_git_capture_trim(char *const argv[], char *out, size_t outsz)
     int rc = setup_run_cmd_capture(NULL, argv, out, outsz);
     updates_trim_line(out);
     return rc;
-}
-
-static void updates_append_detail(char *dst, size_t dstsz, const char *fmt, ...) {
-    if (!dst || !dstsz) return;
-    size_t used = strlen(dst);
-    if (used >= dstsz - 1) return;
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(dst + used, dstsz - used, fmt, ap);
-    va_end(ap);
-}
-
-typedef struct {
-    int sources;
-    int stale;
-    int failed;
-    char detail[900];
-} update_skill_sources_status;
-
-static int updates_commit_same(const char *a, const char *b) {
-    if (!a || !b || !a[0] || !b[0]) return 0;
-    size_t an = strlen(a), bn = strlen(b);
-    size_t n = an < bn ? an : bn;
-    if (n < 7) return 0;
-    return !strncmp(a, b, n);
-}
-
-static int updates_skill_source_remote_head(const char *repo, const char *ref, char *out, size_t outsz) {
-    char refspec[256];
-    if (!ref || !ref[0] || !strcmp(ref, "HEAD")) snprintf(refspec, sizeof refspec, "HEAD");
-    else if (!strncmp(ref, "refs/", 5)) snprintf(refspec, sizeof refspec, "%s", ref);
-    else snprintf(refspec, sizeof refspec, "refs/heads/%s", ref);
-    char raw[1024] = "";
-    char *argv[] = { "git", "ls-remote", (char *)repo, refspec, NULL };
-    int rc = updates_git_capture_trim(argv, raw, sizeof raw);
-    if (rc != 0 || !raw[0]) {
-        if (out && outsz) out[0] = '\0';
-        return 0;
-    }
-    char *p = raw;
-    while (*p && !isspace((unsigned char)*p)) p++;
-    *p = '\0';
-    cstr_copy(out, outsz, raw);
-    return out && out[0];
-}
-
-static void updates_skill_sources_status(update_skill_sources_status *st) {
-    memset(st, 0, sizeof *st);
-    char manifest[DSTUDIO_PATH_MAX + 256];
-    if (g_web_dir[0]) snprintf(manifest, sizeof manifest, "%s/extension/skills/sources.tsv", g_web_dir);
-    else snprintf(manifest, sizeof manifest, "extension/skills/sources.tsv");
-    FILE *f = fopen(manifest, "r");
-    if (!f) {
-        st->failed = 1;
-        snprintf(st->detail, sizeof st->detail, "No imported skill source manifest found.");
-        return;
-    }
-    char line[2048];
-    while (fgets(line, sizeof line, f)) {
-        updates_trim_line(line);
-        if (!line[0] || line[0] == '#') continue;
-        char *cols[8] = {0};
-        int n = 0;
-        for (char *tok = strtok(line, "\t"); tok && n < 8; tok = strtok(NULL, "\t")) cols[n++] = tok;
-        if (n < 6) {
-            st->failed++;
-            updates_append_detail(st->detail, sizeof st->detail, "Bad source row. ");
-            continue;
-        }
-        const char *id = cols[0], *repo = cols[1], *ref = cols[2], *imported = cols[3];
-        const char *kind = n >= 7 && cols[6] ? cols[6] : "skills-dir";
-        char remote[96] = "";
-        st->sources++;
-        if (!updates_skill_source_remote_head(repo, ref, remote, sizeof remote)) {
-            st->failed++;
-            updates_append_detail(st->detail, sizeof st->detail, "%s remote could not be checked. ", id);
-            continue;
-        }
-        if (!updates_commit_same(imported, remote)) {
-            st->stale++;
-            if (!strcmp(kind, "verify-only"))
-                updates_append_detail(st->detail, sizeof st->detail, "%s adapted source outdated %.*s -> %.*s; manual re-import required. ",
-                                      id, 12, imported, 12, remote);
-            else
-                updates_append_detail(st->detail, sizeof st->detail, "%s outdated %.*s -> %.*s; run Update / verify selected. ",
-                                      id, 12, imported, 12, remote);
-        }
-    }
-    fclose(f);
 }
 
 static int updates_ds4_git_upstream(char *upstream, size_t upstreamsz) {
@@ -329,29 +258,22 @@ static int updates_sections_json(json_dyn_buf *b) {
                              anchor_fails == 0 ? "ok" : "error",
                              patch_detail, "patch-verify")) return 0;
 
-    int skills = update_count_marker_dirs("extension/skills", "SKILL.md", NULL);
-    int cyber = update_count_marker_dirs("extension/gsa/third_party/anthropic-cybersecurity-skills/skills", "SKILL.md", NULL);
-    update_skill_sources_status skill_sources;
-    updates_skill_sources_status(&skill_sources);
-    char skills_detail[1200];
+    int skills = update_count_user_skills();
+    char skills_detail[512];
     snprintf(skills_detail, sizeof skills_detail,
-             "%d local skills and %d cybersecurity skills detected. Repo sources: %s",
-             skills < 0 ? 0 : skills, cyber < 0 ? 0 : cyber,
-             skill_sources.sources <= 0 ? "none configured." :
-             (skill_sources.stale || skill_sources.failed ? skill_sources.detail : "all current."));
-    if (!updates_add_section(b, &first, "skills", "Imported skills",
-                             (skills > 0 && cyber > 0 && skill_sources.failed == 0 && skill_sources.stale == 0) ? "ok" : "warn",
-                             skills_detail, "skills")) return 0;
+             "%d user-created skill%s. DStudio does not download or update a skill catalog.",
+             skills, skills == 1 ? "" : "s");
+    if (!updates_add_section(b, &first, "user-skills", "User skills",
+                             "ok", skills_detail, NULL)) return 0;
 
-    int open_skills = update_count_marker_dirs("extension/skills", "SKILL.md", "open-design/");
     int design_systems = update_count_marker_dirs("extension/design-systems", "DESIGN.md", "open-design/");
     char design_detail[512];
     snprintf(design_detail, sizeof design_detail,
-             "%d Open Design skill templates and %d design systems detected.",
-             open_skills < 0 ? 0 : open_skills, design_systems < 0 ? 0 : design_systems);
-    if (!updates_add_section(b, &first, "open-design", "Open Design",
-                             (open_skills > 0 && design_systems > 0) ? "ok" : "warn",
-                             design_detail, "open-design")) return 0;
+             "%d Open Design design system%s detected.",
+             design_systems < 0 ? 0 : design_systems, design_systems == 1 ? "" : "s");
+    if (!updates_add_section(b, &first, "design-systems", "Design systems",
+                             design_systems > 0 ? "ok" : "warn",
+                             design_detail, "design-systems")) return 0;
 
     return json_dyn_puts(b, "]");
 }
@@ -465,54 +387,17 @@ static int updates_run_ds4_latest(unsigned long long task_id, char *log_tail, si
     return updates_run_patch_verify(task_id, err, errsz);
 }
 
-static int updates_verify_skills(unsigned long long task_id, char *err, size_t errsz) {
-    task_mark_working(task_id, "verifying imported skills");
-    int skills = update_count_marker_dirs("extension/skills", "SKILL.md", NULL);
-    int cyber = update_count_marker_dirs("extension/gsa/third_party/anthropic-cybersecurity-skills/skills", "SKILL.md", NULL);
-    if (skills <= 0 || cyber <= 0) {
-        snprintf(err, errsz, "imported skills are incomplete: local=%d cyber=%d", skills, cyber);
+static int updates_verify_design_systems(unsigned long long task_id, char *err, size_t errsz) {
+    task_mark_working(task_id, "verifying design systems");
+    char opencode[DSTUDIO_PATH_MAX];
+    int n = snprintf(opencode, sizeof opencode, "%s/extension/design-systems/opencode-ai", g_web_dir);
+    if (n < 0 || (size_t)n >= sizeof opencode || !setup_remove_tree(opencode)) {
+        snprintf(err, errsz, "could not remove the unsupported OpenCode design system");
         return 0;
     }
-    return 1;
-}
-
-static int updates_run_imported_skills(unsigned long long task_id, char *log_tail, size_t logsz,
-                                       char *err, size_t errsz) {
-    char script[DSTUDIO_PATH_MAX + 256];
-    if (g_web_dir[0]) snprintf(script, sizeof script, "%s/scripts/sync-skill-sources.mjs", g_web_dir);
-    else snprintf(script, sizeof script, "scripts/sync-skill-sources.mjs");
-    struct stat st;
-    if (stat(script, &st) != 0 || !S_ISREG(st.st_mode)) {
-        snprintf(err, errsz, "imported skill source updater is missing: %s", script);
-        return 0;
-    }
-    /* Resolve node to an absolute path: when DStudio is launched from the GUI
-     * the server inherits a minimal PATH that omits Homebrew, so a bare "node"
-     * exec fails with exit 127. */
-    char node_bin[PATH_MAX];
-    static const char *node_dirs[] = {
-        "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin",
-        "/opt/local/bin", "/snap/bin", NULL
-    };
-    if (!resolve_program_path("node", node_dirs, node_bin, sizeof node_bin)) {
-        snprintf(err, errsz,
-                 "Node.js is required to update imported skills but 'node' could not be found "
-                 "on PATH or in common install locations. Install Node.js (e.g. 'brew install node') and retry.");
-        return 0;
-    }
-    char *argv[] = { node_bin, script, "--all", NULL };
-    if (!update_run_cmd(task_id, "updating imported skills from source repos", g_web_dir[0] ? g_web_dir : NULL,
-                        argv, log_tail, logsz, err, errsz)) return 0;
-    return updates_verify_skills(task_id, err, errsz);
-}
-
-static int updates_verify_open_design(unsigned long long task_id, char *err, size_t errsz) {
-    task_mark_working(task_id, "verifying Open Design imports");
-    int open_skills = update_count_marker_dirs("extension/skills", "SKILL.md", "open-design/");
     int design_systems = update_count_marker_dirs("extension/design-systems", "DESIGN.md", "open-design/");
-    if (open_skills <= 0 || design_systems <= 0) {
-        snprintf(err, errsz, "Open Design imports are incomplete: templates=%d designSystems=%d",
-                 open_skills, design_systems);
+    if (design_systems <= 0) {
+        snprintf(err, errsz, "Open Design design systems are missing");
         return 0;
     }
     return 1;
@@ -536,13 +421,9 @@ static void api_updates_run(int fd, const char *body) {
         ran++;
         ok = updates_run_patch_verify(task_id, err, sizeof err);
     }
-    if (ok && update_body_has_task(body, "skills")) {
+    if (ok && update_body_has_task(body, "design-systems")) {
         ran++;
-        ok = updates_run_imported_skills(task_id, log_tail, sizeof log_tail, err, sizeof err);
-    }
-    if (ok && update_body_has_task(body, "open-design")) {
-        ran++;
-        ok = updates_verify_open_design(task_id, err, sizeof err);
+        ok = updates_verify_design_systems(task_id, err, sizeof err);
     }
     if (ran == 0) {
         ok = 0;

@@ -190,9 +190,37 @@
       const ssdStreaming = ['off', 'on', 'auto'].includes(saved.ssdStreaming) ? saved.ssdStreaming : 'auto';
       const variant = saved.modelVariant === 'pro' ? 'pro' : 'flash';
       const gguf = typeof saved.modelGguf === 'string' ? saved.modelGguf : '';
+      let engineDir = typeof saved.modelEngineDir === 'string' ? saved.modelEngineDir : '';
+      /* GLM now lives in main. Clear the retired side-checkout selection and
+       * resolve the same saved GGUF against the aggregate catalog below. */
+      if (engineDir && /(^|[\\/])ds4-glm[^\\/]*[\\/]?$/i.test(engineDir)) {
+        engineDir = '';
+        saved.modelEngineDir = '';
+        localStorage.setItem('ds4web.settings.v2', JSON.stringify(saved));
+      }
+      /* Upgrade model picks saved before GGUFs carried checkout metadata.
+       * The aggregate catalog can identify the checkout owning the model. */
+      if (!engineDir && gguf) {
+        try {
+          const catalog = await fetchJson('/api/ggufs', {}, 5000);
+          const matches = (catalog.ggufs || []).filter((g) => g.path === gguf);
+          if (matches.length === 1 && matches[0].engineDir) {
+            engineDir = matches[0].engineDir;
+            saved.modelEngineDir = engineDir;
+            localStorage.setItem('ds4web.settings.v2', JSON.stringify(saved));
+          }
+        } catch { /* /api/start below will expose a precise model error */ }
+      }
       showProgress(5, 'Applying saved engine settings…',
         `${Math.round(ctx / 1024)}k context · SSD streaming ${ssdStreaming}`);
       try {
+        if (engineDir && engineDir !== st.ds4dir) {
+          await fetchJson('/api/engine/checkout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
+            body: JSON.stringify({ dir: engineDir }),
+          }, 10000);
+        }
         await fetchJson('/api/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },

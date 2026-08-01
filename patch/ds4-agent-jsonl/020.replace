@@ -31,83 +31,6 @@ static char *ds4ui_read_file_buf_limit(const char *path, size_t cap, int *trunca
     fclose(f);
     return agent_buf_take(&b);
 }
-static int ds4ui_line_has_prefix(const char *line, size_t len, const char *prefix) {
-    size_t n = strlen(prefix);
-    return len >= n && !strncmp(line, prefix, n);
-}
-static void ds4ui_trim_line(const char **line, size_t *len) {
-    while (*len && isspace((unsigned char)**line)) { (*line)++; (*len)--; }
-    while (*len && isspace((unsigned char)(*line)[*len - 1])) (*len)--;
-}
-static void ds4ui_put_line(agent_buf *b, const char *line, size_t len) {
-    agent_buf_append(b, line, len);
-    agent_buf_puts(b, "\n");
-}
-static char *ds4ui_read_cyber_skill_brief(const char *path, const char *name) {
-    int source_truncated = 0;
-    char *body = ds4ui_read_file_buf_limit(path, 96 * 1024, &source_truncated);
-    if (!body) return NULL;
-    agent_buf out = {0};
-    agent_buf_puts(&out, "[ds4-agent cyber skill brief: ");
-    agent_buf_puts(&out, name ? name : "(unknown)");
-    agent_buf_puts(&out, "]\n");
-    agent_buf_puts(&out, "This is a compact checklist view; long examples, tool catalogs and output templates are intentionally omitted.\n\n");
-    int in_code = 0, frontmatter_marks = 0, last_blank = 0, stopped = 0;
-    const char *p = body;
-    while (*p && out.len < 8192) {
-        const char *e = strchr(p, '\n');
-        size_t len = e ? (size_t)(e - p) : strlen(p);
-        const char *line = p;
-        size_t tlen = len;
-        ds4ui_trim_line(&line, &tlen);
-        if (tlen && line[tlen - 1] == '\r') tlen--;
-        if (ds4ui_line_has_prefix(line, tlen, "```")) {
-            in_code = !in_code;
-            p = e ? e + 1 : p + len;
-            continue;
-        }
-        if (!in_code) {
-            if (ds4ui_line_has_prefix(line, tlen, "## Common Scenarios") ||
-                ds4ui_line_has_prefix(line, tlen, "## Output Format") ||
-                ds4ui_line_has_prefix(line, tlen, "## Tools & Systems") ||
-                ds4ui_line_has_prefix(line, tlen, "### Scenario"))
-            {
-                stopped = 1;
-                break;
-            }
-            int include = 0;
-            if (ds4ui_line_has_prefix(line, tlen, "---")) {
-                include = frontmatter_marks < 2;
-                frontmatter_marks++;
-            } else if (frontmatter_marks < 2) {
-                include = 1;
-            } else if (tlen == 0) {
-                include = !last_blank;
-            } else if (line[0] == '#') {
-                include = 1;
-            } else if (ds4ui_line_has_prefix(line, tlen, "- ") ||
-                       ds4ui_line_has_prefix(line, tlen, "* ") ||
-                       ds4ui_line_has_prefix(line, tlen, "> ")) {
-                include = 1;
-            } else if (tlen < 220 &&
-                       (strstr(line, "authorization") || strstr(line, "Authorization") ||
-                        strstr(line, "Do not use") || strstr(line, "workflow") ||
-                        strstr(line, "checklist"))) {
-                include = 1;
-            }
-            if (include) {
-                ds4ui_put_line(&out, line, tlen);
-                last_blank = (tlen == 0);
-            }
-        }
-        p = e ? e + 1 : p + len;
-    }
-    if (stopped || source_truncated || *p) {
-        agent_buf_puts(&out, "\n[Truncated to compact cyber skill brief. Use concrete workspace evidence; do not copy generic examples.]\n");
-    }
-    free(body);
-    return agent_buf_take(&out);
-}
 static int ds4ui_pack_file_ext_ok(const char *rel) {
     const char *dot = strrchr(rel, '.');
     if (!dot) return 0;
@@ -181,13 +104,9 @@ static char *ds4ui_load_pack(const agent_tool_call *call, const char *subdir, co
         const char *u = getenv("DS4UI_USER_SKILLS_DIR");
         if (u && u[0]) { snprintf(path, sizeof path, "%s/%s/SKILL.md", u, name); body = ds4ui_read_file_buf(path); }
     }
-    if (!body) {
+    if (!body && strcmp(subdir, "skills")) {
         const char *root = getenv("DS4UI_SKILLS_DIR");
         if (root && root[0]) { snprintf(path, sizeof path, "%s/%s/%s/%s", root, subdir, name, file); body = ds4ui_read_file_buf(path); }
-    }
-    if (!body && !strcmp(subdir, "skills")) {
-        const char *root = getenv("DS4UI_CYBER_SKILLS_DIR");
-        if (root && root[0]) { snprintf(path, sizeof path, "%s/%s/%s", root, name, file); body = ds4ui_read_cyber_skill_brief(path, name); }
     }
     if (!body) return xstrdup("Tool error: no such pack (see the catalog in the system context)\n");
     return body;
@@ -210,13 +129,9 @@ static char *ds4ui_tool_pack_file(const agent_tool_call *call) {
         const char *u = getenv("DS4UI_USER_SKILLS_DIR");
         if (u && u[0]) { snprintf(pack_root, sizeof(pack_root), "%s/%s", u, name); found = ds4ui_pack_resolve_existing_file(pack_root, rel, full, sizeof(full), err, sizeof(err)); }
     }
-    if (!found) {
+    if (!found && strcmp(subdir, "skills")) {
         const char *root = getenv("DS4UI_SKILLS_DIR");
         if (root && root[0]) { snprintf(pack_root, sizeof(pack_root), "%s/%s/%s", root, subdir, name); found = ds4ui_pack_resolve_existing_file(pack_root, rel, full, sizeof(full), err, sizeof(err)); }
-    }
-    if (!found && !strcmp(subdir, "skills")) {
-        const char *root = getenv("DS4UI_CYBER_SKILLS_DIR");
-        if (root && root[0]) { snprintf(pack_root, sizeof(pack_root), "%s/%s", root, name); found = ds4ui_pack_resolve_existing_file(pack_root, rel, full, sizeof(full), err, sizeof(err)); }
     }
     if (!found) { agent_buf e = {0}; agent_buf_puts(&e, "Tool error: "); agent_buf_puts(&e, err[0] ? err : "pack_file not found"); agent_buf_puts(&e, "\n"); return agent_buf_take(&e); }
     int truncated = 0;
@@ -237,10 +152,9 @@ static char *ds4ui_tool_pack_file(const agent_tool_call *call) {
     return agent_buf_take(&out);
 }
 
-/* skills_search: bounded retrieval over the local skill packs. The MODEL forms
+/* skills_search: bounded retrieval over user-authored skills. The MODEL forms
  * the query and makes the final choice; this tool only returns candidates
- * (id + one-line description), best match first. Scans user skills, shipped
- * skills and the imported cybersecurity briefs. */
+ * (id + one-line description), best match first. */
 typedef struct { char id[96]; char desc[200]; int score; } ds4ui_skill_hit;
 static void ds4ui_lower_into(const char *s, char *out, size_t cap) {
     size_t o = 0;
@@ -321,13 +235,8 @@ static char *ds4ui_tool_skills_search(const agent_tool_call *call) {
     if (!nq) return xstrdup("Tool error: give skills_search a few topic keywords\n");
     static ds4ui_skill_hit hits[256];
     int n = 0;
-    char dir[2300];
     const char *u = getenv("DS4UI_USER_SKILLS_DIR");
     if (u && u[0]) ds4ui_skills_scan_dir(u, qw, nq, hits, 256, &n);
-    const char *r = getenv("DS4UI_SKILLS_DIR");
-    if (r && r[0]) { snprintf(dir, sizeof dir, "%s/skills", r); ds4ui_skills_scan_dir(dir, qw, nq, hits, 256, &n); }
-    const char *c = getenv("DS4UI_CYBER_SKILLS_DIR");
-    if (c && c[0]) ds4ui_skills_scan_dir(c, qw, nq, hits, 256, &n);
     if (!n) return xstrdup("No skills matched that query. Try different English keywords, or proceed without a skill.\n");
     qsort(hits, (size_t)n, sizeof hits[0], ds4ui_skill_hit_cmp);
     agent_buf out = {0};

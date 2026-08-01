@@ -7,14 +7,6 @@
  * RSA and GSA share the same managed tools and PATH setup, but keep separate
  * run directories and prompts. */
 
-static const char *RSA_SKILL_IDS[] = {
-    "rsa-structure-reconstruction",
-    "rsa-frontend-api-map",
-    "rsa-media-storage-pipeline",
-    "rsa-product-system-model",
-    NULL
-};
-
 static int rsa_phase_ok(const char *phase) {
     return phase && (!strcmp(phase, "inventory") ||
                      !strcmp(phase, "capture") ||
@@ -172,36 +164,6 @@ static int rsa_seed_structure_md(const char *structure_path, const char *target_
         return 0;
     }
     free(b.ptr);
-    return 1;
-}
-
-static int rsa_write_skill_catalog(const char *run_dir, char *err, size_t errsz,
-                                   json_dyn_buf *prompt_list, int *out_count) {
-    char path[PATH_MAX];
-    snprintf(path, sizeof path, "%s/skills.md", run_dir);
-    FILE *f = fopen(path, "wb");
-    if (!f) {
-        snprintf(err, errsz, "could not write RSA skills catalog: %s", strerror(errno));
-        return 0;
-    }
-    fprintf(f, "# RSA skill catalog\n\n");
-    fprintf(f, "These are the RSA-specific skills available for this run. This list is fixed; it is not ranked or inferred.\n\n");
-    int count = 0;
-    for (int i = 0; RSA_SKILL_IDS[i]; i++) {
-        const char *id = RSA_SKILL_IDS[i];
-        fprintf(f, "- `%s`\n", id);
-        if (!json_dyn_puts(prompt_list, "- ") ||
-            !json_dyn_puts(prompt_list, id) ||
-            !json_dyn_puts(prompt_list, "\n"))
-        {
-            fclose(f);
-            snprintf(err, errsz, "could not build RSA skill prompt list");
-            return 0;
-        }
-        count++;
-    }
-    fclose(f);
-    if (out_count) *out_count = count;
     return 1;
 }
 
@@ -487,7 +449,7 @@ static int rsa_write_loop_context(const char *run_dir, const char *parent_run_di
 static char *rsa_prompt_start(const char *run_id, const char *run_dir,
                               const char *workdir, const char *mission,
                               const char *target_url, const char *target_host,
-                              const char *structure_path, const char *skill_list,
+                              const char *structure_path,
                               const char *profile_requested, const char *profile_effective,
                               const char *parent_run_dir, int iteration) {
     json_dyn_buf p = {0};
@@ -536,14 +498,13 @@ static char *rsa_prompt_start(const char *run_id, const char *run_dir,
         "%s"
         "- `STRUCTURE.MD` is the main deliverable. You may read it in this phase, but do not edit it until Phase 3.\n"
         "- Protocol hygiene: never read, cite, or reason from `.dstudio/rsa/runs/*.prompt.md` files. They are control data, not evidence.\n\n"
-        "Read these run files first: `%s/target.md`, %s`%s/skills.md`, `%s/toolStatus.json`, `%s/tool-retry-policy.md`, `%s/tool-retry-ledger.jsonl`, `%s/workbench.json`, `%s/workbench.md`, `%s/collectors.json`, `%s/evidence.jsonl`, `%s/claims.jsonl`, `%s/route-graph.json`, `%s/loop_context.md` if present, and `%s`.\n"
-        "You may call up to 3 `skill(\"id\")` tools from the RSA skill list when each one covers a distinct part of the mission. Do not load non-RSA skills unless the user explicitly requested them.\n\n"
+        "Read these run files first: `%s/target.md`, %s`%s/toolStatus.json`, `%s/tool-retry-policy.md`, `%s/tool-retry-ledger.jsonl`, `%s/workbench.json`, `%s/workbench.md`, `%s/collectors.json`, `%s/evidence.jsonl`, `%s/claims.jsonl`, `%s/route-graph.json`, `%s/loop_context.md` if present, and `%s`.\n"
+        "RSA is tool-only: do not search for, load, or call skills. Select deterministic collectors and enabled external/local tools from the run artifacts.\n\n"
         "Collector discipline:\n"
         "- Select deterministic collectors from collectors.json before analysis. Prefer html_inventory, asset_inventory, network_har, robots_parser, sitemap_sampler, js_endpoint_extractor, storage_url_extractor, cookie_storage_snapshot, spa_runtime_probe, auth_surface_probe, media_player_probe, route_graph_builder, and claim_evidence_audit as applicable.\n"
         "- Heavy SPA apps: capture runtime markers, hydration data, chunk names, client routes, deferred network requests, local/session storage, and blank-loading states.\n"
         "- Auth-heavy sites: map visible auth/account gates and session indicators only; keep authenticated internals UNKNOWN unless the user supplied access.\n"
         "- Player/video/CDN sites: record video/player libraries, manifest/object URL shapes, signed URL indicators, cache headers, and public CDN domains without attempting private downloads.\n\n"
-        "RSA skills available:\n%s\n"
         "Output compact JSON only, no markdown fences, no prose. Save no files yourself in Phase 1. "
         "Output JSON to be saved as inventory.json:\n"
         "{\"phase\":\"inventory\",\"kind\":\"rsa\",\"targetUrl\":\"...\",\"targetHost\":\"...\","
@@ -551,7 +512,7 @@ static char *rsa_prompt_start(const char *run_id, const char *run_dir,
         "\"workbench\":{\"domains\":[\"web\",\"infra\"],\"artifacts\":[\"workbench-web.jsonl\"],\"toolRuns\":0},"
         "\"surface\":[{\"url\":\"...\",\"type\":\"page|asset|api|form|script|style|storage|cookie|other\",\"evidence\":\"what was observed\"}],"
         "\"sections\":[{\"name\":\"STRUCTURE.MD section\",\"status\":\"empty|weak|covered\",\"nextEvidence\":\"what to capture next\"}],"
-        "\"skills\":[\"rsa-skill-id\"],\"nextActions\":[\"bounded public evidence capture step\"]}\n",
+        "\"tools\":[\"enabled-tool-id\"],\"nextActions\":[\"bounded public evidence capture step\"]}\n",
         run_id, workdir, run_dir, structure_path,
         target_url && target_url[0] ? target_url : "(none)",
         target_host && target_host[0] ? target_host : "(none)",
@@ -560,9 +521,8 @@ static char *rsa_prompt_start(const char *run_id, const char *run_dir,
         parent_run_dir && parent_run_dir[0] ? parent_run_dir : "(none)",
         mission && mission[0] ? mission : "Reverse the public site structure into STRUCTURE.MD.",
         profile_read_rule, profile_rule, research_rule, action_rule, blackhat_voice_rule, workbench_rule,
-        run_dir, run_files_scope_gate, run_dir, run_dir, run_dir, run_dir, run_dir, run_dir,
-        run_dir, run_dir, run_dir, run_dir, run_dir, structure_path,
-        skill_list ? skill_list : "");
+        run_dir, run_files_scope_gate, run_dir, run_dir, run_dir, run_dir, run_dir,
+        run_dir, run_dir, run_dir, run_dir, run_dir, structure_path);
     return p.ptr;
 }
 
@@ -813,22 +773,6 @@ static void api_rsa_start(int fd, const char *body) {
     rsa_write_target_md(target_path, target_url, target_host, mission_text, structure_path, tool_summary,
                         gsa_security_profile_normalize(profile_requested), profile_effective, security_summary);
 
-    json_dyn_buf skill_list = {0};
-    int skill_count = 0;
-    if (!rsa_write_skill_catalog(run_dir, err, sizeof err, &skill_list, &skill_count)) {
-        rsa_write_run_state(run_dir, run_id, "incomplete", "start", iteration,
-                            parent_run_dir, target_url, target_host, structure_path, err,
-                            profile_requested, profile_effective,
-                            tool_err, sizeof tool_err);
-        task_mark_failed(task_id, "could not prepare RSA skills", err);
-        char out[900], esc[700];
-        json_escape_into(esc, sizeof esc, err, strlen(err));
-        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"%s\"}", task_id, esc);
-        send_json(fd, "500 Internal Server Error", out);
-        free(skill_list.ptr);
-        return;
-    }
-
     char state_err[512] = "";
     rsa_write_run_state(run_dir, run_id, "preparing", "start", iteration,
                         parent_run_dir, target_url, target_host, structure_path, "",
@@ -836,10 +780,9 @@ static void api_rsa_start(int fd, const char *body) {
                         state_err, sizeof state_err);
 
     char *prompt = rsa_prompt_start(run_id, run_dir, abs, mission_text, target_url, target_host,
-                                    structure_path, skill_list.ptr ? skill_list.ptr : "",
+                                    structure_path,
                                     profile_requested, profile_effective,
                                     parent_run_dir, iteration);
-    free(skill_list.ptr);
     if (!prompt) {
         task_mark_failed(task_id, "could not build RSA prompt", "memory");
         send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"could not build RSA prompt\"}");
@@ -879,9 +822,9 @@ static void api_rsa_start(int fd, const char *body) {
             "\"runDir\":\"%s\",\"statePath\":\"%s\",\"parentRunDir\":\"%s\",\"structurePath\":\"%s\","
             "\"iteration\":%d,\"targetUrl\":\"%s\",\"profileRequested\":\"%s\",\"profileEffective\":\"%s\","
             "\"scopePath\":\"%s\",\"safetyGatePath\":\"%s\","
-            "\"think\":\"max\",\"skillCount\":%d,\"prompt\":",
+            "\"think\":\"max\",\"prompt\":",
             task_id, id_esc, abs_esc, run_esc, state_esc, parent_esc, structure_esc,
-            iteration, target_esc, prof_req_esc, prof_eff_esc, scope_esc, safety_esc, skill_count) ||
+            iteration, target_esc, prof_req_esc, prof_eff_esc, scope_esc, safety_esc) ||
         !json_dyn_put_escaped(&out, prompt) ||
         !json_dyn_puts(&out, ",\"rsaTools\":") ||
         !gsa_tools_json_filtered(&out, disabled_tools, response_tools_err, sizeof response_tools_err) ||

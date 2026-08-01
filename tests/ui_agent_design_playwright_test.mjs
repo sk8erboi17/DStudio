@@ -22,6 +22,10 @@ let currentMode = 'server';
 let currentWorkdir = '/tmp/dstudio-ui-test';
 const staleAgentWorkdir = '/tmp/dstudio-missing-agent';
 let failNextAgentSend = false;
+let agentPollText = '';
+let agentPollWorking = false;
+let agentPollDeliveredLen = 0;
+let agentPollCaughtUp = 0;
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -91,11 +95,36 @@ const server = http.createServer(async (req, res) => {
       });
       return;
     }
-    json(res, 200, { ok: true, from: 0, at: 1 });
+    const from = Buffer.byteLength(agentPollText);
+    if (/Selection persistence fixture/.test(body.displayPrompt || '')) {
+      agentPollText += [
+        '\x01USER\x02Selection persistence fixture\x01ENDUSER\x02\n',
+        '\x1e' + JSON.stringify({
+          type: 'tool_call',
+          name: 'write',
+          input: {
+            path: 'src/SelectionFixture.java',
+            content: 'public final class SelectionFixture { // selection-survives-refresh\\n}\\n',
+          },
+        }) + '\n',
+        '\x1e' + JSON.stringify({
+          type: 'tool_result',
+          name: 'write',
+          output: 'Wrote selection fixture',
+        }) + '\n',
+      ].join('');
+      agentPollWorking = false;
+    }
+    json(res, 200, { ok: true, from, at: Buffer.byteLength(agentPollText) });
     return;
   }
   if (url.pathname === '/api/agent/poll') {
-    json(res, 200, { base: 0, len: 0, working: false, ready: true, loadPct: 100, text: '' });
+    const since = Math.max(0, Number(url.searchParams.get('since')) || 0);
+    const raw = Buffer.from(agentPollText);
+    const text = raw.subarray(Math.min(since, raw.length)).toString('utf8');
+    agentPollDeliveredLen = raw.length;
+    if (since >= raw.length && !agentPollWorking) agentPollCaughtUp++;
+    json(res, 200, { base: 0, len: raw.length, working: agentPollWorking, ready: true, loadPct: 100, text });
     return;
   }
   if (url.pathname === '/api/agent/interrupt' && req.method === 'POST') {
@@ -137,27 +166,6 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { rev: 0 });
     return;
   }
-  if (url.pathname === '/api/skills') {
-    json(res, 200, { ok: true, skills: [
-      { id: 'digits-fintech-swiss-template', name: 'digits-fintech-swiss-template', description: 'Swiss-grid fintech deck template in black / warm paper / neon-lime contrast.', modes: '[design]', category: 'deck-document', outputKinds: 'hyperframes', upstream: 'open-design/digits-fintech-swiss-template', hasExample: true },
-      { id: 'swiss-creative-mode-template', name: 'swiss-creative-mode-template', description: 'Swiss-inspired creative-mode presentation template skill with bold editorial typography.', modes: '[design]', category: 'deck-document', outputKinds: 'hyperframes', upstream: 'open-design/swiss-creative-mode-template', hasExample: true },
-      { id: 'landing-page', name: 'landing-page', description: 'Non-template skill', modes: '[design]', upstream: 'dstudio/landing-page', hasExample: false },
-      { id: 'ecc-security-review', name: 'ecc-security-review', description: 'Imported ECC security checklist and review patterns.', modes: '[agent]', category: 'imported-agent', outputKinds: 'markdown', upstream: 'ECC/.agents/skills/security-review', hasExample: false },
-      { id: 'superpowers-systematic-debugging', name: 'superpowers-systematic-debugging', description: 'Imported Superpowers root-cause debugging workflow.', modes: '[agent]', category: 'imported-agent', outputKinds: 'markdown', upstream: 'superpowers/systematic-debugging', hasExample: false },
-      { id: 'anthropic-claude-code-security-review', name: 'anthropic-claude-code-security-review', description: 'Imported Anthropic high-confidence branch security review.', modes: '[agent]', category: 'imported-agent', outputKinds: 'markdown', upstream: 'claude-code-security-review/.claude/commands/security-review.md', hasExample: false },
-    ] });
-    return;
-  }
-  if (url.pathname.startsWith('/api/skill-preview/')) {
-    if (url.pathname.endsWith('/template.css')) {
-      res.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
-      res.end('body{margin:0;font:24px system-ui;background:#f7f1de;color:#111}.styled{color:rgb(10, 99, 40);padding:36px}');
-      return;
-    }
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end('<!doctype html><html><head><link rel="stylesheet" href="./template.css"></head><body><main class="styled"><h1>Original Open Design Example</h1><p>Template preview</p></main></body></html>');
-    return;
-  }
   if (url.pathname.startsWith('/api/design-system-preview/')) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end('<!doctype html><html><body style="margin:0;font:20px system-ui;background:#0b1020;color:#f8fafc"><main style="padding:32px"><h1>Airbnb Components</h1><p>Original local design-system fixture</p></main></body></html>');
@@ -171,7 +179,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/api/user-skills') {
-    json(res, 200, { ok: true, skills: [], systems: [], designSystems: [] });
+    json(res, 200, { ok: true, skills: [
+      { id: 'ecc-security-review', name: 'ecc-security-review', description: 'User-created security checklist and review patterns.', modes: '[agent]' },
+      { id: 'superpowers-systematic-debugging', name: 'superpowers-systematic-debugging', description: 'User-created root-cause debugging workflow.', modes: '[agent]' },
+      { id: 'anthropic-claude-code-security-review', name: 'anthropic-claude-code-security-review', description: 'User-created high-confidence branch security review.', modes: '[agent]' },
+    ] });
     return;
   }
   if (url.pathname === '/v1/models') {
@@ -280,7 +292,7 @@ try {
   await page.locator('#cbar-gear').click();
   await page.locator('.skill-open').click();
   await page.getByRole('dialog', { name: /Your skills/i }).waitFor({ timeout: 5000 });
-  await page.locator('.skills-cat').filter({ hasText: /Agent \/ Workflow/ }).click();
+  await page.locator('.skills-cat').filter({ hasText: /Your skills/ }).click();
   await page.locator('.skill-card').filter({ hasText: 'ecc-security-review' }).click();
   assert.equal(starts.length, startsBeforeSkillPick, 'picking an Agent skill should not restart the runtime');
 
@@ -301,7 +313,7 @@ try {
 
   await page.locator('#cbar-gear').click();
   await page.locator('.skill-open').click();
-  await page.locator('.skills-cat').filter({ hasText: /Agent \/ Workflow/ }).click();
+  await page.locator('.skills-cat').filter({ hasText: /Your skills/ }).click();
   await page.locator('.skill-card').filter({ hasText: 'superpowers-systematic-debugging' }).click();
   await page.locator('#composer-input').fill([
     'A Playwright test fails only after the design gallery opens and closes twice.',
@@ -319,7 +331,7 @@ try {
 
   await page.locator('#cbar-gear').click();
   await page.locator('.skill-open').click();
-  await page.locator('.skills-cat').filter({ hasText: /Agent \/ Workflow/ }).click();
+  await page.locator('.skills-cat').filter({ hasText: /Your skills/ }).click();
   await page.locator('.skill-card').filter({ hasText: 'anthropic-claude-code-security-review' }).click();
   await page.locator('#composer-input').fill([
     'Run a branch security review for the current diff.',
@@ -332,6 +344,52 @@ try {
       /branch security review/.test(s.body?.displayPrompt || '') &&
       /\[DStudio selected skill: anthropic-claude-code-security-review\]/.test(s.body?.prompt || '')),
     'Anthropic security-review skill send did not include the selected skill frame',
+    debugDetails,
+  );
+
+  await page.locator('#composer-input').fill('Selection persistence fixture');
+  await page.locator('#btn-send').click();
+  const selectedDiff = page.locator('.diff-txt').filter({ hasText: 'selection-survives-refresh' }).first();
+  await selectedDiff.waitFor({ timeout: 5000 });
+  await selectedDiff.evaluate((node) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  assert.match(
+    await page.evaluate(() => window.getSelection()?.toString() || ''),
+    /selection-survives-refresh/,
+    'selection fixture should start selected',
+  );
+  const statusRefresh = '\x1e' + JSON.stringify({
+    type: 'status',
+    state: 'idle',
+    prefillDone: 0,
+    prefillTotal: 0,
+    generated: 0,
+    ctxUsed: 1,
+    ctxSize: 65536,
+  }) + '\n';
+  agentPollCaughtUp = 0;
+  agentPollText += statusRefresh;
+  const expectedPollLen = Buffer.byteLength(agentPollText);
+  await waitFor(
+    () => agentPollDeliveredLen >= expectedPollLen,
+    'Agent did not receive the late idle status refresh',
+    debugDetails,
+  );
+  await delay(100);
+  assert.match(
+    await page.evaluate(() => window.getSelection()?.toString() || ''),
+    /selection-survives-refresh/,
+    'late idle Agent renders must not clear the user text selection',
+  );
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+  await waitFor(
+    () => agentPollCaughtUp > 0,
+    'Agent did not settle to idle after the selection refresh',
     debugDetails,
   );
 
@@ -355,28 +413,23 @@ try {
   assert.equal(starts.length, startsBeforeNewDesign, 'new design in the active workspace should not restart the design runtime');
   await page.getByRole('heading', { name: /What should we design\?/ }).waitFor({ timeout: 5000 });
   assert.equal(await page.getByRole('button', { name: /Open gallery/i }).count(), 0, 'Design brief should not require an Open gallery button');
-  await page.getByText(/Digits Fintech Swiss/).waitFor({ timeout: 5000 });
-  await page.getByText(/Swiss Creative Mode/).waitFor({ timeout: 5000 });
   await page.locator('.design-gallery-card__title').filter({ hasText: 'Airbnb' }).waitFor({ timeout: 5000 });
   await page.locator('.design-gallery-card__title').filter({ hasText: 'Apple' }).waitFor({ timeout: 5000 });
   await page.locator('.brief-gallery-panel__title', { hasText: 'Visual starting points' }).waitFor({ timeout: 5000 });
   const designSearch = page.getByLabel('Search design gallery');
-  await designSearch.fill('Creative Mode');
-  await page.locator('.design-gallery-card__title').filter({ hasText: 'Swiss Creative Mode' }).first().waitFor({ timeout: 5000 });
-  assert.equal(await page.locator('.design-gallery-card__title').filter({ hasText: 'Digits Fintech Swiss' }).count(), 0, 'Design gallery search should filter cards in place');
+  await designSearch.fill('Apple');
+  await page.locator('.design-gallery-card__title').filter({ hasText: 'Apple' }).first().waitFor({ timeout: 5000 });
+  assert.equal(await page.locator('.design-gallery-card__title').filter({ hasText: 'Airbnb' }).count(), 0, 'Design gallery search should filter cards in place');
   await designSearch.fill('');
-  await page.locator('.design-gallery-card__title').filter({ hasText: 'Digits Fintech Swiss' }).first().waitFor({ timeout: 5000 });
-  assert.equal(await page.getByText(/landing-page/).count(), 0, 'Design gallery should not show non-Open-Design/non-example skills');
-  assert.ok(await page.getByText(/4 items/).count(), 'Design gallery should include Open Design templates and design systems');
+  await page.locator('.design-gallery-card__title').filter({ hasText: 'Airbnb' }).first().waitFor({ timeout: 5000 });
+  assert.ok(await page.getByText(/2 items/).count(), 'Design gallery should include design systems without downloadable skill templates');
   const designGalleryDialogOpen = await page.locator('#design-gallery-dialog').evaluate((dialog) => !!dialog.open);
   assert.equal(designGalleryDialogOpen, false, 'Design gallery should render inline rather than opening a modal');
-  const digitsCard = page.locator('.design-gallery-card').filter({ hasText: 'Digits Fintech Swiss' }).first();
-  await digitsCard.click();
+  const airbnbCard = page.locator('.design-gallery-card').filter({ hasText: 'Airbnb' }).first();
+  await airbnbCard.click();
   await page.waitForFunction(() => document.querySelector('#design-preview-dialog')?.open === true, null, { timeout: 5000 });
-  assert.equal(await digitsCard.evaluate((el) => el.classList.contains('is-selected')), true, 'clicked design gallery card should stay highlighted');
-  await page.frameLocator('#design-preview-frame').getByRole('heading', { name: 'Original Open Design Example' }).waitFor({ timeout: 5000 });
-  const previewColor = await page.frameLocator('#design-preview-frame').locator('.styled').evaluate((el) => getComputedStyle(el).color);
-  assert.equal(previewColor, 'rgb(10, 99, 40)', 'template preview iframe should load original local CSS assets');
+  assert.equal(await airbnbCard.evaluate((el) => el.classList.contains('is-selected')), true, 'clicked design-system card should stay highlighted');
+  await page.frameLocator('#design-preview-frame').getByRole('heading', { name: 'Airbnb Components' }).waitFor({ timeout: 5000 });
   await page.locator('#design-preview-close').click();
 
   failNextAgentSend = true;

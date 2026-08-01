@@ -306,7 +306,7 @@ static char *jsonl_read_patch_makefile(size_t *len) {
     return patch_read_text(path, len);
 }
 
-/* Skill id sanitiser: only [a-z0-9-], so it can never escape extension/skills/. */
+/* Skill id sanitiser: only [a-z0-9-], so it can never escape the user skill directory. */
 static int skill_id_ok(const char *s) {
     if (!s || !s[0]) return 0;
     for (const char *p = s; *p; p++) {
@@ -441,17 +441,12 @@ static int skill_hit_id_cmp(const void *a, const void *b) {
     return c ? c : strcmp(x->id, y->id);
 }
 
-/* Enumerate all skill sources (user + shipped + cyber) into L, sorted stably. */
+/* Enumerate user-authored skills only, sorted stably. Downloaded/shipped skill
+ * catalogs are deliberately unsupported. */
 static int skill_enum_all(skill_hit_list *L) {
-    char dir[PATH_MAX], udir[1100];
+    char udir[1100];
     user_skills_dir(udir, sizeof udir);
     if (!skill_enum_dir(L, udir, "SKILL.md", "user")) return 0;
-    if (g_web_dir[0]) {
-        snprintf(dir, sizeof dir, "%s/extension/skills", g_web_dir);
-        if (!skill_enum_dir(L, dir, "SKILL.md", "dstudio")) return 0;
-    }
-    if (cyber_skills_dir(dir, sizeof dir))
-        if (!skill_enum_dir(L, dir, "SKILL.md", "anthropic-cybersecurity-skills")) return 0;
     if (L->n > 1) qsort(L->v, (size_t)L->n, sizeof *L->v, skill_hit_id_cmp);
     for (int i = 0; i < L->n; i++) L->v[i].order = i;
     return 1;
@@ -512,24 +507,12 @@ static void catalog_append(char *out, size_t cap, size_t *o, const char *dir,
     if (any) *o += (size_t)snprintf(out + *o, cap - *o, "\n");
 }
 
-/* Read the body of the active skill, preferring a USER skill (<userdir>/<id>/SKILL.md)
- * over a shipped one (<web>/extension/skills/<id>/SKILL.md). Caller frees. */
+/* Read the body of an active user-authored skill. Caller frees. */
 static char *read_selected_skill(size_t *len) {
     char path[2300], udir[1100];
     user_skills_dir(udir, sizeof udir);
     snprintf(path, sizeof path, "%s/%s/SKILL.md", udir, g_skill);
-    char *c = jsonl_read_file(path, len);
-    if (c) return c;
-    snprintf(path, sizeof path, "%s/extension/skills/%s/SKILL.md", g_web_dir, g_skill);
-    c = jsonl_read_file(path, len);
-    if (c) return c;
-    char cyber[2300];
-    if (cyber_skills_dir(cyber, sizeof cyber)) {
-        snprintf(path, sizeof path, "%s/%s/SKILL.md", cyber, g_skill);
-        c = jsonl_read_file(path, len);
-        if (c) return c;
-    }
-    return NULL;
+    return jsonl_read_file(path, len);
 }
 
 /* Append a file's bytes to a growing buffer with a blank-line separator. Frees src. */

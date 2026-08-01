@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 
 const html = fs.readFileSync('web/index.html', 'utf8');
 const readme = fs.readFileSync('README.md', 'utf8');
-const thirdPartyNotices = fs.readFileSync('THIRD_PARTY_NOTICES.md', 'utf8');
 const loadingHtml = fs.readFileSync('web/loading.html', 'utf8');
 const launcherMain = fs.readFileSync('src/dstudio.c', 'utf8');
 const launcherDomains = fs.readdirSync('src')
@@ -16,6 +15,11 @@ const app = fs.readFileSync('src/app.cc', 'utf8');
 const webview = fs.readFileSync('src/webview.h', 'utf8');
 const remoteHelper = fs.readFileSync('extension/remote/dstudio_remote_llm.c', 'utf8');
 const remoteAgent = fs.readFileSync('patch/ds4-agent-jsonl/remote-agent.cfrag', 'utf8');
+const jsonlPatchText = fs.readdirSync('patch/ds4-agent-jsonl')
+  .filter((name) => name.endsWith('.replace'))
+  .sort()
+  .map((name) => fs.readFileSync(`patch/ds4-agent-jsonl/${name}`, 'utf8'))
+  .join('\n');
 const remoteDesign = fs.readFileSync('extension/design/ds4_design.c', 'utf8');
 const searchRuntime = fs.readFileSync('extension/search/runtime.js', 'utf8');
 const embedServer = fs.readFileSync('scripts/embed-server.sh', 'utf8');
@@ -24,7 +28,6 @@ const windowsDs4Build = fs.readFileSync('scripts/build-ds4-windows-cygwin.sh', '
 const gitignore = fs.readFileSync('.gitignore', 'utf8');
 const gsaBenchRunner = fs.readFileSync('extension/gsa/bench/run.mjs', 'utf8');
 const gsaRuntimeSource = fs.readFileSync('extension/gsa/dstudio_gsa.cfrag', 'utf8');
-const skillSources = fs.readFileSync('extension/skills/sources.tsv', 'utf8');
 const gsaTemplateText = fs.readdirSync('extension/gsa/templates')
   .filter((name) => ['.md', '.sh', '.ps1'].some((ext) => name.endsWith(ext)))
   .sort()
@@ -259,24 +262,6 @@ assert.match(gitignore, /^\*\.log\.gz$/m, 'compressed local timeline/log artifac
 assert.match(gitignore, /^MEMORY\.MD$/m, 'local memory scratch files should stay out of git status');
 assert.match(gitignore, /^\.tmp\/$/m, 'local UI screenshots and scratch artifacts should stay out of git status');
 
-for (const [file, upstream] of [
-  ['extension/skills/ecc-security-review/SKILL.md', 'ecc/.agents/skills/security-review'],
-  ['extension/skills/superpowers-systematic-debugging/SKILL.md', 'superpowers/skills/systematic-debugging'],
-  ['extension/skills/anthropic-claude-code-security-review/SKILL.md', 'claude-code-security-review/.claude/commands/security-review.md'],
-]) {
-  assert.ok(fs.existsSync(file), `${file} should exist`);
-  const skill = fs.readFileSync(file, 'utf8');
-  assert.match(skill, /modes:\s*\[agent\]/, `${file} should be Agent-mode selectable`);
-  assert.match(skill, new RegExp(`ds4_upstream:\\s*${upstream.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), `${file} should preserve upstream attribution`);
-}
-assert.ok(fs.existsSync('extension/skills/_licenses/ecc-MIT.txt'), 'ECC imported skill license should be copied locally');
-assert.ok(fs.existsSync('extension/skills/_licenses/superpowers-MIT.txt'), 'Superpowers imported skill license should be copied locally');
-assert.match(skillSources, /superpowers\thttps:\/\/github\.com\/obra\/superpowers\tmain\t[0-9a-f]{40}\tsuperpowers-\tskills/, 'repo-imported skills should keep an updateable source manifest');
-assert.ok(fs.existsSync('extension/skills/_licenses/anthropic-claude-code-security-review-MIT.txt'), 'Anthropic security review license should be copied locally');
-assert.match(thirdPartyNotices, /ECC Agent Skills[\s\S]*extension\/skills\/ecc-\*/, 'Third-party notices should cover ECC Agent skills');
-assert.match(thirdPartyNotices, /Superpowers Agent Skills[\s\S]*extension\/skills\/superpowers-\*/, 'Third-party notices should cover Superpowers Agent skills');
-assert.match(thirdPartyNotices, /Anthropic Claude Code Security Review[\s\S]*anthropic-claude-code-security-review/, 'Third-party notices should cover Anthropic security-review skill');
-
 assert.deepEqual(sourceAdapterHelpers.validSourceKinds(), ['article', 'docs', 'product', 'academic', 'social', 'repo', 'generic']);
 assert.equal(sourceAdapterHelpers.classifySourceKind({ url: 'https://example.com/pricing', title: 'Pricing plans' }, 'quanto costa?'), 'product');
 assert.equal(sourceAdapterHelpers.classifySourceKind({ url: 'https://docs.example.com/api', title: 'API reference' }, 'come uso api?'), 'docs');
@@ -396,7 +381,7 @@ assert.match(js, /async function updatesCheck\(\)[\s\S]*\/api\/updates\/check/, 
 assert.match(js, /async function updatesRun\(tasks\)[\s\S]*\/api\/updates\/run/, 'Engine client should expose selected Update Doctor runs');
 assert.match(html, /class="field updates-panel"[\s\S]*updates-panel__title[\s\S]*updates-task-grid[\s\S]*id="updates-list" class="updates-list"/, 'Update Doctor settings should use the structured maintenance panel layout');
 assert.match(html, /id="updates-progress-dialog"[\s\S]*id="updates-progress-bar"[\s\S]*id="updates-progress-current"[\s\S]*id="updates-progress-steps"/, 'Update Doctor should have a modal progress UI with current action and task list');
-assert.match(html, /Fetch ds4 upstream, then verify managed tools, templates, patch gates, skills and Open Design imports/, 'Update Doctor should describe which checks are real upstream fetches versus local verification');
+assert.match(html, /Fetch ds4 upstream, then verify managed tools, patch gates and design systems\. Skills remain user-authored\./, 'Update Doctor should distinguish managed updates from user-authored skills');
 assert.match(html, /id="updates-check"[\s\S]*>Check<\/button>[\s\S]*id="updates-run"[\s\S]*>Update \/ verify selected<\/button>/, 'Update Doctor should keep compact primary actions with honest update/verify wording');
 assert.match(js, /function renderUpdates\(res\)[\s\S]*updates-badge--\$\{state\}[\s\S]*updates-row__label[\s\S]*updates-row__detail/, 'Update Doctor should render status rows with badges instead of freeform text');
 assert.match(js, /async function openUpdatesProgress\(tasks\)[\s\S]*updatesProgressDialog[\s\S]*showModal/, 'Update Doctor should open a dedicated progress modal before running selected tasks');
@@ -407,9 +392,8 @@ assert.match(js, /async function logs\(limit = 200\)[\s\S]*\/api\/logs\?limit=/,
 assert.match(js, /Engine\.diagnostics\(\)/, 'Doctor should fetch workspace diagnostics');
 assert.match(js, /function renderDiagnostics\(diag\)/, 'Doctor should render diagnostics instead of hiding backend state');
 assert.match(js, /Recent diagnostics/, 'Doctor diagnostics section should label recent task and log failures');
-assert.match(launcher, /#define CYBER_SKILLS_REL_DIR "extension\/gsa\/third_party\/anthropic-cybersecurity-skills\/skills"/, 'GSA should pin the vendored cybersecurity skills catalog path');
-assert.match(launcher, /DS4UI_CYBER_SKILLS_DIR/, 'agent/design child processes should receive the vendored cybersecurity skills dir');
-assert.match(launcher, /full catalog is[\s\S]*not injected into this prompt to keep Agent startup responsive/, 'Agent startup should not dump the vendored cybersecurity skill catalog into the system prompt');
+assert.doesNotMatch(launcher, /CYBER_SKILLS_REL_DIR|DS4UI_CYBER_SKILLS_DIR/, 'launcher should not expose a downloaded cybersecurity skill catalog');
+assert.match(launcher, /DStudio does not install a skill catalog/, 'Agent startup should state that skills are user-authored');
 assert.ok(Number(jsonlPatch.values.get('version')) >= 46, 'JSONL patch version should force rebuild after remote transcript UTF-8 validation changes');
 assert.match(jsonlPatch.text, /--web-tool[\s\S]*google_search[\s\S]*visit_page/, 'JSONL agent should expose Search-backed google_search and visit_page helpers');
 assert.match(jsonlPatch.text, /if \(w->cfg->non_interactive\)[\s\S]*return 1; \/\*DS4UI_JSONL: DStudio Agent web search is a managed read-only helper/, 'Agent native web tools should auto-approve managed Chrome startup in non-interactive DStudio mode');
@@ -471,12 +455,10 @@ assert.match(gsaRuntime, /Do not pass guessed labels such as `xss`[\s\S]*to `nuc
 assert.match(gsaRuntime, /no templates provided for scan[\s\S]*retry the same nuclei task with a known valid tag\/path/, 'GSA nuclei policy should treat zero-template scans as same-tool argument failures');
 assert.match(gsaRuntime, /For technology detection[\s\S]*-tags tech[\s\S]*http\/technologies[\s\S]*not `-tags tech-detect`/, 'GSA nuclei policy should use the valid tech tag or technologies path instead of tech-detect');
 assert.match(gsaRuntime, /github\.com\/tomnomnom\/assetfinder/, 'GSA should include assetfinder support');
-assert.match(gsaRuntime, /static int gsa_write_cyber_skill_shortlist/, 'GSA should build its shortlist from imported cybersecurity skills');
-assert.match(gsaRuntime, /static char \*gsa_workspace_signals\(const char \*workdir, const char \*candidates_path\)/, 'GSA should rank imported skills with bounded workspace signals');
+assert.doesNotMatch(gsaRuntimeSource, /gsa_write_user_skill_shortlist|gsa_workspace_signals|user_skills_dir|skills\.md/, 'GSA must not load or shortlist skills');
 assert.match(gsaRuntime, /json_get_string\(body, "targetUrl", req->target_url/, 'GSA start should accept an optional authorized target URL');
 assert.match(gsaRuntime, /gsa_extract_first_url\(req->mission, req->target_url/, 'GSA start should infer an explicit URL from the mission when the target field is empty');
 assert.match(gsaRuntime, /gsa_target_url_ok\(req->target_url/, 'GSA start should validate target URLs before writing artifacts');
-assert.match(gsaRuntime, /target_hits=%d, workspace_hits=%d/, 'GSA skill shortlist should explain target/workspace ranking signals');
 assert.match(gsaRuntime, /target\.md/, 'GSA should write a target artifact for the agent to read');
 assert.match(gsaRuntime, /toolStatus\.json/, 'GSA should write tool status into the run directory');
 assert.match(gsaRuntimeSource, /gsa_render_template\("templates\/tool-retry-policy\.md"/, 'GSA should render the reusable external-tool retry policy from a template');
@@ -511,23 +493,16 @@ assert.match(gsaRuntime, /gsa_json_object_valid/, 'GSA phases should validate JS
 assert.match(gsaRuntime, /gsa_report_valid/, 'GSA reports should validate verdict output before marking complete');
 assert.match(gsaRuntime, /gsa_prepare_python_scripts_dir/, 'GSA should prepare a local automation scripts directory');
 assert.doesNotMatch(gsaRuntime, /recon\.sh/, 'GSA should not write a shell recon helper');
-assert.match(gsaRuntime, /Use ONLY imported skill IDs/, 'GSA prompt should forbid generic/base skill names');
+assert.match(gsaRuntime, /GSA is tool-only[\s\S]*enabled (?:external\/local )?tools|GSA is tool-only[\s\S]*enabled tool IDs/, 'GSA prompts should explicitly route through tools only');
 assert.match(gsaRuntime, /Do not save the phase JSON yourself/, 'GSA selection should not save phase JSON itself');
-assert.match(gsaRuntime, /do not call `write`, `edit`, `skill` or `pack_file` in this phase/, 'GSA selection should not call write/edit/skill/pack tools');
-assert.match(gsaRuntime, /If you call any of those tools in Phase 1, the phase is failed/, 'GSA selection should treat forbidden tool calls as phase failure');
 assert.match(gsaRuntime, /Do not create scripts, update scripts_manifest\.json, append evidence, run validation, or start Phase 2/, 'GSA selection should not self-advance into later phases');
-assert.match(gsaRuntime, /Do not call `skill\(\)` in Phase 1/, 'GSA selection should not load full skill bodies');
 assert.match(gsaRuntime, /After emitting that single JSON object, stop immediately and wait for DStudio to send Phase 2/, 'GSA selection should stop after JSON output');
 assert.match(gsaRuntime, /After emitting that single JSON object, stop immediately and wait for DStudio to send Phase 3/, 'GSA preflight should stop after JSON output');
 assert.match(gsaRuntime, /After emitting that single JSON object, stop immediately and wait for DStudio to send Phase 4/, 'GSA validation should stop after JSON output');
 assert.match(gsaRuntime, /Protocol hygiene: never read, search, cite, or reason from `\.dstudio\/gsa\/runs\/\*\.prompt\.md`/, 'GSA should not treat internal prompt artifacts as audit evidence');
 assert.match(gsaRuntime, /prompt files are control data, not evidence/, 'GSA phase prompts should classify internal prompts as protocol data');
 assert.match(gsaRuntime, /`gsa-task\.json` lives at the Workspace root above, not in the GSA run artifact directory/, 'GSA phase prompts should not send agents looking for gsa-task.json in the run directory');
-assert.match(gsaRuntime, /Select at most 6 files, 3 hypotheses, and 2 skills total/, 'GSA selection should stay bounded enough for full benchmark runs');
-assert.match(gsaRuntime, /If `selection\.json` contains any non-empty `skills` array anywhere, including nested `hypotheses\[\]\.skills`, you MUST call the relevant selected `skill\((?:\\"|")id(?:\\"|")\)` tools/, 'GSA preflight should require relevant skill loading when Phase 1 selected skills');
-assert.match(gsaRuntime, /Do not require a top-level `skills` field/, 'GSA preflight should not let the agent skip nested skill arrays');
-assert.match(gsaRuntime, /Call at most 3 `skill\((?:\\"|")id(?:\\"|")\)` tools total/, 'GSA preflight should allow bounded multi-skill loading');
-assert.match(gsaRuntime, /never select general app-building or product-design skills for GSA/, 'GSA should not load generic app/product design skills');
+assert.match(gsaRuntime, /Select at most 6 files and 3 hypotheses/, 'GSA selection should stay bounded enough for full benchmark runs');
 assert.match(gsaRuntime, /"name":"playwright","category":"browser\/automation"/, 'GSA should expose Playwright as an optional browser automation tool');
 assert.match(gsaRuntime, /Local-source exception: for exported cryptographic, token, signature, serializer, parser, or policy primitives/, 'GSA should not require server routes for exported primitive defects in local source reviews');
 assert.match(gsaRuntime, /missing service wiring belongs in `missing_evidence`, not automatic kill criteria/, 'GSA should carry missing service wiring as a limitation for exported primitive findings');
@@ -541,14 +516,13 @@ assert.doesNotMatch(gsaBenchRunner, /sendAgentTurnWithRetry|findingHasExportedPr
 assert.match(gsaBenchRunner, /async function restartAgentRuntime\(baseUrl, launchBody\)[\s\S]*await stopAgentRuntime\(baseUrl\)[\s\S]*await startMode\(baseUrl, launchBody, 30 \* 60_000\)/, 'GSA benchmark should restart the runtime cleanly for each case');
 assert.match(gsaBenchRunner, /await restartAgentRuntime\(baseUrl, opts\.launchBody\)/, 'GSA benchmark cases should launch from a fresh runtime');
 assert.match(gsaBenchRunner, /await stopAgentRuntime\(baseUrl\)/, 'GSA benchmark should stop the runtime after each case');
-assert.match(gsaRuntime, /Do not copy their body, glossary or examples into your answer/i, 'GSA preflight should not echo full skill content');
 assert.match(gsaRuntime, /Do not create or run scripts in this preflight phase/, 'GSA preflight should not spend budget running helpers');
 assert.match(gsaRuntime, /Phase 3 owns execution/, 'GSA should defer helper execution to validation');
 assert.match(gsaRuntime, /make at most one repair attempt/, 'GSA helper scripts should not loop on path repair');
 assert.match(gsaRuntime, /Do not use `edit` on evidence\.jsonl; append only/, 'GSA validation should preserve append-only evidence');
 assert.match(gsaRuntime, /Add at most 6 new evidence lines/, 'GSA validation should bound evidence growth');
 assert.match(gsaRuntime, /Use the inline artifacts below/, 'GSA report prompt should inline phase artifacts instead of forcing tool reads');
-assert.match(gsaRuntime, /Do not call `read`, `write`, `edit`, `run`, or `skill` in this report phase/, 'GSA report should not trigger tool churn');
+assert.match(gsaRuntime, /Do not call tools in this report phase/, 'GSA report should not trigger tool churn');
 assert.match(gsaRuntime, /Keep the report under 900 words/, 'GSA report should stay compact');
 assert.match(gsaRuntime, /gsa_append_run_file_excerpt\(&p, run_dir, "validation\.json"/, 'GSA report prompt should include validation inline');
 assert.match(gsaRuntime, /gsa_append_run_file_excerpt\(&p, run_dir, "evidence\.jsonl"/, 'GSA report prompt should include evidence inline');
@@ -569,9 +543,7 @@ assert.doesNotMatch(gsaBenchRunner, /phase === "selection" \|\| phase === "repor
 assert.match(gsaBenchRunner, /function phaseTimeoutMs\(_phase, opts\)[\s\S]*const base = Number\(opts\.turnTimeoutMs \|\| 30 \* 60 \* 1000\)[\s\S]*return base/, 'GSA benchmark should let --timeout-min govern every phase when thinking max is enabled');
 assert.doesNotMatch(gsaBenchRunner, /"selection-finalize":\s*2 \* 60 \* 1000/, 'GSA benchmark must not keep short finalize caps under thinking max');
 assert.match(gsaBenchRunner, /const maxRawBytes = opts\.maxRawBytes \|\| \(thinkLevel === "max" \? 320_000 : 70_000\)/, 'GSA benchmark should respect per-phase transcript budgets and keep a high default for unbounded thinking max phases');
-assert.match(gsaBenchRunner, /function selectionSkillIds\(jsonText\)/, 'GSA benchmark should parse skills selected in Phase 1');
-assert.match(gsaBenchRunner, /preflight did not load a selected GSA skill/, 'GSA benchmark should fail when selected skill routing is skipped');
-assert.match(gsaBenchRunner, /input\.name \|\| input\.id/, 'GSA benchmark should record skill tool calls that pass id instead of name');
+assert.doesNotMatch(gsaBenchRunner, /selectionSkillIds|shortlistedSkills|skillCalls|skills\.md/, 'GSA benchmark should not contain skill-routing machinery');
 assert.match(gsaBenchRunner, /const phaseOrder = \["selection", "preflight", "validation"\]/, 'GSA benchmark should run the three JSON phases as a simple linear sequence');
 assert.match(gsaBenchRunner, /const raw = await sendAgentTurn\(/, 'GSA benchmark should use one agent turn per JSON phase');
 assert.doesNotMatch(gsaBenchRunner, /selectionEvidencePass|selectionRepair|validationRepair|reportRepair|selectionFinalize/, 'GSA benchmark should not keep hidden benchmark-only repair passes');
@@ -592,10 +564,8 @@ assert.match(gsaRuntime, /\\"targetUrl\\":\\"%s\\"[\s\S]*\\"think\\":\\"max\\"/,
 assert.match(launcher, /static int display_prompt_is_guided_analysis\(const char \*display\)/, 'Agent send endpoint should detect guided GSA/RSA display prompts');
 assert.match(launcher, /gsa_think_max_frame\[\][\s\S]*"value\\":\\"max\\"/, 'Agent send endpoint should have a GSA thinking max control frame');
 assert.match(launcher, /force_gsa_think_max[\s\S]*fd_write_all\(g_in_fd, gsa_think_max_frame/, 'Agent send endpoint should prepend thinking max for GSA turns');
-assert.match(js, /async function skillsSearch\(params = \{\}\)[\s\S]*\/api\/skills\/search/, 'Engine client should expose skill search');
-assert.match(launcher, /static void api_skill_get\(int fd, const char \*path\)/, 'Backend should expose a skill body reader for local overrides');
-assert.match(launcher, /path_eq_clean\(path, "\/api\/skills\/search"\)[\s\S]*\/api\/skills\/get/, 'Router should serve /api/skills/get before the catalog endpoint');
-assert.match(js, /async function skillGet\(id\)[\s\S]*\/api\/skills\/get\?id=/, 'Engine client should expose skill body loading');
+assert.doesNotMatch(js, /async function (?:skills|skillsSearch|skillGet)\(/, 'Engine client should not keep unused shipped-skill compatibility methods');
+assert.doesNotMatch(launcher, /api_skill_get|api_skill_preview|path_eq_clean\(path, "\/api\/skills"\)|"\/api\/craft"/, 'Backend should not keep unused shipped-skill compatibility routes');
 assert.match(js, /async function gsaStart\(workdir, mission, targetUrl = '', parentRunDir = '', disabledTools = '', profile = 'passive', authorized = false\)[\s\S]*JSON\.stringify\(\{ workdir, mission, targetUrl, parentRunDir, disabledTools, profile, authorized: !!authorized \}\)/, 'Engine client should send target URL, parent GSA run, disabled tools and security profile context');
 assert.match(js, /Store\.setSettings\(\{ gsaMode: 'off', rsaMode: 'off', thinkLevel: 'max' \}\)/, 'Starting GSA should force the visible thinking state to max and clear RSA');
 assert.match(js, /AgentView\.send\(res\.prompt,[\s\S]*\{ forceThink: 'max' \}\)/, 'GSA turns should force runtime thinking max');
@@ -626,13 +596,10 @@ assert.match(js, /function designGalleryFilteredPresets\(\)[\s\S]*designGalleryQ
 assert.match(js, /new IntersectionObserver[\s\S]*frame\.dataset\.src[\s\S]*frame\.src = frame\.dataset\.src[\s\S]*iframe\[data-src\]/, 'Design gallery previews should mount iframes lazily to avoid scroll flashing');
 assert.doesNotMatch(js, /Mythic Naturecore|SkyElite Private Jets|Casa Vellum/, 'Design gallery should not ship invented fallback presets');
 assert.match(js, /DESIGN_GALLERY_LIMIT = 240/, 'Design gallery should not truncate the local design-system catalog to the old template-only count');
-assert.match(js, /DESIGN_TEMPLATE_SOURCE = 'open-design\/'[\s\S]*hasExample[\s\S]*startsWith\(DESIGN_TEMPLATE_SOURCE\)/, 'Design gallery should include original Open Design template examples');
 assert.match(js, /systemPresets = \(dsCache \|\| \[\]\)[\s\S]*designSystemId[\s\S]*\/api\/design-system-preview\/\$\{encodeURIComponent\(s\.id\)\}\/components\.html/, 'Design gallery should include local design systems through their original components.html previews');
 assert.match(js, /Store\.setSettings\(\{ designSystem: preset\.designSystemId \}\)/, 'Selecting a design-system card should set the active design system for the next Design turn');
-assert.match(js, /\/api\/skill-preview\/\$\{encodeURIComponent\(s\.id\)\}\/example\.html/, 'Design gallery previews should load original template examples through the backend');
 assert.match(launcher, /preview_rel_asset_ok[\s\S]*\"css\"[\s\S]*\"js\"[\s\S]*\"woff2\"[\s\S]*\"mp4\"/, 'Backend preview route should allow original static assets required by template previews');
 assert.match(launcher, /DESIGN_HEADERS[\s\S]*style-src 'self' 'unsafe-inline' https:[\s\S]*script-src 'self' 'unsafe-inline' https:[\s\S]*font-src 'self' data: https:/, 'Design preview CSP should allow original HTTPS-hosted template CSS, scripts and fonts');
-assert.match(launcher, /api_skill_preview[\s\S]*ds4_upstream[\s\S]*open-design\//, 'Backend preview route should serve only original Open Design templates');
 assert.match(launcher, /hasComponents/, 'Design-system catalog entries should report when components.html exists');
 assert.match(launcher, /api_design_system_preview[\s\S]*extension\/design-systems[\s\S]*design_content_type/, 'Backend should serve original design-system preview files');
 assert.match(launcher, /design_system_preview_rel_ok[\s\S]*preview_rel_asset_ok\(rel, "components\.html"\)/, 'Design-system preview route should allow local design-system preview assets without generated fallbacks');
@@ -651,12 +618,12 @@ assert.match(gsaRuntime, /\\"enabled\\":%s/, 'GSA toolStatus should expose wheth
 assert.match(gsaRuntime, /json_get_string\(body, "disabledTools"/, 'GSA start endpoint should read disabled tool choices');
 assert.match(js, /await ensureGsaToolsForRun\(\)[\s\S]*Engine\.gsaStart\(workdir, mission, targetUrl, '', gsaDisabledToolsPayload\(\), securityProfileValue\(\), securityAuthorizedValue\(\)\)/, 'GSA submit should preflight tool status before preparing the run with security profile context');
 assert.match(js, /AgentView\.send\(res\.prompt, targetUrl \? `\$\{display\}\\nTarget: \$\{targetUrl\}` : display, \{ forceThink: 'max' \}\)/, 'GSA should hide the internal prompt while showing the visible mission and target while forcing thinking max');
-assert.match(js, /function buildLoadedPacksRow\(text\)[\s\S]*loadedPacks\(text\)[\s\S]*class: 'skill-use__eye', text: 'USING'/, 'Agent transcript should show which imported skill/craft/brand is in use');
+assert.match(js, /function buildLoadedPacksRow\(text\)[\s\S]*loadedPacks\(text\)[\s\S]*class: 'skill-use__eye', text: 'USING'/, 'Agent transcript should show which user skill, craft or brand is in use');
 assert.match(js, /\(s\.ev\.input \|\| \{\}\)\.name \|\| \(s\.ev\.input \|\| \{\}\)\.id/, 'Agent skill usage badge should handle skill tool calls that pass id instead of name');
 assert.match(js, /if \(viewMode === 'agent'\) \{[\s\S]*buildLoadedPacksRow\(partText\)/, 'Agent responses should render loaded skill usage outside the collapsed tool fold');
 assert.match(js, /if \(name === 'skill' \|\| name === 'craft' \|\| name === 'design_system'\)[\s\S]*const kind = name === 'design_system' \? 'brand' : name/, 'tool labels should name loaded skills and design systems cleanly');
-assert.match(html, /id="cyber-skills-view"[\s\S]*Cybersecurity skills[\s\S]*id="cyber-skills-query"/, 'Skills dialog should expose the imported cybersecurity skill catalog');
-assert.match(js, /function renderCyberSkills\(query = ''\)[\s\S]*Engine\.skillsSearch\(\{ source: 'anthropic'/, 'Skills dialog should search imported cybersecurity skills');
+assert.doesNotMatch(html, /id="cyber-skills-view"|id="cyber-skills-query"/, 'Skills dialog should not expose a downloaded cybersecurity catalog');
+assert.doesNotMatch(js, /function renderCyberSkills|source: 'anthropic'/, 'Skills UI should not search downloaded skill catalogs');
 assert.match(js, /gsaMode: 'off'/, 'GSA mode should be persisted as an explicit off/on setting');
 assert.match(js, /cap: 'GSA'[\s\S]*items: \[\{ value: 'off', lead: 'Off' \}, \{ value: 'on', lead: 'On'/, 'Composer plus menu should expose GSA as an Off/On dropdown');
 assert.match(js, /cap: 'RSA'[\s\S]*items: \[\{ value: 'off', lead: 'Off' \}, \{ value: 'on', lead: 'On'/, 'Composer plus menu should expose RSA as an Off/On dropdown');
@@ -699,10 +666,12 @@ assert.match(html, /\.messages\s*\{[\s\S]*overflow-x:\s*hidden/, 'message panes 
 assert.match(html, /\.agent-view\s*\{[\s\S]*overflow-x:\s*hidden/, 'agent transcript should not expose horizontal overflow while streaming');
 assert.match(html, /\.code-block pre\s*\{[\s\S]*white-space:\s*pre-wrap[\s\S]*overflow-wrap:\s*anywhere[\s\S]*overflow-x:\s*hidden/, 'markdown code blocks should wrap long JSON/text lines without an internal horizontal scrollbar');
 assert.match(html, /\.diff-txt\s*\{[\s\S]*white-space:\s*pre-wrap[\s\S]*overflow-wrap:\s*anywhere[\s\S]*word-break:\s*break-word/, 'agent file-write diff lines should wrap without horizontal overflow');
-assert.match(jsonlPatch.text, /DS4UI_CYBER_SKILLS_DIR/, 'agent JSONL patch should load vendored cybersecurity skills on demand');
-assert.match(jsonlPatch.text, /ds4ui_read_cyber_skill_brief/, 'agent JSONL patch should compact vendored cybersecurity skills before returning them');
-assert.match(jsonlPatch.text, /long examples, tool catalogs and output templates are intentionally omitted/, 'cyber skill loader should avoid returning full example-heavy manuals');
-assert.match(remoteDesign, /DS4UI_CYBER_SKILLS_DIR/, 'design runtime should load vendored cybersecurity skills on demand');
+assert.doesNotMatch(jsonlPatchText, /DS4UI_CYBER_SKILLS_DIR|ds4ui_read_cyber_skill_brief/, 'agent JSONL runtime should load only user-created skills');
+assert.match(jsonlPatchText, /DS4UI_USER_SKILLS_DIR[\s\S]*strcmp\(subdir, "skills"\)/, 'agent JSONL runtime should reserve skill loading for the user directory');
+assert.match(jsonlPatchText, /ds4ui_workspace_mutation_guard[\s\S]*path must be relative to the selected workspace[\s\S]*write\/edit target is outside the selected workspace/, 'Agent write/edit tools must reject absolute, traversal and symlink-escaped paths');
+assert.match(jsonlPatchText, /if \(!strcmp\(call->name, "write"\)\)[\s\S]*ds4ui_workspace_mutation_guard\(call\)[\s\S]*if \(!strcmp\(call->name, "edit"\)\)[\s\S]*ds4ui_workspace_mutation_guard\(call\)/, 'Agent dispatch must enforce the workspace guard before both write and edit');
+assert.doesNotMatch(remoteDesign, /DS4UI_CYBER_SKILLS_DIR/, 'design runtime should not load vendored cybersecurity skills');
+assert.match(remoteDesign, /DS4UI_USER_SKILLS_DIR[\s\S]*strcmp\(subdir, "skills"\)/, 'design runtime should reserve skill loading for the user directory');
 assert.match(js, /label: 'System check'[\s\S]*run: \(\) => Doctor\.open\(\)/, 'System check should remain available from the gear menu');
 assert.match(html, /class="loading-spinner"/, 'engine loading overlay should show a spinner');
 assert.match(html, /id="loading-log"/, 'engine loading overlay should show a live log');
@@ -732,14 +701,9 @@ assert.match(gsaRuntime, /gsa_tool_catalog_status[\s\S]*gsa_tool_found/, 'Update
 assert.match(launcher, /GSA catalog %d\/%d tools ready[\s\S]*NUCLEI_TEMPLATES_DIR/, 'Update Doctor should report full GSA catalog and nuclei template readiness');
 assert.match(launcher, /updates_ds4_managed_dirty_path[\s\S]*ds4-agent-jsonl[\s\S]*ds4-design[\s\S]*ds4_agent\.c\.ds4ui\.bak/, 'Update Doctor should recognize DStudio-generated ds4 artifacts as managed dirt');
 assert.match(launcher, /updates_ds4_git_upstream[\s\S]*@\{u\}[\s\S]*origin\/main/, 'Update Doctor should resolve the real ds4 upstream before declaring latest status');
-assert.match(launcher, /updates_skill_sources_status[\s\S]*sources\.tsv[\s\S]*updates_skill_source_remote_head/, 'Update Doctor should read repo-imported skill source metadata');
-assert.match(launcher, /updates_skill_source_remote_head[\s\S]*"git", "ls-remote"/, 'Update Doctor should compare repo-imported skills against remote refs');
-assert.match(launcher, /strcmp\(kind, "verify-only"\)[\s\S]*manual re-import required/, 'Update Doctor should identify truly verify-only skill sources instead of pretending update can rewrite them');
-assert.match(launcher, /updates_run_imported_skills[\s\S]*sync-skill-sources\.mjs[\s\S]*"--all"/, 'Update Doctor should update repo-imported skills through the source sync script');
-assert.match(skillSources, /superpowers[\s\S]*https:\/\/github\.com\/obra\/superpowers[\s\S]*skills-dir/, 'Skill source Doctor should monitor the Superpowers repo');
-assert.match(skillSources, /ecc[\s\S]*https:\/\/github\.com\/affaan-m\/ECC[\s\S]*\.agents\/skills[\s\S]*skills-dir/, 'Skill source Doctor should monitor and sync the ECC skill repo');
-assert.match(skillSources, /anthropic-security-review[\s\S]*https:\/\/github\.com\/anthropics\/claude-code-security-review[\s\S]*anthropic-security-review/, 'Skill source Doctor should monitor and sync the Anthropic security-review repo');
-assert.match(skillSources, /marketingskills[\s\S]*preserve-skill-bodies[\s\S]*open-design[\s\S]*open-design-preserve[\s\S]*anthropic-cybersecurity-skills[\s\S]*verify-only/, 'Skill source Doctor should auto-update adapted skill repos through metadata-preserving importers and keep only raw cybersecurity skills verify-only');
+assert.match(launcher, /update_count_user_skills[\s\S]*DStudio does not download or update a skill catalog/, 'Update Doctor should report user-created skills without offering catalog updates');
+assert.doesNotMatch(launcher, /updates_skill_source_remote_head|updates_run_imported_skills|sync-skill-sources\.mjs/, 'Update Doctor should not fetch or update skill catalogs');
+assert.match(launcher, /updates_verify_design_systems[\s\S]*Open Design design systems are missing/, 'Update Doctor should continue to verify downloadable design systems');
 assert.match(launcher, /git", "-C", g_ds4_dir, "fetch", "origin", "--prune"[\s\S]*rev-list", "--left-right", "--count", range/, 'Update Doctor check should fetch and compare local ds4 HEAD with upstream');
 assert.match(launcher, /local %s is %d commit\(s\) behind %s[\s\S]*Run Update selected to pull\/build\/verify patches/, 'Update Doctor should warn when ds4 is behind upstream');
 assert.match(launcher, /local %s matches %s[\s\S]*DStudio generated artifact\(s\) present and safe to regenerate/, 'Update Doctor should report managed generated artifacts only after confirming upstream is current');
@@ -817,6 +781,8 @@ assert.match(remoteAgent, /\.in_think = false,[\s\S]*\.in_think = false,/, 'remo
 assert.match(remoteAgent, /if \(ctx->stream && ctx->stream->in_think\)[\s\S]*<\/think>\\n\\n[\s\S]*ctx->stream->dsml_in_think = false/, 'remote Agent should close stale thinking before streaming non-reasoning content or DSML tool calls');
 assert.match(remoteAgent, /DS4UI_REMOTE_AUTO_CONTINUES 3/, 'remote Agent should automatically continue interrupted model streams');
 assert.match(remoteAgent, /ds4ui_remote_continue_prompt[\s\S]*Re-emit the full intended DSML tool call/, 'remote Agent should repair cut-off DSML tool calls instead of continuing broken fragments');
+assert.match(jsonlPatchText, /spaced_ascii[\s\S]*< \| DSML \| tool_calls>/, 'JSONL patch should recover spaced ASCII DSML openings emitted by cloud models');
+assert.match(jsonlPatchText, /Do not insert spaces inside the DSML marker[\s\S]*never emit a bare DSML/, 'invalid DSML retries should restate the canonical structural constraints');
 assert.match(remoteAgent, /Remote model failed after automatic recovery[\s\S]*agent_set_status\(w, AGENT_WORKER_IDLE\)[\s\S]*return 0;/, 'remote Agent should stay alive and idle after unrecoverable model stream failures');
 assert.match(remoteDesign, /DESIGN_REMOTE_AUTO_CONTINUES 3/, 'remote Design should automatically continue interrupted model streams');
 assert.match(remoteDesign, /design_remote_continue_prompt[\s\S]*Re-emit the full intended DSML tool call/, 'remote Design should repair cut-off DSML tool calls instead of continuing broken fragments');
@@ -826,6 +792,11 @@ assert.doesNotMatch(launcher, /static const char \*WEB_CDP_EDITS\[\]\[2\]/, 'web
 assert.doesNotMatch(launcher, /static const char \*WEB_DIRECT_NAV_EDITS\[\]\[2\]/, 'direct navigation patch bodies must live under patch/, not in dstudio.c');
 assert.doesNotMatch(launcher, /static const char \*JSONL_MAKEFILE/, 'JSONL build fragment must live under patch/, not in dstudio.c');
 assert.match(launcher, /patch_load_set\(JSONL_PATCH_DIR/, 'launcher should load the JSONL patch manifest from patch/');
+assert.match(
+  launcher,
+  /static void api_wipe\(int fd\)[\s\S]*if \(g_child <= 0\)[\s\S]*agent_buf_reset\(\)[\s\S]*clear_dir\(kvroot\)/,
+  'clear-all must discard a crashed Agent buffer before creating a fresh conversation',
+);
 assert.match(webCdpPatch.text, /web_open_tab_http_fallback/, 'web CDP fallback patch should live under patch/');
 assert.match(jsonlPatch.text, /ds4ui_win32_bash_exec[\s\S]*bash\.exe -s[\s\S]*CreateProcessA/, 'Windows JSONL Agent should run bash through the Windows process API instead of MSYS popen');
 assert.match(jsonlPatch.text, /ds4ui_win32_ensure_chrome\(9333\)/, 'Windows JSONL web tools should start or reuse Chrome CDP before creating ds4_web');
@@ -842,6 +813,11 @@ assert.equal(fs.existsSync('rebuild.sh'), false, 'Do not ship personal rebuild s
 assert.match(js, /nativeDirectoryPickerAvailable/, 'Agent\/Design should prefer the native folder picker when available');
 assert.match(js, /window\.ds4PickDirectory/, 'Agent\/Design should call the native directory picker bridge');
 assert.match(js, /openWorkdirDialogFallback\(target, newSession/, 'custom workdir dialog should remain as fallback');
+assert.match(
+  js,
+  /function changeWorkdir\(\)[\s\S]*?openWorkdirDialog\(target, true\)/,
+  'changing workspace must create a fresh session so prior workspace paths are not replayed',
+);
 assert.match(html, /cdrop-menu\.drop-up[\s\S]*cdrop-menu\.drop-down/, 'gear dropdown menus should support opening up or down');
 assert.match(js, /function placeMenu\(\)[\s\S]*getBoundingClientRect\(\)[\s\S]*window\.innerHeight[\s\S]*--cdrop-max-height/, 'gear dropdown menus should fit themselves to the available viewport space');
 assert.match(launcher, /launch_workdir_missing[\s\S]*workdir_missing[\s\S]*send_json\(fd, "400 Bad Request"/, 'launcher should reject missing Agent/Design workdirs before spawning the engine');
@@ -864,7 +840,13 @@ assert.match(js, /remoteBaseUrl:\s*host/, 'LAN Agent/Design should call the conf
 assert.match(js, /remoteModel:\s*Store\.getSettings\(\)\.model \|\| LAN_CLIENT_MODEL_ID/, 'LAN Agent/Design should use the LAN protocol model id');
 assert.match(js, /gguf:\s*isLanClientMode\(\) \? '' : modelGguf\(\)/, 'LAN Agent/Design should not send a local GGUF/model path');
 assert.match(js, /function startServer\(\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*setMode\('server'\)[\s\S]*return;[\s\S]*runSwitch\('server'/, 'LAN clients must not start a local server when switching back to Chat');
-assert.match(js, /if \(!isLanClientMode\(\) && selectedGguf && selectedGguf !== runningModel\)/, 'LAN onboarding must not start a local selected model');
+assert.match(js, /if \(!isLanClientMode\(\) && selectedGguf &&[\s\S]*!ggufIsRunning\(selectedGguf, runningModel, activeEngineDir\)\)/, 'LAN onboarding must not start a local selected model');
+assert.match(launcher, /collect_engine_checkouts\([\s\S]*api_ggufs/, 'GGUF API should aggregate every managed DS4 checkout');
+assert.match(launcher, /\\"engineDir\\":[\s\S]*\\"engineName\\":[\s\S]*\\"branch\\":[\s\S]*\\"activeEngine\\":/, 'Every GGUF row should identify its checkout, branch and active state');
+assert.match(js, /modelEngineDir/, 'Saved model selection should persist its owning checkout');
+assert.match(js, /async function selectSavedModelCheckout\(\)[\s\S]*Engine\.ggufs\(\)[\s\S]*matches\.length === 1[\s\S]*modelEngineDir: dir/, 'Every model launch should restore the saved checkout and migrate legacy model picks');
+assert.match(loadingHtml, /modelEngineDir[\s\S]*ds4-glm[\s\S]*\/api\/ggufs[\s\S]*matches\.length === 1[\s\S]*\/api\/engine\/checkout[\s\S]*\/api\/start/, 'Native loading page should migrate retired GLM checkout picks and switch checkout before launch');
+assert.match(js, /async function switchToGguf\(path, label, engineDir = '', engineLabel = ''\)/, 'Model switching should carry checkout metadata');
 assert.doesNotMatch(js, /build:\s*'off'/, 'Agent/Design should keep Plan mode as a per-turn UI contract instead of a launch mode');
 assert.doesNotMatch(js, /useJsonlPatch|set-jsonl/, 'Agent should expose one structured protocol instead of a legacy raw mode');
 assert.match(js, /startAgent[\s\S]*const remote = remoteModelLaunch\(\)[\s\S]*\.\.\.remote/, 'Agent start payload should include the remote model fields');
@@ -876,7 +858,7 @@ assert.match(js, /async function loadSetModels\(\) \{[\s\S]*if \(isLanClientMode
 assert.match(js, /async function loadModelList\(\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*return;[\s\S]*Engine\.ggufs\(\)/, 'LAN clients should not scan local GGUFs from the composer model picker');
 assert.match(js, /function show\(\) \{[\s\S]*if \(isLanClientMode\(\)\) return;[\s\S]*loadGgufs\(\)/, 'LAN clients should not open onboarding into local ds4 discovery');
 assert.match(js, /async function loadModelList\(\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*cbarModel\.hidden = true/, 'LAN Design should hide shared model switching instead of exposing a local brief selector');
-assert.match(js, /function downloadModel\(spec\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*return;[\s\S]*\/api\/model\/download/, 'LAN clients must not start local model downloads');
+assert.match(js, /async function downloadModel\(spec\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*return;[\s\S]*\/api\/model\/download/, 'LAN clients must not start local model downloads');
 assert.match(js, /if \(action === 'start-engine'\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*return;[\s\S]*Engine\.start\(\{ mode: 'server' \}/, 'LAN client system check must not start a local engine');
 assert.match(js, /function shouldStickToBottom\(/, 'streaming render should respect user scroll position and text selection');
 assert.match(js, /selectionInside\(scroller\)/, 'autoscroll must stop while the user is selecting text');
@@ -893,6 +875,9 @@ assert.match(js, /on\(view, 'pointerdown', beginAgentSelectionPointer\)/, 'Agent
 assert.match(js, /on\(document, 'pointerup', endAgentSelectionPointer\)/, 'Agent selection lock should release when the drag ends');
 assert.match(js, /on\(view, 'scroll', agentFollow\.onScroll\)/, 'Agent user navigation should flow through the shared scroll controller');
 assert.match(js, /function shouldDeferAgentRenderForSelection\(\)[\s\S]*selectionInside\(view\)/, 'Agent streaming should defer repaint while text is selected');
+assert.match(js, /function scheduleAgentSelectionRenderFlush\(\)[\s\S]*requestAnimationFrame\([\s\S]*shouldDeferAgentRenderForSelection\(\)/, 'Agent must wait a paint before flushing a render after pointerup so WebKit can commit the selection');
+assert.match(js, /function shouldDeferAgentRenderForSelection\(\)[\s\S]*return !!view && \(agentSelectPointerDown \|\| selectionInside\(view\)\)/, 'Agent must preserve selections across idle as well as streaming repaints');
+assert.doesNotMatch(js, /function shouldDeferAgentRenderForSelection\(\)[\s\S]{0,240}\(working \|\| agentSelectionPendingRender\)/, 'Agent selection protection must not end merely because generation became idle');
 assert.match(js, /on\(document, 'selectionchange', onAgentSelectionChange\)/, 'Agent should resume live rendering after text selection clears');
 assert.match(js, /agentFollow\.settle\(stick, prevScrollTop/, 'Agent renders should preserve scroll position unless following the bottom');
 assert.doesNotMatch(js, /const stick = shouldAgentFollow\(\) \|\| shouldStickToBottom\(view\)/, 'Agent renders must not force-follow bottom after the user scrolls away');
@@ -1040,12 +1025,13 @@ assert.match(html, /id="skills-picker-manage"[\s\S]*>Add<\/button>/, 'Skill pick
 assert.doesNotMatch(html, /id="skills-picker-manage"[\s\S]*>Manage<\/button>/, 'Skill picker should not expose the old Manage label');
 assert.match(js, /function openSkillPickerForCurrentMode\(\)[\s\S]*Skills\.openPicker/, 'Skill selection should open the modal picker from the plus menu');
 assert.match(js, /function renderSkillPicker\(\)[\s\S]*skills-cat[\s\S]*skill-card/, 'Skill picker modal should render categories and skill cards');
-assert.match(js, /\.filter\(\(s\) => s\.modes && s\.modes\.includes\('agent'\)\)/, 'Agent skill picker should expose Agent-mode skills only');
-assert.match(js, /pushGroup\('agent-workflow', 'Agent \/ Workflow'/, 'Agent skill picker should use the Agent / Workflow category name');
+assert.match(js, /pushGroup\('user', 'Your skills', userSkillCache \|\| \[\]\)/, 'Skill picker should expose only the current user catalog');
+assert.doesNotMatch(js, /shippedSkillCache|marketingSkillCache|cyberSkillCache/, 'Skill picker should not keep downloadable catalog groups');
 assert.doesNotMatch(js, /pushGroup\('web-plan'/, 'Agent skill picker should not expose the removed planning-build category');
 assert.match(js, /on\(pickerManage, 'click', \(\) => showEditor\(null, null, 'picker'\)\)/, 'Skill picker Add should open the editor directly');
 assert.match(js, /skill-card__edit[\s\S]*showEditor\(it\.value, it\.raw, 'picker'\)/, 'Skill cards should expose an inline edit action');
-assert.match(js, /Engine\.userSkillGet\(id\)[\s\S]*Engine\.skillGet\(id\)/, 'Editing a shipped skill should fall back to reading the shipped body');
+assert.match(js, /const s = await Engine\.userSkillGet\(id\)/, 'Skill editor should read only the user-created skill body');
+assert.doesNotMatch(extractFunction(js, 'showEditor'), /Engine\.skillGet/, 'Skill editor should not fall back to a shipped skill body');
 assert.match(js, /Engine\.userSkillSave\(\{ id,[\s\S]*modes: editingModes/, 'Skill editor should preserve modes when saving local overrides');
 assert.match(js, /function selectedSkillPromptForRuntime\([^)]*\)[\s\S]*DStudio selected skill/, 'Selected skills should apply to future turns without restarting the runtime');
 assert.match(js, /const runtimeSkillAtLaunch = \{ agent: '', design: '' \}/, 'Runtime should track the skill that was injected at launch');
@@ -1191,7 +1177,7 @@ assert.doesNotMatch(diffBodyCss, /overflow:\s*auto/, 'Completed write/edit/delet
 assert.match(readme, /### Chat[\s\S]*assets\/demo\.gif/, 'README should feature the chat demo GIF in the Chat section');
 assert.match(readme, /## Search & Deep Research[\s\S]*assets\/search\.gif[\s\S]*Web Search[\s\S]*Deep Research/, 'README should feature the Search/Deep Research demo GIF in its own section');
 assert.match(readme, /### Agent[\s\S]*assets\/agent\.gif/, 'README should feature the agent demo GIF in the Agent section');
-assert.match(readme, /## Skills: local task recipes[\s\S]*assets\/skills\.png[\s\S]*user skills[\s\S]*shipped skills[\s\S]*imported cybersecurity skills/, 'README should feature the Skills screenshot and explain local skill catalogs');
+assert.match(readme, /## Skills: local task recipes[\s\S]*assets\/skills\.png[\s\S]*does not ship or download a skill marketplace[\s\S]*created by the current user/, 'README should feature Skills and explain the user-only catalog');
 assert.match(readme, /## GSA: guided security analysis[\s\S]*assets\/gsa\.png[\s\S]*authorized[\s\S]*selection[\s\S]*preflight[\s\S]*validation[\s\S]*report/, 'README should feature the GSA screenshot and explain the security-analysis phases');
 assert.match(readme, /## Design: a studio built \*\*on\*\* ds4[\s\S]*assets\/design\.gif[\s\S]*Brief and questions[\s\S]*Generating[\s\S]*Proposal[\s\S]*Canvas and export/, 'README should feature the Design pipeline demo GIF and concise pipeline explanation');
 assert.doesNotMatch(readme, /(?:💬|🔎|🤖|🧩|🛡️|🎨|📝)/u, 'README should not use decorative emoji in headings or feature sections');
@@ -1279,8 +1265,32 @@ assert.doesNotMatch(loadingHtml, /class="mark"|@keyframes spin/, 'loading page s
 
 assert.match(gitignore, /^\/ds4\/$/m, 'managed upstream ds4 checkout should stay out of the DStudio source tree');
 assert.match(launcher, /#define DS4_REPO_URL "https:\/\/github\.com\/antirez\/ds4"/, 'launcher should know the upstream ds4 repo URL');
-assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "efdadd41e20134af4f3381e1ed90e96fe4faef6f"/, 'managed ds4 setup should pin the current upstream commit in code');
+assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "0a7ad776b9068348e6cb09df8cafa9cadd285298"/, 'managed ds4 setup should pin the current main commit in code');
 assert.match(launcher, /#define DS4_ARCHIVE_URL "https:\/\/codeload\.github\.com\/antirez\/ds4\/tar\.gz\/" DS4_UPSTREAM_COMMIT/, 'managed ds4 setup should download a pinned GitHub source archive');
+assert.doesNotMatch(`${launcher}\n${js}\n${gitignore}`, /DS4_GLM_|ds4-glm52|\/api\/glm\/setup|setupGlm/, 'retired GLM side-checkout support should be removed');
+assert.match(launcher, /#define DS4_LAGUNA_UPSTREAM_COMMIT "7e3dbef7e336433f487c172a3308e26b39fa75a3"/, 'managed Laguna checkout should pin the fetched laguna-s2.1 branch');
+assert.match(launcher, /api_setup_laguna[\s\S]*DS4_LAGUNA_ARCHIVE_URL[\s\S]*setup_build_branch_runtimes\(target, "Laguna S 2\.1"/, 'Laguna setup should download and build all pinned side-by-side runtimes');
+assert.match(launcher, /setup_build_branch_runtimes[\s\S]*apply-ds4-qwen-hot-memory\.sh[\s\S]*run_build_jsonl\("build"\)[\s\S]*build-design\.sh/, 'optional engine setup should prepare server, Agent and Design consistently');
+assert.match(launcher, /!strcmp\(path, "\/api\/laguna\/setup"\)[\s\S]*api_setup_laguna\(fd\)/, 'launcher should expose POST /api/laguna/setup');
+assert.match(launcher, /DS4_METAL_LAGUNA_SOURCE[\s\S]*laguna\.metal/, 'Agent and Design should resolve the Laguna Metal source from any workspace');
+assert.match(launcher, /model_is_laguna\(\)[\s\S]*requires full model residency[\s\S]*SSD streaming cannot be forced on/, 'Laguna should disable automatic streaming and reject forced SSD streaming');
+assert.match(js, /setupLaguna\(\)[\s\S]*\/api\/laguna\/setup/, 'Engine API should install the optional Laguna checkout');
+assert.match(js, /target: 'laguna-q4', engine: 'laguna'/, 'model catalog should expose Laguna and route it to its managed engine');
+assert.match(js, /target: 'glm-antirez-iq2xxs', engine: 'main'[\s\S]*target: 'glm-antirez-q2', engine: 'main'[\s\S]*target: 'glm-antirez-q4', engine: 'main'[\s\S]*target: 'glm-unsloth-q4', engine: 'main'/, 'model catalog should route every GLM download through ds4 main');
+assert.match(js, /async function ensureModelDownloadEngine\(engine\)[\s\S]*Engine\.setupLaguna\(\)[\s\S]*Engine\.setEngineCheckout\(checkout\.dir\)/, 'branch-specific downloads should install and select their engine automatically');
+assert.match(js, /function modelDownloadStatusText\(dl\)[\s\S]*dl\?\.stage[\s\S]*runs in the background/, 'model download row should expose a persistent setup/download phase');
+assert.match(js, /function modelDownloadStateFromStatus\(st\)[\s\S]*st\?\.pausedDownload[\s\S]*stage: 'Paused:'[\s\S]*paused: true/, 'stopped resumable downloads should become a persistent paused UI state');
+assert.match(js, /function appendModelDownloadStatus\(host, dl\)[\s\S]*text: 'Resume'[\s\S]*Switcher\.downloadModel\(choice\.body\)/, 'paused model feedback should include a Resume action');
+assert.match(js, /function appendModelDownloadStatus\(host, dl\)[\s\S]*text: 'Delete partial'[\s\S]*Engine\.deleteModelPartials\(dl\.variant\)/, 'paused Laguna feedback should offer confirmed partial cleanup');
+assert.match(js, /async function deleteModelPartials\(target\)[\s\S]*JSON\.stringify\(\{ target, confirm: true \}\)/, 'partial cleanup client must send an explicit post-confirmation capability');
+assert.match(js, /function appendModelDownloadStatus\(host, dl\)[\s\S]*text: 'Stop'[\s\S]*Engine\.stopModelDownload\(\)[\s\S]*Model download paused/, 'active model feedback should offer a Stop action that transitions to paused');
+assert.match(js, /async function pollDownload\(\)[\s\S]*if \(st\.pausedDownload\)[\s\S]*modelDownloadStateFromStatus\(st\)[\s\S]*return;/, 'download polling should preserve the paused row instead of replacing it with the normal catalog');
+assert.match(js, /function appendModelDownloadStatus\(host, dl\)[\s\S]*text: 'Open folder'[\s\S]*Engine\.openModelFolder/, 'active and paused model feedback should open the matching engine folder');
+assert.match(js, /Add another model:[\s\S]*text: 'Open folder'[\s\S]*Engine\.openModelFolder\(t\?\.body\.engine/, 'normal model picker should expose Open folder for the selected engine family');
+assert.match(js, /function modelDownloadStatusText\(dl\)[\s\S]*fmtGgufSize\(Number\(dl\.bytes\)\)[\s\S]*downloaded/, 'active model feedback should show transferred bytes as well as percentage');
+assert.match(js, /async function downloadModel\(spec\)[\s\S]*Preparing Laguna S 2\.1 engine for[\s\S]*await ensureModelDownloadEngine\(engine\)[\s\S]*Starting download of/, 'optional engine compilation should provide feedback before the weight download starts');
+assert.match(readme, /### GLM 5\.2 \(experimental, optional\)[\s\S]*standard `ds4\/main`[\s\S]*no extra engine checkout is required/, 'README should document GLM support in the main engine');
+assert.match(readme, /### Laguna S 2\.1 \(experimental, optional\)[\s\S]*laguna-s2\.1[\s\S]*full model residency/, 'README should document the managed Laguna branch and residency requirement');
 assert.match(launcher, /static int ds4_server_compatible\(int port\)[\s\S]*GET \/v1\/models[\s\S]*owned_by/, 'launcher should identify a compatible DS4 server before reusing an occupied engine port');
 assert.match(launcher, /static pid_t ds4_instance_lock_owner\(void\)[\s\S]*flock\(fd, LOCK_EX \| LOCK_NB\)/, 'launcher should detect a DS4 process that owns the model lock before its port opens');
 assert.match(launcher, /requested_mode == ENGINE_SERVER[\s\S]*reuse_external_ds4\(&cfg, 0, owner\)/, 'server startup should wait for and attach to an existing DS4 process instead of spawning into its lock');
@@ -1327,25 +1337,36 @@ assert.match(js, /on\(dialog, 'cancel', \(e\) => e\.preventDefault\(\)\)/, 'onbo
 assert.match(js, /await refreshLocalSetupState\(\)/, 'onboarding Start should refresh /api/status before deciding it can close');
 assert.match(js, /async function refreshLocalSetupState\(\)[\s\S]*Engine\.status\(\)[\s\S]*applyLocalSetupStatus\(st\)/, 'onboarding Start status refresh should repaint the live ds4 state');
 assert.match(js, /const localVisible = !lanPanel \|\| lanPanel\.hidden;[\s\S]*!completingOnboarding && localVisible && forcedSetup && !lastDs4Ok/, 'onboarding close guard should only reopen for an incomplete Local setup');
-assert.match(js, /let startResult = null;[\s\S]*await Engine\.start\(\{ mode: 'server', gguf: selectedGguf \}, true\)[\s\S]*startResult\.ok === false[\s\S]*Could not start selected model/, 'onboarding Start must show /api/start failures instead of silently closing');
+assert.match(js, /let startResult = null;[\s\S]*await Engine\.start\(\{ mode: 'server', gguf: selectedGguf\.path \}, true\)[\s\S]*startResult\.ok === false[\s\S]*Could not start selected model/, 'onboarding Start must show /api/start failures instead of silently closing');
 assert.match(js, /function setSettingsNow\(patch\)[\s\S]*persistSettings\.cancel\(\)[\s\S]*writeKey\(STORAGE_KEYS\.settings, JSON\.stringify\(state\.settings\)\)/, 'settings still support an immediate write before navigation');
 assert.match(js, /let shouldShowLoading = false;[\s\S]*shouldShowLoading = true;[\s\S]*if \(shouldShowLoading && !isLanClientMode\(\)\) location\.href = '\/loading\.html'/, 'onboarding Start should only show loading after it actually starts a different model');
 assert.match(js, /async function connectLanAddress\(\)[\s\S]*await connectLanClientMode\(lanAddressInput\.value\)[\s\S]*completingOnboarding = true;[\s\S]*Store\.markOnboarded\(\);[\s\S]*dialog\.close\(\)/, 'LAN onboarding connect should complete onboarding only after a valid LAN health check');
 assert.doesNotMatch(html, /onboard__cmd|onboard__list|fsfinder/, 'onboarding should not keep CSS for removed manual setup/finder UI');
 assert.match(js, /async function setupDs4\(\)[\s\S]*\/api\/ds4\/setup/, 'Engine API should call the managed ds4 setup endpoint');
 assert.match(js, /async function setupDs4FromUi\(\)[\s\S]*Engine\.setupDs4\(\)/, 'onboarding setup button should call the managed setup endpoint');
-assert.match(js, /function availableModelDownloads\(ggufs\)[\s\S]*MODEL_DOWNLOADS\.filter[\s\S]*d\.match\.test\(file\)/, 'download picker should hide model targets already present in the engine folder');
-assert.match(js, /function renderSetModels\(\)[\s\S]*const choices = availableModelDownloads\(ggufs\)/, 'settings model download picker should use only missing model targets');
+assert.match(js, /function availableModelDownloads\(ggufs\)[\s\S]*MODEL_DOWNLOADS\.filter[\s\S]*d\.match\.test\(file\)/, 'download picker should show every supported family while hiding files already present');
+assert.match(js, /function renderSetModels\(\)[\s\S]*const choices = availableModelDownloads\(ggufs\)/, 'settings model download picker should expose the unified model catalog');
 assert.match(html, /id="set-local-model-row"[\s\S]*id="set-deepseek-model-row"[\s\S]*deepseek-v4-flash[\s\S]*deepseek-v4-pro/, 'settings should provide separate local GGUF and DeepSeek cloud model pickers');
 assert.match(js, /const syncBackendRows = \(\) =>[\s\S]*localModelRow\.hidden = cloud/, 'choosing the cloud backend should hide the local GGUF catalog');
 assert.match(js, /async function refreshModels\(\)[\s\S]*cloudSelected[\s\S]*Api\.getModels[\s\S]*s\.chatBackend === 'deepseek'[\s\S]*deepseekModel: selected, model: selected/, 'settings should populate and persist the live DeepSeek cloud catalog');
 assert.match(js, /const effectiveModel = cloud[\s\S]*deepseekModel \|\| 'deepseek-v4-flash'/, 'cloud chat requests should always use the selected DeepSeek model rather than a stale local model id');
 assert.match(js, /if \(cloud\) \{[\s\S]*body\.thinking = \{ type: off \? 'disabled' : 'enabled' \}[\s\S]*body\.reasoning_effort = thinkLevel === 'max' \? 'max' : 'high'/, 'DeepSeek V4 cloud requests should honor the visible thinking control');
-assert.match(js, /function renderModels\(\)[\s\S]*const choices = availableModelDownloads\(ggufs\)/, 'onboarding model download picker should use only missing model targets');
+assert.match(js, /function renderModels\(\)[\s\S]*const choices = availableModelDownloads\(ggufs\)/, 'onboarding model download picker should expose the unified model catalog');
 assert.match(js, /target: 'flash-abliterated'/, 'the uncensored model download should use the current target-based API');
 assert.doesNotMatch(js, /body:\s*\{\s*variant:|typeof spec === 'string'/, 'model downloads should not retain the retired variant/string request formats');
-const modelDownloadHandler = launcher.match(/static void api_model_download[\s\S]*?\nstatic void api_status/)?.[0] || '';
+const modelDownloadHandler = launcher.match(/static void api_model_download[\s\S]*?\nstatic void api_model_partials_delete/)?.[0] || '';
 assert.match(modelDownloadHandler, /json_get_string\(body, "target"/, 'model download API should accept the current target field');
+assert.match(modelDownloadHandler, /glm-unsloth-q4[\s\S]*glm-antirez-iq2xxs[\s\S]*glm-antirez-q2[\s\S]*glm-antirez-q4[\s\S]*laguna-q4/, 'model download API should whitelist the GLM and Laguna targets shown by the UI');
+assert.match(launcher, /g_dl_result = code == 0 \? 1 : -1[\s\S]*g_dl_result > 0[\s\S]*dl_pct = 100/, 'download completion should come from the downloader result for every model family');
+assert.match(launcher, /model_download_bytes_present[\s\S]*\.cache\/huggingface\/download[\s\S]*\.incomplete[\s\S]*g_dl_expected_bytes/, 'Hugging Face GLM/Laguna downloads should report progress from their opaque partial files');
+assert.match(launcher, /paused_model_download[\s\S]*DS4_LAGUNA_DIR_NAME[\s\S]*laguna-q4[\s\S]*pausedDownloadBytes[\s\S]*pausedDownloadPct/, 'launcher status should expose a stopped Laguna partial after restart');
+assert.match(launcher, /prepare_laguna_resumable_partial[\s\S]*rename\(best_path, part\)[\s\S]*child_download_laguna_resumable[\s\S]*"--continue-at", "-"[\s\S]*rename\(part, final\)/, 'Laguna Resume should promote the largest legacy partial and continue into one stable curl file');
+assert.match(launcher, /api_model_partials_delete[\s\S]*explicit partial deletion confirmation is required[\s\S]*stop the active model download before deleting[\s\S]*delete_laguna_partial_files[\s\S]*removedBytes/, 'partial cleanup API should require confirmation, reject active transfers and report permanently removed temporary bytes');
+assert.match(launcher, /api_model_download_stop[\s\S]*kill\(-pid, SIGTERM\)[\s\S]*stopped\\":true/, 'model download stop API should terminate the isolated downloader process group');
+assert.match(launcher, /!strcmp\(path, "\/api\/model\/download\/stop"\)[\s\S]*api_model_download_stop\(fd\)/, 'launcher should expose the model download stop endpoint');
+assert.match(launcher, /api_model_folder_open[\s\S]*!strcmp\(engine, "main"\)[\s\S]*DS4_LAGUNA_DIR_NAME[\s\S]*execlp\("open", "open", folder/, 'model folder endpoint should open only a resolved managed GGUF directory on macOS');
+assert.match(launcher, /!strcmp\(path, "\/api\/model\/folder\/open"\)[\s\S]*api_model_folder_open\(fd, body\)/, 'launcher should expose the model folder endpoint');
+assert.match(launcher, /!strcmp\(path, "\/api\/model\/partials\/delete"\)[\s\S]*api_model_partials_delete\(fd, body\)/, 'launcher should expose the partial cleanup endpoint');
 assert.doesNotMatch(modelDownloadHandler, /json_get_string\(body, "variant"|Legacy:/, 'model download API should reject retired variant aliases');
 assert.match(js, /async function recheckModels\(\)[\s\S]*refreshModels\(\)[\s\S]*loadGgufs\(\)/, 'onboarding model Recheck should rescan status and GGUF files');
 assert.match(js, /async function setupOnboardLanDs4\(\)[\s\S]*Engine\.setupDs4\(\)/, 'LAN onboarding local ds4 install should use the managed setup endpoint');

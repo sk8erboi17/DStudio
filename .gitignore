@@ -24,12 +24,10 @@ log2timeline-*.log.gz
 core
 core.*
 
-# Managed upstream engine checkouts. DStudio downloads antirez/ds4 here (the
-# pinned main commit as ./ds4, the glm5.2 branch as ./ds4-glm52 installed on
-# demand by /api/glm/setup) and applies its reversible patch sets without
-# vendoring upstream source.
+# Managed upstream engine checkout. DStudio downloads antirez/ds4 main here and
+# applies its reversible patch sets without vendoring upstream source.
 /ds4/
-/ds4-glm52/
+/ds4-laguna-s21/
 
 # Runtime diagnostic dump
 diagnostics.log
@@ -78,10 +76,7 @@ extension/gsa/tools/install-gsa-tools.sh
 extension/gsa/tools/install-gsa-tools.ps1
 extension/gsa/tools/.crates*
 
-# Bundled content downloaded by the setup doctor at first run (imported skill
-# packs, design systems and GSA cybersecurity skills). Not committed: the doctor
-# pulls them from the pinned content commit. See setup_download_content_archive
-# in src/dstudio.c (DS4_CONTENT_COMMIT).
-/extension/skills/
+# Optional design systems downloaded by the setup doctor at first run.
+# Skills are user-authored under the per-user data directory, and GSA/RSA use
+# tool catalogs only; neither has a downloaded content directory in this tree.
 /extension/design-systems/
-/extension/gsa/third_party/

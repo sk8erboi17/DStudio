@@ -1,0 +1,24 @@
+    static const char canonical[] = "<｜DSML｜tool_calls>";
+    static const char missing_bar[] = "<DSML｜tool_calls>";
+    static const char invoke[] = "<｜DSML｜invoke";
+    static const char invoke_missing_bar[] = "<DSML｜invoke";
+    /*DS4UI_JSONL: colon-bar and DSMI-typo opening forms seen from cloud
+     * DeepSeek. Adopting them here seeds the parser with canonical bytes, and
+     * the tolerant in-stanza matchers handle the mangled tags that follow. */
+    static const char colon_bar[] = "<DSML:tool_calls>";
+    static const char colon_invoke[] = "<DSML:invoke";
+    static const char typo_marker[] = "<DSMI｜tool_calls>";
+    static const char typo_colon[] = "<DSMI:tool_calls>";
+    struct {
+        const char *text;
+        bool implicit_invoke;
+    } forms[] = {
+        {canonical, false},
+        {missing_bar, false},
+        {invoke, true},
+        {invoke_missing_bar, true},
+        {colon_bar, false},
+        {colon_invoke, true},
+        {typo_marker, false},
+        {typo_colon, false},
+    };

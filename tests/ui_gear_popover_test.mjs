@@ -110,8 +110,7 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, gsaTools: { mode: 'tool-assisted', tools: [] } });
     return;
   }
-  if (url.pathname === '/api/skills' || url.pathname === '/api/user-skills' ||
-      url.pathname === '/api/design-systems' || url.pathname === '/api/skills/search') {
+  if (url.pathname === '/api/user-skills' || url.pathname === '/api/design-systems') {
     json(res, 200, { ok: true, skills: [], designSystems: [] });
     return;
   }

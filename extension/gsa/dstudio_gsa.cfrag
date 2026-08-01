@@ -1020,132 +1020,6 @@ static void gsa_scan_candidates(FILE *out, const char *base, const char *rel,
     closedir(d);
 }
 
-typedef struct {
-    int score;
-    char id[96];
-    char name[300];
-    char desc[900];
-    char domain[120];
-    char subdomain[160];
-    char tags[600];
-    char reason[700];
-} gsa_skill_pick;
-
-static int gsa_token_skip(const char *tok) {
-    if (!tok || strlen(tok) < 3) return 1;
-    static const char *skip[] = {
-        "the", "and", "for", "with", "from", "that", "this", "using", "use",
-        "uses", "into", "only", "when", "where", "what", "your", "you",
-        "are", "can", "all", "any", "not", "security", "cybersecurity",
-        "analysis", "analyze", "analyzing", "performing", "conducting",
-        "implementing", "review", "testing", "skill", "skills", NULL
-    };
-    for (int i = 0; skip[i]; i++) if (!strcmp(tok, skip[i])) return 1;
-    return 0;
-}
-
-static int gsa_term_score(const char *hay, const char *terms) {
-    if (!hay || !hay[0] || !terms || !terms[0]) return 0;
-    int score = 0;
-    char seen[512][80];
-    int seen_n = 0;
-    char tok[80];
-    size_t o = 0;
-    for (const char *p = terms; ; p++) {
-        unsigned char c = (unsigned char)*p;
-        if (isalnum(c)) {
-            if (o + 1 < sizeof tok) tok[o++] = (char)tolower(c);
-        } else {
-            if (o) {
-                tok[o] = '\0';
-                int dup = 0;
-                for (int i = 0; i < seen_n; i++) {
-                    if (!strcmp(seen[i], tok)) { dup = 1; break; }
-                }
-                if (!dup) {
-                    if (seen_n < (int)(sizeof seen / sizeof seen[0]))
-                        cstr_copy(seen[seen_n++], sizeof seen[0], tok);
-                    if (!gsa_token_skip(tok) && text_contains_ci(hay, tok)) score++;
-                }
-                o = 0;
-            }
-            if (!c) break;
-        }
-    }
-    return score;
-}
-
-static int gsa_pick_cmp(const void *a, const void *b) {
-    const gsa_skill_pick *pa = (const gsa_skill_pick *)a;
-    const gsa_skill_pick *pb = (const gsa_skill_pick *)b;
-    if (pb->score != pa->score) return pb->score - pa->score;
-    return strcmp(pa->id, pb->id);
-}
-
-static void gsa_consider_skill_pick(gsa_skill_pick *picks, int *n, int cap,
-                                    const gsa_skill_pick *pick) {
-    if (!pick || pick->score <= 0 || cap <= 0) return;
-    if (*n < cap) {
-        picks[(*n)++] = *pick;
-        return;
-    }
-    int worst = 0;
-    for (int i = 1; i < *n; i++) {
-        if (picks[i].score < picks[worst].score ||
-            (picks[i].score == picks[worst].score && strcmp(picks[i].id, picks[worst].id) > 0))
-            worst = i;
-    }
-    if (pick->score > picks[worst].score ||
-        (pick->score == picks[worst].score && strcmp(pick->id, picks[worst].id) < 0))
-        picks[worst] = *pick;
-}
-
-static int gsa_meta_overlap(const char *meta_terms, const char *domain_terms) {
-    return gsa_term_score(domain_terms, meta_terms);
-}
-
-static int gsa_domain_bonus(const char *mission, const char *workspace_signals,
-                            const char *meta_terms) {
-    const char *m = mission ? mission : "";
-    const char *w = workspace_signals ? workspace_signals : "";
-    int bonus = 0;
-    if (text_contains_ci(m, "crypto") || text_contains_ci(w, "crypto") ||
-        text_contains_ci(w, "jwt") || text_contains_ci(w, "hmac"))
-        bonus += gsa_meta_overlap(meta_terms, "cryptographic encryption decryption key hsm tls jwt oauth certificate nonce signature") ? 45 : 0;
-    if (text_contains_ci(m, "pwn") || text_contains_ci(w, "pwn") ||
-        text_contains_ci(w, "stack") || text_contains_ci(w, "heap"))
-        bonus += gsa_meta_overlap(meta_terms, "binary exploitation exploit memory heap stack fuzz buffer overflow rop crash") ? 45 : 0;
-    if (text_contains_ci(m, "reverse-engineering") || text_contains_ci(m, "reverse engineering") ||
-        text_contains_ci(w, "reverse-engineering") || text_contains_ci(w, "firmware"))
-        bonus += gsa_meta_overlap(meta_terms, "reverse engineering ghidra ida firmware binary disassemble decompile static") ? 45 : 0;
-    if (text_contains_ci(m, "forensics") || text_contains_ci(w, "forensics"))
-        bonus += gsa_meta_overlap(meta_terms, "forensics forensic volatility autopsy timeline artifact registry browser disk") ? 45 : 0;
-    if (text_contains_ci(m, "osint") || text_contains_ci(w, "osint"))
-        bonus += gsa_meta_overlap(meta_terms, "osint intelligence attribution domain certificate transparency infrastructure phishing") ? 45 : 0;
-    if (text_contains_ci(m, "network-security") || text_contains_ci(m, "network security") ||
-        text_contains_ci(w, "network-security") || text_contains_ci(w, "pcap"))
-        bonus += gsa_meta_overlap(meta_terms, "network dns zeek wireshark packet pcap firewall vpn cidr acl policy segmentation service exposure intrusion traffic flow") ? 45 : 0;
-    if (text_contains_ci(m, "firewall") || text_contains_ci(m, "cidr") ||
-        text_contains_ci(m, "service exposure") || text_contains_ci(m, "segmentation") ||
-        text_contains_ci(w, "firewall") || text_contains_ci(w, "cidr") ||
-        text_contains_ci(w, "rules.csv") || text_contains_ci(w, "zones.json") ||
-        text_contains_ci(w, "flows.csv") || text_contains_ci(w, "service_exposure"))
-        bonus += gsa_meta_overlap(meta_terms, "network firewall rules cidr acl policy segmentation service exposure flow traffic zone zero trust access control") ? 90 : 0;
-    if (text_contains_ci(m, "malware-analysis") || text_contains_ci(m, "malware analysis") ||
-        text_contains_ci(w, "malware-analysis") || text_contains_ci(w, "malware"))
-        bonus += gsa_meta_overlap(meta_terms, "malware sandbox yara ioc beacon packed elf pe macro loader dropper cuckoo") ? 45 : 0;
-    if (text_contains_ci(m, "web") || text_contains_ci(w, "/web/") ||
-        text_contains_ci(w, "web-"))
-        bonus += gsa_meta_overlap(meta_terms, "web api authorization authentication xss ssrf sql csrf upload cors session cookie oauth graphql") ? 45 : 0;
-    if (text_contains_ci(m, "idor") || text_contains_ci(m, "bola") ||
-        text_contains_ci(w, "idor") || text_contains_ci(w, "bola"))
-        bonus += gsa_meta_overlap(meta_terms, "idor bola object authorization broken access control") ? 80 : 0;
-    if (text_contains_ci(m, "bfla") || text_contains_ci(m, "function level authorization") ||
-        text_contains_ci(w, "bfla"))
-        bonus += gsa_meta_overlap(meta_terms, "bfla function authorization privilege access control") ? 80 : 0;
-    return bonus;
-}
-
 static int gsa_target_url_ok(const char *url, char *err, size_t errsz) {
     if (!url || !url[0]) return 1;
     if (strlen(url) > 1000) {
@@ -2350,243 +2224,12 @@ static int gsa_report_valid(const char *s, char *err, size_t errsz) {
     return 1;
 }
 
-static void gsa_append_file_head(json_dyn_buf *b, const char *workdir, const char *rel,
-                                 const char *real_base, size_t *budget) {
-    if (!rel || !rel[0] || !budget || *budget == 0) return;
-    char full[PATH_MAX], real_file[PATH_MAX];
-    if ((size_t)snprintf(full, sizeof full, "%s/%s", workdir, rel) >= sizeof full) return;
-    if (!realpath(full, real_file)) return;
-    size_t bl = strlen(real_base);
-    if (strncmp(real_file, real_base, bl) != 0 || (real_file[bl] != '\0' && real_file[bl] != '/')) return;
-    struct stat st;
-    if (stat(real_file, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size > 1024 * 1024) return;
-    FILE *f = fopen(real_file, "rb");
-    if (!f) return;
-    char buf[2048];
-    size_t n = fread(buf, 1, sizeof buf, f);
-    fclose(f);
-    if (!n) return;
-    if (n > *budget) n = *budget;
-    json_dyn_puts(b, "\n[file head ");
-    json_dyn_puts(b, rel);
-    json_dyn_puts(b, "]\n");
-    json_dyn_putn(b, buf, n);
-    json_dyn_puts(b, "\n");
-    *budget -= n;
-}
-
-static char *gsa_workspace_signals(const char *workdir, const char *candidates_path) {
-    FILE *f = fopen(candidates_path, "rb");
-    if (!f) return NULL;
-    char real_base[PATH_MAX];
-    if (!realpath(workdir, real_base)) {
-        fclose(f);
-        return NULL;
-    }
-    json_dyn_buf b = {0};
-    if (!json_dyn_puts(&b, "Workspace candidate paths and bounded file heads.\n")) {
-        fclose(f);
-        return NULL;
-    }
-    char line[PATH_MAX + 64];
-    int paths = 0, heads = 0;
-    size_t head_budget = 96 * 1024;
-    while (fgets(line, sizeof line, f)) {
-        char rel[PATH_MAX];
-        size_t i = 0;
-        while (line[i] && line[i] != '\t' && line[i] != '\n' && i + 1 < sizeof rel) {
-            rel[i] = line[i];
-            i++;
-        }
-        rel[i] = '\0';
-        if (!rel[0]) continue;
-        if (paths < 360) {
-            json_dyn_puts(&b, "path ");
-            json_dyn_puts(&b, rel);
-            json_dyn_puts(&b, "\n");
-            paths++;
-        }
-        if (heads < 80 && head_budget > 0) {
-            gsa_append_file_head(&b, workdir, rel, real_base, &head_budget);
-            heads++;
-        }
-        if (paths >= 360 && (heads >= 80 || head_budget == 0)) break;
-    }
-    fclose(f);
-    return b.ptr;
-}
-
-static int gsa_add_cyber_skill_pick(gsa_skill_pick *picks, int *n, int cap,
-                                    const char *id, const char *content,
-                                    const char *mission, const char *route_mission,
-                                    const char *target_url,
-                                    const char *workspace_signals) {
-    if (!id || !content || !skill_id_ok(id)) return 1;
-    gsa_skill_pick pick;
-    memset(&pick, 0, sizeof pick);
-    cstr_copy(pick.id, sizeof pick.id, id);
-    fm_field(content, "name", pick.name, sizeof pick.name);
-    fm_field(content, "description", pick.desc, sizeof pick.desc);
-    fm_field(content, "domain", pick.domain, sizeof pick.domain);
-    fm_field(content, "subdomain", pick.subdomain, sizeof pick.subdomain);
-    fm_field(content, "tags", pick.tags, sizeof pick.tags);
-    if (!pick.name[0]) cstr_copy(pick.name, sizeof pick.name, id);
-
-    char meta_terms[3000];
-    snprintf(meta_terms, sizeof meta_terms, "%s %s %s %s %s %s",
-             pick.id, pick.name, pick.desc, pick.domain, pick.subdomain, pick.tags);
-    char terms[9000];
-    snprintf(terms, sizeof terms, "%s %.5000s", meta_terms, content);
-    int mission_hits = gsa_term_score(route_mission, meta_terms);
-    int target_hits = gsa_term_score(target_url, meta_terms);
-    int workspace_hits = gsa_term_score(workspace_signals, terms);
-    int domain_bonus = gsa_domain_bonus(mission, workspace_signals, meta_terms);
-    pick.score = mission_hits * 6 + target_hits * 5 + workspace_hits * 3 + domain_bonus;
-    snprintf(pick.reason, sizeof pick.reason,
-             "catalog=anthropic-cybersecurity-skills, mission_hits=%d, target_hits=%d, workspace_hits=%d, domain_bonus=%d",
-             mission_hits, target_hits, workspace_hits, domain_bonus);
-    gsa_consider_skill_pick(picks, n, cap, &pick);
-    return 1;
-}
-
-static void gsa_append_route_terms(json_dyn_buf *b, const char *hay) {
-    if (!b || !hay || !hay[0]) return;
-    if (text_contains_ci(hay, "crypto") || text_contains_ci(hay, "cryptograph") ||
-        text_contains_ci(hay, "jwt") || text_contains_ci(hay, "hmac") ||
-        text_contains_ci(hay, "nonce") || text_contains_ci(hay, "tls"))
-        json_dyn_puts(b, "\ncryptographic encryption decryption key management jwt hmac tls certificate nonce randomness password hash signature\n");
-    if (text_contains_ci(hay, "pwn") || text_contains_ci(hay, "stack") ||
-        text_contains_ci(hay, "heap") || text_contains_ci(hay, "rop") ||
-        text_contains_ci(hay, "fuzz") || text_contains_ci(hay, "crash") ||
-        text_contains_ci(hay, "memory corruption"))
-        json_dyn_puts(b, "\nexploit exploitation memory corruption stack heap buffer overflow integer overflow format string rop sandbox binary parser fuzz crash\n");
-    if (text_contains_ci(hay, "reverse") || text_contains_ci(hay, "firmware") ||
-        text_contains_ci(hay, "decompile") || text_contains_ci(hay, "binary"))
-        json_dyn_puts(b, "\nreverse engineering ghidra ida rizin radare strings firmware binary static analysis decompile disassemble\n");
-    if (text_contains_ci(hay, "forensic") || text_contains_ci(hay, "timeline") ||
-        text_contains_ci(hay, "artifact"))
-        json_dyn_puts(b, "\ndigital forensics timeline artifact volatility disk image registry browser linux windows logs evidence\n");
-    if (text_contains_ci(hay, "osint") || text_contains_ci(hay, "attribution") ||
-        text_contains_ci(hay, "domain intelligence"))
-        json_dyn_puts(b, "\nosint threat intelligence attribution domain certificate transparency phishing infrastructure social media\n");
-    if (text_contains_ci(hay, "network-security") || text_contains_ci(hay, "network security") ||
-        text_contains_ci(hay, "pcap") || text_contains_ci(hay, "dns") ||
-        text_contains_ci(hay, "vpn"))
-        json_dyn_puts(b, "\nnetwork security dns zeek wireshark packet pcap tls vpn firewall cidr acl policy segmentation service exposure intrusion traffic flow\n");
-    if (text_contains_ci(hay, "firewall") || text_contains_ci(hay, "cidr") ||
-        text_contains_ci(hay, "service exposure") || text_contains_ci(hay, "segmentation") ||
-        text_contains_ci(hay, "rules.csv") || text_contains_ci(hay, "flows.csv") ||
-        text_contains_ci(hay, "zones.json"))
-        json_dyn_puts(b, "\nfirewall policy cidr subnet acl rules allow deny segmentation exposure service flow traffic zero trust access control\n");
-    if (text_contains_ci(hay, "malware"))
-        json_dyn_puts(b, "\nmalware analysis sandbox yara ioc c2 beacon persistence packed elf pe macro loader dropper\n");
-    if (text_contains_ci(hay, "web") || text_contains_ci(hay, "api") ||
-        text_contains_ci(hay, "http") || text_contains_ci(hay, "session"))
-        json_dyn_puts(b, "\nweb api authorization authentication xss ssrf sql injection csrf upload cors session cookie oauth graphql\n");
-}
-
-static int gsa_write_cyber_skill_shortlist(const char *run_dir, const char *mission,
-                                           const char *target_url, const char *workspace_signals,
-                                           char *err, size_t errsz, int *out_count,
-                                           json_dyn_buf *prompt_list) {
-    char cyber[PATH_MAX];
-    if (!cyber_skills_dir(cyber, sizeof cyber)) {
-        snprintf(err, errsz, "vendored cybersecurity skills not found at %s/%s",
-                 g_web_dir[0] ? g_web_dir : ".", CYBER_SKILLS_REL_DIR);
-        return 0;
-    }
-    gsa_skill_pick picks[96];
-    int n = 0;
-    json_dyn_buf routing_mission = {0};
-    json_dyn_puts(&routing_mission, mission ? mission : "");
-    gsa_append_route_terms(&routing_mission, mission);
-    gsa_append_route_terms(&routing_mission, workspace_signals);
-    const char *route_mission = routing_mission.ptr ? routing_mission.ptr : mission;
-    DIR *d = opendir(cyber);
-    if (d) {
-        struct dirent *de;
-        while ((de = readdir(d)) != NULL) {
-            const char *id = de->d_name;
-            if (id[0] == '.' || !skill_id_ok(id)) continue;
-            char path[PATH_MAX];
-            if ((size_t)snprintf(path, sizeof path, "%s/%s/SKILL.md", cyber, id) >= sizeof path)
-                continue;
-            size_t len = 0;
-            char *content = jsonl_read_file(path, &len);
-            if (!content) continue;
-            gsa_add_cyber_skill_pick(picks, &n, (int)(sizeof picks / sizeof picks[0]),
-                                     id, content, mission, route_mission, target_url, workspace_signals);
-            free(content);
-        }
-        closedir(d);
-    }
-    free(routing_mission.ptr);
-    if (n <= 0) {
-        snprintf(err, errsz, "no matching SKILL.md files found in vendored cybersecurity skills");
-        return 0;
-    }
-    qsort(picks, (size_t)n, sizeof picks[0], gsa_pick_cmp);
-    int keep = n < 14 ? n : 14;
-    char path[PATH_MAX];
-    snprintf(path, sizeof path, "%s/skills.md", run_dir);
-    FILE *f = fopen(path, "wb");
-    if (!f) {
-        snprintf(err, errsz, "could not write GSA skills shortlist: %s", strerror(errno));
-        return 0;
-    }
-    fprintf(f, "# Imported cybersecurity skill shortlist\n\n");
-    fprintf(f, "Source: `extension/gsa/third_party/anthropic-cybersecurity-skills/skills`.\n");
-    fprintf(f, "These are the only skill IDs preselected for this GSA run. Load one or more with `skill(\"id\")` only when each workflow matches a selected hypothesis.\n\n");
-    for (int i = 0; i < keep; i++) {
-        fprintf(f, "## %s\n\n", picks[i].id);
-        fprintf(f, "- name: %s\n", picks[i].name);
-        fprintf(f, "- domain: %s\n", picks[i].domain[0] ? picks[i].domain : "cybersecurity");
-        fprintf(f, "- subdomain: %s\n", picks[i].subdomain);
-        fprintf(f, "- tags: %s\n", picks[i].tags);
-        fprintf(f, "- score: %d\n", picks[i].score);
-        fprintf(f, "- reason: %s\n", picks[i].reason);
-        fprintf(f, "- description: %s\n\n", picks[i].desc);
-        if (!json_dyn_puts(prompt_list, "- ") ||
-            !json_dyn_puts(prompt_list, picks[i].id))
-        {
-            fclose(f);
-            snprintf(err, errsz, "could not build GSA skill prompt list");
-            return 0;
-        }
-        if (picks[i].subdomain[0]) {
-            if (!json_dyn_puts(prompt_list, " (") ||
-                !json_dyn_puts(prompt_list, picks[i].subdomain) ||
-                !json_dyn_puts(prompt_list, ")"))
-            {
-                fclose(f);
-                snprintf(err, errsz, "could not build GSA skill prompt list");
-                return 0;
-            }
-        }
-        if (!json_dyn_puts(prompt_list, " — ") ||
-            !json_dyn_puts(prompt_list, picks[i].reason))
-        {
-            fclose(f);
-            snprintf(err, errsz, "could not build GSA skill prompt list");
-            return 0;
-        }
-        if (!json_dyn_puts(prompt_list, "\n")) {
-            fclose(f);
-            snprintf(err, errsz, "could not build GSA skill prompt list");
-            return 0;
-        }
-    }
-    fclose(f);
-    if (out_count) *out_count = keep;
-    return 1;
-}
-
 static char gsa_template_last_error[512] = "";
 
 static char *gsa_prompt_start(const char *run_id, const char *run_dir,
                               const char *workdir,
                               const char *mission, const char *target_url, int count, int truncated,
-                              const char *skill_list, const char *target_host,
+                              const char *target_host,
                               const char *profile_requested, const char *profile_effective,
                               const char *tool_status_summary,
                               const char *parent_run_dir, int iteration) {
@@ -2635,7 +2278,6 @@ static char *gsa_prompt_start(const char *run_id, const char *run_dir,
         {"LOOP_CONTEXT_RULE", loop_context_rule},
         {"CANDIDATE_COUNT", count_s},
         {"TRUNCATED_NOTE", truncated ? " (truncated)" : ""},
-        {"SKILL_LIST", skill_list ? skill_list : ""},
         {NULL, NULL}
     };
     gsa_template_last_error[0] = '\0';
@@ -2959,30 +2601,13 @@ static int gsa_start_prepare_automation_artifacts(const gsa_start_request *req,
            gsa_write_loop_context(run->run_dir, req->parent_run_dir, err, errsz);
 }
 
-static int gsa_start_prepare_skills(const gsa_start_request *req, const gsa_start_run *run,
-                                    int *skill_count, json_dyn_buf *skill_list,
-                                    char *err, size_t errsz) {
-    if (skill_count) *skill_count = 0;
-    if (skill_list) memset(skill_list, 0, sizeof *skill_list);
-    char *workspace_signals = gsa_workspace_signals(req->abs, run->candidates);
-    int ok = gsa_write_cyber_skill_shortlist(run->run_dir, gsa_start_mission_text(req),
-                                             req->target_url,
-                                             workspace_signals ? workspace_signals : "",
-                                             err, errsz, skill_count, skill_list);
-    free(workspace_signals);
-    return ok;
-}
-
 static char *gsa_start_build_prompt(const gsa_start_request *req, const gsa_start_run *run,
                                     int candidate_count, int truncated,
-                                    int skill_count, const char *skill_list,
                                     const char *tool_summary,
                                     char *err, size_t errsz) {
-    (void)skill_count;
     char *prompt = gsa_prompt_start(run->run_id, run->run_dir, req->abs,
                                     gsa_start_mission_text(req), req->target_url,
                                     candidate_count, truncated,
-                                    skill_list ? skill_list : "",
                                     req->target_host, req->profile_requested,
                                     req->profile_effective, tool_summary,
                                     req->parent_run_dir, req->iteration);
@@ -3005,7 +2630,7 @@ static char *gsa_start_build_prompt(const gsa_start_request *req, const gsa_star
 }
 
 static int gsa_start_build_response(const gsa_start_request *req, const gsa_start_run *run,
-                                    int candidate_count, int skill_count, int truncated,
+                                    int candidate_count, int truncated,
                                     const char *prompt, json_dyn_buf *out,
                                     char *err, size_t errsz) {
     char response_scope_path[PATH_MAX] = "", response_safety_path[PATH_MAX] = "";
@@ -3034,10 +2659,10 @@ static int gsa_start_build_response(const gsa_start_request *req, const gsa_star
             "\"runDir\":\"%s\",\"statePath\":\"%s\",\"parentRunDir\":\"%s\",\"iteration\":%d,"
             "\"targetUrl\":\"%s\",\"profileRequested\":\"%s\",\"profileEffective\":\"%s\","
             "\"scopePath\":\"%s\",\"safetyGatePath\":\"%s\","
-            "\"think\":\"max\",\"candidateCount\":%d,\"skillCount\":%d,\"truncated\":%s,\"prompt\":",
+            "\"think\":\"max\",\"candidateCount\":%d,\"truncated\":%s,\"prompt\":",
             run->task_id, id_esc, abs_esc, run_esc, state_esc, parent_esc, req->iteration,
             target_esc, prof_req_esc, prof_eff_esc, scope_esc, safety_esc,
-            candidate_count, skill_count, truncated ? "true" : "false") &&
+            candidate_count, truncated ? "true" : "false") &&
         json_dyn_put_escaped(out, prompt) &&
         json_dyn_puts(out, ",\"gsaTools\":") &&
         gsa_tools_json_filtered(out, req->disabled_tools, tools_err, sizeof tools_err) &&
@@ -3090,27 +2715,16 @@ static void api_gsa_start(int fd, const char *body) {
         return;
     }
 
-    json_dyn_buf skill_list = {0};
-    int skill_count = 0;
-    if (!gsa_start_prepare_skills(&req, &run, &skill_count, &skill_list, err, sizeof err)) {
-        gsa_start_record_incomplete(&req, &run, err);
-        gsa_start_fail_task(fd, &run, "could not prepare imported cybersecurity skills", err, "409 Conflict");
-        free(skill_list.ptr);
-        return;
-    }
-
     char *prompt = gsa_start_build_prompt(&req, &run, candidate_count, truncated,
-                                          skill_count, skill_list.ptr ? skill_list.ptr : "",
                                           tool_summary, err, sizeof err);
-    free(skill_list.ptr);
     if (!prompt) {
         gsa_start_fail_task(fd, &run, "could not build GSA prompt", err, "500 Internal Server Error");
         return;
     }
 
     json_dyn_buf out = {0};
-    if (!gsa_start_build_response(&req, &run, candidate_count, skill_count,
-                                  truncated, prompt, &out, err, sizeof err)) {
+    if (!gsa_start_build_response(&req, &run, candidate_count, truncated,
+                                  prompt, &out, err, sizeof err)) {
         free(prompt);
         gsa_start_record_incomplete(&req, &run, err);
         gsa_start_fail_task(fd, &run, "could not build GSA start response", err, "500 Internal Server Error");

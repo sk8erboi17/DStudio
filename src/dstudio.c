@@ -340,25 +340,19 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define LOG_RING_CAP 768
 #define DIAG_SSE_MAX 8
 #define DS4_REPO_URL "https://github.com/antirez/ds4"
-#define DS4_UPSTREAM_COMMIT "efdadd41e20134af4f3381e1ed90e96fe4faef6f"
+#define DS4_UPSTREAM_COMMIT "0a7ad776b9068348e6cb09df8cafa9cadd285298"
 #define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
 
-/* Optional second engine checkout: antirez/ds4 branch glm5.2 (GLM 5.2 support),
- * pinned like the main engine. /api/glm/setup installs it on demand into
- * ./ds4-glm52 (gitignored, like ./ds4), applies the local fixes from
- * patch/ds4-glm52/ on top of the pristine source, and builds. The UI then
- * offers it in the model menu's Engine-branch section. */
-#define DS4_GLM_UPSTREAM_COMMIT "bd89932c4a0029a911b9f0f0a82688a4bbf69208"
-#define DS4_GLM_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_GLM_UPSTREAM_COMMIT
-#define DS4_GLM_DIR_NAME "ds4-glm52"
-#define DS4_GLM_METAL_PATCH "patch/ds4-glm52/metal-model-views.patch"
-#define DS4_GLM_PATCH_MARK "DS4UI_GLM_VIEWS"
-#define CYBER_SKILLS_REL_DIR "extension/gsa/third_party/anthropic-cybersecurity-skills/skills"
+/* Optional Laguna S 2.1 engine checkout. Laguna lives on its own upstream
+ * branch and currently requires Metal plus full model residency, so DStudio
+ * keeps it side by side with main instead of mixing branch sources. */
+#define DS4_LAGUNA_UPSTREAM_COMMIT "7e3dbef7e336433f487c172a3308e26b39fa75a3"
+#define DS4_LAGUNA_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_LAGUNA_UPSTREAM_COMMIT
+#define DS4_LAGUNA_DIR_NAME "ds4-laguna-s21"
 
-/* Bundled content (skills, design systems, imported GSA cybersecurity skills) is
- * downloaded at first run instead of being committed to git. The doctor pulls
- * THIS repo's own tree at a pinned commit from codeload (no git needed, same as
- * the ds4 source) and extracts only the content dirs into extension/. */
+/* Downloadable content is limited to design systems. Skills are user-authored
+ * and live in the writable user-skills directory; DStudio never downloads a
+ * skill catalog. */
 #define DS4_CONTENT_REPO "sk8erboi17/DStudio"
 #define DS4_CONTENT_COMMIT "66401282c5c5e3922a5f555a009de24cde149749"
 #define DS4_CONTENT_ARCHIVE_URL "https://codeload.github.com/" DS4_CONTENT_REPO "/tar.gz/" DS4_CONTENT_COMMIT
@@ -369,6 +363,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
  * the official V4-Pro IQ2XXS (download_model.sh pro-q2-imatrix). */
 #define MODEL_FLASH MODEL_UNC
 #define MODEL_PRO   "gguf/DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix.gguf"
+#define MODEL_LAGUNA "gguf/laguna-s-2.1-Q4_K_M.gguf"
 #define MODEL_PRO_EXPECTED_BYTES 430000000000LL  /* ~430 GB (pro-q2-imatrix), for the % */
 
 enum { ENGINE_NONE = 0, ENGINE_SERVER, ENGINE_AGENT, ENGINE_DESIGN };
@@ -2049,9 +2044,12 @@ static int model_rpc_start(int id, char *body) {
  * (the abliterated Flash GGUF). When "pro", the engine launches with MODEL_PRO. */
 static char g_variant[16] = "flash";
 static pid_t g_dl_pid = -1;          /* background model download, if any */
-static char  g_dl_variant[16] = "";  /* which variant is downloading */
+static char  g_dl_variant[48] = "";  /* download_model.sh target */
+static char  g_dl_rel[1024] = "";    /* expected final GGUF, relative to the active checkout */
+static long long g_dl_expected_bytes = 0;
+static int g_dl_result = 0;          /* 0 running/unknown, 1 completed, -1 failed */
 static char  g_model_override[1024] = ""; /* explicit GGUF the user picked (rel to ds4 dir); "" = use the variant */
-static char  g_skill[64] = "";            /* active skill id (extension/skills/<id>); "" = none */
+static char  g_skill[64] = "";            /* active user-authored skill id; "" = none */
 static char  g_design_system[64] = "";    /* active design-system id (design only); "" = none */
 #ifdef _WIN32
 static DWORD g_child_win_pid = 0;
@@ -2060,9 +2058,245 @@ static DWORD g_child_win_pid = 0;
 static const char *variant_rel(const char *v) {
     return (v && !strcmp(v, "pro")) ? MODEL_PRO : MODEL_FLASH;
 }
+
+static void model_download_details(const char *target, char *rel, size_t relsz,
+                                   long long *expected_bytes) {
+    const char *file = "";
+    long long bytes = 0;
+    if (!strcmp(target, "flash-abliterated")) {
+        file = MODEL_FLASH; bytes = 87000000000LL;
+    } else if (!strcmp(target, "q2-imatrix")) {
+        file = "gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix.gguf";
+        bytes = 87000000000LL;
+    } else if (!strcmp(target, "q2-q4-imatrix")) {
+        file = "gguf/DeepSeek-V4-Flash-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-fixed.gguf";
+        bytes = 98000000000LL;
+    } else if (!strcmp(target, "q4-imatrix")) {
+        file = "gguf/DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf";
+        bytes = 153000000000LL;
+    } else if (!strcmp(target, "pro-q2-imatrix")) {
+        file = MODEL_PRO; bytes = MODEL_PRO_EXPECTED_BYTES;
+    } else if (!strcmp(target, "glm-unsloth-q4")) {
+        file = "gguf/GLM-5.2-UD-Q4_K_XL-00001-of-00011.gguf";
+    } else if (!strcmp(target, "glm-antirez-iq2xxs")) {
+        file = "gguf/GLM-5.2-UD-IQ2_XXS_RoutedIQ2XXS_blk78Q2K.gguf";
+    } else if (!strcmp(target, "glm-antirez-q2")) {
+        file = "gguf/GLM-5.2-UD-Q2_K_RoutedQ2K.gguf"; bytes = 262000000000LL;
+    } else if (!strcmp(target, "glm-antirez-q4")) {
+        file = "gguf/GLM-5.2-UD-Q4_K_RoutedQ4K.gguf"; bytes = 434000000000LL;
+    } else if (!strcmp(target, "laguna-q4")) {
+        file = MODEL_LAGUNA; bytes = 68000000000LL;
+    }
+    cstr_copy(rel, relsz, file);
+    if (expected_bytes) *expected_bytes = bytes;
+}
+
+static long long model_download_bytes_present(void) {
+    if (!g_dl_rel[0]) return 0;
+    char full[2048], part[2060];
+    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, g_dl_rel);
+    snprintf(part, sizeof part, "%s.part", full);
+    struct stat st;
+    if (stat(full, &st) == 0 && S_ISREG(st.st_mode)) return (long long)st.st_size;
+    if (stat(part, &st) == 0 && S_ISREG(st.st_mode)) return (long long)st.st_size;
+
+    /* Older managed checkouts may still contain Hugging Face's opaque
+     * .incomplete file. Use the largest resumable copy immediately. */
+    char cache[2048];
+    snprintf(cache, sizeof cache, "%s/gguf/.cache/huggingface/download", g_ds4_dir);
+    DIR *d = opendir(cache);
+    if (!d) return 0;
+    long long best = 0;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        size_t n = strlen(de->d_name);
+        if (n < 11 || strcmp(de->d_name + n - 11, ".incomplete")) continue;
+        char path[2300];
+        snprintf(path, sizeof path, "%s/%s", cache, de->d_name);
+        if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        if ((long long)st.st_size > best) best = (long long)st.st_size;
+    }
+    closedir(d);
+    return best;
+}
+
+static long long hf_partial_bytes_in_checkout(const char *checkout) {
+    char cache[2048];
+    snprintf(cache, sizeof cache, "%s/gguf/.cache/huggingface/download", checkout);
+    DIR *d = opendir(cache);
+    if (!d) return 0;
+    long long best = 0;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        size_t n = strlen(de->d_name);
+        if (n < 11 || strcmp(de->d_name + n - 11, ".incomplete")) continue;
+        char path[2300];
+        struct stat st;
+        snprintf(path, sizeof path, "%s/%s", cache, de->d_name);
+        if (stat(path, &st) == 0 && S_ISREG(st.st_mode) &&
+            (long long)st.st_size > best)
+            best = (long long)st.st_size;
+    }
+    closedir(d);
+    return best;
+}
+
+static int paused_model_download(char *target, size_t targetsz,
+                                 long long *bytes, long long *expected) {
+    if (g_dl_pid > 0) return 0;
+    struct {
+        const char *dirname;
+        const char *target;
+        const char *final_rel;
+        long long expected;
+    } managed[] = {
+        { DS4_LAGUNA_DIR_NAME, "laguna-q4", MODEL_LAGUNA, 68000000000LL },
+    };
+    for (size_t i = 0; i < sizeof managed / sizeof managed[0]; i++) {
+        char checkout[DSTUDIO_PATH_MAX], final[DSTUDIO_PATH_MAX + 1100];
+        snprintf(checkout, sizeof checkout, "%s/%s", g_web_dir, managed[i].dirname);
+        if (managed[i].final_rel[0]) {
+            snprintf(final, sizeof final, "%s/%s", checkout, managed[i].final_rel);
+            struct stat st;
+            if (stat(final, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) continue;
+        }
+        long long have = hf_partial_bytes_in_checkout(checkout);
+        if (managed[i].final_rel[0]) {
+            char part[DSTUDIO_PATH_MAX + 1110];
+            struct stat st;
+            snprintf(part, sizeof part, "%s.part", final);
+            if (stat(part, &st) == 0 && S_ISREG(st.st_mode) &&
+                (long long)st.st_size > have)
+                have = (long long)st.st_size;
+        }
+        if (have <= 0) continue;
+        cstr_copy(target, targetsz, managed[i].target);
+        if (bytes) *bytes = have;
+        if (expected) *expected = managed[i].expected;
+        return 1;
+    }
+    return 0;
+}
+
+static int name_has_suffix(const char *name, const char *suffix) {
+    size_t n = strlen(name), s = strlen(suffix);
+    return n >= s && !strcmp(name + n - s, suffix);
+}
+
+/* Hugging Face Hub 1.19 creates a process-unique temporary file and opens it
+ * with "wb", so invoking `hf download` again does not resume a stopped local-dir
+ * transfer. Promote the largest legacy temporary to one stable curl .part file. */
+static int prepare_laguna_resumable_partial(const char *checkout,
+                                            char *part, size_t partsz,
+                                            char *final, size_t finalsz) {
+    snprintf(final, finalsz, "%s/%s", checkout, MODEL_LAGUNA);
+    snprintf(part, partsz, "%s.part", final);
+    char gguf[DSTUDIO_PATH_MAX + 16];
+    snprintf(gguf, sizeof gguf, "%s/gguf", checkout);
+    if (mkdir(gguf, 0755) != 0 && errno != EEXIST) return 0;
+
+    struct stat st;
+    long long stable_size = (stat(part, &st) == 0 && S_ISREG(st.st_mode))
+                          ? (long long)st.st_size : 0;
+    char cache[DSTUDIO_PATH_MAX + 64], best_path[DSTUDIO_PATH_MAX + 400] = "";
+    snprintf(cache, sizeof cache, "%s/gguf/.cache/huggingface/download", checkout);
+    DIR *d = opendir(cache);
+    long long best_size = 0;
+    if (d) {
+        struct dirent *de;
+        while ((de = readdir(d)) != NULL) {
+            if (!name_has_suffix(de->d_name, ".incomplete")) continue;
+            char path[DSTUDIO_PATH_MAX + 400];
+            snprintf(path, sizeof path, "%s/%s", cache, de->d_name);
+            if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+            if ((long long)st.st_size > best_size) {
+                best_size = (long long)st.st_size;
+                cstr_copy(best_path, sizeof best_path, path);
+            }
+        }
+        closedir(d);
+    }
+    if (best_path[0] && best_size > stable_size) {
+        if (stable_size > 0 && unlink(part) != 0) return 0;
+        if (rename(best_path, part) != 0) return 0;
+    }
+    return 1;
+}
+
+static int child_download_laguna_resumable(const char *checkout) {
+    char part[DSTUDIO_PATH_MAX + 1100], final[DSTUDIO_PATH_MAX + 1100];
+    if (!prepare_laguna_resumable_partial(checkout, part, sizeof part,
+                                          final, sizeof final))
+        return 1;
+    const char *url =
+        "https://huggingface.co/poolside/Laguna-S-2.1-GGUF/resolve/"
+        "706fa69799926b6afde1af9e24ca2a4923f110a1/"
+        "laguna-s-2.1-Q4_K_M.gguf?download=true";
+    pid_t curl_pid = fork();
+    if (curl_pid < 0) return 1;
+    if (curl_pid == 0) {
+        const char *token = getenv("HF_TOKEN");
+        if (token && token[0]) {
+            char auth[2300];
+            snprintf(auth, sizeof auth, "Authorization: Bearer %s", token);
+            execlp("curl", "curl", "-L", "--fail", "--retry", "5",
+                   "--retry-all-errors", "--continue-at", "-", "--output", part,
+                   "-H", auth, url, (char *)NULL);
+        } else {
+            execlp("curl", "curl", "-L", "--fail", "--retry", "5",
+                   "--retry-all-errors", "--continue-at", "-", "--output", part,
+                   url, (char *)NULL);
+        }
+        _exit(127);
+    }
+    int status = 0;
+    while (waitpid(curl_pid, &status, 0) < 0 && errno == EINTR) {}
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) return 1;
+    return rename(part, final) == 0 ? 0 : 1;
+}
+
+static long long delete_laguna_partial_files(const char *checkout, int *failed) {
+    long long removed_bytes = 0;
+    char final[DSTUDIO_PATH_MAX + 1100], part[DSTUDIO_PATH_MAX + 1110];
+    snprintf(final, sizeof final, "%s/%s", checkout, MODEL_LAGUNA);
+    snprintf(part, sizeof part, "%s.part", final);
+    struct stat st;
+    if (stat(part, &st) == 0 && S_ISREG(st.st_mode)) {
+        if (unlink(part) == 0) removed_bytes += (long long)st.st_size;
+        else *failed = 1;
+    }
+    char cache[DSTUDIO_PATH_MAX + 64];
+    snprintf(cache, sizeof cache, "%s/gguf/.cache/huggingface/download", checkout);
+    DIR *d = opendir(cache);
+    if (!d) return removed_bytes;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        if (!name_has_suffix(de->d_name, ".incomplete") &&
+            !name_has_suffix(de->d_name, ".lock")) continue;
+        char path[DSTUDIO_PATH_MAX + 400];
+        snprintf(path, sizeof path, "%s/%s", cache, de->d_name);
+        long long size = 0;
+        if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) size = (long long)st.st_size;
+        if (unlink(path) == 0) removed_bytes += size;
+        else if (errno != ENOENT) *failed = 1;
+    }
+    closedir(d);
+    return removed_bytes;
+}
 /* The GGUF the engine loads: the user's explicit pick, else the variant default. */
 static const char *current_model_rel(void) {
     return g_model_override[0] ? g_model_override : variant_rel(g_variant);
+}
+static int model_is_glm(void) {
+    const char *rel = current_model_rel();
+    const char *base = strrchr(rel, '/');
+    return strstr(base ? base + 1 : rel, "GLM") != NULL;
+}
+static int model_is_laguna(void) {
+    const char *rel = current_model_rel();
+    const char *base = strrchr(rel, '/');
+    const char *name = base ? base + 1 : rel;
+    return mem_contains_ci(name, strlen(name), "laguna");
 }
 static int file_present_in_dir(const char *dir, const char *rel) {
     char full[2048];
@@ -2137,6 +2371,14 @@ static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_mode
             return -1;
         }
         snprintf(reason, reasonsz, "auto disabled for remote model");
+        return 0;
+    }
+    if (model_is_laguna()) {
+        if (cfg->ssd_streaming == SSD_STREAMING_ON) {
+            snprintf(err, errsz, "Laguna S 2.1 currently requires full model residency; SSD streaming cannot be forced on");
+            return -1;
+        }
+        snprintf(reason, reasonsz, "auto disabled: Laguna S 2.1 requires full residency");
         return 0;
     }
 #ifdef _WIN32
@@ -2223,7 +2465,7 @@ static int web_dir_valid(void) {
     return stat(marker, &st) == 0 && S_ISREG(st.st_mode);
 }
 
-/* Background download of the bundled content (skills/design systems/gsa skills),
+/* Background download of the bundled design-system content,
  * forked so the single-threaded server stays responsive; reaped in reap_child. */
 static pid_t g_content_dl_pid = -1;
 static unsigned long long g_content_dl_task = 0;
@@ -2245,12 +2487,9 @@ static int content_subdir_present(const char *sub) {
     return has;
 }
 
-/* True once the downloadable content (skills, design systems, imported GSA
- * cybersecurity skills) is installed under extension/. */
+/* True once the downloadable design systems are installed under extension/. */
 static int content_present(void) {
-    return content_subdir_present("skills") &&
-           content_subdir_present("design-systems") &&
-           content_subdir_present("gsa/third_party");
+    return content_subdir_present("design-systems");
 }
 
 static int rel_exists(const char *rel) {
@@ -2971,6 +3210,7 @@ static void reap_child(void) {
                 else task_mark_failed(g_active_download_task, "model download failed", g_dl_variant);
                 g_active_download_task = 0;
             }
+            g_dl_result = code == 0 ? 1 : -1;
             g_dl_pid = -1;   /* keep g_dl_variant so status can report 100 / completion once */
         }
     }
@@ -3125,21 +3365,25 @@ static int kill_external_server(int port) {
 #endif
 }
 
-/* Common to both spawns: prepares the Metal env in the child. */
-/* GLM GGUFs (ds4 glm5.2 branch) reject --power below 100 at engine init and
- * need the full-layer streaming prefill path; detect them by filename so the
- * spawns can adapt flags and env. */
-static int model_is_glm(void) {
-    const char *rel = current_model_rel();
-    const char *base = strrchr(rel, '/');
-    return strstr(base ? base + 1 : rel, "GLM") != NULL;
-}
-
+/* Common to both spawns: prepares the Metal env in the child. GLM rejects
+ * --power below 100 and needs its full-layer streaming prefill path; Laguna
+ * keeps the upstream full-residency defaults. */
 static void child_setenv_metal(void) {
-    setenv("DS4_METAL_NO_RESIDENCY", "1", 1);
-    setenv("DS4_METAL_NO_MODEL_WARMUP", "1", 1);
-    setenv("DS4_METAL_PREFILL_CHUNK", "1024", 1);
-    setenv("DS4_METAL_GRAPH_TOKEN_SPLIT_LAYERS", "0", 1);
+    if (!model_is_laguna()) {
+        setenv("DS4_METAL_NO_RESIDENCY", "1", 1);
+        setenv("DS4_METAL_NO_MODEL_WARMUP", "1", 1);
+        setenv("DS4_METAL_PREFILL_CHUNK", "1024", 1);
+        setenv("DS4_METAL_GRAPH_TOKEN_SPLIT_LAYERS", "0", 1);
+    } else {
+        /* Laguna deliberately validates that it is running the untouched
+         * full-residency Metal path. A GUI process can inherit these knobs
+         * from an earlier launch, so remove them instead of merely omitting
+         * new values. */
+        unsetenv("DS4_METAL_NO_RESIDENCY");
+        unsetenv("DS4_METAL_NO_MODEL_WARMUP");
+        unsetenv("DS4_METAL_PREFILL_CHUNK");
+        unsetenv("DS4_METAL_GRAPH_TOKEN_SPLIT_LAYERS");
+    }
     /* GLM streaming: the batch-selected-addr prefill path fails on partial
      * model maps (model >> RAM); the full-layer prefill path is the one that
      * works with the on-demand exact-view fallback. */
@@ -3147,7 +3391,7 @@ static void child_setenv_metal(void) {
         setenv("DS4_METAL_GLM_STREAMING_PREFILL_FULL_LAYER", "1", 1);
 }
 
-/* The 19 Metal sources are loaded relative to the cwd (ds4_metal.m). With
+/* Metal sources are loaded relative to the cwd (ds4_metal.m). With
  * the agent's --chdir the cwd becomes the project working dir, so they must
  * be forced to absolute via the env overrides, otherwise "metal backend
  * unavailable". (envvar, file) mirror the list in ds4_metal.m. */
@@ -3160,6 +3404,7 @@ static const char *const METAL_SRC[][2] = {
     {"DS4_METAL_DSV4_KV_SOURCE",    "dsv4_kv.metal"},
     {"DS4_METAL_DSV4_ROPE_SOURCE",  "dsv4_rope.metal"},
     {"DS4_METAL_DSV4_MISC_SOURCE",  "dsv4_misc.metal"},
+    {"DS4_METAL_LAGUNA_SOURCE",     "laguna.metal"},
     {"DS4_METAL_ARGSORT_SOURCE",    "argsort.metal"},
     {"DS4_METAL_CPY_SOURCE",        "cpy.metal"},
     {"DS4_METAL_CONCAT_SOURCE",     "concat.metal"},
@@ -3182,7 +3427,7 @@ static void child_setenv_metal_sources(const char *ds4_abs) {
 }
 
 /* Writable directory for USER-authored skills (created via the web UI). Each skill is
- * <dir>/<id>/SKILL.md, available to the agent (and design) like a shipped pack. */
+ * <dir>/<id>/SKILL.md and is available to both Agent and Design. */
 static void user_skills_dir(char *out, size_t outsz) {
 #ifdef _WIN32
     const char *base = getenv("LOCALAPPDATA");
@@ -3194,16 +3439,9 @@ static void user_skills_dir(char *out, size_t outsz) {
 #endif
 }
 
-static int cyber_skills_dir(char *out, size_t outsz) {
-    if (!g_web_dir[0]) return 0;
-    snprintf(out, outsz, "%s/%s", g_web_dir, CYBER_SKILLS_REL_DIR);
-    struct stat st;
-    return stat(out, &st) == 0 && S_ISDIR(st.st_mode);
-}
-
-/* Point the engine's on-demand skill()/design_system() tools at this DStudio checkout's
- * shipped pack library (extension/) AND the writable user-skills directory. Set in the
- * child before exec; an absent dir → the tools fall back / report "no pack" gracefully. */
+/* Point the engine at user-authored skills and at the separate design-system /
+ * craft libraries. There is intentionally no shipped or cybersecurity skill
+ * source: skill() resolves only the writable user directory. */
 static void child_setenv_skills(void) {
     if (g_web_dir[0]) {
         char p[1100];
@@ -3219,9 +3457,6 @@ static void child_setenv_skills(void) {
     char u[1100];
     user_skills_dir(u, sizeof u);
     setenv("DS4UI_USER_SKILLS_DIR", u, 1);
-    char cyber[2300];
-    if (cyber_skills_dir(cyber, sizeof cyber))
-        setenv("DS4UI_CYBER_SKILLS_DIR", cyber, 1);
 }
 
 static void reset_progress(const char *stage0) {
@@ -3431,7 +3666,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     argv[n++] = exe; argv[n++] = "-m"; argv[n++] = (char *)current_model_rel(); argv[n++] = "--cpu";
     argv[n++] = "--host"; argv[n++] = g_bind_host; argv[n++] = "--port"; argv[n++] = ports;
     argv[n++] = "--ctx"; argv[n++] = ctxs;
-    if (!model_is_glm()) { argv[n++] = "--power"; argv[n++] = pows; }
+    if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
     argv[n++] = "--kv-disk-dir"; argv[n++] = kvdir; argv[n++] = "--kv-disk-space-mb"; argv[n++] = kvs;
     argv[n++] = "--kv-cache-min-tokens"; argv[n++] = mins; argv[n++] = "--cors";
     argv[n] = NULL;
@@ -3460,7 +3695,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
         argv[n++] = "./ds4-server"; argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
         argv[n++] = "--host"; argv[n++] = g_bind_host; argv[n++] = "--port"; argv[n++] = ports;
         argv[n++] = "--ctx"; argv[n++] = ctxs;
-        if (!model_is_glm()) { argv[n++] = "--power"; argv[n++] = pows; }
+        if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
         if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
         /* GLM: the auto expert-cache budget lands under the per-token working
          * set (heavy thrashing); a larger explicit budget decodes ~2x faster.
@@ -3487,22 +3722,15 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
 
 #include "dstudio_patch.c"
 
-/* Build the -sys text injected into the agent and design engines: the shared charter
- * (extension/skills/AGENT.md), the active design-system's DESIGN.md (design only), and
- * the active skill's SKILL.md. Order: charter -> brand -> task, so the skill checklist
- * stays freshest. Returns a malloc'd string the caller frees, or NULL when there is
- * nothing to inject. The packs live in this DStudio checkout (g_web_dir), read here —
- * NOT through an engine tool — so the agents need no change and no access outside their
- * workspace. design_mode gates the brand layer and design-only tools. */
+/* Build the -sys text injected into the agent and design engines: an optional
+ * design system plus an optional user-authored skill. DStudio ships/downloads no
+ * skills; the writable user directory is the sole skill source. */
 static char *build_skill_sys(int design_mode) {
     if (!g_web_dir[0]) return NULL;
     char path[2300];
     char *buf = NULL; size_t len = 0, cap = 0;
 
     size_t n = 0;
-    snprintf(path, sizeof path, "%s/extension/skills/AGENT.md", g_web_dir);
-    sys_append(&buf, &len, &cap, jsonl_read_file(path, &n), n);
-
     if (design_mode && g_design_system[0]) {
         snprintf(path, sizeof path, "%s/extension/design-systems/%s/DESIGN.md", g_web_dir, g_design_system);
         n = 0;
@@ -3510,29 +3738,27 @@ static char *build_skill_sys(int design_mode) {
     }
     if (g_skill[0]) {
         n = 0;
-        sys_append(&buf, &len, &cap, read_selected_skill(&n), n);  /* user pref over shipped */
+        sys_append(&buf, &len, &cap, read_selected_skill(&n), n);
     }
 
-    /* On-demand pack tools. Do not dump the full shipped/cybersecurity catalog into
-     * every Agent launch: local model startup pays that prefill cost even for a one-word prompt.
-     * The UI and /api/skills/search expose the searchable catalog; the model can load
-     * exact ids supplied by the user, by the selected-skill UI, or by GSA/RSA flows. */
+    /* On-demand tools. User skills stay out of the startup prompt and are found
+     * through the local user catalog; design systems/craft remain separate packs. */
     const size_t catcap = design_mode ? 64 * 1024 : 8192;
     char *cat = malloc(catcap);
     if (cat) {
         size_t o = 0;
-        char dir[2048], udir[1100];
+        char dir[2048];
         o += (size_t)snprintf(cat + o, catcap - o,
             "## On-demand packs\n\n"
-            "Load any pack below at any time WITHOUT restarting, by calling these tools "
+            "Load a user-authored skill or design pack without restarting by calling these tools "
             "(DSML, exactly like your other tools). You may call multiple `skill` tools "
             "in one turn when each pack covers a different concern, but default to one "
             "and cap each user request at three `skill` calls total; never load the same "
             "skill twice:\n\n"
-            "{\"type\":\"function\",\"function\":{\"name\":\"skill\",\"description\":\"Load a skill recipe (layout patterns + checklist) by id, then follow its checklist.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n"
+            "{\"type\":\"function\",\"function\":{\"name\":\"skill\",\"description\":\"Load one of the user's own skill recipes by id, then follow its checklist.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n"
             "{\"type\":\"function\",\"function\":{\"name\":\"design_system\",\"description\":\"Load a brand pack (color tokens, type, components, voice) by id, then bind its tokens.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n"
             "{\"type\":\"function\",\"function\":{\"name\":\"pack_file\",\"description\":\"Read an allowlisted pack file such as assets/template.html, references/checklist.md, references/layouts.md, or example.html after a pack lists available files.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"type\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"type\",\"name\",\"path\"]}}}\n"
-            "{\"type\":\"function\",\"function\":{\"name\":\"skills_search\",\"description\":\"Search the local skill catalog by topic (a few concise English keywords) and get matching skill ids with one-line descriptions, best first.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}}}\n");
+            "{\"type\":\"function\",\"function\":{\"name\":\"skills_search\",\"description\":\"Search the user's skill catalog by topic and get matching ids with one-line descriptions, best first.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}}}\n");
         /* Both current runtimes expose see_image. */
         o += (size_t)snprintf(cat + o, catcap - o,
             "\nVision: you cannot see pixels directly, but you can inspect an image file in the "
@@ -3560,21 +3786,20 @@ static char *build_skill_sys(int design_mode) {
         if (design_mode) {
             o += (size_t)snprintf(cat + o, catcap - o,
                 "Use `skill(\"id\")`, `design_system(\"id\")` and `craft(\"id\")` when the user "
-                "selects or names an exact id. The searchable skill and cybersecurity catalogs "
-                "live in the DStudio UI, so they are not injected here.\n\n");
+                "selects or names an exact id. Only skills created by this user are available; "
+                "DStudio does not install a skill catalog.\n\n");
             snprintf(dir, sizeof dir, "%s/extension/design-systems", g_web_dir);
             catalog_append(cat, catcap, &o, dir, "DESIGN.md", "Available design systems");
             snprintf(dir, sizeof dir, "%s/extension/craft", g_web_dir);
             catalog_append(cat, catcap, &o, dir, "CRAFT.md", "Craft rules (universal)");
         } else {
-            (void)udir;
             o += (size_t)snprintf(cat + o, catcap - o,
                 "Use `skill(\"id\")` when the user selected/named an exact id or a "
                 "DStudio workflow provides one. To DISCOVER ids by topic, call "
                 "`skills_search(\"...\")` describing in your own words (any language is fine) "
                 "what you need — the search is SEMANTIC, so a short natural description works "
-                "better than bare keywords — then pick from its results. The full catalog is "
-                "intentionally not injected into this prompt to keep Agent startup responsive. "
+                "better than bare keywords — then pick from its results. Search covers only "
+                "skills authored by the user; if none match, proceed without a skill. "
                 "You may load multiple skills when they cover different concerns, but keep it "
                 "bounded: default to one skill, cap each user request at three `skill` calls "
                 "total, and never load the same skill twice. Never guess ids that neither the "
@@ -4341,7 +4566,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
         argv[n++] = "-m"; argv[n++] = model_abs;
     }
     argv[n++] = "-c"; argv[n++] = ctxs;
-    if (!model_is_glm()) { argv[n++] = "--power"; argv[n++] = pows; }
+    if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
     argv[n++] = think_flag;
     argv[n++] = "--chdir"; argv[n++] = wd;
     if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
@@ -4386,7 +4611,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
             argv[n++] = "-m"; argv[n++] = model_abs;
         }
         argv[n++] = "-c"; argv[n++] = ctxs;
-        if (!model_is_glm()) { argv[n++] = "--power"; argv[n++] = pows; }
+        if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
         argv[n++] = think_flag;
         argv[n++] = "--chdir"; argv[n++] = wd;
         if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
@@ -4484,7 +4709,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
     }
     argv[n++] = "-c"; argv[n++] = ctxs;
-    if (!model_is_glm()) { argv[n++] = "--power"; argv[n++] = pows; }
+    if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
     argv[n++] = think_flag;
     argv[n++] = "--workspace"; argv[n++] = wd;
     if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
@@ -4523,7 +4748,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
             argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
         }
         argv[n++] = "-c"; argv[n++] = ctxs;
-        if (!model_is_glm()) { argv[n++] = "--power"; argv[n++] = pows; }
+        if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
         argv[n++] = think_flag;
         argv[n++] = "--workspace"; argv[n++] = wd;
         if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
@@ -4603,6 +4828,8 @@ static void api_model_download(int fd, const char *body) {
     static const char *TARGETS[] = {
         "q2-imatrix", "q2-q4-imatrix", "q4-imatrix",
         "pro-q2-imatrix", "pro-q4-layers00-30", "pro-q4-layers31-output", "pro-q4-split",
+        "glm-unsloth-q4", "glm-antirez-iq2xxs", "glm-antirez-q2", "glm-antirez-q4",
+        "laguna-q4",
     };
     int valid = 0;
     for (size_t i = 0; i < sizeof TARGETS / sizeof TARGETS[0]; i++)
@@ -4639,23 +4866,154 @@ static void api_model_download(int fd, const char *body) {
         return;
     }
     if (pid == 0) {
+        setpgid(0, 0);
         if (chdir(ds4_abs) != 0) _exit(127);
         int log = open("/tmp/ds4-model-dl.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (log >= 0) { dup2(log, STDOUT_FILENO); dup2(log, STDERR_FILENO); close(log); }
         int dn = open("/dev/null", O_RDONLY); if (dn >= 0) { dup2(dn, STDIN_FILENO); close(dn); }
         if (abliterated) execl("/bin/sh", "sh", "download-abliterated.sh", (char *)NULL);
+        if (!strcmp(target, "laguna-q4")) _exit(child_download_laguna_resumable(ds4_abs));
         else            execl("/bin/sh", "sh", "download_model.sh", target, (char *)NULL);
         _exit(127);
     }
+    setpgid(pid, pid);
     g_dl_pid = pid;
+    g_dl_result = 0;
     g_active_download_task = task_id;
     dstudio_task *t = task_find(task_id);
     if (t) t->pid = (int)pid;
     task_mark_working(task_id, "model download started");
     cstr_copy(g_dl_variant, sizeof g_dl_variant, abliterated ? "flash" : target);
+    model_download_details(abliterated ? "flash-abliterated" : target,
+                           g_dl_rel, sizeof g_dl_rel, &g_dl_expected_bytes);
     printf("model: downloading %s (pid %d) — log /tmp/ds4-model-dl.log\n", abliterated ? "abliterated" : target, (int)pid);
     char out[128];
     snprintf(out, sizeof out, "{\"ok\":true,\"taskId\":%llu,\"target\":\"%s\"}", task_id, abliterated ? "flash" : target);
+    send_json(fd, "200 OK", out);
+#endif
+}
+
+static void api_model_download_stop(int fd) {
+#ifdef _WIN32
+    send_json(fd, "501 Not Implemented",
+              "{\"ok\":false,\"error\":\"model download stop is not available on Windows yet\"}");
+#else
+    if (g_dl_pid <= 0) {
+        send_json(fd, "200 OK", "{\"ok\":true,\"stopped\":false,\"alreadyStopped\":true}");
+        return;
+    }
+    pid_t pid = g_dl_pid;
+    int sent = kill(-pid, SIGTERM);
+    if (sent != 0) sent = kill(pid, SIGTERM);
+    if (sent != 0 && errno != ESRCH) {
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"could not stop the model download\"}");
+        return;
+    }
+    send_json(fd, "200 OK", "{\"ok\":true,\"stopped\":true}");
+#endif
+}
+
+static void api_model_folder_open(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    send_json(fd, "501 Not Implemented",
+              "{\"ok\":false,\"error\":\"opening the model folder is not available on Windows yet\"}");
+#else
+    char engine[24] = "";
+    json_get_string(body, "engine", engine, sizeof engine);
+    char checkout[DSTUDIO_PATH_MAX];
+    if (!engine[0]) {
+        cstr_copy(checkout, sizeof checkout, g_ds4_dir);
+    } else if (!strcmp(engine, "main")) {
+        snprintf(checkout, sizeof checkout, "%s/ds4", g_web_dir);
+    } else if (!strcmp(engine, "laguna")) {
+        snprintf(checkout, sizeof checkout, "%s/%s", g_web_dir, DS4_LAGUNA_DIR_NAME);
+    } else {
+        send_json(fd, "400 Bad Request",
+                  "{\"ok\":false,\"error\":\"unknown model engine folder\"}");
+        return;
+    }
+    struct stat st;
+    if (stat(checkout, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        send_json(fd, "404 Not Found",
+                  "{\"ok\":false,\"error\":\"model engine folder not found\"}");
+        return;
+    }
+    char folder[DSTUDIO_PATH_MAX + 16];
+    snprintf(folder, sizeof folder, "%s/gguf", checkout);
+    if (mkdir(folder, 0755) != 0 && errno != EEXIST) {
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"could not create the model folder\"}");
+        return;
+    }
+    pid_t child = fork();
+    if (child < 0) {
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"could not open the model folder\"}");
+        return;
+    }
+    if (child == 0) {
+        pid_t opener = fork();
+        if (opener < 0) _exit(1);
+        if (opener > 0) _exit(0);
+        setsid();
+#ifdef __APPLE__
+        execlp("open", "open", folder, (char *)NULL);
+#else
+        execlp("xdg-open", "xdg-open", folder, (char *)NULL);
+#endif
+        _exit(127);
+    }
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+    send_json(fd, "200 OK", "{\"ok\":true}");
+#endif
+}
+
+/* POST /api/model/partials/delete {target} — permanently remove only resumable
+ * temporary model data. Completed GGUF files are never touched. */
+static void api_model_partials_delete(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    send_json(fd, "501 Not Implemented",
+              "{\"ok\":false,\"error\":\"partial model cleanup is not available on Windows yet\"}");
+#else
+    char target[48] = "";
+    json_get_string(body, "target", target, sizeof target);
+    if (!json_get_bool(body, "confirm")) {
+        send_json(fd, "400 Bad Request",
+                  "{\"ok\":false,\"error\":\"explicit partial deletion confirmation is required\"}");
+        return;
+    }
+    if (strcmp(target, "laguna-q4")) {
+        send_json(fd, "400 Bad Request",
+                  "{\"ok\":false,\"error\":\"unknown partial model target\"}");
+        return;
+    }
+    if (g_dl_pid > 0) {
+        send_json(fd, "409 Conflict",
+                  "{\"ok\":false,\"error\":\"stop the active model download before deleting its partial files\"}");
+        return;
+    }
+    char checkout[DSTUDIO_PATH_MAX];
+    snprintf(checkout, sizeof checkout, "%s/%s", g_web_dir, DS4_LAGUNA_DIR_NAME);
+    int failed = 0;
+    long long removed = delete_laguna_partial_files(checkout, &failed);
+    if (failed) {
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"some partial files could not be deleted\"}");
+        return;
+    }
+    if (!strcmp(g_dl_variant, target)) {
+        g_dl_variant[0] = '\0';
+        g_dl_rel[0] = '\0';
+        g_dl_expected_bytes = 0;
+        g_dl_result = 0;
+    }
+    char out[180];
+    snprintf(out, sizeof out,
+             "{\"ok\":true,\"target\":\"laguna-q4\",\"removedBytes\":%lld}", removed);
     send_json(fd, "200 OK", out);
 #endif
 }
@@ -4752,16 +5110,30 @@ static void api_status(int fd) {
     else
         snprintf(cfg, sizeof cfg, "null");
 
-    /* download progress (variant GGUF): % from the partial file size. */
-    long long dl_pct = -1;
+    /* Download progress. Some Hugging Face downloads only expose the final file
+     * near completion, so an active job reports at least 0% and completion comes
+     * from the child exit status instead of the legacy flash/pro variant map. */
+    long long dl_pct = -1, dl_bytes = 0;
     if (g_dl_variant[0]) {
-        char full[2048];
-        snprintf(full, sizeof full, "%s/%s", g_ds4_dir, variant_rel(g_dl_variant));
-        struct stat st;
-        long long have = (stat(full, &st) == 0) ? (long long)st.st_size : 0;
-        dl_pct = have * 100 / MODEL_PRO_EXPECTED_BYTES;
-        if (dl_pct > 99) dl_pct = 99;            /* 100 only when the file is complete */
-        if (file_present(variant_rel(g_dl_variant)) && g_dl_pid <= 0) dl_pct = 100;
+        if (g_dl_pid > 0) {
+            dl_pct = 0;
+            if (g_dl_rel[0] && g_dl_expected_bytes > 0) {
+                dl_bytes = model_download_bytes_present();
+                dl_pct = dl_bytes * 100 / g_dl_expected_bytes;
+                if (dl_pct > 99) dl_pct = 99;
+            }
+        } else if (g_dl_result > 0) {
+            dl_pct = 100;
+        }
+    }
+    char paused_variant[48] = "";
+    long long paused_bytes = 0, paused_expected = 0, paused_pct = -1;
+    int paused = g_dl_pid <= 0 &&
+                 paused_model_download(paused_variant, sizeof paused_variant,
+                                       &paused_bytes, &paused_expected);
+    if (paused && paused_expected > 0) {
+        paused_pct = paused_bytes * 100 / paused_expected;
+        if (paused_pct > 99) paused_pct = 99;
     }
 
     char d4_esc[2100], web_esc[2100], err_esc[600], line_esc[600], mf_esc[1100];
@@ -4783,6 +5155,9 @@ static void api_status(int fd) {
         "\"models\":{\"standard\":%s,\"uncensored\":%s},"
         "\"variants\":{\"flash\":%s,\"pro\":%s},\"variant\":\"%s\","
         "\"download\":%s,\"downloadVariant\":\"%s\",\"downloadPct\":%lld,"
+        "\"downloadBytes\":%lld,\"downloadExpectedBytes\":%lld,"
+        "\"pausedDownload\":%s,\"pausedDownloadVariant\":\"%s\","
+        "\"pausedDownloadBytes\":%lld,\"pausedDownloadExpectedBytes\":%lld,\"pausedDownloadPct\":%lld,"
         "\"engineError\":\"%s\",\"engineLine\":\"%s\",\"modelFile\":\"%s\",\"skill\":\"%s\",\"designSystem\":\"%s\","
         "\"contentOk\":%s,\"contentDownloading\":%s}",
         mode_name(g_mode), engine_running ? "true" : "false", g_ready ? "true" : "false",
@@ -4791,7 +5166,10 @@ static void api_status(int fd) {
         lan_on ? "true" : "false", lan_addr, g_http_port,
         model_present(0) ? "true" : "false", model_present(1) ? "true" : "false",
         file_present(MODEL_FLASH) ? "true" : "false", file_present(MODEL_PRO) ? "true" : "false",
-        g_variant, g_dl_variant[0] ? "true" : "false", g_dl_variant, dl_pct, err_esc, line_esc, mf_esc, g_skill, g_design_system,
+        g_variant, g_dl_variant[0] ? "true" : "false", g_dl_variant, dl_pct,
+        dl_bytes, g_dl_expected_bytes,
+        paused ? "true" : "false", paused_variant, paused_bytes, paused_expected, paused_pct,
+        err_esc, line_esc, mf_esc, g_skill, g_design_system,
         content_present() ? "true" : "false", g_content_dl_pid > 0 ? "true" : "false");
     send_json(fd, "200 OK", body);
 }
@@ -4806,9 +5184,8 @@ static void api_lan_health(int fd) {
     send_json_cors(fd, "200 OK", body);
 }
 
-/* GLM checkout helpers (defined next to /api/glm/setup below). */
-static int glm_dir_path(char *out, size_t outsz);
-static int glm_checkout_ready(const char *dir);
+static int laguna_dir_path(char *out, size_t outsz);
+static int laguna_checkout_ready(const char *dir);
 /* Vision sidecar doctor row (defined next to the vision handlers below). */
 static int vision_doctor_row(char *msg, size_t msgsz);
 /* Generic sidecar helpers reused by the embedding sidecar (defined with the
@@ -4876,11 +5253,11 @@ static void api_doctor(int fd) {
     int content_ok = content_present();
     int content_dl = g_content_dl_pid > 0;
     if (!content_ok && !content_dl) warn++;
-    ok = ok && doctor_add_check(&b, &first, "content", "Skills & design systems",
+    ok = ok && doctor_add_check(&b, &first, "content", "Design systems",
         content_ok ? "ok" : (content_dl ? "warn" : "warn"),
-        content_ok ? "Skill packs and design systems are installed."
-                   : (content_dl ? "Downloading skill packs and design systems…"
-                                  : "Download the skill packs and design systems."),
+        content_ok ? "Design systems are installed. Skills are created by users."
+                   : (content_dl ? "Downloading design systems…"
+                                  : "Download the optional design systems."),
         (content_ok || content_dl) ? NULL : "setup-content");
 
     if (!model_ok) fatal++;
@@ -4917,20 +5294,17 @@ static void api_doctor(int fd) {
         web_ok ? NULL : "open-settings");
 
 #ifndef _WIN32
-    /* Optional GLM 5.2 engine (a second ds4 checkout on the glm5.2 branch).
-     * Never fatal: when absent the row just offers an Install action for those
-     * who want to run GLM GGUFs; present-but-broken is a warning. */
-    char glm_dir[DSTUDIO_PATH_MAX];
-    int glm_have_path = glm_dir_path(glm_dir, sizeof glm_dir);
-    int glm_present = glm_have_path && ds4_dir_valid_path(glm_dir);
-    int glm_ready = glm_present && glm_checkout_ready(glm_dir);
-    if (glm_present && !glm_ready) warn++;
-    ok = ok && doctor_add_check(&b, &first, "glm", "GLM engine (optional)",
-        glm_present && !glm_ready ? "warn" : "ok",
-        glm_ready ? "GLM 5.2 engine installed — pick the glm5.2 branch from the model menu." :
-        glm_present ? "GLM checkout found but not patched/built — reinstall it." :
-                      "Not installed. Optional: adds GLM 5.2 model support (ds4 glm5.2 branch).",
-        glm_ready ? NULL : "setup-glm");
+    char laguna_dir[DSTUDIO_PATH_MAX];
+    int laguna_have_path = laguna_dir_path(laguna_dir, sizeof laguna_dir);
+    int laguna_present = laguna_have_path && ds4_dir_valid_path(laguna_dir);
+    int laguna_ready = laguna_present && laguna_checkout_ready(laguna_dir);
+    if (laguna_present && !laguna_ready) warn++;
+    ok = ok && doctor_add_check(&b, &first, "laguna", "Laguna S 2.1 engine (optional)",
+        laguna_present && !laguna_ready ? "warn" : "ok",
+        laguna_ready ? "Laguna S 2.1 installed — pick laguna-s2.1 from the model menu." :
+        laguna_present ? "Laguna checkout found but not built — reinstall it." :
+                         "Not installed. Optional: adds Laguna S 2.1 on Apple Metal.",
+        laguna_ready ? NULL : "setup-laguna");
 
     /* Vision sidecar (optional): local image understanding for chat + agent. */
     {
@@ -4995,44 +5369,135 @@ static void api_doctor(int fd) {
     free(b.ptr);
 }
 
-/* GET /api/ggufs — list the .gguf files in the engine folder (and its gguf/
- * subdir) with sizes. The UI parses the filenames to label model/quant/kind.
- * Symlinks are skipped so the same file is not listed twice. */
-static void api_ggufs(int fd) {
-    char body[4096];
-    int o = snprintf(body, sizeof body, "{\"ok\":true,\"ggufs\":[");
-    int n = 0;
-    const char *subs[2] = { "gguf", "" };
-    for (int di = 0; di < 2 && o < (int)sizeof body - 800; di++) {
-        char dir[2200];
-        snprintf(dir, sizeof dir, "%s%s%s", g_ds4_dir, subs[di][0] ? "/" : "", subs[di]);
-        DIR *d = opendir(dir);
+/* All managed ds4 checkouts are model sources, not just the active checkout.
+ * Keep the active one first so menus remain predictable after a switch. */
+#define ENGINE_CHECKOUT_CAP 16
+static int collect_engine_checkouts(
+        char dirs[][DSTUDIO_PATH_MAX], int cap,
+        char *active_out, size_t active_outsz) {
+    char active[DSTUDIO_PATH_MAX];
+    if (!realpath(g_ds4_dir, active)) cstr_copy(active, sizeof active, g_ds4_dir);
+    if (active_out && active_outsz) cstr_copy(active_out, active_outsz, active);
+
+    int ndirs = 0;
+    char parent[DSTUDIO_PATH_MAX];
+    cstr_copy(parent, sizeof parent, active);
+    char *slash = strrchr(parent, '/');
+    if (slash && slash != parent) *slash = '\0';
+    else cstr_copy(parent, sizeof parent, "/");
+    const char *bases[2] = { g_web_dir[0] ? g_web_dir : NULL, parent };
+
+    for (int bi = 0; bi < 2; bi++) {
+        if (!bases[bi] || !bases[bi][0]) continue;
+        DIR *d = opendir(bases[bi]);
         if (!d) continue;
         struct dirent *de;
-        while ((de = readdir(d)) != NULL && o < (int)sizeof body - 800) {
-            const char *nm = de->d_name;
-            size_t L = strlen(nm);
-            if (L < 6 || strcmp(nm + L - 5, ".gguf")) continue;
-            char full[3200]; struct stat st;
-            snprintf(full, sizeof full, "%s/%s", dir, nm);
-            if (lstat(full, &st) != 0 || !S_ISREG(st.st_mode)) continue;  /* skip symlinks/dirs */
-            char esc[700];
-            json_escape_into(esc, sizeof esc, nm, strlen(nm));
-            o += snprintf(body + o, sizeof body - o,
-                          "%s{\"file\":\"%s\",\"path\":\"%s%s\",\"size\":%lld}",
-                          n++ ? "," : "", esc, subs[di][0] ? "gguf/" : "", esc, (long long)st.st_size);
+        while ((de = readdir(d)) != NULL && ndirs < cap) {
+            if (strncmp(de->d_name, "ds4", 3)) continue;
+            char full[DSTUDIO_PATH_MAX + 300], abs[DSTUDIO_PATH_MAX];
+            snprintf(full, sizeof full, "%s/%s", bases[bi], de->d_name);
+            struct stat st;
+            if (stat(full, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+            if (!ds4_dir_valid_path(full) || !realpath(full, abs)) continue;
+            int dup = 0;
+            for (int i = 0; i < ndirs && !dup; i++) dup = !strcmp(dirs[i], abs);
+            if (!dup) cstr_copy(dirs[ndirs++], DSTUDIO_PATH_MAX, abs);
         }
         closedir(d);
     }
-    snprintf(body + o, sizeof body - o, "]}");
-    send_json(fd, "200 OK", body);
+
+    int active_idx = -1;
+    for (int i = 0; i < ndirs; i++)
+        if (!strcmp(dirs[i], active)) { active_idx = i; break; }
+    if (active_idx < 0 && ndirs < cap && ds4_dir_valid_path(active)) {
+        cstr_copy(dirs[ndirs], DSTUDIO_PATH_MAX, active);
+        active_idx = ndirs++;
+    }
+    if (active_idx > 0) {
+        char tmp[DSTUDIO_PATH_MAX];
+        cstr_copy(tmp, sizeof tmp, dirs[0]);
+        cstr_copy(dirs[0], DSTUDIO_PATH_MAX, dirs[active_idx]);
+        cstr_copy(dirs[active_idx], DSTUDIO_PATH_MAX, tmp);
+    }
+    return ndirs;
+}
+
+static void git_branch_of(const char *dir, char *out, size_t outsz);
+
+static void checkout_branch_label(const char *dir, char *out, size_t outsz) {
+    git_branch_of(dir, out, outsz);
+    if (out[0]) return;
+    const char *name = strrchr(dir, '/');
+    name = name ? name + 1 : dir;
+    if (!strcmp(name, DS4_LAGUNA_DIR_NAME))
+        cstr_copy(out, outsz, "laguna-s2.1");
+}
+
+/* GET /api/ggufs — list .gguf files across every managed engine checkout.
+ * Each row carries its owning checkout so selecting a model can atomically
+ * switch branch before starting it. Symlinks are skipped to avoid duplicates. */
+static void api_ggufs(int fd) {
+    char dirs[ENGINE_CHECKOUT_CAP][DSTUDIO_PATH_MAX];
+    char active[DSTUDIO_PATH_MAX];
+    int ndirs = collect_engine_checkouts(dirs, ENGINE_CHECKOUT_CAP,
+                                         active, sizeof active);
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "{\"ok\":true,\"activeEngine\":") &&
+             json_dyn_put_escaped(&b, active) &&
+             json_dyn_puts(&b, ",\"ggufs\":[");
+    int n = 0;
+    const char *subs[2] = { "gguf", "" };
+    for (int ci = 0; ci < ndirs && ok; ci++) {
+        const char *engine_name = strrchr(dirs[ci], '/');
+        engine_name = engine_name ? engine_name + 1 : dirs[ci];
+        char branch[128];
+        checkout_branch_label(dirs[ci], branch, sizeof branch);
+        for (int di = 0; di < 2 && ok; di++) {
+            char dir[DSTUDIO_PATH_MAX + 16];
+            snprintf(dir, sizeof dir, "%s%s%s", dirs[ci],
+                     subs[di][0] ? "/" : "", subs[di]);
+            DIR *d = opendir(dir);
+            if (!d) continue;
+            struct dirent *de;
+            while ((de = readdir(d)) != NULL && ok) {
+                const char *nm = de->d_name;
+                size_t len = strlen(nm);
+                if (len < 6 || strcmp(nm + len - 5, ".gguf")) continue;
+                char full[DSTUDIO_PATH_MAX + 400];
+                struct stat st;
+                snprintf(full, sizeof full, "%s/%s", dir, nm);
+                if (lstat(full, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+                char rel[512];
+                snprintf(rel, sizeof rel, "%s%s", subs[di][0] ? "gguf/" : "", nm);
+                ok = json_dyn_puts(&b, n++ ? ",{\"file\":" : "{\"file\":") &&
+                     json_dyn_put_escaped(&b, nm) &&
+                     json_dyn_puts(&b, ",\"path\":") && json_dyn_put_escaped(&b, rel) &&
+                     json_dyn_printf(&b, ",\"size\":%lld", (long long)st.st_size) &&
+                     json_dyn_puts(&b, ",\"engineDir\":") && json_dyn_put_escaped(&b, dirs[ci]) &&
+                     json_dyn_puts(&b, ",\"engineName\":") && json_dyn_put_escaped(&b, engine_name) &&
+                     json_dyn_puts(&b, ",\"branch\":") && json_dyn_put_escaped(&b, branch) &&
+                     json_dyn_printf(&b, ",\"activeEngine\":%s}",
+                                     !strcmp(dirs[ci], active) ? "true" : "false");
+            }
+            closedir(d);
+        }
+    }
+    ok = ok && json_dyn_puts(&b, "]}");
+    if (!ok) {
+        free(b.ptr);
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"out of memory\"}");
+        return;
+    }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
 }
 
 /* ---- Engine checkout (ds4 git branch) picker ----
- * DStudio can sit next to several ds4 checkouts (e.g. ./ds4 on main and a
- * ./ds4-glm52 worktree on glm5.2). These endpoints let the UI list them and
- * swap the active one at runtime. The swap is process-local and deliberately
- * NOT persisted: the next DStudio launch resolves ./ds4 again. */
+ * DStudio can sit next to several managed ds4 checkouts (main and optional
+ * model-specific branches). These endpoints let the UI list them and swap the
+ * active one at runtime. The swap is process-local and deliberately NOT
+ * persisted: the next DStudio launch resolves ./ds4 again. */
 
 /* Best-effort current git branch of a checkout. Handles both a regular clone
  * (.git is a directory) and a linked worktree (.git is a "gitdir: ..." pointer
@@ -5083,40 +5548,9 @@ static void git_branch_of(const char *dir, char *out, size_t outsz) {
  * server binary is built. */
 static void api_engine_checkouts(int fd) {
     char active[DSTUDIO_PATH_MAX];
-    if (!realpath(g_ds4_dir, active)) cstr_copy(active, sizeof active, g_ds4_dir);
-
-    static char dirs[16][DSTUDIO_PATH_MAX];
-    int ndirs = 0;
-
-    char parent[DSTUDIO_PATH_MAX];
-    cstr_copy(parent, sizeof parent, active);
-    char *slash = strrchr(parent, '/');
-    if (slash && slash != parent) *slash = '\0'; else cstr_copy(parent, sizeof parent, "/");
-    const char *bases[2] = { g_web_dir[0] ? g_web_dir : NULL, parent };
-
-    for (int bi = 0; bi < 2; bi++) {
-        if (!bases[bi] || !bases[bi][0]) continue;
-        DIR *d = opendir(bases[bi]);
-        if (!d) continue;
-        struct dirent *de;
-        while ((de = readdir(d)) != NULL && ndirs < 16) {
-            if (strncmp(de->d_name, "ds4", 3)) continue;
-            char full[DSTUDIO_PATH_MAX + 300], abs[DSTUDIO_PATH_MAX];
-            snprintf(full, sizeof full, "%s/%s", bases[bi], de->d_name);
-            struct stat st;
-            if (stat(full, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
-            if (!ds4_dir_valid_path(full)) continue;
-            if (!realpath(full, abs)) continue;
-            int dup = 0;
-            for (int i = 0; i < ndirs && !dup; i++) dup = !strcmp(dirs[i], abs);
-            if (!dup) cstr_copy(dirs[ndirs++], sizeof dirs[0], abs);
-        }
-        closedir(d);
-    }
-    int have_active = 0;
-    for (int i = 0; i < ndirs && !have_active; i++) have_active = !strcmp(dirs[i], active);
-    if (!have_active && ndirs < 16 && ds4_dir_valid_path(active))
-        cstr_copy(dirs[ndirs++], sizeof dirs[0], active);
+    char dirs[ENGINE_CHECKOUT_CAP][DSTUDIO_PATH_MAX];
+    int ndirs = collect_engine_checkouts(dirs, ENGINE_CHECKOUT_CAP,
+                                         active, sizeof active);
 
     json_dyn_buf b = {0};
     int ok = json_dyn_puts(&b, "{\"ok\":true,\"active\":") &&
@@ -5126,10 +5560,7 @@ static void api_engine_checkouts(int fd) {
         const char *name = strrchr(dirs[i], '/');
         name = name ? name + 1 : dirs[i];
         char branch[128];
-        git_branch_of(dirs[i], branch, sizeof branch);
-        /* Archive-based checkouts have no .git; label the managed GLM one. */
-        if (!branch[0] && !strcmp(name, DS4_GLM_DIR_NAME))
-            cstr_copy(branch, sizeof branch, "glm5.2");
+        checkout_branch_label(dirs[i], branch, sizeof branch);
         int has_server = file_present_in_dir(dirs[i], "ds4-server") ||
                          file_present_in_dir(dirs[i], "ds4-server.exe");
         ok = ok && json_dyn_puts(&b, i ? ",{\"dir\":" : "{\"dir\":") &&
@@ -5247,9 +5678,8 @@ static void fm_field(const char *content, const char *key, char *out, size_t out
     }
 }
 
-/* Emit a JSON catalog of the Markdown packs under extension/<subdir>/<id>/<file>,
- * reading each pack's frontmatter name/description/modes. Shared by /api/skills and
- * /api/design-systems. key is the top-level JSON array name. */
+/* Emit a JSON catalog of Markdown packs under extension/<subdir>/<id>/<file>,
+ * reading each pack's frontmatter name/description/modes. */
 static void md_catalog(int fd, const char *subdir, const char *file, const char *key) {
     json_dyn_buf body = {0};
     if (!json_dyn_printf(&body, "{\"ok\":true,\"%s\":[", key)) {
@@ -5325,9 +5755,6 @@ oom:
     free(body.ptr);
     send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"catalog memory\"}");
 }
-
-/* GET /api/skills — skill packs (extension/skills/<id>/SKILL.md). */
-static void api_skills(int fd) { md_catalog(fd, "skills", "SKILL.md", "skills"); }
 
 #include "dstudio_embed.c"
 #include "dstudio_user_skills.c"
@@ -5500,7 +5927,7 @@ static void api_start(int fd, const char *body) {
     if (json_get_string(body, "gguf", gguf, sizeof gguf) && gguf[0] && !strstr(gguf, "..") && file_present(gguf))
         snprintf(g_model_override, sizeof g_model_override, "%s", gguf);
 
-    /* Active skill for agent/design (extension/skills/<id>): injected as -sys at spawn.
+    /* Active user-created skill for agent/design: injected as -sys at spawn.
      * Empty or "none" clears it; an unknown/invalid id is ignored (falls back to the
      * charter only). The key may be absent — then the previous choice is kept. */
     char skill[64] = {0};
@@ -6209,7 +6636,7 @@ static void api_fs_mkdir(int fd, const char *body) {
 }
 
 #include "dstudio_setup.c"
-#include "dstudio_glm.c"
+#include "dstudio_laguna.c"
 #include "dstudio_updates.c"
 
 /* Point the launcher at a different DStudio checkout (where extension/ lives:
@@ -6781,6 +7208,11 @@ static void api_wipe(int fd) {
     store_save();
     int kv_cleared = 0;
     if (g_child <= 0) {        /* the engine isn't running → the KV files are free */
+        /* A crashed Agent leaves its completed output in the launcher's
+         * in-memory pipe buffer. If that survives the wipe, the fresh empty
+         * conversation created by the UI can adopt the old buffer and
+         * immediately resurrect the deleted transcript. */
+        agent_buf_reset();
         char kvroot[2048];
         kv_root(kvroot, sizeof kvroot);        /* all per-model caches live under here */
         clear_dir(kvroot);
@@ -7634,10 +8066,13 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/design/clean")) { api_design_clean(fd); return 200; }
     if (!strcmp(path, "/api/design/import")) { api_design_import(fd, body); return 200; }
     if (!strcmp(path, "/api/model/download")) { api_model_download(fd, body); return 200; }
+    if (!strcmp(path, "/api/model/download/stop")) { api_model_download_stop(fd); return 200; }
+    if (!strcmp(path, "/api/model/folder/open")) { api_model_folder_open(fd, body); return 200; }
+    if (!strcmp(path, "/api/model/partials/delete")) { api_model_partials_delete(fd, body); return 200; }
     if (!strcmp(path, "/api/fs/list")) { api_fs_list(fd, body); return 200; }
     if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); return 200; }
     if (!strcmp(path, "/api/ds4/setup")) { api_setup_ds4(fd); return 200; }
-    if (!strcmp(path, "/api/glm/setup")) { api_setup_glm(fd); return 200; }
+    if (!strcmp(path, "/api/laguna/setup")) { api_setup_laguna(fd); return 200; }
     if (!strcmp(path, "/api/vision/setup")) { api_vision_setup(fd, body); return 200; }
     if (!strcmp(path, "/api/vision/describe")) { api_vision_describe(fd, body); return 200; }
     if (!strcmp(path, "/api/vision/stop")) { api_vision_stop(fd); return 200; }
@@ -7689,14 +8124,10 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
     if (is_get && !strcmp(path, "/api/ggufs")) { api_ggufs(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/engine/checkouts")) { api_engine_checkouts(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/skills/search")) { api_skills_search(fd, path); return 200; }
-    if (is_get && !strncmp(path, "/api/skill-preview/", 19)) { api_skill_preview(fd, path, head_only); return 200; }
     if (is_get && !strncmp(path, "/api/design-system-preview/", 27)) { api_design_system_preview(fd, path, head_only); return 200; }
-    if (is_get && !strncmp(path, "/api/skills/get", 15)) { api_skill_get(fd, path); return 200; }
     if (is_get && path_eq_clean(path, "/api/gsa/tools")) { api_gsa_tools(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/rsa/tools")) { api_rsa_tools(fd); return 200; }
-    if (is_get && !strcmp(path, "/api/skills")) { api_skills(fd); return 200; }
     if (is_get && !strcmp(path, "/api/design-systems")) { api_design_systems(fd); return 200; }
-    if (is_get && !strcmp(path, "/api/craft")) { api_craft(fd); return 200; }
     if (is_get && !strncmp(path, "/api/user-skills/get", 20)) { api_user_skill_get(fd, path); return 200; }
     if (is_get && !strcmp(path, "/api/user-skills")) { api_user_skills(fd); return 200; }
     if (is_get && !strncmp(path, "/api/agent/poll", 15)) { api_agent_poll(fd, path); return 200; }
@@ -8101,13 +8532,11 @@ int main(int argc, char **argv)
      * still patched, restore it from the .bak before anything else. */
     if (!test_mode) run_build_jsonl("restore");
 
-    /* First-run / fresh-clone: the skill packs, design systems and imported GSA
-     * skills are NOT committed — download them now (in the background so the
-     * server stays responsive). The doctor/onboarding also exposes a manual
-     * retry via /api/setup/content. */
+    /* First-run / fresh-clone: optional design systems are downloaded in the
+     * background. Skills remain user-authored and are never fetched. */
     if (!test_mode && !content_present()) {
-        set_stage("Downloading skills & design systems…", 3);
-        printf("content: bundled skills/design-systems/gsa not found — downloading in background\n");
+        set_stage("Downloading design systems…", 3);
+        printf("content: design systems not found — downloading in background\n");
         start_content_download();
     }
 

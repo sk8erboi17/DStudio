@@ -310,9 +310,9 @@ static int setup_download_ds4_archive(const char *url, const char *tag, const ch
     return 1;
 }
 
-/* Downloads this repo's tree at the pinned content commit and installs only the
- * bundled-content dirs (skills, design-systems, gsa/third_party) under
- * extension/. Mirrors setup_download_ds4_archive: curl the codeload tarball, tar
+/* Downloads this repo's tree at the pinned content commit and installs only
+ * extension/design-systems. Skills are user-authored and never downloaded.
+ * Mirrors setup_download_ds4_archive: curl the codeload tarball, tar
  * -xzf into a temp dir on the SAME filesystem (so the rename is atomic), then
  * move each content dir into place. Runs in a forked child (start_content_download)
  * or synchronously on Windows. Returns 1 on success. */
@@ -365,13 +365,8 @@ static int setup_download_content_archive(char *log_tail, size_t logsz, char *er
         unlink(archive); setup_remove_tree(extract); return 0;
     }
 
-    /* gsa/third_party needs extension/gsa to exist (harmless if it already does). */
-    char gsadir[DSTUDIO_PATH_MAX];
-    snprintf(gsadir, sizeof gsadir, "%s/gsa", ext);
-    mkdir(gsadir, 0755);
-
-    static const char *subs[] = { "skills", "design-systems", "gsa/third_party" };
-    for (int i = 0; i < 3; i++) {
+    static const char *subs[] = { "design-systems" };
+    for (int i = 0; i < 1; i++) {
         char src[DSTUDIO_PATH_MAX], dst[DSTUDIO_PATH_MAX];
         int a = snprintf(src, sizeof src, "%s/extension/%s", top, subs[i]);
         int b = snprintf(dst, sizeof dst, "%s/%s", ext, subs[i]);
@@ -383,6 +378,16 @@ static int setup_download_content_archive(char *log_tail, size_t logsz, char *er
         if (stat(src, &sst) != 0 || !S_ISDIR(sst.st_mode)) {
             snprintf(err, errsz, "content archive missing extension/%s", subs[i]);
             unlink(archive); setup_remove_tree(extract); return 0;
+        }
+        /* OpenCode is intentionally not part of DStudio.  Strip it from the
+         * staged archive so a setup refresh cannot restore the legacy pack. */
+        if (!strcmp(subs[i], "design-systems")) {
+            char opencode[DSTUDIO_PATH_MAX];
+            int o = snprintf(opencode, sizeof opencode, "%s/opencode-ai", src);
+            if (o < 0 || (size_t)o >= sizeof opencode || !setup_remove_tree(opencode)) {
+                snprintf(err, errsz, "could not exclude the legacy OpenCode design system");
+                unlink(archive); setup_remove_tree(extract); return 0;
+            }
         }
         setup_remove_tree(dst);   /* replace any partial/stale copy */
         if (rename(src, dst) != 0) {
@@ -396,19 +401,19 @@ static int setup_download_content_archive(char *log_tail, size_t logsz, char *er
     return 1;
 }
 
-/* Kicks off the bundled-content download. On POSIX it forks a child so the
+/* Kicks off the design-system download. On POSIX it forks a child so the
  * single-threaded server keeps serving; reap_child() observes the exit and
  * closes the task. On Windows it runs synchronously. Returns the task id (0 if
  * it could not even start). */
 static unsigned long long start_content_download(void) {
     if (g_content_dl_pid > 0) return g_content_dl_task;   /* already running */
-    unsigned long long task_id = task_begin("setup", "Download bundled content", "content",
+    unsigned long long task_id = task_begin("setup", "Download design systems", "content",
                                             ENGINE_NONE, g_web_dir, 0, 0);
 #ifdef _WIN32
-    task_mark_working(task_id, "downloading bundled content");
+    task_mark_working(task_id, "downloading design systems");
     char clog[4096] = "", cerr[1024] = "";
     if (setup_download_content_archive(clog, sizeof clog, cerr, sizeof cerr))
-        task_mark_completed(task_id, "bundled content installed");
+        task_mark_completed(task_id, "design systems installed");
     else
         task_mark_failed(task_id, "content download failed", cerr);
     return task_id;
@@ -432,13 +437,13 @@ static unsigned long long start_content_download(void) {
     g_content_dl_task = task_id;
     dstudio_task *t = task_find(task_id);
     if (t) t->pid = (int)pid;
-    task_mark_working(task_id, "downloading bundled content");
-    printf("content: downloading bundled content (pid %d) — log /tmp/ds4-content-dl.log\n", (int)pid);
+    task_mark_working(task_id, "downloading design systems");
+    printf("content: downloading design systems (pid %d) — log /tmp/ds4-content-dl.log\n", (int)pid);
     return task_id;
 #endif
 }
 
-/* POST /api/setup/content — download/install the bundled content on demand. */
+/* POST /api/setup/content — download/install design systems on demand. */
 static void api_setup_content(int fd) {
     reap_child();
     if (content_present()) {
@@ -662,6 +667,50 @@ static void setup_send_json(int fd, const char *status, int ok, const char *targ
     }
     send_json(fd, status, b.ptr);
     free(b.ptr);
+}
+
+/* Prepare a side-by-side branch checkout for every DStudio mode. The helper
+ * temporarily points the existing patch/build machinery at that checkout,
+ * then restores the user's active engine selection. */
+static int setup_build_branch_runtimes(const char *target, const char *label,
+                                       char *log_tail, size_t logsz,
+                                       char *err, size_t errsz) {
+#ifdef _WIN32
+    (void)target; (void)label; (void)log_tail; (void)logsz;
+    snprintf(err, errsz, "optional branch runtimes are not supported on Windows yet");
+    return 0;
+#else
+    char previous[DSTUDIO_PATH_MAX];
+    cstr_copy(previous, sizeof previous, g_ds4_dir);
+    cstr_copy(g_ds4_dir, sizeof g_ds4_dir, target);
+    int ok = 0;
+
+    if (!run_ext_script("scripts/apply-ds4-qwen-hot-memory.sh", "apply")) {
+        snprintf(err, errsz, "%s Qwen hot-memory patch failed", label);
+        goto done;
+    }
+    char *make_argv[] = { "make", "-C", g_ds4_dir, NULL };
+    int rc = setup_run_cmd_capture(NULL, make_argv, log_tail, logsz);
+    if (rc != 0) {
+        snprintf(err, errsz, "%s engine make failed (exit %d). Output: %.7600s",
+                 label, rc, log_tail && log_tail[0] ? log_tail : "(no output)");
+        goto done;
+    }
+    if (!run_build_jsonl("build")) {
+        snprintf(err, errsz, "%s Agent runtime build failed%s%s", label,
+                 g_engine_err[0] ? ": " : "", g_engine_err[0] ? g_engine_err : "");
+        goto done;
+    }
+    if (!run_ext_script("extension/design/build-design.sh", "build")) {
+        snprintf(err, errsz, "%s Design runtime build failed", label);
+        goto done;
+    }
+    ok = 1;
+
+done:
+    cstr_copy(g_ds4_dir, sizeof g_ds4_dir, previous);
+    return ok;
+#endif
 }
 
 /* POST /api/ds4/setup — managed first-run path. Downloads antirez/ds4 at the

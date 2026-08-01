@@ -1,0 +1,1 @@
+static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {

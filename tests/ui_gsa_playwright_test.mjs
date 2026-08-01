@@ -88,7 +88,7 @@ function phaseOutputForPrompt(prompt) {
     hypotheses: [{
       title: 'Unsecured API endpoint',
       why: 'public route appears to expose metadata without auth',
-      skills: ['testing-for-sensitive-data-exposure'],
+      tools: ['semgrep'],
     }],
     stop_if: 'auth middleware blocks every selected path',
   });
@@ -132,6 +132,10 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, files: [{ name: 'DeepSeek-V4-Flash-IQ2XXS.gguf', path: '/tmp/model.gguf', size: 87_000_000_000 }] });
     return;
   }
+  if (url.pathname === '/api/engine/checkouts') {
+    json(res, 200, { ok: true, checkouts: [] });
+    return;
+  }
   if (url.pathname === '/api/doctor') {
     json(res, 200, { ok: true, issues: [], checks: [] });
     return;
@@ -144,8 +148,7 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, chats: [] });
     return;
   }
-  if (url.pathname === '/api/skills' || url.pathname === '/api/user-skills' ||
-      url.pathname === '/api/design-systems' || url.pathname === '/api/skills/search') {
+  if (url.pathname === '/api/user-skills' || url.pathname === '/api/design-systems') {
     json(res, 200, { ok: true, skills: [], systems: [] });
     return;
   }
@@ -170,7 +173,6 @@ const server = http.createServer(async (req, res) => {
       targetUrl: body.targetUrl || '',
       think: 'max',
       candidateCount: 2,
-      skillCount: 1,
       truncated: false,
       prompt: 'SELECTION_PROMPT',
       gsaTools: { mode: 'tool-assisted', tools: [] },

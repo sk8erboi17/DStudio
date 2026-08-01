@@ -6019,7 +6019,7 @@
         <section class="set-grp" data-pane="embed" hidden>
           <div class="set-eye">Semantic skill search</div>
           <div class="field">
-            <span>Skill routing for the Agent <small class="field-note">the agent's skills_search tool finds packs by meaning, any language</small></span>
+            <span>Skill routing for the Agent <small class="field-note">searches only skills you created, by meaning and in any language</small></span>
             <p class="set-inline-msg" id="set-embed-status">Checking…</p>
             <div class="field__row">
               <button type="button" id="set-embed-install" class="btn">Install</button>
@@ -6069,7 +6069,7 @@
             <div class="updates-panel__top">
               <span>
                 <span class="updates-panel__title">Update Doctor</span>
-                <span class="updates-panel__sub">Fetch ds4 upstream, then verify managed tools, templates, patch gates, skills and Open Design imports.</span>
+                <span class="updates-panel__sub">Fetch ds4 upstream, then verify managed tools, patch gates and design systems. Skills remain user-authored.</span>
               </span>
               <span class="updates-panel__actions">
                 <button type="button" id="updates-check" class="btn">Check</button>
@@ -6080,8 +6080,7 @@
               <label class="updates-task-item"><input type="checkbox" class="updates-task" value="gsa-tools" checked> <span>GSA tools/templates</span></label>
               <label class="updates-task-item"><input type="checkbox" class="updates-task" value="ds4-latest" checked> <span>ds4 latest + patch gate</span></label>
               <label class="updates-task-item"><input type="checkbox" class="updates-task" value="patch-verify" checked> <span>Patch verification</span></label>
-              <label class="updates-task-item"><input type="checkbox" class="updates-task" value="skills" checked> <span>Imported skills</span></label>
-              <label class="updates-task-item"><input type="checkbox" class="updates-task" value="open-design" checked> <span>Open Design</span></label>
+              <label class="updates-task-item"><input type="checkbox" class="updates-task" value="design-systems" checked> <span>Design systems</span></label>
             </div>
             <div id="updates-list" class="updates-list" aria-label="Update status"></div>
             <p class="updates-msg" id="updates-msg"></p>
@@ -6204,15 +6203,6 @@
           <div class="set-eye">Skills</div>
           <div id="skills-list"></div>
           <button type="button" id="skills-new" class="btn" style="margin-top:8px">+ New skill</button>
-        </section>
-        <section class="set-grp" id="cyber-skills-view">
-          <div class="set-eye">Cybersecurity skills</div>
-          <p class="set-help" style="margin:0 0 8px">Imported from <code>extension/gsa/third_party/anthropic-cybersecurity-skills</code>. GSA uses this catalog automatically; you can also load one into the Agent session.</p>
-          <div class="field__row skill-search">
-            <input type="text" id="cyber-skills-query" placeholder="Search API auth, SSRF, IDOR, Kubernetes…" spellcheck="false" autocomplete="off">
-            <button type="button" id="cyber-skills-search" class="btn">Search</button>
-          </div>
-          <div id="cyber-skills-list"></div>
         </section>
         <section class="set-grp" id="skills-editor" hidden>
           <div class="set-eye" id="skills-editor-title">New skill</div>
@@ -7520,7 +7510,9 @@
 
     // Derive {model, kind, quant} from a GGUF filename (shared by onboarding + settings).
     function parseGgufName(file) {
-      const model = /\bpro\b/i.test(file) ? 'DeepSeek V4 Pro'
+      const model = /laguna[-_ ]?s/i.test(file) ? 'Laguna S 2.1'
+        : /\bglm[-_ ]?5/i.test(file) ? 'GLM 5.2'
+        : /\bpro\b/i.test(file) ? 'DeepSeek V4 Pro'
         : /\bflash\b/i.test(file) ? 'DeepSeek V4 Flash' : 'DeepSeek V4';
       let kind = 'standard';
       if (/abliterat|uncensor/i.test(file)) kind = 'uncensored';
@@ -7532,6 +7524,8 @@
     }
     function modelIdForEngineStatus(st) {
       const file = String(st?.modelFile || '');
+      if (/laguna[-_ ]?s/i.test(file)) return 'laguna-s-2.1';
+      if (/\bglm[-_ ]?5/i.test(file)) return 'glm-5.2';
       if (/\bpro\b/i.test(file)) return 'deepseek-v4-pro';
       if (/\bflash\b/i.test(file)) return 'deepseek-v4-flash';
       if (st?.variant === 'pro') return 'deepseek-v4-pro';
@@ -7542,18 +7536,127 @@
       const gb = b / 1e9;
       return gb >= 1 ? `${gb.toFixed(gb < 10 ? 1 : 0)} GB` : `${(b / 1e6).toFixed(0)} MB`;
     }
+    function ggufKey(g) {
+      return `${String(g?.engineDir || '')}\n${String(g?.path || '')}`;
+    }
+    function ggufIsRunning(g, modelFile, engineDir) {
+      return String(g?.path || '') === String(modelFile || '') &&
+        (!g?.engineDir || !engineDir || String(g.engineDir) === String(engineDir));
+    }
+    function ggufBranchLabel(g) {
+      return String(g?.branch || g?.engineName || 'ds4');
+    }
     // Quantizations ds4's download scripts can fetch (download_model.sh targets +
     // abliterated). Shared by the onboarding and Settings model pickers.
     const MODEL_DOWNLOADS = [
-      { id: 'flash', label: 'Flash · uncensored (abliterated) — IQ2_XXS, ~87 GB', body: { target: 'flash-abliterated' }, match: /abliterat|uncensor|cyberneurova/i },
-      { id: 'q2-imatrix', label: 'Flash · chat — IQ2_XXS, ~87 GB', body: { target: 'q2-imatrix' }, match: /^DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix\.gguf$/i },
-      { id: 'q2-q4-imatrix', label: 'Flash · mixed Q2/Q4 — ~98 GB', body: { target: 'q2-q4-imatrix' }, match: /Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown.*imatrix/i },
-      { id: 'q4-imatrix', label: 'Flash · chat — Q4, higher quality & larger', body: { target: 'q4-imatrix' }, match: /^DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix\.gguf$/i },
-      { id: 'pro-q2-imatrix', label: 'Pro · IQ2_XXS — ~430 GB', body: { target: 'pro-q2-imatrix' }, match: /^DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix\.gguf$/i },
+      { id: 'flash', label: 'DeepSeek V4 Flash · uncensored — IQ2_XXS, ~87 GB', body: { target: 'flash-abliterated', engine: 'main' }, match: /abliterat|uncensor|cyberneurova/i },
+      { id: 'q2-imatrix', label: 'DeepSeek V4 Flash · chat — IQ2_XXS, ~87 GB', body: { target: 'q2-imatrix', engine: 'main' }, match: /^DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix\.gguf$/i },
+      { id: 'q2-q4-imatrix', label: 'DeepSeek V4 Flash · mixed Q2/Q4 — ~98 GB', body: { target: 'q2-q4-imatrix', engine: 'main' }, match: /Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown.*imatrix/i },
+      { id: 'q4-imatrix', label: 'DeepSeek V4 Flash · chat — Q4, higher quality & larger', body: { target: 'q4-imatrix', engine: 'main' }, match: /^DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix\.gguf$/i },
+      { id: 'pro-q2-imatrix', label: 'DeepSeek V4 Pro · IQ2_XXS — ~430 GB', body: { target: 'pro-q2-imatrix', engine: 'main' }, match: /^DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix\.gguf$/i },
+      { id: 'glm-antirez-iq2xxs', label: 'GLM 5.2 · routed IQ2_XXS — reduced memory', body: { target: 'glm-antirez-iq2xxs', engine: 'main' }, match: /^GLM-5\.2-UD-IQ2_XXS_RoutedIQ2XXS_blk78Q2K\.gguf$/i },
+      { id: 'glm-antirez-q2', label: 'GLM 5.2 · routed Q2_K — ~262 GB', body: { target: 'glm-antirez-q2', engine: 'main' }, match: /^GLM-5\.2-UD-Q2_K_RoutedQ2K\.gguf$/i },
+      { id: 'glm-antirez-q4', label: 'GLM 5.2 · routed Q4_K — ~434 GB', body: { target: 'glm-antirez-q4', engine: 'main' }, match: /^GLM-5\.2-UD-Q4_K_RoutedQ4K\.gguf$/i },
+      { id: 'glm-unsloth-q4', label: 'GLM 5.2 · Unsloth UD-Q4_K_XL — 11 shards', body: { target: 'glm-unsloth-q4', engine: 'main' }, match: /^GLM-5\.2-UD-Q4_K_XL-00001-of-00011\.gguf$/i },
+      { id: 'laguna-q4', label: 'Laguna S 2.1 · Q4_K_M — ~68 GB · Metal/full residency', body: { target: 'laguna-q4', engine: 'laguna' }, match: /^laguna-s-2\.1-Q4_K_M\.gguf$/i },
     ];
     function availableModelDownloads(ggufs) {
       const files = (ggufs || []).map((g) => String(g?.file || ''));
       return MODEL_DOWNLOADS.filter((d) => !files.some((file) => d.match.test(file)));
+    }
+    function modelDownloadStatusText(dl) {
+      const stage = String(dl?.stage || 'Downloading');
+      const hasPct = dl?.pct !== null && dl?.pct !== undefined && Number.isFinite(Number(dl.pct));
+      const pct = hasPct ? ` — ${Math.max(0, Math.min(100, Number(dl.pct)))}%` : '';
+      const bytes = Number(dl?.bytes) > 0
+        ? ` · ${fmtGgufSize(Number(dl.bytes))} ${dl?.paused ? 'saved' : 'downloaded'}`
+        : '';
+      return `${stage} ${dl?.variant || 'model'}${pct}${bytes}${dl?.paused ? '' : ' · runs in the background'}`;
+    }
+    function modelDownloadStateFromStatus(st) {
+      if (st?.download && st.downloadPct >= 0 && st.downloadPct < 100)
+        return {
+          variant: st.downloadVariant,
+          pct: st.downloadPct,
+          bytes: st.downloadBytes || 0,
+          stage: 'Downloading',
+        };
+      if (st?.pausedDownload)
+        return {
+          variant: st.pausedDownloadVariant || 'model',
+          pct: st.pausedDownloadPct >= 0 ? st.pausedDownloadPct : null,
+          bytes: st.pausedDownloadBytes || 0,
+          stage: 'Paused:',
+          paused: true,
+        };
+      return null;
+    }
+    function appendModelDownloadStatus(host, dl) {
+      host.append(el('span', { class: 'onboard__dl-lbl', text: modelDownloadStatusText(dl) }));
+      const choice = MODEL_DOWNLOADS.find((item) => item.body.target === dl.variant);
+      const appendOpenFolder = () => {
+        const open = el('button', { class: 'btn btn--sm', type: 'button', text: 'Open folder' });
+        on(open, 'click', async () => {
+          const result = await Engine.openModelFolder(choice?.body.engine || '').catch(() => null);
+          if (!result || result.ok === false)
+            toast(result?.error || 'Could not open the model folder', 'error');
+        });
+        host.append(open);
+      };
+      if (!dl?.paused) {
+        const stop = el('button', { class: 'btn btn--sm', type: 'button', text: 'Stop' });
+        on(stop, 'click', async () => {
+          stop.disabled = true;
+          Store.setModelState({ download: { ...dl, stage: 'Stopping' } });
+          const result = await Engine.stopModelDownload().catch(() => null);
+          if (!result || result.ok === false) {
+            stop.disabled = false;
+            toast(result?.error || 'Could not stop the model download', 'error');
+            return;
+          }
+          for (let i = 0; i < 20; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            const st = await Engine.status().catch(() => null);
+            const state = modelDownloadStateFromStatus(st);
+            if (state?.paused) {
+              Store.setModelState({ download: state });
+              toast('Model download paused', 'info');
+              return;
+            }
+          }
+          Store.setModelState({ download: null });
+          toast('Model download stopped', 'info');
+        });
+        host.append(stop);
+        appendOpenFolder();
+        return;
+      }
+      if (choice) {
+        const resume = el('button', { class: 'btn btn--sm', type: 'button', text: 'Resume' });
+        on(resume, 'click', () => Switcher.downloadModel(choice.body));
+        host.append(resume);
+      }
+      if (dl.variant === 'laguna-q4') {
+        const remove = el('button', { class: 'btn btn--sm', type: 'button', text: 'Delete partial' });
+        on(remove, 'click', async () => {
+          const yes = await askConfirm({
+            title: 'Delete the partial download?',
+            body: `Permanently delete ${fmtGgufSize(Number(dl.bytes) || 0)} of incomplete Laguna data? The completed model, if present, is never touched.`,
+            cta: 'Delete partial',
+          });
+          if (!yes) return;
+          const result = await Engine.deleteModelPartials(dl.variant).catch(() => null);
+          if (!result || result.ok === false) {
+            toast(result?.error || 'Could not delete the partial download', 'error');
+            return;
+          }
+          Store.setModelState({ download: null });
+          toast(`${fmtGgufSize(Number(result.removedBytes) || 0)} of partial data deleted`, 'info');
+          Settings.refreshModels();
+        });
+        host.append(remove);
+      }
+      appendOpenFolder();
     }
 
     /* ==================== SSE parser ==================== */
@@ -9575,9 +9678,16 @@
             body: JSON.stringify(buildBody(req)),
           });
         } catch (e) {
-          yield e?.name === 'AbortError'
-            ? { type: 'abort' }
-            : { type: 'error', message: 'Unable to reach the server.', errType: 'network' };
+          if (e?.name === 'AbortError') {
+            yield { type: 'abort' };
+          } else {
+            const diag = deepseekMode() ? '' : await streamStatusDiagnostic();
+            yield {
+              type: 'error',
+              message: diag ? `Local engine unavailable — ${diag}` : 'Unable to reach the server.',
+              errType: 'network',
+            };
+          }
           return;
         }
 
@@ -10489,7 +10599,8 @@
           body: 'The server is unreachable. Start it again now?', cta: 'Restart' });
         if (!ok) return;
         toast('Starting the engine…', 'info');
-        try { await Engine.start({ mode: 'server' }, true); } catch { toast('Could not start the engine.', 'error'); }
+        try { await Switcher.restartCurrent(); }
+        catch { toast('Could not start the engine.', 'error'); }
       }
 
       return { mount, refresh, render };
@@ -13730,7 +13841,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
       const CHAT_ATTACH_MAX_CHARS = 140_000;
       const CHAT_ATTACH_TEXT_EXT_RE = /\.(txt|md|markdown|csv|tsv|json|jsonl|js|jsx|ts|tsx|mjs|cjs|py|rb|go|rs|c|h|cc|cpp|hpp|java|kt|swift|php|cs|html?|css|scss|sass|xml|svg|yml|yaml|toml|ini|cfg|conf|env|sh|bash|zsh|fish|sql|log|diff|patch|dockerfile|makefile|mk)$/i;
       const CHAT_ATTACH_TEXT_NAMES_RE = /^(makefile|dockerfile|readme|license|notice|changelog|gemfile|rakefile|procfile)$/i;
-      const DESIGN_TEMPLATE_SOURCE = 'open-design/';
       const DESIGN_GALLERY_LIMIT = 240;
       let designGalleryLoading = false;
       let selectedDesignGalleryId = '';
@@ -13920,8 +14030,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
       let agentMode = false;
       let curMode = 'server';
-      let skillCache = null;     // [{id,name,description,modes}] from /api/skills (design)
-      let userSkillCache = null; // [{id,name,description}] from /api/user-skills (agent)
+      let userSkillCache = null; // [{id,name,description}] from the user's private catalog
       let gsaToolCache = null;   // optional GSA tool status from /api/gsa/tools
       let gsaToolLoading = false;
       let dsCache = null;        // [{id,name,description}] from /api/design-systems
@@ -14796,7 +14905,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const missing = runTools.filter((t) => t.enabled !== false && !t.found).map((t) => t.name);
         const disabled = runTools.filter((t) => t.enabled === false).length;
         const profNote = res.profileEffective && res.profileEffective !== res.profileRequested ? `, ${res.profileRequested} -> ${res.profileEffective}` : `, ${res.profileEffective || securityProfileValue()}`;
-        toast(`GSA run prepared (${res.candidateCount || 0} files, ${res.skillCount || 0} imported skills${profNote}${disabled ? `, ${disabled} tools off` : ''}${missing.length ? `, missing: ${missing.join(', ')}` : ''}).`, missing.length ? 'warn' : 'info');
+        toast(`GSA run prepared (${res.candidateCount || 0} files, ${res.skillCount || 0} user skills${profNote}${disabled ? `, ${disabled} tools off` : ''}${missing.length ? `, missing: ${missing.join(', ')}` : ''}).`, missing.length ? 'warn' : 'info');
         const display = mission ? `/gsa ${mission}` : '/gsa';
         if (loop) {
           gsaLoopState = {
@@ -15448,22 +15557,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
 
       function designGalleryPresets() {
-        const templatePresets = (skillCache || [])
-          .filter((s) => s?.hasExample && String(s.upstream || '').startsWith(DESIGN_TEMPLATE_SOURCE))
-          .sort((a, b) => designTemplateName(a.name, a.id).localeCompare(designTemplateName(b.name, b.id)))
-          .map((s) => {
-            const title = designTemplateName(s.name, s.id);
-            return {
-              source: 'template',
-              sourceLabel: 'Template',
-              id: s.id,
-              title,
-              tags: designTemplateTags({ ...s, sourceLabel: 'Template' }),
-              desc: designTemplateDesc(s.description, s.id),
-              previewUrl: `/api/skill-preview/${encodeURIComponent(s.id)}/example.html`,
-              prompt: `Use the original Open Design template "${title}" (${s.id}) as the base. Load skill("${s.id}"), inspect its example.html and available template assets/checklist, then adapt that exact template language to my brief. Preserve the template's visual signature, replace placeholder copy with real content, keep it self-contained, responsive, accessible, and ask 2 concise questions first only if the brief is missing critical product or audience details.`
-            };
-          });
         const systemPresets = (dsCache || [])
           .slice()
           .sort((a, b) => designTemplateName(a.name, a.id).localeCompare(designTemplateName(b.name, b.id)))
@@ -15481,7 +15574,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
               prompt: `Use the original bundled design system "${title}" (${s.id}) as the visual base. Apply design_system("${s.id}"), read its DESIGN.md and local component/tokens files if present, then design from my brief using that brand language. Keep the result self-contained, responsive, accessible, and ask 2 concise questions first only if the brief is missing critical product or audience details.`
             };
           });
-        return [...templatePresets, ...systemPresets].slice(0, DESIGN_GALLERY_LIMIT);
+        return systemPresets.slice(0, DESIGN_GALLERY_LIMIT);
       }
 
       function designGalleryFilteredPresets() {
@@ -15502,12 +15595,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
 
       function ensureDesignGalleryCatalog() {
-        if ((skillCache !== null && dsCache !== null) || designGalleryLoading) return;
+        if (dsCache !== null || designGalleryLoading) return;
         designGalleryLoading = true;
-        Promise.all([
-          skillCache === null ? loadSkills() : Promise.resolve(),
-          dsCache === null ? loadDs() : Promise.resolve(),
-        ]).finally(() => {
+        Promise.resolve(dsCache === null ? loadDs() : null).finally(() => {
           designGalleryLoading = false;
           AgentView.refreshFlow?.();
           renderDesignGallerySurfaces();
@@ -15823,17 +15913,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         });
       }
 
-      const MARKETING_SKILL_CATS = [
-        ['marketing-foundation', 'Marketing foundation'],
-        ['marketing-strategy', 'Marketing strategy'],
-        ['seo-content', 'SEO & content'],
-        ['content-copy', 'Content & copy'],
-        ['conversion', 'Conversion'],
-        ['paid-measurement', 'Paid & measurement'],
-        ['growth-retention', 'Growth & retention'],
-        ['sales-gtm', 'Sales & GTM'],
-      ];
-
       function skillGroupsForMode(mode = curMode) {
         const groups = [{
           id: 'session',
@@ -15854,19 +15933,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           (skills || []).forEach((s) => addItem(group, s));
           if (group.items.length) groups.push(group);
         };
-        if (mode === 'agent') {
-          const shipped = (skillCache || [])
-            .filter((s) => s.modes && s.modes.includes('agent'));
-          pushGroup('user', 'Your skills', userSkillCache || []);
-          pushGroup('agent-workflow', 'Agent / Workflow', shipped.filter((s) => !s.modes.includes('marketing')));
-          MARKETING_SKILL_CATS.forEach(([cat, label]) => {
-            pushGroup(cat, label, shipped
-              .filter((s) => s.modes.includes('marketing') && s.category === cat)
-              .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id)));
-          });
-        } else {
-          pushGroup('design', 'Design', (skillCache || []).filter((s) => !s.modes || s.modes.includes('design')));
-        }
+        pushGroup('user', 'Your skills', userSkillCache || []);
         return groups.filter((g) => g.items.length);
       }
 
@@ -15883,8 +15950,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
       async function openSkillPickerForCurrentMode() {
         closeGear();
-        if (curMode === 'agent' && (userSkillCache === null || skillCache === null)) await loadUserSkills();
-        if (curMode !== 'agent' && skillCache === null) await loadSkills();
+        if (userSkillCache === null) await loadUserSkills();
         const value = (Store.getSettings().skillByMode || {})[curMode] || '';
         Skills.openPicker({
           mode: curMode,
@@ -15896,7 +15962,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
       function renderSkillOpenButton() {
         const value = (Store.getSettings().skillByMode || {})[curMode] || '';
-        const loading = (curMode === 'agent' && (userSkillCache === null || skillCache === null)) || (curMode !== 'agent' && skillCache === null);
+        const loading = userSkillCache === null;
         const groups = skillGroupsForMode(curMode);
         const btn = el('button', {
           class: 'cbar-pop-wd skill-open',
@@ -16038,14 +16104,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
         }
 
         // Skill — picked in a modal so long category lists do not overflow the gear.
-        if ((curMode === 'agent' && (userSkillCache === null || skillCache === null)) || (curMode !== 'agent' && skillCache === null)) {
-          (curMode === 'agent' ? loadUserSkills : loadSkills)();
-        }
+        if (userSkillCache === null) loadUserSkills();
         cbarPop.append(renderSkillOpenButton());
 
         if (curMode === 'agent') {
           cbarPop.append(cdrop({ cap: 'GSA', ariaLabel: 'GSA mode',
-            title: 'GSA mode — the next agent message starts a guided security analysis using the imported cybersecurity skills.',
+            title: 'GSA mode — the next agent message starts guided security analysis and may use matching skills created by you.',
             value: Store.getSettings().gsaMode === 'on' ? 'on' : 'off',
             items: [{ value: 'off', lead: 'Off' }, { value: 'on', lead: 'On', sub: 'Next message starts GSA' }],
             onPick: (v) => Switcher.switchGsa(v) }));
@@ -16135,18 +16199,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
         on(wdBtn, 'click', () => { closeGear(); Switcher.changeWorkdir(); });
         cbarPop.append(wdBtn);
       }
-      async function loadSkills() {
-        try { const r = await Engine.skills(); skillCache = (r && r.skills) || []; }
-        catch { skillCache = skillCache || []; }
-        rebuildGearIfOpen();
-      }
       async function loadUserSkills() {
         try { const r = await Engine.userSkills(); userSkillCache = (r && r.skills) || []; }
         catch { userSkillCache = userSkillCache || []; }
-        if (skillCache === null) {
-          try { const r = await Engine.skills(); skillCache = (r && r.skills) || []; }
-          catch { skillCache = skillCache || []; }
-        }
         rebuildGearIfOpen();
       }
       // Called by the skills editor after a change: drop the cache and reload so a new/removed
@@ -16215,17 +16270,19 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
 
       /* ---- Model picker pill: only the GGUFs you actually have ----
-         Lists the model files present in the engine folder (scanned via
-         /api/ggufs); picking one restarts the engine on it. The backend keys the
+         Lists the model files present across the managed engine checkouts
+         (scanned via /api/ggufs); picking one switches checkout and restarts the
+         engine on it. The backend keys the
          KV disk cache PER MODEL, so switching (e.g. Flash <-> Pro) never reuses
          another model's cache — it reloads cleanly, keeping the conversation.
          Downloading new models lives in onboarding and Settings, not here. */
       let modelMenuOpen = false;
       let cloudModels = null;     // [{id}] from the DeepSeek API when the cloud backend is on
       const cloudBackendOn = () => Store.getSettings().chatBackend === 'deepseek' && !!(Store.getSettings().deepseekApiKey || '').trim();
-      let ggufList = null;        // [{file,path,size}] present in the engine folder
+      let ggufList = null;        // [{file,path,size,engineDir,branch}] across managed checkouts
       let checkoutList = null;    // [{dir,name,branch,hasServer,active}] ds4 checkouts
       let runningModelFile = '';  // status.modelFile — the GGUF currently loaded
+      let runningEngineDir = '';  // status.ds4dir — disambiguates equal relative paths
       function closeModelMenu() {
         if (!modelMenuOpen) return;
         modelMenuOpen = false;
@@ -16236,6 +16293,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           ggufList = [];
           checkoutList = [];
           runningModelFile = '';
+          runningEngineDir = '';
           modelMenuOpen = false;
           renderModelPill();
           return;
@@ -16250,7 +16308,11 @@ Your report must be precise, of high-quality, and written by an expert using an 
         catch { ggufList = ggufList || []; }
         try { const r = await Engine.engineCheckouts(); checkoutList = (r && r.checkouts) || []; }
         catch { checkoutList = checkoutList || []; }
-        try { const st = await Engine.status(); runningModelFile = st.modelFile || ''; }
+        try {
+          const st = await Engine.status();
+          runningModelFile = st.modelFile || '';
+          runningEngineDir = st.ds4dir || '';
+        }
         catch { /* keep last known */ }
         renderModelPill();
       }
@@ -16314,7 +16376,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         }
         const dl = Store.getState().ui.modelDownload;     // {variant, pct} | null
         const ggufs = ggufList || [];
-        const running = ggufs.find((g) => g.path === runningModelFile);
+        const running = ggufs.find((g) => ggufIsRunning(g, runningModelFile, runningEngineDir));
         const activeCo = (checkoutList || []).find((c) => c.active);
         const coTag = activeCo && activeCo.name !== 'ds4' ? ` · ${activeCo.branch || activeCo.name}` : '';
         const label = dl ? `Downloading ${dl.pct}%`
@@ -16337,8 +16399,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
         cbarModel.replaceChildren(btn);
         if (!modelMenuOpen) return;
         const menu = el('div', { class: 'cbar-model-menu' });
-        /* Engine-branch section: only when there is more than one ds4 checkout
-           next to DStudio (e.g. ./ds4 on main and a ./ds4-glm52 worktree). */
+        /* Engine-branch section: only when there is more than one managed ds4
+           checkout next to DStudio (main plus an optional model branch). */
         const cos = checkoutList || [];
         if (cos.length > 1) {
           menu.append(el('div', { class: 'cbar-model-empty', text: 'Engine branch' }));
@@ -16362,12 +16424,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
         }
         ggufs.forEach((g) => {
           const p = parseGgufName(g.file);
-          const active = g.path === runningModelFile;
+          const active = ggufIsRunning(g, runningModelFile, runningEngineDir);
           const item = el('button', { class: 'cbar-model-item', type: 'button' }, [
             el('span', { class: 'cbar-model-dot', style: active ? '' : 'background:var(--faint)' }),
             el('div', { class: 'mi-body' }, [
               el('div', { class: 'mi-name', text: modelLabel(g.file, true) }),
-              el('div', { class: 'mi-sub', text: `${p.quant ? p.quant + ' · ' : ''}${fmtGgufSize(g.size)}` }),
+              el('div', { class: 'mi-sub', text: `${p.quant ? p.quant + ' · ' : ''}${fmtGgufSize(g.size)} · ${ggufBranchLabel(g)}` }),
             ]),
             el('span', { class: 'mi-badge', text: active ? '✓ active' : 'load' }),
           ]);
@@ -16381,7 +16443,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (isLanClientMode()) return;
         renderModelPill();
         if (active) return;                       // already running this model
-        Switcher.switchToGguf(g.path, modelLabel(g.file, true));
+        Switcher.switchToGguf(g.path, modelLabel(g.file, true), g.engineDir, ggufBranchLabel(g));
       }
       function pickCheckout(c) {
         if (isLanClientMode()) return;
@@ -17111,16 +17173,14 @@ Your report must be precise, of high-quality, and written by an expert using an 
         'gsa-tools': 'GSA tools/templates',
         'ds4-latest': 'ds4 latest + patch gate',
         'patch-verify': 'Patch verification',
-        'skills': 'Imported skills',
-        'open-design': 'Open Design',
+        'design-systems': 'Design systems',
       };
 
       const UPDATE_TASK_DETAILS = {
         'gsa-tools': 'Installing and verifying managed security tools, nuclei templates and runtime data.',
         'ds4-latest': 'Fetching upstream ds4, fast-forwarding, rebuilding and verifying DStudio patches.',
         'patch-verify': 'Checking patch anchors, rebuilding the structured agent patch and design runtime.',
-        'skills': 'Syncing repo-backed skill sources while preserving DStudio metadata.',
-        'open-design': 'Verifying Open Design skills and design-system imports.',
+        'design-systems': 'Verifying the installed Open Design design systems.',
       };
 
       const updateTaskLabel = (task) => UPDATE_TASK_LABELS[task] || task;
@@ -17384,10 +17444,11 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
 
       // Settings → Model is the same GGUF card picker as onboarding: one card per
-      // .gguf in the engine folder; click one to load it (restarts the engine on
-      // that file, keeping the conversation). The running file = status.modelFile.
+      // .gguf across all managed checkouts. A click selects the owning checkout
+      // before restarting, keeping the conversation.
       let ggufCache = null;
       let runningModel = '';
+      let modelEngineDir = '';
       let switching = false;
       async function loadSetModels() {
         if (isLanClientMode()) {
@@ -17396,7 +17457,13 @@ Your report must be precise, of high-quality, and written by an expert using an 
           renderSetModels();
           return;
         }
-        try { const st = await Engine.status(); runningModel = st.modelFile || ''; }
+        try {
+          const st = await Engine.status();
+          runningModel = st.modelFile || '';
+          modelEngineDir = st.ds4dir || '';
+          const downloadState = modelDownloadStateFromStatus(st);
+          if (downloadState) Store.setModelState({ download: downloadState });
+        }
         catch { /* keep last known */ }
         try { const r = await Engine.ggufs(); ggufCache = (r && r.ggufs) || []; }
         catch { ggufCache = ggufCache || []; }
@@ -17408,12 +17475,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const ggufs = ggufCache || [];
         const cards = ggufs.map((g) => {
           const p = parseGgufName(g.file);
-          const isRun = g.path === runningModel;
+          const isRun = ggufIsRunning(g, runningModel, modelEngineDir);
           const card = el('div', { class: 'onboard__model ready selectable' + (isRun ? ' sel' : '') }, [
             el('span', { class: 'onboard__model-radio' + (isRun ? ' on' : '') }),
             el('div', { class: 'onboard__model-body' }, [
               el('div', { class: 'onboard__model-name', text: `${p.model}${p.kind ? ' · ' + p.kind : ''}` }),
-              el('div', { class: 'onboard__model-sub', text: `${p.quant ? p.quant + ' · ' : ''}${fmtGgufSize(g.size)}` }),
+              el('div', { class: 'onboard__model-sub', text: `${p.quant ? p.quant + ' · ' : ''}${fmtGgufSize(g.size)} · ${ggufBranchLabel(g)}` }),
               el('div', { class: 'onboard__model-file', text: g.file }),
             ]),
             el('div', { class: 'onboard__model-act' }, [
@@ -17426,14 +17493,14 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (!cards.length) {
           cards.push(el('div', { class: 'onboard__model', text: ggufCache === null
             ? 'Scanning the engine folder…'
-            : 'No .gguf model in the engine folder — download one below.' }));
+            : 'No .gguf model found in the managed engine folders — download one below.' }));
         }
 
         // Download another model / a different quantization (ds4 download scripts).
         const dl = Store.getState().ui.modelDownload;
         const dlBox = el('div', { class: 'onboard__dl' });
         if (dl) {
-          dlBox.append(el('span', { class: 'onboard__dl-lbl', text: `Downloading ${dl.variant} — ${dl.pct}% · runs in the background` }));
+          appendModelDownloadStatus(dlBox, dl);
         } else {
           const choices = availableModelDownloads(ggufs);
           if (choices.length) {
@@ -17443,12 +17510,24 @@ Your report must be precise, of high-quality, and written by an expert using an 
             on(btn, 'click', () => {
               const t = choices.find((x) => x.id === sel.value);
               if (!t) return;
-              askConfirm({ title: 'Download this model?', body: `${t.label}. Large file — it downloads in the background.`, cta: 'Download' })
+              const branchNote = t.body.engine === 'main' ? ''
+                : ' DStudio will install and select the laguna-s2.1 engine if needed.';
+              askConfirm({ title: 'Download this model?', body: `${t.label}.${branchNote} Large file — it downloads in the background.`, cta: 'Download' })
                 .then((yes) => { if (yes) Switcher.downloadModel(t.body); });
             });
-            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'Add another model:' }), sel, btn);
+            const open = el('button', { class: 'btn btn--sm', type: 'button', text: 'Open folder' });
+            on(open, 'click', async () => {
+              const t = choices.find((x) => x.id === sel.value);
+              const result = await Engine.openModelFolder(t?.body.engine || '').catch(() => null);
+              if (!result || result.ok === false) toast(result?.error || 'Could not open the model folder', 'error');
+            });
+            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'Add another model:' }), sel, btn, open);
           } else {
-            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'All listed models are already downloaded.' }));
+            const open = el('button', { class: 'btn btn--sm', type: 'button', text: 'Open folder' });
+            on(open, 'click', () => Engine.openModelFolder(
+              /laguna/i.test(modelEngineDir) ? 'laguna' : 'main'
+            ));
+            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'All listed models are already downloaded.' }), open);
           }
         }
         host.replaceChildren(...cards, dlBox);
@@ -17458,19 +17537,25 @@ Your report must be precise, of high-quality, and written by an expert using an 
           toast('The LAN host controls the model', 'warn');
           return;
         }
-        if (switching || g.path === runningModel) return;
+        if (switching || ggufIsRunning(g, runningModel, modelEngineDir)) return;
         const p = parseGgufName(g.file);
         const yes = await askConfirm({
           title: 'Load this model?',
-          body: `Restart the engine on ${p.model}${p.kind ? ' · ' + p.kind : ''}${p.quant ? ' (' + p.quant + ')' : ''}? The current conversation is kept.`,
+          body: `Switch to ${ggufBranchLabel(g)} and restart the engine on ${p.model}${p.kind ? ' · ' + p.kind : ''}${p.quant ? ' (' + p.quant + ')' : ''}? The current conversation is kept.`,
           cta: 'Load model',
         });
         if (!yes) return;
         switching = true;
         toast('Loading the selected model…', 'info');
-        Store.setSettings({ modelGguf: g.path });   // persist the pick across restarts
-        try { await Engine.start({ mode: 'server', gguf: g.path }, true); runningModel = g.path; }
-        catch { toast('Could not start the model', 'error'); }
+        try {
+          await Switcher.switchToGguf(g.path,
+            `${p.model}${p.kind ? ' · ' + p.kind : ''}`,
+            g.engineDir, ggufBranchLabel(g));
+          runningModel = g.path;
+          modelEngineDir = g.engineDir || modelEngineDir;
+        } catch (e) {
+          toast(e?.message || 'Could not start the model', 'error');
+        }
         switching = false;
         loadSetModels();
       }
@@ -17483,7 +17568,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
      * ds4-agent reads/loads them (the on-demand skill() tool + the catalog). Stored on
      * the machine via /api/user-skills. */
     const Skills = (() => {
-      let dialog, listEl, editor, listView, cyberView, cyberListEl, cyberQueryEl, helpEl;
+      let dialog, listEl, editor, listView, helpEl;
       let pickerView, categoryEl, pickerListEl, pickerTitleEl, pickerSubEl, pickerManage;
       let editingId = null, editingModes = '[agent]', editorReturn = 'list';
       let pickerConfig = null, activePickerCategory = '';
@@ -17497,9 +17582,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         pickerSubEl = qs('#skills-picker-sub');
         pickerManage = qs('#skills-picker-manage');
         listEl = qs('#skills-list');
-        cyberView = qs('#cyber-skills-view');
-        cyberListEl = qs('#cyber-skills-list');
-        cyberQueryEl = qs('#cyber-skills-query');
         editor = qs('#skills-editor');
         listView = qs('#skills-list-view');
         on(qs('#skills-close'), 'click', () => dialog.close());
@@ -17510,12 +17592,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         });
         on(qs('#skill-save'), 'click', save);
         on(pickerManage, 'click', () => showEditor(null, null, 'picker'));
-        on(qs('#cyber-skills-search'), 'click', () => renderCyberSkills(cyberQueryEl.value));
-        on(cyberQueryEl, 'keydown', (e) => {
-          if (e.key !== 'Enter') return;
-          e.preventDefault();
-          renderCyberSkills(cyberQueryEl.value);
-        });
         on(dialog, 'click', (e) => { if (e.target === dialog) dialog.close(); });
         on(dialog, 'close', () => Composer.invalidateUserSkills());
         // Creating: derive the id from the name until the user edits the id directly.
@@ -17529,7 +17605,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
       function open() {
         pickerConfig = null;
         showList();
-        renderCyberSkills(cyberQueryEl?.value || '');
         requestAnimationFrame(() => { if (!dialog.open) { try { dialog.showModal(); } catch { dialog.show(); } } });
       }
       function openPicker(config = {}) {
@@ -17546,7 +17621,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (helpEl) helpEl.hidden = false;
         editor.hidden = true;
         listView.hidden = false;
-        if (cyberView) cyberView.hidden = false;
         renderList();
       }
       function renderSkillPicker() {
@@ -17562,12 +17636,11 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const active = groups.find((g) => g.id === activePickerCategory) || groups[0];
         if (helpEl) helpEl.hidden = true;
         listView.hidden = true;
-        if (cyberView) cyberView.hidden = true;
         editor.hidden = true;
         pickerView.hidden = false;
         if (pickerTitleEl) pickerTitleEl.textContent = active.label || 'Skills';
         if (pickerSubEl) pickerSubEl.textContent = `${active.items.length} option${active.items.length === 1 ? '' : 's'}`;
-        if (pickerManage) pickerManage.hidden = pickerConfig?.mode !== 'agent';
+        if (pickerManage) pickerManage.hidden = false;
         categoryEl.replaceChildren(...groups.map((group) => {
           const btn = el('button', {
             class: `skills-cat${group.id === active.id ? ' on' : ''}`,
@@ -17581,7 +17654,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           return btn;
         }));
         pickerListEl.replaceChildren(...active.items.map((it) => {
-          const canEdit = !!it.value && pickerConfig?.mode === 'agent';
+          const canEdit = !!it.value;
           const card = el('div', {
             class: `skill-card${it.value === selected ? ' on' : ''}`,
             role: 'button',
@@ -17635,39 +17708,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
           ]),
         ])));
       }
-      async function renderCyberSkills(query = '') {
-        if (!cyberListEl) return;
-        cyberListEl.replaceChildren(el('div', { class: 'wd-empty', text: 'Loading imported cybersecurity skills…' }));
-        let res = null;
-        const q = String(query || '').trim() || 'api authorization ssrf idor';
-        try { res = await Engine.skillsSearch({ source: 'anthropic', q, limit: 14 }); }
-        catch { /* handled below */ }
-        const skills = (res && res.skills) || [];
-        if (!skills.length) {
-          cyberListEl.replaceChildren(el('div', { class: 'wd-empty',
-            text: res && res.ok === false ? (res.error || 'Could not load imported skills.') : 'No imported cybersecurity skill matches this search.' }));
-          return;
-        }
-        cyberListEl.replaceChildren(...skills.map((s) => {
-          const use = el('button', { class: 'btn btn--sm', type: 'button', text: 'Use' });
-          on(use, 'click', () => {
-            if (Switcher.mode() !== 'agent') {
-              toast('Switch to Agent to load a cybersecurity skill.', 'warn');
-              return;
-            }
-            dialog.close();
-            Switcher.switchSkill(s.id);
-          });
-          return el('div', { class: 'skill-row skill-row--cyber' }, [
-            el('div', { class: 'skill-row__body' }, [
-              el('div', { class: 'skill-row__name', text: s.name || s.id }),
-              el('div', { class: 'skill-row__desc', text: s.description || s.id }),
-              el('div', { class: 'skill-row__meta', text: `${s.id}${s.subdomain ? ' · ' + s.subdomain : ''}${s.tags ? ' · ' + s.tags : ''}` }),
-            ]),
-            el('div', { class: 'skill-row__act' }, [use]),
-          ]);
-        }));
-      }
       async function showEditor(id, seed = null, returnTo = 'list') {
         editingId = id;
         editorReturn = returnTo;
@@ -17680,8 +17720,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         idIn.disabled = !!id;   // the id is the agent's handle — immutable once created
         if (id) {
           try {
-            let s = await Engine.userSkillGet(id);
-            if (!s || !s.ok) s = await Engine.skillGet(id);
+            const s = await Engine.userSkillGet(id);
             idIn.value = s.id || id; qs('#skill-name').value = s.name || '';
             qs('#skill-desc').value = s.description || ''; qs('#skill-body').value = s.body || '';
             editingModes = s.modes || '[agent]';
@@ -17692,7 +17731,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
           }
         }
         if (pickerView) pickerView.hidden = true;
-        if (cyberView) cyberView.hidden = true;
         if (helpEl) helpEl.hidden = false;
         listView.hidden = true; editor.hidden = false;
         qs('#skill-name').focus();
@@ -18060,8 +18098,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
       let lastDs4Ok = false; // gate model downloads: the weights land in the engine folder
       let ds4SetupBusy = false;
       let completingOnboarding = false;
-      let selectedGguf = null; // the GGUF the user picked to run (relative path)
+      let selectedGguf = null; // {path,engineDir,...}: model and owning checkout
       let runningModel = '';   // the model currently loaded (status.modelFile)
+      let activeEngineDir = '';
       const DS4_PATH = { input: 'onboard-ds4dir', badge: 'onboard-ds4dir-badge', msg: 'onboard-ds4dir-msg' };
 
       function statusHasUsableSetup(st) {
@@ -18140,13 +18179,23 @@ Your report must be precise, of high-quality, and written by an expert using an 
               updateForcedSetup();
               return;
             }
-            if (selectedGguf) Store.setSettings({ modelGguf: selectedGguf });  // persist the pick
-            if (!isLanClientMode() && selectedGguf && selectedGguf !== runningModel) {
+            if (selectedGguf) Store.setSettings({
+              modelGguf: selectedGguf.path,
+              modelEngineDir: selectedGguf.engineDir || '',
+            });
+            if (!isLanClientMode() && selectedGguf &&
+                !ggufIsRunning(selectedGguf, runningModel, activeEngineDir)) {
               if (btn) btn.textContent = 'Starting...';
               toast('Starting the selected model...', 'info');
               let startResult = null;
               try {
-                startResult = await Engine.start({ mode: 'server', gguf: selectedGguf }, true);
+                if (selectedGguf.engineDir && selectedGguf.engineDir !== activeEngineDir) {
+                  const checkout = await Engine.setEngineCheckout(selectedGguf.engineDir);
+                  if (!checkout || checkout.ok === false)
+                    throw new Error(checkout?.error || `Could not select ${ggufBranchLabel(selectedGguf)}`);
+                  activeEngineDir = selectedGguf.engineDir;
+                }
+                startResult = await Engine.start({ mode: 'server', gguf: selectedGguf.path }, true);
               } catch (e) {
                 startResult = { ok: false, error: e?.message || '/api/start failed' };
               }
@@ -18157,7 +18206,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
                 updateForcedSetup();
                 return;
               }
-              runningModel = selectedGguf;
+              runningModel = selectedGguf.path;
               shouldShowLoading = true;
             }
             Store.markOnboarded();
@@ -18238,10 +18287,14 @@ Your report must be precise, of high-quality, and written by an expert using an 
       function applyModelStatus(st) {
         lastDs4Ok = !!st.ds4dirOk;
         runningModel = st.modelFile || '';
-        if (selectedGguf === null && runningModel) selectedGguf = runningModel;
+        activeEngineDir = st.ds4dir || '';
+        if (selectedGguf === null && runningModel)
+          selectedGguf = { path: runningModel, engineDir: activeEngineDir };
         if (st.variants) Store.setModelState({ variants: st.variants, current: st.variant || (Store.getState().ui.modelCurrent || 'flash') });
         if (st.download && st.downloadPct >= 0 && st.downloadPct < 100) {
-          Store.setModelState({ download: { variant: st.downloadVariant, pct: st.downloadPct } });
+          Store.setModelState({ download: modelDownloadStateFromStatus(st) });
+        } else if (st.pausedDownload) {
+          Store.setModelState({ download: modelDownloadStateFromStatus(st) });
         }
       }
 
@@ -18303,7 +18356,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
       // Derive {model, kind, quant} from a GGUF filename.
       function parseGguf(file) {
-        const model = /\bpro\b/i.test(file) ? 'DeepSeek V4 Pro'
+        const model = /laguna[-_ ]?s/i.test(file) ? 'Laguna S 2.1'
+          : /\bglm[-_ ]?5/i.test(file) ? 'GLM 5.2'
+          : /\bpro\b/i.test(file) ? 'DeepSeek V4 Pro'
           : /\bflash\b/i.test(file) ? 'DeepSeek V4 Flash' : 'DeepSeek V4';
         let kind = 'standard';
         if (/abliterat|uncensor/i.test(file)) kind = 'uncensored';
@@ -18326,34 +18381,34 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (note) note.textContent = !lastDs4Ok
           ? 'Install ds4 above first — the weights live in it.'
           : ggufs.length
-            ? `${ggufs.length} model file${ggufs.length > 1 ? 's' : ''} detected in the engine folder.`
-            : 'No .gguf model found in the engine folder — download one below.';
+            ? `${ggufs.length} model file${ggufs.length > 1 ? 's' : ''} detected across the managed engine folders.`
+            : 'No .gguf model found in the managed engine folders — download one below.';
 
         // One card per actual GGUF, with the detected model/kind/quant + the filename.
         // Click a card to choose which GGUF to run; Start launches the selected one.
         const cards = ggufs.map((g) => {
           const p = parseGguf(g.file);
-          const isSel = g.path === selectedGguf;
-          const isRun = g.path === runningModel;
+          const isSel = selectedGguf && ggufKey(g) === ggufKey(selectedGguf);
+          const isRun = ggufIsRunning(g, runningModel, activeEngineDir);
           const card = el('div', { class: 'onboard__model ready selectable' + (isSel ? ' sel' : '') }, [
             el('span', { class: 'onboard__model-radio' + (isSel ? ' on' : '') }),
             el('div', { class: 'onboard__model-body' }, [
               el('div', { class: 'onboard__model-name', text: `${p.model}${p.kind ? ' · ' + p.kind : ''}` }),
-              el('div', { class: 'onboard__model-sub', text: `${p.quant ? p.quant + ' · ' : ''}${fmtSize(g.size)}` }),
+              el('div', { class: 'onboard__model-sub', text: `${p.quant ? p.quant + ' · ' : ''}${fmtSize(g.size)} · ${ggufBranchLabel(g)}` }),
               el('div', { class: 'onboard__model-file', text: g.file }),
             ]),
             el('div', { class: 'onboard__model-act' }, [
               el('span', { class: 'onboard__model-state', text: isRun ? '● Running' : isSel ? 'Selected' : '' }),
             ]),
           ]);
-          on(card, 'click', () => { selectedGguf = g.path; renderModels(); });
+          on(card, 'click', () => { selectedGguf = g; renderModels(); });
           return card;
         });
 
         // Download another model / a different quantization (ds4 download scripts).
         const dlBox = el('div', { class: 'onboard__dl' });
         if (dl) {
-          dlBox.append(el('span', { class: 'onboard__dl-lbl', text: `Downloading ${dl.variant} — ${dl.pct}% · runs in the background` }));
+          appendModelDownloadStatus(dlBox, dl);
         } else {
           const choices = availableModelDownloads(ggufs);
           if (choices.length) {
@@ -18364,12 +18419,24 @@ Your report must be precise, of high-quality, and written by an expert using an 
             on(btn, 'click', () => {
               const t = choices.find((x) => x.id === sel.value);
               if (!t) return;
-              askConfirm({ title: 'Download this model?', body: `${t.label}. Large file — it downloads in the background.`, cta: 'Download' })
+              const branchNote = t.body.engine === 'main' ? ''
+                : ' DStudio will install and select the laguna-s2.1 engine if needed.';
+              askConfirm({ title: 'Download this model?', body: `${t.label}.${branchNote} Large file — it downloads in the background.`, cta: 'Download' })
                 .then((yes) => { if (yes) Switcher.downloadModel(t.body); });
             });
-            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'Add another model:' }), sel, btn);
+            const open = el('button', { class: 'btn btn--sm', type: 'button', text: 'Open folder' });
+            on(open, 'click', async () => {
+              const t = choices.find((x) => x.id === sel.value);
+              const result = await Engine.openModelFolder(t?.body.engine || '').catch(() => null);
+              if (!result || result.ok === false) toast(result?.error || 'Could not open the model folder', 'error');
+            });
+            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'Add another model:' }), sel, btn, open);
           } else {
-            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'All listed models are already downloaded.' }));
+            const open = el('button', { class: 'btn btn--sm', type: 'button', text: 'Open folder' });
+            on(open, 'click', () => Engine.openModelFolder(
+              /laguna/i.test(activeEngineDir) ? 'laguna' : 'main'
+            ));
+            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'All listed models are already downloaded.' }), open);
           }
         }
         host.replaceChildren(...cards, dlBox);
@@ -18682,14 +18749,14 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (!r.ok && data && !data.error) data.error = `/api/ds4/setup returned HTTP ${r.status}`;
         return data;
       }
-      async function setupGlm() {   // optional GLM 5.2 engine checkout (download + patch + make)
-        const r = await apiFetch('/api/glm/setup', { method: 'POST', headers: H });
-        const data = await r.json().catch(() => ({ ok: false, error: `/api/glm/setup returned HTTP ${r.status} with invalid JSON` }));
+      async function setupLaguna() {
+        const r = await apiFetch('/api/laguna/setup', { method: 'POST', headers: H });
+        const data = await r.json().catch(() => ({ ok: false, error: `/api/laguna/setup returned HTTP ${r.status} with invalid JSON` }));
         if (!r.ok && data && data.ok !== false) data.ok = false;
-        if (!r.ok && data && !data.error) data.error = `/api/glm/setup returned HTTP ${r.status}`;
+        if (!r.ok && data && !data.error) data.error = `/api/laguna/setup returned HTTP ${r.status}`;
         return data;
       }
-      async function setupContent() {   // download skills/design-systems/gsa bundled content
+      async function setupContent() {   // download optional design systems
         const r = await apiFetch('/api/setup/content', { method: 'POST', headers: H });
         const data = await r.json().catch(() => ({ ok: false, error: `/api/setup/content returned HTTP ${r.status} with invalid JSON` }));
         if (!r.ok && data && data.ok !== false) data.ok = false;
@@ -18700,6 +18767,32 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const r = await apiFetch('/api/ggufs', { signal: AbortSignal.timeout(4000) });
         return r.json();
       }
+      async function deleteModelPartials(target) {
+        const r = await apiFetch('/api/model/partials/delete', {
+          method: 'POST',
+          headers: H,
+          body: JSON.stringify({ target, confirm: true }),
+        });
+        const data = await r.json().catch(() => ({ ok: false, error: `/api/model/partials/delete returned HTTP ${r.status}` }));
+        if (!r.ok && data && data.ok !== false) data.ok = false;
+        return data;
+      }
+      async function stopModelDownload() {
+        const r = await apiFetch('/api/model/download/stop', { method: 'POST', headers: H });
+        const data = await r.json().catch(() => ({ ok: false, error: `/api/model/download/stop returned HTTP ${r.status}` }));
+        if (!r.ok && data && data.ok !== false) data.ok = false;
+        return data;
+      }
+      async function openModelFolder(engine = '') {
+        const r = await apiFetch('/api/model/folder/open', {
+          method: 'POST',
+          headers: H,
+          body: JSON.stringify({ engine }),
+        });
+        const data = await r.json().catch(() => ({ ok: false, error: `/api/model/folder/open returned HTTP ${r.status}` }));
+        if (!r.ok && data && data.ok !== false) data.ok = false;
+        return data;
+      }
       async function engineCheckouts() {  // sibling ds4 checkouts (git branches)
         const r = await apiFetch('/api/engine/checkouts', { signal: AbortSignal.timeout(4000) });
         return r.json();
@@ -18709,22 +18802,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const data = await r.json().catch(() => ({ ok: false, error: `/api/engine/checkout returned HTTP ${r.status}` }));
         if (!r.ok && data && data.ok !== false) data.ok = false;
         return data;
-      }
-      async function skills() {  // the skill packs in extension/skills (for agent/design)
-        const r = await apiFetch('/api/skills', { signal: AbortSignal.timeout(4000) });
-        return r.json();
-      }
-      async function skillsSearch(params = {}) {
-        const qs = new URLSearchParams();
-        Object.entries(params || {}).forEach(([k, v]) => {
-          if (v !== undefined && v !== null && String(v) !== '') qs.set(k, String(v));
-        });
-        const r = await apiFetch('/api/skills/search' + (qs.toString() ? `?${qs}` : ''), { signal: AbortSignal.timeout(6000) });
-        return r.json();
-      }
-      async function skillGet(id) {
-        const r = await apiFetch('/api/skills/get?id=' + encodeURIComponent(id), { signal: AbortSignal.timeout(4000) });
-        return r.json();
       }
       async function designSystems() {  // the brand systems in extension/design-systems
         const r = await apiFetch('/api/design-systems', { signal: AbortSignal.timeout(4000) });
@@ -18924,7 +19001,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return r.json();
       }
 
-      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupGlm, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, engineCheckouts, setEngineCheckout, skills, skillsSearch, skillGet, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
+      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupLaguna, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, stopModelDownload, openModelFolder, deleteModelPartials, engineCheckouts, setEngineCheckout, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
     })();
 
     /* ==================== Remote LAN chat ==================== */
@@ -19180,7 +19257,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
       function actionLabel(action) {
         return {
           'setup-ds4': 'Install',
-          'setup-glm': 'Install',
+          'setup-laguna': 'Install',
           'setup-content': 'Download',
           'download-model': 'Download',
           'start-engine': 'Start',
@@ -19198,24 +19275,24 @@ Your report must be precise, of high-quality, and written by an expert using an 
           });
           return;
         }
-        if (action === 'setup-glm') {
-          toast('Installing the GLM 5.2 engine — download and build take a few minutes…', 'info');
-          const r = await Engine.setupGlm().catch(() => null);
-          if (!r || r.ok === false) toast(r?.error || 'GLM engine setup failed', 'error');
-          else toast('GLM 5.2 engine installed — pick the glm5.2 branch from the model menu, then download a GLM GGUF.', 'info');
+        if (action === 'setup-laguna') {
+          toast('Installing the Laguna S 2.1 Metal engine — download and build take a few minutes…', 'info');
+          const r = await Engine.setupLaguna().catch(() => null);
+          if (!r || r.ok === false) toast(r?.error || 'Laguna engine setup failed', 'error');
+          else toast('Laguna S 2.1 installed — pick laguna-s2.1 from the model menu, then download the Laguna GGUF.', 'info');
           refresh();
           return;
         }
         if (action === 'setup-content') {
-          toast('Downloading skills & design systems…', 'info');
+          toast('Downloading design systems…', 'info');
           const r = await Engine.setupContent().catch(() => null);
           if (!r || r.ok === false) { toast(r?.error || 'Could not start content download', 'error'); refresh(); return; }
-          if (r.already || r.contentOk) { toast('Skills & design systems installed', 'info'); refresh(); return; }
+          if (r.already || r.contentOk) { toast('Design systems installed', 'info'); refresh(); return; }
           // Background download: poll status until it lands (or stops running).
           for (let i = 0; i < 200; i++) {
             await new Promise((res) => setTimeout(res, 1500));
             const st = await Engine.status().catch(() => null);
-            if (st?.contentOk) { toast('Skills & design systems installed', 'info'); break; }
+            if (st?.contentOk) { toast('Design systems installed', 'info'); break; }
             if (st && !st.contentDownloading) { toast('Content download failed — see logs', 'error'); break; }
             refresh();
           }
@@ -19567,6 +19644,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
       let liveElapsedTimer = null;
       let agentSelectionPendingRender = false;
       let agentSelectPointerDown = false;
+      let agentSelectionFlushRaf = 0;
       const agentFollow = createFollowScroll(() => view, { isSelecting: () => agentSelectPointerDown });
       let pendingUserTurn = null; // optimistic UI until the backend echo lands in the stream
       let sendSerial = 0;         // invalidates async engine-buffer syncs started before a send
@@ -19773,21 +19851,30 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (!agentSelectPointerDown) return;
         agentSelectPointerDown = false;
         agentFollow.syncTop();
-        if (agentSelectionPendingRender && !shouldDeferAgentRenderForSelection()) {
+        scheduleAgentSelectionRenderFlush();
+      }
+
+      function scheduleAgentSelectionRenderFlush() {
+        if (agentSelectionFlushRaf) return;
+        /* WebKit may dispatch pointerup/selectionchange before getSelection()
+         * exposes the final drag range. Waiting one paint prevents a pending
+         * Agent render from replacing the nodes the user just selected. */
+        agentSelectionFlushRaf = requestAnimationFrame(() => {
+          agentSelectionFlushRaf = 0;
+          if (!agentSelectionPendingRender || shouldDeferAgentRenderForSelection()) return;
           agentSelectionPendingRender = false;
           if (activeView) render();
-        }
+        });
       }
 
       function shouldDeferAgentRenderForSelection() {
-        return !!view && (agentSelectPointerDown || selectionInside(view)) &&
-          (working || agentSelectionPendingRender);
+        /* A selection must survive every repaint, including late status/store
+         * refreshes after the model has already become idle. */
+        return !!view && (agentSelectPointerDown || selectionInside(view));
       }
 
       function onAgentSelectionChange() {
-        if (!agentSelectionPendingRender || shouldDeferAgentRenderForSelection()) return;
-        agentSelectionPendingRender = false;
-        if (activeView) render();
+        scheduleAgentSelectionRenderFlush();
       }
 
       function mount() {
@@ -20389,6 +20476,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
         agentFollow.setFollowing(false);
         agentFollow.syncTop();
         agentSelectionPendingRender = false;
+        if (agentSelectionFlushRaf) cancelAnimationFrame(agentSelectionFlushRaf);
+        agentSelectionFlushRaf = 0;
         const conv = activeConversationForMode(viewMode);
         openConversation(conv, { deferRestore: true }); // the restore is decided by the probe
         if (conv.lanMirror) {
@@ -20417,6 +20506,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
         agentFollow.setFollowing(false);
         agentFollow.syncTop();
         agentSelectionPendingRender = false;
+        if (agentSelectionFlushRaf) cancelAnimationFrame(agentSelectionFlushRaf);
+        agentSelectionFlushRaf = 0;
         working = false;
         pendingUserTurn = null;
         syncComposerBusy();
@@ -21701,7 +21792,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return card;
       }
 
-      /* ---- Tool call/result opencode style: human label per type +
+      /* ---- Native DS4 tool call/result presentation: human label per type +
              collapsible result (closed if long, with a preview). ---- */
       const TOOL_LABEL = {
         write: '✎ writes', create: '✎ creates', edit: '✎ edits', str_replace: '✎ edits',
@@ -22994,8 +23085,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
             }
           }
           if (st.download && st.downloadPct >= 0 && st.downloadPct < 100) {
-            Store.setModelState({ download: { variant: st.downloadVariant, pct: st.downloadPct } });
+            Store.setModelState({ download: modelDownloadStateFromStatus(st) });
             if (!dlPoll) dlPoll = setInterval(pollDownload, 2000); // resume polling after a reload
+          } else if (st.pausedDownload) {
+            Store.setModelState({ download: modelDownloadStateFromStatus(st) });
           }
           if (switching || launchTarget) return;
           setMode(isLanHostMode() ? 'server' : ((st.mode === 'agent' || st.mode === 'design') && st.running ? st.mode : 'server'));
@@ -23384,7 +23477,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
       // Re-sent on every start so it survives restarts (a variant param would
       // otherwise reset it on the backend); empty = use the variant default.
       const modelGguf = () => Store.getSettings().modelGguf || '';
-      // The active skill pack for agent/design (extension/skills/<id>), injected as
+      const modelCheckout = () => Store.getSettings().modelEngineDir || '';
+      // The active user-created skill for agent/design, injected as
       // -sys at spawn. Stored per mode; sent on every start so it survives restarts.
       const skillForMode = (m) => (Store.getSettings().skillByMode || {})[m] || '';
       // The active design-system (brand) for DESIGN mode only; injected alongside the skill.
@@ -23465,14 +23559,50 @@ Your report must be precise, of high-quality, and written by an expert using an 
         };
       };
 
-      function startServer() {
+      async function selectSavedModelCheckout() {
+        let dir = modelCheckout();
+        if (isLanClientMode()) return true;
+        /* GLM now uses ds4/main. Drop a saved side-checkout path so the same
+         * GGUF selection is resolved against the current catalog below. */
+        if (dir && /(^|[\\/])ds4-glm[^\\/]*[\\/]?$/i.test(dir)) {
+          dir = '';
+          Store.setSettings({ modelEngineDir: '' });
+        }
+        /* Settings written by releases before multi-checkout model discovery
+         * contain modelGguf but not modelEngineDir. Resolve that legacy pick
+         * once from the aggregate catalog. */
+        if (!dir && modelGguf()) {
+          try {
+            const catalog = await Engine.ggufs();
+            const matches = (catalog?.ggufs || []).filter((g) => g.path === modelGguf());
+            if (matches.length === 1 && matches[0].engineDir) {
+              dir = matches[0].engineDir;
+              Store.setSettings({ modelEngineDir: dir });
+            }
+          } catch { /* launch below still reports a useful missing-model error */ }
+        }
+        if (!dir) return true;
+        let st = null;
+        try { st = await Engine.status(); } catch { /* checkout call below is authoritative */ }
+        if (st?.ds4dir === dir) return true;
+        let res = null;
+        try { res = await Engine.setEngineCheckout(dir); } catch { /* handled below */ }
+        if (!res || res.ok === false) {
+          toast(res?.error || 'Could not select the model engine checkout.', 'error');
+          return false;
+        }
+        return true;
+      }
+
+      async function startServer() {
         if (isLanClientMode()) {
           setMode('server');
           Api.invalidateHealth();
           Statusbar.refresh();
           return;
         }
-        runSwitch('server', { mode: 'server', model: 'uncensored', variant: variant(), gguf: modelGguf(), ...launchBase() }, 'Starting the server…');
+        if (!await selectSavedModelCheckout()) return;
+        return runSwitch('server', { mode: 'server', model: 'uncensored', variant: variant(), gguf: modelGguf(), ...launchBase() }, 'Starting the server…');
       }
 
       async function startAgent(workdir) {
@@ -23482,6 +23612,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         }
         const remote = remoteModelLaunch();
         if (!remote) return;
+        if (!isLanClientMode() && !await selectSavedModelCheckout()) return;
         runtimeThinkDirty = false;
         const picked = skillForMode('agent');
         // 'auto' is a UI routing mode, not a real pack: launch without a fixed
@@ -23512,6 +23643,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const skill = (opts && 'skill' in opts) ? opts.skill : skillForMode('design');
         const remote = remoteModelLaunch();
         if (!remote) return;
+        if (!isLanClientMode() && !await selectSavedModelCheckout()) return;
         runtimeThinkDirty = false;
         runtimeSkillAtLaunch.design = skill || '';
         runSwitch('design', { mode: 'design', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, designSystem: designSystem(), ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, ...remote }, 'Starting the design agent…');
@@ -23521,7 +23653,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
       // and restart the current engine with it (the variant is a launch param).
       function switchModel(id) {
         if (isLanClientMode()) { toast('The LAN host controls the model', 'warn'); return; }
-        Store.setSettings({ modelGguf: '' });   // a variant choice drops any explicit GGUF
+        Store.setSettings({ modelGguf: '', modelEngineDir: '' }); // variant uses the active/default checkout
         if (variant() === id) { Store.setModelState({ current: id }); return; }
         Store.setSettings({ modelVariant: id });
         Store.setModelState({ current: id });
@@ -23533,12 +23665,15 @@ Your report must be precise, of high-quality, and written by an expert using an 
       // keys the KV disk cache PER MODEL, so swapping models (e.g. Flash <-> Pro)
       // never reuses another model's cached KV state — it reloads cleanly and the
       // conversation is kept. The pick persists across restarts via modelGguf().
-      function switchToGguf(path, label) {
+      async function switchToGguf(path, label, engineDir = '', engineLabel = '') {
         if (isLanClientMode()) { toast('The LAN host controls the model', 'warn'); return; }
-        if (modelGguf() === path) return;
-        Store.setSettings({ modelGguf: path });
-        toast(`Loading ${label || 'the model'}…`, 'info');
-        restartCurrent();
+        const samePick = modelGguf() === path && modelCheckout() === (engineDir || '');
+        let st = null;
+        try { st = await Engine.status(); } catch { /* restarting remains useful */ }
+        if (samePick && ggufIsRunning({ path, engineDir }, st?.modelFile, st?.ds4dir) && st?.ready) return;
+        Store.setSettings({ modelGguf: path, modelEngineDir: engineDir || '' });
+        toast(`Loading ${label || 'the model'}${engineLabel ? ` from ${engineLabel}` : ''}…`, 'info');
+        return restartCurrent();
       }
 
       // Switch the ds4 checkout (git branch) the engine runs from. Process-local
@@ -23553,7 +23688,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           toast((res && res.error) || 'Could not switch the engine checkout.', 'error');
           return;
         }
-        Store.setSettings({ modelGguf: '' });
+        Store.setSettings({ modelGguf: '', modelEngineDir: '' });
         toast(`Engine: ${label || res.branch || 'checkout'} — restarting…`, 'info');
         restartCurrent();
       }
@@ -23732,25 +23867,72 @@ Your report must be precise, of high-quality, and written by an expert using an 
       // Download a missing variant in the background and poll the % until it
       // lands, then offer to switch to it.
       let dlPoll = null;
-      function downloadModel(spec) {
+      function checkoutMatchesEngine(c, engine) {
+        const branch = String(c?.branch || '').toLowerCase();
+        const name = String(c?.name || '').toLowerCase();
+        if (engine === 'laguna') return branch === 'laguna-s2.1' || name === 'ds4-laguna-s21';
+        return branch === 'main' || name === 'ds4';
+      }
+      async function ensureModelDownloadEngine(engine) {
+        let list = [];
+        try { list = (await Engine.engineCheckouts())?.checkouts || []; }
+        catch { /* setup below can still recover optional engines */ }
+        let checkout = list.find((c) => checkoutMatchesEngine(c, engine));
+        if (!checkout && engine !== 'main') {
+          const label = 'Laguna S 2.1';
+          toast(`Installing the ${label} engine first…`, 'info');
+          const setup = await Engine.setupLaguna();
+          if (!setup || setup.ok === false) throw new Error(setup?.error || `${label} engine setup failed`);
+          list = (await Engine.engineCheckouts())?.checkouts || [];
+          checkout = list.find((c) => checkoutMatchesEngine(c, engine));
+        }
+        if (!checkout) throw new Error(`${engine === 'main' ? 'Main ds4' : engine} engine checkout not found`);
+        if (!checkout.hasServer) throw new Error(`${checkout.branch || checkout.name} engine is not built`);
+        if (!checkout.active) {
+          const switched = await Engine.setEngineCheckout(checkout.dir);
+          if (!switched || switched.ok === false)
+            throw new Error(switched?.error || `Could not select ${checkout.branch || checkout.name}`);
+          Store.setSettings({ modelGguf: '', modelEngineDir: '' });
+          toast(`Engine selected: ${checkout.branch || checkout.name}`, 'info');
+        }
+        return checkout;
+      }
+      async function downloadModel(spec) {
         if (isLanClientMode()) {
           toast('The LAN host controls the model', 'warn');
           return;
         }
-        const body = spec;
+        const body = { ...(spec || {}) };
+        const engine = body.engine || 'main';
+        delete body.engine;
         const label = body.target || 'model';
-        fetch('/api/model/download', { method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
-          body: JSON.stringify(body) })
-          .then((r) => r.json())
-          .then((r) => {
-            if (!r || !r.ok) { toast(r?.error || 'Download failed to start', 'error'); return; }
-            toast(`Downloading ${label}… this is a large file`, 'info');
-            Store.setModelState({ download: { variant: label, pct: 0 } });
-            if (dlPoll) clearInterval(dlPoll);
-            dlPoll = setInterval(pollDownload, 2000);
-          })
-          .catch(() => toast('Download failed to start', 'error'));
+        Store.setModelState({
+          download: {
+            variant: label,
+            pct: 0,
+            stage: engine === 'main' ? 'Preparing download for' : 'Preparing Laguna S 2.1 engine for',
+          },
+        });
+        try {
+          await ensureModelDownloadEngine(engine);
+          Store.setModelState({ download: { variant: label, pct: 0, stage: 'Starting download of' } });
+          const response = await fetch('/api/model/download', { method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
+            body: JSON.stringify(body) });
+          const result = await response.json();
+          if (!result || !result.ok) {
+            Store.setModelState({ download: null });
+            toast(result?.error || 'Download failed to start', 'error');
+            return;
+          }
+          toast(`Downloading ${label}… this is a large file`, 'info');
+          Store.setModelState({ download: { variant: label, pct: 0, stage: 'Downloading' } });
+          if (dlPoll) clearInterval(dlPoll);
+          dlPoll = setInterval(pollDownload, 2000);
+        } catch (e) {
+          Store.setModelState({ download: null });
+          toast(e?.message || 'Download failed to start', 'error');
+        }
       }
       async function pollDownload() {
         let st;
@@ -23758,17 +23940,23 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const vars = st.variants || {};
         Store.setModelState({ variants: vars, current: st.variant || variant() });
         if (st.download && st.downloadPct >= 0 && st.downloadPct < 100) {
-          Store.setModelState({ download: { variant: st.downloadVariant, pct: st.downloadPct } });
+          Store.setModelState({ download: modelDownloadStateFromStatus(st) });
+          return;
+        }
+        if (st.pausedDownload) {
+          clearInterval(dlPoll); dlPoll = null;
+          Store.setModelState({ download: modelDownloadStateFromStatus(st) });
           return;
         }
         // finished (or stopped)
         clearInterval(dlPoll); dlPoll = null;
         Store.setModelState({ download: null });
         const id = st.downloadVariant || '';
-        if (id && vars[id]) {
-          toast(`v4-${id} downloaded — switch to it from the model menu`, 'info');
+        if (id && st.downloadPct === 100) {
+          toast(`${id} downloaded — select it from the model menu`, 'info');
+          Settings.refreshModels();
         } else if (id) {
-          toast(`Download of v4-${id} stopped before completing`, 'warn');
+          toast(`Download of ${id} stopped before completing`, 'warn');
         }
       }
 
@@ -23806,9 +23994,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
       // Restart the CURRENT mode's engine (reusing its saved working folder),
       // keeping the conversation. Used by the context-size change.
       function restartCurrent() {
-        if (mode === 'server') { startServer(); return; }
+        if (mode === 'server') return startServer();
         const wd = Store.getSettings().workdirs?.[mode] || Store.getState().ui.agentWorkdir || '';
-        if (mode === 'agent') startAgent(wd); else startDesign(wd);
+        if (mode === 'agent') return startAgent(wd);
+        return startDesign(wd);
       }
 
       function applyEngineConfig() {
@@ -24041,9 +24230,10 @@ Your report must be precise, of high-quality, and written by an expert using an 
         }).catch(() => toast('Import failed', 'error'));
       }
 
-      // Change the working folder of the CURRENT pipe mode (meta-bar button):
-      // reopens the picker; Start restarts the engine in the new folder, so a
-      // running generation gets the same warning as a mode switch.
+      // Change the working folder of the CURRENT pipe mode (meta-bar button).
+      // A workspace owns its conversation context: always create a fresh
+      // conversation so absolute paths remembered in the previous workspace
+      // cannot leak into the newly selected one.
       function changeWorkdir() {
         const target = mode === 'design' ? 'design' : 'agent';
         if (mode !== 'agent' && mode !== 'design') return;
@@ -24051,15 +24241,15 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (busy) {
           askConfirm({
             title: 'Interrupt the current generation?',
-            body: 'Changing the working folder restarts the engine and stops the current generation.',
+            body: 'Changing the working folder starts a fresh session there and stops the current generation. The current conversation remains in your history.',
             cta: 'Change folder',
-          }).then((yes) => { if (yes) openWorkdirDialog(target); });
+          }).then((yes) => { if (yes) openWorkdirDialog(target, true); });
           return;
         }
-        openWorkdirDialog(target);
+        openWorkdirDialog(target, true);
       }
 
-      return { mount, mode: () => mode, launching: () => launchTarget, changeWorkdir, applyCtxSize, applyEngineConfig, applyThinkLevel, openImport, switchModel, switchToGguf, switchEngineDir, switchSkill, switchDesignSystem, switchPlan, switchGsa, switchRsa, downloadModel, newSession,
+      return { mount, mode: () => mode, launching: () => launchTarget, restartCurrent, changeWorkdir, applyCtxSize, applyEngineConfig, applyThinkLevel, openImport, switchModel, switchToGguf, switchEngineDir, switchSkill, switchDesignSystem, switchPlan, switchGsa, switchRsa, downloadModel, newSession,
                wirePromptForRuntime,
                planArmed: () => PlanDriver.armed(), planArm: (g) => PlanDriver.arm(g),
                planPending: () => PlanDriver.pending(), planAction: (a) => PlanDriver.action(a),

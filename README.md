@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="assets/logo.png" width="80" alt="DStudio local AI studio for DeepSeek V4">
+<img src="assets/logo.png" width="80" alt="DStudio local AI studio for DeepSeek V4, GLM 5.2 and Laguna S 2.1">
 
-# DStudio: Local AI Studio for DeepSeek V4
+# DStudio: Local AI Studio for ds4
 
-**An open-source local AI studio for DeepSeek V4 and ds4: private chat, a local coding agent, Skills, Guided Security Analysis, a design agent, Web Search, Deep Research and Plan mode for Markdown planning files. Runs on your machine. No cloud required.**
+**An open-source local AI studio for DeepSeek V4, GLM 5.2, Laguna S 2.1 and ds4: private chat, a local coding agent, user-created Skills, Guided Security Analysis, a design agent, Web Search, Deep Research and Plan mode for Markdown planning files. Runs on your machine. No cloud required.**
 
 ![license](https://img.shields.io/badge/license-BSD%203%20Clause-blue)
 ![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux_%7C_Windows-black)
@@ -42,8 +42,8 @@ button such as **Choose**, **Download**, **Start** or **Settings**.
 - Run **Web Search or Deep Research** through DStudio's local browser/search helper, with read-page evidence and source cards.
 - Generate new images or edit an existing image through a dedicated local pipeline that keeps the source pixels on your machine.
 - Use a **local coding agent** that reads, edits and verifies files inside a folder you choose.
-- Browse and load **Skills**: focused local instructions for Agent, Design and imported cybersecurity workflows.
-- Run **Guided Security Analysis (GSA)** for authorized local source reviews or target-scoped security work, using imported cybersecurity skills and optional local tools.
+- Create and load **Skills**: focused, private instructions authored by the current user for Agent, Design and analysis workflows.
+- Run **Guided Security Analysis (GSA)** for authorized local source reviews or target-scoped security work, using the managed local/external tool catalog.
 - Generate interface concepts with **ds4-design**, a design agent built on ds4.
 - Keep the engine private while still reaching the UI from another device on your LAN.
 
@@ -107,23 +107,23 @@ Search runs through DStudio's local web helper, not a hosted browsing service. *
 
 <div align="center">
 
-<img src="assets/skills.png" width="820" alt="DStudio Skills picker showing categories, imported cybersecurity skills and local task recipes">
+<img src="assets/skills.png" width="820" alt="DStudio Skills editor showing private user-created task recipes">
 
 </div>
 
-Skills turn DStudio from a general assistant into a focused specialist for the job in front of you. Pick a recipe, and the next Agent or Design turn inherits the right workflow, constraints and quality bar without restarting the model.
+Skills turn DStudio from a general assistant into a focused specialist for the job in front of you. Create a recipe, pick it, and the next Agent or Design turn inherits its workflow, constraints and quality bar without restarting the model.
 
-The picker feels like a small local skill marketplace: categories on the side, concise cards in the main view, and enough detail to choose confidently. Under the hood it stays simple and private: user skills, shipped skills and imported cybersecurity skills are local Markdown instruction packs, injected as runtime context only when you choose them or when GSA shortlists them for a bounded review.
+DStudio does not ship or download a skill marketplace. Every available skill is a local Markdown instruction pack created by the current user, stored in the writable user data directory and injected only when selected. Agent, Design, GSA and RSA all use this same user-only catalog and continue normally when it is empty.
 
 ## GSA: guided security analysis
 
 <div align="center">
 
-<img src="assets/gsa.png" width="820" alt="DStudio GSA demo showing guided security analysis, imported cybersecurity skills and managed tool status">
+<img src="assets/gsa.png" width="820" alt="DStudio GSA demo showing guided security analysis and managed tool status">
 
 </div>
 
-GSA gives the Agent a security-analyst operating mode instead of a loose prompt. Turn it on, describe an **authorized** mission and optionally add a target URL; DStudio turns that into a guided run with a clear scope, relevant skills, target context and a paper trail of artifacts.
+GSA gives the Agent a security-analysis operating mode instead of a loose prompt. Turn it on, describe an **authorized** mission and optionally add a target URL; DStudio turns that into a guided run with clear scope, an explicit tool inventory, target context and a paper trail of artifacts. GSA and RSA do not load skills: they route only through deterministic collectors, bounded local helpers, and enabled tools.
 
 The experience is productized, but the mechanics stay inspectable: **selection** chooses files, hypotheses and relevant skills; **preflight** maps evidence and safe checks; **validation** gathers concrete proof with scripts or optional local tools; **report** produces a compact verdict with sources, limitations and next actions. External recon tools are treated as helpers, not magic: DStudio shows what each one does, lets you disable them, and handles missing Go/Python/Cargo or package managers without blocking the run.
 
@@ -175,12 +175,15 @@ This is a serious local AI setup. DStudio removes product friction, not physics:
 
 - **OS.** One `make` builds the branded app per platform: **DStudio.app** on **macOS** (Apple Silicon is the primary tested target), a **`dstudio`** binary on **Linux** (WebKitGTK / GTK3 via `webkit2gtk-4.1`) and a portable **Windows x64** folder/zip via `make windows`. Linux and Windows are less exercised, and `ds4` itself must be built for your platform.
 - A C compiler (`cc` / `clang`). `curl` and `tar` are used by first-run setup to download the pinned upstream `ds4` source archive; `node` is optional, only for `make check`.
-- **[antirez's ds4](https://github.com/antirez/ds4)**: DStudio installs the pinned upstream commit into `./ds4` from a GitHub source archive and applies its local patch set from `patch/`. Users do not need Git installed.
+- **[antirez's ds4](https://github.com/antirez/ds4)**: DStudio installs pinned upstream commits into managed, side-by-side engine directories from GitHub source archives and applies the relevant local patch set from `patch/`. Users do not need Git installed.
 - **A DeepSeek V4 GGUF model.** Two variants (IQ2_XXS, 2-bit):
   - **Flash**: ~87 GB on disk, ~96-128 GB RAM
   - **Pro**: ~430 GB on disk, ~512 GB RAM
 
-  Missing the weights? The first-run setup can download a variant and shows the size before it pulls.
+  Missing the weights? The first-run and Settings model menus show every
+  supported DeepSeek, GLM and Laguna download with its quantization and size.
+  Selecting Laguna installs its managed engine automatically; DeepSeek and
+  GLM downloads use the shared `ds4/main` checkout.
 
 > Not packing a 96 GB Mac? The screenshots above show every mode in action: chat, the coding agent, the design pipeline and LAN access.
 
@@ -188,31 +191,44 @@ This is a serious local AI setup. DStudio removes product friction, not physics:
 
 ### GLM 5.2 (experimental, optional)
 
-DStudio can run **GLM 5.2** GGUFs through a second engine checkout on ds4's
-[`glm5.2` branch](https://github.com/antirez/ds4/tree/glm5.2), kept side by side
-with the main DeepSeek engine and swappable at runtime:
+DStudio runs **GLM 5.2** GGUFs directly through the standard `ds4/main`
+checkout, which now includes GLM support alongside DeepSeek:
 
-- **Install**: open the system check (doctor) and press **Install** on the
-  *GLM engine (optional)* row — or `POST /api/glm/setup`. DStudio downloads the
-  pinned `glm5.2` commit into `./ds4-glm52` (curl + tar, no Git), applies the
-  local fix from `patch/ds4-glm52/` on top of the pristine source, and builds.
-- **Model**: download a supported GLM GGUF from inside `ds4-glm52/`
-  (`./download_model.sh glm-antirez-q2`, ~262 GB; see that branch's README for
-  the other quantizations).
-- **Use**: in the composer's model pill, the **Engine branch** section switches
-  between `main` (DeepSeek) and `glm5.2`; then pick the GLM GGUF from the model
-  list. DStudio automatically drops `--power` (unsupported by GLM), forces the
-  full-layer streaming prefill path and passes a 32 GB expert-cache budget.
+- **Install**: no extra engine checkout is required. The normal DStudio setup
+  installs `ds4/main`, and every GLM entry in the model download menu stores
+  its weights in `./ds4/gguf`.
+- **Model**: the unified menu exposes the routed IQ2_XXS, Q2_K and Q4_K
+  quantizations plus the 11-shard Unsloth UD-Q4_K_XL build. The equivalent CLI
+  from `./ds4` includes `./download_model.sh glm-antirez-q2` (~262 GB).
+- **Use**: pick the GLM GGUF from the model list. DStudio automatically drops
+  `--power` (unsupported by GLM), forces the full-layer streaming prefill path
+  and passes a 32 GB expert-cache budget.
 - **Expectations**: GLM 5.2 Q2 is ~262 GB, so on 96-128 GB machines it runs via
   **SSD streaming** — roughly 7-8 t/s prefill and ~1 t/s generation on a 96 GB
   M2 Max. Usable for inspection, not for fluid chat. Turning Thinking off helps
   latency a lot.
 
-The `patch/ds4-glm52/metal-model-views.patch` fix makes Metal fall back to
-on-demand exact model views when a streamed range is not covered by the boot
-model map (upstream `glm5.2` fails multi-token prefill without it). Like the
-agent patch set, it is applied to the downloaded checkout — upstream sources
-are never vendored into this repo.
+### Laguna S 2.1 (experimental, optional)
+
+DStudio supports Poolside **Laguna S 2.1** through ds4's
+[`laguna-s2.1` branch](https://github.com/antirez/ds4/tree/laguna-s2.1), pinned
+and installed beside the main engine:
+
+- **Install and model**: select **Laguna S 2.1 · Q4_K_M** in the unified model
+  download menu. DStudio installs and selects the pinned `laguna-s2.1` engine
+  in `./ds4-laguna-s21`, then starts the GGUF download automatically. The
+  equivalent manual controls are the Doctor **Install** action,
+  `POST /api/laguna/setup`, and `./download_model.sh laguna-q4`. The official
+  imatrix GGUF is about 68 GB. The download row shows percentage and transferred
+  GB, supports **Stop/Resume** through one stable resumable partial, and offers
+  **Delete partial** with confirmation while paused; completed GGUFs are never
+  removed by that cleanup action.
+- **Use**: select `laguna-s-2.1-Q4_K_M.gguf` in the model menu. DStudio passes
+  the Laguna Metal source path automatically and labels the model correctly in
+  conversations.
+- **Requirements**: the current upstream implementation is macOS Metal-only
+  and requires full model residency. DStudio disables automatic SSD streaming
+  for Laguna and rejects attempts to force it on.
 
 ### Windows notes
 
