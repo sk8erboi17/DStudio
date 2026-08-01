@@ -783,6 +783,8 @@ assert.match(remoteHelper, /remote_utf8_scalar_len/, 'remote model requests shou
 assert.match(remoteHelper, /remote_utf8_append\(b, 0xfffd\)/, 'invalid tool-output bytes should be replaced instead of corrupting a remote request');
 assert.match(remoteAgent, /\.in_think = false,[\s\S]*\.in_think = false,/, 'remote Agent stream state should not treat LAN content chunks as already inside a think block');
 assert.match(remoteAgent, /if \(ctx->stream && ctx->stream->in_think\)[\s\S]*<\/think>\\n\\n[\s\S]*ctx->stream->dsml_in_think = false/, 'remote Agent should close stale thinking before streaming non-reasoning content or DSML tool calls');
+assert.doesNotMatch(remoteAgent, /ctx->generated\+\+|w->status\.gen_tps\s*=\s*dt/, 'remote Agent must not report arbitrary SSE chunks as generated tokens or tok/s');
+assert.match(remoteAgent, /An SSE delta is an arbitrary transport chunk, not a model token/, 'remote Agent should document why remote throughput remains unknown without provider token counts');
 assert.match(remoteAgent, /DS4UI_REMOTE_AUTO_CONTINUES 3/, 'remote Agent should automatically continue interrupted model streams');
 assert.match(remoteAgent, /ds4ui_remote_continue_prompt[\s\S]*Re-emit the full intended DSML tool call/, 'remote Agent should repair cut-off DSML tool calls instead of continuing broken fragments');
 assert.match(jsonlPatchText, /spaced_ascii[\s\S]*< \| DSML \| tool_calls>/, 'JSONL patch should recover spaced ASCII DSML openings emitted by cloud models');

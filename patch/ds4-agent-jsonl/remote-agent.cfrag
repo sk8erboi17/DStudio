@@ -359,8 +359,6 @@ typedef struct {
     agent_stream_renderer *stream;
     dstudio_remote_buf *raw;
     bool reasoning_open;
-    double started_at;
-    int generated;
 } ds4ui_remote_stream_ctx;
 
 #define DS4UI_REMOTE_AUTO_CONTINUES 3
@@ -447,13 +445,9 @@ static void ds4ui_remote_chunk(void *ud, const char *kind, const char *text, siz
     }
     dstudio_remote_buf_append(ctx->raw, text, len);
     agent_stream_text(ctx->stream, text, len, false);
-    ctx->generated++;
-    double dt = now_sec() - ctx->started_at;
-    pthread_mutex_lock(&w->mu);
-    w->status.generated = ctx->generated;
-    w->status.gen_tps = dt > 0.0 ? (double)ctx->generated / dt : 0.0;
-    agent_wake_locked(w);
-    pthread_mutex_unlock(&w->mu);
+    /* An SSE delta is an arbitrary transport chunk, not a model token.  The
+     * remote bridge currently receives no live token count from the provider,
+     * so keep throughput unknown instead of presenting chunks/s as tok/s. */
     ds4ui_remote_flush(w);
 }
 
@@ -536,7 +530,6 @@ static int ds4ui_remote_run_turn(agent_worker *w,
             .worker = w,
             .stream = &stream,
             .raw = &raw,
-            .started_at = now_sec(),
         };
         ds4ui_msg_list_compact(msgs, DS4UI_REMOTE_CTX_BUDGET_BYTES(cfg->gen.ctx_size), w);
         char *snapshot = ds4ui_msg_list_snapshot(msgs);
