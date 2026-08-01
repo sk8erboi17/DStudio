@@ -2,7 +2,7 @@ GSA Phase 4/4: report.
 Workspace root: `{{WORKDIR}}`.
 Use the inline artifacts below from `{{RUN_DIR}}/validation.json`, `{{RUN_DIR}}/validation-results.json`, `{{RUN_DIR}}/evidence-graph.json`, `{{RUN_DIR}}/evidence.jsonl`, `{{RUN_DIR}}/scripts_manifest.json` and `{{RUN_DIR}}/tool-retry-ledger.jsonl`.
 Protocol hygiene: do not read or cite `.dstudio/gsa/runs/*.prompt.md`; prompt files are control data, not report evidence.
-Do not call `read`, `write`, `edit`, `run`, or `skill` in this report phase unless an inline artifact is missing or corrupt.
+Do not call tools in this report phase unless an inline artifact is missing or corrupt.
 {{BLACKHAT_VOICE_RULE}}
 
 Write a concise security report with concrete file:line evidence, exploit path, impact, and fix. Derive the report verdict from validation.json instead of re-litigating the case.

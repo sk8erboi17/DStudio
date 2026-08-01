@@ -317,18 +317,30 @@ static void api_skills_search_run(int fd, const char *path) {
         else web_json_error(fd, "400 Bad Request", "q is required");
         return;
     }
+    skill_hit_list L = {0};
+    if (!skill_enum_all(&L)) {
+        skill_hits_free(&L);
+        web_json_error(fd, "500 Internal Server Error", "could not read user skills");
+        return;
+    }
+    if (L.n == 0) {
+        skill_hits_free(&L);
+        if (want_text)
+            send_text(fd, "200 OK", "No user-authored skills exist. Proceed without a skill.\n", 0);
+        else
+            send_json(fd, "200 OK", "{\"ok\":true,\"semantic\":true,\"skills\":[],\"count\":0,\"truncated\":false}");
+        return;
+    }
     embed_touch_last_use();
     /* Short wait: the heavy model download happens in /api/embed/setup. */
     if (!embed_ensure_server(60000)) {
+        skill_hits_free(&L);
         if (want_text) send_text(fd, "503 Service Unavailable",
                                  "skills_search: semantic search is not available; proceed without a skill.\n", 0);
         else web_json_error(fd, "503 Service Unavailable",
                        "semantic skill search is not ready; install it once via POST /api/embed/setup");
         return;
     }
-
-    skill_hit_list L = {0};
-    if (!skill_enum_all(&L) || L.n == 0) { skill_hits_free(&L); web_json_error(fd, "500 Internal Server Error", "no skills"); return; }
     char **texts = calloc((size_t)L.n, sizeof *texts);
     if (!texts) { skill_hits_free(&L); web_json_error(fd, "500 Internal Server Error", "oom"); return; }
     for (int i = 0; i < L.n; i++) texts[i] = skill_embed_text(&L.v[i]);
@@ -417,7 +429,7 @@ static void api_skills_search_run(int fd, const char *path) {
 #endif /* !_WIN32 */
 
 /* GET /api/skills/search?q=&domain=&subdomain=&source=&limit=
- * Semantic (embedding cosine) search over user, shipped and cyber skills. Forks
+ * Semantic (embedding cosine) search over user-authored skills. Forks
  * a detached worker (embedding + first-run index build are slow) so the single-
  * threaded main loop never blocks — same pattern as the vision handlers. */
 static void api_skills_search(int fd, const char *path) {
@@ -445,6 +457,3 @@ static void api_skills_search(int fd, const char *path) {
 
 /* GET /api/design-systems — brand systems (extension/design-systems/<id>/DESIGN.md). */
 static void api_design_systems(int fd) { md_catalog(fd, "design-systems", "DESIGN.md", "designSystems"); }
-
-/* GET /api/craft — universal craft rule packs (extension/craft/<id>/CRAFT.md). */
-static void api_craft(int fd) { md_catalog(fd, "craft", "CRAFT.md", "craft"); }

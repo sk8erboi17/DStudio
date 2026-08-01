@@ -13,6 +13,7 @@ try {
 const loadingHtml = fs.readFileSync('web/loading.html');
 let started = false;
 let startBody = null;
+let checkoutBody = null;
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -43,12 +44,32 @@ const server = http.createServer(async (req, res) => {
       ready: started,
       loadPct: started ? 100 : 2,
       stage: started ? 'Ready' : 'Applying saved engine settings…',
+      ds4dir: checkoutBody?.dir || '/engines/ds4',
       ds4dirOk: true,
       models: { standard: false, uncensored: true },
       variants: { flash: true, pro: false },
       variant: 'flash',
       modelFile: 'gguf/DeepSeek-V4-Flash-test.gguf',
     });
+    return;
+  }
+  if (url.pathname === '/api/ggufs') {
+    json(res, 200, {
+      ok: true,
+      activeEngine: '/engines/ds4',
+      ggufs: [{
+        file: 'laguna-test.gguf',
+        path: 'gguf/laguna-test.gguf',
+        engineDir: '/engines/ds4-laguna-s21',
+        branch: 'laguna-s2.1',
+        activeEngine: false,
+      }],
+    });
+    return;
+  }
+  if (url.pathname === '/api/engine/checkout' && req.method === 'POST') {
+    checkoutBody = JSON.parse(await readBody(req) || '{}');
+    json(res, 200, { ok: true, dir: checkoutBody.dir, branch: 'laguna-s2.1', changed: true });
     return;
   }
   if (url.pathname === '/api/start' && req.method === 'POST') {
@@ -95,7 +116,7 @@ try {
       onboarded: true,
       model: 'deepseek-v4-pro',
       modelVariant: 'flash',
-      modelGguf: 'gguf/DeepSeek-V4-Flash-test.gguf',
+      modelGguf: 'gguf/laguna-test.gguf',
       ctxSize: 131072,
       enginePower: 70,
       ssdStreaming: 'off',
@@ -109,7 +130,8 @@ try {
   assert.ok(startBody, 'loading page should POST /api/start');
   assert.equal(startBody.mode, 'server');
   assert.equal(startBody.variant, 'flash');
-  assert.equal(startBody.gguf, 'gguf/DeepSeek-V4-Flash-test.gguf');
+  assert.equal(startBody.gguf, 'gguf/laguna-test.gguf');
+  assert.deepEqual(checkoutBody, { dir: '/engines/ds4-laguna-s21' }, 'legacy GGUF pick should switch its checkout before start');
   assert.equal(startBody.ctx, 131072);
   assert.equal(startBody.power, 70);
   assert.equal(startBody.ssdStreaming, 'off', 'saved Off must reach the launcher unchanged');

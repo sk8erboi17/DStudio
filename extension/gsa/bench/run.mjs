@@ -191,33 +191,14 @@ function eventLines(raw) {
 }
 
 function collectToolUse(raw) {
-  const skillCalls = [];
   const toolCalls = [];
   for (const ev of eventLines(raw)) {
     if (ev?.type !== "tool_call") continue;
     const name = ev.name || ev.tool || "";
     const input = ev.input || {};
     toolCalls.push({ name, input });
-    if (name === "skill" && (input.name || input.id)) skillCalls.push(String(input.name || input.id));
   }
-  return { skillCalls: [...new Set(skillCalls)], toolCalls };
-}
-
-function selectionSkillIds(jsonText) {
-  let parsed;
-  try {
-    parsed = JSON.parse(jsonText);
-  } catch {
-    return [];
-  }
-  const ids = [];
-  for (const h of Array.isArray(parsed?.hypotheses) ? parsed.hypotheses : []) {
-    for (const id of Array.isArray(h?.skills) ? h.skills : []) {
-      const s = String(id || "").trim();
-      if (s) ids.push(s);
-    }
-  }
-  return [...new Set(ids)];
+  return { toolCalls };
 }
 
 function extractBalancedObjects(text) {
@@ -458,14 +439,6 @@ function invalidSelectionPaths(jsonText, workspace, caseDir) {
   return [...new Set(invalid)];
 }
 
-function parseShortlistedSkills(text) {
-  const skills = [];
-  const re = /^##\s+([a-z0-9-]+)\s*$/gm;
-  let m;
-  while ((m = re.exec(text || "")) !== null) skills.push(m[1]);
-  return skills;
-}
-
 function chooseGguf(ds4Dir, explicit) {
   if (explicit) return explicit;
   const ggufs = listGgufs(ds4Dir).map((g) => g.file);
@@ -677,8 +650,6 @@ async function runCase(baseUrl, item, outRoot, opts) {
     status: "running",
     startedAt: new Date(startedAt).toISOString(),
     phases: {},
-    shortlistedSkills: [],
-    skillCalls: [],
     toolCalls: [],
   };
   let start = null;
@@ -694,12 +665,7 @@ async function runCase(baseUrl, item, outRoot, opts) {
     manifest.gsaRunId = start.runId;
     manifest.gsaRunDir = start.runDir;
     manifest.candidateCount = start.candidateCount;
-    manifest.skillCount = start.skillCount;
     copyGsaArtifacts(start.runDir, caseDir);
-    const skillsPath = path.join(caseDir, "gsa", "skills.md");
-    if (fs.existsSync(skillsPath)) {
-      manifest.shortlistedSkills = parseShortlistedSkills(fs.readFileSync(skillsPath, "utf8"));
-    }
 
     let prompt = start.prompt;
     const phaseOrder = ["selection", "preflight", "validation"];
@@ -721,18 +687,14 @@ async function runCase(baseUrl, item, outRoot, opts) {
       );
       transcriptParts.push(`\n\n===== ${phase.toUpperCase()} =====\n\n${raw}`);
       const use = collectToolUse(raw);
-      manifest.skillCalls.push(...use.skillCalls);
       manifest.toolCalls.push(...use.toolCalls);
       let json = extractPhaseJson(raw, phase);
       if (phase === "selection") {
         json = normalizeSelectionJson(json, workspace, caseDir, manifest);
-        manifest.selectedSkillIds = selectionSkillIds(json);
         const invalid = invalidSelectionPaths(json, workspace, caseDir);
         if (invalid.length) {
           throw new Error(`selection contains non-candidate paths: ${invalid.join(", ")}`);
         }
-      } else if (phase === "preflight" && (manifest.selectedSkillIds || []).length && !use.skillCalls.length) {
-        throw new Error(`preflight did not load a selected GSA skill; selected skills: ${manifest.selectedSkillIds.join(", ")}`);
       }
       writeText(path.join(caseDir, `${phase}.json`), json);
       const next = await jsonFetch(baseUrl, "/api/gsa/phase", {
@@ -754,7 +716,6 @@ async function runCase(baseUrl, item, outRoot, opts) {
     const rawReport = await sendAgentTurn(baseUrl, prompt, `/gsa ${item.id} report`, phaseTimeoutMs("report", opts), caseDir, "report", phaseThinkLevel("report", opts));
     transcriptParts.push(`\n\n===== REPORT =====\n\n${rawReport}`);
     const use = collectToolUse(rawReport);
-    manifest.skillCalls.push(...use.skillCalls);
     manifest.toolCalls.push(...use.toolCalls);
     let report = extractReportMarkdown(rawReport);
     writeText(path.join(caseDir, "report.md"), report + "\n");
@@ -770,7 +731,6 @@ async function runCase(baseUrl, item, outRoot, opts) {
     manifest.status = "complete";
     manifest.finishedAt = new Date().toISOString();
     manifest.durationMs = Date.now() - startedAt;
-    manifest.skillCalls = [...new Set(manifest.skillCalls)];
     writeText(path.join(caseDir, "transcript.txt"), transcriptParts.join("\n"));
     writeJson(path.join(caseDir, "manifest.json"), manifest);
     await stopAgentRuntime(baseUrl);
@@ -783,7 +743,6 @@ async function runCase(baseUrl, item, outRoot, opts) {
     manifest.error = e?.message || String(e);
     manifest.finishedAt = new Date().toISOString();
     manifest.durationMs = Date.now() - startedAt;
-    manifest.skillCalls = [...new Set(manifest.skillCalls)];
     writeText(path.join(caseDir, "transcript.txt"), transcriptParts.join("\n"));
     writeJson(path.join(caseDir, "run-error.json"), manifest);
     throw e;
@@ -816,9 +775,6 @@ function writeBenchmarkReport(outRoot, selectedCount, meta) {
     .filter(Boolean);
   const completed = manifests.filter((m) => m.status === "complete");
   const failed = manifests.filter((m) => m.status === "failed");
-  const topSkills = new Map();
-  for (const m of manifests) for (const s of m.skillCalls || []) topSkills.set(s, (topSkills.get(s) || 0) + 1);
-  const topSkillRows = [...topSkills.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
   const partial = !summary || summary.cases < datasetTotal || summary.reports_found < summary.cases;
   const lines = [
     "# DStudio GSA Benchmark",
@@ -836,7 +792,7 @@ function writeBenchmarkReport(outRoot, selectedCount, meta) {
     "- Calibration policy: no answer-key hints, no benchmark-specific prompts, and no prompts that reveal whether a case contains a vulnerability.",
     "- Tool policy: external tools are advisory only; scanner success/failure must be cross-checked with source, artifacts, manual reasoning, or targeted Python helpers.",
     "- Chain policy: reports may confirm an attack chain only when each link has cited evidence; weak standalone facts are not upgraded without a concrete composed path.",
-    "- GSA uses the vendored `extension/gsa/third_party/anthropic-cybersecurity-skills` catalog and records `skills.md` plus actual `skill()` tool calls per case.",
+    "- GSA is tool-only: it records native/external tool calls and does not load skills.",
     "- Scoring runs after report generation and measures outcome, evidence citation and false positives/false negatives.",
     "",
     "## Run",
@@ -879,14 +835,6 @@ function writeBenchmarkReport(outRoot, selectedCount, meta) {
     );
   }
   lines.push(
-    "## Skill Routing",
-    "",
-    `- Cases with at least one actual \`skill()\` call: ${manifests.filter((m) => (m.skillCalls || []).length).length}/${manifests.length}`,
-    "",
-    "| Skill | Cases |",
-    "|---|---:|",
-    ...(topSkillRows.length ? topSkillRows.map(([s, n]) => `| ${s} | ${n} |`) : ["| (none recorded) | 0 |"]),
-    "",
     "## Reproduce",
     "",
     "```sh",
@@ -895,7 +843,7 @@ function writeBenchmarkReport(outRoot, selectedCount, meta) {
     `node extension/gsa/bench/score.mjs --reports ${path.relative(root, outRoot)} --out ${path.relative(root, outRoot)}`,
     "```",
     "",
-    "Detailed per-case artifacts are in each project folder: `manifest.json`, `skills.md` under `gsa/`, raw phase output, parsed phase JSON and `report.md`.",
+    "Detailed per-case artifacts are in each project folder: `manifest.json`, tool/run artifacts under `gsa/`, raw phase output, parsed phase JSON and `report.md`.",
     "",
   );
   if (failed.length) {

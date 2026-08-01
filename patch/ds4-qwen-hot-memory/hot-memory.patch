@@ -1,16 +1,12 @@
 diff --git a/ds4.c b/ds4.c
 --- a/ds4.c
 +++ b/ds4.c
-@@ -35307,6 +35307,8 @@ struct ds4_engine {
+@@ -24520,2 +24520,4 @@ struct ds4_engine {
      bool metal_ready;
-     bool mtp_ready;
-     bool share_session_prefill_workspace;
 +    unsigned memory_pressure_depth;
 +    uint64_t memory_pressure_advised_bytes;
- #ifndef DS4_NO_GPU
-     bool shared_prefill_workspace_ready;
-     ds4_gpu_graph shared_prefill_workspace;
-@@ -56037,6 +56039,64 @@ int ds4_engine_set_power(ds4_engine *e, int power_percent) {
+     bool mtp_ready;
+@@ -39124,6 +39126,64 @@ int ds4_engine_set_power(ds4_engine *e, int power_percent) {
      return 0;
  }
  
@@ -78,7 +74,7 @@ diff --git a/ds4.c b/ds4.c
 diff --git a/ds4.h b/ds4.h
 --- a/ds4.h
 +++ b/ds4.h
-@@ -222,6 +222,13 @@ int ds4_engine_vocab_size(ds4_engine *e);
+@@ -155,6 +155,13 @@ int ds4_engine_vocab_size(ds4_engine *e);
  uint32_t ds4_engine_prefill_chunk(ds4_engine *e);
  int ds4_engine_power(ds4_engine *e);
  int ds4_engine_set_power(ds4_engine *e, int power_percent);
@@ -95,7 +91,7 @@ diff --git a/ds4.h b/ds4.h
 diff --git a/ds4_cuda.cu b/ds4_cuda.cu
 --- a/ds4_cuda.cu
 +++ b/ds4_cuda.cu
-@@ -27377,6 +27377,18 @@ extern "C" void ds4_gpu_set_ssd_streaming(bool enabled) {
+@@ -2762,6 +2762,18 @@ extern "C" void ds4_gpu_set_ssd_streaming(bool enabled) {
      if (!g_ssd_streaming_mode) cuda_stream_selected_cache_release();
  }
  
@@ -117,7 +113,7 @@ diff --git a/ds4_cuda.cu b/ds4_cuda.cu
 diff --git a/ds4_gpu.h b/ds4_gpu.h
 --- a/ds4_gpu.h
 +++ b/ds4_gpu.h
-@@ -139,6 +139,10 @@ int ds4_gpu_should_use_managed_kv_cache(uint64_t kv_cache_bytes, uint64_t contex
+@@ -75,6 +75,10 @@ int ds4_gpu_should_use_managed_kv_cache(uint64_t kv_cache_bytes, uint64_t contex
  void ds4_gpu_set_quality(bool quality);
  void ds4_gpu_set_glm_model(bool enabled);
  void ds4_gpu_set_ssd_streaming(bool enabled);
@@ -131,7 +127,7 @@ diff --git a/ds4_gpu.h b/ds4_gpu.h
 diff --git a/ds4_metal.m b/ds4_metal.m
 --- a/ds4_metal.m
 +++ b/ds4_metal.m
-@@ -3561,6 +3561,22 @@ void ds4_gpu_set_ssd_streaming(bool enabled) {
+@@ -3239,6 +3239,22 @@ void ds4_gpu_set_ssd_streaming(bool enabled) {
      }
  }
  
@@ -157,7 +153,7 @@ diff --git a/ds4_metal.m b/ds4_metal.m
 diff --git a/ds4_server.c b/ds4_server.c
 --- a/ds4_server.c
 +++ b/ds4_server.c
-@@ -12286,6 +12286,46 @@ typedef struct {
+@@ -11729,6 +11729,46 @@ typedef struct {
      int fd;
  } client_arg;
  
@@ -204,7 +200,7 @@ diff --git a/ds4_server.c b/ds4_server.c
  static void append_model_json_values(buf *b, const char *id, const char *name,
                                       int ctx, int default_tokens) {
      const int max_completion = default_tokens < ctx ? default_tokens : ctx;
-@@ -12386,6 +12426,19 @@ static void *client_main(void *arg) {
+@@ -11829,6 +11869,19 @@ static void *client_main(void *arg) {
          goto done;
      }
  

@@ -1,0 +1,59 @@
+/*DS4UI_JSONL*/
+/* Mutating file tools are scoped to the directory selected with --chdir.
+ * Requiring a relative path prevents a model from silently treating an
+ * absolute path mentioned in an old conversation as the current workspace.
+ * Resolving the target (or its nearest existing parent for a new file) also
+ * rejects ../ traversal and symlink escapes. */
+static int ds4ui_workspace_contains(const char *root, const char *path) {
+    size_t n = strlen(root);
+    return !strncmp(root, path, n) && (path[n] == '\0' || path[n] == '/');
+}
+static int ds4ui_workspace_relative_path(const char *path) {
+    if (!path || !path[0] || path[0] == '/' || path[0] == '\\' || path[0] == '~') return 0;
+    if (isalpha((unsigned char)path[0]) && path[1] == ':') return 0;
+    const char *seg = path;
+    for (const char *p = path; ; p++) {
+        if (*p == '/' || *p == '\\' || *p == '\0') {
+            size_t n = (size_t)(p - seg);
+            if (n == 2 && seg[0] == '.' && seg[1] == '.') return 0;
+            if (!*p) break;
+            seg = p + 1;
+        }
+    }
+    return 1;
+}
+static char *ds4ui_workspace_mutation_guard(const agent_tool_call *call) {
+    const char *path = agent_tool_arg_value(call, "path");
+    if (!path || !path[0]) return NULL; /* native tool reports the missing arg */
+    if (!ds4ui_workspace_relative_path(path))
+        return xstrdup("Tool error: write/edit path must be relative to the selected workspace and must not contain .. segments\n");
+
+    char cwd[PATH_MAX], root[PATH_MAX], joined[PATH_MAX], resolved[PATH_MAX];
+    if (!getcwd(cwd, sizeof(cwd)) || !realpath(cwd, root))
+        return xstrdup("Tool error: selected workspace could not be resolved\n");
+    if ((size_t)snprintf(joined, sizeof(joined), "%s/%s", root, path) >= sizeof(joined))
+        return xstrdup("Tool error: workspace path is too long\n");
+
+    struct stat st;
+    if (lstat(joined, &st) == 0) {
+        if (!realpath(joined, resolved))
+            return xstrdup("Tool error: write/edit target could not be resolved safely inside the selected workspace\n");
+    } else {
+        char probe[PATH_MAX];
+        snprintf(probe, sizeof(probe), "%s", joined);
+        for (;;) {
+            char *slash = strrchr(probe, '/');
+            if (!slash)
+                return xstrdup("Tool error: write/edit target has no resolvable workspace parent\n");
+            if (slash == probe) slash[1] = '\0';
+            else *slash = '\0';
+            if (realpath(probe, resolved)) break;
+            if (slash == probe)
+                return xstrdup("Tool error: write/edit target has no resolvable workspace parent\n");
+        }
+    }
+    if (!ds4ui_workspace_contains(root, resolved))
+        return xstrdup("Tool error: write/edit target is outside the selected workspace\n");
+    return NULL;
+}
+static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {

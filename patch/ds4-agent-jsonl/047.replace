@@ -110,6 +110,7 @@ typedef char *(*ds4ui_qwen_tool_fn)(const agent_tool_call *);
 static char *ds4ui_tool_with_qwen_memory(agent_worker *w,
                                           const agent_tool_call *call,
                                           ds4ui_qwen_tool_fn fn) {
+#ifdef DS4UI_HAVE_MEMORY_PRESSURE_API
     uint64_t advised = 0;
     if (!w || !w->engine ||
         ds4_engine_memory_pressure_begin(w->engine, &advised) != 0)
@@ -123,6 +124,10 @@ static char *ds4ui_tool_with_qwen_memory(agent_worker *w,
         result = agent_buf_take(&b);
     }
     return result;
+#else
+    (void)w;
+    return fn(call);
+#endif
 }
 
 static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {

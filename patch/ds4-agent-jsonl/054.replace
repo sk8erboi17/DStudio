@@ -1,0 +1,35 @@
+    static const char canonical[] = "<｜DSML｜tool_calls>";
+    static const char missing_bar[] = "<DSML｜tool_calls>";
+    static const char invoke[] = "<｜DSML｜invoke";
+    static const char invoke_missing_bar[] = "<DSML｜invoke";
+    /*DS4UI_JSONL: cloud DeepSeek may render the control-token bars as spaced
+     * ASCII punctuation ("< | DSML | tool_calls>"). Once this opening is
+     * recognized, agent_dsml_skip_sep() already normalizes the same spacing in
+     * invoke/parameter/closing tags. The parser therefore repairs the call
+     * locally instead of wasting another paid API round trip. */
+    static const char ascii_bar[] = "<|DSML|tool_calls>";
+    static const char ascii_bar_invoke[] = "<|DSML|invoke";
+    static const char spaced_ascii[] = "< | DSML | tool_calls>";
+    static const char spaced_ascii_invoke[] = "< | DSML | invoke";
+    /* Colon-bar and DSMI-typo opening forms seen from cloud DeepSeek. */
+    static const char colon_bar[] = "<DSML:tool_calls>";
+    static const char colon_invoke[] = "<DSML:invoke";
+    static const char typo_marker[] = "<DSMI｜tool_calls>";
+    static const char typo_colon[] = "<DSMI:tool_calls>";
+    struct {
+        const char *text;
+        bool implicit_invoke;
+    } forms[] = {
+        {canonical, false},
+        {missing_bar, false},
+        {invoke, true},
+        {invoke_missing_bar, true},
+        {ascii_bar, false},
+        {ascii_bar_invoke, true},
+        {spaced_ascii, false},
+        {spaced_ascii_invoke, true},
+        {colon_bar, false},
+        {colon_invoke, true},
+        {typo_marker, false},
+        {typo_colon, false},
+    };

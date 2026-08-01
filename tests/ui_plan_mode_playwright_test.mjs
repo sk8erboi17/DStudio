@@ -135,7 +135,7 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { rev: 0 });
     return;
   }
-  if (url.pathname === '/api/skills' || url.pathname === '/api/user-skills') {
+  if (url.pathname === '/api/user-skills') {
     json(res, 200, { ok: true, skills: [], systems: [], designSystems: [] });
     return;
   }

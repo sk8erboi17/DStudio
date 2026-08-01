@@ -48,11 +48,11 @@ Required run artifacts:
 Protocol hygiene: never read, search, cite, or reason from `.dstudio/gsa/runs/*.prompt.md` files. Prompt files are DStudio control data, not project evidence.
 
 Phase 1/4: selection.
-This phase is scope selection only: do not validate findings, do not write a narrative report, and do not inspect every candidate. Read the required GSA artifacts, then at most 6 high-signal project files before producing the JSON. Select at most 6 files, 3 hypotheses, and 2 skills total; deeper evidence work belongs to later phases.
-Read `{{RUN_DIR}}/target.md`, `{{RUN_DIR}}/candidates.txt`, `{{RUN_DIR}}/skills.md`, `{{RUN_DIR}}/toolStatus.json`, `{{RUN_DIR}}/scripts_manifest.json` and `{{RUN_DIR}}/evidence.jsonl`.
+This phase is scope selection only: do not validate findings, do not write a narrative report, and do not inspect every candidate. Read the required GSA artifacts, then at most 6 high-signal project files before producing the JSON. Select at most 6 files and 3 hypotheses; deeper evidence work belongs to later phases.
+Read `{{RUN_DIR}}/target.md`, `{{RUN_DIR}}/candidates.txt`, `{{RUN_DIR}}/toolStatus.json`, `{{RUN_DIR}}/scripts_manifest.json` and `{{RUN_DIR}}/evidence.jsonl`.
 Every `files[].path` MUST be copied exactly from `{{RUN_DIR}}/candidates.txt`; do not invent conventional paths, rename directories, or include a file that is not present in that candidate list. Candidate paths are relative to the Workspace root above, not relative to the GSA run artifact directory.
-Reply in chat only. Do not save the phase JSON yourself. Do not edit project files and do not call `write`, `edit`, `skill` or `pack_file` in this phase. If you call any of those tools in Phase 1, the phase is failed. Do not create scripts, update scripts_manifest.json, append evidence, run validation, or start Phase 2.
-Use ONLY imported skill IDs listed in `skills.md`, all from `extension/gsa/third_party/anthropic-cybersecurity-skills`; never select general app-building or product-design skills for GSA. Do not call `skill()` in Phase 1.
+Reply in chat only. Do not save the phase JSON yourself. Do not edit project files in this phase. Do not create scripts, update scripts_manifest.json, append evidence, run validation, or start Phase 2.
+GSA is tool-only: do not search for, load, or call skills. Select from the enabled external/local tools in `toolStatus.json` when a tool is useful.
 For cryptographic or signature reviews, prioritize sign/verify/envelope/key-registry/policy/canonicalization files and explicitly distinguish safe controls from remaining key-binding, nonce/replay, and canonicalization gaps.
 
 Verdict policy for later phases: a confirmed issue can be grounded in source code plus authoritative artifacts/config/tests/flows, even when the local workspace is a reduced review harness. Before `confirmed_issue`, validation must show all five links: defect/control gap, reachable input or data source, attacker capability, propagation/consumer or execution path, and concrete impact.
@@ -61,10 +61,7 @@ Attack-chain policy: a reportable issue may be a chain of smaller weaknesses rat
 
 Candidate files discovered: {{CANDIDATE_COUNT}}{{TRUNCATED_NOTE}}.
 
-Imported skill shortlist:
-{{SKILL_LIST}}
-
 When you are done reading, your final assistant text must be JSON only: no analysis prose, bullet lists, markdown, or code fences before or after the JSON.
 Output JSON only with this shape:
-{"phase":"selection","files":[{"path":"relative/path","reason":"why this file matters"}],"targetUrl":"authorized target url or empty","localScripts":[{"path":"scripts/name.py","purpose":"what it checks","status":"planned|written|ran|failed"}],"hypotheses":[{"title":"concrete risk","why":"reachable code path","skills":["skill-id"]}],"stop_if":"what would make this audit not worth continuing"}
+{"phase":"selection","files":[{"path":"relative/path","reason":"why this file matters"}],"targetUrl":"authorized target url or empty","localScripts":[{"path":"scripts/name.py","purpose":"what it checks","status":"planned|written|ran|failed"}],"hypotheses":[{"title":"concrete risk","why":"reachable code path","tools":["enabled-tool-id"]}],"stop_if":"what would make this audit not worth continuing"}
 After emitting that single JSON object, stop immediately and wait for DStudio to send Phase 2.

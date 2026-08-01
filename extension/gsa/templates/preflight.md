@@ -8,7 +8,7 @@ For each hypothesis, map entry points, trust boundaries, attacker capability, ev
 For exported cryptographic, token, signature, serializer, parser, or policy primitives in a local source review, caller-controlled function parameters plus tests/config/artifacts showing intended use can be enough to keep a code-level defect as a validation target; missing service wiring belongs in `missing_evidence`, not automatic kill criteria.
 For `authorized-local-source-review` of a library/package, treat an exported public API plus tests/config/artifacts as the local trust boundary; do not demand an HTTP route/controller/CLI main that is outside the submitted workspace.
 
-If `selection.json` contains any non-empty `skills` array anywhere, including nested `hypotheses[].skills`, you MUST call the relevant selected `skill("id")` tools before the final JSON. Do not require a top-level `skills` field; nested hypothesis skills count and should be loaded before finalizing preflight. Call at most 3 `skill("id")` tools total. Do not copy their body, glossary or examples into your answer.
+GSA is tool-only. Do not search for or load skills. Use only enabled tool IDs from `toolStatus.json`, plus bounded local helpers described by the run artifacts.
 Do not create or run scripts in this preflight phase. Preserve local scripts or external commands as planned validation steps in `validationPlan`, `evidence_needed` or `chain_candidates`. Phase 3 owns execution through the DStudio backend validation executor.
 When planning external commands, cite `tool-retry-policy.md` as the single source for same-tool retry and fallback behavior.
 {{NETWORK_SCOPE_RULE}}{{BLACKHAT_VOICE_RULE}}

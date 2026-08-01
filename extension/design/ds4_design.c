@@ -4875,7 +4875,7 @@ static char *design_tool_pack(const design_tool_call *call, const char *subdir,
     const size_t skill_cap = 24 * 1024;
     const size_t pack_cap = 24 * 1024;
     const size_t craft_cap = 12 * 1024;
-    if (allow_user) {  /* a user-authored skill overrides / extends the shipped library */
+    if (allow_user) {
         const char *u = getenv("DS4UI_USER_SKILLS_DIR");
         if (u && u[0]) {
             snprintf(path, sizeof path, "%s/%s/SKILL.md", u, name);
@@ -4883,7 +4883,7 @@ static char *design_tool_pack(const design_tool_call *call, const char *subdir,
             if (body) snprintf(pack_root, sizeof(pack_root), "%s/%s", u, name);
         }
     }
-    if (!body) {
+    if (!body && strcmp(subdir, "skills")) {
         const char *root = getenv("DS4UI_SKILLS_DIR");
         if (root && root[0]) {
             snprintf(path, sizeof path, "%s/%s/%s/%s", root, subdir, name, file);
@@ -4891,14 +4891,6 @@ static char *design_tool_pack(const design_tool_call *call, const char *subdir,
                                               !strcmp(subdir, "skills") ? skill_cap : pack_cap,
                                               &body_truncated);
             if (body) snprintf(pack_root, sizeof(pack_root), "%s/%s/%s", root, subdir, name);
-        }
-    }
-    if (!body && !strcmp(subdir, "skills")) {
-        const char *root = getenv("DS4UI_CYBER_SKILLS_DIR");
-        if (root && root[0]) {
-            snprintf(path, sizeof path, "%s/%s/%s", root, name, file);
-            body = design_read_file_buf_limit(path, skill_cap, &body_truncated);
-            if (body) snprintf(pack_root, sizeof(pack_root), "%s/%s", root, name);
         }
     }
     if (!body) {
@@ -4997,18 +4989,10 @@ static char *design_tool_pack_file(const design_tool_call *call) {
                                                       err, sizeof(err));
         }
     }
-    if (!found) {
+    if (!found && strcmp(subdir, "skills")) {
         const char *root = getenv("DS4UI_SKILLS_DIR");
         if (root && root[0]) {
             snprintf(pack_root, sizeof(pack_root), "%s/%s/%s", root, subdir, name);
-            found = design_pack_resolve_existing_file(pack_root, rel, full, sizeof(full),
-                                                      err, sizeof(err));
-        }
-    }
-    if (!found && !strcmp(subdir, "skills")) {
-        const char *root = getenv("DS4UI_CYBER_SKILLS_DIR");
-        if (root && root[0]) {
-            snprintf(pack_root, sizeof(pack_root), "%s/%s", root, name);
             found = design_pack_resolve_existing_file(pack_root, rel, full, sizeof(full),
                                                       err, sizeof(err));
         }

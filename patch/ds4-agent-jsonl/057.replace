@@ -1,0 +1,11 @@
+    if (!strcmp(call->name, "write")) {   /*DS4UI_JSONL*/
+        char *guard = ds4ui_workspace_mutation_guard(call);
+        if (guard) return guard;
+        return ds4ui_verify_after(w, call, agent_tool_write(w, call));
+    }
+    if (!strcmp(call->name, "list")) return agent_tool_list(call);
+    if (!strcmp(call->name, "edit")) {   /*DS4UI_JSONL*/
+        char *guard = ds4ui_workspace_mutation_guard(call);
+        if (guard) return guard;
+        return ds4ui_verify_after(w, call, agent_tool_edit(w, call));
+    }

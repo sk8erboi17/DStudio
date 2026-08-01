@@ -122,7 +122,7 @@ function phaseOutputForPrompt(prompt) {
       status: 'weak',
       nextEvidence: 'script and network request capture',
     }],
-    skills: ['rsa-structure-reconstruction'],
+    tools: ['playwright'],
     nextActions: ['capture public HTML and headers'],
   });
 }
@@ -177,8 +177,7 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, chats: [] });
     return;
   }
-  if (url.pathname === '/api/skills' || url.pathname === '/api/user-skills' ||
-      url.pathname === '/api/design-systems' || url.pathname === '/api/skills/search') {
+  if (url.pathname === '/api/user-skills' || url.pathname === '/api/design-systems') {
     json(res, 200, { ok: true, skills: [], systems: [] });
     return;
   }
@@ -203,7 +202,6 @@ const server = http.createServer(async (req, res) => {
       iteration: runSeq,
       targetUrl: 'https://streamrecorder.io/',
       think: 'max',
-      skillCount: 4,
       prompt: 'INVENTORY_PROMPT',
       rsaTools: { mode: 'tool-assisted', tools: [] },
     });

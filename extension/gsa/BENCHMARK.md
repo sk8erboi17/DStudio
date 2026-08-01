@@ -11,7 +11,7 @@
 - Calibration policy: no answer-key hints, no benchmark-specific prompts, and no prompts that reveal whether a case contains a vulnerability.
 - Tool policy: external tools are advisory only; scanner success/failure must be cross-checked with source, artifacts, manual reasoning, or targeted Python helpers.
 - Chain policy: reports may confirm an attack chain only when each link has cited evidence; weak standalone facts are not upgraded without a concrete composed path.
-- GSA uses the vendored `extension/gsa/third_party/anthropic-cybersecurity-skills` catalog and records `skills.md` plus actual `skill()` tool calls per case.
+- GSA is tool-only: it records native/external tool calls and does not load skills.
 - Scoring runs after report generation and measures outcome, evidence citation and false positives/false negatives.
 
 ## Run
@@ -24,14 +24,6 @@
 - Thinking: max
 - GGUF: gguf/cyberneurova-DeepSeek-V4-Flash-abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-aligned.gguf
 
-## Skill Routing
-
-- Cases with at least one actual `skill()` call: 0/2
-
-| Skill | Cases |
-|---|---:|
-| (none recorded) | 0 |
-
 ## Reproduce
 
 ```sh
@@ -40,7 +32,7 @@ node extension/gsa/bench/run.mjs --out extension/gsa/benchmark/gsa-re-malware-lo
 node extension/gsa/bench/score.mjs --reports extension/gsa/benchmark/gsa-re-malware-loop-20260615-90112-64k-nosssd --out extension/gsa/benchmark/gsa-re-malware-loop-20260615-90112-64k-nosssd
 ```
 
-Detailed per-case artifacts are in each project folder: `manifest.json`, `skills.md` under `gsa/`, raw phase output, parsed phase JSON and `report.md`.
+Detailed per-case artifacts are in each project folder: `manifest.json`, tool/run artifacts under `gsa/`, raw phase output, parsed phase JSON and `report.md`.
 
 ## Failed Runs
 

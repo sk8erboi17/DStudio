@@ -79,52 +79,6 @@ static void send_skill_doc_json(int fd, const char *id, const char *source, cons
     free(out.ptr);
 }
 
-static char *read_skill_doc_any(const char *id, char *source, size_t sourcesz) {
-    char dir[PATH_MAX], md[PATH_MAX];
-    size_t len = 0;
-
-    user_skills_dir(dir, sizeof dir);
-    snprintf(md, sizeof md, "%s/%s/SKILL.md", dir, id);
-    char *content = jsonl_read_file(md, &len);
-    if (content) {
-        cstr_copy(source, sourcesz, "user");
-        return content;
-    }
-
-    if (g_web_dir[0]) {
-        snprintf(md, sizeof md, "%s/extension/skills/%s/SKILL.md", g_web_dir, id);
-        content = jsonl_read_file(md, &len);
-        if (content) {
-            cstr_copy(source, sourcesz, "dstudio");
-            return content;
-        }
-    }
-
-    if (cyber_skills_dir(dir, sizeof dir)) {
-        snprintf(md, sizeof md, "%s/%s/SKILL.md", dir, id);
-        content = jsonl_read_file(md, &len);
-        if (content) {
-            cstr_copy(source, sourcesz, "anthropic-cybersecurity-skills");
-            return content;
-        }
-    }
-    return NULL;
-}
-
-/* GET /api/skills/get?id=<id> — read a skill body for the editor. User-authored
- * skills win over shipped packs, so saving creates a local override instead of
- * mutating the repository catalog. */
-static void api_skill_get(int fd, const char *path) {
-    char id[64] = {0};
-    query_param(path, "id", id, sizeof id);
-    if (!skill_id_ok(id)) { send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"bad id\"}"); return; }
-    char source[80] = "";
-    char *content = read_skill_doc_any(id, source, sizeof source);
-    if (!content) { send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"no such skill\"}"); return; }
-    send_skill_doc_json(fd, id, source, content);
-    free(content);
-}
-
 static const char *design_content_type(const char *name);   /* defined below */
 
 static int preview_rel_path_ok(const char *rel) {
@@ -152,50 +106,8 @@ static int preview_rel_asset_ok(const char *rel, const char *entry_html) {
     return 0;
 }
 
-static int skill_preview_rel_ok(const char *rel) {
-    return preview_rel_asset_ok(rel, "example.html");
-}
-
 static int design_system_preview_rel_ok(const char *rel) {
     return preview_rel_asset_ok(rel, "components.html");
-}
-
-/* GET /api/skill-preview/<id>/<preview-asset> — serve only shipped Open Design
- * template preview files. Local CSS/JS/fonts/images are allowed so original
- * examples render faithfully; user skills and cybersecurity packs are excluded. */
-static void api_skill_preview(int fd, const char *path, int head_only) {
-    static const char prefix[] = "/api/skill-preview/";
-    const char *raw = path + strlen(prefix);
-    const char *slash = strchr(raw, '/');
-    if (!slash) { send_text(fd, "400 Bad Request", "path missing\n", head_only); return; }
-    char id[64] = {0};
-    url_decode_into(raw, (size_t)(slash - raw), id, sizeof id);
-    if (!skill_id_ok(id)) { send_text(fd, "400 Bad Request", "bad id\n", head_only); return; }
-    char rel[1024] = {0};
-    url_decode_into(slash + 1, strcspn(slash + 1, "?"), rel, sizeof rel);
-    if (!skill_preview_rel_ok(rel)) { send_text(fd, "400 Bad Request", "bad preview path\n", head_only); return; }
-    if (!g_web_dir[0]) { send_text(fd, "404 Not Found", "web directory not found\n", head_only); return; }
-
-    char md[2048];
-    snprintf(md, sizeof md, "%s/extension/skills/%s/SKILL.md", g_web_dir, id);
-    size_t mdlen = 0;
-    char *content = jsonl_read_file(md, &mdlen);
-    if (!content) { send_text(fd, "404 Not Found", "skill not found\n", head_only); return; }
-    char upstream[400];
-    fm_field(content, "ds4_upstream", upstream, sizeof upstream);
-    free(content);
-    if (strncmp(upstream, "open-design/", 12) != 0) {
-        send_text(fd, "404 Not Found", "not an Open Design template\n", head_only);
-        return;
-    }
-
-    char file[3072];
-    snprintf(file, sizeof file, "%s/extension/skills/%s/%s", g_web_dir, id, rel);
-    size_t len = 0;
-    char *buf = read_html_disk(file, &len);
-    if (!buf) { send_text(fd, "404 Not Found", "preview file not found\n", head_only); return; }
-    send_response_hdrs(fd, "200 OK", design_content_type(rel), buf, len, head_only, DESIGN_HEADERS);
-    free(buf);
 }
 
 /* GET /api/design-system-preview/<id>/<components.html|tokens.css|preview/...>

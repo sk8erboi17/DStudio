@@ -1,7 +1,6 @@
-/* skills_search: bounded retrieval over the local skill packs. The MODEL forms
+/* skills_search: bounded retrieval over user-authored skills. The MODEL forms
  * the query and makes the final choice; this tool only returns candidates
- * (id + one-line description), best match first. Scans user skills, shipped
- * skills and the imported cybersecurity briefs. */
+ * (id + one-line description), best match first. */
 typedef struct { char id[96]; char desc[200]; int score; } ds4ui_skill_hit;
 static void ds4ui_lower_into(const char *s, char *out, size_t cap) {
     size_t o = 0;
@@ -82,13 +81,8 @@ static char *ds4ui_tool_skills_search(const agent_tool_call *call) {
     if (!nq) return xstrdup("Tool error: give skills_search a few topic keywords\n");
     static ds4ui_skill_hit hits[256];
     int n = 0;
-    char dir[2300];
     const char *u = getenv("DS4UI_USER_SKILLS_DIR");
     if (u && u[0]) ds4ui_skills_scan_dir(u, qw, nq, hits, 256, &n);
-    const char *r = getenv("DS4UI_SKILLS_DIR");
-    if (r && r[0]) { snprintf(dir, sizeof dir, "%s/skills", r); ds4ui_skills_scan_dir(dir, qw, nq, hits, 256, &n); }
-    const char *c = getenv("DS4UI_CYBER_SKILLS_DIR");
-    if (c && c[0]) ds4ui_skills_scan_dir(c, qw, nq, hits, 256, &n);
     if (!n) return xstrdup("No skills matched that query. Try different English keywords, or proceed without a skill.\n");
     qsort(hits, (size_t)n, sizeof hits[0], ds4ui_skill_hit_cmp);
     agent_buf out = {0};
