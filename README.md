@@ -292,7 +292,7 @@ ds4's agent is a separate, fast-moving codebase that can't be modified permanent
 3. builds a **separately-named** binary (`ds4-agent-jsonl`), reusing the existing object files,
 4. **restores the original source immediately.**
 
-The canonical `ds4-agent` source is restored after the JSONL build; the build is idempotent (a version stamp forces a rebuild only when the patch itself changes), and it self-heals on the next launch even after a crash. A patch mismatch is a startup error: DStudio does not maintain a second raw-output parser or silently downgrade the Agent. The separate multimodal hot-memory patch remains applied to the engine core and is reversed/reapplied automatically around upstream pulls. (`ds4-design` is *our* code, in this repo, so it emits these events natively with no patch needed.)
+The canonical `ds4-agent` source is restored after the JSONL build; the build is idempotent (a version stamp forces a rebuild only when the patch itself changes), and it self-heals on the next launch even after a crash. A patch mismatch is a startup error: DStudio does not maintain a second raw-output parser or silently downgrade the Agent. The managed runtime patches add multimodal hot-memory coordination and expose ds4's measured decode throughput to the chat UI; they are reversed/reapplied automatically around upstream pulls. (`ds4-design` is *our* code, in this repo, so it emits these events natively with no patch needed.)
 
 #### ⚠️ The patch targets DStudio's pinned ds4 commit
 

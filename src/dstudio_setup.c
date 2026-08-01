@@ -672,6 +672,16 @@ static void setup_send_json(int fd, const char *status, int ok, const char *targ
 /* Prepare a side-by-side branch checkout for every DStudio mode. The helper
  * temporarily points the existing patch/build machinery at that checkout,
  * then restores the user's active engine selection. */
+static int setup_apply_ds4_runtime_patches(void) {
+    return run_ext_script("scripts/apply-ds4-qwen-hot-memory.sh", "apply") &&
+           run_ext_script("scripts/apply-ds4-server-metrics.sh", "apply");
+}
+
+static int setup_restore_ds4_runtime_patches(void) {
+    return run_ext_script("scripts/apply-ds4-server-metrics.sh", "restore") &&
+           run_ext_script("scripts/apply-ds4-qwen-hot-memory.sh", "restore");
+}
+
 static int setup_build_branch_runtimes(const char *target, const char *label,
                                        char *log_tail, size_t logsz,
                                        char *err, size_t errsz) {
@@ -685,8 +695,8 @@ static int setup_build_branch_runtimes(const char *target, const char *label,
     cstr_copy(g_ds4_dir, sizeof g_ds4_dir, target);
     int ok = 0;
 
-    if (!run_ext_script("scripts/apply-ds4-qwen-hot-memory.sh", "apply")) {
-        snprintf(err, errsz, "%s Qwen hot-memory patch failed", label);
+    if (!setup_apply_ds4_runtime_patches()) {
+        snprintf(err, errsz, "%s runtime patches failed", label);
         goto done;
     }
     char *make_argv[] = { "make", "-C", g_ds4_dir, NULL };
@@ -809,10 +819,10 @@ static void api_setup_ds4(int fd) {
         return;
     }
 #else
-    if (!run_ext_script("scripts/apply-ds4-qwen-hot-memory.sh", "apply")) {
+    if (!setup_apply_ds4_runtime_patches()) {
         setup_send_json(fd, "500 Internal Server Error", 0, g_ds4_dir, downloaded, 0, 0, 0,
                         was_running, 0, mode_name(prev_mode),
-                        "ds4 Qwen hot-memory patch failed; upstream anchors may have changed");
+                        "ds4 runtime patches failed; upstream anchors may have changed");
         return;
     }
     char *make_argv[] = { "make", "-C", g_ds4_dir, NULL };

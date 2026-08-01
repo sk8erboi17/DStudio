@@ -574,6 +574,10 @@ assert.match(js, /Store\.setSettings\(\{ gsaMode: v,[\s\S]*thinkLevel: 'max'/, '
 assert.match(js, /Guided analysis always runs with Thinking: max/, 'Thinking selector should reject lowering guided analysis below max');
 assert.match(js, /async function gsaTools\(\)[\s\S]*\/api\/gsa\/tools/, 'Engine client should expose GSA tool status');
 assert.match(js, /async function gsaToolsInstall\(\)[\s\S]*\/api\/gsa\/tools\/install/, 'Engine client should expose managed GSA tool install');
+assert.match(html, /\.msg__activity-dots[\s\S]*@keyframes msgactivity/, 'Chat streaming should show an animated activity indicator');
+assert.match(js, /function assistantInitialActivity\(userMsg\)[\s\S]*Reading attached file[\s\S]*Reading sources[\s\S]*Preparing response/, 'Chat activity should describe file/source reading when applicable');
+assert.match(js, /decodeTokPerSec: Number\(u\.ds4\?\.decode_tokens_per_second\) > 0/, 'Chat should read exact decode speed from the ds4 usage extension');
+assert.doesNotMatch(js, /content\.length \+ reasoning\.length\) \/ 4/, 'Chat should not present chars/4 as live token speed');
 assert.match(js, /\/gsa\s/, 'composer should expose the GSA slash command');
 assert.match(html, /id="gsa-target-panel"[\s\S]*id="gsa-target-url"/, 'Agent composer should expose an optional GSA target URL field');
 assert.match(js, /gsaTargetUrl: ''/, 'GSA target URL should be persisted as an explicit setting');
@@ -1270,7 +1274,8 @@ assert.match(launcher, /#define DS4_ARCHIVE_URL "https:\/\/codeload\.github\.com
 assert.doesNotMatch(`${launcher}\n${js}\n${gitignore}`, /DS4_GLM_|ds4-glm52|\/api\/glm\/setup|setupGlm/, 'retired GLM side-checkout support should be removed');
 assert.match(launcher, /#define DS4_LAGUNA_UPSTREAM_COMMIT "7e3dbef7e336433f487c172a3308e26b39fa75a3"/, 'managed Laguna checkout should pin the fetched laguna-s2.1 branch');
 assert.match(launcher, /api_setup_laguna[\s\S]*DS4_LAGUNA_ARCHIVE_URL[\s\S]*setup_build_branch_runtimes\(target, "Laguna S 2\.1"/, 'Laguna setup should download and build all pinned side-by-side runtimes');
-assert.match(launcher, /setup_build_branch_runtimes[\s\S]*apply-ds4-qwen-hot-memory\.sh[\s\S]*run_build_jsonl\("build"\)[\s\S]*build-design\.sh/, 'optional engine setup should prepare server, Agent and Design consistently');
+assert.match(launcher, /setup_apply_ds4_runtime_patches[\s\S]*apply-ds4-qwen-hot-memory\.sh[\s\S]*apply-ds4-server-metrics\.sh/, 'managed ds4 setup should apply memory and server-metrics patches together');
+assert.match(launcher, /setup_build_branch_runtimes[\s\S]*setup_apply_ds4_runtime_patches\(\)[\s\S]*run_build_jsonl\("build"\)[\s\S]*build-design\.sh/, 'optional engine setup should prepare server, Agent and Design consistently');
 assert.match(launcher, /!strcmp\(path, "\/api\/laguna\/setup"\)[\s\S]*api_setup_laguna\(fd\)/, 'launcher should expose POST /api/laguna/setup');
 assert.match(launcher, /DS4_METAL_LAGUNA_SOURCE[\s\S]*laguna\.metal/, 'Agent and Design should resolve the Laguna Metal source from any workspace');
 assert.match(launcher, /model_is_laguna\(\)[\s\S]*requires full model residency[\s\S]*SSD streaming cannot be forced on/, 'Laguna should disable automatic streaming and reject forced SSD streaming');

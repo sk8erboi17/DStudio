@@ -1,0 +1,60 @@
+diff --git a/ds4_server.c b/ds4_server.c
+--- a/ds4_server.c
++++ b/ds4_server.c
+@@ -633,5 +633,8 @@ typedef struct {
+     int cache_read_tokens;
+     int cache_write_tokens;
++    /*DS4UI_SERVER_METRICS: exact decode timing exposed in OpenAI usage. */
++    double ds4_decode_tokens_per_second;
++    double ds4_decode_elapsed_seconds;
+     ds4_think_mode think_mode;
+     bool has_tools;
+     bool prompt_preserves_reasoning;
+@@ -5480,10 +5483,18 @@ static void append_openai_usage_json(buf *b, const request *r,
+      * and must stay separate so OpenAI-compatible clients do not over-count
+      * cache hits. */
+     buf_printf(b,
+                "{\"prompt_tokens\":%d,\"completion_tokens\":%d,\"total_tokens\":%d,"
+-               "\"prompt_tokens_details\":{\"cached_tokens\":%d,\"cache_write_tokens\":%d}}",
++               "\"prompt_tokens_details\":{\"cached_tokens\":%d,\"cache_write_tokens\":%d}",
+                prompt_tokens, completion_tokens, prompt_tokens + completion_tokens,
+                cached_tokens, cache_write_tokens);
++    if (r && r->ds4_decode_tokens_per_second > 0.0) {
++        buf_printf(b,
++                   ",\"ds4\":{\"decode_tokens_per_second\":%.3f,"
++                   "\"decode_elapsed_seconds\":%.6f}",
++                   r->ds4_decode_tokens_per_second,
++                   r->ds4_decode_elapsed_seconds);
++    }
++    buf_putc(b, '}');
+ }
+ 
+ static bool sse_usage_chunk(int fd, const request *r, const char *id,
+@@ -11841,6 +11851,10 @@ decode_again:
+     }
+     log_tool_calls_summary(ctx_span, &parsed_calls,
+                            responses_protocol);
++    j->req.ds4_decode_elapsed_seconds = now_sec() - decode_t0;
++    j->req.ds4_decode_tokens_per_second =
++        completion > 0 && j->req.ds4_decode_elapsed_seconds > 0.0
++            ? (double)completion / j->req.ds4_decode_elapsed_seconds : 0.0;
+ 
+     trace_finish(s, trace_id, &j->req, final_finish, completion,
+                  saw_tool_start, saw_tool_end,
+@@ -13928,6 +13942,8 @@ static void test_openai_stream_usage_reports_cache_details(void) {
+     r.stream_include_usage = true;
+     r.cache_read_tokens = 7;
+     r.cache_write_tokens = 3;
++    r.ds4_decode_tokens_per_second = 2.5;
++    r.ds4_decode_elapsed_seconds = 0.8;
+ 
+     TEST_ASSERT(sse_done(sv[0], &r, "chatcmpl_usage", 10, 2));
+     shutdown(sv[0], SHUT_WR);
+@@ -13940,5 +13956,7 @@ static void test_openai_stream_usage_reports_cache_details(void) {
+     TEST_ASSERT(strstr(out, "\"cached_tokens\":7") != NULL);
+     TEST_ASSERT(strstr(out, "\"cache_write_tokens\":3") != NULL);
++    TEST_ASSERT(strstr(out, "\"decode_tokens_per_second\":2.500") != NULL);
++    TEST_ASSERT(strstr(out, "\"decode_elapsed_seconds\":0.800000") != NULL);
+     TEST_ASSERT(strstr(out, "data: [DONE]") != NULL);
+ 
+     free(out);

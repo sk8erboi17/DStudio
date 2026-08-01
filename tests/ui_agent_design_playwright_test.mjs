@@ -196,6 +196,7 @@ const server = http.createServer(async (req, res) => {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-store',
     });
+    await delay(250);
     res.write('data: {"choices":[{"delta":{"content":"partial answer"},"finish_reason":"stop"}]}\n\n');
     res.end();
     return;
@@ -273,6 +274,9 @@ try {
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
   await page.locator('#composer-input').fill('Test incomplete chat stream');
   await page.locator('#btn-send').click();
+  await page.locator('.msg__activity').waitFor({ timeout: 2000 });
+  assert.equal(await page.locator('.msg__activity-label').textContent(), 'Preparing response');
+  assert.equal(await page.locator('.msg__rate').count(), 0, 'chat should not show an estimated live token rate');
   await page.getByText(/Response incomplete: stream ended before data: \[DONE\]/).waitFor({ timeout: 5000 });
   await page.getByRole('button', { name: 'Continue' }).waitFor({ timeout: 5000 });
   assert.equal(chatRequests.length, 1, 'chat request should reach /v1/chat/completions');

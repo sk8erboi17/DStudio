@@ -1158,14 +1158,37 @@
       padding-inline: 0;
     }
 
-    /* While generating: a live "N tok/s" instead of a blinking caret. */
-    .msg__rate {
-      display: inline-block; margin-left: 8px;
-      font-family: var(--font-mono); font-size: 0.68rem; color: var(--faint);
-      vertical-align: baseline; white-space: nowrap;
-      animation: ratepulse 1.4s ease-in-out infinite;
+    /* Honest in-flight state: token speed is only shown after completion, when
+       the API has returned an exact completion-token count. */
+    .msg__activity {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 0.62rem;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--faint);
+      white-space: nowrap;
     }
-    @keyframes ratepulse { 50% { opacity: 0.5; } }
+    .msg__activity-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      height: 8px;
+    }
+    .msg__activity-dots > span {
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: msgactivity 1.15s ease-in-out infinite;
+    }
+    .msg__activity-dots > span:nth-child(2) { animation-delay: 0.14s; }
+    .msg__activity-dots > span:nth-child(3) { animation-delay: 0.28s; }
+    @keyframes msgactivity {
+      0%, 65%, 100% { opacity: 0.28; transform: translateY(0); }
+      32% { opacity: 1; transform: translateY(-2px); }
+    }
 
     @keyframes blink {
       to { visibility: hidden; }
@@ -9596,6 +9619,9 @@
           totalTokens: u.total_tokens ?? 0,
           cachedTokens: u.prompt_tokens_details?.cached_tokens ?? 0,
           cacheWriteTokens: u.prompt_tokens_details?.cache_write_tokens ?? 0,
+          decodeTokPerSec: Number(u.ds4?.decode_tokens_per_second) > 0
+            ? +Number(u.ds4.decode_tokens_per_second).toFixed(1)
+            : null,
         };
       }
 
@@ -10289,7 +10315,8 @@
         if (u) {
           bits.push(el('span', { text: `${u.completionTokens} tokens` }));
           if (u.elapsedMs || m.elapsedMs) bits.push(el('span', { text: fmtElapsedCompact(u.elapsedMs || m.elapsedMs) }));
-          if (u.tokPerSec) bits.push(el('span', { text: `${u.tokPerSec} tok/s` }));
+          if (u.decodeTokPerSec) bits.push(el('span', { text: `decode ${u.decodeTokPerSec} tok/s` }));
+          else if (u.tokPerSec) bits.push(el('span', { text: `avg ${u.tokPerSec} tok/s` }));
           bits.push(el('span', { class: 'cache', text: `${fmtK(u.cachedTokens)} cached` }));
           const ctx = ctxLenFor(chat?.model);
           bits.push(el('span', {
@@ -10331,7 +10358,16 @@
        * requestAnimationFrame: multiple deltas between frames collapse
        * into a single markdown render.
        */
-      function beginAssistant(msg) {
+      function buildAssistantActivity(label) {
+        return el('div', { class: 'msg__activity', role: 'status', 'aria-live': 'polite' }, [
+          el('span', { class: 'msg__activity-label', text: label }),
+          el('span', { class: 'msg__activity-dots', 'aria-hidden': 'true' }, [
+            el('span'), el('span'), el('span'),
+          ]),
+        ]);
+      }
+
+      function beginAssistant(msg, initialActivity = 'Preparing response') {
         // Create the bubble immediately in the current view (if it is the active chat).
         const stick = shouldStickToBottom(root);
         followBottomChatId = Store.getActiveChat()?.id || followBottomChatId;
@@ -10339,6 +10375,7 @@
         const initial = el('article', { class: 'msg msg--assistant msg--streaming', 'data-id': msg.id });
         initial.append(buildMessageStart('assistant', true));
         initial.append(el('div', { class: 'msg__content md' }));
+        initial.append(buildAssistantActivity(initialActivity));
         inner.append(initial);
         if (stick) follow.toBottom();
 
@@ -10347,7 +10384,7 @@
         // (chat switch and return) — generation continues in the background.
         let fullContent = msg.content || '';
         let fullReasoning = '';
-        let rate = 0; // live tokens/sec, shown while generating (replaces the caret)
+        let activity = initialActivity;
         let raf = 0;
 
         function paint() {
@@ -10373,12 +10410,15 @@
             if (ph) ph.remove();
             if (fullContent) setMarkdown(content, stripGeneratedFilePayloadPreview(fullContent));
           }
-          // Live generation speed, in place of the old blinking caret.
-          let rateEl = article.querySelector('.msg__rate');
-          if (rate > 0) {
-            if (!rateEl) { rateEl = el('span', { class: 'msg__rate' }); (content || article).append(rateEl); }
-            rateEl.textContent = `${rate} tok/s`;
-          } else if (rateEl) rateEl.remove();
+          let activityEl = article.querySelector('.msg__activity');
+          if (activity) {
+            if (!activityEl) {
+              activityEl = buildAssistantActivity(activity);
+              article.append(activityEl);
+            }
+            const label = activityEl.querySelector('.msg__activity-label');
+            if (label) label.textContent = activity;
+          } else if (activityEl) activityEl.remove();
           if (stick) follow.toBottom();
           updateScrollBtn();
         }
@@ -10388,11 +10428,16 @@
         const view = {
           appendReasoning(delta) { fullReasoning += delta; schedule(); },
           setContent(fullText) { fullContent = fullText; schedule(); },
-          setRate(r) { rate = r; schedule(); },
+          setActivity(label) {
+            const next = String(label || '');
+            if (next === activity) return;
+            activity = next;
+            schedule();
+          },
           repaint() { schedule(); }, // re-attach after a chat re-render
           finalize() {
             if (raf) { cancelAnimationFrame(raf); raf = 0; }
-            rate = 0; paint(); // apply the last deltas + drop the rate indicator
+            activity = ''; paint(); // apply the last deltas + drop the activity indicator
             liveViews.delete(msg.id);
           },
         };
@@ -13042,9 +13087,17 @@ Your report must be precise, of high-quality, and written by an expert using an 
         return {
           appendReasoning() {},
           setContent() {},
-          setRate() {},
+          setActivity() {},
           finalize() {},
         };
+      }
+
+      function assistantInitialActivity(userMsg) {
+        const attachments = (userMsg?.attachments || []).filter((item) => item?.kind !== 'image');
+        if (attachments.length === 1) return 'Reading attached file';
+        if (attachments.length > 1) return `Reading ${attachments.length} attached files`;
+        if (userMsg?.web?.sources?.length) return 'Reading sources';
+        return 'Preparing response';
       }
 
       function hasImageSourceForRequest(chat, userMsg) {
@@ -13231,7 +13284,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const asst = Store.mkMessage('assistant', '');
         asst.streaming = true;
         Store.appendMessage(chat.id, asst);
-        const view = Store.getActiveChat()?.id === chat.id ? Messages.beginAssistant(asst) : noopAssistantView();
+        const activity = directive.action === 'edit' ? 'Reading source image' : 'Preparing image';
+        const view = Store.getActiveChat()?.id === chat.id ? Messages.beginAssistant(asst, activity) : noopAssistantView();
         const controller = new AbortController();
         Store.setChatStreaming(chat.id, controller);
         const startedAt = performance.now();
@@ -13277,7 +13331,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (chat.remote) RemoteShare.publishDebounced(chat);
 
         const activeAtStart = Store.getActiveChat()?.id === chat.id;
-        const view = activeAtStart ? Messages.beginAssistant(asst) : noopAssistantView();
+        const view = activeAtStart ? Messages.beginAssistant(asst, assistantInitialActivity(userMsg)) : noopAssistantView();
         const holdback = createContentHoldback();
         const controller = new AbortController();
         Store.setChatStreaming(chat.id, controller);
@@ -13287,12 +13341,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
         let usage = null;
         let finishReason = null;
         let error = null;
-        let sawContent = false;
         const startedAt = performance.now();
-        // Live speed: ~chars/4 tokens over elapsed seconds (a smooth estimate).
-        const updateRate = () => {
-          const sec = (performance.now() - startedAt) / 1000;
-          if (sec > 0.25) view.setRate(Math.round(((content.length + reasoning.length) / 4) / sec));
+        const noteGeneratedChunk = () => {
+          view.setActivity('Generating response');
         };
 
         try {
@@ -13306,14 +13357,15 @@ Your report must be precise, of high-quality, and written by an expert using an 
           for await (const ev of Api.streamChat(req, controller.signal)) {
             switch (ev.type) {
               case 'reasoning':
+                noteGeneratedChunk();
                 reasoning += ev.text;
                 view.appendReasoning(ev.text);
-                updateRate();
                 Store.patchMessage(chat.id, asst.id, { content, reasoning });
                 if (chat.remote) RemoteShare.publishDebounced(chat);
                 break;
 
               case 'content': {
+                noteGeneratedChunk();
                 // Fallback for models that emit <think> inside `content`.
                 const part = holdback.push(ev.text);
                 if (part.reasoning) {
@@ -13321,13 +13373,9 @@ Your report must be precise, of high-quality, and written by an expert using an 
                   view.appendReasoning(part.reasoning);
                 }
                 if (part.content) {
-                  if (!sawContent) {
-                    sawContent = true;
-                  }
                   content += part.content;
                   view.setContent(content);
                 }
-                updateRate();
                 Store.patchMessage(chat.id, asst.id, { content, reasoning });
                 if (chat.remote) RemoteShare.publishDebounced(chat);
                 break;
@@ -13386,9 +13434,6 @@ Your report must be precise, of high-quality, and written by an expert using an 
             usage = {
               ...usage,
               elapsedMs,
-              tokPerSec: usage.completionTokens
-                ? +(usage.completionTokens / (elapsedMs / 1000)).toFixed(1)
-                : null,
             };
           }
           finishReason ??= 'stop';
