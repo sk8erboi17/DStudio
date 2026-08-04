@@ -38,6 +38,7 @@ diagnostics.log
 # Design agent workspace/mockup (not source)
 ds4-design/
 *.app/
+/dist/
 
 # Local package/test caches and generated scratch state
 node_modules/

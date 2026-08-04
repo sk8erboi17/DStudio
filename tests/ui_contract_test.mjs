@@ -20,6 +20,8 @@ const jsonlPatchText = fs.readdirSync('patch/ds4-agent-jsonl')
   .sort()
   .map((name) => fs.readFileSync(`patch/ds4-agent-jsonl/${name}`, 'utf8'))
   .join('\n');
+const jsonlBuild = fs.readFileSync('patch/ds4-agent-jsonl/build.mk', 'utf8');
+const designBuild = fs.readFileSync('extension/design/design.mk', 'utf8');
 const remoteDesign = fs.readFileSync('extension/design/ds4_design.c', 'utf8');
 const searchRuntime = fs.readFileSync('extension/search/runtime.js', 'utf8');
 const embedServer = fs.readFileSync('scripts/embed-server.sh', 'utf8');
@@ -585,7 +587,11 @@ assert.match(js, /gsaLoop: 'off'/, 'GSA loop should be persisted as an explicit 
 assert.match(js, /gsaDisabledTools: \[\]/, 'GSA disabled tool choices should persist in settings');
 assert.match(js, /enginePower: 90/, 'Engine power should default to ds4 --power 90');
 assert.match(js, /ssdStreaming: 'auto'/, 'SSD streaming should default to automatic memory-pressure handling');
-assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\) \}\)/, 'Engine starts should omit the local SSD preference for remote models');
+assert.match(js, /metalHotlistSeed: false/, 'Metal expert hotlist seed should default to off for stability');
+assert.match(html, /id="set-metal-hotlist"/, 'Settings should expose the Metal expert hotlist seed toggle');
+assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\), metalHotlistSeed: metalHotlistSeed\(\) \}\)/, 'Engine starts should omit local streaming preferences for remote models');
+assert.match(launcher, /json_get_bool\(body, "metalHotlistSeed"\)/, 'launcher should parse the Metal expert hotlist seed setting');
+assert.match(launcher, /DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST/, 'launcher should gate the Metal hotlist kill switch on the setting');
 assert.match(js, /function modelIdForEngineStatus\(st\)[\s\S]*modelFile[\s\S]*deepseek-v4-pro[\s\S]*deepseek-v4-flash/, 'live engine status should map the running GGUF to the correct API model id');
 assert.match(js, /liveModelId = modelIdForEngineStatus\(st\)[\s\S]*Store\.setSettings\(\{ model: liveModelId \}\)/, 'status sync should replace stale Flash/Pro labels with the running model id');
 assert.match(js, /SSD streaming running \$\{runningSsd\}[\s\S]*next restart \$\{desiredSsd\}/, 'Settings should distinguish the running SSD mode from a pending restart preference');
@@ -1015,8 +1021,8 @@ assert.match(html, /\.cdrop-menu\s*\{[\s\S]*position:\s*fixed[\s\S]*--cdrop-top[
 assert.match(js, /if \(!document\.body\.contains\(menu\)\) document\.body\.appendChild\(menu\)/, 'plus-menu dropdowns should be mounted on body before placement');
 assert.match(js, /window\.innerHeight - margin - height[\s\S]*menu\.style\.top/, 'plus-menu dropdown placement should clamp top inside the viewport');
 assert.match(html, /id="set-power"[\s\S]*id="set-ssd-streaming"/, 'Settings should expose engine power and SSD streaming launch parameters');
-assert.match(js, /enginePower:\s*90[\s\S]*ssdStreaming:\s*'auto'/, 'engine power and SSD streaming should have persisted defaults');
-assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\) \}\)/, 'engine starts should keep SSD streaming local-only');
+assert.match(js, /enginePower:\s*90[\s\S]*ssdStreaming:\s*'auto'[\s\S]*metalHotlistSeed:\s*false/, 'engine power, SSD streaming and hotlist seed should have persisted defaults');
+assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\), metalHotlistSeed: metalHotlistSeed\(\) \}\)/, 'engine starts should keep SSD streaming and hotlist seed local-only');
 assert.match(js, /function applyEngineConfig\(\)[\s\S]*Restart to apply engine settings\?[\s\S]*restartCurrent\(\)/, 'engine launch setting changes should offer to restart the active engine');
 assert.match(js, /setIogpuWiredLimit\(mb\)[\s\S]*\/api\/iogpu-wired-limit/, 'frontend should expose the IOGPU wired-limit apply endpoint');
 assert.match(html, /id="set-iogpu-limit-mb"[\s\S]*min="86016"[\s\S]*max="90112"[\s\S]*id="set-iogpu-limit"[\s\S]*Apply wired limit[\s\S]*LaunchDaemon/, 'Settings should offer a custom persistent macOS IOGPU limit action');
@@ -1263,21 +1269,23 @@ assert.match(loadingHtml, /settings\.onboarded !== true/, 'loading gate should w
 assert.doesNotMatch(loadingHtml, /hello are you alive\?|askAlive/, 'loading gate should not block app opening on a full model generation');
 assert.match(loadingHtml, /class="logo"[\s\S]*id="loading-progress"[\s\S]*id="loading-bar"[\s\S]*id="loading-stage"[\s\S]*id="loading-pct"/, 'loading page should show the DStudio logo above a labeled progress bar');
 assert.match(loadingHtml, /showProgress\(st\.loadPct,[\s\S]*st\.stage/, 'loading progress should consume the launcher percentage and stage');
-assert.match(loadingHtml, /startWithSavedSettings\(\)[\s\S]*saved\.ctxSize[\s\S]*saved\.enginePower[\s\S]*saved\.ssdStreaming[\s\S]*\/api\/start/, 'native loading gate should start the engine with the persisted browser launch settings');
-assert.match(loadingHtml, /startWithSavedSettings\(\)[\s\S]*\/api\/start[\s\S]*ssdStreaming,/, 'native loading gate should pass SSD Off/On/Auto through without rewriting it');
+assert.match(loadingHtml, /startWithSavedSettings\(\)[\s\S]*saved\.ctxSize[\s\S]*saved\.enginePower[\s\S]*saved\.ssdStreaming[\s\S]*saved\.metalHotlistSeed[\s\S]*\/api\/start/, 'native loading gate should start the engine with the persisted browser launch settings');
+assert.match(loadingHtml, /startWithSavedSettings\(\)[\s\S]*\/api\/start[\s\S]*ssdStreaming,[\s\S]*metalHotlistSeed,/, 'native loading gate should pass SSD and hotlist seed through without rewriting them');
 assert.doesNotMatch(loadingHtml, /useJsonlPatch|jsonl:/, 'native loading gate should use the single current Agent protocol');
 assert.match(loadingHtml, /idlePolls >= 3[\s\S]*location\.replace\('\/'\)/, 'loading gate should open the workspace instead of waiting forever when no engine launch is active');
 assert.doesNotMatch(loadingHtml, /class="mark"|@keyframes spin/, 'loading page should not use the old rotating mark');
 
 assert.match(gitignore, /^\/ds4\/$/m, 'managed upstream ds4 checkout should stay out of the DStudio source tree');
 assert.match(launcher, /#define DS4_REPO_URL "https:\/\/github\.com\/antirez\/ds4"/, 'launcher should know the upstream ds4 repo URL');
-assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "0a7ad776b9068348e6cb09df8cafa9cadd285298"/, 'managed ds4 setup should pin the current main commit in code');
+assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "6747e7718dd08f00b680d0c16231f2d59ec3747e"/, 'managed ds4 setup should pin the current main commit in code');
 assert.match(launcher, /#define DS4_ARCHIVE_URL "https:\/\/codeload\.github\.com\/antirez\/ds4\/tar\.gz\/" DS4_UPSTREAM_COMMIT/, 'managed ds4 setup should download a pinned GitHub source archive');
 assert.doesNotMatch(`${launcher}\n${js}\n${gitignore}`, /DS4_GLM_|ds4-glm52|\/api\/glm\/setup|setupGlm/, 'retired GLM side-checkout support should be removed');
 assert.match(launcher, /#define DS4_LAGUNA_UPSTREAM_COMMIT "7e3dbef7e336433f487c172a3308e26b39fa75a3"/, 'managed Laguna checkout should pin the fetched laguna-s2.1 branch');
 assert.match(launcher, /api_setup_laguna[\s\S]*DS4_LAGUNA_ARCHIVE_URL[\s\S]*setup_build_branch_runtimes\(target, "Laguna S 2\.1"/, 'Laguna setup should download and build all pinned side-by-side runtimes');
 assert.match(launcher, /setup_apply_ds4_runtime_patches[\s\S]*apply-ds4-qwen-hot-memory\.sh[\s\S]*apply-ds4-server-metrics\.sh/, 'managed ds4 setup should apply memory and server-metrics patches together');
 assert.match(launcher, /setup_build_branch_runtimes[\s\S]*setup_apply_ds4_runtime_patches\(\)[\s\S]*run_build_jsonl\("build"\)[\s\S]*build-design\.sh/, 'optional engine setup should prepare server, Agent and Design consistently');
+assert.match(jsonlBuild, /-I"\$\(DSTUDIO_REMOTE_DIR\)"[\s\S]*"\$\(DSTUDIO_REMOTE_DIR\)\/dstudio_remote_llm\.c"/, 'Agent build should quote the managed support path when it contains spaces');
+assert.match(designBuild, /-I"\$\(REMOTE_DIR\)"[\s\S]*"\$\(DESIGN_SRC\)"[\s\S]*"\$\(REMOTE_DIR\)\/dstudio_remote_llm\.c"/, 'Design build should quote external sources under macOS Application Support');
 assert.match(launcher, /!strcmp\(path, "\/api\/laguna\/setup"\)[\s\S]*api_setup_laguna\(fd\)/, 'launcher should expose POST /api/laguna/setup');
 assert.match(launcher, /DS4_METAL_LAGUNA_SOURCE[\s\S]*laguna\.metal/, 'Agent and Design should resolve the Laguna Metal source from any workspace');
 assert.match(launcher, /model_is_laguna\(\)[\s\S]*requires full model residency[\s\S]*SSD streaming cannot be forced on/, 'Laguna should disable automatic streaming and reject forced SSD streaming');
@@ -1288,7 +1296,7 @@ assert.match(js, /async function ensureModelDownloadEngine\(engine\)[\s\S]*Engin
 assert.match(js, /function modelDownloadStatusText\(dl\)[\s\S]*dl\?\.stage[\s\S]*runs in the background/, 'model download row should expose a persistent setup/download phase');
 assert.match(js, /function modelDownloadStateFromStatus\(st\)[\s\S]*st\?\.pausedDownload[\s\S]*stage: 'Paused:'[\s\S]*paused: true/, 'stopped resumable downloads should become a persistent paused UI state');
 assert.match(js, /function appendModelDownloadStatus\(host, dl\)[\s\S]*text: 'Resume'[\s\S]*Switcher\.downloadModel\(choice\.body\)/, 'paused model feedback should include a Resume action');
-assert.match(js, /function appendModelDownloadStatus\(host, dl\)[\s\S]*text: 'Delete partial'[\s\S]*Engine\.deleteModelPartials\(dl\.variant\)/, 'paused Laguna feedback should offer confirmed partial cleanup');
+assert.match(js, /function appendModelDownloadStatus\(host, dl\)[\s\S]*dl\.variant === 'laguna-q4' \|\| dl\.variant === 'flash-abliterated'[\s\S]*text: 'Delete partial'[\s\S]*Engine\.deleteModelPartials\(dl\.variant\)/, 'paused direct downloads should offer confirmed partial cleanup');
 assert.match(js, /async function deleteModelPartials\(target\)[\s\S]*JSON\.stringify\(\{ target, confirm: true \}\)/, 'partial cleanup client must send an explicit post-confirmation capability');
 assert.match(js, /function appendModelDownloadStatus\(host, dl\)[\s\S]*text: 'Stop'[\s\S]*Engine\.stopModelDownload\(\)[\s\S]*Model download paused/, 'active model feedback should offer a Stop action that transitions to paused');
 assert.match(js, /async function pollDownload\(\)[\s\S]*if \(st\.pausedDownload\)[\s\S]*modelDownloadStateFromStatus\(st\)[\s\S]*return;/, 'download polling should preserve the paused row instead of replacing it with the normal catalog');
@@ -1323,7 +1331,16 @@ assert.match(launcher, /!strcmp\(path, "\/api\/ds4\/setup"\)[\s\S]*api_setup_ds4
 assert.doesNotMatch(launcher, /\/api\/ds4dir|api_set_ds4dir/, 'launcher should not keep the old manual ds4dir endpoint');
 assert.match(launcher, /"setup-ds4"/, 'doctor should offer managed ds4 setup when the engine folder is missing');
 assert.match(html, /id="onboard-ds4dir-setup-btn"/, 'onboarding should offer one-click ds4 install');
+assert.match(html, /id="ds4dir-mode-path"[\s\S]*id="ds4dir-mode-lan"/, 'engine-folder dialog should offer Choose a path alongside Install and LAN');
+assert.match(html, /id="ds4dir-path-in"[\s\S]*id="ds4dir-path-browse"[\s\S]*id="ds4dir-path-use"/, 'Choose a path should offer browse and use controls');
+assert.match(html, /id="onboard-ds4dir-choose-btn"/, 'onboarding should offer a Choose button for an existing ds4 checkout');
+assert.match(js, /async function pickDs4GatePath\(\)[\s\S]*window\.ds4PickDirectory[\s\S]*useDs4GatePath\(\)/, 'Choose a path should use the native folder picker');
+assert.match(js, /async function useDs4GatePath\(\)[\s\S]*Engine\.setEngineCheckout\(path\)/, 'Choose a path should switch the engine checkout through the launcher API');
+assert.match(js, /async function chooseDs4FromUi\(\)[\s\S]*Engine\.setEngineCheckout\(path\)/, 'onboarding Choose should switch the engine checkout');
 assert.match(html, /id="onboard-model-recheck"/, 'onboarding model section should offer an explicit Recheck button');
+assert.match(html, /Required for local use/, 'local onboarding should clearly require a model');
+assert.match(js, /await loadGgufs\(\);[\s\S]*if \(!selectedGguf\)[\s\S]*Download a model/, 'onboarding Start must refuse to finish without a selected local model');
+assert.match(js, /start\.disabled = local && \(needsEngine \|\| needsModel\)/, 'onboarding Start must stay disabled until engine and model are ready');
 assert.match(html, /id="onboard-lan-ds4dir-setup"[\s\S]*Install ds4/, 'LAN onboarding should offer local ds4 install for Agent/Design');
 assert.match(html, /id="onboard-lan-ds4dir-path"/, 'LAN onboarding should show the managed local ds4 runtime path');
 assert.doesNotMatch(html, /<h3>Folders<\/h3>|Good to know/, 'onboarding should stay compact without explanatory Folders or Good to know sections');
@@ -1363,17 +1380,21 @@ assert.match(js, /target: 'flash-abliterated'/, 'the uncensored model download s
 assert.doesNotMatch(js, /body:\s*\{\s*variant:|typeof spec === 'string'/, 'model downloads should not retain the retired variant/string request formats');
 const modelDownloadHandler = launcher.match(/static void api_model_download[\s\S]*?\nstatic void api_model_partials_delete/)?.[0] || '';
 assert.match(modelDownloadHandler, /json_get_string\(body, "target"/, 'model download API should accept the current target field');
+assert.doesNotMatch(modelDownloadHandler, /download-abliterated\.sh/, 'the default model must not depend on a script absent from the pinned ds4 checkout');
+assert.match(launcher, /MODEL_FLASH_HF_REVISION "2814f4e666a88f5bb03a042e7bc65a3161a184cc"[\s\S]*MODEL_FLASH_SHA256 "b24232a926e055eea9443548132a0e5f7c589e11951bf5e5c41f8c3d1a7563fc"[\s\S]*child_download_abliterated_resumable[\s\S]*child_curl_resumable\(part, final, MODEL_FLASH_URL,[\s\S]*MODEL_FLASH_SHA256/, 'the default model download should be resumable and pinned by immutable revision, size and SHA-256');
 assert.match(modelDownloadHandler, /glm-unsloth-q4[\s\S]*glm-antirez-iq2xxs[\s\S]*glm-antirez-q2[\s\S]*glm-antirez-q4[\s\S]*laguna-q4/, 'model download API should whitelist the GLM and Laguna targets shown by the UI');
 assert.match(launcher, /g_dl_result = code == 0 \? 1 : -1[\s\S]*g_dl_result > 0[\s\S]*dl_pct = 100/, 'download completion should come from the downloader result for every model family');
 assert.match(launcher, /model_download_bytes_present[\s\S]*\.cache\/huggingface\/download[\s\S]*\.incomplete[\s\S]*g_dl_expected_bytes/, 'Hugging Face GLM/Laguna downloads should report progress from their opaque partial files');
 assert.match(launcher, /paused_model_download[\s\S]*DS4_LAGUNA_DIR_NAME[\s\S]*laguna-q4[\s\S]*pausedDownloadBytes[\s\S]*pausedDownloadPct/, 'launcher status should expose a stopped Laguna partial after restart');
-assert.match(launcher, /prepare_laguna_resumable_partial[\s\S]*rename\(best_path, part\)[\s\S]*child_download_laguna_resumable[\s\S]*"--continue-at", "-"[\s\S]*rename\(part, final\)/, 'Laguna Resume should promote the largest legacy partial and continue into one stable curl file');
+assert.match(launcher, /paused_model_download[\s\S]*flash-abliterated[\s\S]*MODEL_FLASH_EXPECTED_BYTES/, 'launcher status should expose a stopped default-model partial after restart');
+assert.match(launcher, /prepare_laguna_resumable_partial[\s\S]*rename\(best_path, part\)[\s\S]*child_curl_resumable[\s\S]*"--continue-at", "-"[\s\S]*rename\(part, final\)[\s\S]*child_download_laguna_resumable[\s\S]*child_curl_resumable\(part, final/, 'Laguna Resume should promote the largest legacy partial and continue into one stable curl file');
 assert.match(launcher, /api_model_partials_delete[\s\S]*explicit partial deletion confirmation is required[\s\S]*stop the active model download before deleting[\s\S]*delete_laguna_partial_files[\s\S]*removedBytes/, 'partial cleanup API should require confirmation, reject active transfers and report permanently removed temporary bytes');
 assert.match(launcher, /api_model_download_stop[\s\S]*kill\(-pid, SIGTERM\)[\s\S]*stopped\\":true/, 'model download stop API should terminate the isolated downloader process group');
 assert.match(launcher, /!strcmp\(path, "\/api\/model\/download\/stop"\)[\s\S]*api_model_download_stop\(fd\)/, 'launcher should expose the model download stop endpoint');
 assert.match(launcher, /api_model_folder_open[\s\S]*!strcmp\(engine, "main"\)[\s\S]*DS4_LAGUNA_DIR_NAME[\s\S]*execlp\("open", "open", folder/, 'model folder endpoint should open only a resolved managed GGUF directory on macOS');
 assert.match(launcher, /!strcmp\(path, "\/api\/model\/folder\/open"\)[\s\S]*api_model_folder_open\(fd, body\)/, 'launcher should expose the model folder endpoint');
 assert.match(launcher, /!strcmp\(path, "\/api\/model\/partials\/delete"\)[\s\S]*api_model_partials_delete\(fd, body\)/, 'launcher should expose the partial cleanup endpoint');
+assert.match(launcher, /connect_loopback_with_retry[\s\S]*attempts[\s\S]*usleep[\s\S]*api_v1_proxy[\s\S]*connect_loopback_with_retry\(eport, 25, 100\)/, 'the local model proxy should tolerate the engine accept-loop handoff after long generations');
 assert.doesNotMatch(modelDownloadHandler, /json_get_string\(body, "variant"|Legacy:/, 'model download API should reject retired variant aliases');
 assert.match(js, /async function recheckModels\(\)[\s\S]*refreshModels\(\)[\s\S]*loadGgufs\(\)/, 'onboarding model Recheck should rescan status and GGUF files');
 assert.match(js, /async function setupOnboardLanDs4\(\)[\s\S]*Engine\.setupDs4\(\)/, 'LAN onboarding local ds4 install should use the managed setup endpoint');

@@ -304,7 +304,7 @@ int main(int argc, char **argv) {
     const char *path = getenv("DS4UI_SKIP_LOADING") ? "/" : "/loading.html";
     snprintf(url, sizeof url, "http://127.0.0.1:%d%s", port, path);
 
-    webview_t w = webview_create(1280, 860, "DS4");
+    webview_t w = webview_create(1280, 860, "DStudio");
     webview_navigate(w, url);
     webview_run(w);   /* blocks while the window stays open */
 

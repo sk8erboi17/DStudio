@@ -21,7 +21,27 @@ In plain terms: DStudio is a **ds4 GUI**, a **local DeepSeek V4 desktop app**, a
 
 On macOS it ships as **DStudio.app**: double-click from Finder, no Terminal. On Windows it ships as a portable folder with `DStudio.exe` and the DS4 runtime binaries. The UI is a single vanilla `index.html` embedded in a small C launcher, so there is no Electron bundle, no framework build step, no CDN and no telemetry.
 
-## 30-second start
+## Install on macOS
+
+Download the Apple Silicon zip from [GitHub Releases](https://github.com/sk8erboi17/DStudio/releases), extract it and move **DStudio.app** to Applications. The app is ad-hoc signed but not Apple-notarized (notarization requires a paid Apple Developer account), so Gatekeeper may warn that Apple cannot verify it. To open it the first time:
+
+1. **Right-click** DStudio.app → **Open** → **Open** in the confirmation dialog, or
+2. [**System Settings → Privacy & Security → Open Anyway**](https://support.apple.com/guide/mac-help/mh40616/mac), or
+3. from Terminal: `xattr -cr /Applications/DStudio.app` (clears the download quarantine).
+
+The warning appears only because the app is not notarized; the build is reproducible from this source and ad-hoc signed.
+
+**Easiest install (no paid Apple Developer account)** — this downloads the release, verifies its SHA-256, removes the download quarantine and installs to `~/Applications`:
+
+```sh
+bash <(curl -fsSL https://raw.githubusercontent.com/sk8erboi17/DStudio/main/scripts/install-macos.sh)
+```
+
+Or use the DMG from the release: open it and drag **DStudio.app** into Applications, then open it once with right-click → Open.
+
+The first-run screen installs the pinned `ds4` engine into `~/Library/Application Support/DStudio`, then offers the supported GGUF models with their real download sizes. The default Flash transfer can be stopped and resumed after a restart, and DStudio verifies its exact size and SHA-256 before completion. Engine source, models and optional tools stay outside the signed app bundle, so updating or moving `DStudio.app` does not delete them.
+
+To build from source instead:
 
 ```sh
 make
@@ -174,7 +194,7 @@ DStudio is for local-AI builders who have the hardware to run DeepSeek V4 and wa
 This is a serious local AI setup. DStudio removes product friction, not physics:
 
 - **OS.** One `make` builds the branded app per platform: **DStudio.app** on **macOS** (Apple Silicon is the primary tested target), a **`dstudio`** binary on **Linux** (WebKitGTK / GTK3 via `webkit2gtk-4.1`) and a portable **Windows x64** folder/zip via `make windows`. Linux and Windows are less exercised, and `ds4` itself must be built for your platform.
-- A C compiler (`cc` / `clang`). `curl` and `tar` are used by first-run setup to download the pinned upstream `ds4` source archive; `node` is optional, only for `make check`.
+- Apple Command Line Tools (`xcode-select --install`) or another C compiler (`cc` / `clang`). `curl`, `tar` and `make` are used by first-run setup to download and build the pinned upstream `ds4` source archive; `node` is optional, only for `make check`.
 - **[antirez's ds4](https://github.com/antirez/ds4)**: DStudio installs pinned upstream commits into managed, side-by-side engine directories from GitHub source archives and applies the relevant local patch set from `patch/`. Users do not need Git installed.
 - **A DeepSeek V4 GGUF model.** Two variants (IQ2_XXS, 2-bit):
   - **Flash**: ~87 GB on disk, ~96-128 GB RAM
@@ -249,6 +269,7 @@ For local development and headless runs, keep the web server explicit:
 ```sh
 make run        # build + start on http://127.0.0.1:5500
 make check      # sanity: page stays text, JS syntax OK
+make dist-macos VERSION=1.0.0  # signed .app smoke test + release zip/checksum
 ```
 
 Optional parameters:

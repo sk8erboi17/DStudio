@@ -5757,6 +5757,7 @@
       <p class="wd-note">Looked in: <code id="ds4dir-cur" style="word-break:break-all"></code></p>
       <div class="onboard__seg" role="radiogroup" aria-label="Choose local folder or LAN">
         <button type="button" id="ds4dir-mode-local" class="onboard__seg-b on" role="radio" aria-checked="true">Install local ds4</button>
+        <button type="button" id="ds4dir-mode-path" class="onboard__seg-b" role="radio" aria-checked="false">Choose a path</button>
         <button type="button" id="ds4dir-mode-lan" class="onboard__seg-b" role="radio" aria-checked="false">Connect to LAN</button>
       </div>
       <div id="ds4dir-local-panel">
@@ -5775,6 +5776,18 @@
           </div>
         </label>
         <p class="set-inline-msg" id="ds4dir-lan-msg"></p>
+      </div>
+      <div id="ds4dir-path-panel" hidden>
+        <p class="wd-note">Point DStudio at an existing ds4 checkout: a folder with <code>ds4-server</code>, <code>ds4-agent-jsonl</code> and <code>gguf/</code>.</p>
+        <label class="field">
+          <span>ds4 folder</span>
+          <div class="field__row">
+            <input type="text" id="ds4dir-path-in" placeholder="/path/to/ds4" spellcheck="false" autocomplete="off">
+            <button type="button" id="ds4dir-path-browse" class="btn">Browse…</button>
+            <button type="button" id="ds4dir-path-use" class="btn btn--primary">Use this path</button>
+          </div>
+        </label>
+        <p class="set-inline-msg" id="ds4dir-path-msg"></p>
       </div>
     </form>
   </dialog>
@@ -5814,6 +5827,7 @@
             <div class="onboard__path-row">
               <input type="text" id="onboard-ds4dir" class="onboard__path-in" spellcheck="false" autocomplete="off" placeholder="./ds4" readonly>
               <span id="onboard-ds4dir-badge" class="path-badge"></span>
+              <button type="button" id="onboard-ds4dir-choose-btn" class="btn btn--sm" title="Choose an existing ds4 checkout folder">Choose…</button>
               <button type="button" id="onboard-ds4dir-setup-btn" class="btn btn--sm btn--primary" title="Download antirez/ds4 here and apply DStudio patches">Install ds4</button>
             </div>
             <p class="path-msg" id="onboard-ds4dir-msg"></p>
@@ -5825,7 +5839,7 @@
             <span id="onboard-conn" class="conn conn--unknown">checking…</span>
             <button type="button" id="onboard-check" class="btn btn--sm">Recheck</button>
           </div>
-          <p class="onboard__note">Install ds4 into this DStudio repo to avoid manual paths and keep local patches reproducible.</p>
+          <p class="onboard__note">DStudio keeps ds4, its local patches and downloaded models in its managed data folder.</p>
         </section>
 
         <section class="onboard__sec" id="onboard-model-sec">
@@ -5833,7 +5847,7 @@
             <h3>Model</h3>
             <button type="button" id="onboard-model-recheck" class="btn btn--sm">Recheck</button>
           </div>
-          <p class="onboard__note" id="onboard-model-note">Optional for onboarding — the GGUF weights live in the engine folder.</p>
+          <p class="onboard__note" id="onboard-model-note">Required for local use — choose a GGUF already on disk or download one here.</p>
           <div class="onboard__models" id="onboard-models"></div>
         </section>
 
@@ -5979,6 +5993,11 @@
               <button type="button" id="set-iogpu-limit" class="btn">Apply wired limit</button>
             </div>
             <p class="set-help">Allowed range: <code>86016</code> recommended to preserve media headroom, up to <code>90112</code> for the previous aggressive value. Applies now and installs a LaunchDaemon so the value is restored after reboot.</p>
+          </label>
+          <label class="field" id="set-metal-hotlist-row">
+            <span>Metal expert hotlist seed <small class="field-note">experimental; requires engine restart</small></span>
+            <input type="checkbox" id="set-metal-hotlist" aria-label="Metal expert hotlist seed">
+            <p class="set-help">When enabled, ds4 pre-warms the streamed expert cache from layers already mapped during prefill. This can fail on no-residency/SSD-streaming setups where the model is larger than RAM, so it is off by default.</p>
           </label>
         </section>
 
@@ -6427,6 +6446,7 @@
       ctxSize: 65536,       // engine context window (-c); 64k default, changeable in onboarding/settings
       enginePower: 90,      // ds4 --power launch parameter
       ssdStreaming: 'auto',  // off | on | auto — Metal SSD model streaming; auto engages it under memory pressure
+      metalHotlistSeed: false, // experimental Metal expert-cache hotlist seed; off keeps the stable pread path
       webMode: 'off',       // chat web context: 'off' | 'search' | 'research'
       planMode: 'off',      // agent Plan mode: 'off' | 'on' for the next planning turn
       gsaMode: 'off',       // agent GSA pipeline: 'off' | 'on' for the next security-analysis turn
@@ -7659,12 +7679,12 @@
         on(resume, 'click', () => Switcher.downloadModel(choice.body));
         host.append(resume);
       }
-      if (dl.variant === 'laguna-q4') {
+      if (dl.variant === 'laguna-q4' || dl.variant === 'flash-abliterated') {
         const remove = el('button', { class: 'btn btn--sm', type: 'button', text: 'Delete partial' });
         on(remove, 'click', async () => {
           const yes = await askConfirm({
             title: 'Delete the partial download?',
-            body: `Permanently delete ${fmtGgufSize(Number(dl.bytes) || 0)} of incomplete Laguna data? The completed model, if present, is never touched.`,
+            body: `Permanently delete ${fmtGgufSize(Number(dl.bytes) || 0)} of incomplete model data? The completed model, if present, is never touched.`,
             cta: 'Delete partial',
           });
           if (!yes) return;
@@ -16614,6 +16634,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
           power: qs('#set-power'),
           ssdStreaming: qs('#set-ssd-streaming'),
           ssdStreamingRow: qs('#set-ssd-streaming-row'),
+          metalHotlist: qs('#set-metal-hotlist'),
+          metalHotlistRow: qs('#set-metal-hotlist-row'),
           memoryMsg: qs('#set-memory-msg'),
           iogpuLimitMb: qs('#set-iogpu-limit-mb'),
           iogpuLimit: qs('#set-iogpu-limit'),
@@ -16687,6 +16709,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           if (f.deepseekModelRow) f.deepseekModelRow.hidden = !cloud;
           if (f.localModelRow) f.localModelRow.hidden = cloud;
           if (f.ssdStreamingRow) f.ssdStreamingRow.hidden = cloud;
+          if (f.metalHotlistRow) f.metalHotlistRow.hidden = cloud;
         };
         on(f.chatBackend, 'change', () => {
           const v = f.chatBackend.value === 'deepseek' ? 'deepseek' : 'local';
@@ -16741,6 +16764,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
           if (v === Store.getSettings().ssdStreaming) return;
           Store.setSettings({ ssdStreaming: v });
           refreshMemoryDoctor();
+          Switcher.applyEngineConfig();
+        });
+        on(f.metalHotlist, 'change', () => {
+          const v = !!f.metalHotlist.checked;
+          if (v === !!Store.getSettings().metalHotlistSeed) return;
+          Store.setSettings({ metalHotlistSeed: v });
           Switcher.applyEngineConfig();
         });
         // Theme is a segmented control (Dark / Light / System).
@@ -17082,6 +17111,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (f.deepseekModelRow) f.deepseekModelRow.hidden = !cloud;
         if (f.localModelRow) f.localModelRow.hidden = cloud;
         if (f.ssdStreamingRow) f.ssdStreamingRow.hidden = cloud;
+        if (f.metalHotlistRow) f.metalHotlistRow.hidden = cloud;
         if (f.deepseekModel) f.deepseekModel.value = s.deepseekModel || 'deepseek-v4-flash';
         f.temp.value = s.temperature;
         f.tempOut.textContent = s.temperature;
@@ -17090,6 +17120,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         f.ctx.value = String(s.ctxSize ?? 65536);
         f.power.value = String(s.enginePower ?? 90);
         f.ssdStreaming.value = ['off', 'on', 'auto'].includes(s.ssdStreaming) ? s.ssdStreaming : 'auto';
+        f.metalHotlist.checked = !!s.metalHotlistSeed;
         f.system.value = s.systemPrompt ?? '';
         updateCtxNote();
         renderSetModels();
@@ -18146,6 +18177,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
       let selectedGguf = null; // {path,engineDir,...}: model and owning checkout
       let runningModel = '';   // the model currently loaded (status.modelFile)
       let activeEngineDir = '';
+      let modelDownloadWasActive = false;
       const DS4_PATH = { input: 'onboard-ds4dir', badge: 'onboard-ds4dir-badge', msg: 'onboard-ds4dir-msg' };
 
       function statusHasUsableSetup(st) {
@@ -18224,6 +18256,13 @@ Your report must be precise, of high-quality, and written by an expert using an 
               updateForcedSetup();
               return;
             }
+            await loadGgufs();
+            if (!selectedGguf) {
+              const note = qs('#onboard-model-note');
+              if (note) note.textContent = 'Download a model, wait for it to finish, then select it to continue.';
+              updateForcedSetup();
+              return;
+            }
             if (selectedGguf) Store.setSettings({
               modelGguf: selectedGguf.path,
               modelEngineDir: selectedGguf.engineDir || '',
@@ -18268,6 +18307,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
         const setupBtn = qs('#onboard-ds4dir-setup-btn');
         if (setupBtn) on(setupBtn, 'click', () => setupDs4FromUi());
+        const chooseBtn = qs('#onboard-ds4dir-choose-btn');
+        if (chooseBtn) on(chooseBtn, 'click', () => chooseDs4FromUi());
         const modelRecheckBtn = qs('#onboard-model-recheck');
         if (modelRecheckBtn) on(modelRecheckBtn, 'click', recheckModels);
         const lanDs4SetupBtn = qs('#onboard-lan-ds4dir-setup');
@@ -18282,7 +18323,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
 
         // The Model section follows the live download/presence state.
         Store.subscribe('models', renderModels);
-        Store.subscribe('modelDownload', renderModels);
+        Store.subscribe('modelDownload', () => {
+          const active = !!Store.getState().ui.modelDownload;
+          renderModels();
+          if (dialog?.open && modelDownloadWasActive && !active) loadGgufs();
+          modelDownloadWasActive = active;
+        });
 
         // Escape must not close onboarding; completion is explicit through Start.
         on(dialog, 'cancel', (e) => e.preventDefault());
@@ -18397,7 +18443,19 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (isLanClientMode()) { ggufCache = []; renderModels(); return; }
         try { const r = await Engine.ggufs(); ggufCache = (r && r.ggufs) || []; }
         catch { ggufCache = ggufCache || []; }
+        const ggufs = ggufCache || [];
+        const settings = Store.getSettings();
+        const savedPath = String(settings.modelGguf || '');
+        const savedEngine = String(settings.modelEngineDir || '');
+        const sameModel = (g, path, engine) => String(g?.path || '') === String(path || '') &&
+          (!engine || !g?.engineDir || String(g.engineDir) === String(engine));
+        selectedGguf = ggufs.find((g) => sameModel(g, selectedGguf?.path, selectedGguf?.engineDir))
+          || ggufs.find((g) => sameModel(g, runningModel, activeEngineDir))
+          || ggufs.find((g) => sameModel(g, savedPath, savedEngine))
+          || ggufs[0]
+          || null;
         renderModels();
+        updateForcedSetup();
       }
       // Derive {model, kind, quant} from a GGUF filename.
       function parseGguf(file) {
@@ -18446,7 +18504,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
               el('span', { class: 'onboard__model-state', text: isRun ? '● Running' : isSel ? 'Selected' : '' }),
             ]),
           ]);
-          on(card, 'click', () => { selectedGguf = g; renderModels(); });
+          on(card, 'click', () => { selectedGguf = g; renderModels(); updateForcedSetup(); });
           return card;
         });
 
@@ -18485,6 +18543,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           }
         }
         host.replaceChildren(...cards, dlBox);
+        updateForcedSetup();
       }
 
       function setOnboardMode(mode) {
@@ -18559,8 +18618,14 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const start = qs('#onboard-start');
         if (!start) return;
         const local = !lanPanel || lanPanel.hidden;
-        start.disabled = forcedSetup && !lastDs4Ok && local;
-        start.title = start.disabled ? 'Install ds4 locally or connect to LAN.' : '';
+        const downloading = !!Store.getState().ui.modelDownload;
+        const needsEngine = !lastDs4Ok;
+        const needsModel = !selectedGguf;
+        start.disabled = local && (needsEngine || needsModel);
+        start.title = !start.disabled ? ''
+          : needsEngine ? 'Install ds4 locally or connect to LAN.'
+          : downloading ? 'Wait for the first model download to finish.'
+          : 'Download or select a local model first.';
       }
 
       async function connectLanAddress() {
@@ -18632,6 +18697,51 @@ Your report must be precise, of high-quality, and written by an expert using an 
           paintPath(DS4_PATH, 'bad', (r && r.error) || 'ds4 setup failed');
           updateForcedSetup();
           toast((r && r.error) || 'ds4 setup failed', 'error');
+        }
+        return r;
+      }
+
+      async function chooseDs4FromUi() {
+        if (ds4SetupBusy || isLanClientMode()) return null;
+        let path = '';
+        if (typeof window.ds4PickDirectory === 'function') {
+          try { path = await window.ds4PickDirectory({ mode: 'ds4-folder' }); }
+          catch { path = ''; }
+        }
+        if (!path) {
+          const inp = qs('#onboard-ds4dir');
+          const msg = qs('#onboard-ds4dir-msg');
+          if (msg) msg.textContent = 'Choose the ds4 folder from the dialog, or paste its full path here.';
+          if (inp) { inp.readOnly = false; inp.focus(); }
+          return null;
+        }
+        ds4SetupBusy = true;
+        const btn = qs('#onboard-ds4dir-choose-btn');
+        const label = btn?.textContent || 'Choose…';
+        if (btn) { btn.disabled = true; btn.textContent = 'Checking...'; }
+        paintPath(DS4_PATH, 'checking', 'Checking the ds4 folder...');
+        let r;
+        try { r = await Engine.setEngineCheckout(path); }
+        catch (e) { r = { ok: false, error: e?.message || 'Could not reach the launcher' }; }
+        if (btn) { btn.disabled = false; btn.textContent = label; }
+        ds4SetupBusy = false;
+
+        const inp = qs('#onboard-ds4dir');
+        if (r && r.dir && inp) inp.value = r.dir;
+        if (r && r.ok) {
+          lastDs4Ok = true;
+          forcedSetup = false;
+          paintPath(DS4_PATH, 'good', 'ds4 checkout selected');
+          updateForcedSetup();
+          await refreshModels();
+          await loadGgufs();
+          toast('ds4 checkout selected.', 'info');
+        } else {
+          lastDs4Ok = false;
+          forcedSetup = true;
+          paintPath(DS4_PATH, 'bad', (r && r.error) || 'Not a valid ds4 checkout');
+          updateForcedSetup();
+          toast((r && r.error) || 'Not a valid ds4 checkout', 'error');
         }
         return r;
       }
@@ -22982,7 +23092,13 @@ Your report must be precise, of high-quality, and written by an expert using an 
           }
         });
         on(qs('#ds4dir-mode-local'), 'click', () => setDs4GateMode('local'));
+        on(qs('#ds4dir-mode-path'), 'click', () => setDs4GateMode('path'));
         on(qs('#ds4dir-mode-lan'), 'click', () => setDs4GateMode('lan'));
+        on(qs('#ds4dir-path-browse'), 'click', pickDs4GatePath);
+        on(qs('#ds4dir-path-in'), 'keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); useDs4GatePath(); }
+        });
+        on(qs('#ds4dir-path-use'), 'click', useDs4GatePath);
         on(qs('#ds4dir-lan-connect'), 'click', connectDs4GateLan);
         on(qs('#ds4dir-lan-address'), 'keydown', (e) => {
           if (e.key === 'Enter') { e.preventDefault(); connectDs4GateLan(); }
@@ -23034,15 +23150,21 @@ Your report must be precise, of high-quality, and written by an expert using an 
       }
       function setDs4GateMode(mode) {
         const lan = mode === 'lan';
+        const path = mode === 'path';
         const localBtn = qs('#ds4dir-mode-local');
+        const pathBtn = qs('#ds4dir-mode-path');
         const lanBtn = qs('#ds4dir-mode-lan');
-        localBtn.classList.toggle('on', !lan);
-        localBtn.setAttribute('aria-checked', lan ? 'false' : 'true');
+        localBtn.classList.toggle('on', !lan && !path);
+        localBtn.setAttribute('aria-checked', !lan && !path ? 'true' : 'false');
+        pathBtn.classList.toggle('on', path);
+        pathBtn.setAttribute('aria-checked', path ? 'true' : 'false');
         lanBtn.classList.toggle('on', lan);
         lanBtn.setAttribute('aria-checked', lan ? 'true' : 'false');
         qs('#ds4dir-local-panel').hidden = lan;
+        qs('#ds4dir-path-panel').hidden = !path;
         qs('#ds4dir-lan-panel').hidden = !lan;
         if (lan) setTimeout(() => qs('#ds4dir-lan-address')?.focus(), 0);
+        else if (path) setTimeout(() => qs('#ds4dir-path-in')?.focus(), 0);
         else setTimeout(() => qs('#ds4dir-setup')?.focus(), 0);
       }
       async function setupDs4Gate() {
@@ -23067,6 +23189,51 @@ Your report must be precise, of high-quality, and written by an expert using an 
           warn.textContent = (r && r.error) || 'ds4 setup failed';
           warn.hidden = false;
         }
+      }
+      async function pickDs4GatePath() {
+        const inp = qs('#ds4dir-path-in');
+        const msg = qs('#ds4dir-path-msg');
+        if (typeof window.ds4PickDirectory !== 'function') {
+          if (msg) msg.textContent = 'Native folder picker unavailable — type the full path below.';
+          inp?.focus();
+          return;
+        }
+        if (msg) msg.textContent = '';
+        let path = '';
+        try { path = await window.ds4PickDirectory({ mode: 'ds4-folder' }); } catch { path = ''; }
+        if (!path) return;
+        inp.value = path;
+        await useDs4GatePath();
+      }
+      async function useDs4GatePath() {
+        const inp = qs('#ds4dir-path-in');
+        const msg = qs('#ds4dir-path-msg');
+        const btn = qs('#ds4dir-path-use');
+        const path = (inp?.value || '').trim();
+        if (!path) {
+          if (msg) msg.textContent = 'Type or browse to the ds4 folder first.';
+          inp?.focus();
+          return;
+        }
+        const label = btn?.textContent || 'Use this path';
+        if (btn) { btn.disabled = true; btn.textContent = 'Checking...'; }
+        if (msg) msg.textContent = 'Checking the ds4 folder...';
+        let r;
+        try { r = await Engine.setEngineCheckout(path); }
+        catch (e) { r = { ok: false, error: e?.message || 'Could not reach the launcher' }; }
+        if (btn) { btn.disabled = false; btn.textContent = label; }
+        if (r && r.ok) {
+          if (r.dir) qs('#ds4dir-cur').textContent = r.dir;
+          d4dResolved = true;
+          qs('#ds4dir-dialog')?.close();
+          d4dShown = false;
+          if (msg) msg.textContent = '';
+          toast('ds4 checkout selected.', 'info');
+          syncFromEngine();
+          Settings.refreshModels();
+          return;
+        }
+        if (msg) msg.textContent = (r && r.error) || 'Not a valid ds4 checkout.';
       }
       async function connectDs4GateLan() {
         const msg = qs('#ds4dir-lan-msg');
@@ -23511,10 +23678,11 @@ Your report must be precise, of high-quality, and written by an expert using an 
       const ctxSize = () => Store.getSettings().ctxSize || 65536;
       const enginePower = () => Math.max(1, Math.min(100, parseInt(Store.getSettings().enginePower ?? 90, 10) || 90));
       const ssdStreaming = () => ['off', 'on', 'auto'].includes(Store.getSettings().ssdStreaming) ? Store.getSettings().ssdStreaming : 'auto';
+      const metalHotlistSeed = () => !!Store.getSettings().metalHotlistSeed;
       const launchBase = (remote = false) => ({
         ctx: ctxSize(),
         power: enginePower(),
-        ...(remote ? {} : { ssdStreaming: ssdStreaming() }),
+        ...(remote ? {} : { ssdStreaming: ssdStreaming(), metalHotlistSeed: metalHotlistSeed() }),
       });
       const variant = () => Store.getSettings().modelVariant || 'flash';
       const thinkLevel = () => Store.getSettings().thinkLevel || 'high';

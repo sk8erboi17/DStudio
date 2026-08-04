@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
@@ -104,9 +105,44 @@ export function listGgufs(dir) {
   return out;
 }
 
+/* Native HTTP request: unlike global fetch (undici), it has no 300s
+ * headers-timeout, so long stream:false model generations on slow local
+ * engines keep waiting for the first byte up to the explicit abort signal. */
+function httpJsonRequest(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const headers = { ...(options.headers || {}) };
+    if (options.body && !('Content-Length' in headers)) {
+      headers['Content-Length'] = String(Buffer.byteLength(options.body));
+    }
+    const req = http.request({
+      hostname: u.hostname,
+      port: u.port || 80,
+      path: `${u.pathname}${u.search}`,
+      method: options.method || 'GET',
+      headers,
+      signal: options.signal,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve({
+          ok: res.statusCode >= 200 && res.statusCode < 300,
+          status: res.statusCode,
+          text: () => Promise.resolve(text),
+        });
+      });
+    });
+    req.on('error', reject);
+    if (options.body) req.write(options.body);
+    req.end();
+  });
+}
+
 export async function jsonFetch(baseUrl, urlPath, options = {}) {
   const signal = options.signal || AbortSignal.timeout(options.timeoutMs || 30_000);
-  const res = await fetch(`${baseUrl}${urlPath}`, { ...options, signal });
+  const res = await httpJsonRequest(`${baseUrl}${urlPath}`, { ...options, signal });
   const text = await res.text();
   let json = null;
   try { json = text ? JSON.parse(text) : null; } catch {}
@@ -130,7 +166,7 @@ export async function completeText(baseUrl, messages, opts = {}) {
   if (!off && opts.thinkLevel) body.reasoning_effort = opts.thinkLevel === 'max' ? 'max' : 'high';
   const json = await jsonFetch(baseUrl, '/v1/chat/completions', {
     method: 'POST',
-    timeoutMs: opts.timeoutMs || 600_000,
+    timeoutMs: opts.timeoutMs || Number(process.env.DSTUDIO_REAL_CALL_TIMEOUT_MS || 1_800_000),
     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -434,10 +470,10 @@ export function createWebPipeline(baseUrl) {
   const functions = names.map((n) => extractFunction(js, n)).join('\n\n');
   const factory = new Function('Api', 'Engine', 'performance', 'AbortSignal', 'URL', `
     const WEB_CONTEXT_CHARS = 1800;
-    const WEB_SEARCH_PLAN_TIMEOUT_MS = 45_000;
+    const WEB_SEARCH_PLAN_TIMEOUT_MS = Number(process.env.DSTUDIO_REAL_PLAN_TIMEOUT_MS || 120_000);
     const WEB_SEARCH_REQUEST_TIMEOUT_MS = 240_000;
-    const WEB_RESEARCH_PLAN_TIMEOUT_MS = 90_000;
-    const WEB_RESEARCH_JUDGE_TIMEOUT_MS = 90_000;
+    const WEB_RESEARCH_PLAN_TIMEOUT_MS = Number(process.env.DSTUDIO_REAL_PLAN_TIMEOUT_MS || 180_000);
+    const WEB_RESEARCH_JUDGE_TIMEOUT_MS = Number(process.env.DSTUDIO_REAL_JUDGE_TIMEOUT_MS || 600_000);
     const WEB_RESEARCH_TOTAL_TIMEOUT_MS = Number(process.env.DSTUDIO_REAL_TEST_TIMEOUT_MS || 1_800_000);
     function isLanClientMode() { return false; }
     ${functions}
@@ -449,7 +485,7 @@ export function createWebPipeline(baseUrl) {
       temperature: payload.temperature,
       maxTokens: payload.maxTokens,
       thinkLevel: payload.thinkLevel,
-      timeoutMs: 600_000,
+      timeoutMs: Number(process.env.DSTUDIO_REAL_CALL_TIMEOUT_MS || 1_800_000),
       signal,
     }),
   };
@@ -497,11 +533,11 @@ export async function modelJudge(baseUrl, { question, answer, sources, report })
           url: s.url,
           read: !!s.read,
           reader: s.reader || '',
-          excerpt: String(s.content || '').slice(0, 1000),
+          excerpt: String(s.content || '').slice(0, 4000),
         })),
       }),
     },
-  ], { maxTokens: 500, timeoutMs: 300_000, thinkLevel: 'off' });
+  ], { maxTokens: Number(process.env.DSTUDIO_REAL_JUDGE_MAX_TOKENS || 1500), timeoutMs: Number(process.env.DSTUDIO_REAL_JUDGE_TIMEOUT_MS || 600_000), thinkLevel: 'off' });
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) throw new Error(`judge did not return JSON: ${text}`);
   return JSON.parse(m[0]);

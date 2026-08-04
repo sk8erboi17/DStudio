@@ -3,13 +3,17 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>DS4</string>
+  <string>DStudio</string>
   <key>CFBundleDisplayName</key>
-  <string>DS4</string>
+  <string>DStudio</string>
   <key>CFBundleIdentifier</key>
-  <string>dev.ds4.web</string>
+  <string>dev.ds4.DStudio</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.developer-tools</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
   <key>NSHighResolutionCapable</key>
   <true/>
   <!-- WKWebView loads http://127.0.0.1 (loopback): allow local networking. -->

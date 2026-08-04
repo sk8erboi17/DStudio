@@ -188,6 +188,7 @@
       const ctx = Math.max(1024, Math.min(1048576, parseInt(saved.ctxSize, 10) || 65536));
       const power = Math.max(1, Math.min(100, parseInt(saved.enginePower, 10) || 90));
       const ssdStreaming = ['off', 'on', 'auto'].includes(saved.ssdStreaming) ? saved.ssdStreaming : 'auto';
+      const metalHotlistSeed = !!saved.metalHotlistSeed;
       const variant = saved.modelVariant === 'pro' ? 'pro' : 'flash';
       const gguf = typeof saved.modelGguf === 'string' ? saved.modelGguf : '';
       let engineDir = typeof saved.modelEngineDir === 'string' ? saved.modelEngineDir : '';
@@ -232,6 +233,7 @@
             ctx,
             power,
             ssdStreaming,
+            metalHotlistSeed,
           }),
         }, 15000);
         return true;

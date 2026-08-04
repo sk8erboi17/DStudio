@@ -6,6 +6,7 @@
 #   make check      full verification: fast tests + real model/web E2E tests
 #   make check-fast sanity: page/text/unit/UI/LAN tests without starting the model
 #   make check-real starts the real model and runs live Search/DeepResearch/remote tests
+#   make dist-macos builds, smoke-tests and zips the versioned Apple Silicon app
 #   make windows    Windows portable zip (run from Windows with PowerShell + toolchains)
 #   make install-desktop
 #                   Linux: installs the launcher + icon in ~/.local/share
@@ -27,6 +28,8 @@ endif
 CFLAGS  ?= -O2 $(WARN_CFLAGS) -std=c11
 PORT    ?= 5500
 DS4_DIR ?= ../ds4
+VERSION ?= 1.0.0
+BUILD_NUMBER ?= 1
 
 BIN      := dstudio
 SRC      := src/dstudio.c
@@ -59,9 +62,13 @@ ICON_INSTALL_DIR ?= $(XDG_DATA_HOME)/icons/hicolor/1024x1024/apps
 # Webview backend per platform.
 UNAME := $(shell uname)
 ifeq ($(UNAME),Darwin)
+  MACOSX_DEPLOYMENT_TARGET ?= 13.0
+  CFLAGS       += -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET)
   APPCXX       := clang++
-  APP_CXXFLAGS := -x objective-c++ -fno-objc-arc -std=c++11 -O2 $(WARN_CXXFLAGS)
+  APP_CXXFLAGS := -x objective-c++ -fno-objc-arc -std=c++11 -O2 $(WARN_CXXFLAGS) \
+                  -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET)
   APP_LDFLAGS  := -framework Cocoa -framework WebKit \
+                  -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET) \
                   -Wl,-sectcreate,__TEXT,__info_plist,$(PLIST)
   APP_DEPS     := $(HDR)                 # macOS icon comes from the .icns
   BIN_DEPS     := $(ICNS) $(PLIST)       # .icns built by sips/iconutil (macOS-only)
@@ -73,7 +80,7 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check check-fast check-real test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-http-lan test-gsa-bench-validate test-real-search-research test-real-remote clean app windows install-desktop uninstall-desktop
+.PHONY: all run check check-fast check-real test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-http-lan test-gsa-bench-validate test-real-search-research test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
@@ -91,21 +98,55 @@ endif
 # the "detritus"); the bundle icon comes from the .icns in Resources.
 APPNAME := DStudio
 APPDIR  := $(APPNAME).app
+APP_SUPPORT := $(APPDIR)/Contents/Resources/DStudio
+MAC_ARCH := $(shell uname -m)
+DIST_DIR := dist
+MAC_ZIP := $(DIST_DIR)/$(APPNAME)-$(VERSION)-macOS-$(MAC_ARCH).zip
+MAC_SHA := $(MAC_ZIP).sha256
 app: $(BIN)
 ifeq ($(UNAME),Darwin)
 	@rm -rf $(APPDIR)
-	@mkdir -p $(APPDIR)/Contents/MacOS $(APPDIR)/Contents/Resources
+	@mkdir -p $(APPDIR)/Contents/MacOS $(APP_SUPPORT)/extension/gsa/tools
 	@cp -X $(BIN) $(APPDIR)/Contents/MacOS/$(APPNAME)
 	@cp $(ICNS) $(APPDIR)/Contents/Resources/ds4.icns
 	@cp $(PLIST) $(APPDIR)/Contents/Info.plist
-	@/usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string $(APPNAME)' $(APPDIR)/Contents/Info.plist >/dev/null 2>&1 || true
-	@/usr/libexec/PlistBuddy -c 'Add :CFBundleIconFile string ds4' $(APPDIR)/Contents/Info.plist >/dev/null 2>&1 || true
-	@/usr/libexec/PlistBuddy -c 'Add :CFBundleShortVersionString string 1.0' $(APPDIR)/Contents/Info.plist >/dev/null 2>&1 || true
-	@/usr/libexec/PlistBuddy -c 'Add :CFBundleVersion string 1' $(APPDIR)/Contents/Info.plist >/dev/null 2>&1 || true
-	@codesign --force -s - $(APPDIR) >/dev/null 2>&1 && echo "$(APPDIR): ad-hoc signature ok" || echo "$(APPDIR): signature skipped"
+	@cp -R extension/design extension/remote extension/craft extension/search $(APP_SUPPORT)/extension/
+	@mkdir -p $(APP_SUPPORT)/extension/gsa
+	@cp -R extension/gsa/templates $(APP_SUPPORT)/extension/gsa/
+	@cp extension/gsa/tools/catalog.json extension/gsa/tools/README.md $(APP_SUPPORT)/extension/gsa/tools/
+	@cp -R patch scripts third_party $(APP_SUPPORT)/
+	@cp LICENSE THIRD_PARTY_NOTICES.md $(APP_SUPPORT)/
+	@find $(APP_SUPPORT) -type f \( -name .DS_Store -o -name '*.pyc' -o -name '*.pyo' \) -delete
+	@find $(APP_SUPPORT) -type d -name __pycache__ -empty -delete
+	@/usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable $(APPNAME)' $(APPDIR)/Contents/Info.plist >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string $(APPNAME)' $(APPDIR)/Contents/Info.plist
+	@/usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile ds4' $(APPDIR)/Contents/Info.plist >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c 'Add :CFBundleIconFile string ds4' $(APPDIR)/Contents/Info.plist
+	@/usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString $(VERSION)' $(APPDIR)/Contents/Info.plist >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c 'Add :CFBundleShortVersionString string $(VERSION)' $(APPDIR)/Contents/Info.plist
+	@/usr/libexec/PlistBuddy -c 'Set :CFBundleVersion $(BUILD_NUMBER)' $(APPDIR)/Contents/Info.plist >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c 'Add :CFBundleVersion string $(BUILD_NUMBER)' $(APPDIR)/Contents/Info.plist
+	@/usr/libexec/PlistBuddy -c 'Set :LSMinimumSystemVersion $(MACOSX_DEPLOYMENT_TARGET)' $(APPDIR)/Contents/Info.plist
+	@xattr -cr $(APPDIR)
+	@codesign --force --deep -s - $(APPDIR) >/dev/null 2>&1 && echo "$(APPDIR): ad-hoc signature ok" || echo "$(APPDIR): signature skipped"
 	@echo "$(APPDIR) ready: double click to start (no Terminal)."
 else
 	@echo "make app is for macOS only"
+endif
+
+test-macos-bundle: app
+ifeq ($(UNAME),Darwin)
+	@./scripts/smoke-macos-bundle.sh $(APPDIR)
+else
+	@echo "test-macos-bundle is for macOS only"
+endif
+
+dist-macos: test-macos-bundle
+ifeq ($(UNAME),Darwin)
+	@mkdir -p $(DIST_DIR)
+	@rm -f $(MAC_ZIP) $(MAC_SHA)
+	@ditto -c -k --sequesterRsrc --keepParent $(APPDIR) $(MAC_ZIP)
+	@cd $(DIST_DIR) && shasum -a 256 $$(basename $(MAC_ZIP)) > $$(basename $(MAC_SHA))
+	@echo "$(MAC_ZIP)"
+	@echo "$(MAC_SHA)"
+else
+	@echo "dist-macos is for macOS only"
 endif
 
 # Binary icon: logo.png resized into a multi-resolution .icns.
