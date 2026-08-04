@@ -35,7 +35,9 @@ case "${1:-build}" in
 esac
 
 # idempotence: skip if the binary is newer than both the source and the mk
-if [ -f "$BIN" ] && [ "$BIN" -nt "$SRC" ] && [ "$BIN" -nt "$MK" ] && [ "$BIN" -nt "$REMOTE_DIR/dstudio_remote_llm.c" ]; then
+if [ -f "$BIN" ] && [ "$BIN" -nt "$SRC" ] && [ "$BIN" -nt "$MK" ] \
+  && [ "$BIN" -nt "$REMOTE_DIR/dstudio_remote_llm.c" ] \
+  && [ "$BIN" -nt "$REMOTE_DIR/dstudio_remote_llm.h" ]; then
   echo "build-design: ds4-design already up to date, nothing to do"
   exit 0
 fi

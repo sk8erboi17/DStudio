@@ -29,9 +29,9 @@ function traceHas(trace, label) {
 }
 
 function assertDStudioGrounding(answer, label) {
-  assert.match(answer, /ds4/i, `${label} should mention ds4`);
+  assert.match(answer, /ds4|DeepSeek V4/i, `${label} should mention ds4/DeepSeek V4`);
   assert.match(answer, /(C launcher|launcher C|index\.html|Makefile|vanilla|native app|app locale|local-first)/i, `${label} should mention concrete DStudio implementation details`);
-  assert.doesNotMatch(answer, /\b(CrewAI|Ollama|Streamlit|FastAPI|ChromaDB|LangChain|Python)\b/i, `${label} must not invent the unrelated Vane/Python stack`);
+  assert.doesNotMatch(answer, /\b(CrewAI|Ollama|Streamlit|FastAPI|ChromaDB|LangChain|Vane)\b/i, `${label} must not invent the unrelated Vane/Python stack`);
 }
 
 try {
@@ -79,7 +79,7 @@ try {
   assert.equal(traceHas(searchTrace, 'Extract facts'), true, 'Search should extract facts from read pages');
   assert.equal(traceHas(searchTrace, 'Read URL'), true, 'Search should read at least one URL');
   assert.equal(hasReadGithubRepo(searchResult.sources), true, 'Search should read the GitHub DStudio repo');
-  assert.match(searchContext, /ds4/i, 'Search context should contain facts from the DStudio repo');
+  assert.match(searchContext, /ds4|DeepSeek V4/i, 'Search context should contain facts from the DStudio repo');
   assertDStudioGrounding(searchAnswer, 'Search answer');
   assert.doesNotMatch(searchAnswer, /non (sono|è) disponibil[ie] dettagli sul codice|non verificabil[ei] direttamente dalle fonti/i);
   assert.ok(

@@ -12,13 +12,18 @@ include Makefile
 
 REMOTE_DIR ?= ../DStudio/extension/remote
 
-# -I.: the source lives outside the ds4 repo, so #include "ds4.h" must be
-# resolved from the cwd (the ds4 dir), not from the source's dir.
-ds4_design.o: $(DESIGN_SRC) ds4.h ds4_ssd.h ds4_web.h ds4_kvstore.h $(REMOTE_DIR)/dstudio_remote_llm.h
-	$(CC) $(CFLAGS) -I. -I$(REMOTE_DIR) -c -o $@ $(DESIGN_SRC)
+.PHONY: dstudio-design-force
+dstudio-design-force:
 
-dstudio_remote_llm.o: $(REMOTE_DIR)/dstudio_remote_llm.c $(REMOTE_DIR)/dstudio_remote_llm.h
-	$(CC) $(CFLAGS) -I$(REMOTE_DIR) -c -o $@ $(REMOTE_DIR)/dstudio_remote_llm.c
+# -I.: the source lives outside the ds4 repo, so #include "ds4.h" must be
+# resolved from the cwd (the ds4 dir), not from the source's dir. External
+# paths stay out of Make prerequisites because the standard macOS support path
+# contains a space; the wrapper performs the freshness check before invoking us.
+ds4_design.o: ds4.h ds4_ssd.h ds4_web.h ds4_kvstore.h dstudio-design-force
+	$(CC) $(CFLAGS) -I. -I"$(REMOTE_DIR)" -c -o $@ "$(DESIGN_SRC)"
+
+dstudio_remote_llm.o: dstudio-design-force
+	$(CC) $(CFLAGS) -I"$(REMOTE_DIR)" -c -o $@ "$(REMOTE_DIR)/dstudio_remote_llm.c"
 
 # ds4_web.o adds the web tools (Chrome via CDP); ds4_kvstore.o adds session
 # persistence (KV on disk). No extra library needed, -lm -pthread already in

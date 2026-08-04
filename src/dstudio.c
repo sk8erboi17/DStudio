@@ -340,7 +340,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define LOG_RING_CAP 768
 #define DIAG_SSE_MAX 8
 #define DS4_REPO_URL "https://github.com/antirez/ds4"
-#define DS4_UPSTREAM_COMMIT "0a7ad776b9068348e6cb09df8cafa9cadd285298"
+#define DS4_UPSTREAM_COMMIT "6747e7718dd08f00b680d0c16231f2d59ec3747e"
 #define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
 
 /* Optional Laguna S 2.1 engine checkout. Laguna lives on its own upstream
@@ -364,6 +364,13 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define MODEL_FLASH MODEL_UNC
 #define MODEL_PRO   "gguf/DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix.gguf"
 #define MODEL_LAGUNA "gguf/laguna-s-2.1-Q4_K_M.gguf"
+#define MODEL_FLASH_HF_REVISION "2814f4e666a88f5bb03a042e7bc65a3161a184cc"
+#define MODEL_FLASH_EXPECTED_BYTES 86721392640LL
+#define MODEL_FLASH_SHA256 "b24232a926e055eea9443548132a0e5f7c589e11951bf5e5c41f8c3d1a7563fc"
+#define MODEL_FLASH_URL \
+    "https://huggingface.co/audreyt/CyberNeurova-DeepSeek-V4-Flash-abliterated-GGUF/resolve/" \
+    MODEL_FLASH_HF_REVISION "/" \
+    "cyberneurova-DeepSeek-V4-Flash-abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-aligned.gguf?download=true"
 #define MODEL_PRO_EXPECTED_BYTES 430000000000LL  /* ~430 GB (pro-q2-imatrix), for the % */
 
 enum { ENGINE_NONE = 0, ENGINE_SERVER, ENGINE_AGENT, ENGINE_DESIGN };
@@ -403,6 +410,7 @@ static char      g_design_dir[1024] = "";    /* last design workspace: the previ
                                                 stays servable even after stop */
 static int       g_ssd_streaming_effective = 0;
 static char      g_ssd_streaming_reason[192] = "not launched";
+static int       g_metal_hotlist_seed = 0; /* 1 = upstream Metal expert hotlist seed (experimental) */
 
 static int  g_in_fd  = -1;   /* agent stdin (write) */
 static int  g_out_fd = -1;   /* child stdout (read)  */
@@ -1425,6 +1433,8 @@ static void api_diagnostics(int fd) {
              json_dyn_puts(&b, g_cfg.ssd_streaming == SSD_STREAMING_ON ? "on" : g_cfg.ssd_streaming == SSD_STREAMING_OFF ? "off" : "auto") &&
              json_dyn_puts(&b, "\",\"ssdStreamingEffective\":") &&
              json_dyn_puts(&b, g_ssd_streaming_effective ? "true" : "false") &&
+             json_dyn_puts(&b, ",\"metalHotlistSeed\":") &&
+             json_dyn_puts(&b, g_metal_hotlist_seed ? "true" : "false") &&
              json_dyn_puts(&b, ",\"ssdStreamingReason\":\"") &&
              json_dyn_puts(&b, ssd_reason_esc) &&
              json_dyn_puts(&b, "\"},\"tasks\":{\"seq\":") &&
@@ -2064,7 +2074,7 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
     const char *file = "";
     long long bytes = 0;
     if (!strcmp(target, "flash-abliterated")) {
-        file = MODEL_FLASH; bytes = 87000000000LL;
+        file = MODEL_FLASH; bytes = MODEL_FLASH_EXPECTED_BYTES;
     } else if (!strcmp(target, "q2-imatrix")) {
         file = "gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix.gguf";
         bytes = 87000000000LL;
@@ -2144,6 +2154,23 @@ static long long hf_partial_bytes_in_checkout(const char *checkout) {
 static int paused_model_download(char *target, size_t targetsz,
                                  long long *bytes, long long *expected) {
     if (g_dl_pid > 0) return 0;
+
+    /* The default model is downloaded directly into the main managed checkout
+     * using one stable .part file, so it remains resumable across app restarts. */
+    char flash_final[DSTUDIO_PATH_MAX + 1100], flash_part[DSTUDIO_PATH_MAX + 1110];
+    struct stat flash_st;
+    snprintf(flash_final, sizeof flash_final, "%s/%s", g_ds4_dir, MODEL_FLASH);
+    snprintf(flash_part, sizeof flash_part, "%s.part", flash_final);
+    if ((stat(flash_final, &flash_st) != 0 || !S_ISREG(flash_st.st_mode) ||
+         flash_st.st_size <= 0) &&
+        stat(flash_part, &flash_st) == 0 && S_ISREG(flash_st.st_mode) &&
+        flash_st.st_size > 0) {
+        cstr_copy(target, targetsz, "flash-abliterated");
+        if (bytes) *bytes = (long long)flash_st.st_size;
+        if (expected) *expected = MODEL_FLASH_EXPECTED_BYTES;
+        return 1;
+    }
+
     struct {
         const char *dirname;
         const char *target;
@@ -2223,6 +2250,106 @@ static int prepare_laguna_resumable_partial(const char *checkout,
     return 1;
 }
 
+static int child_verify_sha256(const char *path, const char *expected) {
+    if (!expected || !expected[0]) return 1;
+    int fds[2];
+    if (pipe(fds) != 0) return 0;
+    pid_t hash_pid = fork();
+    if (hash_pid < 0) {
+        close(fds[0]); close(fds[1]);
+        return 0;
+    }
+    if (hash_pid == 0) {
+        close(fds[0]);
+        if (dup2(fds[1], STDOUT_FILENO) < 0) _exit(127);
+        close(fds[1]);
+        execlp("shasum", "shasum", "-a", "256", path, (char *)NULL);
+        execlp("sha256sum", "sha256sum", path, (char *)NULL);
+        _exit(127);
+    }
+    close(fds[1]);
+    char prefix[65] = {0}, chunk[512];
+    size_t captured = 0;
+    int read_failed = 0;
+    for (;;) {
+        ssize_t n = read(fds[0], chunk, sizeof chunk);
+        if (n == 0) break;
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            read_failed = 1;
+            break;
+        }
+        size_t take = (size_t)n;
+        if (take > 64 - captured) take = 64 - captured;
+        if (take > 0) {
+            memcpy(prefix + captured, chunk, take);
+            captured += take;
+        }
+    }
+    close(fds[0]);
+    int status = 0;
+    pid_t waited;
+    do { waited = waitpid(hash_pid, &status, 0); } while (waited < 0 && errno == EINTR);
+    return !read_failed && captured == 64 && waited == hash_pid &&
+           WIFEXITED(status) && WEXITSTATUS(status) == 0 &&
+           !memcmp(prefix, expected, 64);
+}
+
+static int child_curl_resumable(const char *part, const char *final,
+                                const char *url, long long expected_bytes,
+                                const char *expected_sha256) {
+    struct stat st;
+    if (stat(final, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) {
+        if ((expected_bytes <= 0 || (long long)st.st_size == expected_bytes) &&
+            child_verify_sha256(final, expected_sha256))
+            return 0;
+        return 1;
+    }
+    if (stat(part, &st) == 0 && S_ISREG(st.st_mode)) {
+        if (expected_bytes > 0 && (long long)st.st_size > expected_bytes) return 1;
+        if (expected_bytes > 0 && (long long)st.st_size == expected_bytes) {
+            if (!child_verify_sha256(part, expected_sha256)) return 1;
+            return rename(part, final) == 0 ? 0 : 1;
+        }
+    }
+    pid_t curl_pid = fork();
+    if (curl_pid < 0) return 1;
+    if (curl_pid == 0) {
+        const char *token = getenv("HF_TOKEN");
+        if (token && token[0]) {
+            char auth[2300];
+            snprintf(auth, sizeof auth, "Authorization: Bearer %s", token);
+            execlp("curl", "curl", "-L", "--fail", "--show-error", "--retry", "5",
+                   "--retry-all-errors", "--continue-at", "-", "--output", part,
+                   "-H", auth, url, (char *)NULL);
+        } else {
+            execlp("curl", "curl", "-L", "--fail", "--show-error", "--retry", "5",
+                   "--retry-all-errors", "--continue-at", "-", "--output", part,
+                   url, (char *)NULL);
+        }
+        _exit(127);
+    }
+    int status = 0;
+    pid_t waited;
+    do { waited = waitpid(curl_pid, &status, 0); } while (waited < 0 && errno == EINTR);
+    if (waited != curl_pid || !WIFEXITED(status) || WEXITSTATUS(status) != 0) return 1;
+    if (stat(part, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) return 1;
+    if (expected_bytes > 0 && (long long)st.st_size != expected_bytes) return 1;
+    if (!child_verify_sha256(part, expected_sha256)) return 1;
+    return rename(part, final) == 0 ? 0 : 1;
+}
+
+static int child_download_abliterated_resumable(const char *checkout) {
+    char gguf[DSTUDIO_PATH_MAX + 16];
+    snprintf(gguf, sizeof gguf, "%s/gguf", checkout);
+    if (mkdir(gguf, 0755) != 0 && errno != EEXIST) return 1;
+    char part[DSTUDIO_PATH_MAX + 1100], final[DSTUDIO_PATH_MAX + 1100];
+    snprintf(final, sizeof final, "%s/%s", checkout, MODEL_FLASH);
+    snprintf(part, sizeof part, "%s.part", final);
+    return child_curl_resumable(part, final, MODEL_FLASH_URL,
+                                MODEL_FLASH_EXPECTED_BYTES, MODEL_FLASH_SHA256);
+}
+
 static int child_download_laguna_resumable(const char *checkout) {
     char part[DSTUDIO_PATH_MAX + 1100], final[DSTUDIO_PATH_MAX + 1100];
     if (!prepare_laguna_resumable_partial(checkout, part, sizeof part,
@@ -2232,27 +2359,28 @@ static int child_download_laguna_resumable(const char *checkout) {
         "https://huggingface.co/poolside/Laguna-S-2.1-GGUF/resolve/"
         "706fa69799926b6afde1af9e24ca2a4923f110a1/"
         "laguna-s-2.1-Q4_K_M.gguf?download=true";
-    pid_t curl_pid = fork();
-    if (curl_pid < 0) return 1;
-    if (curl_pid == 0) {
-        const char *token = getenv("HF_TOKEN");
-        if (token && token[0]) {
-            char auth[2300];
-            snprintf(auth, sizeof auth, "Authorization: Bearer %s", token);
-            execlp("curl", "curl", "-L", "--fail", "--retry", "5",
-                   "--retry-all-errors", "--continue-at", "-", "--output", part,
-                   "-H", auth, url, (char *)NULL);
-        } else {
-            execlp("curl", "curl", "-L", "--fail", "--retry", "5",
-                   "--retry-all-errors", "--continue-at", "-", "--output", part,
-                   url, (char *)NULL);
-        }
-        _exit(127);
+    return child_curl_resumable(part, final, url, 0, NULL);
+}
+
+static long long delete_stable_model_partial(const char *checkout,
+                                             const char *rel, int *failed) {
+    char part[DSTUDIO_PATH_MAX + 1110];
+    snprintf(part, sizeof part, "%s/%s.part", checkout, rel);
+    struct stat st;
+    if (stat(part, &st) != 0) {
+        if (errno != ENOENT) *failed = 1;
+        return 0;
     }
-    int status = 0;
-    while (waitpid(curl_pid, &status, 0) < 0 && errno == EINTR) {}
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) return 1;
-    return rename(part, final) == 0 ? 0 : 1;
+    if (!S_ISREG(st.st_mode)) {
+        *failed = 1;
+        return 0;
+    }
+    long long bytes = (long long)st.st_size;
+    if (unlink(part) != 0) {
+        *failed = 1;
+        return 0;
+    }
+    return bytes;
 }
 
 static long long delete_laguna_partial_files(const char *checkout, int *failed) {
@@ -3374,6 +3502,16 @@ static void child_setenv_metal(void) {
         setenv("DS4_METAL_NO_MODEL_WARMUP", "1", 1);
         setenv("DS4_METAL_PREFILL_CHUNK", "1024", 1);
         setenv("DS4_METAL_GRAPH_TOKEN_SPLIT_LAYERS", "0", 1);
+        /* Upstream 4893e0c seeds the streamed-expert cache from mapped
+         * prefill layers; with our no-residency map (model >> RAM) those
+         * views are not present, so the second prefill fails with
+         * "Metal model range ... is not covered by mapped model views".
+         * Disabled by default (settings: Metal expert hotlist seed); the
+         * upstream kill switch restores the stable pread-based seed. */
+        if (g_metal_hotlist_seed)
+            unsetenv("DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST");
+        else
+            setenv("DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST", "1", 1);
     } else {
         /* Laguna deliberately validates that it is running the untouched
          * full-residency Metal path. A GUI process can inherit these knobs
@@ -3383,6 +3521,7 @@ static void child_setenv_metal(void) {
         unsetenv("DS4_METAL_NO_MODEL_WARMUP");
         unsetenv("DS4_METAL_PREFILL_CHUNK");
         unsetenv("DS4_METAL_GRAPH_TOKEN_SPLIT_LAYERS");
+        unsetenv("DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST");
     }
     /* GLM streaming: the batch-selected-addr prefill path fails on partial
      * model maps (model >> RAM); the full-layer prefill path is the one that
@@ -4336,11 +4475,67 @@ static int run_build_jsonl(const char *action) {
 /* Runs an extension script (build/restore of the derived binaries).
  * Our own scripts, fixed args → no shell-injection. Blocks until the end;
  * 1 if ok. */
-/* Locate this DStudio checkout (the one holding extension/) so helper scripts
- * resolve from the BUNDLE too: launched from Finder the cwd is "/", so a
- * relative "extension/..." path would not be found. Tries cwd, then next to
- * the executable, then up out of the .app bundle (DStudio.app/Contents/MacOS). */
+/* A release bundle carries a small, signed support tree under Resources/DStudio.
+ * Materialize that tree into the user's writable Application Support folder:
+ * ds4 source checkouts, GGUF downloads, design systems and optional GSA tools
+ * must never mutate the .app (which would invalidate its signature). `ditto`
+ * merges only the bundled support files, preserving downloaded data already in
+ * the destination. DS4UI_DATA_DIR keeps isolated bundle tests deterministic. */
+#ifdef __APPLE__
+static int mac_mkdir_p(const char *path) {
+    if (!path || !path[0]) return 0;
+    char tmp[DSTUDIO_PATH_MAX];
+    int n = snprintf(tmp, sizeof tmp, "%s", path);
+    if (n < 0 || (size_t)n >= sizeof tmp) return 0;
+    for (char *p = tmp + 1; *p; p++) {
+        if (*p != '/') continue;
+        *p = '\0';
+        if (mkdir(tmp, 0755) != 0 && errno != EEXIST) return 0;
+        *p = '/';
+    }
+    return mkdir(tmp, 0755) == 0 || errno == EEXIST;
+}
+
+static int mac_materialize_bundle_support(const char *bundle_root,
+                                          char *out, size_t outsz) {
+    const char *configured = getenv("DS4UI_DATA_DIR");
+    char target[DSTUDIO_PATH_MAX];
+    int n;
+    if (configured && configured[0]) {
+        n = snprintf(target, sizeof target, "%s", configured);
+    } else {
+        const char *home = getenv("HOME");
+        if (!home || !home[0]) return 0;
+        n = snprintf(target, sizeof target, "%s/Library/Application Support/DStudio", home);
+    }
+    if (n < 0 || (size_t)n >= sizeof target || !mac_mkdir_p(target)) return 0;
+
+    pid_t pid = fork();
+    if (pid < 0) return 0;
+    if (pid == 0) {
+        execl("/usr/bin/ditto", "ditto", bundle_root, target, (char *)NULL);
+        _exit(127);
+    }
+    int st = 0;
+    pid_t waited;
+    do { waited = waitpid(pid, &st, 0); } while (waited < 0 && errno == EINTR);
+    if (waited != pid || !WIFEXITED(st) || WEXITSTATUS(st) != 0) return 0;
+
+    char marker[DSTUDIO_PATH_MAX + 80], abs[DSTUDIO_PATH_MAX];
+    n = snprintf(marker, sizeof marker, "%s/extension/design/build-design.sh", target);
+    if (n < 0 || (size_t)n >= sizeof marker || access(marker, R_OK) != 0) return 0;
+    if (!realpath(target, abs)) return 0;
+    cstr_copy(out, outsz, abs);
+    return 1;
+}
+#endif
+
+/* Locate the DStudio support root (the one holding extension/). Finder launches
+ * with cwd="/", so relative paths are insufficient. Source builds use the
+ * checkout directly; release bundles copy their signed support payload into a
+ * writable per-user directory before any setup or update action runs. */
 static void resolve_web_dir(void) {
+    if (web_dir_valid()) return;
     char cand[DSTUDIO_PATH_MAX + 2048], abs[DSTUDIO_PATH_MAX];
     snprintf(cand, sizeof cand, "extension");
     if (realpath(cand, abs) && access(abs, R_OK) == 0) {
@@ -4356,11 +4551,25 @@ static void resolve_web_dir(void) {
             char *slash = strrchr(exabs, '/');
             if (slash) {
                 *slash = '\0';
-                const char *rels[] = { "%s/extension", "%s/../../../extension" };
-                for (int i = 0; i < 2; i++) {
+                const char *rels[] = {
+                    "%s/../Resources/DStudio/extension",
+                    "%s/extension",
+                    "%s/../../../extension"
+                };
+                for (int i = 0; i < 3; i++) {
                     snprintf(cand, sizeof cand, rels[i], exabs);
                     if (realpath(cand, abs) && access(abs, R_OK) == 0) {
                         char *s2 = strrchr(abs, '/'); if (s2) *s2 = '\0';
+                        if (i == 0) {
+                            char writable[DSTUDIO_PATH_MAX];
+                            if (mac_materialize_bundle_support(abs, writable, sizeof writable)) {
+                                cstr_copy(g_web_dir, sizeof g_web_dir, writable);
+                                return;
+                            }
+                            fprintf(stderr, "DStudio: could not prepare writable Application Support; setup is unavailable\n");
+                            g_web_dir[0] = '\0';
+                            return;
+                        }
                         cstr_copy(g_web_dir, sizeof g_web_dir, abs);
                         return;
                     }
@@ -4871,7 +5080,7 @@ static void api_model_download(int fd, const char *body) {
         int log = open("/tmp/ds4-model-dl.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (log >= 0) { dup2(log, STDOUT_FILENO); dup2(log, STDERR_FILENO); close(log); }
         int dn = open("/dev/null", O_RDONLY); if (dn >= 0) { dup2(dn, STDIN_FILENO); close(dn); }
-        if (abliterated) execl("/bin/sh", "sh", "download-abliterated.sh", (char *)NULL);
+        if (abliterated) _exit(child_download_abliterated_resumable(ds4_abs));
         if (!strcmp(target, "laguna-q4")) _exit(child_download_laguna_resumable(ds4_abs));
         else            execl("/bin/sh", "sh", "download_model.sh", target, (char *)NULL);
         _exit(127);
@@ -4986,7 +5195,7 @@ static void api_model_partials_delete(int fd, const char *body) {
                   "{\"ok\":false,\"error\":\"explicit partial deletion confirmation is required\"}");
         return;
     }
-    if (strcmp(target, "laguna-q4")) {
+    if (strcmp(target, "laguna-q4") && strcmp(target, "flash-abliterated")) {
         send_json(fd, "400 Bad Request",
                   "{\"ok\":false,\"error\":\"unknown partial model target\"}");
         return;
@@ -4997,15 +5206,22 @@ static void api_model_partials_delete(int fd, const char *body) {
         return;
     }
     char checkout[DSTUDIO_PATH_MAX];
-    snprintf(checkout, sizeof checkout, "%s/%s", g_web_dir, DS4_LAGUNA_DIR_NAME);
     int failed = 0;
-    long long removed = delete_laguna_partial_files(checkout, &failed);
+    long long removed = 0;
+    if (!strcmp(target, "flash-abliterated")) {
+        cstr_copy(checkout, sizeof checkout, g_ds4_dir);
+        removed = delete_stable_model_partial(checkout, MODEL_FLASH, &failed);
+    } else {
+        snprintf(checkout, sizeof checkout, "%s/%s", g_web_dir, DS4_LAGUNA_DIR_NAME);
+        removed = delete_laguna_partial_files(checkout, &failed);
+    }
     if (failed) {
         send_json(fd, "500 Internal Server Error",
                   "{\"ok\":false,\"error\":\"some partial files could not be deleted\"}");
         return;
     }
-    if (!strcmp(g_dl_variant, target)) {
+    if (!strcmp(g_dl_variant, target) ||
+        (!strcmp(target, "flash-abliterated") && !strcmp(g_dl_variant, "flash"))) {
         g_dl_variant[0] = '\0';
         g_dl_rel[0] = '\0';
         g_dl_expected_bytes = 0;
@@ -5013,7 +5229,7 @@ static void api_model_partials_delete(int fd, const char *body) {
     }
     char out[180];
     snprintf(out, sizeof out,
-             "{\"ok\":true,\"target\":\"laguna-q4\",\"removedBytes\":%lld}", removed);
+             "{\"ok\":true,\"target\":\"%s\",\"removedBytes\":%lld}", target, removed);
     send_json(fd, "200 OK", out);
 #endif
 }
@@ -5102,11 +5318,13 @@ static void api_status(int fd) {
     if (engine_running)
         snprintf(cfg, sizeof cfg,
                  "{\"model\":\"%s\",\"port\":%d,\"ctx\":%d,\"power\":%d,\"think\":\"%s\","
-                 "\"ssdStreaming\":\"%s\",\"ssdStreamingEffective\":%s,\"ssdStreamingReason\":\"%s\"}",
+                 "\"ssdStreaming\":\"%s\",\"ssdStreamingEffective\":%s,\"ssdStreamingReason\":\"%s\","
+                 "\"metalHotlistSeed\":%s}",
                  g_cfg.uncensored ? "uncensored" : "standard", g_cfg.port, g_cfg.ctx, g_cfg.power,
                  g_cfg.think == 0 ? "off" : g_cfg.think == 2 ? "max" : "high",
                  g_cfg.ssd_streaming == SSD_STREAMING_ON ? "on" : g_cfg.ssd_streaming == SSD_STREAMING_OFF ? "off" : "auto",
-                 g_ssd_streaming_effective ? "true" : "false", ssd_reason_esc);
+                 g_ssd_streaming_effective ? "true" : "false", ssd_reason_esc,
+                 g_metal_hotlist_seed ? "true" : "false");
     else
         snprintf(cfg, sizeof cfg, "null");
 
@@ -5768,6 +5986,7 @@ oom:
 #include "../extension/rsa/dstudio_rsa.cfrag"
 
 static void parse_cfg(const char *body, engine_cfg *cfg, int *bad) {
+    g_metal_hotlist_seed = json_get_bool(body, "metalHotlistSeed");
     long v;
     int m = json_get_model(body, model_present(1) ? 1 : 0);
     if (m < 0) { *bad = 1; m = ENGINE_DEFAULTS.uncensored; }
@@ -7915,21 +8134,44 @@ static void api_web_search(int fd, const char *body) {
  * runs in a double-forked (zombie-free) child that streams the response; it reads
  * the full request body itself, bypassing the small BODY_MAX used by /api. `req`
  * holds the request line + headers + the body bytes already buffered. */
+static int connect_loopback_with_retry(int port, int attempts, int delay_ms) {
+    for (int attempt = 0; attempt < attempts; attempt++) {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd >= 0) {
+#ifdef _WIN32
+            int tv = 1000;
+            (void)setsockopt((SOCKET)(intptr_t)fd, SOL_SOCKET, SO_RCVTIMEO,
+                             (const char *)&tv, sizeof tv);
+            (void)setsockopt((SOCKET)(intptr_t)fd, SOL_SOCKET, SO_SNDTIMEO,
+                             (const char *)&tv, sizeof tv);
+#else
+            struct timeval tv = { 1, 0 };
+            (void)setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+            (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+#endif
+            struct sockaddr_in addr;
+            memset(&addr, 0, sizeof addr);
+            addr.sin_family = AF_INET;
+            addr.sin_port = htons((uint16_t)port);
+            addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            if (connect(fd, (struct sockaddr *)&addr, sizeof addr) == 0) return fd;
+            close(fd);
+        }
+        if (attempt + 1 < attempts) usleep((unsigned int)delay_ms * 1000u);
+    }
+    return -1;
+}
+
 static void api_v1_proxy(int client_fd, const char *method, const char *path,
                          const char *req, size_t got, size_t header_len, size_t clen) {
     int cors = !client_is_loopback(client_fd);
     int eport = (g_mode == ENGINE_SERVER) ? g_cfg.port : ENGINE_DEFAULTS.port;
     const char *eport_env = getenv("DS4UI_ENGINE_PORT");  /* override the engine port */
     if (eport_env && eport_env[0]) { int p = atoi(eport_env); if (p > 0 && p < 65536) eport = p; }
-    int efd = socket(AF_INET, SOCK_STREAM, 0);
-    if (efd >= 0) {
-        struct sockaddr_in a;
-        memset(&a, 0, sizeof a);
-        a.sin_family = AF_INET;
-        a.sin_port = htons((uint16_t)eport);
-        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        if (connect(efd, (struct sockaddr *)&a, sizeof a) != 0) { close(efd); efd = -1; }
-    }
+    /* ds4 is a single local inference engine. Immediately after a long response
+     * its accept loop can be momentarily unavailable; one failed connect must
+     * not turn that normal handoff into a false "engine is not running" error. */
+    int efd = connect_loopback_with_retry(eport, 25, 100);
     if (efd < 0) {
         dstudio_log_event("error", "proxy", 0, "/v1 proxy could not connect to local engine port %d", eport);
         const char *body = "{\"error\":{\"message\":\"the local ds4 engine is not running\"}}";
