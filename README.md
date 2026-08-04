@@ -23,7 +23,13 @@ On macOS it ships as **DStudio.app**: double-click from Finder, no Terminal. On 
 
 ## Install on macOS
 
-Download the Apple Silicon zip from [GitHub Releases](https://github.com/sk8erboi17/DStudio/releases), extract it and move **DStudio.app** to Applications. The app is ad-hoc signed but not Apple-notarized. If macOS blocks the first launch, try opening it once, then use [**System Settings → Privacy & Security → Open Anyway**](https://support.apple.com/guide/mac-help/mh40616/mac).
+Download the Apple Silicon zip from [GitHub Releases](https://github.com/sk8erboi17/DStudio/releases), extract it and move **DStudio.app** to Applications. The app is ad-hoc signed but not Apple-notarized (notarization requires a paid Apple Developer account), so Gatekeeper may warn that Apple cannot verify it. To open it the first time:
+
+1. **Right-click** DStudio.app → **Open** → **Open** in the confirmation dialog, or
+2. [**System Settings → Privacy & Security → Open Anyway**](https://support.apple.com/guide/mac-help/mh40616/mac), or
+3. from Terminal: `xattr -cr /Applications/DStudio.app` (clears the download quarantine).
+
+The warning appears only because the app is not notarized; the build is reproducible from this source and ad-hoc signed.
 
 The first-run screen installs the pinned `ds4` engine into `~/Library/Application Support/DStudio`, then offers the supported GGUF models with their real download sizes. The default Flash transfer can be stopped and resumed after a restart, and DStudio verifies its exact size and SHA-256 before completion. Engine source, models and optional tools stay outside the signed app bundle, so updating or moving `DStudio.app` does not delete them.
 
