@@ -31,6 +31,14 @@ Download the Apple Silicon zip from [GitHub Releases](https://github.com/sk8erbo
 
 The warning appears only because the app is not notarized; the build is reproducible from this source and ad-hoc signed.
 
+**Easiest install (no paid Apple Developer account)** — this downloads the release, verifies its SHA-256, removes the download quarantine and installs to `~/Applications`:
+
+```sh
+bash <(curl -fsSL https://raw.githubusercontent.com/sk8erboi17/DStudio/main/scripts/install-macos.sh)
+```
+
+Or use the DMG from the release: open it and drag **DStudio.app** into Applications, then open it once with right-click → Open.
+
 The first-run screen installs the pinned `ds4` engine into `~/Library/Application Support/DStudio`, then offers the supported GGUF models with their real download sizes. The default Flash transfer can be stopped and resumed after a restart, and DStudio verifies its exact size and SHA-256 before completion. Engine source, models and optional tools stay outside the signed app bundle, so updating or moving `DStudio.app` does not delete them.
 
 To build from source instead:
