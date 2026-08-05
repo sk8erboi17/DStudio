@@ -341,7 +341,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define LOG_RING_CAP 768
 #define DIAG_SSE_MAX 8
 #define DS4_REPO_URL "https://github.com/antirez/ds4"
-#define DS4_UPSTREAM_COMMIT "6747e7718dd08f00b680d0c16231f2d59ec3747e"
+#define DS4_UPSTREAM_COMMIT "b0309611041655f4e45671cfd9c9886aff161406"
 #define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
 
 /* Optional Laguna S 2.1 engine checkout. Laguna lives on its own upstream
