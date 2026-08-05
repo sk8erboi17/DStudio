@@ -589,7 +589,7 @@ assert.match(js, /enginePower: 90/, 'Engine power should default to ds4 --power 
 assert.match(js, /ssdStreaming: 'auto'/, 'SSD streaming should default to automatic memory-pressure handling');
 assert.match(js, /metalHotlistSeed: false/, 'Metal expert hotlist seed should default to off for stability');
 assert.match(html, /id="set-metal-hotlist"/, 'Settings should expose the Metal expert hotlist seed toggle');
-assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\), metalHotlistSeed: metalHotlistSeed\(\) \}\)/, 'Engine starts should omit local streaming preferences for remote models');
+assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\), metalHotlistSeed: metalHotlistSeed\(\), dspark: dspark\(\) \}\)/, 'Engine starts should omit local streaming preferences for remote models');
 assert.match(launcher, /json_get_bool\(body, "metalHotlistSeed"\)/, 'launcher should parse the Metal expert hotlist seed setting');
 assert.match(launcher, /DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST/, 'launcher should gate the Metal hotlist kill switch on the setting');
 assert.match(js, /function modelIdForEngineStatus\(st\)[\s\S]*modelFile[\s\S]*deepseek-v4-pro[\s\S]*deepseek-v4-flash/, 'live engine status should map the running GGUF to the correct API model id');
@@ -1022,7 +1022,7 @@ assert.match(js, /if \(!document\.body\.contains\(menu\)\) document\.body\.appen
 assert.match(js, /window\.innerHeight - margin - height[\s\S]*menu\.style\.top/, 'plus-menu dropdown placement should clamp top inside the viewport');
 assert.match(html, /id="set-power"[\s\S]*id="set-ssd-streaming"/, 'Settings should expose engine power and SSD streaming launch parameters');
 assert.match(js, /enginePower:\s*90[\s\S]*ssdStreaming:\s*'auto'[\s\S]*metalHotlistSeed:\s*false/, 'engine power, SSD streaming and hotlist seed should have persisted defaults');
-assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\), metalHotlistSeed: metalHotlistSeed\(\) \}\)/, 'engine starts should keep SSD streaming and hotlist seed local-only');
+assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\), metalHotlistSeed: metalHotlistSeed\(\), dspark: dspark\(\) \}\)/, 'engine starts should keep SSD streaming, hotlist seed and DSpark local-only');
 assert.match(js, /function applyEngineConfig\(\)[\s\S]*Restart to apply engine settings\?[\s\S]*restartCurrent\(\)/, 'engine launch setting changes should offer to restart the active engine');
 assert.match(js, /setIogpuWiredLimit\(mb\)[\s\S]*\/api\/iogpu-wired-limit/, 'frontend should expose the IOGPU wired-limit apply endpoint');
 assert.match(html, /id="set-iogpu-limit-mb"[\s\S]*min="86016"[\s\S]*max="90112"[\s\S]*id="set-iogpu-limit"[\s\S]*Apply wired limit[\s\S]*LaunchDaemon/, 'Settings should offer a custom persistent macOS IOGPU limit action');
@@ -1269,8 +1269,8 @@ assert.match(loadingHtml, /settings\.onboarded !== true/, 'loading gate should w
 assert.doesNotMatch(loadingHtml, /hello are you alive\?|askAlive/, 'loading gate should not block app opening on a full model generation');
 assert.match(loadingHtml, /class="logo"[\s\S]*id="loading-progress"[\s\S]*id="loading-bar"[\s\S]*id="loading-stage"[\s\S]*id="loading-pct"/, 'loading page should show the DStudio logo above a labeled progress bar');
 assert.match(loadingHtml, /showProgress\(st\.loadPct,[\s\S]*st\.stage/, 'loading progress should consume the launcher percentage and stage');
-assert.match(loadingHtml, /startWithSavedSettings\(\)[\s\S]*saved\.ctxSize[\s\S]*saved\.enginePower[\s\S]*saved\.ssdStreaming[\s\S]*saved\.metalHotlistSeed[\s\S]*\/api\/start/, 'native loading gate should start the engine with the persisted browser launch settings');
-assert.match(loadingHtml, /startWithSavedSettings\(\)[\s\S]*\/api\/start[\s\S]*ssdStreaming,[\s\S]*metalHotlistSeed,/, 'native loading gate should pass SSD and hotlist seed through without rewriting them');
+assert.match(loadingHtml, /startWithSavedSettings\(\)[\s\S]*saved\.ctxSize[\s\S]*saved\.enginePower[\s\S]*saved\.ssdStreaming[\s\S]*saved\.metalHotlistSeed[\s\S]*saved\.dspark[\s\S]*\/api\/start/, 'native loading gate should start the engine with the persisted browser launch settings');
+assert.match(loadingHtml, /startWithSavedSettings\(\)[\s\S]*\/api\/start[\s\S]*ssdStreaming,[\s\S]*metalHotlistSeed,[\s\S]*dspark,/, 'native loading gate should pass SSD, hotlist seed and DSpark through without rewriting them');
 assert.doesNotMatch(loadingHtml, /useJsonlPatch|jsonl:/, 'native loading gate should use the single current Agent protocol');
 assert.match(loadingHtml, /idlePolls >= 3[\s\S]*location\.replace\('\/'\)/, 'loading gate should open the workspace instead of waiting forever when no engine launch is active');
 assert.doesNotMatch(loadingHtml, /class="mark"|@keyframes spin/, 'loading page should not use the old rotating mark');
@@ -1280,7 +1280,7 @@ assert.match(launcher, /#define DS4_REPO_URL "https:\/\/github\.com\/antirez\/ds
 assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "6747e7718dd08f00b680d0c16231f2d59ec3747e"/, 'managed ds4 setup should pin the current main commit in code');
 assert.match(launcher, /#define DS4_ARCHIVE_URL "https:\/\/codeload\.github\.com\/antirez\/ds4\/tar\.gz\/" DS4_UPSTREAM_COMMIT/, 'managed ds4 setup should download a pinned GitHub source archive');
 assert.doesNotMatch(`${launcher}\n${js}\n${gitignore}`, /DS4_GLM_|ds4-glm52|\/api\/glm\/setup|setupGlm/, 'retired GLM side-checkout support should be removed');
-assert.match(launcher, /#define DS4_LAGUNA_UPSTREAM_COMMIT "7e3dbef7e336433f487c172a3308e26b39fa75a3"/, 'managed Laguna checkout should pin the fetched laguna-s2.1 branch');
+assert.match(launcher, /#define DS4_LAGUNA_UPSTREAM_COMMIT "448d5695d1c86401a4e9447c440feb983b73e6de"/, 'managed Laguna checkout should pin the fetched laguna-s2.1 branch');
 assert.match(launcher, /api_setup_laguna[\s\S]*DS4_LAGUNA_ARCHIVE_URL[\s\S]*setup_build_branch_runtimes\(target, "Laguna S 2\.1"/, 'Laguna setup should download and build all pinned side-by-side runtimes');
 assert.match(launcher, /setup_apply_ds4_runtime_patches[\s\S]*apply-ds4-qwen-hot-memory\.sh[\s\S]*apply-ds4-server-metrics\.sh/, 'managed ds4 setup should apply memory and server-metrics patches together');
 assert.match(launcher, /setup_build_branch_runtimes[\s\S]*setup_apply_ds4_runtime_patches\(\)[\s\S]*run_build_jsonl\("build"\)[\s\S]*build-design\.sh/, 'optional engine setup should prepare server, Agent and Design consistently');
@@ -1381,7 +1381,18 @@ assert.doesNotMatch(js, /body:\s*\{\s*variant:|typeof spec === 'string'/, 'model
 const modelDownloadHandler = launcher.match(/static void api_model_download[\s\S]*?\nstatic void api_model_partials_delete/)?.[0] || '';
 assert.match(modelDownloadHandler, /json_get_string\(body, "target"/, 'model download API should accept the current target field');
 assert.doesNotMatch(modelDownloadHandler, /download-abliterated\.sh/, 'the default model must not depend on a script absent from the pinned ds4 checkout');
-assert.match(launcher, /MODEL_FLASH_HF_REVISION "2814f4e666a88f5bb03a042e7bc65a3161a184cc"[\s\S]*MODEL_FLASH_SHA256 "b24232a926e055eea9443548132a0e5f7c589e11951bf5e5c41f8c3d1a7563fc"[\s\S]*child_download_abliterated_resumable[\s\S]*child_curl_resumable\(part, final, MODEL_FLASH_URL,[\s\S]*MODEL_FLASH_SHA256/, 'the default model download should be resumable and pinned by immutable revision, size and SHA-256');
+assert.match(launcher, /MODEL_FLASH_HF_REVISION "08f6c6225ab4d29a735ab7d48d46bd0a3a767a07"[\s\S]*MODEL_FLASH_SHA256 "55a46e7e9a51f3d6708559b8b284c3e60f6b97f9bab1f2c9633948c8331e99ee"[\s\S]*child_download_abliterated_resumable[\s\S]*child_curl_resumable\(part, final, MODEL_FLASH_URL,[\s\S]*MODEL_FLASH_SHA256/, 'the default model download should be resumable and pinned by immutable revision, size and SHA-256');
+assert.match(js, /target: 'ds4f-q2'[\s\S]*target: 'ds4f-q2-q4'[\s\S]*target: 'ds4f-q4'[\s\S]*target: 'ds4f-mxfp4'/, 'the UI should offer the ds4 0731 Flash quantizations with the new download targets');
+assert.match(launcher, /"ds4f-q2", "ds4f-q2-q4", "ds4f-q4", "ds4f-mxfp4"/, 'the launcher whitelist should use the current download_model.sh target names');
+assert.match(launcher, /"ds4f-dspark", "flash-dspark"/, 'the launcher whitelist should include the DSpark support downloads');
+assert.match(js, /target: 'ds4f-dspark'[\s\S]*target: 'flash-dspark'/, 'the UI should offer both DSpark support downloads');
+assert.match(html, /id="set-dspark"/, 'Settings should expose a DSpark toggle');
+assert.match(js, /dspark: false/, 'DSpark should default to off');
+assert.match(js, /dspark: dspark\(\)/, 'engine starts should send the DSpark preference');
+assert.match(launcher, /json_get_bool\(body, "dspark"\)/, 'launcher should parse the DSpark setting');
+assert.match(launcher, /--dspark[\s\S]*--mtp/, 'engine and agent spawns should pass the DSpark flags');
+assert.match(launcher, /child_download_dspark_resumable[\s\S]*MODEL_DSPARK_SHA256/, 'the uncensored DSpark download should be resumable and pinned by SHA-256');
+assert.match(launcher, /MODEL_UNC "gguf\/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128\.gguf"/, 'the uncensored Flash model should point to the 0731 abliterated build');
 assert.match(modelDownloadHandler, /glm-unsloth-q4[\s\S]*glm-antirez-iq2xxs[\s\S]*glm-antirez-q2[\s\S]*glm-antirez-q4[\s\S]*laguna-q4/, 'model download API should whitelist the GLM and Laguna targets shown by the UI');
 assert.match(launcher, /g_dl_result = code == 0 \? 1 : -1[\s\S]*g_dl_result > 0[\s\S]*dl_pct = 100/, 'download completion should come from the downloader result for every model family');
 assert.match(launcher, /model_download_bytes_present[\s\S]*\.cache\/huggingface\/download[\s\S]*\.incomplete[\s\S]*g_dl_expected_bytes/, 'Hugging Face GLM/Laguna downloads should report progress from their opaque partial files');
