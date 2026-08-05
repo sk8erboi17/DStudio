@@ -566,6 +566,17 @@ static int ds4ui_remote_run_turn(agent_worker *w,
         if (assistant_raw && assistant_raw[0])
             ds4ui_msg_list_add(msgs, "assistant", assistant_raw);
 
+        /* DS4UI: rc==2 means the user interrupted the turn (interrupt control
+         * frame on stdin). Keep the partial output, return to idle and stay
+         * alive so the next prompt still works. */
+        if (rc == 2) {
+            free(assistant_raw);
+            agent_dsml_parser_free(&dsml);
+            agent_set_status(w, AGENT_WORKER_IDLE);
+            ds4ui_remote_flush(w);
+            return 0;
+        }
+
         if (rc != 0) {
             if (ds4ui_remote_retryable_model_error(err) &&
                 auto_continues < DS4UI_REMOTE_AUTO_CONTINUES) {
@@ -748,6 +759,23 @@ static int ds4ui_run_remote_agent(agent_config *cfg) {
                 }
             }
             if (input.len > 0 && (stdin_eof || now_sec() >= quiet_deadline)) {
+                /* DS4UI: the launcher interrupts a turn by writing this control
+                 * frame on stdin (Windows cannot reliably deliver CTRL_C to an
+                 * MSYS process whose std streams are pipes). Abort the worker
+                 * and stay idle so the next prompt still works. */
+                static const char interrupt_frame[] =
+                    "\x1e{\"type\":\"control\",\"name\":\"interrupt\"}\n";
+                size_t frame_len = sizeof(interrupt_frame) - 1;
+                if (input.len >= frame_len &&
+                    !memcmp(input.ptr, interrupt_frame, frame_len)) {
+                    memmove(input.ptr, input.ptr + frame_len,
+                            input.len - frame_len);
+                    input.len -= frame_len;
+                    worker_interrupt(&worker);
+                    agent_set_status(&worker, AGENT_WORKER_IDLE);
+                    waiting_announced = false;
+                    continue;
+                }
                 char *prompt = agent_input_buf_take(&input);
                 ds4ui_remote_apply_control(cfg, prompt);
                 if (prompt[0] && (!ds4ui_pipe_slash(prompt) ||

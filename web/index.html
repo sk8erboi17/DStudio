@@ -5887,6 +5887,7 @@
         <section class="onboard__sec">
           <div class="onboard__sec-head">
             <h3>Local DS4 runtime</h3>
+            <button type="button" id="onboard-lan-ds4dir-choose" class="btn btn--sm">Choose…</button>
             <button type="button" id="onboard-lan-ds4dir-setup" class="btn btn--sm">Install ds4</button>
           </div>
           <p class="onboard__note">Required on this device for Agent and Design workspace tools. Chat still uses the LAN host model.</p>
@@ -6193,6 +6194,7 @@
             <span>Local DS4 runtime <small class="field-note">managed in this DStudio repo</small></span>
             <div class="field__row">
               <code id="lan-client-ds4dir-path" class="set-code">./ds4</code>
+              <button type="button" id="lan-client-ds4dir-choose" class="btn">Choose…</button>
               <button type="button" id="lan-client-ds4dir-setup" class="btn">Install ds4</button>
             </div>
             <p class="set-help">The LAN host supplies the model. This local checkout supplies Agent/Design binaries, JSONL runtime and filesystem tools, so your files never move to the host.</p>
@@ -14131,8 +14133,14 @@ Your report must be precise, of high-quality, and written by an expert using an 
           if (agentBusy) {
             const idle = await (AgentView.reconcileIdle ? AgentView.reconcileIdle() : Promise.resolve(false));
             if (!idle) {
-              toast(curMode === 'design' ? 'The designer is still working…' : 'The agent is still working…', 'warn');
-              return;
+              /* The user can send whenever they want: interrupt the current
+               * turn, wait for it to settle, then send the new message. The
+               * partial output already produced stays in the conversation. */
+              await AgentView.stopLiveGeneration({
+                reason: 'new message sent while the agent was working',
+                status: 'incomplete',
+              });
+              if (AgentView.waitIdle) await AgentView.waitIdle(4000);
             }
           }
           const rsaArmed = Store.getSettings().rsaMode === 'on';
@@ -16678,6 +16686,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           close: qs('#lan-client-close'),
           theme: qs('#lan-client-theme'),
           ds4Path: qs('#lan-client-ds4dir-path'),
+          ds4Choose: qs('#lan-client-ds4dir-choose'),
           ds4Setup: qs('#lan-client-ds4dir-setup'),
           ds4Msg: qs('#lan-client-ds4dir-msg'),
         };
@@ -16690,6 +16699,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         on(lf.address, 'keydown', (e) => {
           if (e.key === 'Enter') { e.preventDefault(); changeLanClientHost(); }
         });
+        if (lf.ds4Choose) on(lf.ds4Choose, 'click', chooseLanClientDs4);
         on(lf.ds4Setup, 'click', setupLanClientDs4);
         on(lf.exit, 'click', () => {
           switchToHostMode();
@@ -17062,13 +17072,13 @@ Your report must be precise, of high-quality, and written by an expert using an 
         }
       }
 
-      async function setupLanClientDs4() {
+      async function setupLanClientDs4(dir) {
         const label = lf.ds4Setup.textContent;
         lf.ds4Setup.disabled = true;
         lf.ds4Setup.textContent = 'Installing...';
         lf.ds4Msg.textContent = 'Downloading ds4, building it and applying DStudio patches...';
         try {
-          const r = await Engine.setupDs4();
+          const r = await Engine.setupDs4(dir);
           if (r && r.ds4dir) lf.ds4Path.textContent = r.ds4dir;
           if (r && r.ok && r.ds4dirOk) {
             lf.ds4Msg.textContent = 'Local DS4 runtime ready for Agent and Design.';
@@ -17083,6 +17093,19 @@ Your report must be precise, of high-quality, and written by an expert using an 
           lf.ds4Setup.disabled = false;
           lf.ds4Setup.textContent = label;
         }
+      }
+
+      async function chooseLanClientDs4() {
+        if (typeof window.ds4PickDirectory !== 'function') {
+          lf.ds4Msg.textContent = 'Native folder picker unavailable — type the full path below.';
+          return;
+        }
+        let path = '';
+        try { path = await window.ds4PickDirectory({ mode: 'ds4-folder' }); } catch { path = ''; }
+        if (!path) return;
+        lf.ds4Path.textContent = path;
+        lf.ds4Msg.textContent = 'Installing the local DS4 runtime into the chosen folder...';
+        await setupLanClientDs4(path);
       }
 
       async function changeLanClientHost() {
@@ -18333,6 +18356,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (modelRecheckBtn) on(modelRecheckBtn, 'click', recheckModels);
         const lanDs4SetupBtn = qs('#onboard-lan-ds4dir-setup');
         if (lanDs4SetupBtn) on(lanDs4SetupBtn, 'click', setupOnboardLanDs4);
+        const lanDs4ChooseBtn = qs('#onboard-lan-ds4dir-choose');
+        if (lanDs4ChooseBtn) on(lanDs4ChooseBtn, 'click', chooseOnboardLanDs4);
 
         // Context size picker (default 64k): persisted like Settings.
         const ctx = qs('#onboard-ctx');
@@ -18598,7 +18623,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         }
       }
 
-      async function setupOnboardLanDs4() {
+      async function setupOnboardLanDs4(dir) {
         if (ds4SetupBusy) return;
         ds4SetupBusy = true;
         const path = qs('#onboard-lan-ds4dir-path');
@@ -18611,7 +18636,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           msg.textContent = 'Downloading ds4, building it and applying DStudio patches...';
         }
         let r;
-        try { r = await Engine.setupDs4(); }
+        try { r = await Engine.setupDs4(dir); }
         catch (e) { r = { ok: false, error: e?.message || 'Could not reach the launcher' }; }
         let nextLabel = label;
         if (path && r?.ds4dir) path.textContent = r.ds4dir;
@@ -18632,6 +18657,20 @@ Your report must be precise, of high-quality, and written by an expert using an 
         }
         ds4SetupBusy = false;
         if (btn) { btn.disabled = false; btn.textContent = nextLabel; }
+      }
+
+      async function chooseOnboardLanDs4() {
+        if (typeof window.ds4PickDirectory !== 'function') {
+          const msg = qs('#onboard-lan-ds4dir-msg');
+          if (msg) msg.textContent = 'Native folder picker unavailable — type the full path below.';
+          return;
+        }
+        let path = '';
+        try { path = await window.ds4PickDirectory({ mode: 'ds4-folder' }); } catch { path = ''; }
+        if (!path) return;
+        const p = qs('#onboard-lan-ds4dir-path');
+        if (p) p.textContent = path;
+        await setupOnboardLanDs4(path);
       }
 
       function updateForcedSetup() {
@@ -18917,8 +18956,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
         const r = await apiFetch('/api/fs/mkdir', { method: 'POST', headers: H, body: JSON.stringify({ path }) });
         return r.json();
       }
-      async function setupDs4() {
-        const r = await apiFetch('/api/ds4/setup', { method: 'POST', headers: H });
+      async function setupDs4(dir) {
+        const r = await apiFetch('/api/ds4/setup', {
+          method: 'POST',
+          headers: H,
+          body: JSON.stringify(dir ? { dir } : {}),
+        });
         const data = await r.json().catch(() => ({ ok: false, error: `/api/ds4/setup returned HTTP ${r.status} with invalid JSON` }));
         if (!r.ok && data && data.ok !== false) data.ok = false;
         if (!r.ok && data && !data.error) data.error = `/api/ds4/setup returned HTTP ${r.status}`;
@@ -20718,7 +20761,22 @@ Your report must be precise, of high-quality, and written by an expert using an 
         syncComposerBusy();
         syncSpinner();
         if (activeView) render();
-        if (!shouldInterrupt) return Promise.resolve({ ok: true, skipped: true });
+        if (!shouldInterrupt) {
+          /* The local flag can be stale (reload, missed idle edge, a Stop that
+           * arrived after the turn already ended): still ask the server whether
+           * a turn is actually running before skipping the interrupt. */
+          return Engine.status()
+            .then((st) => {
+              if (!st || st.agentWorking !== true) return { ok: true, skipped: true };
+              return Engine.agentInterrupt(reason, status)
+                .catch((e) => ({ ok: false, error: e?.message || String(e) }))
+                .finally(() => {
+                  if (!activeView || myEpoch !== epoch) return;
+                  tryStream(myEpoch);
+                });
+            })
+            .catch(() => ({ ok: true, skipped: true }));
+        }
         return Engine.agentInterrupt(reason, status)
           .catch((e) => ({ ok: false, error: e?.message || String(e) }))
           .finally(() => {
@@ -20808,6 +20866,18 @@ Your report must be precise, of high-quality, and written by an expert using an 
           }
         } catch { /* best-effort stale-working guard */ }
         return !working;
+      }
+
+      async function waitIdle(timeoutMs = 4000) {
+        const deadline = Date.now() + timeoutMs;
+        for (;;) {
+          try {
+            const st = await Engine.status();
+            if (st && st.agentWorking === false) return true;
+          } catch { /* keep polling */ }
+          if (Date.now() >= deadline) return false;
+          await new Promise((r) => setTimeout(r, 250));
+        }
       }
 
       function engineStatusSummary(st) {
@@ -21125,8 +21195,22 @@ Your report must be precise, of high-quality, and written by an expert using an 
         // Re-entry guard: a CONTENT prompt sent while a turn is in flight (e.g. a
         // double-click on the qform "Generate"/"Skip", or a Regenerate) would
         // double-send. Slash/session commands (/new …) still pass through.
-        if (working && !isSlashCommand(prompt)) {
-          toast(viewMode === 'design' ? 'The designer is still working…' : 'The agent is still working…', 'warn');
+        if (working && !isSlashCommand(prompt) && !opts.force) {
+          /* Sending from any conversation (including a previous chat) while a
+           * turn is in flight: interrupt the running turn, wait for it to
+           * settle, then really send. The partial output of the interrupted
+           * turn stays in its conversation. */
+          const deferredPrompt = prompt;
+          const deferredDisplay = displayOverride;
+          const deferredOpts = opts;
+          (async () => {
+            await stopLiveGeneration({
+              reason: 'new message sent while the agent was working',
+              status: 'incomplete',
+            });
+            if (waitIdle) await waitIdle(4000);
+            send(deferredPrompt, deferredDisplay, { ...deferredOpts, force: true });
+          })();
           return;
         }
         let conv = Store.getChat(convId);
@@ -22555,7 +22639,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (shouldFocusComposerFromSurfaceClick(e)) focusComposerInput();
       }
 
-      return { mount, start, stop, send, beginEngineSession, isWorking: () => working, isLiveConv, reconcileIdle, stopLiveGeneration, refreshFlow: render, openDesignGalleryInline, closeDesignGalleryInline };
+      return { mount, start, stop, send, beginEngineSession, isWorking: () => working, isLiveConv, reconcileIdle, waitIdle, stopLiveGeneration, refreshFlow: render, openDesignGalleryInline, closeDesignGalleryInline };
     })();
 
     /* ==================== DesignPreview: project files + design canvas ==================== */

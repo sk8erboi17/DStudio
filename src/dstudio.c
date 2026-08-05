@@ -3787,6 +3787,7 @@ static void win_prepare_engine_runtime(void) {
 }
 
 static int win_spawn(const char *cwd, char *const argv[], int want_stdin,
+                     int new_console,
                      int *in_w, int *out_r, int *err_r, pid_t *pid_out,
                      char *err, size_t errsz) {
     SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
@@ -3818,8 +3819,17 @@ static int win_spawn(const char *cwd, char *const argv[], int want_stdin,
     si.hStdInput = want_stdin ? in_r : GetStdHandle(STD_INPUT_HANDLE);
     si.hStdOutput = out_w;
     si.hStdError = err_w;
+    DWORD create_flags = CREATE_NEW_PROCESS_GROUP;
+    if (new_console) {
+        /* Agent/Design are MSYS/Cygwin console processes. They need a real
+         * console so api_agent_interrupt can AttachConsole() and deliver
+         * CTRL_BREAK; the window is hidden. */
+        create_flags |= CREATE_NEW_CONSOLE;
+        si.dwFlags |= STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
+    }
     BOOL ok = CreateProcessA(NULL, cmd, NULL, NULL, TRUE,
-                             CREATE_NEW_PROCESS_GROUP, NULL, cwd, &si, &pi);
+                             create_flags, NULL, cwd, &si, &pi);
     if (in_r) CloseHandle(in_r);
     CloseHandle(out_w);
     CloseHandle(err_w);
@@ -3929,7 +3939,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp"; argv[n++] = dspark_path; }
     argv[n] = NULL;
     pid_t pid = 0;
-    if (!win_spawn(g_ds4_dir, argv, 0, NULL, &g_out_fd, &g_err_fd, &pid, err, errsz))
+    if (!win_spawn(g_ds4_dir, argv, 0, 0, NULL, &g_out_fd, &g_err_fd, &pid, err, errsz))
         return 0;
     g_child_win_pid = g_last_spawn_win_pid;
     g_child = pid; g_mode = ENGINE_SERVER; g_external_server = 0; g_cfg = *cfg;
@@ -4920,7 +4930,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
     argv[n] = NULL;
     pid_t pid = 0;
-    if (!win_spawn(g_ds4_dir, argv, 1, &g_in_fd, &g_out_fd, &g_err_fd, &pid, err, errsz)) {
+    if (!win_spawn(g_ds4_dir, argv, 1, 1, &g_in_fd, &g_out_fd, &g_err_fd, &pid, err, errsz)) {
         free(skill_sys);
         return 0;
     }
@@ -5064,7 +5074,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
     argv[n] = NULL;
     pid_t pid = 0;
-    if (!win_spawn(g_ds4_dir, argv, 1, &g_in_fd, &g_out_fd, &g_err_fd, &pid, err, errsz)) {
+    if (!win_spawn(g_ds4_dir, argv, 1, 1, &g_in_fd, &g_out_fd, &g_err_fd, &pid, err, errsz)) {
         free(skill_sys);
         return 0;
     }
@@ -6524,7 +6534,13 @@ static void api_agent_interrupt(int fd, const char *body) {
     }
     const char *msg = reason[0] ? reason : "agent/design turn interrupted by user";
 #ifdef _WIN32
-    if (g_child_win_pid) GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, g_child_win_pid);
+    /* The MSYS/Cygwin agent does not receive console CTRL_C/CTRL_BREAK
+     * reliably when its std streams are pipes; the JSONL protocol handles an
+     * explicit interrupt control frame on stdin instead. */
+    if (g_in_fd >= 0) {
+        static const char frame[] = "\x1e{\"type\":\"control\",\"name\":\"interrupt\"}\n";
+        fd_write_all(g_in_fd, frame, sizeof(frame) - 1);
+    }
 #else
     kill(g_child, SIGINT);
 #endif
@@ -7393,6 +7409,17 @@ static volatile sig_atomic_t g_stop = 0;
 /* Set the flag and nudge the child: the main loop exits on its own and runs
  * the real cleanup (sse_close_all + stop_child) instead of dying via _exit. */
 static void on_term(int sig) { (void)sig; g_stop = 1; if (g_child > 0) kill(g_child, SIGTERM); }
+
+#ifdef _WIN32
+/* Called by the windowed launcher's parent-death watcher (app.cc): the GUI
+ * parent was killed or crashed, so stop the engine child and end the server
+ * loop. Without this the server child would keep running as an orphan, holding
+ * :5500 and the WebView2 profile lock (blank window on the next launch). */
+void ds4ui_parent_died(void) {
+    stop_child();
+    g_stop = 1;
+}
+#endif
 
 /* ==================== shared chat store ==================== */
 
@@ -8461,7 +8488,7 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/model/partials/delete")) { api_model_partials_delete(fd, body); return 200; }
     if (!strcmp(path, "/api/fs/list")) { api_fs_list(fd, body); return 200; }
     if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); return 200; }
-    if (!strcmp(path, "/api/ds4/setup")) { api_setup_ds4(fd); return 200; }
+    if (!strcmp(path, "/api/ds4/setup")) { api_setup_ds4(fd, body); return 200; }
     if (!strcmp(path, "/api/laguna/setup")) { api_setup_laguna(fd); return 200; }
     if (!strcmp(path, "/api/vision/setup")) { api_vision_setup(fd, body); return 200; }
     if (!strcmp(path, "/api/vision/describe")) { api_vision_describe(fd, body); return 200; }
