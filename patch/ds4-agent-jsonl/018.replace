@@ -1,4 +1,5 @@
-    agent_append_system_prompt(w->engine, out, w->cfg->gen.system);
+    agent_append_system_prompt(w->engine, out, w->cfg->gen.system,
+                               w->cfg->edit_upto);
     if (w->cfg->jsonl) {   /*DS4UI_JSONL*/
         char *mem = ds4ui_memory_read_md();
         if (mem && mem[0]) {

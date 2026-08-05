@@ -248,7 +248,7 @@ static char *ds4ui_remote_system_prompt(agent_config *cfg) {
     /* Remote DeepSeek endpoints use DSML and do not initialize a local
      * ds4_engine. Upstream's generic helper now requires an engine so it can
      * choose DSML versus GLM syntax; select the remote protocol directly. */
-    char *tools = agent_build_dsml_tools_prompt();
+    char *tools = agent_build_dsml_tools_prompt(cfg->edit_upto);
     agent_buf b = {0};
     agent_buf_puts(&b, tools);
     free(tools);
