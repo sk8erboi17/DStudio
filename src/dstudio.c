@@ -116,6 +116,7 @@ typedef unsigned long nfds_t;
 #define unlink _unlink
 #define usleep(us) Sleep((DWORD)((us) / 1000))
 #define setenv(k, v, overwrite) _putenv_s((k), (v))
+#define unsetenv(k) _putenv_s((k), "")
 #define WNOHANG 1
 #define SIGKILL SIGTERM
 #define SIGPIPE 13
@@ -2282,6 +2283,7 @@ static int prepare_laguna_resumable_partial(const char *checkout,
     return 1;
 }
 
+#ifndef _WIN32
 static int child_verify_sha256(const char *path, const char *expected) {
     if (!expected || !expected[0]) return 1;
     int fds[2];
@@ -2404,6 +2406,34 @@ static int child_download_laguna_resumable(const char *checkout) {
         "laguna-s-2.1-Q4_K_M.gguf?download=true";
     return child_curl_resumable(part, final, url, 0, NULL);
 }
+#else
+/* Model download scripts are not available in the Windows portable build yet
+ * (api_model_download returns 501 on _WIN32).  Keep tiny stubs so the rest of
+ * the translation unit compiles on MinGW, where fork()/execlp() do not exist. */
+static int child_verify_sha256(const char *path, const char *expected) {
+    (void)path; (void)expected;
+    return 0;
+}
+static int child_curl_resumable(const char *part, const char *final,
+                                const char *url, long long expected_bytes,
+                                const char *expected_sha256) {
+    (void)part; (void)final; (void)url;
+    (void)expected_bytes; (void)expected_sha256;
+    return 1;
+}
+static int child_download_abliterated_resumable(const char *checkout) {
+    (void)checkout;
+    return 1;
+}
+static int child_download_dspark_resumable(const char *checkout) {
+    (void)checkout;
+    return 1;
+}
+static int child_download_laguna_resumable(const char *checkout) {
+    (void)checkout;
+    return 1;
+}
+#endif
 
 static long long delete_stable_model_partial(const char *checkout,
                                              const char *rel, int *failed) {

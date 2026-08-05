@@ -614,6 +614,10 @@ static void webview_run(webview_t handle) {
 #include <shobjidl.h>
 #include <wrl.h>
 #include "WebView2.h"
+#if defined(__MINGW32__)
+/* MinGW's <wrl.h> lacks Callback; DStudio's MSVC build uses the SDK WRL. */
+#include "wrl_callback_compat.h"
+#endif
 #pragma comment(lib, "dwmapi.lib")
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE

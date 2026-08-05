@@ -46,8 +46,13 @@ static int qwen_memory_post(int begin) {
     a.sin_port = htons((uint16_t)port);
     a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     struct timeval tv = { 60, 0 };
+#ifdef _WIN32
+    (void)setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tv, sizeof tv);
+    (void)setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
+#else
     (void)setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
     (void)setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+#endif
     if (connect(s, (struct sockaddr *)&a, sizeof a) != 0) { close(s); return 0; }
     char req[512];
     int n = snprintf(req, sizeof req,
