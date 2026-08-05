@@ -5999,6 +5999,11 @@
             <input type="checkbox" id="set-metal-hotlist" aria-label="Metal expert hotlist seed">
             <p class="set-help">When enabled, ds4 pre-warms the streamed expert cache from layers already mapped during prefill. This can fail on no-residency/SSD-streaming setups where the model is larger than RAM, so it is off by default.</p>
           </label>
+          <label class="field" id="set-dspark-row">
+            <span>DSpark speculative decoding <small class="field-note">experimental; Chat and Agent only; requires engine restart</small></span>
+            <input type="checkbox" id="set-dspark" aria-label="DSpark speculative decoding">
+            <p class="set-help">Speeds up decoding with a small draft GGUF. Requires the DSpark support file (download it from the model picker) and an engine restart. Design mode does not support it.</p>
+          </label>
         </section>
 
         <section class="set-grp" data-pane="generation" hidden>
@@ -6447,6 +6452,7 @@
       enginePower: 90,      // ds4 --power launch parameter
       ssdStreaming: 'auto',  // off | on | auto — Metal SSD model streaming; auto engages it under memory pressure
       metalHotlistSeed: false, // experimental Metal expert-cache hotlist seed; off keeps the stable pread path
+      dspark: false,        // DSpark speculative decoding on local Flash models (needs the support GGUF)
       webMode: 'off',       // chat web context: 'off' | 'search' | 'research'
       planMode: 'off',      // agent Plan mode: 'off' | 'on' for the next planning turn
       gsaMode: 'off',       // agent GSA pipeline: 'off' | 'on' for the next security-analysis turn
@@ -7597,6 +7603,8 @@
       { id: 'ds4f-q2-q4', label: 'DeepSeek V4 Flash · mixed Q2/Q4 — ~98 GB (0731)', body: { target: 'ds4f-q2-q4', engine: 'main' }, match: /Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown.*imatrix-fixed-0731/i },
       { id: 'ds4f-q4', label: 'DeepSeek V4 Flash · chat — Q4, higher quality & larger (0731)', body: { target: 'ds4f-q4', engine: 'main' }, match: /^DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix-0731\.gguf$/i },
       { id: 'ds4f-mxfp4', label: 'DeepSeek V4 Flash · MXFP4 — ~156 GB (0731, Metal/CUDA)', body: { target: 'ds4f-mxfp4', engine: 'main' }, match: /^DeepSeek-V4-Flash-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-mxfp4-0731\.gguf$/i },
+      { id: 'ds4f-dspark', label: 'DeepSeek V4 Flash · DSpark support (0731 chat) — ~6 GB', body: { target: 'ds4f-dspark', engine: 'main' }, match: /^DeepSeek-V4-Flash-DSpark-support-0731\.gguf$/i },
+      { id: 'flash-dspark', label: 'DeepSeek V4 Flash · DSpark support (0731 uncensored) — ~6 GB', body: { target: 'flash-dspark', engine: 'main' }, match: /DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128-DSpark-support/i },
       { id: 'pro-q2-imatrix', label: 'DeepSeek V4 Pro · IQ2_XXS — ~430 GB', body: { target: 'pro-q2-imatrix', engine: 'main' }, match: /^DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix\.gguf$/i },
       { id: 'glm-antirez-iq2xxs', label: 'GLM 5.2 · routed IQ2_XXS — reduced memory', body: { target: 'glm-antirez-iq2xxs', engine: 'main' }, match: /^GLM-5\.2-UD-IQ2_XXS_RoutedIQ2XXS_blk78Q2K\.gguf$/i },
       { id: 'glm-antirez-q2', label: 'GLM 5.2 · routed Q2_K — ~262 GB', body: { target: 'glm-antirez-q2', engine: 'main' }, match: /^GLM-5\.2-UD-Q2_K_RoutedQ2K\.gguf$/i },
@@ -16637,6 +16645,8 @@ Your report must be precise, of high-quality, and written by an expert using an 
           ssdStreamingRow: qs('#set-ssd-streaming-row'),
           metalHotlist: qs('#set-metal-hotlist'),
           metalHotlistRow: qs('#set-metal-hotlist-row'),
+          dspark: qs('#set-dspark'),
+          dsparkRow: qs('#set-dspark-row'),
           memoryMsg: qs('#set-memory-msg'),
           iogpuLimitMb: qs('#set-iogpu-limit-mb'),
           iogpuLimit: qs('#set-iogpu-limit'),
@@ -16711,6 +16721,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
           if (f.localModelRow) f.localModelRow.hidden = cloud;
           if (f.ssdStreamingRow) f.ssdStreamingRow.hidden = cloud;
           if (f.metalHotlistRow) f.metalHotlistRow.hidden = cloud;
+          if (f.dsparkRow) f.dsparkRow.hidden = cloud;
         };
         on(f.chatBackend, 'change', () => {
           const v = f.chatBackend.value === 'deepseek' ? 'deepseek' : 'local';
@@ -16771,6 +16782,12 @@ Your report must be precise, of high-quality, and written by an expert using an 
           const v = !!f.metalHotlist.checked;
           if (v === !!Store.getSettings().metalHotlistSeed) return;
           Store.setSettings({ metalHotlistSeed: v });
+          Switcher.applyEngineConfig();
+        });
+        on(f.dspark, 'change', () => {
+          const v = !!f.dspark.checked;
+          if (v === !!Store.getSettings().dspark) return;
+          Store.setSettings({ dspark: v });
           Switcher.applyEngineConfig();
         });
         // Theme is a segmented control (Dark / Light / System).
@@ -17113,6 +17130,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         if (f.localModelRow) f.localModelRow.hidden = cloud;
         if (f.ssdStreamingRow) f.ssdStreamingRow.hidden = cloud;
         if (f.metalHotlistRow) f.metalHotlistRow.hidden = cloud;
+        if (f.dsparkRow) f.dsparkRow.hidden = cloud;
         if (f.deepseekModel) f.deepseekModel.value = s.deepseekModel || 'deepseek-v4-flash';
         f.temp.value = s.temperature;
         f.tempOut.textContent = s.temperature;
@@ -17122,6 +17140,7 @@ Your report must be precise, of high-quality, and written by an expert using an 
         f.power.value = String(s.enginePower ?? 90);
         f.ssdStreaming.value = ['off', 'on', 'auto'].includes(s.ssdStreaming) ? s.ssdStreaming : 'auto';
         f.metalHotlist.checked = !!s.metalHotlistSeed;
+        f.dspark.checked = !!s.dspark;
         f.system.value = s.systemPrompt ?? '';
         updateCtxNote();
         renderSetModels();
@@ -23680,10 +23699,11 @@ Your report must be precise, of high-quality, and written by an expert using an 
       const enginePower = () => Math.max(1, Math.min(100, parseInt(Store.getSettings().enginePower ?? 90, 10) || 90));
       const ssdStreaming = () => ['off', 'on', 'auto'].includes(Store.getSettings().ssdStreaming) ? Store.getSettings().ssdStreaming : 'auto';
       const metalHotlistSeed = () => !!Store.getSettings().metalHotlistSeed;
+      const dspark = () => !!Store.getSettings().dspark;
       const launchBase = (remote = false) => ({
         ctx: ctxSize(),
         power: enginePower(),
-        ...(remote ? {} : { ssdStreaming: ssdStreaming(), metalHotlistSeed: metalHotlistSeed() }),
+        ...(remote ? {} : { ssdStreaming: ssdStreaming(), metalHotlistSeed: metalHotlistSeed(), dspark: dspark() }),
       });
       const variant = () => Store.getSettings().modelVariant || 'flash';
       const thinkLevel = () => Store.getSettings().thinkLevel || 'high';

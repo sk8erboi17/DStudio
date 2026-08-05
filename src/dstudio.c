@@ -371,6 +371,14 @@ static char *ds4_strndup_local(const char *s, size_t n) {
     "https://huggingface.co/apetersson/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128/resolve/" \
     MODEL_FLASH_HF_REVISION "/" \
     "DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128.gguf?download=true"
+#define MODEL_DSPARK_UPSTREAM "gguf/DeepSeek-V4-Flash-DSpark-support-0731.gguf"
+#define MODEL_DSPARK_ABLITERATED "gguf/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128-DSpark-support.gguf"
+#define MODEL_DSPARK_EXPECTED_BYTES 5989114272LL
+#define MODEL_DSPARK_SHA256 "373428b876cb77795132a829486463173206693f92ef172ada4e346e46a40e2f"
+#define MODEL_DSPARK_URL \
+    "https://huggingface.co/apetersson/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128/resolve/" \
+    MODEL_FLASH_HF_REVISION "/" \
+    "DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128-DSpark-support.gguf?download=true"
 #define MODEL_PRO_EXPECTED_BYTES 430000000000LL  /* ~430 GB (pro-q2-imatrix), for the % */
 
 enum { ENGINE_NONE = 0, ENGINE_SERVER, ENGINE_AGENT, ENGINE_DESIGN };
@@ -411,6 +419,7 @@ static char      g_design_dir[1024] = "";    /* last design workspace: the previ
 static int       g_ssd_streaming_effective = 0;
 static char      g_ssd_streaming_reason[192] = "not launched";
 static int       g_metal_hotlist_seed = 0; /* 1 = upstream Metal expert hotlist seed (experimental) */
+static int       g_dspark_enabled = 0;     /* 1 = DSpark speculative decoding on local Flash models */
 
 static int  g_in_fd  = -1;   /* agent stdin (write) */
 static int  g_out_fd = -1;   /* child stdout (read)  */
@@ -1435,6 +1444,8 @@ static void api_diagnostics(int fd) {
              json_dyn_puts(&b, g_ssd_streaming_effective ? "true" : "false") &&
              json_dyn_puts(&b, ",\"metalHotlistSeed\":") &&
              json_dyn_puts(&b, g_metal_hotlist_seed ? "true" : "false") &&
+             json_dyn_puts(&b, ",\"dspark\":") &&
+             json_dyn_puts(&b, g_dspark_enabled ? "true" : "false") &&
              json_dyn_puts(&b, ",\"ssdStreamingReason\":\"") &&
              json_dyn_puts(&b, ssd_reason_esc) &&
              json_dyn_puts(&b, "\"},\"tasks\":{\"seq\":") &&
@@ -2087,6 +2098,10 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
     } else if (!strcmp(target, "ds4f-mxfp4")) {
         file = "gguf/DeepSeek-V4-Flash-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-mxfp4-0731.gguf";
         bytes = 156000000000LL;
+    } else if (!strcmp(target, "ds4f-dspark")) {
+        file = MODEL_DSPARK_UPSTREAM; bytes = MODEL_DSPARK_EXPECTED_BYTES;
+    } else if (!strcmp(target, "flash-dspark")) {
+        file = MODEL_DSPARK_ABLITERATED; bytes = MODEL_DSPARK_EXPECTED_BYTES;
     } else if (!strcmp(target, "pro-q2-imatrix")) {
         file = MODEL_PRO; bytes = MODEL_PRO_EXPECTED_BYTES;
     } else if (!strcmp(target, "glm-unsloth-q4")) {
@@ -2171,6 +2186,20 @@ static int paused_model_download(char *target, size_t targetsz,
         cstr_copy(target, targetsz, "flash-abliterated");
         if (bytes) *bytes = (long long)flash_st.st_size;
         if (expected) *expected = MODEL_FLASH_EXPECTED_BYTES;
+        return 1;
+    }
+
+    char dspark_final[DSTUDIO_PATH_MAX + 1100], dspark_part[DSTUDIO_PATH_MAX + 1110];
+    struct stat dspark_st;
+    snprintf(dspark_final, sizeof dspark_final, "%s/%s", g_ds4_dir, MODEL_DSPARK_ABLITERATED);
+    snprintf(dspark_part, sizeof dspark_part, "%s.part", dspark_final);
+    if ((stat(dspark_final, &dspark_st) != 0 || !S_ISREG(dspark_st.st_mode) ||
+         dspark_st.st_size <= 0) &&
+        stat(dspark_part, &dspark_st) == 0 && S_ISREG(dspark_st.st_mode) &&
+        dspark_st.st_size > 0) {
+        cstr_copy(target, targetsz, "flash-dspark");
+        if (bytes) *bytes = (long long)dspark_st.st_size;
+        if (expected) *expected = MODEL_DSPARK_EXPECTED_BYTES;
         return 1;
     }
 
@@ -2351,6 +2380,17 @@ static int child_download_abliterated_resumable(const char *checkout) {
     snprintf(part, sizeof part, "%s.part", final);
     return child_curl_resumable(part, final, MODEL_FLASH_URL,
                                 MODEL_FLASH_EXPECTED_BYTES, MODEL_FLASH_SHA256);
+}
+
+static int child_download_dspark_resumable(const char *checkout) {
+    char gguf[DSTUDIO_PATH_MAX + 16];
+    snprintf(gguf, sizeof gguf, "%s/gguf", checkout);
+    if (mkdir(gguf, 0755) != 0 && errno != EEXIST) return 1;
+    char part[DSTUDIO_PATH_MAX + 1100], final[DSTUDIO_PATH_MAX + 1100];
+    snprintf(final, sizeof final, "%s/%s", checkout, MODEL_DSPARK_ABLITERATED);
+    snprintf(part, sizeof part, "%s.part", final);
+    return child_curl_resumable(part, final, MODEL_DSPARK_URL,
+                                MODEL_DSPARK_EXPECTED_BYTES, MODEL_DSPARK_SHA256);
 }
 
 static int child_download_laguna_resumable(const char *checkout) {
@@ -3772,6 +3812,39 @@ static int win_spawn(const char *cwd, char *const argv[], int want_stdin,
 #endif
 
 /* Starts ds4-server. out/err piped to us for progress. */
+/* Resolve the DSpark speculative-decoding support GGUF in the active checkout.
+ * Prefers the file matching the current model family (abliterated default vs
+ * upstream chat), then any *DSpark*.gguf already present. */
+static int resolve_dspark_file(char *out, size_t outsz) {
+    out[0] = '\0';
+    const char *preferred = strstr(current_model_rel(), "Abliterated")
+        ? MODEL_DSPARK_ABLITERATED : MODEL_DSPARK_UPSTREAM;
+    char full[DSTUDIO_PATH_MAX + 1100];
+    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, preferred);
+    if (access(full, R_OK) == 0) {
+        cstr_copy(out, outsz, full);
+        return 1;
+    }
+    char gguf[DSTUDIO_PATH_MAX];
+    snprintf(gguf, sizeof gguf, "%s/gguf", g_ds4_dir);
+    DIR *d = opendir(gguf);
+    if (!d) return 0;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        const char *name = de->d_name;
+        if (!strstr(name, "DSpark") || !name_has_suffix(name, ".gguf")) continue;
+        snprintf(full, sizeof full, "%s/%s", gguf, name);
+        struct stat st;
+        if (stat(full, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) {
+            cstr_copy(out, outsz, full);
+            closedir(d);
+            return 1;
+        }
+    }
+    closedir(d);
+    return 0;
+}
+
 static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     if (!file_present(current_model_rel())) {
         snprintf(err, errsz, "model %.16s not found in %.180s",
@@ -3786,6 +3859,18 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     kv_dir_for_model(current_model_rel(), kvdir, sizeof kvdir);  /* per-model cache */
     mkpath(kvdir);
     if (!cfg_ssd_streaming(cfg, 0, err, errsz)) return 0;
+
+    char dspark_path[DSTUDIO_PATH_MAX];
+    int dspark_on = 0;
+    if (g_dspark_enabled) {
+        if (!resolve_dspark_file(dspark_path, sizeof dspark_path)) {
+            snprintf(err, errsz,
+                     "DSpark is enabled but no DSpark support GGUF was found in %s/gguf "
+                     "(download it from Settings first)", g_ds4_dir);
+            return 0;
+        }
+        dspark_on = 1;
+    }
 
     char ports[16], ctxs[16], pows[16], kvs[16], mins[16];
     snprintf(ports, sizeof ports, "%d", cfg->port);
@@ -3804,13 +3889,14 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     (void)op; (void)ep;
     char exe[2200];
     win_join_path(exe, sizeof exe, g_ds4_dir, "ds4-server.exe");
-    char *argv[24]; int n = 0;
+    char *argv[32]; int n = 0;
     argv[n++] = exe; argv[n++] = "-m"; argv[n++] = (char *)current_model_rel(); argv[n++] = "--cpu";
     argv[n++] = "--host"; argv[n++] = g_bind_host; argv[n++] = "--port"; argv[n++] = ports;
     argv[n++] = "--ctx"; argv[n++] = ctxs;
     if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
     argv[n++] = "--kv-disk-dir"; argv[n++] = kvdir; argv[n++] = "--kv-disk-space-mb"; argv[n++] = kvs;
     argv[n++] = "--kv-cache-min-tokens"; argv[n++] = mins; argv[n++] = "--cors";
+    if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp"; argv[n++] = dspark_path; }
     argv[n] = NULL;
     pid_t pid = 0;
     if (!win_spawn(g_ds4_dir, argv, 0, NULL, &g_out_fd, &g_err_fd, &pid, err, errsz))
@@ -3833,7 +3919,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
         dup2(ep[1], STDERR_FILENO);
         close(op[0]); close(op[1]); close(ep[0]); close(ep[1]);
         if (g_srv_fd >= 0) close(g_srv_fd);
-        char *argv[26]; int n = 0;
+        char *argv[32]; int n = 0;
         argv[n++] = "./ds4-server"; argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
         argv[n++] = "--host"; argv[n++] = g_bind_host; argv[n++] = "--port"; argv[n++] = ports;
         argv[n++] = "--ctx"; argv[n++] = ctxs;
@@ -3847,6 +3933,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
         }
         argv[n++] = "--kv-disk-dir"; argv[n++] = kvdir; argv[n++] = "--kv-disk-space-mb"; argv[n++] = kvs;
         argv[n++] = "--kv-cache-min-tokens"; argv[n++] = mins; argv[n++] = "--cors";
+        if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp"; argv[n++] = dspark_path; }
         argv[n] = NULL;
         execv("./ds4-server", argv);
         _exit(127);
@@ -4757,6 +4844,19 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
         }
     }
 
+    char dspark_path[DSTUDIO_PATH_MAX];
+    int dspark_on = 0;
+    if (g_dspark_enabled && !remote_model) {
+        if (!resolve_dspark_file(dspark_path, sizeof dspark_path)) {
+            snprintf(err, errsz,
+                     "DSpark is enabled but no DSpark support GGUF was found in %s/gguf "
+                     "(download it from Settings first)", g_ds4_dir);
+            free(skill_sys);
+            return 0;
+        }
+        dspark_on = 1;
+    }
+
 #ifdef _WIN32
     char exe[2200];
     win_join_path(exe, sizeof exe, g_ds4_dir, agent_bin);
@@ -4765,7 +4865,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
                      : "--think";
-    char *argv[30]; int n = 0;
+    char *argv[36]; int n = 0;
     argv[n++] = exe;
     argv[n++] = "--non-interactive";
     argv[n++] = "--jsonl";
@@ -4776,6 +4876,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
         argv[n++] = "--cpu";
         if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
         argv[n++] = "-m"; argv[n++] = model_abs;
+        if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp"; argv[n++] = dspark_path; }
     }
     argv[n++] = "-c"; argv[n++] = ctxs;
     if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
@@ -4810,7 +4911,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
         char *think_flag = cfg->think == 0 ? "--nothink"
                          : cfg->think == 2 ? "--think-max"
                          : "--think";
-        char *argv[30]; int n = 0;
+        char *argv[36]; int n = 0;
         argv[n++] = binpath;
         argv[n++] = "--non-interactive";
         argv[n++] = "--jsonl";
@@ -4821,6 +4922,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
             argv[n++] = "--metal";
             if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
             argv[n++] = "-m"; argv[n++] = model_abs;
+            if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp"; argv[n++] = dspark_path; }
         }
         argv[n++] = "-c"; argv[n++] = ctxs;
         if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
@@ -5039,6 +5141,7 @@ static void api_model_download(int fd, const char *body) {
     /* Whitelist of download_model.sh targets (the different quantizations). */
     static const char *TARGETS[] = {
         "ds4f-q2", "ds4f-q2-q4", "ds4f-q4", "ds4f-mxfp4",
+        "ds4f-dspark", "flash-dspark",
         "pro-q2-imatrix", "pro-q4-layers00-30", "pro-q4-layers31-output", "pro-q4-split",
         "glm-unsloth-q4", "glm-antirez-iq2xxs", "glm-antirez-q2", "glm-antirez-q4",
         "laguna-q4",
@@ -5084,6 +5187,7 @@ static void api_model_download(int fd, const char *body) {
         if (log >= 0) { dup2(log, STDOUT_FILENO); dup2(log, STDERR_FILENO); close(log); }
         int dn = open("/dev/null", O_RDONLY); if (dn >= 0) { dup2(dn, STDIN_FILENO); close(dn); }
         if (abliterated) _exit(child_download_abliterated_resumable(ds4_abs));
+        if (!strcmp(target, "flash-dspark")) _exit(child_download_dspark_resumable(ds4_abs));
         if (!strcmp(target, "laguna-q4")) _exit(child_download_laguna_resumable(ds4_abs));
         else            execl("/bin/sh", "sh", "download_model.sh", target, (char *)NULL);
         _exit(127);
@@ -5198,7 +5302,8 @@ static void api_model_partials_delete(int fd, const char *body) {
                   "{\"ok\":false,\"error\":\"explicit partial deletion confirmation is required\"}");
         return;
     }
-    if (strcmp(target, "laguna-q4") && strcmp(target, "flash-abliterated")) {
+    if (strcmp(target, "laguna-q4") && strcmp(target, "flash-abliterated") &&
+        strcmp(target, "flash-dspark")) {
         send_json(fd, "400 Bad Request",
                   "{\"ok\":false,\"error\":\"unknown partial model target\"}");
         return;
@@ -5214,6 +5319,9 @@ static void api_model_partials_delete(int fd, const char *body) {
     if (!strcmp(target, "flash-abliterated")) {
         cstr_copy(checkout, sizeof checkout, g_ds4_dir);
         removed = delete_stable_model_partial(checkout, MODEL_FLASH, &failed);
+    } else if (!strcmp(target, "flash-dspark")) {
+        cstr_copy(checkout, sizeof checkout, g_ds4_dir);
+        removed = delete_stable_model_partial(checkout, MODEL_DSPARK_ABLITERATED, &failed);
     } else {
         snprintf(checkout, sizeof checkout, "%s/%s", g_web_dir, DS4_LAGUNA_DIR_NAME);
         removed = delete_laguna_partial_files(checkout, &failed);
@@ -5322,12 +5430,13 @@ static void api_status(int fd) {
         snprintf(cfg, sizeof cfg,
                  "{\"model\":\"%s\",\"port\":%d,\"ctx\":%d,\"power\":%d,\"think\":\"%s\","
                  "\"ssdStreaming\":\"%s\",\"ssdStreamingEffective\":%s,\"ssdStreamingReason\":\"%s\","
-                 "\"metalHotlistSeed\":%s}",
+                 "\"metalHotlistSeed\":%s,\"dspark\":%s}",
                  g_cfg.uncensored ? "uncensored" : "standard", g_cfg.port, g_cfg.ctx, g_cfg.power,
                  g_cfg.think == 0 ? "off" : g_cfg.think == 2 ? "max" : "high",
                  g_cfg.ssd_streaming == SSD_STREAMING_ON ? "on" : g_cfg.ssd_streaming == SSD_STREAMING_OFF ? "off" : "auto",
                  g_ssd_streaming_effective ? "true" : "false", ssd_reason_esc,
-                 g_metal_hotlist_seed ? "true" : "false");
+                 g_metal_hotlist_seed ? "true" : "false",
+                 g_dspark_enabled ? "true" : "false");
     else
         snprintf(cfg, sizeof cfg, "null");
 
@@ -5990,6 +6099,7 @@ oom:
 
 static void parse_cfg(const char *body, engine_cfg *cfg, int *bad) {
     g_metal_hotlist_seed = json_get_bool(body, "metalHotlistSeed");
+    g_dspark_enabled = json_get_bool(body, "dspark");
     long v;
     int m = json_get_model(body, model_present(1) ? 1 : 0);
     if (m < 0) { *bad = 1; m = ENGINE_DEFAULTS.uncensored; }
