@@ -4945,6 +4945,35 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
     argv[n] = NULL;
     pid_t pid = 0;
+#ifdef _WIN32
+    /* The agent's browser tool needs a real Chrome/Edge executable. Upstream
+     * web_chrome_executable() only knows POSIX names, so point it at the
+     * installed Windows browser via DS4_CHROME (web_chrome_executable reads
+     * this variable first). */
+    {
+        char la_chrome[1200] = "", la_edge[1200] = "";
+        const char *lap = getenv("LOCALAPPDATA");
+        if (lap && lap[0]) {
+            snprintf(la_chrome, sizeof la_chrome, "%s\\Google\\Chrome\\Application\\chrome.exe", lap);
+            snprintf(la_edge, sizeof la_edge, "%s\\Microsoft\\Edge\\Application\\msedge.exe", lap);
+        }
+        const char *chrome_candidates[] = {
+            la_chrome,
+            "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+            "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+            la_edge,
+            "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+            "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+            NULL
+        };
+        for (int i = 0; chrome_candidates[i] && chrome_candidates[i][0]; i++) {
+            if (access(chrome_candidates[i], X_OK) == 0) {
+                setenv("DS4_CHROME", chrome_candidates[i], 1);
+                break;
+            }
+        }
+    }
+#endif
     if (!win_spawn(g_ds4_dir, argv, 1, 1, &g_in_fd, &g_out_fd, &g_err_fd, &pid, err, errsz)) {
         free(skill_sys);
         return 0;
@@ -5089,6 +5118,32 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
     argv[n] = NULL;
     pid_t pid = 0;
+#ifdef _WIN32
+    /* Same as spawn_agent: the design runtime also uses the browser tools. */
+    {
+        char la_chrome[1200] = "", la_edge[1200] = "";
+        const char *lap = getenv("LOCALAPPDATA");
+        if (lap && lap[0]) {
+            snprintf(la_chrome, sizeof la_chrome, "%s\\Google\\Chrome\\Application\\chrome.exe", lap);
+            snprintf(la_edge, sizeof la_edge, "%s\\Microsoft\\Edge\\Application\\msedge.exe", lap);
+        }
+        const char *chrome_candidates[] = {
+            la_chrome,
+            "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+            "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+            la_edge,
+            "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+            "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+            NULL
+        };
+        for (int i = 0; chrome_candidates[i] && chrome_candidates[i][0]; i++) {
+            if (access(chrome_candidates[i], X_OK) == 0) {
+                setenv("DS4_CHROME", chrome_candidates[i], 1);
+                break;
+            }
+        }
+    }
+#endif
     if (!win_spawn(g_ds4_dir, argv, 1, 1, &g_in_fd, &g_out_fd, &g_err_fd, &pid, err, errsz)) {
         free(skill_sys);
         return 0;
