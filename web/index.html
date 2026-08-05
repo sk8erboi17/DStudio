@@ -7592,10 +7592,11 @@
     // Quantizations ds4's download scripts can fetch (download_model.sh targets +
     // abliterated). Shared by the onboarding and Settings model pickers.
     const MODEL_DOWNLOADS = [
-      { id: 'flash', label: 'DeepSeek V4 Flash · uncensored — IQ2_XXS, ~87 GB', body: { target: 'flash-abliterated', engine: 'main' }, match: /abliterat|uncensor|cyberneurova/i },
-      { id: 'q2-imatrix', label: 'DeepSeek V4 Flash · chat — IQ2_XXS, ~87 GB', body: { target: 'q2-imatrix', engine: 'main' }, match: /^DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix\.gguf$/i },
-      { id: 'q2-q4-imatrix', label: 'DeepSeek V4 Flash · mixed Q2/Q4 — ~98 GB', body: { target: 'q2-q4-imatrix', engine: 'main' }, match: /Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown.*imatrix/i },
-      { id: 'q4-imatrix', label: 'DeepSeek V4 Flash · chat — Q4, higher quality & larger', body: { target: 'q4-imatrix', engine: 'main' }, match: /^DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix\.gguf$/i },
+      { id: 'flash', label: 'DeepSeek V4 Flash · uncensored — IQ2_XXS, ~81 GB (0731)', body: { target: 'flash-abliterated', engine: 'main' }, match: /abliterat|uncensor|headroom/i },
+      { id: 'ds4f-q2', label: 'DeepSeek V4 Flash · chat — IQ2_XXS, ~81 GB (0731)', body: { target: 'ds4f-q2', engine: 'main' }, match: /^DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731\.gguf$/i },
+      { id: 'ds4f-q2-q4', label: 'DeepSeek V4 Flash · mixed Q2/Q4 — ~98 GB (0731)', body: { target: 'ds4f-q2-q4', engine: 'main' }, match: /Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown.*imatrix-fixed-0731/i },
+      { id: 'ds4f-q4', label: 'DeepSeek V4 Flash · chat — Q4, higher quality & larger (0731)', body: { target: 'ds4f-q4', engine: 'main' }, match: /^DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix-0731\.gguf$/i },
+      { id: 'ds4f-mxfp4', label: 'DeepSeek V4 Flash · MXFP4 — ~156 GB (0731, Metal/CUDA)', body: { target: 'ds4f-mxfp4', engine: 'main' }, match: /^DeepSeek-V4-Flash-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-mxfp4-0731\.gguf$/i },
       { id: 'pro-q2-imatrix', label: 'DeepSeek V4 Pro · IQ2_XXS — ~430 GB', body: { target: 'pro-q2-imatrix', engine: 'main' }, match: /^DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix\.gguf$/i },
       { id: 'glm-antirez-iq2xxs', label: 'GLM 5.2 · routed IQ2_XXS — reduced memory', body: { target: 'glm-antirez-iq2xxs', engine: 'main' }, match: /^GLM-5\.2-UD-IQ2_XXS_RoutedIQ2XXS_blk78Q2K\.gguf$/i },
       { id: 'glm-antirez-q2', label: 'GLM 5.2 · routed Q2_K — ~262 GB', body: { target: 'glm-antirez-q2', engine: 'main' }, match: /^GLM-5\.2-UD-Q2_K_RoutedQ2K\.gguf$/i },

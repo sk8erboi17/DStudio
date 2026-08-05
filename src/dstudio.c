@@ -358,19 +358,19 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define DS4_CONTENT_ARCHIVE_URL "https://codeload.github.com/" DS4_CONTENT_REPO "/tar.gz/" DS4_CONTENT_COMMIT
 
 #define MODEL_STD "ds4flash.gguf"
-#define MODEL_UNC "gguf/cyberneurova-DeepSeek-V4-Flash-abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-aligned.gguf"
+#define MODEL_UNC "gguf/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128.gguf"
 /* Model variants the UI can pick: flash = the abliterated Flash above, pro =
  * the official V4-Pro IQ2XXS (download_model.sh pro-q2-imatrix). */
 #define MODEL_FLASH MODEL_UNC
 #define MODEL_PRO   "gguf/DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix.gguf"
 #define MODEL_LAGUNA "gguf/laguna-s-2.1-Q4_K_M.gguf"
-#define MODEL_FLASH_HF_REVISION "2814f4e666a88f5bb03a042e7bc65a3161a184cc"
-#define MODEL_FLASH_EXPECTED_BYTES 86721392640LL
-#define MODEL_FLASH_SHA256 "b24232a926e055eea9443548132a0e5f7c589e11951bf5e5c41f8c3d1a7563fc"
+#define MODEL_FLASH_HF_REVISION "08f6c6225ab4d29a735ab7d48d46bd0a3a767a07"
+#define MODEL_FLASH_EXPECTED_BYTES 86720111552LL
+#define MODEL_FLASH_SHA256 "55a46e7e9a51f3d6708559b8b284c3e60f6b97f9bab1f2c9633948c8331e99ee"
 #define MODEL_FLASH_URL \
-    "https://huggingface.co/audreyt/CyberNeurova-DeepSeek-V4-Flash-abliterated-GGUF/resolve/" \
+    "https://huggingface.co/apetersson/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128/resolve/" \
     MODEL_FLASH_HF_REVISION "/" \
-    "cyberneurova-DeepSeek-V4-Flash-abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-aligned.gguf?download=true"
+    "DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128.gguf?download=true"
 #define MODEL_PRO_EXPECTED_BYTES 430000000000LL  /* ~430 GB (pro-q2-imatrix), for the % */
 
 enum { ENGINE_NONE = 0, ENGINE_SERVER, ENGINE_AGENT, ENGINE_DESIGN };
@@ -2075,15 +2075,18 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
     long long bytes = 0;
     if (!strcmp(target, "flash-abliterated")) {
         file = MODEL_FLASH; bytes = MODEL_FLASH_EXPECTED_BYTES;
-    } else if (!strcmp(target, "q2-imatrix")) {
-        file = "gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix.gguf";
+    } else if (!strcmp(target, "ds4f-q2")) {
+        file = "gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf";
         bytes = 87000000000LL;
-    } else if (!strcmp(target, "q2-q4-imatrix")) {
-        file = "gguf/DeepSeek-V4-Flash-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-fixed.gguf";
+    } else if (!strcmp(target, "ds4f-q2-q4")) {
+        file = "gguf/DeepSeek-V4-Flash-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-fixed-0731.gguf";
         bytes = 98000000000LL;
-    } else if (!strcmp(target, "q4-imatrix")) {
-        file = "gguf/DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf";
+    } else if (!strcmp(target, "ds4f-q4")) {
+        file = "gguf/DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix-0731.gguf";
         bytes = 153000000000LL;
+    } else if (!strcmp(target, "ds4f-mxfp4")) {
+        file = "gguf/DeepSeek-V4-Flash-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-mxfp4-0731.gguf";
+        bytes = 156000000000LL;
     } else if (!strcmp(target, "pro-q2-imatrix")) {
         file = MODEL_PRO; bytes = MODEL_PRO_EXPECTED_BYTES;
     } else if (!strcmp(target, "glm-unsloth-q4")) {
@@ -5035,7 +5038,7 @@ static void api_model_download(int fd, const char *body) {
 
     /* Whitelist of download_model.sh targets (the different quantizations). */
     static const char *TARGETS[] = {
-        "q2-imatrix", "q2-q4-imatrix", "q4-imatrix",
+        "ds4f-q2", "ds4f-q2-q4", "ds4f-q4", "ds4f-mxfp4",
         "pro-q2-imatrix", "pro-q4-layers00-30", "pro-q4-layers31-output", "pro-q4-split",
         "glm-unsloth-q4", "glm-antirez-iq2xxs", "glm-antirez-q2", "glm-antirez-q4",
         "laguna-q4",
