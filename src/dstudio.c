@@ -4876,9 +4876,24 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
             "local files. Keep searches bounded and cite URLs when web evidence materially "
             "supports or changes the answer.\n"
             "If web tools fail, say that clearly; do not invent current facts.\n";
+        static const char *normal_agent_git_checks =
+            "\n\n## GIT AND GITHUB CHECKS\n"
+            "When the user asks whether git/GitHub is configured or which GitHub user is "
+            "connected on this machine, VERIFY with real commands before answering; never "
+            "conclude it is missing just because ~/.gitconfig or ~/.ssh is absent.\n"
+            "- Run `git config --list --show-origin` to see global and repo-local settings.\n"
+            "- Run `ssh -T -o BatchMode=yes git@github.com` (a reply like `Hi <user>! You've "
+            "successfully authenticated` names the connected account).\n"
+            "- Run `git remote -v` in the current repository to see the remote.\n"
+            "- On Windows, HTTPS credentials may be stored by Git Credential Manager "
+            "(`git:https://github.com`), so pushes work even without SSH keys or a global "
+            ".gitconfig.\n"
+            "Report the actual connected GitHub user and remote; do not claim nothing is "
+            "configured without running these checks.\n";
         const char *normal_agent_rules[] = {
             normal_agent_discovery,
-            normal_agent_web_research
+            normal_agent_web_research,
+            normal_agent_git_checks
         };
         for (size_t i = 0; i < sizeof normal_agent_rules / sizeof normal_agent_rules[0]; i++) {
             size_t cur = skill_sys ? strlen(skill_sys) : 0, dl = strlen(normal_agent_rules[i]);
