@@ -751,7 +751,7 @@ done:
  * pinned commit into this DStudio checkout as ./ds4, builds upstream, then applies the external patch
  * sets from patch/. Every step returns a concrete error instead of leaving the
  * onboarding path field in a silent-fail state. */
-static void api_setup_ds4(int fd) {
+static void api_setup_ds4(int fd, const char *body) {
     resolve_web_dir();
     g_active_setup_task = task_begin("setup", "Install ds4", "ds4", g_mode, g_ds4_dir, 0, 0);
     task_mark_working(g_active_setup_task, "preparing ds4 setup");
@@ -764,7 +764,14 @@ static void api_setup_ds4(int fd) {
 #endif
 
     char target[DSTUDIO_PATH_MAX];
-    if (!default_ds4_dir(target, sizeof target)) {
+    char chosen[DSTUDIO_PATH_MAX] = "";
+    if (body && body[0]) json_get_string(body, "dir", chosen, sizeof chosen);
+    if (chosen[0]) {
+        cstr_copy(target, sizeof target, chosen);
+        /* Normalize the trailing separator so folder-name checks behave. */
+        size_t tl = strlen(target);
+        while (tl > 3 && (target[tl - 1] == '\\' || target[tl - 1] == '/')) target[--tl] = '\0';
+    } else if (!default_ds4_dir(target, sizeof target)) {
         setup_send_json(fd, "500 Internal Server Error", 0, g_ds4_dir, 0, 0, 0, 0, 0, 0, mode_name(g_mode),
                         "default ds4 path is too long");
         return;
@@ -813,7 +820,7 @@ static void api_setup_ds4(int fd) {
         return;
     }
     cstr_copy(g_ds4_dir, sizeof g_ds4_dir, abs);
-    g_ds4_dir_explicit = 0;
+    g_ds4_dir_explicit = chosen[0] ? 1 : 0;
     if (!ds4_dir_valid()) {
         setup_send_json(fd, "409 Conflict", 0, g_ds4_dir, downloaded, 0, 0, 0, 0, 0, mode_name(g_mode),
                         "downloaded folder does not look like a ds4 checkout");

@@ -33,6 +33,9 @@
 extern "C" int ds4_serve_main(int argc, char **argv);
 /* Set by us before forking so the server (ds4_serve_main) binds the SAME free port we open. */
 extern "C" int ds4ui_forced_port;
+/* Defined in dstudio.c: stop the engine child and end the server loop. Used by
+ * the parent-death watcher so a killed/crashed GUI cannot orphan the server. */
+extern "C" void ds4ui_parent_died(void);
 
 #ifdef _WIN32
 typedef SOCKET app_socket_t;
@@ -177,6 +180,40 @@ static void stop_server(void) {
     }
 }
 
+/* Job with KILL_ON_JOB_CLOSE: when this process exits (even by force-kill or
+ * crash) Windows terminates every process still assigned to the job — the
+ * server child and, when the launcher allows assigning the current process,
+ * the WebView2 browser processes that lock the shared profile. */
+static HANDLE g_parent_job = NULL;
+static void win_make_kill_job(void) {
+    g_parent_job = CreateJobObjectW(NULL, NULL);
+    if (!g_parent_job) return;
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION info;
+    memset(&info, 0, sizeof info);
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (!SetInformationJobObject(g_parent_job, JobObjectExtendedLimitInformation,
+                                 &info, sizeof info)) {
+        CloseHandle(g_parent_job);
+        g_parent_job = NULL;
+        return;
+    }
+    /* Best-effort: if the launcher already placed us in a job this fails, and
+     * only the explicitly-assigned server child is protected. */
+    AssignProcessToJobObject(g_parent_job, GetCurrentProcess());
+}
+
+/* Watcher thread inside the --serve-child process: blocks until the GUI parent
+ * dies, then asks the server to stop itself and its engine child. */
+static DWORD WINAPI win_parent_watch(LPVOID arg) {
+    HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, (DWORD)(uintptr_t)arg);
+    if (h) {
+        WaitForSingleObject(h, INFINITE);
+        CloseHandle(h);
+    }
+    ds4ui_parent_died();
+    return 0;
+}
+
 static void quote_arg(char *cmd, size_t cap, const char *arg) {
     size_t o = strlen(cmd);
     if (o && o + 1 < cap) cmd[o++] = ' ';
@@ -209,6 +246,7 @@ static int spawn_server_process(int argc, char **argv, int port) {
     BOOL ok = CreateProcessA(NULL, cmd, NULL, NULL, FALSE,
                              CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
     if (!ok) return 0;
+    if (g_parent_job) AssignProcessToJobObject(g_parent_job, pi.hProcess);
     CloseHandle(pi.hThread);
     g_server_proc = pi.hProcess;
     return 1;
@@ -242,6 +280,13 @@ int main(int argc, char **argv) {
      * child never starts, then open a window (the --build-jsonl "hang"). */
 #ifdef _WIN32
     if ((argc > 1 && !strcmp(argv[1], "--serve-child"))) {
+        const char *pp = getenv("DS4UI_PARENT_PID");
+        if (pp && pp[0]) {
+            DWORD parent_pid = (DWORD)strtoul(pp, NULL, 10);
+            HANDLE th = CreateThread(NULL, 0, win_parent_watch,
+                                     (LPVOID)(uintptr_t)parent_pid, 0, NULL);
+            if (th) CloseHandle(th);
+        }
         char **child_argv = argv + 1;
         child_argv[0] = argv[0];
         return ds4_serve_main(argc - 1, child_argv);
@@ -250,6 +295,13 @@ int main(int argc, char **argv) {
     if (getenv("DS4UI_NO_WINDOW") || getenv("DS4UI_TEST_MODE") ||
         (argc > 1 && (!strcmp(argv[1], "--build-jsonl") || !strcmp(argv[1], "--check-anchors"))))
         return ds4_serve_main(argc, argv);
+
+#ifdef _WIN32
+    win_make_kill_job();
+    char ppid[16];
+    snprintf(ppid, sizeof ppid, "%lu", (unsigned long)GetCurrentProcessId());
+    _putenv_s("DS4UI_PARENT_PID", ppid);
+#endif
 
     if (!acquire_single_instance_lock()) {
         fprintf(stderr, "DStudio: another instance is already running; not opening a second window.\n");

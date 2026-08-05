@@ -382,6 +382,14 @@ int dstudio_remote_chat_stream(const char *base_url,
         const char *p = line.ptr ? line.ptr : "";
         if ((unsigned char)p[0] != 0x1e) continue;
         p++;
+        /* DS4UI: the launcher can interrupt the current turn by writing this
+         * control frame; it must be honored even while a model stream is open
+         * (the frame shares the same stdin as the model deltas). */
+        if (strstr(p, "\"type\":\"control\"") &&
+            strstr(p, "\"name\":\"interrupt\"")) {
+            dstudio_remote_buf_free(&line);
+            return 2; /* user interrupt */
+        }
         if (!strstr(p, "\"type\":\"model_")) continue;
         int got_id = -1;
         if (!json_int_value(p, "id", &got_id) || got_id != id) continue;
