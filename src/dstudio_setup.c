@@ -247,11 +247,19 @@ static int setup_download_ds4_archive(const char *url, const char *tag, const ch
         return 0;
     }
 
+#ifdef _WIN32
+    char *curl_argv[] = {
+        "C:\\Windows\\System32\\curl.exe", "-L", "--fail", "--show-error", "--retry", "2",
+        "--connect-timeout", "20", "--max-time", "300",
+        "-o", archive, (char *)url, NULL
+    };
+#else
     char *curl_argv[] = {
         "curl", "-L", "--fail", "--show-error", "--retry", "2",
         "--connect-timeout", "20", "--max-time", "300",
         "-o", archive, (char *)url, NULL
     };
+#endif
     int rc = setup_run_cmd_capture(NULL, curl_argv, log_tail, logsz);
     if (rc != 0) {
         snprintf(err, errsz,
@@ -262,7 +270,11 @@ static int setup_download_ds4_archive(const char *url, const char *tag, const ch
         return 0;
     }
 
+#ifdef _WIN32
+    char *tar_argv[] = { "C:\\Windows\\System32\\tar.exe", "-xzf", archive, "-C", extract, NULL };
+#else
     char *tar_argv[] = { "tar", "-xzf", archive, "-C", extract, NULL };
+#endif
     rc = setup_run_cmd_capture(NULL, tar_argv, log_tail, logsz);
     if (rc != 0) {
         snprintf(err, errsz,
@@ -338,11 +350,19 @@ static int setup_download_content_archive(char *log_tail, size_t logsz, char *er
         return 0;
     }
 
+#ifdef _WIN32
+    char *curl_argv[] = {
+        "C:\\Windows\\System32\\curl.exe", "-L", "--fail", "--show-error", "--retry", "2",
+        "--connect-timeout", "20", "--max-time", "600",
+        "-o", archive, (char *)DS4_CONTENT_ARCHIVE_URL, NULL
+    };
+#else
     char *curl_argv[] = {
         "curl", "-L", "--fail", "--show-error", "--retry", "2",
         "--connect-timeout", "20", "--max-time", "600",
         "-o", archive, (char *)DS4_CONTENT_ARCHIVE_URL, NULL
     };
+#endif
     int rc = setup_run_cmd_capture(NULL, curl_argv, log_tail, logsz);
     if (rc != 0) {
         snprintf(err, errsz,
@@ -351,7 +371,11 @@ static int setup_download_content_archive(char *log_tail, size_t logsz, char *er
         unlink(archive); setup_remove_tree(extract); return 0;
     }
 
+#ifdef _WIN32
+    char *tar_argv[] = { "C:\\Windows\\System32\\tar.exe", "-xzf", archive, "-C", extract, NULL };
+#else
     char *tar_argv[] = { "tar", "-xzf", archive, "-C", extract, NULL };
+#endif
     rc = setup_run_cmd_capture(NULL, tar_argv, log_tail, logsz);
     if (rc != 0) {
         snprintf(err, errsz, "content archive extraction failed (exit %d). DStudio setup needs tar. Output: %.5600s",

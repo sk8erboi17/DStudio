@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $Root
+$env:PATH = "C:\msys64\ucrt64\bin;C:\msys64\mingw64\bin;C:\msys64\clang64\bin;C:\msys64\usr\bin;C:\cygwin64\bin;$env:PATH"
 
 function Assert-NativeOk([string]$Name) {
   if ($LASTEXITCODE -ne 0) {
@@ -20,6 +21,52 @@ function Get-NativeTool([string[]]$Names) {
     if ($Tool) { return $Tool.Source }
   }
   throw "none of these tools were found in PATH: $($Names -join ', ')"
+}
+
+function Find-NativeTool([string[]]$Names) {
+  foreach ($Name in $Names) {
+    $Tool = Get-Command $Name -ErrorAction SilentlyContinue
+    if ($Tool) { return $Tool.Source }
+  }
+  foreach ($Root in @(
+    "C:\msys64\ucrt64\bin",
+    "C:\msys64\mingw64\bin",
+    "C:\msys64\clang64\bin",
+    "C:\cygwin64\bin"
+  )) {
+    foreach ($Name in $Names) {
+      $Candidate = Join-Path $Root $Name
+      if (Test-Path $Candidate) { return $Candidate }
+    }
+  }
+  foreach ($Kit in @(
+    "C:\Program Files (x86)\Windows Kits\10\bin",
+    "C:\Program Files\Windows Kits\10\bin"
+  )) {
+    if (Test-Path $Kit) {
+      $Versions = Get-ChildItem $Kit -Directory -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending
+      foreach ($Version in $Versions) {
+        $Candidate = Join-Path (Join-Path $Version.FullName "x64") $Names[0]
+        if (Test-Path $Candidate) { return $Candidate }
+      }
+    }
+  }
+  return $null
+}
+
+function Find-VsCl {
+  foreach ($Root in @(
+    "C:\Program Files\Microsoft Visual Studio",
+    "C:\Program Files (x86)\Microsoft Visual Studio"
+  )) {
+    if (-not (Test-Path $Root)) { continue }
+    $Found = Get-ChildItem $Root -Recurse -Filter "cl.exe" -ErrorAction SilentlyContinue |
+      Where-Object { $_.FullName -match "\\bin\\Hostx64\\x64\\cl\.exe$" } |
+      Select-Object -First 1
+    if ($Found) { return $Found.FullName }
+  }
+  return $null
 }
 
 function Write-Base64Header([string]$InputPath, [string]$OutputPath, [string]$Symbol, [string]$Label) {
@@ -123,33 +170,84 @@ Write-Host "windows: generating app icon resource"
 $Icon = Join-Path $Root "build\windows\dstudio.ico"
 $Rc = Join-Path $Root "build\windows\dstudio.rc"
 $Res = Join-Path $Root "build\windows\dstudio.res"
+$ResObj = Join-Path $Root "build\windows\dstudio_res.o"
 Write-IcoFromPng (Join-Path $Root "assets\logo.png") $Icon
-[IO.File]::WriteAllText($Rc, "101 ICON `"$Icon`"`r`n")
-rc /nologo /fo $Res $Rc
-Assert-NativeOk "compile Windows icon resource"
+[IO.File]::WriteAllText($Rc, "101 ICON `"$($Icon -replace '\\','/')`"`r`n")
+$RcTool = Find-NativeTool @("rc")
+$Windres = Find-NativeTool @("windres")
+if ($RcTool) {
+  & $RcTool /nologo /fo $Res $Rc
+  Assert-NativeOk "compile Windows icon resource"
+} elseif ($Windres) {
+  & $Windres -O coff -i $Rc -o $ResObj
+  Assert-NativeOk "compile Windows icon resource (windres)"
+} else {
+  throw "no resource compiler found: need rc (Windows SDK) or windres (MinGW)"
+}
 
 Write-Host "windows: restoring WebView2 SDK"
 $Deps = Join-Path $Root ".deps\windows"
 New-Item -ItemType Directory -Force -Path $Deps | Out-Null
-nuget install Microsoft.Web.WebView2 -Version 1.0.2903.40 -OutputDirectory $Deps -NonInteractive
-Assert-NativeOk "nuget install WebView2"
 $Pkg = Get-ChildItem $Deps -Directory -Filter "Microsoft.Web.WebView2.*" | Sort-Object Name -Descending | Select-Object -First 1
-if (-not $Pkg) { throw "WebView2 SDK not found after nuget install" }
+if (-not $Pkg -and (Test-Path (Join-Path $Deps "build\native\include\WebView2.h"))) {
+  # The nupkg was extracted directly into $Deps (curl+tar fallback).
+  $Pkg = Get-Item $Deps
+}
+if (-not $Pkg) {
+  $Nuget = Find-NativeTool @("nuget", "nuget.exe")
+  if ($Nuget) {
+    & $Nuget install Microsoft.Web.WebView2 -Version 1.0.2903.40 -OutputDirectory $Deps -NonInteractive
+    Assert-NativeOk "nuget install WebView2"
+  } else {
+    $Nupkg = Join-Path $Deps "Microsoft.Web.WebView2.1.0.2903.40.nupkg"
+    if (-not (Test-Path $Nupkg)) {
+      curl.exe -L -o $Nupkg "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2903.40"
+      Assert-NativeOk "download WebView2 SDK"
+    }
+    & "C:\Windows\System32\tar.exe" -xf $Nupkg -C $Deps
+    Assert-NativeOk "extract WebView2 SDK"
+  }
+  $Pkg = Get-ChildItem $Deps -Directory -Filter "Microsoft.Web.WebView2.*" | Sort-Object Name -Descending | Select-Object -First 1
+  if (-not $Pkg -and (Test-Path (Join-Path $Deps "build\native\include\WebView2.h"))) {
+    $Pkg = Get-Item $Deps
+  }
+}
+if (-not $Pkg) { throw "WebView2 SDK not found after install" }
 $WvInclude = Join-Path $Pkg.FullName "build\native\include"
 $StaticLib = Get-ChildItem $Pkg.FullName -Recurse -Filter "WebView2LoaderStatic.lib" |
   Where-Object { $_.FullName -match "\\x64\\" } | Select-Object -First 1
 $DynamicLib = Get-ChildItem $Pkg.FullName -Recurse -Filter "WebView2Loader.dll.lib" |
   Where-Object { $_.FullName -match "\\x64\\" } | Select-Object -First 1
-$LinkLib = if ($DynamicLib) { $DynamicLib.FullName } elseif ($StaticLib) { $StaticLib.FullName } else { throw "WebView2 loader lib not found" }
 
 Write-Host "windows: compiling DStudio.exe"
-$Cl = Get-NativeTool @("clang-cl", "cl")
-& $Cl /nologo /O2 /W3 /D_CRT_SECURE_NO_WARNINGS /D_WINSOCK_DEPRECATED_NO_WARNINGS /DDS4_WITH_WEBVIEW /TC /c src\dstudio.c /Fobuild\windows\dstudio.obj
-Assert-NativeOk "compile dstudio.c"
-& $Cl /nologo /O2 /W3 /EHsc /std:c++17 /D_CRT_SECURE_NO_WARNINGS /I "$WvInclude" /c src\app.cc /Fobuild\windows\app.obj
-Assert-NativeOk "compile app.cc"
-& $Cl /nologo build\windows\dstudio.obj build\windows\app.obj $Res /Fe:$OutDir\DStudio.exe /link /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup ws2_32.lib user32.lib shell32.lib ole32.lib uuid.lib version.lib $LinkLib
-Assert-NativeOk "link DStudio.exe"
+$Cl = Find-VsCl
+$Gcc = Find-NativeTool @("gcc")
+$Gxx = Find-NativeTool @("g++")
+if ($Cl) {
+  Write-Host "windows: using MSVC compiler: $Cl"
+  $LinkLib = if ($DynamicLib) { $DynamicLib.FullName } elseif ($StaticLib) { $StaticLib.FullName } else { throw "WebView2 loader lib not found" }
+  & $Cl /nologo /O2 /W3 /D_CRT_SECURE_NO_WARNINGS /D_WINSOCK_DEPRECATED_NO_WARNINGS /DDS4_WITH_WEBVIEW /TC /c src\dstudio.c /Fobuild\windows\dstudio.obj
+  Assert-NativeOk "compile dstudio.c"
+  & $Cl /nologo /O2 /W3 /EHsc /std:c++17 /D_CRT_SECURE_NO_WARNINGS /I "$WvInclude" /c src\app.cc /Fobuild\windows\app.obj
+  Assert-NativeOk "compile app.cc"
+  & $Cl /nologo build\windows\dstudio.obj build\windows\app.obj $Res /Fe:$OutDir\DStudio.exe /link /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup ws2_32.lib user32.lib shell32.lib ole32.lib uuid.lib version.lib $LinkLib
+  Assert-NativeOk "link DStudio.exe"
+} elseif ($Gcc -and $Gxx) {
+  Write-Host "windows: using MinGW compiler: $Gcc"
+  if (-not $DynamicLib) { throw "WebView2 loader import lib not found" }
+  $LinkLib = $DynamicLib.FullName
+  & $Gcc -O2 -Wall -Wextra -std=c11 -D_CRT_SECURE_NO_WARNINGS -D_WINSOCK_DEPRECATED_NO_WARNINGS -DDS4_WITH_WEBVIEW -c src\dstudio.c -o build\windows\dstudio.obj
+  Assert-NativeOk "compile dstudio.c"
+  & $Gxx -O2 -Wall -std=c++17 -D_CRT_SECURE_NO_WARNINGS -D_WINSOCK_DEPRECATED_NO_WARNINGS -I "$WvInclude" -c src\app.cc -o build\windows\app.obj
+  Assert-NativeOk "compile app.cc"
+  & $Gxx -mwindows '-Wl,--subsystem,windows' '-Wl,-e,mainCRTStartup' `
+    build\windows\dstudio.obj build\windows\app.obj $ResObj $LinkLib `
+    -lws2_32 -luser32 -lshell32 -lole32 -luuid -lversion -ldwmapi `
+    -o "$OutDir\DStudio.exe"
+  Assert-NativeOk "link DStudio.exe"
+} else {
+  throw "no usable C/C++ compiler found: need MSVC (cl.exe) or MinGW (gcc/g++)"
+}
 
 if ($DynamicLib) {
   $Dll = Get-ChildItem $Pkg.FullName -Recurse -Filter "WebView2Loader.dll" |
