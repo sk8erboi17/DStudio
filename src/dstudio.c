@@ -4659,7 +4659,12 @@ static void resolve_web_dir(void) {
     char cand[DSTUDIO_PATH_MAX + 2048], abs[DSTUDIO_PATH_MAX];
     snprintf(cand, sizeof cand, "extension");
     if (realpath(cand, abs) && access(abs, R_OK) == 0) {
-        char *slash = strrchr(abs, '/'); if (slash) *slash = '\0';
+        char *slash = strrchr(abs, '/');
+#ifdef _WIN32
+        char *bs = strrchr(abs, '\\');
+        if (bs && (!slash || bs > slash)) slash = bs;
+#endif
+        if (slash) *slash = '\0';
         cstr_copy(g_web_dir, sizeof g_web_dir, abs);
         return;
     }
