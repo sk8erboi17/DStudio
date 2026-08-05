@@ -58,27 +58,46 @@ static bool ds4ui_win32_chrome_candidate(char *out, size_t cap, const char *base
 
 static void ds4ui_win32_ensure_chrome(int port) {
     if (ds4ui_win32_cdp_alive(port)) return;
-    char chrome[1024] = {0};
+
+    /* Try every plausible browser install, including per-user Chrome/Edge
+     * under %LOCALAPPDATA% (the default when Chrome is installed without
+     * admin rights). */
+    char candidates[6][1024];
+    int nc = 0;
     const char *env = getenv("DS4_CHROME");
     if (env && env[0] && ds4ui_win32_file_exists(env)) {
-        snprintf(chrome, sizeof(chrome), "%s", env);
-    } else {
-        char base[768];
-        DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", base, sizeof(base));
-        if (n > 0 && n < sizeof(base))
-            ds4ui_win32_chrome_candidate(chrome, sizeof(chrome), base, "Google\\Chrome\\Application\\chrome.exe");
-        if (!chrome[0]) {
-            n = GetEnvironmentVariableA("PROGRAMFILES", base, sizeof(base));
-            if (n > 0 && n < sizeof(base))
-                ds4ui_win32_chrome_candidate(chrome, sizeof(chrome), base, "Google\\Chrome\\Application\\chrome.exe");
-        }
-        if (!chrome[0]) {
-            n = GetEnvironmentVariableA("PROGRAMFILES(X86)", base, sizeof(base));
-            if (n > 0 && n < sizeof(base))
-                ds4ui_win32_chrome_candidate(chrome, sizeof(chrome), base, "Google\\Chrome\\Application\\chrome.exe");
-        }
+        snprintf(candidates[nc++], sizeof candidates[0], "%s", env);
     }
-    if (!chrome[0]) return;
+    char la[1024] = {0};
+    DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", la, sizeof la);
+    if (n > 0 && n < sizeof la) {
+        ds4ui_win32_chrome_candidate(candidates[nc], sizeof candidates[0], la,
+                                     "Google\\Chrome\\Application\\chrome.exe");
+        if (candidates[nc][0]) nc++;
+        ds4ui_win32_chrome_candidate(candidates[nc], sizeof candidates[0], la,
+                                     "Microsoft\\Edge\\Application\\msedge.exe");
+        if (candidates[nc][0]) nc++;
+    }
+    char pf[1024] = {0};
+    n = GetEnvironmentVariableA("PROGRAMFILES", pf, sizeof pf);
+    if (n > 0 && n < sizeof pf) {
+        ds4ui_win32_chrome_candidate(candidates[nc], sizeof candidates[0], pf,
+                                     "Google\\Chrome\\Application\\chrome.exe");
+        if (candidates[nc][0]) nc++;
+        ds4ui_win32_chrome_candidate(candidates[nc], sizeof candidates[0], pf,
+                                     "Microsoft\\Edge\\Application\\msedge.exe");
+        if (candidates[nc][0]) nc++;
+    }
+    n = GetEnvironmentVariableA("PROGRAMFILES(X86)", pf, sizeof pf);
+    if (n > 0 && n < sizeof pf) {
+        ds4ui_win32_chrome_candidate(candidates[nc], sizeof candidates[0], pf,
+                                     "Google\\Chrome\\Application\\chrome.exe");
+        if (candidates[nc][0]) nc++;
+    }
+    if (nc == 0) {
+        return;
+    }
+
     char profile[1024] = {0};
     DWORD pn = GetEnvironmentVariableA("LOCALAPPDATA", profile, sizeof(profile));
     if (pn <= 0 || pn >= sizeof(profile)) snprintf(profile, sizeof(profile), ".");
@@ -86,20 +105,33 @@ static void ds4ui_win32_ensure_chrome(int port) {
     snprintf(profile + pl, sizeof(profile) - pl, "\\DStudio\\chrome-cdp");
     CreateDirectoryA(profile, NULL);
 
-    char cmd[4096];
-    snprintf(cmd, sizeof(cmd),
-             "\"%s\" --remote-debugging-port=%d --user-data-dir=\"%s\" "
-             "--no-first-run --no-default-browser-check about:blank",
-             chrome, port, profile);
-    STARTUPINFOA si;
-    PROCESS_INFORMATION pi;
-    memset(&si, 0, sizeof(si));
-    memset(&pi, 0, sizeof(pi));
-    si.cb = sizeof(si);
-    if (CreateProcessA(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-        Sleep(250);
+    for (int c = 0; c < nc && !ds4ui_win32_cdp_alive(port); c++) {
+        char args[4096];
+        snprintf(args, sizeof args,
+                 "--remote-debugging-port=%d --user-data-dir=\"%s\" "
+                 "--no-first-run --no-default-browser-check --remote-allow-origins=* "
+                 "about:blank",
+                 port, profile);
+        char cmd[4600];
+        snprintf(cmd, sizeof cmd, "\"%s\" %s", candidates[c], args);
+        STARTUPINFOA si;
+        PROCESS_INFORMATION pi;
+        memset(&si, 0, sizeof(si));
+        memset(&pi, 0, sizeof(pi));
+        si.cb = sizeof(si);
+        /* Full command line with the quoted executable first: some browsers
+         * (Chrome 136+) misbehave when argv[0] is a flag rather than the exe. */
+        if (CreateProcessA(NULL, cmd, NULL, NULL, FALSE,
+                           CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            for (int i = 0; i < 40; i++) {
+                if (ds4ui_win32_cdp_alive(port)) {
+                    return;
+                }
+                Sleep(250);
+            }
+        }
     }
 }
 #endif
