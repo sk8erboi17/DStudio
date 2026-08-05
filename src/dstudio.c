@@ -346,7 +346,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 /* Optional Laguna S 2.1 engine checkout. Laguna lives on its own upstream
  * branch and currently requires Metal plus full model residency, so DStudio
  * keeps it side by side with main instead of mixing branch sources. */
-#define DS4_LAGUNA_UPSTREAM_COMMIT "7e3dbef7e336433f487c172a3308e26b39fa75a3"
+#define DS4_LAGUNA_UPSTREAM_COMMIT "448d5695d1c86401a4e9447c440feb983b73e6de"
 #define DS4_LAGUNA_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_LAGUNA_UPSTREAM_COMMIT
 #define DS4_LAGUNA_DIR_NAME "ds4-laguna-s21"
 

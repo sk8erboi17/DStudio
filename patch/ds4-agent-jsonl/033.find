@@ -4,5 +4,3 @@
     w->status.gen_tps = dt > 0.0 ? (double)*generated / dt : 0.0;
     agent_wake_locked(w);
     pthread_mutex_unlock(&w->mu);
-    return 0;
-}
