@@ -16,6 +16,7 @@
 #define H3_OFFICIAL_ENCODER_SIZE 27141342152LL
 #define H3_COMMUNITY_ENCODER_NAME "qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257.safetensors"
 #define H3_COMMUNITY_ENCODER_SIZE 25772287417LL
+#define H3_MPS_ACCELERATOR_MARKER ".apple-silicon-fp8-revision"
 
 static int video_root_dir(char *out, size_t outsz) {
     const char *configured = getenv("DSTUDIO_H3_HOME");
@@ -113,9 +114,10 @@ static void api_video_status(int fd, const char *path) {
         web_json_error(fd, "500 Internal Server Error", "cannot resolve MiniMax H3 runtime directory");
         return;
     }
-    char comfy[DSTUDIO_PATH_MAX], marker[DSTUDIO_PATH_MAX];
+    char comfy[DSTUDIO_PATH_MAX], marker[DSTUDIO_PATH_MAX], accelerator_marker[DSTUDIO_PATH_MAX];
     snprintf(comfy, sizeof comfy, "%s/ComfyUI", root);
     snprintf(marker, sizeof marker, "%s/.comfy-runtime-revision", root);
+    snprintf(accelerator_marker, sizeof accelerator_marker, "%s/%s", root, H3_MPS_ACCELERATOR_MARKER);
     char diffusion[DSTUDIO_PATH_MAX], video_vae[DSTUDIO_PATH_MAX], audio_vae[DSTUDIO_PATH_MAX], encoder_path[DSTUDIO_PATH_MAX];
     snprintf(diffusion, sizeof diffusion, "%s/models/diffusion_models/%s", comfy, H3_DIFFUSION_NAME);
     snprintf(video_vae, sizeof video_vae, "%s/models/vae/%s", comfy, H3_VIDEO_VAE_NAME);
@@ -129,11 +131,12 @@ static void api_video_status(int fd, const char *path) {
     n = video_file_bytes(video_vae); have += n > H3_VIDEO_VAE_SIZE ? H3_VIDEO_VAE_SIZE : n;
     n = video_file_bytes(audio_vae); have += n > H3_AUDIO_VAE_SIZE ? H3_AUDIO_VAE_SIZE : n;
     n = video_file_bytes(encoder_path); have += n > encoder_size ? encoder_size : n;
+    int accelerator_installed = video_file_bytes(accelerator_marker) > 0;
     int installed = video_file_bytes(diffusion) == H3_DIFFUSION_SIZE &&
                     video_file_bytes(video_vae) == H3_VIDEO_VAE_SIZE &&
                     video_file_bytes(audio_vae) == H3_AUDIO_VAE_SIZE &&
                     video_file_bytes(encoder_path) == encoder_size &&
-                    video_file_bytes(marker) > 0;
+                    video_file_bytes(marker) > 0 && accelerator_installed;
     char setup_path[DSTUDIO_PATH_MAX];
     snprintf(setup_path, sizeof setup_path, "%s/setup-status.json", root);
     size_t setup_n = 0;
@@ -146,8 +149,8 @@ static void api_video_status(int fd, const char *path) {
 #else
     json_dyn_puts(&b, "\"supported\":false,") &&
 #endif
-    json_dyn_printf(&b, "\"installed\":%s,\"downloadedBytes\":%lld,\"totalBytes\":%lld,",
-                    installed ? "true" : "false", have, total) &&
+    json_dyn_printf(&b, "\"installed\":%s,\"acceleratorInstalled\":%s,\"downloadedBytes\":%lld,\"totalBytes\":%lld,",
+                    installed ? "true" : "false", accelerator_installed ? "true" : "false", have, total) &&
     json_dyn_puts(&b, "\"encoder\":") && json_dyn_put_escaped(&b, encoder) &&
     json_dyn_puts(&b, ",\"model\":\"MiniMaxAI/MiniMax-H3\",\"runtime\":\"ComfyUI/MPS\",\"dir\":") &&
     json_dyn_put_escaped(&b, root) && json_dyn_puts(&b, ",\"setup\":") &&
@@ -241,6 +244,11 @@ static void api_video_generate_run(int fd, const char *body) {
         strcmp(aspect, "4:3") && strcmp(aspect, "3:4")) {
         free(prompt); web_json_error(fd, "400 Bad Request", "unsupported video aspect ratio"); return;
     }
+    char profile[16] = "balanced";
+    (void)json_get_string(body, "profile", profile, sizeof profile);
+    if (strcmp(profile, "preview") && strcmp(profile, "balanced") && strcmp(profile, "quality")) {
+        free(prompt); web_json_error(fd, "400 Bad Request", "profile must be preview, balanced or quality"); return;
+    }
     char base[DSTUDIO_PATH_MAX], id[80], dir[DSTUDIO_PATH_MAX];
     if (!video_jobs_dir(base, sizeof base)) {
         free(prompt); web_json_error(fd, "500 Internal Server Error", "cannot create video job directory"); return;
@@ -274,7 +282,7 @@ static void api_video_generate_run(int fd, const char *body) {
     snprintf(script, sizeof script, "%s/scripts/h3-generate.sh", g_web_dir);
     snprintf(duration_s, sizeof duration_s, "%ld", duration);
     char log[32768] = "";
-    char *argv[20];
+    char *argv[24];
     int a = 0;
     argv[a++] = "/bin/sh"; argv[a++] = script;
     argv[a++] = "--prompt-file"; argv[a++] = prompt_path;
@@ -282,6 +290,7 @@ static void api_video_generate_run(int fd, const char *body) {
     argv[a++] = "--status-file"; argv[a++] = status_path;
     argv[a++] = "--duration"; argv[a++] = duration_s;
     argv[a++] = "--aspect"; argv[a++] = aspect;
+    argv[a++] = "--profile"; argv[a++] = profile;
     argv[a++] = "--encoder"; argv[a++] = encoder;
     if (first_frame[0]) { argv[a++] = "--first-frame"; argv[a++] = first_frame; }
     argv[a] = NULL;
@@ -302,7 +311,8 @@ static void api_video_generate_run(int fd, const char *body) {
     json_dyn_buf b = {0};
     json_dyn_puts(&b, "{\"ok\":true,\"id\":") && json_dyn_put_escaped(&b, id) &&
     json_dyn_puts(&b, ",\"filename\":") && json_dyn_put_escaped(&b, filename) &&
-    json_dyn_puts(&b, ",\"model\":\"MiniMaxAI/MiniMax-H3\",\"url\":") &&
+    json_dyn_puts(&b, ",\"model\":\"MiniMaxAI/MiniMax-H3\",\"profile\":") &&
+    json_dyn_put_escaped(&b, profile) && json_dyn_puts(&b, ",\"url\":") &&
     json_dyn_printf(&b, "\"/api/video/file?id=%s&name=%s\"}", id, filename);
     send_json(fd, "200 OK", b.ptr ? b.ptr : "{\"ok\":false}");
     free(b.ptr);

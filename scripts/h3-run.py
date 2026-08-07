@@ -17,6 +17,7 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import shutil
 import signal
 import socket
@@ -35,6 +36,14 @@ COMFY_REQUIRED_FILES = (
     "requirements.txt",
     "main.py",
     "comfy_extras/nodes_minimax_h3.py",
+)
+MPS_ACCELERATOR_REPOSITORY = "https://github.com/pawel-mazurkiewicz/ComfyUI-AppleSilicon-FP8.git"
+MPS_ACCELERATOR_COMMIT = "3cc65dd8d8b98f4ab69cf48b8912a831dc8ccff3"
+MPS_ACCELERATOR_DIR = "ComfyUI-AppleSilicon-FP8"
+MPS_ACCELERATOR_REQUIRED_FILES = (
+    "__init__.py",
+    "prestartup_script.py",
+    "requirements.txt",
 )
 MODEL_REPOSITORY = "Comfy-Org/MiniMax-H3"
 MODEL_REVISION = "eb8a16107c595128b3a578f82d2ce2f75920c355"
@@ -87,13 +96,45 @@ MODEL_FILES = {
     },
 }
 
-ASPECTS = {
-    "16:9": (1344, 768),
-    "9:16": (768, 1344),
-    "1:1": (768, 768),
-    "4:3": (1024, 768),
-    "3:4": (768, 1024),
+RENDER_PROFILES = {
+    # About 0.4 MP and half the sampler steps. Useful for checking motion,
+    # framing and prompt adherence before committing to a final render.
+    "preview": {
+        "steps": 10,
+        "aspects": {
+            "16:9": (864, 480),
+            "9:16": (480, 864),
+            "1:1": (640, 640),
+            "4:3": (768, 576),
+            "3:4": (576, 768),
+        },
+    },
+    # Roughly 0.6 MP: the practical 5-second Apple-Silicon budget. This avoids
+    # the superlinear 1.03 MP x 5 s cost of the upstream reference canvas.
+    "balanced": {
+        "steps": 20,
+        "aspects": {
+            "16:9": (1024, 576),
+            "9:16": (576, 1024),
+            "1:1": (768, 768),
+            "4:3": (896, 672),
+            "3:4": (672, 896),
+        },
+    },
+    # Upstream-size canvas retained as an explicit slow option.
+    "quality": {
+        "steps": 20,
+        "aspects": {
+            "16:9": (1344, 768),
+            "9:16": (768, 1344),
+            "1:1": (1024, 1024),
+            "4:3": (1152, 864),
+            "3:4": (864, 1152),
+        },
+    },
 }
+ASPECTS = tuple(RENDER_PROFILES["balanced"]["aspects"])
+SAMPLER_PROGRESS_RE = re.compile(r"(\d{1,3})%\|[^\r\n]*?\|\s*(\d+)\s*/\s*(\d+)")
 
 # A tiny, valid fragmented H.264 MP4 for protocol/UI tests. Production never
 # uses this path; it avoids downloading 54 GiB in the test suite.
@@ -185,8 +226,9 @@ def model_path(comfy: Path, spec: dict) -> Path:
     return comfy / "models" / spec["subdir"] / spec["name"]
 
 
-def ensure_comfy_checkout(comfy: Path, git: str) -> None:
-    """Materialize and verify the pinned ComfyUI worktree.
+def ensure_pinned_checkout(checkout: Path, git: str, commit: str,
+                           required_files: tuple[str, ...], label: str) -> None:
+    """Materialize and verify a pinned managed Git worktree.
 
     A ``git clone --no-checkout`` can already report the pinned revision as
     HEAD while leaving every tracked file absent.  Checking only HEAD would
@@ -197,27 +239,70 @@ def ensure_comfy_checkout(comfy: Path, git: str) -> None:
     head = ""
     with contextlib.suppress(Exception):
         head = subprocess.check_output(
-            [git, "rev-parse", "HEAD"], cwd=comfy, text=True
+            [git, "rev-parse", "HEAD"], cwd=checkout, text=True
         ).strip()
 
     commit_exists = subprocess.run(
-        [git, "cat-file", "-e", f"{COMFY_COMMIT}^{{commit}}"],
-        cwd=comfy,
+        [git, "cat-file", "-e", f"{commit}^{{commit}}"],
+        cwd=checkout,
         text=True,
         capture_output=True,
     ).returncode == 0
     if not commit_exists:
-        run([git, "fetch", "--depth=1", "origin", COMFY_COMMIT], cwd=comfy)
+        run([git, "fetch", "--depth=1", "origin", commit], cwd=checkout)
 
-    checkout_ready = all((comfy / relative).is_file() for relative in COMFY_REQUIRED_FILES)
-    if head != COMFY_COMMIT or not checkout_ready:
-        run([git, "checkout", "--force", "--detach", COMFY_COMMIT], cwd=comfy)
+    checkout_ready = all((checkout / relative).is_file() for relative in required_files)
+    if head != commit or not checkout_ready:
+        run([git, "checkout", "--force", "--detach", commit], cwd=checkout)
 
-    missing = [relative for relative in COMFY_REQUIRED_FILES if not (comfy / relative).is_file()]
+    missing = [relative for relative in required_files if not (checkout / relative).is_file()]
     if missing:
         raise H3Error(
-            "The managed ComfyUI checkout is incomplete after repair: " + ", ".join(missing)
+            f"The managed {label} checkout is incomplete after repair: " + ", ".join(missing)
         )
+
+
+def ensure_comfy_checkout(comfy: Path, git: str) -> None:
+    ensure_pinned_checkout(comfy, git, COMFY_COMMIT, COMFY_REQUIRED_FILES, "ComfyUI")
+
+
+def ensure_mps_accelerator_checkout(comfy: Path, git: str) -> Path:
+    custom_nodes = comfy / "custom_nodes"
+    custom_nodes.mkdir(parents=True, exist_ok=True)
+    accelerator = custom_nodes / MPS_ACCELERATOR_DIR
+    if accelerator.exists() and not (accelerator / ".git").is_dir():
+        backup = accelerator.with_name(f"{accelerator.name}.previous-{int(time.time())}")
+        accelerator.rename(backup)
+    if not (accelerator / ".git").is_dir():
+        run([
+            git, "clone", "--filter=blob:none", "--no-checkout",
+            MPS_ACCELERATOR_REPOSITORY, str(accelerator),
+        ])
+    ensure_pinned_checkout(
+        accelerator, git, MPS_ACCELERATOR_COMMIT,
+        MPS_ACCELERATOR_REQUIRED_FILES, "Apple-Silicon Metal accelerator",
+    )
+    return accelerator
+
+
+def python_modules_available(python: Path, *modules: str) -> bool:
+    code = (
+        "import importlib.util,sys;"
+        f"sys.exit(0 if all(importlib.util.find_spec(x) for x in {modules!r}) else 1)"
+    )
+    return subprocess.run(
+        [str(python), "-c", code], text=True, capture_output=True,
+    ).returncode == 0
+
+
+def apple_chip_name() -> str:
+    try:
+        return subprocess.check_output(
+            ["/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string"],
+            text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        return ""
 
 
 def setup_comfy(root: Path, status: Path | None) -> tuple[Path, Path]:
@@ -229,17 +314,37 @@ def setup_comfy(root: Path, status: Path | None) -> tuple[Path, Path]:
         root.mkdir(parents=True, exist_ok=True)
         run([git, "clone", "--filter=blob:none", "--no-checkout", COMFY_REPOSITORY, str(comfy)])
     ensure_comfy_checkout(comfy, git)
+    accelerator = ensure_mps_accelerator_checkout(comfy, git)
 
     venv = root / ".venv"
     python = venv / "bin" / "python"
-    marker = root / ".comfy-runtime-revision"
-    marker_value = marker.read_text(encoding="utf-8").strip() if marker.is_file() else ""
-    if not python.is_file() or marker_value != COMFY_COMMIT:
+    python_missing = not python.is_file()
+    comfy_marker = root / ".comfy-runtime-revision"
+    comfy_marker_value = comfy_marker.read_text(encoding="utf-8").strip() if comfy_marker.is_file() else ""
+    if python_missing:
         status_write(status, "running", "dependencies", "Installing the local H3 runtime dependencies…", 7)
-        if not python.is_file():
-            run([uv, "venv", str(venv), "--python", "3.12"])
+        run([uv, "venv", str(venv), "--python", "3.12"])
+    if python_missing or comfy_marker_value != COMFY_COMMIT:
+        status_write(status, "running", "dependencies", "Installing the pinned ComfyUI runtime…", 7)
         run([uv, "pip", "install", "--python", str(python), "-r", str(comfy / "requirements.txt")])
-        marker.write_text(COMFY_COMMIT + "\n", encoding="utf-8")
+        comfy_marker.write_text(COMFY_COMMIT + "\n", encoding="utf-8")
+
+    accelerator_marker = root / ".apple-silicon-fp8-revision"
+    accelerator_marker_value = (
+        accelerator_marker.read_text(encoding="utf-8").strip()
+        if accelerator_marker.is_file() else ""
+    )
+    accelerator_ready = not python_missing and python_modules_available(python, "mtlflashattn", "ninja")
+    if accelerator_marker_value != MPS_ACCELERATOR_COMMIT or not accelerator_ready:
+        status_write(
+            status, "running", "dependencies",
+            "Installing the pinned Apple Metal accelerator…", 8,
+        )
+        run([
+            uv, "pip", "install", "--python", str(python),
+            "-r", str(accelerator / "requirements.txt"),
+        ])
+        accelerator_marker.write_text(MPS_ACCELERATOR_COMMIT + "\n", encoding="utf-8")
     return comfy, python
 
 
@@ -344,6 +449,17 @@ def wait_for_comfy(base: str, process: subprocess.Popen, log_path: Path) -> dict
             missing = sorted(required.difference(info))
             if missing:
                 raise H3Error(f"The pinned ComfyUI runtime is missing nodes: {', '.join(missing)}")
+            log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.is_file() else ""
+            accelerator_markers = (
+                "[AppleSilicon-FP8/int_mm]",
+                "[AppleSilicon-FP8/te_device]",
+            )
+            absent = [marker for marker in accelerator_markers if marker not in log]
+            if absent:
+                raise H3Error(
+                    "The Apple Metal INT8 accelerator did not activate. Run Prepare local H3 "
+                    "again instead of falling back to hours of CPU inference."
+                )
             return info
         except H3Error:
             raise
@@ -393,7 +509,8 @@ def aligned_frame_count(seconds: int) -> int:
 
 
 def build_prompt(prompt: str, width: int, height: int, seconds: int,
-                 seed: int, encoder_name: str, first_frame_name: str = "") -> dict:
+                 seed: int, encoder_name: str, first_frame_name: str = "",
+                 steps: int = 20) -> dict:
     graph: dict[str, dict] = {
         "1": {"class_type": "VAELoader", "inputs": {"vae_name": VIDEO_VAE_NAME}},
         "2": {"class_type": "VAELoader", "inputs": {"vae_name": AUDIO_VAE_NAME}},
@@ -405,7 +522,7 @@ def build_prompt(prompt: str, width: int, height: int, seconds: int,
         }},
         "6": {"class_type": "RandomNoise", "inputs": {"noise_seed": seed}},
         "7": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "res_multistep"}},
-        "8": {"class_type": "BasicScheduler", "inputs": {"model": ["3", 0], "scheduler": "simple", "steps": 20, "denoise": 1.0}},
+        "8": {"class_type": "BasicScheduler", "inputs": {"model": ["3", 0], "scheduler": "simple", "steps": steps, "denoise": 1.0}},
         "9": {"class_type": "BasicGuider", "inputs": {"model": ["3", 0], "conditioning": ["5", 0]}},
         "10": {"class_type": "SamplerCustomAdvanced", "inputs": {
             "noise": ["6", 0], "guider": ["9", 0], "sampler": ["7", 0],
@@ -442,6 +559,62 @@ def find_video_metadata(value) -> dict | None:
     return None
 
 
+def inference_status(log_path: Path, sampling_started: float | None,
+                     now: float | None = None) -> tuple[dict, float | None]:
+    """Translate ComfyUI's real sampler output into stable UI progress.
+
+    ComfyUI writes tqdm records with carriage returns (``3/20``, ``4/20``, …)
+    to the managed log.  Using those records avoids the old elapsed-time bar
+    that could claim 94% while the first diffusion step was still running.
+    """
+    now = time.monotonic() if now is None else now
+    log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.is_file() else ""
+    matches = list(SAMPLER_PROGRESS_RE.finditer(log))
+    if matches:
+        match = matches[-1]
+        step = int(match.group(2))
+        total = max(1, int(match.group(3)))
+        if sampling_started is None:
+            sampling_started = now
+        if step >= total:
+            return ({
+                "stage": "decoding",
+                "label": "Sampling complete · decoding video and stereo audio…",
+                "progress": 96,
+                "step": total,
+                "totalSteps": total,
+            }, sampling_started)
+
+        progress = 70 + round(24 * step / total)
+        status = {
+            "stage": "sampling",
+            "label": (
+                f"Sampling H3 on Apple Metal · {step}/{total} steps complete…"
+                if step else f"Sampling H3 on Apple Metal · starting step 1 of {total}…"
+            ),
+            "progress": min(94, progress),
+            "step": step,
+            "totalSteps": total,
+        }
+        if step > 0:
+            elapsed = max(0.0, now - sampling_started)
+            status["etaSeconds"] = max(0, round((elapsed / step) * (total - step)))
+            status["secondsPerStep"] = max(1, round(elapsed / step))
+        return status, sampling_started
+
+    if "got prompt" in log:
+        return ({
+            "stage": "conditioning",
+            "label": "Encoding the prompt and preparing H3 on Apple Metal…",
+            "progress": 68,
+        }, sampling_started)
+    return ({
+        "stage": "model-load",
+        "label": "Loading the H3 open weights into unified memory…",
+        "progress": 65,
+    }, sampling_started)
+
+
 def generate(args, comfy: Path, python: Path, encoder_name: str) -> Path:
     output_dir = Path(args.outdir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -450,10 +623,18 @@ def generate(args, comfy: Path, python: Path, encoder_name: str) -> Path:
     log_path = output_dir / "comfyui.log"
     env = os.environ.copy()
     env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+    env.setdefault("PYTORCH_MPS_PREFER_METAL", "1")
+    # The plugin's M5/Metal-4 native INT8 extension does not pass its numerical
+    # self-check on M1-M4. Skip that one optional build there; the verified
+    # torch._int_mm MPS patch still keeps the entire INT8 path on the GPU.
+    if re.search(r"\bApple M[1-4](?:\s|$)", apple_chip_name()):
+        env.setdefault("ASFP8_INT8_EXT", "off")
     command = [
         str(python), str(comfy / "main.py"), "--listen", "127.0.0.1",
-        "--port", str(port), "--disable-auto-launch", "--disable-all-custom-nodes",
-        "--disable-api-nodes",
+        "--port", str(port), "--disable-auto-launch",
+        "--disable-all-custom-nodes", "--whitelist-custom-nodes", MPS_ACCELERATOR_DIR,
+        "--disable-api-nodes", "--cache-none", "--disable-smart-memory",
+        "--reserve-vram", "10",
         "--output-directory", str(output_dir / "comfy-output"),
     ]
     status_write(args.status_file, "running", "runtime-start", "Starting MiniMax H3 on Apple Metal…", 61)
@@ -465,16 +646,19 @@ def generate(args, comfy: Path, python: Path, encoder_name: str) -> Path:
         first_frame_name = ""
         if args.first_frame:
             first_frame_name = upload_image(base, Path(args.first_frame).resolve())
-        width, height = ASPECTS[args.aspect]
+        profile = RENDER_PROFILES[args.profile]
+        width, height = profile["aspects"][args.aspect]
+        steps = int(profile["steps"])
         graph = build_prompt(
             Path(args.prompt_file).read_text(encoding="utf-8").strip(),
             width, height, args.duration, args.seed, encoder_name, first_frame_name,
+            steps,
         )
         response = http_json(base + "/prompt", {"prompt": graph, "client_id": uuid.uuid4().hex}, timeout=60)
         prompt_id = str(response.get("prompt_id") or "")
         if not prompt_id:
             raise H3Error(f"ComfyUI rejected the H3 workflow: {response.get('error') or response}")
-        started = time.monotonic()
+        sampling_started = None
         while True:
             if process.poll() is not None:
                 tail = log_path.read_text(encoding="utf-8", errors="replace")[-5000:]
@@ -498,12 +682,12 @@ def generate(args, comfy: Path, python: Path, encoder_name: str) -> Path:
                     shutil.copy2(source, destination)
                     status_write(args.status_file, "complete", "complete", "Video H3 ready — generated locally with synchronized audio.", 100)
                     return destination
-            elapsed = time.monotonic() - started
-            pct = min(94, 68 + int(elapsed / 30))
-            label = "Sampling video and synchronized audio locally with H3…"
-            if pct >= 90:
-                label = "Decoding the H3 video and audio…"
-            status_write(args.status_file, "running", "inference", label, pct)
+            actual, sampling_started = inference_status(log_path, sampling_started)
+            status_write(
+                args.status_file, "running", actual.pop("stage"),
+                actual.pop("label"), actual.pop("progress"),
+                width=width, height=height, profile=args.profile, **actual,
+            )
             time.sleep(3)
     finally:
         if process.poll() is None:
@@ -522,6 +706,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--status-file", type=Path)
     parser.add_argument("--duration", type=int, default=5, choices=range(5, 16))
     parser.add_argument("--aspect", default="16:9", choices=ASPECTS)
+    parser.add_argument("--profile", default="balanced", choices=RENDER_PROFILES)
     parser.add_argument("--encoder", default="official", choices=("official", "community"))
     parser.add_argument("--first-frame", default="")
     parser.add_argument("--seed", type=int, default=-1)

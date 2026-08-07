@@ -3486,6 +3486,8 @@ static void reap_child(void) {
         close_pipes();
         g_mode = ENGINE_NONE;
         g_ready = 0;
+        g_load_pct = 0;
+        snprintf(g_stage, sizeof g_stage, "%s", interrupted_exit ? "Turn interrupted" : "Engine stopped");
     }
 }
 
@@ -5229,6 +5231,7 @@ static void drain_child(void) {
     if (g_mode == ENGINE_SERVER && !g_ready && port_listening(g_cfg.port)) {
         set_stage("Ready", 100);
         g_ready = 1;
+        maybe_complete_launch_task(ENGINE_SERVER);
     }
 }
 

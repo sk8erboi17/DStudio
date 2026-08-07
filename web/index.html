@@ -6339,6 +6339,14 @@
             </label>
             <div class="field__row">
               <label class="field" style="flex:1;margin:0">
+                <span>Render profile</span>
+                <select id="set-video-profile" aria-label="Default video render profile">
+                  <option value="preview">Preview · ~0.4 MP, 10 steps</option>
+                  <option value="balanced">Balanced · ~0.6 MP, 20 steps</option>
+                  <option value="quality">Quality · ~1.0 MP, 20 steps</option>
+                </select>
+              </label>
+              <label class="field" style="flex:1;margin:0">
                 <span>Default duration</span>
                 <select id="set-video-duration" aria-label="Default video duration">
                   <option value="5">5 seconds</option>
@@ -6369,7 +6377,7 @@
               <button type="button" id="set-video-install" class="btn">Prepare local H3</button>
               <button type="button" id="set-video-refresh" class="btn">Refresh</button>
             </div>
-            <p class="set-help">The first setup downloads about <strong>54 GB</strong>: H3 FL2VA, Qwen3-VL-32B INT8, video VAE and audio VAE. DStudio stops the chat model only during generation, unloads H3 afterward, then restores chat. Prompts, source frames and generated video stay on this Mac.</p>
+            <p class="set-help">The first setup downloads about <strong>54 GB</strong>: H3 FL2VA, Qwen3-VL-32B INT8, video VAE and audio VAE. It also installs a pinned Apple-Silicon accelerator so INT8 matrix operations remain on Metal instead of silently falling back to the CPU. Balanced is the practical default; Quality is substantially slower. DStudio stops the chat model only during generation, unloads H3 afterward, then restores chat.</p>
             <p class="set-help">The community encoder is third-party, unbenchmarked and does not guarantee unrestricted output. It replaces only the text encoder; the H3 video model remains the official open-weight checkpoint.</p>
           </div>
         </section>
@@ -6760,6 +6768,7 @@
       systemPrompt: '',
       videoLicenseAccepted: false,
       videoEncoder: 'official', // official | community (third-party encoder; H3 weights stay official)
+      videoProfile: 'balanced', // preview | balanced | quality
       videoDuration: 5,
       videoAspect: '16:9',
       theme: 'light',       // 'dark' | 'light' | 'system' — applied to <html data-theme>
@@ -7956,7 +7965,7 @@
         : /\bpro\b/i.test(file) ? 'DeepSeek V4 Pro'
         : /\bflash\b/i.test(file) ? 'DeepSeek V4 Flash' : 'DeepSeek V4';
       let kind = 'standard';
-      if (/abliterat|uncensor/i.test(file)) kind = 'uncensored';
+      if (/abliterat|uncensor/i.test(file)) kind = 'abliterated';
       else if (/\bMTP\b/i.test(file)) kind = 'MTP draft';
       else if (/instruct/i.test(file)) kind = 'instruct';
       else if (/chat/i.test(file)) kind = 'chat';
@@ -7990,13 +7999,13 @@
     // Quantizations ds4's download scripts can fetch (download_model.sh targets +
     // abliterated). Shared by the onboarding and Settings model pickers.
     const MODEL_DOWNLOADS = [
-      { id: 'flash', label: 'DeepSeek V4 Flash · uncensored — IQ2_XXS, ~81 GB (0731)', body: { target: 'flash-abliterated', engine: 'main' }, match: /abliterat|uncensor|headroom/i },
+      { id: 'flash', label: 'DeepSeek V4 Flash · abliterated (experimental) — IQ2_XXS, ~81 GB (0731)', body: { target: 'flash-abliterated', engine: 'main' }, match: /abliterat|uncensor|headroom/i },
       { id: 'ds4f-q2', label: 'DeepSeek V4 Flash · chat — IQ2_XXS, ~81 GB (0731)', body: { target: 'ds4f-q2', engine: 'main' }, match: /^DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731\.gguf$/i },
       { id: 'ds4f-q2-q4', label: 'DeepSeek V4 Flash · mixed Q2/Q4 — ~98 GB (0731)', body: { target: 'ds4f-q2-q4', engine: 'main' }, match: /Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown.*imatrix-fixed-0731/i },
       { id: 'ds4f-q4', label: 'DeepSeek V4 Flash · chat — Q4, higher quality & larger (0731)', body: { target: 'ds4f-q4', engine: 'main' }, match: /^DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix-0731\.gguf$/i },
       { id: 'ds4f-mxfp4', label: 'DeepSeek V4 Flash · MXFP4 — ~156 GB (0731, Metal/CUDA)', body: { target: 'ds4f-mxfp4', engine: 'main' }, match: /^DeepSeek-V4-Flash-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-mxfp4-0731\.gguf$/i },
       { id: 'ds4f-dspark', label: 'DeepSeek V4 Flash · DSpark support (0731 chat) — ~6 GB', body: { target: 'ds4f-dspark', engine: 'main' }, match: /^DeepSeek-V4-Flash-DSpark-support-0731\.gguf$/i },
-      { id: 'flash-dspark', label: 'DeepSeek V4 Flash · DSpark support (0731 uncensored) — ~6 GB', body: { target: 'flash-dspark', engine: 'main' }, match: /DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128-DSpark-support/i },
+      { id: 'flash-dspark', label: 'DeepSeek V4 Flash · DSpark support (0731 abliterated) — ~6 GB', body: { target: 'flash-dspark', engine: 'main' }, match: /DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128-DSpark-support/i },
       { id: 'pro-q2-imatrix', label: 'DeepSeek V4 Pro · IQ2_XXS — ~430 GB', body: { target: 'pro-q2-imatrix', engine: 'main' }, match: /^DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix\.gguf$/i },
       { id: 'glm-antirez-iq2xxs', label: 'GLM 5.2 · routed IQ2_XXS — reduced memory', body: { target: 'glm-antirez-iq2xxs', engine: 'main' }, match: /^GLM-5\.2-UD-IQ2_XXS_RoutedIQ2XXS_blk78Q2K\.gguf$/i },
       { id: 'glm-antirez-q2', label: 'GLM 5.2 · routed Q2_K — ~262 GB', body: { target: 'glm-antirez-q2', engine: 'main' }, match: /^GLM-5\.2-UD-Q2_K_RoutedQ2K\.gguf$/i },
@@ -8007,6 +8016,9 @@
     function availableModelDownloads(ggufs) {
       const files = (ggufs || []).map((g) => String(g?.file || ''));
       return MODEL_DOWNLOADS.filter((d) => !files.some((file) => d.match.test(file)));
+    }
+    function modelDownloadOptionLabel(choice) {
+      return `Not installed · ${choice.label}`;
     }
     function modelDownloadStatusText(dl) {
       const stage = String(dl?.stage || 'Downloading');
@@ -10609,7 +10621,7 @@
           m.generatedFiles ? JSON.stringify(m.generatedFiles.map((f) => [f.filename, f.mime, f.size])) : '',
           m.generatedImages ? JSON.stringify(m.generatedImages.map((f) => [f.url, f.name])) : '',
           m.imageGeneration ? JSON.stringify(m.imageGeneration) : '',
-          m.generatedVideos ? JSON.stringify(m.generatedVideos.map((f) => [f.url, f.name, f.duration, f.aspect])) : '',
+          m.generatedVideos ? JSON.stringify(m.generatedVideos.map((f) => [f.url, f.name, f.duration, f.aspect, f.profile])) : '',
           m.videoGeneration ? JSON.stringify(m.videoGeneration) : '',
           m.attachments ? JSON.stringify(m.attachments.map((a) => [a.name, a.size, a.truncated])) : '',
           editingUserMsgId === m.id ? 'editing' : '',
@@ -10799,6 +10811,7 @@
           const details = [
             video.duration ? `${video.duration}s` : '',
             video.aspect || '',
+            video.profile ? `${video.profile} profile` : '',
             'local open weights',
           ].filter(Boolean).join(' · ');
           wrap.append(el('figure', { class: 'msg-generated-video' }, [
@@ -10878,11 +10891,21 @@
 
       function videoGenerationHint(status) {
         if (status?.stage === 'download') return 'First use downloads about 54 GB of open weights once; partial downloads resume automatically.';
-        if (status?.stage === 'runtime' || status?.stage === 'dependencies') return 'Preparing stock ComfyUI and its Apple Metal runtime locally.';
+        if (status?.stage === 'runtime' || status?.stage === 'dependencies') return 'Preparing pinned ComfyUI and its Apple Metal accelerator locally.';
         if (status?.stage === 'model-load') return 'Loading H3 after releasing the chat, vision and embedding models from memory.';
-        if (status?.stage === 'inference') return 'H3 is sampling video and synchronized stereo audio entirely on this Mac.';
+        if (status?.stage === 'conditioning') return 'Encoding the prompt on Apple Metal; diffusion sampling has not started yet.';
+        if (status?.stage === 'sampling') {
+          const step = Number(status?.step);
+          const total = Number(status?.totalSteps);
+          const actual = Number.isFinite(step) && Number.isFinite(total) ? `Actual ComfyUI progress: ${step}/${total} steps.` : 'H3 is sampling on Apple Metal.';
+          const eta = Number(status?.etaSeconds);
+          return Number.isFinite(eta) && eta > 0
+            ? `${actual} Estimated ${fmtElapsedCompact(eta * 1000)} remaining.`
+            : `${actual} A remaining-time estimate appears after the first completed step.`;
+        }
+        if (status?.stage === 'decoding') return 'Sampling is complete; the video and synchronized stereo audio are being decoded locally.';
         if (status?.stage === 'restoring-chat') return 'H3 has been unloaded; restoring the chat model now.';
-        return 'MiniMax H3 is running locally through ComfyUI/MPS; no generation API is used.';
+        return 'MiniMax H3 is running locally through accelerated ComfyUI/MPS; no generation API is used.';
       }
 
       function buildVideoGenerationStatus(status) {
@@ -10896,7 +10919,7 @@
           el('div', { class: 'msg-image-generation__body' }, [
             el('div', { class: 'msg-image-generation__top' }, [
               el('strong', { class: 'msg-image-generation__label', text: status?.label || 'Preparing local MiniMax H3…' }),
-              el('span', { class: 'msg-image-generation__elapsed', text: fmtElapsedCompact(Date.now() - startedAt) }),
+              el('span', { class: 'msg-image-generation__elapsed', text: `${fmtElapsedCompact(Date.now() - startedAt)} elapsed` }),
             ]),
             el('div', { class: 'msg-image-generation__track', role: 'progressbar',
               'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(progress) }, [
@@ -10919,7 +10942,7 @@
         const bar = panel.querySelector('.msg-image-generation__bar');
         const hint = panel.querySelector('.msg-image-generation__hint');
         if (label) label.textContent = status?.label || 'Preparing local MiniMax H3…';
-        if (elapsed) elapsed.textContent = fmtElapsedCompact(Date.now() - (Number(status?.startedAt) || Date.now()));
+        if (elapsed) elapsed.textContent = `${fmtElapsedCompact(Date.now() - (Number(status?.startedAt) || Date.now()))} elapsed`;
         if (track) track.setAttribute('aria-valuenow', String(progress));
         if (bar) {
           bar.style.width = `${progress}%`;
@@ -14212,6 +14235,8 @@ Match the user's language and requested depth. A direct request for brevity, a s
               aspect: directive.aspect,
               image: firstFrame || undefined,
               encoder: settings.videoEncoder === 'community' ? 'community' : 'official',
+              profile: ['preview', 'balanced', 'quality'].includes(settings.videoProfile)
+                ? settings.videoProfile : 'balanced',
               licenseAccepted: settings.videoLicenseAccepted === true,
               job,
             }),
@@ -14224,6 +14249,7 @@ Match the user's language and requested depth. A direct request for brevity, a s
             model: data.model || 'MiniMaxAI/MiniMax-H3',
             duration: directive.duration,
             aspect: directive.aspect,
+            profile: data.profile || settings.videoProfile || 'balanced',
           };
         } finally {
           polling = false;
@@ -14283,8 +14309,10 @@ Match the user's language and requested depth. A direct request for brevity, a s
           };
         } finally {
           if (restoreEngine) {
-            try { await Switcher.restartCurrent(); }
-            catch { toast('Video finished, but the chat model could not be restarted automatically.', 'warn'); }
+            try { await Switcher.ensureChatReady(settings, undefined, () => {}); }
+            catch (error) {
+              toast(`Video finished, but the chat model could not be restarted automatically: ${error?.message || error}`, 'warn');
+            }
           }
         }
       }
@@ -14359,6 +14387,9 @@ Match the user's language and requested depth. A direct request for brevity, a s
         };
 
         try {
+          await Switcher.ensureChatReady(settings, controller.signal, () => {
+            view.setActivity('Restarting local model');
+          });
           const req = {
             model: settings.model,
             messages: history,
@@ -14419,6 +14450,17 @@ Match the user's language and requested depth. A direct request for brevity, a s
                 finishReason = 'incomplete';
                 break;
             }
+          }
+        } catch (e) {
+          if (e?.name === 'AbortError' || controller.signal.aborted) {
+            finishReason = 'aborted';
+          } else {
+            content = `Local engine could not be restarted automatically: ${e?.message || e}`;
+            error = { message: content, type: 'engine-start' };
+            finishReason = 'error';
+            view.setContent(content);
+            Api.invalidateHealth();
+            Store.setConnection('down');
           }
         } finally {
           // Drain any queue held back by the holdback (tags never completed).
@@ -17667,6 +17709,7 @@ Match the user's language and requested depth. A direct request for brevity, a s
           system: qs('#set-system'),
           videoStatus: qs('#set-video-status'),
           videoEncoder: qs('#set-video-encoder'),
+          videoProfile: qs('#set-video-profile'),
           videoDuration: qs('#set-video-duration'),
           videoAspect: qs('#set-video-aspect'),
           videoLicense: qs('#set-video-license'),
@@ -17830,6 +17873,11 @@ Match the user's language and requested depth. A direct request for brevity, a s
           Store.setSettings({ videoEncoder: encoder });
           refreshVideoStatus();
         });
+        on(f.videoProfile, 'change', () => {
+          const profile = ['preview', 'balanced', 'quality'].includes(f.videoProfile.value)
+            ? f.videoProfile.value : 'balanced';
+          Store.setSettings({ videoProfile: profile });
+        });
         on(f.videoDuration, 'change', () => {
           const duration = [5, 8, 10, 15].includes(+f.videoDuration.value) ? +f.videoDuration.value : 5;
           Store.setSettings({ videoDuration: duration });
@@ -17928,7 +17976,9 @@ Match the user's language and requested depth. A direct request for brevity, a s
         } else if (setup.state === 'error' && !value.installed) {
           f.videoStatus.textContent = setup.label || 'MiniMax H3 setup failed; retry resumes partial downloads.';
         } else if (value.installed) {
-          f.videoStatus.textContent = `Ready: ${value.model} · ${encoder === 'community' ? 'community encoder' : 'official encoder'} · ${formatVideoBytes(value.downloadedBytes)} on disk.`;
+          f.videoStatus.textContent = `Ready: ${value.model} · Apple Metal INT8 accelerator · ${encoder === 'community' ? 'community encoder' : 'official encoder'} · ${formatVideoBytes(value.downloadedBytes)} on disk.`;
+        } else if (Number(value.downloadedBytes) >= Number(value.totalBytes) && value.acceleratorInstalled !== true) {
+          f.videoStatus.textContent = 'H3 weights are present · prepare once to install the pinned Apple Metal accelerator.';
         } else {
           f.videoStatus.textContent = `Not prepared · ${formatVideoBytes(value.downloadedBytes)} / ${formatVideoBytes(value.totalBytes)} present. Setup resumes partial files.`;
         }
@@ -18268,6 +18318,7 @@ Match the user's language and requested depth. A direct request for brevity, a s
         f.dspark.checked = !!s.dspark;
         f.system.value = s.systemPrompt ?? '';
         if (f.videoEncoder) f.videoEncoder.value = s.videoEncoder === 'community' ? 'community' : 'official';
+        if (f.videoProfile) f.videoProfile.value = ['preview', 'balanced', 'quality'].includes(s.videoProfile) ? s.videoProfile : 'balanced';
         if (f.videoDuration) f.videoDuration.value = String([5, 8, 10, 15].includes(+s.videoDuration) ? +s.videoDuration : 5);
         if (f.videoAspect) f.videoAspect.value = ['16:9', '9:16', '1:1', '4:3', '3:4'].includes(s.videoAspect) ? s.videoAspect : '16:9';
         if (f.videoLicense) f.videoLicense.checked = !!s.videoLicenseAccepted;
@@ -18730,7 +18781,7 @@ Match the user's language and requested depth. A direct request for brevity, a s
           const choices = availableModelDownloads(ggufs);
           if (choices.length) {
             const sel = el('select', { class: 'onboard__ctx', 'aria-label': 'Model / quantization to download' });
-            choices.forEach((t) => sel.append(el('option', { value: t.id, text: t.label })));
+            choices.forEach((t) => sel.append(el('option', { value: t.id, text: modelDownloadOptionLabel(t) })));
             const btn = el('button', { class: 'btn btn--sm', type: 'button', text: 'Download' });
             on(btn, 'click', () => {
               const t = choices.find((x) => x.id === sel.value);
@@ -18746,7 +18797,7 @@ Match the user's language and requested depth. A direct request for brevity, a s
               const result = await Engine.openModelFolder(t?.body.engine || '').catch(() => null);
               if (!result || result.ok === false) toast(result?.error || 'Could not open the model folder', 'error');
             });
-            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'Add another model:' }), sel, btn, open);
+            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'Models available to download:' }), sel, btn, open);
           } else {
             const open = el('button', { class: 'btn btn--sm', type: 'button', text: 'Open folder' });
             on(open, 'click', () => Engine.openModelFolder(
@@ -19615,7 +19666,7 @@ Match the user's language and requested depth. A direct request for brevity, a s
           : /\bpro\b/i.test(file) ? 'DeepSeek V4 Pro'
           : /\bflash\b/i.test(file) ? 'DeepSeek V4 Flash' : 'DeepSeek V4';
         let kind = 'standard';
-        if (/abliterat|uncensor/i.test(file)) kind = 'uncensored';
+        if (/abliterat|uncensor/i.test(file)) kind = 'abliterated';
         else if (/\bMTP\b/i.test(file)) kind = 'MTP draft';
         else if (/instruct/i.test(file)) kind = 'instruct';
         else if (/chat/i.test(file)) kind = 'chat';
@@ -19667,7 +19718,7 @@ Match the user's language and requested depth. A direct request for brevity, a s
           const choices = availableModelDownloads(ggufs);
           if (choices.length) {
             const sel = el('select', { class: 'onboard__ctx', 'aria-label': 'Model / quantization to download' });
-            choices.forEach((t) => sel.append(el('option', { value: t.id, text: t.label })));
+            choices.forEach((t) => sel.append(el('option', { value: t.id, text: modelDownloadOptionLabel(t) })));
             const btn = el('button', { class: 'btn btn--sm', type: 'button', text: 'Download' });
             btn.disabled = !lastDs4Ok;
             on(btn, 'click', () => {
@@ -19684,7 +19735,7 @@ Match the user's language and requested depth. A direct request for brevity, a s
               const result = await Engine.openModelFolder(t?.body.engine || '').catch(() => null);
               if (!result || result.ok === false) toast(result?.error || 'Could not open the model folder', 'error');
             });
-            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'Add another model:' }), sel, btn, open);
+            dlBox.append(el('span', { class: 'onboard__dl-lbl', text: 'Models available to download:' }), sel, btn, open);
           } else {
             const open = el('button', { class: 'btn btn--sm', type: 'button', text: 'Open folder' });
             on(open, 'click', () => Engine.openModelFolder(
@@ -25035,6 +25086,67 @@ Match the user's language and requested depth. A direct request for brevity, a s
         return runSwitch('server', { mode: 'server', model: 'uncensored', variant: variant(), gguf: modelGguf(), ...launchBase() }, 'Starting the server…');
       }
 
+      let chatReadyFlight = null;
+
+      function localChatBackend(settings) {
+        if (isLanClientMode()) return false;
+        return !(settings?.chatBackend === 'deepseek' && String(settings?.deepseekApiKey || '').trim());
+      }
+
+      function withAbort(promise, signal) {
+        if (!signal) return promise;
+        if (signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
+        return new Promise((resolve, reject) => {
+          const abort = () => reject(new DOMException('Aborted', 'AbortError'));
+          signal.addEventListener('abort', abort, { once: true });
+          promise.then(
+            (value) => { signal.removeEventListener('abort', abort); resolve(value); },
+            (error) => { signal.removeEventListener('abort', abort); reject(error); },
+          );
+        });
+      }
+
+      /* Chat and H3 share unified memory, so the local chat process may be
+       * intentionally absent for a short time. Treat that as recoverable:
+       * coalesce concurrent callers, start the saved server configuration once,
+       * and do not let a request race the engine before /api/status is ready. */
+      function ensureChatReady(settings = Store.getSettings(), signal, onStarting) {
+        if (!localChatBackend(settings)) return Promise.resolve(null);
+        if (!chatReadyFlight) {
+          chatReadyFlight = (async () => {
+            let st = await Engine.status();
+            if (st.mode === 'server' && st.running === true && st.ready === true) return st;
+
+            onStarting?.();
+            const launchAlreadyPending = switching && launchTarget === 'server';
+            if (!(st.mode === 'server' && st.running === true) && !launchAlreadyPending) {
+              const launch = await startServer();
+              if (launch?.ok === false) throw new Error(launch.error || 'The local chat model could not be started.');
+            }
+
+            const deadline = Date.now() + 180000;
+            let stoppedPolls = 0;
+            while (Date.now() < deadline) {
+              await new Promise((resolve) => setTimeout(resolve, 400));
+              st = await Engine.status();
+              if (st.mode === 'server' && st.running === true && st.ready === true) {
+                Api.invalidateHealth();
+                Store.setConnection('ok');
+                return st;
+              }
+              if (st.running === true) {
+                stoppedPolls = 0;
+                continue;
+              }
+              stoppedPolls++;
+              if (stoppedPolls >= 3 && st.engineError) throw new Error(st.engineError);
+            }
+            throw new Error('The local chat model did not become ready within 3 minutes.');
+          })().finally(() => { chatReadyFlight = null; });
+        }
+        return withAbort(chatReadyFlight, signal);
+      }
+
       async function startAgent(workdir) {
         if (isHostServedLanShell()) {
           toast('Agent cannot use a LAN host workspace. Run DStudio locally on this device.', 'warn');
@@ -25463,7 +25575,7 @@ Match the user's language and requested depth. A direct request for brevity, a s
           switching = false;
           launchTarget = null;
           Statusbar.render();
-          return;
+          return { ok: false, error: 'Unable to contact the launcher.' };
         }
         // An external ds4-server holds the instance-lock: instead of dead-ending
         // on the overlay, offer to kill it and restart in this mode.
@@ -25478,7 +25590,7 @@ Match the user's language and requested depth. A direct request for brevity, a s
                   'the engine lock allows only one. The launcher can stop it and restart in this mode.',
             cta: 'Stop it & restart',
           }).then((yes) => { if (yes) runSwitch(target, cfg, title, true); });
-          return;
+          return res;
         }
         if (res && res.code === 'workdir_missing') {
           const missing = res.workdir || cfg.workdir || '';
@@ -25493,14 +25605,14 @@ Match the user's language and requested depth. A direct request for brevity, a s
           Statusbar.render();
           toast(`Workspace not found: ${missing || 'unknown folder'}`, 'error');
           setTimeout(() => openWorkdirDialog(target, false), 0);
-          return;
+          return res;
         }
         if (!res || !res.ok) {
           failOverlay(`${res?.error || 'Startup failed'}${res?.taskId ? ` (task #${res.taskId})` : ''}`);
           switching = false;
           launchTarget = null;
           Statusbar.render();
-          return;
+          return res || { ok: false, error: 'Startup failed' };
         }
         const launchTaskId = res.taskId || null;
         if (launchTaskId) appendOverlayLog(`Launch task #${launchTaskId}`);
@@ -25578,6 +25690,7 @@ Match the user's language and requested depth. A direct request for brevity, a s
           setTimeout(tick, 500);
         };
         tick();
+        return res;
       }
 
       function invalidateAndRefreshServer() {
@@ -25679,7 +25792,7 @@ Match the user's language and requested depth. A direct request for brevity, a s
         openWorkdirDialog(target, true);
       }
 
-      return { mount, mode: () => mode, launching: () => launchTarget, restartCurrent, changeWorkdir, applyCtxSize, applyEngineConfig, applyThinkLevel, openImport, switchModel, switchToGguf, switchEngineDir, switchSkill, switchDesignSystem, switchPlan, switchGsa, switchRsa, downloadModel, newSession,
+      return { mount, mode: () => mode, launching: () => launchTarget, restartCurrent, ensureChatReady, changeWorkdir, applyCtxSize, applyEngineConfig, applyThinkLevel, openImport, switchModel, switchToGguf, switchEngineDir, switchSkill, switchDesignSystem, switchPlan, switchGsa, switchRsa, downloadModel, newSession,
                wirePromptForRuntime,
                planArmed: () => PlanDriver.armed(), planArm: (g) => PlanDriver.arm(g),
                planPending: () => PlanDriver.pending(), planAction: (a) => PlanDriver.action(a),

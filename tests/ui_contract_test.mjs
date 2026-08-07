@@ -1301,7 +1301,9 @@ assert.match(js, /async function deleteModelPartials\(target\)[\s\S]*JSON\.strin
 assert.match(js, /function appendModelDownloadStatus\(host, dl\)[\s\S]*text: 'Stop'[\s\S]*Engine\.stopModelDownload\(\)[\s\S]*Model download paused/, 'active model feedback should offer a Stop action that transitions to paused');
 assert.match(js, /async function pollDownload\(\)[\s\S]*if \(st\.pausedDownload\)[\s\S]*modelDownloadStateFromStatus\(st\)[\s\S]*return;/, 'download polling should preserve the paused row instead of replacing it with the normal catalog');
 assert.match(js, /function appendModelDownloadStatus\(host, dl\)[\s\S]*text: 'Open folder'[\s\S]*Engine\.openModelFolder/, 'active and paused model feedback should open the matching engine folder');
-assert.match(js, /Add another model:[\s\S]*text: 'Open folder'[\s\S]*Engine\.openModelFolder\(t\?\.body\.engine/, 'normal model picker should expose Open folder for the selected engine family');
+assert.match(js, /Models available to download:[\s\S]*text: 'Open folder'[\s\S]*Engine\.openModelFolder\(t\?\.body\.engine/, 'normal model picker should identify downloads clearly and expose Open folder for the selected engine family');
+assert.match(js, /function modelDownloadOptionLabel\(choice\)[\s\S]*Not installed/, 'download choices must not look like already-installed or active models');
+assert.match(js, /DeepSeek V4 Flash · abliterated \(experimental\)/, 'the abliterated model must not be presented as universally uncensored');
 assert.match(js, /function modelDownloadStatusText\(dl\)[\s\S]*fmtGgufSize\(Number\(dl\.bytes\)\)[\s\S]*downloaded/, 'active model feedback should show transferred bytes as well as percentage');
 assert.match(js, /async function downloadModel\(spec\)[\s\S]*Preparing Laguna S 2\.1 engine for[\s\S]*await ensureModelDownloadEngine\(engine\)[\s\S]*Starting download of/, 'optional engine compilation should provide feedback before the weight download starts');
 assert.match(readme, /### GLM 5\.2 \(experimental, optional\)[\s\S]*standard `ds4\/main`[\s\S]*no extra engine checkout is required/, 'README should document GLM support in the main engine');
