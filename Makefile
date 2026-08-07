@@ -80,7 +80,7 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check check-fast check-real test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-http-lan test-gsa-bench-validate test-real-ascii-diagrams test-real-pdf-rag test-real-search-research test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
+.PHONY: all run check check-fast check-real test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-ascii-diagrams test-real-pdf-rag test-real-search-research test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
@@ -304,7 +304,7 @@ test-ui-contract:
 	@if command -v node >/dev/null 2>&1; then node tests/ui_contract_test.mjs; else echo "node missing: skipping UI contract tests"; fi
 
 test-ui-browser:
-	@if command -v node >/dev/null 2>&1; then node tests/ui_loading_playwright_test.mjs && node tests/ui_agent_design_playwright_test.mjs && node tests/ui_gear_popover_test.mjs; else echo "node missing: skipping UI browser tests"; fi
+	@if command -v node >/dev/null 2>&1; then node tests/ui_loading_playwright_test.mjs && node tests/ui_agent_design_playwright_test.mjs && node tests/ui_gear_popover_test.mjs && node tests/ui_attachment_preview_playwright_test.mjs && node tests/ui_video_generation_playwright_test.mjs; else echo "node missing: skipping UI browser tests"; fi
 
 test-ui-plan:
 	@if command -v node >/dev/null 2>&1; then node tests/ui_plan_mode_playwright_test.mjs && node tests/ui_plan_mode_matrix_test.mjs; else echo "node missing: skipping Plan mode UI tests"; fi
@@ -324,13 +324,17 @@ test-table-ascii:
 test-markdown-math:
 	@if command -v node >/dev/null 2>&1; then node tests/markdown_math_test.mjs; else echo "node missing: skipping Markdown math tests"; fi
 
+test-video-open-weight:
+	@if command -v node >/dev/null 2>&1; then node tests/video_open_weight_contract_test.mjs; else echo "node missing: skipping open-weight video contract test"; fi
+	@if command -v python3 >/dev/null 2>&1; then python3 tests/h3_checkout_test.py; else echo "python3 missing: skipping H3 checkout regression test"; fi
+
 test-http-lan: $(TEST_SERVER)
 	@tests/http_lan_test.sh $(TEST_SERVER)
 
 test-gsa-bench-validate:
 	@if command -v node >/dev/null 2>&1; then node extension/gsa/bench/validate.mjs; else echo "node missing: skipping GSA benchmark validation"; fi
 
-check-fast: $(BIN) test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-http-lan test-gsa-bench-validate
+check-fast: $(BIN) test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate
 	@file $(PAGE) | grep -q text && echo "$(PAGE): text OK" || (echo "$(PAGE) is not text!" && exit 1)
 	@file $(LOADING) | grep -q text && echo "$(LOADING): text OK" || (echo "$(LOADING) is not text!" && exit 1)
 	@command -v node >/dev/null 2>&1 && { \

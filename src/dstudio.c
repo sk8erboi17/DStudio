@@ -7704,6 +7704,7 @@ typedef struct {
 
 #include "dstudio_qwen_memory.c"
 #include "dstudio_image.c"
+#include "dstudio_video.c"
 #include "dstudio_vision.c"
 
 /* ---- Embedding sidecar endpoints (semantic skill search) ---- */
@@ -8571,6 +8572,9 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/vision/describe")) { api_vision_describe(fd, body); return 200; }
     if (!strcmp(path, "/api/vision/stop")) { api_vision_stop(fd); return 200; }
     if (!strcmp(path, "/api/image/generate")) { api_image_generate(fd, body); return 200; }
+    if (!strcmp(path, "/api/video/setup")) { api_video_setup(fd, body); return 200; }
+    if (!strcmp(path, "/api/video/generate")) { api_video_generate(fd, body); return 200; }
+    if (!strcmp(path, "/api/video/stop")) { api_video_stop(fd, body); return 200; }
     if (!strcmp(path, "/api/embed/setup")) { api_embed_setup(fd, body); return 200; }
     if (!strcmp(path, "/api/embed/stop")) { api_embed_stop(fd); return 200; }
     if (!strcmp(path, "/api/engine/checkout")) { api_engine_checkout_set(fd, body); return 200; }
@@ -8586,6 +8590,12 @@ static int route_post_api(int fd, const char *path, const char *body) {
     return 404;
 }
 
+/* The server is single-threaded; expose the active GET headers only while the
+ * static router runs so large media can honor byte ranges without widening the
+ * long-standing router interface used by platform builds and contract tests. */
+static const char *g_route_request_headers = NULL;
+static size_t g_route_request_header_len = 0;
+
 static int route_get_or_static(int fd, const char *method, const char *path, int head_only) {
     const int is_get = !strcmp(method, "GET") || head_only;
     if (is_get && !strcmp(path, "/api/store")) {
@@ -8600,6 +8610,11 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
     if (is_get && !strcmp(path, "/api/vision/status")) { api_vision_status(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/image/progress")) { api_image_progress(fd, path); return 200; }
     if (is_get && path_eq_clean(path, "/api/image/file")) { api_image_file(fd, path, head_only); return 200; }
+    if (is_get && path_eq_clean(path, "/api/video/status")) { api_video_status(fd, path); return 200; }
+    if (is_get && path_eq_clean(path, "/api/video/progress")) { api_video_progress(fd, path); return 200; }
+    if (is_get && path_eq_clean(path, "/api/video/file")) {
+        api_video_file(fd, path, head_only, g_route_request_headers, g_route_request_header_len); return 200;
+    }
     if (is_get && path_eq_clean(path, "/api/pdf/progress")) { api_pdf_progress(fd, path); return 200; }
     if (is_get && !strcmp(path, "/api/embed/status")) { api_embed_status(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/remote/status")) { api_remote_status(fd); return 200; }
@@ -8833,6 +8848,26 @@ static void handle_connection(int fd) {
         return;
     }
 
+    /* Optional first-frame pixels make local H3 requests as large as image
+     * edit requests. Keep the same bounded, CSRF-protected body path. */
+    if (!strcmp(method, "POST") && path_eq_clean(path, "/api/video/generate")) {
+        if (!header_has(req, header_len, "x-requested-with: ds4web")) {
+            send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}"); close(fd); return;
+        }
+        char *buf = NULL;
+        size_t off = 0;
+        if (!read_request_body_alloc(fd, req, got, header_len, clen, 24L * 1024 * 1024,
+                                     "first-frame image too large\n", &buf, &off))
+        {
+            close(fd);
+            return;
+        }
+        api_video_generate(fd, buf);
+        free(buf);
+        close(fd);
+        return;
+    }
+
     /* POST /api/pdf/{thumb,describe} carry a full PDF (base64) — larger than
      * BODY_MAX, so they read their own body like /api/store. Cap 1.5GB: the UI
      * allows PDFs up to 1GB binary, which is ~1.37GB once base64'd (x4/3) plus
@@ -8884,7 +8919,11 @@ static void handle_connection(int fd) {
             status = route_post_api(fd, path, body);
         }
     } else {
+        g_route_request_headers = req;
+        g_route_request_header_len = header_len;
         status = route_get_or_static(fd, method, path, head_only);
+        g_route_request_headers = NULL;
+        g_route_request_header_len = 0;
     }
 
     /* fd adopted by the SSE registry: the main loop owns it now */
