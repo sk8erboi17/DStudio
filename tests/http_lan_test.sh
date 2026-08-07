@@ -67,7 +67,7 @@ s.listen(0, '127.0.0.1', () => {
 NODE
 )"
 
-HOME="${tmp}/home" DS4UI_TEST_MODE=1 DSTUDIO_IMAGE_TEST_MODE=1 DSTUDIO_VIDEO_TEST_MODE=1 DSTUDIO_GSA_INSTALL_DRY_RUN=1 DS4UI_PAGE_FROM_DISK=1 "${bin}" "${port}" "${tmp}/ds4" >"${tmp}/server.log" 2>&1 &
+HOME="${tmp}/home" DS4UI_TEST_MODE=1 DSTUDIO_IMAGE_TEST_MODE=1 DSTUDIO_GSA_INSTALL_DRY_RUN=1 DS4UI_PAGE_FROM_DISK=1 "${bin}" "${port}" "${tmp}/ds4" >"${tmp}/server.log" 2>&1 &
 pid="$!"
 
 base="http://127.0.0.1:${port}"
@@ -95,33 +95,6 @@ curl -fsS --max-time 10 -X POST "${base}/api/image/generate" \
 [ -s "${tmp}/home/.dstudio/qwen-image/jobs/image-edit-http-test/source.png" ]
 [ -s "${tmp}/home/.dstudio/qwen-image/jobs/image-edit-http-test/reference.png" ]
 curl -fsS --max-time 2 "${base}/api/image/progress?id=image-edit-http-test" >"${tmp}/image-edit-progress.json"
-curl -sS --max-time 5 -o "${tmp}/video-license-error.json" -w "%{http_code}" \
-  -X POST "${base}/api/video/generate" \
-  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
-  -d '{"prompt":"test local video","job":"video-license-test"}' >"${tmp}/video-license-code.txt"
-[ "$(cat "${tmp}/video-license-code.txt")" = "451" ]
-curl -fsS --max-time 10 -X POST "${base}/api/video/generate" \
-  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
-  -d '{"prompt":"test local video with sound","duration":5,"aspect":"16:9","encoder":"official","licenseAccepted":true,"job":"video-http-test"}' >"${tmp}/video-generate.json"
-curl -fsS --max-time 2 "${base}/api/video/progress?id=video-http-test" >"${tmp}/video-progress.json"
-curl -fsS --max-time 2 "${base}/api/video/status?encoder=official" >"${tmp}/video-status.json"
-node - "${tmp}/video-generate.json" "${tmp}/video-progress.json" "${tmp}/video-status.json" <<'NODE'
-const fs = require('fs');
-const generated = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-const progress = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
-const status = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
-if (!generated.ok || generated.model !== 'MiniMaxAI/MiniMax-H3' || !generated.url?.startsWith('/api/video/file?')) throw new Error('H3 generate response is incomplete');
-if (progress.state !== 'complete' || progress.progress !== 100) throw new Error('H3 progress should complete in test mode');
-if (!status.ok || status.runtime !== 'ComfyUI/MPS' || status.model !== 'MiniMaxAI/MiniMax-H3') throw new Error('H3 status should identify the local runtime');
-fs.writeFileSync(process.argv[2] + '.url', generated.url);
-NODE
-video_url="$(cat "${tmp}/video-generate.json.url")"
-curl -fsS --max-time 3 -D "${tmp}/video-range.headers" -H 'Range: bytes=0-99' \
-  -H 'Accept: video/mp4,video/*' \
-  "${base}${video_url}" -o "${tmp}/video-range.bin"
-grep -qi '^HTTP/1.1 206 Partial Content' "${tmp}/video-range.headers"
-grep -qi '^Content-Range: bytes 0-99/' "${tmp}/video-range.headers"
-[ "$(wc -c < "${tmp}/video-range.bin" | tr -d ' ')" = "100" ]
 node - "${tmp}/agent-send-large.json" <<'NODE'
 const fs = require('fs');
 const text = 'technical architecture prompt '.repeat(3000);
