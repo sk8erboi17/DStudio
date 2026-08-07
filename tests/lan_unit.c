@@ -16,7 +16,84 @@ static uint32_t ip4(const char *s) {
     return ntohl(a.s_addr);
 }
 
+static int test_valid_utf8(const unsigned char *s) {
+    while (*s) {
+        if (*s < 0x80) { s++; continue; }
+        int continuation = 0;
+        if ((*s & 0xe0) == 0xc0) continuation = 1;
+        else if ((*s & 0xf0) == 0xe0) continuation = 2;
+        else if ((*s & 0xf8) == 0xf0) continuation = 3;
+        else return 0;
+        s++;
+        for (int i = 0; i < continuation; i++, s++)
+            if ((*s & 0xc0) != 0x80) return 0;
+    }
+    return 1;
+}
+
 int main(void) {
+#ifndef _WIN32
+    {
+        int plen[] = { 7000, 4000 };
+        pdf_rag_chunk *chunks = NULL;
+        int n = pdf_build_rag_chunks(plen, 2, 2, &chunks);
+        assert(n == 5);
+        assert(chunks[0].page == 0 && chunks[0].start == 0 && chunks[0].len == 3200);
+        assert(chunks[1].page == 0 && chunks[1].start == 2700);
+        assert(chunks[2].page == 0 && chunks[2].start == 5400 && chunks[2].len == 1600);
+        assert(chunks[3].page == 1 && chunks[3].start == 0);
+        assert(chunks[4].page == 1 && chunks[4].start == 2700 && chunks[4].len == 1300);
+        free(chunks);
+
+        const char *pages[] = { "abcdefghij", "klmnopqrst", "uvwxyzABCD" };
+        int short_len[] = { 10, 10, 10 };
+        pdf_rag_chunk middle = { 1, 0, 10 };
+        char *window = pdf_rag_chunk_text(pages, short_len, 3, &middle);
+        assert(window);
+        assert(strstr(window, "Previous page tail:\nabcdefghij") != NULL);
+        assert(strstr(window, "Physical PDF page 2 passage:\nklmnopqrst") != NULL);
+        assert(strstr(window, "Next page head:\nuvwxyzABCD") != NULL);
+        free(window);
+
+        /* Every independently chosen byte boundary must be moved to a UTF-8
+         * code-point boundary before it is JSON-escaped for the sidecar. */
+        char prev_utf8[322], next_utf8[323];
+        memset(prev_utf8, 'p', sizeof prev_utf8 - 1);
+        prev_utf8[0] = (char)0xe2; prev_utf8[1] = (char)0x80; prev_utf8[2] = (char)0x94;
+        prev_utf8[321] = '\0';
+        memset(next_utf8, 'n', sizeof next_utf8 - 1);
+        next_utf8[318] = (char)0xe2; next_utf8[319] = (char)0x80; next_utf8[320] = (char)0x94;
+        next_utf8[322] = '\0';
+        const char current_utf8[] = { (char)0xe2, (char)0x80, (char)0x94,
+                                      'b', 'o', 'd', 'y', '\0' };
+        const char *utf8_pages[] = { prev_utf8, current_utf8, next_utf8 };
+        int utf8_len[] = { 321, 7, 322 };
+        pdf_rag_chunk split_middle = { 1, 1, 6 };
+        window = pdf_rag_chunk_text(utf8_pages, utf8_len, 3, &split_middle);
+        assert(window);
+        assert(test_valid_utf8((const unsigned char *)window));
+        assert(strstr(window, "Physical PDF page 2 passage:\nbody") != NULL);
+        free(window);
+
+        pdf_rag_term terms[PDF_RAG_MAX_QUERY_TERMS] = {0};
+        int nt = pdf_rag_terms("HNSW nearest-neighbor nearest", terms,
+                               PDF_RAG_MAX_QUERY_TERMS);
+        assert(nt == 3); /* duplicate query terms are collapsed */
+        int first = -1;
+        pdf_rag_term cat = { "cat", 3, 0 };
+        assert(pdf_rag_term_count("cat concatenate CAT", 19, &cat, &first) == 2);
+        assert(first == 0);
+
+        int scores[PDF_MAX_TOTAL_PAGES];
+        unsigned char selected[PDF_MAX_TOTAL_PAGES];
+        for (int i = 0; i < PDF_MAX_TOTAL_PAGES; i++) scores[i] = INT_MIN;
+        scores[0] = 100; scores[1] = 99; scores[2] = 20;
+        scores[4] = 40; scores[5] = 98; scores[6] = 35;
+        scores[8] = 30; scores[9] = 97; scores[10] = 25;
+        assert(pdf_select_semantic_pages(selected, scores, 0, 10, 6) == 6);
+        assert(selected[0] && selected[5] && selected[9]);
+    }
+#endif
 #ifndef _WIN32
     char lock_path[] = "/tmp/dstudio-lock-test.XXXXXX";
     int lock_fd = mkstemp(lock_path);

@@ -18,9 +18,11 @@
  *
  * Full/Agent reads are question-independent and page-addressable. Interactive
  * chat uses one of three LLM-selected read plans: exact physical pages, a
- * bounded whole-book overview, or semantic retrieval across every page. This
- * keeps a 1000-page book bounded without losing the ability to find evidence
- * outside the prompt sample. Results are cached by document + profile/query;
+ * bounded whole-book overview, or hybrid retrieval across overlapping text
+ * passages. Dense embeddings provide semantic recall, BM25 recovers exact
+ * names/formulas, and every hit retains its physical page and byte offset.
+ * This keeps a 1000-page book bounded without losing evidence across arbitrary
+ * page boundaries. Results are cached by document + profile/query;
  * every single page's
  * vision transcription is cached by its rendered image, so a partial failure
  * retries only failed pages. Text pages that also carry a
@@ -49,16 +51,39 @@
 #define PDF_INTERACTIVE_MAX_TEXT_PAGES 48 /* enough context per selected page even for 1000-page books */
 #define PDF_INTERACTIVE_SCAN_PASSES 8    /* representative OCR for a fully scanned long document */
 #define PDF_INTERACTIVE_FIG_PASSES 2     /* figures supplement text; do not make chat wait for every chart */
-#define PDF_SEMANTIC_MAX_PAGES 6         /* targeted RAG: enough budget to read each hit deeply */
-#define PDF_EMBED_PAGE_CHARS 6000        /* one multilingual embedding per page, cached on disk */
+#define PDF_SEMANTIC_MAX_PAGES 6         /* three evidence anchors plus nearby continuity pages */
+#define PDF_RAG_CHUNK_CHARS 3200          /* bounded semantic windows, not arbitrary full pages */
+#define PDF_RAG_CHUNK_OVERLAP 500         /* preserves passages spanning adjacent windows */
+#define PDF_RAG_CROSS_PAGE_CHARS 320      /* preserves sentences split by physical page breaks */
+#define PDF_RAG_EMBED_BATCH 4             /* bounded batch fits the embedding sidecar's 8K context */
+#define PDF_RAG_MAX_QUERY_TERMS 16
+#define PDF_TEXT_CACHE_MAX_FILES 32
+#define PDF_FIG_CACHE_MAX_FILES 32
+#define PDF_EMBED_CACHE_MAX_FILES 32
 #define PDF_PAGE_B64_BUDGET (1500 * 1024) /* per-page data-URI budget (loopback 2MB body cap) */
-#define PDF_EMBED_INDEX_MAGIC 0x44504531u /* "DPE1" */
+#define PDF_EMBED_INDEX_MAGIC 0x44504532u /* "DPE2": overlapping chunk vectors */
+#define PDF_FIG_INDEX_MAGIC 0x44504632u   /* "DPF2": full-document raster figure flags */
 typedef struct {
     unsigned magic;
     int dim, count;
     unsigned long long docfnv;
     char model[128];
 } pdf_embed_index_hdr;
+typedef struct {
+    unsigned magic;
+    int pages;
+    unsigned long long docfnv;
+} pdf_fig_index_hdr;
+typedef struct {
+    int page;       /* zero-based physical page owning the window */
+    int start;      /* byte offset inside that page */
+    int len;
+} pdf_rag_chunk;
+typedef struct {
+    char text[64];
+    int len;
+    int df;
+} pdf_rag_term;
 
 /* Absolute path of a poppler tool (pdftoppm/pdfinfo/pdftotext), or 0 if not
  * found. */
@@ -234,15 +259,24 @@ static void api_pdf_thumb_run(int fd, const char *body, int allow_path) {
     free(b.ptr);
 }
 
+static void pdf_cache_dir_path(char *out, size_t outsz) {
+    const char *env = getenv("DSTUDIO_PDF_CACHE_DIR");
+    if (env && env[0]) { cstr_copy(out, outsz, env); return; }
+    const char *home = getenv("HOME");
+    snprintf(out, outsz, "%s/.dstudio/pdf-cache", home ? home : ".");
+}
+
 /* Per-page transcription cache path: pg-<fnv>.txt in the pdf-cache dir. Key =
  * rendered page image + vision model + prompt mode — question-INDEPENDENT by
  * design: the vision pass is pure perception, so a new question over the same
  * document reuses every already-read page instead of ~35s of OCR each. */
 static void pdf_page_cache_path(unsigned long long key, char *out, size_t outsz) {
-    const char *home = getenv("HOME");
-    snprintf(out, outsz, "%s/.dstudio/pdf-cache/pg-%016llx.txt", home ? home : ".", key);
+    char dir[DSTUDIO_PATH_MAX];
+    pdf_cache_dir_path(dir, sizeof dir);
+    snprintf(out, outsz, "%s/pg-%016llx.txt", dir, key);
 }
 static void pdf_cache_write(const char *cpath, const char *data, const char *suffix, int cap);
+static void pdf_cache_prune_suffix(const char *dir, const char *suffix, int cap);
 
 /* POST ONE page image to the local /api/vision/describe (format=text) over
  * loopback; returns the vision text (malloc'd) or NULL. One page per call on
@@ -316,17 +350,53 @@ static char *pdf_vision_page(const char *data_uri, int figures_only) {
     return resp;
 }
 
+static void pdf_text_cache_path(unsigned long long docfnv, char *out, size_t outsz) {
+    char dir[DSTUDIO_PATH_MAX];
+    pdf_cache_dir_path(dir, sizeof dir);
+    snprintf(out, outsz, "%s/text-v2-%016llx.pdftxt", dir, docfnv);
+}
+
 /* The page's extracted text layer via pdftotext (all pages, form-feed
  * separated), or NULL when pdftotext is missing/fails. -layout preserves
- * columns and table alignment, which the chat model reads far better. */
-static char *pdf_text_layer(const char *pdfpath) {
+ * columns and table alignment, which the chat model reads far better. The
+ * full layer is keyed only by document bytes, so a second question over the
+ * same 1,000-page book does not rerun Poppler or reread megabytes from PDF.
+ *
+ * Write to a temporary file instead of capturing stdout: web_curl_capture is
+ * intentionally capped at 768 KiB for web/API responses, while a 1,000-page
+ * book commonly has several MiB of text. Treating that cap as extraction
+ * failure made large, perfectly searchable PDFs look like an embedding-model
+ * failure. */
+static char *pdf_text_layer(const char *pdfpath, unsigned long long docfnv,
+                            int *cache_hit) {
+    if (cache_hit) *cache_hit = 0;
+    char cpath[DSTUDIO_PATH_MAX];
+    pdf_text_cache_path(docfnv, cpath, sizeof cpath);
+    size_t cached_n = 0;
+    char *cached = jsonl_read_file(cpath, &cached_n);
+    if (cached && cached_n > 0) {
+        (void)utimes(cpath, NULL);
+        if (cache_hit) *cache_hit = 1;
+        return cached;
+    }
+    free(cached);
+
     char tool[256];
     if (!pdf_find_tool("pdftotext", tool, sizeof tool)) return NULL;
-    char *argv[] = { tool, "-layout", "-enc", "UTF-8", (char *)pdfpath, "-", NULL };
+    char tmpl[] = "/tmp/dstudio-pdftext-XXXXXX";
+    int tf = mkstemp(tmpl);
+    if (tf < 0) return NULL;
+    close(tf);
+    char *argv[] = { tool, "-layout", "-enc", "UTF-8", (char *)pdfpath, tmpl, NULL };
     int st = -1;
-    char *o = web_curl_capture(argv, 60000, &st);
-    if (st != 0) { free(o); return NULL; }
-    return o;
+    char *diagnostic = web_curl_capture(argv, 180000, &st);
+    free(diagnostic);
+    size_t n = 0;
+    char *text = st == 0 ? jsonl_read_file(tmpl, &n) : NULL;
+    unlink(tmpl);
+    if (!text || n == 0) { free(text); return NULL; }
+    pdf_cache_write(cpath, text, ".pdftxt", PDF_TEXT_CACHE_MAX_FILES);
+    return text;
 }
 
 static int pdf_selected_count(const unsigned char *selected, int first, int last) {
@@ -413,9 +483,9 @@ static int pdf_append_page_excerpt(json_dyn_buf *out, const char *page, size_t l
 }
 
 static void pdf_embed_index_path(unsigned long long docfnv, char *out, size_t outsz) {
-    const char *home = getenv("HOME");
-    snprintf(out, outsz, "%s/.dstudio/pdf-cache/emb-%016llx.bin",
-             home ? home : ".", docfnv);
+    char dir[DSTUDIO_PATH_MAX];
+    pdf_cache_dir_path(dir, sizeof dir);
+    snprintf(out, outsz, "%s/emb-%016llx.ragbin", dir, docfnv);
 }
 
 static float *pdf_embed_index_load(const pdf_embed_index_hdr *want) {
@@ -461,90 +531,352 @@ static void pdf_embed_index_save(const pdf_embed_index_hdr *h, const float *vecs
     size_t nf = (size_t)h->dim * (size_t)h->count;
     int ok = fwrite(h, sizeof *h, 1, f) == 1 && fwrite(vecs, sizeof *vecs, nf, f) == nf;
     fclose(f);
-    if (ok) rename(tmp, path);
-    else unlink(tmp);
+    if (ok && rename(tmp, path) == 0)
+        pdf_cache_prune_suffix(dir, ".ragbin", PDF_EMBED_CACHE_MAX_FILES);
+    else
+        unlink(tmp);
 }
 
-/* Build/load one multilingual embedding per physical page, then score all
- * pages against the semantic query produced by the LLM router. No keywords,
- * language lists or regex participate in retrieval. */
-static int pdf_semantic_page_scores(unsigned long long docfnv,
-                                    const char *const *pstart, const int *plen,
-                                    int tpages, int npages,
-                                    const char *query, int *scores) {
+static void pdf_fig_index_path(unsigned long long docfnv, char *out, size_t outsz) {
+    char dir[DSTUDIO_PATH_MAX];
+    pdf_cache_dir_path(dir, sizeof dir);
+    snprintf(out, outsz, "%s/fig-%016llx.figbin", dir, docfnv);
+}
+
+static int pdf_fig_index_load(unsigned long long docfnv, int pages,
+                              unsigned char *flags) {
+    char path[DSTUDIO_PATH_MAX];
+    pdf_fig_index_path(docfnv, path, sizeof path);
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    pdf_fig_index_hdr got;
+    int ok = fread(&got, sizeof got, 1, f) == 1 &&
+             got.magic == PDF_FIG_INDEX_MAGIC && got.pages == pages &&
+             got.docfnv == docfnv &&
+             fread(flags, 1, (size_t)pages, f) == (size_t)pages;
+    fclose(f);
+    if (!ok) return 0;
+    (void)utimes(path, NULL);
+    return 1;
+}
+
+static void pdf_fig_index_save(unsigned long long docfnv, int pages,
+                               const unsigned char *flags) {
+    char path[DSTUDIO_PATH_MAX], dir[DSTUDIO_PATH_MAX];
+    pdf_fig_index_path(docfnv, path, sizeof path);
+    cstr_copy(dir, sizeof dir, path);
+    char *slash = strrchr(dir, '/');
+    if (!slash) return;
+    *slash = '\0';
+    char parent[DSTUDIO_PATH_MAX];
+    cstr_copy(parent, sizeof parent, dir);
+    char *pslash = strrchr(parent, '/');
+    if (pslash) { *pslash = '\0'; (void)mkdir(parent, 0755); }
+    (void)mkdir(dir, 0755);
+    char tmp[DSTUDIO_PATH_MAX + 8];
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return;
+    pdf_fig_index_hdr h = { PDF_FIG_INDEX_MAGIC, pages, docfnv };
+    int ok = fwrite(&h, sizeof h, 1, f) == 1 &&
+             fwrite(flags, 1, (size_t)pages, f) == (size_t)pages;
+    fclose(f);
+    if (ok && rename(tmp, path) == 0)
+        pdf_cache_prune_suffix(dir, ".figbin", PDF_FIG_CACHE_MAX_FILES);
+    else
+        unlink(tmp);
+}
+
+/* Build deterministic overlapping windows inside each physical page. The
+ * owning page remains exact metadata, while each embedding also sees a short
+ * tail/head from its neighbors so a sentence split by a page break is still
+ * retrievable. */
+static int pdf_build_rag_chunks(const int *plen, int tpages, int npages,
+                                pdf_rag_chunk **out) {
+    *out = NULL;
+    int n = 0, cap = npages > 0 ? npages * 2 : 8;
+    pdf_rag_chunk *chunks = malloc((size_t)cap * sizeof *chunks);
+    if (!chunks) return 0;
+    const int stride = PDF_RAG_CHUNK_CHARS - PDF_RAG_CHUNK_OVERLAP;
+    for (int page = 0; page < npages && page < tpages; page++) {
+        int page_len = plen[page] > 0 ? plen[page] : 0;
+        for (int start = 0; start < page_len; ) {
+            int remain = page_len - start;
+            int take = remain < PDF_RAG_CHUNK_CHARS ? remain : PDF_RAG_CHUNK_CHARS;
+            /* Absorb a tiny tail instead of creating a nearly empty final
+             * vector. The maximum window is CHUNK+OVERLAP. */
+            if (remain > PDF_RAG_CHUNK_CHARS &&
+                remain - PDF_RAG_CHUNK_CHARS <= PDF_RAG_CHUNK_OVERLAP)
+                take = remain;
+            if (n == cap) {
+                int next = cap < 1024 ? cap * 2 : cap + cap / 2;
+                pdf_rag_chunk *grown = realloc(chunks, (size_t)next * sizeof *grown);
+                if (!grown) { free(chunks); return 0; }
+                chunks = grown;
+                cap = next;
+            }
+            chunks[n++] = (pdf_rag_chunk){ page, start, take };
+            if (start + take >= page_len) break;
+            start += stride;
+        }
+    }
+    if (!n) { free(chunks); return 0; }
+    *out = chunks;
+    return n;
+}
+
+static char *pdf_rag_chunk_text(const char *const *pstart, const int *plen,
+                                int tpages, const pdf_rag_chunk *chunk) {
+    int page = chunk->page;
+    int prev_start = 0, prev_take = 0;
+    if (page > 0 && page - 1 < tpages && plen[page - 1] > 0) {
+        int raw_take = plen[page - 1] < PDF_RAG_CROSS_PAGE_CHARS
+            ? plen[page - 1] : PDF_RAG_CROSS_PAGE_CHARS;
+        prev_start = plen[page - 1] - raw_take;
+        prev_start = (int)pdf_utf8_safe_start(pstart[page - 1],
+                                               (size_t)prev_start,
+                                               (size_t)plen[page - 1]);
+        prev_take = plen[page - 1] - prev_start;
+    }
+    int next_take = page + 1 < tpages && plen[page + 1] > 0 ? plen[page + 1] : 0;
+    if (next_take > PDF_RAG_CROSS_PAGE_CHARS) {
+        next_take = (int)pdf_utf8_safe_end(pstart[page + 1],
+                                           PDF_RAG_CROSS_PAGE_CHARS);
+    }
+    int body_start = chunk->start < plen[page] ? chunk->start : plen[page];
+    body_start = (int)pdf_utf8_safe_start(pstart[page], (size_t)body_start,
+                                          (size_t)plen[page]);
+    int raw_end = chunk->start + chunk->len;
+    if (raw_end > plen[page]) raw_end = plen[page];
+    int body_end = (int)pdf_utf8_safe_end(pstart[page], (size_t)raw_end);
+    if (body_end < body_start) body_end = body_start;
+    int body_take = body_end - body_start;
+    size_t need = (size_t)prev_take + (size_t)body_take + (size_t)next_take + 160;
+    char *text = malloc(need);
+    if (!text) return NULL;
+    size_t off = 0;
+    if (prev_take) {
+        int h = snprintf(text + off, need - off, "Previous page tail:\n");
+        if (h < 0) { free(text); return NULL; }
+        off += (size_t)h;
+        memcpy(text + off, pstart[page - 1] + prev_start, (size_t)prev_take);
+        off += (size_t)prev_take;
+    }
+    int h = snprintf(text + off, need - off, "\nPhysical PDF page %d passage:\n", page + 1);
+    if (h < 0 || (size_t)h >= need - off) { free(text); return NULL; }
+    off += (size_t)h;
+    memcpy(text + off, pstart[page] + body_start, (size_t)body_take);
+    off += (size_t)body_take;
+    if (next_take) {
+        h = snprintf(text + off, need - off, "\nNext page head:\n");
+        if (h < 0 || (size_t)h >= need - off) { free(text); return NULL; }
+        off += (size_t)h;
+        memcpy(text + off, pstart[page + 1], (size_t)next_take);
+        off += (size_t)next_take;
+    }
+    text[off] = '\0';
+    return text;
+}
+
+static int pdf_rag_token_byte(unsigned char c) {
+    return c >= 0x80 || isalnum(c) || c == '_';
+}
+
+static int pdf_rag_terms(const char *query, pdf_rag_term *terms, int cap) {
+    int n = 0;
+    const unsigned char *p = (const unsigned char *)query;
+    while (*p && n < cap) {
+        while (*p && !pdf_rag_token_byte(*p)) p++;
+        const unsigned char *start = p;
+        while (*p && pdf_rag_token_byte(*p)) p++;
+        int raw_len = (int)(p - start);
+        if (raw_len < 2) continue;
+        int len = raw_len < (int)sizeof terms[0].text - 1
+            ? raw_len : (int)sizeof terms[0].text - 1;
+        char word[sizeof terms[0].text];
+        for (int i = 0; i < len; i++) {
+            unsigned char c = start[i];
+            word[i] = c < 0x80 ? (char)tolower(c) : (char)c;
+        }
+        word[len] = '\0';
+        int duplicate = 0;
+        for (int i = 0; i < n; i++)
+            if (terms[i].len == len && !memcmp(terms[i].text, word, (size_t)len)) duplicate = 1;
+        if (!duplicate) {
+            memcpy(terms[n].text, word, (size_t)len + 1);
+            terms[n].len = len;
+            terms[n].df = 0;
+            n++;
+        }
+    }
+    return n;
+}
+
+/* Count whole-token occurrences with ASCII case folding while preserving
+ * UTF-8 bytes. Returns the first byte offset when requested. */
+static int pdf_rag_term_count(const char *text, int len, const pdf_rag_term *term,
+                              int *first_at) {
+    int count = 0;
+    if (first_at) *first_at = -1;
+    for (int i = 0; i + term->len <= len; i++) {
+        if (i > 0 && pdf_rag_token_byte((unsigned char)text[i - 1])) continue;
+        if (i + term->len < len && pdf_rag_token_byte((unsigned char)text[i + term->len])) continue;
+        int same = 1;
+        for (int k = 0; k < term->len; k++) {
+            unsigned char c = (unsigned char)text[i + k];
+            char folded = c < 0x80 ? (char)tolower(c) : (char)c;
+            if (folded != term->text[k]) { same = 0; break; }
+        }
+        if (!same) continue;
+        if (first_at && *first_at < 0) *first_at = i;
+        count++;
+        i += term->len - 1;
+    }
+    return count;
+}
+
+/* Hybrid retrieval: dense chunk cosine supplies semantic recall; a compact
+ * BM25 signal recovers exact names, formulas and identifiers. Page scores are
+ * the strongest owning chunk and matches[] points at that chunk's relevant
+ * region, so prompt excerpts center on evidence rather than page headers. */
+static int pdf_hybrid_page_scores(unsigned long long docfnv,
+                                  const char *const *pstart, const int *plen,
+                                  int tpages, int npages, const char *query,
+                                  int *scores, int *matches, int *chunks_out,
+                                  int *index_cache_hit) {
+    if (chunks_out) *chunks_out = 0;
+    if (index_cache_hit) *index_cache_hit = 0;
     if (!query || !query[0] || npages <= 0) return 0;
+    pdf_rag_chunk *chunks = NULL;
+    int nchunks = pdf_build_rag_chunks(plen, tpages, npages, &chunks);
+    if (!nchunks) return 0;
+    if (chunks_out) *chunks_out = nchunks;
     embed_touch_last_use();
-    if (!embed_ensure_server(60000)) return 0;
+    if (!embed_ensure_server(60000)) { free(chunks); return 0; }
 
     char model[128];
     embed_hf_pref(model, sizeof model);
     int dim = 0;
     float probe[EMBED_MAX_DIM];
-    char *ping[1] = { (char *)"document page" };
+    char *ping[1] = { (char *)"document passage" };
     if (!embed_call(ping, 1, NULL, probe, EMBED_MAX_DIM, &dim) ||
-        dim <= 0 || dim > EMBED_MAX_DIM) return 0;
+        dim <= 0 || dim > EMBED_MAX_DIM) { free(chunks); return 0; }
 
-    pdf_embed_index_hdr want = { PDF_EMBED_INDEX_MAGIC, dim, npages, docfnv, {0} };
+    pdf_embed_index_hdr want = { PDF_EMBED_INDEX_MAGIC, dim, nchunks, docfnv, {0} };
     cstr_copy(want.model, sizeof want.model, model);
     float *vecs = pdf_embed_index_load(&want);
+    if (vecs && index_cache_hit) *index_cache_hit = 1;
     if (!vecs) {
-        vecs = malloc((size_t)npages * (size_t)dim * sizeof *vecs);
-        if (!vecs) return 0;
-        /* One full page per call keeps every sequence below the server context
-         * and avoids llama.cpp treating a multi-page array as one oversized
-         * Metal embedding batch. The resulting index is persisted, so this
-         * cost is paid only once per PDF/model version. */
-        const int batch = 1;
-        for (int start = 0; start < npages; start += batch) {
-            int count = npages - start < batch ? npages - start : batch;
-            char *texts[16] = {0};
+        vecs = malloc((size_t)nchunks * (size_t)dim * sizeof *vecs);
+        if (!vecs) { free(chunks); return 0; }
+        for (int start = 0; start < nchunks; start += PDF_RAG_EMBED_BATCH) {
+            int count = nchunks - start < PDF_RAG_EMBED_BATCH
+                ? nchunks - start : PDF_RAG_EMBED_BATCH;
+            char *texts[PDF_RAG_EMBED_BATCH] = {0};
             int alloc_ok = 1;
             for (int j = 0; j < count; j++) {
-                int pg = start + j;
-                size_t take = pg < tpages && plen[pg] > 0 ? (size_t)plen[pg] : 0;
-                if (take > PDF_EMBED_PAGE_CHARS) take = PDF_EMBED_PAGE_CHARS;
-                size_t need = take + 48;
-                texts[j] = malloc(need);
+                texts[j] = pdf_rag_chunk_text(pstart, plen, tpages, &chunks[start + j]);
                 if (!texts[j]) { alloc_ok = 0; break; }
-                int head = snprintf(texts[j], need, "Physical PDF page %d.\n", pg + 1);
-                if (head < 0 || (size_t)head >= need) { alloc_ok = 0; break; }
-                if (take) memcpy(texts[j] + head, pstart[pg], take);
-                texts[j][head + take] = '\0';
             }
             int got_dim = 0;
             int embedded = alloc_ok && embed_call(texts, count, NULL,
                                                   vecs + (size_t)start * (size_t)dim,
                                                   dim, &got_dim) && got_dim == dim;
+            /* llama-server can occasionally reject a multi-input request
+             * after a long indexing run even though the sidecar is healthy.
+             * Retry the same bounded work item-by-item: quality and cache
+             * layout stay identical, while a transient batch failure no
+             * longer aborts retrieval for a large book. */
+            if (!embedded && alloc_ok && count > 1) {
+                embedded = 1;
+                for (int j = 0; j < count; j++) {
+                    int one_dim = 0;
+                    if (!embed_call(&texts[j], 1, NULL,
+                                    vecs + (size_t)(start + j) * (size_t)dim,
+                                    dim, &one_dim) || one_dim != dim) {
+                        embedded = 0;
+                        break;
+                    }
+                }
+            }
             for (int j = 0; j < count; j++) free(texts[j]);
-            if (!embedded) { free(vecs); return 0; }
+            if (!embedded) { free(vecs); free(chunks); return 0; }
             embed_touch_last_use();
         }
         pdf_embed_index_save(&want, vecs);
     }
 
     static const char *prefix =
-        "Instruct: Given a user question, retrieve the document pages that contain the answer.\nQuery: ";
+        "Instruct: Given a user question, retrieve the document passages that contain the answer.\nQuery: ";
     float qv[EMBED_MAX_DIM];
     char *queries[1] = { (char *)query };
     int qdim = 0;
     if (!embed_call(queries, 1, prefix, qv, EMBED_MAX_DIM, &qdim) || qdim != dim) {
-        free(vecs);
-        return 0;
+        free(vecs); free(chunks); return 0;
     }
-    for (int i = 0; i < npages; i++) {
-        const float *v = vecs + (size_t)i * (size_t)dim;
+
+    pdf_rag_term terms[PDF_RAG_MAX_QUERY_TERMS] = {0};
+    int nterms = pdf_rag_terms(query, terms, PDF_RAG_MAX_QUERY_TERMS);
+    for (int c = 0; c < nchunks; c++) {
+        const pdf_rag_chunk *chunk = &chunks[c];
+        const char *body = pstart[chunk->page] + chunk->start;
+        for (int t = 0; t < nterms; t++)
+            if (pdf_rag_term_count(body, chunk->len, &terms[t], NULL) > 0) terms[t].df++;
+    }
+    double avg_len = 0;
+    for (int c = 0; c < nchunks; c++) avg_len += chunks[c].len;
+    avg_len = nchunks ? avg_len / nchunks : PDF_RAG_CHUNK_CHARS;
+    double *lexical = calloc((size_t)nchunks, sizeof *lexical);
+    int *lex_match = malloc((size_t)nchunks * sizeof *lex_match);
+    if (!lexical || !lex_match) {
+        free(lexical); free(lex_match); free(vecs); free(chunks); return 0;
+    }
+    double max_lexical = 0;
+    for (int c = 0; c < nchunks; c++) {
+        const pdf_rag_chunk *chunk = &chunks[c];
+        const char *body = pstart[chunk->page] + chunk->start;
+        lex_match[c] = -1;
+        for (int t = 0; t < nterms; t++) {
+            int first = -1;
+            int tf = pdf_rag_term_count(body, chunk->len, &terms[t], &first);
+            if (!tf) continue;
+            if (lex_match[c] < 0 || first < lex_match[c]) lex_match[c] = first;
+            double idf = log(1.0 + ((double)nchunks - terms[t].df + 0.5) /
+                                   (terms[t].df + 0.5));
+            double norm = 1.2 * (0.25 + 0.75 * chunk->len / (avg_len > 1 ? avg_len : 1));
+            lexical[c] += idf * (tf * 2.2) / (tf + norm);
+        }
+        if (lexical[c] > max_lexical) max_lexical = lexical[c];
+    }
+
+    for (int i = 0; i < npages; i++) { scores[i] = INT_MIN; matches[i] = -1; }
+    for (int c = 0; c < nchunks; c++) {
+        const float *v = vecs + (size_t)c * (size_t)dim;
         double dot = 0;
         for (int k = 0; k < dim; k++) dot += (double)qv[k] * v[k];
-        scores[i] = (int)(dot * 1000000.0);
+        int semantic = (int)(dot * 1000000.0);
+        int lexical_bonus = max_lexical > 0
+            ? (int)(220000.0 * lexical[c] / max_lexical) : 0;
+        int combined = semantic + lexical_bonus;
+        int page = chunks[c].page;
+        if (combined > scores[page]) {
+            scores[page] = combined;
+            int at = lex_match[c] >= 0 ? lex_match[c] : chunks[c].len / 2;
+            matches[page] = chunks[c].start + at;
+        }
     }
+    free(lexical);
+    free(lex_match);
     free(vecs);
+    free(chunks);
     embed_touch_last_use();
     return 1;
 }
 
-/* Targeted semantic reads keep only the strongest pages, plus immediate
- * neighbors while room remains. This spends the fixed character budget on
- * complete evidence instead of thin excerpts from dozens of unrelated pages. */
+/* Targeted hybrid reads choose three non-adjacent evidence anchors when
+ * possible, then spend remaining slots on their immediate neighbors. This
+ * avoids wasting every primary hit on consecutive pages while retaining the
+ * local continuity needed for a paragraph or proof spanning a page break. */
 static int pdf_select_semantic_pages(unsigned char *selected, const int *scores,
                                      int first, int last, int limit) {
     memset(selected, 0, PDF_MAX_TOTAL_PAGES);
@@ -553,13 +885,21 @@ static int pdf_select_semantic_pages(unsigned char *selected, const int *scores,
     if (limit < 1) return 0;
     int primary[PDF_SEMANTIC_MAX_PAGES];
     int nprimary = 0;
-    int primary_cap = limit < 4 ? limit : 4;
+    int primary_cap = limit < 3 ? limit : 3;
     while (nprimary < primary_cap) {
         int best = -1, best_score = INT_MIN;
-        for (int i = first; i <= last; i++) {
-            if (!selected[i] && scores[i] > best_score) {
-                best = i;
-                best_score = scores[i];
+        /* First pass prefers a distinct evidence cluster. */
+        for (int pass = 0; pass < 2 && best < 0; pass++) {
+            for (int i = first; i <= last; i++) {
+                if (selected[i] || scores[i] == INT_MIN) continue;
+                int adjacent = 0;
+                for (int p = 0; p < nprimary; p++)
+                    if (abs(i - primary[p]) <= 1) adjacent = 1;
+                if (pass == 0 && adjacent) continue;
+                if (scores[i] > best_score) {
+                    best = i;
+                    best_score = scores[i];
+                }
             }
         }
         if (best < 0) break;
@@ -579,6 +919,20 @@ static int pdf_select_semantic_pages(unsigned char *selected, const int *scores,
             }
         }
     }
+    /* Very short documents or edge anchors may leave spare slots. Fill them
+     * by global hybrid score instead of returning fewer useful pages. */
+    while (selected_count < limit) {
+        int best = -1, best_score = INT_MIN;
+        for (int i = first; i <= last; i++) {
+            if (!selected[i] && scores[i] != INT_MIN && scores[i] > best_score) {
+                best = i;
+                best_score = scores[i];
+            }
+        }
+        if (best < 0) break;
+        selected[best] = 1;
+        selected_count++;
+    }
     return selected_count;
 }
 
@@ -590,8 +944,39 @@ static int pdf_select_semantic_pages(unsigned char *selected, const int *scores,
  * pruned oldest-first per suffix. */
 #define PDF_CACHE_MAX_FILES 32
 static void pdf_cache_path(unsigned long long key, char *out, size_t outsz) {
-    const char *home = getenv("HOME");
-    snprintf(out, outsz, "%s/.dstudio/pdf-cache/%016llx.json", home ? home : ".", key);
+    char dir[DSTUDIO_PATH_MAX];
+    pdf_cache_dir_path(dir, sizeof dir);
+    snprintf(out, outsz, "%s/%016llx.json", dir, key);
+}
+
+static void pdf_cache_prune_suffix(const char *dir, const char *suffix, int cap) {
+    /* Tiny per-user cache directory: a direct oldest-first scan is simpler
+     * and more robust than maintaining a separate mutable catalog. */
+    size_t sl = strlen(suffix);
+    for (int guard = 0; guard < 64; guard++) {
+        DIR *d = opendir(dir);
+        if (!d) return;
+        struct dirent *e;
+        int count = 0;
+        time_t oldest_t = 0;
+        char oldest[DSTUDIO_PATH_MAX] = "";
+        while ((e = readdir(d)) != NULL) {
+            size_t l = strlen(e->d_name);
+            if (l <= sl || strcmp(e->d_name + l - sl, suffix) != 0) continue;
+            char p[DSTUDIO_PATH_MAX];
+            if ((size_t)snprintf(p, sizeof p, "%s/%s", dir, e->d_name) >= sizeof p) continue;
+            struct stat st;
+            if (stat(p, &st) != 0) continue;
+            count++;
+            if (!oldest[0] || st.st_mtime < oldest_t) {
+                oldest_t = st.st_mtime;
+                cstr_copy(oldest, sizeof oldest, p);
+            }
+        }
+        closedir(d);
+        if (count <= cap || !oldest[0]) return;
+        unlink(oldest);
+    }
 }
 
 static void pdf_cache_write(const char *cpath, const char *data, const char *suffix, int cap) {
@@ -613,30 +998,8 @@ static void pdf_cache_write(const char *cpath, const char *data, const char *suf
     while (off < len) { ssize_t w = write(f, data + off, len - off); if (w <= 0) break; off += (size_t)w; }
     close(f);
     if (off != len) { unlink(tmp); return; }
-    rename(tmp, cpath);
-    /* Prune: drop the oldest same-suffix entries beyond the cap (tiny dir). */
-    size_t sl = strlen(suffix);
-    for (int guard = 0; guard < 16; guard++) {
-        DIR *d = opendir(dir);
-        if (!d) return;
-        struct dirent *e;
-        int count = 0;
-        time_t oldest_t = 0;
-        char oldest[DSTUDIO_PATH_MAX] = "";
-        while ((e = readdir(d)) != NULL) {
-            size_t l = strlen(e->d_name);
-            if (l <= sl || strcmp(e->d_name + l - sl, suffix) != 0) continue;
-            char p[DSTUDIO_PATH_MAX];
-            if ((size_t)snprintf(p, sizeof p, "%s/%s", dir, e->d_name) >= sizeof p) continue;
-            struct stat st;
-            if (stat(p, &st) != 0) continue;
-            count++;
-            if (!oldest[0] || st.st_mtime < oldest_t) { oldest_t = st.st_mtime; cstr_copy(oldest, sizeof oldest, p); }
-        }
-        closedir(d);
-        if (count <= cap || !oldest[0]) return;
-        unlink(oldest);
-    }
+    if (rename(tmp, cpath) == 0) pdf_cache_prune_suffix(dir, suffix, cap);
+    else unlink(tmp);
 }
 
 /* Error reply in the caller's format: JSON for the UI, plain text for the
@@ -758,7 +1121,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         /* Bump this salt on ANY pipeline-behavior change (thresholds, prompts,
          * classification): cached entries carry the OLD behavior and would
          * silently mask the fix for already-seen documents. */
-        static const char *salt = "|hybrid-v6-semantic|";
+        static const char *salt = "|hybrid-v8-document-caches|";
         for (const char *s = salt; *s; s++)     { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
         for (const char *s = hf; *s; s++)       { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
         key ^= (unsigned long long)vcap;        key *= 1099511628211ULL;
@@ -768,7 +1131,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
             key ^= (unsigned long long)interactive_cap; key *= 1099511628211ULL;
         }
         if (semantic) {
-            static const char *sp = "|semantic-rag|";
+            static const char *sp = "|hybrid-rag|";
             for (const char *s = sp; *s; s++)             { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
             for (const char *s = semantic_query; *s; s++) { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
         }
@@ -835,7 +1198,8 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
      * VISIBLE characters of each page: a page under PDF_TEXT_MIN_CHARS has no
      * usable text layer (scan / pure image) and goes to the vision model. */
     pdf_job_write(jobpath, "{\"phase\":\"text\",\"done\":false}");
-    char *layer = pdf_text_layer(pdf);
+    int text_layer_cached = 0;
+    char *layer = pdf_text_layer(pdf, docfnv, &text_layer_cached);
     static const char *pstart[PDF_MAX_TOTAL_PAGES];
     static int plen[PDF_MAX_TOTAL_PAGES], pvis[PDF_MAX_TOTAL_PAGES];
     int tpages = 0;
@@ -886,19 +1250,21 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     }
 
     /* The LLM router chooses overview, an explicit physical page range, or a
-     * semantic search. Overview uses deterministic whole-book coverage;
-     * semantic mode ranks every page with multilingual embeddings. Explicit
-     * Agent read_pdf ranges keep the full/read-verbatim behavior. */
+     * hybrid search. Overview uses deterministic whole-book coverage; targeted
+     * mode ranks overlapping passages with embeddings + BM25. Explicit Agent
+     * read_pdf ranges keep the full/read-verbatim behavior. */
     static int pscore[PDF_MAX_TOTAL_PAGES], pmatch[PDF_MAX_TOTAL_PAGES];
     static unsigned char page_selected[PDF_MAX_TOTAL_PAGES];
     memset(pscore, 0, sizeof pscore);
     for (int i = 0; i < PDF_MAX_TOTAL_PAGES; i++) pmatch[i] = -1;
     memset(page_selected, interactive ? 0 : 1, sizeof page_selected);
-    int selected_pages = plast - pfirst + 1;
+    int selected_pages = plast - pfirst + 1, rag_chunks = 0;
+    int embedding_index_cached = 0;
     if (semantic) {
         pdf_job_write(jobpath, "{\"phase\":\"semantic\",\"done\":false}");
-        if (!pdf_semantic_page_scores(docfnv, pstart, plen, tpages, npages,
-                                      semantic_query, pscore)) {
+        if (!pdf_hybrid_page_scores(docfnv, pstart, plen, tpages, npages,
+                                    semantic_query, pscore, pmatch, &rag_chunks,
+                                    &embedding_index_cached)) {
             free(layer); unlink(pdf); free(pdf);
             pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
             pdf_describe_need_embedding(fd, want_text);
@@ -923,14 +1289,17 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
      * (letterhead logos are ~1-2 in²; real inline charts measured at ~7-15 in²
      * — a 6.8x2.1in Gantt strip is only ~15% of an A4 page, so a bare
      * fraction-of-page rule missed it). Vector-drawn figures (no raster) are a
-     * known blind spot: pdfimages cannot see them. */
+     * known blind spot: pdfimages cannot see them. The full-document result is
+     * cached independently of the query; otherwise every new question over a
+     * large book would rescan its complete image catalog. */
     static unsigned char page_has_fig[PDF_MAX_TOTAL_PAGES];
     memset(page_has_fig, 0, sizeof page_has_fig);
+    int figure_index_cached = pdf_fig_index_load(docfnv, npages, page_has_fig);
     char pimg[256];
-    if (pdf_find_tool("pdfimages", pimg, sizeof pimg)) {
+    if (!figure_index_cached && pdf_find_tool("pdfimages", pimg, sizeof pimg)) {
         char *la[] = { pimg, "-list", pdf, NULL };
         int lst = 0; char *lout = web_curl_capture(la, 30000, &lst);
-        if (lout) {
+        if (lout && lst == 0) {
             double page_in2 = (page_w_pts / 72.0) * (page_h_pts / 72.0);
             for (char *line = lout; line && *line; ) {
                 char *nl = strchr(line, '\n');
@@ -942,27 +1311,30 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
                            &pg, &num, type, &w, &h, color, &comp, &bpc, enc, interp,
                            &obj, &oid, &xppi, &yppi) == 14 &&
                     !strcmp(type, "image") && pg >= 1 && pg <= npages &&
-                    page_selected[pg - 1] &&
                     xppi > 1 && yppi > 1 && page_in2 > 0.1) {
                     double in2 = ((double)w / xppi) * ((double)h / yppi);
                     if (in2 / page_in2 >= 0.05 && in2 >= 3.0) page_has_fig[pg - 1] = 1;
                 }
                 line = nl ? nl + 1 : NULL;
             }
-            free(lout);
+            pdf_fig_index_save(docfnv, npages, page_has_fig);
         }
+        free(lout);
     }
 
     /* Count the vision passes up front so the work is announced (and the
      * sidecar started) only when actually needed: a plain digital PDF never
      * touches the multi-GB vision model. Scanned pages take one full-page
      * transcription pass; mixed text+figure pages take one figures-only pass. */
-    int nvis_wanted = 0, scans_wanted = 0, figs_wanted = 0;
+    int nvis_wanted = 0, scans_wanted = 0, figs_wanted = 0, text_wanted = 0;
     for (int i = pfirst - 1; i < plast; i++) {
         if (!page_selected[i]) continue;
         int is_text = (i < tpages && pvis[i] >= PDF_TEXT_MIN_CHARS);
         if (!is_text) scans_wanted++;
-        else if (page_has_fig[i]) figs_wanted++;
+        else {
+            text_wanted++;
+            if (page_has_fig[i]) figs_wanted++;
+        }
     }
     if (interactive) {
         int ns = scans_wanted > PDF_INTERACTIVE_SCAN_PASSES ? PDF_INTERACTIVE_SCAN_PASSES : scans_wanted;
@@ -975,27 +1347,49 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
 
     char dir[] = "/tmp/dstudio-pdfr-XXXXXX";
     int have_dir = 0;
+    int vision_unavailable = 0;
     qwen_memory_lease vision_lease = {0};
+    if (nvis > 0 && interactive && text_wanted > 0 && !vision_server_ready()) {
+        char vision_dir[DSTUDIO_PATH_MAX], vision_bin[DSTUDIO_PATH_MAX];
+        vision_dir_path(vision_dir, sizeof vision_dir);
+        /* A text-backed chat answer may omit visual supplements immediately
+         * when the optional runtime was never installed. If it is installed,
+         * retain the normal on-demand startup behavior. */
+        if (!vision_scan_for_bin(vision_dir, 0, vision_bin, sizeof vision_bin)) {
+            vision_unavailable = nvis_wanted;
+            nvis = 0;
+        }
+    }
     if (nvis > 0) {
         pdf_job_write(jobpath, "{\"phase\":\"vision\",\"page\":0,\"pages\":%d,\"done\":false}", nvis);
         vision_lease = qwen_memory_begin("pdf");
         if (!vision_ensure_server(60000)) {
             qwen_memory_end(&vision_lease);
-            free(layer); unlink(pdf); free(pdf);
-            pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
-            pdf_describe_fail(fd, want_text, "503 Service Unavailable",
-                              "vision model is not running (needed for this PDF's scanned pages); "
-                              "attach an image once or run vision setup");
-            return;
+            memset(&vision_lease, 0, sizeof vision_lease);
+            /* In chat/RAG, figures and occasional scan neighbors supplement
+             * an already useful text result. Missing optional vision must not
+             * discard the retrieved evidence. A fully scanned selection still
+             * requires vision because otherwise the response would be empty. */
+            if (interactive && text_wanted > 0) {
+                vision_unavailable = nvis_wanted;
+                nvis = 0;
+            } else {
+                free(layer); unlink(pdf); free(pdf);
+                pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
+                pdf_describe_fail(fd, want_text, "503 Service Unavailable",
+                                  "vision model is not running (needed for this PDF's scanned pages); "
+                                  "attach an image once or run vision setup");
+                return;
+            }
         }
-        if (!mkdtemp(dir)) {
+        if (!vision_unavailable && !mkdtemp(dir)) {
             qwen_memory_end(&vision_lease);
             free(layer); unlink(pdf); free(pdf);
             pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
             pdf_describe_fail(fd, want_text, "500 Internal Server Error", "temp dir");
             return;
         }
-        have_dir = 1;
+        if (!vision_unavailable) have_dir = 1;
     }
 
     json_dyn_buf text = {0};
@@ -1005,13 +1399,26 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     size_t text_bytes = 0, vision_bytes = 0;
     size_t content_cap = interactive ? interactive_cap : PDF_TEXT_TOTAL_CAP;
     size_t text_cap = content_cap;
-    int total_weight = 0;
+    int total_weight = 0, semantic_min = INT_MAX, semantic_max = INT_MIN;
+    if (semantic) {
+        for (int i = pfirst - 1; i < plast; i++) {
+            if (!page_selected[i] || pscore[i] == INT_MIN) continue;
+            if (pscore[i] < semantic_min) semantic_min = pscore[i];
+            if (pscore[i] > semantic_max) semantic_max = pscore[i];
+        }
+    }
     for (int i = pfirst - 1; i < plast; i++) {
         if (!page_selected[i] || i >= tpages || pvis[i] < PDF_TEXT_MIN_CHARS) continue;
         int weight = 1;
-        if (i == pfirst - 1) weight += 5;
-        else if (i == pfirst || i == plast - 1) weight += 1;
-        if (pscore[i] > 0) weight += pscore[i] > 3 ? 3 : pscore[i];
+        if (semantic && pscore[i] != INT_MIN) {
+            weight += 2;
+            if (semantic_max > semantic_min)
+                weight += (int)(3LL * (pscore[i] - semantic_min) /
+                                (semantic_max - semantic_min));
+        } else if (!semantic) {
+            if (i == pfirst - 1) weight += 5;
+            else if (i == pfirst || i == plast - 1) weight += 1;
+        }
         total_weight += weight;
     }
     /* The advertised interactive limit covers perception text too. A mixed
@@ -1029,9 +1436,15 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
             size_t take = (size_t)plen[i];
             if (interactive && total_weight > 0) {
                 int weight = 1;
-                if (i == pfirst - 1) weight += 5;
-                else if (i == pfirst || i == plast - 1) weight += 1;
-                if (pscore[i] > 0) weight += pscore[i] > 3 ? 3 : pscore[i];
+                if (semantic && pscore[i] != INT_MIN) {
+                    weight += 2;
+                    if (semantic_max > semantic_min)
+                        weight += (int)(3LL * (pscore[i] - semantic_min) /
+                                        (semantic_max - semantic_min));
+                } else if (!semantic) {
+                    if (i == pfirst - 1) weight += 5;
+                    else if (i == pfirst || i == plast - 1) weight += 1;
+                }
                 take = text_cap * (size_t)weight / (size_t)total_weight;
                 if (take < 32) take = 32;
                 if (take > (size_t)plen[i]) take = (size_t)plen[i];
@@ -1040,7 +1453,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
                 if (text_bytes + take > text_cap) take = text_cap - text_bytes;
             }
             int excerpt_match = pmatch[i];
-            if (i == pfirst - 1 && excerpt_match < 0) excerpt_match = 0;
+            if (!semantic && i == pfirst - 1 && excerpt_match < 0) excerpt_match = 0;
             ok = json_dyn_printf(&text, "\n--- Pagina %d (testo) ---\n", i + 1) &&
                  pdf_append_page_excerpt(&text, pstart[i], (size_t)plen[i], take, excerpt_match) &&
                  json_dyn_puts(&text, "\n");
@@ -1049,6 +1462,10 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
             if (take < (size_t)plen[i]) text_partial++;
         }
         if (!ok || (is_text && !wants_fig)) continue;
+        if (vision_unavailable) {
+            if (wants_fig) fig_skipped++; else vskipped++;
+            continue;
+        }
         /* Vision pass: full transcription for scans, figures-only for mixed
          * text+figure pages (their body text already shipped above). */
         int pass_cap_hit = vdone >= vcap ||
@@ -1107,19 +1524,24 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     int range_partial = has_range ? (pfirst > 1 || plast < total) : (total > npages);
     int sampled = interactive && (pages_omitted > 0 || text_partial > 0);
     int truncated = vskipped > 0 || fig_skipped > 0 || text_skipped > 0 || range_partial || sampled;
-    if (ok && vskipped > 0)
+    if (ok && vskipped > 0 && !vision_unavailable)
         ok = json_dyn_printf(&text, "\n[PDF troncato: %d pagine scansionate oltre il limite di %d non lette.]\n",
                              vskipped, vcap);
-    if (ok && fig_skipped > 0)
+    if (ok && fig_skipped > 0 && !vision_unavailable)
         ok = json_dyn_printf(&text, "\n[%d pagine con figure oltre il limite vision: incluso solo il loro testo.]\n",
                              fig_skipped);
+    if (ok && vision_unavailable > 0)
+        ok = json_dyn_printf(&text,
+                             "\n[Modello vision non disponibile: %d supplementi visivi omessi; il testo recuperato resta incluso.]\n",
+                             vision_unavailable);
     if (ok && text_skipped > 0)
         ok = json_dyn_printf(&text, "\n[Testo troncato: %d pagine di testo oltre il limite di %dKB omesse.]\n",
                              text_skipped, (int)(text_cap / 1024));
     if (ok && sampled && semantic)
         ok = json_dyn_printf(&text,
-            "\n[Ricerca semantica PDF: lette %d pagine candidate su %d, %zu caratteri di contenuto.]\n",
-            selected_pages, plast - pfirst + 1, text_bytes + vision_bytes);
+            "\n[Ricerca ibrida PDF: valutati %d passaggi sovrapposti; lette %d pagine candidate "
+            "su %d, %zu caratteri di contenuto.]\n",
+            rag_chunks, selected_pages, plast - pfirst + 1, text_bytes + vision_bytes);
     else if (ok && sampled)
         ok = json_dyn_printf(&text,
             "\n[Contesto PDF adattivo: %d pagine rappresentative su %d, %zu caratteri di contenuto; "
@@ -1143,11 +1565,17 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     json_dyn_buf out = {0};
     int good = json_dyn_printf(&out, "{\"ok\":true,\"pages\":%d,\"total\":%d,\"first\":%d,\"last\":%d,"
                                      "\"textPages\":%d,\"visionPages\":%d,\"figPages\":%d,"
-                                     "\"selectedPages\":%d,\"textChars\":%zu,\"visionChars\":%zu,"
-                                     "\"contentChars\":%zu,\"semantic\":%s,\"sampled\":%s,\"truncated\":%s,\"text\":",
+                                     "\"selectedPages\":%d,\"retrievalChunks\":%d,"
+                                     "\"textLayerCached\":%s,\"embeddingIndexCached\":%s,\"figureIndexCached\":%s,"
+                                     "\"textChars\":%zu,\"visionChars\":%zu,\"contentChars\":%zu,"
+                                     "\"semantic\":%s,\"hybrid\":%s,\"sampled\":%s,\"truncated\":%s,\"text\":",
                                pages_read, total, pfirst, plast, text_used, vdone, fig_pass,
-                               selected_pages, text_bytes, vision_bytes, text_bytes + vision_bytes,
-                               semantic ? "true" : "false", sampled ? "true" : "false",
+                               selected_pages, rag_chunks,
+                               text_layer_cached ? "true" : "false",
+                               embedding_index_cached ? "true" : "false",
+                               figure_index_cached ? "true" : "false",
+                               text_bytes, vision_bytes, text_bytes + vision_bytes,
+                               semantic ? "true" : "false", semantic ? "true" : "false", sampled ? "true" : "false",
                                truncated ? "true" : "false") &&
                json_dyn_put_escaped(&out, text.ptr ? text.ptr : "") &&
                json_dyn_puts(&out, "}");

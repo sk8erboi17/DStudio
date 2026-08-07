@@ -80,7 +80,7 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check check-fast check-real test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-http-lan test-gsa-bench-validate test-real-search-research test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
+.PHONY: all run check check-fast check-real test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-http-lan test-gsa-bench-validate test-real-ascii-diagrams test-real-pdf-rag test-real-search-research test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
@@ -286,7 +286,7 @@ $(TEST_UNIT): tests/lan_unit.c $(SRC) $(SUBSRC) $(GEN) $(LOADING_GEN)
 	@mkdir -p $(TEST_BUILD)
 	$(CC) $(CFLAGS) tests/lan_unit.c -o $@
 
-$(TEST_SERVER): $(SRC) $(PAGE) $(LOADING)
+$(TEST_SERVER): $(SRC) $(SUBSRC) $(GEN) $(LOADING_GEN)
 	@mkdir -p $(TEST_BUILD)
 	$(CC) $(CFLAGS) $(SRC) -o $@
 
@@ -321,13 +321,16 @@ test-rsa-collectors:
 test-table-ascii:
 	@if command -v python3 >/dev/null 2>&1; then python3 tests/table_ascii_art_test.py; else echo "python3 missing: skipping table ASCII tests"; fi
 
+test-markdown-math:
+	@if command -v node >/dev/null 2>&1; then node tests/markdown_math_test.mjs; else echo "node missing: skipping Markdown math tests"; fi
+
 test-http-lan: $(TEST_SERVER)
 	@tests/http_lan_test.sh $(TEST_SERVER)
 
 test-gsa-bench-validate:
 	@if command -v node >/dev/null 2>&1; then node extension/gsa/bench/validate.mjs; else echo "node missing: skipping GSA benchmark validation"; fi
 
-check-fast: $(BIN) test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-http-lan test-gsa-bench-validate
+check-fast: $(BIN) test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-http-lan test-gsa-bench-validate
 	@file $(PAGE) | grep -q text && echo "$(PAGE): text OK" || (echo "$(PAGE) is not text!" && exit 1)
 	@file $(LOADING) | grep -q text && echo "$(LOADING): text OK" || (echo "$(LOADING) is not text!" && exit 1)
 	@command -v node >/dev/null 2>&1 && { \
@@ -341,11 +344,19 @@ test-real-search-research: $(TEST_SERVER)
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real Search/DeepResearch tests require node" && exit 1)
 	@node tests/real_search_research_test.mjs $(TEST_SERVER)
 
+test-real-ascii-diagrams: $(TEST_SERVER)
+	@command -v node >/dev/null 2>&1 || (echo "node missing: real ASCII diagram tests require node" && exit 1)
+	@node tests/real_ascii_diagram_test.mjs $(TEST_SERVER)
+
+test-real-pdf-rag: $(TEST_SERVER)
+	@command -v node >/dev/null 2>&1 || (echo "node missing: real PDF RAG tests require node" && exit 1)
+	@node tests/real_pdf_rag_test.mjs $(TEST_SERVER)
+
 test-real-remote: $(TEST_SERVER)
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real remote tests require node" && exit 1)
 	@node tests/real_remote_test.mjs $(TEST_SERVER)
 
-check-real: $(TEST_SERVER) test-real-search-research test-real-remote
+check-real: $(TEST_SERVER) test-real-ascii-diagrams test-real-search-research test-real-remote
 
 check: check-fast check-real
 

@@ -173,6 +173,92 @@ export async function completeText(baseUrl, messages, opts = {}) {
   return json?.choices?.[0]?.message?.content || '';
 }
 
+/* Streamed variant for slow local models. A disconnected/aborted client is
+ * observed while decoding, so the engine can cancel promptly instead of
+ * continuing an invisible stream:false generation in the background. */
+export async function completeTextStream(baseUrl, messages, opts = {}) {
+  const off = opts.thinkLevel === 'off';
+  const body = {
+    model: opts.model || 'ds4',
+    messages,
+    stream: true,
+    stream_options: { include_usage: true },
+    think: !off,
+    temperature: opts.temperature ?? 0,
+    max_tokens: opts.maxTokens ?? 800,
+  };
+  if (!off && opts.thinkLevel) {
+    body.reasoning_effort = opts.thinkLevel === 'max' ? 'max' : 'high';
+  }
+  const timeoutMs = opts.timeoutMs || Number(process.env.DSTUDIO_REAL_CALL_TIMEOUT_MS || 1_800_000);
+  const signal = opts.signal || AbortSignal.timeout(timeoutMs);
+  return await new Promise((resolve, reject) => {
+    const u = new URL(`${baseUrl}/v1/chat/completions`);
+    const payload = JSON.stringify(body);
+    const req = http.request({
+      hostname: u.hostname,
+      port: u.port || 80,
+      path: u.pathname,
+      method: 'POST',
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+        'Content-Length': String(Buffer.byteLength(payload)),
+      },
+    }, (res) => {
+      let wire = '';
+      let content = '';
+      let reasoning = '';
+      let errorText = '';
+      const consume = (frame) => {
+        for (const line of frame.split(/\r?\n/)) {
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trimStart();
+          if (!data || data === '[DONE]') continue;
+          let event;
+          try { event = JSON.parse(data); } catch { continue; }
+          if (event.error) throw new Error(event.error.message || event.error);
+          const delta = event?.choices?.[0]?.delta || {};
+          content += delta.content || '';
+          reasoning += delta.reasoning_content || delta.reasoning || '';
+          opts.onProgress?.({ content, reasoning, event });
+        }
+      };
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          errorText += chunk;
+          return;
+        }
+        wire += chunk;
+        for (;;) {
+          const boundary = wire.search(/\r?\n\r?\n/);
+          if (boundary < 0) break;
+          const match = wire.slice(boundary).match(/^\r?\n\r?\n/);
+          const width = match?.[0]?.length || 2;
+          const frame = wire.slice(0, boundary);
+          wire = wire.slice(boundary + width);
+          try { consume(frame); } catch (error) { req.destroy(error); }
+        }
+      });
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error(errorText || `HTTP ${res.statusCode}`));
+          return;
+        }
+        if (wire.trim()) {
+          try { consume(wire); } catch (error) { reject(error); return; }
+        }
+        resolve({ content, reasoning });
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreExternal = false } = {}) {
   if (!ignoreExternal && process.env.DSTUDIO_REAL_BASE_URL) {
     const baseUrl = normalizeBaseUrl(process.env.DSTUDIO_REAL_BASE_URL);

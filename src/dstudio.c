@@ -7776,27 +7776,34 @@ static void api_embed_setup_run(int fd, const char *body) {
 
     embed_touch_last_use();
     int server_up = (rc == 0) ? embed_ensure_server(1000000) : 0;
-    int indexed = 0;
+    int indexed = 0, index_ready = 0;
     if (server_up) {
         embed_touch_last_use();
         skill_hit_list L = {0};
-        if (skill_enum_all(&L) && L.n > 0) {
-            char **texts = calloc((size_t)L.n, sizeof *texts);
-            if (texts) {
-                for (int i = 0; i < L.n; i++) texts[i] = skill_embed_text(&L.v[i]);
-                int dim = 0;
-                float *v = skill_index_ensure(&L, texts, &dim);
-                if (v) { indexed = L.n; free(v); }
-                for (int i = 0; i < L.n; i++) free(texts[i]);
-                free(texts);
+        if (skill_enum_all(&L)) {
+            /* The embedding sidecar also powers PDF RAG. A fresh profile with
+             * zero user-authored skills is therefore fully ready: there is no
+             * skill index to build, but document embeddings must still work. */
+            if (L.n == 0) {
+                index_ready = 1;
+            } else {
+                char **texts = calloc((size_t)L.n, sizeof *texts);
+                if (texts) {
+                    for (int i = 0; i < L.n; i++) texts[i] = skill_embed_text(&L.v[i]);
+                    int dim = 0;
+                    float *v = skill_index_ensure(&L, texts, &dim);
+                    if (v) { indexed = L.n; index_ready = 1; free(v); }
+                    for (int i = 0; i < L.n; i++) free(texts[i]);
+                    free(texts);
+                }
             }
         }
         skill_hits_free(&L);
     }
-    int ok = rc == 0 && server_up && indexed > 0;
+    int ok = rc == 0 && server_up && index_ready;
     const char *err = rc != 0 ? "embedding runtime install failed (see log)"
                     : !server_up ? "embedding model did not come up in time; retry"
-                    : indexed == 0 ? "index build failed"
+                    : !index_ready ? "index build failed"
                     : "";
     char hf_now[200]; embed_hf_pref(hf_now, sizeof hf_now);
     json_dyn_buf b = {0};
