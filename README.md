@@ -96,7 +96,17 @@ Streaming DeepSeek V4 chat backed by the ds4 server KV cache: the context lives 
 
 Describe what you want to learn and optionally attach PDFs, notes or public links. DStudio reads PDFs through the same local document pipeline used by Chat, opens supplied links through Web Search, then generates a prerequisite-aware path with required and optional topics, concrete practice, stage checkpoints and a final project. The result opens directly as an editable graph inspired by [roadmap.sh](https://roadmap.sh/) rather than as a conventional assistant reply: blocks can be completed, reordered with drag-and-drop, or deleted. Adding a block sends its title, description, stage and neighboring prerequisites back to the model with Thinking max so it can create a coherent outcome and hands-on exercise instead of inserting placeholder text. Block generation uses a large output budget and automatically repairs and retries incomplete drafts until it obtains a valid block or the learner presses **Stop**. The edited graph is saved with that roadmap's history and can be exported as high-resolution PNG, PDF or JSON.
 
-Every stage, topic and final project can open its own full-screen study room. The room hides the conversation sidebar and gives the model the exact roadmap, stage, outcome, practice and source context for that block. It acts as a focused tutor with detailed explanations, guided and independent exercises, checkpoints and adaptive correction while retaining normal Chat capabilities: visible Thinking, drag-and-drop files, local PDF/image understanding, LaTeX, aligned ASCII diagrams, collapsible hints and generated-file canvas previews. The study transcript and its attachments are saved on that block and always return to the graph with one Back action.
+#### Study with a dedicated Tutor
+
+<div align="center">
+
+<img src="assets/tutor.png" width="920" alt="DStudio Tutor study room opened from a Roadmap block, with focused context, visible reasoning and the full chat composer">
+
+</div>
+
+Click **Study** on any stage, topic or final project to leave the graph and open a dedicated full-screen Tutor chat for that exact block. The Tutor already receives the roadmap goal, stage, prerequisites, learning outcome, practice task and source context, so the learner does not have to explain the subject again. It can teach from first principles, answer follow-up questions, give guided and independent exercises, run quizzes, identify gaps and correct the learner's work. One **Back to roadmap** action returns to the graph without losing the study conversation.
+
+The Tutor keeps the normal Chat toolset while remaining focused on the selected learning objective: selectable and visible Thinking, drag-and-drop files, local PDF and image understanding, LaTeX, aligned ASCII diagrams, collapsible hints and generated-file canvas previews. Each block stores its own transcript and attachments, so opening **Study** again resumes that topic rather than starting a generic chat.
 
 Roadmap generation is always locked to **Thinking: max**. This is enforced in the actual model request, independently of the global Chat reasoning setting, because curriculum synthesis and dependency ordering benefit from the full reasoning budget.
 
