@@ -174,12 +174,20 @@ const roadmapBlockAlias = roadmapHelpers.extractRoadmapBlockFromAssistant(`Model
 })}`);
 assert.equal(roadmapBlockAlias?.outcome, 'Demonstrate the skill.', 'block parsing should recover common outcome/practice aliases and surrounding prose');
 assert.match(html, /id="tab-roadmap"[\s\S]*>Roadmap</, 'sidebar should expose the Roadmap workspace');
-assert.match(html, /id="roadmap-source-panel"[\s\S]*id="roadmap-url-input"/, 'Roadmap composer should accept learning-source links alongside attachments');
-assert.match(html, /id="roadmap-composer-peek"[\s\S]*Roadmap prompt/, 'Generated Roadmaps should retain a visible bottom composer handle');
-assert.match(html, /body\.roadmap-mode:not\(\.composer-raised\) \.composer[\s\S]*translateY\(calc\(100% - var\(--roadmap-composer-peek\)\)\)[\s\S]*\.composer:hover[\s\S]*translateY\(0\)/,
-  'The Roadmap composer should animate below the viewport and rise on hover');
+assert.doesNotMatch(html, /roadmap-source-panel|roadmap-url-input/,
+  'Roadmap links should come from the prompt without a duplicate source field');
+assert.match(html, /id="roadmap-composer-peek"[\s\S]*Roadmap prompt/,
+  'Generated Roadmaps should retain the visible up/down prompt handle');
+assert.match(html, /body\.roadmap-mode:not\(\.composer-raised\) \.composer[\s\S]*translateY\(calc\(100% - var\(--roadmap-composer-reveal\)\)\)[\s\S]*\.composer:hover,[\s\S]*\.is-roadmap-composer-pinned[\s\S]*translateY\(0\)[\s\S]*\.is-roadmap-auto-lowering/,
+  'The Roadmap prompt handle should animate the composer up and lower it again after Send');
+assert.doesNotMatch(html, /\.composer:has\(#btn-stop:not\(\[hidden\]\)\)/,
+  'The visible Stop button must not force the entire Roadmap composer to stay open');
 assert.match(html, /body\.roadmap-mode:not\(\.composer-raised\) \.composer__card[\s\S]*width: min\(100%, 96rem\)[\s\S]*max-width: none/,
   'The expanded Roadmap composer should use the wide workspace instead of the normal chat measure');
+assert.match(html, /body\.roadmap-mode \.composer__card:focus-within \{ box-shadow: none; \}/,
+  'Focusing the Roadmap composer should not add a selection shadow');
+assert.match(html, /\.roadmap-build-assembly[\s\S]*\.roadmap-build-rail[\s\S]*\.roadmap-build-piece--left[\s\S]*@keyframes roadmap-piece-assemble[\s\S]*\.roadmap-hero \.ec-mark \{ color: var\(--accent\)/,
+  'Roadmap loading should assemble connected blue graph pieces instead of showing a static dot');
 assert.match(js, /const roadmapMode = chat\.mode === 'roadmap';[\s\S]*settings = \{ \.\.\.settings, thinkLevel: 'max' \}/, 'Roadmap requests should override the global thinking setting with max');
 assert.match(js, /reasoning_effort = thinkLevel === 'max' \? 'max' : 'high'/, 'maximum roadmap thinking should reach the model request body');
 assert.match(js, /Roadmaps always use Thinking: max\./, 'Roadmap thinking selector should be visibly locked to max');
@@ -205,6 +213,12 @@ assert.match(js, /beginTutorAttachmentSession[\s\S]*prepareTutorAttachments/, 'T
 assert.match(js, /Chat\.tutorFormattingProtocols\(\)[\s\S]*DStudio Tutor file output protocol/, 'Tutor replies should inherit normal Chat math, ASCII and downloadable-file behavior');
 assert.match(js, /dragHandle[\s\S]*dragstart[\s\S]*targetStage\.topics\.splice/, 'Roadmap blocks should support persisted drag-and-drop ordering');
 assert.match(js, /New learning block title[\s\S]*New learning block description/, 'Adding a roadmap block should collect both its title and description');
+assert.match(js, /function buildLearningSourceContext\([\s\S]*\[Learning source evidence\][\s\S]*function readLearningSourcesDirectly\([\s\S]*classifier skipped/,
+  'Roadmap learning links should be read directly instead of waiting for the generic web classifier');
+assert.match(searchRuntime, /The Roadmap composer has no separate URL field[\s\S]*domain\.tld\/path/,
+  'Roadmap source extraction should recognize unambiguous links pasted directly into the prompt');
+assert.match(js, /readsLearningSources[\s\S]*await readLearningSourcesDirectly\(webQuery, learningSourceUrls, updateTrace, signal\)/,
+  'Roadmap preflight should route explicit learning links through the direct reader');
 assert.match(js, /DStudio roadmap-block expansion protocol:[\s\S]*dstudio-roadmap-block[\s\S]*thinkLevel: 'max'/,
   'New roadmap blocks should be elaborated by a strict max-thinking model request');
 assert.match(js, /generateRoadmapTopic[\s\S]*Store\.setChatStreaming\(chat\.id, runController\)[\s\S]*persistRoadmap\(next\)/,
@@ -1576,6 +1590,12 @@ assert.match(qwenImageScript, /generation-direct-dtype\.patch[\s\S]*accelerator-
 assert.match(fs.readFileSync('patch/qwen-image-mps/generation-direct-dtype.patch', 'utf8'), /DiffusionPipeline\.from_pretrained[\s\S]*torch_dtype=torch_dtype/, 'Qwen generation should load BF16 weights directly instead of materializing FP32 before Metal transfer');
 assert.match(fs.readFileSync('patch/qwen-image-mps/accelerator-lora-merge.patch', 'utf8'), /merge_device[\s\S]*param\.device\.type in \("mps", "cuda"\)[\s\S]*torch\.matmul/, 'Qwen Lightning LoRA should merge in float32 on the active accelerator');
 assert.match(searchRuntime, /function classifyResearchRequest\(/, 'Search extension should own the research classifier runtime');
+assert.doesNotMatch(searchRuntime, /Api\.completeText\(payload, AbortSignal\.timeout/,
+  'Web and Roadmap model work should not be aborted by an automatic wall-clock timeout');
+assert.match(js, /const WEB_SEARCH_PLAN_TIMEOUT_MS = Number\.POSITIVE_INFINITY;[\s\S]*const WEB_RESEARCH_TOTAL_TIMEOUT_MS = Number\.POSITIVE_INFINITY;/,
+  'Every Web and Roadmap research budget should remain open until completion or manual Stop');
+assert.match(js, /async function webSearch\(query, signal\)[\s\S]*async function webRead\(url, signal\)[\s\S]*async function httpProbe\(url, method = 'HEAD', signal\)/,
+  'Web helpers should use only the manual cancellation signal, without automatic fetch deadlines');
 assert.match(searchRuntime, /async function runResearchPipeline\(/, 'Search extension should own the shared search/deep research pipeline');
 assert.match(searchRuntime, /async function runDeepResearch\(/, 'Search extension should own Deep Research runtime');
 assert.match(searchRuntime, /function buildResearchReportDraft\(/, 'Deep Research should build a fact-grounded report draft before final synthesis');

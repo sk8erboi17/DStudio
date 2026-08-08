@@ -88,6 +88,12 @@ Streaming DeepSeek V4 chat backed by the ds4 server KV cache: the context lives 
 
 ### Learning Roadmap
 
+<div align="center">
+
+<img src="assets/roadmap.gif" width="820" alt="DStudio Learning Roadmap demo showing roadmap generation, editable learning blocks and focused tutor rooms">
+
+</div>
+
 Describe what you want to learn and optionally attach PDFs, notes or public links. DStudio reads PDFs through the same local document pipeline used by Chat, opens supplied links through Web Search, then generates a prerequisite-aware path with required and optional topics, concrete practice, stage checkpoints and a final project. The result opens directly as an editable graph inspired by [roadmap.sh](https://roadmap.sh/) rather than as a conventional assistant reply: blocks can be completed, reordered with drag-and-drop, or deleted. Adding a block sends its title, description, stage and neighboring prerequisites back to the model with Thinking max so it can create a coherent outcome and hands-on exercise instead of inserting placeholder text. Block generation uses a large output budget and automatically repairs and retries incomplete drafts until it obtains a valid block or the learner presses **Stop**. The edited graph is saved with that roadmap's history and can be exported as high-resolution PNG, PDF or JSON.
 
 Every stage, topic and final project can open its own full-screen study room. The room hides the conversation sidebar and gives the model the exact roadmap, stage, outcome, practice and source context for that block. It acts as a focused tutor with detailed explanations, guided and independent exercises, checkpoints and adaptive correction while retaining normal Chat capabilities: visible Thinking, drag-and-drop files, local PDF/image understanding, LaTeX, aligned ASCII diagrams, collapsible hints and generated-file canvas previews. The study transcript and its attachments are saved on that block and always return to the graph with one Back action.
