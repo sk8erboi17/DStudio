@@ -1,0 +1,28 @@
+--- a/cli.py
++++ b/cli.py
+@@ -517,14 +517,22 @@ def merge_lora_from_safetensors(pipe, lora_path):
+                 rank = lora_down.shape[0]
+                 scaling_factor = lora_alpha / rank
+ 
+-                # Convert to float32 for computation
+-                lora_up = lora_up.float()
+-                lora_down = lora_down.float()
++                # Compute the full-rank delta in float32 on the same accelerator
++                # that owns the transformer. The upstream CPU matmul followed by
++                # a device copy is measurable for the 720-weight Lightning LoRA.
++                # CPU-only systems retain the original path.
++                merge_device = (
++                    param.device if param.device.type in ("mps", "cuda")
++                    else lora_up.device
++                )
++                lora_up = lora_up.to(device=merge_device, dtype=torch.float32)
++                lora_down = lora_down.to(device=merge_device, dtype=torch.float32)
+ 
+                 # Apply LoRA: weight = weight + scaling_factor * (up @ down)
+                 delta_W = scaling_factor * torch.matmul(lora_up, lora_down)
+                 param.data = (param.data + delta_W.to(param.device)).type_as(param.data)
+                 merged_count += 1
++                del lora_up, lora_down, delta_W
+ 
+     print(f"Merged {merged_count} LoRA weights into the model")
+     return pipe

@@ -55,7 +55,7 @@
 #define PDF_RAG_CHUNK_CHARS 3200          /* bounded semantic windows, not arbitrary full pages */
 #define PDF_RAG_CHUNK_OVERLAP 500         /* preserves passages spanning adjacent windows */
 #define PDF_RAG_CROSS_PAGE_CHARS 320      /* preserves sentences split by physical page breaks */
-#define PDF_RAG_EMBED_BATCH 4             /* bounded batch fits the embedding sidecar's 8K context */
+#define PDF_RAG_EMBED_BATCH 4             /* best end-to-end latency; oversized inputs split recursively */
 #define PDF_RAG_MAX_QUERY_TERMS 16
 #define PDF_TEXT_CACHE_MAX_FILES 32
 #define PDF_FIG_CACHE_MAX_FILES 32
@@ -712,27 +712,49 @@ static int pdf_rag_terms(const char *query, pdf_rag_term *terms, int cap) {
     return n;
 }
 
-/* Count whole-token occurrences with ASCII case folding while preserving
- * UTF-8 bytes. Returns the first byte offset when requested. */
-static int pdf_rag_term_count(const char *text, int len, const pdf_rag_term *term,
-                              int *first_at) {
-    int count = 0;
-    if (first_at) *first_at = -1;
-    for (int i = 0; i + term->len <= len; i++) {
-        if (i > 0 && pdf_rag_token_byte((unsigned char)text[i - 1])) continue;
-        if (i + term->len < len && pdf_rag_token_byte((unsigned char)text[i + term->len])) continue;
-        int same = 1;
-        for (int k = 0; k < term->len; k++) {
-            unsigned char c = (unsigned char)text[i + k];
-            char folded = c < 0x80 ? (char)tolower(c) : (char)c;
-            if (folded != term->text[k]) { same = 0; break; }
+/* Count every query term in one tokenization pass. The previous implementation
+ * rescanned each chunk once per term for document frequency and then again for
+ * BM25 (up to 32 full scans). This preserves the same whole-token matching and
+ * ASCII case folding, but records all term frequencies and first offsets at
+ * once. */
+static void pdf_rag_term_counts(const char *text, int len,
+                                const pdf_rag_term *terms, int nterms,
+                                int *counts, int *firsts) {
+    for (int t = 0; t < nterms; t++) { counts[t] = 0; firsts[t] = -1; }
+    for (int i = 0; i < len; ) {
+        while (i < len && !pdf_rag_token_byte((unsigned char)text[i])) i++;
+        int start = i;
+        while (i < len && pdf_rag_token_byte((unsigned char)text[i])) i++;
+        int token_len = i - start;
+        if (!token_len) continue;
+        for (int t = 0; t < nterms; t++) {
+            if (token_len != terms[t].len) continue;
+            int same = 1;
+            for (int k = 0; k < token_len; k++) {
+                unsigned char c = (unsigned char)text[start + k];
+                char folded = c < 0x80 ? (char)tolower(c) : (char)c;
+                if (folded != terms[t].text[k]) { same = 0; break; }
+            }
+            if (!same) continue;
+            if (firsts[t] < 0) firsts[t] = start;
+            counts[t]++;
         }
-        if (!same) continue;
-        if (first_at && *first_at < 0) *first_at = i;
-        count++;
-        i += term->len - 1;
     }
-    return count;
+}
+
+/* Try the largest measured Metal batch first. If unusually token-dense text
+ * exceeds llama-server's 8K physical batch, bisect it until it fits. This
+ * preserves the exact vector order and quality while avoiding the old
+ * all-the-way-to-singletons fallback for one oversized work item. */
+static int pdf_embed_rag_batch(char *const *texts, int count, float *out, int dim) {
+    int got_dim = 0;
+    if (embed_call(texts, count, NULL, out, dim, &got_dim) && got_dim == dim)
+        return 1;
+    if (count <= 1) return 0;
+    int left = count / 2;
+    return pdf_embed_rag_batch(texts, left, out, dim) &&
+           pdf_embed_rag_batch(texts + left, count - left,
+                               out + (size_t)left * (size_t)dim, dim);
 }
 
 /* Hybrid retrieval: dense chunk cosine supplies semantic recall; a compact
@@ -754,14 +776,18 @@ static int pdf_hybrid_page_scores(unsigned long long docfnv,
     embed_touch_last_use();
     if (!embed_ensure_server(60000)) { free(chunks); return 0; }
 
-    char model[128];
-    embed_hf_pref(model, sizeof model);
+    static const char *prefix =
+        "Instruct: Given a user question, retrieve the document passages that contain the answer.\nQuery: ";
+    float qv[EMBED_MAX_DIM];
+    char *queries[1] = { (char *)query };
     int dim = 0;
-    float probe[EMBED_MAX_DIM];
-    char *ping[1] = { (char *)"document passage" };
-    if (!embed_call(ping, 1, NULL, probe, EMBED_MAX_DIM, &dim) ||
+    /* The real query already reveals the model dimension. The old separate
+     * "document passage" probe spent an extra GPU request on every search. */
+    if (!embed_call(queries, 1, prefix, qv, EMBED_MAX_DIM, &dim) ||
         dim <= 0 || dim > EMBED_MAX_DIM) { free(chunks); return 0; }
 
+    char model[128];
+    embed_hf_pref(model, sizeof model);
     pdf_embed_index_hdr want = { PDF_EMBED_INDEX_MAGIC, dim, nchunks, docfnv, {0} };
     cstr_copy(want.model, sizeof want.model, model);
     float *vecs = pdf_embed_index_load(&want);
@@ -778,27 +804,8 @@ static int pdf_hybrid_page_scores(unsigned long long docfnv,
                 texts[j] = pdf_rag_chunk_text(pstart, plen, tpages, &chunks[start + j]);
                 if (!texts[j]) { alloc_ok = 0; break; }
             }
-            int got_dim = 0;
-            int embedded = alloc_ok && embed_call(texts, count, NULL,
-                                                  vecs + (size_t)start * (size_t)dim,
-                                                  dim, &got_dim) && got_dim == dim;
-            /* llama-server can occasionally reject a multi-input request
-             * after a long indexing run even though the sidecar is healthy.
-             * Retry the same bounded work item-by-item: quality and cache
-             * layout stay identical, while a transient batch failure no
-             * longer aborts retrieval for a large book. */
-            if (!embedded && alloc_ok && count > 1) {
-                embedded = 1;
-                for (int j = 0; j < count; j++) {
-                    int one_dim = 0;
-                    if (!embed_call(&texts[j], 1, NULL,
-                                    vecs + (size_t)(start + j) * (size_t)dim,
-                                    dim, &one_dim) || one_dim != dim) {
-                        embedded = 0;
-                        break;
-                    }
-                }
-            }
+            int embedded = alloc_ok && pdf_embed_rag_batch(
+                texts, count, vecs + (size_t)start * (size_t)dim, dim);
             for (int j = 0; j < count; j++) free(texts[j]);
             if (!embedded) { free(vecs); free(chunks); return 0; }
             embed_touch_last_use();
@@ -806,22 +813,21 @@ static int pdf_hybrid_page_scores(unsigned long long docfnv,
         pdf_embed_index_save(&want, vecs);
     }
 
-    static const char *prefix =
-        "Instruct: Given a user question, retrieve the document passages that contain the answer.\nQuery: ";
-    float qv[EMBED_MAX_DIM];
-    char *queries[1] = { (char *)query };
-    int qdim = 0;
-    if (!embed_call(queries, 1, prefix, qv, EMBED_MAX_DIM, &qdim) || qdim != dim) {
-        free(vecs); free(chunks); return 0;
-    }
-
     pdf_rag_term terms[PDF_RAG_MAX_QUERY_TERMS] = {0};
     int nterms = pdf_rag_terms(query, terms, PDF_RAG_MAX_QUERY_TERMS);
+    size_t term_cells = (size_t)nchunks * (size_t)(nterms > 0 ? nterms : 1);
+    int *term_tf = calloc(term_cells, sizeof *term_tf);
+    int *term_first = malloc(term_cells * sizeof *term_first);
+    if (!term_tf || !term_first) {
+        free(term_tf); free(term_first); free(vecs); free(chunks); return 0;
+    }
     for (int c = 0; c < nchunks; c++) {
         const pdf_rag_chunk *chunk = &chunks[c];
         const char *body = pstart[chunk->page] + chunk->start;
-        for (int t = 0; t < nterms; t++)
-            if (pdf_rag_term_count(body, chunk->len, &terms[t], NULL) > 0) terms[t].df++;
+        int *tf = term_tf + (size_t)c * (size_t)(nterms > 0 ? nterms : 1);
+        int *first = term_first + (size_t)c * (size_t)(nterms > 0 ? nterms : 1);
+        pdf_rag_term_counts(body, chunk->len, terms, nterms, tf, first);
+        for (int t = 0; t < nterms; t++) if (tf[t] > 0) terms[t].df++;
     }
     double avg_len = 0;
     for (int c = 0; c < nchunks; c++) avg_len += chunks[c].len;
@@ -829,22 +835,22 @@ static int pdf_hybrid_page_scores(unsigned long long docfnv,
     double *lexical = calloc((size_t)nchunks, sizeof *lexical);
     int *lex_match = malloc((size_t)nchunks * sizeof *lex_match);
     if (!lexical || !lex_match) {
-        free(lexical); free(lex_match); free(vecs); free(chunks); return 0;
+        free(lexical); free(lex_match); free(term_tf); free(term_first);
+        free(vecs); free(chunks); return 0;
     }
     double max_lexical = 0;
     for (int c = 0; c < nchunks; c++) {
         const pdf_rag_chunk *chunk = &chunks[c];
-        const char *body = pstart[chunk->page] + chunk->start;
+        int *tf = term_tf + (size_t)c * (size_t)(nterms > 0 ? nterms : 1);
+        int *first = term_first + (size_t)c * (size_t)(nterms > 0 ? nterms : 1);
         lex_match[c] = -1;
         for (int t = 0; t < nterms; t++) {
-            int first = -1;
-            int tf = pdf_rag_term_count(body, chunk->len, &terms[t], &first);
-            if (!tf) continue;
-            if (lex_match[c] < 0 || first < lex_match[c]) lex_match[c] = first;
+            if (!tf[t]) continue;
+            if (lex_match[c] < 0 || first[t] < lex_match[c]) lex_match[c] = first[t];
             double idf = log(1.0 + ((double)nchunks - terms[t].df + 0.5) /
                                    (terms[t].df + 0.5));
             double norm = 1.2 * (0.25 + 0.75 * chunk->len / (avg_len > 1 ? avg_len : 1));
-            lexical[c] += idf * (tf * 2.2) / (tf + norm);
+            lexical[c] += idf * (tf[t] * 2.2) / (tf[t] + norm);
         }
         if (lexical[c] > max_lexical) max_lexical = lexical[c];
     }
@@ -867,6 +873,8 @@ static int pdf_hybrid_page_scores(unsigned long long docfnv,
     }
     free(lexical);
     free(lex_match);
+    free(term_tf);
+    free(term_first);
     free(vecs);
     free(chunks);
     embed_touch_last_use();

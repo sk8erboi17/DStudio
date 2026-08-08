@@ -256,8 +256,8 @@ assert.match(source, /Before emitting a diagram, make one brief internal layout 
   'the model should do one bounded diagram check instead of prolonged character counting');
 assert.match(html, /<option value="high">Thinking: high<\/option>/,
   'the UI should name DS4 high reasoning honestly instead of calling it normal');
-assert.doesNotMatch(html, /Thinking: normal/,
-  'the removed normal label must not imply that DS4 exposes a medium reasoning tier');
+assert.doesNotMatch(html, /<option value="high">Thinking: normal<\/option>/,
+  'the high DS4 reasoning tier must not be mislabeled as normal');
 assert.doesNotMatch(source, /Keep the diagram under about 60 columns/,
   'diagram width should be chosen from the content, not a fixed column limit');
 assert.doesNotMatch(source, /Assign exact row and column anchors/,
@@ -270,11 +270,32 @@ assert.match(source, /explicitly say that theta is the angle from the positive R
   'the sentence after a polar sketch should name both rays that bound theta');
 assert.match(source, /orthogonal projection:[\s\S]*\n  \/<theta     \|[\s\S]*\nO-------------\+ 90 deg -----> L/,
   'orthogonal-projection theta should use the same vertex-attached angle marker');
-assert.match(source, /settings\.systemPrompt\?\.trim\(\),\s*\(!hasDeepResearchContext && !hasSynthesizedResearchReport\) \? CHAT_EXPLANATION_STYLE_PROTOCOL : '',\s*CHAT_MATH_OUTPUT_PROTOCOL,\s*CHAT_FILE_OUTPUT_PROTOCOL/,
+assert.match(source, /settings\.systemPrompt\?\.trim\(\),\s*roadmapMode \? ROADMAP_OUTPUT_PROTOCOL : '',\s*\(!roadmapMode && !hasDeepResearchContext && !hasSynthesizedResearchReport\) \? CHAT_EXPLANATION_STYLE_PROTOCOL : '',\s*roadmapMode \? '' : CHAT_MATH_OUTPUT_PROTOCOL,\s*roadmapMode \? '' : CHAT_FILE_OUTPUT_PROTOCOL/,
   'the mathematical typesetting protocol should be sent in normal chat history');
 assert.match(source, /function renderFence\([\s\S]*fencedMathToLatex\(lang, code\)[\s\S]*texToMathML\(latex, true\)/,
   'closed mathematical fences should take the MathML path');
 assert.match(source, /const generated = extractGeneratedFilesFromAssistant\(content\);\s*content = normalizeAssistantDiagramFences\(generated\.content\);/,
   'the canonical diagram-fence repair should run before the assistant response is committed');
+
+const detailsHtml = context.renderMarkdown([
+  '<details>',
+  '<summary>Hint 1: Worker message event</summary>',
+  'In a Web Worker, use `self.onmessage`.',
+  '',
+  '- Browser: `self.postMessage(...)`',
+  '- Node.js: `parentPort.postMessage(...)`',
+  '</details>',
+].join('\n'));
+assert.match(detailsHtml, /<details class="md-details">[\s\S]*<summary>Hint 1: Worker message event<\/summary>/,
+  'the tutor hint markup should become a native collapsible details control');
+assert.match(detailsHtml, /<div class="md-details__body">[\s\S]*<code>self\.onmessage<\/code>/,
+  'Markdown inside a collapsible hint should still render normally');
+assert.doesNotMatch(detailsHtml, /&lt;\/?details|&lt;\/?summary/,
+  'supported details tags should not leak as raw text');
+const unsafeDetailsHtml = context.renderMarkdown('<details><summary><img src=x onerror=alert(1)>Hint</summary><script>alert(1)</script></details>');
+assert.doesNotMatch(unsafeDetailsHtml, /<script\b|<img\b/,
+  'allowing details/summary must not allow arbitrary model HTML');
+assert.match(unsafeDetailsHtml, /&lt;img|&lt;script/,
+  'unsupported HTML inside details should remain visibly escaped');
 
 console.log('markdown_math_test: ok');

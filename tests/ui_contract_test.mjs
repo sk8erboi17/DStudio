@@ -25,6 +25,8 @@ const designBuild = fs.readFileSync('extension/design/design.mk', 'utf8');
 const remoteDesign = fs.readFileSync('extension/design/ds4_design.c', 'utf8');
 const searchRuntime = fs.readFileSync('extension/search/runtime.js', 'utf8');
 const embedServer = fs.readFileSync('scripts/embed-server.sh', 'utf8');
+const visionServer = fs.readFileSync('scripts/vision-server.sh', 'utf8');
+const qwenImageScript = fs.readFileSync('scripts/qwen-image-generate.sh', 'utf8');
 const windowsBuild = fs.readFileSync('scripts/build-windows.ps1', 'utf8');
 const windowsDs4Build = fs.readFileSync('scripts/build-ds4-windows-cygwin.sh', 'utf8');
 const gitignore = fs.readFileSync('.gitignore', 'utf8');
@@ -120,6 +122,102 @@ function extractFunction(src, name) {
 }
 
 const js = scriptSource();
+const roadmapHelpers = new Function(`
+${extractFunction(js, 'stripReasoningTagFragments')}
+${extractFunction(js, 'roadmapText')}
+${extractFunction(js, 'roadmapSlug')}
+${extractFunction(js, 'roadmapSafeUrl')}
+${extractFunction(js, 'parseRoadmapDirective')}
+${extractFunction(js, 'extractRoadmapFromAssistant')}
+${extractFunction(js, 'parseRoadmapBlockDirective')}
+${extractFunction(js, 'extractRoadmapBlockFromAssistant')}
+return { extractRoadmapFromAssistant, extractRoadmapBlockFromAssistant };
+`)();
+const roadmapParsed = roadmapHelpers.extractRoadmapFromAssistant(`Percorso pronto.\n\n\`\`\`dstudio-roadmap
+${JSON.stringify({
+  version: 1,
+  title: 'Web engineering',
+  stages: [{
+    id: 'foundations',
+    title: 'Foundations',
+    topics: [
+      { id: 'html', title: 'HTML', resources: [{ title: 'Safe', url: 'https://developer.mozilla.org/' }] },
+      { id: 'html', title: 'CSS', resources: [{ title: 'Unsafe', url: 'javascript:alert(1)' }] },
+    ],
+  }],
+})}
+\`\`\``);
+assert.equal(roadmapParsed.content, 'Percorso pronto.', 'roadmap JSON should be removed from visible assistant prose');
+assert.equal(roadmapParsed.roadmap?.title, 'Web engineering', 'roadmap directive should preserve its title');
+assert.deepEqual(roadmapParsed.roadmap?.stages[0].topics.map((topic) => topic.id), ['html', 'html-2'], 'roadmap parser should make duplicate model ids stable and unique');
+assert.equal(roadmapParsed.roadmap?.stages[0].topics[1].resources[0].url, '', 'roadmap resources should reject unsafe URL schemes');
+const roadmapBlockParsed = roadmapHelpers.extractRoadmapBlockFromAssistant(`\`\`\`dstudio-roadmap-block
+${JSON.stringify({
+  title: 'Accessibilità HTML',
+  summary: 'Struttura e nomi accessibili.',
+  outcome: 'Verifichi una pagina usando solo la tastiera.',
+  practice: 'Correggi una pagina e documenta la verifica.',
+  optional: false,
+  resources: [
+    { title: 'MDN HTML', url: 'https://developer.mozilla.org/docs/Web/HTML' },
+    { title: 'Invented', url: 'https://example.invalid/invented' },
+  ],
+})}
+\`\`\``, '', '', ['https://developer.mozilla.org/docs/Web/HTML']);
+assert.equal(roadmapBlockParsed?.title, 'Accessibilità HTML', 'a complete generated roadmap block should be accepted');
+assert.deepEqual(roadmapBlockParsed?.resources.map((resource) => resource.url), ['https://developer.mozilla.org/docs/Web/HTML'],
+  'generated blocks should retain only resource URLs already present in the roadmap');
+assert.equal(roadmapHelpers.extractRoadmapBlockFromAssistant(JSON.stringify({ title: 'Incomplete', summary: 'Missing outcome and practice' })), null,
+  'an incomplete generated roadmap block should be rejected instead of creating an empty topic');
+const roadmapBlockAlias = roadmapHelpers.extractRoadmapBlockFromAssistant(`Model draft: ${JSON.stringify({
+  title: 'Alias block', summary: 'A complete aliased block.', learningOutcome: 'Demonstrate the skill.', practiceTask: 'Build a small example.',
+})}`);
+assert.equal(roadmapBlockAlias?.outcome, 'Demonstrate the skill.', 'block parsing should recover common outcome/practice aliases and surrounding prose');
+assert.match(html, /id="tab-roadmap"[\s\S]*>Roadmap</, 'sidebar should expose the Roadmap workspace');
+assert.match(html, /id="roadmap-source-panel"[\s\S]*id="roadmap-url-input"/, 'Roadmap composer should accept learning-source links alongside attachments');
+assert.match(html, /id="roadmap-composer-peek"[\s\S]*Roadmap prompt/, 'Generated Roadmaps should retain a visible bottom composer handle');
+assert.match(html, /body\.roadmap-mode:not\(\.composer-raised\) \.composer[\s\S]*translateY\(calc\(100% - var\(--roadmap-composer-peek\)\)\)[\s\S]*\.composer:hover[\s\S]*translateY\(0\)/,
+  'The Roadmap composer should animate below the viewport and rise on hover');
+assert.match(html, /body\.roadmap-mode:not\(\.composer-raised\) \.composer__card[\s\S]*width: min\(100%, 96rem\)[\s\S]*max-width: none/,
+  'The expanded Roadmap composer should use the wide workspace instead of the normal chat measure');
+assert.match(js, /const roadmapMode = chat\.mode === 'roadmap';[\s\S]*settings = \{ \.\.\.settings, thinkLevel: 'max' \}/, 'Roadmap requests should override the global thinking setting with max');
+assert.match(js, /reasoning_effort = thinkLevel === 'max' \? 'max' : 'high'/, 'maximum roadmap thinking should reach the model request body');
+assert.match(js, /Roadmaps always use Thinking: max\./, 'Roadmap thinking selector should be visibly locked to max');
+assert.match(js, /DStudio learning-roadmap protocol:[\s\S]*exactly one fenced block whose info string is dstudio-roadmap, with no prose before or after it/, 'Roadmap prompt should require one structured graph payload without chat prose');
+assert.match(js, /roadmapProgress[\s\S]*Store\.patchMessage/, 'Roadmap topic completion should persist on the assistant message');
+assert.match(js, /msg--roadmap-direct[\s\S]*buildRoadmapCard/, 'Roadmap replies should render as a direct canvas instead of generic assistant chat chrome');
+assert.match(js, /roadmapOverride[\s\S]*roadmapStudyThreads/, 'Roadmap node edits and per-node study threads should persist with the generated graph');
+assert.match(js, /dedicated long-term tutor for exactly one block[\s\S]*normalizeTutorThinkLevel[\s\S]*thinkLevel: tutorThinkLevel/,
+  'Each roadmap block should open a focused Tutor that forwards its selected thinking level');
+assert.match(js, /class: 'roadmap-study__think'[\s\S]*Thinking: off[\s\S]*Thinking: normal[\s\S]*Thinking: max[\s\S]*thread\.thinkLevel = normalizeTutorThinkLevel/,
+  'Tutor chats should expose and persist off, normal and max thinking choices');
+assert.match(html, /\.roadmap-study__messages \{ width: min\(900px, 100%\)[\s\S]*\.roadmap-study-msg--assistant \{ width: 100%; max-width: none[\s\S]*\.roadmap-study__composer-inner \{ width: min\(900px, 100%\)/,
+  'Tutor answers and composer should share one centered content measure');
+assert.match(html, /\.roadmap-study__form \{[\s\S]*grid-template-rows: auto minmax\(58px, auto\) auto[\s\S]*border-radius: 20px[\s\S]*\.roadmap-study__controls/,
+  'Tutor should use the same two-level rounded composer layout as normal Chat');
+assert.match(js, /function beginTutorModelSession\(host\)[\s\S]*host\.append\(cbarModel\)[\s\S]*function endTutorModelSession\(\)[\s\S]*marker\.replaceWith\(cbarModel\)/,
+  'Tutor should reuse and restore the real Chat model picker instead of rendering a dead copy');
+assert.match(js, /DStudio Tutor[\s\S]*thinking thinking--reasoning[\s\S]*event\.type === 'reasoning'/, 'Tutor chats should visibly render and persist model thinking');
+assert.match(js, /const tutorFollow = createFollowScroll[\s\S]*shouldDeferTutorRenderForSelection[\s\S]*selectionInside\(messagesEl\)[\s\S]*tutorFollow\.settle/,
+  'Tutor streaming should preserve text selection and release bottom-follow when the learner scrolls up');
+assert.match(js, /function studyAttachmentContext\(/, 'Tutor rooms should place attached material in the focused model context');
+assert.match(js, /beginTutorAttachmentSession[\s\S]*prepareTutorAttachments/, 'Tutor rooms should reuse Chat file, PDF and local-vision attachments');
+assert.match(js, /Chat\.tutorFormattingProtocols\(\)[\s\S]*DStudio Tutor file output protocol/, 'Tutor replies should inherit normal Chat math, ASCII and downloadable-file behavior');
+assert.match(js, /dragHandle[\s\S]*dragstart[\s\S]*targetStage\.topics\.splice/, 'Roadmap blocks should support persisted drag-and-drop ordering');
+assert.match(js, /New learning block title[\s\S]*New learning block description/, 'Adding a roadmap block should collect both its title and description');
+assert.match(js, /DStudio roadmap-block expansion protocol:[\s\S]*dstudio-roadmap-block[\s\S]*thinkLevel: 'max'/,
+  'New roadmap blocks should be elaborated by a strict max-thinking model request');
+assert.match(js, /generateRoadmapTopic[\s\S]*Store\.setChatStreaming\(chat\.id, runController\)[\s\S]*persistRoadmap\(next\)/,
+  'The add form should expose and persist its asynchronous model generation lifecycle');
+assert.match(js, /roadmapContext[\s\S]*targetStage[\s\S]*for \(;;\)[\s\S]*maxTokens: 8192[\s\S]*finishReason === 'length'[\s\S]*retrying attempt/,
+  'Block generation should use compact context, a large budget and an abortable retry-until-valid loop');
+assert.match(js, /function captureRoadmapCanvas\([\s\S]*function canvasRoadmapPdf\(/, 'Roadmap PNG/PDF export should render the graph locally');
+assert.match(js, /clone\.style\.fontFamily = bodyStyle\.fontFamily[\s\S]*Math\.sqrt\(64_000_000[\s\S]*Math\.min\(3,[\s\S]*16_000 \/ width/,
+  'Roadmap image export should render at up to 3x within a high-resolution pixel budget and preserve the app font');
+assert.match(js, /Download roadmap[\s\S]*\['png', 'Image'\][\s\S]*\['pdf', 'Document'\][\s\S]*\['json', 'Data'\]/, 'Roadmaps should offer PNG, PDF and JSON downloads');
+assert.match(html, /\.roadmap-card\s*\{[\s\S]*background:\s*transparent;[\s\S]*box-shadow:\s*none;/, 'The roadmap should render directly without a gradient card shell');
+assert.match(js, /<details class="md-details"[\s\S]*md-details__body/, 'Tutor HTML hint markup should become safe native collapsible controls');
+assert.match(js, /class: 'chat-item__rename'[\s\S]*startRename\(item\)/, 'Every writable sidebar conversation should expose a visible rename control');
 const imageDirectiveHelpers = new Function(`
 ${extractFunction(js, 'stripReasoningTagFragments')}
 ${extractFunction(js, 'parseImageGenerationDirective')}
@@ -660,7 +758,7 @@ assert.match(js, /async function advanceGsaPhase\(output\)[\s\S]*Engine\.rsaPhas
 assert.match(js, /if \(res\.complete\)[\s\S]*finishGsaRunForLoop\(\)/, 'GSA Loop should wait for the report phase to complete before starting the next run');
 assert.match(js, /function continueGsaLoop\(\)[\s\S]*const loopMission = nextGsaLoopMission\(\)[\s\S]*Engine\.gsaStart\(gsaLoopState\.workdir, loopMission, gsaLoopState\.targetUrl, gsaLoopState\.previousRunDir \|\| '', gsaDisabledToolsPayload\(\), securityProfileValue\(\), securityAuthorizedValue\(\)\)/, 'GSA Loop should start a fresh run with a structured parent run directory and security profile context');
 assert.match(js, /securityProfile: 'passive'[\s\S]*securityAuthorized: false/, 'GSA/RSA UI should persist security profile and explicit scope authorization state');
-assert.match(js, /function securityProfileValue\(\)[\s\S]*if \(!v\) return 'passive'[\s\S]*includes\(v\) \? v : v/, 'GSA/RSA UI should not silently downgrade invalid explicit security profiles');
+assert.match(js, /function securityProfileValue\(\)[\s\S]*return v \|\| 'passive'/, 'GSA/RSA UI should preserve explicit security profiles and default only empty values to passive');
 assert.match(js, /cap: 'Profile'[\s\S]*red-authorized[\s\S]*black-hat/, 'Agent gear should expose security profiles for GSA/RSA');
 assert.match(js, /black-hat'[\s\S]*Evil-speak, technical, no gate[\s\S]*Black-hat full-surface mode armed: evil-speak, highly technical explanations, no Scope\/Safety gate[\s\S]*may execute operational validation inside the authorized scope/, 'GSA/RSA UI should distinguish black-hat ungated technical voice from red authorized scope warnings');
 assert.match(gsaRuntime, /gsa_blackhat_voice_rule[\s\S]*evil-speak[\s\S]*highly technical[\s\S]*request\/response shapes[\s\S]*payload structure/, 'GSA black-hat profile should inject evil-speak and highly technical explanation rules');
@@ -1463,6 +1561,8 @@ assert.match(launcher, /pdf_semantic_page_scores[\s\S]*embed_call[\s\S]*pdf_sele
 assert.match(js, /readPlan\.mode === 'pages'[\s\S]*payload\.pages = readPlan\.pages/, 'LLM-selected physical page ranges should be sent directly to the PDF reader');
 assert.match(js, /need\.needs === 'embedding'[\s\S]*ensureEmbeddingSetup/, 'Semantic PDF retrieval should install its local embedding sidecar on demand');
 assert.match(embedServer, /--parallel 1[\s\S]*--batch-size \$CTX[\s\S]*--ubatch-size \$CTX/, 'Metal embeddings should use one stable slot with a full-context physical batch');
+assert.match(visionServer, /DSTUDIO_VISION_PARALLEL:-1[\s\S]*--parallel "\$PARALLEL"/, 'Vision should default to one slot because DStudio serializes multimodal requests');
+assert.match(launcher, /PDF_RAG_EMBED_BATCH\s+4[\s\S]*pdf_embed_rag_batch[\s\S]*count \/ 2/, 'PDF RAG should use the measured embedding batch with recursive overflow splitting');
 assert.match(launcher, /PDF_INTERACTIVE_SCAN_PASSES\s+8[\s\S]*PDF_INTERACTIVE_FIG_PASSES\s+2/, 'Interactive PDF vision work should have separate bounded scan and figure budgets');
 assert.match(launcher, /vision_lease\s*=\s*qwen_memory_begin\("pdf"\)/, 'PDFs should acquire DS4 memory pressure only when a vision pass is actually required');
 assert.match(launcher, /qwen_memory_begin\("image-generation"\)/, 'image generation should acquire a temporary DS4 memory lease');
@@ -1471,7 +1571,10 @@ assert.match(launcher, /model \+ reserve \+ 8ull \* gib > ram \* 82ull \/ 100ull
 assert.match(remoteDesign, /ds4_engine_memory_pressure_begin/, 'Design vision tools should release DS4 memory in-process');
 assert.match(jsonlPatch.text, /ds4ui_tool_with_qwen_memory/, 'agent image and PDF tools should release DS4 memory in-process');
 assert.match(fs.readFileSync('patch/ds4-qwen-hot-memory/hot-memory.patch', 'utf8'), /ds4_gpu_model_residency_clear/, 'DS4 patch should suspend Metal model residency');
-assert.match(fs.readFileSync('scripts/qwen-image-generate.sh', 'utf8'), /fe70bd7b245307143d95cde5bc62c9aeff401e69/, 'qwen-image-mps runtime should be pinned');
+assert.match(qwenImageScript, /fe70bd7b245307143d95cde5bc62c9aeff401e69/, 'qwen-image-mps runtime should be pinned');
+assert.match(qwenImageScript, /generation-direct-dtype\.patch[\s\S]*accelerator-lora-merge\.patch/, 'Qwen Image runtime should install the direct-dtype and accelerator-merge optimizations');
+assert.match(fs.readFileSync('patch/qwen-image-mps/generation-direct-dtype.patch', 'utf8'), /DiffusionPipeline\.from_pretrained[\s\S]*torch_dtype=torch_dtype/, 'Qwen generation should load BF16 weights directly instead of materializing FP32 before Metal transfer');
+assert.match(fs.readFileSync('patch/qwen-image-mps/accelerator-lora-merge.patch', 'utf8'), /merge_device[\s\S]*param\.device\.type in \("mps", "cuda"\)[\s\S]*torch\.matmul/, 'Qwen Lightning LoRA should merge in float32 on the active accelerator');
 assert.match(searchRuntime, /function classifyResearchRequest\(/, 'Search extension should own the research classifier runtime');
 assert.match(searchRuntime, /async function runResearchPipeline\(/, 'Search extension should own the shared search/deep research pipeline');
 assert.match(searchRuntime, /async function runDeepResearch\(/, 'Search extension should own Deep Research runtime');

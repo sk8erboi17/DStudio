@@ -4,7 +4,7 @@
 
 # DStudio: Local AI Studio for ds4
 
-**An open-source, local-first AI studio for DeepSeek V4, GLM 5.2, Laguna S 2.1 and ds4: private chat, coding and design agents, multimodal documents, Web Research and local image generation. A cloud account is optional.**
+**An open-source, local-first AI studio for DeepSeek V4, GLM 5.2, Laguna S 2.1 and ds4: private chat, coding and design agents, learning roadmaps, multimodal documents, Web Research and local image generation. A cloud account is optional.**
 
 ![license](https://img.shields.io/badge/license-BSD%203%20Clause-blue)
 ![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux_%7C_Windows-black)
@@ -15,9 +15,9 @@
 
 </div>
 
-DStudio turns [ds4](https://github.com/antirez/ds4), antirez's local DeepSeek V4 inference engine, into a full desktop AI workspace: a private AI chat, a local coding agent, a design studio and a planning workspace in one native UI. It is built for people who want a **local-first Cursor/Lovable-style workflow**: ds4 and image generation run on the user's machine by default.
+DStudio turns [ds4](https://github.com/antirez/ds4), antirez's local DeepSeek V4 inference engine, into a full desktop AI workspace: a private AI chat, interactive learning roadmaps, a local coding agent, a design studio and a planning workspace in one native UI. It is built for people who want a **local-first Cursor/Lovable-style workflow**: ds4 and image generation run on the user's machine by default.
 
-Network access is still explicit and documented. Installation and model setup download source archives and weights from GitHub or Hugging Face; Web Search and Deep Research read public websites; and the optional DeepSeek API backend sends the selected Chat, Agent or Design requests to DeepSeek when the user supplies an API key. DStudio has no telemetry and does not require a cloud account for its local inference path.
+Network access is still explicit and documented. Installation and model setup download source archives and weights from GitHub or Hugging Face; Web Search, Roadmap links and Deep Research read public websites; and the optional DeepSeek API backend sends the selected Chat, Roadmap, Agent or Design requests to DeepSeek when the user supplies an API key. DStudio has no telemetry and does not require a cloud account for its local inference path.
 
 In plain terms: DStudio is a **ds4 GUI**, a **local DeepSeek V4 desktop app**, a **private coding agent** and a **local AI design/planning studio** packaged as one open-source project.
 
@@ -63,6 +63,7 @@ button such as **Choose**, **Download**, **Start** or **Settings**.
 
 - Run **DeepSeek V4 locally** through a native macOS/Linux desktop interface.
 - Use a **private AI chat** with persistent KV cache, reasoning display, citations from optional Web Search and local history.
+- Build an **interactive learning roadmap** from a goal, PDFs and source links, with prerequisite ordering, exercises, checkpoints and locally saved progress.
 - Run **Web Search or Deep Research** through DStudio's local browser/search helper, with read-page evidence and source cards.
 - Generate new images or edit an existing image through a dedicated local pipeline that keeps the source pixels on your machine.
 - Use a **local coding agent** that reads, edits and verifies files inside a folder you choose.
@@ -73,7 +74,7 @@ button such as **Choose**, **Download**, **Start** or **Settings**.
 
 ## Modes
 
-A sidebar switches between Chat, Agent and Design. Each mode has its own reopenable conversation history, and each agent/design session keeps its own local KV state.
+A sidebar switches between Chat, Roadmap, Agent and Design. Each mode has its own reopenable conversation history, and each agent/design session keeps its own local KV state.
 
 ### Chat
 
@@ -84,6 +85,14 @@ A sidebar switches between Chat, Agent and Design. Each mode has its own reopena
 </div>
 
 Streaming DeepSeek V4 chat backed by the ds4 server KV cache: the context lives server-side (prefix reuse, shown as *cached* tokens) and every message is saved locally. You get live tokens/s, collapsible reasoning, native MathML for LaTeX, syntax-highlighted code and optional Web Search sources through the local browser.
+
+### Learning Roadmap
+
+Describe what you want to learn and optionally attach PDFs, notes or public links. DStudio reads PDFs through the same local document pipeline used by Chat, opens supplied links through Web Search, then generates a prerequisite-aware path with required and optional topics, concrete practice, stage checkpoints and a final project. The result opens directly as an editable graph inspired by [roadmap.sh](https://roadmap.sh/) rather than as a conventional assistant reply: blocks can be completed, reordered with drag-and-drop, or deleted. Adding a block sends its title, description, stage and neighboring prerequisites back to the model with Thinking max so it can create a coherent outcome and hands-on exercise instead of inserting placeholder text. Block generation uses a large output budget and automatically repairs and retries incomplete drafts until it obtains a valid block or the learner presses **Stop**. The edited graph is saved with that roadmap's history and can be exported as high-resolution PNG, PDF or JSON.
+
+Every stage, topic and final project can open its own full-screen study room. The room hides the conversation sidebar and gives the model the exact roadmap, stage, outcome, practice and source context for that block. It acts as a focused tutor with detailed explanations, guided and independent exercises, checkpoints and adaptive correction while retaining normal Chat capabilities: visible Thinking, drag-and-drop files, local PDF/image understanding, LaTeX, aligned ASCII diagrams, collapsible hints and generated-file canvas previews. The study transcript and its attachments are saved on that block and always return to the graph with one Back action.
+
+Roadmap generation is always locked to **Thinking: max**. This is enforced in the actual model request, independently of the global Chat reasoning setting, because curriculum synthesis and dependency ordering benefit from the full reasoning budget.
 
 ## Multimodal PDFs
 
@@ -307,7 +316,8 @@ Behind the scenes DStudio **reverse-proxies the engine API** (`/v1`) to the loca
 - **C launcher, not a script.** `dstudio.c` is both the local HTTP server and the engine supervisor: it starts/stops `ds4-server` for chat, `ds4-agent-jsonl` for coding and `ds4-design` for design, manages working directories, runs the setup doctor, proxies `/v1`, serves Web Search and exposes a small local API.
 - **Native window.** `app.cc` forks the server and opens a WKWebView (macOS) / WebKitGTK (Linux) window via `webview.h`; the page is base64-embedded (`page_data.h`).
 - **Same-origin proxy.** The page calls DStudio for `/v1`; DStudio forwards streaming requests to the local engine, which is why LAN works with no engine exposure and no settings.
-- **Local media worker.** Image requests run through the optional `qwen-image-mps` environment, with explicit progress reporting and release/restore of the chat runtime when accelerator memory is needed.
+- **Local media worker.** Image requests run through the optional `qwen-image-mps` environment, with explicit progress reporting and release/restore of the chat runtime when accelerator memory is needed. On Apple Silicon the pipeline loads the original BF16 weights directly into the Metal path and merges the Lightning adapter on MPS, avoiding a temporary FP32 model and unnecessary CPU matrix multiplication without changing the generated pixels.
+- **Hybrid PDF acceleration.** Poppler extraction, chunking and BM25 stay on the CPU, where moving small parsing/ranking work to Metal would add transfer overhead. Qwen3 document embeddings and scanned-page/figure understanding run through fully offloaded Metal sidecars; cached text, vectors and figure metadata are reused by later questions.
 
 ### The agent patch: building on ds4 without forking
 
@@ -342,7 +352,7 @@ DeepSeek V4 keeps the conversation in ds4-server's **KV cache** instead of re-en
 
 > ⚠️ In **agent** mode the model runs commands and edits files **autonomously** inside the chosen working directory: that directory is the security boundary, so point it at a project folder.
 
-## Roadmap
+## Project Roadmap
 
 Where DStudio is headed (ideas, not promises):
 

@@ -81,7 +81,9 @@ int main(void) {
         assert(nt == 3); /* duplicate query terms are collapsed */
         int first = -1;
         pdf_rag_term cat = { "cat", 3, 0 };
-        assert(pdf_rag_term_count("cat concatenate CAT", 19, &cat, &first) == 2);
+        int count = 0;
+        pdf_rag_term_counts("cat concatenate CAT", 19, &cat, 1, &count, &first);
+        assert(count == 2);
         assert(first == 0);
 
         int scores[PDF_MAX_TOTAL_PAGES];
