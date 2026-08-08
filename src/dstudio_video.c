@@ -6,8 +6,11 @@
  * so setup and generation both require an explicit authorization assertion
  * from the local Settings UI before any weights are downloaded or loaded. */
 
-#define H3_DIFFUSION_NAME "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
-#define H3_DIFFUSION_SIZE 20970379616LL
+#define H3_DIFFUSION_INT8_NAME "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+#define H3_DIFFUSION_INT8_SIZE 20970379616LL
+#define H3_DIFFUSION_BF16_NAME "minimax_h3_fl2va_pruned_bf16.safetensors"
+#define H3_DIFFUSION_BF16_SIZE 40225724176LL
+#define H3_DIFFUSION_BF16_MIN_MEMORY (88ULL * 1024ULL * 1024ULL * 1024ULL)
 #define H3_VIDEO_VAE_NAME "minimax_h3_video_vae_fp16.safetensors"
 #define H3_VIDEO_VAE_SIZE 5207808496LL
 #define H3_AUDIO_VAE_NAME "minimax_h3_audio_vae_fp32.safetensors"
@@ -17,6 +20,39 @@
 #define H3_COMMUNITY_ENCODER_NAME "qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257.safetensors"
 #define H3_COMMUNITY_ENCODER_SIZE 25772287417LL
 #define H3_MPS_ACCELERATOR_MARKER ".apple-silicon-fp8-revision"
+
+/* The accelerated Comfy process is intentionally detached from the short
+ * request worker so later video jobs can reuse initialized Metal kernels.
+ * Shut it down with the desktop server: after /free it owns no H3 tensors,
+ * but it should not remain as an orphan once DStudio itself exits. */
+static void video_runtime_shutdown(void) {
+#ifndef _WIN32
+    const char *configured = getenv("DSTUDIO_H3_HOME");
+    const char *home = getenv("HOME");
+    char root[DSTUDIO_PATH_MAX], pid_path[DSTUDIO_PATH_MAX];
+    if (configured && configured[0]) cstr_copy(root, sizeof root, configured);
+    else if (home && home[0]) snprintf(root, sizeof root, "%s/.dstudio/minimax-h3", home);
+    else return;
+    snprintf(pid_path, sizeof pid_path, "%s/comfyui-server.pid", root);
+    size_t n = 0;
+    char *raw = jsonl_read_file(pid_path, &n);
+    if (!raw || n == 0 || n > 32) { free(raw); return; }
+    char *end = NULL;
+    long value = strtol(raw, &end, 10);
+    free(raw);
+    if (value <= 1 || value == (long)getpid()) return;
+    pid_t pid = (pid_t)value;
+    if (kill(pid, 0) == 0 || errno == EPERM) {
+        (void)kill(pid, SIGTERM);
+        for (int i = 0; i < 30 && kill(pid, 0) == 0; i++) usleep(100000);
+        if (kill(pid, 0) == 0) (void)kill(pid, SIGKILL);
+    }
+    (void)unlink(pid_path);
+    char state_path[DSTUDIO_PATH_MAX];
+    snprintf(state_path, sizeof state_path, "%s/comfyui-server.json", root);
+    (void)unlink(state_path);
+#endif
+}
 
 static int video_root_dir(char *out, size_t outsz) {
     const char *configured = getenv("DSTUDIO_H3_HOME");
@@ -42,6 +78,23 @@ static long long video_file_bytes(const char *path) {
     struct stat st;
     return stat(path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0
         ? (long long)st.st_size : 0;
+}
+
+static int video_use_bf16_diffusion(void) {
+    const char *requested = getenv("DSTUDIO_H3_DIFFUSION");
+    if (requested && (!strcasecmp(requested, "bf16") || !strcasecmp(requested, "bfloat16"))) return 1;
+    if (requested && (!strcasecmp(requested, "int8") || !strcasecmp(requested, "quantized"))) return 0;
+#if defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
+    char brand[128] = "";
+    size_t len = sizeof brand;
+    if (sysctlbyname("machdep.cpu.brand_string", brand, &len, NULL, 0) != 0) return 0;
+    const char *m = strstr(brand, "Apple M");
+    int generation = m ? atoi(m + 7) : 0;
+    return generation > 0 && generation < 5 &&
+           dstudio_physical_memory_bytes() >= H3_DIFFUSION_BF16_MIN_MEMORY;
+#else
+    return 0;
+#endif
 }
 
 static int video_encoder_parse(const char *body, char *out, size_t outsz) {
@@ -119,20 +172,23 @@ static void api_video_status(int fd, const char *path) {
     snprintf(marker, sizeof marker, "%s/.comfy-runtime-revision", root);
     snprintf(accelerator_marker, sizeof accelerator_marker, "%s/%s", root, H3_MPS_ACCELERATOR_MARKER);
     char diffusion[DSTUDIO_PATH_MAX], video_vae[DSTUDIO_PATH_MAX], audio_vae[DSTUDIO_PATH_MAX], encoder_path[DSTUDIO_PATH_MAX];
-    snprintf(diffusion, sizeof diffusion, "%s/models/diffusion_models/%s", comfy, H3_DIFFUSION_NAME);
+    int use_bf16 = video_use_bf16_diffusion();
+    const char *diffusion_name = use_bf16 ? H3_DIFFUSION_BF16_NAME : H3_DIFFUSION_INT8_NAME;
+    long long diffusion_size = use_bf16 ? H3_DIFFUSION_BF16_SIZE : H3_DIFFUSION_INT8_SIZE;
+    snprintf(diffusion, sizeof diffusion, "%s/models/diffusion_models/%s", comfy, diffusion_name);
     snprintf(video_vae, sizeof video_vae, "%s/models/vae/%s", comfy, H3_VIDEO_VAE_NAME);
     snprintf(audio_vae, sizeof audio_vae, "%s/models/vae/%s", comfy, H3_AUDIO_VAE_NAME);
     const char *encoder_name = !strcmp(encoder, "community") ? H3_COMMUNITY_ENCODER_NAME : H3_OFFICIAL_ENCODER_NAME;
     long long encoder_size = !strcmp(encoder, "community") ? H3_COMMUNITY_ENCODER_SIZE : H3_OFFICIAL_ENCODER_SIZE;
     snprintf(encoder_path, sizeof encoder_path, "%s/models/text_encoders/%s", comfy, encoder_name);
-    long long total = H3_DIFFUSION_SIZE + H3_VIDEO_VAE_SIZE + H3_AUDIO_VAE_SIZE + encoder_size;
+    long long total = diffusion_size + H3_VIDEO_VAE_SIZE + H3_AUDIO_VAE_SIZE + encoder_size;
     long long have = 0;
-    long long n = video_file_bytes(diffusion); have += n > H3_DIFFUSION_SIZE ? H3_DIFFUSION_SIZE : n;
+    long long n = video_file_bytes(diffusion); have += n > diffusion_size ? diffusion_size : n;
     n = video_file_bytes(video_vae); have += n > H3_VIDEO_VAE_SIZE ? H3_VIDEO_VAE_SIZE : n;
     n = video_file_bytes(audio_vae); have += n > H3_AUDIO_VAE_SIZE ? H3_AUDIO_VAE_SIZE : n;
     n = video_file_bytes(encoder_path); have += n > encoder_size ? encoder_size : n;
     int accelerator_installed = video_file_bytes(accelerator_marker) > 0;
-    int installed = video_file_bytes(diffusion) == H3_DIFFUSION_SIZE &&
+    int installed = video_file_bytes(diffusion) == diffusion_size &&
                     video_file_bytes(video_vae) == H3_VIDEO_VAE_SIZE &&
                     video_file_bytes(audio_vae) == H3_AUDIO_VAE_SIZE &&
                     video_file_bytes(encoder_path) == encoder_size &&
@@ -152,6 +208,8 @@ static void api_video_status(int fd, const char *path) {
     json_dyn_printf(&b, "\"installed\":%s,\"acceleratorInstalled\":%s,\"downloadedBytes\":%lld,\"totalBytes\":%lld,",
                     installed ? "true" : "false", accelerator_installed ? "true" : "false", have, total) &&
     json_dyn_puts(&b, "\"encoder\":") && json_dyn_put_escaped(&b, encoder) &&
+    json_dyn_puts(&b, ",\"diffusion\":") && json_dyn_put_escaped(&b, diffusion_name) &&
+    json_dyn_puts(&b, ",\"diffusionPrecision\":") && json_dyn_put_escaped(&b, use_bf16 ? "bf16" : "int8") &&
     json_dyn_puts(&b, ",\"model\":\"MiniMaxAI/MiniMax-H3\",\"runtime\":\"ComfyUI/MPS\",\"dir\":") &&
     json_dyn_put_escaped(&b, root) && json_dyn_puts(&b, ",\"setup\":") &&
     json_dyn_puts(&b, setup ? setup : "null") && json_dyn_puts(&b, "}");

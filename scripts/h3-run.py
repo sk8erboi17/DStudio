@@ -2,8 +2,9 @@
 """Run MiniMax H3 locally through stock ComfyUI on Apple Silicon.
 
 This worker deliberately uses only open-weight checkpoints. It never calls a
-MiniMax generation API. The one-time setup is large (~54 GiB), so every stage
-is written atomically to a JSON status file consumed by DStudio's chat UI.
+MiniMax generation API. The one-time setup is large (about 54-73 GB depending
+on the Mac's native quantized-kernel support), so every stage is written
+atomically to a JSON status file consumed by DStudio's chat UI.
 """
 
 from __future__ import annotations
@@ -51,8 +52,23 @@ COMMUNITY_ENCODER_REPOSITORY = (
     "linjian257/qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257"
 )
 COMMUNITY_ENCODER_REVISION = "19a1c202af96b9c3d51dd346ecd0168c2720b0d3"
+SERVER_RUNTIME_VERSION = 4
+SERVER_STATE_NAME = "comfyui-server.json"
+SERVER_PID_NAME = "comfyui-server.pid"
+SERVER_LOG_NAME = "comfyui-server.log"
 
-DIFFUSION_NAME = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+M1_M4_DISABLED_ACCELERATOR_ENV = (
+    "ASFP8_INT8_EXT",
+    "ASFP8_FP8_EXT",
+    "ASFP8_FP8_NATIVE",
+    "ASFP8_INT4_EXT",
+    "ASFP8_CONV_IM2COL",
+    "MTLFLASHATTN_SDPA",
+    "MTLFLASHATTN_SHIM",
+)
+
+DIFFUSION_INT8_NAME = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+DIFFUSION_BF16_NAME = "minimax_h3_fl2va_pruned_bf16.safetensors"
 VIDEO_VAE_NAME = "minimax_h3_video_vae_fp16.safetensors"
 AUDIO_VAE_NAME = "minimax_h3_audio_vae_fp32.safetensors"
 OFFICIAL_ENCODER_NAME = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
@@ -61,11 +77,17 @@ COMMUNITY_ENCODER_NAME = (
 )
 
 MODEL_FILES = {
-    "diffusion": {
-        "name": DIFFUSION_NAME,
+    "diffusion_int8": {
+        "name": DIFFUSION_INT8_NAME,
         "subdir": "diffusion_models",
         "size": 20_970_379_616,
-        "url": f"https://huggingface.co/{MODEL_REPOSITORY}/resolve/{MODEL_REVISION}/diffusion_models/{DIFFUSION_NAME}",
+        "url": f"https://huggingface.co/{MODEL_REPOSITORY}/resolve/{MODEL_REVISION}/diffusion_models/{DIFFUSION_INT8_NAME}",
+    },
+    "diffusion_bf16": {
+        "name": DIFFUSION_BF16_NAME,
+        "subdir": "diffusion_models",
+        "size": 40_225_724_176,
+        "url": f"https://huggingface.co/{MODEL_REPOSITORY}/resolve/{MODEL_REVISION}/diffusion_models/{DIFFUSION_BF16_NAME}",
     },
     "video_vae": {
         "name": VIDEO_VAE_NAME,
@@ -96,23 +118,26 @@ MODEL_FILES = {
     },
 }
 
+BF16_DIFFUSION_MIN_MEMORY = 88 * 2**30
+MIN_SAMPLER_STEPS = 20
+
 RENDER_PROFILES = {
-    # About 0.4 MP and half the sampler steps. Useful for checking motion,
-    # framing and prompt adherence before committing to a final render.
+    # The smallest upstream-listed H3 canvas. Keep the full sampler schedule:
+    # fewer than 20 steps leaves the AV flow latent visibly under-denoised.
     "preview": {
-        "steps": 10,
+        "steps": MIN_SAMPLER_STEPS,
         "aspects": {
-            "16:9": (864, 480),
-            "9:16": (480, 864),
-            "1:1": (640, 640),
-            "4:3": (768, 576),
-            "3:4": (576, 768),
+            "16:9": (608, 352),
+            "9:16": (352, 608),
+            "1:1": (448, 448),
+            "4:3": (512, 384),
+            "3:4": (384, 512),
         },
     },
     # Roughly 0.6 MP: the practical 5-second Apple-Silicon budget. This avoids
     # the superlinear 1.03 MP x 5 s cost of the upstream reference canvas.
     "balanced": {
-        "steps": 20,
+        "steps": MIN_SAMPLER_STEPS,
         "aspects": {
             "16:9": (1024, 576),
             "9:16": (576, 1024),
@@ -123,7 +148,7 @@ RENDER_PROFILES = {
     },
     # Upstream-size canvas retained as an explicit slow option.
     "quality": {
-        "steps": 20,
+        "steps": MIN_SAMPLER_STEPS,
         "aspects": {
             "16:9": (1344, 768),
             "9:16": (768, 1344),
@@ -135,6 +160,10 @@ RENDER_PROFILES = {
 }
 ASPECTS = tuple(RENDER_PROFILES["balanced"]["aspects"])
 SAMPLER_PROGRESS_RE = re.compile(r"(\d{1,3})%\|[^\r\n]*?\|\s*(\d+)\s*/\s*(\d+)")
+SAMPLER_TIMING_RE = re.compile(
+    r"(\d+)\s*/\s*(\d+)\s*\[(\d+:\d{2}(?::\d{2})?)<"
+    r"(\d+:\d{2}(?::\d{2})?),\s*([0-9]+(?:\.[0-9]+)?)s/it\]"
+)
 
 # A tiny, valid fragmented H.264 MP4 for protocol/UI tests. Production never
 # uses this path; it avoids downloading 54 GiB in the test suite.
@@ -217,9 +246,48 @@ def runtime_root() -> Path:
     return (Path.home() / ".dstudio" / "minimax-h3").resolve()
 
 
-def selected_files(encoder: str) -> list[dict]:
+def physical_memory_bytes() -> int:
+    try:
+        return int(os.sysconf("SC_PAGE_SIZE")) * int(os.sysconf("SC_PHYS_PAGES"))
+    except (OSError, ValueError):
+        return 0
+
+
+def apple_chip_generation(chip_name: str | None = None) -> int | None:
+    name = chip_name if chip_name is not None else apple_chip_name()
+    match = re.search(r"\bApple M(\d+)\b", name or "")
+    return int(match.group(1)) if match else None
+
+
+def selected_diffusion_spec(chip_name: str | None = None,
+                            memory_bytes: int | None = None) -> dict:
+    """Choose throughput, never lower quality, for the current Apple GPU.
+
+    M5 has the pinned node's native W8A8 cooperative-matrix path. M1-M4 do not;
+    on a high-memory Mac the official BF16 checkpoint is both the higher-fidelity
+    representation and avoids re-dequantizing/un-rotating every INT8 Linear on
+    every sampler step. Lower-memory machines retain the compact INT8 checkpoint.
+    ``DSTUDIO_H3_DIFFUSION`` provides an explicit escape hatch.
+    """
+    requested = os.environ.get("DSTUDIO_H3_DIFFUSION", "").strip().lower()
+    if requested in {"bf16", "bfloat16"}:
+        return MODEL_FILES["diffusion_bf16"]
+    if requested in {"int8", "quantized"}:
+        return MODEL_FILES["diffusion_int8"]
+    generation = apple_chip_generation(chip_name)
+    memory = physical_memory_bytes() if memory_bytes is None else memory_bytes
+    if generation is not None and generation < 5 and memory >= BF16_DIFFUSION_MIN_MEMORY:
+        return MODEL_FILES["diffusion_bf16"]
+    return MODEL_FILES["diffusion_int8"]
+
+
+def selected_files(encoder: str, chip_name: str | None = None,
+                   memory_bytes: int | None = None) -> list[dict]:
     encoder_key = "community_encoder" if encoder == "community" else "official_encoder"
-    return [MODEL_FILES["diffusion"], MODEL_FILES[encoder_key], MODEL_FILES["video_vae"], MODEL_FILES["audio_vae"]]
+    return [
+        selected_diffusion_spec(chip_name, memory_bytes), MODEL_FILES[encoder_key],
+        MODEL_FILES["video_vae"], MODEL_FILES["audio_vae"],
+    ]
 
 
 def model_path(comfy: Path, spec: dict) -> Path:
@@ -293,16 +361,6 @@ def python_modules_available(python: Path, *modules: str) -> bool:
     return subprocess.run(
         [str(python), "-c", code], text=True, capture_output=True,
     ).returncode == 0
-
-
-def apple_chip_name() -> str:
-    try:
-        return subprocess.check_output(
-            ["/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string"],
-            text=True, stderr=subprocess.DEVNULL,
-        ).strip()
-    except Exception:
-        return ""
 
 
 def setup_comfy(root: Path, status: Path | None) -> tuple[Path, Path]:
@@ -389,8 +447,9 @@ def download_one(spec: dict, destination: Path, status: Path | None,
         )
 
 
-def ensure_models(comfy: Path, encoder: str, status: Path | None) -> str:
+def ensure_models(comfy: Path, encoder: str, status: Path | None) -> tuple[str, str]:
     files = selected_files(encoder)
+    diffusion = files[0]
     total = sum(int(spec["size"]) for spec in files)
     present = sum(min(model_path(comfy, spec).stat().st_size, int(spec["size"]))
                   for spec in files if model_path(comfy, spec).is_file())
@@ -409,20 +468,82 @@ def ensure_models(comfy: Path, encoder: str, status: Path | None) -> str:
         status, "running", "model-ready",
         "MiniMax H3 open weights are ready on this Mac.", 58,
         downloadedBytes=total, totalBytes=total,
+        diffusion=diffusion["name"],
+        diffusionPrecision="bf16" if diffusion["name"] == DIFFUSION_BF16_NAME else "int8",
     )
-    return COMMUNITY_ENCODER_NAME if encoder == "community" else OFFICIAL_ENCODER_NAME
+    encoder_name = COMMUNITY_ENCODER_NAME if encoder == "community" else OFFICIAL_ENCODER_NAME
+    return encoder_name, str(diffusion["name"])
 
 
-def setup_runtime(root: Path, encoder: str, status: Path | None) -> tuple[Path, Path, str]:
+def setup_runtime(root: Path, encoder: str,
+                  status: Path | None) -> tuple[Path, Path, str, str]:
     comfy, python = setup_comfy(root, status)
-    encoder_name = ensure_models(comfy, encoder, status)
-    return comfy, python, encoder_name
+    encoder_name, diffusion_name = ensure_models(comfy, encoder, status)
+    return comfy, python, encoder_name, diffusion_name
 
 
 def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def process_alive(pid: int) -> bool:
+    if pid <= 1:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def server_state_read(root: Path, *, require_current: bool = True) -> dict | None:
+    path = root / SERVER_STATE_NAME
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(state, dict):
+        return None
+    try:
+        pid = int(state.get("pid", 0))
+        port = int(state.get("port", 0))
+        version = int(state.get("version", 0))
+    except (TypeError, ValueError):
+        return None
+    if pid <= 1 or not (1 <= port <= 65535):
+        return None
+    if require_current and (
+        version != SERVER_RUNTIME_VERSION
+        or state.get("comfyCommit") != COMFY_COMMIT
+        or state.get("acceleratorCommit") != MPS_ACCELERATOR_COMMIT
+    ):
+        return None
+    return {**state, "pid": pid, "port": port, "version": version}
+
+
+def server_state_write(root: Path, pid: int, port: int) -> None:
+    state = {
+        "version": SERVER_RUNTIME_VERSION,
+        "pid": pid,
+        "port": port,
+        "comfyCommit": COMFY_COMMIT,
+        "acceleratorCommit": MPS_ACCELERATOR_COMMIT,
+        "startedAt": int(time.time() * 1000),
+    }
+    path = root / SERVER_STATE_NAME
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(state), encoding="utf-8")
+    os.replace(tmp, path)
+    (root / SERVER_PID_NAME).write_text(f"{pid}\n", encoding="ascii")
+
+
+def server_state_remove(root: Path) -> None:
+    (root / SERVER_STATE_NAME).unlink(missing_ok=True)
+    (root / SERVER_PID_NAME).unlink(missing_ok=True)
 
 
 def http_json(url: str, payload: dict | None = None, timeout: float = 30) -> dict:
@@ -433,33 +554,39 @@ def http_json(url: str, payload: dict | None = None, timeout: float = 30) -> dic
         method="POST" if body is not None else "GET",
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+        raw = response.read()
+        return json.loads(raw.decode("utf-8")) if raw else {}
 
 
-def wait_for_comfy(base: str, process: subprocess.Popen, log_path: Path) -> dict:
+def verify_comfy_runtime(info: dict, log_path: Path) -> None:
+    required = {"MiniMaxH3ImageToVideo", "SaveVideo", "CreateVideo", "VAEDecodeAudio"}
+    missing = sorted(required.difference(info))
+    if missing:
+        raise H3Error(f"The pinned ComfyUI runtime is missing nodes: {', '.join(missing)}")
+    log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.is_file() else ""
+    accelerator_markers = (
+        "[AppleSilicon-FP8/int_mm]",
+        "[AppleSilicon-FP8/te_device]",
+        "[AppleSilicon-FP8/flash]",
+    )
+    absent = [marker for marker in accelerator_markers if marker not in log]
+    if absent:
+        raise H3Error(
+            "The Apple Metal H3 accelerator did not activate. Run Prepare local H3 "
+            "again instead of falling back to CPU inference."
+        )
+
+
+def wait_for_comfy(base: str, pid: int, log_path: Path) -> dict:
     deadline = time.monotonic() + 420
     last_error = ""
     while time.monotonic() < deadline:
-        if process.poll() is not None:
+        if not process_alive(pid):
             tail = log_path.read_text(encoding="utf-8", errors="replace")[-5000:] if log_path.is_file() else ""
             raise H3Error(f"ComfyUI stopped during startup. {tail.strip()}")
         try:
             info = http_json(base + "/object_info", timeout=5)
-            required = {"MiniMaxH3ImageToVideo", "SaveVideo", "CreateVideo", "VAEDecodeAudio"}
-            missing = sorted(required.difference(info))
-            if missing:
-                raise H3Error(f"The pinned ComfyUI runtime is missing nodes: {', '.join(missing)}")
-            log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.is_file() else ""
-            accelerator_markers = (
-                "[AppleSilicon-FP8/int_mm]",
-                "[AppleSilicon-FP8/te_device]",
-            )
-            absent = [marker for marker in accelerator_markers if marker not in log]
-            if absent:
-                raise H3Error(
-                    "The Apple Metal INT8 accelerator did not activate. Run Prepare local H3 "
-                    "again instead of falling back to hours of CPU inference."
-                )
+            verify_comfy_runtime(info, log_path)
             return info
         except H3Error:
             raise
@@ -467,6 +594,144 @@ def wait_for_comfy(base: str, process: subprocess.Popen, log_path: Path) -> dict
             last_error = str(exc)
             time.sleep(1)
     raise H3Error(f"ComfyUI did not become ready in 7 minutes. {last_error}")
+
+
+def stop_comfy_server(root: Path, state: dict | None = None) -> None:
+    state = state or server_state_read(root, require_current=False)
+    if not state:
+        server_state_remove(root)
+        return
+    pid = int(state["pid"])
+    base = f"http://127.0.0.1:{int(state['port'])}"
+    with contextlib.suppress(Exception):
+        http_json(base + "/interrupt", {}, timeout=3)
+    if process_alive(pid):
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGTERM)
+        deadline = time.monotonic() + 20
+        while process_alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.2)
+        if process_alive(pid):
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+    server_state_remove(root)
+
+
+def comfy_server_command(root: Path, comfy: Path, python: Path, port: int) -> list[str]:
+    output_dir = root / "comfy-output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    total_gib = physical_memory_bytes() / 2**30
+    reserve_gib = max(6, min(10, round(total_gib * 0.08)))
+    return [
+        str(python), str(comfy / "main.py"), "--listen", "127.0.0.1",
+        "--port", str(port), "--disable-auto-launch",
+        "--disable-all-custom-nodes", "--whitelist-custom-nodes", MPS_ACCELERATOR_DIR,
+        "--disable-api-nodes", "--use-pytorch-cross-attention", "--mmap-torch-files",
+        "--reserve-vram", str(reserve_gib),
+        "--output-directory", str(output_dir),
+    ]
+
+
+def apple_chip_name() -> str | None:
+    """Return Apple's public chip name without depending on System Profiler.
+
+    ``machdep.cpu.brand_string`` is cheap, stable across app/terminal launches and
+    reports values such as ``Apple M2 Max``. An unknown value deliberately falls
+    back to the accelerator's runtime probes instead of guessing.
+    """
+    if sys.platform != "darwin":
+        return None
+    try:
+        value = subprocess.check_output(
+            ["/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string"],
+            text=True, stderr=subprocess.DEVNULL, timeout=2,
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return value or None
+
+
+def configure_apple_accelerator_env(env: dict[str, str],
+                                    chip_name: str | None = None) -> str:
+    """Select only kernels that are native to the detected Apple GPU.
+
+    The pinned accelerator's cooperative ``matmul2d`` probe is intentionally a
+    coarse software-capability check. New SDKs can compile that Metal-4 surface
+    on an M1-M4 even though the M5 tensor hardware is absent, making the emulated
+    path dramatically slower. On M1-M4 we therefore disable only the documented
+    M5-only extensions. The generic mtlflashattn fast tier is also disabled on
+    M1-M4: an H3 A/B run on M2 measured 137 s/step through that reroute versus
+    about 80 s/step through PyTorch SDPA at the same 608x352 BF16 workload.
+    Fused norms, RoPE and the remaining correctness fixes stay active. This
+    changes no H3 weights, frames, sampler schedule or codec.
+
+    Explicit power-user environment values win through ``setdefault``.
+    """
+    generation = apple_chip_generation(chip_name)
+    if generation is not None and generation < 5:
+        for variable in M1_M4_DISABLED_ACCELERATOR_ENV:
+            env.setdefault(variable, "off")
+        return f"M{generation} H3 kernels (M5-only matmul and mtlflashattn disabled)"
+    if generation is not None:
+        return f"M{generation} runtime-probed native kernels"
+    return "runtime-probed native kernels (chip generation unknown)"
+
+
+def start_comfy_server(root: Path, comfy: Path, python: Path,
+                       status: Path | None) -> tuple[str, int, Path]:
+    previous_state = server_state_read(root, require_current=False)
+    state = server_state_read(root)
+    log_path = root / SERVER_LOG_NAME
+    if state and process_alive(int(state["pid"])):
+        base = f"http://127.0.0.1:{int(state['port'])}"
+        try:
+            info = http_json(base + "/object_info", timeout=5)
+            verify_comfy_runtime(info, log_path)
+            status_write(status, "running", "runtime-ready", "Reusing the accelerated H3 runtime…", 62)
+            return base, int(state["pid"]), log_path
+        except Exception:
+            stop_comfy_server(root, state)
+    elif previous_state and process_alive(int(previous_state["pid"])):
+        # A pinned runtime/config upgrade must not orphan the previous detached
+        # Comfy process merely because its state is no longer current.
+        stop_comfy_server(root, previous_state)
+    elif previous_state:
+        server_state_remove(root)
+
+    port = free_port()
+    base = f"http://127.0.0.1:{port}"
+    env = os.environ.copy()
+    env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+    env.setdefault("PYTORCH_MPS_PREFER_METAL", "1")
+    accelerator_profile = configure_apple_accelerator_env(env)
+    command = comfy_server_command(root, comfy, python, port)
+    status_write(status, "running", "runtime-start", "Starting accelerated MiniMax H3 on Apple Metal…", 61)
+    with log_path.open("w", encoding="utf-8") as log:
+        log.write(f"[DStudio] Apple accelerator profile: {accelerator_profile}\n")
+        log.flush()
+        process = subprocess.Popen(
+            command, cwd=comfy, env=env, stdin=subprocess.DEVNULL,
+            stdout=log, stderr=subprocess.STDOUT, close_fds=True,
+            start_new_session=True,
+        )
+    server_state_write(root, process.pid, port)
+    try:
+        wait_for_comfy(base, process.pid, log_path)
+    except Exception:
+        stop_comfy_server(root, server_state_read(root))
+        raise
+    return base, process.pid, log_path
+
+
+def release_comfy_models(base: str) -> None:
+    """Free H3 tensors while retaining the initialized Metal/Comfy process."""
+    with contextlib.suppress(Exception):
+        http_json(base + "/history", {"clear": True}, timeout=10)
+    with contextlib.suppress(Exception):
+        http_json(base + "/free", {"unload_models": True, "free_memory": True}, timeout=10)
+    # The Comfy worker consumes /free asynchronously. Give it a brief turn so
+    # DStudio can restore the chat model without racing H3's MPS allocations.
+    time.sleep(1)
 
 
 def encode_multipart_image(path: Path) -> tuple[bytes, str]:
@@ -509,12 +774,14 @@ def aligned_frame_count(seconds: int) -> int:
 
 
 def build_prompt(prompt: str, width: int, height: int, seconds: int,
-                 seed: int, encoder_name: str, first_frame_name: str = "",
-                 steps: int = 20) -> dict:
+                 seed: int, encoder_name: str, diffusion_name: str,
+                 first_frame_name: str = "",
+                 steps: int = 20, output_prefix: str = "DStudio/MiniMax-H3") -> dict:
+    steps = max(MIN_SAMPLER_STEPS, int(steps))
     graph: dict[str, dict] = {
         "1": {"class_type": "VAELoader", "inputs": {"vae_name": VIDEO_VAE_NAME}},
         "2": {"class_type": "VAELoader", "inputs": {"vae_name": AUDIO_VAE_NAME}},
-        "3": {"class_type": "UNETLoader", "inputs": {"unet_name": DIFFUSION_NAME, "weight_dtype": "default"}},
+        "3": {"class_type": "UNETLoader", "inputs": {"unet_name": diffusion_name, "weight_dtype": "default"}},
         "4": {"class_type": "CLIPLoader", "inputs": {"clip_name": encoder_name, "type": "minimax", "device": "default"}},
         "5": {"class_type": "MiniMaxH3ImageToVideo", "inputs": {
             "clip": ["4", 0], "vae": ["1", 0], "prompt": prompt,
@@ -532,8 +799,10 @@ def build_prompt(prompt: str, width: int, height: int, seconds: int,
         "12": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["10", 0], "vae": ["2", 0]}},
         "13": {"class_type": "CreateVideo", "inputs": {"images": ["11", 0], "fps": 24.0, "audio": ["12", 0], "bit_depth": 8}},
         "14": {"class_type": "SaveVideo", "inputs": {
-            "video": ["13", 0], "filename_prefix": "DStudio/MiniMax-H3",
-            "format": "auto", "codec": {"codec": "h264", "encoding": {"encoding": "auto"}},
+            "video": ["13", 0], "filename_prefix": output_prefix,
+            # ComfyUI v3 dynamic-combo inputs use flattened API keys. The
+            # runtime rebuilds these as {codec: "h264", encoding: {...}}.
+            "format": "auto", "codec": "h264", "codec.encoding": "auto",
         }},
     }
     if first_frame_name:
@@ -560,7 +829,7 @@ def find_video_metadata(value) -> dict | None:
 
 
 def inference_status(log_path: Path, sampling_started: float | None,
-                     now: float | None = None) -> tuple[dict, float | None]:
+                     now: float | None = None, log_offset: int = 0) -> tuple[dict, float | None]:
     """Translate ComfyUI's real sampler output into stable UI progress.
 
     ComfyUI writes tqdm records with carriage returns (``3/20``, ``4/20``, …)
@@ -568,7 +837,11 @@ def inference_status(log_path: Path, sampling_started: float | None,
     that could claim 94% while the first diffusion step was still running.
     """
     now = time.monotonic() if now is None else now
-    log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.is_file() else ""
+    log = ""
+    if log_path.is_file():
+        with log_path.open("rb") as source:
+            source.seek(max(0, log_offset))
+            log = source.read().decode("utf-8", errors="replace")
     matches = list(SAMPLER_PROGRESS_RE.finditer(log))
     if matches:
         match = matches[-1]
@@ -597,9 +870,22 @@ def inference_status(log_path: Path, sampling_started: float | None,
             "totalSteps": total,
         }
         if step > 0:
-            elapsed = max(0.0, now - sampling_started)
-            status["etaSeconds"] = max(0, round((elapsed / step) * (total - step)))
-            status["secondsPerStep"] = max(1, round(elapsed / step))
+            timing_matches = list(SAMPLER_TIMING_RE.finditer(log))
+            timing = timing_matches[-1] if timing_matches else None
+            if timing and int(timing.group(1)) == step and int(timing.group(2)) == total:
+                parts = [int(part) for part in timing.group(4).split(":")]
+                eta_seconds = 0
+                for part in parts:
+                    eta_seconds = eta_seconds * 60 + part
+                status["etaSeconds"] = eta_seconds
+                status["secondsPerStep"] = max(1, round(float(timing.group(5))))
+            else:
+                # Older tqdm variants may omit the timing suffix. Retain a
+                # conservative fallback, but prefer tqdm's completed-step
+                # average so an in-flight step cannot inflate the ETA.
+                elapsed = max(0.0, now - sampling_started)
+                status["etaSeconds"] = max(0, round((elapsed / step) * (total - step)))
+                status["secondsPerStep"] = max(1, round(elapsed / step))
         return status, sampling_started
 
     if "got prompt" in log:
@@ -615,33 +901,15 @@ def inference_status(log_path: Path, sampling_started: float | None,
     }, sampling_started)
 
 
-def generate(args, comfy: Path, python: Path, encoder_name: str) -> Path:
+def generate(args, root: Path, comfy: Path, python: Path,
+             encoder_name: str, diffusion_name: str) -> Path:
     output_dir = Path(args.outdir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    port = free_port()
-    base = f"http://127.0.0.1:{port}"
-    log_path = output_dir / "comfyui.log"
-    env = os.environ.copy()
-    env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-    env.setdefault("PYTORCH_MPS_PREFER_METAL", "1")
-    # The plugin's M5/Metal-4 native INT8 extension does not pass its numerical
-    # self-check on M1-M4. Skip that one optional build there; the verified
-    # torch._int_mm MPS patch still keeps the entire INT8 path on the GPU.
-    if re.search(r"\bApple M[1-4](?:\s|$)", apple_chip_name()):
-        env.setdefault("ASFP8_INT8_EXT", "off")
-    command = [
-        str(python), str(comfy / "main.py"), "--listen", "127.0.0.1",
-        "--port", str(port), "--disable-auto-launch",
-        "--disable-all-custom-nodes", "--whitelist-custom-nodes", MPS_ACCELERATOR_DIR,
-        "--disable-api-nodes", "--cache-none", "--disable-smart-memory",
-        "--reserve-vram", "10",
-        "--output-directory", str(output_dir / "comfy-output"),
-    ]
-    status_write(args.status_file, "running", "runtime-start", "Starting MiniMax H3 on Apple Metal…", 61)
-    with log_path.open("w", encoding="utf-8") as log:
-        process = subprocess.Popen(command, cwd=comfy, env=env, stdout=log, stderr=subprocess.STDOUT)
+    base, server_pid, log_path = start_comfy_server(root, comfy, python, args.status_file)
+    log_offset = log_path.stat().st_size if log_path.is_file() else 0
+    prompt_id = ""
+    completed = False
     try:
-        wait_for_comfy(base, process, log_path)
         status_write(args.status_file, "running", "model-load", "Loading the H3 open weights into unified memory…", 65)
         first_frame_name = ""
         if args.first_frame:
@@ -651,8 +919,9 @@ def generate(args, comfy: Path, python: Path, encoder_name: str) -> Path:
         steps = int(profile["steps"])
         graph = build_prompt(
             Path(args.prompt_file).read_text(encoding="utf-8").strip(),
-            width, height, args.duration, args.seed, encoder_name, first_frame_name,
-            steps,
+            width, height, args.duration, args.seed, encoder_name, diffusion_name,
+            first_frame_name,
+            steps, f"DStudio/{re.sub(r'[^A-Za-z0-9_-]+', '-', output_dir.name)}/MiniMax-H3",
         )
         response = http_json(base + "/prompt", {"prompt": graph, "client_id": uuid.uuid4().hex}, timeout=60)
         prompt_id = str(response.get("prompt_id") or "")
@@ -660,8 +929,8 @@ def generate(args, comfy: Path, python: Path, encoder_name: str) -> Path:
             raise H3Error(f"ComfyUI rejected the H3 workflow: {response.get('error') or response}")
         sampling_started = None
         while True:
-            if process.poll() is not None:
-                tail = log_path.read_text(encoding="utf-8", errors="replace")[-5000:]
+            if not process_alive(server_pid):
+                tail = log_path.read_text(encoding="utf-8", errors="replace")[-5000:] if log_path.is_file() else ""
                 raise H3Error(f"H3 stopped before producing a video. {tail.strip()}")
             history = http_json(base + f"/history/{urllib.parse.quote(prompt_id)}", timeout=20)
             item = history.get(prompt_id)
@@ -674,15 +943,18 @@ def generate(args, comfy: Path, python: Path, encoder_name: str) -> Path:
                 if metadata:
                     subfolder = str(metadata.get("subfolder") or "")
                     filename = str(metadata["filename"])
-                    source = output_dir / "comfy-output" / subfolder / filename
+                    source = root / "comfy-output" / subfolder / filename
                     if not source.is_file():
                         raise H3Error("ComfyUI reported a video file that is not present on disk.")
                     suffix = source.suffix.lower() if source.suffix else ".mp4"
                     destination = output_dir / f"minimax-h3-{int(time.time())}{suffix}"
                     shutil.copy2(source, destination)
+                    completed = True
                     status_write(args.status_file, "complete", "complete", "Video H3 ready — generated locally with synchronized audio.", 100)
                     return destination
-            actual, sampling_started = inference_status(log_path, sampling_started)
+            actual, sampling_started = inference_status(
+                log_path, sampling_started, log_offset=log_offset,
+            )
             status_write(
                 args.status_file, "running", actual.pop("stage"),
                 actual.pop("label"), actual.pop("progress"),
@@ -690,13 +962,11 @@ def generate(args, comfy: Path, python: Path, encoder_name: str) -> Path:
             )
             time.sleep(3)
     finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=10)
+        if not completed and prompt_id and process_alive(server_pid):
+            with contextlib.suppress(Exception):
+                http_json(base + "/interrupt", {"prompt_id": prompt_id}, timeout=5)
+        if process_alive(server_pid):
+            release_comfy_models(base)
 
 
 def parse_args() -> argparse.Namespace:
@@ -711,6 +981,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--first-frame", default="")
     parser.add_argument("--seed", type=int, default=-1)
     parser.add_argument("--setup-only", action="store_true")
+    parser.add_argument("--stop-runtime", action="store_true")
     return parser.parse_args()
 
 
@@ -729,6 +1000,11 @@ def main() -> int:
     with lock_path.open("a+") as lock:
         status_write(args.status_file, "running", "queued", "Waiting for the local H3 runtime…", 1)
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        if args.stop_runtime:
+            stop_comfy_server(root)
+            status_write(args.status_file, "complete", "complete", "MiniMax H3 runtime stopped.", 100)
+            print(json.dumps({"ok": True, "running": False}))
+            return 0
         if os.environ.get("DSTUDIO_VIDEO_TEST_MODE") == "1":
             if args.setup_only:
                 status_write(args.status_file, "complete", "complete", "MiniMax H3 test runtime ready.", 100)
@@ -744,14 +1020,19 @@ def main() -> int:
             return 0
         if sys.platform != "darwin" or os.uname().machine != "arm64":
             raise H3Error("The managed MiniMax H3 runtime currently requires an Apple Silicon Mac.")
-        comfy, python, encoder_name = setup_runtime(root, args.encoder, args.status_file)
+        comfy, python, encoder_name, diffusion_name = setup_runtime(
+            root, args.encoder, args.status_file,
+        )
         if args.setup_only:
             status_write(args.status_file, "complete", "complete", "MiniMax H3 open weights are ready.", 100)
-            print(json.dumps({"ok": True, "encoder": args.encoder, "model": "MiniMaxAI/MiniMax-H3"}))
+            print(json.dumps({
+                "ok": True, "encoder": args.encoder, "model": "MiniMaxAI/MiniMax-H3",
+                "diffusion": diffusion_name,
+            }))
             return 0
         if not args.prompt_file or not args.outdir:
             raise H3Error("prompt and output directory are required")
-        output = generate(args, comfy, python, encoder_name)
+        output = generate(args, root, comfy, python, encoder_name, diffusion_name)
         print(output)
         return 0
 

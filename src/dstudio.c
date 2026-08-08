@@ -9145,6 +9145,7 @@ int main(int argc, char **argv)
     }
     sse_close_all();
     diag_sse_close_all();
+    video_runtime_shutdown();
     stop_child();
     return 0;
 }

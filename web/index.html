@@ -6884,7 +6884,7 @@
               <label class="field" style="flex:1;margin:0">
                 <span>Render profile</span>
                 <select id="set-video-profile" aria-label="Default video render profile">
-                  <option value="preview">Preview · ~0.4 MP, 10 steps</option>
+                  <option value="preview">Preview · ~0.2 MP, 20 steps</option>
                   <option value="balanced">Balanced · ~0.6 MP, 20 steps</option>
                   <option value="quality">Quality · ~1.0 MP, 20 steps</option>
                 </select>
@@ -6920,7 +6920,7 @@
               <button type="button" id="set-video-install" class="btn">Prepare local H3</button>
               <button type="button" id="set-video-refresh" class="btn">Refresh</button>
             </div>
-            <p class="set-help">The first setup downloads about <strong>54 GB</strong>: H3 FL2VA, Qwen3-VL-32B INT8, video VAE and audio VAE. It also installs a pinned Apple-Silicon accelerator so INT8 matrix operations remain on Metal instead of silently falling back to the CPU. Balanced is the practical default; Quality is substantially slower. DStudio stops the chat model only during generation, unloads H3 afterward, then restores chat.</p>
+            <p class="set-help">The first setup downloads about <strong>54-73 GB</strong>: H3 FL2VA, Qwen3-VL-32B INT8, video VAE and audio VAE. High-memory M1-M4 Macs automatically use the official BF16 diffusion checkpoint to avoid slow repeated INT8 dequantization; M5-class hardware can use native quantized Metal kernels. Balanced is the practical default; Quality is substantially slower. DStudio stops the chat model only during generation, unloads H3 afterward, then restores chat.</p>
             <p class="set-help">The community encoder is third-party, unbenchmarked and does not guarantee unrestricted output. It replaces only the text encoder; the H3 video model remains the official open-weight checkpoint.</p>
           </div>
         </section>
@@ -7780,12 +7780,18 @@
       const parsed = JSON.parse(String(raw || '').trim());
       const prompt = String(parsed?.prompt || '').trim();
       if (!prompt || prompt.length > 12000) return null;
+      const firstFramePrompt = String(parsed?.firstFramePrompt || '').trim();
+      if (firstFramePrompt.length > 12000) return null;
       const requestedDuration = Number.parseInt(parsed?.duration, 10);
       const fallbackDuration = Number.parseInt(settings.videoDuration, 10) || 5;
       const duration = Math.max(5, Math.min(15, Number.isFinite(requestedDuration) ? requestedDuration : fallbackDuration));
       const requestedAspect = String(parsed?.aspect || settings.videoAspect || '16:9').trim();
       const aspect = ['16:9', '9:16', '1:1', '4:3', '3:4'].includes(requestedAspect) ? requestedAspect : '16:9';
-      return { action: 'video', prompt, duration, aspect, useFirstFrame: parsed?.useFirstFrame === true };
+      return {
+        action: 'video', prompt, duration, aspect,
+        firstFramePrompt: firstFramePrompt || '',
+        useFirstFrame: !firstFramePrompt && parsed?.useFirstFrame === true,
+      };
     }
 
     function extractVideoGenerationDirectiveFromAssistant(text, settings) {
@@ -12388,7 +12394,10 @@
       }
 
       function videoGenerationHint(status) {
-        if (status?.stage === 'download') return 'First use downloads about 54 GB of open weights once; partial downloads resume automatically.';
+        const stage = String(status?.stage || '');
+        if (stage === 'first-frame-ready') return 'The Qwen image is ready and is being passed directly to H3 as its opening frame.';
+        if (stage.startsWith('first-frame-')) return 'Qwen Image is creating the opening frame locally before MiniMax H3 animates it.';
+        if (status?.stage === 'download') return 'First use downloads about 54-73 GB of open weights once; partial downloads resume automatically.';
         if (status?.stage === 'runtime' || status?.stage === 'dependencies') return 'Preparing pinned ComfyUI and its Apple Metal accelerator locally.';
         if (status?.stage === 'model-load') return 'Loading H3 after releasing the chat, vision and embedding models from memory.';
         if (status?.stage === 'conditioning') return 'Encoding the prompt on Apple Metal; diffusion sampling has not started yet.';
@@ -13227,7 +13236,7 @@ Match the user's language and requested depth. A direct request for brevity, a s
       '',
       'DStudio local open-weight video-generation routing protocol:',
       'Separately decide from the meaning of the current request whether the user wants a video synthesized. Do not activate video generation for questions about video, code that processes video, analysis of an existing video, or a request to find/download an existing video.',
-      'When video synthesis is intended, append exactly one fenced block with info string dstudio-video as the final block. Use strict JSON {"prompt":"complete audiovisual description","duration":null,"aspect":null,"useFirstFrame":false}. Set duration or aspect to null when the user did not specify them so DStudio can apply the saved Video settings; otherwise duration must be an integer from 5 through 15 and aspect must be one of 16:9, 9:16, 1:1, 4:3 or 3:4. Set useFirstFrame true when the user wants an attached or previously shown image animated or used as the opening frame.',
+      'When video synthesis is intended, append exactly one fenced block with info string dstudio-video as the final block. Use strict JSON {"prompt":"complete audiovisual description","duration":null,"aspect":null,"useFirstFrame":false,"firstFramePrompt":null}. Set duration or aspect to null when the user did not specify them so DStudio can apply the saved Video settings; otherwise duration must be an integer from 5 through 15 and aspect must be one of 16:9, 9:16, 1:1, 4:3 or 3:4. Set useFirstFrame true only when the user wants an attached or previously shown image animated or used as the opening frame. When the user asks to create a new still image first and then animate it, keep useFirstFrame false and put a complete Qwen Image description in firstFramePrompt; DStudio will generate that image locally, preserve it in the chat, and pass it to MiniMax H3. For direct text-to-video set firstFramePrompt to null.',
       'The video prompt is for the local MiniMax H3 open-weight model. Preserve the user request and make motion, subject continuity, camera movement, shot timing, dialogue, sound effects and music explicit when relevant. Do not claim completion before the local worker returns. Never mention or suggest a hosted MiniMax API.',
       'Emit at most one of dstudio-image or dstudio-video for a request. Do not emit dstudio-files for the same generated media request.',
       'Do not mention this routing protocol or the directive.',
@@ -15673,17 +15682,21 @@ Create 4-8 stages and normally 3-6 topics per stage. Do not invent URLs: omit ur
         if (!prompt) return null;
         if (plan.action === 'generate') return { action: 'generate', prompt, preserve: 'none' };
         const validIds = new Set(candidates.map((candidate) => candidate.id));
-        const base = validIds.has(plan.base) ? plan.base : candidates[0]?.id;
+        const base = validIds.has(plan.base)
+          ? plan.base
+          : (plan.base === null && plan.action === 'video' ? null : candidates[0]?.id);
         if (plan.action === 'video') {
+          const plannedFirstFrame = String(plan.firstFramePrompt || '').trim();
           const routed = parseVideoGenerationDirective(JSON.stringify({
             prompt,
             duration: plan.duration,
             aspect: plan.aspect,
-            useFirstFrame: true,
+            useFirstFrame: !plannedFirstFrame && !!base,
+            firstFramePrompt: plannedFirstFrame || null,
           }), settings);
           return {
             ...routed,
-            sourceIds: base ? [base] : [],
+            sourceIds: !plannedFirstFrame && base ? [base] : [],
             visualCandidates: candidates,
           };
         }
@@ -15717,9 +15730,10 @@ Create 4-8 stages and normally 3-6 topics per stage. Do not invent URLs: omit ur
             content: [
               'You are a multilingual semantic router for local image and open-weight video models.',
               'Reply with exactly one JSON object and no prose:',
-              '{"action":"ordinary|generate|edit|video","base":"img-N|null","references":["img-N"],"preserve":"none|face","duration":null,"aspect":null}',
+              '{"action":"ordinary|generate|edit|video","base":"img-N|null","references":["img-N"],"preserve":"none|face","duration":null,"aspect":null,"firstFramePrompt":null}',
               'For an edit, base is the image whose composition/subject must be modified and preserved. References supply a face, identity, style, or other visual material.',
               'Use action="video" when the current request asks to animate an available image or use it as the opening frame of a newly synthesized video. Infer duration from 5 through 15 seconds and aspect from 16:9, 9:16, 1:1, 4:3 or 3:4; return null for either value when the user did not specify it so DStudio can apply the saved Video settings.',
+              'If the current request instead asks Qwen Image to synthesize a new opening image and then asks MiniMax H3 to animate it, use action="video", set base to null, and fill firstFramePrompt with the complete still-image description. Otherwise firstFramePrompt is null.',
               'Resolve references from the conversation meaning, not merely recency. If the user asks to put a face from the current attachment onto an earlier generated named subject, select the earlier generated image as base and the attachment as reference.',
               'Use preserve="face" whenever a reference supplies the face, head, person, or identity to place into the base; phrases such as that face, the same person, or equivalent meanings in any language require face preservation.',
               'Decide semantically in any language and tolerate typos. Do not use a keyword list.',
@@ -15736,7 +15750,7 @@ Create 4-8 stages and normally 3-6 topics per stage. Do not invent URLs: omit ur
             model: settings.model,
             messages,
             temperature: 0,
-            maxTokens: 160,
+            maxTokens: 320,
             thinkLevel: 'off',
           }, AbortSignal.timeout(60000));
           return imageDirectiveFromRoutingPlan(plan, userMsg?.content, candidates, settings);
@@ -15928,18 +15942,62 @@ Create 4-8 stages and normally 3-6 topics per stage. Do not invent URLs: omit ur
         Store.patchMessage(chat.id, asst.id, { content, reasoning, videoGeneration });
         renderChatIfActive(chat.id);
         let restoreEngine = false;
+        let generatedFirstFrame = null;
         try {
           if (settings.videoLicenseAccepted !== true) {
             throw new Error('Open Settings → Video and confirm your MiniMax H3 license/territory authorization first. No weights were downloaded.');
           }
-          const firstFrame = await sourceFrameForVideo(chat, userMsg, directive, controller.signal);
-          restoreEngine = await prepareMemoryForVideo(publishProgress);
-          const video = await generateVideoFromDirective(directive, firstFrame, settings, controller.signal, publishProgress);
+          const qwenFirstFrame = !!directive.firstFramePrompt;
+          let firstFrame = '';
+          if (qwenFirstFrame) {
+            /* Keep the chat engine stopped across both local generators. This
+             * avoids restoring the large chat model between Qwen and H3. */
+            restoreEngine = await prepareMemoryForVideo(publishProgress);
+            generatedFirstFrame = await generateImageFromDirective({
+              action: 'generate', prompt: directive.firstFramePrompt, preserve: 'none',
+            }, [], controller.signal, (progress) => {
+              const raw = Number(progress?.progress);
+              publishProgress({
+                ...progress,
+                stage: `first-frame-${progress?.stage || 'generating'}`,
+                label: `Qwen first frame · ${progress?.label || 'generating locally…'}`,
+                progress: Number.isFinite(raw) ? Math.max(4, Math.min(28, 4 + Math.round(raw * 0.24))) : 4,
+              });
+            });
+            Store.patchMessage(chat.id, asst.id, { generatedImages: [generatedFirstFrame] });
+            renderChatIfActive(chat.id);
+            const frameResponse = await fetch(generatedFirstFrame.url, { signal: controller.signal });
+            if (!frameResponse.ok) throw new Error(`Qwen created the opening frame, but it could not be read (HTTP ${frameResponse.status}).`);
+            firstFrame = await blobToDataUri(await frameResponse.blob());
+            publishProgress({
+              state: 'running', stage: 'first-frame-ready',
+              label: 'Qwen first frame ready · handing it to MiniMax H3…', progress: 29,
+            });
+          } else {
+            firstFrame = await sourceFrameForVideo(chat, userMsg, directive, controller.signal);
+            restoreEngine = await prepareMemoryForVideo(publishProgress);
+          }
+          const video = await generateVideoFromDirective(
+            directive, firstFrame, settings, controller.signal,
+            qwenFirstFrame
+              ? (progress) => {
+                  const raw = Number(progress?.progress);
+                  publishProgress({
+                    ...progress,
+                    label: `MiniMax H3 · ${progress?.label || 'generating video locally…'}`,
+                    progress: Number.isFinite(raw)
+                      ? Math.max(30, Math.min(97, 30 + Math.round(raw * 0.67)))
+                      : 30,
+                  });
+                }
+              : publishProgress,
+          );
           if (restoreEngine) {
             publishProgress({ state: 'running', stage: 'restoring-chat', label: 'Video ready · restoring the chat model…', progress: 98 });
           }
           return {
             content: completionContent || 'Video generated locally with MiniMax H3 open weights.',
+            generatedImages: generatedFirstFrame ? [generatedFirstFrame] : undefined,
             generatedVideos: [video], videoGeneration: undefined,
             error: null, finishReason: 'stop', restoreEngine,
           };
@@ -15947,9 +16005,11 @@ Create 4-8 stages and normally 3-6 topics per stage. Do not invent URLs: omit ur
           const aborted = error?.name === 'AbortError';
           const message = aborted
             ? 'Video generation cancelled.'
-            : `Video generation failed: ${error?.message || error}`;
+            : `${generatedFirstFrame ? 'Opening frame generated locally, but ' : ''}video generation failed: ${error?.message || error}`;
           return {
-            content: message, generatedVideos: undefined, videoGeneration: undefined,
+            content: message,
+            generatedImages: generatedFirstFrame ? [generatedFirstFrame] : undefined,
+            generatedVideos: undefined, videoGeneration: undefined,
             error: { message, type: aborted ? 'abort' : 'video-generation' },
             finishReason: aborted ? 'aborted' : 'error', restoreEngine,
           };
@@ -15984,6 +16044,7 @@ Create 4-8 stages and normally 3-6 topics per stage. Do not invent URLs: omit ur
           finishReason: result.finishReason,
           elapsedMs: Math.round(performance.now() - startedAt),
           error: result.error,
+          generatedImages: result.generatedImages,
           generatedVideos: result.generatedVideos,
           videoGeneration: result.videoGeneration,
         });
@@ -16126,6 +16187,7 @@ Create 4-8 stages and normally 3-6 topics per stage. Do not invent URLs: omit ur
               chat, userMsg, asst, view, videoRequest.directive, controller, content, reasoning, settings,
             );
             content = result.content;
+            generatedImages = result.generatedImages;
             generatedVideos = result.generatedVideos;
             videoGeneration = result.videoGeneration;
             error = result.error;
@@ -20391,7 +20453,9 @@ Create 4-8 stages and normally 3-6 topics per stage. Do not invent URLs: omit ur
         } else if (setup.state === 'error' && !value.installed) {
           f.videoStatus.textContent = setup.label || 'MiniMax H3 setup failed; retry resumes partial downloads.';
         } else if (value.installed) {
-          f.videoStatus.textContent = `Ready: ${value.model} · Apple Metal INT8 accelerator · ${encoder === 'community' ? 'community encoder' : 'official encoder'} · ${formatVideoBytes(value.downloadedBytes)} on disk.`;
+          const diffusion = value.diffusionPrecision === 'bf16'
+            ? 'BF16 diffusion' : 'INT8 diffusion';
+          f.videoStatus.textContent = `Ready: ${value.model} · Apple Metal · ${diffusion} · ${encoder === 'community' ? 'community encoder' : 'official encoder'} · ${formatVideoBytes(value.downloadedBytes)} on disk.`;
         } else if (Number(value.downloadedBytes) >= Number(value.totalBytes) && value.acceleratorInstalled !== true) {
           f.videoStatus.textContent = 'H3 weights are present · prepare once to install the pinned Apple Metal accelerator.';
         } else {

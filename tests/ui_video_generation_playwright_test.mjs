@@ -18,6 +18,10 @@ const mp4Block = workerSource.match(/TEST_MP4_B64\s*=\s*\(([\s\S]*?)\n\)/)?.[1] 
 const mp4Base64 = [...mp4Block.matchAll(/"([^"]*)"/g)].map((match) => match[1]).join('');
 const testVideo = Buffer.from(mp4Base64, 'base64');
 assert.ok(testVideo.length > 500, 'the H3 protocol test video must be available');
+const testImage = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+);
 
 const requestOrder = [];
 const externalRequests = [];
@@ -27,6 +31,8 @@ let engineStarting = false;
 let engineReadyAt = 0;
 let progressReads = 0;
 let generationBody = null;
+let pipelineGenerationBody = null;
+let imageGenerationBody = null;
 let chatRequests = 0;
 
 function json(res, status, value) {
@@ -157,16 +163,18 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/api/video/generate' && req.method === 'POST') {
-    generationBody = JSON.parse(await readBody(req) || '{}');
+    const body = JSON.parse(await readBody(req) || '{}');
+    if (generationBody) pipelineGenerationBody = body;
+    else generationBody = body;
     requestOrder.push('video-generate');
     await new Promise((resolve) => setTimeout(resolve, 3200));
     json(res, 200, {
       ok: true,
-      id: generationBody.job,
+      id: body.job,
       filename: 'minimax-h3-test.mp4',
       model: 'MiniMaxAI/MiniMax-H3',
-      profile: generationBody.profile,
-      url: `/api/video/file?id=${encodeURIComponent(generationBody.job)}&name=minimax-h3-test.mp4`,
+      profile: body.profile,
+      url: `/api/video/file?id=${encodeURIComponent(body.job)}&name=minimax-h3-test.mp4`,
     });
     return;
   }
@@ -184,6 +192,33 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, running: false });
     return;
   }
+  if (url.pathname === '/api/image/progress') {
+    json(res, 200, {
+      ok: true, state: 'running', stage: 'sampling',
+      label: 'Generating the Qwen opening frame…', progress: 60,
+    });
+    return;
+  }
+  if (url.pathname === '/api/image/generate' && req.method === 'POST') {
+    imageGenerationBody = JSON.parse(await readBody(req) || '{}');
+    requestOrder.push('image-generate');
+    assert.equal(engineRunning, false, 'the chat model must remain stopped while Qwen creates the H3 frame');
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    json(res, 200, {
+      ok: true, id: imageGenerationBody.job, filename: 'qwen-first-frame.png',
+      url: `/api/image/file?id=${encodeURIComponent(imageGenerationBody.job)}&name=qwen-first-frame.png`,
+    });
+    return;
+  }
+  if (url.pathname === '/api/image/file') {
+    requestOrder.push('image-file');
+    res.writeHead(200, {
+      'content-type': 'image/png',
+      'content-length': testImage.length,
+    });
+    res.end(testImage);
+    return;
+  }
   if (url.pathname === '/v1/models') {
     json(res, 200, { data: [{ id: 'deepseek-v4-flash', context_length: 65536 }] });
     return;
@@ -194,8 +229,7 @@ const server = http.createServer(async (req, res) => {
     assert.equal(engineRunning, true, 'chat must wait until the local engine reports ready');
     const payload = JSON.parse(await readBody(req) || '{}');
     assert.equal(payload.stream, true, 'video routing should begin as a normal local SSE chat');
-    const directive = chatRequests === 1
-      ? [
+    const directive = chatRequests === 1 ? [
           'Avvio la generazione locale con il modello open-weight.',
           '```dstudio-video',
           JSON.stringify({
@@ -205,8 +239,20 @@ const server = http.createServer(async (req, res) => {
             useFirstFrame: false,
           }),
           '```',
-        ].join('\n')
-      : 'Motore locale ripristinato.';
+        ].join('\n') : chatRequests === 2
+      ? 'Motore locale ripristinato.'
+      : [
+          'Creo prima il frame con Qwen e poi lo animo localmente.',
+          '```dstudio-video',
+          JSON.stringify({
+            prompt: 'The paper boat begins to move across the puddle; cinematic tracking shot and synchronized rain.',
+            duration: 5,
+            aspect: '16:9',
+            useFirstFrame: false,
+            firstFramePrompt: 'A cinematic still image of a small paper boat resting in a rain puddle at sunset.',
+          }),
+          '```',
+        ].join('\n');
     const events = [
       `data: ${JSON.stringify({ choices: [{ delta: { content: directive }, finish_reason: null }] })}\n\n`,
       `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 25, completion_tokens: 20, total_tokens: 45 } })}\n\n`,
@@ -328,6 +374,41 @@ try {
   const recoveredChat = requestOrder.indexOf('chat', recoveryStart + 1);
   assert.ok(recoveryStart > downIndex && recoveredChat > recoveryStart,
     `a stopped local engine must restart before chat: ${JSON.stringify(requestOrder)}`);
+
+  const pipelineStart = requestOrder.length;
+  await page.locator('#composer-input').fill(
+    'Prima crea con Qwen una barchetta nella pozzanghera, poi usa quell’immagine come primo frame del video.',
+  );
+  await page.locator('#btn-send').click();
+  const pipelineReply = page.locator('.msg--assistant').last();
+  await pipelineReply.locator('.msg-generated-image').waitFor({ state: 'visible', timeout: 15000 });
+  await pipelineReply.locator('.msg-generated-video').waitFor({ state: 'visible', timeout: 20000 });
+
+  assert.ok(imageGenerationBody, 'Qwen Image must receive the generated-first-frame request');
+  assert.equal(imageGenerationBody.action, 'generate');
+  assert.match(imageGenerationBody.prompt, /paper boat.*rain puddle/i);
+  assert.ok(pipelineGenerationBody, 'H3 must receive the chained video request');
+  assert.match(pipelineGenerationBody.image || '', /^data:image\/png;base64,/, 'the Qwen PNG must become H3 first-frame data');
+  assert.equal(pipelineGenerationBody.duration, 5);
+  assert.equal(pipelineGenerationBody.aspect, '16:9');
+
+  const pipelineEvents = requestOrder.slice(pipelineStart);
+  const pipelineStop = pipelineEvents.indexOf('engine-stop');
+  const qwenGenerate = pipelineEvents.indexOf('image-generate');
+  const qwenRead = pipelineEvents.indexOf('image-file', qwenGenerate + 1);
+  const h3Generate = pipelineEvents.indexOf('video-generate', qwenRead + 1);
+  const pipelineRestart = pipelineEvents.indexOf('engine-start', h3Generate + 1);
+  assert.ok(pipelineStop >= 0 && qwenGenerate > pipelineStop && qwenRead > qwenGenerate &&
+    h3Generate > qwenRead && pipelineRestart > h3Generate,
+  `Qwen → H3 pipeline order is wrong: ${JSON.stringify(pipelineEvents)}`);
+  assert.equal(pipelineEvents.filter((event) => event === 'engine-stop').length, 1,
+    'the chat model should be released only once for the full Qwen → H3 pipeline');
+  assert.equal(pipelineEvents.filter((event) => event === 'engine-start').length, 1,
+    'the chat model should be restored only after both media stages complete');
+
+  const pipelineText = await pipelineReply.locator('.msg__content').textContent() || '';
+  assert.doesNotMatch(pipelineText, /dstudio-video|firstFramePrompt/,
+    'the chained media directive must stay private');
   assert.deepEqual(pageErrors, [], `page errors: ${JSON.stringify(pageErrors, null, 2)}`);
   console.log('ui_video_generation_playwright_test: ok');
 } finally {
