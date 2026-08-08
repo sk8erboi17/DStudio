@@ -1,0 +1,336 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+
+let chromium;
+try {
+  ({ chromium } = await import('playwright'));
+} catch {
+  console.log('ui_video_generation_playwright_test: playwright missing, skipping');
+  process.exit(0);
+}
+
+const repoRoot = process.cwd();
+const webRoot = path.join(repoRoot, 'web');
+const workerSource = fs.readFileSync(path.join(repoRoot, 'scripts', 'h3-run.py'), 'utf8');
+const mp4Block = workerSource.match(/TEST_MP4_B64\s*=\s*\(([\s\S]*?)\n\)/)?.[1] || '';
+const mp4Base64 = [...mp4Block.matchAll(/"([^"]*)"/g)].map((match) => match[1]).join('');
+const testVideo = Buffer.from(mp4Base64, 'base64');
+assert.ok(testVideo.length > 500, 'the H3 protocol test video must be available');
+
+const requestOrder = [];
+const externalRequests = [];
+const progressStages = [];
+let engineRunning = true;
+let engineStarting = false;
+let engineReadyAt = 0;
+let progressReads = 0;
+let generationBody = null;
+let chatRequests = 0;
+
+function json(res, status, value) {
+  const body = JSON.stringify(value);
+  res.writeHead(status, {
+    'content-type': 'application/json',
+    'content-length': Buffer.byteLength(body),
+  });
+  res.end(body);
+}
+
+async function readBody(req) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function engineStatus() {
+  if (engineStarting && Date.now() >= engineReadyAt) {
+    engineStarting = false;
+    engineRunning = true;
+  }
+  const processRunning = engineRunning || engineStarting;
+  return {
+    mode: processRunning ? 'server' : 'none', running: processRunning, ready: engineRunning,
+    loadPct: engineRunning ? 100 : (engineStarting ? 45 : 0),
+    stage: engineRunning ? 'Ready' : (engineStarting ? 'Mapping the model…' : 'Engine stopped'),
+    agentWorking: false, workdir: '', ds4dirOk: true, webdirOk: true, lan: false,
+    config: { ctx: 65536, power: 90, think: 'off', ssdStreaming: 'auto' },
+    variants: { flash: true, pro: false }, variant: 'flash',
+    modelFile: 'gguf/DeepSeek-V4-Flash-test.gguf', engineLine: engineRunning ? 'ready' : 'stopped',
+  };
+}
+
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url || '/', 'http://127.0.0.1');
+  if (url.pathname === '/api/status') {
+    json(res, 200, engineStatus());
+    return;
+  }
+  if (url.pathname === '/api/store') {
+    if (req.method === 'POST') await readBody(req);
+    json(res, 200, { ok: true, rev: 0, data: null });
+    return;
+  }
+  if (url.pathname === '/api/storerev') {
+    json(res, 200, { rev: 0 });
+    return;
+  }
+  if (url.pathname === '/api/ggufs') {
+    json(res, 200, { ok: true, files: [] });
+    return;
+  }
+  if (url.pathname === '/api/engine/checkouts') {
+    json(res, 200, { ok: true, checkouts: [] });
+    return;
+  }
+  if (url.pathname === '/api/doctor') {
+    json(res, 200, { ok: true, issues: [], checks: [] });
+    return;
+  }
+  if (url.pathname === '/api/diagnostics') {
+    json(res, 200, { ok: true, tasks: [], recentLogs: [] });
+    return;
+  }
+  if (url.pathname === '/api/updates/check') {
+    json(res, 200, { ok: true, sections: [], tasks: [] });
+    return;
+  }
+  if (url.pathname === '/api/vision/status') {
+    json(res, 200, { ok: true, supported: true, installed: false, state: 'stopped' });
+    return;
+  }
+  if (url.pathname === '/api/remote/status') {
+    json(res, 200, { ok: true, enabled: false });
+    return;
+  }
+  if (url.pathname === '/api/lan-client/chats') {
+    json(res, 200, { ok: true, chats: [] });
+    return;
+  }
+  if (url.pathname === '/api/vision/stop' && req.method === 'POST') {
+    requestOrder.push('vision-stop');
+    json(res, 200, { ok: true, stopped: true });
+    return;
+  }
+  if (url.pathname === '/api/embed/stop' && req.method === 'POST') {
+    requestOrder.push('embed-stop');
+    json(res, 200, { ok: true, stopped: true });
+    return;
+  }
+  if (url.pathname === '/api/stop' && req.method === 'POST') {
+    requestOrder.push('engine-stop');
+    engineRunning = false;
+    engineStarting = false;
+    json(res, 200, { ok: true, running: false });
+    return;
+  }
+  if (url.pathname === '/api/start' && req.method === 'POST') {
+    requestOrder.push('engine-start');
+    await readBody(req);
+    engineRunning = false;
+    engineStarting = true;
+    engineReadyAt = Date.now() + 650;
+    json(res, 200, { ok: true });
+    return;
+  }
+  if (url.pathname === '/api/video/status') {
+    json(res, 200, {
+      ok: true, supported: true, installed: true,
+      downloadedBytes: 53924785072, totalBytes: 53924785072,
+      acceleratorInstalled: true, encoder: 'official',
+      model: 'MiniMaxAI/MiniMax-H3', runtime: 'ComfyUI/MPS',
+    });
+    return;
+  }
+  if (url.pathname === '/api/video/progress') {
+    const states = [
+      { stage: 'download', label: 'Checking local open weights…', progress: 18 },
+      { stage: 'model-load', label: 'Loading H3 into unified memory…', progress: 67 },
+      { stage: 'conditioning', label: 'Encoding the prompt on Apple Metal…', progress: 68 },
+      { stage: 'sampling', label: 'Sampling H3 on Apple Metal · 5/20 steps complete…',
+        progress: 76, step: 5, totalSteps: 20, etaSeconds: 180 },
+    ];
+    const state = states[Math.min(progressReads++, states.length - 1)];
+    progressStages.push(state.stage);
+    json(res, 200, { ok: true, state: 'running', ...state });
+    return;
+  }
+  if (url.pathname === '/api/video/generate' && req.method === 'POST') {
+    generationBody = JSON.parse(await readBody(req) || '{}');
+    requestOrder.push('video-generate');
+    await new Promise((resolve) => setTimeout(resolve, 3200));
+    json(res, 200, {
+      ok: true,
+      id: generationBody.job,
+      filename: 'minimax-h3-test.mp4',
+      model: 'MiniMaxAI/MiniMax-H3',
+      profile: generationBody.profile,
+      url: `/api/video/file?id=${encodeURIComponent(generationBody.job)}&name=minimax-h3-test.mp4`,
+    });
+    return;
+  }
+  if (url.pathname === '/api/video/file') {
+    res.writeHead(200, {
+      'content-type': 'video/mp4',
+      'content-length': testVideo.length,
+      'accept-ranges': 'bytes',
+    });
+    res.end(testVideo);
+    return;
+  }
+  if (url.pathname === '/api/video/stop' && req.method === 'POST') {
+    requestOrder.push('video-stop');
+    json(res, 200, { ok: true, running: false });
+    return;
+  }
+  if (url.pathname === '/v1/models') {
+    json(res, 200, { data: [{ id: 'deepseek-v4-flash', context_length: 65536 }] });
+    return;
+  }
+  if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
+    requestOrder.push('chat');
+    chatRequests++;
+    assert.equal(engineRunning, true, 'chat must wait until the local engine reports ready');
+    const payload = JSON.parse(await readBody(req) || '{}');
+    assert.equal(payload.stream, true, 'video routing should begin as a normal local SSE chat');
+    const directive = chatRequests === 1
+      ? [
+          'Avvio la generazione locale con il modello open-weight.',
+          '```dstudio-video',
+          JSON.stringify({
+            prompt: 'A paper boat crossing a rain puddle; synchronized rain and soft piano.',
+            duration: null,
+            aspect: null,
+            useFirstFrame: false,
+          }),
+          '```',
+        ].join('\n')
+      : 'Motore locale ripristinato.';
+    const events = [
+      `data: ${JSON.stringify({ choices: [{ delta: { content: directive }, finish_reason: null }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 25, completion_tokens: 20, total_tokens: 45 } })}\n\n`,
+      'data: [DONE]\n\n',
+    ].join('');
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+    res.end(events);
+    return;
+  }
+  if (url.pathname === '/favicon.ico') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  const file = url.pathname === '/' ? path.join(webRoot, 'index.html') : path.join(webRoot, url.pathname);
+  if (!file.startsWith(webRoot) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+    res.writeHead(404);
+    res.end('not found');
+    return;
+  }
+  res.writeHead(200, { 'content-type': file.endsWith('.html') ? 'text/html' : 'application/octet-stream' });
+  fs.createReadStream(file).pipe(res);
+});
+
+await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+const port = server.address().port;
+
+let browser;
+try {
+  browser = await chromium.launch();
+} catch {
+  server.close();
+  console.log('ui_video_generation_playwright_test: browser missing, skipping');
+  process.exit(0);
+}
+
+try {
+  const page = await browser.newPage({ viewport: { width: 1360, height: 900 } });
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(error?.stack || error?.message || String(error)));
+  page.on('console', (msg) => { if (msg.type() === 'error') pageErrors.push(msg.text()); });
+  page.on('request', (request) => {
+    const target = new URL(request.url());
+    if (target.hostname !== '127.0.0.1') externalRequests.push(request.url());
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem('ds4web.settings.v2', JSON.stringify({
+      v: 2, onboarded: true, theme: 'dark', baseUrl: '', chatBackend: 'local',
+      model: 'deepseek-v4-flash', modelVariant: 'flash', thinkLevel: 'off',
+      ctxSize: 65536, enginePower: 90, ssdStreaming: 'auto', webMode: 'off',
+      videoLicenseAccepted: true, videoEncoder: 'official',
+      videoProfile: 'preview', videoDuration: 8, videoAspect: '9:16',
+    }));
+  });
+
+  await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#btn-settings').click();
+  await page.locator('#set-nav [data-pane="video"]').click();
+  await page.locator('#set-video-status').filter({ hasText: 'Ready:' }).waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#set-video-license').isChecked(), true);
+  assert.equal(await page.locator('#set-video-profile').inputValue(), 'preview');
+  assert.equal(await page.locator('#set-video-duration').inputValue(), '8');
+  assert.equal(await page.locator('#set-video-aspect').inputValue(), '9:16');
+  await page.locator('#set-close').click();
+
+  await page.locator('#composer-input').fill('Crea un video di una barchetta di carta sotto la pioggia.');
+  await page.locator('#btn-send').click();
+
+  const progress = page.locator('.msg-video-generation');
+  await progress.waitFor({ state: 'visible', timeout: 15000 });
+  assert.match(await progress.textContent() || '', /H3|open weights|unified memory|video/i);
+
+  const card = page.locator('.msg-generated-video');
+  await card.waitFor({ state: 'visible', timeout: 20000 });
+  const player = card.locator('video');
+  assert.equal(await player.getAttribute('controls'), '', 'the generated H3 result needs native playback controls');
+  assert.match(await player.getAttribute('src') || '', /^\/api\/video\/file\?/);
+  const download = card.locator('.msg-generated-video__download');
+  assert.match(await download.getAttribute('href') || '', /^\/api\/video\/file\?/);
+  assert.equal(await download.getAttribute('download'), 'minimax-h3-test.mp4');
+  assert.match(await card.textContent() || '', /MiniMax H3.*8s.*9:16.*preview profile.*local open weights/s);
+
+  assert.ok(generationBody, 'the local H3 endpoint must receive a generation request');
+  assert.equal(generationBody.duration, 8, 'saved duration applies when the model leaves duration unspecified');
+  assert.equal(generationBody.aspect, '9:16', 'saved aspect applies when the model leaves aspect unspecified');
+  assert.equal(generationBody.profile, 'preview', 'saved render profile must reach the local worker');
+  assert.equal(generationBody.encoder, 'official');
+  assert.equal(generationBody.licenseAccepted, true);
+  assert.equal('image' in generationBody, false, 'text-to-video should not invent a first frame');
+
+  const chatIndex = requestOrder.indexOf('chat');
+  const releaseVision = requestOrder.indexOf('vision-stop', chatIndex + 1);
+  const releaseEmbed = requestOrder.indexOf('embed-stop', releaseVision + 1);
+  const stopIndex = requestOrder.indexOf('engine-stop', releaseEmbed + 1);
+  const generateIndex = requestOrder.indexOf('video-generate', stopIndex + 1);
+  const restartIndex = requestOrder.indexOf('engine-start', generateIndex + 1);
+  assert.ok(chatIndex >= 0 && releaseVision > chatIndex && releaseEmbed > releaseVision &&
+    stopIndex > releaseEmbed && generateIndex > stopIndex && restartIndex > generateIndex,
+  `memory handoff order is wrong: ${JSON.stringify(requestOrder)}`);
+  assert.ok(progressStages.includes('model-load') && progressStages.includes('sampling'),
+    `H3 progress stages were not surfaced: ${JSON.stringify(progressStages)}`);
+
+  const assistantText = await page.locator('.msg--assistant .msg__content').last().textContent() || '';
+  assert.doesNotMatch(assistantText, /dstudio-video|"useFirstFrame"/,
+    'the private video routing directive must not leak into the transcript');
+  assert.equal(externalRequests.some((url) => /api\.minimax\.io/i.test(url)), false,
+    `generation must stay local: ${JSON.stringify(externalRequests)}`);
+
+  engineRunning = false;
+  engineStarting = false;
+  requestOrder.push('test-engine-down');
+  await page.locator('#composer-input').fill('Rispondi dopo il ripristino del motore.');
+  await page.locator('#btn-send').click();
+  const recoveredReply = page.locator('.msg--assistant .msg__content').last();
+  await recoveredReply.filter({ hasText: 'Motore locale ripristinato.' }).waitFor({ state: 'visible', timeout: 10000 });
+  const downIndex = requestOrder.lastIndexOf('test-engine-down');
+  const recoveryStart = requestOrder.indexOf('engine-start', downIndex + 1);
+  const recoveredChat = requestOrder.indexOf('chat', recoveryStart + 1);
+  assert.ok(recoveryStart > downIndex && recoveredChat > recoveryStart,
+    `a stopped local engine must restart before chat: ${JSON.stringify(requestOrder)}`);
+  assert.deepEqual(pageErrors, [], `page errors: ${JSON.stringify(pageErrors, null, 2)}`);
+  console.log('ui_video_generation_playwright_test: ok');
+} finally {
+  await browser.close().catch(() => {});
+  server.close();
+}
