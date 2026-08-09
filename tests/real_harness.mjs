@@ -3,7 +3,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 
 export const repoRoot = process.cwd();
@@ -141,7 +141,8 @@ function httpJsonRequest(url, options = {}) {
 }
 
 export async function jsonFetch(baseUrl, urlPath, options = {}) {
-  const signal = options.signal || AbortSignal.timeout(options.timeoutMs || 30_000);
+  const timeoutMs = options.timeoutMs === undefined ? 30_000 : Number(options.timeoutMs);
+  const signal = options.signal || (timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined);
   const res = await httpJsonRequest(`${baseUrl}${urlPath}`, { ...options, signal });
   const text = await res.text();
   let json = null;
@@ -161,12 +162,13 @@ export async function completeText(baseUrl, messages, opts = {}) {
     stream: false,
     think: !off,
     temperature: opts.temperature ?? 0,
-    max_tokens: opts.maxTokens ?? 800,
   };
+  const maxTokens = opts.maxTokens ?? 800;
+  if (maxTokens > 0) body.max_tokens = maxTokens;
   if (!off && opts.thinkLevel) body.reasoning_effort = opts.thinkLevel === 'max' ? 'max' : 'high';
   const json = await jsonFetch(baseUrl, '/v1/chat/completions', {
     method: 'POST',
-    timeoutMs: opts.timeoutMs || Number(process.env.DSTUDIO_REAL_CALL_TIMEOUT_MS || 1_800_000),
+    timeoutMs: opts.timeoutMs ?? Number(process.env.DSTUDIO_REAL_CALL_TIMEOUT_MS || 0),
     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -185,13 +187,14 @@ export async function completeTextStream(baseUrl, messages, opts = {}) {
     stream_options: { include_usage: true },
     think: !off,
     temperature: opts.temperature ?? 0,
-    max_tokens: opts.maxTokens ?? 800,
   };
+  const maxTokens = opts.maxTokens ?? 800;
+  if (maxTokens > 0) body.max_tokens = maxTokens;
   if (!off && opts.thinkLevel) {
     body.reasoning_effort = opts.thinkLevel === 'max' ? 'max' : 'high';
   }
-  const timeoutMs = opts.timeoutMs || Number(process.env.DSTUDIO_REAL_CALL_TIMEOUT_MS || 1_800_000);
-  const signal = opts.signal || AbortSignal.timeout(timeoutMs);
+  const timeoutMs = opts.timeoutMs ?? Number(process.env.DSTUDIO_REAL_CALL_TIMEOUT_MS || 0);
+  const signal = opts.signal || (timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined);
   return await new Promise((resolve, reject) => {
     const u = new URL(`${baseUrl}/v1/chat/completions`);
     const payload = JSON.stringify(body);
@@ -259,7 +262,7 @@ export async function completeTextStream(baseUrl, messages, opts = {}) {
   });
 }
 
-export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreExternal = false } = {}) {
+export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreExternal = false, isolatedEnginePort = false } = {}) {
   if (!ignoreExternal && process.env.DSTUDIO_REAL_BASE_URL) {
     const baseUrl = normalizeBaseUrl(process.env.DSTUDIO_REAL_BASE_URL);
     await jsonFetch(baseUrl, '/api/status', { timeoutMs: 10_000 });
@@ -269,6 +272,7 @@ export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreEx
   const { dir: ds4Dir, ggufs } = resolveDs4Dir();
   const bin = resolveDStudioBinary(binaryArg);
   const port = await freePort();
+  const enginePort = isolatedEnginePort ? await freePort() : 28000;
   const home = fs.mkdtempSync(path.join(os.tmpdir(), `${label}-home-`));
   const realHome = process.env.DSTUDIO_REAL_HOME || os.homedir();
   const toolPath = [
@@ -289,6 +293,7 @@ export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreEx
       PATH: toolPath,
       DS4UI_HOST: '127.0.0.1',
       DS4UI_PAGE_FROM_DISK: '1',
+      ...(isolatedEnginePort ? { DS4UI_ENGINE_PORT: String(enginePort) } : {}),
     },
     stdio: ['ignore', log, log],
   });
@@ -308,6 +313,7 @@ export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreEx
       return {
         baseUrl,
         external: false,
+        enginePort,
         ds4Dir,
         ggufs,
         home,
@@ -318,6 +324,20 @@ export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreEx
             child.kill('SIGTERM');
             for (let i = 0; i < 30 && child.exitCode === null; i++) await sleep(100);
             if (child.exitCode === null) child.kill('SIGKILL');
+          }
+          // ds4 intentionally keeps its visible CDP Chrome alive between
+          // short helper invocations. Real tests use a unique temporary HOME,
+          // so terminate only processes tied to that exact isolated profile.
+          const profile = path.join(home, '.ds4', 'browser');
+          if (process.platform !== 'win32') {
+            let pids = [];
+            try {
+              pids = execFileSync('pgrep', ['-f', profile], { encoding: 'utf8' })
+                .split(/\s+/).map(Number).filter((pid) => pid > 1 && pid !== process.pid);
+            } catch {}
+            for (const pid of pids) { try { process.kill(pid, 'SIGTERM'); } catch {} }
+            await sleep(300);
+            for (const pid of pids) { try { process.kill(pid, 0); process.kill(pid, 'SIGKILL'); } catch {} }
           }
         },
       };
@@ -463,8 +483,12 @@ export function searchRuntimeSource() {
 
 export function createWebPipeline(baseUrl) {
   const js = searchRuntimeSource();
+  const roadmapProtocolMatch = js.match(/const ROADMAP_OUTPUT_PROTOCOL = String\.raw`([\s\S]*?)`;/);
+  if (!roadmapProtocolMatch) throw new Error('ROADMAP_OUTPUT_PROTOCOL not found in search runtime');
   const names = [
     'compactText',
+    'balancedEvidenceText',
+    'researchReportWantsTechnical',
     'buildWebContext',
     'stripJsonFence',
     'uniqueStrings',
@@ -480,23 +504,34 @@ export function createWebPipeline(baseUrl) {
     'urlOriginAndParts',
     'adapterCandidateUrls',
     'seedAdapterCandidateSources',
-    'webTimeoutLabel',
     'isAbortLikeError',
     'webPipelineError',
     'completeWebPipelineText',
     'parseWebPipelineJson',
     'completeWebPipelineObject',
+    'researchPurposeValue',
+    'roadmapResearchQueries',
     'normalizeResearchClassification',
     'classifyResearchRequest',
     'summarizeSourcesForPicker',
     'normalizeSourcePick',
+    'roadmapSourceSelectionScore',
+    'roadmapPdfSource',
+    'likelyUnauthorizedRoadmapMirror',
+    'lowValueRoadmapDiscoveryPage',
+    'roadmapDiscoveryCandidateEligible',
+    'roadmapDiscoveryCandidatePool',
+    'diversifyRoadmapSourcePick',
     'pickSourcesToRead',
     'normalizeResearchAction',
     'summarizeFactsForModel',
     'summarizeResearchState',
     'planNextResearchAction',
+    'roadmapResearchActionWithFallback',
     'normalizeExtractedFacts',
     'extractFactsFromPage',
+    'normalizeRoadmapBatchFacts',
+    'extractFactsFromRoadmapBatch',
     'extractFactsFromReadSources',
     'judgeResearchSufficiency',
     'buildFactsContext',
@@ -507,6 +542,7 @@ export function createWebPipeline(baseUrl) {
     'researchReportQuality',
     'synthesizeResearchReport',
     'buildFinalResearchContext',
+    'buildRoadmapEvidenceContext',
     'writeFinalFromFacts',
     'addSourceToState',
     'executeWebSearchQueries',
@@ -556,14 +592,15 @@ export function createWebPipeline(baseUrl) {
   const functions = names.map((n) => extractFunction(js, n)).join('\n\n');
   const factory = new Function('Api', 'Engine', 'performance', 'AbortSignal', 'URL', `
     const WEB_CONTEXT_CHARS = 1800;
-    const WEB_SEARCH_PLAN_TIMEOUT_MS = Number(process.env.DSTUDIO_REAL_PLAN_TIMEOUT_MS || 120_000);
-    const WEB_SEARCH_REQUEST_TIMEOUT_MS = 240_000;
-    const WEB_RESEARCH_PLAN_TIMEOUT_MS = Number(process.env.DSTUDIO_REAL_PLAN_TIMEOUT_MS || 180_000);
-    const WEB_RESEARCH_JUDGE_TIMEOUT_MS = Number(process.env.DSTUDIO_REAL_JUDGE_TIMEOUT_MS || 600_000);
-    const WEB_RESEARCH_TOTAL_TIMEOUT_MS = Number(process.env.DSTUDIO_REAL_TEST_TIMEOUT_MS || 1_800_000);
+    const WEB_SEARCH_PLAN_TIMEOUT_MS = Number.POSITIVE_INFINITY;
+    const WEB_SEARCH_REQUEST_TIMEOUT_MS = Number.POSITIVE_INFINITY;
+    const WEB_RESEARCH_PLAN_TIMEOUT_MS = Number.POSITIVE_INFINITY;
+    const WEB_RESEARCH_JUDGE_TIMEOUT_MS = Number.POSITIVE_INFINITY;
+    const WEB_RESEARCH_TOTAL_TIMEOUT_MS = Number.POSITIVE_INFINITY;
+    const ROADMAP_OUTPUT_PROTOCOL = String.raw\`${roadmapProtocolMatch[1]}\`;
     function isLanClientMode() { return false; }
     ${functions}
-    return { searchWithPlan, runDeepResearch, buildWebContext };
+    return { searchWithPlan, runDeepResearch, buildWebContext, roadmapOutputProtocol: ROADMAP_OUTPUT_PROTOCOL };
   `);
   const Api = {
     completeText: async (payload, signal) => completeText(baseUrl, payload.messages, {
@@ -571,21 +608,25 @@ export function createWebPipeline(baseUrl) {
       temperature: payload.temperature,
       maxTokens: payload.maxTokens,
       thinkLevel: payload.thinkLevel,
-      timeoutMs: Number(process.env.DSTUDIO_REAL_CALL_TIMEOUT_MS || 1_800_000),
+      timeoutMs: Number(process.env.DSTUDIO_REAL_CALL_TIMEOUT_MS || 0),
       signal,
     }),
   };
   const Engine = {
-    webSearch: async (query) => jsonFetch(baseUrl, '/api/web-search', {
+    webSearch: async (query, _signal, options = {}) => jsonFetch(baseUrl, '/api/web-search', {
       method: 'POST',
       headers: csrfHeaders,
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({
+        query,
+        preferFallback: !!options.preferFallback,
+        cdpOnly: !!options.cdpOnly,
+      }),
       timeoutMs: 240_000,
     }),
-    webRead: async (url) => jsonFetch(baseUrl, '/api/web-read', {
+    webRead: async (url, _signal, options = {}) => jsonFetch(baseUrl, '/api/web-read', {
       method: 'POST',
       headers: csrfHeaders,
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, cdpOnly: !!options.cdpOnly }),
       timeoutMs: 120_000,
     }),
     httpProbe: async (url, method = 'HEAD') => jsonFetch(baseUrl, '/api/http-probe', {
@@ -623,8 +664,46 @@ export async function modelJudge(baseUrl, { question, answer, sources, report })
         })),
       }),
     },
-  ], { maxTokens: Number(process.env.DSTUDIO_REAL_JUDGE_MAX_TOKENS || 1500), timeoutMs: Number(process.env.DSTUDIO_REAL_JUDGE_TIMEOUT_MS || 600_000), thinkLevel: 'off' });
+  ], { maxTokens: 0, timeoutMs: Number(process.env.DSTUDIO_REAL_JUDGE_TIMEOUT_MS || 0), thinkLevel: 'off' });
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) throw new Error(`judge did not return JSON: ${text}`);
   return JSON.parse(m[0]);
+}
+
+export async function roadmapJudge(baseUrl, { request, roadmap, sources, researchContext }) {
+  const text = await completeText(baseUrl, [
+    {
+      role: 'system',
+      content: [
+        'You are a strict learning-roadmap evaluator. Return strict JSON only.',
+        'Evaluate the roadmap against the learner request and the read research evidence.',
+        'Score each dimension from 0 to 10: completeness, prerequisiteLogic, conceptualDepth, adaptiveGranularity, practiceAndAssessment, personalization, researchGrounding, and feasibility.',
+        'Adaptive granularity means the roadmap derives its shape from conceptual breadth and learner scope: broad domains with multiple independent outcomes or prerequisite chains are split into meaningful stages or branches, while narrow skills are kept compact. Topic and stage sizes may differ. Penalize preset catalogues, uniform sizing, arbitrary count padding, broad umbrella topics, and artificial fragmentation.',
+        'Penalize laundry lists, vague outcomes, circular or forward prerequisites, repeated generic exercises, invented URLs, missing foundations, missing advanced depth, and plans that cannot fit the stated time.',
+        'Passing requires every dimension >= 7, overall >= 8, concrete observable mastery checks, and a coherent capstone.',
+        'Schema: {"overall":number,"pass":boolean,"dimensions":{"completeness":number,"prerequisiteLogic":number,"conceptualDepth":number,"adaptiveGranularity":number,"practiceAndAssessment":number,"personalization":number,"researchGrounding":number,"feasibility":number},"strengths":["item"],"failures":["item"],"reason":"short verdict"}.',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: JSON.stringify({
+        request,
+        roadmap,
+        researchContext: String(researchContext || '').slice(0, 36_000),
+        sources: (sources || []).map((source) => ({
+          title: source.title,
+          url: source.url,
+          read: !!source.read,
+          excerpt: String(source.content || '').slice(0, 2400),
+        })),
+      }),
+    },
+  ], {
+    maxTokens: 0,
+    timeoutMs: Number(process.env.DSTUDIO_REAL_JUDGE_TIMEOUT_MS || 0),
+    thinkLevel: 'off',
+  });
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error(`roadmap judge did not return JSON: ${text}`);
+  return JSON.parse(match[0]);
 }

@@ -14,84 +14,94 @@ try {
 const repoRoot = process.cwd();
 const webRoot = path.join(repoRoot, 'web');
 const chatRequests = [];
+const webSearchRequests = [];
 const webReadRequests = [];
 const missingRequests = [];
+const startRequests = [];
 let blockAttempts = 0;
+let roadmapAttempts = 0;
+let activeContext = 65536;
+let factFindingIssued = false;
 
+const roadmapSources = [
+  'https://developer.mozilla.org/en-US/docs/Learn_web_development',
+  'https://web.dev/learn/',
+  'https://www.w3.org/WAI/curricula/',
+  'https://html.spec.whatwg.org/multipage/',
+  'https://tc39.es/ecma262/',
+];
+const roadmapNoiseSources = [
+  'https://github.com/example/course/pulls',
+  'https://github.com/example/course/actions',
+];
+const topicSpecs = [
+  ['html-semantics', 'HTML semantico'], ['css-layout', 'CSS, Flexbox e Grid'],
+  ['web-accessibility', 'Accessibilità della piattaforma'], ['browser-network', 'Browser, HTTP e DevTools'],
+  ['js-language', 'JavaScript: linguaggio e dati'], ['js-dom', 'Dal linguaggio al DOM'],
+  ['async-events', 'Eventi, asincronia e richieste'], ['js-testing', 'Test automatici JavaScript'],
+  ['component-state', 'Componenti e stato'], ['routing-data', 'Routing e caricamento dati'],
+  ['forms-validation', 'Form, validazione e accessibilità'], ['framework-testing', 'Test dei componenti'],
+  ['architecture-api', 'Architettura client e API'], ['auth-security', 'Autenticazione e sicurezza web'],
+  ['observability-performance', 'Prestazioni e osservabilità'], ['ci-cd', 'CI/CD e qualità automatizzata'],
+  ['deployment', 'Deploy riproducibile'], ['monitoring', 'Monitoraggio in produzione'],
+  ['maintenance', 'Manutenzione ed evoluzione'], ['portfolio', 'Portfolio e comunicazione tecnica'],
+];
+const makeTopic = ([id, title], index) => ({
+  id,
+  title,
+  summary: `${title} viene studiato nel punto in cui le dipendenze precedenti permettono di applicarlo con comprensione, non per imitazione.`,
+  estimatedHours: 6 + (index % 3) * 2,
+  prerequisites: index ? [topicSpecs[index - 1][0]] : [],
+  keyConcepts: [`${title}: modello mentale`, `${title}: API e vincoli`, `${title}: errori comuni`],
+  outcome: `Realizzi un artefatto verificabile che dimostra padronanza di ${title.toLowerCase()}.`,
+  practice: `Costruisci una piccola funzionalità dedicata a ${title.toLowerCase()}, documenta le decisioni e correggi almeno un difetto osservato.`,
+  assessment: `Spiega le scelte, supera una checklist funzionale e correggi una variante con un errore intenzionale relativo a ${title.toLowerCase()}.`,
+  optional: false,
+  resources: [{ title: ['MDN Learn', 'web.dev Learn', 'W3C Curricula'][index % 3], url: roadmapSources[index % 3], source: 'Deep Research', why: 'Fonte autorevole usata per scope, ordine ed esercizi.' }],
+});
+const stageSpecs = [
+  ['web-foundations', 'Fondamenti del Web', 'Capire la piattaforma prima dei framework.', '2 settimane'],
+  ['javascript', 'JavaScript essenziale', 'Dati, funzioni, DOM, asincronia e test.', '3 settimane'],
+  ['framework', 'Framework e componenti', 'Applicare i fondamenti a un’architettura a componenti.', '3 settimane'],
+  ['production-quality', 'Architettura e qualità', 'Integrare API, sicurezza, prestazioni e automazione.', '3 settimane'],
+  ['production', 'Produzione e crescita', 'Distribuire, osservare, mantenere e comunicare il prodotto.', '3 settimane'],
+];
 const roadmap = {
-  version: 1,
+  version: 2,
   title: 'Frontend moderno, dalle basi alla produzione',
   goal: 'Costruire e pubblicare un’applicazione web accessibile e ben testata.',
   audience: 'Principiante con familiarità generale con il computer',
   estimatedDuration: '12 settimane · 6 ore/settimana',
   assumptions: ['Nessuna esperienza professionale richiesta'],
-  stages: [
-    {
-      id: 'web-foundations',
-      title: 'Fondamenti del Web',
-      description: 'Capire la piattaforma prima dei framework.',
-      duration: '2 settimane',
-      topics: [
-        {
-          id: 'html-semantics',
-          title: 'HTML semantico',
-          summary: 'Struttura documenti leggibili da persone, browser e tecnologie assistive.',
-          outcome: 'Realizzi una pagina con una gerarchia semantica corretta.',
-          practice: 'Ricrea la pagina di un articolo senza usare div per la struttura principale.',
-          optional: false,
-          resources: [{ title: 'MDN HTML', url: 'https://developer.mozilla.org/docs/Web/HTML', source: 'web' }],
-        },
-        {
-          id: 'css-layout',
-          title: 'CSS, Flexbox e Grid',
-          summary: 'Separare contenuto e presentazione e costruire layout adattivi.',
-          outcome: 'Riproduci un layout responsive senza coordinate rigide.',
-          practice: 'Costruisci una dashboard che passa da tre colonne a una.',
-          optional: false,
-          resources: [],
-        },
-      ],
-      checkpoint: 'Pubblica una pagina responsive e supera un controllo base di accessibilità.',
-    },
-    {
-      id: 'javascript',
-      title: 'JavaScript essenziale',
-      description: 'Dati, funzioni, DOM e asincronia.',
-      duration: '3 settimane',
-      topics: [{
-        id: 'js-dom', title: 'Dal linguaggio al DOM', summary: 'Usa JavaScript per modellare stato e interazioni.',
-        outcome: 'Implementi un’interazione senza dipendenze.', practice: 'Crea una lista attività persistente.', optional: false, resources: [],
-      }],
-      checkpoint: 'Spiega il flusso evento → stato → rendering e lo implementa in un mini progetto.',
-    },
-    {
-      id: 'framework',
-      title: 'Framework e componenti',
-      description: 'Applicare i fondamenti a un’architettura a componenti.',
-      duration: '3 settimane',
-      topics: [{
-        id: 'component-state', title: 'Componenti e stato', summary: 'Dividi l’interfaccia lungo responsabilità verificabili.',
-        outcome: 'Progetti componenti con dati e confini chiari.', practice: 'Migra la lista attività in componenti.', optional: false, resources: [],
-      }],
-      checkpoint: 'La stessa funzionalità è organizzata in componenti piccoli e testabili.',
-    },
-    {
-      id: 'production',
-      title: 'Qualità e produzione',
-      description: 'Test, prestazioni e distribuzione.',
-      duration: '4 settimane',
-      topics: [{
-        id: 'test-deploy', title: 'Test e deploy', summary: 'Proteggi i flussi critici e pubblica con una pipeline ripetibile.',
-        outcome: 'L’app è verificata e raggiungibile online.', practice: 'Aggiungi test end-to-end e una build di produzione.', optional: false, resources: [],
-      }],
-      checkpoint: 'La pipeline esegue i test e distribuisce una versione funzionante.',
-    },
-  ],
+  stages: stageSpecs.map(([id, title, description, duration], stageIndex) => ({
+    id, title, description, duration,
+    objectives: [`Integrare e verificare le competenze della fase ${title}.`],
+    topics: topicSpecs.slice(stageIndex * 4, stageIndex * 4 + 4).map((topic, offset) => makeTopic(topic, stageIndex * 4 + offset)),
+    checkpoint: `Completa un progetto integrato della fase ${title}, spiegalo e superane i controlli funzionali e qualitativi.`,
+  })),
   capstone: {
     title: 'Applicazione web completa',
     description: 'Progetta, testa e pubblica un prodotto piccolo ma utilizzabile.',
+    deliverables: ['Repository documentato con cronologia delle decisioni', 'Applicazione pubblicata con pipeline ripetibile'],
     successCriteria: ['Navigazione accessibile', 'Flusso principale coperto da test', 'Deploy riproducibile'],
   },
+};
+roadmap.stages[0].topics[0].practice = 'Create a document with several simultaneous main elements because HTML permits any number of main landmarks.';
+const correctedRoadmap = JSON.parse(JSON.stringify(roadmap));
+correctedRoadmap.stages[0].topics[0].practice = 'Create one semantic document with a single visible main landmark, validate it, and verify its accessibility tree.';
+const shallowRoadmap = {
+  version: 1,
+  title: 'Frontend rapido',
+  goal: 'Imparare il frontend.',
+  audience: 'Principiante',
+  estimatedDuration: '3 mesi',
+  assumptions: ['Nessuna esperienza'],
+  stages: [{
+    id: 'basics', title: 'Basi', description: 'Una fase troppo generica.', duration: '3 mesi',
+    topics: [{ id: 'html', title: 'HTML', summary: 'Impara HTML.', outcome: 'Conosci HTML.', practice: 'Crea una pagina.', optional: false, resources: [] }],
+    checkpoint: 'Crea una pagina.',
+  }],
+  capstone: { title: 'Sito', description: 'Crea un sito.', successCriteria: ['Funziona'] },
 };
 
 function json(res, status, value) {
@@ -115,10 +125,17 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, {
       mode: 'server', running: true, ready: true, loadPct: 100, stage: 'Ready',
       agentWorking: false, workdir: '', ds4dirOk: true, webdirOk: true, lan: false,
-      config: { ctx: 65536, power: 90, think: 'off', ssdStreaming: 'auto' },
+      config: { ctx: activeContext, power: 90, think: 'off', ssdStreaming: 'auto' },
       variants: { flash: true, pro: false }, variant: 'flash',
       modelFile: 'gguf/DeepSeek-V4-Flash-test.gguf', engineLine: 'ready',
     });
+    return;
+  }
+  if (url.pathname === '/api/start' && req.method === 'POST') {
+    const payload = JSON.parse(await readBody(req) || '{}');
+    startRequests.push(payload);
+    if (Number(payload.ctx) > 0) activeContext = Math.round(Number(payload.ctx));
+    json(res, 200, { ok: true, mode: 'server' });
     return;
   }
   if (url.pathname === '/api/store') {
@@ -137,18 +154,55 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, stopped: true });
     return;
   }
+  if (url.pathname === '/api/web-search' && req.method === 'POST') {
+    const payload = JSON.parse(await readBody(req) || '{}');
+    webSearchRequests.push(payload);
+    json(res, 200, {
+      ok: true,
+      query: payload.query,
+      sources: [...roadmapSources, ...roadmapNoiseSources].map((sourceUrl, index) => ({
+        title: ['MDN Learn Web Development', 'web.dev Learn', 'W3C Digital Accessibility Curricula', 'WHATWG HTML Living Standard', 'ECMAScript Language Specification', 'Pull requests', 'Actions'][index],
+        url: sourceUrl,
+        content: ['Platform curriculum and prerequisites', 'Practice-oriented current web curriculum', 'Accessibility learning objectives and assessments', 'Normative HTML platform semantics and browser behavior', 'Normative JavaScript language semantics and execution model', 'Repository navigation', 'Repository automation navigation'][index],
+      })),
+    });
+    return;
+  }
   if (url.pathname === '/api/web-read' && req.method === 'POST') {
     const payload = JSON.parse(await readBody(req) || '{}');
     webReadRequests.push(payload);
+    const index = Math.max(0, roadmapSources.indexOf(payload.url));
+    const pages = [
+      {
+        title: 'MDN Learn Web Development',
+        markdown: '# Learn Web Development\n\n' + 'Start with semantic HTML and CSS, then JavaScript, accessibility, testing, browser tools, network fundamentals, and deployment. Each module includes skills tests, challenges, debugging practice, explicit prerequisites, and an observable project outcome. '.repeat(6),
+      },
+      {
+        title: 'web.dev Learn',
+        markdown: '# web.dev Learn\n\n' + 'A practice-oriented curriculum covers HTML, CSS, JavaScript, performance, forms, testing, privacy, accessibility, and progressive enhancement with current browser guidance. Lessons connect concepts to exercises, browser verification, and production-quality deliverables. '.repeat(6),
+      },
+      {
+        title: 'W3C Digital Accessibility Curricula',
+        markdown: '# Digital Accessibility Curricula\n\n' + 'Learning objectives progress from foundations to design, development, testing, and organizational practice. Mastery is demonstrated through practical evaluation, accessible deliverables, prerequisite knowledge, and concrete checks with assistive technology. '.repeat(6),
+      },
+      {
+        title: 'WHATWG HTML Living Standard',
+        markdown: '# HTML Living Standard\n\n' + 'The normative platform reference defines document structure, semantic elements, forms, interaction, parsing, loading, and browser behavior. Use it to verify platform rules behind practical HTML exercises, implementation decisions, conformance checks, and debugging tasks. '.repeat(6),
+      },
+      {
+        title: 'ECMAScript Language Specification',
+        markdown: '# ECMAScript Language Specification\n\n' + 'The normative JavaScript reference defines values, objects, execution contexts, functions, modules, promises, and language semantics. It grounds prerequisite order, advanced lessons, precise reasoning, executable tests, implementation work, and explanations of edge cases. '.repeat(6),
+      },
+    ];
     json(res, 200, {
       ok: true,
       url: payload.url,
       canonicalUrl: payload.url,
-      title: 'Frontend Developer Roadmap',
+      title: pages[index].title,
       sourceKind: 'docs',
       reader: 'browser',
-      markdown: '# Frontend Developer Roadmap\n\nStart with HTML, then CSS, accessibility, JavaScript, testing, and deployment.',
-      excerpt: 'Start with HTML, then CSS, accessibility, JavaScript, testing, and deployment.',
+      markdown: pages[index].markdown,
+      excerpt: pages[index].markdown.replace(/^#.*\n+/, ''),
       metadata: { description: 'A dependency-aware frontend learning path.' },
     });
     return;
@@ -163,28 +217,112 @@ const server = http.createServer(async (req, res) => {
     const system = payload.messages?.find((message) => message.role === 'system')?.content || '';
     const isStudy = system.includes('dedicated long-term tutor for exactly one block');
     const isBlock = system.includes('DStudio roadmap-block expansion protocol');
+    const isClassifier = system.includes('DStudio search classifier');
+    const isPicker = system.includes('DStudio source picker');
+    const isBatchExtractor = system.includes('DStudio roadmap evidence extractor');
+    const isExtractor = system.includes('DStudio evidence extractor');
+    const isJudge = system.includes('DStudio research sufficiency judge');
+    const isPlanner = system.includes('DStudio research action planner');
+    const isResearchWriter = system.includes('DStudio Deep Research writer');
+    const isRoadmap = system.includes('DStudio learning-roadmap protocol');
+    const isFactAuditor = system.includes('DStudio roadmap factual auditor');
+    const isCurriculumJudge = system.includes('DStudio roadmap curriculum judge');
+    const isRoadmapRepairer = system.includes('DStudio roadmap repairer');
     if (isBlock) blockAttempts += 1;
+    if (isRoadmap) roadmapAttempts += 1;
     const truncatedBlock = isBlock && blockAttempts === 1;
     const generatedBlock = {
       title: 'Accessibilità HTML',
       summary: 'Integra struttura semantica, nomi accessibili e navigazione da tastiera nel contesto HTML.',
+      estimatedHours: 7,
+      keyConcepts: ['Nomi accessibili', 'Navigazione da tastiera', 'Semantica HTML'],
       outcome: 'Realizzi e verifichi una pagina navigabile da tastiera con nomi accessibili corretti.',
       practice: 'Correggi una pagina non accessibile e documenta i test con tastiera e screen reader.',
+      assessment: 'Supera una checklist WCAG mirata, spiega tre correzioni e dimostra il flusso completo da tastiera.',
       optional: false,
-      resources: [{ title: 'MDN HTML', url: 'https://developer.mozilla.org/docs/Web/HTML', source: 'roadmap' }],
+      resources: [{ title: 'MDN Learn', url: roadmapSources[0], source: 'roadmap', why: 'Riferimento già verificato nella roadmap.' }],
     };
     const studyLesson = [
       'Partiamo dall’intuizione e poi costruiamo un esempio concreto. Al termine farai un esercizio guidato e uno autonomo.',
       ...Array.from({ length: 28 }, (_, index) => `Passaggio ${index + 1}: collega la struttura semantica al comportamento osservabile e verifica il risultato con un esempio concreto.`),
       '<details><summary>Hint 1: struttura</summary>Apri prima `main`, poi aggiungi le sezioni semantiche.</details>',
     ].join('\n\n');
-    const content = isStudy
+    const auditScope = payload.messages?.find((message) => message.role === 'user')?.content
+      ?.match(/Audit scope:\s*(?:stage\s+)?([^\.\n]+)/i)?.[1]?.trim() || 'global';
+    const content = isFactAuditor
+      ? !factFindingIssued
+        ? (() => {
+            factFindingIssued = true;
+            return JSON.stringify({
+              scope: auditScope,
+              pass: false,
+              findings: [{
+                location: 'web-foundations/html-semantics/practice',
+                claim: 'HTML permits any number of simultaneous main landmarks.',
+                verdict: 'incorrect',
+                justification: 'A document must not expose multiple visible main landmarks with the same role.',
+                correction: 'Use one visible main landmark and verify the accessibility tree.',
+                confidence: 0.99,
+              }],
+            });
+          })()
+        : JSON.stringify({ scope: auditScope, pass: true, findings: [] })
+      : isCurriculumJudge
+        ? JSON.stringify({
+            overall: 8.75,
+            pass: true,
+            dimensions: {
+              coverage: 9, sequencing: 9, granularity: 8, practice: 9,
+              assessment: 8, personalization: 8, sourceUse: 9, capstone: 9,
+            },
+            strengths: ['Progression is coherent and assessed through observable work.'],
+            failures: [],
+            reason: 'The curriculum is complete, sequenced, and actionable.',
+          })
+        : isRoadmapRepairer
+          ? `\`\`\`dstudio-roadmap\n${JSON.stringify(correctedRoadmap)}\n\`\`\``
+          : isClassifier
+      ? JSON.stringify({
+          needsSearch: true,
+          intent: 'frontend_learning_roadmap',
+          standaloneQuestion: 'Imparare lo sviluppo frontend da zero in tre mesi con un percorso completo e verificabile.',
+          explicitUrls: [],
+          queries: ['frontend official curriculum prerequisites', 'frontend learning projects assessment'],
+        })
+      : isPicker
+        ? JSON.stringify({ reason: 'Triangulate official curriculum, current practice, and accessibility assessment.', urls: roadmapSources })
+      : isBatchExtractor
+        ? JSON.stringify({ facts: roadmapSources.flatMap((sourceUrl, index) => [
+            { sourceId: `S${index + 1}`, fact: `Source ${index + 1} defines a prerequisite-aware progression for frontend mastery.`, confidence: 'high', excerpt: 'Progress from foundations to applied work.' },
+            { sourceId: `S${index + 1}`, fact: `Source ${index + 1} requires practical challenges and observable deliverables.`, confidence: 'high', excerpt: 'Skills tests, challenges, and practical evaluation.' },
+            { sourceId: `S${index + 1}`, fact: `Source ${index + 1} supports assessment across accessibility, testing, performance, or production practice.`, confidence: 'high', excerpt: sourceUrl },
+          ]) })
+      : isExtractor
+        ? JSON.stringify({ facts: [
+            { fact: 'The source defines a prerequisite-aware progression from platform foundations to applied production work.', confidence: 'high', excerpt: 'Start with semantic HTML and CSS, then JavaScript.' },
+            { fact: 'The source includes practical challenges or deliverables instead of explanation alone.', confidence: 'high', excerpt: 'Each module includes skills tests and challenges.' },
+            { fact: 'Accessibility, testing, performance, and deployment are part of a complete frontend curriculum.', confidence: 'high', excerpt: 'accessibility, testing, browser tools, network fundamentals, and deployment' },
+            { fact: 'Mastery should be checked through practical evaluation and observable artifacts.', confidence: 'high', excerpt: 'Mastery is demonstrated through practical evaluation and accessible deliverables.' },
+          ] })
+      : isJudge
+        ? JSON.stringify({ decision: 'enough', reason: 'Three independent authoritative sources cover ordering, practice, assessment, and current references.', gaps: [], queries: [], urls: [] })
+      : isPlanner
+        ? JSON.stringify({ action: 'done', reason: 'The evidence set is sufficient.', queries: [], urls: [] })
+      : isResearchWriter
+        ? '# Deliberately rejected mock synthesis\n\nThe deterministic grounded report should be used by the test.'
+      : isStudy
       ? studyLesson
       : isBlock
         ? truncatedBlock
           ? '\`\`\`dstudio-roadmap-block\n{"title":"Accessibilità HTML","summary":"Bozza troncata"'
           : `\`\`\`dstudio-roadmap-block\n${JSON.stringify(generatedBlock)}\n\`\`\``
-        : `Questo testo introduttivo non deve apparire.\n\n\`\`\`dstudio-roadmap\n${JSON.stringify(roadmap)}\n\`\`\``;
+        : isRoadmap && roadmapAttempts === 1
+          ? `\`\`\`dstudio-roadmap\n${JSON.stringify(shallowRoadmap)}\n\`\`\``
+          : `Questo testo introduttivo non deve apparire.\n\n\`\`\`dstudio-roadmap\n${JSON.stringify(roadmap)}\n\`\`\``;
+    if (payload.stream === false) {
+      json(res, 200, { choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 80, total_tokens: 120 } });
+      return;
+    }
     const events = [
       `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: isStudy ? 'Valuto prerequisiti, difficoltà ed esercizio adatto al blocco.' : isBlock ? 'Valuto posizione, prerequisiti e risultato osservabile.' : 'Reasoning privato che la Roadmap non deve mostrare.' }, finish_reason: null }] })}\n\n`,
       `data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: null }] })}\n\n`,
@@ -192,7 +330,7 @@ const server = http.createServer(async (req, res) => {
       'data: [DONE]\n\n',
     ].join('');
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
-    if (isBlock) await new Promise((resolve) => setTimeout(resolve, 100));
+    if (isBlock) await new Promise((resolve) => setTimeout(resolve, 500));
     else if (!isStudy) await new Promise((resolve) => setTimeout(resolve, 1_300));
     if (isStudy) {
       const finalEvent = events.lastIndexOf('data: ');
@@ -265,11 +403,11 @@ try {
 
   const think = page.locator('.cbar-think-btn--locked');
   await think.waitFor({ state: 'visible' });
-  assert.match(await think.textContent() || '', /Thinking: max\s*locked/);
+  assert.match(await think.textContent() || '', /Thinking: max · 384k\+\s*locked/);
   await think.click();
   assert.equal(await page.locator('.cbar-think-menu').count(), 0, 'locked Roadmap thinking must not open a selector');
 
-  await page.locator('#composer-input').fill('Voglio imparare lo sviluppo frontend da zero in tre mesi. Usa roadmap.sh/frontend come fonte.');
+  await page.locator('#composer-input').fill('Voglio imparare lo sviluppo frontend da zero in tre mesi, con esercizi e verifiche pratiche.');
   assert.equal(await page.locator('#composer-form').evaluate((node) => getComputedStyle(node).boxShadow), 'none',
     'focusing the Roadmap composer must not add a selection shadow');
   await page.locator('#btn-send').click();
@@ -277,7 +415,7 @@ try {
   await assembly.waitFor({ state: 'visible' });
   assert.equal(await assembly.locator('.roadmap-build-piece').count(), 4,
     'Roadmap loading should visibly assemble four connected graph pieces');
-  assert.match(await page.locator('.roadmap-direct-loading__label').textContent() || '', /Building your roadmap/);
+  assert.match(await page.locator('.roadmap-direct-loading__label').textContent() || '', /Deep researching your learning path|Building your roadmap/);
 
   // Sending must immediately lower the complete form while generation keeps
   // running. The small Roadmap prompt handle remains available, and Stop stays
@@ -310,21 +448,89 @@ try {
   assert.equal(await page.locator('.scroll-down').count(), 0,
     'the chat scroll button must not cover the Roadmap dependency rail');
 
-  assert.equal(chatRequests.length, 1, 'Roadmap prompt should produce one final model request');
-  assert.deepEqual(webReadRequests.map((entry) => entry.url), ['https://roadmap.sh/frontend'],
-    'Roadmap learning links should be opened directly without a model classifier');
-  const request = chatRequests[0];
+  const finalRoadmapRequests = chatRequests.filter((entry) =>
+    (entry.messages?.find((message) => message.role === 'system')?.content || '').includes('DStudio learning-roadmap protocol')
+  );
+  const factualAuditRequests = chatRequests.filter((entry) =>
+    (entry.messages?.find((message) => message.role === 'system')?.content || '').includes('DStudio roadmap factual auditor')
+  );
+  const curriculumJudgeRequests = chatRequests.filter((entry) =>
+    (entry.messages?.find((message) => message.role === 'system')?.content || '').includes('DStudio roadmap curriculum judge')
+  );
+  const factualRepairRequests = chatRequests.filter((entry) =>
+    (entry.messages?.find((message) => message.role === 'system')?.content || '').includes('DStudio roadmap repairer')
+  );
+  const roadmapResearchWriterRequests = chatRequests.filter((entry) =>
+    (entry.messages?.find((message) => message.role === 'system')?.content || '').includes('DStudio Deep Research writer')
+  );
+  assert.equal(roadmapResearchWriterRequests.length, 0,
+    'Roadmap should pass the complete deterministic evidence bundle directly to generation instead of writing a redundant prose report');
+  assert.equal(finalRoadmapRequests.length, 2,
+    'a shallow researched Roadmap should be rejected and regenerated automatically');
+  assert.equal(factualAuditRequests.length, (roadmap.stages.length + 1) * 2,
+    'every stage and the complete Roadmap must be audited again after a factual repair');
+  assert.equal(factualRepairRequests.length, 1,
+    'a high-confidence factual finding should trigger one complete-roadmap repair');
+  assert.equal(curriculumJudgeRequests.length, 1,
+    'curriculum quality must be judged in a separate pass after factual verification');
+  assert.ok(factualAuditRequests.every((entry) => entry.reasoning_effort === 'max' && entry.max_tokens === undefined),
+    'factual auditors must use uncapped Thinking max');
+  assert.ok(curriculumJudgeRequests.every((entry) => entry.reasoning_effort === 'max' && entry.max_tokens === undefined),
+    'the separate curriculum judge must use uncapped Thinking max');
+  assert.ok(factualAuditRequests.every((entry) =>
+    !(entry.messages?.find((message) => message.role === 'system')?.content || '').includes('curriculum judge')),
+  'the factual auditor must not inherit curriculum-judging responsibilities');
+  assert.ok(startRequests.some((entry) => entry.ctx === 393216),
+    'Roadmap generation must temporarily restart local ds4 at the true-Max context threshold');
+  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('ds4web.settings.v2'))).ctxSize, 65536,
+    'the temporary Roadmap context must not overwrite the learner\'s normal Chat setting');
+  assert.ok(webSearchRequests.length >= 4,
+    'A Roadmap without links must still run broad Deep Research queries');
+  assert.ok(webSearchRequests.every((entry) => entry.cdpOnly === true),
+    'Every Roadmap search must be explicitly constrained to Chrome/CDP');
+  assert.ok(webSearchRequests.every((entry) => entry.preferFallback !== true),
+    'Roadmap search must never request the curl/RSS provider fallback chain');
+  const researchedUrls = [...new Set(webReadRequests.map((entry) => entry.url))];
+  assert.ok(researchedUrls.length >= 2,
+    'Roadmap Deep Research should read more than one independently selected source');
+  assert.ok(researchedUrls.every((url) => roadmapSources.includes(url)),
+    'Roadmap Deep Research should read authoritative candidates rather than low-value navigation pages');
+  assert.ok(new Set(researchedUrls.map((url) => new URL(url).hostname)).size >= 2,
+    'Roadmap Deep Research should diversify the selected source hosts');
+  assert.ok(webReadRequests.every((entry) => entry.cdpOnly === true),
+    'Every Roadmap page read must be explicitly constrained to Chrome/CDP');
+  const pickerRequest = chatRequests.find((entry) =>
+    (entry.messages?.find((message) => message.role === 'system')?.content || '').includes('DStudio source picker')
+  );
+  const pickerCandidates = pickerRequest?.messages?.find((message) => message.role === 'user')?.content || '';
+  assert.doesNotMatch(pickerCandidates, /github\.com\/example\/course\/(?:pulls|actions)/,
+    'Low-value repository navigation pages must be removed before model source selection');
+  const request = finalRoadmapRequests.at(-1);
   assert.equal(request.stream, true);
   assert.equal(request.think, true, 'Roadmap must enable local model thinking even when global thinking is off');
   assert.equal(request.reasoning_effort, 'max', 'Roadmap must always request maximum reasoning effort');
+  assert.equal(request.max_tokens, undefined,
+    'Roadmap must not impose an arbitrary output cap below the model physical context window');
   const system = request.messages.find((message) => message.role === 'system')?.content || '';
-  const requestUser = request.messages.findLast((message) => message.role === 'user')?.content || '';
+  const requestUser = request.messages.find((message) => message.role === 'user' && String(message.content || '').includes('[Roadmap research evidence]'))?.content || '';
+  const repairUser = request.messages.findLast((message) => message.role === 'user')?.content || '';
   assert.match(system, /DStudio learning-roadmap protocol/);
   assert.match(system, /Every roadmap generation MUST be completed with maximum reasoning effort/);
+  assert.match(system, /never start from a preset topic catalogue/);
+  assert.match(system, /there is no target count, minimum count, maximum count, or uniform stage shape/);
+  assert.doesNotMatch(system, /5-8 stages|18-32 topic|3-6 topics per stage/,
+    'Roadmap shape must come from semantic scope instead of fixed stage or topic quotas');
   assert.match(system, /with no prose before or after it/);
-  assert.match(requestUser, /\[Learning source evidence\]/);
-  assert.match(requestUser, /Frontend Developer Roadmap/);
-  assert.match(requestUser, /https:\/\/roadmap\.sh\/frontend/);
+  assert.doesNotMatch(system, /# Deep Research System Prompt|presenting that report directly/,
+    'the generic long-report protocol must not conflict with the roadmap JSON protocol');
+  assert.match(requestUser, /\[Roadmap research evidence\]/);
+  assert.match(requestUser, /Grounded curriculum facts:/);
+  assert.doesNotMatch(requestUser, /\[Synthesized research report\]|\[Deep research context\]/,
+    'Roadmap generation should receive one compact, non-duplicated evidence bundle');
+  assert.match(requestUser, /developer\.mozilla\.org|web\.dev|w3\.org/);
+  assert.match(repairUser, /Roadmap quality repair/);
+  assert.match(repairUser, /Re-evaluate granularity semantically/);
+  assert.doesNotMatch(repairUser, /at least 5 purposeful stages|at least 18 learning topics|Every stage needs at least 3/);
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}').thinkLevel), 'off',
     'Roadmap max thinking should be a mode guarantee, not a mutation of the Chat preference');
 
@@ -463,8 +669,8 @@ try {
   const pdfBytes = fs.readFileSync(await pdfDownload.path());
   assert.equal(pdfBytes.subarray(0, 5).toString('ascii'), '%PDF-', 'PDF export should contain a real PDF document');
 
-  assert.equal(await card.locator('.roadmap-stage').count(), 4);
-  assert.equal(await card.locator('.roadmap-topic').count(), 5);
+  assert.equal(await card.locator('.roadmap-stage').count(), 5);
+  assert.equal(await card.locator('.roadmap-topic').count(), 20);
   const layout = await card.evaluate((node) => {
     const rect = (selector) => {
       const r = node.querySelector(selector).getBoundingClientRect();
@@ -486,7 +692,7 @@ try {
   const firstTopic = card.locator('.roadmap-topic[data-topic-id="html-semantics"]');
   await firstTopic.locator('.roadmap-topic__toggle').click();
   await firstTopic.locator('.roadmap-topic__detail').waitFor({ state: 'visible' });
-  assert.match(await firstTopic.locator('.roadmap-topic__detail').textContent() || '', /Outcome:|Practice:/);
+  assert.match(await firstTopic.locator('.roadmap-topic__detail').textContent() || '', /Estimated effort:|Key concepts:|Outcome:|Practice:|Mastery check:/);
   await firstTopic.locator('.roadmap-topic__check').click();
   await page.waitForFunction(() => document.querySelector('.roadmap-topic[data-topic-id="html-semantics"]')?.classList.contains('is-complete'));
   await page.waitForTimeout(900);
@@ -494,6 +700,12 @@ try {
   const savedRoadmap = saved.chats?.find((chat) => chat.mode === 'roadmap');
   let savedReply = savedRoadmap?.messages?.find((message) => message.role === 'assistant');
   assert.equal(savedReply?.roadmapProgress?.['html-semantics'], true, 'Topic completion should persist in roadmap history');
+  assert.equal(savedReply?.roadmapVerification?.status, 'verified',
+    'the saved Roadmap should expose a completed factual and curriculum verification state');
+  assert.equal(savedReply?.roadmapVerification?.repairRounds, 1,
+    'the verification record should retain the factual repair round');
+  assert.doesNotMatch(savedReply?.content || '', /HTML permits any number of simultaneous main landmarks/,
+    'the persisted Roadmap should contain the repaired claim rather than the rejected draft');
 
   // Add a child on the same visual branch and verify the graph override is persisted.
   const addBranch = firstTopic.locator('.roadmap-node-action[aria-label^="Add a block"]');
@@ -507,7 +719,7 @@ try {
     'Add should visibly show that the model is elaborating the learner input');
   assert.equal(await addForm.locator('button[type="submit"]').isDisabled(), true,
     'Add should prevent duplicate submissions while the model is working');
-  await page.waitForFunction(() => document.querySelectorAll('.roadmap-topic').length === 6);
+  await page.waitForFunction(() => document.querySelectorAll('.roadmap-topic').length === 21);
   const customTopic = page.locator('.roadmap-topic[data-topic-id*="accessibilita-html"]');
   await customTopic.waitFor({ state: 'visible' });
   assert.equal(await customTopic.evaluate((node) => node.classList.contains('roadmap-topic--left')), true,
@@ -521,9 +733,12 @@ try {
   assert.match(added?.summary || '', /struttura semantica.*navigazione da tastiera/);
   assert.match(added?.outcome || '', /pagina navigabile da tastiera/);
   assert.match(added?.practice || '', /screen reader/);
-  assert.equal(added?.resources?.[0]?.url, 'https://developer.mozilla.org/docs/Web/HTML');
-  assert.equal(chatRequests.length, 3, 'adding a block should keep retrying after a truncated model response');
-  const blockRequest = chatRequests[1];
+  assert.equal(added?.resources?.[0]?.url, roadmapSources[0]);
+  const blockRequests = chatRequests.filter((entry) =>
+    (entry.messages?.find((message) => message.role === 'system')?.content || '').includes('DStudio roadmap-block expansion protocol')
+  );
+  assert.equal(blockRequests.length, 2, 'adding a block should keep retrying after a truncated model response');
+  const blockRequest = blockRequests[0];
   assert.equal(blockRequest.think, true, 'block expansion must enable model thinking');
   assert.equal(blockRequest.reasoning_effort, 'max', 'block expansion must always use maximum reasoning');
   assert.equal(blockRequest.max_tokens, 8192, 'block expansion should reserve a large output budget for max reasoning');
@@ -538,7 +753,7 @@ try {
   const blockPayload = JSON.parse(blockUser);
   assert.equal(blockPayload.roadmap.targetStage.id, 'web-foundations');
   assert.equal(blockPayload.roadmap.stages, undefined, 'block generation should not resend the entire roadmap graph');
-  const retryRequest = chatRequests[2];
+  const retryRequest = blockRequests[1];
   assert.equal(retryRequest.max_tokens, 8192);
   assert.equal(retryRequest.reasoning_effort, 'max');
   const retryPayload = JSON.parse(retryRequest.messages.find((entry) => entry.role === 'user')?.content || '{}');
@@ -548,8 +763,19 @@ try {
 
   // Reorder an existing block before another one with the native drag handle.
   const cssTopic = card.locator('.roadmap-topic[data-topic-id="css-layout"]');
-  await cssTopic.locator('.roadmap-topic__drag').dragTo(firstTopic, { targetPosition: { x: 70, y: 2 } });
-  await page.waitForFunction(() => document.querySelector('.roadmap-stage[data-stage-id="web-foundations"] .roadmap-topic')?.dataset.topicId === 'css-layout');
+  await page.evaluate(() => {
+    const source = document.querySelector('.roadmap-topic[data-topic-id="css-layout"] .roadmap-topic__drag');
+    const target = document.querySelector('.roadmap-topic[data-topic-id="html-semantics"]');
+    const transfer = new DataTransfer();
+    source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    const rect = target.getBoundingClientRect();
+    target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: rect.left + 70, clientY: rect.top + 2 }));
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: rect.left + 70, clientY: rect.top + 2 }));
+    source.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  await page.waitForTimeout(900);
+  const reorderedIds = await page.locator('.roadmap-stage[data-stage-id="web-foundations"] .roadmap-topic').evaluateAll((nodes) => nodes.map((node) => node.dataset.topicId));
+  assert.equal(reorderedIds[0], 'css-layout', `dragging before the first topic should reorder the branch: ${JSON.stringify(reorderedIds)}`);
   await page.waitForTimeout(900);
   saved = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}'));
   savedReply = saved.chats?.find((chat) => chat.mode === 'roadmap')?.messages?.find((message) => message.role === 'assistant');
@@ -646,8 +872,11 @@ try {
   await study.locator('.roadmap-study-msg--assistant .md-details').waitFor({ state: 'visible' });
   assert.equal(await study.locator('.roadmap-study-msg--assistant').last().textContent().then((text) => text.includes('<details>')), false,
     'Tutor hints should render as collapsible controls instead of raw HTML tags');
-  assert.equal(chatRequests.length, 4, 'the study room should issue its own tutor request');
-  const studyRequest = chatRequests[3];
+  const studyRequests = chatRequests.filter((entry) =>
+    (entry.messages?.find((message) => message.role === 'system')?.content || '').includes('dedicated long-term tutor for exactly one block')
+  );
+  assert.equal(studyRequests.length, 1, 'the study room should issue its own tutor request');
+  const studyRequest = studyRequests[0];
   assert.equal(studyRequest.think, true);
   assert.equal(studyRequest.reasoning_effort, 'high');
   const studySystem = studyRequest.messages.find((message) => message.role === 'system')?.content || '';
@@ -690,7 +919,7 @@ try {
   await customTopic.locator('.roadmap-node-action[aria-label^="Delete "]').click();
   await page.locator('#confirm-dialog[open]').waitFor({ state: 'visible' });
   await page.locator('#confirm-go').click();
-  await page.waitForFunction(() => document.querySelectorAll('.roadmap-topic').length === 5);
+  await page.waitForFunction(() => document.querySelectorAll('.roadmap-topic').length === 20);
 
   await page.setViewportSize({ width: 700, height: 900 });
   const mobile = await page.evaluate(() => {

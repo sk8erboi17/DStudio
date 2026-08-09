@@ -80,7 +80,7 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check check-fast check-real test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-ascii-diagrams test-real-pdf-rag test-real-search-research test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
+.PHONY: all run check check-fast check-real test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-ascii-diagrams test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
@@ -347,6 +347,10 @@ check-fast: $(BIN) test-lan-unit test-remote-utf8 test-ui-contract test-ui-brows
 test-real-search-research: $(TEST_SERVER)
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real Search/DeepResearch tests require node" && exit 1)
 	@node tests/real_search_research_test.mjs $(TEST_SERVER)
+
+test-real-roadmap-quality: $(TEST_SERVER)
+	@command -v node >/dev/null 2>&1 || (echo "node missing: real Roadmap quality tests require node" && exit 1)
+	@node tests/real_roadmap_quality_test.mjs $(TEST_SERVER)
 
 test-real-ascii-diagrams: $(TEST_SERVER)
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real ASCII diagram tests require node" && exit 1)

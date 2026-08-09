@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 const html = fs.readFileSync('web/index.html', 'utf8');
 const readme = fs.readFileSync('README.md', 'utf8');
+const algebraRoadmapExport = fs.readFileSync('exports/abstract-algebra-roadmap.json', 'utf8');
 const loadingHtml = fs.readFileSync('web/loading.html', 'utf8');
 const launcherMain = fs.readFileSync('src/dstudio.c', 'utf8');
 const launcherDomains = fs.readdirSync('src')
@@ -151,12 +152,32 @@ assert.equal(roadmapParsed.content, 'Percorso pronto.', 'roadmap JSON should be 
 assert.equal(roadmapParsed.roadmap?.title, 'Web engineering', 'roadmap directive should preserve its title');
 assert.deepEqual(roadmapParsed.roadmap?.stages[0].topics.map((topic) => topic.id), ['html', 'html-2'], 'roadmap parser should make duplicate model ids stable and unique');
 assert.equal(roadmapParsed.roadmap?.stages[0].topics[1].resources[0].url, '', 'roadmap resources should reject unsafe URL schemes');
+const genericJsonRoadmap = roadmapHelpers.extractRoadmapFromAssistant(`\`\`\`json
+${JSON.stringify({
+  version: 2,
+  title: 'Recovered roadmap',
+  stages: [{ id: 'stage', title: 'Stage', topics: [{ id: 'topic', title: 'Topic' }] }],
+})}
+\`\`\``);
+assert.equal(genericJsonRoadmap.roadmap?.title, 'Recovered roadmap',
+  'a valid v2 roadmap in a generic JSON fence should be normalized without regeneration');
+const unclosedGenericJsonRoadmap = roadmapHelpers.extractRoadmapFromAssistant(`\`\`\`json
+${JSON.stringify({
+  version: 2,
+  title: 'Recovered unclosed roadmap',
+  stages: [{ id: 'stage', title: 'Stage', topics: [{ id: 'topic', title: 'Topic' }] }],
+})}`);
+assert.equal(unclosedGenericJsonRoadmap.roadmap?.title, 'Recovered unclosed roadmap',
+  'a complete v2 roadmap should survive a missing closing generic JSON fence');
 const roadmapBlockParsed = roadmapHelpers.extractRoadmapBlockFromAssistant(`\`\`\`dstudio-roadmap-block
 ${JSON.stringify({
   title: 'Accessibilità HTML',
   summary: 'Struttura e nomi accessibili.',
+  estimatedHours: 6,
+  keyConcepts: ['Semantica', 'Nomi accessibili', 'Navigazione da tastiera'],
   outcome: 'Verifichi una pagina usando solo la tastiera.',
   practice: 'Correggi una pagina e documenta la verifica.',
+  assessment: 'Supera una checklist e spiega le correzioni applicate.',
   optional: false,
   resources: [
     { title: 'MDN HTML', url: 'https://developer.mozilla.org/docs/Web/HTML' },
@@ -170,7 +191,9 @@ assert.deepEqual(roadmapBlockParsed?.resources.map((resource) => resource.url), 
 assert.equal(roadmapHelpers.extractRoadmapBlockFromAssistant(JSON.stringify({ title: 'Incomplete', summary: 'Missing outcome and practice' })), null,
   'an incomplete generated roadmap block should be rejected instead of creating an empty topic');
 const roadmapBlockAlias = roadmapHelpers.extractRoadmapBlockFromAssistant(`Model draft: ${JSON.stringify({
-  title: 'Alias block', summary: 'A complete aliased block.', learningOutcome: 'Demonstrate the skill.', practiceTask: 'Build a small example.',
+  title: 'Alias block', summary: 'A complete aliased block.', estimatedHours: 5,
+  keyConcepts: ['First', 'Second', 'Third'], learningOutcome: 'Demonstrate the skill.',
+  practiceTask: 'Build a small example.', masteryCheck: 'Explain and test the finished example.',
 })}`);
 assert.equal(roadmapBlockAlias?.outcome, 'Demonstrate the skill.', 'block parsing should recover common outcome/practice aliases and surrounding prose');
 assert.match(html, /id="tab-roadmap"[\s\S]*>Roadmap</, 'sidebar should expose the Roadmap workspace');
@@ -188,9 +211,25 @@ assert.match(html, /body\.roadmap-mode \.composer__card:focus-within \{ box-shad
   'Focusing the Roadmap composer should not add a selection shadow');
 assert.match(html, /\.roadmap-build-assembly[\s\S]*\.roadmap-build-rail[\s\S]*\.roadmap-build-piece--left[\s\S]*@keyframes roadmap-piece-assemble[\s\S]*\.roadmap-hero \.ec-mark \{ color: var\(--accent\)/,
   'Roadmap loading should assemble connected blue graph pieces instead of showing a static dot');
-assert.match(js, /const roadmapMode = chat\.mode === 'roadmap';[\s\S]*settings = \{ \.\.\.settings, thinkLevel: 'max' \}/, 'Roadmap requests should override the global thinking setting with max');
+assert.match(js, /const roadmapMode = chat\.mode === 'roadmap';[\s\S]*settings = \{ \.\.\.settings, webMode: 'research', thinkLevel: 'max' \}/,
+  'Roadmap requests should override global web/thinking settings with mandatory Deep Research and max');
 assert.match(js, /reasoning_effort = thinkLevel === 'max' \? 'max' : 'high'/, 'maximum roadmap thinking should reach the model request body');
-assert.match(js, /Roadmaps always use Thinking: max\./, 'Roadmap thinking selector should be visibly locked to max');
+assert.match(js, /Roadmaps use true Thinking: max with a temporary 384k\+ local context\./,
+  'Roadmap thinking selector should explain the effective true-Max context override');
+assert.match(js, /const ROADMAP_TRUE_MAX_CONTEXT = 393216;[\s\S]*ctxSize: Math\.max\([\s\S]*ROADMAP_TRUE_MAX_CONTEXT\)/,
+  'Roadmap generation should request the ds4 context threshold required for true Thinking max');
+assert.match(js, /function auditRoadmapStage\([\s\S]*function auditRoadmapGlobally\([\s\S]*Checking cross-stage contradictions/,
+  'Roadmaps should receive per-stage factual audits followed by a global contradiction audit');
+assert.match(js, /DStudio roadmap factual auditor[\s\S]*Ignore prose quality, curriculum completeness, pedagogy[\s\S]*DStudio roadmap curriculum judge[\s\S]*Do not fact-check/,
+  'factual auditing and curriculum judging must remain separate model roles');
+assert.match(js, /repairVerifiedRoadmap\([\s\S]*kind: 'facts'[\s\S]*continue;[\s\S]*judgeRoadmapCurriculum/,
+  'verified factual defects should trigger complete repair and re-audit before curriculum judging');
+assert.match(js, /maxTokens: 0,[\s\S]*thinkLevel: 'max'/,
+  'Roadmap verification passes should omit arbitrary output-token caps and use Thinking max');
+assert.doesNotMatch(algebraRoadmapExport, /campo di spezzamento di x\^3-2 non è di Galois/,
+  'the saved abstract-algebra Roadmap must not retain the false splitting-field claim');
+assert.match(algebraRoadmapExport, /Q\(cuberoot\(2\)\)\/Q non è di Galois[\s\S]*Q\(cuberoot\(2\), zeta_3\)\/Q è di Galois/,
+  'the Galois regression fixture should distinguish the non-normal simple extension from its Galois splitting field');
 assert.match(js, /DStudio learning-roadmap protocol:[\s\S]*exactly one fenced block whose info string is dstudio-roadmap, with no prose before or after it/, 'Roadmap prompt should require one structured graph payload without chat prose');
 assert.match(js, /roadmapProgress[\s\S]*Store\.patchMessage/, 'Roadmap topic completion should persist on the assistant message');
 assert.match(js, /msg--roadmap-direct[\s\S]*buildRoadmapCard/, 'Roadmap replies should render as a direct canvas instead of generic assistant chat chrome');
@@ -326,6 +365,7 @@ return { explicitUserUrls, seedExplicitUrlSources, selectableSourcesAfterExplici
 `)();
 const sourceAdapterHelpers = new Function(`
 ${extractFunction(js, 'compactText')}
+${extractFunction(js, 'balancedEvidenceText')}
 ${extractFunction(js, 'uniqueStrings')}
 ${extractFunction(js, 'sourceKey')}
 ${extractFunction(js, 'webSourceHost')}
@@ -341,6 +381,7 @@ ${extractFunction(js, 'urlOriginAndParts')}
 ${extractFunction(js, 'adapterCandidateUrls')}
 return {
   validSourceKinds,
+  balancedEvidenceText,
   normalizeSourceKind,
   technicalQuestionLikely,
   classifySourceKind,
@@ -350,6 +391,10 @@ return {
   readSourceUnusable,
   adapterCandidateUrls,
 };
+`)();
+const roadmapQualityReport = new Function(`
+${extractFunction(js, 'roadmapQualityReport')}
+return roadmapQualityReport;
 `)();
 const artifactHelpers = new Function(`
 ${extractFunction(js, 'generatedFileLanguage')}
@@ -377,11 +422,22 @@ assert.match(gitignore, /^MEMORY\.MD$/m, 'local memory scratch files should stay
 assert.match(gitignore, /^\.tmp\/$/m, 'local UI screenshots and scratch artifacts should stay out of git status');
 
 assert.deepEqual(sourceAdapterHelpers.validSourceKinds(), ['article', 'docs', 'product', 'academic', 'social', 'repo', 'generic']);
+const balancedEvidence = sourceAdapterHelpers.balancedEvidenceText(
+  `HEAD-${'a'.repeat(400)}-MIDDLE-${'b'.repeat(400)}-TAIL`,
+  240,
+);
+assert.equal(balancedEvidence.length, 240);
+assert.match(balancedEvidence, /^HEAD-/);
+assert.match(balancedEvidence, /\[middle excerpt\]/);
+assert.match(balancedEvidence, /\[closing excerpt\]/);
+assert.match(balancedEvidence, /-TAIL$/);
 assert.equal(sourceAdapterHelpers.classifySourceKind({ url: 'https://example.com/pricing', title: 'Pricing plans' }, 'quanto costa?'), 'product');
 assert.equal(sourceAdapterHelpers.classifySourceKind({ url: 'https://docs.example.com/api', title: 'API reference' }, 'come uso api?'), 'docs');
 assert.equal(sourceAdapterHelpers.classifySourceKind({ url: 'https://arxiv.org/abs/1234.5678', title: 'Abstract paper' }, 'paper'), 'academic');
 assert.equal(sourceAdapterHelpers.classifySourceKind({ url: 'https://news.ycombinator.com/item?id=1', title: 'HN thread' }, 'opinioni'), 'social');
 assert.equal(sourceAdapterHelpers.classifySourceKind({ url: 'https://codeberg.org/user/project', title: 'README repository' }, 'che stack usa?'), 'repo');
+assert.equal(sourceAdapterHelpers.classifySourceKind({ url: 'https://dev.to/example/compiler-guide', title: 'How to build a compiler', content: 'A source-code study with abstract syntax trees.' }, 'impara i compilatori'), 'article');
+assert.equal(sourceAdapterHelpers.classifySourceKind({ url: 'https://example.com/lesson', title: 'Source code study guide', content: 'Read the source code and study each chapter.' }, 'impara'), 'generic');
 assert.equal(sourceAdapterHelpers.sourceAdapterProfile({ url: 'https://example.com/features' }, 'features').kind, 'product');
 assert.match(sourceAdapterHelpers.sourceKindGuidance('academic'), /authors|results|limitations/i);
 assert.match(sourceAdapterHelpers.sourceKindGuidance('social'), /anecdotes/i);
@@ -389,6 +445,45 @@ assert.equal(sourceAdapterHelpers.technicalQuestionLikely('che stack e licenza u
 assert.equal(sourceAdapterHelpers.technicalQuestionLikely('qual e il prezzo?'), false);
 assert.equal(sourceAdapterHelpers.readSourceUnusable({ title: 'File not found', content: 'Repository navigation' }), true);
 assert.equal(sourceAdapterHelpers.readSourceUnusable({ title: 'LICENSE', content: 'BSD 3-Clause License Copyright permission' }), false);
+const compactRoadmapQuality = roadmapQualityReport({
+  title: 'Compact skill',
+  goal: 'Learn one narrowly scoped skill in a short session.',
+  audience: 'Experienced programmer',
+  estimatedDuration: '4 hours',
+  assumptions: ['The learner already understands programming fundamentals.'],
+  stages: [{
+    id: 'focused-stage',
+    title: 'Focused stage',
+    description: 'One coherent phase is sufficient for this deliberately narrow goal.',
+    duration: '4 hours',
+    objectives: ['Produce and explain a working artifact using the target skill.'],
+    checkpoint: 'Complete the artifact unaided and explain every relevant choice.',
+    topics: [{
+      id: 'focused-topic',
+      title: 'Focused topic',
+      summary: 'A single coherent unit covering exactly the narrow requested outcome without artificial fragmentation.',
+      estimatedHours: 4,
+      prerequisites: [],
+      keyConcepts: ['The concept required for the requested outcome'],
+      outcome: 'Produce the requested artifact independently and explain its behavior.',
+      practice: 'Build a complete small artifact, test it, and document the decisions made.',
+      assessment: 'Rebuild the artifact without notes and pass a concrete behavior checklist.',
+      resources: [
+        { url: 'https://example.com/one' },
+        { url: 'https://example.org/two' },
+        { url: 'https://example.net/three' },
+      ],
+    }],
+  }],
+  capstone: {
+    title: 'Focused artifact',
+    description: 'Demonstrate the narrowly requested skill in a complete artifact.',
+    deliverables: ['Working artifact', 'Short explanation'],
+    successCriteria: ['Works as specified', 'Can be explained', 'Can be reproduced unaided'],
+  },
+});
+assert.equal(compactRoadmapQuality.pass, true,
+  `A complete one-stage, one-topic roadmap must not be rejected merely for being compact: ${JSON.stringify(compactRoadmapQuality)}`);
 assert.equal(artifactHelpers.generatedFileLanguage({ filename: 'stickman.c', mime: 'text/plain' }), 'c');
 assert.equal(artifactHelpers.generatedFileLanguage({ filename: 'app.tsx', mime: '' }), 'typescript');
 assert.equal(artifactHelpers.generatedFileLanguage({ filename: 'index.html', mime: 'text/html' }), 'html');
@@ -963,7 +1058,7 @@ assert.match(js, /const host = currentLanClientHost\(\)/, 'LAN Agent/Design shou
 assert.match(js, /remoteBaseUrl:\s*host/, 'LAN Agent/Design should call the configured host model URL');
 assert.match(js, /remoteModel:\s*Store\.getSettings\(\)\.model \|\| LAN_CLIENT_MODEL_ID/, 'LAN Agent/Design should use the LAN protocol model id');
 assert.match(js, /gguf:\s*isLanClientMode\(\) \? '' : modelGguf\(\)/, 'LAN Agent/Design should not send a local GGUF/model path');
-assert.match(js, /function startServer\(\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*setMode\('server'\)[\s\S]*return;[\s\S]*runSwitch\('server'/, 'LAN clients must not start a local server when switching back to Chat');
+assert.match(js, /function startServer\(requestedUiMode, launchSettings = null\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*setMode\(chatUiTarget\)[\s\S]*return;[\s\S]*runSwitch\('server'/, 'LAN clients must not start a local server when switching back to Chat');
 assert.match(js, /if \(!isLanClientMode\(\) && selectedGguf &&[\s\S]*!ggufIsRunning\(selectedGguf, runningModel, activeEngineDir\)\)/, 'LAN onboarding must not start a local selected model');
 assert.match(launcher, /collect_engine_checkouts\([\s\S]*api_ggufs/, 'GGUF API should aggregate every managed DS4 checkout');
 assert.match(launcher, /\\"engineDir\\":[\s\S]*\\"engineName\\":[\s\S]*\\"branch\\":[\s\S]*\\"activeEngine\\":/, 'Every GGUF row should identify its checkout, branch and active state');
@@ -1025,7 +1120,7 @@ assert.doesNotMatch(js, /lanClientDs4Dir:\s*''/, 'LAN client settings should not
 assert.doesNotMatch(html, /Agent and Design requests run on the LAN host|uses the LAN host for Chat, Agent and Design/, 'LAN client copy must not imply host workspaces');
 assert.match(js, /const apiUrl = \(path\) => `\$\{path\}`/, 'Engine APIs must stay local in LAN client mode');
 assert.match(js, /syncLanClientDs4Dir\(\)/, 'Opening LAN client settings should check the local DS4 folder');
-assert.match(js, /async function setupLanClientDs4\(\)[\s\S]*Engine\.setupDs4\(\)/, 'LAN client DS4 runtime setup should use the managed setup endpoint');
+assert.match(js, /async function setupLanClientDs4\(dir\)[\s\S]*Engine\.setupDs4\(dir\)/, 'LAN client DS4 runtime setup should use the managed setup endpoint');
 assert.doesNotMatch(js, /window\.ds4PickDirectory\(\{ mode: 'ds4' \}\)/, 'LAN client DS4 setup should not use the native DS4 folder picker');
 assert.doesNotMatch(js, /Engine\.setDs4Dir/, 'UI should not keep the old manual ds4dir setter');
 assert.doesNotMatch(js, /applySavedLanClientDs4Dir/, 'LAN clients should not reapply saved manual DS4 paths');
@@ -1108,7 +1203,7 @@ assert.match(js, /function decorateCitationTargets\(root, sources = \[\]\)/, 'Re
 assert.match(js, /function sourceFavicon\(url\)/, 'Source cards should derive a favicon for each web source');
 assert.match(html, /\.msg-source__favicon/, 'Source cards should style site favicons');
 assert.match(launcher, /img-src data: http: https:/, 'Main app CSP should allow remote favicons for web source cards');
-assert.match(js, /async function sendMessage\(text, \{ regenerate = false, attachments = \[\] \} = \{\}\)/, 'Chat send should accept attachments');
+assert.match(js, /async function sendMessage\(text, \{ regenerate = false, attachments = \[\], roadmapSources = \[\] \} = \{\}\)/, 'Chat send should accept attachments');
 assert.match(js, /msg\.attachments = cleanAttachments/, 'User messages should persist attached file metadata/content');
 assert.match(js, /buildAttachments\(m\.attachments, 'user'\)[\s\S]*article\.append\(el\('div', \{ class: 'msg__content'/, 'Sent user attachments should render above the text bubble');
 assert.match(html, /\.msg--user-wrap[\s\S]*background: transparent/, 'User messages with attachments should use a transparent wrapper around separate file and text cards');
@@ -1352,10 +1447,10 @@ assert.match(launcher, /Engine process stopped before completing the turn[\s\S]*
 assert.match(js, /appendLocalSendFailure\(displayPrompt, msg, thisSend\)/, 'Agent/Design send failures should be persisted in the transcript');
 assert.match(js, /target} did not start[\s\S]*\/api\/status reports mode=/, 'Startup should fail visibly if /api/status disagrees with the requested mode');
 assert.match(js, /const launchWasSuperseded = async \(\)[\s\S]*Engine\.task\(launchTaskId\)[\s\S]*status === 'canceled'/, 'startup polling should detect a launch superseded by another window or request');
-assert.match(js, /if \(await launchWasSuperseded\(\)\)[\s\S]*setMode\(st\.mode\)/, 'a superseded launch should adopt the newer ready mode without a false startup error');
+assert.match(js, /if \(await launchWasSuperseded\(\)\)[\s\S]*setMode\(st\.mode === 'server' \? chatUiTarget : st\.mode\)/, 'a superseded launch should adopt the newer ready mode without a false startup error');
 
 assert.match(js, /copy\.lanMirror\s*=\s*true/, 'LAN mirror rows should be marked read-only');
-assert.match(js, /for \(const mode of \['chat', 'agent', 'design'\]\)/, 'mirror sync must cover chat, agent and design');
+assert.match(js, /for \(const mode of \['chat', 'agent', 'design', 'roadmap'\]\)/, 'mirror sync must cover chat, agent, design and roadmap');
 assert.match(html, /chat-item__lan/, 'sidebar should render the LAN badge for mirrored chats');
 assert.match(js, /LAN mirrored chats are read-only/, 'mirrored chats must not be editable from the host');
 
@@ -1389,7 +1484,7 @@ assert.doesNotMatch(loadingHtml, /class="mark"|@keyframes spin/, 'loading page s
 
 assert.match(gitignore, /^\/ds4\/$/m, 'managed upstream ds4 checkout should stay out of the DStudio source tree');
 assert.match(launcher, /#define DS4_REPO_URL "https:\/\/github\.com\/antirez\/ds4"/, 'launcher should know the upstream ds4 repo URL');
-assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "6747e7718dd08f00b680d0c16231f2d59ec3747e"/, 'managed ds4 setup should pin the current main commit in code');
+assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "84cc882352757baf628a1776badf7cc54d584e28"/, 'managed ds4 setup should pin the current main commit in code');
 assert.match(launcher, /#define DS4_ARCHIVE_URL "https:\/\/codeload\.github\.com\/antirez\/ds4\/tar\.gz\/" DS4_UPSTREAM_COMMIT/, 'managed ds4 setup should download a pinned GitHub source archive');
 assert.doesNotMatch(`${launcher}\n${js}\n${gitignore}`, /DS4_GLM_|ds4-glm52|\/api\/glm\/setup|setupGlm/, 'retired GLM side-checkout support should be removed');
 assert.match(launcher, /#define DS4_LAGUNA_UPSTREAM_COMMIT "448d5695d1c86401a4e9447c440feb983b73e6de"/, 'managed Laguna checkout should pin the fetched laguna-s2.1 branch');
@@ -1441,7 +1536,7 @@ assert.match(launcher, /setup_send_json[\s\S]*ggufDirOk[\s\S]*setup_gguf_dir_ok_
 assert.match(launcher, /api_setup_ds4[\s\S]*setup_ensure_gguf_dir\(gguf_err, sizeof gguf_err\)/, 'setup endpoint should ensure ds4/gguf exists before returning success');
 assert.match(launcher, /api_setup_ds4[\s\S]*run_build_jsonl\("build"\)/, 'setup endpoint should apply the external JSONL/web patch build');
 assert.match(launcher, /api_setup_ds4[\s\S]*run_ext_script\("extension\/design\/build-design\.sh", "build"\)/, 'setup endpoint should build the Design runtime after ds4 setup');
-assert.match(launcher, /!strcmp\(path, "\/api\/ds4\/setup"\)[\s\S]*api_setup_ds4\(fd\)/, 'launcher should expose POST /api/ds4/setup');
+assert.match(launcher, /!strcmp\(path, "\/api\/ds4\/setup"\)[\s\S]*api_setup_ds4\(fd, body\)/, 'launcher should expose POST /api/ds4/setup');
 assert.doesNotMatch(launcher, /\/api\/ds4dir|api_set_ds4dir/, 'launcher should not keep the old manual ds4dir endpoint');
 assert.match(launcher, /"setup-ds4"/, 'doctor should offer managed ds4 setup when the engine folder is missing');
 assert.match(html, /id="onboard-ds4dir-setup-btn"/, 'onboarding should offer one-click ds4 install');
@@ -1464,7 +1559,7 @@ const onboardingLocal = html.match(/<div id="onboard-local-panel"[\s\S]*?<sectio
 assert.match(onboardingLocal, /id="onboard-ds4dir"[\s\S]*id="onboard-conn"/, 'onboarding should show the engine directory before the connection status');
 assert.doesNotMatch(onboardingLocal, /onboard__status-k/, 'onboarding connection status should not duplicate the Engine heading');
 assert.match(html, /id="ds4dir-setup"/, 'forced ds4 gate should offer one-click ds4 install');
-assert.doesNotMatch(html, /id="onboard-ds4dir-browse-btn"|id="onboard-ds4dir-browse"|id="ds4dir-input"|id="ds4dir-save"|id="lan-client-ds4dir-choose"/, 'UI should not keep manual ds4 folder fallback controls');
+assert.doesNotMatch(html, /id="onboard-ds4dir-browse-btn"|id="onboard-ds4dir-browse"|id="ds4dir-input"|id="ds4dir-save"/, 'UI should not keep retired manual ds4 folder fallback controls');
 assert.match(js, /async function setupReadyEnoughToSkipOnboarding\(\)[\s\S]*Engine\.doctor\(\)[\s\S]*Number\(d\.fatal \|\| 0\) === 0[\s\S]*Engine\.status\(\)/, 'onboarding first-run gate should consult Doctor/status before showing');
 assert.match(js, /onboarded:\s*'ds4web\.onboarded\.v2'/, 'onboarding should have a durable marker independent from settings');
 assert.match(js, /function onboardingComplete\(\)[\s\S]*state\.settings\.onboarded === true[\s\S]*onboardingMarkerDone\(\)[\s\S]*hasLocalConversationHistory\(\)/, 'onboarding completion should survive settings reset when marker or local history exists');
@@ -1480,7 +1575,7 @@ assert.match(js, /function setSettingsNow\(patch\)[\s\S]*persistSettings\.cancel
 assert.match(js, /let shouldShowLoading = false;[\s\S]*shouldShowLoading = true;[\s\S]*if \(shouldShowLoading && !isLanClientMode\(\)\) location\.href = '\/loading\.html'/, 'onboarding Start should only show loading after it actually starts a different model');
 assert.match(js, /async function connectLanAddress\(\)[\s\S]*await connectLanClientMode\(lanAddressInput\.value\)[\s\S]*completingOnboarding = true;[\s\S]*Store\.markOnboarded\(\);[\s\S]*dialog\.close\(\)/, 'LAN onboarding connect should complete onboarding only after a valid LAN health check');
 assert.doesNotMatch(html, /onboard__cmd|onboard__list|fsfinder/, 'onboarding should not keep CSS for removed manual setup/finder UI');
-assert.match(js, /async function setupDs4\(\)[\s\S]*\/api\/ds4\/setup/, 'Engine API should call the managed ds4 setup endpoint');
+assert.match(js, /async function setupDs4\(dir\)[\s\S]*\/api\/ds4\/setup/, 'Engine API should call the managed ds4 setup endpoint');
 assert.match(js, /async function setupDs4FromUi\(\)[\s\S]*Engine\.setupDs4\(\)/, 'onboarding setup button should call the managed setup endpoint');
 assert.match(js, /function availableModelDownloads\(ggufs\)[\s\S]*MODEL_DOWNLOADS\.filter[\s\S]*d\.match\.test\(file\)/, 'download picker should show every supported family while hiding files already present');
 assert.match(js, /function renderSetModels\(\)[\s\S]*const choices = availableModelDownloads\(ggufs\)/, 'settings model download picker should expose the unified model catalog');
@@ -1522,7 +1617,7 @@ assert.match(launcher, /!strcmp\(path, "\/api\/model\/partials\/delete"\)[\s\S]*
 assert.match(launcher, /connect_loopback_with_retry[\s\S]*attempts[\s\S]*usleep[\s\S]*api_v1_proxy[\s\S]*connect_loopback_with_retry\(eport, 25, 100\)/, 'the local model proxy should tolerate the engine accept-loop handoff after long generations');
 assert.doesNotMatch(modelDownloadHandler, /json_get_string\(body, "variant"|Legacy:/, 'model download API should reject retired variant aliases');
 assert.match(js, /async function recheckModels\(\)[\s\S]*refreshModels\(\)[\s\S]*loadGgufs\(\)/, 'onboarding model Recheck should rescan status and GGUF files');
-assert.match(js, /async function setupOnboardLanDs4\(\)[\s\S]*Engine\.setupDs4\(\)/, 'LAN onboarding local ds4 install should use the managed setup endpoint');
+assert.match(js, /async function setupDs4FromUi\(\)[\s\S]*Engine\.setupDs4\(\)/, 'LAN onboarding local ds4 install should use the managed setup endpoint');
 assert.match(html, /\.onboard__ctx[\s\S]*background-image:\s*url[\s\S]*appearance:\s*none/, 'onboarding dropdowns should use the polished custom select styling');
 assert.match(js, /'setup-ds4': 'Install'/, 'system check should label managed ds4 setup clearly');
 assert.match(js, /Onboarding\.setupDs4\(\)/, 'system check setup action should launch onboarding setup directly');
@@ -1537,7 +1632,7 @@ assert.match(js, /exactly one fenced block with info string dstudio-image/, 'the
 assert.match(js, /\{"action":"edit","prompt":"precise editing instructions","preserve":"none"\}/, 'the model prompt should distinguish edits that require source pixels');
 assert.match(js, /Set preserve to "face" only when the user explicitly asks/, 'the model should semantically select exact face preservation without a language regex');
 assert.match(js, /function sourceImageForDirective\(chat, userMsg, directive, signal\)/, 'image edits should resolve the latest attached or generated source image');
-assert.match(js, /async function classifyImageRequestWithSource\([\s\S]*semantic router for local image models[\s\S]*thinkLevel: 'off'/, 'visual follow-ups should use a fast semantic router instead of relying only on model formatting');
+assert.match(js, /async function classifyImageRequestWithSource\([\s\S]*semantic router for local image and open-weight video models[\s\S]*thinkLevel: 'off'/, 'visual follow-ups should use a fast semantic router instead of relying only on model formatting');
 assert.match(js, /async function runRoutedImageReply\([\s\S]*executeImageDirective/, 'semantic image routes should start Qwen directly without waiting for a prose reply');
 assert.doesNotMatch(js, /function classifyImageRequestWithSource\([\s\S]{0,3000}\.test\(/, 'image routing must not classify user intent with regular expressions');
 assert.match(js, /imageAttachData\.get\(attachment\.id\)\?\.dataUri \|\| attachment\.thumb/, 'image edits should prefer original session pixels and fall back to the persisted preview');
@@ -1571,7 +1666,7 @@ assert.match(js, /profile:\s*readPlan\.mode === 'search' \? 'semantic' : 'intera
 assert.match(js, /cloudChat\s*\?\s*48\s*\*\s*1024[\s\S]*20\s*\*\s*1024/, 'PDF prompt budgets should stay bounded and adapt local versus cloud chat');
 assert.match(launcher, /PDF_INTERACTIVE_MAX_TEXT_PAGES\s+48/, 'Long PDF chat reads should cap the representative page set');
 assert.match(launcher, /pdf_select_interactive_pages[\s\S]*Farthest-point fill/, 'Long PDF selection should cover the whole document rather than only its first pages');
-assert.match(launcher, /pdf_semantic_page_scores[\s\S]*embed_call[\s\S]*pdf_select_semantic_pages/, 'Targeted PDF questions should retrieve across every page with multilingual embeddings');
+assert.match(launcher, /pdf_hybrid_page_scores[\s\S]*embed_call[\s\S]*pdf_select_semantic_pages/, 'Targeted PDF questions should retrieve across every page with multilingual embeddings');
 assert.match(js, /readPlan\.mode === 'pages'[\s\S]*payload\.pages = readPlan\.pages/, 'LLM-selected physical page ranges should be sent directly to the PDF reader');
 assert.match(js, /need\.needs === 'embedding'[\s\S]*ensureEmbeddingSetup/, 'Semantic PDF retrieval should install its local embedding sidecar on demand');
 assert.match(embedServer, /--parallel 1[\s\S]*--batch-size \$CTX[\s\S]*--ubatch-size \$CTX/, 'Metal embeddings should use one stable slot with a full-context physical batch');
@@ -1590,13 +1685,71 @@ assert.match(qwenImageScript, /generation-direct-dtype\.patch[\s\S]*accelerator-
 assert.match(fs.readFileSync('patch/qwen-image-mps/generation-direct-dtype.patch', 'utf8'), /DiffusionPipeline\.from_pretrained[\s\S]*torch_dtype=torch_dtype/, 'Qwen generation should load BF16 weights directly instead of materializing FP32 before Metal transfer');
 assert.match(fs.readFileSync('patch/qwen-image-mps/accelerator-lora-merge.patch', 'utf8'), /merge_device[\s\S]*param\.device\.type in \("mps", "cuda"\)[\s\S]*torch\.matmul/, 'Qwen Lightning LoRA should merge in float32 on the active accelerator');
 assert.match(searchRuntime, /function classifyResearchRequest\(/, 'Search extension should own the research classifier runtime');
+assert.match(searchRuntime, /function roadmapResearchQueries\(/,
+  'Roadmap Deep Research should expand learner goals into curriculum, prerequisite, practice, and assessment searches');
+assert.match(searchRuntime, /modelQueries\.slice\(0, 4\)[\s\S]*roadmapResearchQueries\(groundingSeed\)\.slice\(0, 2\)/,
+  'Roadmap discovery should reserve search slots for open-courseware and university-catalogue evidence');
+assert.match(searchRuntime, /never start from a preset topic catalogue/,
+  'Roadmap topics must be derived from the learner goal and research instead of a built-in catalogue');
+assert.match(searchRuntime, /there is no target count, minimum count, maximum count, or uniform stage shape/,
+  'Roadmap stage and topic granularity should adapt to semantic breadth');
+assert.doesNotMatch(searchRuntime, /5-8 stages|18-32 topic|3-6 topics per stage/,
+  'Roadmap protocol must not impose fixed stage or topic quotas');
+assert.match(searchRuntime, /purpose !== 'roadmap' && state\.judge\.decision === 'enough'/,
+  'an explicit Roadmap URL must not suppress broader Deep Research');
+assert.match(searchRuntime, /Roadmap research has not yet reached the minimum source diversity and evidence depth/,
+  'Roadmap research should require source diversity and sufficient extracted evidence');
+assert.match(searchRuntime, /pdfCount >= 2[\s\S]*Prefer HTML pages over PDF search results/,
+  'Roadmap discovery should avoid exhausting its CDP read budget on PDF viewers that expose no body text');
+assert.match(searchRuntime, /apps\.apple\.com[\s\S]*roadmapSourceSelectionScore\(source, question\) < 6/,
+  'Roadmap source diversification should prefer fewer relevant pages over padding with app stores or weak candidates');
+assert.match(searchRuntime, /quora\\\.com\|mathoverflow\\\.net[\s\S]*return 'social'/,
+  'Roadmap research should treat Q&A communities as secondary social evidence');
+assert.match(searchRuntime, /academicInstitutionPage[\s\S]*\\\.\(\?:edu\|ac\)/,
+  'University course pages should be recognized as academic evidence across country-code education domains');
+assert.match(searchRuntime, /'top_ans'[\s\S]*parsed\.searchParams\.delete/,
+  'Canonical source keys should collapse answer and tracking variants instead of rereading one page');
+assert.match(searchRuntime, /function roadmapResearchActionWithFallback\([\s\S]*automatic progress fallback after a no-op research plan/,
+  'Roadmap research should replace repeated or already-completed model actions with unread CDP sources');
+assert.match(searchRuntime, /fallbackReadBudget = Math\.max\(2, Math\.min\(4,[\s\S]*requireSubstantial && String\(source\.content \|\| ''\)\.length < 700/,
+  'Roadmap fallback reads should scale to the evidence gap and reject insubstantial browser pages');
+assert.match(searchRuntime, /for \(let attempt = 1; attempt <= 3; attempt\+\+\)[\s\S]*Research sufficiency judge retry/,
+  'A truncated or malformed semantic research verdict should be retried instead of discarding completed research');
+assert.match(searchRuntime, /Return the complete judgment[\s\S]*maxTokens: 0/,
+  'Research judges should omit max_tokens so the server can return the complete verdict');
+assert.match(searchRuntime, /SUCCESSFULLY READ PAGE MANIFEST \(authoritative; every URL below was opened and read\)[\s\S]*Never call a URL in that manifest unread/,
+  'The semantic judge should receive an authoritative successful-read manifest and must not contradict it');
+assert.match(searchRuntime, /skipped: the action produced no successfully read page or grounded fact/,
+  'Failed CDP reads must not count as evidence progress or trigger another redundant verdict');
+assert.match(searchRuntime, /Deep Research judge retry[\s\S]*normalizeResearchJudge\(obj\)/,
+  'The generic Deep Research judge should also retry malformed complete JSON');
+assert.doesNotMatch(searchRuntime, /Keep reason under 40 words|maxTokens: 1000 \+ attempt \* 300|uniqueStrings\(obj\?\.gaps \|\| \[\], (?:5|10)\)|uniqueStrings\(obj\?\.queries \|\| obj\?\.newQueries \|\| \[\], 12\)/,
+  'Research judgments must not be shortened by arbitrary word, token, or array caps');
 assert.doesNotMatch(searchRuntime, /Api\.completeText\(payload, AbortSignal\.timeout/,
   'Web and Roadmap model work should not be aborted by an automatic wall-clock timeout');
 assert.match(js, /const WEB_SEARCH_PLAN_TIMEOUT_MS = Number\.POSITIVE_INFINITY;[\s\S]*const WEB_RESEARCH_TOTAL_TIMEOUT_MS = Number\.POSITIVE_INFINITY;/,
   'Every Web and Roadmap research budget should remain open until completion or manual Stop');
-assert.match(js, /async function webSearch\(query, signal\)[\s\S]*async function webRead\(url, signal\)[\s\S]*async function httpProbe\(url, method = 'HEAD', signal\)/,
+assert.match(js, /async function webSearch\(query, signal, options = \{\}\)[\s\S]*async function webRead\(url, signal, options = \{\}\)[\s\S]*async function httpProbe\(url, method = 'HEAD', signal\)/,
   'Web helpers should use only the manual cancellation signal, without automatic fetch deadlines');
 assert.match(searchRuntime, /async function runResearchPipeline\(/, 'Search extension should own the shared search/deep research pipeline');
+assert.match(js, /if \(roadmapMode\) settings = \{ \.\.\.settings, webMode: 'research', thinkLevel: 'max' \}/,
+  'every Roadmap request must force Deep Research and maximum thinking independently of Chat settings');
+assert.match(js, /async function runRoadmapReply\(/,
+  'Roadmap generation should have a dedicated validated generation loop');
+assert.match(js, /function roadmapQualityReport\(/,
+  'Roadmap generation should reject shallow or structurally incomplete paths');
+assert.doesNotMatch(js, /metrics\.stages < 5|metrics\.topics < 18|metrics\.smallestStage < 3/,
+  'Roadmap quality validation must not force a uniform curriculum shape');
+assert.doesNotMatch(js, /parsed\.stages\.slice\(0,\s*\d+\)|stage\?\.topics\s*:\s*\[\]\)\.slice\(0,\s*\d+\)/,
+  'Roadmap parsing must not silently truncate semantically warranted stages or topics');
+assert.match(js, /Roadmap reasoning and JSON may use every[\s\S]*maxTokens: 0/,
+  'Roadmap generation should omit max_tokens and use all remaining physical context');
+assert.doesNotMatch(js, /maxTokens: Math\.max\(Number\(lockedSettings\.maxTokens\) \|\| 0, 32768\)/,
+  'Roadmap generation must not impose an arbitrary 32768-token response cap');
+assert.match(js, /Improving roadmap depth · attempt/,
+  'Roadmap quality failures should be repaired automatically until Stop');
+assert.match(searchRuntime, /hasDeepResearchContext && !roadmapMode/,
+  'Roadmap synthesis must not inherit the conflicting generic long-report Deep Research prompt');
 assert.match(searchRuntime, /async function runDeepResearch\(/, 'Search extension should own Deep Research runtime');
 assert.match(searchRuntime, /function buildResearchReportDraft\(/, 'Deep Research should build a fact-grounded report draft before final synthesis');
 assert.match(searchRuntime, /async function synthesizeResearchReport\(/, 'Deep Research should run a dedicated report synthesis writer');
@@ -1653,7 +1806,7 @@ assert.match(js, /Avoid unrelated homonyms that merely share the same product or
 assert.match(js, /Explicit user URL: \$\{s\.explicit \? 'yes' : 'no'\}/, 'read selector context should mark explicit user URLs');
 assert.match(js, /function selectableSourcesAfterExplicitRead\(/, 'explicit URL reads should narrow later read-selection to same-family sources');
 assert.match(js, /return await runResearchPipeline\(userText, settings, \{ mode: 'search', onTrace \}\)/, 'Search should run through the generic research pipeline');
-assert.match(js, /return await runResearchPipeline\(userText, settings, \{ mode: 'research', onTrace, job \}\)/, 'Deep Research should run through the generic research pipeline');
+assert.match(js, /return await runResearchPipeline\(userText, settings, \{[\s\S]*mode: 'research', onTrace, job, purpose: job\?\.purpose,[\s\S]*\}\)/, 'Deep Research should run through the generic research pipeline');
 assert.match(js, /const deadline = performance\.now\(\) \+ WEB_RESEARCH_TOTAL_TIMEOUT_MS/, 'Search and Deep Research should share the long research pipeline budget');
 assert.match(js, /async function selectSearchReads\(/, 'normal Web Search should have a model read-selection pass');
 assert.match(js, /Do not answer about a software project, repository, technical stack, docs, package, company product, or pricing from snippets alone/, 'Web Search must not answer technical/project questions from snippets only');

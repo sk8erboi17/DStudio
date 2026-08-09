@@ -209,8 +209,7 @@ if (-not $Pkg) {
   } else {
     $Nupkg = Join-Path $Deps "Microsoft.Web.WebView2.1.0.2903.40.nupkg"
     if (-not (Test-Path $Nupkg)) {
-      curl.exe -L -o $Nupkg "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2903.40"
-      Assert-NativeOk "download WebView2 SDK"
+      Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2903.40" -OutFile $Nupkg
     }
     & "C:\Windows\System32\tar.exe" -xf $Nupkg -C $Deps
     Assert-NativeOk "extract WebView2 SDK"
@@ -228,7 +227,9 @@ $DynamicLib = Get-ChildItem $Pkg.FullName -Recurse -Filter "WebView2Loader.dll.l
   Where-Object { $_.FullName -match "\\x64\\" } | Select-Object -First 1
 
 Write-Host "windows: compiling DStudio.exe"
-$Cl = Find-VsCl
+$Cl = $null
+try { $Cl = Get-NativeTool @("clang-cl", "cl") }
+catch { $Cl = Find-VsCl }
 $Gcc = Find-NativeTool @("gcc")
 $Gxx = Find-NativeTool @("g++")
 if ($Cl) {
