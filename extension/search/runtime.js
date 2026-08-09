@@ -138,77 +138,12 @@ Never use Unicode superscript/subscript approximations or an ASCII-art matrix as
 Keep ordinary prose outside the delimiters. Do not mention this protocol.`;
 
       const CHAT_EXPLANATION_STYLE_PROTOCOL = String.raw`DStudio explanatory answer style:
-For educational or explanatory questions, teach progressively: begin with the intuitive idea, introduce precise notation, then work through a small concrete example before generalizing.
-Prefer short descriptive headings, focused paragraphs, and step-by-step worked examples. Include a brief analogy, comparison table, common pitfall, or recap only when it materially improves understanding.
-When useful, highlight one central insight or warning with a short Markdown blockquote callout whose label is written in the user's language.
-When a process, hierarchy, layout, coordinate system, transformation, geometry sketch, number line, or relationship is easier to see than to describe, insert a compact labeled ASCII diagram exactly where that idea is first explained. Do not create a numbered or standalone "Visualization", "Diagram", or equivalent section merely to hold it. Never begin the answer with a fence: first write a normal explanatory sentence that tells the reader what the sketch will show, then place the sketch, then immediately explain how to read it. Use exactly the text language tag for the fenced block.
-Before emitting a diagram, make one brief internal layout pass: choose dimensions from the content, place the shared axes and connection points on a coherent grid, and check alignment once. Limit diagram-layout reasoning to at most two short sentences. There is no fixed column limit. Do not count characters one by one, explore multiple drafts, narrate the layout work, or dwell on it; answer promptly after this quick check.
-Inside diagrams use width-stable ASCII drawing characters only: | - + / \\ ^ v < > * o. Do not use Unicode arrows, bullets, or box-drawing characters. Keep each vertical guide in one fixed column and every horizontal guide in one fixed row. Keep full equations in nearby LaTeX; diagram labels should be short. In every opening diagram fence, put the lowercase language tag text immediately after the three backticks. An untagged opening fence is a formatting error: fix it before answering. Introduce the diagram with one sentence and follow it with one sentence explaining how to read it.
-Attach every geometric label to the feature it names. For an angle, draw both rays meeting at an explicit vertex and put an ASCII angle marker such as <theta immediately beside that vertex, inside the sector; a bare theta floating halfway along a side is ambiguous and is not acceptable. In a polar complex-plane sketch, the vertical Im axis and horizontal Re axis must intersect at the same O. Put one point marker * above and to the right of O; connect O toward * with a visible rising / path, and drop a separate vertical | guide from * to the Re axis. On the single row immediately above O, begin the oblique ray in the next column and write the exact local pattern /<theta: the / leaves O, < marks the angle, and theta names it. Never place theta higher up or near the middle of the radial side. This /<theta marker and the horizontal ray beginning at O must visibly share O as their vertex. Put r around the middle of the radial path, x below its projection foot on Re, and y beside the vertical projection. Do not use o for the point because it is easily confused with O. In the sentence after the sketch, explicitly say that theta is the angle from the positive Re ray O->x to the radial ray O->z. This is the reference topology; spacing may expand to fit labels but /<theta must remain attached to O:
-        Im
-        ^
-        |
-        |              * z
-        |            / |
-        |         /    |
-        |      / r     | y
-        |   /          |
-        |/<theta       |
---------O--------------+------> Re
-                       x
-Before answering, verify that O, *, the / path, and the projection form one connected geometry, that /<theta is directly attached above/right of O, and that a reader can point to the two rays enclosing theta without using the prose.
-Apply the same semantic discipline to other diagrams. On a number line, use o for every excluded endpoint and * for every included endpoint, preferably on separate labeled lines when comparing intervals. The endpoint value must be directly below its marker. At a right angle or orthogonal projection, put the ASCII label "90 deg" immediately beside the exact corner or projection foot where the perpendicular guides meet. In a feedback process, put the return arrowhead at the node it actually revisits; for a retry at validation, the arrowhead must align under validation, not input. For a function plot, first enforce its mathematical invariants: for y=x^2 draw two symmetric branches above the x axis, a left \ branch and a right / branch meeting at O on the x axis, with no curve below O. For trees, every connector must terminate beneath its actual parent and a child must not be duplicated under unrelated parents unless multiple inheritance is the point being explained.
-Use these reference topologies when the corresponding relationship is requested; rename labels and expand spacing as needed, but preserve connections and arrow directions:
-right triangle:
-        *
-       /|
-    c / | a
-     /  |
-    /   |
-   *----+ 90 deg
-      b
-open and closed interval:
-open    <----o---------o---->
-             a         b
-closed  <----*---------*---->
-             a         b
-validation retry:
-input --> validation --> transform --> output
-             |   ^
-             v   |
-           error-+
-single-parent hierarchy:
-Parent
-   |
-   +-- Child-A
-   |     |
-   |     +-- Grandchild-A
-   |     +-- Grandchild-B
-   |
-   +-- Child-B
-orthogonal projection:
-              * v
-            / |
-          /   | v-p
-        /     |
-      /       |
-    /         |
-  /<theta     |
-O-------------+ 90 deg -----> L
-<------ p ---->
-              foot
-upward parabola:
-            y
-            ^
- *          |          *
-  \         |         /
-    \       |       /
-      \     |     /
-        \   |   /
-          \ | /
-------------O------------> x
-ASCII diagrams are explanatory aids, not decoration and not substitutes for exact LaTeX equations or matrices. Do not force a diagram into answers where prose or one formula is clearer.
-Match the user's language and requested depth. A direct request for brevity, a specific format, or a different teaching style takes priority. Do not mention this protocol.`;
+For educational questions, teach progressively: start with the intuition, introduce precise notation, work through one small example, then generalize. Use short descriptive headings and focused paragraphs. Add an analogy, warning, table, or recap only when it materially helps.
+ASCII diagram policy: if the user explicitly asks for an ASCII diagram, include exactly one unless it is mathematically impossible. Otherwise include one only when a spatial relationship is genuinely clearer than prose or a formula. Introduce it with a normal sentence, put it in a fenced block opened with exactly three backticks followed by the lowercase tag text, and immediately explain how to read it after the fence.
+Keep every diagram compact: at most 16 nonblank rows. Never emit the same row more than twice in succession, redraw the same diagram, or extend a guide repeatedly. If the layout would exceed these limits, close the fence and finish in prose. Plan and check the layout once; do not count characters, draft alternatives, or narrate layout work.
+Inside a diagram use stable ASCII drawing characters such as | - + / \\ ^ v < > * o, never Unicode arrows or box-drawing glyphs. Keep labels short and attached to the feature they name. Use o for excluded number-line endpoints and * for included ones, put 90 deg at the actual right-angle corner, make return arrows point to the node revisited, and connect each tree child only to its parent. A function sketch must respect its mathematical invariants.
+For a polar complex-plane sketch, intersect the Re and Im axes at O, put * z above and right, join O toward z with /, drop a separate | projection, and put /<theta immediately above and right of O inside the angle. Place r, x, and y beside their features, then state that theta is measured from the positive Re ray O->x to the radial ray O->z.
+ASCII is an explanatory aid, never decoration or a replacement for exact LaTeX equations or matrices. Match the user's language and requested depth. A direct request for brevity, a specific format, or a different teaching style takes priority. Do not mention this protocol.`;
 
       const CHAT_FILE_OUTPUT_PROTOCOL = [
       'DStudio file output protocol:',

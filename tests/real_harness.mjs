@@ -214,6 +214,8 @@ export async function completeTextStream(baseUrl, messages, opts = {}) {
       let content = '';
       let reasoning = '';
       let errorText = '';
+      let finishReason = null;
+      let usage = null;
       const consume = (frame) => {
         for (const line of frame.split(/\r?\n/)) {
           if (!line.startsWith('data:')) continue;
@@ -225,6 +227,10 @@ export async function completeTextStream(baseUrl, messages, opts = {}) {
           const delta = event?.choices?.[0]?.delta || {};
           content += delta.content || '';
           reasoning += delta.reasoning_content || delta.reasoning || '';
+          if (event?.choices?.[0]?.finish_reason) {
+            finishReason = event.choices[0].finish_reason;
+          }
+          if (event?.usage) usage = event.usage;
           opts.onProgress?.({ content, reasoning, event });
         }
       };
@@ -253,7 +259,7 @@ export async function completeTextStream(baseUrl, messages, opts = {}) {
         if (wire.trim()) {
           try { consume(wire); } catch (error) { reject(error); return; }
         }
-        resolve({ content, reasoning });
+        resolve({ content, reasoning, finishReason, usage });
       });
     });
     req.on('error', reject);

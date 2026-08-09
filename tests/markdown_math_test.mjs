@@ -31,6 +31,8 @@ this.texToMathML = texToMathML;
 this.asciiMatrixGroupToLatex = asciiMatrixGroupToLatex;
 this.fencedMathToLatex = fencedMathToLatex;
 this.normalizeAssistantDiagramFences = normalizeAssistantDiagramFences;
+this.runawayAsciiDiagramCutoff = runawayAsciiDiagramCutoff;
+this.stopRunawayAsciiDiagram = stopRunawayAsciiDiagram;
 this.renderMarkdown = renderMarkdown;
 `, context);
 
@@ -224,6 +226,32 @@ const ordinaryFence = '```\nplain words only\nsecond line\n```';
 assert.equal(context.normalizeAssistantDiagramFences(ordinaryFence), ordinaryFence,
   'untagged non-diagram fences must not be rewritten');
 
+const runawayDiagram = [
+  'Il valore assoluto e una distanza.',
+  '',
+  '```',
+  '<----*---------*---->',
+  '     -3        3',
+  '      |         |',
+  '      |         |',
+  '      |         |',
+  '      |         |',
+  '      |         |',
+  '      |         |',
+  '      |         |',
+  '      |         |',
+].join('\n');
+const runawayCutoff = context.runawayAsciiDiagramCutoff(runawayDiagram);
+assert.ok(runawayCutoff > 0, 'eight identical structural rows should trip the ASCII loop guard');
+const stoppedDiagram = context.stopRunawayAsciiDiagram(runawayDiagram, runawayCutoff);
+assert.equal((stoppedDiagram.match(/      \|         \|/g) || []).length, 2,
+  'the ASCII loop repair should retain at most two copies of the repeated row');
+assert.match(stoppedDiagram, /\n```$/,
+  'the ASCII loop repair should close the interrupted diagram fence');
+const finiteDiagram = '```text\n  |   *\n  |  /|\n--O---+--> x\n```';
+assert.equal(context.runawayAsciiDiagramCutoff(finiteDiagram), -1,
+  'a normal finite ASCII diagram must not trip the loop guard');
+
 const legacyUnicodeDiagram = [
   '            immaginario (i)',
   '                ↑',
@@ -252,8 +280,12 @@ assert.match(source, /const CHAT_MATH_OUTPUT_PROTOCOL = String\.raw/,
   'normal chat should include a mathematical typesetting protocol');
 assert.match(source, /const CHAT_EXPLANATION_STYLE_PROTOCOL = String\.raw/,
   'normal chat should include the progressive explanation and ASCII diagram style');
-assert.match(source, /Before emitting a diagram, make one brief internal layout pass:[\s\S]*Limit diagram-layout reasoning to at most two short sentences\.[\s\S]*There is no fixed column limit\.[\s\S]*Do not count characters one by one, explore multiple drafts, narrate the layout work, or dwell on it/,
-  'the model should do one bounded diagram check instead of prolonged character counting');
+assert.match(source, /Plan and check the layout once; do not count characters, draft alternatives, or narrate layout work/,
+  'the compact prompt should require one bounded diagram check');
+assert.match(source, /ASCII diagram policy:[\s\S]*explicitly asks[\s\S]*include exactly one[\s\S]*at most 16 nonblank rows[\s\S]*Never emit the same row more than twice in succession[\s\S]*close the fence and finish in prose/,
+  'the model prompt should bound ASCII diagrams without removing useful sketches');
+assert.match(source, /streamLoop: for await \(const ev of Api\.streamChat[\s\S]*runawayAsciiDiagramCutoff\(content\)[\s\S]*finishReason = 'repetition'[\s\S]*break streamLoop/,
+  'normal chat streaming should stop a detected repeated ASCII row cycle');
 assert.match(html, /<option value="high">Thinking: high<\/option>/,
   'the UI should name DS4 high reasoning honestly instead of calling it normal');
 assert.doesNotMatch(html, /<option value="high">Thinking: normal<\/option>/,
@@ -262,14 +294,10 @@ assert.doesNotMatch(source, /Keep the diagram under about 60 columns/,
   'diagram width should be chosen from the content, not a fixed column limit');
 assert.doesNotMatch(source, /Assign exact row and column anchors/,
   'the diagram prompt should not trigger exhaustive coordinate-by-coordinate reasoning');
-assert.match(source, /For an angle, draw both rays meeting at an explicit vertex and put an ASCII angle marker such as <theta immediately beside that vertex, inside the sector; a bare theta floating halfway along a side is ambiguous and is not acceptable/,
-  'angle labels should be visibly attached to their vertex and sector');
-assert.match(source, /On the single row immediately above O, begin the oblique ray in the next column and write the exact local pattern \/<theta:[\s\S]*Never place theta higher up or near the middle of the radial side[\s\S]*Put r around the middle of the radial path, x below its projection foot on Re, and y beside the vertical projection/,
-  'polar diagrams should give every geometric label an unambiguous location');
-assert.match(source, /explicitly say that theta is the angle from the positive Re ray O->x to the radial ray O->z/,
+assert.match(source, /For a polar complex-plane sketch,[\s\S]*intersect the Re and Im axes at O[\s\S]*put \/<theta immediately above and right of O inside the angle[\s\S]*Place r, x, and y beside their features/,
+  'the compact prompt should keep polar labels attached to their geometry');
+assert.match(source, /state that theta is measured from the positive Re ray O->x to the radial ray O->z/,
   'the sentence after a polar sketch should name both rays that bound theta');
-assert.match(source, /orthogonal projection:[\s\S]*\n  \/<theta     \|[\s\S]*\nO-------------\+ 90 deg -----> L/,
-  'orthogonal-projection theta should use the same vertex-attached angle marker');
 assert.match(source, /settings\.systemPrompt\?\.trim\(\),\s*roadmapMode \? ROADMAP_OUTPUT_PROTOCOL : '',\s*\(!roadmapMode && !hasDeepResearchContext && !hasSynthesizedResearchReport\) \? CHAT_EXPLANATION_STYLE_PROTOCOL : '',\s*roadmapMode \? '' : CHAT_MATH_OUTPUT_PROTOCOL,\s*roadmapMode \? '' : CHAT_FILE_OUTPUT_PROTOCOL/,
   'the mathematical typesetting protocol should be sent in normal chat history');
 assert.match(source, /function renderFence\([\s\S]*fencedMathToLatex\(lang, code\)[\s\S]*texToMathML\(latex, true\)/,
