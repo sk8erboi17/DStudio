@@ -64,6 +64,20 @@ if [ ! -f "$dtype_stamp" ]; then
     patch -d "$package_dir" -p1 --forward < "$dtype_patch"
     : > "$dtype_stamp"
 fi
+generation_dtype_patch="$script_dir/../patch/qwen-image-mps/generation-direct-dtype.patch"
+generation_dtype_stamp="$runtime_root/qwen-image-mps.generation-direct-dtype.v1"
+if [ ! -f "$generation_dtype_stamp" ]; then
+    package_dir=$("$venv/bin/python" -c 'import pathlib, qwen_image_mps; print(pathlib.Path(qwen_image_mps.__file__).parent)')
+    patch -d "$package_dir" -p1 --forward < "$generation_dtype_patch"
+    : > "$generation_dtype_stamp"
+fi
+lora_merge_patch="$script_dir/../patch/qwen-image-mps/accelerator-lora-merge.patch"
+lora_merge_stamp="$runtime_root/qwen-image-mps.accelerator-lora-merge.v1"
+if [ ! -f "$lora_merge_stamp" ]; then
+    package_dir=$("$venv/bin/python" -c 'import pathlib, qwen_image_mps; print(pathlib.Path(qwen_image_mps.__file__).parent)')
+    patch -d "$package_dir" -p1 --forward < "$lora_merge_patch"
+    : > "$lora_merge_stamp"
+fi
 if [ "$action" = "edit" ] && [ "$preserve" = "face" ] && ! "$venv/bin/python" -c 'import cv2' >/dev/null 2>&1; then
     echo "DStudio: installing the local face detector for pixel-preserving edits" >&2
     "$uv_bin" pip install --python "$venv/bin/python" "opencv-python-headless==4.12.0.88"

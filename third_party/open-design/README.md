@@ -7,4 +7,7 @@ imported into DStudio.
 - Imported from commit: `8123cc69808137ff765aad782e5eabf750249ca5`
 - License file: `LICENSE`
 
-Imported and modified pack files are listed in `THIRD_PARTY_NOTICES.md`.
+Imported and modified design-system files live under
+`extension/design-systems/*`, are marked with
+`ds4_upstream: open-design/...`, and are documented in
+`THIRD_PARTY_NOTICES.md`.

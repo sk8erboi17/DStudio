@@ -21,6 +21,8 @@
 #   DSTUDIO_VISION_CTX       (default 12288) — explicit -c: multi-image requests
 #                            with --image-min-tokens 1024 need real headroom
 #   DSTUDIO_VISION_NGL       (default 999)   — full GPU offload where available
+#   DSTUDIO_VISION_PARALLEL  (default 1)     — DStudio serializes multimodal
+#                            requests; extra slots only add scheduler/KV overhead
 #   DSTUDIO_VISION_IDLE_MIN  (default 20)    — idle minutes before auto-shutdown
 #   DSTUDIO_VISION_BOOT_MAX  (default 5400)  — seconds allowed to become healthy
 #                            (covers the one-time multi-GB -hf download)
@@ -32,6 +34,7 @@ DIR="${DSTUDIO_VISION_DIR:-$HOME/.dstudio/llama-vision}"
 HFREPO="${DSTUDIO_VISION_HF:-$(cat "$DIR/.hf" 2>/dev/null || echo ggml-org/Qwen2.5-VL-7B-Instruct-GGUF)}"
 CTX="${DSTUDIO_VISION_CTX:-12288}"
 NGL="${DSTUDIO_VISION_NGL:-999}"
+PARALLEL="${DSTUDIO_VISION_PARALLEL:-1}"
 IDLE_MIN="${DSTUDIO_VISION_IDLE_MIN:-20}"
 BOOT_MAX="${DSTUDIO_VISION_BOOT_MAX:-5400}"
 
@@ -64,9 +67,10 @@ export LD_LIBRARY_PATH="$BINDIR:${LD_LIBRARY_PATH:-}"
 # --image-min-tokens 1024: Qwen-VL needs >=1024 image tokens for accurate
 # grounding (llama-server warns about this); raising the floor improves precision.
 MINTOK="${DSTUDIO_VISION_MIN_IMG_TOKENS:-1024}"
-echo "vision-server: $SERVER -hf $HFREPO --host $HOST --port $PORT -c $CTX -ngl $NGL --image-min-tokens $MINTOK (idle-stop ${IDLE_MIN}m)" >&2
+echo "vision-server: $SERVER -hf $HFREPO --host $HOST --port $PORT -c $CTX -ngl $NGL --parallel $PARALLEL --image-min-tokens $MINTOK (idle-stop ${IDLE_MIN}m)" >&2
 "$SERVER" -hf "$HFREPO" --host "$HOST" --port "$PORT" \
-          -c "$CTX" -ngl "$NGL" --image-min-tokens "$MINTOK" &
+          -c "$CTX" -ngl "$NGL" --parallel "$PARALLEL" \
+          --image-min-tokens "$MINTOK" &
 CHILD=$!
 echo "$CHILD" > "$LOCK"
 touch "$STAMP"

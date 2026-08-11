@@ -341,7 +341,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define LOG_RING_CAP 768
 #define DIAG_SSE_MAX 8
 #define DS4_REPO_URL "https://github.com/antirez/ds4"
-#define DS4_UPSTREAM_COMMIT "b0309611041655f4e45671cfd9c9886aff161406"
+#define DS4_UPSTREAM_COMMIT "84cc882352757baf628a1776badf7cc54d584e28"
 #define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
 
 /* Optional Laguna S 2.1 engine checkout. Laguna lives on its own upstream
@@ -3486,6 +3486,8 @@ static void reap_child(void) {
         close_pipes();
         g_mode = ENGINE_NONE;
         g_ready = 0;
+        g_load_pct = 0;
+        snprintf(g_stage, sizeof g_stage, "%s", interrupted_exit ? "Turn interrupted" : "Engine stopped");
     }
 }
 
@@ -4936,7 +4938,13 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
         argv[n++] = "--cpu";
         if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
         argv[n++] = "-m"; argv[n++] = model_abs;
-        if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp"; argv[n++] = dspark_path; }
+        if (dspark_on) {
+            argv[n++] = "--dspark";
+            argv[n++] = "--mtp";
+            argv[n++] = dspark_path;
+            argv[n++] = "--temp";
+            argv[n++] = "0";
+        }
     }
     argv[n++] = "-c"; argv[n++] = ctxs;
     if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
@@ -5011,7 +5019,13 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
             argv[n++] = "--metal";
             if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
             argv[n++] = "-m"; argv[n++] = model_abs;
-            if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp"; argv[n++] = dspark_path; }
+            if (dspark_on) {
+                argv[n++] = "--dspark";
+                argv[n++] = "--mtp";
+                argv[n++] = dspark_path;
+                argv[n++] = "--temp";
+                argv[n++] = "0";
+            }
         }
         argv[n++] = "-c"; argv[n++] = ctxs;
         if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
@@ -5093,6 +5107,19 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
      * charter + DESIGN.md + SKILL.md, injected via ds4-design's -sys flag. */
     char *skill_sys = build_skill_sys(1);
 
+    char dspark_path[DSTUDIO_PATH_MAX];
+    int dspark_on = 0;
+    if (g_dspark_enabled && !remote_model) {
+        if (!resolve_dspark_file(dspark_path, sizeof dspark_path)) {
+            snprintf(err, errsz,
+                     "DSpark is enabled but no DSpark support GGUF was found in %s/gguf "
+                     "(download it from Settings first)", g_ds4_dir);
+            free(skill_sys);
+            return 0;
+        }
+        dspark_on = 1;
+    }
+
 #ifdef _WIN32
     char exe[2200];
     win_join_path(exe, sizeof exe, g_ds4_dir, "ds4-design.exe");
@@ -5110,6 +5137,13 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         argv[n++] = "--cpu";
         if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
         argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
+        if (dspark_on) {
+            argv[n++] = "--dspark";
+            argv[n++] = "--mtp";
+            argv[n++] = dspark_path;
+            argv[n++] = "--temp";
+            argv[n++] = "0";
+        }
     }
     argv[n++] = "-c"; argv[n++] = ctxs;
     if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
@@ -5175,6 +5209,13 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
             argv[n++] = "--metal";
             if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
             argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
+            if (dspark_on) {
+                argv[n++] = "--dspark";
+                argv[n++] = "--mtp";
+                argv[n++] = dspark_path;
+                argv[n++] = "--temp";
+                argv[n++] = "0";
+            }
         }
         argv[n++] = "-c"; argv[n++] = ctxs;
         if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
@@ -5229,6 +5270,7 @@ static void drain_child(void) {
     if (g_mode == ENGINE_SERVER && !g_ready && port_listening(g_cfg.port)) {
         set_stage("Ready", 100);
         g_ready = 1;
+        maybe_complete_launch_task(ENGINE_SERVER);
     }
 }
 
@@ -7704,6 +7746,7 @@ typedef struct {
 
 #include "dstudio_qwen_memory.c"
 #include "dstudio_image.c"
+#include "dstudio_video.c"
 #include "dstudio_vision.c"
 
 /* ---- Embedding sidecar endpoints (semantic skill search) ---- */
@@ -7776,27 +7819,34 @@ static void api_embed_setup_run(int fd, const char *body) {
 
     embed_touch_last_use();
     int server_up = (rc == 0) ? embed_ensure_server(1000000) : 0;
-    int indexed = 0;
+    int indexed = 0, index_ready = 0;
     if (server_up) {
         embed_touch_last_use();
         skill_hit_list L = {0};
-        if (skill_enum_all(&L) && L.n > 0) {
-            char **texts = calloc((size_t)L.n, sizeof *texts);
-            if (texts) {
-                for (int i = 0; i < L.n; i++) texts[i] = skill_embed_text(&L.v[i]);
-                int dim = 0;
-                float *v = skill_index_ensure(&L, texts, &dim);
-                if (v) { indexed = L.n; free(v); }
-                for (int i = 0; i < L.n; i++) free(texts[i]);
-                free(texts);
+        if (skill_enum_all(&L)) {
+            /* The embedding sidecar also powers PDF RAG. A fresh profile with
+             * zero user-authored skills is therefore fully ready: there is no
+             * skill index to build, but document embeddings must still work. */
+            if (L.n == 0) {
+                index_ready = 1;
+            } else {
+                char **texts = calloc((size_t)L.n, sizeof *texts);
+                if (texts) {
+                    for (int i = 0; i < L.n; i++) texts[i] = skill_embed_text(&L.v[i]);
+                    int dim = 0;
+                    float *v = skill_index_ensure(&L, texts, &dim);
+                    if (v) { indexed = L.n; index_ready = 1; free(v); }
+                    for (int i = 0; i < L.n; i++) free(texts[i]);
+                    free(texts);
+                }
             }
         }
         skill_hits_free(&L);
     }
-    int ok = rc == 0 && server_up && indexed > 0;
+    int ok = rc == 0 && server_up && index_ready;
     const char *err = rc != 0 ? "embedding runtime install failed (see log)"
                     : !server_up ? "embedding model did not come up in time; retry"
-                    : indexed == 0 ? "index build failed"
+                    : !index_ready ? "index build failed"
                     : "";
     char hf_now[200]; embed_hf_pref(hf_now, sizeof hf_now);
     json_dyn_buf b = {0};
@@ -8185,6 +8235,188 @@ static void api_http_probe(int fd, const char *body) {
 #endif
 }
 
+#ifndef _WIN32
+typedef struct {
+    const char *engine;
+    char status[16];
+    char reason[256];
+    int results;
+} web_cdp_search_attempt;
+
+static int web_cdp_search_blocked(const char *engine, const char *markdown,
+                                  char *reason, size_t reason_cap) {
+    if (!markdown || !markdown[0]) {
+        snprintf(reason, reason_cap, "no rendered search page");
+        return 1;
+    }
+    int google = engine && !strcmp(engine, "Google");
+    if ((google && (web_find_ci(markdown, "google.com/sorry/") ||
+                    web_find_ci(markdown, "unusual traffic") ||
+                    web_find_ci(markdown, "detected unusual traffic"))) ||
+        web_find_ci(markdown, "verify you are human") ||
+        web_find_ci(markdown, "captcha challenge")) {
+        snprintf(reason, reason_cap, "anti-bot page returned by %s", engine ? engine : "search engine");
+        return 1;
+    }
+    return 0;
+}
+
+static void api_web_search_cdp_run(int fd, const char *query) {
+    static const char *engines[] = { "Google", "Brave", "Bing", "DuckDuckGo" };
+    web_cdp_search_attempt attempts[4] = {0};
+    web_source_list per_engine[4] = {0};
+    web_source_list merged = {0};
+    char *encoded = web_url_encode_query(query);
+    if (!encoded) {
+        web_json_error(fd, "500 Internal Server Error", "out of memory");
+        return;
+    }
+
+    int attempt_count = 0;
+    int google_failed = 1;
+    int oom = 0;
+    for (int i = 0; i < 4; i++) {
+        if (i > 0 && !google_failed) break;
+        attempts[i].engine = engines[i];
+        snprintf(attempts[i].status, sizeof attempts[i].status, "failed");
+        attempt_count = i + 1;
+
+        int st = 0;
+        char search_url[8192];
+        char *search_json = NULL;
+        if (i == 0) {
+            search_json = web_helper_capture("google_search", "--query", query,
+                                             WEB_HELPER_SEARCH_TIMEOUT_MS, &st);
+        } else {
+            if (i == 1) snprintf(search_url, sizeof search_url,
+                                 "https://search.brave.com/search?q=%s&source=web", encoded);
+            else if (i == 2) snprintf(search_url, sizeof search_url,
+                                      "https://www.bing.com/search?q=%s", encoded);
+            else snprintf(search_url, sizeof search_url,
+                          "https://duckduckgo.com/?q=%s&ia=web", encoded);
+            search_json = web_helper_capture("visit_page", "--url", search_url,
+                                             WEB_HELPER_SEARCH_TIMEOUT_MS, &st);
+        }
+        char *search_err = search_json ? json_get_string_alloc(search_json, "error") : NULL;
+        char *search_md = search_json ? json_get_string_alloc(search_json, "markdown") : NULL;
+        int blocked = web_cdp_search_blocked(engines[i], search_md,
+                                             attempts[i].reason, sizeof attempts[i].reason);
+        if (!blocked) {
+            if (!web_sources_parse_links(search_md, &per_engine[i])) {
+                oom = 1;
+            } else {
+                if (i == 2) web_sources_normalize_bing_redirects(&per_engine[i]);
+                else web_sources_keep_external_search_results(&per_engine[i]);
+                attempts[i].results = per_engine[i].len;
+                if (per_engine[i].len > 0) {
+                    snprintf(attempts[i].status, sizeof attempts[i].status, "ok");
+                    snprintf(attempts[i].reason, sizeof attempts[i].reason,
+                             "%d external result links rendered via CDP", per_engine[i].len);
+                } else {
+                    snprintf(attempts[i].reason, sizeof attempts[i].reason,
+                             "rendered page contained no external result links");
+                }
+            }
+        } else if (search_err && search_err[0]) {
+            snprintf(attempts[i].reason, sizeof attempts[i].reason, "%s", search_err);
+        } else if (st == 124) {
+            snprintf(attempts[i].reason, sizeof attempts[i].reason, "CDP search timed out");
+        }
+        if (i == 0) google_failed = strcmp(attempts[i].status, "ok") != 0;
+        free(search_json); free(search_err); free(search_md);
+        if (oom) break;
+    }
+    free(encoded);
+
+    int first_engine = google_failed ? 1 : 0;
+    int last_engine = google_failed ? attempt_count : 1;
+    for (int rank = 0; !oom && rank < 16 && merged.len < 24; rank++) {
+        for (int i = first_engine; i < last_engine && merged.len < 24; i++) {
+            if (rank < per_engine[i].len &&
+                !web_sources_append_unique(&merged, &per_engine[i].items[rank])) oom = 1;
+        }
+    }
+
+    if (oom) {
+        for (int i = 0; i < 4; i++) web_sources_free(&per_engine[i]);
+        web_sources_free(&merged);
+        web_json_error(fd, "500 Internal Server Error", "out of memory");
+        return;
+    }
+    if (merged.len == 0) {
+        char msg[768] = "CDP search failed";
+        size_t used = strlen(msg);
+        for (int i = 0; i < attempt_count && used + 8 < sizeof msg; i++) {
+            int n = snprintf(msg + used, sizeof msg - used, "%s%s: %s",
+                             i ? "; " : " — ", attempts[i].engine,
+                             attempts[i].reason[0] ? attempts[i].reason : "no results");
+            if (n < 0 || (size_t)n >= sizeof msg - used) break;
+            used += (size_t)n;
+        }
+        for (int i = 0; i < 4; i++) web_sources_free(&per_engine[i]);
+        web_sources_free(&merged);
+        web_json_error(fd, "502 Bad Gateway", msg);
+        return;
+    }
+
+    const char *provider = google_failed
+        ? "Brave + Bing + DuckDuckGo via CDP"
+        : "Google Search via CDP";
+    char *result_md = web_sources_markdown(query, &merged, provider);
+    if (!result_md) {
+        for (int i = 0; i < 4; i++) web_sources_free(&per_engine[i]);
+        web_sources_free(&merged);
+        web_json_error(fd, "500 Internal Server Error", "out of memory");
+        return;
+    }
+
+    json_dyn_buf out = {0};
+    int ok = json_dyn_puts(&out, "{\"ok\":true,\"query\":") &&
+             json_dyn_put_escaped(&out, query) &&
+             json_dyn_puts(&out, ",\"provider\":") &&
+             json_dyn_put_escaped(&out, provider) &&
+             json_dyn_puts(&out, ",\"fallback\":") &&
+             json_dyn_puts(&out, google_failed ? "true" : "false") &&
+             json_dyn_puts(&out, ",\"cdpOnly\":true,\"attempts\":[");
+    for (int i = 0; ok && i < attempt_count; i++) {
+        ok = json_dyn_puts(&out, i ? ",{" : "{") &&
+             json_dyn_puts(&out, "\"engine\":") &&
+             json_dyn_put_escaped(&out, attempts[i].engine) &&
+             json_dyn_puts(&out, ",\"status\":") &&
+             json_dyn_put_escaped(&out, attempts[i].status) &&
+             json_dyn_puts(&out, ",\"reason\":") &&
+             json_dyn_put_escaped(&out, attempts[i].reason) &&
+             json_dyn_puts(&out, ",\"results\":") &&
+             json_dyn_printf(&out, "%d", attempts[i].results) &&
+             json_dyn_puts(&out, "}");
+    }
+    if (ok) ok = json_dyn_puts(&out, "],\"markdown\":") &&
+                 json_dyn_put_escaped(&out, result_md) &&
+                 json_dyn_puts(&out, ",\"sources\":[");
+    for (int i = 0; ok && i < merged.len; i++) {
+        ok = json_dyn_puts(&out, i ? ",{" : "{") &&
+             json_dyn_puts(&out, "\"title\":") &&
+             json_dyn_put_escaped(&out, merged.items[i].title) &&
+             json_dyn_puts(&out, ",\"url\":") &&
+             json_dyn_put_escaped(&out, merged.items[i].url) &&
+             json_dyn_puts(&out, ",\"content\":") &&
+             json_dyn_put_escaped(&out, merged.items[i].title) &&
+             json_dyn_puts(&out, "}");
+    }
+    if (ok) ok = json_dyn_puts(&out, "]}");
+    free(result_md);
+    for (int i = 0; i < 4; i++) web_sources_free(&per_engine[i]);
+    web_sources_free(&merged);
+    if (!ok) {
+        free(out.ptr);
+        web_json_error(fd, "500 Internal Server Error", "out of memory");
+        return;
+    }
+    send_json(fd, "200 OK", out.ptr);
+    free(out.ptr);
+}
+#endif
+
 static void api_web_search_run(int fd, const char *body) {
     char query[2048];
     if (!json_get_string(body, "query", query, sizeof query) || !query[0]) {
@@ -8195,33 +8427,84 @@ static void api_web_search_run(int fd, const char *body) {
     web_json_error(fd, "501 Not Implemented", "web search helper is not available in the Windows build yet");
     return;
 #else
+    int cdp_only = json_get_bool(body, "cdpOnly");
+    if (cdp_only) {
+        api_web_search_cdp_run(fd, query);
+        return;
+    }
+    int prefer_fallback = json_get_bool(body, "preferFallback");
     int st = 0;
-    char *search_json = web_helper_capture("google_search", "--query", query, WEB_HELPER_SEARCH_TIMEOUT_MS, &st);
-    if (!search_json || !search_json[0]) {
-        free(search_json);
-        web_json_error(fd, "500 Internal Server Error", "web search helper failed to start");
-        return;
-    }
-    char *search_err = json_get_string_alloc(search_json, "error");
-    char *search_md = json_get_string_alloc(search_json, "markdown");
-    if (!search_md) {
-        char msg[512];
-        snprintf(msg, sizeof msg, "%s", search_err && search_err[0] ? search_err : "google_search returned no markdown");
-        free(search_json); free(search_err);
-        web_json_error(fd, st == 0 ? "502 Bad Gateway" : "500 Internal Server Error", msg);
-        return;
-    }
+    char *search_json = prefer_fallback ? NULL :
+        web_helper_capture("google_search", "--query", query, WEB_HELPER_SEARCH_TIMEOUT_MS, &st);
+    char *search_err = search_json ? json_get_string_alloc(search_json, "error") : NULL;
+    char *search_md = search_json ? json_get_string_alloc(search_json, "markdown") : NULL;
     web_source_list sources = {0};
-    if (!web_sources_parse_links(search_md, &sources)) {
+    if (search_md && !web_sources_parse_links(search_md, &sources)) {
         free(search_json); free(search_err); free(search_md);
+        web_json_error(fd, "500 Internal Server Error", "out of memory");
+        return;
+    }
+    /* Google occasionally serves an anti-bot page to the browser helper. A
+     * successful helper response with zero links is not a successful search:
+     * transparently use DuckDuckGo HTML and merge its result links. */
+    int google_blocked = prefer_fallback || !search_md ||
+        web_find_ci(search_md, "google.com/sorry/") ||
+        web_find_ci(search_md, "unusual traffic") ||
+        web_find_ci(search_md, "detected unusual traffic");
+    int fallback_used = google_blocked || sources.len < 3;
+    char primary_err[256] = "";
+    char fallback_err[256] = "";
+    char secondary_err[256] = "";
+    const char *fallback_provider = "Brave fallback";
+    if (fallback_used) {
+        int brave_ok = web_brave_search(query, &sources, primary_err, sizeof primary_err);
+        if (!brave_ok || sources.len < 3) {
+            int duck_ok = web_duckduckgo_search(query, &sources, fallback_err, sizeof fallback_err);
+            if (duck_ok) fallback_provider = brave_ok ? "Brave + DuckDuckGo fallback" : "DuckDuckGo fallback";
+        }
+        if (sources.len < 3) {
+            if (web_bing_rss_search(query, &sources, secondary_err, sizeof secondary_err)) {
+                fallback_provider = sources.len > 10 ? "Multi-provider fallback" : "Bing RSS fallback";
+            }
+        }
+    }
+    if (sources.len == 0) {
+        char msg[768];
+        snprintf(msg, sizeof msg, "%s%s%s%s%s%s%s%s%s",
+                 search_err && search_err[0] ? search_err :
+                 (!search_json || !search_json[0] ? "web search helper failed to start" : "browser search returned no links"),
+                 primary_err[0] ? "; primary fallback failed: " : "",
+                 primary_err,
+                 fallback_err[0] ? "; fallback failed: " : "",
+                 fallback_err,
+                 secondary_err[0] ? "; secondary fallback failed: " : "",
+                 secondary_err,
+                 st == 124 ? "; browser search timed out" : "",
+                 google_blocked ? "; browser search was blocked" : "");
+        free(search_json); free(search_err); free(search_md); web_sources_free(&sources);
+        web_json_error(fd, "502 Bad Gateway", msg);
+        return;
+    }
+    const char *provider = prefer_fallback ? fallback_provider :
+        fallback_used ? (fallback_provider[0] == 'B' && fallback_provider[1] == 'r'
+          ? "browser + Brave fallback" : fallback_provider) : "browser";
+    char *result_md = fallback_used ? web_sources_markdown(query, &sources, provider) : search_md;
+    if (!result_md) {
+        free(search_json); free(search_err); free(search_md); web_sources_free(&sources);
         web_json_error(fd, "500 Internal Server Error", "out of memory");
         return;
     }
     json_dyn_buf out = {0};
     int ok = json_dyn_puts(&out, "{\"ok\":true,\"query\":") &&
              json_dyn_put_escaped(&out, query) &&
+             json_dyn_puts(&out, ",\"provider\":") &&
+             json_dyn_put_escaped(&out, provider) &&
+             json_dyn_puts(&out, ",\"fallback\":") &&
+             json_dyn_puts(&out, fallback_used ? "true" : "false") &&
+             json_dyn_puts(&out, ",\"cdpOnly\":") &&
+             json_dyn_puts(&out, "false") &&
              json_dyn_puts(&out, ",\"markdown\":") &&
-             json_dyn_put_escaped(&out, search_md) &&
+             json_dyn_put_escaped(&out, result_md) &&
              json_dyn_puts(&out, ",\"sources\":[");
     for (int i = 0; ok && i < sources.len; i++) {
         ok = json_dyn_puts(&out, i ? ",{" : "{") &&
@@ -8230,10 +8513,11 @@ static void api_web_search_run(int fd, const char *body) {
              json_dyn_puts(&out, ",\"url\":") &&
              json_dyn_put_escaped(&out, sources.items[i].url) &&
              json_dyn_puts(&out, ",\"content\":") &&
-             json_dyn_put_escaped(&out, sources.items[i].title);
+             json_dyn_put_escaped(&out, sources.items[i].content ? sources.items[i].content : sources.items[i].title);
         if (ok) ok = json_dyn_puts(&out, "}");
     }
     if (ok) ok = json_dyn_puts(&out, "]}");
+    if (result_md != search_md) free(result_md);
     free(search_json); free(search_err); free(search_md); web_sources_free(&sources);
     if (!ok) { free(out.ptr); web_json_error(fd, "500 Internal Server Error", "out of memory"); return; }
     send_json(fd, "200 OK", out.ptr);
@@ -8255,12 +8539,13 @@ static void api_web_read_run(int fd, const char *body) {
     web_json_error(fd, "501 Not Implemented", "web read helper is not available in the Windows build yet");
     return;
 #else
+    int cdp_only = json_get_bool(body, "cdpOnly");
     int st = 0;
     int fallback_used = 0;
     char *visit_json = web_helper_capture("visit_page", "--url", url, WEB_HELPER_VISIT_TIMEOUT_MS, &st);
     char *visit_err = visit_json ? json_get_string_alloc(visit_json, "error") : NULL;
     char *visit_md = visit_json ? json_get_string_alloc(visit_json, "markdown") : NULL;
-    if (!visit_md) {
+    if (!visit_md && !cdp_only) {
         char curl_err[256] = "";
         visit_md = web_curl_visit_page(url, curl_err, sizeof curl_err);
         if (visit_md) {
@@ -8276,6 +8561,18 @@ static void api_web_read_run(int fd, const char *body) {
             web_json_error(fd, st == 0 ? "502 Bad Gateway" : "500 Internal Server Error", msg);
             return;
         }
+    }
+    if (!visit_md) {
+        char msg[768];
+        snprintf(msg, sizeof msg, "%s%s",
+                 visit_err && visit_err[0] ? visit_err :
+                 (visit_json && visit_json[0]
+                    ? "CDP visit_page returned no markdown"
+                    : "CDP web read helper failed to start"),
+                 st == 124 ? "; CDP page read timed out" : "");
+        free(visit_json); free(visit_err);
+        web_json_error(fd, st == 0 ? "502 Bad Gateway" : "500 Internal Server Error", msg);
+        return;
     }
     char *excerpt = web_markdown_excerpt(visit_md, 24000);
     char *title = web_markdown_title(visit_md);
@@ -8293,6 +8590,8 @@ static void api_web_read_run(int fd, const char *body) {
              json_dyn_put_escaped(&out, source_kind) &&
              json_dyn_puts(&out, ",\"reader\":") &&
              json_dyn_put_escaped(&out, fallback_used ? "curl" : "browser") &&
+             json_dyn_puts(&out, ",\"cdpOnly\":") &&
+             json_dyn_puts(&out, cdp_only ? "true" : "false") &&
              json_dyn_puts(&out, ",\"markdown\":") &&
              json_dyn_put_escaped(&out, visit_md) &&
              json_dyn_puts(&out, ",\"excerpt\":") &&
@@ -8564,6 +8863,9 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/vision/describe")) { api_vision_describe(fd, body); return 200; }
     if (!strcmp(path, "/api/vision/stop")) { api_vision_stop(fd); return 200; }
     if (!strcmp(path, "/api/image/generate")) { api_image_generate(fd, body); return 200; }
+    if (!strcmp(path, "/api/video/setup")) { api_video_setup(fd, body); return 200; }
+    if (!strcmp(path, "/api/video/generate")) { api_video_generate(fd, body); return 200; }
+    if (!strcmp(path, "/api/video/stop")) { api_video_stop(fd, body); return 200; }
     if (!strcmp(path, "/api/embed/setup")) { api_embed_setup(fd, body); return 200; }
     if (!strcmp(path, "/api/embed/stop")) { api_embed_stop(fd); return 200; }
     if (!strcmp(path, "/api/engine/checkout")) { api_engine_checkout_set(fd, body); return 200; }
@@ -8579,6 +8881,12 @@ static int route_post_api(int fd, const char *path, const char *body) {
     return 404;
 }
 
+/* The server is single-threaded; expose the active GET headers only while the
+ * static router runs so large media can honor byte ranges without widening the
+ * long-standing router interface used by platform builds and contract tests. */
+static const char *g_route_request_headers = NULL;
+static size_t g_route_request_header_len = 0;
+
 static int route_get_or_static(int fd, const char *method, const char *path, int head_only) {
     const int is_get = !strcmp(method, "GET") || head_only;
     if (is_get && !strcmp(path, "/api/store")) {
@@ -8593,6 +8901,11 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
     if (is_get && !strcmp(path, "/api/vision/status")) { api_vision_status(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/image/progress")) { api_image_progress(fd, path); return 200; }
     if (is_get && path_eq_clean(path, "/api/image/file")) { api_image_file(fd, path, head_only); return 200; }
+    if (is_get && path_eq_clean(path, "/api/video/status")) { api_video_status(fd, path); return 200; }
+    if (is_get && path_eq_clean(path, "/api/video/progress")) { api_video_progress(fd, path); return 200; }
+    if (is_get && path_eq_clean(path, "/api/video/file")) {
+        api_video_file(fd, path, head_only, g_route_request_headers, g_route_request_header_len); return 200;
+    }
     if (is_get && path_eq_clean(path, "/api/pdf/progress")) { api_pdf_progress(fd, path); return 200; }
     if (is_get && !strcmp(path, "/api/embed/status")) { api_embed_status(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/remote/status")) { api_remote_status(fd); return 200; }
@@ -8826,6 +9139,26 @@ static void handle_connection(int fd) {
         return;
     }
 
+    /* Optional first-frame pixels make local H3 requests as large as image
+     * edit requests. Keep the same bounded, CSRF-protected body path. */
+    if (!strcmp(method, "POST") && path_eq_clean(path, "/api/video/generate")) {
+        if (!header_has(req, header_len, "x-requested-with: ds4web")) {
+            send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}"); close(fd); return;
+        }
+        char *buf = NULL;
+        size_t off = 0;
+        if (!read_request_body_alloc(fd, req, got, header_len, clen, 24L * 1024 * 1024,
+                                     "first-frame image too large\n", &buf, &off))
+        {
+            close(fd);
+            return;
+        }
+        api_video_generate(fd, buf);
+        free(buf);
+        close(fd);
+        return;
+    }
+
     /* POST /api/pdf/{thumb,describe} carry a full PDF (base64) — larger than
      * BODY_MAX, so they read their own body like /api/store. Cap 1.5GB: the UI
      * allows PDFs up to 1GB binary, which is ~1.37GB once base64'd (x4/3) plus
@@ -8877,7 +9210,11 @@ static void handle_connection(int fd) {
             status = route_post_api(fd, path, body);
         }
     } else {
+        g_route_request_headers = req;
+        g_route_request_header_len = header_len;
         status = route_get_or_static(fd, method, path, head_only);
+        g_route_request_headers = NULL;
+        g_route_request_header_len = 0;
     }
 
     /* fd adopted by the SSE registry: the main loop owns it now */
@@ -9096,6 +9433,7 @@ int main(int argc, char **argv)
     }
     sse_close_all();
     diag_sse_close_all();
+    video_runtime_shutdown();
     stop_child();
     return 0;
 }

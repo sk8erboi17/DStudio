@@ -27,6 +27,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/wait.h>
+#include <pthread.h>
 #endif
 #include "webview.h"
 
@@ -253,7 +254,35 @@ static int spawn_server_process(int argc, char **argv, int port) {
 }
 #else
 static pid_t g_server_pid = 0;
+static int g_parent_watch_write = -1;
+
+/* The GUI parent can be killed without running atexit(). Keep one CLOEXEC pipe
+ * open in the parent and watch its read end from the HTTP child: EOF means the
+ * window process is gone, so SIGTERM the child and let dstudio.c perform its
+ * normal engine cleanup. */
+static void *unix_parent_watch(void *raw_fd) {
+    int fd = (int)(intptr_t)raw_fd;
+    char byte;
+    while (read(fd, &byte, 1) > 0) {}
+    close(fd);
+    kill(getpid(), SIGTERM);
+    return NULL;
+}
+
+static void start_unix_parent_watch(int fd) {
+    pthread_t watcher;
+    if (pthread_create(&watcher, NULL, unix_parent_watch, (void *)(intptr_t)fd) == 0) {
+        pthread_detach(watcher);
+    } else {
+        close(fd);
+    }
+}
+
 static void stop_server(void) {
+    if (g_parent_watch_write >= 0) {
+        close(g_parent_watch_write);
+        g_parent_watch_write = -1;
+    }
     pid_t pid = g_server_pid;
     if (pid <= 0) return;
     g_server_pid = 0;   /* idempotent: webview_run return + atexit both call this */
@@ -333,16 +362,37 @@ int main(int argc, char **argv) {
         return 1;
     }
 #else
+    int parent_watch[2] = {-1, -1};
+    if (pipe(parent_watch) == 0) {
+        fcntl(parent_watch[0], F_SETFD, FD_CLOEXEC);
+        fcntl(parent_watch[1], F_SETFD, FD_CLOEXEC);
+    }
     pid_t pid = fork();
-    if (pid < 0) { perror("fork"); return 1; }
+    if (pid < 0) {
+        if (parent_watch[0] >= 0) close(parent_watch[0]);
+        if (parent_watch[1] >= 0) close(parent_watch[1]);
+        perror("fork");
+        return 1;
+    }
     if (pid == 0) {
+        if (parent_watch[1] >= 0) close(parent_watch[1]);
+        /* The single-instance lock belongs to the GUI parent. Keeping its
+         * inherited descriptor in the server child would block a clean relaunch
+         * if the GUI were killed before the watcher completed cleanup. */
+        if (g_instance_lock_fd >= 0) {
+            close(g_instance_lock_fd);
+            g_instance_lock_fd = -1;
+        }
         /* child: HTTP server + engine supervision only. Become a process-group
          * leader so the parent can tear down the WHOLE tree (server + engine +
          * streaming relays) in one shot when the window closes — otherwise a busy
          * agent/design generation can outlive the window. */
         setpgid(0, 0);
+        if (parent_watch[0] >= 0) start_unix_parent_watch(parent_watch[0]);
         _exit(ds4_serve_main(argc, argv));
     }
+    if (parent_watch[0] >= 0) close(parent_watch[0]);
+    g_parent_watch_write = parent_watch[1];
     setpgid(pid, pid);   /* race-safe: also set from the parent (harmless if the child won the race) */
 
     g_server_pid = pid;

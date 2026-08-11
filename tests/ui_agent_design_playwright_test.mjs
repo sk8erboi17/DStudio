@@ -53,6 +53,7 @@ const server = http.createServer(async (req, res) => {
       stage: 'Ready',
       agentWorking: false,
       workdir: currentWorkdir,
+      config: { ctx: 65536 },
       ds4dirOk: true,
       webdirOk: true,
       lan: false,

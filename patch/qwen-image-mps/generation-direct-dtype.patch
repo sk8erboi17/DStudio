@@ -1,0 +1,23 @@
+--- a/cli.py
++++ b/cli.py
+@@ -1235,13 +1235,19 @@ def generate_image(args):
+             if pipe is None:
+                 print("Failed to load GGUF model, falling back to standard model...")
+-                pipe = DiffusionPipeline.from_pretrained(model_name)
++                pipe = DiffusionPipeline.from_pretrained(
++                    model_name,
++                    torch_dtype=torch_dtype,
++                )
+                 pipe = pipe.to(device)
+                 # Convert all components to desired dtype for MPS compatibility
+                 pipe = convert_pipeline_to_dtype(pipe, torch_dtype)
+         else:
+             # Load standard model
+-            pipe = DiffusionPipeline.from_pretrained(model_name)
++            pipe = DiffusionPipeline.from_pretrained(
++                model_name,
++                torch_dtype=torch_dtype,
++            )
+             pipe = pipe.to(device)
+             # Convert all components to desired dtype for MPS compatibility
+             pipe = convert_pipeline_to_dtype(pipe, torch_dtype)
