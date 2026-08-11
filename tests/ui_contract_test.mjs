@@ -1598,6 +1598,7 @@ assert.match(js, /target: 'ds4f-dspark'[\s\S]*target: 'flash-dspark'/, 'the UI s
 assert.match(html, /id="set-dspark"/, 'Settings should expose a DSpark toggle');
 assert.match(js, /dspark: false/, 'DSpark should default to off');
 assert.match(js, /dspark: dspark\(\)/, 'engine starts should send the DSpark preference');
+assert.match(js, /const dsparkGreedy = !cloud && !!Store\.getSettings\(\)\.dspark[\s\S]*if \(dsparkGreedy\) body\.temperature = 0/, 'local Chat requests should use greedy decoding when DSpark is enabled');
 assert.match(launcher, /json_get_bool\(body, "dspark"\)/, 'launcher should parse the DSpark setting');
 assert.match(launcher, /--dspark[\s\S]*--mtp/, 'engine and agent spawns should pass the DSpark flags');
 assert.match(launcher, /child_download_dspark_resumable[\s\S]*MODEL_DSPARK_SHA256/, 'the uncensored DSpark download should be resumable and pinned by SHA-256');

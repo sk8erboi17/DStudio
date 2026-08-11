@@ -4938,7 +4938,13 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
         argv[n++] = "--cpu";
         if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
         argv[n++] = "-m"; argv[n++] = model_abs;
-        if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp"; argv[n++] = dspark_path; }
+        if (dspark_on) {
+            argv[n++] = "--dspark";
+            argv[n++] = "--mtp";
+            argv[n++] = dspark_path;
+            argv[n++] = "--temp";
+            argv[n++] = "0";
+        }
     }
     argv[n++] = "-c"; argv[n++] = ctxs;
     if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
@@ -5013,7 +5019,13 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
             argv[n++] = "--metal";
             if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
             argv[n++] = "-m"; argv[n++] = model_abs;
-            if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp"; argv[n++] = dspark_path; }
+            if (dspark_on) {
+                argv[n++] = "--dspark";
+                argv[n++] = "--mtp";
+                argv[n++] = dspark_path;
+                argv[n++] = "--temp";
+                argv[n++] = "0";
+            }
         }
         argv[n++] = "-c"; argv[n++] = ctxs;
         if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
@@ -5095,6 +5107,19 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
      * charter + DESIGN.md + SKILL.md, injected via ds4-design's -sys flag. */
     char *skill_sys = build_skill_sys(1);
 
+    char dspark_path[DSTUDIO_PATH_MAX];
+    int dspark_on = 0;
+    if (g_dspark_enabled && !remote_model) {
+        if (!resolve_dspark_file(dspark_path, sizeof dspark_path)) {
+            snprintf(err, errsz,
+                     "DSpark is enabled but no DSpark support GGUF was found in %s/gguf "
+                     "(download it from Settings first)", g_ds4_dir);
+            free(skill_sys);
+            return 0;
+        }
+        dspark_on = 1;
+    }
+
 #ifdef _WIN32
     char exe[2200];
     win_join_path(exe, sizeof exe, g_ds4_dir, "ds4-design.exe");
@@ -5112,6 +5137,13 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         argv[n++] = "--cpu";
         if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
         argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
+        if (dspark_on) {
+            argv[n++] = "--dspark";
+            argv[n++] = "--mtp";
+            argv[n++] = dspark_path;
+            argv[n++] = "--temp";
+            argv[n++] = "0";
+        }
     }
     argv[n++] = "-c"; argv[n++] = ctxs;
     if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
@@ -5177,6 +5209,13 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
             argv[n++] = "--metal";
             if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
             argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
+            if (dspark_on) {
+                argv[n++] = "--dspark";
+                argv[n++] = "--mtp";
+                argv[n++] = dspark_path;
+                argv[n++] = "--temp";
+                argv[n++] = "0";
+            }
         }
         argv[n++] = "-c"; argv[n++] = ctxs;
         if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }

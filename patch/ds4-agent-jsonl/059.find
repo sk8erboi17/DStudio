@@ -1,0 +1,66 @@
+        bool status_greedy_sampling = false;
+        while (generated < max_tokens && !worker_should_interrupt(w)) {
+            worker_apply_pending_power(w);
+            bool greedy_sampling = agent_stream_wants_greedy_sampling(&stream);
+            if (greedy_sampling != status_greedy_sampling) {
+                worker_set_greedy_sampling(w, greedy_sampling);
+                status_greedy_sampling = greedy_sampling;
+            }
+            int token = worker_sample_with_mode(w, cfg, greedy_sampling, &rng);
+            if (ds4_token_is_stop_for_think_mode(w->engine, token, think_mode)) {
+                if (tool_syntax == AGENT_TOOL_SYNTAX_GLM &&
+                    token != ds4_token_eos(w->engine)) {
+                    agent_trace(w, "glm assistant generation stopped before control token id=%d", token);
+                }
+                break;
+            }
+
+            size_t text_len = 0;
+            char *text = ds4_token_text(w->engine, token, &text_len);
+            if (cfg->edit_upto &&
+                agent_edit_upto_forcer_should_replace(&upto_forcer, &dsml,
+                                                       text, text_len))
+            {
+                agent_trace(w, "edit old auto-upto replaced token=%d text=%.*s",
+                            token, (int)(text_len > 80 ? 80 : text_len), text);
+                free(text);
+                if (worker_force_generated_text(w, "[upto]\n", max_tokens,
+                                                &generated, t0, &stream,
+                                                err, sizeof(err)) != 0) {
+                    agent_dsml_parser_free(&dsml);
+                    agent_set_error(w, err);
+                    return 1;
+                }
+            } else {
+                free(text);
+                if (worker_accept_generated_token(w, token, &generated, t0,
+                                                  &stream, err, sizeof(err)) != 0) {
+                    agent_dsml_parser_free(&dsml);
+                    agent_set_error(w, err);
+                    return 1;
+                }
+            }
+
+            greedy_sampling = agent_stream_wants_greedy_sampling(&stream);
+            if (greedy_sampling != status_greedy_sampling) {
+                worker_set_greedy_sampling(w, greedy_sampling);
+                status_greedy_sampling = greedy_sampling;
+            }
+
+            if (dsml.state == AGENT_DSML_DONE) {
+                got_tool = true;
+                break;
+            }
+            if (stream.tool_preflight_error) {
+                early_tool_error = true;
+                break;
+            }
+            if (dsml.state == AGENT_DSML_ERROR) {
+                malformed_tool = true;
+                break;
+            }
+            if (stream.dsml_in_think) {
+                malformed_tool = true;
+                break;
+            }
+        }

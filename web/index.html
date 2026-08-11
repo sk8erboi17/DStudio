@@ -6805,9 +6805,9 @@
             <p class="set-help">When enabled, ds4 pre-warms the streamed expert cache from layers already mapped during prefill. This can fail on no-residency/SSD-streaming setups where the model is larger than RAM, so it is off by default.</p>
           </label>
           <label class="field" id="set-dspark-row">
-            <span>DSpark speculative decoding <small class="field-note">experimental; Chat and Agent only; requires engine restart</small></span>
+            <span>DSpark speculative decoding <small class="field-note">experimental; Chat, Agent and Design; requires engine restart</small></span>
             <input type="checkbox" id="set-dspark" aria-label="DSpark speculative decoding">
-            <p class="set-help">Speeds up decoding with a small draft GGUF. Requires the DSpark support file (download it from the model picker) and an engine restart. Design mode does not support it.</p>
+            <p class="set-help">Speeds up greedy decoding with a small draft GGUF. Requires the matching DSpark support file and an engine restart. While enabled, local generation uses temperature 0 because sampled decoding cannot accept speculative draft blocks.</p>
           </label>
         </section>
 
@@ -6871,22 +6871,21 @@
         <section class="set-grp" data-pane="video" hidden>
           <div class="set-eye">Local video generation</div>
           <div class="field">
-            <span>MiniMax H3 open weights <small class="field-note">local ComfyUI + Apple Metal; no generation API</small></span>
+            <span>MiniMax H3 open weights <small class="field-note">native h3.c + Apple Metal; no generation API</small></span>
             <p class="set-inline-msg" id="set-video-status">Checking…</p>
             <label class="field" style="margin-top:1rem">
               <span>Text encoder</span>
-              <select id="set-video-encoder" aria-label="MiniMax H3 text encoder">
-                <option value="official">Official INT8 · recommended</option>
-                <option value="community">Community “uncensored” INT8 · unverified, non-commercial</option>
+              <select id="set-video-encoder" aria-label="MiniMax H3 text encoder" disabled>
+                <option value="official">Official BF16 · required by native h3.c</option>
               </select>
             </label>
             <div class="field__row">
               <label class="field" style="flex:1;margin:0">
                 <span>Render profile</span>
                 <select id="set-video-profile" aria-label="Default video render profile">
-                  <option value="preview">Preview · ~0.2 MP, 20 steps</option>
-                  <option value="balanced">Balanced · ~0.6 MP, 20 steps</option>
-                  <option value="quality">Quality · ~1.0 MP, 20 steps</option>
+                  <option value="preview">Preview · reduced native canvas, 20 steps</option>
+                  <option value="balanced">Balanced · 512-class, 20 steps</option>
+                  <option value="quality">Quality · 768p-class, 20 steps</option>
                 </select>
               </label>
               <label class="field" style="flex:1;margin:0">
@@ -6920,8 +6919,8 @@
               <button type="button" id="set-video-install" class="btn">Prepare local H3</button>
               <button type="button" id="set-video-refresh" class="btn">Refresh</button>
             </div>
-            <p class="set-help">The first setup downloads about <strong>54-73 GB</strong>: H3 FL2VA, Qwen3-VL-32B INT8, video VAE and audio VAE. High-memory M1-M4 Macs automatically use the official BF16 diffusion checkpoint to avoid slow repeated INT8 dequantization; M5-class hardware can use native quantized Metal kernels. Balanced is the practical default; Quality is substantially slower. DStudio stops the chat model only during generation, unloads H3 afterward, then restores chat.</p>
-            <p class="set-help">The community encoder is third-party, unbenchmarked and does not guarantee unrestricted output. It replaces only the text encoder; the H3 video model remains the official open-weight checkpoint.</p>
+            <p class="set-help">The first setup downloads the original official FL2VA tree used by h3.c: about <strong>134 GiB (144 GB)</strong> for the BF16 transformer, Qwen text encoder, video VAE and audio VAE. It also compiles the pinned native engine; setup does not load or run the model. Balanced follows h3.c's validated 45-layer/reuse-2 controls; Quality is substantially slower. DStudio stops the chat model only during generation, and the one-shot native process releases every H3 weight before chat is restored.</p>
+            <p class="set-help">Native h3.c validates the official checkpoint layout, so converted ComfyUI weights and the former third-party encoder cannot be reused by this backend.</p>
           </div>
         </section>
 
@@ -7310,7 +7309,7 @@
       thinkLevel: 'high',   // 'off' | 'high' | 'max' — ds4 exposes only these levels
       systemPrompt: '',
       videoLicenseAccepted: false,
-      videoEncoder: 'official', // official | community (third-party encoder; H3 weights stay official)
+      videoEncoder: 'official', // native h3.c supports the official FL2VA encoder only
       videoProfile: 'balanced', // preview | balanced | quality
       videoDuration: 5,
       videoAspect: '16:9',
@@ -11358,6 +11357,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       function buildBody({ model, messages, temperature, maxTokens, thinkLevel, stream = true }) {
         const off = thinkLevel === 'off';
         const cloud = deepseekMode();
+        const dsparkGreedy = !cloud && !!Store.getSettings().dspark;
         const effectiveModel = cloud
           ? (Store.getSettings().deepseekModel || 'deepseek-v4-flash')
           : model;
@@ -11369,8 +11369,11 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         }
         if (!off) body.reasoning_effort = thinkLevel === 'max' ? 'max' : 'high';
         if (stream) body.stream_options = { include_usage: true };
+        // DSpark verifies argmax blocks: sampled requests must stay on the
+        // ordinary one-token path, so the explicit local toggle selects greedy.
+        if (dsparkGreedy) body.temperature = 0;
         // DeepSeek V4 ignores sampling temperature while thinking is enabled.
-        if (typeof temperature === 'number' && (!cloud || off)) body.temperature = temperature;
+        else if (typeof temperature === 'number' && (!cloud || off)) body.temperature = temperature;
         if (maxTokens > 0) body.max_tokens = maxTokens;
         return body;
       }
@@ -12671,14 +12674,14 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         const stage = String(status?.stage || '');
         if (stage === 'first-frame-ready') return 'The Qwen image is ready and is being passed directly to H3 as its opening frame.';
         if (stage.startsWith('first-frame-')) return 'Qwen Image is creating the opening frame locally before MiniMax H3 animates it.';
-        if (status?.stage === 'download') return 'First use downloads about 54-73 GB of open weights once; partial downloads resume automatically.';
-        if (status?.stage === 'runtime' || status?.stage === 'dependencies') return 'Preparing pinned ComfyUI and its Apple Metal accelerator locally.';
+        if (status?.stage === 'download') return 'First use downloads about 134 GiB of official FL2VA weights once; partial downloads resume automatically.';
+        if (status?.stage === 'runtime' || status?.stage === 'build') return 'Checking out and compiling the pinned native h3.c/Metal engine locally.';
         if (status?.stage === 'model-load') return 'Loading H3 after releasing the chat, vision and embedding models from memory.';
         if (status?.stage === 'conditioning') return 'Encoding the prompt on Apple Metal; diffusion sampling has not started yet.';
         if (status?.stage === 'sampling') {
           const step = Number(status?.step);
           const total = Number(status?.totalSteps);
-          const actual = Number.isFinite(step) && Number.isFinite(total) ? `Actual ComfyUI progress: ${step}/${total} steps.` : 'H3 is sampling on Apple Metal.';
+          const actual = Number.isFinite(step) && Number.isFinite(total) ? `Actual native h3.c progress: ${step}/${total} steps.` : 'H3 is sampling on Apple Metal.';
           const eta = Number(status?.etaSeconds);
           return Number.isFinite(eta) && eta > 0
             ? `${actual} Estimated ${fmtElapsedCompact(eta * 1000)} remaining.`
@@ -12686,7 +12689,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         }
         if (status?.stage === 'decoding') return 'Sampling is complete; the video and synchronized stereo audio are being decoded locally.';
         if (status?.stage === 'restoring-chat') return 'H3 has been unloaded; restoring the chat model now.';
-        return 'MiniMax H3 is running locally through accelerated ComfyUI/MPS; no generation API is used.';
+        return 'MiniMax H3 is running locally through native h3.c/Metal; no generation API is used.';
       }
 
       function buildVideoGenerationStatus(status) {
@@ -16770,7 +16773,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               duration: directive.duration,
               aspect: directive.aspect,
               image: firstFrame || undefined,
-              encoder: settings.videoEncoder === 'community' ? 'community' : 'official',
+              encoder: 'official',
               profile: ['preview', 'balanced', 'quality'].includes(settings.videoProfile)
                 ? settings.videoProfile : 'balanced',
               licenseAccepted: settings.videoLicenseAccepted === true,
@@ -21770,8 +21773,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         });
         on(f.system, 'change', () => Store.setSettings({ systemPrompt: f.system.value }));
         on(f.videoEncoder, 'change', () => {
-          const encoder = f.videoEncoder.value === 'community' ? 'community' : 'official';
-          Store.setSettings({ videoEncoder: encoder });
+          Store.setSettings({ videoEncoder: 'official' });
           refreshVideoStatus();
         });
         on(f.videoProfile, 'change', () => {
@@ -21842,18 +21844,18 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         dialog.scrollTop = 0;   // the dialog is the scroll container
       }
 
-      // ---- MiniMax H3 open-weight controls (local ComfyUI/MPS) ----
+      // ---- MiniMax H3 open-weight controls (native h3.c/Metal) ----
       let videoBusy = false;
 
       function formatVideoBytes(value) {
         const n = Number(value || 0);
-        if (!Number.isFinite(n) || n <= 0) return '0 GB';
-        return `${(n / (1024 ** 3)).toFixed(1)} GB`;
+        if (!Number.isFinite(n) || n <= 0) return '0 GiB';
+        return `${(n / (1024 ** 3)).toFixed(1)} GiB`;
       }
 
       async function refreshVideoStatus(force = false) {
         if (!f.videoStatus || (videoBusy && !force)) return;
-        const encoder = f.videoEncoder?.value === 'community' ? 'community' : 'official';
+        const encoder = 'official';
         let value = null;
         try {
           value = await fetch(`/api/video/status?encoder=${encodeURIComponent(encoder)}`, {
@@ -21877,11 +21879,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         } else if (setup.state === 'error' && !value.installed) {
           f.videoStatus.textContent = setup.label || 'MiniMax H3 setup failed; retry resumes partial downloads.';
         } else if (value.installed) {
-          const diffusion = value.diffusionPrecision === 'bf16'
-            ? 'BF16 diffusion' : 'INT8 diffusion';
-          f.videoStatus.textContent = `Ready: ${value.model} · Apple Metal · ${diffusion} · ${encoder === 'community' ? 'community encoder' : 'official encoder'} · ${formatVideoBytes(value.downloadedBytes)} on disk.`;
-        } else if (Number(value.downloadedBytes) >= Number(value.totalBytes) && value.acceleratorInstalled !== true) {
-          f.videoStatus.textContent = 'H3 weights are present · prepare once to install the pinned Apple Metal accelerator.';
+          f.videoStatus.textContent = `Ready: ${value.model} · native h3.c/Metal · official BF16 FL2VA · ${formatVideoBytes(value.downloadedBytes)} on disk.`;
+        } else if (Number(value.downloadedBytes) >= Number(value.totalBytes) && value.nativeInstalled !== true) {
+          f.videoStatus.textContent = 'H3 weights are present · prepare once to compile the pinned native h3.c engine.';
         } else {
           f.videoStatus.textContent = `Not prepared · ${formatVideoBytes(value.downloadedBytes)} / ${formatVideoBytes(value.totalBytes)} present. Setup resumes partial files.`;
         }
@@ -21901,7 +21901,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         videoBusy = true;
         if (f.videoInstall) { f.videoInstall.disabled = true; f.videoInstall.textContent = 'Preparing…'; }
         if (f.videoStatus) f.videoStatus.textContent = 'Starting the local H3 setup…';
-        const encoder = f.videoEncoder?.value === 'community' ? 'community' : 'official';
+        const encoder = 'official';
         const poll = setInterval(() => refreshVideoStatus(true), 1200);
         try {
           const response = await fetch('/api/video/setup', {
@@ -22220,7 +22220,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         f.metalHotlist.checked = !!s.metalHotlistSeed;
         f.dspark.checked = !!s.dspark;
         f.system.value = s.systemPrompt ?? '';
-        if (f.videoEncoder) f.videoEncoder.value = s.videoEncoder === 'community' ? 'community' : 'official';
+        if (f.videoEncoder) f.videoEncoder.value = 'official';
         if (f.videoProfile) f.videoProfile.value = ['preview', 'balanced', 'quality'].includes(s.videoProfile) ? s.videoProfile : 'balanced';
         if (f.videoDuration) f.videoDuration.value = String([5, 8, 10, 15].includes(+s.videoDuration) ? +s.videoDuration : 5);
         if (f.videoAspect) f.videoAspect.value = ['16:9', '9:16', '1:1', '4:3', '3:4'].includes(s.videoAspect) ? s.videoAspect : '16:9';

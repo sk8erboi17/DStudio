@@ -1,39 +1,32 @@
 /* Local MiniMax H3 text/image-to-video endpoints.
  *
- * The managed worker uses stock ComfyUI on Apple Silicon and downloads only
- * open-weight checkpoints. No hosted MiniMax generation endpoint exists in
- * this implementation. H3's community license excludes several territories,
- * so setup and generation both require an explicit authorization assertion
- * from the local Settings UI before any weights are downloaded or loaded. */
+ * The managed worker builds the pinned native antirez/h3.c Metal engine and
+ * downloads the original official FL2VA snapshot. No ComfyUI, Python ML stack
+ * or hosted MiniMax generation endpoint is part of inference. H3's community
+ * license excludes several territories, so setup and generation both require
+ * an explicit authorization assertion before weights are downloaded/loaded. */
 
-#define H3_DIFFUSION_INT8_NAME "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
-#define H3_DIFFUSION_INT8_SIZE 20970379616LL
-#define H3_DIFFUSION_BF16_NAME "minimax_h3_fl2va_pruned_bf16.safetensors"
-#define H3_DIFFUSION_BF16_SIZE 40225724176LL
-#define H3_DIFFUSION_BF16_MIN_MEMORY (88ULL * 1024ULL * 1024ULL * 1024ULL)
-#define H3_VIDEO_VAE_NAME "minimax_h3_video_vae_fp16.safetensors"
-#define H3_VIDEO_VAE_SIZE 5207808496LL
-#define H3_AUDIO_VAE_NAME "minimax_h3_audio_vae_fp32.safetensors"
-#define H3_AUDIO_VAE_SIZE 605254808LL
-#define H3_OFFICIAL_ENCODER_NAME "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
-#define H3_OFFICIAL_ENCODER_SIZE 27141342152LL
-#define H3_COMMUNITY_ENCODER_NAME "qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257.safetensors"
-#define H3_COMMUNITY_ENCODER_SIZE 25772287417LL
-#define H3_MPS_ACCELERATOR_MARKER ".apple-silicon-fp8-revision"
+#define H3_NATIVE_COMMIT "03cb1339825feb19bcafcc60685680cb9ec6e2fe"
+#define H3_MODEL_REVISION "9ac0dd7aabc2c651fcf0ace4c00b2bffd9c8c8a6"
+#define H3_MODEL_TOTAL_SIZE 144023550851LL
+#define H3_NATIVE_MARKER ".h3c-runtime-revision"
+#define H3_MODEL_MARKER ".model-revision"
 
-/* The accelerated Comfy process is intentionally detached from the short
- * request worker so later video jobs can reuse initialized Metal kernels.
- * Shut it down with the desktop server: after /free it owns no H3 tensors,
- * but it should not remain as an orphan once DStudio itself exits. */
-static void video_runtime_shutdown(void) {
+static const long long H3_TEXT_ENCODER_SHARD_SIZES[] = {
+    4932328944LL, 4875990528LL, 4875990552LL, 4875990584LL,
+    4875990584LL, 4875990584LL, 4875990584LL, 4875990584LL,
+    4875990584LL, 4875990584LL, 4875990584LL, 4875990584LL,
+    4875990584LL, 3270697008LL
+};
+static const long long H3_TRANSFORMER_SHARD_SIZES[] = {
+    5227812968LL, 5164578856LL, 5164578872LL, 5164578896LL,
+    5164578896LL, 5164578896LL, 5164578896LL, 5164578896LL,
+    5164578896LL, 5164578896LL, 5164578896LL, 5164578896LL,
+    4242305176LL
+};
+
+static void video_stop_worker_pid_path(const char *pid_path) {
 #ifndef _WIN32
-    const char *configured = getenv("DSTUDIO_H3_HOME");
-    const char *home = getenv("HOME");
-    char root[DSTUDIO_PATH_MAX], pid_path[DSTUDIO_PATH_MAX];
-    if (configured && configured[0]) cstr_copy(root, sizeof root, configured);
-    else if (home && home[0]) snprintf(root, sizeof root, "%s/.dstudio/minimax-h3", home);
-    else return;
-    snprintf(pid_path, sizeof pid_path, "%s/comfyui-server.pid", root);
     size_t n = 0;
     char *raw = jsonl_read_file(pid_path, &n);
     if (!raw || n == 0 || n > 32) { free(raw); return; }
@@ -44,13 +37,37 @@ static void video_runtime_shutdown(void) {
     pid_t pid = (pid_t)value;
     if (kill(pid, 0) == 0 || errno == EPERM) {
         (void)kill(pid, SIGTERM);
-        for (int i = 0; i < 30 && kill(pid, 0) == 0; i++) usleep(100000);
+        for (int i = 0; i < 80 && kill(pid, 0) == 0; i++) usleep(100000);
         if (kill(pid, 0) == 0) (void)kill(pid, SIGKILL);
     }
     (void)unlink(pid_path);
-    char state_path[DSTUDIO_PATH_MAX];
-    snprintf(state_path, sizeof state_path, "%s/comfyui-server.json", root);
-    (void)unlink(state_path);
+#else
+    (void)pid_path;
+#endif
+}
+
+/* h3.c is one-shot and retains no detached server or model residency. Only a
+ * generation already in flight must be stopped when the desktop server exits. */
+static void video_runtime_shutdown(void) {
+#ifndef _WIN32
+    const char *configured = getenv("DSTUDIO_H3_HOME");
+    const char *home = getenv("HOME");
+    char root[DSTUDIO_PATH_MAX], jobs_path[DSTUDIO_PATH_MAX];
+    if (configured && configured[0]) cstr_copy(root, sizeof root, configured);
+    else if (home && home[0]) snprintf(root, sizeof root, "%s/.dstudio/minimax-h3", home);
+    else return;
+    snprintf(jobs_path, sizeof jobs_path, "%s/jobs", root);
+    DIR *jobs = opendir(jobs_path);
+    if (!jobs) return;
+    struct dirent *entry;
+    while ((entry = readdir(jobs)) != NULL) {
+        if (entry->d_name[0] == '.') continue;
+        char pid_path[DSTUDIO_PATH_MAX];
+        int len = snprintf(pid_path, sizeof pid_path, "%s/%s/worker.pid", jobs_path, entry->d_name);
+        if (len > 0 && (size_t)len < sizeof pid_path)
+            video_stop_worker_pid_path(pid_path);
+    }
+    closedir(jobs);
 #endif
 }
 
@@ -80,27 +97,63 @@ static long long video_file_bytes(const char *path) {
         ? (long long)st.st_size : 0;
 }
 
-static int video_use_bf16_diffusion(void) {
-    const char *requested = getenv("DSTUDIO_H3_DIFFUSION");
-    if (requested && (!strcasecmp(requested, "bf16") || !strcasecmp(requested, "bfloat16"))) return 1;
-    if (requested && (!strcasecmp(requested, "int8") || !strcasecmp(requested, "quantized"))) return 0;
-#if defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
-    char brand[128] = "";
-    size_t len = sizeof brand;
-    if (sysctlbyname("machdep.cpu.brand_string", brand, &len, NULL, 0) != 0) return 0;
-    const char *m = strstr(brand, "Apple M");
-    int generation = m ? atoi(m + 7) : 0;
-    return generation > 0 && generation < 5 &&
-           dstudio_physical_memory_bytes() >= H3_DIFFUSION_BF16_MIN_MEMORY;
-#else
-    return 0;
-#endif
+static int video_marker_matches(const char *path, const char *expected) {
+    size_t n = 0;
+    char *raw = jsonl_read_file(path, &n);
+    if (!raw || n == 0 || n > 128) { free(raw); return 0; }
+    while (n > 0 && (raw[n - 1] == '\n' || raw[n - 1] == '\r' || raw[n - 1] == ' '))
+        raw[--n] = '\0';
+    int match = !strcmp(raw, expected);
+    free(raw);
+    return match;
+}
+
+static void video_model_file_progress(const char *model, const char *relative,
+                                      long long expected, long long *have,
+                                      int *complete) {
+    char path[DSTUDIO_PATH_MAX], partial[DSTUDIO_PATH_MAX];
+    int len = snprintf(path, sizeof path, "%s/%s", model, relative);
+    if (len <= 0 || (size_t)len >= sizeof path) { *complete = 0; return; }
+    long long final_bytes = video_file_bytes(path);
+    if (final_bytes == expected) { *have += expected; return; }
+    *complete = 0;
+    len = snprintf(partial, sizeof partial, "%s.part", path);
+    long long partial_bytes = len > 0 && (size_t)len < sizeof partial
+        ? video_file_bytes(partial) : 0;
+    long long credit = final_bytes > partial_bytes ? final_bytes : partial_bytes;
+    if (credit > expected) credit = expected;
+    if (credit > 0) *have += credit;
+}
+
+static long long video_model_progress(const char *root, int *complete) {
+    char model[DSTUDIO_PATH_MAX], relative[256];
+    snprintf(model, sizeof model, "%s/MiniMax-H3", root);
+    long long have = 0;
+    *complete = 1;
+    video_model_file_progress(model, "FL2VA/audio_vae/config.json", 1973LL, &have, complete);
+    video_model_file_progress(model, "FL2VA/audio_vae/model.safetensors", 605429308LL, &have, complete);
+    video_model_file_progress(model, "FL2VA/text_encoder/config.json", 1474LL, &have, complete);
+    for (size_t i = 0; i < sizeof H3_TEXT_ENCODER_SHARD_SIZES / sizeof H3_TEXT_ENCODER_SHARD_SIZES[0]; i++) {
+        snprintf(relative, sizeof relative, "FL2VA/text_encoder/model-%05zu-of-00014.safetensors", i + 1);
+        video_model_file_progress(model, relative, H3_TEXT_ENCODER_SHARD_SIZES[i], &have, complete);
+    }
+    video_model_file_progress(model, "FL2VA/text_encoder/model.safetensors.index.json", 97831LL, &have, complete);
+    video_model_file_progress(model, "FL2VA/tokenizer/tokenizer.json", 7032403LL, &have, complete);
+    video_model_file_progress(model, "FL2VA/transformer/config.json", 604LL, &have, complete);
+    for (size_t i = 0; i < sizeof H3_TRANSFORMER_SHARD_SIZES / sizeof H3_TRANSFORMER_SHARD_SIZES[0]; i++) {
+        snprintf(relative, sizeof relative, "FL2VA/transformer/model-%05zu-of-00013.safetensors", i + 1);
+        video_model_file_progress(model, relative, H3_TRANSFORMER_SHARD_SIZES[i], &have, complete);
+    }
+    video_model_file_progress(model, "FL2VA/transformer/model.safetensors.index.json", 38323LL, &have, complete);
+    video_model_file_progress(model, "FL2VA/video_vae/config.json", 1807LL, &have, complete);
+    video_model_file_progress(model, "FL2VA/video_vae/source/model.safetensors", 10415548320LL, &have, complete);
+    return have > H3_MODEL_TOTAL_SIZE ? H3_MODEL_TOTAL_SIZE : have;
 }
 
 static int video_encoder_parse(const char *body, char *out, size_t outsz) {
     cstr_copy(out, outsz, "official");
     (void)json_get_string(body ? body : "", "encoder", out, outsz);
-    return !strcmp(out, "official") || !strcmp(out, "community");
+    return !strcmp(out, "official");
 }
 
 static int video_license_asserted(const char *body) {
@@ -158,41 +211,23 @@ static void video_write_status(const char *dir, const char *state, const char *s
 }
 
 static void api_video_status(int fd, const char *path) {
-    char encoder[24] = "official";
-    query_param(path, "encoder", encoder, sizeof encoder);
-    if (strcmp(encoder, "official") && strcmp(encoder, "community"))
-        cstr_copy(encoder, sizeof encoder, "official");
+    (void)path;
+    const char *encoder = "official";
     char root[DSTUDIO_PATH_MAX];
     if (!video_root_dir(root, sizeof root)) {
         web_json_error(fd, "500 Internal Server Error", "cannot resolve MiniMax H3 runtime directory");
         return;
     }
-    char comfy[DSTUDIO_PATH_MAX], marker[DSTUDIO_PATH_MAX], accelerator_marker[DSTUDIO_PATH_MAX];
-    snprintf(comfy, sizeof comfy, "%s/ComfyUI", root);
-    snprintf(marker, sizeof marker, "%s/.comfy-runtime-revision", root);
-    snprintf(accelerator_marker, sizeof accelerator_marker, "%s/%s", root, H3_MPS_ACCELERATOR_MARKER);
-    char diffusion[DSTUDIO_PATH_MAX], video_vae[DSTUDIO_PATH_MAX], audio_vae[DSTUDIO_PATH_MAX], encoder_path[DSTUDIO_PATH_MAX];
-    int use_bf16 = video_use_bf16_diffusion();
-    const char *diffusion_name = use_bf16 ? H3_DIFFUSION_BF16_NAME : H3_DIFFUSION_INT8_NAME;
-    long long diffusion_size = use_bf16 ? H3_DIFFUSION_BF16_SIZE : H3_DIFFUSION_INT8_SIZE;
-    snprintf(diffusion, sizeof diffusion, "%s/models/diffusion_models/%s", comfy, diffusion_name);
-    snprintf(video_vae, sizeof video_vae, "%s/models/vae/%s", comfy, H3_VIDEO_VAE_NAME);
-    snprintf(audio_vae, sizeof audio_vae, "%s/models/vae/%s", comfy, H3_AUDIO_VAE_NAME);
-    const char *encoder_name = !strcmp(encoder, "community") ? H3_COMMUNITY_ENCODER_NAME : H3_OFFICIAL_ENCODER_NAME;
-    long long encoder_size = !strcmp(encoder, "community") ? H3_COMMUNITY_ENCODER_SIZE : H3_OFFICIAL_ENCODER_SIZE;
-    snprintf(encoder_path, sizeof encoder_path, "%s/models/text_encoders/%s", comfy, encoder_name);
-    long long total = diffusion_size + H3_VIDEO_VAE_SIZE + H3_AUDIO_VAE_SIZE + encoder_size;
-    long long have = 0;
-    long long n = video_file_bytes(diffusion); have += n > diffusion_size ? diffusion_size : n;
-    n = video_file_bytes(video_vae); have += n > H3_VIDEO_VAE_SIZE ? H3_VIDEO_VAE_SIZE : n;
-    n = video_file_bytes(audio_vae); have += n > H3_AUDIO_VAE_SIZE ? H3_AUDIO_VAE_SIZE : n;
-    n = video_file_bytes(encoder_path); have += n > encoder_size ? encoder_size : n;
-    int accelerator_installed = video_file_bytes(accelerator_marker) > 0;
-    int installed = video_file_bytes(diffusion) == diffusion_size &&
-                    video_file_bytes(video_vae) == H3_VIDEO_VAE_SIZE &&
-                    video_file_bytes(audio_vae) == H3_AUDIO_VAE_SIZE &&
-                    video_file_bytes(encoder_path) == encoder_size &&
-                    video_file_bytes(marker) > 0 && accelerator_installed;
+    char native_marker[DSTUDIO_PATH_MAX], model_marker[DSTUDIO_PATH_MAX], binary[DSTUDIO_PATH_MAX];
+    snprintf(native_marker, sizeof native_marker, "%s/%s", root, H3_NATIVE_MARKER);
+    snprintf(model_marker, sizeof model_marker, "%s/%s", root, H3_MODEL_MARKER);
+    snprintf(binary, sizeof binary, "%s/h3.c/h3", root);
+    int model_complete = 0;
+    long long have = video_model_progress(root, &model_complete);
+    int native_installed = video_file_bytes(binary) > 0 &&
+                           video_marker_matches(native_marker, H3_NATIVE_COMMIT);
+    int installed = native_installed && model_complete &&
+                    video_marker_matches(model_marker, H3_MODEL_REVISION);
     char setup_path[DSTUDIO_PATH_MAX];
     snprintf(setup_path, sizeof setup_path, "%s/setup-status.json", root);
     size_t setup_n = 0;
@@ -205,12 +240,14 @@ static void api_video_status(int fd, const char *path) {
 #else
     json_dyn_puts(&b, "\"supported\":false,") &&
 #endif
-    json_dyn_printf(&b, "\"installed\":%s,\"acceleratorInstalled\":%s,\"downloadedBytes\":%lld,\"totalBytes\":%lld,",
-                    installed ? "true" : "false", accelerator_installed ? "true" : "false", have, total) &&
+    json_dyn_printf(&b, "\"installed\":%s,\"nativeInstalled\":%s,\"downloadedBytes\":%lld,\"totalBytes\":%lld,",
+                    installed ? "true" : "false", native_installed ? "true" : "false", have, H3_MODEL_TOTAL_SIZE) &&
     json_dyn_puts(&b, "\"encoder\":") && json_dyn_put_escaped(&b, encoder) &&
-    json_dyn_puts(&b, ",\"diffusion\":") && json_dyn_put_escaped(&b, diffusion_name) &&
-    json_dyn_puts(&b, ",\"diffusionPrecision\":") && json_dyn_put_escaped(&b, use_bf16 ? "bf16" : "int8") &&
-    json_dyn_puts(&b, ",\"model\":\"MiniMaxAI/MiniMax-H3\",\"runtime\":\"ComfyUI/MPS\",\"dir\":") &&
+    json_dyn_puts(&b, ",\"diffusion\":\"official FL2VA\",\"diffusionPrecision\":\"bf16\"") &&
+    json_dyn_puts(&b, ",\"model\":\"MiniMaxAI/MiniMax-H3\",\"runtime\":\"h3.c/Metal\",") &&
+    json_dyn_puts(&b, "\"engineCommit\":\"") && json_dyn_puts(&b, H3_NATIVE_COMMIT) &&
+    json_dyn_puts(&b, "\",\"modelRevision\":\"") && json_dyn_puts(&b, H3_MODEL_REVISION) &&
+    json_dyn_puts(&b, "\",\"dir\":") &&
     json_dyn_put_escaped(&b, root) && json_dyn_puts(&b, ",\"setup\":") &&
     json_dyn_puts(&b, setup ? setup : "null") && json_dyn_puts(&b, "}");
     send_json(fd, "200 OK", b.ptr ? b.ptr : "{\"ok\":false}");
@@ -226,7 +263,7 @@ static void api_video_setup_run(int fd, const char *body) {
     }
     char encoder[24];
     if (!video_encoder_parse(body, encoder, sizeof encoder)) {
-        web_json_error(fd, "400 Bad Request", "encoder must be official or community"); return;
+        web_json_error(fd, "400 Bad Request", "native h3.c supports the official encoder only"); return;
     }
     resolve_web_dir();
     if (!web_dir_valid()) {
@@ -251,7 +288,7 @@ static void api_video_setup_run(int fd, const char *body) {
         free(b.ptr);
         return;
     }
-    send_json(fd, "200 OK", "{\"ok\":true,\"model\":\"MiniMaxAI/MiniMax-H3\",\"runtime\":\"ComfyUI/MPS\"}");
+    send_json(fd, "200 OK", "{\"ok\":true,\"model\":\"MiniMaxAI/MiniMax-H3\",\"runtime\":\"h3.c/Metal\"}");
 }
 
 static void api_video_setup(int fd, const char *body) {
@@ -285,7 +322,7 @@ static void api_video_generate_run(int fd, const char *body) {
     }
     char encoder[24];
     if (!video_encoder_parse(body, encoder, sizeof encoder)) {
-        web_json_error(fd, "400 Bad Request", "encoder must be official or community"); return;
+        web_json_error(fd, "400 Bad Request", "native h3.c supports the official encoder only"); return;
     }
     char *prompt = json_get_string_alloc_rpc(body, "prompt");
     if (!prompt || !prompt[0] || strlen(prompt) > 12000) {
@@ -334,7 +371,7 @@ static void api_video_generate_run(int fd, const char *body) {
         free(prompt); web_json_error(fd, "500 Internal Server Error", "cannot write video prompt"); return;
     }
     free(prompt);
-    video_write_status(dir, "running", "preparing", "Preparing the local MiniMax H3 runtime…", 2);
+    video_write_status(dir, "running", "preparing", "Preparing native h3.c/Metal…", 2);
     resolve_web_dir();
     char script[DSTUDIO_PATH_MAX + 64], duration_s[16];
     snprintf(script, sizeof script, "%s/scripts/h3-generate.sh", g_web_dir);

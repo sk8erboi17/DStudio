@@ -6197,6 +6197,9 @@ static void usage(FILE *fp) {
         "  --seed <n>              sampling seed\n"
         "  --think|--think-max|--nothink   reasoning effort (default nothink)\n"
         "  --metal|--cuda|--cpu    backend\n"
+        "  --dspark --mtp <gguf>   enable greedy DSpark speculative decoding\n"
+        "  --dspark-confidence <f> proposal confidence threshold (0..1)\n"
+        "  --dspark-strict         keep target-only byte-identical decoding\n"
         "  --ssd-streaming         stream routed experts from SSD\n"
         "  --power <1-100>         power limit\n"
         "  --remote-base-url <url> use a DStudio LAN host for model inference\n"
@@ -6275,6 +6278,24 @@ static design_config parse_options(int argc, char **argv) {
             c.engine.backend = DS4_BACKEND_CUDA;
         } else if (!strcmp(arg, "--cpu")) {
             c.engine.backend = DS4_BACKEND_CPU;
+        } else if (!strcmp(arg, "--mtp")) {
+            c.engine.mtp_path = need_arg(&i, argc, argv, arg);
+        } else if (!strcmp(arg, "--dspark")) {
+            c.engine.dspark = true;
+        } else if (!strcmp(arg, "--dspark-confidence")) {
+            c.engine.dspark = true;
+            c.engine.dspark_confidence_threshold =
+                (float)atof(need_arg(&i, argc, argv, arg));
+            if (c.engine.dspark_confidence_threshold < 0.0f ||
+                c.engine.dspark_confidence_threshold > 1.0f) {
+                fprintf(stderr,
+                        "ds4-design: --dspark-confidence must be between 0 and 1\n");
+                exit(2);
+            }
+            c.engine.dspark_confidence_threshold_set = true;
+        } else if (!strcmp(arg, "--dspark-strict")) {
+            c.engine.dspark = true;
+            c.engine.dspark_strict = true;
         } else if (!strcmp(arg, "--ssd-streaming")) {
             c.engine.ssd_streaming = true;
         } else if (!strcmp(arg, "--power")) {
@@ -7533,6 +7554,10 @@ static int run_turn(design_agent *a, const char *user_text) {
         bool got_tool = false;
         bool malformed_tool = false;
         int generated = 0;
+        const bool speculative_argmax =
+            a->cfg->temperature <= 0.0f &&
+            ds4_engine_mtp_draft_tokens(a->engine) > 1 &&
+            getenv("DS4_MTP_SPEC_DISABLE") == NULL;
 
         while (generated < max_tokens) {
             bool greedy = stream_wants_greedy(&stream);
@@ -7543,28 +7568,73 @@ static int run_turn(design_agent *a, const char *user_text) {
                                            greedy ? 0.0f : a->cfg->min_p,
                                            &rng);
             if (token == ds4_token_eos(a->engine)) break;
-            if (ds4_session_eval(a->session, token, err, sizeof(err)) != 0) {
-                dsml_parser_free(&dsml);
-                fprintf(stderr, "ds4-design: eval failed: %s\n", err);
-                return 1;
-            }
-            ds4_tokens_push(&a->transcript, token);
-            size_t text_len = 0;
-            char *text = ds4_token_text(a->engine, token, &text_len);
-            /* The think delimiters are single tokens: turn them into UI
-             * events instead of streaming the raw tags (jsonl mode only). */
-            if (g_jsonl && text_len == 7 && !memcmp(text, "<think>", 7)) {
-                if (!in_think) { in_think = true; emit_event("reasoning_start"); }
-            } else if (g_jsonl && text_len == 8 && !memcmp(text, "</think>", 8)) {
-                if (in_think) { in_think = false; emit_event("reasoning_end"); }
-            } else {
-                stream_text(&stream, text, text_len);
-            }
-            free(text);
-            generated++;
 
-            if (dsml.state == DSML_DONE) { got_tool = true; break; }
-            if (dsml.state == DSML_ERROR) { malformed_tool = true; break; }
+            int accepted[17];
+            int naccepted = 0;
+            if (speculative_argmax) {
+                naccepted = ds4_session_eval_speculative_argmax(
+                    a->session,
+                    token,
+                    max_tokens - generated,
+                    ds4_token_eos(a->engine),
+                    accepted,
+                    (int)(sizeof(accepted) / sizeof(accepted[0])),
+                    err,
+                    sizeof(err));
+                if (naccepted < 0) {
+                    dsml_parser_free(&dsml);
+                    fprintf(stderr, "ds4-design: speculative eval failed: %s\n", err);
+                    return 1;
+                }
+                if (naccepted == 0) {
+                    dsml_parser_free(&dsml);
+                    fprintf(stderr, "ds4-design: DSpark returned no tokens\n");
+                    return 1;
+                }
+            } else {
+                if (ds4_session_eval(a->session, token, err, sizeof(err)) != 0) {
+                    dsml_parser_free(&dsml);
+                    fprintf(stderr, "ds4-design: eval failed: %s\n", err);
+                    return 1;
+                }
+                accepted[0] = token;
+                naccepted = 1;
+            }
+
+            bool stop_cycle = false;
+            for (int i = 0; i < naccepted && generated < max_tokens; i++) {
+                token = accepted[i];
+                if (token == ds4_token_eos(a->engine)) {
+                    stop_cycle = true;
+                    break;
+                }
+                ds4_tokens_push(&a->transcript, token);
+                size_t text_len = 0;
+                char *text = ds4_token_text(a->engine, token, &text_len);
+                /* The think delimiters are single tokens: turn them into UI
+                 * events instead of streaming the raw tags (jsonl mode only). */
+                if (g_jsonl && text_len == 7 && !memcmp(text, "<think>", 7)) {
+                    if (!in_think) { in_think = true; emit_event("reasoning_start"); }
+                } else if (g_jsonl && text_len == 8 && !memcmp(text, "</think>", 8)) {
+                    if (in_think) { in_think = false; emit_event("reasoning_end"); }
+                } else {
+                    stream_text(&stream, text, text_len);
+                }
+                free(text);
+                generated++;
+
+                if (dsml.state == DSML_DONE) {
+                    got_tool = true;
+                    stop_cycle = true;
+                    break;
+                }
+                if (dsml.state == DSML_ERROR) {
+                    malformed_tool = true;
+                    stop_cycle = true;
+                    break;
+                }
+            }
+            if (stop_cycle) break;
         }
 
         stream_finish(&stream);

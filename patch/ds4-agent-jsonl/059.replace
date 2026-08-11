@@ -1,0 +1,115 @@
+        bool status_greedy_sampling = false;
+        const bool speculative_argmax =
+            cfg->gen.temperature <= 0.0f &&
+            !cfg->edit_upto &&
+            ds4_engine_mtp_draft_tokens(w->engine) > 1 &&
+            getenv("DS4_MTP_SPEC_DISABLE") == NULL;
+        while (generated < max_tokens && !worker_should_interrupt(w)) {
+            worker_apply_pending_power(w);
+            bool greedy_sampling = agent_stream_wants_greedy_sampling(&stream);
+            if (greedy_sampling != status_greedy_sampling) {
+                worker_set_greedy_sampling(w, greedy_sampling);
+                status_greedy_sampling = greedy_sampling;
+            }
+            int token = worker_sample_with_mode(w, cfg, greedy_sampling, &rng);
+            if (ds4_token_is_stop_for_think_mode(w->engine, token, think_mode)) {
+                if (tool_syntax == AGENT_TOOL_SYNTAX_GLM &&
+                    token != ds4_token_eos(w->engine)) {
+                    agent_trace(w, "glm assistant generation stopped before control token id=%d", token);
+                }
+                break;
+            }
+
+            int accepted[17];
+            int naccepted = 0;
+            if (speculative_argmax) {
+                naccepted = ds4_session_eval_speculative_argmax(
+                    w->session,
+                    token,
+                    max_tokens - generated,
+                    ds4_token_eos(w->engine),
+                    accepted,
+                    (int)(sizeof(accepted) / sizeof(accepted[0])),
+                    err,
+                    sizeof(err));
+                if (naccepted <= 0) {
+                    agent_dsml_parser_free(&dsml);
+                    agent_set_error(w, naccepted < 0 ? err : "DSpark returned no tokens");
+                    return 1;
+                }
+            } else {
+                accepted[0] = token;
+                naccepted = 1;
+            }
+
+            bool stop_cycle = false;
+            for (int i = 0;
+                 i < naccepted && generated < max_tokens &&
+                 !worker_should_interrupt(w);
+                 i++) {
+                token = accepted[i];
+                if (i > 0 &&
+                    ds4_token_is_stop_for_think_mode(w->engine, token, think_mode)) {
+                    stop_cycle = true;
+                    break;
+                }
+
+                size_t text_len = 0;
+                char *text = ds4_token_text(w->engine, token, &text_len);
+                if (cfg->edit_upto &&
+                    agent_edit_upto_forcer_should_replace(&upto_forcer, &dsml,
+                                                           text, text_len))
+                {
+                    agent_trace(w, "edit old auto-upto replaced token=%d text=%.*s",
+                                token, (int)(text_len > 80 ? 80 : text_len), text);
+                    free(text);
+                    if (worker_force_generated_text(w, "[upto]\n", max_tokens,
+                                                    &generated, t0, &stream,
+                                                    err, sizeof(err)) != 0) {
+                        agent_dsml_parser_free(&dsml);
+                        agent_set_error(w, err);
+                        return 1;
+                    }
+                } else {
+                    free(text);
+                    if (speculative_argmax) {
+                        worker_accept_speculative_token(w, token, &generated,
+                                                        t0, &stream);
+                    } else if (worker_accept_generated_token(
+                                   w, token, &generated, t0, &stream,
+                                   err, sizeof(err)) != 0) {
+                        agent_dsml_parser_free(&dsml);
+                        agent_set_error(w, err);
+                        return 1;
+                    }
+                }
+
+                greedy_sampling = agent_stream_wants_greedy_sampling(&stream);
+                if (greedy_sampling != status_greedy_sampling) {
+                    worker_set_greedy_sampling(w, greedy_sampling);
+                    status_greedy_sampling = greedy_sampling;
+                }
+
+                if (dsml.state == AGENT_DSML_DONE) {
+                    got_tool = true;
+                    stop_cycle = true;
+                    break;
+                }
+                if (stream.tool_preflight_error) {
+                    early_tool_error = true;
+                    stop_cycle = true;
+                    break;
+                }
+                if (dsml.state == AGENT_DSML_ERROR) {
+                    malformed_tool = true;
+                    stop_cycle = true;
+                    break;
+                }
+                if (stream.dsml_in_think) {
+                    malformed_tool = true;
+                    stop_cycle = true;
+                    break;
+                }
+            }
+            if (stop_cycle) break;
+        }

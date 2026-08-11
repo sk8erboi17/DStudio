@@ -144,8 +144,8 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, {
       ok: true, supported: true, installed: true,
       downloadedBytes: 53924785072, totalBytes: 53924785072,
-      acceleratorInstalled: true, encoder: 'official',
-      model: 'MiniMaxAI/MiniMax-H3', runtime: 'ComfyUI/MPS',
+      nativeInstalled: true, encoder: 'official',
+      model: 'MiniMaxAI/MiniMax-H3', runtime: 'h3.c/Metal',
     });
     return;
   }

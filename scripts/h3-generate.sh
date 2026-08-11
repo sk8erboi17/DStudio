@@ -1,6 +1,6 @@
 #!/bin/sh
-# Launch the MiniMax H3 open-weight worker with a Python that is available to
-# GUI-launched macOS applications as well as terminal sessions.
+# Launch the standard-library manager for the native h3.c/Metal executable
+# with a Python available to GUI-launched apps as well as terminal sessions.
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
