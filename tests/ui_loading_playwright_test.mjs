@@ -75,7 +75,10 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/start' && req.method === 'POST') {
     startBody = JSON.parse(await readBody(req) || '{}');
     started = true;
-    json(res, 200, { ok: true, mode: 'server' });
+    json(res, 200, {
+      ok: true, mode: 'server', adjusted: true, ctx: 65536, dspark: false,
+      warning: 'Memory-safe test adjustment',
+    });
     return;
   }
   if (url.pathname === '/') {
@@ -111,15 +114,18 @@ try {
   page.on('pageerror', (e) => pageErrors.push(e?.stack || e?.message || String(e)));
   page.on('console', (msg) => { if (msg.type() === 'error') pageErrors.push(msg.text()); });
   await page.addInitScript(() => {
+    if (localStorage.getItem('ds4web.settings.v2')) return;
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
       v: 2,
       onboarded: true,
       model: 'deepseek-v4-pro',
       modelVariant: 'flash',
       modelGguf: 'gguf/laguna-test.gguf',
+      modelEngineDir: '/old/location/ds4-laguna-s21',
       ctxSize: 131072,
       enginePower: 70,
       ssdStreaming: 'off',
+      dspark: true,
     }));
   });
 
@@ -129,12 +135,16 @@ try {
 
   assert.ok(startBody, 'loading page should POST /api/start');
   assert.equal(startBody.mode, 'server');
+  assert.equal(startBody.model, 'standard');
   assert.equal(startBody.variant, 'flash');
   assert.equal(startBody.gguf, 'gguf/laguna-test.gguf');
-  assert.deepEqual(checkoutBody, { dir: '/engines/ds4-laguna-s21' }, 'legacy GGUF pick should switch its checkout before start');
+  assert.deepEqual(checkoutBody, { dir: '/engines/ds4-laguna-s21' }, 'stale GGUF checkout should be repaired and switched before start');
   assert.equal(startBody.ctx, 131072);
   assert.equal(startBody.power, 70);
   assert.equal(startBody.ssdStreaming, 'off', 'saved Off must reach the launcher unchanged');
+  const savedAfterStart = JSON.parse(await page.evaluate(() => localStorage.getItem('ds4web.settings.v2')));
+  assert.equal(savedAfterStart.ctxSize, 65536, 'native memory adjustment should replace the unsafe saved context');
+  assert.equal(savedAfterStart.dspark, false, 'native memory adjustment should persist DSpark being disabled');
   assert.deepEqual(pageErrors, []);
   console.log('ui_loading_playwright_test: ok');
 } finally {

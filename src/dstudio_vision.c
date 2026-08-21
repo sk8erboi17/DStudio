@@ -253,7 +253,7 @@ static int vision_spawn_detached(void) {
         if (fork() > 0) _exit(0);       /* grandchild survives us, reparents to init */
         setsid();
         if (chdir(g_web_dir) != 0) _exit(127);
-        child_setenv_metal();           /* Metal/MPS env for the vision runtime */
+        child_setenv_metal(NULL);       /* Metal/MPS env for the vision runtime */
         /* Close EVERY inherited fd (the DStudio instance-lock fd, the HTTP
          * listener, engine pipes, sockets). This sidecar is long-lived and
          * detached, so any fd it kept open would outlive DStudio — in particular

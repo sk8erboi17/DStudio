@@ -112,7 +112,7 @@ const progress = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 const status = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
 if (!generated.ok || generated.model !== 'MiniMaxAI/MiniMax-H3' || !generated.url?.startsWith('/api/video/file?')) throw new Error('H3 generate response is incomplete');
 if (progress.state !== 'complete' || progress.progress !== 100) throw new Error('H3 progress should complete in test mode');
-if (!status.ok || status.runtime !== 'ComfyUI/MPS' || status.model !== 'MiniMaxAI/MiniMax-H3') throw new Error('H3 status should identify the local runtime');
+if (!status.ok || status.runtime !== 'h3.c/Metal' || status.model !== 'MiniMaxAI/MiniMax-H3') throw new Error('H3 status should identify the local runtime');
 fs.writeFileSync(process.argv[2] + '.url', generated.url);
 NODE
 video_url="$(cat "${tmp}/video-generate.json.url")"

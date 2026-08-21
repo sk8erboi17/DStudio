@@ -7314,7 +7314,7 @@
       videoDuration: 5,
       videoAspect: '16:9',
       theme: 'light',       // 'dark' | 'light' | 'system' — applied to <html data-theme>
-      modelVariant: 'flash',// 'flash' | 'pro' — which GGUF the engine launches with
+      modelVariant: 'flash',// 'flash' = standard chat IQ2XXS; abliterated is an explicit GGUF choice
       ctxSize: 65536,       // engine context window (-c); 64k default, changeable in onboarding/settings
       enginePower: 90,      // ds4 --power launch parameter
       ssdStreaming: 'auto',  // off | on | auto — Metal SSD model streaming; auto engages it under memory pressure
@@ -9032,9 +9032,10 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     }
     // Quantizations ds4's download scripts can fetch (download_model.sh targets +
     // abliterated). Shared by the onboarding and Settings model pickers.
+    const DEFAULT_FLASH_GGUF = 'gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf';
     const MODEL_DOWNLOADS = [
-      { id: 'flash', label: 'DeepSeek V4 Flash · abliterated (experimental) — IQ2_XXS, ~81 GB (0731)', body: { target: 'flash-abliterated', engine: 'main' }, match: /abliterat|uncensor|headroom/i },
       { id: 'ds4f-q2', label: 'DeepSeek V4 Flash · chat — IQ2_XXS, ~81 GB (0731)', body: { target: 'ds4f-q2', engine: 'main' }, match: /^DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731\.gguf$/i },
+      { id: 'flash-abliterated', label: 'DeepSeek V4 Flash · abliterated (experimental) — IQ2_XXS, ~81 GB (0731)', body: { target: 'flash-abliterated', engine: 'main' }, match: /abliterat|uncensor|headroom/i },
       { id: 'ds4f-q2-q4', label: 'DeepSeek V4 Flash · mixed Q2/Q4 — ~98 GB (0731)', body: { target: 'ds4f-q2-q4', engine: 'main' }, match: /Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown.*imatrix-fixed-0731/i },
       { id: 'ds4f-q4', label: 'DeepSeek V4 Flash · chat — Q4, higher quality & larger (0731)', body: { target: 'ds4f-q4', engine: 'main' }, match: /^DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix-0731\.gguf$/i },
       { id: 'ds4f-mxfp4', label: 'DeepSeek V4 Flash · MXFP4 — ~156 GB (0731, Metal/CUDA)', body: { target: 'ds4f-mxfp4', engine: 'main' }, match: /^DeepSeek-V4-Flash-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-mxfp4-0731\.gguf$/i },
@@ -9050,6 +9051,14 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     function availableModelDownloads(ggufs) {
       const files = (ggufs || []).map((g) => String(g?.file || ''));
       return MODEL_DOWNLOADS.filter((d) => !files.some((file) => d.match.test(file)));
+    }
+    function preferredDefaultGguf(ggufs) {
+      return (ggufs || []).find((g) => String(g?.path || '') === DEFAULT_FLASH_GGUF)
+        || (ggufs || []).find((g) => /DeepSeek-V4-Flash.*chat/i.test(String(g?.file || ''))
+          && !/abliterat|uncensor|DSpark|support/i.test(String(g?.file || '')))
+        || (ggufs || []).find((g) => !/DSpark|support|abliterat|uncensor/i.test(String(g?.file || '')))
+        || (ggufs || [])[0]
+        || null;
     }
     function modelDownloadOptionLabel(choice) {
       return `Not installed · ${choice.label}`;
@@ -23571,7 +23580,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         selectedGguf = ggufs.find((g) => sameModel(g, selectedGguf?.path, selectedGguf?.engineDir))
           || ggufs.find((g) => sameModel(g, runningModel, activeEngineDir))
           || ggufs.find((g) => sameModel(g, savedPath, savedEngine))
-          || ggufs[0]
+          || preferredDefaultGguf(ggufs)
           || null;
         renderModels();
         updateForcedSetup();
@@ -28997,14 +29006,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           dir = '';
           Store.setSettings({ modelEngineDir: '' });
         }
-        /* Settings written by releases before multi-checkout model discovery
-         * contain modelGguf but not modelEngineDir. Resolve that legacy pick
-         * once from the aggregate catalog. */
-        if (!dir && modelGguf()) {
+        /* Resolve legacy missing checkout metadata and repair stale absolute
+         * checkout paths after the source tree or app bundle has moved. */
+        if (modelGguf()) {
           try {
             const catalog = await Engine.ggufs();
             const matches = (catalog?.ggufs || []).filter((g) => g.path === modelGguf());
-            if (matches.length === 1 && matches[0].engineDir) {
+            if (matches.length === 1 && matches[0].engineDir && matches[0].engineDir !== dir) {
               dir = matches[0].engineDir;
               Store.setSettings({ modelEngineDir: dir });
             }
@@ -29039,7 +29047,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (Number.isFinite(requestedContext) && requestedContext > 0) {
           launch.ctx = Math.round(requestedContext);
         }
-        return runSwitch('server', { mode: 'server', model: 'uncensored', variant: variant(), gguf: modelGguf(), ...launch }, 'Starting the server…');
+        return runSwitch('server', { mode: 'server', model: 'standard', variant: variant(), gguf: modelGguf(), ...launch }, 'Starting the server…');
       }
 
       let chatReadyFlight = null;
@@ -29069,7 +29077,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
        * and do not let a request race the engine before /api/status is ready. */
       function ensureChatReady(settings = Store.getSettings(), signal, onStarting) {
         if (!localChatBackend(settings)) return Promise.resolve(null);
-        const desiredContext = Math.max(1, Math.round(Number(settings?.ctxSize) || ctxSize()));
+        let desiredContext = Math.max(1, Math.round(Number(settings?.ctxSize) || ctxSize()));
         if (chatReadyFlight && chatReadyContext !== desiredContext) {
           return withAbort(chatReadyFlight.then(() => ensureChatReady(settings, signal, onStarting)), signal);
         }
@@ -29088,6 +29096,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             const launchDesiredContext = async () => {
               const launch = await startServer(undefined, settings);
               if (launch?.ok === false) throw new Error(launch.error || 'The local chat model could not be started.');
+              if (Number.isFinite(Number(launch?.ctx)) && Number(launch.ctx) > 0) {
+                desiredContext = Math.round(Number(launch.ctx));
+                chatReadyContext = desiredContext;
+              }
               desiredLaunchRequested = true;
             };
             if ((needsContextRestart || !(st.mode === 'server' && st.running === true)) && !launchAlreadyPending) {
@@ -29145,7 +29157,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         // skill; the model routes per turn via its skills_search tool.
         const skill = picked === 'auto' ? '' : picked;
         runtimeSkillAtLaunch.agent = skill;
-        runSwitch('agent', { mode: 'agent', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, ...remote }, 'Starting the agent…');
+        runSwitch('agent', { mode: 'agent', model: 'standard', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, ...remote }, 'Starting the agent…');
       }
 
       // Design's system prompt is ~5.3k tokens and it generates full HTML files,
@@ -29172,7 +29184,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (!isLanClientMode() && !await selectSavedModelCheckout()) return;
         runtimeThinkDirty = false;
         runtimeSkillAtLaunch.design = skill || '';
-        runSwitch('design', { mode: 'design', model: 'uncensored', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, designSystem: designSystem(), ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, ...remote }, 'Starting the design agent…');
+        runSwitch('design', { mode: 'design', model: 'standard', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, designSystem: designSystem(), ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, ...remote }, 'Starting the design agent…');
       }
 
       // Switch the active model variant (v4-flash / v4-pro): persist the choice
@@ -29597,6 +29609,19 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           launchTarget = null;
           Statusbar.render();
           return res || { ok: false, error: 'Startup failed' };
+        }
+        if (res.adjusted) {
+          const patch = {};
+          if (Number.isFinite(Number(res.ctx)) && Number(res.ctx) > 0) {
+            patch.ctxSize = Math.round(Number(res.ctx));
+            cfg = { ...cfg, ctx: patch.ctxSize };
+          }
+          if (typeof res.dspark === 'boolean') {
+            patch.dspark = res.dspark;
+            cfg = { ...cfg, dspark: res.dspark };
+          }
+          if (Object.keys(patch).length) Store.setSettingsNow(patch);
+          if (res.warning) toast(res.warning, 'warn');
         }
         const launchTaskId = res.taskId || null;
         if (launchTaskId) appendOverlayLog(`Launch task #${launchTaskId}`);

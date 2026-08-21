@@ -358,19 +358,19 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define DS4_CONTENT_COMMIT "66401282c5c5e3922a5f555a009de24cde149749"
 #define DS4_CONTENT_ARCHIVE_URL "https://codeload.github.com/" DS4_CONTENT_REPO "/tar.gz/" DS4_CONTENT_COMMIT
 
-#define MODEL_STD "ds4flash.gguf"
+#define MODEL_STD "gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"
 #define MODEL_UNC "gguf/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128.gguf"
-/* Model variants the UI can pick: flash = the abliterated Flash above, pro =
- * the official V4-Pro IQ2XXS (download_model.sh pro-q2-imatrix). */
-#define MODEL_FLASH MODEL_UNC
+/* Model variants the UI can pick: flash = the official chat-tuned Flash IQ2XXS,
+ * pro = the official V4-Pro IQ2XXS. Abliterated remains an explicit GGUF pick. */
+#define MODEL_FLASH MODEL_STD
 #define MODEL_PRO   "gguf/DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix.gguf"
 #define MODEL_LAGUNA "gguf/laguna-s-2.1-Q4_K_M.gguf"
-#define MODEL_FLASH_HF_REVISION "08f6c6225ab4d29a735ab7d48d46bd0a3a767a07"
-#define MODEL_FLASH_EXPECTED_BYTES 86720111552LL
-#define MODEL_FLASH_SHA256 "55a46e7e9a51f3d6708559b8b284c3e60f6b97f9bab1f2c9633948c8331e99ee"
-#define MODEL_FLASH_URL \
+#define MODEL_ABLITERATED_HF_REVISION "08f6c6225ab4d29a735ab7d48d46bd0a3a767a07"
+#define MODEL_ABLITERATED_EXPECTED_BYTES 86720111552LL
+#define MODEL_ABLITERATED_SHA256 "55a46e7e9a51f3d6708559b8b284c3e60f6b97f9bab1f2c9633948c8331e99ee"
+#define MODEL_ABLITERATED_URL \
     "https://huggingface.co/apetersson/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128/resolve/" \
-    MODEL_FLASH_HF_REVISION "/" \
+    MODEL_ABLITERATED_HF_REVISION "/" \
     "DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128.gguf?download=true"
 #define MODEL_DSPARK_UPSTREAM "gguf/DeepSeek-V4-Flash-DSpark-support-0731.gguf"
 #define MODEL_DSPARK_ABLITERATED "gguf/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128-DSpark-support.gguf"
@@ -378,7 +378,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define MODEL_DSPARK_SHA256 "373428b876cb77795132a829486463173206693f92ef172ada4e346e46a40e2f"
 #define MODEL_DSPARK_URL \
     "https://huggingface.co/apetersson/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128/resolve/" \
-    MODEL_FLASH_HF_REVISION "/" \
+    MODEL_ABLITERATED_HF_REVISION "/" \
     "DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128-DSpark-support.gguf?download=true"
 #define MODEL_PRO_EXPECTED_BYTES 430000000000LL  /* ~430 GB (pro-q2-imatrix), for the % */
 
@@ -400,7 +400,7 @@ typedef struct {
     int ssd_streaming;/* 0 off, 1 force on, 2 auto. */
 } engine_cfg;
 
-static const engine_cfg ENGINE_DEFAULTS = { 1, 28000, 262144, 90, 24576, 128, 1, SSD_STREAMING_AUTO };
+static const engine_cfg ENGINE_DEFAULTS = { 0, 28000, 65536, 90, 24576, 128, 1, SSD_STREAMING_AUTO };
 
 /* ---- global engine state ---- */
 static int       g_mode = ENGINE_NONE;
@@ -2062,8 +2062,8 @@ static int model_rpc_start(int id, char *body) {
 
 /* ==================== model / kv / port ==================== */
 
-/* Active model variant the UI picked ("flash" | "pro"). Flash is the default
- * (the abliterated Flash GGUF). When "pro", the engine launches with MODEL_PRO. */
+/* Active model variant the UI picked ("flash" | "pro"). Flash is the standard
+ * chat-tuned GGUF. Abliterated is available only as an explicit GGUF choice. */
 static char g_variant[16] = "flash";
 static pid_t g_dl_pid = -1;          /* background model download, if any */
 static char  g_dl_variant[48] = "";  /* download_model.sh target */
@@ -2086,7 +2086,7 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
     const char *file = "";
     long long bytes = 0;
     if (!strcmp(target, "flash-abliterated")) {
-        file = MODEL_FLASH; bytes = MODEL_FLASH_EXPECTED_BYTES;
+        file = MODEL_UNC; bytes = MODEL_ABLITERATED_EXPECTED_BYTES;
     } else if (!strcmp(target, "ds4f-q2")) {
         file = "gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf";
         bytes = 87000000000LL;
@@ -2174,11 +2174,11 @@ static int paused_model_download(char *target, size_t targetsz,
                                  long long *bytes, long long *expected) {
     if (g_dl_pid > 0) return 0;
 
-    /* The default model is downloaded directly into the main managed checkout
+    /* The abliterated model is downloaded directly into the main managed checkout
      * using one stable .part file, so it remains resumable across app restarts. */
     char flash_final[DSTUDIO_PATH_MAX + 1100], flash_part[DSTUDIO_PATH_MAX + 1110];
     struct stat flash_st;
-    snprintf(flash_final, sizeof flash_final, "%s/%s", g_ds4_dir, MODEL_FLASH);
+    snprintf(flash_final, sizeof flash_final, "%s/%s", g_ds4_dir, MODEL_UNC);
     snprintf(flash_part, sizeof flash_part, "%s.part", flash_final);
     if ((stat(flash_final, &flash_st) != 0 || !S_ISREG(flash_st.st_mode) ||
          flash_st.st_size <= 0) &&
@@ -2186,7 +2186,7 @@ static int paused_model_download(char *target, size_t targetsz,
         flash_st.st_size > 0) {
         cstr_copy(target, targetsz, "flash-abliterated");
         if (bytes) *bytes = (long long)flash_st.st_size;
-        if (expected) *expected = MODEL_FLASH_EXPECTED_BYTES;
+        if (expected) *expected = MODEL_ABLITERATED_EXPECTED_BYTES;
         return 1;
     }
 
@@ -2378,10 +2378,10 @@ static int child_download_abliterated_resumable(const char *checkout) {
     snprintf(gguf, sizeof gguf, "%s/gguf", checkout);
     if (mkdir(gguf, 0755) != 0 && errno != EEXIST) return 1;
     char part[DSTUDIO_PATH_MAX + 1100], final[DSTUDIO_PATH_MAX + 1100];
-    snprintf(final, sizeof final, "%s/%s", checkout, MODEL_FLASH);
+    snprintf(final, sizeof final, "%s/%s", checkout, MODEL_UNC);
     snprintf(part, sizeof part, "%s.part", final);
-    return child_curl_resumable(part, final, MODEL_FLASH_URL,
-                                MODEL_FLASH_EXPECTED_BYTES, MODEL_FLASH_SHA256);
+    return child_curl_resumable(part, final, MODEL_ABLITERATED_URL,
+                                MODEL_ABLITERATED_EXPECTED_BYTES, MODEL_ABLITERATED_SHA256);
 }
 
 static int child_download_dspark_resumable(const char *checkout) {
@@ -2499,6 +2499,12 @@ static int model_is_laguna(void) {
     const char *name = base ? base + 1 : rel;
     return mem_contains_ci(name, strlen(name), "laguna");
 }
+static int model_is_flash(void) {
+    const char *rel = current_model_rel();
+    const char *base = strrchr(rel, '/');
+    const char *name = base ? base + 1 : rel;
+    return mem_contains_ci(name, strlen(name), "deepseek-v4-flash");
+}
 static int file_present_in_dir(const char *dir, const char *rel) {
     char full[2048];
     snprintf(full, sizeof full, "%s/%s", dir ? dir : "", rel ? rel : "");
@@ -2538,6 +2544,19 @@ static long long current_model_file_size(void) {
     return (long long)st.st_size;
 }
 
+static const char *current_dspark_rel(void) {
+    return strstr(current_model_rel(), "Abliterated")
+        ? MODEL_DSPARK_ABLITERATED : MODEL_DSPARK_UPSTREAM;
+}
+
+static long long current_dspark_file_size(void) {
+    char full[2048];
+    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, current_dspark_rel());
+    struct stat st;
+    if (stat(full, &st) != 0 || !S_ISREG(st.st_mode)) return -1;
+    return (long long)st.st_size;
+}
+
 static long long sysctl_iogpu_wired_limit_mb(void) {
 #ifdef __APPLE__
     int64_t v = 0;
@@ -2557,6 +2576,145 @@ static long long sysctl_iogpu_wired_limit_mb(void) {
     return -1;
 }
 
+/* Exact DwarfStar Metal graph allocation for DeepSeek V4 Flash with the
+ * launcher's 1024-token prefill chunk. Keep this deliberately local and
+ * shape-specific: it lets the launcher reject/adjust a configuration before
+ * Metal falls back to page-faulting an oversized model on unified memory. */
+static unsigned long long flash_context_memory_bytes(int ctx_size) {
+    const unsigned long long ctx = ctx_size > 0 ? (unsigned long long)ctx_size : 1ull;
+    const unsigned long long prefill_cap = ctx < 1024ull ? ctx : 1024ull;
+    unsigned long long raw_cap = 128ull + prefill_cap;
+    if (raw_cap > ctx) raw_cap = ctx;
+    raw_cap = (raw_cap + 255ull) & ~255ull;
+    if (raw_cap > 8192ull) raw_cap = 8192ull;
+    if (raw_cap < 128ull) raw_cap = ctx < 128ull ? ctx : 128ull;
+
+    const unsigned long long comp4 = ctx / 4ull + 2ull;
+    const unsigned long long comp128 = ctx / 128ull + 2ull;
+    const unsigned long long raw = 43ull * raw_cap * 512ull * 4ull;
+    const unsigned long long compressed =
+        21ull * comp4 * (512ull * 2ull + 128ull * 4ull) +
+        20ull * comp128 * 512ull * 2ull;
+    const unsigned long long scratch =
+        2ull * comp4 * prefill_cap * 4ull +
+        (prefill_cap / 4ull + 2ull) * 512ull * 4ull;
+    return raw + compressed + scratch;
+}
+
+static unsigned long long local_metal_budget_bytes(void) {
+#ifdef __APPLE__
+    const unsigned long long mib = 1024ull * 1024ull;
+    const unsigned long long gib = 1024ull * mib;
+    const long long wired_mb = sysctl_iogpu_wired_limit_mb();
+    unsigned long long budget = wired_mb > 0 ? (unsigned long long)wired_mb * mib : 0;
+    const unsigned long long physical = dstudio_physical_memory_bytes();
+    const unsigned long long physical_budget = physical > 8ull * gib ? physical - 8ull * gib : 0;
+    if (budget == 0 || (physical_budget != 0 && physical_budget < budget)) budget = physical_budget;
+    return budget;
+#else
+    return 0;
+#endif
+}
+
+static unsigned long long flash_required_memory_bytes(int ctx_size,
+                                                       unsigned long long model_bytes,
+                                                       unsigned long long support_bytes) {
+    const unsigned long long gib = 1024ull * 1024ull * 1024ull;
+    return model_bytes + support_bytes + flash_context_memory_bytes(ctx_size) + 4ull * gib;
+}
+
+static int flash_largest_safe_context(int requested_ctx,
+                                      unsigned long long model_bytes,
+                                      unsigned long long support_bytes,
+                                      unsigned long long budget) {
+    static const int contexts[] = {
+        1048576, 524288, 262144, 131072, 65536, 32768, 16384, 8192
+    };
+    for (size_t i = 0; i < sizeof contexts / sizeof contexts[0]; i++) {
+        if (contexts[i] > requested_ctx) continue;
+        if (flash_required_memory_bytes(contexts[i], model_bytes, support_bytes) <= budget)
+            return contexts[i];
+    }
+    return 0;
+}
+
+static int flash_config_fits_metal(const engine_cfg *cfg, int with_dspark,
+                                   unsigned long long *required_out,
+                                   unsigned long long *budget_out) {
+    const long long model_bytes = current_model_file_size();
+    const long long support_bytes = with_dspark ? current_dspark_file_size() : 0;
+    const unsigned long long budget = local_metal_budget_bytes();
+    if (required_out) *required_out = 0;
+    if (budget_out) *budget_out = budget;
+    if (!cfg || !model_is_flash() || model_bytes <= 0 || budget == 0 ||
+        (with_dspark && support_bytes <= 0)) return 0;
+    const unsigned long long required = flash_required_memory_bytes(
+        cfg->ctx, (unsigned long long)model_bytes,
+        with_dspark ? (unsigned long long)support_bytes : 0ull);
+    if (required_out) *required_out = required;
+    return required <= budget;
+}
+
+/* Make a pathological saved configuration safe before spawning. Automatic
+ * SSD streaming remains available for oversized non-DSpark runs; explicit
+ * full-residency requests are reduced to the largest standard context that
+ * leaves four GiB for Metal graph buffers and the desktop process. */
+static int normalize_flash_memory_config(engine_cfg *cfg, int remote_model,
+                                         char *note, size_t notesz) {
+    if (note && notesz) note[0] = '\0';
+#ifndef __APPLE__
+    (void)cfg; (void)remote_model;
+    return 1;
+#else
+    if (!cfg || remote_model || !model_is_flash() || current_model_file_size() <= 0 ||
+        local_metal_budget_bytes() == 0) return 1;
+    const int requested_ctx = cfg->ctx;
+    const int requested_dspark = g_dspark_enabled;
+    unsigned long long required = 0, budget = 0;
+
+    if (g_dspark_enabled && current_dspark_file_size() > 0 &&
+        !flash_config_fits_metal(cfg, 1, &required, &budget)) {
+        g_dspark_enabled = 0;
+    }
+
+    /* AUTO can stream the main model after DSpark has been disabled. OFF (or
+     * a DSpark configuration that fits) must fit fully in the Metal budget. */
+    if (cfg->ssd_streaming == SSD_STREAMING_OFF || g_dspark_enabled) {
+        if (!flash_config_fits_metal(cfg, g_dspark_enabled, &required, &budget)) {
+            const long long model_bytes = current_model_file_size();
+            const long long support_bytes = g_dspark_enabled ? current_dspark_file_size() : 0;
+            const int safe_ctx = flash_largest_safe_context(
+                requested_ctx,
+                model_bytes > 0 ? (unsigned long long)model_bytes : 0ull,
+                support_bytes > 0 ? (unsigned long long)support_bytes : 0ull,
+                budget);
+            if (safe_ctx == 0) {
+                snprintf(note, notesz,
+                         "DeepSeek V4 Flash does not fit the Metal memory budget with SSD streaming off; enable SSD streaming or choose a smaller GGUF");
+                return 0;
+            }
+            cfg->ctx = safe_ctx;
+        }
+    }
+
+    if (note && notesz && (cfg->ctx != requested_ctx || g_dspark_enabled != requested_dspark)) {
+        if (requested_dspark && !g_dspark_enabled && cfg->ctx != requested_ctx) {
+            snprintf(note, notesz,
+                     "DSpark disabled and context reduced from %d to %d tokens to keep DeepSeek V4 Flash resident in Metal memory",
+                     requested_ctx, cfg->ctx);
+        } else if (requested_dspark && !g_dspark_enabled) {
+            snprintf(note, notesz,
+                     "DSpark disabled because the main and support models exceed the Metal memory budget");
+        } else {
+            snprintf(note, notesz,
+                     "Context reduced from %d to %d tokens to keep DeepSeek V4 Flash resident in Metal memory",
+                     requested_ctx, cfg->ctx);
+        }
+    }
+    return 1;
+#endif
+}
+
 static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_model,
                                           char *reason, size_t reasonsz,
                                           char *err, size_t errsz) {
@@ -2572,6 +2730,14 @@ static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_mode
             return -1;
         }
         snprintf(reason, reasonsz, "auto disabled for remote model");
+        return 0;
+    }
+    if (g_dspark_enabled) {
+        if (cfg->ssd_streaming == SSD_STREAMING_ON) {
+            snprintf(err, errsz, "DSpark is not compatible with SSD streaming");
+            return -1;
+        }
+        snprintf(reason, reasonsz, "auto disabled: DSpark requires the memory-mapped model path");
         return 0;
     }
     if (model_is_laguna()) {
@@ -2610,13 +2776,17 @@ static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_mode
         snprintf(reason, reasonsz, "forced on");
         return 1;
     }
+    if (model_is_flash() && flash_config_fits_metal(cfg, 0, NULL, NULL)) {
+        snprintf(reason, reasonsz, "auto disabled: Flash model and context fit the Metal residency budget");
+        return 0;
+    }
     long long model_bytes = current_model_file_size();
     unsigned long long mem_bytes = dstudio_physical_memory_bytes();
     const unsigned long long gib = 1024ull * 1024ull * 1024ull;
     if (!strcmp(g_variant, "pro") ||
         (model_bytes > 64ll * 1024ll * 1024ll * 1024ll) ||
         (mem_bytes > 0 && mem_bytes <= 192ull * gib)) {
-        snprintf(reason, reasonsz, "auto enabled for large ds4 model / memory pressure");
+        snprintf(reason, reasonsz, "auto enabled: model and context exceed the Metal residency budget");
         return 1;
     }
     snprintf(reason, reasonsz, "auto disabled: memory budget is sufficient");
@@ -3568,13 +3738,20 @@ static int kill_external_server(int port) {
 #endif
 }
 
-/* Common to both spawns: prepares the Metal env in the child. GLM rejects
- * --power below 100 and needs its full-layer streaming prefill path; Laguna
- * keeps the upstream full-residency defaults. */
-static void child_setenv_metal(void) {
+/* Common to both spawns: prepares the Metal env in the child. Flash uses the
+ * upstream residency path whenever the complete launch fits the measured Metal
+ * budget; oversized models keep the lazy mapped path. */
+static void child_setenv_metal(const engine_cfg *cfg) {
     if (!model_is_laguna()) {
-        setenv("DS4_METAL_NO_RESIDENCY", "1", 1);
-        setenv("DS4_METAL_NO_MODEL_WARMUP", "1", 1);
+        const int resident_flash = !g_ssd_streaming_effective &&
+            model_is_flash() && flash_config_fits_metal(cfg, g_dspark_enabled, NULL, NULL);
+        if (resident_flash) {
+            unsetenv("DS4_METAL_NO_RESIDENCY");
+            unsetenv("DS4_METAL_NO_MODEL_WARMUP");
+        } else {
+            setenv("DS4_METAL_NO_RESIDENCY", "1", 1);
+            setenv("DS4_METAL_NO_MODEL_WARMUP", "1", 1);
+        }
         setenv("DS4_METAL_PREFILL_CHUNK", "1024", 1);
         setenv("DS4_METAL_GRAPH_TOKEN_SPLIT_LAYERS", "0", 1);
         /* Upstream 4893e0c seeds the streamed-expert cache from mapped
@@ -3598,6 +3775,8 @@ static void child_setenv_metal(void) {
         unsetenv("DS4_METAL_GRAPH_TOKEN_SPLIT_LAYERS");
         unsetenv("DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST");
     }
+    if (g_dspark_enabled) setenv("DS4_DSPARK_STATS", "1", 1);
+    else unsetenv("DS4_DSPARK_STATS");
     /* GLM streaming: the batch-selected-addr prefill path fails on partial
      * model maps (model >> RAM); the full-layer prefill path is the one that
      * works with the on-demand exact-view fallback. */
@@ -3854,36 +4033,16 @@ static int win_spawn(const char *cwd, char *const argv[], int want_stdin,
 #endif
 
 /* Starts ds4-server. out/err piped to us for progress. */
-/* Resolve the DSpark speculative-decoding support GGUF in the active checkout.
- * Prefers the file matching the current model family (abliterated default vs
- * upstream chat), then any *DSpark*.gguf already present. */
+/* Resolve only the DSpark support GGUF that matches the active main model.
+ * Accepting an arbitrary fallback silently couples incompatible hidden states. */
 static int resolve_dspark_file(char *out, size_t outsz) {
     out[0] = '\0';
-    const char *preferred = strstr(current_model_rel(), "Abliterated")
-        ? MODEL_DSPARK_ABLITERATED : MODEL_DSPARK_UPSTREAM;
     char full[DSTUDIO_PATH_MAX + 1100];
-    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, preferred);
+    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, current_dspark_rel());
     if (access(full, R_OK) == 0) {
         cstr_copy(out, outsz, full);
         return 1;
     }
-    char gguf[DSTUDIO_PATH_MAX];
-    snprintf(gguf, sizeof gguf, "%s/gguf", g_ds4_dir);
-    DIR *d = opendir(gguf);
-    if (!d) return 0;
-    struct dirent *de;
-    while ((de = readdir(d)) != NULL) {
-        const char *name = de->d_name;
-        if (!strstr(name, "DSpark") || !name_has_suffix(name, ".gguf")) continue;
-        snprintf(full, sizeof full, "%s/%s", gguf, name);
-        struct stat st;
-        if (stat(full, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) {
-            cstr_copy(out, outsz, full);
-            closedir(d);
-            return 1;
-        }
-    }
-    closedir(d);
     return 0;
 }
 
@@ -3956,7 +4115,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     if (pid < 0) { snprintf(err, errsz, "fork: %s", strerror(errno)); return 0; }
     if (pid == 0) {
         if (chdir(g_ds4_dir) != 0) _exit(127);
-        child_setenv_metal();
+        child_setenv_metal(cfg);
         dup2(op[1], STDOUT_FILENO);
         dup2(ep[1], STDERR_FILENO);
         close(op[0]); close(op[1]); close(ep[0]); close(ep[1]);
@@ -4994,7 +5153,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     if (pid == 0) {
         if (chdir(g_ds4_dir) != 0) _exit(127);   /* to find ./ds4-agent-jsonl */
         if (!remote_model) {
-            child_setenv_metal();
+            child_setenv_metal(cfg);
             child_setenv_metal_sources(ds4_abs); /* absolute: survive --chdir */
         }
         child_setenv_skills();                   /* on-demand skill()/design_system() packs */
@@ -5189,7 +5348,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     if (pid < 0) { snprintf(err, errsz, "fork: %s", strerror(errno)); free(skill_sys); return 0; }
     if (pid == 0) {
         if (chdir(g_ds4_dir) != 0) _exit(127);   /* to find ./ds4-design */
-        if (!remote_model) child_setenv_metal();
+        if (!remote_model) child_setenv_metal(cfg);
         child_setenv_skills();                   /* on-demand skill()/design_system() packs */
         dup2(ip[0], STDIN_FILENO);
         dup2(op[1], STDOUT_FILENO);
@@ -5475,7 +5634,7 @@ static void api_model_partials_delete(int fd, const char *body) {
     long long removed = 0;
     if (!strcmp(target, "flash-abliterated")) {
         cstr_copy(checkout, sizeof checkout, g_ds4_dir);
-        removed = delete_stable_model_partial(checkout, MODEL_FLASH, &failed);
+        removed = delete_stable_model_partial(checkout, MODEL_UNC, &failed);
     } else if (!strcmp(target, "flash-dspark")) {
         cstr_copy(checkout, sizeof checkout, g_ds4_dir);
         removed = delete_stable_model_partial(checkout, MODEL_DSPARK_ABLITERATED, &failed);
@@ -6258,7 +6417,7 @@ static void parse_cfg(const char *body, engine_cfg *cfg, int *bad) {
     g_metal_hotlist_seed = json_get_bool(body, "metalHotlistSeed");
     g_dspark_enabled = json_get_bool(body, "dspark");
     long v;
-    int m = json_get_model(body, model_present(1) ? 1 : 0);
+    int m = json_get_model(body, ENGINE_DEFAULTS.uncensored);
     if (m < 0) { *bad = 1; m = ENGINE_DEFAULTS.uncensored; }
     cfg->uncensored = m;
     int r;
@@ -6413,8 +6572,33 @@ static void api_start(int fd, const char *body) {
     }
     /* Explicit GGUF pick (path relative to the ds4 dir) wins over the variant. */
     char gguf[1024] = {0};
-    if (json_get_string(body, "gguf", gguf, sizeof gguf) && gguf[0] && !strstr(gguf, "..") && file_present(gguf))
+    const int explicit_gguf = json_get_string(body, "gguf", gguf, sizeof gguf) &&
+        gguf[0] && !strstr(gguf, "..") && file_present(gguf);
+    if (explicit_gguf) {
         snprintf(g_model_override, sizeof g_model_override, "%s", gguf);
+        cfg.uncensored = strstr(gguf, "Abliterated") || strstr(gguf, "uncensored");
+    } else if (cfg.uncensored && strcmp(g_variant, "pro")) {
+        /* Preserve the legacy API's explicit model:"uncensored" choice while
+         * keeping the ordinary flash variant standard by default. */
+        snprintf(g_model_override, sizeof g_model_override, "%s", MODEL_UNC);
+    }
+
+    const int requested_ctx = cfg.ctx;
+    const int requested_dspark = g_dspark_enabled;
+    char config_note[384] = "";
+    const int remote_engine = g_remote_base_url[0] && (want_agent || want_design);
+    if (!normalize_flash_memory_config(&cfg, remote_engine, config_note, sizeof config_note)) {
+        g_dspark_enabled = requested_dspark;
+        task_mark_failed(task_id, config_note, config_note);
+        char note_esc[768], out[1024];
+        json_escape_into(note_esc, sizeof note_esc, config_note, strlen(config_note));
+        snprintf(out, sizeof out,
+                 "{\"ok\":false,\"taskId\":%llu,\"code\":\"memory_budget\",\"error\":\"%s\"}",
+                 task_id, note_esc);
+        send_json(fd, "409 Conflict", out);
+        return;
+    }
+    const int config_adjusted = cfg.ctx != requested_ctx || g_dspark_enabled != requested_dspark;
 
     /* Active user-created skill for agent/design: injected as -sys at spawn.
      * Empty or "none" clears it; an unknown/invalid id is ignored (falls back to the
@@ -6443,7 +6627,6 @@ static void api_start(int fd, const char *body) {
      * port first. REMOTE agent/design never touch the local engine or its
      * lock (spawn_agent/spawn_design already skip their own port checks when
      * remote) — blocking them on an unrelated local server was a bug. */
-    int remote_engine = g_remote_base_url[0] && (want_agent || want_design);
     if (!remote_engine && port_listening(ENGINE_DEFAULTS.port)) {
         if (requested_mode == ENGINE_SERVER && ds4_server_compatible(ENGINE_DEFAULTS.port)) {
             reuse_external_ds4(&cfg, 1, 0);
@@ -6514,8 +6697,13 @@ static void api_start(int fd, const char *body) {
     g_active_launch_mode = g_mode;
     task_mark_working(task_id, "engine process started; waiting for ready");
     if (g_ready) maybe_complete_launch_task(g_mode);
-    char out[160];
-    snprintf(out, sizeof out, "{\"ok\":true,\"taskId\":%llu,\"mode\":\"%s\"}", task_id, mode_name(g_mode));
+    char note_esc[768], out[1200];
+    json_escape_into(note_esc, sizeof note_esc, config_note, strlen(config_note));
+    snprintf(out, sizeof out,
+             "{\"ok\":true,\"taskId\":%llu,\"mode\":\"%s\",\"ctx\":%d,\"dspark\":%s,"
+             "\"adjusted\":%s,\"warning\":\"%s\"}",
+             task_id, mode_name(g_mode), cfg.ctx, g_dspark_enabled ? "true" : "false",
+             config_adjusted ? "true" : "false", note_esc);
     send_json(fd, "200 OK", out);
 }
 
@@ -9390,7 +9578,6 @@ int main(int argc, char **argv)
         printf("engine: waiting for the native loading page to apply saved launch settings\n");
     } else {
         engine_cfg boot = ENGINE_DEFAULTS;
-        boot.uncensored = model_present(1) ? 1 : 0;
         char err[256];
         /* Gate on the model the server ACTUALLY loads — the selected variant
          * (variant_rel(g_variant), e.g. flash), the same check spawn_server makes

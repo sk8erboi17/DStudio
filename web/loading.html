@@ -200,13 +200,13 @@
         saved.modelEngineDir = '';
         localStorage.setItem('ds4web.settings.v2', JSON.stringify(saved));
       }
-      /* Upgrade model picks saved before GGUFs carried checkout metadata.
-       * The aggregate catalog can identify the checkout owning the model. */
-      if (!engineDir && gguf) {
+      /* Upgrade missing checkout metadata and repair stale absolute paths after
+       * a source tree or app bundle has moved. The GGUF catalog is authoritative. */
+      if (gguf) {
         try {
           const catalog = await fetchJson('/api/ggufs', {}, 5000);
           const matches = (catalog.ggufs || []).filter((g) => g.path === gguf);
-          if (matches.length === 1 && matches[0].engineDir) {
+          if (matches.length === 1 && matches[0].engineDir && matches[0].engineDir !== engineDir) {
             engineDir = matches[0].engineDir;
             saved.modelEngineDir = engineDir;
             localStorage.setItem('ds4web.settings.v2', JSON.stringify(saved));
@@ -223,12 +223,12 @@
             body: JSON.stringify({ dir: engineDir }),
           }, 10000);
         }
-        await fetchJson('/api/start', {
+        const started = await fetchJson('/api/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
           body: JSON.stringify({
             mode: 'server',
-            model: models.uncensored ? 'uncensored' : 'standard',
+            model: 'standard',
             variant,
             gguf,
             ctx,
@@ -238,6 +238,14 @@
             dspark,
           }),
         }, 15000);
+        if (started?.adjusted) {
+          if (Number.isFinite(Number(started.ctx)) && Number(started.ctx) > 0) {
+            saved.ctxSize = Math.round(Number(started.ctx));
+          }
+          if (typeof started.dspark === 'boolean') saved.dspark = started.dspark;
+          localStorage.setItem('ds4web.settings.v2', JSON.stringify(saved));
+          showProgress(visualPct, 'Using a memory-safe engine configuration', started.warning || 'Saved settings adjusted');
+        }
         return true;
       } catch (e) {
         showProgress(visualPct, 'Could not start the engine', 'Opening DStudio diagnostics');

@@ -158,11 +158,52 @@ int main(void) {
     assert(g_remote_model[0] == '\0');
 
     engine_cfg remote_cfg = ENGINE_DEFAULTS;
+    assert(ENGINE_DEFAULTS.uncensored == 0);
+    assert(ENGINE_DEFAULTS.ctx == 65536);
+    assert(strcmp(MODEL_FLASH, MODEL_STD) == 0);
+    assert(strcmp(MODEL_FLASH, MODEL_UNC) != 0);
+    assert(strcmp(variant_rel("flash"), MODEL_STD) == 0);
+    engine_cfg parsed_default = ENGINE_DEFAULTS;
+    int parsed_bad = 0;
+    parse_cfg("{}", &parsed_default, &parsed_bad);
+    assert(!parsed_bad && parsed_default.uncensored == 0);
+
+    const unsigned long long gib = 1024ull * 1024ull * 1024ull;
+    assert(flash_context_memory_bytes(65536) < gib);
+    assert(flash_context_memory_bytes(1048576) > 10ull * gib);
+    assert(flash_context_memory_bytes(1048576) < 11ull * gib);
+    assert(flash_largest_safe_context(1048576, 86720111488ull, 0, 88ull * gib) == 262144);
+    assert(flash_largest_safe_context(1048576, 86720111488ull, 5989114272ull, 88ull * gib) == 0);
+#ifdef __APPLE__
+    if (file_present(MODEL_STD) && file_present(MODEL_DSPARK_UPSTREAM) &&
+        local_metal_budget_bytes() > 0) {
+        engine_cfg oversized = ENGINE_DEFAULTS;
+        oversized.ctx = 1048576;
+        oversized.ssd_streaming = SSD_STREAMING_OFF;
+        g_dspark_enabled = 1;
+        char adjustment[384] = "";
+        assert(normalize_flash_memory_config(&oversized, 0, adjustment, sizeof adjustment));
+        assert(!g_dspark_enabled);
+        assert(oversized.ctx < 1048576);
+        assert(strstr(adjustment, "DSpark disabled") != NULL);
+    }
+#endif
+
     remote_cfg.ssd_streaming = SSD_STREAMING_ON;
     char ssd_reason[192] = "", ssd_err[256] = "";
     assert(engine_effective_ssd_streaming(&remote_cfg, 1, ssd_reason, sizeof ssd_reason,
                                           ssd_err, sizeof ssd_err) == -1);
     assert(strstr(ssd_err, "local-engine-only") != NULL);
+    remote_cfg.ssd_streaming = SSD_STREAMING_AUTO;
+    g_dspark_enabled = 1;
+    assert(engine_effective_ssd_streaming(&remote_cfg, 0, ssd_reason, sizeof ssd_reason,
+                                          ssd_err, sizeof ssd_err) == 0);
+    assert(strstr(ssd_reason, "DSpark") != NULL);
+    remote_cfg.ssd_streaming = SSD_STREAMING_ON;
+    assert(engine_effective_ssd_streaming(&remote_cfg, 0, ssd_reason, sizeof ssd_reason,
+                                          ssd_err, sizeof ssd_err) == -1);
+    assert(strstr(ssd_err, "DSpark") != NULL);
+    g_dspark_enabled = 0;
 
     snprintf(g_bind_host, sizeof g_bind_host, "127.0.0.1");
     assert(lan_public_path_allowed("GET", "/"));
