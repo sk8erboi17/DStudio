@@ -4185,6 +4185,21 @@
     .mi-sub { font-size: 11px; color: var(--muted); }
     .mi-badge { font-size: 10.5px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border-2); color: var(--faint); }
     .mi-badge.dl { color: var(--accent-2); border-color: var(--accent); }
+    .cbar-model-dot.h3 { background: #8b5cf6; box-shadow: 0 0 0 3px color-mix(in srgb, #8b5cf6 18%, transparent); }
+    .h3-prompt-guide {
+      display: grid; gap: 7px; margin: 4px 5px 7px; padding: 9px 10px;
+      border: 1px solid color-mix(in srgb, #8b5cf6 34%, var(--border)); border-radius: 9px;
+      background: color-mix(in srgb, #8b5cf6 8%, var(--surface)); color: var(--muted);
+      font-size: 11px; line-height: 1.45;
+    }
+    .h3-prompt-guide strong { color: var(--text); font-weight: 600; }
+    .h3-prompt-template {
+      justify-self: start; padding: 3px 8px; border: 1px solid var(--border-2); border-radius: 7px;
+      background: var(--surface); color: var(--text-2); font: inherit; font-size: 10.5px; cursor: pointer;
+    }
+    .h3-prompt-template:hover { border-color: #8b5cf6; color: var(--text); }
+    body.h3-composer .composer__card { border-color: color-mix(in srgb, #8b5cf6 48%, var(--border)); }
+    body.h3-composer .composer__card:focus-within { border-color: #8b5cf6; box-shadow: 0 8px 30px color-mix(in srgb, #8b5cf6 16%, transparent); }
 
     /* Custom dropdowns in the gear (matches the DS4 Agent Dropdowns reference). The model
        picker above is already a custom menu; inside the gear its trigger goes full-width to match. */
@@ -6917,9 +6932,11 @@
             </label>
             <div class="field__row">
               <button type="button" id="set-video-install" class="btn">Prepare local H3</button>
+              <button type="button" id="set-video-install-refs" class="btn" hidden>Prepare 2-photo references</button>
               <button type="button" id="set-video-refresh" class="btn">Refresh</button>
             </div>
             <p class="set-help">The first setup downloads the original official FL2VA tree used by h3.c: about <strong>134 GiB (144 GB)</strong> for the BF16 transformer, Qwen text encoder, video VAE and audio VAE. It also compiles the pinned native engine; setup does not load or run the model. Balanced follows h3.c's validated 45-layer/reuse-2 controls; Quality is substantially slower. DStudio stops the chat model only during generation, and the one-shot native process releases every H3 weight before chat is restored.</p>
+            <p class="set-help">Two ordered reference photos use H3's separate Ref2VA path. Preparing it downloads the additional official transformer, about <strong>61.7 GiB (66 GB)</strong>; DStudio reuses the existing FL2VA encoder and VAEs instead of duplicating them.</p>
             <p class="set-help">Native h3.c validates the official checkpoint layout, so converted ComfyUI weights and the former third-party encoder cannot be reused by this backend.</p>
           </div>
         </section>
@@ -7308,6 +7325,7 @@
       maxTokens: null,      // null = server default
       thinkLevel: 'high',   // 'off' | 'high' | 'max' — ds4 exposes only these levels
       systemPrompt: '',
+      composerTarget: 'chat', // 'chat' | 'h3' — H3 makes the Chat composer a direct video prompt
       videoLicenseAccepted: false,
       videoEncoder: 'official', // native h3.c supports the official FL2VA encoder only
       videoProfile: 'balanced', // preview | balanced | quality
@@ -16736,6 +16754,23 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return uri;
       }
 
+      async function sourceReferencesForVideo(chat, userMsg, directive, signal) {
+        if (!directive?.useReferenceImages) return [];
+        const candidates = directive.visualCandidates?.length
+          ? directive.visualCandidates
+          : visualCandidatesForRequest(chat, userMsg);
+        const references = [];
+        for (const sourceId of directive.sourceIds || []) {
+          const candidate = candidates.find((entry) => entry.id === sourceId);
+          const uri = await visualCandidateDataUri(chat, candidate, signal);
+          if (uri) references.push(uri);
+        }
+        if (references.length !== 2) {
+          throw new Error('Both H3 reference images must still be available. Attach them again and retry.');
+        }
+        return references;
+      }
+
       async function prepareMemoryForVideo(onProgress) {
         let engine = null;
         try { engine = await Engine.status(); } catch { /* launcher error is reported by generation */ }
@@ -16756,7 +16791,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return shouldRestore;
       }
 
-      async function generateVideoFromDirective(directive, firstFrame, settings, signal, onProgress = () => {}) {
+      async function generateVideoFromDirective(directive, firstFrame, referenceImages,
+                                                settings, signal, onProgress = () => {}) {
         const job = `video-${Date.now().toString(36)}-${(crypto.randomUUID?.() || Math.random().toString(36).slice(2)).replace(/[^a-z0-9_-]/gi, '')}`;
         let polling = true;
         const poll = (async () => {
@@ -16782,6 +16818,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               duration: directive.duration,
               aspect: directive.aspect,
               image: firstFrame || undefined,
+              referenceImage1: referenceImages?.[0] || undefined,
+              referenceImage2: referenceImages?.[1] || undefined,
               encoder: 'official',
               profile: ['preview', 'balanced', 'quality'].includes(settings.videoProfile)
                 ? settings.videoProfile : 'balanced',
@@ -16814,7 +16852,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       async function executeVideoDirective(chat, userMsg, asst, view, directive, controller,
                                            completionContent, reasoning, settings) {
-        let content = 'Generating the video locally with MiniMax H3…';
+        let content = directive.useReferenceImages
+          ? 'Generating the video locally with MiniMax H3 from two ordered references…'
+          : 'Generating the video locally with MiniMax H3…';
         let videoGeneration = {
           state: 'running', stage: 'queued',
           label: 'Preparing local MiniMax H3…', progress: 1, startedAt: Date.now(),
@@ -16837,6 +16877,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           }
           const qwenFirstFrame = !!directive.firstFramePrompt;
           let firstFrame = '';
+          let referenceImages = [];
           if (qwenFirstFrame) {
             /* Keep the chat engine stopped across both local generators. This
              * avoids restoring the large chat model between Qwen and H3. */
@@ -16861,12 +16902,21 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               state: 'running', stage: 'first-frame-ready',
               label: 'Qwen first frame ready · handing it to MiniMax H3…', progress: 29,
             });
+          } else if (directive.useReferenceImages) {
+            const status = await fetch('/api/video/status', {
+              signal: AbortSignal.timeout(5000),
+            }).then((response) => response.json()).catch(() => null);
+            if (status?.referencesInstalled !== true) {
+              throw new Error('Open Settings → Video and prepare the optional Ref2VA reference checkpoint first.');
+            }
+            referenceImages = await sourceReferencesForVideo(chat, userMsg, directive, controller.signal);
+            restoreEngine = await prepareMemoryForVideo(publishProgress);
           } else {
             firstFrame = await sourceFrameForVideo(chat, userMsg, directive, controller.signal);
             restoreEngine = await prepareMemoryForVideo(publishProgress);
           }
           const video = await generateVideoFromDirective(
-            directive, firstFrame, settings, controller.signal,
+            directive, firstFrame, referenceImages, settings, controller.signal,
             qwenFirstFrame
               ? (progress) => {
                   const raw = Number(progress?.progress);
@@ -17986,6 +18036,36 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
       }
 
+      // When H3 is explicitly selected in the composer model picker, the user
+      // is already choosing video synthesis. Send the prompt straight to the
+      // local worker instead of spending a Chat turn merely to emit the private
+      // dstudio-video routing block. Explicit duration/aspect values override
+      // the saved Video defaults; every other word remains verbatim prompt text.
+      function directH3VideoDirective(chat, userMsg, settings) {
+        const prompt = String(userMsg?.content || '').trim();
+        if (!prompt || prompt.length > 12000) return null;
+        const durationMatch = prompt.match(/\b(1[0-5]|[5-9])\s*(?:s|sec(?:ond(?:s|i|es)?)?|secondi|secondes|segundos|sekunden)\b/i);
+        const duration = durationMatch
+          ? Number(durationMatch[1])
+          : Math.max(5, Math.min(15, Number.parseInt(settings?.videoDuration, 10) || 5));
+        const aspectMatch = prompt.match(/(?:^|\s)(16:9|9:16|1:1|4:3|3:4)(?=\s|$|[.,;!?])/);
+        const aspect = aspectMatch?.[1] ||
+          (['16:9', '9:16', '1:1', '4:3', '3:4'].includes(settings?.videoAspect)
+            ? settings.videoAspect : '16:9');
+        const candidates = visualCandidatesForRequest(chat, userMsg)
+          .filter((candidate) => candidate.messageId === userMsg?.id && candidate.kind === 'attachment')
+          .slice(0, 2)
+          .reverse();
+        return {
+          action: 'video', prompt, duration, aspect,
+          useFirstFrame: candidates.length === 1,
+          useReferenceImages: candidates.length === 2,
+          sourceIds: candidates.map((candidate) => candidate.id),
+          visualCandidates: candidates,
+          firstFramePrompt: '',
+        };
+      }
+
       async function sendMessage(text, { regenerate = false, attachments = [], roadmapSources = [] } = {}) {
         const chat = Store.ensureActiveChat();
         if (chat.lanMirror) {
@@ -17993,7 +18073,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           return;
         }
         let settings = Store.getSettings();
-        if (!settings.model && !(await ensureSelectedModel())) {
+        const directH3 = chat.mode === 'chat' && settings.composerTarget === 'h3';
+        if (!directH3 && !settings.model && !(await ensureSelectedModel())) {
           toast(isLanClientMode() ? 'LAN host unreachable.' : 'Choose or download a model first.', 'warn');
           Doctor.open();
           return;
@@ -18017,7 +18098,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           userMsg = chat.messages.at(-1);
         } else {
           const t = text?.trim();
-          const cleanAttachments = (attachments || []).filter((a) => a && a.content);
+          const cleanAttachments = (attachments || []).filter((a) => a && (a.content || a.kind === 'image'));
           const cleanRoadmapSources = (roadmapSources || []).map(roadmapSafeUrl).filter((url, index, all) => url && all.indexOf(url) === index).slice(0, 8);
           if (!t && !cleanAttachments.length && !cleanRoadmapSources.length) return;
           const fallback = roadmapMode ? 'Create a learning roadmap from the attached sources.' : 'Review the attached file(s).';
@@ -18030,6 +18111,15 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (chat.remote) RemoteShare.publishDebounced(chat);
 
         Messages.renderChat(chat);
+        if (directH3) {
+          const directive = directH3VideoDirective(chat, userMsg, settings);
+          if (!directive) {
+            toast('Describe the H3 video in at most 12,000 characters.', 'warn');
+            return;
+          }
+          await runRoutedVideoReply(chat.id, userMsg.id, settings, directive);
+          return;
+        }
         pendingPreflight.add(chat.id);
         const preflightController = settings.webMode !== 'off' && settings.webMode !== 'research'
           ? new AbortController()
@@ -18919,10 +19009,15 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         Store.subscribe('settings', renderGsaLoopPill);
         Store.subscribe('settings', renderThinkingPill);
         Store.subscribe('settings', rebuildGearIfOpen);
+        Store.subscribe('settings', () => {
+          renderModelPill();
+          syncH3ComposerState();
+        });
         Store.subscribe('chats', renderVisionFollowupPill);
         Store.subscribe('activeChat', renderVisionFollowupPill);
 
         focusComposerInput();
+        syncH3ComposerState();
         renderGsaTargetPanel();
         const chatSurface = qs('.chat');
         if (chatSurface) {
@@ -18944,6 +19039,55 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       function isChatComposerMode() {
         return !agentMode && (curMode === 'server' || curMode === 'chat' || curMode === 'roadmap');
+      }
+
+      const H3_PROMPT_TEMPLATE = [
+        'Scene: ',
+        'Action: ',
+        'Camera: ',
+        'Look: ',
+        'Audio: ',
+      ].join('\n');
+
+      function h3ComposerMode() {
+        return !agentMode && (curMode === 'server' || curMode === 'chat') &&
+          Store.getSettings().composerTarget === 'h3';
+      }
+
+      function insertH3PromptTemplate() {
+        if (!input) return;
+        input.value = input.value.trim() ? `${input.value.replace(/\s+$/, '')}\n\n${H3_PROMPT_TEMPLATE}` : H3_PROMPT_TEMPLATE;
+        autogrow();
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+
+      function syncH3ComposerState() {
+        const active = h3ComposerMode();
+        document.body.classList.toggle('h3-composer', active);
+        if (!agentMode && input) {
+          input.placeholder = active
+            ? 'Scene · Action · Camera · Look / lighting · Audio…'
+            : curMode === 'roadmap'
+              ? 'Describe what you want to learn, your level and available time; paste source links here too…'
+              : '';
+          input.setAttribute('aria-label', active ? 'MiniMax H3 video prompt' : 'Message');
+        }
+        if (fileInput) {
+          if (active) fileInput.setAttribute('accept', 'image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp');
+          else fileInput.removeAttribute('accept');
+        }
+        if (cbarAttach && isChatComposerMode()) {
+          const title = active
+            ? 'Attach one H3 opening frame or two ordered reference images'
+            : curMode === 'roadmap' ? 'Attach PDFs or notes' : 'Attach files';
+          cbarAttach.title = title;
+          cbarAttach.setAttribute('aria-label', title);
+        }
+        if (sendBtn && !agentMode) {
+          sendBtn.title = active ? 'Generate video with MiniMax H3' : 'Send';
+          sendBtn.setAttribute('aria-label', active ? 'Generate video with MiniMax H3' : 'Send message');
+        }
       }
 
       function setRoadmapComposerPinned(pinned) {
@@ -19623,11 +19767,50 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (sendBtn) sendBtn.disabled = true;
         if (input) input.disabled = true;
         let attachments;
+        let h3ImageCount = 0;
         try {
-          attachments = await preparePendingAttachments(text, {
-            roadmapPdfPlan: curMode === 'roadmap',
-            includeVisionFollowup: true,
-          });
+          if (h3ComposerMode()) {
+            const unsupported = pendingAttachments.filter((attachment) => attachment.kind !== 'image');
+            const images = pendingAttachments.filter((attachment) => attachment.kind === 'image');
+            h3ImageCount = images.length;
+            const badImage = images.find((attachment) =>
+              !/^image\/(png|jpeg|webp)$/i.test(attachment.type || '') &&
+              !/\.(png|jpe?g|webp)$/i.test(attachment.name || ''));
+            if (unsupported.length) {
+              toast('H3 accepts prompt text and up to two PNG, JPEG or WebP images; remove the other files first.', 'warn');
+              attachments = null;
+            } else if (images.length > 2) {
+              toast('Attach at most two images to MiniMax H3.', 'warn');
+              attachments = null;
+            } else if (badImage) {
+              toast('H3 images must be PNG, JPEG or WebP.', 'warn');
+              attachments = null;
+            } else {
+              if (images.length === 2) {
+                const status = await fetch('/api/video/status', {
+                  signal: AbortSignal.timeout(5000),
+                }).then((response) => response.json()).catch(() => null);
+                if (status?.referencesInstalled !== true) {
+                  toast('Prepare the optional H3 Ref2VA checkpoint before using two reference photos.', 'info');
+                  Settings.openVideo();
+                  attachments = null;
+                }
+              }
+              if (attachments !== null) {
+                images.forEach((image, index) => {
+                  image.content = images.length === 2
+                    ? `Ordered MiniMax H3 reference <Picture ${index + 1}>.`
+                    : 'Opening-frame image supplied directly to MiniMax H3.';
+                });
+                attachments = takePendingAttachments();
+              }
+            }
+          } else {
+            attachments = await preparePendingAttachments(text, {
+              roadmapPdfPlan: curMode === 'roadmap',
+              includeVisionFollowup: true,
+            });
+          }
         } finally {
           if (sendBtn) sendBtn.disabled = false;
           if (input) input.disabled = false;
@@ -19636,7 +19819,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         input.value = '';
         autogrow();
         lowerRoadmapComposerAfterSend();
-        const fallback = curMode === 'roadmap' ? 'Create a learning roadmap from the attached sources.' : 'Review the attached file(s).';
+        const fallback = h3ComposerMode()
+          ? h3ImageCount === 2
+            ? 'Use Picture 1 and Picture 2 as ordered references. Preserve their subjects and visual identity with coherent motion. Camera: stable. Audio: match the scene.'
+            : 'Animate the attached opening frame with natural, coherent motion. Camera: stable. Audio: match the scene.'
+          : curMode === 'roadmap' ? 'Create a learning roadmap from the attached sources.' : 'Review the attached file(s).';
         Chat.sendMessage(text || fallback, { attachments });
       }
 
@@ -19764,10 +19951,16 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       function renderPendingAttachments() {
         if (!filesEl) return;
         filesEl.hidden = pendingAttachments.length === 0;
+        const h3Images = h3ComposerMode()
+          ? pendingAttachments.filter((attachment) => attachment.kind === 'image')
+          : [];
         filesEl.replaceChildren(...pendingAttachments.map((a) => {
           const settled = seenChipIds.has(a.id);
           seenChipIds.add(a.id);
-          const meta = attachTileMeta(a) + (a.size ? ` · ${fmtFileSize(a.size)}` : '');
+          const h3ImageIndex = h3Images.indexOf(a);
+          const h3Meta = h3ImageIndex < 0 ? ''
+            : h3Images.length === 2 ? ` · Picture ${h3ImageIndex + 1}` : ' · opening frame';
+          const meta = attachTileMeta(a) + (a.size ? ` · ${fmtFileSize(a.size)}` : '') + h3Meta;
           const row = el('div', {
             class: `composer__file${settled ? ' composer__file--settled' : ''}`,
             title: a.name,
@@ -20350,6 +20543,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           cbarAttach.setAttribute('aria-label', cbarAttach.title);
           if (cbarAttachIcon) cbarAttachIcon.innerHTML = iconSvg(mode === 'design' ? 'folder' : 'paperclip', 15);
         }
+        syncH3ComposerState();
         if (!readOnly) focusComposerInput();
         // Switching or restarting the shared Chat/Roadmap engine re-enters the
         // same UI mode. Preserve the active conversation's Stop state instead
@@ -21299,10 +21493,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (cbarGear) cbarGear.setAttribute('aria-expanded', 'false');
       }
 
-      /* ---- Model picker pill: only the GGUFs you actually have ----
+      /* ---- Composer model picker: installed chat GGUFs + local H3 video ----
          Lists the model files present across the managed engine checkouts
-         (scanned via /api/ggufs); picking one switches checkout and restarts the
-         engine on it. The backend keys the
+         (scanned via /api/ggufs) and the separately managed MiniMax H3 media
+         target. Picking a GGUF switches checkout and restarts the engine; H3
+         turns the Chat composer into a direct video prompt. The backend keys the
          KV disk cache PER MODEL, so switching (e.g. Flash <-> Pro) never reuses
          another model's cache — it reloads cleanly, keeping the conversation.
          Downloading new models lives in onboarding and Settings, not here. */
@@ -21313,10 +21508,19 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       let checkoutList = null;    // [{dir,name,branch,hasServer,active}] ds4 checkouts
       let runningModelFile = '';  // status.modelFile — the GGUF currently loaded
       let runningEngineDir = '';  // status.ds4dir — disambiguates equal relative paths
+      let h3PickerStatus = null;   // /api/video/status — H3 is a media target, not a GGUF
       function closeModelMenu() {
         if (!modelMenuOpen) return;
         modelMenuOpen = false;
         renderModelPill();
+      }
+      async function loadH3PickerStatus() {
+        try {
+          const response = await fetch('/api/video/status', { signal: AbortSignal.timeout(5000) });
+          const value = await response.json();
+          h3PickerStatus = response.ok && value?.ok ? value : null;
+        } catch { h3PickerStatus = null; }
+        return h3PickerStatus;
       }
       async function loadModelList() {
         if (isLanClientMode()) {
@@ -21328,6 +21532,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           renderModelPill();
           return;
         }
+        await loadH3PickerStatus();
         if (cloudBackendOn()) {
           try { cloudModels = await Api.getModels(); }
           catch { cloudModels = cloudModels || []; }
@@ -21346,6 +21551,63 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         catch { /* keep last known */ }
         renderModelPill();
       }
+      async function selectH3FromPicker() {
+        modelMenuOpen = false;
+        const status = h3PickerStatus || await loadH3PickerStatus();
+        if (status?.supported === false) {
+          toast('MiniMax H3 currently requires an Apple Silicon Mac.', 'warn');
+          renderModelPill();
+          return;
+        }
+        Store.setSettings({ composerTarget: 'h3' });
+        if (!status?.installed || Store.getSettings().videoLicenseAccepted !== true) {
+          toast(status?.installed
+            ? 'Confirm the H3 authorization in Settings → Video before generating.'
+            : 'Prepare the local H3 runtime in Settings → Video first.', 'info');
+          Settings.openVideo();
+          return;
+        }
+        toast('MiniMax H3 selected — describe Scene, Action, Camera, Look and Audio.', 'info');
+        renderModelPill();
+        input?.focus();
+      }
+      function appendH3PickerOption(menu) {
+        const active = h3ComposerMode();
+        const status = h3PickerStatus;
+        const available = status?.supported !== false;
+        const ready = status?.installed === true;
+        const referencesReady = status?.referencesInstalled === true;
+        const item = el('button', { class: 'cbar-model-item', type: 'button' }, [
+          el('span', { class: 'cbar-model-dot h3', style: active ? '' : 'opacity:.62' }),
+          el('div', { class: 'mi-body' }, [
+            el('div', { class: 'mi-name', text: 'MiniMax H3' }),
+            el('div', { class: 'mi-sub', text: ready
+              ? referencesReady
+                ? 'Local video + audio · text, opening frame or 2 references'
+                : 'Local video + audio · 2 references need Ref2VA setup'
+              : available ? 'Local video · prepare in Settings → Video' : 'Requires Apple Silicon' }),
+          ]),
+          el('span', { class: 'mi-badge', text: active ? '✓ active' : ready ? 'use' : available ? 'setup' : 'unavailable' }),
+        ]);
+        on(item, 'click', (e) => { e.stopPropagation(); selectH3FromPicker(); });
+        menu.append(item);
+        if (active) {
+          const template = el('button', { class: 'h3-prompt-template', type: 'button', text: 'Insert prompt template' });
+          on(template, 'click', (e) => {
+            e.stopPropagation();
+            modelMenuOpen = false;
+            renderModelPill();
+            insertH3PromptTemplate();
+          });
+          menu.append(el('div', { class: 'h3-prompt-guide' }, [
+            el('div', {}, [
+              el('strong', { text: 'Prompt guide · ' }),
+              document.createTextNode('Scene · Action · Camera · Look / lighting · Audio. One image anchors the opening frame; two become ordered Picture 1 / Picture 2 references.'),
+            ]),
+            template,
+          ]));
+        }
+      }
       function modelLabel(file, full) {
         const p = parseGgufName(file);
         const kind = p.kind && p.kind !== 'standard' ? ' · ' + p.kind : '';
@@ -21361,10 +21623,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
         if (cloudBackendOn()) {
           const cur = Store.getSettings().deepseekModel || 'deepseek-v4-flash';
+          const h3Active = h3ComposerMode();
           const btn = el('button', { class: 'cbar-model-btn', type: 'button' });
           btn.append(
-            el('span', { class: 'cbar-model-dot' }),
-            el('span', { text: `${cur} · cloud` }),
+            el('span', { class: `cbar-model-dot${h3Active ? ' h3' : ''}` }),
+            el('span', { text: h3Active ? 'MiniMax H3 · video' : `${cur} · cloud` }),
             el('span', { class: 'cbar-model-cv', text: '▾' }),
           );
           on(btn, 'click', (e) => {
@@ -21378,6 +21641,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           cbarModel.replaceChildren(btn);
           if (!modelMenuOpen) return;
           const menu = el('div', { class: 'cbar-model-menu' });
+          menu.append(el('div', { class: 'cbar-model-empty', text: 'Media model' }));
+          appendH3PickerOption(menu);
           menu.append(el('div', { class: 'cbar-model-empty', text: 'DeepSeek API models' }));
           const models = cloudModels || [];
           if (!models.length) {
@@ -21385,7 +21650,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           }
           models.forEach((mo) => {
             const id = mo.id || String(mo);
-            const active = id === cur;
+            const active = !h3Active && id === cur;
             const item = el('button', { class: 'cbar-model-item', type: 'button' }, [
               el('span', { class: 'cbar-model-dot', style: active ? '' : 'background:var(--faint)' }),
               el('div', { class: 'mi-body' }, [el('div', { class: 'mi-name', text: id })]),
@@ -21394,7 +21659,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             on(item, 'click', (e) => {
               e.stopPropagation();
               modelMenuOpen = false;
-              Store.setSettings({ deepseekModel: id, model: id });
+              Store.setSettings({ composerTarget: 'chat', deepseekModel: id, model: id });
               toast(`Cloud model: ${id} — chat immediately; agent/design from their next start.`, 'info');
               renderModelPill();
             });
@@ -21409,12 +21674,14 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const running = ggufs.find((g) => ggufIsRunning(g, runningModelFile, runningEngineDir));
         const activeCo = (checkoutList || []).find((c) => c.active);
         const coTag = activeCo && activeCo.name !== 'ds4' ? ` · ${activeCo.branch || activeCo.name}` : '';
-        const label = dl ? `Downloading ${dl.pct}%`
+        const h3Active = h3ComposerMode();
+        const label = h3Active ? 'MiniMax H3 · video'
+          : dl ? `Downloading ${dl.pct}%`
           : running ? modelLabel(running.file, false) + coTag
           : ggufs.length ? 'Pick a model' : 'No model';
         const btn = el('button', { class: 'cbar-model-btn', type: 'button' });
         btn.append(
-          el('span', { class: 'cbar-model-dot' }),
+          el('span', { class: `cbar-model-dot${h3Active ? ' h3' : ''}` }),
           el('span', { text: label }),
           el('span', { class: 'cbar-model-cv', text: '▾' }),
         );
@@ -21429,6 +21696,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         cbarModel.replaceChildren(btn);
         if (!modelMenuOpen) return;
         const menu = el('div', { class: 'cbar-model-menu' });
+        menu.append(el('div', { class: 'cbar-model-empty', text: 'Media model' }));
+        appendH3PickerOption(menu);
+        menu.append(el('div', { class: 'cbar-model-empty', text: 'Chat models' }));
         /* Engine-branch section: only when there is more than one managed ds4
            checkout next to DStudio (main plus an optional model branch). */
         const cos = checkoutList || [];
@@ -21454,16 +21724,17 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
         ggufs.forEach((g) => {
           const p = parseGgufName(g.file);
-          const active = ggufIsRunning(g, runningModelFile, runningEngineDir);
+          const runningNow = ggufIsRunning(g, runningModelFile, runningEngineDir);
+          const active = runningNow && !h3Active;
           const item = el('button', { class: 'cbar-model-item', type: 'button' }, [
             el('span', { class: 'cbar-model-dot', style: active ? '' : 'background:var(--faint)' }),
             el('div', { class: 'mi-body' }, [
               el('div', { class: 'mi-name', text: modelLabel(g.file, true) }),
               el('div', { class: 'mi-sub', text: `${p.quant ? p.quant + ' · ' : ''}${fmtGgufSize(g.size)} · ${ggufBranchLabel(g)}` }),
             ]),
-            el('span', { class: 'mi-badge', text: active ? '✓ active' : 'load' }),
+              el('span', { class: 'mi-badge', text: active ? '✓ active' : runningNow ? 'use' : 'load' }),
           ]);
-          on(item, 'click', (e) => { e.stopPropagation(); modelMenuOpen = false; pickGguf(g, active); });
+          on(item, 'click', (e) => { e.stopPropagation(); modelMenuOpen = false; pickGguf(g, runningNow); });
           menu.append(item);
         });
         cbarModel.append(menu);
@@ -21471,12 +21742,18 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
       function pickGguf(g, active) {
         if (isLanClientMode()) return;
+        const wasH3 = h3ComposerMode();
+        Store.setSettings({ composerTarget: 'chat' });
         renderModelPill();
-        if (active) return;                       // already running this model
+        if (active) {
+          if (wasH3) toast(`${modelLabel(g.file, true)} selected for Chat.`, 'info');
+          return;                                 // already running this model
+        }
         Switcher.switchToGguf(g.path, modelLabel(g.file, true), g.engineDir, ggufBranchLabel(g));
       }
       function pickCheckout(c) {
         if (isLanClientMode()) return;
+        Store.setSettings({ composerTarget: 'chat' });
         renderModelPill();
         if (c.active) return;                     // already on this checkout
         if (!c.hasServer) { toast(`${c.name} is not built yet — run make in ${c.dir}.`, 'warn'); return; }
@@ -21627,6 +21904,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           videoAspect: qs('#set-video-aspect'),
           videoLicense: qs('#set-video-license'),
           videoInstall: qs('#set-video-install'),
+          videoInstallRefs: qs('#set-video-install-refs'),
           videoRefresh: qs('#set-video-refresh'),
           updatesCheck: qs('#updates-check'),
           updatesRun: qs('#updates-run'),
@@ -21715,7 +21993,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         });
         on(f.deepseekModel, 'change', () => {
           const id = f.deepseekModel.value || 'deepseek-v4-flash';
-          Store.setSettings({ deepseekModel: id, model: id });
+          Store.setSettings({ composerTarget: 'chat', deepseekModel: id, model: id });
           if (f.deepseekModelMsg) f.deepseekModelMsg.textContent = `${id} selected. Chat uses it immediately; Agent and Design use it from their next start.`;
           toast(`Cloud model: ${id}`, 'info');
         });
@@ -21800,7 +22078,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           Store.setSettings({ videoAspect: aspect });
         });
         on(f.videoLicense, 'change', () => Store.setSettings({ videoLicenseAccepted: !!f.videoLicense.checked }));
-        on(f.videoInstall, 'click', videoInstall);
+        on(f.videoInstall, 'click', () => videoInstall(false));
+        on(f.videoInstallRefs, 'click', () => videoInstall(true));
         on(f.videoRefresh, 'click', () => refreshVideoStatus(true));
         on(f.updatesCheck, 'click', () => refreshUpdates(true));
         on(f.updatesRun, 'click', () => runUpdates());
@@ -21878,6 +22157,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (value.supported === false) {
           f.videoStatus.textContent = 'The managed H3 runtime currently requires an Apple Silicon Mac.';
           if (f.videoInstall) f.videoInstall.disabled = true;
+          if (f.videoInstallRefs) f.videoInstallRefs.hidden = true;
           return;
         }
         const setup = value.setup || {};
@@ -21885,10 +22165,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           const bytes = Number(setup.totalBytes || 0) > 0
             ? ` · ${formatVideoBytes(setup.downloadedBytes)} / ${formatVideoBytes(setup.totalBytes)}` : '';
           f.videoStatus.textContent = `${setup.label || 'Preparing MiniMax H3…'}${bytes}`;
-        } else if (setup.state === 'error' && !value.installed) {
+        } else if (setup.state === 'error') {
           f.videoStatus.textContent = setup.label || 'MiniMax H3 setup failed; retry resumes partial downloads.';
         } else if (value.installed) {
-          f.videoStatus.textContent = `Ready: ${value.model} · native h3.c/Metal · official BF16 FL2VA · ${formatVideoBytes(value.downloadedBytes)} on disk.`;
+          const references = value.referencesInstalled
+            ? ' · ordered Ref2VA references ready'
+            : ` · Ref2VA references ${formatVideoBytes(value.referenceDownloadedBytes)} / ${formatVideoBytes(value.referenceTotalBytes)}`;
+          f.videoStatus.textContent = `Ready: ${value.model} · native h3.c/Metal · official BF16 FL2VA${references}.`;
         } else if (Number(value.downloadedBytes) >= Number(value.totalBytes) && value.nativeInstalled !== true) {
           f.videoStatus.textContent = 'H3 weights are present · prepare once to compile the pinned native h3.c engine.';
         } else {
@@ -21898,9 +22181,16 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           f.videoInstall.disabled = videoBusy;
           f.videoInstall.textContent = value.installed ? 'Verify / repair H3' : 'Prepare local H3';
         }
+        if (f.videoInstallRefs) {
+          f.videoInstallRefs.hidden = value.installed !== true;
+          f.videoInstallRefs.disabled = videoBusy;
+          f.videoInstallRefs.textContent = value.referencesInstalled
+            ? 'Verify / repair 2-photo references'
+            : 'Prepare 2-photo references (~62 GiB)';
+        }
       }
 
-      async function videoInstall() {
+      async function videoInstall(includeReferences = false) {
         if (videoBusy) return;
         if (!f.videoLicense?.checked) {
           toast('Confirm your MiniMax H3 license authorization before downloading the weights.', 'warn');
@@ -21909,24 +22199,30 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
         videoBusy = true;
         if (f.videoInstall) { f.videoInstall.disabled = true; f.videoInstall.textContent = 'Preparing…'; }
-        if (f.videoStatus) f.videoStatus.textContent = 'Starting the local H3 setup…';
+        if (f.videoInstallRefs) f.videoInstallRefs.disabled = true;
+        if (f.videoStatus) f.videoStatus.textContent = includeReferences
+          ? 'Starting the local H3 Ref2VA reference setup…'
+          : 'Starting the local H3 setup…';
         const encoder = 'official';
         const poll = setInterval(() => refreshVideoStatus(true), 1200);
         try {
           const response = await fetch('/api/video/setup', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
-            body: JSON.stringify({ licenseAccepted: true, encoder }),
+            body: JSON.stringify({ licenseAccepted: true, encoder, references: includeReferences }),
           });
           const result = await response.json().catch(() => ({}));
           if (!response.ok || !result.ok) throw new Error(result.error || result.log || `HTTP ${response.status}`);
-          toast('MiniMax H3 open weights are ready on this Mac.', 'info');
+          toast(includeReferences
+            ? 'MiniMax H3 two-photo references are ready on this Mac.'
+            : 'MiniMax H3 open weights are ready on this Mac.', 'info');
         } catch (error) {
           toast(`H3 setup failed: ${error?.message || error}`, 'error');
         } finally {
           clearInterval(poll);
           videoBusy = false;
           if (f.videoInstall) f.videoInstall.disabled = false;
+          if (f.videoInstallRefs) f.videoInstallRefs.disabled = false;
           refreshVideoStatus(true);
         }
       }
@@ -22110,6 +22406,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         refreshVideoStatus();
         setPane(setPaneId);
         requestAnimationFrame(() => { if (!dialog.open) { try { dialog.showModal(); } catch { dialog.show(); } } });
+      }
+
+      function openVideo() {
+        setPane('video');
+        openSettings();
       }
 
       function openLanClientSettings() {
@@ -22748,7 +23049,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         loadSetModels();
       }
 
-      return { mount, refreshModels };
+      return { mount, refreshModels, openVideo };
     })();
 
     /* ==================== UI: user skills (agent) ====================
@@ -29191,7 +29492,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // and restart the current engine with it (the variant is a launch param).
       function switchModel(id) {
         if (isLanClientMode()) { toast('The LAN host controls the model', 'warn'); return; }
-        Store.setSettings({ modelGguf: '', modelEngineDir: '' }); // variant uses the active/default checkout
+        Store.setSettings({ composerTarget: 'chat', modelGguf: '', modelEngineDir: '' }); // variant uses the active/default checkout
         if (variant() === id) { Store.setModelState({ current: id }); return; }
         Store.setSettings({ modelVariant: id });
         Store.setModelState({ current: id });
@@ -29209,7 +29510,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         let st = null;
         try { st = await Engine.status(); } catch { /* restarting remains useful */ }
         if (samePick && ggufIsRunning({ path, engineDir }, st?.modelFile, st?.ds4dir) && st?.ready) return;
-        Store.setSettings({ modelGguf: path, modelEngineDir: engineDir || '' });
+        Store.setSettings({ composerTarget: 'chat', modelGguf: path, modelEngineDir: engineDir || '' });
         toast(`Loading ${label || 'the model'}${engineLabel ? ` from ${engineLabel}` : ''}…`, 'info');
         return restartCurrent();
       }
@@ -29226,7 +29527,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           toast((res && res.error) || 'Could not switch the engine checkout.', 'error');
           return;
         }
-        Store.setSettings({ modelGguf: '', modelEngineDir: '' });
+        Store.setSettings({ composerTarget: 'chat', modelGguf: '', modelEngineDir: '' });
         toast(`Engine: ${label || res.branch || 'checkout'} — restarting…`, 'info');
         restartCurrent();
       }

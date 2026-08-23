@@ -3,9 +3,10 @@
 
 The inference engine is the pinned antirez/h3.c executable, not ComfyUI or a
 Python ML stack.  This small standard-library manager only checks out/builds
-that executable, downloads the official FL2VA snapshot, translates DStudio's
-stable worker arguments to the native CLI and mirrors real native progress to
-the UI.  Setup compiles the executable but never loads model weights.
+that executable, downloads the official FL2VA snapshot and optional Ref2VA
+reference transformer, translates DStudio's stable worker arguments to the
+native CLI and mirrors real native progress to the UI.  Setup compiles the
+executable but never loads model weights.
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ H3_RUNTIME_MARKER = ".h3c-runtime-revision"
 MODEL_REPOSITORY = "MiniMaxAI/MiniMax-H3"
 MODEL_REVISION = "9ac0dd7aabc2c651fcf0ace4c00b2bffd9c8c8a6"
 MODEL_RUNTIME_MARKER = ".model-revision"
+REFERENCE_MODEL_RUNTIME_MARKER = ".ref2va-model-revision"
 
 TEXT_ENCODER_SHARD_SIZES = (
     4_932_328_944,
@@ -107,6 +109,34 @@ MODEL_FILES = (
 MODEL_TOTAL_BYTES = 144_023_550_851
 if sum(int(spec["size"]) for spec in MODEL_FILES) != MODEL_TOTAL_BYTES:
     raise RuntimeError("MiniMax H3 pinned model manifest total is inconsistent")
+
+# Ref2VA uses the same Qwen encoder, tokenizer and VAEs as FL2VA.  Only its
+# transformer is a distinct checkpoint (about 61.7 GiB); the shared files are
+# exposed under Ref2VA with local symlinks so setup never duplicates another
+# ~72 GiB of identical weights.
+REFERENCE_TRANSFORMER_FILES = (
+    {"path": "Ref2VA/transformer/config.json", "size": 604},
+    *(
+        {
+            "path": f"Ref2VA/transformer/model-{index:05d}-of-00013.safetensors",
+            "size": size,
+        }
+        for index, size in enumerate(TRANSFORMER_SHARD_SIZES, 1)
+    ),
+    {"path": "Ref2VA/transformer/model.safetensors.index.json", "size": 38_323},
+)
+REFERENCE_MODEL_TOTAL_BYTES = 66_280_524_863
+if sum(int(spec["size"]) for spec in REFERENCE_TRANSFORMER_FILES) != REFERENCE_MODEL_TOTAL_BYTES:
+    raise RuntimeError("MiniMax H3 pinned Ref2VA manifest total is inconsistent")
+REFERENCE_SHARED_FILES = tuple(
+    (
+        str(spec["path"]),
+        str(spec["path"]).replace("FL2VA/", "Ref2VA/", 1),
+        int(spec["size"]),
+    )
+    for spec in MODEL_FILES
+    if not str(spec["path"]).startswith("FL2VA/transformer/")
+)
 DOWNLOAD_HEADROOM_BYTES = 8 * 2**30
 
 MIN_SAMPLER_STEPS = 20
@@ -333,9 +363,9 @@ def file_bytes(path: Path) -> int:
         return 0
 
 
-def downloaded_bytes(model_dir: Path) -> int:
+def downloaded_bytes_for(model_dir: Path, files: tuple[dict[str, object], ...]) -> int:
     total = 0
-    for spec in MODEL_FILES:
+    for spec in files:
         expected = int(spec["size"])
         destination = model_destination(model_dir, spec)
         if file_bytes(destination) == expected:
@@ -345,11 +375,51 @@ def downloaded_bytes(model_dir: Path) -> int:
     return total
 
 
+def downloaded_bytes(model_dir: Path) -> int:
+    return downloaded_bytes_for(model_dir, MODEL_FILES)
+
+
+def reference_downloaded_bytes(model_dir: Path) -> int:
+    return downloaded_bytes_for(model_dir, REFERENCE_TRANSFORMER_FILES)
+
+
 def model_ready(model_dir: Path, marker: Path | None = None) -> bool:
     if marker is not None and not marker_matches(marker, MODEL_REVISION):
         return False
     return all(file_bytes(model_destination(model_dir, spec)) == int(spec["size"])
                for spec in MODEL_FILES)
+
+
+def ensure_reference_links(model_dir: Path) -> None:
+    for source_relative, destination_relative, expected in REFERENCE_SHARED_FILES:
+        source = model_dir / source_relative
+        destination = model_dir / destination_relative
+        if file_bytes(source) != expected:
+            raise H3Error(f"Shared FL2VA file is missing or incomplete: {source_relative}")
+        if file_bytes(destination) == expected:
+            continue
+        if destination.is_symlink():
+            destination.unlink()
+        elif destination.exists():
+            raise H3Error(
+                f"Ref2VA shared path exists but is incomplete: {destination_relative}"
+            )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.symlink_to(os.path.relpath(source, destination.parent))
+
+
+def reference_model_ready(model_dir: Path, marker: Path | None = None) -> bool:
+    if marker is not None and not marker_matches(marker, MODEL_REVISION):
+        return False
+    transformer_ready = all(
+        file_bytes(model_destination(model_dir, spec)) == int(spec["size"])
+        for spec in REFERENCE_TRANSFORMER_FILES
+    )
+    shared_ready = all(
+        file_bytes(model_dir / destination) == expected
+        for _, destination, expected in REFERENCE_SHARED_FILES
+    )
+    return transformer_ready and shared_ready
 
 
 def download_url(relative: str) -> str:
@@ -358,7 +428,9 @@ def download_url(relative: str) -> str:
 
 
 def download_one(curl: str, model_dir: Path, spec: dict[str, object],
-                 status: Path | None) -> None:
+                 status: Path | None, *, files: tuple[dict[str, object], ...] = MODEL_FILES,
+                 total_bytes: int = MODEL_TOTAL_BYTES,
+                 label: str = "official FL2VA weights") -> None:
     destination = model_destination(model_dir, spec)
     expected = int(spec["size"])
     if file_bytes(destination) == expected:
@@ -374,12 +446,12 @@ def download_one(curl: str, model_dir: Path, spec: dict[str, object],
     ]
     process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     while process.poll() is None:
-        have = downloaded_bytes(model_dir)
-        progress = 10 + int(84 * have / max(1, MODEL_TOTAL_BYTES))
+        have = downloaded_bytes_for(model_dir, files)
+        progress = 10 + int(84 * have / max(1, total_bytes))
         status_write(
             status, "running", "download",
-            f"Downloading official FL2VA weights · {destination.name}", progress,
-            downloadedBytes=have, totalBytes=MODEL_TOTAL_BYTES,
+            f"Downloading {label} · {destination.name}", progress,
+            downloadedBytes=have, totalBytes=total_bytes,
         )
         time.sleep(1)
     _, stderr = process.communicate()
@@ -415,17 +487,52 @@ def ensure_models(root: Path, status: Path | None) -> Path:
     return model_dir
 
 
-def setup_runtime(root: Path, status: Path | None) -> tuple[Path, Path, Path, Path]:
+def ensure_reference_models(root: Path, status: Path | None, model_dir: Path) -> None:
+    marker = root / REFERENCE_MODEL_RUNTIME_MARKER
+    ensure_reference_links(model_dir)
+    if reference_model_ready(model_dir, marker):
+        return
+    curl = require_command("curl")
+    have = reference_downloaded_bytes(model_dir)
+    missing = REFERENCE_MODEL_TOTAL_BYTES - have
+    free = shutil.disk_usage(root).free
+    if free < missing + DOWNLOAD_HEADROOM_BYTES:
+        need_gib = (missing + DOWNLOAD_HEADROOM_BYTES - free) / 2**30
+        raise H3Error(
+            f"The official Ref2VA reference checkpoint needs about {need_gib:.1f} GiB more free disk space"
+        )
+    for spec in REFERENCE_TRANSFORMER_FILES:
+        download_one(
+            curl, model_dir, spec, status,
+            files=REFERENCE_TRANSFORMER_FILES,
+            total_bytes=REFERENCE_MODEL_TOTAL_BYTES,
+            label="official Ref2VA reference weights",
+        )
+    ensure_reference_links(model_dir)
+    if not reference_model_ready(model_dir):
+        raise H3Error("The pinned MiniMax H3 Ref2VA snapshot is incomplete after download")
+    marker.write_text(MODEL_REVISION + "\n", encoding="ascii")
+
+
+def setup_runtime(root: Path, status: Path | None,
+                  include_references: bool = False) -> tuple[Path, Path, Path, Path]:
     checkout, binary = ensure_native_runtime(root, status)
     require_command("ffmpeg", "Install FFmpeg (for example: brew install ffmpeg) and retry.")
     require_command("ffprobe", "Install FFmpeg (for example: brew install ffmpeg) and retry.")
     model_dir = ensure_models(root, status)
+    if include_references:
+        ensure_reference_models(root, status, model_dir)
     return checkout, binary, model_dir, root / MODEL_RUNTIME_MARKER
 
 
 def native_command(binary: Path, model_dir: Path, prompt: str, output: Path,
                    duration: int, aspect: str, profile_name: str, seed: int,
-                   first_frame: str = "") -> list[str]:
+                   first_frame: str = "",
+                   reference_images: tuple[str, ...] | list[str] = ()) -> list[str]:
+    if first_frame and reference_images:
+        raise H3Error("Frame anchors cannot be combined with ordered Ref2VA references")
+    if len(reference_images) > 2:
+        raise H3Error("DStudio accepts at most two H3 image references")
     profile = RENDER_PROFILES[profile_name]
     width, height = profile["aspects"][aspect]
     command = [
@@ -441,6 +548,8 @@ def native_command(binary: Path, model_dir: Path, prompt: str, output: Path,
         command.extend(["--render-width", str(render_width), "--render-height", str(render_height)])
     if first_frame:
         command.extend(["--first-frame", first_frame])
+    for reference_image in reference_images:
+        command.extend(["--ref-image", reference_image])
     return command
 
 
@@ -516,6 +625,7 @@ def generate(args: argparse.Namespace, checkout: Path, binary: Path,
         binary, model_dir, prompt, output, args.duration, args.aspect,
         args.profile, args.seed,
         str(Path(args.first_frame).resolve()) if args.first_frame else "",
+        tuple(str(Path(item).resolve()) for item in args.reference_image),
     )
     env = os.environ.copy()
     env["H3_FFMPEG"] = require_command("ffmpeg")
@@ -591,8 +701,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--profile", default="balanced", choices=RENDER_PROFILES)
     parser.add_argument("--encoder", default="official", choices=("official",))
     parser.add_argument("--first-frame", default="")
+    parser.add_argument("--reference-image", action="append", default=[])
     parser.add_argument("--seed", type=int, default=-1)
     parser.add_argument("--setup-only", action="store_true")
+    parser.add_argument("--include-references", action="store_true")
     parser.add_argument("--stop-runtime", action="store_true")
     return parser.parse_args()
 
@@ -632,17 +744,26 @@ def main() -> int:
             return 0
         if sys.platform != "darwin" or os.uname().machine != "arm64":
             raise H3Error("The managed native MiniMax H3 runtime requires an Apple Silicon Mac.")
-        checkout, binary, model_dir, _ = setup_runtime(root, args.status_file)
+        include_references = bool(args.include_references or args.reference_image)
+        checkout, binary, model_dir, _ = setup_runtime(
+            root, args.status_file, include_references=include_references,
+        )
         if args.setup_only:
+            ready_label = (
+                "Official MiniMax H3 FL2VA and Ref2VA weights are ready."
+                if include_references else
+                "Official MiniMax H3 FL2VA weights are ready."
+            )
+            ready_bytes = REFERENCE_MODEL_TOTAL_BYTES if include_references else MODEL_TOTAL_BYTES
             status_write(
                 args.status_file, "complete", "complete",
-                "Official MiniMax H3 weights and native h3.c are ready.", 100,
-                downloadedBytes=MODEL_TOTAL_BYTES, totalBytes=MODEL_TOTAL_BYTES,
+                ready_label, 100,
+                downloadedBytes=ready_bytes, totalBytes=ready_bytes,
             )
             print(json.dumps({
                 "ok": True, "encoder": "official", "model": MODEL_REPOSITORY,
                 "modelRevision": MODEL_REVISION, "engineCommit": H3_COMMIT,
-                "runtime": "h3.c/Metal",
+                "runtime": "h3.c/Metal", "references": include_references,
             }))
             return 0
         if not args.prompt_file or not args.outdir:

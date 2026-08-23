@@ -1,16 +1,19 @@
-/* Local MiniMax H3 text/image-to-video endpoints.
+/* Local MiniMax H3 text/image/reference-to-video endpoints.
  *
  * The managed worker builds the pinned native antirez/h3.c Metal engine and
- * downloads the original official FL2VA snapshot. No ComfyUI, Python ML stack
- * or hosted MiniMax generation endpoint is part of inference. H3's community
- * license excludes several territories, so setup and generation both require
- * an explicit authorization assertion before weights are downloaded/loaded. */
+ * downloads the original official FL2VA snapshot plus the optional Ref2VA
+ * reference transformer. No ComfyUI, Python ML stack or hosted MiniMax
+ * generation endpoint is part of inference. H3's community license excludes
+ * several territories, so setup and generation both require an explicit
+ * authorization assertion before weights are downloaded/loaded. */
 
 #define H3_NATIVE_COMMIT "03cb1339825feb19bcafcc60685680cb9ec6e2fe"
 #define H3_MODEL_REVISION "9ac0dd7aabc2c651fcf0ace4c00b2bffd9c8c8a6"
 #define H3_MODEL_TOTAL_SIZE 144023550851LL
+#define H3_REFERENCE_MODEL_TOTAL_SIZE 66280524863LL
 #define H3_NATIVE_MARKER ".h3c-runtime-revision"
 #define H3_MODEL_MARKER ".model-revision"
+#define H3_REFERENCE_MODEL_MARKER ".ref2va-model-revision"
 
 static const long long H3_TEXT_ENCODER_SHARD_SIZES[] = {
     4932328944LL, 4875990528LL, 4875990552LL, 4875990584LL,
@@ -150,6 +153,50 @@ static long long video_model_progress(const char *root, int *complete) {
     return have > H3_MODEL_TOTAL_SIZE ? H3_MODEL_TOTAL_SIZE : have;
 }
 
+static void video_model_file_required(const char *model, const char *relative,
+                                      long long expected, int *complete) {
+    char path[DSTUDIO_PATH_MAX];
+    int len = snprintf(path, sizeof path, "%s/%s", model, relative);
+    if (len <= 0 || (size_t)len >= sizeof path || video_file_bytes(path) != expected)
+        *complete = 0;
+}
+
+static long long video_reference_model_progress(const char *root, int *complete) {
+    char model[DSTUDIO_PATH_MAX], relative[256];
+    snprintf(model, sizeof model, "%s/MiniMax-H3", root);
+    long long have = 0;
+    *complete = 1;
+    video_model_file_progress(model, "Ref2VA/transformer/config.json", 604LL, &have, complete);
+    for (size_t i = 0; i < sizeof H3_TRANSFORMER_SHARD_SIZES / sizeof H3_TRANSFORMER_SHARD_SIZES[0]; i++) {
+        snprintf(relative, sizeof relative, "Ref2VA/transformer/model-%05zu-of-00013.safetensors", i + 1);
+        video_model_file_progress(model, relative, H3_TRANSFORMER_SHARD_SIZES[i], &have, complete);
+    }
+    video_model_file_progress(model, "Ref2VA/transformer/model.safetensors.index.json", 38323LL, &have, complete);
+
+    /* These are symlinked to byte-identical FL2VA assets by the managed setup.
+     * They do not consume or contribute another copy to the progress total. */
+    video_model_file_required(model, "Ref2VA/audio_vae/config.json", 1973LL, complete);
+    video_model_file_required(model, "Ref2VA/audio_vae/model.safetensors", 605429308LL, complete);
+    video_model_file_required(model, "Ref2VA/text_encoder/config.json", 1474LL, complete);
+    for (size_t i = 0; i < sizeof H3_TEXT_ENCODER_SHARD_SIZES / sizeof H3_TEXT_ENCODER_SHARD_SIZES[0]; i++) {
+        snprintf(relative, sizeof relative, "Ref2VA/text_encoder/model-%05zu-of-00014.safetensors", i + 1);
+        video_model_file_required(model, relative, H3_TEXT_ENCODER_SHARD_SIZES[i], complete);
+    }
+    video_model_file_required(model, "Ref2VA/text_encoder/model.safetensors.index.json", 97831LL, complete);
+    video_model_file_required(model, "Ref2VA/tokenizer/tokenizer.json", 7032403LL, complete);
+    video_model_file_required(model, "Ref2VA/video_vae/config.json", 1807LL, complete);
+    video_model_file_required(model, "Ref2VA/video_vae/source/model.safetensors", 10415548320LL, complete);
+    return have > H3_REFERENCE_MODEL_TOTAL_SIZE ? H3_REFERENCE_MODEL_TOTAL_SIZE : have;
+}
+
+static int video_reference_model_installed(const char *root) {
+    char marker[DSTUDIO_PATH_MAX];
+    int complete = 0;
+    (void)video_reference_model_progress(root, &complete);
+    snprintf(marker, sizeof marker, "%s/%s", root, H3_REFERENCE_MODEL_MARKER);
+    return complete && video_marker_matches(marker, H3_MODEL_REVISION);
+}
+
 static int video_encoder_parse(const char *body, char *out, size_t outsz) {
     cstr_copy(out, outsz, "official");
     (void)json_get_string(body ? body : "", "encoder", out, outsz);
@@ -158,6 +205,13 @@ static int video_encoder_parse(const char *body, char *out, size_t outsz) {
 
 static int video_license_asserted(const char *body) {
     return json_get_bool(body ? body : "", "licenseAccepted");
+}
+
+static int video_json_string_present(const char *body, const char *field) {
+    char *value = json_get_string_alloc_rpc(body ? body : "", field);
+    int present = value && value[0];
+    free(value);
+    return present;
 }
 
 static int video_find_output(const char *dir, char *name, size_t namesz) {
@@ -224,10 +278,14 @@ static void api_video_status(int fd, const char *path) {
     snprintf(binary, sizeof binary, "%s/h3.c/h3", root);
     int model_complete = 0;
     long long have = video_model_progress(root, &model_complete);
+    int reference_model_complete = 0;
+    long long reference_have = video_reference_model_progress(root, &reference_model_complete);
     int native_installed = video_file_bytes(binary) > 0 &&
                            video_marker_matches(native_marker, H3_NATIVE_COMMIT);
     int installed = native_installed && model_complete &&
                     video_marker_matches(model_marker, H3_MODEL_REVISION);
+    int references_installed = installed && reference_model_complete &&
+                               video_reference_model_installed(root);
     char setup_path[DSTUDIO_PATH_MAX];
     snprintf(setup_path, sizeof setup_path, "%s/setup-status.json", root);
     size_t setup_n = 0;
@@ -242,8 +300,10 @@ static void api_video_status(int fd, const char *path) {
 #endif
     json_dyn_printf(&b, "\"installed\":%s,\"nativeInstalled\":%s,\"downloadedBytes\":%lld,\"totalBytes\":%lld,",
                     installed ? "true" : "false", native_installed ? "true" : "false", have, H3_MODEL_TOTAL_SIZE) &&
+    json_dyn_printf(&b, "\"referencesInstalled\":%s,\"referenceDownloadedBytes\":%lld,\"referenceTotalBytes\":%lld,",
+                    references_installed ? "true" : "false", reference_have, H3_REFERENCE_MODEL_TOTAL_SIZE) &&
     json_dyn_puts(&b, "\"encoder\":") && json_dyn_put_escaped(&b, encoder) &&
-    json_dyn_puts(&b, ",\"diffusion\":\"official FL2VA\",\"diffusionPrecision\":\"bf16\"") &&
+    json_dyn_puts(&b, ",\"diffusion\":\"official FL2VA + optional Ref2VA\",\"diffusionPrecision\":\"bf16\"") &&
     json_dyn_puts(&b, ",\"model\":\"MiniMaxAI/MiniMax-H3\",\"runtime\":\"h3.c/Metal\",") &&
     json_dyn_puts(&b, "\"engineCommit\":\"") && json_dyn_puts(&b, H3_NATIVE_COMMIT) &&
     json_dyn_puts(&b, "\",\"modelRevision\":\"") && json_dyn_puts(&b, H3_MODEL_REVISION) &&
@@ -265,6 +325,7 @@ static void api_video_setup_run(int fd, const char *body) {
     if (!video_encoder_parse(body, encoder, sizeof encoder)) {
         web_json_error(fd, "400 Bad Request", "native h3.c supports the official encoder only"); return;
     }
+    int include_references = json_get_bool(body ? body : "", "references");
     resolve_web_dir();
     if (!web_dir_valid()) {
         web_json_error(fd, "409 Conflict", "DStudio checkout not found"); return;
@@ -275,10 +336,18 @@ static void api_video_setup_run(int fd, const char *body) {
     }
     snprintf(status, sizeof status, "%s/setup-status.json", root);
     snprintf(script, sizeof script, "%s/scripts/h3-generate.sh", g_web_dir);
-    video_write_status_path(status, "running", "queued", "Preparing the MiniMax H3 open weights…", 1);
+    video_write_status_path(status, "running", "queued", include_references
+        ? "Preparing the MiniMax H3 Ref2VA reference weights…"
+        : "Preparing the MiniMax H3 FL2VA open weights…", 1);
     char log[32768] = "";
-    char *argv[] = { "/bin/sh", script, "--setup-only", "--status-file", status,
-                     "--encoder", encoder, NULL };
+    char *argv[10];
+    int a = 0;
+    argv[a++] = "/bin/sh"; argv[a++] = script;
+    argv[a++] = "--setup-only";
+    argv[a++] = "--status-file"; argv[a++] = status;
+    argv[a++] = "--encoder"; argv[a++] = encoder;
+    if (include_references) argv[a++] = "--include-references";
+    argv[a] = NULL;
     int rc = setup_run_cmd_capture(NULL, argv, log, sizeof log);
     if (rc != 0) {
         json_dyn_buf b = {0};
@@ -288,7 +357,9 @@ static void api_video_setup_run(int fd, const char *body) {
         free(b.ptr);
         return;
     }
-    send_json(fd, "200 OK", "{\"ok\":true,\"model\":\"MiniMaxAI/MiniMax-H3\",\"runtime\":\"h3.c/Metal\"}");
+    send_json(fd, "200 OK", include_references
+        ? "{\"ok\":true,\"model\":\"MiniMaxAI/MiniMax-H3\",\"runtime\":\"h3.c/Metal\",\"references\":true}"
+        : "{\"ok\":true,\"model\":\"MiniMaxAI/MiniMax-H3\",\"runtime\":\"h3.c/Metal\",\"references\":false}");
 }
 
 static void api_video_setup(int fd, const char *body) {
@@ -344,6 +415,27 @@ static void api_video_generate_run(int fd, const char *body) {
     if (strcmp(profile, "preview") && strcmp(profile, "balanced") && strcmp(profile, "quality")) {
         free(prompt); web_json_error(fd, "400 Bad Request", "profile must be preview, balanced or quality"); return;
     }
+    int has_first_frame = video_json_string_present(body, "image");
+    int has_reference_1 = video_json_string_present(body, "referenceImage1");
+    int has_reference_2 = video_json_string_present(body, "referenceImage2");
+    int reference_count = has_reference_1 + has_reference_2;
+    if (has_first_frame && reference_count) {
+        free(prompt); web_json_error(fd, "400 Bad Request",
+            "H3 frame anchors cannot be combined with ordered reference images"); return;
+    }
+    if (!has_reference_1 && has_reference_2) {
+        free(prompt); web_json_error(fd, "400 Bad Request",
+            "referenceImage2 requires referenceImage1"); return;
+    }
+    if (reference_count) {
+        char runtime_root[DSTUDIO_PATH_MAX];
+        if (!video_root_dir(runtime_root, sizeof runtime_root) ||
+            !video_reference_model_installed(runtime_root)) {
+            free(prompt); web_json_error(fd, "409 Conflict",
+                "Ordered H3 image references require the optional Ref2VA checkpoint; prepare it in Settings > Video first");
+            return;
+        }
+    }
     char base[DSTUDIO_PATH_MAX], id[80], dir[DSTUDIO_PATH_MAX];
     if (!video_jobs_dir(base, sizeof base)) {
         free(prompt); web_json_error(fd, "500 Internal Server Error", "cannot create video job directory"); return;
@@ -358,9 +450,15 @@ static void api_video_generate_run(int fd, const char *body) {
     if (stat(dir, &dst) != 0 || !S_ISDIR(dst.st_mode)) {
         free(prompt); web_json_error(fd, "500 Internal Server Error", "cannot create video output directory"); return;
     }
-    char first_frame[DSTUDIO_PATH_MAX] = "", source_err[180] = "";
+    char first_frame[DSTUDIO_PATH_MAX] = "";
+    char reference_image_1[DSTUDIO_PATH_MAX] = "", reference_image_2[DSTUDIO_PATH_MAX] = "";
+    char source_err[180] = "";
     if (!image_write_edit_source(body, "image", "first-frame", 0, dir,
-                                 first_frame, sizeof first_frame, source_err, sizeof source_err)) {
+                                 first_frame, sizeof first_frame, source_err, sizeof source_err) ||
+        !image_write_edit_source(body, "referenceImage1", "reference-1", 0, dir,
+                                 reference_image_1, sizeof reference_image_1, source_err, sizeof source_err) ||
+        !image_write_edit_source(body, "referenceImage2", "reference-2", 0, dir,
+                                 reference_image_2, sizeof reference_image_2, source_err, sizeof source_err)) {
         free(prompt); video_write_status(dir, "error", "error", source_err, 100);
         web_json_error(fd, "400 Bad Request", source_err); return;
     }
@@ -371,13 +469,15 @@ static void api_video_generate_run(int fd, const char *body) {
         free(prompt); web_json_error(fd, "500 Internal Server Error", "cannot write video prompt"); return;
     }
     free(prompt);
-    video_write_status(dir, "running", "preparing", "Preparing native h3.c/Metal…", 2);
+    video_write_status(dir, "running", "preparing", reference_count
+        ? "Preparing native h3.c/Metal ordered references…"
+        : "Preparing native h3.c/Metal…", 2);
     resolve_web_dir();
     char script[DSTUDIO_PATH_MAX + 64], duration_s[16];
     snprintf(script, sizeof script, "%s/scripts/h3-generate.sh", g_web_dir);
     snprintf(duration_s, sizeof duration_s, "%ld", duration);
     char log[32768] = "";
-    char *argv[24];
+    char *argv[28];
     int a = 0;
     argv[a++] = "/bin/sh"; argv[a++] = script;
     argv[a++] = "--prompt-file"; argv[a++] = prompt_path;
@@ -388,6 +488,8 @@ static void api_video_generate_run(int fd, const char *body) {
     argv[a++] = "--profile"; argv[a++] = profile;
     argv[a++] = "--encoder"; argv[a++] = encoder;
     if (first_frame[0]) { argv[a++] = "--first-frame"; argv[a++] = first_frame; }
+    if (reference_image_1[0]) { argv[a++] = "--reference-image"; argv[a++] = reference_image_1; }
+    if (reference_image_2[0]) { argv[a++] = "--reference-image"; argv[a++] = reference_image_2; }
     argv[a] = NULL;
     int rc = setup_run_cmd_capture(NULL, argv, log, sizeof log);
     char filename[256] = "";
@@ -407,7 +509,7 @@ static void api_video_generate_run(int fd, const char *body) {
     json_dyn_puts(&b, "{\"ok\":true,\"id\":") && json_dyn_put_escaped(&b, id) &&
     json_dyn_puts(&b, ",\"filename\":") && json_dyn_put_escaped(&b, filename) &&
     json_dyn_puts(&b, ",\"model\":\"MiniMaxAI/MiniMax-H3\",\"profile\":") &&
-    json_dyn_put_escaped(&b, profile) && json_dyn_puts(&b, ",\"url\":") &&
+    json_dyn_put_escaped(&b, profile) && json_dyn_printf(&b, ",\"referenceCount\":%d,\"url\":", reference_count) &&
     json_dyn_printf(&b, "\"/api/video/file?id=%s&name=%s\"}", id, filename);
     send_json(fd, "200 OK", b.ptr ? b.ptr : "{\"ok\":false}");
     free(b.ptr);
