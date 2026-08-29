@@ -1,0 +1,6 @@
+static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {
+    agent_buf result = {0};
+    if (!call->name) return xstrdup("Tool error: missing tool name\n");
+    const char *runtime = getenv("DS4UI_RUNTIME_NAME");
+    if (runtime && !strcmp(runtime, "cowork") && ds4_cowork_tool_known(call->name))
+        return ds4ui_execute_cowork_tool(call);   /*DS4UI_JSONL*/

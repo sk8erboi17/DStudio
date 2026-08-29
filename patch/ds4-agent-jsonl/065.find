@@ -1,0 +1,5 @@
+    /* Build {path,question,pages?,format:"text"} and write it to a temp file
+     * for curl. */
+    agent_buf req = {0};
+    agent_buf_puts(&req, "{\"path\":\"");
+    ds4ui_json_escape_into(&req, path);

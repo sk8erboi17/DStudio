@@ -1,0 +1,36 @@
+    /* The DStudio HTTP server has a different cwd from the agent. Resolve the
+     * model-provided relative path here, while enforcing the selected --chdir
+     * workspace boundary, and send only that canonical host-local path. */
+    char cwd[PATH_MAX], root[PATH_MAX], joined[PATH_MAX], resolved[PATH_MAX];
+    if (path[0] == '/' || path[0] == '\\' || path[0] == '~' ||
+        (isalpha((unsigned char)path[0]) && path[1] == ':'))
+        return xstrdup("Tool error: read_pdf path must be relative to the selected workspace.\n");
+    const char *segment = path;
+    for (const char *p = path; ; p++) {
+        if (*p == '/' || *p == '\\' || *p == '\0') {
+            size_t n = (size_t)(p - segment);
+            if (n == 0 || (n == 1 && segment[0] == '.') ||
+                (n == 2 && segment[0] == '.' && segment[1] == '.'))
+                return xstrdup("Tool error: read_pdf path must not contain empty, . or .. segments.\n");
+            if (!*p) break;
+            segment = p + 1;
+        }
+    }
+    if (!getcwd(cwd, sizeof(cwd)) || !realpath(cwd, root))
+        return xstrdup("Tool error: selected workspace could not be resolved.\n");
+    if ((size_t)snprintf(joined, sizeof(joined), "%s/%s", root, path) >= sizeof(joined))
+        return xstrdup("Tool error: read_pdf path is too long.\n");
+    struct stat lst;
+    if (lstat(joined, &lst) != 0 || S_ISLNK(lst.st_mode) || !S_ISREG(lst.st_mode) ||
+        !realpath(joined, resolved))
+        return xstrdup("Tool error: read_pdf target is not a regular workspace file.\n");
+    size_t root_len = strlen(root);
+    if (strncmp(root, resolved, root_len) ||
+        (resolved[root_len] != '\0' && resolved[root_len] != '/'))
+        return xstrdup("Tool error: read_pdf target is outside the selected workspace.\n");
+
+    /* Build {path,question,pages?,format:"text"} and write it to a temp file
+     * for curl. */
+    agent_buf req = {0};
+    agent_buf_puts(&req, "{\"path\":\"");
+    ds4ui_json_escape_into(&req, resolved);

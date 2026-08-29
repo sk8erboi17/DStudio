@@ -1,16 +1,116 @@
-/* Local MiniMax H3 text/image-to-video endpoints.
+/* Local MiniMax H3 text/image/reference-to-video endpoints.
  *
  * The managed worker builds the pinned native antirez/h3.c Metal engine and
- * downloads the original official FL2VA snapshot. No ComfyUI, Python ML stack
- * or hosted MiniMax generation endpoint is part of inference. H3's community
- * license excludes several territories, so setup and generation both require
- * an explicit authorization assertion before weights are downloaded/loaded. */
+ * downloads the original official FL2VA snapshot plus the optional Ref2VA
+ * reference transformer. No ComfyUI, Python ML stack or hosted MiniMax
+ * generation endpoint is part of inference. H3's community license excludes
+ * several territories, so setup and generation both require an explicit
+ * authorization assertion before weights are downloaded/loaded. */
 
-#define H3_NATIVE_COMMIT "03cb1339825feb19bcafcc60685680cb9ec6e2fe"
+#define H3_NATIVE_COMMIT "8974cc055ea9c02fcd14cc27dfda3e1027c05153"
+#define H3_PATCH_SHA256 "5845dce1d8b4fb02bb55c4006b686e97a6fb738aed61cb7a35e67093507d6600"
+#define H3_RUNTIME_REVISION H3_NATIVE_COMMIT "+" H3_PATCH_SHA256
 #define H3_MODEL_REVISION "9ac0dd7aabc2c651fcf0ace4c00b2bffd9c8c8a6"
 #define H3_MODEL_TOTAL_SIZE 144023550851LL
+#define H3_REFERENCE_MODEL_TOTAL_SIZE 66280524863LL
 #define H3_NATIVE_MARKER ".h3c-runtime-revision"
 #define H3_MODEL_MARKER ".model-revision"
+#define H3_REFERENCE_MODEL_MARKER ".ref2va-model-revision"
+#define H3_JOB_OWNER_FILE "server-owner"
+#define H3_JOB_CANCEL_FILE "cancel-requested"
+
+/* Each DStudio server owns only the H3 jobs it launched. The token is created
+ * before request workers fork and is inherited by those workers; another
+ * server sharing the same model/job root therefore cannot terminate them. */
+static char g_video_owner_token[96];
+
+static void video_runtime_init(void) {
+    if (g_video_owner_token[0]) return;
+    snprintf(g_video_owner_token, sizeof g_video_owner_token, "%ld-%lld",
+             (long)getpid(), dstudio_now_ms());
+}
+
+static int video_job_owned(const char *job_dir) {
+    if (!job_dir || !job_dir[0] || !g_video_owner_token[0]) return 0;
+    char owner_path[DSTUDIO_PATH_MAX];
+    int len = snprintf(owner_path, sizeof owner_path, "%s/%s",
+                       job_dir, H3_JOB_OWNER_FILE);
+    if (len <= 0 || (size_t)len >= sizeof owner_path) return 0;
+    size_t n = 0;
+    char *raw = jsonl_read_file(owner_path, &n);
+    if (!raw || n == 0 || n >= sizeof g_video_owner_token) {
+        free(raw);
+        return 0;
+    }
+    while (n > 0 && (raw[n - 1] == '\n' || raw[n - 1] == '\r' ||
+                     raw[n - 1] == ' '))
+        raw[--n] = '\0';
+    int owned = !strcmp(raw, g_video_owner_token);
+    free(raw);
+    return owned;
+}
+
+static int video_claim_job(const char *job_dir) {
+    if (!job_dir || !job_dir[0]) return 0;
+    video_runtime_init();
+    char owner_path[DSTUDIO_PATH_MAX];
+    int len = snprintf(owner_path, sizeof owner_path, "%s/%s",
+                       job_dir, H3_JOB_OWNER_FILE);
+    if (len <= 0 || (size_t)len >= sizeof owner_path) return 0;
+    size_t token_len = strlen(g_video_owner_token);
+#ifdef _WIN32
+    HANDLE owner = CreateFileA(owner_path, GENERIC_WRITE, 0, NULL, CREATE_NEW,
+                               FILE_ATTRIBUTE_NORMAL, NULL);
+    if (owner == INVALID_HANDLE_VALUE) {
+        DWORD error = GetLastError();
+        if (error == ERROR_FILE_EXISTS || error == ERROR_ALREADY_EXISTS)
+            return 0;
+        return 0;
+    }
+    DWORD wrote = 0;
+    int ok = WriteFile(owner, g_video_owner_token, (DWORD)token_len,
+                       &wrote, NULL) && wrote == (DWORD)token_len;
+    CloseHandle(owner);
+#else
+    int owner = open(owner_path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    if (owner < 0) {
+        return 0;
+    }
+    size_t offset = 0;
+    while (offset < token_len) {
+        ssize_t wrote = write(owner, g_video_owner_token + offset,
+                              token_len - offset);
+        if (wrote < 0 && errno == EINTR) continue;
+        if (wrote <= 0) break;
+        offset += (size_t)wrote;
+    }
+    int ok = offset == token_len;
+    close(owner);
+#endif
+    if (!ok) (void)unlink(owner_path);
+    return ok;
+}
+
+static int video_job_cancel_path(const char *job_dir, char *out, size_t outsz) {
+    if (!job_dir || !job_dir[0] || !out || outsz == 0) return 0;
+    int len = snprintf(out, outsz, "%s/%s", job_dir, H3_JOB_CANCEL_FILE);
+    return len > 0 && (size_t)len < outsz;
+}
+
+static int video_cancel_requested(const char *job_dir) {
+    char path[DSTUDIO_PATH_MAX];
+    struct stat st;
+    return video_job_cancel_path(job_dir, path, sizeof path) &&
+           stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static int video_request_cancel(const char *job_dir) {
+    char path[DSTUDIO_PATH_MAX];
+    static const char marker[] = "cancelled\n";
+    if (!video_job_cancel_path(job_dir, path, sizeof path)) return 0;
+    if (video_cancel_requested(job_dir)) return 1;
+    return jsonl_write_file(path, marker, sizeof marker - 1);
+}
 
 static const long long H3_TEXT_ENCODER_SHARD_SIZES[] = {
     4932328944LL, 4875990528LL, 4875990552LL, 4875990584LL,
@@ -50,6 +150,7 @@ static void video_stop_worker_pid_path(const char *pid_path) {
  * generation already in flight must be stopped when the desktop server exits. */
 static void video_runtime_shutdown(void) {
 #ifndef _WIN32
+    if (!g_video_owner_token[0]) return;
     const char *configured = getenv("DSTUDIO_H3_HOME");
     const char *home = getenv("HOME");
     char root[DSTUDIO_PATH_MAX], jobs_path[DSTUDIO_PATH_MAX];
@@ -62,8 +163,13 @@ static void video_runtime_shutdown(void) {
     struct dirent *entry;
     while ((entry = readdir(jobs)) != NULL) {
         if (entry->d_name[0] == '.') continue;
-        char pid_path[DSTUDIO_PATH_MAX];
-        int len = snprintf(pid_path, sizeof pid_path, "%s/%s/worker.pid", jobs_path, entry->d_name);
+        char job_dir[DSTUDIO_PATH_MAX], pid_path[DSTUDIO_PATH_MAX];
+        int job_len = snprintf(job_dir, sizeof job_dir, "%s/%s",
+                               jobs_path, entry->d_name);
+        if (job_len <= 0 || (size_t)job_len >= sizeof job_dir ||
+            !video_job_owned(job_dir))
+            continue;
+        int len = snprintf(pid_path, sizeof pid_path, "%s/worker.pid", job_dir);
         if (len > 0 && (size_t)len < sizeof pid_path)
             video_stop_worker_pid_path(pid_path);
     }
@@ -150,6 +256,50 @@ static long long video_model_progress(const char *root, int *complete) {
     return have > H3_MODEL_TOTAL_SIZE ? H3_MODEL_TOTAL_SIZE : have;
 }
 
+static void video_model_file_required(const char *model, const char *relative,
+                                      long long expected, int *complete) {
+    char path[DSTUDIO_PATH_MAX];
+    int len = snprintf(path, sizeof path, "%s/%s", model, relative);
+    if (len <= 0 || (size_t)len >= sizeof path || video_file_bytes(path) != expected)
+        *complete = 0;
+}
+
+static long long video_reference_model_progress(const char *root, int *complete) {
+    char model[DSTUDIO_PATH_MAX], relative[256];
+    snprintf(model, sizeof model, "%s/MiniMax-H3", root);
+    long long have = 0;
+    *complete = 1;
+    video_model_file_progress(model, "Ref2VA/transformer/config.json", 604LL, &have, complete);
+    for (size_t i = 0; i < sizeof H3_TRANSFORMER_SHARD_SIZES / sizeof H3_TRANSFORMER_SHARD_SIZES[0]; i++) {
+        snprintf(relative, sizeof relative, "Ref2VA/transformer/model-%05zu-of-00013.safetensors", i + 1);
+        video_model_file_progress(model, relative, H3_TRANSFORMER_SHARD_SIZES[i], &have, complete);
+    }
+    video_model_file_progress(model, "Ref2VA/transformer/model.safetensors.index.json", 38323LL, &have, complete);
+
+    /* These are symlinked to byte-identical FL2VA assets by the managed setup.
+     * They do not consume or contribute another copy to the progress total. */
+    video_model_file_required(model, "Ref2VA/audio_vae/config.json", 1973LL, complete);
+    video_model_file_required(model, "Ref2VA/audio_vae/model.safetensors", 605429308LL, complete);
+    video_model_file_required(model, "Ref2VA/text_encoder/config.json", 1474LL, complete);
+    for (size_t i = 0; i < sizeof H3_TEXT_ENCODER_SHARD_SIZES / sizeof H3_TEXT_ENCODER_SHARD_SIZES[0]; i++) {
+        snprintf(relative, sizeof relative, "Ref2VA/text_encoder/model-%05zu-of-00014.safetensors", i + 1);
+        video_model_file_required(model, relative, H3_TEXT_ENCODER_SHARD_SIZES[i], complete);
+    }
+    video_model_file_required(model, "Ref2VA/text_encoder/model.safetensors.index.json", 97831LL, complete);
+    video_model_file_required(model, "Ref2VA/tokenizer/tokenizer.json", 7032403LL, complete);
+    video_model_file_required(model, "Ref2VA/video_vae/config.json", 1807LL, complete);
+    video_model_file_required(model, "Ref2VA/video_vae/source/model.safetensors", 10415548320LL, complete);
+    return have > H3_REFERENCE_MODEL_TOTAL_SIZE ? H3_REFERENCE_MODEL_TOTAL_SIZE : have;
+}
+
+static int video_reference_model_installed(const char *root) {
+    char marker[DSTUDIO_PATH_MAX];
+    int complete = 0;
+    (void)video_reference_model_progress(root, &complete);
+    snprintf(marker, sizeof marker, "%s/%s", root, H3_REFERENCE_MODEL_MARKER);
+    return complete && video_marker_matches(marker, H3_MODEL_REVISION);
+}
+
 static int video_encoder_parse(const char *body, char *out, size_t outsz) {
     cstr_copy(out, outsz, "official");
     (void)json_get_string(body ? body : "", "encoder", out, outsz);
@@ -158,6 +308,13 @@ static int video_encoder_parse(const char *body, char *out, size_t outsz) {
 
 static int video_license_asserted(const char *body) {
     return json_get_bool(body ? body : "", "licenseAccepted");
+}
+
+static int video_json_string_present(const char *body, const char *field) {
+    char *value = json_get_string_alloc_rpc(body ? body : "", field);
+    int present = value && value[0];
+    free(value);
+    return present;
 }
 
 static int video_find_output(const char *dir, char *name, size_t namesz) {
@@ -194,7 +351,9 @@ static void video_write_status_path(const char *path, const char *state, const c
     char tmp[DSTUDIO_PATH_MAX];
     snprintf(tmp, sizeof tmp, "%s.%d.tmp", path, (int)getpid());
     json_dyn_buf b = {0};
-    json_dyn_puts(&b, "{\"ok\":true,\"state\":") && json_dyn_put_escaped(&b, state) &&
+    int ok_state = strcmp(state, "error") && strcmp(state, "cancelled");
+    json_dyn_printf(&b, "{\"ok\":%s,\"state\":", ok_state ? "true" : "false") &&
+    json_dyn_put_escaped(&b, state) &&
     json_dyn_puts(&b, ",\"stage\":") && json_dyn_put_escaped(&b, stage) &&
     json_dyn_puts(&b, ",\"label\":") && json_dyn_put_escaped(&b, label) &&
     json_dyn_printf(&b, ",\"progress\":%d,\"updatedAt\":%lld}", progress, dstudio_now_ms());
@@ -208,6 +367,26 @@ static void video_write_status(const char *dir, const char *state, const char *s
     char path[DSTUDIO_PATH_MAX];
     snprintf(path, sizeof path, "%s/status.json", dir);
     video_write_status_path(path, state, stage, label, progress);
+}
+
+static void video_generation_cancelled(int fd, const char *dir) {
+    video_write_status(dir, "error", "cancelled",
+                       "Video generation cancelled.", 100);
+    web_json_error(fd, "409 Conflict", "video generation cancelled");
+}
+
+static int video_status_has_state(const char *status_path, const char *expected) {
+    size_t n = 0;
+    char *data = jsonl_read_file(status_path, &n);
+    if (!data || n == 0 || n > 65536) {
+        free(data);
+        return 0;
+    }
+    char state[24] = "";
+    int match = json_get_string(data, "state", state, sizeof state) &&
+                !strcmp(state, expected);
+    free(data);
+    return match;
 }
 
 static void api_video_status(int fd, const char *path) {
@@ -224,10 +403,14 @@ static void api_video_status(int fd, const char *path) {
     snprintf(binary, sizeof binary, "%s/h3.c/h3", root);
     int model_complete = 0;
     long long have = video_model_progress(root, &model_complete);
+    int reference_model_complete = 0;
+    long long reference_have = video_reference_model_progress(root, &reference_model_complete);
     int native_installed = video_file_bytes(binary) > 0 &&
-                           video_marker_matches(native_marker, H3_NATIVE_COMMIT);
+                           video_marker_matches(native_marker, H3_RUNTIME_REVISION);
     int installed = native_installed && model_complete &&
                     video_marker_matches(model_marker, H3_MODEL_REVISION);
+    int references_installed = installed && reference_model_complete &&
+                               video_reference_model_installed(root);
     char setup_path[DSTUDIO_PATH_MAX];
     snprintf(setup_path, sizeof setup_path, "%s/setup-status.json", root);
     size_t setup_n = 0;
@@ -242,10 +425,14 @@ static void api_video_status(int fd, const char *path) {
 #endif
     json_dyn_printf(&b, "\"installed\":%s,\"nativeInstalled\":%s,\"downloadedBytes\":%lld,\"totalBytes\":%lld,",
                     installed ? "true" : "false", native_installed ? "true" : "false", have, H3_MODEL_TOTAL_SIZE) &&
+    json_dyn_printf(&b, "\"referencesInstalled\":%s,\"referenceDownloadedBytes\":%lld,\"referenceTotalBytes\":%lld,",
+                    references_installed ? "true" : "false", reference_have, H3_REFERENCE_MODEL_TOTAL_SIZE) &&
     json_dyn_puts(&b, "\"encoder\":") && json_dyn_put_escaped(&b, encoder) &&
-    json_dyn_puts(&b, ",\"diffusion\":\"official FL2VA\",\"diffusionPrecision\":\"bf16\"") &&
+    json_dyn_puts(&b, ",\"diffusion\":\"official FL2VA + optional Ref2VA\",\"diffusionPrecision\":\"bf16\"") &&
     json_dyn_puts(&b, ",\"model\":\"MiniMaxAI/MiniMax-H3\",\"runtime\":\"h3.c/Metal\",") &&
     json_dyn_puts(&b, "\"engineCommit\":\"") && json_dyn_puts(&b, H3_NATIVE_COMMIT) &&
+    json_dyn_puts(&b, "\",\"enginePatchSha256\":\"") && json_dyn_puts(&b, H3_PATCH_SHA256) &&
+    json_dyn_puts(&b, "\",\"engineRuntimeRevision\":\"") && json_dyn_puts(&b, H3_RUNTIME_REVISION) &&
     json_dyn_puts(&b, "\",\"modelRevision\":\"") && json_dyn_puts(&b, H3_MODEL_REVISION) &&
     json_dyn_puts(&b, "\",\"dir\":") &&
     json_dyn_put_escaped(&b, root) && json_dyn_puts(&b, ",\"setup\":") &&
@@ -265,6 +452,7 @@ static void api_video_setup_run(int fd, const char *body) {
     if (!video_encoder_parse(body, encoder, sizeof encoder)) {
         web_json_error(fd, "400 Bad Request", "native h3.c supports the official encoder only"); return;
     }
+    int include_references = json_get_bool(body ? body : "", "references");
     resolve_web_dir();
     if (!web_dir_valid()) {
         web_json_error(fd, "409 Conflict", "DStudio checkout not found"); return;
@@ -275,10 +463,18 @@ static void api_video_setup_run(int fd, const char *body) {
     }
     snprintf(status, sizeof status, "%s/setup-status.json", root);
     snprintf(script, sizeof script, "%s/scripts/h3-generate.sh", g_web_dir);
-    video_write_status_path(status, "running", "queued", "Preparing the MiniMax H3 open weights…", 1);
+    video_write_status_path(status, "running", "queued", include_references
+        ? "Preparing the MiniMax H3 Ref2VA reference weights…"
+        : "Preparing the MiniMax H3 FL2VA open weights…", 1);
     char log[32768] = "";
-    char *argv[] = { "/bin/sh", script, "--setup-only", "--status-file", status,
-                     "--encoder", encoder, NULL };
+    char *argv[10];
+    int a = 0;
+    argv[a++] = "/bin/sh"; argv[a++] = script;
+    argv[a++] = "--setup-only";
+    argv[a++] = "--status-file"; argv[a++] = status;
+    argv[a++] = "--encoder"; argv[a++] = encoder;
+    if (include_references) argv[a++] = "--include-references";
+    argv[a] = NULL;
     int rc = setup_run_cmd_capture(NULL, argv, log, sizeof log);
     if (rc != 0) {
         json_dyn_buf b = {0};
@@ -288,7 +484,9 @@ static void api_video_setup_run(int fd, const char *body) {
         free(b.ptr);
         return;
     }
-    send_json(fd, "200 OK", "{\"ok\":true,\"model\":\"MiniMaxAI/MiniMax-H3\",\"runtime\":\"h3.c/Metal\"}");
+    send_json(fd, "200 OK", include_references
+        ? "{\"ok\":true,\"model\":\"MiniMaxAI/MiniMax-H3\",\"runtime\":\"h3.c/Metal\",\"references\":true}"
+        : "{\"ok\":true,\"model\":\"MiniMaxAI/MiniMax-H3\",\"runtime\":\"h3.c/Metal\",\"references\":false}");
 }
 
 static void api_video_setup(int fd, const char *body) {
@@ -339,10 +537,31 @@ static void api_video_generate_run(int fd, const char *body) {
         strcmp(aspect, "4:3") && strcmp(aspect, "3:4")) {
         free(prompt); web_json_error(fd, "400 Bad Request", "unsupported video aspect ratio"); return;
     }
-    char profile[16] = "balanced";
+    char profile[16] = "quality";
     (void)json_get_string(body, "profile", profile, sizeof profile);
     if (strcmp(profile, "preview") && strcmp(profile, "balanced") && strcmp(profile, "quality")) {
         free(prompt); web_json_error(fd, "400 Bad Request", "profile must be preview, balanced or quality"); return;
+    }
+    int has_first_frame = video_json_string_present(body, "image");
+    int has_reference_1 = video_json_string_present(body, "referenceImage1");
+    int has_reference_2 = video_json_string_present(body, "referenceImage2");
+    int reference_count = has_reference_1 + has_reference_2;
+    if (has_first_frame && reference_count) {
+        free(prompt); web_json_error(fd, "400 Bad Request",
+            "H3 frame anchors cannot be combined with ordered reference images"); return;
+    }
+    if (!has_reference_1 && has_reference_2) {
+        free(prompt); web_json_error(fd, "400 Bad Request",
+            "referenceImage2 requires referenceImage1"); return;
+    }
+    if (reference_count) {
+        char runtime_root[DSTUDIO_PATH_MAX];
+        if (!video_root_dir(runtime_root, sizeof runtime_root) ||
+            !video_reference_model_installed(runtime_root)) {
+            free(prompt); web_json_error(fd, "409 Conflict",
+                "Ordered H3 image references require the optional Ref2VA checkpoint; prepare it in Settings > Video first");
+            return;
+        }
     }
     char base[DSTUDIO_PATH_MAX], id[80], dir[DSTUDIO_PATH_MAX];
     if (!video_jobs_dir(base, sizeof base)) {
@@ -358,9 +577,19 @@ static void api_video_generate_run(int fd, const char *body) {
     if (stat(dir, &dst) != 0 || !S_ISDIR(dst.st_mode)) {
         free(prompt); web_json_error(fd, "500 Internal Server Error", "cannot create video output directory"); return;
     }
-    char first_frame[DSTUDIO_PATH_MAX] = "", source_err[180] = "";
-    if (!image_write_edit_source(body, "image", "first-frame", 0, dir,
-                                 first_frame, sizeof first_frame, source_err, sizeof source_err)) {
+    if (!video_claim_job(dir)) {
+        free(prompt); web_json_error(fd, "409 Conflict",
+            "the requested H3 job id already exists or belongs to another DStudio server"); return;
+    }
+    char first_frame[DSTUDIO_PATH_MAX] = "";
+    char reference_image_1[DSTUDIO_PATH_MAX] = "", reference_image_2[DSTUDIO_PATH_MAX] = "";
+    char source_err[180] = "";
+    if (!image_write_source(body, "image", "first-frame", 0, dir,
+                                 first_frame, sizeof first_frame, source_err, sizeof source_err) ||
+        !image_write_source(body, "referenceImage1", "reference-1", 0, dir,
+                                 reference_image_1, sizeof reference_image_1, source_err, sizeof source_err) ||
+        !image_write_source(body, "referenceImage2", "reference-2", 0, dir,
+                                 reference_image_2, sizeof reference_image_2, source_err, sizeof source_err)) {
         free(prompt); video_write_status(dir, "error", "error", source_err, 100);
         web_json_error(fd, "400 Bad Request", source_err); return;
     }
@@ -371,13 +600,26 @@ static void api_video_generate_run(int fd, const char *body) {
         free(prompt); web_json_error(fd, "500 Internal Server Error", "cannot write video prompt"); return;
     }
     free(prompt);
-    video_write_status(dir, "running", "preparing", "Preparing native h3.c/Metal…", 2);
+    video_write_status(dir, "running", "preparing", reference_count
+        ? "Preparing native h3.c/Metal ordered references…"
+        : "Preparing native h3.c/Metal…", 2);
+    if (video_cancel_requested(dir)) {
+        video_generation_cancelled(fd, dir);
+        return;
+    }
     resolve_web_dir();
-    char script[DSTUDIO_PATH_MAX + 64], duration_s[16];
+    char script[DSTUDIO_PATH_MAX + 64], duration_s[16], cancel_path[DSTUDIO_PATH_MAX];
     snprintf(script, sizeof script, "%s/scripts/h3-generate.sh", g_web_dir);
     snprintf(duration_s, sizeof duration_s, "%ld", duration);
+    if (!video_job_cancel_path(dir, cancel_path, sizeof cancel_path)) {
+        video_write_status(dir, "error", "error",
+                           "MiniMax H3 cancellation path is too long.", 100);
+        web_json_error(fd, "500 Internal Server Error",
+                       "MiniMax H3 cancellation path is too long");
+        return;
+    }
     char log[32768] = "";
-    char *argv[24];
+    char *argv[30];
     int a = 0;
     argv[a++] = "/bin/sh"; argv[a++] = script;
     argv[a++] = "--prompt-file"; argv[a++] = prompt_path;
@@ -387,13 +629,38 @@ static void api_video_generate_run(int fd, const char *body) {
     argv[a++] = "--aspect"; argv[a++] = aspect;
     argv[a++] = "--profile"; argv[a++] = profile;
     argv[a++] = "--encoder"; argv[a++] = encoder;
+    argv[a++] = "--cancel-file"; argv[a++] = cancel_path;
     if (first_frame[0]) { argv[a++] = "--first-frame"; argv[a++] = first_frame; }
+    if (reference_image_1[0]) { argv[a++] = "--reference-image"; argv[a++] = reference_image_1; }
+    if (reference_image_2[0]) { argv[a++] = "--reference-image"; argv[a++] = reference_image_2; }
     argv[a] = NULL;
+    qwen_memory_lease lease = qwen_memory_begin("video-generation");
+    if (!qwen_memory_ready(&lease)) {
+        if (video_cancel_requested(dir)) {
+            video_generation_cancelled(fd, dir);
+            return;
+        }
+        video_write_status(dir, "error", "memory", "DS4 memory could not be released; MiniMax H3 was not started.", 100);
+        web_json_error(fd, "503 Service Unavailable",
+                       "DS4 memory could not be released; MiniMax H3 was not started");
+        return;
+    }
+    if (video_cancel_requested(dir)) {
+        qwen_memory_end(&lease);
+        video_generation_cancelled(fd, dir);
+        return;
+    }
     int rc = setup_run_cmd_capture(NULL, argv, log, sizeof log);
+    qwen_memory_end(&lease);
+    if (video_cancel_requested(dir)) {
+        video_generation_cancelled(fd, dir);
+        return;
+    }
     char filename[256] = "";
     if (rc != 0 || !video_find_output(dir, filename, sizeof filename)) {
-        video_write_status(dir, "error", "error",
-                           rc != 0 ? "MiniMax H3 generation failed." : "MiniMax H3 produced no video.", 100);
+        if (!video_status_has_state(status_path, "error"))
+            video_write_status(dir, "error", "error",
+                               rc != 0 ? "MiniMax H3 generation failed." : "MiniMax H3 produced no video.", 100);
         json_dyn_buf b = {0};
         json_dyn_puts(&b, "{\"ok\":false,\"error\":") &&
         json_dyn_put_escaped(&b, rc != 0 ? "MiniMax H3 generation failed" : "MiniMax H3 produced no video") &&
@@ -402,12 +669,20 @@ static void api_video_generate_run(int fd, const char *body) {
         free(b.ptr);
         return;
     }
-    video_write_status(dir, "complete", "complete", "Video H3 ready — generated locally.", 100);
+    /* Preserve the native worker's terminal profile, dimensions and quality
+     * evidence.  A zero exit plus an MP4 is insufficient if the worker did
+     * not also publish a complete, validated status. */
+    if (!video_status_has_state(status_path, "complete")) {
+        const char *failure = "MiniMax H3 exited without a complete terminal status.";
+        video_write_status(dir, "error", "error", failure, 100);
+        web_json_error(fd, "500 Internal Server Error", failure);
+        return;
+    }
     json_dyn_buf b = {0};
     json_dyn_puts(&b, "{\"ok\":true,\"id\":") && json_dyn_put_escaped(&b, id) &&
     json_dyn_puts(&b, ",\"filename\":") && json_dyn_put_escaped(&b, filename) &&
     json_dyn_puts(&b, ",\"model\":\"MiniMaxAI/MiniMax-H3\",\"profile\":") &&
-    json_dyn_put_escaped(&b, profile) && json_dyn_puts(&b, ",\"url\":") &&
+    json_dyn_put_escaped(&b, profile) && json_dyn_printf(&b, ",\"referenceCount\":%d,\"url\":", reference_count) &&
     json_dyn_printf(&b, "\"/api/video/file?id=%s&name=%s\"}", id, filename);
     send_json(fd, "200 OK", b.ptr ? b.ptr : "{\"ok\":false}");
     free(b.ptr);
@@ -468,15 +743,40 @@ static void api_video_stop(int fd, const char *body) {
     if (!image_safe_job_id(id)) {
         web_json_error(fd, "400 Bad Request", "invalid video job"); return;
     }
-    char base[DSTUDIO_PATH_MAX], pid_path[DSTUDIO_PATH_MAX], dir[DSTUDIO_PATH_MAX];
+    char base[DSTUDIO_PATH_MAX], pid_path[DSTUDIO_PATH_MAX];
+    char dir[DSTUDIO_PATH_MAX], status_path[DSTUDIO_PATH_MAX];
     if (!video_jobs_dir(base, sizeof base)) {
         web_json_error(fd, "404 Not Found", "video job not found"); return;
     }
     snprintf(dir, sizeof dir, "%s/%s", base, id);
+    if (!video_job_owned(dir)) {
+        web_json_error(fd, "409 Conflict",
+            "the H3 job belongs to another DStudio server");
+        return;
+    }
+    snprintf(status_path, sizeof status_path, "%s/status.json", dir);
+    if (video_status_has_state(status_path, "complete") ||
+        video_status_has_state(status_path, "error") ||
+        video_status_has_state(status_path, "cancelled")) {
+        send_json(fd, "200 OK",
+                  "{\"ok\":true,\"running\":false,\"terminal\":true}");
+        return;
+    }
+    if (!video_request_cancel(dir)) {
+        web_json_error(fd, "500 Internal Server Error",
+                       "could not persist H3 cancellation request");
+        return;
+    }
     snprintf(pid_path, sizeof pid_path, "%s/worker.pid", dir);
     size_t n = 0;
     char *raw = jsonl_read_file(pid_path, &n);
-    if (!raw) { send_json(fd, "200 OK", "{\"ok\":true,\"running\":false}"); return; }
+    if (!raw) {
+        video_write_status(dir, "error", "cancelled",
+                           "Video generation cancelled before worker startup.", 100);
+        send_json(fd, "200 OK",
+                  "{\"ok\":true,\"running\":false,\"cancellationQueued\":true}");
+        return;
+    }
     char *end = NULL;
     long pid = strtol(raw, &end, 10);
     free(raw);

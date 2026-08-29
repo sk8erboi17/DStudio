@@ -34,6 +34,20 @@ static int test_valid_utf8(const unsigned char *s) {
 int main(void) {
 #ifndef _WIN32
     {
+        char label[160] = "";
+        assert(image_error_label_json(
+            "{\"ok\":false,\"state\":\"error\",\"label\":\"VAE decode failed\"}",
+            label, sizeof label));
+        assert(!strcmp(label, "VAE decode failed"));
+        assert(!image_error_label_json(
+            "{\"ok\":true,\"state\":\"running\",\"label\":\"sampling\"}",
+            label, sizeof label));
+        label[0] = '\0';
+        assert(image_error_label_json(
+            "{\"ok\":false,\"state\":\"error\"}", label, sizeof label));
+        assert(!strcmp(label, "Local image inference failed."));
+    }
+    {
         int plen[] = { 7000, 4000 };
         pdf_rag_chunk *chunks = NULL;
         int n = pdf_build_rag_chunks(plen, 2, 2, &chunks);
@@ -132,6 +146,50 @@ int main(void) {
     assert(!lan_ip_text("169.254.5.7\n", out, sizeof out));
     assert(!lan_ip_text("not-an-ip\n", out, sizeof out));
 
+    const char *glm_catalog =
+        "HTTP/1.1 200 OK\r\n\r\n{\"data\":[{\"id\":\"glm-5.3-flash\",\"owned_by\":\"ds4.c\"}]}";
+    const char *deepseek_catalog =
+        "HTTP/1.1 200 OK\r\n\r\n{\"data\":[{\"id\":\"deepseek-v4-flash\",\"owned_by\":\"ds4.c\"}]}";
+    const char *laguna_catalog =
+        "HTTP/1.1 200 OK\r\n\r\n{\"data\":[{\"id\":\"laguna-s-2.1\",\"owned_by\":\"ds4.c\"}]}";
+    snprintf(g_model_override, sizeof g_model_override, "%s", MODEL_GLM53_Q2);
+    assert(ds4_catalog_matches_selected_model(glm_catalog));
+    assert(!ds4_catalog_matches_selected_model(deepseek_catalog));
+    snprintf(g_model_override, sizeof g_model_override, "%s", MODEL_LAGUNA);
+    assert(ds4_catalog_matches_selected_model(laguna_catalog));
+    assert(!ds4_catalog_matches_selected_model(glm_catalog));
+    snprintf(g_model_override, sizeof g_model_override, "%s", MODEL_FLASH);
+    assert(ds4_catalog_matches_selected_model(deepseek_catalog));
+    assert(!ds4_catalog_matches_selected_model(glm_catalog));
+    g_model_override[0] = '\0';
+
+#ifndef _WIN32
+    char data_dir[] = "/tmp/dstudio-port-test.XXXXXX";
+    assert(mkdtemp(data_dir));
+    assert(setenv("DS4UI_DATA_DIR", data_dir, 1) == 0);
+    assert(persist_http_port(15550));
+    char port_file[PATH_MAX];
+    snprintf(port_file, sizeof port_file, "%s/http-port", data_dir);
+    FILE *pf = fopen(port_file, "rb");
+    assert(pf);
+    int saved_port = 0;
+    assert(fscanf(pf, "%d", &saved_port) == 1 && saved_port == 15550);
+    fclose(pf);
+
+    char checkout_dir[PATH_MAX], checkout_file[PATH_MAX], loaded_checkout[PATH_MAX];
+    snprintf(checkout_dir, sizeof checkout_dir, "%s/ds4 custom", data_dir);
+    assert(mkdir(checkout_dir, 0755) == 0);
+    assert(persist_ds4_checkout(checkout_dir));
+    assert(load_persisted_ds4_checkout(loaded_checkout, sizeof loaded_checkout));
+    assert(strcmp(loaded_checkout, checkout_dir) == 0);
+    snprintf(checkout_file, sizeof checkout_file, "%s/engine-checkout", data_dir);
+    unlink(checkout_file);
+    rmdir(checkout_dir);
+    unlink(port_file);
+    rmdir(data_dir);
+    unsetenv("DS4UI_DATA_DIR");
+#endif
+
     assert(lan_client_id_ok("client-abc_123.test"));
     assert(!lan_client_id_ok("ab"));
     assert(!lan_client_id_ok("client with spaces"));
@@ -158,11 +216,58 @@ int main(void) {
     assert(g_remote_model[0] == '\0');
 
     engine_cfg remote_cfg = ENGINE_DEFAULTS;
+    assert(ENGINE_DEFAULTS.uncensored == 0);
+    assert(ENGINE_DEFAULTS.ctx == 65536);
+    assert(ENGINE_DEFAULTS.ssd_streaming == SSD_STREAMING_OFF);
+    assert(strcmp(MODEL_FLASH, MODEL_STD) == 0);
+    assert(strcmp(MODEL_FLASH, MODEL_UNC) != 0);
+    assert(strcmp(variant_rel("flash"), MODEL_STD) == 0);
+    engine_cfg parsed_default = ENGINE_DEFAULTS;
+    int parsed_bad = 0;
+    parse_cfg("{}", &parsed_default, &parsed_bad);
+    assert(!parsed_bad && parsed_default.uncensored == 0);
+
+    const unsigned long long gib = 1024ull * 1024ull * 1024ull;
+    assert(flash_context_memory_bytes(65536) < gib);
+    assert(flash_context_memory_bytes(1048576) > 10ull * gib);
+    assert(flash_context_memory_bytes(1048576) < 11ull * gib);
+    assert(flash_largest_safe_context(1048576, 86720111488ull, 0, 88ull * gib) == 262144);
+    assert(flash_largest_safe_context(1048576, 86720111488ull, 5989114272ull, 88ull * gib) == 0);
+#ifdef __APPLE__
+    if (file_present(MODEL_STD) && file_present(MODEL_DSPARK_UPSTREAM) &&
+        local_metal_budget_bytes() > 0) {
+        engine_cfg oversized = ENGINE_DEFAULTS;
+        oversized.ctx = 1048576;
+        oversized.ssd_streaming = SSD_STREAMING_OFF;
+        g_dspark_enabled = 1;
+        char adjustment[384] = "";
+        assert(normalize_flash_memory_config(&oversized, 0, adjustment, sizeof adjustment));
+        assert(!g_dspark_enabled);
+        assert(oversized.ctx == 1048576);
+        assert(strstr(adjustment, "DSpark disabled") != NULL);
+        assert(strstr(adjustment, "preserving the requested") != NULL);
+    }
+#endif
+
     remote_cfg.ssd_streaming = SSD_STREAMING_ON;
     char ssd_reason[192] = "", ssd_err[256] = "";
     assert(engine_effective_ssd_streaming(&remote_cfg, 1, ssd_reason, sizeof ssd_reason,
                                           ssd_err, sizeof ssd_err) == -1);
     assert(strstr(ssd_err, "local-engine-only") != NULL);
+    remote_cfg.ssd_streaming = SSD_STREAMING_AUTO;
+    g_dspark_enabled = 1;
+    assert(engine_effective_ssd_streaming(&remote_cfg, 0, ssd_reason, sizeof ssd_reason,
+                                          ssd_err, sizeof ssd_err) == 0);
+    assert(strstr(ssd_reason, "DSpark") != NULL);
+    remote_cfg.ssd_streaming = SSD_STREAMING_ON;
+    assert(engine_effective_ssd_streaming(&remote_cfg, 0, ssd_reason, sizeof ssd_reason,
+                                          ssd_err, sizeof ssd_err) == -1);
+    assert(strstr(ssd_err, "DSpark") != NULL);
+    g_dspark_enabled = 0;
+    remote_cfg.ssd_streaming = SSD_STREAMING_AUTO;
+    assert(engine_effective_ssd_streaming(&remote_cfg, 0, ssd_reason, sizeof ssd_reason,
+                                          ssd_err, sizeof ssd_err) == 0);
+    assert(strstr(ssd_reason, "sole active heavyweight model") != NULL);
 
     snprintf(g_bind_host, sizeof g_bind_host, "127.0.0.1");
     assert(lan_public_path_allowed("GET", "/"));

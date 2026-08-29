@@ -1,0 +1,344 @@
+diff --git a/h3_dit.c b/h3_dit.c
+index 667e49b..6a3ed82 100644
+--- a/h3_dit.c
++++ b/h3_dit.c
+@@ -225,6 +225,26 @@ static int gpu_op(h3_dit *dit, int ok, char *error, size_t error_size,
+     return 0;
+ }
+ 
++static int submit_dit_stage(h3_dit *dit, const char *submit_operation,
++                            const char *begin_operation, char *error,
++                            size_t error_size) {
++    if (!getenv("H3_DIT_STAGE_SUBMITS")) return 1;
++    int trace = getenv("H3_DIT_STAGE_TRACE") != NULL;
++    if (trace) {
++        fprintf(stderr, "\nh3 DiT stage: %s\n", submit_operation);
++        fflush(stderr);
++    }
++    int ok = gpu_op(dit, h3_gpu_submit(dit->gpu), error, error_size,
++                    submit_operation) &&
++             gpu_op(dit, h3_gpu_begin(dit->gpu), error, error_size,
++                    begin_operation);
++    if (trace && ok) {
++        fprintf(stderr, "h3 DiT stage complete: %s\n", submit_operation);
++        fflush(stderr);
++    }
++    return ok;
++}
++
+ static void report(h3_dit_progress progress, void *opaque, const char *phase,
+                    int completed, int total) {
+     if (progress) progress(phase, completed, total, opaque);
+@@ -1917,6 +1937,9 @@ static int run_block(h3_dit *dit, unsigned index, int step,
+             rope_cos, rope_sin, rows, HIDDEN, HEADS, HEAD_DIM, ROPE_HALF,
+             1e-5f), "DiT QKV projection/norm/RoPE");
+     }
++    if (!submit_dit_stage(dit, "submit DiT QKV stage",
++                          "begin DiT attention stage", error, error_size))
++        return 0;
+     int int8_attention_output = dit->int8_attention_out &&
+         !getenv("H3_DISABLE_INT8_ATTENTION_OUT");
+     int head_major_attention_output = int8_attention_output &&
+@@ -1933,6 +1956,9 @@ static int run_block(h3_dit *dit, unsigned index, int step,
+             dit->gpu, dit->attention_heads, dit->query, dit->key, dit->value,
+             rows, HEADS, HEAD_DIM, 1.0f / sqrtf((float)HEAD_DIM)),
+            "DiT full attention");
++    if (!submit_dit_stage(dit, "submit DiT attention stage",
++                          "begin DiT attention-output stage", error,
++                          error_size)) return 0;
+     if (int8_attention_output) {
+         if (head_major_attention_output)
+             OP(h3_gpu_linear_int8_head_major_bf16(
+@@ -1952,6 +1978,9 @@ static int run_block(h3_dit *dit, unsigned index, int step,
+             dit->attention_heads, weight->out, NULL, rows, INNER, HIDDEN),
+            "DiT attention output");
+     }
++    if (!submit_dit_stage(dit, "submit DiT attention-output stage",
++                          "begin DiT MLP-conditioning stage", error,
++                          error_size)) return 0;
+     int fused_int8_mlp_input = dit->int8_mlp &&
+         !dit->use_slower_unfused_int8_inputs &&
+         !getenv("H3_DISABLE_FUSED_INT8_MLP_INPUT") &&
+@@ -1980,6 +2009,9 @@ static int run_block(h3_dit *dit, unsigned index, int step,
+             modulation, row_map, rows, HIDDEN, SLOTS, 3, 4, 1e-5f),
+            "DiT MLP AdaLN");
+     }
++    if (!submit_dit_stage(dit, "submit DiT MLP-conditioning stage",
++                          "begin DiT MLP stage", error, error_size))
++        return 0;
+     h3_gpu_tensor *mlp_output = dit->activation_aliases ?
+         dit->attention_output : dit->mlp_output;
+     if (dit->int8_mlp &&
+@@ -2012,6 +2044,9 @@ static int run_block(h3_dit *dit, unsigned index, int step,
+         OP(h3_gpu_linear_bf16(dit->gpu, mlp_output, dit->activated,
+             weight->fc2, NULL, rows, FFN, HIDDEN), "DiT MLP output");
+     }
++    if (!submit_dit_stage(dit, "submit DiT MLP stage",
++                          "begin DiT residual stage", error, error_size))
++        return 0;
+     if (fuse_next_attention) {
+         h3_dit_block *next_weight = &dit->blocks[next_index];
+         const h3_gpu_tensor *next_modulation = h3_dit_schedule_block(
+@@ -2043,6 +2078,9 @@ static int run_block(h3_dit *dit, unsigned index, int step,
+             dit->gpu, dit->hidden, dit->hidden, mlp_output,
+             modulation, row_map, rows, HIDDEN, SLOTS, 5), "DiT MLP gate");
+     }
++    if (!submit_dit_stage(dit, "submit DiT residual stage",
++                          "continue after DiT residual stage", error,
++                          error_size)) return 0;
+ #undef OP
+     return 1;
+ }
+@@ -2173,6 +2211,9 @@ static int encode_forward(h3_dit *dit, int step, int begin, int submit,
+         OP(h3_gpu_copy_bf16(dit->gpu, dit->core_input, 0, dit->hidden, 0,
+                             hidden_elements), "save DiT core input");
+     if (evaluate_core) {
++        if (!submit_dit_stage(dit, "submit DiT input stage",
++                              "begin DiT block stages", error, error_size))
++            return 0;
+         unsigned command_blocks = disable_command_split
+             ? 0 : command_block_interval(dit);
+         if (dit->ssd_streaming) command_blocks = 0;
+diff --git a/h3_gpu.m b/h3_gpu.m
+index c61d04c..61be2b5 100644
+--- a/h3_gpu.m
++++ b/h3_gpu.m
+@@ -37,7 +37,8 @@ @interface H3SDPA : NSObject
+ @property(nonatomic, strong) MPSGraphTensor *key;
+ @property(nonatomic, strong) MPSGraphTensor *value;
+ @property(nonatomic, strong) MPSGraphTensor *output;
+-@property(nonatomic, strong) NSArray<NSNumber *> *inputShape;
++@property(nonatomic, strong) NSArray<NSNumber *> *queryShape;
++@property(nonatomic, strong) NSArray<NSNumber *> *keyValueShape;
+ @property(nonatomic, strong) NSArray<NSNumber *> *outputShape;
+ @end
+ @implementation H3SDPA
+@@ -1446,32 +1447,40 @@ int h3_gpu_qkv_rope_f32(h3_gpu *opaque, h3_gpu_tensor *query,
+ }
+ 
+ static H3SDPA *h3_gpu_sdpa_graph(H3GPU *gpu, uint32_t batch,
+-                                 uint32_t sequence,
++                                 uint32_t query_sequence,
++                                 uint32_t key_value_sequence,
+                                  uint32_t heads, uint32_t head_dim, float scale,
+                                  MPSDataType dataType, int causal,
+                                  int headMajor, int outputHeadMajor) {
+     @autoreleasepool {
+         NSString *cacheKey = [NSString stringWithFormat:
+-                              @"%u:%u:%u:%u:%u:%.9g:%d:%d:%d",
+-                              (unsigned)dataType, batch, sequence, heads,
+-                              head_dim, scale, causal, headMajor,
++                              @"%u:%u:%u:%u:%u:%u:%.9g:%d:%d:%d",
++                              (unsigned)dataType, batch, query_sequence,
++                              key_value_sequence, heads, head_dim, scale,
++                              causal, headMajor,
+                               outputHeadMajor];
+         H3SDPA *cached = gpu.sdpaCache[cacheKey];
+         if (cached) return cached;
+         MPSGraph *graph = [[MPSGraph alloc] init];
+-        NSArray<NSNumber *> *rowMajorShape =
+-            @[@(batch), @(sequence), @(heads), @(head_dim)];
+-        NSArray<NSNumber *> *headMajorShape =
+-            @[@(batch), @(heads), @(sequence), @(head_dim)];
++        NSArray<NSNumber *> *rowMajorQueryShape =
++            @[@(batch), @(query_sequence), @(heads), @(head_dim)];
++        NSArray<NSNumber *> *rowMajorKeyValueShape =
++            @[@(batch), @(key_value_sequence), @(heads), @(head_dim)];
++        NSArray<NSNumber *> *headMajorQueryShape =
++            @[@(batch), @(heads), @(query_sequence), @(head_dim)];
++        NSArray<NSNumber *> *headMajorKeyValueShape =
++            @[@(batch), @(heads), @(key_value_sequence), @(head_dim)];
+         NSArray<NSNumber *> *outputShape = outputHeadMajor ?
+-            headMajorShape : rowMajorShape;
+-        NSArray<NSNumber *> *inputShape = headMajor ?
+-            headMajorShape : rowMajorShape;
+-        MPSGraphTensor *q = [graph placeholderWithShape:inputShape
++            headMajorQueryShape : rowMajorQueryShape;
++        NSArray<NSNumber *> *queryShape = headMajor ?
++            headMajorQueryShape : rowMajorQueryShape;
++        NSArray<NSNumber *> *keyValueShape = headMajor ?
++            headMajorKeyValueShape : rowMajorKeyValueShape;
++        MPSGraphTensor *q = [graph placeholderWithShape:queryShape
+                                                dataType:dataType name:nil];
+-        MPSGraphTensor *k = [graph placeholderWithShape:inputShape
++        MPSGraphTensor *k = [graph placeholderWithShape:keyValueShape
+                                                dataType:dataType name:nil];
+-        MPSGraphTensor *v = [graph placeholderWithShape:inputShape
++        MPSGraphTensor *v = [graph placeholderWithShape:keyValueShape
+                                                dataType:dataType name:nil];
+         MPSGraphTensor *qt = headMajor ? q :
+             [graph transposeTensor:q dimension:1 withDimension:2 name:nil];
+@@ -1485,17 +1494,17 @@ int h3_gpu_qkv_rope_f32(h3_gpu *opaque, h3_gpu_tensor *query,
+         }
+         MPSGraphTensor *attention;
+         if (causal) {
+-            size_t mask_count = (size_t)sequence * sequence;
++            size_t mask_count = (size_t)query_sequence * key_value_sequence;
+             float *mask_values = malloc(mask_count * sizeof(*mask_values));
+             if (!mask_values) return nil;
+-            for (uint32_t row = 0; row < sequence; row++)
+-                for (uint32_t column = 0; column < sequence; column++)
+-                    mask_values[(size_t)row * sequence + column] =
++            for (uint32_t row = 0; row < query_sequence; row++)
++                for (uint32_t column = 0; column < key_value_sequence; column++)
++                    mask_values[(size_t)row * key_value_sequence + column] =
+                         column <= row ? 0.0f : -INFINITY;
+             NSData *mask_data = [NSData dataWithBytesNoCopy:mask_values
+                 length:mask_count * sizeof(*mask_values) freeWhenDone:YES];
+-            MPSGraphTensor *mask = [graph constantWithData:mask_data
+-                shape:@[@1, @1, @(sequence), @(sequence)]
++            MPSGraphTensor *mask = [graph constantWithData:mask_data shape:
++                @[@1, @1, @(query_sequence), @(key_value_sequence)]
+                 dataType:MPSDataTypeFloat32];
+             attention = [graph
+                 scaledDotProductAttentionWithQueryTensor:qt keyTensor:kt
+@@ -1512,13 +1521,70 @@ int h3_gpu_qkv_rope_f32(h3_gpu *opaque, h3_gpu_tensor *query,
+         result.output = outputHeadMajor ? attention :
+             [graph transposeTensor:attention dimension:1 withDimension:2
+              name:nil];
+-        result.inputShape = inputShape;
++        result.queryShape = queryShape;
++        result.keyValueShape = keyValueShape;
+         result.outputShape = outputShape;
+         gpu.sdpaCache[cacheKey] = result;
+         return result;
+     }
+ }
+ 
++static int h3_gpu_sdpa_encode(H3GPU *gpu, h3_gpu_tensor *output,
++                              const h3_gpu_tensor *query,
++                              const h3_gpu_tensor *key,
++                              const h3_gpu_tensor *value, uint32_t batch,
++                              uint32_t query_sequence,
++                              uint32_t key_value_sequence, uint32_t heads,
++                              uint32_t head_dim, float scale,
++                              MPSDataType mps_dtype, int causal,
++                              int headMajor, int outputHeadMajor) {
++    H3SDPA *cache = h3_gpu_sdpa_graph(
++        gpu, batch, query_sequence, key_value_sequence, heads, head_dim,
++        scale, mps_dtype, causal, headMajor, outputHeadMajor);
++    if (!cache) return 0;
++    @autoreleasepool {
++        MPSCommandBuffer *command = h3_gpu_mps_command(gpu);
++        MPSGraphTensorData *queryData = h3_gpu_graph_data(
++            query, cache.queryShape, mps_dtype, 0);
++        MPSGraphTensorData *keyData = h3_gpu_graph_data(
++            key, cache.keyValueShape, mps_dtype, 0);
++        MPSGraphTensorData *valueData = h3_gpu_graph_data(
++            value, cache.keyValueShape, mps_dtype, 0);
++        MPSGraphTensorData *outputData = h3_gpu_graph_data(
++            output, cache.outputShape, mps_dtype, 0);
++        NSDictionary *feeds = @{
++            cache.query: queryData, cache.key: keyData, cache.value: valueData
++        };
++        NSDictionary *results = @{cache.output: outputData};
++        @try {
++            [cache.graph encodeToCommandBuffer:command feeds:feeds
++                targetOperations:nil resultsDictionary:results
++                executionDescriptor:nil];
++        } @catch (NSException *exception) {
++            h3_gpu_set_error(gpu, @"MPSGraph SDPA failed: %@", exception.reason);
++            return 0;
++        }
++        gpu.command = command.rootCommandBuffer;
++    }
++    h3_gpu_stats stats = gpu.stats;
++    stats.mps_sdpa_dispatches++;
++    gpu.stats = stats;
++    return 1;
++}
++
++static uint32_t h3_gpu_sdpa_query_chunk(uint32_t sequence, int causal,
++                                        int headMajor, int outputHeadMajor,
++                                        h3_gpu_dtype tensor_dtype) {
++    const char *value = getenv("H3_SDPA_QUERY_CHUNK");
++    if (!value || !*value || causal || headMajor || outputHeadMajor ||
++        tensor_dtype != H3_GPU_BF16) return 0;
++    char *end = NULL;
++    unsigned long parsed = strtoul(value, &end, 10);
++    if (end == value || *end || parsed < 1 || parsed >= sequence ||
++        parsed > UINT32_MAX) return 0;
++    return (uint32_t)parsed;
++}
++
+ static int h3_gpu_sdpa(h3_gpu *opaque, h3_gpu_tensor *output,
+                        const h3_gpu_tensor *query, const h3_gpu_tensor *key,
+                        const h3_gpu_tensor *value, uint32_t batch,
+@@ -1542,36 +1608,48 @@ static int h3_gpu_sdpa(h3_gpu *opaque, h3_gpu_tensor *output,
+         h3_gpu_set_error(gpu, @"SDPA tensor dtype mismatch");
+         return 0;
+     }
+-    H3SDPA *cache = h3_gpu_sdpa_graph(gpu, batch, sequence, heads, head_dim,
+-                                      scale, mps_dtype, causal, headMajor,
+-                                      outputHeadMajor);
+-    if (!cache) return 0;
+-    @autoreleasepool {
+-        MPSCommandBuffer *command = h3_gpu_mps_command(gpu);
+-        MPSGraphTensorData *(^data)(const h3_gpu_tensor *) =
+-            ^MPSGraphTensorData *(const h3_gpu_tensor *tensor) {
+-                return h3_gpu_graph_data(tensor, cache.inputShape,
+-                                         mps_dtype, 0);
+-            };
+-        NSDictionary *feeds = @{
+-            cache.query: data(query), cache.key: data(key), cache.value: data(value)
+-        };
+-        MPSGraphTensorData *outputData = h3_gpu_graph_data(
+-            output, cache.outputShape, mps_dtype, 0);
+-        NSDictionary *results = @{cache.output: outputData};
+-        @try {
+-            [cache.graph encodeToCommandBuffer:command feeds:feeds targetOperations:nil
+-                             resultsDictionary:results executionDescriptor:nil];
+-        } @catch (NSException *exception) {
+-            h3_gpu_set_error(gpu, @"MPSGraph SDPA failed: %@", exception.reason);
+-            return 0;
+-        }
+-        gpu.command = command.rootCommandBuffer;
++    uint32_t chunk_rows = h3_gpu_sdpa_query_chunk(
++        sequence, causal, headMajor, outputHeadMajor, tensor_dtype);
++    if (!chunk_rows)
++        return h3_gpu_sdpa_encode(
++            gpu, output, query, key, value, batch, sequence, sequence, heads,
++            head_dim, scale, mps_dtype, causal, headMajor, outputHeadMajor);
++
++    size_t row_elements = (size_t)heads * head_dim;
++    h3_gpu_tensor *chunk_query = h3_gpu_tensor_new_bf16(
++        opaque, (size_t)chunk_rows * row_elements);
++    h3_gpu_tensor *chunk_output = h3_gpu_tensor_new_bf16(
++        opaque, (size_t)chunk_rows * row_elements);
++    if (!chunk_query || !chunk_output) {
++        h3_gpu_tensor_free(chunk_query);
++        h3_gpu_tensor_free(chunk_output);
++        h3_gpu_set_error(gpu, @"cannot allocate chunked SDPA buffers");
++        return 0;
+     }
+-    h3_gpu_stats stats = gpu.stats;
+-    stats.mps_sdpa_dispatches++;
+-    gpu.stats = stats;
+-    return 1;
++    if (getenv("H3_DIT_STAGE_TRACE")) {
++        fprintf(stderr, "h3 SDPA query chunks: rows=%u chunk=%u count=%u\n",
++                sequence, chunk_rows,
++                (sequence + chunk_rows - 1) / chunk_rows);
++        fflush(stderr);
++    }
++    int ok = 1;
++    for (uint32_t row = 0; ok && row < sequence; row += chunk_rows) {
++        uint32_t current_rows = MIN(chunk_rows, sequence - row);
++        size_t elements = (size_t)current_rows * row_elements;
++        ok = h3_gpu_copy_bf16(opaque, chunk_query, 0, query,
++                              (size_t)row * row_elements, elements) &&
++             h3_gpu_sdpa_encode(
++                 gpu, chunk_output, chunk_query, key, value, batch,
++                 current_rows, sequence, heads, head_dim, scale, mps_dtype,
++                 0, 0, 0) &&
++             h3_gpu_copy_bf16(opaque, output,
++                              (size_t)row * row_elements,
++                              chunk_output, 0, elements) &&
++             h3_gpu_submit(opaque) && h3_gpu_begin(opaque);
++    }
++    h3_gpu_tensor_free(chunk_query);
++    h3_gpu_tensor_free(chunk_output);
++    return ok;
+ }
+ 
+ int h3_gpu_sdpa_f32(h3_gpu *opaque, h3_gpu_tensor *output,

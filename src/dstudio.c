@@ -341,8 +341,15 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define LOG_RING_CAP 768
 #define DIAG_SSE_MAX 8
 #define DS4_REPO_URL "https://github.com/antirez/ds4"
-#define DS4_UPSTREAM_COMMIT "84cc882352757baf628a1776badf7cc54d584e28"
+/* The primary managed checkout always follows the pinned upstream main. */
+#define DS4_UPSTREAM_COMMIT "8db89fe083ae4d17c9a2428ccd29803d3ae8f577"
 #define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
+
+/* GLM 5.3 uses its upstream inference branch in a side-by-side runtime. Model
+ * files remain centralized under ./ds4/gguf and are shared by that checkout. */
+#define DS4_GLM53_UPSTREAM_COMMIT "a60a2a0d25137a849a101e04e86ea830a346073a"
+#define DS4_GLM53_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_GLM53_UPSTREAM_COMMIT
+#define DS4_GLM53_DIR_NAME "ds4-glm5.3"
 
 /* Optional Laguna S 2.1 engine checkout. Laguna lives on its own upstream
  * branch and currently requires Metal plus full model residency, so DStudio
@@ -358,19 +365,21 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define DS4_CONTENT_COMMIT "66401282c5c5e3922a5f555a009de24cde149749"
 #define DS4_CONTENT_ARCHIVE_URL "https://codeload.github.com/" DS4_CONTENT_REPO "/tar.gz/" DS4_CONTENT_COMMIT
 
-#define MODEL_STD "ds4flash.gguf"
+#define MODEL_STD "gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"
 #define MODEL_UNC "gguf/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128.gguf"
-/* Model variants the UI can pick: flash = the abliterated Flash above, pro =
- * the official V4-Pro IQ2XXS (download_model.sh pro-q2-imatrix). */
-#define MODEL_FLASH MODEL_UNC
+/* Model variants the UI can pick: flash = the official chat-tuned Flash IQ2XXS,
+ * pro = the official V4-Pro IQ2XXS. Abliterated remains an explicit GGUF pick. */
+#define MODEL_FLASH MODEL_STD
 #define MODEL_PRO   "gguf/DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix.gguf"
 #define MODEL_LAGUNA "gguf/laguna-s-2.1-Q4_K_M.gguf"
-#define MODEL_FLASH_HF_REVISION "08f6c6225ab4d29a735ab7d48d46bd0a3a767a07"
-#define MODEL_FLASH_EXPECTED_BYTES 86720111552LL
-#define MODEL_FLASH_SHA256 "55a46e7e9a51f3d6708559b8b284c3e60f6b97f9bab1f2c9633948c8331e99ee"
-#define MODEL_FLASH_URL \
+#define MODEL_GLM53_Q2 "gguf/GLM-5.3-Flash-Q2.gguf"
+#define MODEL_GLM53_Q2_EXPECTED_BYTES 96505816384LL
+#define MODEL_ABLITERATED_HF_REVISION "08f6c6225ab4d29a735ab7d48d46bd0a3a767a07"
+#define MODEL_ABLITERATED_EXPECTED_BYTES 86720111552LL
+#define MODEL_ABLITERATED_SHA256 "55a46e7e9a51f3d6708559b8b284c3e60f6b97f9bab1f2c9633948c8331e99ee"
+#define MODEL_ABLITERATED_URL \
     "https://huggingface.co/apetersson/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128/resolve/" \
-    MODEL_FLASH_HF_REVISION "/" \
+    MODEL_ABLITERATED_HF_REVISION "/" \
     "DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128.gguf?download=true"
 #define MODEL_DSPARK_UPSTREAM "gguf/DeepSeek-V4-Flash-DSpark-support-0731.gguf"
 #define MODEL_DSPARK_ABLITERATED "gguf/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128-DSpark-support.gguf"
@@ -378,16 +387,16 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define MODEL_DSPARK_SHA256 "373428b876cb77795132a829486463173206693f92ef172ada4e346e46a40e2f"
 #define MODEL_DSPARK_URL \
     "https://huggingface.co/apetersson/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128/resolve/" \
-    MODEL_FLASH_HF_REVISION "/" \
+    MODEL_ABLITERATED_HF_REVISION "/" \
     "DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128-DSpark-support.gguf?download=true"
 #define MODEL_PRO_EXPECTED_BYTES 430000000000LL  /* ~430 GB (pro-q2-imatrix), for the % */
 
-enum { ENGINE_NONE = 0, ENGINE_SERVER, ENGINE_AGENT, ENGINE_DESIGN };
+enum { ENGINE_NONE = 0, ENGINE_SERVER, ENGINE_AGENT, ENGINE_COWORK, ENGINE_DESIGN };
 enum { SSD_STREAMING_OFF = 0, SSD_STREAMING_ON = 1, SSD_STREAMING_AUTO = 2 };
 
-/* The piped modes (agent and design) share transcript and protocol
+/* The piped modes (agent, cowork and design) share transcript and protocol
  * (+DWARFSTAR_WAITING, \x1e events): same send/poll endpoints. */
-#define MODE_IS_PIPED(m) ((m) == ENGINE_AGENT || (m) == ENGINE_DESIGN)
+#define MODE_IS_PIPED(m) ((m) == ENGINE_AGENT || (m) == ENGINE_COWORK || (m) == ENGINE_DESIGN)
 
 typedef struct {
     int uncensored;   /* 0 standard, 1 uncensored */
@@ -397,10 +406,13 @@ typedef struct {
     int kv_space_mb;  /* server: default 24576 */
     int kv_min_tok;   /* server: default 128 */
     int think;        /* agent/design: 0 nothink, 1 think (high), 2 think-max. default 1 */
+    int design_think_tokens; /* design reasoning cap per tool round; 0 = unlimited */
     int ssd_streaming;/* 0 off, 1 force on, 2 auto. */
 } engine_cfg;
 
-static const engine_cfg ENGINE_DEFAULTS = { 1, 28000, 262144, 90, 24576, 128, 1, SSD_STREAMING_AUTO };
+static const engine_cfg ENGINE_DEFAULTS = {
+    0, 28000, 65536, 90, 24576, 128, 1, 0, SSD_STREAMING_OFF
+};
 
 /* ---- global engine state ---- */
 static int       g_mode = ENGINE_NONE;
@@ -1000,6 +1012,7 @@ static long long dstudio_now_ms(void) {
 static const char *task_mode_name(int m) {
     return m == ENGINE_SERVER ? "server" :
            m == ENGINE_AGENT ? "agent" :
+           m == ENGINE_COWORK ? "cowork" :
            m == ENGINE_DESIGN ? "design" : "none";
 }
 
@@ -1129,6 +1142,7 @@ static void maybe_complete_launch_task(int mode) {
 
 static const char *task_kind_for_mode(int mode) {
     return mode == ENGINE_DESIGN ? "design-turn" :
+           mode == ENGINE_COWORK ? "cowork-turn" :
            mode == ENGINE_AGENT ? "agent-turn" : "turn";
 }
 
@@ -1438,7 +1452,8 @@ static void api_diagnostics(int fd) {
              json_dyn_printf(&b, "\"physicalBytes\":%llu,\"modelBytes\":%lld,\"iogpuWiredLimitMb\":%lld,\"iogpuWiredTargetMb\":%lld,\"iogpuWiredMinMb\":%lld,\"iogpuWiredMaxMb\":%lld",
                              phys_mem, model_bytes, iogpu_wired_mb, IOGPU_WIRED_TARGET_MB,
                              IOGPU_WIRED_MIN_MB, IOGPU_WIRED_MAX_MB) &&
-             json_dyn_printf(&b, ",\"ctx\":%d,\"power\":%d", g_cfg.ctx, g_cfg.power) &&
+             json_dyn_printf(&b, ",\"ctx\":%d,\"power\":%d,\"designThinkTokens\":%d",
+                             g_cfg.ctx, g_cfg.power, g_cfg.design_think_tokens) &&
              json_dyn_puts(&b, ",\"ssdStreaming\":\"") &&
              json_dyn_puts(&b, g_cfg.ssd_streaming == SSD_STREAMING_ON ? "on" : g_cfg.ssd_streaming == SSD_STREAMING_OFF ? "off" : "auto") &&
              json_dyn_puts(&b, "\",\"ssdStreamingEffective\":") &&
@@ -2062,8 +2077,8 @@ static int model_rpc_start(int id, char *body) {
 
 /* ==================== model / kv / port ==================== */
 
-/* Active model variant the UI picked ("flash" | "pro"). Flash is the default
- * (the abliterated Flash GGUF). When "pro", the engine launches with MODEL_PRO. */
+/* Active model variant the UI picked ("flash" | "pro"). Flash is the standard
+ * chat-tuned GGUF. Abliterated is available only as an explicit GGUF choice. */
 static char g_variant[16] = "flash";
 static pid_t g_dl_pid = -1;          /* background model download, if any */
 static char  g_dl_variant[48] = "";  /* download_model.sh target */
@@ -2086,7 +2101,7 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
     const char *file = "";
     long long bytes = 0;
     if (!strcmp(target, "flash-abliterated")) {
-        file = MODEL_FLASH; bytes = MODEL_FLASH_EXPECTED_BYTES;
+        file = MODEL_UNC; bytes = MODEL_ABLITERATED_EXPECTED_BYTES;
     } else if (!strcmp(target, "ds4f-q2")) {
         file = "gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf";
         bytes = 87000000000LL;
@@ -2105,14 +2120,8 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
         file = MODEL_DSPARK_ABLITERATED; bytes = MODEL_DSPARK_EXPECTED_BYTES;
     } else if (!strcmp(target, "pro-q2-imatrix")) {
         file = MODEL_PRO; bytes = MODEL_PRO_EXPECTED_BYTES;
-    } else if (!strcmp(target, "glm-unsloth-q4")) {
-        file = "gguf/GLM-5.2-UD-Q4_K_XL-00001-of-00011.gguf";
-    } else if (!strcmp(target, "glm-antirez-iq2xxs")) {
-        file = "gguf/GLM-5.2-UD-IQ2_XXS_RoutedIQ2XXS_blk78Q2K.gguf";
-    } else if (!strcmp(target, "glm-antirez-q2")) {
-        file = "gguf/GLM-5.2-UD-Q2_K_RoutedQ2K.gguf"; bytes = 262000000000LL;
-    } else if (!strcmp(target, "glm-antirez-q4")) {
-        file = "gguf/GLM-5.2-UD-Q4_K_RoutedQ4K.gguf"; bytes = 434000000000LL;
+    } else if (!strcmp(target, "glm53-q2")) {
+        file = MODEL_GLM53_Q2; bytes = MODEL_GLM53_Q2_EXPECTED_BYTES;
     } else if (!strcmp(target, "laguna-q4")) {
         file = MODEL_LAGUNA; bytes = 68000000000LL;
     }
@@ -2174,11 +2183,11 @@ static int paused_model_download(char *target, size_t targetsz,
                                  long long *bytes, long long *expected) {
     if (g_dl_pid > 0) return 0;
 
-    /* The default model is downloaded directly into the main managed checkout
+    /* The abliterated model is downloaded directly into the main managed checkout
      * using one stable .part file, so it remains resumable across app restarts. */
     char flash_final[DSTUDIO_PATH_MAX + 1100], flash_part[DSTUDIO_PATH_MAX + 1110];
     struct stat flash_st;
-    snprintf(flash_final, sizeof flash_final, "%s/%s", g_ds4_dir, MODEL_FLASH);
+    snprintf(flash_final, sizeof flash_final, "%s/%s", g_ds4_dir, MODEL_UNC);
     snprintf(flash_part, sizeof flash_part, "%s.part", flash_final);
     if ((stat(flash_final, &flash_st) != 0 || !S_ISREG(flash_st.st_mode) ||
          flash_st.st_size <= 0) &&
@@ -2186,7 +2195,7 @@ static int paused_model_download(char *target, size_t targetsz,
         flash_st.st_size > 0) {
         cstr_copy(target, targetsz, "flash-abliterated");
         if (bytes) *bytes = (long long)flash_st.st_size;
-        if (expected) *expected = MODEL_FLASH_EXPECTED_BYTES;
+        if (expected) *expected = MODEL_ABLITERATED_EXPECTED_BYTES;
         return 1;
     }
 
@@ -2378,10 +2387,10 @@ static int child_download_abliterated_resumable(const char *checkout) {
     snprintf(gguf, sizeof gguf, "%s/gguf", checkout);
     if (mkdir(gguf, 0755) != 0 && errno != EEXIST) return 1;
     char part[DSTUDIO_PATH_MAX + 1100], final[DSTUDIO_PATH_MAX + 1100];
-    snprintf(final, sizeof final, "%s/%s", checkout, MODEL_FLASH);
+    snprintf(final, sizeof final, "%s/%s", checkout, MODEL_UNC);
     snprintf(part, sizeof part, "%s.part", final);
-    return child_curl_resumable(part, final, MODEL_FLASH_URL,
-                                MODEL_FLASH_EXPECTED_BYTES, MODEL_FLASH_SHA256);
+    return child_curl_resumable(part, final, MODEL_ABLITERATED_URL,
+                                MODEL_ABLITERATED_EXPECTED_BYTES, MODEL_ABLITERATED_SHA256);
 }
 
 static int child_download_dspark_resumable(const char *checkout) {
@@ -2493,11 +2502,23 @@ static int model_is_glm(void) {
     const char *base = strrchr(rel, '/');
     return strstr(base ? base + 1 : rel, "GLM") != NULL;
 }
+static int model_file_is_supported(const char *name) {
+    if (!name) return 0;
+    size_t len = strlen(name);
+    if (!mem_contains_ci(name, len, "glm")) return 1;
+    return mem_contains_ci(name, len, "glm-5.3");
+}
 static int model_is_laguna(void) {
     const char *rel = current_model_rel();
     const char *base = strrchr(rel, '/');
     const char *name = base ? base + 1 : rel;
     return mem_contains_ci(name, strlen(name), "laguna");
+}
+static int model_is_flash(void) {
+    const char *rel = current_model_rel();
+    const char *base = strrchr(rel, '/');
+    const char *name = base ? base + 1 : rel;
+    return mem_contains_ci(name, strlen(name), "deepseek-v4-flash");
 }
 static int file_present_in_dir(const char *dir, const char *rel) {
     char full[2048];
@@ -2538,6 +2559,19 @@ static long long current_model_file_size(void) {
     return (long long)st.st_size;
 }
 
+static const char *current_dspark_rel(void) {
+    return strstr(current_model_rel(), "Abliterated")
+        ? MODEL_DSPARK_ABLITERATED : MODEL_DSPARK_UPSTREAM;
+}
+
+static long long current_dspark_file_size(void) {
+    char full[2048];
+    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, current_dspark_rel());
+    struct stat st;
+    if (stat(full, &st) != 0 || !S_ISREG(st.st_mode)) return -1;
+    return (long long)st.st_size;
+}
+
 static long long sysctl_iogpu_wired_limit_mb(void) {
 #ifdef __APPLE__
     int64_t v = 0;
@@ -2557,13 +2591,154 @@ static long long sysctl_iogpu_wired_limit_mb(void) {
     return -1;
 }
 
+/* Exact DwarfStar Metal graph allocation for DeepSeek V4 Flash with the
+ * launcher's 1024-token prefill chunk. Keep this deliberately local and
+ * shape-specific: it lets the launcher reject/adjust a configuration before
+ * Metal falls back to page-faulting an oversized model on unified memory. */
+static unsigned long long flash_context_memory_bytes(int ctx_size) {
+    const unsigned long long ctx = ctx_size > 0 ? (unsigned long long)ctx_size : 1ull;
+    const unsigned long long prefill_cap = ctx < 1024ull ? ctx : 1024ull;
+    unsigned long long raw_cap = 128ull + prefill_cap;
+    if (raw_cap > ctx) raw_cap = ctx;
+    raw_cap = (raw_cap + 255ull) & ~255ull;
+    if (raw_cap > 8192ull) raw_cap = 8192ull;
+    if (raw_cap < 128ull) raw_cap = ctx < 128ull ? ctx : 128ull;
+
+    const unsigned long long comp4 = ctx / 4ull + 2ull;
+    const unsigned long long comp128 = ctx / 128ull + 2ull;
+    const unsigned long long raw = 43ull * raw_cap * 512ull * 4ull;
+    const unsigned long long compressed =
+        21ull * comp4 * (512ull * 2ull + 128ull * 4ull) +
+        20ull * comp128 * 512ull * 2ull;
+    const unsigned long long scratch =
+        2ull * comp4 * prefill_cap * 4ull +
+        (prefill_cap / 4ull + 2ull) * 512ull * 4ull;
+    return raw + compressed + scratch;
+}
+
+static unsigned long long local_metal_budget_bytes(void) {
+#ifdef __APPLE__
+    const unsigned long long mib = 1024ull * 1024ull;
+    const unsigned long long gib = 1024ull * mib;
+    const long long wired_mb = sysctl_iogpu_wired_limit_mb();
+    unsigned long long budget = wired_mb > 0 ? (unsigned long long)wired_mb * mib : 0;
+    const unsigned long long physical = dstudio_physical_memory_bytes();
+    const unsigned long long physical_budget = physical > 8ull * gib ? physical - 8ull * gib : 0;
+    if (budget == 0 || (physical_budget != 0 && physical_budget < budget)) budget = physical_budget;
+    return budget;
+#else
+    return 0;
+#endif
+}
+
+static unsigned long long flash_required_memory_bytes(int ctx_size,
+                                                       unsigned long long model_bytes,
+                                                       unsigned long long support_bytes) {
+    const unsigned long long gib = 1024ull * 1024ull * 1024ull;
+    return model_bytes + support_bytes + flash_context_memory_bytes(ctx_size) + 4ull * gib;
+}
+
+static int flash_largest_safe_context(int requested_ctx,
+                                      unsigned long long model_bytes,
+                                      unsigned long long support_bytes,
+                                      unsigned long long budget) {
+    static const int contexts[] = {
+        1048576, 524288, 262144, 131072, 65536, 32768, 16384, 8192
+    };
+    for (size_t i = 0; i < sizeof contexts / sizeof contexts[0]; i++) {
+        if (contexts[i] > requested_ctx) continue;
+        if (flash_required_memory_bytes(contexts[i], model_bytes, support_bytes) <= budget)
+            return contexts[i];
+    }
+    return 0;
+}
+
+static int flash_config_fits_metal(const engine_cfg *cfg, int with_dspark,
+                                   unsigned long long *required_out,
+                                   unsigned long long *budget_out) {
+    const long long model_bytes = current_model_file_size();
+    const long long support_bytes = with_dspark ? current_dspark_file_size() : 0;
+    const unsigned long long budget = local_metal_budget_bytes();
+    if (required_out) *required_out = 0;
+    if (budget_out) *budget_out = budget;
+    if (!cfg || !model_is_flash() || model_bytes <= 0 || budget == 0 ||
+        (with_dspark && support_bytes <= 0)) return 0;
+    const unsigned long long required = flash_required_memory_bytes(
+        cfg->ctx, (unsigned long long)model_bytes,
+        with_dspark ? (unsigned long long)support_bytes : 0ull);
+    if (required_out) *required_out = required;
+    return required <= budget;
+}
+
+/* Make a pathological DSpark configuration safe before spawning. Plain DS4
+ * must preserve the requested context when explicit expert SSD streaming is
+ * off: Metal uses full residency when it fits and its existing lazy mmap path
+ * otherwise. Context reduction is a quality regression, so the largest fully
+ * resident context is diagnostic information only. */
+static int normalize_flash_memory_config(engine_cfg *cfg, int remote_model,
+                                         char *note, size_t notesz) {
+    if (note && notesz) note[0] = '\0';
+    /* DSpark is an external DeepSeek Flash draft model. GLM 5.3 has its own
+     * integrated MTP block, so a persisted DSpark toggle must never attach a
+     * DeepSeek support GGUF to GLM (or to another model family). */
+    if (cfg && !remote_model && !model_is_flash() && g_dspark_enabled) {
+        g_dspark_enabled = 0;
+        if (note && notesz)
+            snprintf(note, notesz,
+                     "DSpark disabled because it is only compatible with DeepSeek V4 Flash");
+    }
+#ifndef __APPLE__
+    (void)cfg; (void)remote_model;
+    return 1;
+#else
+    if (!cfg || remote_model || !model_is_flash() || current_model_file_size() <= 0 ||
+        local_metal_budget_bytes() == 0) return 1;
+    const int requested_ctx = cfg->ctx;
+    const int requested_dspark = g_dspark_enabled;
+    unsigned long long required = 0, budget = 0;
+
+    if (g_dspark_enabled &&
+        !flash_config_fits_metal(cfg, 1, &required, &budget)) {
+        g_dspark_enabled = 0;
+    }
+
+    const int mapped = !g_dspark_enabled &&
+        cfg->ssd_streaming != SSD_STREAMING_ON &&
+        !flash_config_fits_metal(cfg, 0, &required, &budget);
+    if (note && notesz && mapped) {
+        const long long model_bytes = current_model_file_size();
+        const int resident_ctx = flash_largest_safe_context(
+            requested_ctx,
+            model_bytes > 0 ? (unsigned long long)model_bytes : 0ull,
+            0, budget);
+        if (requested_dspark && !g_dspark_enabled) {
+            snprintf(note, notesz,
+                     "DSpark disabled because the support model exceeds the Metal budget; preserving the requested %d-token context through DS4's lazy memory-mapped path with explicit SSD streaming off",
+                     requested_ctx);
+        } else if (resident_ctx > 0) {
+            snprintf(note, notesz,
+                     "Preserving the requested %d-token context through DS4's lazy memory-mapped path with explicit SSD streaming off (%d tokens is the largest estimated fully resident context)",
+                     requested_ctx, resident_ctx);
+        } else {
+            snprintf(note, notesz,
+                     "Preserving the requested %d-token context through DS4's lazy memory-mapped path with explicit SSD streaming off",
+                     requested_ctx);
+        }
+    } else if (note && notesz && requested_dspark && !g_dspark_enabled) {
+        snprintf(note, notesz,
+                 "DSpark disabled because the main and support models exceed the Metal memory budget");
+    }
+    return 1;
+#endif
+}
+
 static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_model,
                                           char *reason, size_t reasonsz,
                                           char *err, size_t errsz) {
     if (reason && reasonsz) reason[0] = '\0';
     if (err && errsz) err[0] = '\0';
     if (!cfg || cfg->ssd_streaming == SSD_STREAMING_OFF) {
-        snprintf(reason, reasonsz, "disabled");
+        snprintf(reason, reasonsz, "disabled: DS4-only mode uses normal Metal mapped residency");
         return 0;
     }
     if (remote_model) {
@@ -2572,6 +2747,14 @@ static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_mode
             return -1;
         }
         snprintf(reason, reasonsz, "auto disabled for remote model");
+        return 0;
+    }
+    if (g_dspark_enabled) {
+        if (cfg->ssd_streaming == SSD_STREAMING_ON) {
+            snprintf(err, errsz, "DSpark is not compatible with SSD streaming");
+            return -1;
+        }
+        snprintf(reason, reasonsz, "auto disabled: DSpark requires the memory-mapped model path");
         return 0;
     }
     if (model_is_laguna()) {
@@ -2587,39 +2770,14 @@ static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_mode
         snprintf(err, errsz, "--ssd-streaming is Metal-only; this Windows runtime launches CPU binaries");
         return -1;
     }
-    snprintf(reason, reasonsz, "auto disabled on Windows CPU runtime");
-    return 0;
-#elif !defined(__APPLE__)
-    if (cfg->ssd_streaming == SSD_STREAMING_ON) {
-        snprintf(reason, reasonsz, "forced on for local CUDA/ROCm/CPU backend");
-        return 1;
-    }
-    long long model_bytes = current_model_file_size();
-    unsigned long long mem_bytes = dstudio_physical_memory_bytes();
-    const unsigned long long gib = 1024ull * 1024ull * 1024ull;
-    if (!strcmp(g_variant, "pro") ||
-        (model_bytes > 64ll * 1024ll * 1024ll * 1024ll) ||
-        (mem_bytes > 0 && mem_bytes <= 192ull * gib)) {
-        snprintf(reason, reasonsz, "auto enabled for large model / CUDA-ROCm-CPU memory pressure");
-        return 1;
-    }
-    snprintf(reason, reasonsz, "auto disabled: local backend memory budget is sufficient");
+    snprintf(reason, reasonsz, "auto disabled: DS4 is the sole active heavyweight model");
     return 0;
 #else
     if (cfg->ssd_streaming == SSD_STREAMING_ON) {
-        snprintf(reason, reasonsz, "forced on");
+        snprintf(reason, reasonsz, "forced on by user");
         return 1;
     }
-    long long model_bytes = current_model_file_size();
-    unsigned long long mem_bytes = dstudio_physical_memory_bytes();
-    const unsigned long long gib = 1024ull * 1024ull * 1024ull;
-    if (!strcmp(g_variant, "pro") ||
-        (model_bytes > 64ll * 1024ll * 1024ll * 1024ll) ||
-        (mem_bytes > 0 && mem_bytes <= 192ull * gib)) {
-        snprintf(reason, reasonsz, "auto enabled for large ds4 model / memory pressure");
-        return 1;
-    }
-    snprintf(reason, reasonsz, "auto disabled: memory budget is sufficient");
+    snprintf(reason, reasonsz, "auto disabled: DS4 is the sole active heavyweight model");
     return 0;
 #endif
 }
@@ -2710,6 +2868,7 @@ static int any_gguf_present(void) {
         while ((e = readdir(d))) {
             const char *dot = strrchr(e->d_name, '.');
             if (!dot || strcmp(dot, ".gguf")) continue;
+            if (!model_file_is_supported(e->d_name)) continue;
             char full[2300];
             if (!path_join(full, sizeof full, dir, e->d_name)) continue;
             struct stat st;
@@ -2869,6 +3028,85 @@ static void mkpath(const char *path) {
     mkdir(tmp, 0755);
 }
 
+/* The native launcher reads the same small file before creating its window, so
+ * a port chosen in Settings survives app restarts. DS4UI_DATA_DIR keeps tests
+ * and portable bundles isolated from the user's normal app data. */
+static int dstudio_data_dir_path(char *out, size_t outsz) {
+    const char *configured = getenv("DS4UI_DATA_DIR");
+    int n = -1;
+    if (configured && configured[0]) {
+        n = snprintf(out, outsz, "%s", configured);
+#ifdef _WIN32
+    } else if (getenv("LOCALAPPDATA") && getenv("LOCALAPPDATA")[0]) {
+        n = snprintf(out, outsz, "%s/DStudio", getenv("LOCALAPPDATA"));
+#elif defined(__APPLE__)
+    } else if (getenv("HOME") && getenv("HOME")[0]) {
+        n = snprintf(out, outsz, "%s/Library/Application Support/DStudio", getenv("HOME"));
+#else
+    } else if (getenv("XDG_CONFIG_HOME") && getenv("XDG_CONFIG_HOME")[0]) {
+        n = snprintf(out, outsz, "%s/dstudio", getenv("XDG_CONFIG_HOME"));
+    } else if (getenv("HOME") && getenv("HOME")[0]) {
+        n = snprintf(out, outsz, "%s/.config/dstudio", getenv("HOME"));
+#endif
+    }
+    return n >= 0 && (size_t)n < outsz;
+}
+
+static int persist_http_port(int port) {
+    char dir[DSTUDIO_PATH_MAX], path[DSTUDIO_PATH_MAX + 32];
+    if (!dstudio_data_dir_path(dir, sizeof dir)) return 0;
+    mkpath(dir);
+    int n = snprintf(path, sizeof path, "%s/http-port", dir);
+    if (n < 0 || (size_t)n >= sizeof path) return 0;
+    FILE *f = fopen(path, "wb");
+    if (!f) return 0;
+    int ok = fprintf(f, "%d\n", port) > 0 && fflush(f) == 0;
+#ifndef _WIN32
+    if (ok) ok = fsync(fileno(f)) == 0;
+    (void)chmod(path, 0600);
+#endif
+    if (fclose(f) != 0) ok = 0;
+    return ok;
+}
+
+/* Keep an explicitly selected engine checkout outside browser storage. The
+ * launcher needs this before the UI exists, otherwise every app restart falls
+ * back to the managed ./ds4 directory and immediately shows the engine gate
+ * again. */
+static int persist_ds4_checkout(const char *checkout) {
+    char dir[DSTUDIO_PATH_MAX], path[DSTUDIO_PATH_MAX + 32];
+    if (!checkout || !checkout[0] || !dstudio_data_dir_path(dir, sizeof dir)) return 0;
+    mkpath(dir);
+    int n = snprintf(path, sizeof path, "%s/engine-checkout", dir);
+    if (n < 0 || (size_t)n >= sizeof path) return 0;
+    FILE *f = fopen(path, "wb");
+    if (!f) return 0;
+    int ok = fprintf(f, "%s\n", checkout) > 0 && fflush(f) == 0;
+#ifndef _WIN32
+    if (ok) ok = fsync(fileno(f)) == 0;
+    (void)chmod(path, 0600);
+#endif
+    if (fclose(f) != 0) ok = 0;
+    return ok;
+}
+
+static int load_persisted_ds4_checkout(char *out, size_t outsz) {
+    char dir[DSTUDIO_PATH_MAX], path[DSTUDIO_PATH_MAX + 32];
+    if (!out || outsz == 0 || !dstudio_data_dir_path(dir, sizeof dir)) return 0;
+    int n = snprintf(path, sizeof path, "%s/engine-checkout", dir);
+    if (n < 0 || (size_t)n >= sizeof path) return 0;
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    if (!fgets(out, (int)outsz, f)) {
+        fclose(f);
+        out[0] = '\0';
+        return 0;
+    }
+    fclose(f);
+    out[strcspn(out, "\r\n")] = '\0';
+    return out[0] != '\0';
+}
+
 static void close_pipes(void);
 
 static int port_listening(int port) {
@@ -2953,10 +3191,23 @@ static void reuse_external_ds4(const engine_cfg *cfg, int ready, pid_t owner) {
     }
 }
 
+/* A DS4-family server is reusable only when its live catalog matches the model
+ * family selected in DStudio. This prevents a leftover DeepSeek process from
+ * being adopted while the UI is loading GLM 5.3 (or Laguna), and vice versa. */
+static int ds4_catalog_matches_selected_model(const char *response) {
+    if (!response || strstr(response, " 200 OK") == NULL ||
+        strstr(response, "\"owned_by\":\"ds4.c\"") == NULL) {
+        return 0;
+    }
+    if (model_is_glm())
+        return strstr(response, "\"id\":\"glm-5.3-flash\"") != NULL;
+    if (model_is_laguna())
+        return strstr(response, "\"id\":\"laguna-s-2.1\"") != NULL;
+    return strstr(response, "\"id\":\"deepseek-v4-") != NULL;
+}
+
 /* A listener on the default port may belong to another DStudio-family app.
- * Reuse it only when its OpenAI model catalog identifies a DS4 server; a bare
- * TCP accept is not enough because an unrelated service must not be treated as
- * a ready local model. */
+ * A bare TCP accept or generic ds4 owner marker is not enough. */
 static int ds4_server_compatible(int port) {
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return 0;
@@ -2993,9 +3244,7 @@ static int ds4_server_compatible(int port) {
     }
     close(s);
     response[used] = '\0';
-    return strstr(response, " 200 OK") != NULL &&
-           (strstr(response, "\"owned_by\":\"ds4.c\"") != NULL ||
-            strstr(response, "\"id\":\"deepseek-v4-") != NULL);
+    return ds4_catalog_matches_selected_model(response);
 }
 
 /* Opens an HTTP listen socket bound to `host`:`port`. Returns the fd or -1. */
@@ -3568,13 +3817,20 @@ static int kill_external_server(int port) {
 #endif
 }
 
-/* Common to both spawns: prepares the Metal env in the child. GLM rejects
- * --power below 100 and needs its full-layer streaming prefill path; Laguna
- * keeps the upstream full-residency defaults. */
-static void child_setenv_metal(void) {
+/* Common to both spawns: prepares the Metal env in the child. Flash uses the
+ * upstream residency path whenever the complete launch fits the measured Metal
+ * budget; oversized models keep the lazy mapped path. */
+static void child_setenv_metal(const engine_cfg *cfg) {
     if (!model_is_laguna()) {
-        setenv("DS4_METAL_NO_RESIDENCY", "1", 1);
-        setenv("DS4_METAL_NO_MODEL_WARMUP", "1", 1);
+        const int resident_flash = !g_ssd_streaming_effective &&
+            model_is_flash() && flash_config_fits_metal(cfg, g_dspark_enabled, NULL, NULL);
+        if (resident_flash) {
+            unsetenv("DS4_METAL_NO_RESIDENCY");
+            unsetenv("DS4_METAL_NO_MODEL_WARMUP");
+        } else {
+            setenv("DS4_METAL_NO_RESIDENCY", "1", 1);
+            setenv("DS4_METAL_NO_MODEL_WARMUP", "1", 1);
+        }
         setenv("DS4_METAL_PREFILL_CHUNK", "1024", 1);
         setenv("DS4_METAL_GRAPH_TOKEN_SPLIT_LAYERS", "0", 1);
         /* Upstream 4893e0c seeds the streamed-expert cache from mapped
@@ -3598,6 +3854,8 @@ static void child_setenv_metal(void) {
         unsetenv("DS4_METAL_GRAPH_TOKEN_SPLIT_LAYERS");
         unsetenv("DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST");
     }
+    if (g_dspark_enabled) setenv("DS4_DSPARK_STATS", "1", 1);
+    else unsetenv("DS4_DSPARK_STATS");
     /* GLM streaming: the batch-selected-addr prefill path fails on partial
      * model maps (model >> RAM); the full-layer prefill path is the one that
      * works with the on-demand exact-view fallback. */
@@ -3661,6 +3919,8 @@ static void child_setenv_skills(void) {
         char p[1100];
         snprintf(p, sizeof p, "%s/extension", g_web_dir);
         setenv("DS4UI_SKILLS_DIR", p, 1);
+        snprintf(p, sizeof p, "%s/extension/cowork/office_tool.py", g_web_dir);
+        setenv("DS4UI_COWORK_HELPER", p, 1);
     }
     /* The see_image agent tool posts images to this DStudio server's
      * /api/vision/describe (which runs the local vision model), so the agent
@@ -3736,6 +3996,7 @@ static void win_copy_packaged_engine_to_ds4(void) {
     static const char *files[] = {
         "ds4-server.exe",
         "ds4-agent-jsonl.exe",
+        "ds4-cowork.exe",
         "ds4-agent-jsonl.ver",
         "ds4-design.exe",
         NULL
@@ -3854,36 +4115,16 @@ static int win_spawn(const char *cwd, char *const argv[], int want_stdin,
 #endif
 
 /* Starts ds4-server. out/err piped to us for progress. */
-/* Resolve the DSpark speculative-decoding support GGUF in the active checkout.
- * Prefers the file matching the current model family (abliterated default vs
- * upstream chat), then any *DSpark*.gguf already present. */
+/* Resolve only the DSpark support GGUF that matches the active main model.
+ * Accepting an arbitrary fallback silently couples incompatible hidden states. */
 static int resolve_dspark_file(char *out, size_t outsz) {
     out[0] = '\0';
-    const char *preferred = strstr(current_model_rel(), "Abliterated")
-        ? MODEL_DSPARK_ABLITERATED : MODEL_DSPARK_UPSTREAM;
     char full[DSTUDIO_PATH_MAX + 1100];
-    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, preferred);
+    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, current_dspark_rel());
     if (access(full, R_OK) == 0) {
         cstr_copy(out, outsz, full);
         return 1;
     }
-    char gguf[DSTUDIO_PATH_MAX];
-    snprintf(gguf, sizeof gguf, "%s/gguf", g_ds4_dir);
-    DIR *d = opendir(gguf);
-    if (!d) return 0;
-    struct dirent *de;
-    while ((de = readdir(d)) != NULL) {
-        const char *name = de->d_name;
-        if (!strstr(name, "DSpark") || !name_has_suffix(name, ".gguf")) continue;
-        snprintf(full, sizeof full, "%s/%s", gguf, name);
-        struct stat st;
-        if (stat(full, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) {
-            cstr_copy(out, outsz, full);
-            closedir(d);
-            return 1;
-        }
-    }
-    closedir(d);
     return 0;
 }
 
@@ -3956,7 +4197,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     if (pid < 0) { snprintf(err, errsz, "fork: %s", strerror(errno)); return 0; }
     if (pid == 0) {
         if (chdir(g_ds4_dir) != 0) _exit(127);
-        child_setenv_metal();
+        child_setenv_metal(cfg);
         dup2(op[1], STDOUT_FILENO);
         dup2(ep[1], STDERR_FILENO);
         close(op[0]); close(op[1]); close(ep[0]); close(ep[1]);
@@ -3993,15 +4234,21 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
 
 #include "dstudio_patch.c"
 
-/* Build the -sys text injected into the agent and design engines: an optional
- * design system plus an optional user-authored skill. DStudio ships/downloads no
- * skills; the writable user directory is the sole skill source. */
-static char *build_skill_sys(int design_mode) {
+/* Build the -sys text injected into the piped engines: a Cowork charter or
+ * optional design system, followed by an optional user-authored skill. */
+static char *build_skill_sys(int mode) {
     if (!g_web_dir[0]) return NULL;
+    const int design_mode = mode == ENGINE_DESIGN;
+    const int cowork_mode = mode == ENGINE_COWORK;
     char path[2300];
     char *buf = NULL; size_t len = 0, cap = 0;
 
     size_t n = 0;
+    if (cowork_mode) {
+        snprintf(path, sizeof path, "%s/extension/cowork/COWORK.md", g_web_dir);
+        n = 0;
+        sys_append(&buf, &len, &cap, jsonl_read_file(path, &n), n);
+    }
     if (design_mode && g_design_system[0]) {
         snprintf(path, sizeof path, "%s/extension/design-systems/%s/DESIGN.md", g_web_dir, g_design_system);
         n = 0;
@@ -4014,7 +4261,7 @@ static char *build_skill_sys(int design_mode) {
 
     /* On-demand tools. User skills stay out of the startup prompt and are found
      * through the local user catalog; design systems/craft remain separate packs. */
-    const size_t catcap = design_mode ? 64 * 1024 : 8192;
+    const size_t catcap = design_mode ? 64 * 1024 : 16 * 1024;
     char *cat = malloc(catcap);
     if (cat) {
         size_t o = 0;
@@ -4365,8 +4612,8 @@ static int jsonl_make(const char *ds4_abs, const char *target) {
         if (chdir(ds4_abs) != 0) _exit(127);
         dup2(pp[0], STDIN_FILENO);
         close(pp[0]); close(pp[1]);
-        char core_arg[4096], libs_arg[4096], cflags_arg[4096], cc_arg[4096], remote_arg[4096];
-        char *argv[12];
+        char core_arg[4096], libs_arg[4096], cflags_arg[4096], cc_arg[4096], remote_arg[4096], cowork_arg[4096];
+        char *argv[14];
         int ai = 0;
         argv[ai++] = "make";
         argv[ai++] = "-f";
@@ -4380,7 +4627,12 @@ static int jsonl_make(const char *ds4_abs, const char *target) {
         if (cf && cf[0]) { snprintf(cflags_arg, sizeof cflags_arg, "JSONL_CFLAGS=%s", cf); argv[ai++] = cflags_arg; }
         if (co && co[0]) { snprintf(core_arg, sizeof core_arg, "JSONL_CORE_OBJS=%s", co); argv[ai++] = core_arg; }
         if (ll && ll[0]) { snprintf(libs_arg, sizeof libs_arg, "JSONL_LDLIBS=%s", ll); argv[ai++] = libs_arg; }
-        if (g_web_dir[0]) { snprintf(remote_arg, sizeof remote_arg, "DSTUDIO_REMOTE_DIR=%s/extension/remote", g_web_dir); argv[ai++] = remote_arg; }
+        if (g_web_dir[0]) {
+            snprintf(remote_arg, sizeof remote_arg, "DSTUDIO_REMOTE_DIR=%s/extension/remote", g_web_dir);
+            argv[ai++] = remote_arg;
+            snprintf(cowork_arg, sizeof cowork_arg, "DSTUDIO_COWORK_DIR=%s/extension/cowork", g_web_dir);
+            argv[ai++] = cowork_arg;
+        }
         argv[ai] = NULL;
         execvp("make", argv);
         _exit(127);
@@ -4533,19 +4785,21 @@ static int run_build_jsonl(const char *action) {
     char ver[DSTUDIO_PATH_MAX + 64];
     snprintf(ver, sizeof ver, "%s/ds4-agent-jsonl.ver", g_ds4_dir);
     int patch_version = jsonl_patch_version();
-    return patch_version > 0 && file_present("ds4-agent-jsonl.exe") && jsonl_sentinel_ok(ver, patch_version);
+    return patch_version > 0 && file_present("ds4-agent-jsonl.exe") &&
+           file_present("ds4-cowork.exe") && jsonl_sentinel_ok(ver, patch_version);
 #else
     char ds4_abs[DSTUDIO_PATH_MAX];
     if (!realpath(g_ds4_dir, ds4_abs)) return 0;
     char src[DSTUDIO_PATH_MAX + 64], bak[DSTUDIO_PATH_MAX + 64];
     char web_src[DSTUDIO_PATH_MAX + 64], web_tmp[DSTUDIO_PATH_MAX + 64], web_obj[DSTUDIO_PATH_MAX + 64];
-    char bin[DSTUDIO_PATH_MAX + 64], ver[DSTUDIO_PATH_MAX + 64];
+    char bin[DSTUDIO_PATH_MAX + 64], cowork_bin[DSTUDIO_PATH_MAX + 64], ver[DSTUDIO_PATH_MAX + 64];
     snprintf(src, sizeof src, "%s/ds4_agent.c", ds4_abs);
     snprintf(bak, sizeof bak, "%s/ds4_agent.c.ds4ui.bak", ds4_abs);
     snprintf(web_src, sizeof web_src, "%s/ds4_web.c", ds4_abs);
     snprintf(web_tmp, sizeof web_tmp, "%s/ds4_web_ds4ui.c", ds4_abs);
     snprintf(web_obj, sizeof web_obj, "%s/ds4_web_ds4ui.o", ds4_abs);
     snprintf(bin, sizeof bin, "%s/ds4-agent-jsonl", ds4_abs);
+    snprintf(cowork_bin, sizeof cowork_bin, "%s/ds4-cowork", ds4_abs);
     snprintf(ver, sizeof ver, "%s/ds4-agent-jsonl.ver", ds4_abs);
 
     jsonl_unlink_if_exists(web_tmp);
@@ -4568,10 +4822,12 @@ static int run_build_jsonl(const char *action) {
 
     /* idempotence: skip if the binary is newer than the source and the external patch
      * version matches. */
-    struct stat sb, wb, bb;
-    if (access(bin, X_OK) == 0 &&
+    struct stat sb, wb, bb, cb;
+    if (access(bin, X_OK) == 0 && access(cowork_bin, X_OK) == 0 &&
         stat(src, &sb) == 0 && stat(web_src, &wb) == 0 && stat(bin, &bb) == 0 &&
+        stat(cowork_bin, &cb) == 0 &&
         bb.st_mtime >= sb.st_mtime && bb.st_mtime >= wb.st_mtime &&
+        cb.st_mtime >= sb.st_mtime && cb.st_mtime >= wb.st_mtime &&
         !patch_dir_newer_than(JSONL_PATCH_DIR, bb.st_mtime) &&
         !patch_dir_newer_than(WEB_CDP_PATCH_DIR, bb.st_mtime) &&
         !patch_dir_newer_than(WEB_DIRECT_NAV_PATCH_DIR, bb.st_mtime) &&
@@ -4591,7 +4847,7 @@ static int run_build_jsonl(const char *action) {
         jsonl_unlink_if_exists(web_obj);
         return 0;
     }
-    int ok = jsonl_make(ds4_abs, "ds4-agent-jsonl");
+    int ok = jsonl_make(ds4_abs, "ds4-cowork");
     jsonl_copy_preserve(bak, src);  /* ALWAYS restore, even if the build fails */
     jsonl_unlink_if_exists(web_tmp);
     jsonl_unlink_if_exists(web_obj);
@@ -4761,8 +5017,12 @@ static int run_ext_script(const char *script, const char *action) {
 #endif
 }
 
-/* Starts ds4-agent-jsonl --non-interactive --jsonl. in/out/err on pipe. */
-static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, size_t errsz) {
+/* Starts the shared structured ds4-agent runtime. Cowork uses the same native
+ * tool parser and KV machinery with its own binary name, charter and cache. */
+static int spawn_agent(const engine_cfg *cfg, const char *workdir,
+                       int cowork_mode, char *err, size_t errsz) {
+    const int runtime_mode = cowork_mode ? ENGINE_COWORK : ENGINE_AGENT;
+    const char *runtime_label = cowork_mode ? "cowork" : "agent";
     int remote_model = g_remote_base_url[0] != '\0';
     if (!remote_model && !file_present(current_model_rel())) {
         snprintf(err, errsz, "model %.16s not found in %.180s",
@@ -4776,27 +5036,37 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     if (!g_remote_base_url[0] && port_listening(ENGINE_DEFAULTS.port)) {
         snprintf(err, errsz,
                  "a ds4-server is running outside the launcher (port %d): close it before "
-                 "switching to the agent — the instance-lock forbids two large processes",
-                 ENGINE_DEFAULTS.port);
+                 "switching to %s — the instance-lock forbids two large processes",
+                 ENGINE_DEFAULTS.port,
+                 runtime_label);
         return 0;
     }
     /* The current UI consumes structured events exclusively. Building the
      * derived agent is therefore a launch requirement, not an optional mode. */
     if (!run_build_jsonl("build")) {
 #ifdef _WIN32
-        snprintf(err, errsz,
-                 "agent requires the current DStudio Windows runtime "
-                 "(ds4-agent-jsonl.exe + ds4-agent-jsonl.ver)");
+        if (cowork_mode)
+            snprintf(err, errsz,
+                     "cowork requires the current DStudio Windows runtime "
+                     "(ds4-cowork.exe + ds4-agent-jsonl.ver)");
+        else
+            snprintf(err, errsz,
+                     "agent requires the current DStudio Windows runtime "
+                     "(ds4-agent-jsonl.exe + ds4-agent-jsonl.ver)");
 #else
-        snprintf(err, errsz, "agent requires the structured ds4-agent-jsonl build%s%s",
-                 g_engine_err[0] ? ": " : "", g_engine_err[0] ? g_engine_err : "");
+        if (cowork_mode)
+            snprintf(err, errsz, "cowork requires the structured ds4-cowork build%s%s",
+                     g_engine_err[0] ? ": " : "", g_engine_err[0] ? g_engine_err : "");
+        else
+            snprintf(err, errsz, "agent requires the structured ds4-agent-jsonl build%s%s",
+                     g_engine_err[0] ? ": " : "", g_engine_err[0] ? g_engine_err : "");
 #endif
         return 0;
     }
 #ifdef _WIN32
-    const char *agent_bin = "ds4-agent-jsonl.exe";
+    const char *agent_bin = cowork_mode ? "ds4-cowork.exe" : "ds4-agent-jsonl.exe";
 #else
-    const char *agent_bin = "ds4-agent-jsonl";
+    const char *agent_bin = cowork_mode ? "ds4-cowork" : "ds4-agent-jsonl";
 #endif
     if (!file_present(agent_bin)) {
         snprintf(err, errsz, "%.32s not found in %.150s — build ds4 first (make)", agent_bin, g_ds4_dir);
@@ -4836,8 +5106,8 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
      * parent frees its copy after the fork. The shared charter + active skill go in
      * via the agent's own -sys flag — no change to ds4-agent itself. The design-system
      * (brand) layer is design-only, so it is excluded here (0). */
-    char *skill_sys = build_skill_sys(0);
-    {
+    char *skill_sys = build_skill_sys(runtime_mode);
+    if (!cowork_mode) {
         /* Keep Claude-like discovery for direction-sensitive work without
          * slowing down straightforward code edits. This is injected via -sys;
          * antirez's ds4_agent.c stays untouched. */
@@ -4924,6 +5194,8 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     win_join_path(exe, sizeof exe, g_ds4_dir, agent_bin);
     win_prepare_engine_runtime();
     child_setenv_skills();
+    setenv("DS4UI_RUNTIME_NAME", runtime_label, 1);
+    setenv("DS4UI_SSD_STREAMING_EFFECTIVE", g_ssd_streaming_effective ? "1" : "0", 1);
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
                      : "--think";
@@ -4994,10 +5266,12 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     if (pid == 0) {
         if (chdir(g_ds4_dir) != 0) _exit(127);   /* to find ./ds4-agent-jsonl */
         if (!remote_model) {
-            child_setenv_metal();
+            child_setenv_metal(cfg);
             child_setenv_metal_sources(ds4_abs); /* absolute: survive --chdir */
         }
         child_setenv_skills();                   /* on-demand skill()/design_system() packs */
+        setenv("DS4UI_RUNTIME_NAME", runtime_label, 1);
+        setenv("DS4UI_SSD_STREAMING_EFFECTIVE", g_ssd_streaming_effective ? "1" : "0", 1);
         dup2(ip[0], STDIN_FILENO);
         dup2(op[1], STDOUT_FILENO);
         dup2(ep[1], STDERR_FILENO);
@@ -5041,12 +5315,14 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     g_in_fd = ip[1]; g_out_fd = op[0]; g_err_fd = ep[0];
     set_nonblock(g_out_fd); set_nonblock(g_err_fd);
 #endif
-    g_child = pid; g_mode = ENGINE_AGENT; g_cfg = *cfg;
+    g_child = pid; g_mode = runtime_mode; g_cfg = *cfg;
     snprintf(g_workdir, sizeof g_workdir, "%s", wd);
     agent_buf_reset();
-    reset_progress("Starting the agent…");
-    g_agent_working = 0;
-    printf("engine: agent pid %d (chdir %s, %s, %s)\n", (int)pid, wd,
+    reset_progress(cowork_mode ? "Starting Cowork…" : "Starting the agent…");
+    /* Keep send/session APIs busy until the initial system-prompt prefill has
+     * completed and the child emits its first WAITING marker. */
+    g_agent_working = 1;
+    printf("engine: %s pid %d (chdir %s, %s, %s)\n", runtime_label, (int)pid, wd,
            cfg->uncensored ? "uncensored" : "standard",
            remote_model ? "jsonl/remote-model" : "jsonl");
     return 1;
@@ -5091,9 +5367,10 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     if (pipe(ip) != 0 || pipe(op) != 0 || pipe(ep) != 0) { snprintf(err, errsz, "pipe failed"); return 0; }
 #endif
 
-    char ctxs[16], pows[16];
+    char ctxs[16], pows[16], thinktokens[16];
     snprintf(ctxs, sizeof ctxs, "%d", cfg->ctx);
     snprintf(pows, sizeof pows, "%d", cfg->power);
+    snprintf(thinktokens, sizeof thinktokens, "%d", cfg->design_think_tokens);
     if (!cfg_ssd_streaming(cfg, remote_model, err, errsz)) return 0;
     char wd[1024];
     if (workdir && workdir[0]) {
@@ -5105,7 +5382,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
 
     /* Same as the agent, but design also gets the active design-system (brand) layer (1):
      * charter + DESIGN.md + SKILL.md, injected via ds4-design's -sys flag. */
-    char *skill_sys = build_skill_sys(1);
+    char *skill_sys = build_skill_sys(ENGINE_DESIGN);
 
     char dspark_path[DSTUDIO_PATH_MAX];
     int dspark_on = 0;
@@ -5124,10 +5401,12 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     char exe[2200];
     win_join_path(exe, sizeof exe, g_ds4_dir, "ds4-design.exe");
     child_setenv_skills();
+    setenv("DS4UI_RUNTIME_NAME", "design", 1);
+    setenv("DS4UI_SSD_STREAMING_EFFECTIVE", g_ssd_streaming_effective ? "1" : "0", 1);
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
                      : "--think";
-    char *argv[28]; int n = 0;
+    char *argv[32]; int n = 0;
     argv[n++] = exe;
     argv[n++] = "--jsonl";
     if (remote_model) {
@@ -5148,6 +5427,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     argv[n++] = "-c"; argv[n++] = ctxs;
     if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
     argv[n++] = think_flag;
+    argv[n++] = "--think-tokens"; argv[n++] = thinktokens;
     argv[n++] = "--workspace"; argv[n++] = wd;
     if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
     argv[n] = NULL;
@@ -5189,8 +5469,10 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     if (pid < 0) { snprintf(err, errsz, "fork: %s", strerror(errno)); free(skill_sys); return 0; }
     if (pid == 0) {
         if (chdir(g_ds4_dir) != 0) _exit(127);   /* to find ./ds4-design */
-        if (!remote_model) child_setenv_metal();
+        if (!remote_model) child_setenv_metal(cfg);
         child_setenv_skills();                   /* on-demand skill()/design_system() packs */
+        setenv("DS4UI_RUNTIME_NAME", "design", 1);
+        setenv("DS4UI_SSD_STREAMING_EFFECTIVE", g_ssd_streaming_effective ? "1" : "0", 1);
         dup2(ip[0], STDIN_FILENO);
         dup2(op[1], STDOUT_FILENO);
         dup2(ep[1], STDERR_FILENO);
@@ -5199,7 +5481,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         char *think_flag = cfg->think == 0 ? "--nothink"
                          : cfg->think == 2 ? "--think-max"
                          : "--think";
-        char *argv[28]; int n = 0;
+        char *argv[32]; int n = 0;
         argv[n++] = "./ds4-design";
         argv[n++] = "--jsonl";
         if (remote_model) {
@@ -5220,6 +5502,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         argv[n++] = "-c"; argv[n++] = ctxs;
         if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
         argv[n++] = think_flag;
+        argv[n++] = "--think-tokens"; argv[n++] = thinktokens;
         argv[n++] = "--workspace"; argv[n++] = wd;
         if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
         argv[n] = NULL;
@@ -5236,7 +5519,10 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     snprintf(g_design_dir, sizeof g_design_dir, "%s", wd);
     agent_buf_reset();
     reset_progress("Starting the design agent…");
-    g_agent_working = 0;
+    /* Model allocation can finish before Design has prefetched its system
+     * prompt. The first +DWARFSTAR_WAITING marker is the authoritative point
+     * at which prompts/session commands are safe to accept. */
+    g_agent_working = 1;
     printf("engine: design pid %d (workspace %s, %s%s)\n", (int)pid, wd,
            cfg->uncensored ? "uncensored" : "standard",
            remote_model ? ", remote-model" : "");
@@ -5279,6 +5565,7 @@ static void drain_child(void) {
 static const char *mode_name(int m) {
     return m == ENGINE_SERVER ? "server" :
            m == ENGINE_AGENT ? "agent" :
+           m == ENGINE_COWORK ? "cowork" :
            m == ENGINE_DESIGN ? "design" : "none";
 }
 
@@ -5300,7 +5587,7 @@ static void api_model_download(int fd, const char *body) {
         "ds4f-q2", "ds4f-q2-q4", "ds4f-q4", "ds4f-mxfp4",
         "ds4f-dspark", "flash-dspark",
         "pro-q2-imatrix", "pro-q4-layers00-30", "pro-q4-layers31-output", "pro-q4-split",
-        "glm-unsloth-q4", "glm-antirez-iq2xxs", "glm-antirez-q2", "glm-antirez-q4",
+        "glm53-q2",
         "laguna-q4",
     };
     int valid = 0;
@@ -5396,12 +5683,10 @@ static void api_model_folder_open(int fd, const char *body) {
     char engine[24] = "";
     json_get_string(body, "engine", engine, sizeof engine);
     char checkout[DSTUDIO_PATH_MAX];
-    if (!engine[0]) {
-        cstr_copy(checkout, sizeof checkout, g_ds4_dir);
-    } else if (!strcmp(engine, "main")) {
+    if (!engine[0] || !strcmp(engine, "main") ||
+        !strcmp(engine, "glm53") || !strcmp(engine, "laguna")) {
+        /* Every managed engine shares the primary physical GGUF store. */
         snprintf(checkout, sizeof checkout, "%s/ds4", g_web_dir);
-    } else if (!strcmp(engine, "laguna")) {
-        snprintf(checkout, sizeof checkout, "%s/%s", g_web_dir, DS4_LAGUNA_DIR_NAME);
     } else {
         send_json(fd, "400 Bad Request",
                   "{\"ok\":false,\"error\":\"unknown model engine folder\"}");
@@ -5475,7 +5760,7 @@ static void api_model_partials_delete(int fd, const char *body) {
     long long removed = 0;
     if (!strcmp(target, "flash-abliterated")) {
         cstr_copy(checkout, sizeof checkout, g_ds4_dir);
-        removed = delete_stable_model_partial(checkout, MODEL_FLASH, &failed);
+        removed = delete_stable_model_partial(checkout, MODEL_UNC, &failed);
     } else if (!strcmp(target, "flash-dspark")) {
         cstr_copy(checkout, sizeof checkout, g_ds4_dir);
         removed = delete_stable_model_partial(checkout, MODEL_DSPARK_ABLITERATED, &failed);
@@ -5585,11 +5870,12 @@ static void api_status(int fd) {
     char cfg[640];
     if (engine_running)
         snprintf(cfg, sizeof cfg,
-                 "{\"model\":\"%s\",\"port\":%d,\"ctx\":%d,\"power\":%d,\"think\":\"%s\","
+                 "{\"model\":\"%s\",\"port\":%d,\"ctx\":%d,\"power\":%d,\"think\":\"%s\",\"designThinkTokens\":%d,"
                  "\"ssdStreaming\":\"%s\",\"ssdStreamingEffective\":%s,\"ssdStreamingReason\":\"%s\","
                  "\"metalHotlistSeed\":%s,\"dspark\":%s}",
                  g_cfg.uncensored ? "uncensored" : "standard", g_cfg.port, g_cfg.ctx, g_cfg.power,
                  g_cfg.think == 0 ? "off" : g_cfg.think == 2 ? "max" : "high",
+                 g_cfg.design_think_tokens,
                  g_cfg.ssd_streaming == SSD_STREAMING_ON ? "on" : g_cfg.ssd_streaming == SSD_STREAMING_OFF ? "off" : "auto",
                  g_ssd_streaming_effective ? "true" : "false", ssd_reason_esc,
                  g_metal_hotlist_seed ? "true" : "false",
@@ -5671,6 +5957,8 @@ static void api_lan_health(int fd) {
     send_json_cors(fd, "200 OK", body);
 }
 
+static int glm53_dir_path(char *out, size_t outsz);
+static int glm53_checkout_ready(const char *dir);
 static int laguna_dir_path(char *out, size_t outsz);
 static int laguna_checkout_ready(const char *dir);
 /* Vision sidecar doctor row (defined next to the vision handlers below). */
@@ -5718,6 +6006,10 @@ static void api_doctor(int fd) {
     int agent_src_ok = ds4_ok && rel_exists("ds4_agent.c");
     int agent_ok = ds4_ok && (agent_src_ok || rel_exists("ds4-agent-jsonl") ||
                               rel_exists("ds4-agent-jsonl.exe"));
+    char cowork_helper[DSTUDIO_PATH_MAX];
+    snprintf(cowork_helper, sizeof cowork_helper, "%s/extension/cowork/office_tool.py",
+             g_web_dir[0] ? g_web_dir : ".");
+    int cowork_ok = agent_ok && access(cowork_helper, R_OK) == 0;
     int design_ok = ds4_ok && (rel_exists("ds4-design") || rel_exists("ds4-design.exe") ||
                                rel_exists("ds4_design.c"));
     int web_ok = ds4_ok && agent_src_ok && chrome_available();
@@ -5767,6 +6059,13 @@ static void api_doctor(int fd) {
         agent_ok ? "Structured Agent runtime is available." : "Install the current Agent runtime before opening a workspace.",
         agent_ok ? NULL : "open-settings");
 
+    if (!cowork_ok) warn++;
+    ok = ok && doctor_add_check(&b, &first, "cowork", "Cowork",
+        cowork_ok ? "ok" : "warn",
+        cowork_ok ? "Cowork runtime and local Office tools are available."
+                  : "Cowork needs the structured runtime and extension/cowork Office helper.",
+        cowork_ok ? NULL : "open-settings");
+
     if (!design_ok) warn++;
     ok = ok && doctor_add_check(&b, &first, "design", "Design",
         design_ok ? "ok" : "warn",
@@ -5781,6 +6080,18 @@ static void api_doctor(int fd) {
         web_ok ? NULL : "open-settings");
 
 #ifndef _WIN32
+    char glm53_dir[DSTUDIO_PATH_MAX];
+    int glm53_have_path = glm53_dir_path(glm53_dir, sizeof glm53_dir);
+    int glm53_present = glm53_have_path && ds4_dir_valid_path(glm53_dir);
+    int glm53_ready = glm53_present && glm53_checkout_ready(glm53_dir);
+    if (glm53_present && !glm53_ready) warn++;
+    ok = ok && doctor_add_check(&b, &first, "glm53", "GLM 5.3 engine (optional)",
+        glm53_present && !glm53_ready ? "warn" : "ok",
+        glm53_ready ? "GLM 5.3 installed — its weights remain in ds4/gguf." :
+        glm53_present ? "GLM 5.3 checkout found but not built — reinstall it." :
+                        "Not installed. Optional: adds the GLM 5.3 inference runtime.",
+        glm53_ready ? NULL : "setup-glm53");
+
     char laguna_dir[DSTUDIO_PATH_MAX];
     int laguna_have_path = laguna_dir_path(laguna_dir, sizeof laguna_dir);
     int laguna_present = laguna_have_path && ds4_dir_valid_path(laguna_dir);
@@ -5867,44 +6178,28 @@ static int collect_engine_checkouts(
     if (active_out && active_outsz) cstr_copy(active_out, active_outsz, active);
 
     int ndirs = 0;
+    if (cap > 0 && ds4_dir_valid_path(active))
+        cstr_copy(dirs[ndirs++], DSTUDIO_PATH_MAX, active);
+
     char parent[DSTUDIO_PATH_MAX];
     cstr_copy(parent, sizeof parent, active);
     char *slash = strrchr(parent, '/');
     if (slash && slash != parent) *slash = '\0';
     else cstr_copy(parent, sizeof parent, "/");
-    const char *bases[2] = { g_web_dir[0] ? g_web_dir : NULL, parent };
 
-    for (int bi = 0; bi < 2; bi++) {
-        if (!bases[bi] || !bases[bi][0]) continue;
-        DIR *d = opendir(bases[bi]);
-        if (!d) continue;
-        struct dirent *de;
-        while ((de = readdir(d)) != NULL && ndirs < cap) {
-            if (strncmp(de->d_name, "ds4", 3)) continue;
-            char full[DSTUDIO_PATH_MAX + 300], abs[DSTUDIO_PATH_MAX];
-            snprintf(full, sizeof full, "%s/%s", bases[bi], de->d_name);
-            struct stat st;
-            if (stat(full, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
-            if (!ds4_dir_valid_path(full) || !realpath(full, abs)) continue;
-            int dup = 0;
-            for (int i = 0; i < ndirs && !dup; i++) dup = !strcmp(dirs[i], abs);
-            if (!dup) cstr_copy(dirs[ndirs++], DSTUDIO_PATH_MAX, abs);
-        }
-        closedir(d);
-    }
-
-    int active_idx = -1;
-    for (int i = 0; i < ndirs; i++)
-        if (!strcmp(dirs[i], active)) { active_idx = i; break; }
-    if (active_idx < 0 && ndirs < cap && ds4_dir_valid_path(active)) {
-        cstr_copy(dirs[ndirs], DSTUDIO_PATH_MAX, active);
-        active_idx = ndirs++;
-    }
-    if (active_idx > 0) {
-        char tmp[DSTUDIO_PATH_MAX];
-        cstr_copy(tmp, sizeof tmp, dirs[0]);
-        cstr_copy(dirs[0], DSTUDIO_PATH_MAX, dirs[active_idx]);
-        cstr_copy(dirs[active_idx], DSTUDIO_PATH_MAX, tmp);
+    /* Do not enumerate the workspace directory here. On macOS Documents may
+     * be backed by a file provider, where opendir() can block the single local
+     * HTTP loop indefinitely. Managed runtimes have fixed sibling names; an
+     * arbitrary user-selected checkout is already included as `active`. */
+    const char *managed_names[] = { "ds4", DS4_GLM53_DIR_NAME, DS4_LAGUNA_DIR_NAME };
+    for (size_t ni = 0; ni < sizeof managed_names / sizeof managed_names[0] && ndirs < cap; ni++) {
+        char full[DSTUDIO_PATH_MAX + 64], abs[DSTUDIO_PATH_MAX];
+        int n = snprintf(full, sizeof full, "%s/%s", parent, managed_names[ni]);
+        if (n < 0 || (size_t)n >= sizeof full || !ds4_dir_valid_path(full) || !realpath(full, abs))
+            continue;
+        int dup = 0;
+        for (int i = 0; i < ndirs && !dup; i++) dup = !strcmp(dirs[i], abs);
+        if (!dup) cstr_copy(dirs[ndirs++], DSTUDIO_PATH_MAX, abs);
     }
     return ndirs;
 }
@@ -5916,13 +6211,16 @@ static void checkout_branch_label(const char *dir, char *out, size_t outsz) {
     if (out[0]) return;
     const char *name = strrchr(dir, '/');
     name = name ? name + 1 : dir;
-    if (!strcmp(name, DS4_LAGUNA_DIR_NAME))
+    if (!strcmp(name, DS4_GLM53_DIR_NAME))
+        cstr_copy(out, outsz, "glm-5.3-flash");
+    else if (!strcmp(name, DS4_LAGUNA_DIR_NAME))
         cstr_copy(out, outsz, "laguna-s2.1");
 }
 
 /* GET /api/ggufs — list .gguf files across every managed engine checkout.
  * Each row carries its owning checkout so selecting a model can atomically
- * switch branch before starting it. Symlinks are skipped to avoid duplicates. */
+ * switch branch before starting it. Optional checkouts share ./ds4/gguf, so
+ * every family is emitted only from the runtime that can execute it. */
 static void api_ggufs(int fd) {
     char dirs[ENGINE_CHECKOUT_CAP][DSTUDIO_PATH_MAX];
     char active[DSTUDIO_PATH_MAX];
@@ -5939,6 +6237,10 @@ static void api_ggufs(int fd) {
         engine_name = engine_name ? engine_name + 1 : dirs[ci];
         char branch[128];
         checkout_branch_label(dirs[ci], branch, sizeof branch);
+        int glm53_engine = !strcmp(engine_name, DS4_GLM53_DIR_NAME) ||
+                           !strcmp(branch, "glm-5.3-flash");
+        int laguna_engine = !strcmp(engine_name, DS4_LAGUNA_DIR_NAME) ||
+                            !strcmp(branch, "laguna-s2.1");
         for (int di = 0; di < 2 && ok; di++) {
             char dir[DSTUDIO_PATH_MAX + 16];
             snprintf(dir, sizeof dir, "%s%s%s", dirs[ci],
@@ -5950,6 +6252,13 @@ static void api_ggufs(int fd) {
                 const char *nm = de->d_name;
                 size_t len = strlen(nm);
                 if (len < 6 || strcmp(nm + len - 5, ".gguf")) continue;
+                if (!model_file_is_supported(nm)) continue;
+                int glm53_model = mem_contains_ci(nm, len, "glm-5.3");
+                int laguna_model = mem_contains_ci(nm, len, "laguna");
+                if (glm53_model != glm53_engine) continue;
+                if (laguna_model != laguna_engine) continue;
+                if ((glm53_engine || laguna_engine) &&
+                    !glm53_model && !laguna_model) continue;
                 char full[DSTUDIO_PATH_MAX + 400];
                 struct stat st;
                 snprintf(full, sizeof full, "%s/%s", dir, nm);
@@ -5983,8 +6292,8 @@ static void api_ggufs(int fd) {
 /* ---- Engine checkout (ds4 git branch) picker ----
  * DStudio can sit next to several managed ds4 checkouts (main and optional
  * model-specific branches). These endpoints let the UI list them and swap the
- * active one at runtime. The swap is process-local and deliberately NOT
- * persisted: the next DStudio launch resolves ./ds4 again. */
+ * active one at runtime; the selected checkout is persisted for the next
+ * native-app launch. */
 
 /* Best-effort current git branch of a checkout. Handles both a regular clone
  * (.git is a directory) and a linked worktree (.git is a "gitdir: ..." pointer
@@ -6082,6 +6391,11 @@ static void api_engine_checkout_set(int fd, const char *body) {
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"not a ds4 checkout\"}");
         return;
     }
+    if (!persist_ds4_checkout(abs)) {
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"could not save the selected ds4 checkout\"}");
+        return;
+    }
     char branch[128];
     git_branch_of(abs, branch, sizeof branch);
     int changed = strcmp(abs, g_ds4_dir) != 0;
@@ -6095,7 +6409,7 @@ static void api_engine_checkout_set(int fd, const char *body) {
     int ok = json_dyn_puts(&b, "{\"ok\":true,\"dir\":") &&
              json_dyn_put_escaped(&b, abs) &&
              json_dyn_puts(&b, ",\"branch\":") && json_dyn_put_escaped(&b, branch) &&
-             json_dyn_printf(&b, ",\"changed\":%s}", changed ? "true" : "false");
+             json_dyn_printf(&b, ",\"changed\":%s,\"persisted\":true}", changed ? "true" : "false");
     if (!ok) {
         free(b.ptr);
         send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}");
@@ -6258,7 +6572,7 @@ static void parse_cfg(const char *body, engine_cfg *cfg, int *bad) {
     g_metal_hotlist_seed = json_get_bool(body, "metalHotlistSeed");
     g_dspark_enabled = json_get_bool(body, "dspark");
     long v;
-    int m = json_get_model(body, model_present(1) ? 1 : 0);
+    int m = json_get_model(body, ENGINE_DEFAULTS.uncensored);
     if (m < 0) { *bad = 1; m = ENGINE_DEFAULTS.uncensored; }
     cfg->uncensored = m;
     int r;
@@ -6267,6 +6581,8 @@ static void parse_cfg(const char *body, engine_cfg *cfg, int *bad) {
     r = json_get_int(body, "power", 1, 100, &v);         if (r < 0) *bad = 1; else if (r) cfg->power = (int)v;
     r = json_get_int(body, "kvSpaceMb", 256, 262144, &v);if (r < 0) *bad = 1; else if (r) cfg->kv_space_mb = (int)v;
     r = json_get_int(body, "kvMinTokens", 1, 100000, &v);if (r < 0) *bad = 1; else if (r) cfg->kv_min_tok = (int)v;
+    r = json_get_int(body, "designThinkTokens", 0, 262144, &v);
+    if (r < 0) *bad = 1; else if (r) cfg->design_think_tokens = (int)v;
     char ssd[16];
     if (json_get_string(body, "ssdStreaming", ssd, sizeof ssd) && ssd[0]) {
         if (!strcmp(ssd, "off")) cfg->ssd_streaming = SSD_STREAMING_OFF;
@@ -6352,7 +6668,8 @@ static int parse_remote_start(const char *body, int allow, char *err, size_t err
 }
 
 static int launch_workdir_missing(int requested_mode, const char *workdir) {
-    if (requested_mode != ENGINE_AGENT && requested_mode != ENGINE_DESIGN) return 0;
+    if (requested_mode != ENGINE_AGENT && requested_mode != ENGINE_COWORK &&
+        requested_mode != ENGINE_DESIGN) return 0;
     if (!workdir || !workdir[0]) return 0;
     struct stat st;
     return stat(workdir, &st) != 0 || !S_ISDIR(st.st_mode);
@@ -6362,9 +6679,10 @@ static void api_start(int fd, const char *body) {
     char mode[16] = "server";
     json_get_string(body, "mode", mode, sizeof mode);
     int want_agent = !strcmp(mode, "agent");
+    int want_cowork = !strcmp(mode, "cowork");
     int want_design = !strcmp(mode, "design");
-    if (!want_agent && !want_design && strcmp(mode, "server")) {
-        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"mode must be server, agent or design\"}");
+    if (!want_agent && !want_cowork && !want_design && strcmp(mode, "server")) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"mode must be server, agent, cowork or design\"}");
         return;
     }
 
@@ -6377,7 +6695,7 @@ static void api_start(int fd, const char *body) {
     }
 
     char remote_err[256] = "";
-    if (!parse_remote_start(body, want_agent || want_design, remote_err, sizeof remote_err)) {
+    if (!parse_remote_start(body, want_agent || want_cowork || want_design, remote_err, sizeof remote_err)) {
         char out[512], esc[384];
         json_escape_into(esc, sizeof esc, remote_err, strlen(remote_err));
         snprintf(out, sizeof out, "{\"ok\":false,\"error\":\"%s\"}", esc);
@@ -6388,7 +6706,9 @@ static void api_start(int fd, const char *body) {
     char workdir[1024] = "";
     json_get_string(body, "workdir", workdir, sizeof workdir);
     int force = json_get_bool(body, "force");
-    int requested_mode = want_agent ? ENGINE_AGENT : want_design ? ENGINE_DESIGN : ENGINE_SERVER;
+    int requested_mode = want_agent ? ENGINE_AGENT :
+                         want_cowork ? ENGINE_COWORK :
+                         want_design ? ENGINE_DESIGN : ENGINE_SERVER;
     if (launch_workdir_missing(requested_mode, workdir)) {
         char wd_esc[2200], mode_esc[32], out[2600];
         json_escape_into(wd_esc, sizeof wd_esc, workdir, strlen(workdir));
@@ -6413,8 +6733,40 @@ static void api_start(int fd, const char *body) {
     }
     /* Explicit GGUF pick (path relative to the ds4 dir) wins over the variant. */
     char gguf[1024] = {0};
-    if (json_get_string(body, "gguf", gguf, sizeof gguf) && gguf[0] && !strstr(gguf, "..") && file_present(gguf))
+    const int has_explicit_gguf = json_get_string(body, "gguf", gguf, sizeof gguf) && gguf[0];
+    if (has_explicit_gguf && !model_file_is_supported(gguf)) {
+        task_mark_failed(task_id, "Choose GLM 5.3 Flash Q2", gguf);
+        send_json(fd, "400 Bad Request",
+                  "{\"ok\":false,\"code\":\"unsupported_model\",\"error\":\"Choose GLM 5.3 Flash Q2\"}");
+        return;
+    }
+    const int explicit_gguf = has_explicit_gguf &&
+        !strstr(gguf, "..") && file_present(gguf);
+    if (explicit_gguf) {
         snprintf(g_model_override, sizeof g_model_override, "%s", gguf);
+        cfg.uncensored = strstr(gguf, "Abliterated") || strstr(gguf, "uncensored");
+    } else if (cfg.uncensored && strcmp(g_variant, "pro")) {
+        /* Preserve the legacy API's explicit model:"uncensored" choice while
+         * keeping the ordinary flash variant standard by default. */
+        snprintf(g_model_override, sizeof g_model_override, "%s", MODEL_UNC);
+    }
+
+    const int requested_ctx = cfg.ctx;
+    const int requested_dspark = g_dspark_enabled;
+    char config_note[384] = "";
+    const int remote_engine = g_remote_base_url[0] && (want_agent || want_cowork || want_design);
+    if (!normalize_flash_memory_config(&cfg, remote_engine, config_note, sizeof config_note)) {
+        g_dspark_enabled = requested_dspark;
+        task_mark_failed(task_id, config_note, config_note);
+        char note_esc[768], out[1024];
+        json_escape_into(note_esc, sizeof note_esc, config_note, strlen(config_note));
+        snprintf(out, sizeof out,
+                 "{\"ok\":false,\"taskId\":%llu,\"code\":\"memory_budget\",\"error\":\"%s\"}",
+                 task_id, note_esc);
+        send_json(fd, "409 Conflict", out);
+        return;
+    }
+    const int config_adjusted = cfg.ctx != requested_ctx || g_dspark_enabled != requested_dspark;
 
     /* Active user-created skill for agent/design: injected as -sys at spawn.
      * Empty or "none" clears it; an unknown/invalid id is ignored (falls back to the
@@ -6443,7 +6795,6 @@ static void api_start(int fd, const char *body) {
      * port first. REMOTE agent/design never touch the local engine or its
      * lock (spawn_agent/spawn_design already skip their own port checks when
      * remote) — blocking them on an unrelated local server was a bug. */
-    int remote_engine = g_remote_base_url[0] && (want_agent || want_design);
     if (!remote_engine && port_listening(ENGINE_DEFAULTS.port)) {
         if (requested_mode == ENGINE_SERVER && ds4_server_compatible(ENGINE_DEFAULTS.port)) {
             reuse_external_ds4(&cfg, 1, 0);
@@ -6497,7 +6848,8 @@ static void api_start(int fd, const char *body) {
     }
 
     char err[256] = "";
-    int ok = want_agent ? spawn_agent(&cfg, workdir, err, sizeof err)
+    int ok = want_agent ? spawn_agent(&cfg, workdir, 0, err, sizeof err)
+           : want_cowork ? spawn_agent(&cfg, workdir, 1, err, sizeof err)
            : want_design ? spawn_design(&cfg, workdir, err, sizeof err)
                          : spawn_server(&cfg, err, sizeof err);
     if (!ok) {
@@ -6514,8 +6866,13 @@ static void api_start(int fd, const char *body) {
     g_active_launch_mode = g_mode;
     task_mark_working(task_id, "engine process started; waiting for ready");
     if (g_ready) maybe_complete_launch_task(g_mode);
-    char out[160];
-    snprintf(out, sizeof out, "{\"ok\":true,\"taskId\":%llu,\"mode\":\"%s\"}", task_id, mode_name(g_mode));
+    char note_esc[768], out[1200];
+    json_escape_into(note_esc, sizeof note_esc, config_note, strlen(config_note));
+    snprintf(out, sizeof out,
+             "{\"ok\":true,\"taskId\":%llu,\"mode\":\"%s\",\"ctx\":%d,\"dspark\":%s,"
+             "\"adjusted\":%s,\"warning\":\"%s\"}",
+             task_id, mode_name(g_mode), cfg.ctx, g_dspark_enabled ? "true" : "false",
+             config_adjusted ? "true" : "false", note_esc);
     send_json(fd, "200 OK", out);
 }
 
@@ -6568,8 +6925,10 @@ static void api_agent_send(int fd, const char *body) {
     size_t len = strlen(prompt);
     size_t display_len = strlen(display);
     const char *kind = task_kind_for_mode(g_mode);
-    const char *target = g_mode == ENGINE_DESIGN ? "design" : "agent";
-    unsigned long long task_id = task_begin(kind, g_mode == ENGINE_DESIGN ? "Design turn" : "Agent turn",
+    const char *target = mode_name(g_mode);
+    const char *turn_title = g_mode == ENGINE_DESIGN ? "Design turn" :
+                             g_mode == ENGINE_COWORK ? "Cowork turn" : "Agent turn";
+    unsigned long long task_id = task_begin(kind, turn_title,
                                             target, g_mode, g_workdir, (int)g_child, 1);
     if (!MODE_IS_PIPED(g_mode) || g_in_fd < 0 || g_child <= 0) {
         task_mark_failed(task_id, "agent/design runtime is not active", g_engine_err);
@@ -6654,6 +7013,13 @@ static void api_agent_interrupt(int fd, const char *body) {
         fd_write_all(g_in_fd, frame, sizeof(frame) - 1);
     }
 #else
+    /* Remote Design is blocked reading model frames from this same pipe. Wake
+     * it with the protocol control frame as well as SIGINT; the signal latches
+     * cancellation while the frame makes the blocking read return promptly. */
+    if (g_mode == ENGINE_DESIGN && g_remote_base_url[0] && g_in_fd >= 0) {
+        static const char frame[] = "\x1e{\"type\":\"control\",\"name\":\"interrupt\"}\n";
+        fd_write_all(g_in_fd, frame, sizeof(frame) - 1);
+    }
     kill(g_child, SIGINT);
 #endif
     g_interrupt_pending = 1;
@@ -6687,12 +7053,16 @@ static void api_agent_interrupt(int fd, const char *body) {
  * agent: plain status line) comes back on the /api/agent/poll stream. Used
  * e.g. to delete the KV session when its conversation is deleted in the UI. */
 static void api_design_session(int fd, const char *body) {
-    if ((g_mode != ENGINE_DESIGN && g_mode != ENGINE_AGENT) || g_in_fd < 0) {
-        send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"agent/design not active\"}");
+    if (!MODE_IS_PIPED(g_mode) || g_in_fd < 0) {
+        send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"agent/cowork/design not active\"}");
         return;
     }
     if (!g_ready) {
         send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"engine still loading\"}");
+        return;
+    }
+    if (g_agent_working) {
+        send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"agent is busy\"}");
         return;
     }
     char action[24] = {0};
@@ -6735,6 +7105,9 @@ static void api_design_session(int fd, const char *body) {
         send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"write to engine failed\"}");
         return;
     }
+    /* Session commands may rebuild/prefill a large KV state. Keep send/session
+     * callers serialized until the child announces its next WAITING marker. */
+    g_agent_working = 1;
     send_json(fd, "200 OK", "{\"ok\":true}");
 }
 
@@ -7131,6 +7504,7 @@ static void api_fs_mkdir(int fd, const char *body) {
 }
 
 #include "dstudio_setup.c"
+#include "dstudio_glm53.c"
 #include "dstudio_laguna.c"
 #include "dstudio_updates.c"
 
@@ -7198,6 +7572,53 @@ static void api_lan(int fd, const char *body) {
     snprintf(out, sizeof out, "{\"ok\":true,\"lan\":%s,\"lanAddr\":\"%s\",\"httpPort\":%d,\"engineRestart\":false}",
              on ? "true" : "false", addr, g_http_port);
     send_json(fd, "200 OK", out);
+}
+
+/* Change the DStudio web/LAN listener without restarting the model. The new
+ * socket is opened before the old one is released, so a busy/invalid port leaves
+ * the current app reachable. The accepted request socket remains valid long
+ * enough to return the new address to the UI. */
+static void api_http_port(int fd, const char *body) {
+    long requested = 0;
+    if (json_get_int(body, "port", 1024, 65535, &requested) <= 0) {
+        send_json(fd, "400 Bad Request",
+                  "{\"ok\":false,\"error\":\"port must be between 1024 and 65535\"}");
+        return;
+    }
+    int port = (int)requested;
+    if (port == g_http_port) {
+        if (!persist_http_port(port)) {
+            send_json(fd, "500 Internal Server Error",
+                      "{\"ok\":false,\"error\":\"could not save the port\"}");
+            return;
+        }
+        char out[96];
+        snprintf(out, sizeof out, "{\"ok\":true,\"httpPort\":%d,\"changed\":false}", port);
+        send_json(fd, "200 OK", out);
+        return;
+    }
+
+    int nf = open_listener(g_bind_host, port);
+    if (nf < 0) {
+        send_json(fd, "409 Conflict",
+                  "{\"ok\":false,\"error\":\"that port is already in use\"}");
+        return;
+    }
+    if (!persist_http_port(port)) {
+        close(nf);
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"could not save the port\"}");
+        return;
+    }
+
+    int old = g_srv_fd;
+    g_srv_fd = nf;
+    g_http_port = port;
+    if (old >= 0) close(old);
+    char out[96];
+    snprintf(out, sizeof out, "{\"ok\":true,\"httpPort\":%d,\"changed\":true}", port);
+    send_json(fd, "200 OK", out);
+    printf("DStudio: web listener moved to %s:%d\n", g_bind_host, port);
 }
 
 static void api_fs_list(int fd, const char *body) {
@@ -8123,6 +8544,150 @@ static void api_agent_attach_image(int fd, const char *body) {
 #endif
 }
 
+/* POST /api/cowork/attach-file {dir, name, data_uri} — save a supported
+ * knowledge-work input into the selected Cowork workspace.  This deliberately
+ * rejects executable and macro-enabled Office formats: Cowork reads document
+ * data, it never imports executable content. */
+#ifndef _WIN32
+static int cowork_attachment_name(const char *in, char *out, size_t outsz) {
+    const char *base = in ? in : "";
+    const char *s1 = strrchr(base, '/');
+    const char *s2 = strrchr(base, '\\');
+    if (s1) base = s1 + 1;
+    if (s2 && s2 + 1 > base) base = s2 + 1;
+    char clean[160];
+    size_t o = 0;
+    for (const char *p = base; *p && o < sizeof clean - 1; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (isalnum(c) || c == '.' || c == '_' || c == '-') clean[o++] = (char)c;
+        else if (c == ' ') clean[o++] = '-';
+    }
+    clean[o] = '\0';
+    while (clean[0] == '.') memmove(clean, clean + 1, strlen(clean));
+    char *dot = strrchr(clean, '.');
+    if (!clean[0] || !dot || dot == clean || !dot[1]) return 0;
+    char ext[16] = {0};
+    size_t j = 0;
+    for (const char *p = dot + 1; *p && j < sizeof ext - 1; p++)
+        ext[j++] = (char)tolower((unsigned char)*p);
+    static const char *const allowed[] = {
+        "pdf", "xlsx", "csv", "tsv", "docx", "pptx", "odt", "rtf",
+        "txt", "md", "markdown", "html", "htm", "json", "jsonl",
+        "yaml", "yml", "xml", "toml", "png", "jpg", "jpeg", "webp",
+        "gif", "bmp", "svg", NULL
+    };
+    int ok = 0;
+    for (size_t i = 0; allowed[i]; i++) {
+        if (!strcmp(ext, allowed[i])) { ok = 1; break; }
+    }
+    if (!ok) return 0;
+    cstr_copy(out, outsz, clean);
+    return out[0] != '\0';
+}
+#endif
+
+static void api_cowork_attach_file(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    web_json_error(fd, "501 Not Implemented", "not available in the Windows build yet");
+#else
+    char dir[DSTUDIO_PATH_MAX] = "";
+    if (!json_get_string(body, "dir", dir, sizeof dir) || dir[0] != '/') {
+        web_json_error(fd, "400 Bad Request", "dir (absolute workspace path) is required");
+        return;
+    }
+    struct stat st;
+    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        web_json_error(fd, "400 Bad Request", "workspace dir does not exist");
+        return;
+    }
+    char reqname[300] = "", name[192] = "";
+    (void)json_get_string(body, "name", reqname, sizeof reqname);
+    if (!cowork_attachment_name(reqname, name, sizeof name)) {
+        web_json_error(fd, "415 Unsupported Media Type",
+                       "unsupported file type; use PDF, XLSX/CSV/TSV, DOCX, PPTX, ODT, text/data or an image");
+        return;
+    }
+    char *data = json_get_string_alloc_rpc(body, "data_uri");
+    if (!data || !data[0]) {
+        free(data);
+        web_json_error(fd, "400 Bad Request", "data_uri is required");
+        return;
+    }
+    const char *b64 = data;
+    if (!strncmp(data, "data:", 5)) {
+        const char *comma = strchr(data, ',');
+        if (!comma) {
+            free(data);
+            web_json_error(fd, "400 Bad Request", "malformed data URI");
+            return;
+        }
+        b64 = comma + 1;
+    }
+    size_t blen = 0;
+    char *bytes = base64_decode(b64, &blen);
+    free(data);
+    if (!bytes || blen == 0 || blen > 64u * 1024 * 1024) {
+        free(bytes);
+        web_json_error(fd, "400 Bad Request", "invalid or oversized file payload (64MB max)");
+        return;
+    }
+
+    char final[224], full[DSTUDIO_PATH_MAX + 240];
+    int wfd = -1;
+    for (int i = 0; i < 100; i++) {
+        if (i == 0) cstr_copy(final, sizeof final, name);
+        else {
+            char stem[192];
+            cstr_copy(stem, sizeof stem, name);
+            char *dot = strrchr(stem, '.');
+            const char *ext = "";
+            if (dot) { *dot = '\0'; ext = dot + 1; }
+            if (ext[0]) snprintf(final, sizeof final, "%s-%d.%s", stem, i + 1, ext);
+            else snprintf(final, sizeof final, "%s-%d", stem, i + 1);
+        }
+        snprintf(full, sizeof full, "%s/%s", dir, final);
+        wfd = open(full, O_WRONLY | O_CREAT | O_EXCL, 0644);
+        if (wfd >= 0 || errno != EEXIST) break;
+    }
+    if (wfd < 0) {
+        free(bytes);
+        web_json_error(fd, "500 Internal Server Error", "cannot create the workspace file");
+        return;
+    }
+    size_t off = 0;
+    while (off < blen) {
+        ssize_t wrote = write(wfd, bytes + off, blen - off);
+        if (wrote < 0 && errno == EINTR) continue;
+        if (wrote <= 0) break;
+        off += (size_t)wrote;
+    }
+    close(wfd);
+    free(bytes);
+    if (off < blen) {
+        unlink(full);
+        web_json_error(fd, "500 Internal Server Error", "short write");
+        return;
+    }
+
+    json_dyn_buf b = {0};
+    int okb = json_dyn_printf(&b, "{\"ok\":true,\"bytes\":%lld,\"name\":", (long long)blen) &&
+              json_dyn_put_escaped(&b, final) &&
+              json_dyn_puts(&b, ",\"rel\":") &&
+              json_dyn_printf(&b, "\"./%s\"", final) &&
+              json_dyn_puts(&b, ",\"path\":") &&
+              json_dyn_put_escaped(&b, full) &&
+              json_dyn_puts(&b, "}");
+    if (!okb) {
+        free(b.ptr);
+        web_json_error(fd, "500 Internal Server Error", "out of memory");
+        return;
+    }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+#endif
+}
+
 static void api_http_probe_run(int fd, const char *body) {
     char url[2048], method[16];
     method[0] = '\0';
@@ -8858,11 +9423,13 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/fs/list")) { api_fs_list(fd, body); return 200; }
     if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); return 200; }
     if (!strcmp(path, "/api/ds4/setup")) { api_setup_ds4(fd, body); return 200; }
+    if (!strcmp(path, "/api/glm53/setup")) { api_setup_glm53(fd); return 200; }
     if (!strcmp(path, "/api/laguna/setup")) { api_setup_laguna(fd); return 200; }
     if (!strcmp(path, "/api/vision/setup")) { api_vision_setup(fd, body); return 200; }
     if (!strcmp(path, "/api/vision/describe")) { api_vision_describe(fd, body); return 200; }
     if (!strcmp(path, "/api/vision/stop")) { api_vision_stop(fd); return 200; }
     if (!strcmp(path, "/api/image/generate")) { api_image_generate(fd, body); return 200; }
+    if (!strcmp(path, "/api/image/stop")) { api_image_stop(fd, body); return 200; }
     if (!strcmp(path, "/api/video/setup")) { api_video_setup(fd, body); return 200; }
     if (!strcmp(path, "/api/video/generate")) { api_video_generate(fd, body); return 200; }
     if (!strcmp(path, "/api/video/stop")) { api_video_stop(fd, body); return 200; }
@@ -8875,6 +9442,7 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/web-read")) { api_web_read(fd, body); return 200; }
     if (!strcmp(path, "/api/http-probe")) { api_http_probe(fd, body); return 200; }
     if (!strcmp(path, "/api/lan")) { api_lan(fd, body); return 200; }
+    if (!strcmp(path, "/api/http-port")) { api_http_port(fd, body); return 200; }
     if (!strcmp(path, "/api/remote")) { api_remote_control(fd, body); return 200; }
     if (!strcmp(path, "/api/wipe")) { api_wipe(fd); return 200; }
     send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"unknown endpoint\"}");
@@ -9118,6 +9686,26 @@ static void handle_connection(int fd) {
         return;
     }
 
+    /* Cowork attachments are larger than the normal JSON API cap because the
+     * file is base64 encoded.  Host-local + CSRF protected, like agent images. */
+    if (!strcmp(method, "POST") && path_eq_clean(path, "/api/cowork/attach-file")) {
+        if (!header_has(req, header_len, "x-requested-with: ds4web")) {
+            send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}"); close(fd); return;
+        }
+        char *buf = NULL;
+        size_t off = 0;
+        if (!read_request_body_alloc(fd, req, got, header_len, clen, 88L * 1024 * 1024,
+                                     "file too large\n", &buf, &off))
+        {
+            close(fd);
+            return;
+        }
+        api_cowork_attach_file(fd, buf);
+        free(buf);
+        close(fd);
+        return;
+    }
+
     /* Image editing carries the source pixels as a data URI. Generation without
      * a source also uses this path so both modes share one authorization and
      * body-handling contract. */
@@ -9319,7 +9907,14 @@ int main(int argc, char **argv)
         port = (int)p;
     }
     resolve_web_dir();   /* same for extension/ scripts (build-design.sh) */
-    if (argc > 2) { snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]); g_ds4_dir_explicit = 1; }
+    if (argc > 2) {
+        snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]);
+        g_ds4_dir_explicit = 1;
+    } else if (load_persisted_ds4_checkout(g_ds4_dir, sizeof g_ds4_dir)) {
+        /* A saved UI selection has the same precedence as an explicit path,
+         * but an actual CLI argument above always wins. */
+        g_ds4_dir_explicit = 1;
+    }
     resolve_ds4_dir();   /* launch from Finder/bundle: cwd = "/", the relative one must be resolved */
     int test_mode = getenv("DS4UI_TEST_MODE") && getenv("DS4UI_TEST_MODE")[0];
 
@@ -9337,6 +9932,8 @@ int main(int argc, char **argv)
     sa.sa_handler = on_term;
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
+    image_runtime_init();
+    video_runtime_init();
 
     g_srv_fd = ds4ui_forced_port > 0 ? open_listener(g_bind_host, port) : open_first_listener(g_bind_host, &port);
     if (g_srv_fd < 0) {
@@ -9375,6 +9972,12 @@ int main(int argc, char **argv)
     /* Automatic startup of the server with the defaults, if the port is free. */
     if (test_mode) {
         printf("engine: test mode - not starting ds4\n");
+    } else if (getenv("DS4UI_DEFER_ENGINE_START")) {
+        /* The native loading page owns the saved model choice. In particular,
+         * do not adopt a leftover DeepSeek server before browser storage tells
+         * us that the selected family is GLM or Laguna. */
+        set_stage("Applying saved engine settings…", 2);
+        printf("engine: waiting for the native loading page to apply saved launch settings\n");
     } else if (port_listening(ENGINE_DEFAULTS.port)) {
         if (ds4_server_compatible(ENGINE_DEFAULTS.port)) {
             reuse_external_ds4(&ENGINE_DEFAULTS, 1, 0);
@@ -9385,12 +9988,8 @@ int main(int argc, char **argv)
             snprintf(g_stage, sizeof g_stage, "Engine port is busy");
             printf("engine: %s\n", g_engine_err);
         }
-    } else if (getenv("DS4UI_DEFER_ENGINE_START")) {
-        set_stage("Applying saved engine settings…", 2);
-        printf("engine: waiting for the native loading page to apply saved launch settings\n");
     } else {
         engine_cfg boot = ENGINE_DEFAULTS;
-        boot.uncensored = model_present(1) ? 1 : 0;
         char err[256];
         /* Gate on the model the server ACTUALLY loads — the selected variant
          * (variant_rel(g_variant), e.g. flash), the same check spawn_server makes
@@ -9433,6 +10032,7 @@ int main(int argc, char **argv)
     }
     sse_close_all();
     diag_sse_close_all();
+    image_runtime_shutdown();
     video_runtime_shutdown();
     stop_child();
     return 0;

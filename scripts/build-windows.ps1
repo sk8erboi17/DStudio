@@ -139,6 +139,7 @@ function Write-IcoFromPng([string]$PngPath, [string]$IcoPath) {
 
 if (-not $Ds4Dir) {
   $Candidates = @(
+    (Join-Path $Root "ds4"),
     (Join-Path (Split-Path $Root -Parent) "ds4"),
     (Join-Path (Split-Path (Split-Path $Root -Parent) -Parent) "ds4")
   )
@@ -286,7 +287,7 @@ Assert-NativeOk "cygpath ds4"
 Assert-NativeOk "build DS4 Windows engine"
 
 Write-Host "windows: copying engine binaries and runtime"
-$Engine = @("ds4-server.exe", "ds4-agent-jsonl.exe", "ds4-design.exe")
+$Engine = @("ds4-server.exe", "ds4-agent-jsonl.exe", "ds4-cowork.exe", "ds4-design.exe")
 foreach ($e in $Engine) {
   $src = Join-Path $Ds4Dir $e
   if (-not (Test-Path $src)) { throw "missing engine binary: $src" }
@@ -321,7 +322,7 @@ Run DStudio.exe. The DS4 engine binaries in this folder are CPU-only Windows
 builds produced from a temporary staging copy; the upstream ds4 checkout is not
 modified permanently.
 
-Agent and Design LAN-client mode use the local DS4 tools for workspace actions
+Agent, Cowork and Design LAN-client mode use the local DS4 tools for workspace actions
 and DStudio's internal model bridge for LAN inference. Do not copy MSYS/Cygwin
 runtime DLLs next to the DS4 binaries: the launcher adds the installed MSYS2
 runtime to PATH so /tmp, fork and shell tools keep the correct MSYS root.

@@ -1,0 +1,12 @@
+static char *agent_default_cache_dir(void) {
+    const char *home = getenv("HOME");
+    if (!home || !home[0]) home = ".";
+    const char *runtime = getenv("DS4UI_RUNTIME_NAME");   /*DS4UI_JSONL*/
+    agent_buf b = {0};
+    agent_buf_puts(&b, home);
+    if (b.len == 0 || b.ptr[b.len - 1] != '/') agent_buf_puts(&b, "/");
+    agent_buf_puts(&b, runtime && !strcmp(runtime, "cowork")
+                            ? ".ds4/cowork-kvcache"
+                            : ".ds4/kvcache");
+    return agent_buf_take(&b);
+}

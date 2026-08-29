@@ -107,6 +107,13 @@ static void api_setup_laguna(int fd) {
         downloaded = 1;
     }
 
+    char link_err[1600] = "";
+    if (!setup_link_shared_gguf(target, link_err, sizeof link_err)) {
+        laguna_send_json(fd, "409 Conflict", 0, task_id, target,
+                         downloaded, 0, link_err);
+        return;
+    }
+
     task_mark_working(task_id, "building the Laguna engine, Agent and Design runtimes");
     char runtime_err[8600] = "";
     if (!setup_build_branch_runtimes(target, "Laguna S 2.1",

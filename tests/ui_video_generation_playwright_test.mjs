@@ -32,7 +32,14 @@ let engineReadyAt = 0;
 let progressReads = 0;
 let generationBody = null;
 let pipelineGenerationBody = null;
+let directGenerationBody = null;
+let directFrameGenerationBody = null;
 let imageGenerationBody = null;
+let cancelledImageGenerationBody = null;
+let holdNextImageGeneration = false;
+let releaseHeldImageGeneration = null;
+let resolveImageStop = null;
+const imageStopBodies = [];
 let chatRequests = 0;
 
 function json(res, status, value) {
@@ -83,7 +90,12 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/api/ggufs') {
-    json(res, 200, { ok: true, files: [] });
+    json(res, 200, { ok: true, activeEngine: '/engines/ds4', ggufs: [{
+      file: 'gguf/DeepSeek-V4-Flash-test.gguf',
+      path: 'gguf/DeepSeek-V4-Flash-test.gguf',
+      engineDir: '/engines/ds4', branch: 'main', size: 87_000_000_000,
+      activeEngine: true,
+    }] });
     return;
   }
   if (url.pathname === '/api/engine/checkouts') {
@@ -104,6 +116,11 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/vision/status') {
     json(res, 200, { ok: true, supported: true, installed: false, state: 'stopped' });
+    return;
+  }
+  if (url.pathname === '/api/vision/describe' && req.method === 'POST') {
+    await readBody(req);
+    json(res, 200, { ok: false, error: 'intentional Qwen visual fixture failure' });
     return;
   }
   if (url.pathname === '/api/remote/status') {
@@ -164,8 +181,10 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/video/generate' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req) || '{}');
-    if (generationBody) pipelineGenerationBody = body;
-    else generationBody = body;
+    if (!generationBody) generationBody = body;
+    else if (!pipelineGenerationBody) pipelineGenerationBody = body;
+    else if (!directGenerationBody) directGenerationBody = body;
+    else directFrameGenerationBody = body;
     requestOrder.push('video-generate');
     await new Promise((resolve) => setTimeout(resolve, 3200));
     json(res, 200, {
@@ -200,14 +219,33 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/api/image/generate' && req.method === 'POST') {
-    imageGenerationBody = JSON.parse(await readBody(req) || '{}');
+    const body = JSON.parse(await readBody(req) || '{}');
+    if (!imageGenerationBody) imageGenerationBody = body;
+    else cancelledImageGenerationBody = body;
     requestOrder.push('image-generate');
     assert.equal(engineRunning, false, 'the chat model must remain stopped while Qwen creates the H3 frame');
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    if (holdNextImageGeneration) {
+      holdNextImageGeneration = false;
+      await new Promise((resolve) => { releaseHeldImageGeneration = resolve; });
+      releaseHeldImageGeneration = null;
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    if (res.destroyed) return;
     json(res, 200, {
-      ok: true, id: imageGenerationBody.job, filename: 'qwen-first-frame.png',
-      url: `/api/image/file?id=${encodeURIComponent(imageGenerationBody.job)}&name=qwen-first-frame.png`,
+      ok: true, id: body.job, filename: 'qwen-first-frame.png',
+      url: `/api/image/file?id=${encodeURIComponent(body.job)}&name=qwen-first-frame.png`,
     });
+    return;
+  }
+  if (url.pathname === '/api/image/stop' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req) || '{}');
+    imageStopBodies.push(body);
+    requestOrder.push('image-stop');
+    releaseHeldImageGeneration?.();
+    resolveImageStop?.(body);
+    resolveImageStop = null;
+    json(res, 200, { ok: true, running: false, id: body.job });
     return;
   }
   if (url.pathname === '/api/image/file') {
@@ -241,6 +279,8 @@ const server = http.createServer(async (req, res) => {
           '```',
         ].join('\n') : chatRequests === 2
       ? 'Motore locale ripristinato.'
+      : chatRequests === 5
+      ? 'Ripresa completata dopo l’interruzione.'
       : [
           'Creo prima il frame con Qwen e poi lo animo localmente.',
           '```dstudio-video',
@@ -303,6 +343,7 @@ try {
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
       v: 2, onboarded: true, theme: 'dark', baseUrl: '', chatBackend: 'local',
       model: 'deepseek-v4-flash', modelVariant: 'flash', thinkLevel: 'off',
+      qualityDefaultsVersion: 1,
       ctxSize: 65536, enginePower: 90, ssdStreaming: 'auto', webMode: 'off',
       videoLicenseAccepted: true, videoEncoder: 'official',
       videoProfile: 'preview', videoDuration: 8, videoAspect: '9:16',
@@ -377,38 +418,170 @@ try {
 
   const pipelineStart = requestOrder.length;
   await page.locator('#composer-input').fill(
-    'Prima crea con Qwen una barchetta nella pozzanghera, poi usa quell’immagine come primo frame del video.',
+    'Prima crea una barchetta nella pozzanghera con il generatore locale, poi usa quell’immagine come primo frame del video.',
   );
   await page.locator('#btn-send').click();
   const pipelineReply = page.locator('.msg--assistant').last();
   await pipelineReply.locator('.msg-generated-image').waitFor({ state: 'visible', timeout: 15000 });
   await pipelineReply.locator('.msg-generated-video').waitFor({ state: 'visible', timeout: 20000 });
 
-  assert.ok(imageGenerationBody, 'Qwen Image must receive the generated-first-frame request');
+  assert.ok(imageGenerationBody, 'the Qwen3.8-routed image pipeline must receive the generated-first-frame request');
   assert.equal(imageGenerationBody.action, 'generate');
   assert.match(imageGenerationBody.prompt, /paper boat.*rain puddle/i);
   assert.ok(pipelineGenerationBody, 'H3 must receive the chained video request');
-  assert.match(pipelineGenerationBody.image || '', /^data:image\/png;base64,/, 'the Qwen PNG must become H3 first-frame data');
+  assert.match(pipelineGenerationBody.image || '', /^data:image\/png;base64,/, 'the Ideogram PNG must become H3 first-frame data');
   assert.equal(pipelineGenerationBody.duration, 5);
   assert.equal(pipelineGenerationBody.aspect, '16:9');
 
   const pipelineEvents = requestOrder.slice(pipelineStart);
   const pipelineStop = pipelineEvents.indexOf('engine-stop');
-  const qwenGenerate = pipelineEvents.indexOf('image-generate');
-  const qwenRead = pipelineEvents.indexOf('image-file', qwenGenerate + 1);
-  const h3Generate = pipelineEvents.indexOf('video-generate', qwenRead + 1);
+  const imageGenerate = pipelineEvents.indexOf('image-generate');
+  const imageRead = pipelineEvents.indexOf('image-file', imageGenerate + 1);
+  const h3Generate = pipelineEvents.indexOf('video-generate', imageRead + 1);
   const pipelineRestart = pipelineEvents.indexOf('engine-start', h3Generate + 1);
-  assert.ok(pipelineStop >= 0 && qwenGenerate > pipelineStop && qwenRead > qwenGenerate &&
-    h3Generate > qwenRead && pipelineRestart > h3Generate,
-  `Qwen → H3 pipeline order is wrong: ${JSON.stringify(pipelineEvents)}`);
+  assert.ok(pipelineStop >= 0 && imageGenerate > pipelineStop && imageRead > imageGenerate &&
+    h3Generate > imageRead && pipelineRestart > h3Generate,
+  `Ideogram → H3 pipeline order is wrong: ${JSON.stringify(pipelineEvents)}`);
   assert.equal(pipelineEvents.filter((event) => event === 'engine-stop').length, 1,
-    'the chat model should be released only once for the full Qwen → H3 pipeline');
+    'the chat model should be released only once for the full image → H3 pipeline');
   assert.equal(pipelineEvents.filter((event) => event === 'engine-start').length, 1,
     'the chat model should be restored only after both media stages complete');
 
   const pipelineText = await pipelineReply.locator('.msg__content').textContent() || '';
   assert.doesNotMatch(pipelineText, /dstudio-video|firstFramePrompt/,
     'the chained media directive must stay private');
+
+  // H3 is also a first-class composer target. Selecting it must skip the
+  // formatting-only Chat request, preserve the raw Context-IR prompt, and use
+  // explicit duration/aspect values from that prompt.
+  await page.locator('#cbar-model .cbar-model-btn').click();
+  const h3Option = page.locator('#cbar-model .cbar-model-item').filter({ hasText: 'MiniMax H3' });
+  await h3Option.waitFor({ state: 'visible', timeout: 10000 });
+  await h3Option.click();
+  await page.locator('#cbar-model .cbar-model-btn').filter({ hasText: 'MiniMax H3 · video' }).waitFor();
+  assert.match(await page.locator('#composer-input').getAttribute('placeholder') || '', /Scene.*Action.*Camera.*Look.*Audio/);
+
+  await page.locator('#cbar-model .cbar-model-btn').click();
+  await page.locator('.h3-prompt-template').click();
+  assert.equal(await page.locator('#composer-input').inputValue(), [
+    'Scene: ', 'Action: ', 'Camera: ', 'Look: ', 'Audio: ',
+  ].join('\n'));
+
+  const directPrompt = [
+    'Scene: a single red fox in a snowy pine forest for 10 seconds, 4:3.',
+    'Action: the fox walks left to right and looks at the camera once.',
+    'Camera: stable medium-height lateral tracking shot, 50 mm lens.',
+    'Look: photorealistic fur, cold dawn light and a warm rim light.',
+    'Audio: soft footsteps in snow and light wind, no music.',
+  ].join('\n');
+  const directChatRequests = chatRequests;
+  const cardCountBeforeDirect = await page.locator('.msg-generated-video').count();
+  await page.locator('#composer-input').fill(directPrompt);
+  await page.locator('#btn-send').click();
+  await page.waitForFunction((count) => document.querySelectorAll('.msg-generated-video').length > count,
+    cardCountBeforeDirect, { timeout: 20000 });
+  assert.ok(directGenerationBody, 'selecting H3 in the model picker must invoke the video endpoint');
+  assert.equal(directGenerationBody.prompt, directPrompt, 'direct H3 mode must preserve the upstream-style prompt verbatim');
+  assert.equal(directGenerationBody.duration, 10, 'direct H3 mode should recognize an explicit duration');
+  assert.equal(directGenerationBody.aspect, '4:3', 'direct H3 mode should recognize an explicit aspect ratio');
+  assert.equal('image' in directGenerationBody, false);
+  assert.equal(chatRequests, directChatRequests, 'direct H3 mode must not call the Chat model first');
+
+  // An image attached while H3 is selected is sent directly as --first-frame;
+  // the vision sidecar is deliberately not involved.
+  await page.locator('#chat-file-input').setInputFiles({
+    name: 'opening-frame.png', mimeType: 'image/png', buffer: testImage,
+  });
+  await page.locator('.composer__file').waitFor({ state: 'visible' });
+  const cardCountBeforeFrame = await page.locator('.msg-generated-video').count();
+  await page.locator('#composer-input').fill('The camera moves slowly around the subject. Audio: quiet forest ambience.');
+  await page.locator('#btn-send').click();
+  await page.waitForFunction((count) => document.querySelectorAll('.msg-generated-video').length > count,
+    cardCountBeforeFrame, { timeout: 20000 });
+  assert.ok(directFrameGenerationBody, 'H3 opening-frame mode must reach the video endpoint');
+  assert.match(directFrameGenerationBody.image || '', /^data:image\/png;base64,/,
+    'the attached PNG must become native H3 first-frame data');
+  assert.equal(directFrameGenerationBody.duration, 8, 'saved duration should apply without an explicit value');
+  assert.equal(directFrameGenerationBody.aspect, '9:16', 'saved aspect should apply without an explicit value');
+  assert.equal(chatRequests, directChatRequests, 'opening-frame H3 mode must also bypass Chat and vision routing');
+
+  // A failed Qwen visual preflight must not silently hand an image request to
+  // the non-visual chat model. This mock intentionally has no describe route.
+  await page.locator('#cbar-model .cbar-model-btn').click();
+  const chatModelOption = page.locator('#cbar-model .cbar-model-item').filter({ hasText: 'DeepSeek V4 Flash' });
+  await chatModelOption.waitFor({ state: 'visible', timeout: 10000 });
+  await chatModelOption.click();
+  await page.locator('#cbar-model .cbar-model-btn').filter({ hasText: 'Flash' }).waitFor();
+  await page.locator('#btn-new-chat').click();
+
+  // Stopping during the generated-first-frame stage must cancel that exact
+  // image worker, must never start H3, and must leave Chat usable afterwards.
+  const cancelStart = requestOrder.length;
+  const generatedVideoCountBeforeCancel = await page.locator('.msg-generated-video').count();
+  holdNextImageGeneration = true;
+  const imageStopped = new Promise((resolve) => { resolveImageStop = resolve; });
+  const heldImageRequest = page.waitForRequest((request) =>
+    new URL(request.url()).pathname === '/api/image/generate');
+  await page.locator('#composer-input').fill(
+    'Create a still image first, then animate it; I may stop while the opening frame is rendering.',
+  );
+  await page.locator('#btn-send').click();
+  await heldImageRequest;
+  await page.locator('#btn-stop').waitFor({ state: 'visible', timeout: 10000 });
+  await page.locator('#btn-stop').click();
+  const stoppedImageBody = await Promise.race([
+    imageStopped,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('image stop endpoint was not called')), 10000)),
+  ]);
+  const cancelledReply = page.locator('.msg--assistant .msg__content').last();
+  await cancelledReply.filter({ hasText: 'Video generation cancelled.' })
+    .waitFor({ state: 'visible', timeout: 15000 });
+  assert.ok(cancelledImageGenerationBody?.job, 'the interrupted image request must carry a stable job id');
+  assert.equal(stoppedImageBody.job, cancelledImageGenerationBody.job,
+    'Stop must target the exact image job created by this UI request');
+  assert.equal(imageStopBodies.filter((body) => body.job === cancelledImageGenerationBody.job).length, 1,
+    'the interrupted image worker must receive exactly one stop request');
+  assert.equal(requestOrder.slice(cancelStart).includes('video-generate'), false,
+    'H3 must not start after its opening-frame image was interrupted');
+  assert.equal(await page.locator('.msg-generated-video').count(), generatedVideoCountBeforeCancel,
+    'an interrupted opening-frame stage must not create a partial video card');
+
+  await page.locator('#composer-input').fill('Confirm that Chat resumed after the interrupted media job.');
+  await page.locator('#btn-send').click();
+  await page.locator('.msg--assistant .msg__content').last()
+    .filter({ hasText: 'Ripresa completata dopo l’interruzione.' })
+    .waitFor({ state: 'visible', timeout: 10000 });
+
+  const chatsBeforeVisionFailure = chatRequests;
+  await page.locator('#chat-file-input').setInputFiles({
+    name: 'edit-source.png', mimeType: 'image/png', buffer: testImage,
+  });
+  await page.locator('.composer__file').waitFor({ state: 'visible' });
+  await page.locator('#composer-input').fill('Edit this image and make the background blue.');
+  const userCountBeforeRoutingFailure = await page.locator('.msg--user').count();
+  assert.equal(await page.locator('#btn-send').isEnabled(), true,
+    'the fail-closed visual request must be sendable');
+  await page.locator('#btn-send').click();
+  await page.locator('.toast').filter({ hasText: 'press send again' })
+    .waitFor({ state: 'visible', timeout: 10000 });
+  assert.equal(await page.locator('.msg--user').count(), userCountBeforeRoutingFailure,
+    'the first failed visual read must retain the unsent request for one explicit retry');
+  await page.locator('#btn-send').click();
+  await page.waitForFunction((count) => document.querySelectorAll('.msg--user').length > count,
+    userCountBeforeRoutingFailure, { timeout: 10000 });
+  const routingFailure = page.locator('.msg--assistant .msg__content').last();
+  try {
+    await routingFailure.filter({ hasText: 'Qwen3.8 visual routing failed' })
+      .waitFor({ state: 'visible', timeout: 10000 });
+  } catch (error) {
+    const target = await page.locator('#cbar-model .cbar-model-btn').textContent().catch(() => 'missing');
+    const messages = await page.locator('.msg .msg__content').allTextContents().catch(() => []);
+    const composer = await page.locator('#composer-input').inputValue().catch(() => 'missing');
+    throw new Error(`visual fail-closed result missing; target=${target}; chatRequests=${chatRequests}; composer=${composer}; messages=${JSON.stringify(messages)}`, { cause: error });
+  }
+  assert.equal(chatRequests, chatsBeforeVisionFailure,
+    'a failed visual preflight must not call the normal chat model');
+
   assert.deepEqual(pageErrors, [], `page errors: ${JSON.stringify(pageErrors, null, 2)}`);
   console.log('ui_video_generation_playwright_test: ok');
 } finally {

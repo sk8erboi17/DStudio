@@ -93,7 +93,7 @@ static int embed_spawn_detached(void) {
         if (fork() > 0) _exit(0);
         setsid();
         if (chdir(g_web_dir) != 0) _exit(127);
-        child_setenv_metal();
+        child_setenv_metal(NULL);
         for (int cfd = 3; cfd < 256; cfd++) close(cfd);
         int dn = open("/dev/null", O_RDWR);
         if (dn >= 0) { dup2(dn, STDIN_FILENO); if (dn != STDIN_FILENO) close(dn); }

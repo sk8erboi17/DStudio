@@ -1,0 +1,112 @@
+diff --git a/ds4.c b/ds4.c
+--- a/ds4.c
++++ b/ds4.c
+@@ -6865,12 +6865,18 @@ static DS4_MAYBE_UNUSED bool weights_streaming_non_routed_bytes(
+     if (!w || !bytes_out) return false;
+ 
+     ds4_model_map_span_vec spans;
+-    const bool include_token =
+-        weights_layer_has_required(&w->layer[0], 0);
+-    if (!weights_model_map_decode_static_spans(w,
+-                                               include_token,
+-                                               weights_have_output_head(w),
+-                                               &spans)) {
++    memset(&spans, 0, sizeof(spans));
++    if (weights_layer_has_required(&w->layer[0], 0)) {
++        model_map_span_vec_include_one(&spans, w->token_embd);
++    }
++    for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
++        model_map_span_vec_include_layer_decode_static(&spans, &w->layer[il]);
++    }
++    if (weights_have_output_head(w)) {
++        model_map_span_vec_include_output(&spans, w);
++    }
++    if (!model_map_span_vec_finish(&spans)) {
++        free(spans.v);
+         return false;
+     }
+     *bytes_out = model_map_span_vec_total_bytes(&spans);
+@@ -39964,7 +39970,11 @@ static uint64_t glm_graph_streaming_active_model_bytes(
+         free(spans.v);
+     }
+     for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
+-        if (!weights_model_map_spans(weights, il, il, false, &spans)) {
++        memset(&spans, 0, sizeof(spans));
++        model_map_span_vec_include_layer_decode_static(&spans,
++                                                       &weights->layer[il]);
++        if (!model_map_span_vec_finish(&spans)) {
++            free(spans.v);
+             continue;
+         }
+         const uint64_t bytes = model_map_span_vec_total_bytes(&spans);
+@@ -40068,7 +40078,10 @@ static bool glm_graph_memory_guard_for_compact_cap(
+         uint64_t           transient_extra_bytes,
+         const char        *phase) {
+     if (!model) return true;
+-    if (!ds4_model_is_glm53() &&
++    /*DS4UI_GLM53_STREAMING: GLM already has exact graph planning and backend
++     * allocation errors. A second host-memory gate rejects valid mapped or
++     * SSD-streamed launches, so DStudio leaves capacity advice to its UI. */
++    if (ds4_model_is_glm53() ||
+         glm_graph_env_disabled("DS4_GLM_MEMORY_GUARD")) {
+         return true;
+     }
+@@ -40113,16 +40126,6 @@ static bool glm_graph_memory_guard_for_compact_cap(
+         glm_graph_env_double("DS4_GLM_MEMORY_GUARD_FRACTION", 0.99, 0.50, 1.00);
+     double default_reserve_gib =
+         glm_graph_memory_guard_default_reserve_gib(budget_base, model_bytes);
+-    if (ds4_model_is_glm53()) {
+-        const double base_gib = glm_graph_bytes_to_gib(budget_base);
+-        const double model_gib = glm_graph_bytes_to_gib(model_bytes);
+-        if (base_gib >= 120.0 && base_gib <= 160.0 && model_gib >= 70.0) {
+-            /* A 128 GiB host is a supported resident-Q2 target. The fixed
+-             * 110 GiB GLM-5.3 ceiling below is the effective safety limit;
+-             * a 32 GiB reserve would reject the model map by itself. */
+-            default_reserve_gib = 12.0;
+-        }
+-    }
+ #ifdef DS4_ROCM_BUILD
+     if (load_slice && !ssd_streaming) {
+         /* The original fixed reserve protects Metal's shared host/GPU heap.
+@@ -40158,10 +40161,6 @@ static bool glm_graph_memory_guard_for_compact_cap(
+             wired_limit > margin ? wired_limit - margin : wired_limit;
+         if (wired_budget > budget) budget = wired_budget;
+     }
+-    if (ds4_model_is_glm53()) {
+-        const uint64_t glm53_max = 110ull * 1024ull * 1024ull * 1024ull;
+-        if (budget > glm53_max) budget = glm53_max;
+-    }
+ 
+     if (required <= budget) {
+         const char *report = getenv("DS4_GLM_MEMORY_GUARD_REPORT");
+@@ -40231,15 +40230,9 @@ static bool glm_graph_memory_guard_for_compact_cap(
+             fraction,
+             reserve_gib,
+             glm_graph_bytes_to_gib(transient_extra_bytes));
+-    if (ds4_model_is_glm53()) {
+-        fprintf(stderr,
+-                "ds4:   GLM-5.3 has a fixed 110 GiB per-rank ceiling; use a "
+-                "smaller --ctx, tensor parallelism, or SSD streaming\n");
+-    } else {
+-        fprintf(stderr,
+-                "ds4:   set DS4_GLM_MEMORY_GUARD=0 to bypass, use a smaller --ctx, "
+-                "or use SSD streaming\n");
+-    }
++    fprintf(stderr,
++            "ds4:   set DS4_GLM_MEMORY_GUARD=0 to bypass, use a smaller --ctx, "
++            "or use SSD streaming\n");
+     return false;
+ }
+ 
+diff --git a/ds4_server.c b/ds4_server.c
+--- a/ds4_server.c
++++ b/ds4_server.c
+@@ -12855 +12855,7 @@ static bool send_models(server *s, int fd) {
+-    if (ds4_engine_is_glm_dsa(s->engine)) {
++    if (ds4_engine_is_glm53(s->engine)) {
++        append_model_json(&b, s, "glm-5.3-flash");
++        buf_putc(&b, ',');
++        append_model_json(&b, s, "glm-5.3-flash-chat");
++        buf_putc(&b, ',');
++        append_model_json(&b, s, "glm-5.3-flash-reasoner");
++    } else if (ds4_engine_is_glm_dsa(s->engine)) {

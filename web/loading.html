@@ -7,6 +7,18 @@
   <script>
     (() => {
       try {
+        const prefix = '#port-migrate=';
+        if (location.hash.startsWith(prefix)) {
+          let encoded = location.hash.slice(prefix.length).replace(/-/g, '+').replace(/_/g, '/');
+          while (encoded.length % 4) encoded += '=';
+          const binary = atob(encoded);
+          const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+          const values = JSON.parse(new TextDecoder().decode(bytes));
+          for (const [key, value] of Object.entries(values || {})) {
+            if (typeof value === 'string') localStorage.setItem(key, value);
+          }
+          history.replaceState(null, '', location.pathname);
+        }
         const settings = JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}');
         if (settings && settings.lanClientHost) location.replace('/');
         if (!settings || settings.onboarded !== true) location.replace('/');
@@ -173,6 +185,38 @@
         return true; // waitForReady handles a launcher that is still connecting
       }
       if (st.running) return true;
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}') || {}; }
+      catch { saved = {}; }
+      const gguf = typeof saved.modelGguf === 'string' ? saved.modelGguf : '';
+      let engineDir = typeof saved.modelEngineDir === 'string' ? saved.modelEngineDir : '';
+      /* Upgrade missing checkout metadata and repair stale absolute paths after
+       * a source tree or app bundle has moved. The GGUF catalog is authoritative. */
+      if (gguf) {
+        try {
+          const catalog = await fetchJson('/api/ggufs', {}, 5000);
+          const matches = (catalog.ggufs || []).filter((g) => g.path === gguf);
+          if (matches.length === 1 && matches[0].engineDir && matches[0].engineDir !== engineDir) {
+            engineDir = matches[0].engineDir;
+            saved.modelEngineDir = engineDir;
+            localStorage.setItem('ds4web.settings.v2', JSON.stringify(saved));
+          }
+        } catch { /* /api/start below will expose a precise model error */ }
+      }
+      /* Recover a previously selected checkout before deciding setup is
+       * required. This also repairs old installs whose managed ds4 symlink
+       * points at a repository that has since moved. The checkout endpoint now
+       * persists the repaired path for every later native-app launch. */
+      if (!st.ds4dirOk && engineDir) {
+        try {
+          await fetchJson('/api/engine/checkout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
+            body: JSON.stringify({ dir: engineDir }),
+          }, 10000);
+          st = await fetchJson('/api/status', {}, 3500);
+        } catch { /* the main UI will offer install, path and LAN recovery */ }
+      }
       const models = st.models || {};
       const variants = st.variants || {};
       if (!st.ds4dirOk || !(models.standard || models.uncensored || variants.flash || variants.pro || st.modelFile)) {
@@ -182,37 +226,12 @@
         return false;
       }
 
-      let saved = {};
-      try { saved = JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}') || {}; }
-      catch { saved = {}; }
       const ctx = Math.max(1024, Math.min(1048576, parseInt(saved.ctxSize, 10) || 65536));
       const power = Math.max(1, Math.min(100, parseInt(saved.enginePower, 10) || 90));
-      const ssdStreaming = ['off', 'on', 'auto'].includes(saved.ssdStreaming) ? saved.ssdStreaming : 'auto';
+      const ssdStreaming = ['off', 'on', 'auto'].includes(saved.ssdStreaming) ? saved.ssdStreaming : 'off';
       const metalHotlistSeed = !!saved.metalHotlistSeed;
       const dspark = !!saved.dspark;
       const variant = saved.modelVariant === 'pro' ? 'pro' : 'flash';
-      const gguf = typeof saved.modelGguf === 'string' ? saved.modelGguf : '';
-      let engineDir = typeof saved.modelEngineDir === 'string' ? saved.modelEngineDir : '';
-      /* GLM now lives in main. Clear the retired side-checkout selection and
-       * resolve the same saved GGUF against the aggregate catalog below. */
-      if (engineDir && /(^|[\\/])ds4-glm[^\\/]*[\\/]?$/i.test(engineDir)) {
-        engineDir = '';
-        saved.modelEngineDir = '';
-        localStorage.setItem('ds4web.settings.v2', JSON.stringify(saved));
-      }
-      /* Upgrade model picks saved before GGUFs carried checkout metadata.
-       * The aggregate catalog can identify the checkout owning the model. */
-      if (!engineDir && gguf) {
-        try {
-          const catalog = await fetchJson('/api/ggufs', {}, 5000);
-          const matches = (catalog.ggufs || []).filter((g) => g.path === gguf);
-          if (matches.length === 1 && matches[0].engineDir) {
-            engineDir = matches[0].engineDir;
-            saved.modelEngineDir = engineDir;
-            localStorage.setItem('ds4web.settings.v2', JSON.stringify(saved));
-          }
-        } catch { /* /api/start below will expose a precise model error */ }
-      }
       showProgress(5, 'Applying saved engine settings…',
         `${Math.round(ctx / 1024)}k context · SSD streaming ${ssdStreaming}`);
       try {
@@ -223,12 +242,13 @@
             body: JSON.stringify({ dir: engineDir }),
           }, 10000);
         }
-        await fetchJson('/api/start', {
+        const started = await fetchJson('/api/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
           body: JSON.stringify({
             mode: 'server',
-            model: models.uncensored ? 'uncensored' : 'standard',
+            force: true,
+            model: 'standard',
             variant,
             gguf,
             ctx,
@@ -238,6 +258,14 @@
             dspark,
           }),
         }, 15000);
+        if (started?.adjusted) {
+          if (Number.isFinite(Number(started.ctx)) && Number(started.ctx) > 0) {
+            saved.ctxSize = Math.round(Number(started.ctx));
+          }
+          if (typeof started.dspark === 'boolean') saved.dspark = started.dspark;
+          localStorage.setItem('ds4web.settings.v2', JSON.stringify(saved));
+          showProgress(visualPct, 'Using a memory-safe engine configuration', started.warning || 'Saved settings adjusted');
+        }
         return true;
       } catch (e) {
         showProgress(visualPct, 'Could not start the engine', 'Opening DStudio diagnostics');

@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LUMEN OBSERVATORY · Night 04 — The sky is a shared archive</title>
+<style>
+  /* ============================================================
+     DESIGN READ — Reading as a cinematic poster-page for a public
+     observatory programme, quiet dramatic editorial language,
+     leaning editorial-monocle: dark sky imagery, near-black canvas,
+     warm amber accent against deep blue, serif display + sans body,
+     hairline borders and whitespace. Explicitly NOT a generic
+     glass-card astronomy page with purple gradients.
+     ============================================================ */
+
+  :root{
+    /* editorial-monocle, tuned for a dark image-led page */
+    --bg:        oklch(20% 0.018 250);   /* deep ink, not #000 */
+    --bg-deep:   oklch(15% 0.018 250);
+    --surface:   oklch(22% 0.02 250);
+    --fg:        oklch(97% 0.004 95);
+    --muted:     oklch(78% 0.02 240);
+    --border:    oklch(45% 0.02 250);
+    --accent:    oklch(72% 0.10 55);     /* warm amber-gold */
+    --accent-ink:oklch(30% 0.06 50);
+
+    --display: Georgia, 'Times New Roman', serif;
+    --body: 'Segoe UI', system-ui, sans-serif;
+  }
+
+  *{ box-sizing: border-box; margin: 0; }
+  html{ scroll-behavior: smooth; }
+  body{
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.6;
+    min-height: 100dvh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- nav ---------- */
+  .topline{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem clamp(1.25rem, 5vw, 3rem);
+    border-bottom: 1px solid var(--border);
+  }
+  .wordmark{
+    font-family: var(--display);
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    color: var(--fg);
+  }
+  .wordmark span{ color: var(--accent); }
+  .nav-links{
+    display: flex;
+    gap: clamp(1rem, 3vw, 2.5rem);
+    list-style: none;
+    padding: 0;
+  }
+  .nav-links a{
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.85rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.5rem 0.25rem;
+  }
+  .nav-links a:hover{ color: var(--fg); }
+  .nav-links .active{ color: var(--fg); }
+
+  /* ---------- hero ---------- */
+  .hero{
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    min-height: 100dvh;
+    overflow: hidden;
+  }
+  .hero-image{
+    grid-column: 1 / -1;
+    grid-row: 1;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 50% 42%;
+    filter: saturate(0.92) contrast(1.04);
+    position: absolute;
+    inset: 0;
+  }
+  .hero::before{ /* dark veil for text legibility */
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(to bottom,
+        rgba(20,20,22,0.55) 0%,
+        rgba(20,20,22,0.28) 40%,
+        rgba(20,20,22,0.62) 100%);
+    z-index: 1;
+  }
+  .hero-content{
+    grid-column: 1 / -1;
+    grid-row: 1;
+    align-self: end;
+    z-index: 2;
+    padding: clamp(2rem, 6vw, 4rem) clamp(1.25rem, 5vw, 3rem) clamp(4rem, 8vh, 6rem);
+    max-width: 60ch;
+  }
+  .eyebrow{
+    font-size: 0.82rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1.1rem;
+  }
+  .hero h1{
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: clamp(2.6rem, 7vw, 5rem);
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+    text-wrap: balance;
+  }
+  .tagline{
+    font-family: var(--display);
+    font-style: italic;
+    font-size: clamp(1.3rem, 3vw, 2rem);
+    color: var(--fg);
+    margin-top: 1.2rem;
+    max-width: 34ch;
+  }
+  .meta-line{
+    margin-top: 1.6rem;
+    font-size: 1rem;
+    letter-spacing: 0.02em;
+    color: var(--fg);
+  }
+  .meta-line strong{ font-weight: 550; color: var(--fg); }
+  .cta-row{
+    margin-top: 2rem;
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+    flex-wrap: wrap;
+  }
+  .cta{
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: 1px solid var(--accent);
+    padding: 0.9rem 1.6rem;
+    font-size: 0.95rem;
+    font-weight: 550;
+    letter-spacing: 0.04em;
+    text-decoration: none;
+    text-transform: uppercase;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .2s, color .2s;
+  }
+  .cta:hover{
+    background: transparent;
+    color: var(--accent);
+  }
+  .cta-note{
+    color: var(--muted);
+    font-size: 0.85rem;
+    max-width: 30ch;
+  }
+
+  /* ---------- section: programme ---------- */
+  section{
+    padding: clamp(3.5rem, 8vh, 6rem) clamp(1.25rem, 5vw, 3rem);
+  }
+  .section-head{
+    font-size: 0.82rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 1.4rem;
+  }
+  .section-title{
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: clamp(1.9rem, 4vw, 2.6rem);
+    line-height: 1.1;
+    letter-spacing: -0.015em;
+    max-width: 30ch;
+  }
+  .prose{
+    max-width: 65ch;
+    color: var(--muted);
+    font-size: 1.02rem;
+    margin-top: 1.3rem;
+    text-wrap: pretty;
+  }
+  .prose strong{ color: var(--fg); font-weight: 550; }
+
+  /* programme cards — editorial, hairline borders, no glass */
+  .cards{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin-top: 2.6rem;
+  }
+  .card{
+    background: var(--bg-deep);
+    padding: clamp(1.4rem, 3vw, 2.2rem);
+  }
+  .card .num{
+    font-family: var(--display);
+    font-size: 1.1rem;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin-bottom: 0.8rem;
+  }
+  .card h3{
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 1.35rem;
+    line-height: 1.2;
+    margin-bottom: 0.7rem;
+  }
+  .card p{
+    color: var(--muted);
+    font-size: 0.95rem;
+    max-width: 46ch;
+  }
+
+  /* ---------- section: archive / quote ---------- */
+  .quote{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: clamp(2rem, 5vw, 4rem);
+    align-items: center;
+    border-top: 1px solid var(--border);
+  }
+  .quote blockquote{
+    font-family: var(--display);
+    font-style: italic;
+    font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    max-width: 28ch;
+  }
+  .quote blockquote .accent{ color: var(--accent); }
+  .quote-side{
+    color: var(--muted);
+    font-size: 1rem;
+    max-width: 52ch;
+  }
+
+  /* ---------- section: how it runs ---------- */
+  .steps{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: clamp(1.5rem, 3vw, 2.5rem);
+  }
+  .step{
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+  }
+  .step .num{
+    font-family: var(--display);
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    margin-bottom: 0.6rem;
+    font-size: 0.9rem;
+  }
+  .step h3{
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 1.25rem;
+    margin-bottom: 0.6rem;
+  }
+  .step p{ color: var(--muted); font-size: 0.95rem; max-width: 44ch; }
+
+  /* ---------- footer / reservation ---------- */
+  .reserve{
+    border-top: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: clamp(2rem, 5vw, 4rem);
+    align-items: end;
+    padding-bottom: clamp(4rem, 8vh, 6rem);
+  }
+  .reserve .section-title{ font-size: clamp(2rem, 4vw, 2.8rem); }
+  .reserve p{ color: var(--muted); max-width: 56ch; margin-top: 1.2rem; }
+  .reserve .cta{ margin-top: 1.6rem; }
+  .reserve-note{
+    font-family: var(--display);
+    font-style: italic;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+
+  footer{
+    border-top: 1px solid var(--border);
+    padding: 1.4rem clamp(1.25rem, 5vw, 3rem);
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    color: var(--muted);
+    font-size: 0.82rem;
+    letter-spacing: 0.02em;
+  }
+  footer .wordmark{ font-size: 0.8rem; }
+
+  /* ---------- focus ---------- */
+  a:focus-visible, button:focus-visible{
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ---------- reduced motion ---------- */
+  @media (prefers-reduced-motion: reduce){
+    html{ scroll-behavior: auto; }
+    .cta, .hero-image{ transition: none; }
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 900px){
+    .cards{ grid-template-columns: 1fr; }
+    .quote{ grid-template-columns: 1fr; }
+    .reserve{ grid-template-columns: 1fr; align-items: start; }
+    .steps{ grid-template-columns: 1fr; }
+    .nav-links{ display: none; }
+  }
+  @media (max-width: 520px){
+    .cta{
+      white-space: normal;
+      text-align: center;
+      padding: 0.9rem 1rem;
+      justify-content: center;
+    }
+    .cta-row{ flex-direction: column; align-items: stretch; }
+    .reserve .cta{ width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+  <nav class="topline" aria-label="Primary">
+    <div class="wordmark">Lumen<span> Observatory</span></div>
+    <ul class="nav-links">
+      <li><a href="#" class="active">Programme</a></li>
+      <li><a href="#">Archive</a></li>
+      <li><a href="#">Visit</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <!-- HERO -->
+    <header class="hero">
+      <img
+        class="hero-image"
+        src="assets/blue-hour-observatory.png"
+        alt="A brutalist concrete observatory on a hilltop at blue hour, its interior windows glowing warm amber against a deep cobalt sky, a lone figure standing small beside it"
+        width="1920" height="1080">
+      <div class="hero-content">
+        <p class="eyebrow">NIGHT 04 · Public programme</p>
+        <h1>LUMEN OBSERVATORY</h1>
+        <p class="tagline">The sky is a shared archive</p>
+        <p class="meta-line">
+          <strong>18 October — 19:30</strong> · hilltop terrace, doors open at dusk
+        </p>
+        <div class="cta-row">
+          <a class="cta" href="#reserve">Reserve a telescope</a>
+          <span class="cta-note">Limited to 24 seats · one telescope per household</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- PROGRAMME -->
+    <section id="programme">
+      <p class="section-head">Night 04 · The Archive Session</p>
+      <h2 class="section-title">One evening, three instruments, and the sky kept open past midnight</h2>
+      <p class="prose">
+        Night 04 turns the observatory into an open reading room. Each telescope is tuned to a
+        different shelf of the sky, and every reservation is a seat at that archive.
+      </p>
+      <div class="cards">
+        <div class="card">
+          <p class="num">I</p>
+          <h3>The Deep Archive</h3>
+          <p>A 20-inch reflector pointed at the globular cluster NGC 6397, its stars resolved one by one.</p>
+        </div>
+        <div class="card">
+          <p class="num">II</p>
+          <h3>The Local Sheet</h3>
+          <p>A wide-field refractor tracing the Milky Way's nearest dust lanes across the southern horizon.</p>
+        </div>
+        <div class="card">
+          <p class="num">III</p>
+          <h3>The Shared Lens</h3>
+          <p>A solar-system scope held to Saturn, and a running logbook where anyone may add an observation.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- QUOTE -->
+    <section class="quote">
+      <blockquote>The sky is a shared archive — <span class="accent">no page is owned,</span> only borrowed for the night.</blockquote>
+      <div class="quote-side">
+        <p>
+          Every observation made at Lumen is entered into a single paper logbook, kept since the
+          first season. Night 04 opens that logbook to the floor, so the evening reads as a
+          continuous conversation between the instruments and the people who hold them.
+        </p>
+      </div>
+    </section>
+
+    <!-- HOW IT RUNS -->
+    <section id="visit">
+      <p class="section-head">On the night</p>
+      <h2 class="section-title">How an evening at the observatory runs</h2>
+      <div class="steps">
+        <div class="step">
+          <p class="num">01</p>
+          <h3>Arrive at dusk</h3>
+          <p>The terrace opens at 19:30, half an hour before first dark. Tea is on the stone bench.</p>
+        </div>
+        <div class="step">
+          <p class="num">02</p>
+          <h3>Claim an instrument</h3>
+          <p>Each reserved telescope carries a small card naming its target and the shelf it reads from.</p>
+        </div>
+        <div class="step">
+          <p class="num">03</p>
+          <h3>Write one line</h3>
+          <p>Before you leave, add a line to the shared logbook. The archive is built one night at a time.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- RESERVE -->
+    <section class="reserve" id="reserve">
+      <div>
+        <p class="section-head">Reservation</p>
+        <h2 class="section-title">Reserve a telescope</h2>
+        <p>
+          Night 04 runs on 18 October from 19:30. Seats are limited, and the telescopes are
+          reserved rather than the tickets. Tell us which instrument you would like to hold.
+        </p>
+        <a class="cta" href="#reserve">Reserve a telescope</a>
+      </div>
+      <div class="reserve-note">
+        <p>Reservations open two weeks before the night and close at noon on 18 October. The logbook, the tea, and the sky are all free.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wordmark">Lumen<span> Observatory</span></div>
+    <div>Night 04 · 18 October, 19:30 · hilltop terrace</div>
+  </footer>
+
+</body>
+</html>

@@ -2,6 +2,12 @@
     static const char missing_bar[] = "<DSML｜tool_calls>";
     static const char invoke[] = "<｜DSML｜invoke";
     static const char invoke_missing_bar[] = "<DSML｜invoke";
+    /*DS4UI_JSONL: cloud DeepSeek may drop every bar entirely, producing
+     * "<DSMLtool_calls>" / "<DSMLinvoke" with no separator at all. The
+     * in-stanza matchers already treat the separator as optional, so once this
+     * opening is recognized the rest of the call parses tolerantly. */
+    static const char no_sep[] = "<DSMLtool_calls>";
+    static const char no_sep_invoke[] = "<DSMLinvoke";
     /*DS4UI_JSONL: cloud DeepSeek may render the control-token bars as spaced
      * ASCII punctuation ("< | DSML | tool_calls>"). Once this opening is
      * recognized, agent_dsml_skip_sep() already normalizes the same spacing in
@@ -24,6 +30,8 @@
         {missing_bar, false},
         {invoke, true},
         {invoke_missing_bar, true},
+        {no_sep, false},
+        {no_sep_invoke, true},
         {ascii_bar, false},
         {ascii_bar_invoke, true},
         {spaced_ascii, false},

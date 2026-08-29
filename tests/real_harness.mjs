@@ -268,7 +268,8 @@ export async function completeTextStream(baseUrl, messages, opts = {}) {
   });
 }
 
-export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreExternal = false, isolatedEnginePort = false } = {}) {
+export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreExternal = false,
+  isolatedEnginePort = false, env = {} } = {}) {
   if (!ignoreExternal && process.env.DSTUDIO_REAL_BASE_URL) {
     const baseUrl = normalizeBaseUrl(process.env.DSTUDIO_REAL_BASE_URL);
     await jsonFetch(baseUrl, '/api/status', { timeoutMs: 10_000 });
@@ -300,6 +301,7 @@ export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreEx
       DS4UI_HOST: '127.0.0.1',
       DS4UI_PAGE_FROM_DISK: '1',
       ...(isolatedEnginePort ? { DS4UI_ENGINE_PORT: String(enginePort) } : {}),
+      ...env,
     },
     stdio: ['ignore', log, log],
   });
@@ -391,12 +393,18 @@ export async function startMode(baseUrl, body, timeoutMs = 300_000) {
     timeoutMs: 30_000,
   });
   if (!res.ok) throw new Error(`start failed: ${JSON.stringify(res)}`);
-  const deadline = Date.now() + timeoutMs;
+  // A non-positive timeout explicitly means "wait until ready". This is used
+  // by quality benchmarks whose local models must not be cut off merely for
+  // taking longer than an arbitrary wall-clock budget.
+  const deadline = timeoutMs > 0 ? Date.now() + timeoutMs : Number.POSITIVE_INFINITY;
   let last = '';
   while (Date.now() < deadline) {
     const st = await jsonFetch(baseUrl, '/api/status', { timeoutMs: 5000 });
     last = JSON.stringify(st);
     if (st.ready && st.mode === body.mode) return st;
+    if (st.running === false && st.engineError) {
+      throw new Error(`Mode ${body.mode} stopped during startup: ${st.engineError}`);
+    }
     await sleep(1000);
   }
   throw new Error(`Mode ${body.mode} did not become ready. Last status: ${last}`);
@@ -409,7 +417,7 @@ export async function pollAgent(baseUrl, since = 0) {
 }
 
 export async function waitForAgentText(baseUrl, since = 0, predicate = () => false, timeoutMs = 600_000) {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = timeoutMs > 0 ? Date.now() + timeoutMs : Number.POSITIVE_INFINITY;
   let all = '';
   let pos = since;
   let last = null;
