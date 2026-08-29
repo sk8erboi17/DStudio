@@ -132,6 +132,40 @@ int main(void) {
     assert(!lan_ip_text("169.254.5.7\n", out, sizeof out));
     assert(!lan_ip_text("not-an-ip\n", out, sizeof out));
 
+    const char *glm_catalog =
+        "HTTP/1.1 200 OK\r\n\r\n{\"data\":[{\"id\":\"glm-5.3-flash\",\"owned_by\":\"ds4.c\"}]}";
+    const char *deepseek_catalog =
+        "HTTP/1.1 200 OK\r\n\r\n{\"data\":[{\"id\":\"deepseek-v4-flash\",\"owned_by\":\"ds4.c\"}]}";
+    const char *laguna_catalog =
+        "HTTP/1.1 200 OK\r\n\r\n{\"data\":[{\"id\":\"laguna-s-2.1\",\"owned_by\":\"ds4.c\"}]}";
+    snprintf(g_model_override, sizeof g_model_override, "%s", MODEL_GLM53_Q2);
+    assert(ds4_catalog_matches_selected_model(glm_catalog));
+    assert(!ds4_catalog_matches_selected_model(deepseek_catalog));
+    snprintf(g_model_override, sizeof g_model_override, "%s", MODEL_LAGUNA);
+    assert(ds4_catalog_matches_selected_model(laguna_catalog));
+    assert(!ds4_catalog_matches_selected_model(glm_catalog));
+    snprintf(g_model_override, sizeof g_model_override, "%s", MODEL_FLASH);
+    assert(ds4_catalog_matches_selected_model(deepseek_catalog));
+    assert(!ds4_catalog_matches_selected_model(glm_catalog));
+    g_model_override[0] = '\0';
+
+#ifndef _WIN32
+    char data_dir[] = "/tmp/dstudio-port-test.XXXXXX";
+    assert(mkdtemp(data_dir));
+    assert(setenv("DS4UI_DATA_DIR", data_dir, 1) == 0);
+    assert(persist_http_port(15550));
+    char port_file[PATH_MAX];
+    snprintf(port_file, sizeof port_file, "%s/http-port", data_dir);
+    FILE *pf = fopen(port_file, "rb");
+    assert(pf);
+    int saved_port = 0;
+    assert(fscanf(pf, "%d", &saved_port) == 1 && saved_port == 15550);
+    fclose(pf);
+    unlink(port_file);
+    rmdir(data_dir);
+    unsetenv("DS4UI_DATA_DIR");
+#endif
+
     assert(lan_client_id_ok("client-abc_123.test"));
     assert(!lan_client_id_ok("ab"));
     assert(!lan_client_id_ok("client with spaces"));
@@ -184,8 +218,9 @@ int main(void) {
         char adjustment[384] = "";
         assert(normalize_flash_memory_config(&oversized, 0, adjustment, sizeof adjustment));
         assert(!g_dspark_enabled);
-        assert(oversized.ctx < 1048576);
+        assert(oversized.ctx == 1048576);
         assert(strstr(adjustment, "DSpark disabled") != NULL);
+        assert(strstr(adjustment, "preserving the requested") != NULL);
     }
 #endif
 
@@ -204,6 +239,10 @@ int main(void) {
                                           ssd_err, sizeof ssd_err) == -1);
     assert(strstr(ssd_err, "DSpark") != NULL);
     g_dspark_enabled = 0;
+    remote_cfg.ssd_streaming = SSD_STREAMING_AUTO;
+    assert(engine_effective_ssd_streaming(&remote_cfg, 0, ssd_reason, sizeof ssd_reason,
+                                          ssd_err, sizeof ssd_err) == 0);
+    assert(strstr(ssd_reason, "sole active heavyweight model") != NULL);
 
     snprintf(g_bind_host, sizeof g_bind_host, "127.0.0.1");
     assert(lan_public_path_allowed("GET", "/"));

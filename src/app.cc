@@ -87,12 +87,48 @@ static int pick_free_port(const char *host, int start) {
     return start;
 }
 
+static int saved_http_port(void) {
+    char path[4096];
+    const char *configured = getenv("DS4UI_DATA_DIR");
+    int n = -1;
+    if (configured && configured[0]) {
+        n = snprintf(path, sizeof path, "%s/http-port", configured);
+#ifdef _WIN32
+    } else if (getenv("LOCALAPPDATA") && getenv("LOCALAPPDATA")[0]) {
+        n = snprintf(path, sizeof path, "%s/DStudio/http-port", getenv("LOCALAPPDATA"));
+#elif defined(__APPLE__)
+    } else if (getenv("HOME") && getenv("HOME")[0]) {
+        n = snprintf(path, sizeof path, "%s/Library/Application Support/DStudio/http-port", getenv("HOME"));
+#else
+    } else if (getenv("XDG_CONFIG_HOME") && getenv("XDG_CONFIG_HOME")[0]) {
+        n = snprintf(path, sizeof path, "%s/dstudio/http-port", getenv("XDG_CONFIG_HOME"));
+    } else if (getenv("HOME") && getenv("HOME")[0]) {
+        n = snprintf(path, sizeof path, "%s/.config/dstudio/http-port", getenv("HOME"));
+#endif
+    }
+    if (n < 0 || (size_t)n >= sizeof path) return 0;
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    long value = 0;
+    int ok = fscanf(f, "%ld", &value) == 1;
+    fclose(f);
+    return ok && value >= 1024 && value <= 65535 ? (int)value : 0;
+}
+
 static int port_from_argv(int argc, char **argv) {
     if (argc > 1) {
         char *end = NULL;
         long p = strtol(argv[1], &end, 10);
         if (end != argv[1] && *end == '\0' && p >= 1 && p <= 65535) return (int)p;
     }
+    const char *configured = getenv("DS4UI_PORT");
+    if (configured && configured[0]) {
+        char *end = NULL;
+        long p = strtol(configured, &end, 10);
+        if (end != configured && *end == '\0' && p >= 1024 && p <= 65535) return (int)p;
+    }
+    int saved = saved_http_port();
+    if (saved) return saved;
     return 5500;
 }
 

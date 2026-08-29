@@ -698,12 +698,75 @@ static void setup_send_json(int fd, const char *status, int ok, const char *targ
  * then restores the user's active engine selection. */
 static int setup_apply_ds4_runtime_patches(void) {
     return run_ext_script("scripts/apply-ds4-qwen-hot-memory.sh", "apply") &&
-           run_ext_script("scripts/apply-ds4-server-metrics.sh", "apply");
+           run_ext_script("scripts/apply-ds4-server-metrics.sh", "apply") &&
+           run_ext_script("scripts/apply-ds4-glm53-runtime.sh", "apply");
 }
 
 static int setup_restore_ds4_runtime_patches(void) {
-    return run_ext_script("scripts/apply-ds4-server-metrics.sh", "restore") &&
+    return run_ext_script("scripts/apply-ds4-glm53-runtime.sh", "restore") &&
+           run_ext_script("scripts/apply-ds4-server-metrics.sh", "restore") &&
            run_ext_script("scripts/apply-ds4-qwen-hot-memory.sh", "restore");
+}
+
+/* Optional inference branches share one physical model store. Their `gguf`
+ * entry is a directory symlink to the primary ./ds4/gguf folder, so switching
+ * source/runtime checkouts never duplicates or relocates multi-gigabyte files. */
+static int setup_link_shared_gguf(const char *target, char *err, size_t errsz) {
+#ifdef _WIN32
+    (void)target;
+    snprintf(err, errsz, "shared optional-engine model folders are not supported on Windows yet");
+    return 0;
+#else
+    char primary[DSTUDIO_PATH_MAX], shared[DSTUDIO_PATH_MAX + 16];
+    char side[DSTUDIO_PATH_MAX + 16];
+    if (!g_web_dir[0]) {
+        snprintf(err, errsz, "DStudio checkout not found");
+        return 0;
+    }
+    snprintf(primary, sizeof primary, "%s/ds4", g_web_dir);
+    snprintf(shared, sizeof shared, "%s/gguf", primary);
+    snprintf(side, sizeof side, "%s/gguf", target);
+    struct stat st;
+    if (stat(primary, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        snprintf(err, errsz, "primary ds4 checkout not found at %.700s", primary);
+        return 0;
+    }
+    if (mkdir(shared, 0755) != 0 && errno != EEXIST) {
+        snprintf(err, errsz, "could not create the shared model folder: %s", strerror(errno));
+        return 0;
+    }
+    if (lstat(side, &st) == 0) {
+        if (S_ISLNK(st.st_mode)) {
+            if (stat(side, &st) == 0 && S_ISDIR(st.st_mode)) return 1;
+            snprintf(err, errsz, "the optional engine gguf link is broken");
+            return 0;
+        }
+        if (!S_ISDIR(st.st_mode)) {
+            snprintf(err, errsz, "the optional engine gguf path is not a folder");
+            return 0;
+        }
+        int empty = 0;
+        if (!setup_dir_empty(side, &empty) || !empty) {
+            snprintf(err, errsz,
+                     "%.700s contains local files; move them into %.700s before retrying",
+                     side, shared);
+            return 0;
+        }
+        if (rmdir(side) != 0) {
+            snprintf(err, errsz, "could not replace the empty optional model folder: %s", strerror(errno));
+            return 0;
+        }
+    } else if (errno != ENOENT) {
+        snprintf(err, errsz, "could not inspect the optional model folder: %s", strerror(errno));
+        return 0;
+    }
+    /* Managed optional checkouts are siblings of ./ds4. */
+    if (symlink("../ds4/gguf", side) != 0) {
+        snprintf(err, errsz, "could not link the shared model folder: %s", strerror(errno));
+        return 0;
+    }
+    return 1;
+#endif
 }
 
 static int setup_build_branch_runtimes(const char *target, const char *label,

@@ -24,9 +24,10 @@ log2timeline-*.log.gz
 core
 core.*
 
-# Managed upstream engine checkout. DStudio downloads antirez/ds4 main here and
-# applies its reversible patch sets without vendoring upstream source.
+# Managed upstream engine checkout. DStudio downloads its pinned antirez/ds4
+# runtime here and applies reversible patch sets without vendoring source.
 /ds4/
+/ds4-glm5.3/
 /ds4-laguna-s21/
 
 # Runtime diagnostic dump

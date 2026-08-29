@@ -7,6 +7,18 @@
   <script>
     (() => {
       try {
+        const prefix = '#port-migrate=';
+        if (location.hash.startsWith(prefix)) {
+          let encoded = location.hash.slice(prefix.length).replace(/-/g, '+').replace(/_/g, '/');
+          while (encoded.length % 4) encoded += '=';
+          const binary = atob(encoded);
+          const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+          const values = JSON.parse(new TextDecoder().decode(bytes));
+          for (const [key, value] of Object.entries(values || {})) {
+            if (typeof value === 'string') localStorage.setItem(key, value);
+          }
+          history.replaceState(null, '', location.pathname);
+        }
         const settings = JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}');
         if (settings && settings.lanClientHost) location.replace('/');
         if (!settings || settings.onboarded !== true) location.replace('/');
@@ -187,19 +199,12 @@
       catch { saved = {}; }
       const ctx = Math.max(1024, Math.min(1048576, parseInt(saved.ctxSize, 10) || 65536));
       const power = Math.max(1, Math.min(100, parseInt(saved.enginePower, 10) || 90));
-      const ssdStreaming = ['off', 'on', 'auto'].includes(saved.ssdStreaming) ? saved.ssdStreaming : 'auto';
+      const ssdStreaming = ['off', 'on', 'auto'].includes(saved.ssdStreaming) ? saved.ssdStreaming : 'off';
       const metalHotlistSeed = !!saved.metalHotlistSeed;
       const dspark = !!saved.dspark;
       const variant = saved.modelVariant === 'pro' ? 'pro' : 'flash';
       const gguf = typeof saved.modelGguf === 'string' ? saved.modelGguf : '';
       let engineDir = typeof saved.modelEngineDir === 'string' ? saved.modelEngineDir : '';
-      /* GLM now lives in main. Clear the retired side-checkout selection and
-       * resolve the same saved GGUF against the aggregate catalog below. */
-      if (engineDir && /(^|[\\/])ds4-glm[^\\/]*[\\/]?$/i.test(engineDir)) {
-        engineDir = '';
-        saved.modelEngineDir = '';
-        localStorage.setItem('ds4web.settings.v2', JSON.stringify(saved));
-      }
       /* Upgrade missing checkout metadata and repair stale absolute paths after
        * a source tree or app bundle has moved. The GGUF catalog is authoritative. */
       if (gguf) {
@@ -228,6 +233,7 @@
           headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
           body: JSON.stringify({
             mode: 'server',
+            force: true,
             model: 'standard',
             variant,
             gguf,

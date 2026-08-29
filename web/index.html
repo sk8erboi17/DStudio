@@ -6978,6 +6978,15 @@
             </div>
           </label>
           <div class="field">
+            <span>DStudio port <small class="field-note">web app and LAN address</small></span>
+            <div class="field__row">
+              <input type="number" id="set-http-port" min="1024" max="65535" inputmode="numeric" aria-label="DStudio HTTP port">
+              <button type="button" id="set-http-port-apply" class="btn">Change port</button>
+            </div>
+            <p class="set-help">Changes the local DStudio address immediately and keeps the same port after the next app launch. The model engine port is unchanged.</p>
+            <p class="set-inline-msg" id="set-http-port-msg"></p>
+          </div>
+          <div class="field">
             <span>Connect to LAN <small class="field-note">use a DStudio host on the same network</small></span>
             <div class="field__row">
               <input type="text" id="set-lan-connect-address" placeholder="192.168.1.207:5500" spellcheck="false" autocomplete="off">
@@ -8984,6 +8993,16 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       });
     }
 
+    const isGlm53Gguf = (path) => /glm[-_. ]?5\.3/i.test(String(path || ''));
+    function confirmGlm53Load(path) {
+      if (!isGlm53Gguf(path)) return Promise.resolve(true);
+      return askConfirm({
+        title: 'GLM 5.3 uses most of unified memory',
+        body: 'The Q2 model is about 90 GiB. DStudio will not reduce the context or force SSD streaming: on a 96 GB Mac, close other heavy apps and enable SSD streaming only if Metal cannot create the session. Continue loading GLM 5.3?',
+        cta: 'Load GLM 5.3',
+      });
+    }
+
     function relativeTime(ts) {
       const d = Date.now() - ts;
       if (d < 60_000) return 'now';
@@ -9013,7 +9032,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     // Derive {model, kind, quant} from a GGUF filename (shared by onboarding + settings).
     function parseGgufName(file) {
       const model = /laguna[-_ ]?s/i.test(file) ? 'Laguna S 2.1'
-        : /\bglm[-_ ]?5/i.test(file) ? 'GLM 5.2'
+        : /\bglm[-_ ]?5\.3/i.test(file) ? 'GLM 5.3 Flash'
         : /\bpro\b/i.test(file) ? 'DeepSeek V4 Pro'
         : /\bflash\b/i.test(file) ? 'DeepSeek V4 Flash' : 'DeepSeek V4';
       let kind = 'standard';
@@ -9027,7 +9046,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     function modelIdForEngineStatus(st) {
       const file = String(st?.modelFile || '');
       if (/laguna[-_ ]?s/i.test(file)) return 'laguna-s-2.1';
-      if (/\bglm[-_ ]?5/i.test(file)) return 'glm-5.2';
+      if (/\bglm[-_ ]?5\.3/i.test(file)) return 'glm-5.3-flash';
       if (/\bpro\b/i.test(file)) return 'deepseek-v4-pro';
       if (/\bflash\b/i.test(file)) return 'deepseek-v4-flash';
       if (st?.variant === 'pro') return 'deepseek-v4-pro';
@@ -9060,10 +9079,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       { id: 'ds4f-dspark', label: 'DeepSeek V4 Flash · DSpark support (0731 chat) — ~6 GB', body: { target: 'ds4f-dspark', engine: 'main' }, match: /^DeepSeek-V4-Flash-DSpark-support-0731\.gguf$/i },
       { id: 'flash-dspark', label: 'DeepSeek V4 Flash · DSpark support (0731 abliterated) — ~6 GB', body: { target: 'flash-dspark', engine: 'main' }, match: /DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128-DSpark-support/i },
       { id: 'pro-q2-imatrix', label: 'DeepSeek V4 Pro · IQ2_XXS — ~430 GB', body: { target: 'pro-q2-imatrix', engine: 'main' }, match: /^DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix\.gguf$/i },
-      { id: 'glm-antirez-iq2xxs', label: 'GLM 5.2 · routed IQ2_XXS — reduced memory', body: { target: 'glm-antirez-iq2xxs', engine: 'main' }, match: /^GLM-5\.2-UD-IQ2_XXS_RoutedIQ2XXS_blk78Q2K\.gguf$/i },
-      { id: 'glm-antirez-q2', label: 'GLM 5.2 · routed Q2_K — ~262 GB', body: { target: 'glm-antirez-q2', engine: 'main' }, match: /^GLM-5\.2-UD-Q2_K_RoutedQ2K\.gguf$/i },
-      { id: 'glm-antirez-q4', label: 'GLM 5.2 · routed Q4_K — ~434 GB', body: { target: 'glm-antirez-q4', engine: 'main' }, match: /^GLM-5\.2-UD-Q4_K_RoutedQ4K\.gguf$/i },
-      { id: 'glm-unsloth-q4', label: 'GLM 5.2 · Unsloth UD-Q4_K_XL — 11 shards', body: { target: 'glm-unsloth-q4', engine: 'main' }, match: /^GLM-5\.2-UD-Q4_K_XL-00001-of-00011\.gguf$/i },
+      { id: 'glm53-q2', label: 'GLM 5.3 Flash · Q2 — ~96.5 GB / 90 GiB', body: { target: 'glm53-q2', engine: 'glm53' }, match: /^GLM-5\.3-Flash-Q2\.gguf$/i },
       { id: 'laguna-q4', label: 'Laguna S 2.1 · Q4_K_M — ~68 GB · Metal/full residency', body: { target: 'laguna-q4', engine: 'laguna' }, match: /^laguna-s-2\.1-Q4_K_M\.gguf$/i },
     ];
     function availableModelDownloads(ggufs) {
@@ -21893,6 +21909,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           lan: qs('#set-lan'),
           lanAddr: qs('#set-lan-addr'),
           lanUrl: qs('#set-lan-url'),
+          httpPort: qs('#set-http-port'),
+          httpPortApply: qs('#set-http-port-apply'),
+          httpPortMsg: qs('#set-http-port-msg'),
           lanConnectAddress: qs('#set-lan-connect-address'),
           lanConnect: qs('#set-lan-connect'),
           lanConnectMsg: qs('#set-lan-connect-msg'),
@@ -22049,6 +22068,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         // Network (LAN) toggle: rebinds the listener live (serve closes the
         // localhost socket and reopens on 0.0.0.0, or vice-versa). Default OFF.
         on(f.lan, 'change', () => toggleLan(f.lan.value === 'on'));
+        on(f.httpPortApply, 'click', changeHttpPort);
+        on(f.httpPort, 'keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); changeHttpPort(); }
+        });
         on(f.lanUrl, 'click', () => {
           const url = f.lanUrl.dataset.url || '';
           if (!url) return;
@@ -22784,6 +22807,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // so read it from /api/status rather than persisting a UI flag.
       function paintLan(lan, lanAddr, httpPort) {
         f.lan.value = lan ? 'on' : 'off';
+        if (f.httpPort && document.activeElement !== f.httpPort && httpPort)
+          f.httpPort.value = String(httpPort);
         const url = lanAddr ? `http://${lanAddr}/` : '';
         if (lan) {
           f.lanUrl.textContent = url || 'LAN enabled - resolving address...';
@@ -22793,6 +22818,51 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           f.lanUrl.textContent = '';
           f.lanUrl.dataset.url = '';
           f.lanAddr.hidden = true;
+        }
+      }
+
+      function httpPortMigrationToken() {
+        const storage = {
+          [STORAGE_KEYS.settings]: JSON.stringify(Store.getSettings()),
+        };
+        for (const key of [STORAGE_KEYS.onboarded, 'ds4-canvas']) {
+          try {
+            const value = localStorage.getItem(key);
+            if (value !== null) storage[key] = value;
+          } catch { /* the settings snapshot above is sufficient */ }
+        }
+        const bytes = new TextEncoder().encode(JSON.stringify(storage));
+        let binary = '';
+        for (const byte of bytes) binary += String.fromCharCode(byte);
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+      }
+
+      async function changeHttpPort() {
+        const port = Number.parseInt(f.httpPort?.value || '', 10);
+        if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+          f.httpPortMsg.textContent = 'Use a port between 1024 and 65535.';
+          f.httpPortMsg.classList.add('is-error');
+          return;
+        }
+        const token = httpPortMigrationToken();
+        f.httpPortApply.disabled = true;
+        f.httpPortMsg.classList.remove('is-error');
+        f.httpPortMsg.textContent = 'Changing address…';
+        try {
+          const r = await Engine.setHttpPort(port);
+          if (!r?.ok) throw new Error(r?.error || 'Could not change the port.');
+          if (!r.changed) {
+            f.httpPortMsg.textContent = `DStudio is already using port ${port}.`;
+            f.httpPortApply.disabled = false;
+            return;
+          }
+          const rawHost = location.hostname || '127.0.0.1';
+          const host = rawHost.includes(':') ? `[${rawHost}]` : rawHost;
+          location.replace(`${location.protocol}//${host}:${port}/loading.html#port-migrate=${token}`);
+        } catch (e) {
+          f.httpPortMsg.classList.add('is-error');
+          f.httpPortMsg.textContent = e?.message || 'Could not change the port.';
+          f.httpPortApply.disabled = false;
         }
       }
       async function syncLan() {
@@ -23690,6 +23760,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               updateForcedSetup();
               return;
             }
+            if (isGlm53Gguf(selectedGguf.path) &&
+                !ggufIsRunning(selectedGguf, runningModel, activeEngineDir) &&
+                !await confirmGlm53Load(selectedGguf.path)) return;
             if (selectedGguf) Store.setSettings({
               modelGguf: selectedGguf.path,
               modelEngineDir: selectedGguf.engineDir || '',
@@ -23889,7 +23962,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // Derive {model, kind, quant} from a GGUF filename.
       function parseGguf(file) {
         const model = /laguna[-_ ]?s/i.test(file) ? 'Laguna S 2.1'
-          : /\bglm[-_ ]?5/i.test(file) ? 'GLM 5.2'
+          : /\bglm[-_ ]?5\.3/i.test(file) ? 'GLM 5.3 Flash'
           : /\bpro\b/i.test(file) ? 'DeepSeek V4 Pro'
           : /\bflash\b/i.test(file) ? 'DeepSeek V4 Flash' : 'DeepSeek V4';
         let kind = 'standard';
@@ -24364,6 +24437,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (!r.ok && data && !data.error) data.error = `/api/laguna/setup returned HTTP ${r.status}`;
         return data;
       }
+      async function setupGlm53() {
+        const r = await apiFetch('/api/glm53/setup', { method: 'POST', headers: H });
+        const data = await r.json().catch(() => ({ ok: false, error: `/api/glm53/setup returned HTTP ${r.status} with invalid JSON` }));
+        if (!r.ok && data && data.ok !== false) data.ok = false;
+        if (!r.ok && data && !data.error) data.error = `/api/glm53/setup returned HTTP ${r.status}`;
+        return data;
+      }
       async function setupContent() {   // download optional design systems
         const r = await apiFetch('/api/setup/content', { method: 'POST', headers: H });
         const data = await r.json().catch(() => ({ ok: false, error: `/api/setup/content returned HTTP ${r.status} with invalid JSON` }));
@@ -24531,6 +24611,14 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const r = await fetch('/api/lan', { method: 'POST', headers: H, body: JSON.stringify({ enable }) });
         return r.json();
       }
+      async function setHttpPort(port) {
+        const r = await fetch('/api/http-port', {
+          method: 'POST', headers: H, body: JSON.stringify({ port }),
+        });
+        const data = await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` }));
+        if (!r.ok && data && data.ok !== false) data.ok = false;
+        return data;
+      }
 
       async function remoteStatus() {
         const r = await fetch('/api/remote/status', { signal: AbortSignal.timeout(3000) });
@@ -24613,7 +24701,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return r.json();
       }
 
-      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, stop, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupLaguna, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, stopModelDownload, openModelFolder, deleteModelPartials, engineCheckouts, setEngineCheckout, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
+      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, stop, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupGlm53, setupLaguna, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, stopModelDownload, openModelFolder, deleteModelPartials, engineCheckouts, setEngineCheckout, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, setHttpPort, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
     })();
 
     /* ==================== Remote LAN chat ==================== */
@@ -24892,6 +24980,14 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           const r = await Engine.setupLaguna().catch(() => null);
           if (!r || r.ok === false) toast(r?.error || 'Laguna engine setup failed', 'error');
           else toast('Laguna S 2.1 installed — pick laguna-s2.1 from the model menu, then download the Laguna GGUF.', 'info');
+          refresh();
+          return;
+        }
+        if (action === 'setup-glm53') {
+          toast('Installing the GLM 5.3 inference engine — download and build take a few minutes…', 'info');
+          const r = await Engine.setupGlm53().catch(() => null);
+          if (!r || r.ok === false) toast(r?.error || 'GLM 5.3 engine setup failed', 'error');
+          else toast('GLM 5.3 installed — its GGUF models stay in ds4/gguf.', 'info');
           refresh();
           return;
         }
@@ -29510,6 +29606,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         let st = null;
         try { st = await Engine.status(); } catch { /* restarting remains useful */ }
         if (samePick && ggufIsRunning({ path, engineDir }, st?.modelFile, st?.ds4dir) && st?.ready) return;
+        if (!await confirmGlm53Load(path)) return false;
         Store.setSettings({ composerTarget: 'chat', modelGguf: path, modelEngineDir: engineDir || '' });
         toast(`Loading ${label || 'the model'}${engineLabel ? ` from ${engineLabel}` : ''}…`, 'info');
         return restartCurrent();
@@ -29709,6 +29806,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       function checkoutMatchesEngine(c, engine) {
         const branch = String(c?.branch || '').toLowerCase();
         const name = String(c?.name || '').toLowerCase();
+        if (engine === 'glm53') return branch === 'glm-5.3-flash' || name === 'ds4-glm5.3';
         if (engine === 'laguna') return branch === 'laguna-s2.1' || name === 'ds4-laguna-s21';
         return branch === 'main' || name === 'ds4';
       }
@@ -29718,9 +29816,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         catch { /* setup below can still recover optional engines */ }
         let checkout = list.find((c) => checkoutMatchesEngine(c, engine));
         if (!checkout && engine !== 'main') {
-          const label = 'Laguna S 2.1';
+          const label = engine === 'glm53' ? 'GLM 5.3' : 'Laguna S 2.1';
           toast(`Installing the ${label} engine first…`, 'info');
-          const setup = await Engine.setupLaguna();
+          const setup = engine === 'glm53' ? await Engine.setupGlm53() : await Engine.setupLaguna();
           if (!setup || setup.ok === false) throw new Error(setup?.error || `${label} engine setup failed`);
           list = (await Engine.engineCheckouts())?.checkouts || [];
           checkout = list.find((c) => checkoutMatchesEngine(c, engine));
@@ -29749,7 +29847,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           download: {
             variant: label,
             pct: 0,
-            stage: engine === 'main' ? 'Preparing download for' : 'Preparing Laguna S 2.1 engine for',
+            stage: engine === 'main' ? 'Preparing download for'
+              : engine === 'glm53' ? 'Preparing GLM 5.3 engine for'
+              : 'Preparing Laguna S 2.1 engine for',
           },
         });
         try {

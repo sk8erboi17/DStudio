@@ -1,25 +1,25 @@
 <div align="center">
 
-<img src="assets/logo.png" width="80" alt="DStudio local AI studio for DeepSeek V4, GLM 5.2, Laguna S 2.1 and MiniMax H3">
+<img src="assets/logo.png" width="80" alt="DStudio local AI studio for DeepSeek V4, GLM 5.3 Flash, Laguna S 2.1 and MiniMax H3">
 
-# DStudio: Local AI Studio for ds4
+# DStudio: Local AI Studio
 
-**An open-source, local-first AI studio for DeepSeek V4, GLM 5.2, Laguna S 2.1 and ds4: private chat, coding and design agents, learning roadmaps, multimodal documents, Web Research, local image generation and local MiniMax H3 video generation. A cloud account is optional.**
+**An open-source, local-first workspace for DeepSeek V4, GLM 5.3 Flash and Laguna S 2.1: private chat, researched learning roadmaps, coding and knowledge-work agents, visual design, multimodal documents, Web Research, image generation/editing and MiniMax H3 video. A cloud account is optional.**
 
 ![license](https://img.shields.io/badge/license-BSD%203%20Clause-blue)
 ![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux_%7C_Windows-black)
 ![inference](https://img.shields.io/badge/inference-local_by_default-success)
-![engine](https://img.shields.io/badge/engine-DeepSeek_V4-orange)
+![models](https://img.shields.io/badge/models-DeepSeek_V4_%7C_GLM_5.3_%7C_Laguna-orange)
 ![ui](https://img.shields.io/badge/UI-native_C_%7C_no_Electron-brightgreen)
-![agents](https://img.shields.io/badge/agents-chat_%7C_code_%7C_design-purple)
+![agents](https://img.shields.io/badge/workspaces-chat_%7C_agent_%7C_cowork_%7C_design-purple)
 
 </div>
 
-DStudio turns [ds4](https://github.com/antirez/ds4), antirez's local DeepSeek V4 inference engine, into a full desktop AI workspace: a private AI chat, interactive learning roadmaps, a local coding agent, a design studio and a planning workspace in one native UI. It is built for people who want a **local-first Cursor/Lovable-style workflow**: ds4, image generation and video generation run on the user's machine by default.
+DStudio turns [ds4](https://github.com/antirez/ds4), antirez's native local inference engine, into a complete desktop AI workspace. One UI combines private Chat, evidence-backed Roadmaps and Tutor rooms, Agent with Plan/GSA/RSA workflows, document-focused Cowork, a gated Design studio, local image understanding/generation/editing and optional MiniMax H3 video. Model execution, project files and generated artifacts stay under the user's control by default.
 
-Network access is still explicit and documented. Installation and model setup download source archives and weights from GitHub or Hugging Face; Web Search, Roadmap links and Deep Research read public websites; and the optional DeepSeek API backend sends the selected Chat, Roadmap, Agent or Design requests to DeepSeek when the user supplies an API key. DStudio has no telemetry and does not require a cloud account for its local inference path.
+Network access is still explicit and documented. Installation and model setup download source archives and weights from GitHub or Hugging Face; Web Search, Roadmap links and Deep Research read public websites; and the optional DeepSeek API backend sends the selected Chat, Roadmap, Agent, Cowork or Design requests to DeepSeek when the user supplies an API key. DStudio has no telemetry and does not require a cloud account for its local inference path.
 
-In plain terms: DStudio is a **ds4 GUI**, a **local DeepSeek V4 desktop app**, a **private coding agent** and a **local AI design/planning studio** packaged as one open-source project.
+In plain terms: DStudio is a **multi-model ds4 GUI**, a **private coding and knowledge-work environment**, and a **local research, media and design studio** packaged as one open-source project.
 
 On macOS it ships as **DStudio.app**: double-click from Finder, no Terminal. On Windows it ships as a portable folder with `DStudio.exe` and the DS4 runtime binaries. The UI is a single vanilla `index.html` embedded in a small C launcher, so there is no Electron bundle, no framework build step, no CDN and no telemetry.
 
@@ -55,27 +55,40 @@ open DStudio.app        # macOS
 
 Windows users should use the portable zip and run `DStudio.exe`.
 
-On first launch, DStudio runs a local system check for the engine folder, model,
-chat engine, agent, design runtime and Web Search. Missing pieces show a direct
-button such as **Choose**, **Download**, **Start** or **Settings**.
+On first launch, DStudio runs a local system check for the managed engine, selected
+model, Chat and Agent/Cowork/Design runtimes, Cowork Office bridge, Web Search and
+network state. Missing pieces show a direct **Choose**, **Download**, **Install**,
+**Start** or **Settings** action.
 
 ## What You Can Do
 
-- Run **DeepSeek V4 locally** through a native macOS/Linux desktop interface.
+- Run **DeepSeek V4, GLM 5.3 Flash or Laguna S 2.1 locally** through the same native desktop interface and unified GGUF picker.
 - Use a **private AI chat** with persistent KV cache, reasoning display, citations from optional Web Search and local history.
 - Build an **interactive learning roadmap** from a goal, PDFs and source links, with prerequisite ordering, exercises, checkpoints and locally saved progress.
+- Open a dedicated **Tutor** for any roadmap block, with that block's prerequisites, sources, exercises and conversation restored automatically.
 - Run **Web Search or Deep Research** through DStudio's local browser/search helper, with read-page evidence and source cards.
-- Generate new images or edit an existing image through a dedicated local pipeline that keeps the source pixels on your machine.
+- Understand images and scanned pages with **Qwen3.8-27B Q8**, generate with **Ideogram 4 FP8**, or edit source pixels with **HunyuanImage 3 NF4**.
 - Generate text-to-video or image-to-video clips with synchronized audio through the optional local **MiniMax H3** pipeline.
 - Use a **local coding agent** that reads, edits and verifies files inside a folder you choose.
-- Create and load **Skills**: focused, private instructions authored by the current user for Agent, Design and analysis workflows.
-- Run **Guided Security Analysis (GSA)** for authorized local source reviews or target-scoped security work, using the managed local/external tool catalog.
-- Generate interface concepts with **ds4-design**, a design agent built on ds4.
+- Use **Cowork** for source-grounded spreadsheet, PDF, document and presentation work with native Office tools and no arbitrary shell.
+- Toggle **Plan** to produce a decision-ready Markdown execution plan without modifying the project.
+- Create and load **Skills**: private instruction packs authored by the current user for Agent, Cowork and Design.
+- Run **Guided Security Analysis (GSA)** for authorized reviews, or **Reverse Structure Analysis (RSA)** to turn public website evidence into a labeled `STRUCTURE.MD`.
+- Generate and refine complete interfaces with **ds4-design**, deterministic desktop/mobile checks, visual review and export gates.
+- Select an optional **DeepSeek API** backend while all Agent, Cowork, Design and security tools continue to execute locally.
 - Keep the engine private while still reaching the UI from another device on your LAN.
 
 ## Modes
 
-A sidebar switches between Chat, Roadmap, Agent and Design. Each mode has its own reopenable conversation history, and each agent/design session keeps its own local KV state.
+A sidebar switches between Chat, Agent, Cowork, Design and Roadmap. Plan, GSA and RSA are explicit Agent workflows; Tutor rooms live inside Roadmap, while image/video generation is routed from Chat and Design. Every mode has reopenable local history, and every Agent, Cowork or Design conversation owns an independent on-disk KV session.
+
+Local DS4 launches default to explicit expert **SSD streaming Off** while DS4 is
+the sole heavyweight model. Metal uses full residency when the complete launch
+fits and the engine's normal lazy memory-mapped path otherwise; DStudio does
+not reduce the requested context to force residency. **On** remains available
+as an explicit restart-time setting. Qwen3.8, Ideogram, Hunyuan and H3 are
+one-shot workers: DStudio evacuates DS4 before loading one and restores it only
+after that worker exits.
 
 ### Chat
 
@@ -85,7 +98,7 @@ A sidebar switches between Chat, Roadmap, Agent and Design. Each mode has its ow
 
 </div>
 
-Streaming DeepSeek V4 chat backed by the ds4 server KV cache: the context lives server-side (prefix reuse, shown as *cached* tokens) and every message is saved locally. You get live tokens/s, collapsible reasoning, native MathML for LaTeX, syntax-highlighted code and optional Web Search sources through the local browser.
+Streaming chat backed by the selected local GGUF and ds4 server KV cache: context lives server-side (prefix reuse is shown as *cached* tokens) and every message is saved locally. You get live tokens/s, collapsible reasoning, native MathML for LaTeX, syntax-highlighted code, file artifacts, image/PDF attachments and optional Web Search sources through the local browser. A configured DeepSeek API key can replace local inference without moving DStudio's workspace tools into the cloud.
 
 ### Learning Roadmap
 
@@ -121,7 +134,7 @@ Roadmap generation and both verification roles are always locked to **Thinking: 
 
 </div>
 
-Attach a PDF and ask naturally in any language. DeepSeek V4 decides whether to build a bounded whole-document overview, read an exact physical page or search semantically across every page. DStudio extracts the text locally, reads scans and meaningful figures when needed, caches a multilingual page index and sends only the strongest evidence back to DeepSeek for the final answer. This keeps the prompt bounded even for 1,000-page books while later searches reuse the local index.
+Attach a PDF and ask naturally in any language. The active chat model decides whether to build a bounded whole-document overview, read an exact physical page or search semantically across every page. DStudio extracts text locally, uses its pinned Qwen3 sidecars for multilingual embeddings and scanned-page/figure understanding, caches the page index and returns only the strongest evidence to the chat model. This keeps the prompt bounded even for 1,000-page books while later questions reuse the local index.
 
 ## Local Image Generation
 
@@ -131,21 +144,21 @@ Attach a PDF and ask naturally in any language. DeepSeek V4 decides whether to b
 
 </div>
 
-Ask for an image naturally in any language. DeepSeek V4 understands the intent and emits a structured image instruction, so routing is based on the model's interpretation rather than a list of phrases or regular expressions. DStudio then hands the prompt to a dedicated local generator. A new-image request starts from text; an edit request passes the actual pixels of the most relevant recent image together with the requested change, preserving visual context instead of reducing the source to a text description.
+Ask for an image naturally in any language. The chat model emits only an intent hint; the sole pinned Qwen3.8-27B Q8 vision model then inspects the request and available source pixels and makes the authoritative decision. A wholly new image goes to Ideogram 4 FP8 with its official 48-step Quality profile. A request that depends on changing or preserving supplied pixels goes to the full, non-distilled HunyuanImage-3.0-Instruct model, using NF4 so it physically fits the 96 GB reference Mac while critical layers and compute remain BF16. Hunyuan runs `think_recaption` and 50 diffusion steps through Tencent's official eager DeepSeek MoE implementation, preserving every routed token (`moe_drop_tokens=false`); DStudio does not install a custom attention or MoE forward. The compatible Transformers loader receives the later upstream MPS allocator-warmup fix at setup, and the runtime fails closed unless the pinned source/runtime profile is present. Hunyuan's hidden 2,048-token helper default is disabled in Max, so reasoning stops at a task EOS or the model-native context boundary rather than at an application budget.
 
-The reply gets a placeholder immediately while DStudio reports the real pipeline stages: preparing cached weights, loading the local model, applying its fast-generation adapter and producing pixels. The first run downloads the large model once; later runs reuse the local cache, although loading it into accelerator memory can still take several minutes. On machines where the chat model and image pipeline do not comfortably fit together, DStudio temporarily releases the chat model's accelerator residency, runs the image job and then restores the previous memory and SSD-streaming state. The generated file is saved locally and attached to the conversation for follow-up edits.
+The reply gets a placeholder immediately while DStudio reports the real router, load, reasoning, sampling and decode phases. Quality is fixed at Ideogram Quality-48 or Hunyuan full-50: there is no Turbo, distilled or smaller-model fallback. Qwen3.8 defaults to Max reasoning with no DStudio thinking/output budget; Settings can explicitly choose High or Off. One kernel-owned lock serializes Qwen3.8, Ideogram, Hunyuan and H3, while the memory lease evacuates a resident chat/Design model first. Each one-shot process exits before the next heavyweight model may load, then DStudio restores the previous memory/SSD-streaming state. Generated files stay local and are attached to the conversation for later edits.
 
 ## Local Video Generation (MiniMax H3)
 
-DStudio runs the downloadable MiniMax H3 weights through a pinned [antirez/h3.c](https://github.com/antirez/h3.c) checkout: a native C/Objective-C engine built directly on Metal, MPSGraph and Accelerate. ComfyUI, PyTorch and third-party custom nodes are not part of video inference. Ask for a video in Chat; DStudio routes the request to the one-shot native executable, optionally uses a recent attached image as the first frame, reports h3.c's real phase/denoise callbacks and returns a locally streamed MP4. You can also ask DStudio to **create an opening image with Qwen Image and then animate it**: the generated PNG is kept in the conversation and passed directly to h3.c as its first frame. No hosted MiniMax generation API is used.
+DStudio runs the downloadable MiniMax H3 weights through a pinned [antirez/h3.c](https://github.com/antirez/h3.c) checkout: a native C/Objective-C engine built directly on Metal, MPSGraph and Accelerate. ComfyUI, PyTorch and third-party custom nodes are not part of video inference. Ask for a video in Chat; DStudio routes the request to the one-shot native executable, optionally uses a recent attached image as the first frame, reports h3.c's real phase/denoise callbacks and returns a locally streamed MP4. You can also ask DStudio to **create an opening image and then animate it**: Qwen3.8 routes the still to Ideogram 4, the PNG is kept in the conversation, and only after the image workers exit is it passed to h3.c. No hosted generation API is used.
 
 > **Working in progress — two-photo H3 references.** With MiniMax H3 selected in the composer, one attached image remains an opening-frame anchor; two attached images are ordered Ref2VA inputs exposed to the model as `<Picture 1>` and `<Picture 2>`. Settings includes a separate preparation action for the official Ref2VA transformer (about **61.7 GiB / 66 GB** in addition to FL2VA) while reusing the existing encoder and VAE files. This path is currently experimental and has not yet completed end-to-end validation in DStudio.
 
 Open **Settings → Video** before the first generation. Review the upstream terms, confirm that your territory and intended use are authorized, then select **Prepare local H3**. Setup checks out and compiles an immutable h3.c revision without loading the engine, then downloads only the official `FL2VA/` files required for text/image-to-video. That original BF16 snapshot is about **134 GiB (144 GB)** on disk; partial files resume automatically. The managed runtime lives at `~/.dstudio/minimax-h3`; prompts, source frames and generated videos stay on this Mac. Existing converted ComfyUI checkpoints are a different layout and are not reused or deleted.
 
-H3 has its own [Community License Agreement](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE), including territorial, commercial and acceptable-use conditions. DStudio does not grant authorization; it requires an explicit confirmation before downloading or generating. Native h3.c requires the official BF16 Qwen encoder and checkpoint layout, so the former third-party converted encoder option is intentionally unavailable. During generation DStudio releases the chat model once, runs Qwen first-frame generation when requested, then launches h3.c. The upstream engine loads and releases the Qwen encoder, transformer and decoders in separate phases instead of making them coexist in unified memory. The native process exits after the MP4 is written, releasing all H3 residency before DStudio restores chat.
+H3 has its own [Community License Agreement](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE), including territorial, commercial and acceptable-use conditions. DStudio does not grant authorization; it requires an explicit confirmation before downloading or generating. Native h3.c requires the official BF16 Qwen encoder and checkpoint layout, so the former third-party converted encoder option is intentionally unavailable. During generation DStudio releases the chat model once, runs the serialized Qwen3.8 → Ideogram opening-frame path when requested, then launches h3.c. The upstream engine loads and releases its encoder, transformer and decoders in separate phases instead of making them coexist in unified memory. The native process exits after the MP4 is written, releasing all H3 residency before DStudio restores chat.
 
-Three render profiles expose h3.c's native controls. **Preview** keeps 20 steps but uses 40/50 DiT blocks, whole-denoiser reuse 3 and a reduced internal canvas that is upscaled to the selected output size. **Balanced** (the default) uses the upstream validated controls `--layers 45 --reuse 2` at roughly 512-class dimensions. **Quality** uses all 50 blocks, no denoiser reuse and documented 768p-class output sizes. Video cost grows sharply with pixel area and duration, so Quality can take substantially longer. M3 and older GPUs automatically use h3.c's portable BF16/MPS path; M5-class hardware can select its native Metal 4/TensorOps paths. The progress card remains in conditioning until h3.c emits denoise progress, then shows actual completed native steps and derives an ETA from measured step time.
+Three render profiles expose h3.c's native controls. **Quality is the default**: it uses all 50 blocks, no denoiser reuse and documented 768p-class output sizes. **Balanced** uses the upstream validated controls `--layers 45 --reuse 2` at roughly 512-class dimensions. **Preview** keeps 20 steps but uses 40/50 DiT blocks, whole-denoiser reuse 3 and a reduced internal canvas that is upscaled to the selected output size. The user can change profiles in Settings, but DStudio never changes one automatically to save time; a lower profile is used only when the user selects it or when a reproducible engine bug is explicitly reported. Video cost grows sharply with pixel area and duration, so Quality can take substantially longer. M3 and older GPUs automatically use h3.c's portable BF16/MPS path; M5-class hardware can select its native Metal 4/TensorOps paths. The progress card remains in conditioning until h3.c emits denoise progress, then shows actual completed native steps and derives an ETA from measured step time.
 
 ## Search & Deep Research
 
@@ -165,7 +178,13 @@ Search runs through DStudio's local web helper, not a hosted browsing service. *
 
 </div>
 
-`ds4-agent` becomes a local coding agent: it reads and edits files, runs commands in a working directory you choose, renders folded tool calls/reasoning, and keeps a live plan. A post-edit verifier catches common syntax errors immediately, so the model can fix broken code in the same turn.
+`ds4-agent` becomes a local coding agent: it reads and edits files, runs commands inside a working directory you choose, renders folded structured tool calls/reasoning, maintains a live todo plan and preserves named KV sessions. A post-edit verifier catches common syntax errors immediately, so the model can repair broken code in the same turn. The same surface exposes Plan, GSA and RSA without silently turning any of them into an unrestricted autonomous mode.
+
+### Cowork
+
+Cowork turns the same local DS4 engine into a knowledge-work partner for a folder of real files. It can inventory and read PDF, DOCX, PPTX, ODT, RTF, Markdown and text sources; inspect/read/write XLSX, CSV and TSV data; create verified documents and 16:9 presentations; and reopen its outputs before reporting completion. Uploaded names are sanitized, macro-enabled formats are rejected, writes are atomic and native read surfaces are confined to the selected workspace, including symlink and traversal checks.
+
+The Office bridge is a small standard-library Python helper invoked through `fork` + `exec` with a bounded JSON request—there is no command shell in Cowork. Spreadsheet cell text and extracted document/PDF text are framed as untrusted source content, so embedded instructions are not treated as tasks. Cowork keeps a separate SSD-friendly KV cache under `.ds4/cowork-kvcache` and exposes source/tool activity as the same structured UI events as Agent.
 
 ## Skills: local task recipes
 
@@ -175,9 +194,9 @@ Search runs through DStudio's local web helper, not a hosted browsing service. *
 
 </div>
 
-Skills turn DStudio from a general assistant into a focused specialist for the job in front of you. Create a recipe, pick it, and the next Agent or Design turn inherits its workflow, constraints and quality bar without restarting the model.
+Skills turn DStudio from a general assistant into a focused specialist for the job in front of you. Create a recipe, pick it, and the next Agent, Cowork or Design turn inherits its workflow, constraints and quality bar without restarting the model.
 
-DStudio does not ship or download a skill marketplace. Every available skill is a local Markdown instruction pack created by the current user, stored in the writable user data directory and injected only when selected. Agent, Design, GSA and RSA all use this same user-only catalog and continue normally when it is empty.
+DStudio does not ship or download a skill marketplace. Every available skill is a local Markdown instruction pack created by the current user, stored in the writable user data directory and injected only when selected. Agent, Cowork and Design use this same user-only catalog and continue normally when it is empty. GSA and RSA instead use their deterministic phase templates and managed tool catalog.
 
 ## GSA: guided security analysis
 
@@ -189,11 +208,15 @@ DStudio does not ship or download a skill marketplace. Every available skill is 
 
 GSA gives the Agent a security-analysis operating mode instead of a loose prompt. Turn it on, describe an **authorized** mission and optionally add a target URL; DStudio turns that into a guided run with clear scope, an explicit tool inventory, target context and a paper trail of artifacts. GSA and RSA do not load skills: they route only through deterministic collectors, bounded local helpers, and enabled tools.
 
-The experience is productized, but the mechanics stay inspectable: **selection** chooses files, hypotheses and relevant skills; **preflight** maps evidence and safe checks; **validation** gathers concrete proof with scripts or optional local tools; **report** produces a compact verdict with sources, limitations and next actions. External recon tools are treated as helpers, not magic: DStudio shows what each one does, lets you disable them, and handles missing Go/Python/Cargo or package managers without blocking the run.
+The experience is productized, but the mechanics stay inspectable: **selection** chooses files and hypotheses; **preflight** maps evidence, trust boundaries and safe checks; **validation** gathers concrete proof with bounded scripts or optional local tools; **report** produces a compact verdict with sources, limitations and next actions. Security profiles distinguish passive, blue-team, explicitly authorized red-team and purple-team work; the run can never infer authorization from the prompt alone. External tools are evidence helpers: DStudio shows what each one does, lets you disable it, records failed invocations and keeps a normalized evidence workbench.
+
+### RSA: reverse structure analysis
+
+RSA is the non-security reverse-structure workflow. It inventories a public site's visible routes and assets, captures ordinary browser/network evidence, maps frontend, public API, product-flow, data and infrastructure clues, and writes `STRUCTURE.MD` in the selected workspace. Claims are labeled **VERIFIED**, **INFERRED** or **UNKNOWN**; an evidence audit and final review gate prevent external guesses from being presented as private implementation facts. RSA shares GSA's managed tools but never scans, fuzzes, brute-forces or calls private endpoints outside normal navigation.
 
 ## Design: a studio built **on** ds4
 
-Design is not a chat skin. It is a separate local design agent that runs a designer's pipeline end to end. **`ds4-design` is DStudio's own extension to ds4**: it lives in this repo (`extension/design/ds4_design.c`), uses the same DeepSeek V4 engine, and has its own system prompt, tools, staged flow and native structured events.
+Design is not a chat skin. It is a separate local design agent that runs a designer's pipeline end to end. **`ds4-design` is DStudio's own extension to ds4**: it lives in this repo (`extension/design/ds4_design.c`), uses the selected ds4 model backend, and has its own system prompt, tools, staged flow and native structured events.
 
 <div align="center">
 
@@ -205,8 +228,10 @@ The whole pipeline, from a one-line idea to laid-out screens:
 
 - **1 · Brief and questions.** Design starts with a structured interview instead of a blank prompt: what you're making, target platform, tone, brand direction, scale and constraints.
 - **2 · Generating.** It loads the right skills/design systems, writes a short plan, builds the screens and shows live progress from real runtime events instead of raw tool noise.
+- **Reasoning control.** Design keeps true Max at the 393,216-token context floor and defaults to unlimited hidden reasoning for every tool round. Settings still offers optional 8k, 16k and 24k caps; when explicitly selected, a cap closes only the model's native `</think>` block and leaves the visible/tool response unrestricted.
 - **3 · Proposal.** It can offer distinct directions to compare side by side, each with a name and rationale; pick one to refine or use.
-- **4 · Canvas and export.** Every screen lands on an infinite canvas with pan/zoom and artboard chrome. Refine the selected screen by describing changes, then export the project as a zip.
+- **4 · Qwen visual loop.** It can generate a project-local PNG through Qwen3.8 routing to Ideogram 4 (or edit supplied pixels with HunyuanImage), then use the same pinned Qwen3.8 27B Q8 VLM to confirm only that the image corresponds to the user's requested subject and constraints. Isolated assets do not receive an aesthetic quality score: the strict quality gate runs on the composed desktop/mobile page and grades contrast, overlap, clipping, overflow and completeness. Qwen3.8 defaults to Max reasoning without a DStudio thinking, output-token or transport-time budget and there is no smaller-model fallback. All five layout grades are required for both viewports, so a truncated vision response is not green. The mobile render is a true 390px CSS viewport, with exact DOM width, overflow, interactive-overlap and stretched-sparse-panel evidence emitted beside the visual verdict.
+- **5 · Quality gate, canvas and export.** Deterministic checks (including balanced structural HTML, visible literal-copy preservation, stale-copy removal, real horizontal overflow, overlapping controls and excessively stretched sparse panels) plus a role-weighted critique (minimum 8.5) block or warn on weak HTML before artifact registration. Every accepted screen lands on the canvas for refinement and zip export.
 
 ## Plan: from a rough goal to a Markdown execution plan
 
@@ -225,13 +250,15 @@ Toggle **Plan** in Agent mode, describe what you want, and DStudio writes a **Ma
 - **Local-first & private.** Core inference runs on your machine by default, with no telemetry and a strict CSP. Model downloads, Web Research and the optional DeepSeek API backend are the documented outbound paths and activate only when the user requests or configures them.
 - **Self-contained native app.** The UI is one vanilla file base64-embedded in the binary. No Electron, no asset server, no CDN.
 - **Non-invasive integration.** The agent's structured output comes from a small, **reversible, build-time patch** of the engine source: DStudio backs it up, builds a separately-named binary and restores the original immediately. The current DStudio release requires this structured runtime and fails clearly if its pinned patch cannot be built.
-- **Setup doctor.** First run checks the ds4 folder, GGUF model, chat engine, agent, design runtime, Web Search, port and LAN state, then gives a direct fix button.
+- **Setup doctor.** First run checks the ds4 folder, GGUF model, chat engine, Agent/Cowork/Design runtimes, Cowork's Python helper, Web Search, port and LAN state, then gives a direct fix button.
 - **Pick model & reasoning per chat.** A gear in the composer collapses model selection, reasoning level, Web Search and working folder into one popover.
-- **Zero-config networking.** Localhost by default; one toggle exposes it on your Wi-Fi, and the engine still never leaves localhost (see below).
+- **Local tools with a remote model.** The optional DeepSeek API and LAN-host backends replace inference only; Agent, Cowork, Design, GSA and RSA tools remain on the client machine with the selected workspace.
+- **Pinned and repairable runtimes.** Setup and the update center install immutable engine/media revisions, verify patch anchors, rebuild separately named runtimes and keep resumable weight transfers outside the app bundle.
+- **Configurable networking.** Localhost by default; Settings can change DStudio's web/LAN port or expose the UI on trusted Wi-Fi, while the model engine still never leaves localhost (see below).
 
 ## Who It's For
 
-DStudio is for local-AI builders who have the hardware to run DeepSeek V4 and want an open-source desktop workflow for private AI coding, local design generation and no-cloud app building. It is intentionally heavy: if you do not have enough RAM for the GGUF, use the screenshots and demo as the preview until your hardware catches up.
+DStudio is for local-AI builders who want one inspectable desktop workflow for private chat, coding, Office/document work, research, design and media generation. It is intentionally hardware-hungry: choose a GGUF that fits your machine, keep enough disk for optional media workers, or use the DeepSeek API backend while local tools and files remain on your computer.
 
 ## Requirements
 
@@ -239,17 +266,17 @@ This is a serious local AI setup. DStudio removes product friction, not physics:
 
 - **OS.** One `make` builds the branded app per platform: **DStudio.app** on **macOS** (Apple Silicon is the primary tested target), a **`dstudio`** binary on **Linux** (WebKitGTK / GTK3 via `webkit2gtk-4.1`) and a portable **Windows x64** folder/zip via `make windows`. Linux and Windows are less exercised, and `ds4` itself must be built for your platform.
 - Apple Command Line Tools (`xcode-select --install`) or another C compiler (`cc` / `clang`). `curl`, `tar` and `make` are used by first-run setup to download and build the pinned upstream `ds4` source archive; `node` is optional, only for `make check`.
-- **[antirez's ds4](https://github.com/antirez/ds4)**: DStudio installs pinned upstream commits into managed, side-by-side engine directories from GitHub source archives and applies the relevant local patch set from `patch/`. Users do not need Git installed.
-- **A DeepSeek V4 GGUF model.** Two variants (IQ2_XXS, 2-bit):
+- **[antirez's ds4](https://github.com/antirez/ds4)**: DStudio keeps the primary `./ds4` checkout pinned to upstream `main` and installs model-specific inference branches in managed side-by-side engine directories. Every engine shares the single physical model store at `./ds4/gguf`. Source archives receive the relevant local patch set from `patch/`; users do not need Git installed.
+- **A supported GGUF model.** The managed menu currently offers DeepSeek V4 plus the optional model families documented below. DeepSeek variants include:
   - **Flash**: ~87 GB on disk, ~96-128 GB RAM
   - **Pro**: ~430 GB on disk, ~512 GB RAM
 
   Missing the weights? The first-run and Settings model menus show every
-  supported DeepSeek, GLM and Laguna download with its quantization and size.
-  Selecting Laguna installs its managed engine automatically; DeepSeek and
-  GLM downloads use the shared `ds4/main` checkout.
+  supported DeepSeek, GLM and Laguna download with its quantization and exact size.
+  Selecting GLM or Laguna installs its managed engine automatically. Every
+  download—including optional model families—is stored in `./ds4/gguf`.
 
-> Not packing a 96 GB Mac? The screenshots above show every mode in action: chat, the coding agent, the design pipeline and LAN access.
+> The local models are intentionally large. If the selected GGUF does not fit your hardware, the screenshots show the native workflows and the optional DeepSeek API backend can provide inference while workspace tools stay local.
 
 `ds4-design` lives in **this** repo (`extension/design/ds4_design.c`) and is compiled into the ds4 repo automatically the first time you open Design.
 
@@ -263,24 +290,30 @@ The local video pipeline is independent of the selected chat GGUF and currently 
 - Video generation needs substantial unified memory. h3.c separates the Qwen, transformer and decoder phases so they do not coexist, but a lower reliable minimum has not yet been established. M3 and older hardware uses the portable BF16/MPS path; newer Metal hardware may enable additional native TensorOps kernels.
 - Review the current [MiniMax H3 license](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE) and obtain any authorization required for your territory and use. DStudio's checkbox records the user's confirmation; it is not a license grant.
 
-### GLM 5.2 (experimental, optional)
+### GLM 5.3 Flash (experimental, optional)
 
-DStudio runs **GLM 5.2** GGUFs directly through the standard `ds4/main`
-checkout, which now includes GLM support alongside DeepSeek:
+DStudio keeps `./ds4` on upstream `main` and runs **GLM 5.3 Flash** through a
+separate `./ds4-glm5.3` checkout pinned to upstream's
+[`glm-5.3-flash` branch](https://github.com/antirez/ds4/tree/glm-5.3-flash).
+Only the runtime source is separate: `./ds4-glm5.3/gguf` points to the shared
+`./ds4/gguf` model store.
 
-- **Install**: no extra engine checkout is required. The normal DStudio setup
-  installs `ds4/main`, and every GLM entry in the model download menu stores
-  its weights in `./ds4/gguf`.
-- **Model**: the unified menu exposes the routed IQ2_XXS, Q2_K and Q4_K
-  quantizations plus the 11-shard Unsloth UD-Q4_K_XL build. The equivalent CLI
-  from `./ds4` includes `./download_model.sh glm-antirez-q2` (~262 GB).
-- **Use**: pick the GLM GGUF from the model list. DStudio automatically drops
-  `--power` (unsupported by GLM), forces the full-layer streaming prefill path
-  and passes a 32 GB expert-cache budget.
-- **Expectations**: GLM 5.2 Q2 is ~262 GB, so on 96-128 GB machines it runs via
-  **SSD streaming** — roughly 7-8 t/s prefill and ~1 t/s generation on a 96 GB
-  M2 Max. Usable for inspection, not for fluid chat. Turning Thinking off helps
-  latency a lot.
+- **Install**: selecting GLM from the unified model menu installs and builds the
+  pinned branch in `./ds4-glm5.3`, including Chat, Agent, Cowork and Design
+  runtimes, without changing the primary `./ds4` checkout.
+- **Model**: the unified menu exposes GLM 5.3 Flash Q2 (~96.5 GB / 90 GiB).
+  Its GGUF is always stored at `./ds4/gguf/GLM-5.3-Flash-Q2.gguf`; the equivalent
+  CLI from `./ds4` is `./download_model.sh glm53-q2`.
+- **Use**: pick the GLM GGUF from the model list. DStudio switches to
+  `./ds4-glm5.3` and drops `--power` (unsupported by GLM). If the user enables
+  SSD streaming, DStudio uses the GLM full-layer prefill path and a 32 GB
+  expert-cache budget. Returning to a DeepSeek model switches execution back
+  to `./ds4`.
+- **Memory notice, not a forced profile**: the Q2 file is about 90 GiB, so its
+  selection shows a warning on memory-constrained Macs. DStudio does not clamp
+  context or force SSD streaming for GLM. The managed branch patch removes the
+  fixed pre-launch host-memory rejection and leaves real Metal allocation errors
+  authoritative; users can enable SSD streaming explicitly if needed.
 
 ### Laguna S 2.1 (experimental, optional)
 
@@ -290,7 +323,8 @@ and installed beside the main engine:
 
 - **Install and model**: select **Laguna S 2.1 · Q4_K_M** in the unified model
   download menu. DStudio installs and selects the pinned `laguna-s2.1` engine
-  in `./ds4-laguna-s21`, then starts the GGUF download automatically. The
+  in `./ds4-laguna-s21`, links its model folder to `./ds4/gguf`, then starts the
+  GGUF download automatically. The
   equivalent manual controls are the Doctor **Install** action,
   `POST /api/laguna/setup`, and `./download_model.sh laguna-q4`. The official
   imatrix GGUF is about 68 GB. The download row shows percentage and transferred
@@ -306,15 +340,15 @@ and installed beside the main engine:
 
 ### Windows notes
 
-For normal use, download/extract the Windows portable zip and run `DStudio.exe`. Keep the files together: `DStudio.exe`, `ds4-server.exe`, `ds4-agent-jsonl.exe`, `ds4-agent-jsonl.ver` and `ds4-design.exe` are meant to live in the same portable folder.
+For normal use, download/extract the Windows portable zip and run `DStudio.exe`. Keep the files together: `DStudio.exe`, `ds4-server.exe`, `ds4-agent-jsonl.exe`, `ds4-cowork.exe`, `ds4-agent-jsonl.ver`, `ds4-design.exe` and the packaged `extension/cowork` helper are meant to live in the same portable folder. Cowork currently also requires a reachable Python 3 runtime.
 
-If you build DStudio or use Agent/Design from a LAN client with your own local DS4 checkout, install:
+If you build DStudio or use Agent/Cowork/Design from a LAN client with your own local DS4 checkout, install:
 
 - **Microsoft Edge WebView2 Runtime** if your Windows install does not already have it.
 - **MSYS2 POSIX** build tools: `pacman -S make patch gcc`.
 - **Visual Studio Build Tools** or `clang-cl` for building the native Windows wrapper.
 
-The error `msys-gcc_s-seh-1.dll was not found` means Windows found `ds4-agent-jsonl.exe` but not the MSYS2 runtime it was built with. Install MSYS2 in `C:\msys64`; DStudio adds its runtime directories to `PATH` before launching Agent/Design. Do not copy `msys-2.0.dll` or Cygwin/MSYS DLLs next to the DS4 binaries: that can make MSYS detect the wrong root and break `/tmp`, `fork()` and shell tools. LAN Agent/Design model calls use DStudio's internal bridge, and Agent bash tools are launched through the Windows process API. First-run setup uses Windows `curl` and `tar` to download the pinned ds4 source archive; Git is not required.
+The error `msys-gcc_s-seh-1.dll was not found` means Windows found `ds4-agent-jsonl.exe` but not the MSYS2 runtime it was built with. Install MSYS2 in `C:\msys64`; DStudio adds its runtime directories to `PATH` before launching Agent/Cowork/Design. Do not copy `msys-2.0.dll` or Cygwin/MSYS DLLs next to the DS4 binaries: that can make MSYS detect the wrong root and break `/tmp`, `fork()` and shell tools. LAN Agent/Cowork/Design model calls use DStudio's internal bridge; Agent/Design tools stay on the client, while Cowork uses its bounded Office bridge. First-run setup uses Windows `curl` and `tar` to download the pinned ds4 source archive; Git is not required.
 
 ## Development
 
@@ -323,6 +357,7 @@ For local development and headless runs, keep the web server explicit:
 ```sh
 make run        # build + start on http://127.0.0.1:5500
 make check      # sanity: page stays text, JS syntax OK
+make test-image-inference  # Ideogram/Hunyuan pinned Max-profile conformance
 make test-video-open-weight  # H3 pinning, local-only contract and checkout repair
 make dist-macos VERSION=1.0.0  # signed .app smoke test + release zip/checksum
 ```
@@ -339,7 +374,7 @@ Dev loop: `DS4UI_PAGE_FROM_DISK=1 ./dstudio` serves `web/index.html` from disk (
 
 ## Network (LAN)
 
-DStudio is **localhost-only by default**. To use it from a phone, tablet or another Mac on the same Wi-Fi, flip one switch in **Settings → Network access → Enable on the LAN**. The app shows the exact address to open, e.g. `http://192.168.1.207:5500`.
+DStudio is **localhost-only by default**. The web/LAN port can be changed live in **Settings → Network → DStudio port** and is reused on later launches. To use it from a phone, tablet or another Mac on the same Wi-Fi, choose **Settings → Network access → Enable on the LAN**. The app shows the exact address to open, e.g. `http://192.168.1.207:5500`.
 
 <div align="center">
   <img src="assets/README%20images/LAN/LAN%20SETTINGS.png" height="340" alt="Settings: enable on the LAN">
@@ -351,26 +386,26 @@ DStudio is **localhost-only by default**. To use it from a phone, tablet or anot
 
 Behind the scenes DStudio **reverse-proxies the engine API** (`/v1`) to the local engine, so the engine itself never leaves `127.0.0.1`: a LAN client only ever talks to DStudio, and there's **nothing to configure**.
 
-> ⚠️ With the LAN enabled, anyone on the network can use the chat **and** the agent, which runs commands and edits files on this machine. Use trusted networks only, and turn it off when you're done.
+> ⚠️ With LAN enabled, anyone on that network can reach the shared chat/model proxy. Workspace, settings, store and Agent/Cowork/Design tool APIs remain local-only, but you should still use trusted networks and turn LAN access off when finished.
 
 ## How it works
 
-- **C launcher, not a script.** `dstudio.c` is both the local HTTP server and the engine supervisor: it starts/stops `ds4-server` for chat, `ds4-agent-jsonl` for coding and `ds4-design` for design, manages working directories, runs the setup doctor, proxies `/v1`, serves Web Search and exposes a small local API.
+- **C launcher, not a script.** `dstudio.c` is both the local HTTP server and the engine supervisor: it starts/stops `ds4-server` for chat, `ds4-agent-jsonl` for coding, `ds4-cowork` for Office work and `ds4-design` for design, manages working directories, runs the setup doctor, proxies `/v1`, serves Web Search and exposes a small local API.
 - **Native window.** `app.cc` forks the server and opens a WKWebView (macOS) / WebKitGTK (Linux) window via `webview.h`; the page is base64-embedded (`page_data.h`).
 - **Same-origin proxy.** The page calls DStudio for `/v1`; DStudio forwards streaming requests to the local engine, which is why LAN works with no engine exposure and no settings.
-- **Local media workers.** Image requests run through the optional `qwen-image-mps` environment, loading BF16 weights directly on Metal and merging the Lightning adapter on MPS. Video requests use `scripts/h3-run.py` as a standard-library manager for a pinned native h3.c/Metal executable and pinned official MiniMax H3 files. Both report live progress and temporarily release the chat runtime when accelerator memory is needed.
+- **Local media workers.** Qwen3.8-27B Q8 routes image work; Ideogram 4 FP8 Quality-48 creates new images and full HunyuanImage-3.0-Instruct NF4/50-step edits source pixels. Video requests use `scripts/h3-run.py` as a standard-library manager for a pinned native h3.c/Metal executable and pinned official MiniMax H3 files. Every worker reports live progress, shares one heavyweight-process lock and temporarily releases the chat runtime when accelerator memory is needed.
 - **Hybrid PDF acceleration.** Poppler extraction, chunking and BM25 stay on the CPU, where moving small parsing/ranking work to Metal would add transfer overhead. Qwen3 document embeddings and scanned-page/figure understanding run through fully offloaded Metal sidecars; cached text, vectors and figure metadata are reused by later questions.
 
 ### The agent patch: building on ds4 without forking
 
 ds4's agent is a separate, fast-moving codebase that can't be modified permanently. To get **structured output** with clean tool calls, folded reasoning and KV-session slash-commands over the pipe, DStudio applies a small, **additive and fully reversible** patch at build time:
 
-1. it backs up `ds4_agent.c`,
+1. it backs up the targeted upstream sources,
 2. applies anchored edits for gated JSONL output and event emitters,
-3. builds a **separately-named** binary (`ds4-agent-jsonl`), reusing the existing object files,
-4. **restores the original source immediately.**
+3. builds **separately named** Agent/Cowork runtimes while reusing compatible engine objects,
+4. **restores the original upstream source immediately.**
 
-The canonical `ds4-agent` source is restored after the JSONL build; the build is idempotent (a version stamp forces a rebuild only when the patch itself changes), and it self-heals on the next launch even after a crash. A patch mismatch is a startup error: DStudio does not maintain a second raw-output parser or silently downgrade the Agent. The managed runtime patches add multimodal hot-memory coordination and expose ds4's measured decode throughput to the chat UI; they are reversed/reapplied automatically around upstream pulls. (`ds4-design` is *our* code, in this repo, so it emits these events natively with no patch needed.)
+The canonical `ds4-agent` source is restored after the JSONL build; the build is idempotent (a version stamp forces a rebuild only when the patch itself changes), and it self-heals on the next launch even after a crash. A patch mismatch is a startup error: DStudio does not maintain a second raw-output parser or silently downgrade the Agent. The managed runtime patches add multimodal hot-memory coordination, expose ds4's measured decode throughput, and correct GLM 5.3 streaming/catalog behavior; they are reversed/reapplied automatically around upstream pulls. (`ds4-design` is *our* code, in this repo, so it emits these events natively with no patch needed.)
 
 #### ⚠️ The patch targets DStudio's pinned ds4 commit
 
@@ -380,10 +415,10 @@ Forks that change those anchors are unsupported by that release and the Agent re
 
 ### KV cache: how context is kept
 
-DeepSeek V4 keeps the conversation in ds4-server's **KV cache** instead of re-encoding it from scratch every turn:
+The selected local model keeps conversation state in ds4-server's **KV cache** instead of re-encoding it from scratch every turn:
 
 - **Chat** re-sends its history behind a **stable prefix**, so the server reuses the cached prefix automatically, shown as the blue *cached* token count under each reply. The KV cache is also written **to disk**, so context survives engine restarts.
-- **Agent & design** each get a **named KV session per conversation** (`<sha>.kv`), autosaved every turn. Reopening a conversation restores its exact engine state with `/switch`, so every agent/design thread has its **own independent memory** and you can jump between them without losing context.
+- **Agent, Cowork & Design** get independent named KV sessions, autosaved every turn. Reopening a conversation restores its exact engine state, so threads do not share accidental context.
 
 ## Security
 
@@ -392,15 +427,14 @@ DeepSeek V4 keeps the conversation in ds4-server's **KV cache** instead of re-en
 - Mutating local APIs require the anti-CSRF header `X-Requested-With: ds4web`.
 - Outbound traffic is feature-scoped: setup downloads from pinned GitHub/Hugging Face revisions, Web Research reads requested public sources, and the optional DeepSeek cloud backend contacts `api.deepseek.com` only after the user supplies a key and selects it.
 
-> ⚠️ In **agent** mode the model runs commands and edits files **autonomously** inside the chosen working directory: that directory is the security boundary, so point it at a project folder.
+> ⚠️ **Agent and Design** can run commands autonomously. Use a trusted project folder. Their workspace APIs remain local even when LAN chat is enabled. **Cowork** intentionally has no arbitrary shell and confines its native file/Office tools to the selected workspace.
 
 ## Project Roadmap
 
 Where DStudio is headed (ideas, not promises):
 
-- **Sharper Design studio**: higher-fidelity screens, more distinct directions and faster refine loops on the canvas.
+- **Sharper Design studio**: broaden the visual-diversity corpus and add a second independent local render judge.
 - **Sharper Plan mode**: richer Markdown plans with better assumptions, acceptance criteria and execution clarity.
-- **Cowork**: collaborative sessions for sharing a workspace and building alongside the local model.
 - **MCP**: Model Context Protocol support so the agent can plug into external tools and data sources beyond the working directory.
 
 ## Contributing

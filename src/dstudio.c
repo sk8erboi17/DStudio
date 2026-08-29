@@ -341,8 +341,15 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define LOG_RING_CAP 768
 #define DIAG_SSE_MAX 8
 #define DS4_REPO_URL "https://github.com/antirez/ds4"
-#define DS4_UPSTREAM_COMMIT "84cc882352757baf628a1776badf7cc54d584e28"
+/* The primary managed checkout always follows the pinned upstream main. */
+#define DS4_UPSTREAM_COMMIT "8db89fe083ae4d17c9a2428ccd29803d3ae8f577"
 #define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
+
+/* GLM 5.3 uses its upstream inference branch in a side-by-side runtime. Model
+ * files remain centralized under ./ds4/gguf and are shared by that checkout. */
+#define DS4_GLM53_UPSTREAM_COMMIT "a60a2a0d25137a849a101e04e86ea830a346073a"
+#define DS4_GLM53_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_GLM53_UPSTREAM_COMMIT
+#define DS4_GLM53_DIR_NAME "ds4-glm5.3"
 
 /* Optional Laguna S 2.1 engine checkout. Laguna lives on its own upstream
  * branch and currently requires Metal plus full model residency, so DStudio
@@ -365,6 +372,8 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define MODEL_FLASH MODEL_STD
 #define MODEL_PRO   "gguf/DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix.gguf"
 #define MODEL_LAGUNA "gguf/laguna-s-2.1-Q4_K_M.gguf"
+#define MODEL_GLM53_Q2 "gguf/GLM-5.3-Flash-Q2.gguf"
+#define MODEL_GLM53_Q2_EXPECTED_BYTES 96505816384LL
 #define MODEL_ABLITERATED_HF_REVISION "08f6c6225ab4d29a735ab7d48d46bd0a3a767a07"
 #define MODEL_ABLITERATED_EXPECTED_BYTES 86720111552LL
 #define MODEL_ABLITERATED_SHA256 "55a46e7e9a51f3d6708559b8b284c3e60f6b97f9bab1f2c9633948c8331e99ee"
@@ -2105,14 +2114,8 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
         file = MODEL_DSPARK_ABLITERATED; bytes = MODEL_DSPARK_EXPECTED_BYTES;
     } else if (!strcmp(target, "pro-q2-imatrix")) {
         file = MODEL_PRO; bytes = MODEL_PRO_EXPECTED_BYTES;
-    } else if (!strcmp(target, "glm-unsloth-q4")) {
-        file = "gguf/GLM-5.2-UD-Q4_K_XL-00001-of-00011.gguf";
-    } else if (!strcmp(target, "glm-antirez-iq2xxs")) {
-        file = "gguf/GLM-5.2-UD-IQ2_XXS_RoutedIQ2XXS_blk78Q2K.gguf";
-    } else if (!strcmp(target, "glm-antirez-q2")) {
-        file = "gguf/GLM-5.2-UD-Q2_K_RoutedQ2K.gguf"; bytes = 262000000000LL;
-    } else if (!strcmp(target, "glm-antirez-q4")) {
-        file = "gguf/GLM-5.2-UD-Q4_K_RoutedQ4K.gguf"; bytes = 434000000000LL;
+    } else if (!strcmp(target, "glm53-q2")) {
+        file = MODEL_GLM53_Q2; bytes = MODEL_GLM53_Q2_EXPECTED_BYTES;
     } else if (!strcmp(target, "laguna-q4")) {
         file = MODEL_LAGUNA; bytes = 68000000000LL;
     }
@@ -2493,6 +2496,12 @@ static int model_is_glm(void) {
     const char *base = strrchr(rel, '/');
     return strstr(base ? base + 1 : rel, "GLM") != NULL;
 }
+static int model_file_is_supported(const char *name) {
+    if (!name) return 0;
+    size_t len = strlen(name);
+    if (!mem_contains_ci(name, len, "glm")) return 1;
+    return mem_contains_ci(name, len, "glm-5.3");
+}
 static int model_is_laguna(void) {
     const char *rel = current_model_rel();
     const char *base = strrchr(rel, '/');
@@ -2655,13 +2664,23 @@ static int flash_config_fits_metal(const engine_cfg *cfg, int with_dspark,
     return required <= budget;
 }
 
-/* Make a pathological saved configuration safe before spawning. Automatic
- * SSD streaming remains available for oversized non-DSpark runs; explicit
- * full-residency requests are reduced to the largest standard context that
- * leaves four GiB for Metal graph buffers and the desktop process. */
+/* Make a pathological DSpark configuration safe before spawning. Plain DS4
+ * must preserve the requested context when explicit expert SSD streaming is
+ * off: Metal uses full residency when it fits and its existing lazy mmap path
+ * otherwise. Context reduction is a quality regression, so the largest fully
+ * resident context is diagnostic information only. */
 static int normalize_flash_memory_config(engine_cfg *cfg, int remote_model,
                                          char *note, size_t notesz) {
     if (note && notesz) note[0] = '\0';
+    /* DSpark is an external DeepSeek Flash draft model. GLM 5.3 has its own
+     * integrated MTP block, so a persisted DSpark toggle must never attach a
+     * DeepSeek support GGUF to GLM (or to another model family). */
+    if (cfg && !remote_model && !model_is_flash() && g_dspark_enabled) {
+        g_dspark_enabled = 0;
+        if (note && notesz)
+            snprintf(note, notesz,
+                     "DSpark disabled because it is only compatible with DeepSeek V4 Flash");
+    }
 #ifndef __APPLE__
     (void)cfg; (void)remote_model;
     return 1;
@@ -2672,44 +2691,36 @@ static int normalize_flash_memory_config(engine_cfg *cfg, int remote_model,
     const int requested_dspark = g_dspark_enabled;
     unsigned long long required = 0, budget = 0;
 
-    if (g_dspark_enabled && current_dspark_file_size() > 0 &&
+    if (g_dspark_enabled &&
         !flash_config_fits_metal(cfg, 1, &required, &budget)) {
         g_dspark_enabled = 0;
     }
 
-    /* AUTO can stream the main model after DSpark has been disabled. OFF (or
-     * a DSpark configuration that fits) must fit fully in the Metal budget. */
-    if (cfg->ssd_streaming == SSD_STREAMING_OFF || g_dspark_enabled) {
-        if (!flash_config_fits_metal(cfg, g_dspark_enabled, &required, &budget)) {
-            const long long model_bytes = current_model_file_size();
-            const long long support_bytes = g_dspark_enabled ? current_dspark_file_size() : 0;
-            const int safe_ctx = flash_largest_safe_context(
-                requested_ctx,
-                model_bytes > 0 ? (unsigned long long)model_bytes : 0ull,
-                support_bytes > 0 ? (unsigned long long)support_bytes : 0ull,
-                budget);
-            if (safe_ctx == 0) {
-                snprintf(note, notesz,
-                         "DeepSeek V4 Flash does not fit the Metal memory budget with SSD streaming off; enable SSD streaming or choose a smaller GGUF");
-                return 0;
-            }
-            cfg->ctx = safe_ctx;
-        }
-    }
-
-    if (note && notesz && (cfg->ctx != requested_ctx || g_dspark_enabled != requested_dspark)) {
-        if (requested_dspark && !g_dspark_enabled && cfg->ctx != requested_ctx) {
+    const int mapped = !g_dspark_enabled &&
+        cfg->ssd_streaming != SSD_STREAMING_ON &&
+        !flash_config_fits_metal(cfg, 0, &required, &budget);
+    if (note && notesz && mapped) {
+        const long long model_bytes = current_model_file_size();
+        const int resident_ctx = flash_largest_safe_context(
+            requested_ctx,
+            model_bytes > 0 ? (unsigned long long)model_bytes : 0ull,
+            0, budget);
+        if (requested_dspark && !g_dspark_enabled) {
             snprintf(note, notesz,
-                     "DSpark disabled and context reduced from %d to %d tokens to keep DeepSeek V4 Flash resident in Metal memory",
-                     requested_ctx, cfg->ctx);
-        } else if (requested_dspark && !g_dspark_enabled) {
+                     "DSpark disabled because the support model exceeds the Metal budget; preserving the requested %d-token context through DS4's lazy memory-mapped path with explicit SSD streaming off",
+                     requested_ctx);
+        } else if (resident_ctx > 0) {
             snprintf(note, notesz,
-                     "DSpark disabled because the main and support models exceed the Metal memory budget");
+                     "Preserving the requested %d-token context through DS4's lazy memory-mapped path with explicit SSD streaming off (%d tokens is the largest estimated fully resident context)",
+                     requested_ctx, resident_ctx);
         } else {
             snprintf(note, notesz,
-                     "Context reduced from %d to %d tokens to keep DeepSeek V4 Flash resident in Metal memory",
-                     requested_ctx, cfg->ctx);
+                     "Preserving the requested %d-token context through DS4's lazy memory-mapped path with explicit SSD streaming off",
+                     requested_ctx);
         }
+    } else if (note && notesz && requested_dspark && !g_dspark_enabled) {
+        snprintf(note, notesz,
+                 "DSpark disabled because the main and support models exceed the Metal memory budget");
     }
     return 1;
 #endif
@@ -2721,7 +2732,7 @@ static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_mode
     if (reason && reasonsz) reason[0] = '\0';
     if (err && errsz) err[0] = '\0';
     if (!cfg || cfg->ssd_streaming == SSD_STREAMING_OFF) {
-        snprintf(reason, reasonsz, "disabled");
+        snprintf(reason, reasonsz, "disabled: DS4-only mode uses normal Metal mapped residency");
         return 0;
     }
     if (remote_model) {
@@ -2753,43 +2764,14 @@ static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_mode
         snprintf(err, errsz, "--ssd-streaming is Metal-only; this Windows runtime launches CPU binaries");
         return -1;
     }
-    snprintf(reason, reasonsz, "auto disabled on Windows CPU runtime");
-    return 0;
-#elif !defined(__APPLE__)
-    if (cfg->ssd_streaming == SSD_STREAMING_ON) {
-        snprintf(reason, reasonsz, "forced on for local CUDA/ROCm/CPU backend");
-        return 1;
-    }
-    long long model_bytes = current_model_file_size();
-    unsigned long long mem_bytes = dstudio_physical_memory_bytes();
-    const unsigned long long gib = 1024ull * 1024ull * 1024ull;
-    if (!strcmp(g_variant, "pro") ||
-        (model_bytes > 64ll * 1024ll * 1024ll * 1024ll) ||
-        (mem_bytes > 0 && mem_bytes <= 192ull * gib)) {
-        snprintf(reason, reasonsz, "auto enabled for large model / CUDA-ROCm-CPU memory pressure");
-        return 1;
-    }
-    snprintf(reason, reasonsz, "auto disabled: local backend memory budget is sufficient");
+    snprintf(reason, reasonsz, "auto disabled: DS4 is the sole active heavyweight model");
     return 0;
 #else
     if (cfg->ssd_streaming == SSD_STREAMING_ON) {
-        snprintf(reason, reasonsz, "forced on");
+        snprintf(reason, reasonsz, "forced on by user");
         return 1;
     }
-    if (model_is_flash() && flash_config_fits_metal(cfg, 0, NULL, NULL)) {
-        snprintf(reason, reasonsz, "auto disabled: Flash model and context fit the Metal residency budget");
-        return 0;
-    }
-    long long model_bytes = current_model_file_size();
-    unsigned long long mem_bytes = dstudio_physical_memory_bytes();
-    const unsigned long long gib = 1024ull * 1024ull * 1024ull;
-    if (!strcmp(g_variant, "pro") ||
-        (model_bytes > 64ll * 1024ll * 1024ll * 1024ll) ||
-        (mem_bytes > 0 && mem_bytes <= 192ull * gib)) {
-        snprintf(reason, reasonsz, "auto enabled: model and context exceed the Metal residency budget");
-        return 1;
-    }
-    snprintf(reason, reasonsz, "auto disabled: memory budget is sufficient");
+    snprintf(reason, reasonsz, "auto disabled: DS4 is the sole active heavyweight model");
     return 0;
 #endif
 }
@@ -2880,6 +2862,7 @@ static int any_gguf_present(void) {
         while ((e = readdir(d))) {
             const char *dot = strrchr(e->d_name, '.');
             if (!dot || strcmp(dot, ".gguf")) continue;
+            if (!model_file_is_supported(e->d_name)) continue;
             char full[2300];
             if (!path_join(full, sizeof full, dir, e->d_name)) continue;
             struct stat st;
@@ -3039,6 +3022,47 @@ static void mkpath(const char *path) {
     mkdir(tmp, 0755);
 }
 
+/* The native launcher reads the same small file before creating its window, so
+ * a port chosen in Settings survives app restarts. DS4UI_DATA_DIR keeps tests
+ * and portable bundles isolated from the user's normal app data. */
+static int dstudio_data_dir_path(char *out, size_t outsz) {
+    const char *configured = getenv("DS4UI_DATA_DIR");
+    int n = -1;
+    if (configured && configured[0]) {
+        n = snprintf(out, outsz, "%s", configured);
+#ifdef _WIN32
+    } else if (getenv("LOCALAPPDATA") && getenv("LOCALAPPDATA")[0]) {
+        n = snprintf(out, outsz, "%s/DStudio", getenv("LOCALAPPDATA"));
+#elif defined(__APPLE__)
+    } else if (getenv("HOME") && getenv("HOME")[0]) {
+        n = snprintf(out, outsz, "%s/Library/Application Support/DStudio", getenv("HOME"));
+#else
+    } else if (getenv("XDG_CONFIG_HOME") && getenv("XDG_CONFIG_HOME")[0]) {
+        n = snprintf(out, outsz, "%s/dstudio", getenv("XDG_CONFIG_HOME"));
+    } else if (getenv("HOME") && getenv("HOME")[0]) {
+        n = snprintf(out, outsz, "%s/.config/dstudio", getenv("HOME"));
+#endif
+    }
+    return n >= 0 && (size_t)n < outsz;
+}
+
+static int persist_http_port(int port) {
+    char dir[DSTUDIO_PATH_MAX], path[DSTUDIO_PATH_MAX + 32];
+    if (!dstudio_data_dir_path(dir, sizeof dir)) return 0;
+    mkpath(dir);
+    int n = snprintf(path, sizeof path, "%s/http-port", dir);
+    if (n < 0 || (size_t)n >= sizeof path) return 0;
+    FILE *f = fopen(path, "wb");
+    if (!f) return 0;
+    int ok = fprintf(f, "%d\n", port) > 0 && fflush(f) == 0;
+#ifndef _WIN32
+    if (ok) ok = fsync(fileno(f)) == 0;
+    (void)chmod(path, 0600);
+#endif
+    if (fclose(f) != 0) ok = 0;
+    return ok;
+}
+
 static void close_pipes(void);
 
 static int port_listening(int port) {
@@ -3123,10 +3147,23 @@ static void reuse_external_ds4(const engine_cfg *cfg, int ready, pid_t owner) {
     }
 }
 
+/* A DS4-family server is reusable only when its live catalog matches the model
+ * family selected in DStudio. This prevents a leftover DeepSeek process from
+ * being adopted while the UI is loading GLM 5.3 (or Laguna), and vice versa. */
+static int ds4_catalog_matches_selected_model(const char *response) {
+    if (!response || strstr(response, " 200 OK") == NULL ||
+        strstr(response, "\"owned_by\":\"ds4.c\"") == NULL) {
+        return 0;
+    }
+    if (model_is_glm())
+        return strstr(response, "\"id\":\"glm-5.3-flash\"") != NULL;
+    if (model_is_laguna())
+        return strstr(response, "\"id\":\"laguna-s-2.1\"") != NULL;
+    return strstr(response, "\"id\":\"deepseek-v4-") != NULL;
+}
+
 /* A listener on the default port may belong to another DStudio-family app.
- * Reuse it only when its OpenAI model catalog identifies a DS4 server; a bare
- * TCP accept is not enough because an unrelated service must not be treated as
- * a ready local model. */
+ * A bare TCP accept or generic ds4 owner marker is not enough. */
 static int ds4_server_compatible(int port) {
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return 0;
@@ -3163,9 +3200,7 @@ static int ds4_server_compatible(int port) {
     }
     close(s);
     response[used] = '\0';
-    return strstr(response, " 200 OK") != NULL &&
-           (strstr(response, "\"owned_by\":\"ds4.c\"") != NULL ||
-            strstr(response, "\"id\":\"deepseek-v4-") != NULL);
+    return ds4_catalog_matches_selected_model(response);
 }
 
 /* Opens an HTTP listen socket bound to `host`:`port`. Returns the fd or -1. */
@@ -5459,7 +5494,7 @@ static void api_model_download(int fd, const char *body) {
         "ds4f-q2", "ds4f-q2-q4", "ds4f-q4", "ds4f-mxfp4",
         "ds4f-dspark", "flash-dspark",
         "pro-q2-imatrix", "pro-q4-layers00-30", "pro-q4-layers31-output", "pro-q4-split",
-        "glm-unsloth-q4", "glm-antirez-iq2xxs", "glm-antirez-q2", "glm-antirez-q4",
+        "glm53-q2",
         "laguna-q4",
     };
     int valid = 0;
@@ -5555,12 +5590,10 @@ static void api_model_folder_open(int fd, const char *body) {
     char engine[24] = "";
     json_get_string(body, "engine", engine, sizeof engine);
     char checkout[DSTUDIO_PATH_MAX];
-    if (!engine[0]) {
-        cstr_copy(checkout, sizeof checkout, g_ds4_dir);
-    } else if (!strcmp(engine, "main")) {
+    if (!engine[0] || !strcmp(engine, "main") ||
+        !strcmp(engine, "glm53") || !strcmp(engine, "laguna")) {
+        /* Every managed engine shares the primary physical GGUF store. */
         snprintf(checkout, sizeof checkout, "%s/ds4", g_web_dir);
-    } else if (!strcmp(engine, "laguna")) {
-        snprintf(checkout, sizeof checkout, "%s/%s", g_web_dir, DS4_LAGUNA_DIR_NAME);
     } else {
         send_json(fd, "400 Bad Request",
                   "{\"ok\":false,\"error\":\"unknown model engine folder\"}");
@@ -5830,6 +5863,8 @@ static void api_lan_health(int fd) {
     send_json_cors(fd, "200 OK", body);
 }
 
+static int glm53_dir_path(char *out, size_t outsz);
+static int glm53_checkout_ready(const char *dir);
 static int laguna_dir_path(char *out, size_t outsz);
 static int laguna_checkout_ready(const char *dir);
 /* Vision sidecar doctor row (defined next to the vision handlers below). */
@@ -5940,6 +5975,18 @@ static void api_doctor(int fd) {
         web_ok ? NULL : "open-settings");
 
 #ifndef _WIN32
+    char glm53_dir[DSTUDIO_PATH_MAX];
+    int glm53_have_path = glm53_dir_path(glm53_dir, sizeof glm53_dir);
+    int glm53_present = glm53_have_path && ds4_dir_valid_path(glm53_dir);
+    int glm53_ready = glm53_present && glm53_checkout_ready(glm53_dir);
+    if (glm53_present && !glm53_ready) warn++;
+    ok = ok && doctor_add_check(&b, &first, "glm53", "GLM 5.3 engine (optional)",
+        glm53_present && !glm53_ready ? "warn" : "ok",
+        glm53_ready ? "GLM 5.3 installed — its weights remain in ds4/gguf." :
+        glm53_present ? "GLM 5.3 checkout found but not built — reinstall it." :
+                        "Not installed. Optional: adds the GLM 5.3 inference runtime.",
+        glm53_ready ? NULL : "setup-glm53");
+
     char laguna_dir[DSTUDIO_PATH_MAX];
     int laguna_have_path = laguna_dir_path(laguna_dir, sizeof laguna_dir);
     int laguna_present = laguna_have_path && ds4_dir_valid_path(laguna_dir);
@@ -6031,9 +6078,13 @@ static int collect_engine_checkouts(
     char *slash = strrchr(parent, '/');
     if (slash && slash != parent) *slash = '\0';
     else cstr_copy(parent, sizeof parent, "/");
-    const char *bases[2] = { g_web_dir[0] ? g_web_dir : NULL, parent };
+    /* g_web_dir is runtime state, and on macOS commonly contains only a
+     * `ds4` symlink back to the active checkout. Scanning it first duplicates
+     * the same catalog and can block the single local HTTP loop while the app
+     * is coming up. Real managed checkouts are siblings of the active one. */
+    const char *bases[1] = { parent };
 
-    for (int bi = 0; bi < 2; bi++) {
+    for (int bi = 0; bi < 1; bi++) {
         if (!bases[bi] || !bases[bi][0]) continue;
         DIR *d = opendir(bases[bi]);
         if (!d) continue;
@@ -6075,13 +6126,16 @@ static void checkout_branch_label(const char *dir, char *out, size_t outsz) {
     if (out[0]) return;
     const char *name = strrchr(dir, '/');
     name = name ? name + 1 : dir;
-    if (!strcmp(name, DS4_LAGUNA_DIR_NAME))
+    if (!strcmp(name, DS4_GLM53_DIR_NAME))
+        cstr_copy(out, outsz, "glm-5.3-flash");
+    else if (!strcmp(name, DS4_LAGUNA_DIR_NAME))
         cstr_copy(out, outsz, "laguna-s2.1");
 }
 
 /* GET /api/ggufs — list .gguf files across every managed engine checkout.
  * Each row carries its owning checkout so selecting a model can atomically
- * switch branch before starting it. Symlinks are skipped to avoid duplicates. */
+ * switch branch before starting it. Optional checkouts share ./ds4/gguf, so
+ * every family is emitted only from the runtime that can execute it. */
 static void api_ggufs(int fd) {
     char dirs[ENGINE_CHECKOUT_CAP][DSTUDIO_PATH_MAX];
     char active[DSTUDIO_PATH_MAX];
@@ -6098,6 +6152,10 @@ static void api_ggufs(int fd) {
         engine_name = engine_name ? engine_name + 1 : dirs[ci];
         char branch[128];
         checkout_branch_label(dirs[ci], branch, sizeof branch);
+        int glm53_engine = !strcmp(engine_name, DS4_GLM53_DIR_NAME) ||
+                           !strcmp(branch, "glm-5.3-flash");
+        int laguna_engine = !strcmp(engine_name, DS4_LAGUNA_DIR_NAME) ||
+                            !strcmp(branch, "laguna-s2.1");
         for (int di = 0; di < 2 && ok; di++) {
             char dir[DSTUDIO_PATH_MAX + 16];
             snprintf(dir, sizeof dir, "%s%s%s", dirs[ci],
@@ -6109,6 +6167,13 @@ static void api_ggufs(int fd) {
                 const char *nm = de->d_name;
                 size_t len = strlen(nm);
                 if (len < 6 || strcmp(nm + len - 5, ".gguf")) continue;
+                if (!model_file_is_supported(nm)) continue;
+                int glm53_model = mem_contains_ci(nm, len, "glm-5.3");
+                int laguna_model = mem_contains_ci(nm, len, "laguna");
+                if (glm53_model != glm53_engine) continue;
+                if (laguna_model != laguna_engine) continue;
+                if ((glm53_engine || laguna_engine) &&
+                    !glm53_model && !laguna_model) continue;
                 char full[DSTUDIO_PATH_MAX + 400];
                 struct stat st;
                 snprintf(full, sizeof full, "%s/%s", dir, nm);
@@ -6572,8 +6637,15 @@ static void api_start(int fd, const char *body) {
     }
     /* Explicit GGUF pick (path relative to the ds4 dir) wins over the variant. */
     char gguf[1024] = {0};
-    const int explicit_gguf = json_get_string(body, "gguf", gguf, sizeof gguf) &&
-        gguf[0] && !strstr(gguf, "..") && file_present(gguf);
+    const int has_explicit_gguf = json_get_string(body, "gguf", gguf, sizeof gguf) && gguf[0];
+    if (has_explicit_gguf && !model_file_is_supported(gguf)) {
+        task_mark_failed(task_id, "Choose GLM 5.3 Flash Q2", gguf);
+        send_json(fd, "400 Bad Request",
+                  "{\"ok\":false,\"code\":\"unsupported_model\",\"error\":\"Choose GLM 5.3 Flash Q2\"}");
+        return;
+    }
+    const int explicit_gguf = has_explicit_gguf &&
+        !strstr(gguf, "..") && file_present(gguf);
     if (explicit_gguf) {
         snprintf(g_model_override, sizeof g_model_override, "%s", gguf);
         cfg.uncensored = strstr(gguf, "Abliterated") || strstr(gguf, "uncensored");
@@ -7319,6 +7391,7 @@ static void api_fs_mkdir(int fd, const char *body) {
 }
 
 #include "dstudio_setup.c"
+#include "dstudio_glm53.c"
 #include "dstudio_laguna.c"
 #include "dstudio_updates.c"
 
@@ -7386,6 +7459,53 @@ static void api_lan(int fd, const char *body) {
     snprintf(out, sizeof out, "{\"ok\":true,\"lan\":%s,\"lanAddr\":\"%s\",\"httpPort\":%d,\"engineRestart\":false}",
              on ? "true" : "false", addr, g_http_port);
     send_json(fd, "200 OK", out);
+}
+
+/* Change the DStudio web/LAN listener without restarting the model. The new
+ * socket is opened before the old one is released, so a busy/invalid port leaves
+ * the current app reachable. The accepted request socket remains valid long
+ * enough to return the new address to the UI. */
+static void api_http_port(int fd, const char *body) {
+    long requested = 0;
+    if (json_get_int(body, "port", 1024, 65535, &requested) <= 0) {
+        send_json(fd, "400 Bad Request",
+                  "{\"ok\":false,\"error\":\"port must be between 1024 and 65535\"}");
+        return;
+    }
+    int port = (int)requested;
+    if (port == g_http_port) {
+        if (!persist_http_port(port)) {
+            send_json(fd, "500 Internal Server Error",
+                      "{\"ok\":false,\"error\":\"could not save the port\"}");
+            return;
+        }
+        char out[96];
+        snprintf(out, sizeof out, "{\"ok\":true,\"httpPort\":%d,\"changed\":false}", port);
+        send_json(fd, "200 OK", out);
+        return;
+    }
+
+    int nf = open_listener(g_bind_host, port);
+    if (nf < 0) {
+        send_json(fd, "409 Conflict",
+                  "{\"ok\":false,\"error\":\"that port is already in use\"}");
+        return;
+    }
+    if (!persist_http_port(port)) {
+        close(nf);
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"could not save the port\"}");
+        return;
+    }
+
+    int old = g_srv_fd;
+    g_srv_fd = nf;
+    g_http_port = port;
+    if (old >= 0) close(old);
+    char out[96];
+    snprintf(out, sizeof out, "{\"ok\":true,\"httpPort\":%d,\"changed\":true}", port);
+    send_json(fd, "200 OK", out);
+    printf("DStudio: web listener moved to %s:%d\n", g_bind_host, port);
 }
 
 static void api_fs_list(int fd, const char *body) {
@@ -9046,6 +9166,7 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/fs/list")) { api_fs_list(fd, body); return 200; }
     if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); return 200; }
     if (!strcmp(path, "/api/ds4/setup")) { api_setup_ds4(fd, body); return 200; }
+    if (!strcmp(path, "/api/glm53/setup")) { api_setup_glm53(fd); return 200; }
     if (!strcmp(path, "/api/laguna/setup")) { api_setup_laguna(fd); return 200; }
     if (!strcmp(path, "/api/vision/setup")) { api_vision_setup(fd, body); return 200; }
     if (!strcmp(path, "/api/vision/describe")) { api_vision_describe(fd, body); return 200; }
@@ -9063,6 +9184,7 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/web-read")) { api_web_read(fd, body); return 200; }
     if (!strcmp(path, "/api/http-probe")) { api_http_probe(fd, body); return 200; }
     if (!strcmp(path, "/api/lan")) { api_lan(fd, body); return 200; }
+    if (!strcmp(path, "/api/http-port")) { api_http_port(fd, body); return 200; }
     if (!strcmp(path, "/api/remote")) { api_remote_control(fd, body); return 200; }
     if (!strcmp(path, "/api/wipe")) { api_wipe(fd); return 200; }
     send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"unknown endpoint\"}");
@@ -9563,6 +9685,12 @@ int main(int argc, char **argv)
     /* Automatic startup of the server with the defaults, if the port is free. */
     if (test_mode) {
         printf("engine: test mode - not starting ds4\n");
+    } else if (getenv("DS4UI_DEFER_ENGINE_START")) {
+        /* The native loading page owns the saved model choice. In particular,
+         * do not adopt a leftover DeepSeek server before browser storage tells
+         * us that the selected family is GLM or Laguna. */
+        set_stage("Applying saved engine settings…", 2);
+        printf("engine: waiting for the native loading page to apply saved launch settings\n");
     } else if (port_listening(ENGINE_DEFAULTS.port)) {
         if (ds4_server_compatible(ENGINE_DEFAULTS.port)) {
             reuse_external_ds4(&ENGINE_DEFAULTS, 1, 0);
@@ -9573,9 +9701,6 @@ int main(int argc, char **argv)
             snprintf(g_stage, sizeof g_stage, "Engine port is busy");
             printf("engine: %s\n", g_engine_err);
         }
-    } else if (getenv("DS4UI_DEFER_ENGINE_START")) {
-        set_stage("Applying saved engine settings…", 2);
-        printf("engine: waiting for the native loading page to apply saved launch settings\n");
     } else {
         engine_cfg boot = ENGINE_DEFAULTS;
         char err[256];
