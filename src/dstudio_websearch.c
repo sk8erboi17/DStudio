@@ -499,11 +499,12 @@ static char *web_curl_capture(char *const argv[], int timeout_ms, int *exit_stat
     json_dyn_buf out = {0};
     char buf[8192];
     int st = 0, done = 0, killed = 0, reaped = 0;
-    long long deadline = web_now_ms() + (timeout_ms > 0 ? timeout_ms : 20000);
+    const int no_deadline = timeout_ms < 0;
+    long long deadline = no_deadline ? 0 : web_now_ms() + (timeout_ms > 0 ? timeout_ms : 20000);
     while (!done) {
         ssize_t r;
         while ((r = read(pfd[0], buf, sizeof buf)) > 0) {
-            if (out.len + (size_t)r > 768 * 1024) {
+            if (out.len + (size_t)r > 8 * 1024 * 1024) {
                 killed = 1;
                 kill(pid, SIGKILL);
                 break;
@@ -524,20 +525,20 @@ static char *web_curl_capture(char *const argv[], int timeout_ms, int *exit_stat
             reaped = 1;
             done = 1;
             while ((r = read(pfd[0], buf, sizeof buf)) > 0) {
-                if (out.len + (size_t)r > 768 * 1024) break;
+                if (out.len + (size_t)r > 8 * 1024 * 1024) break;
                 if (!json_dyn_putn(&out, buf, (size_t)r)) { free(out.ptr); out.ptr = NULL; break; }
             }
             break;
         }
         if (wp < 0 && errno != EINTR) break;
-        long long left = deadline - web_now_ms();
-        if (left <= 0) {
+        long long left = no_deadline ? 250 : deadline - web_now_ms();
+        if (!no_deadline && left <= 0) {
             killed = 1;
             kill(pid, SIGKILL);
             break;
         }
         struct pollfd pf = { pfd[0], POLLIN | POLLHUP, 0 };
-        int wait_ms = left > 250 ? 250 : (int)left;
+        int wait_ms = no_deadline || left > 250 ? 250 : (int)left;
         (void)poll(&pf, 1, wait_ms);
     }
     close(pfd[0]);

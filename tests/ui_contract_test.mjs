@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 const html = fs.readFileSync('web/index.html', 'utf8');
 const readme = fs.readFileSync('README.md', 'utf8');
+const qualityGates = fs.readFileSync('docs/QUALITY_GATES.md', 'utf8');
+const lumenMediaModels = fs.readFileSync('tests/fixtures/lumen-site-seed/MEDIA_AND_MODELS.md', 'utf8');
 const algebraRoadmapExport = fs.readFileSync('exports/abstract-algebra-roadmap.json', 'utf8');
 const loadingHtml = fs.readFileSync('web/loading.html', 'utf8');
 const launcherMain = fs.readFileSync('src/dstudio.c', 'utf8');
@@ -22,12 +24,18 @@ const jsonlPatchText = fs.readdirSync('patch/ds4-agent-jsonl')
   .map((name) => fs.readFileSync(`patch/ds4-agent-jsonl/${name}`, 'utf8'))
   .join('\n');
 const jsonlBuild = fs.readFileSync('patch/ds4-agent-jsonl/build.mk', 'utf8');
+const glmRuntimePatch = fs.readFileSync('patch/ds4-glm53-runtime/streaming-memory.patch', 'utf8');
+const glmRuntimeScript = fs.readFileSync('scripts/apply-ds4-glm53-runtime.sh', 'utf8');
 const designBuild = fs.readFileSync('extension/design/design.mk', 'utf8');
 const remoteDesign = fs.readFileSync('extension/design/ds4_design.c', 'utf8');
 const searchRuntime = fs.readFileSync('extension/search/runtime.js', 'utf8');
 const embedServer = fs.readFileSync('scripts/embed-server.sh', 'utf8');
 const visionServer = fs.readFileSync('scripts/vision-server.sh', 'utf8');
-const qwenImageScript = fs.readFileSync('scripts/qwen-image-generate.sh', 'utf8');
+const imagePipelineScript = fs.readFileSync('scripts/image-pipeline-run.py', 'utf8');
+const imageRouterScript = fs.readFileSync('scripts/image-route-qwen38.py', 'utf8');
+const ideogramScript = fs.readFileSync('scripts/ideogram4-run.py', 'utf8');
+const hunyuanScript = fs.readFileSync('scripts/hunyuan-image3-edit.py', 'utf8');
+const hunyuanShell = fs.readFileSync('scripts/hunyuan-image3-edit.sh', 'utf8');
 const windowsBuild = fs.readFileSync('scripts/build-windows.ps1', 'utf8');
 const windowsDs4Build = fs.readFileSync('scripts/build-ds4-windows-cygwin.sh', 'utf8');
 const gitignore = fs.readFileSync('.gitignore', 'utf8');
@@ -205,10 +213,14 @@ assert.match(html, /body\.roadmap-mode:not\(\.composer-raised\) \.composer[\s\S]
   'The Roadmap prompt handle should animate the composer up and lower it again after Send');
 assert.doesNotMatch(html, /\.composer:has\(#btn-stop:not\(\[hidden\]\)\)/,
   'The visible Stop button must not force the entire Roadmap composer to stay open');
-assert.match(html, /body\.roadmap-mode:not\(\.composer-raised\) \.composer__card[\s\S]*width: min\(100%, 96rem\)[\s\S]*max-width: none/,
-  'The expanded Roadmap composer should use the wide workspace instead of the normal chat measure');
-assert.match(html, /body\.roadmap-mode \.composer__card:focus-within \{ box-shadow: none; \}/,
-  'Focusing the Roadmap composer should not add a selection shadow');
+assert.match(html, /shared prompt surface deliberately matches Agent[\s\S]*body\.roadmap-mode \.composer__card,[\s\S]*body\.roadmap-mode:not\(\.composer-raised\) \.composer__card \{ width: auto; max-width: 48rem;[\s\S]*border-radius: 20px/,
+  'Roadmap should use the same 48rem, rounded composer surface as Agent');
+assert.match(html, /body\.roadmap-mode \.composer__card:focus-within,[\s\S]*body\.roadmap-mode:not\(\.composer-raised\) \.composer__card:focus-within \{ border-color: var\(--border-2\); box-shadow: 0 8px 30px/,
+  'Roadmap focus should match the Agent composer elevation');
+assert.match(js, /document\.body\.classList\.remove\('chat-editorial'\)/,
+  'Chat should not retain a separate editorial composer skin');
+assert.match(js, /function configuredModelLabel\(\)[\s\S]*Flash · chat[\s\S]*ggufList === null \? configuredModelLabel\(\) : 'No model'/,
+  'the shared composer should retain its saved model label while GGUF scanning is deferred');
 assert.match(html, /\.roadmap-build-assembly[\s\S]*\.roadmap-build-rail[\s\S]*\.roadmap-build-piece--left[\s\S]*@keyframes roadmap-piece-assemble[\s\S]*\.roadmap-hero \.ec-mark \{ color: var\(--accent\)/,
   'Roadmap loading should assemble connected blue graph pieces instead of showing a static dot');
 assert.match(js, /const roadmapMode = chat\.mode === 'roadmap';[\s\S]*settings = \{ \.\.\.settings, webMode: 'research', thinkLevel: 'max' \}/,
@@ -216,8 +228,12 @@ assert.match(js, /const roadmapMode = chat\.mode === 'roadmap';[\s\S]*settings =
 assert.match(js, /reasoning_effort = thinkLevel === 'max' \? 'max' : 'high'/, 'maximum roadmap thinking should reach the model request body');
 assert.match(js, /Roadmaps use true Thinking: max with a temporary 384k\+ local context\./,
   'Roadmap thinking selector should explain the effective true-Max context override');
-assert.match(js, /const ROADMAP_TRUE_MAX_CONTEXT = 393216;[\s\S]*ctxSize: Math\.max\([\s\S]*ROADMAP_TRUE_MAX_CONTEXT\)/,
+assert.match(js, /const DS4_TRUE_MAX_CONTEXT = 393216;[\s\S]*ctxSize: Math\.max\([\s\S]*DS4_TRUE_MAX_CONTEXT\)/,
   'Roadmap generation should request the ds4 context threshold required for true Thinking max');
+assert.match(js, /const trueMaxContext = \(\) => thinkLevel\(\) === 'max'[\s\S]*Math\.max\(ctxSize\(\), DS4_TRUE_MAX_CONTEXT\)/,
+  'Cowork and Design should resolve Max to the ds4 true-Max context floor');
+assert.match(js, /runSwitch\('cowork',[\s\S]{0,1400}ctx: trueMaxContext\(\)[\s\S]{0,1800}runSwitch\('design',[\s\S]{0,1400}ctx: trueMaxContext\(\)/,
+  'Cowork and Design launches must not silently downgrade Max at 64k or 128k');
 assert.match(js, /function auditRoadmapStage\([\s\S]*function auditRoadmapGlobally\([\s\S]*Checking cross-stage contradictions/,
   'Roadmaps should receive per-stage factual audits followed by a global contradiction audit');
 assert.match(js, /DStudio roadmap factual auditor[\s\S]*Ignore prose quality, curriculum completeness, pedagogy[\s\S]*DStudio roadmap curriculum judge[\s\S]*Do not fact-check/,
@@ -310,7 +326,7 @@ assert.deepEqual(
   { action: 'edit', prompt: 'metti quella faccia sul cane', preserve: 'face' },
   'semantic router code 3 should activate face-preserving editing',
 );
-assert.equal(routingHelpers.imageDirectiveFromRoutingCode('0', 'descrivi questa immagine'), null, 'ordinary visual questions should not activate Qwen Image');
+assert.equal(routingHelpers.imageDirectiveFromRoutingCode('0', 'descrivi questa immagine'), null, 'ordinary visual questions should not activate the image synthesis pipeline');
 assert.deepEqual(
   routingHelpers.imageDirectiveFromRoutingPlan(
     '{"action":"edit","base":"img-2","references":["img-1"],"preserve":"face"}',
@@ -585,6 +601,16 @@ assert.match(html, /id="doctor-recheck"/, 'manual System check dialog should kee
 assert.match(html, /id="doctor-detail"/, 'System check dialog should include workspace diagnostics details');
 assert.match(html, /id="conn-info"[\s\S]*>Info<\/button>/, 'Server unreachable state should expose an explicit diagnostics Info button');
 assert.match(js, /function openConnectionInfo\(e\)[\s\S]*Doctor\.open\(\)/, 'Connection Info button should open diagnostics instead of leaving users with a bare unreachable label');
+assert.match(js, /Store\.subscribe\('connection',[\s\S]*startLocalEngineRecovery\(\)/,
+  'Chat/Roadmap should automatically recover the local engine when health turns down');
+assert.match(js, /function startLocalEngineRecovery\([\s\S]*canRecoverLocalEngine\([\s\S]*Il motore locale non è in esecuzione\. DStudio lo sta avviando…[\s\S]*Switcher\.ensureChatReady\(/,
+  'automatic local recovery should start the saved engine configuration and announce the attempt');
+assert.match(js, /Il riavvio automatico non è riuscito:[\s\S]*Doctor\.open\(\)/,
+  'a failed automatic recovery should show the diagnostic reason instead of silently leaving Chat unavailable');
+assert.match(js, /isRecovering: \(\) => !!autoRecoveryFlight[\s\S]*Store\.subscribe\('connection', refresh\)[\s\S]*text: recovering \? 'Starting…' : actionLabel\(c\.action\)/,
+  'an open System check should replace a stale Start action with an automatic-start status');
+assert.doesNotMatch(extractFunction(js, 'restartEngineIfDown'), /askConfirm/,
+  'manual connection recovery should no longer require confirmation');
 assert.match(js, /async function diagnostics\(\)[\s\S]*\/api\/diagnostics/, 'Engine client should expose workspace diagnostics');
 assert.match(js, /async function updatesCheck\(\)[\s\S]*\/api\/updates\/check/, 'Engine client should expose Update Doctor checks');
 assert.match(js, /async function updatesRun\(tasks\)[\s\S]*\/api\/updates\/run/, 'Engine client should expose selected Update Doctor runs');
@@ -793,7 +819,7 @@ assert.match(js, /gsaTargetUrl: ''/, 'GSA target URL should be persisted as an e
 assert.match(js, /gsaLoop: 'off'/, 'GSA loop should be persisted as an explicit off/on setting');
 assert.match(js, /gsaDisabledTools: \[\]/, 'GSA disabled tool choices should persist in settings');
 assert.match(js, /enginePower: 90/, 'Engine power should default to ds4 --power 90');
-assert.match(js, /ssdStreaming: 'auto'/, 'SSD streaming should default to automatic memory-pressure handling');
+assert.match(js, /ssdStreaming: 'off'/, 'SSD streaming should default off while DS4 is the sole heavyweight model');
 assert.match(js, /metalHotlistSeed: false/, 'Metal expert hotlist seed should default to off for stability');
 assert.match(html, /id="set-metal-hotlist"/, 'Settings should expose the Metal expert hotlist seed toggle');
 assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\), metalHotlistSeed: metalHotlistSeed\(\), dspark: dspark\(\) \}\)/, 'Engine starts should omit local streaming preferences for remote models');
@@ -1178,6 +1204,11 @@ assert.match(js, /function buildFileTileIcon\(\)[\s\S]*const Chat = \(\(\) =>/, 
 assert.match(html, /id="file-preview-dialog"/, 'Chat attachments should have a file preview dialog');
 assert.match(html, /#settings-dialog\.settings-dialog[\s\S]*width: min\(96vw, 62rem\)/, 'Main settings dialog should use a wide landscape layout');
 assert.match(html, /#settings-dialog \.settings[\s\S]*grid-template-columns: 218px minmax\(0, 1fr\)/, 'Main settings should use sidebar navigation with one content pane');
+assert.match(html, /set-nav__eyebrow">Engine<[\s\S]*data-pane="connection"[\s\S]*data-pane="models"[\s\S]*data-pane="performance"[\s\S]*data-pane="advanced"/, 'Settings should split engine controls into focused Connection, Models, Performance and Advanced panes');
+assert.match(html, /set-nav__eyebrow">Capabilities<[\s\S]*set-nav__eyebrow">App</, 'Settings should group the remaining panes into Capabilities and App');
+assert.match(html, /id="set-search"[\s\S]*id="set-model-filter"/, 'Settings should provide both global settings search and model filtering');
+assert.match(js, /function filterSettingsNavigation\(\)[\s\S]*pane\?\.textContent[\s\S]*setPane\(firstMatch\.dataset\.pane\)/, 'Settings search should find matching controls across panes and open the first result');
+assert.match(js, /class: 'set-model-quant'[\s\S]*class: 'set-model-size'[\s\S]*class: 'set-model-family'/, 'The model picker should group families and expose comparable quantization and size metadata');
 assert.match(html, /@keyframes ec-orbit/, 'Empty-state DStudio logo should rotate while floating');
 assert.match(html, /:root\[data-theme="light"\] \.btn--primary \{ color: #fff; \}/, 'Light mode primary button text should stay white');
 assert.match(html, /\*::-webkit-scrollbar-thumb/, 'App scrollbars should use the shared custom scrollbar style');
@@ -1228,7 +1259,7 @@ assert.match(html, /\.cdrop-menu\s*\{[\s\S]*position:\s*fixed[\s\S]*--cdrop-top[
 assert.match(js, /if \(!document\.body\.contains\(menu\)\) document\.body\.appendChild\(menu\)/, 'plus-menu dropdowns should be mounted on body before placement');
 assert.match(js, /window\.innerHeight - margin - height[\s\S]*menu\.style\.top/, 'plus-menu dropdown placement should clamp top inside the viewport');
 assert.match(html, /id="set-power"[\s\S]*id="set-ssd-streaming"/, 'Settings should expose engine power and SSD streaming launch parameters');
-assert.match(js, /enginePower:\s*90[\s\S]*ssdStreaming:\s*'auto'[\s\S]*metalHotlistSeed:\s*false/, 'engine power, SSD streaming and hotlist seed should have persisted defaults');
+assert.match(js, /enginePower:\s*90[\s\S]*ssdStreaming:\s*'off'[\s\S]*metalHotlistSeed:\s*false/, 'engine power, DS4-only SSD streaming and hotlist seed should have persisted defaults');
 assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\), metalHotlistSeed: metalHotlistSeed\(\), dspark: dspark\(\) \}\)/, 'engine starts should keep SSD streaming, hotlist seed and DSpark local-only');
 assert.match(js, /function applyEngineConfig\(\)[\s\S]*Restart to apply engine settings\?[\s\S]*restartCurrent\(\)/, 'engine launch setting changes should offer to restart the active engine');
 assert.match(js, /setIogpuWiredLimit\(mb\)[\s\S]*\/api\/iogpu-wired-limit/, 'frontend should expose the IOGPU wired-limit apply endpoint');
@@ -1236,6 +1267,14 @@ assert.match(html, /id="set-iogpu-limit-mb"[\s\S]*min="86016"[\s\S]*max="90112"[
 assert.match(js, /const minMb = Number\(m\.iogpuWiredMinMb \|\| 86016\)[\s\S]*const maxMb = Number\(m\.iogpuWiredMaxMb \|\| 90112\)[\s\S]*const iogpuLimitRisk = m\.iogpuWiredLimitMb > maxMb/, 'memory doctor should only warn when iogpu.wired_limit_mb exceeds the approved range');
 assert.match(js, /function generatedFilesForMessage\(m\)[\s\S]*extractGeneratedFilesFromAssistant\(m\?\.content \|\| ''\)\.files[\s\S]*function displayContentForMessage\(m\)[\s\S]*stripGeneratedFilePayloadPreview\(m\.content\)/, 'message rendering should convert dstudio-files fences into generated file tiles instead of showing the protocol block');
 assert.match(html, /body\.composer-raised \.cbar-model-menu \{ top: calc\(100% \+ 6px\); bottom: auto; \}/, 'raised composer model menu should open downward with the other menus');
+assert.match(js, /composerTarget:\s*'chat'/, 'the composer should default to the normal Chat target');
+assert.match(js, /function appendH3PickerOption\(menu\)[\s\S]*MiniMax H3[\s\S]*Local video \+ audio[\s\S]*selectH3FromPicker/, 'the composer model picker should expose the managed MiniMax H3 video target');
+assert.match(js, /stage === 'decoding'[\s\S]{0,180}video frames and final MP4 are being decoded and encoded locally/, 'H3 decoding progress must describe evidence available before the output audio streams are known');
+assert.doesNotMatch(js, /stage === 'decoding'[^\n]*synchronized stereo audio/, 'H3 decoding progress must not promise an audio stream before output validation');
+assert.match(js, /const H3_PROMPT_TEMPLATE = \[[\s\S]*'Scene: '[\s\S]*'Action: '[\s\S]*'Camera: '[\s\S]*'Look: '[\s\S]*'Audio: '/, 'H3 mode should offer the Context-IR-style prompt fields documented by h3.c');
+assert.match(js, /function directH3VideoDirective\(chat, userMsg, settings\)[\s\S]*action: 'video'[\s\S]*useFirstFrame: candidates\.length === 1[\s\S]*useReferenceImages: candidates\.length === 2[\s\S]*sourceIds:/, 'an explicitly selected H3 target should route prompt text plus one opening frame or two reference images directly to video');
+assert.match(js, /if \(directH3\) \{[\s\S]*directH3VideoDirective\(chat, userMsg, settings\)[\s\S]*runRoutedVideoReply/, 'direct H3 mode should bypass a formatting-only Chat turn');
+assert.match(js, /if \(h3ComposerMode\(\)\) \{[\s\S]*images\.length > 2[\s\S]*referencesInstalled[\s\S]*Opening-frame image supplied directly to MiniMax H3[\s\S]*takePendingAttachments\(\)/, 'H3 composer mode should accept one opening frame or two installed-reference images without running vision analysis');
 assert.match(html, /body\.composer-raised \.cbar-think-menu \{ top: calc\(100% \+ 6px\); bottom: auto; \}/, 'raised composer thinking menu should open downward with the other menus');
 assert.match(html, /\.cbar-pop\s*\{[\s\S]*width:\s*min\(88vw,\s*300px\)[\s\S]*min-width:\s*240px/, 'plus menu should stay compact instead of using oversized rows');
 assert.match(html, /\.cdrop-cap\s*\{ width:\s*30px; font-size:\s*9\.5px;/, 'plus menu dropdown labels should be compact');
@@ -1253,7 +1292,7 @@ assert.match(js, /const s = await Engine\.userSkillGet\(id\)/, 'Skill editor sho
 assert.doesNotMatch(extractFunction(js, 'showEditor'), /Engine\.skillGet/, 'Skill editor should not fall back to a shipped skill body');
 assert.match(js, /Engine\.userSkillSave\(\{ id,[\s\S]*modes: editingModes/, 'Skill editor should preserve modes when saving local overrides');
 assert.match(js, /function selectedSkillPromptForRuntime\([^)]*\)[\s\S]*DStudio selected skill/, 'Selected skills should apply to future turns without restarting the runtime');
-assert.match(js, /const runtimeSkillAtLaunch = \{ agent: '', design: '' \}/, 'Runtime should track the skill that was injected at launch');
+assert.match(js, /const runtimeSkillAtLaunch = \{ agent: '', cowork: '', design: '' \}/, 'Runtime should track the skill that was injected at launch for every agentic mode');
 assert.match(js, /selectedSkillPromptForRuntime\([^)]*\)[\s\S]*id === \(runtimeSkillAtLaunch\[mode\] \|\| ''\)[\s\S]*return ''/, 'Selected skill prompt should not duplicate the skill already injected at runtime launch');
 assert.match(js, /selectedSkillPromptForRuntime\([^)]*\)[\s\S]*load up to two additional skills[\s\S]*three or fewer/, 'Selected skill runtime prompt should allow bounded multi-skill use');
 assert.match(launcher, /cap each user request at three `skill` calls total/, 'On-demand skill catalog should allow bounded multi-skill loading');
@@ -1274,7 +1313,7 @@ assert.match(js, /function renderModelPill\(\)[\s\S]*closeGear\(\);[\s\S]*closeT
 assert.match(js, /function openGear\(\)[\s\S]*closeThinkMenu\(\);[\s\S]*closeModelMenu\(\);[\s\S]*layoutControls\(\)/, 'Opening the plus menu should close model and thinking menus first');
 assert.match(js, /if \(activeCdropCollapse && activeCdropCollapse !== collapse\) activeCdropCollapse\(\)/, 'Only one plus-menu custom dropdown should stay open at a time');
 assert.match(js, /body\.classList\.toggle\('design-brief-staged'[\s\S]*stagedBrief[\s\S]*body\.classList\.toggle\('design-staged'[\s\S]*\(stagedQ \|\| stagedGen\)/, 'Design brief should not hide the shared composer; only questions/generating should');
-assert.match(js, /setComposerRaised\(viewMode === 'agent' \|\| \(viewMode === 'design' && stagedBrief\)\)/, 'Design brief should keep the shared composer centered while showing the template grid');
+assert.match(js, /setComposerRaised\(viewMode !== 'design' \|\| \(viewMode === 'design' && stagedBrief\)\)/, 'Agent/Cowork empty states and the Design brief should keep the shared composer centered');
 assert.match(js, /doneTodoKeys: new Set\(\)/, 'Design generating progress should track synthetic todo completion from tool events');
 assert.match(js, /function applyEvent\(ev\)[\s\S]*markTodosBeforeOperation\(state\.activeTool\)/, 'Design milestone tool calls should advance earlier build todos instead of leaving progress stuck');
 assert.match(js, /type === 'file_written'[\s\S]*markActiveOrNextTodoDone\(\)/, 'Design file writes should advance the active build todo when the model forgets todo_write');
@@ -1287,7 +1326,7 @@ assert.match(js, /function hasRenderableConversation\(raw = text\)[\s\S]*session
 assert.match(js, /function hasDesignConversationContent\(raw = text\)[\s\S]*seg\.kind === 'proposal'[\s\S]*seg\.kind === 'artifact'[\s\S]*return false/, 'Design empty states should ignore reasoning-only or service-only transcripts');
 assert.match(js, /staleNotice = !conv\.lanMirror &&[\s\S]*viewMode === 'design' \? hasDesignConversationContent\(conv\.transcript \|\| ''\) : hasRenderableConversation\(conv\.transcript \|\| ''\)[\s\S]*!conv\.sessionSha/, 'Service-only new Agent/Design conversations should not show the stale session warning');
 assert.match(js, /const submitAnswer = \(answerText, lines = \[\]\) => \{[\s\S]*viewMode === 'design'[\s\S]*sendQuestionAnswer\(answerText\)/, 'Design question forms should submit with the runtime-recognized question answer marker');
-assert.match(js, /viewMode === 'agent' \|\| viewMode === 'design'/, 'Design reasoning blocks should stay open like Agent reasoning blocks');
+assert.match(js, /viewMode === 'agent' \|\| viewMode === 'cowork' \|\| viewMode === 'design'/, 'Agent, Cowork and Design reasoning blocks should stay open');
 assert.match(html, /\.thinking \{[\s\S]*content-visibility: visible;[\s\S]*contain-intrinsic-size: auto;/, 'Open reasoning blocks should not use estimated content-visibility heights that can disturb scroll');
 assert.doesNotMatch(remoteDesign, /BUILD\s+MODE\s+\(planned\)/, 'Design discovery gate should not keep the removed direct-build bypass');
 assert.match(remoteDesign, /design_tool_allowed_before_discovery[\s\S]*skill[\s\S]*design_system[\s\S]*craft[\s\S]*pack_file[\s\S]*question/, 'Design discovery gate should allow only pack loading and question before discovery');
@@ -1398,7 +1437,7 @@ assert.match(readme, /## Search & Deep Research[\s\S]*assets\/search\.gif[\s\S]*
 assert.match(readme, /### Agent[\s\S]*assets\/agent\.gif/, 'README should feature the agent demo GIF in the Agent section');
 assert.match(readme, /## Skills: local task recipes[\s\S]*assets\/skills\.png[\s\S]*does not ship or download a skill marketplace[\s\S]*created by the current user/, 'README should feature Skills and explain the user-only catalog');
 assert.match(readme, /## GSA: guided security analysis[\s\S]*assets\/gsa\.png[\s\S]*authorized[\s\S]*selection[\s\S]*preflight[\s\S]*validation[\s\S]*report/, 'README should feature the GSA screenshot and explain the security-analysis phases');
-assert.match(readme, /## Design: a studio built \*\*on\*\* ds4[\s\S]*assets\/design\.gif[\s\S]*Brief and questions[\s\S]*Generating[\s\S]*Proposal[\s\S]*Canvas and export/, 'README should feature the Design pipeline demo GIF and concise pipeline explanation');
+assert.match(readme, /## Design: a studio built \*\*on\*\* ds4[\s\S]*assets\/design\.gif[\s\S]*Brief and questions[\s\S]*Generating[\s\S]*Proposal[\s\S]*Quality gate, canvas and export/i, 'README should feature the Design pipeline demo GIF and concise gated pipeline explanation');
 assert.doesNotMatch(readme, /(?:💬|🔎|🤖|🧩|🛡️|🎨|📝)/u, 'README should not use decorative emoji in headings or feature sections');
 assert.doesNotMatch(readme, /assets\/README%20images\/design\/(?:brief|Design|proposal|canvas)\.png/, 'README Design section should not show the old static pipeline screenshots');
 assert.doesNotMatch(readme, /assets\/README%20images\/build\.png/, 'README Plan mode section should not show the old Build/Plan screenshot');
@@ -1450,7 +1489,7 @@ assert.match(js, /const launchWasSuperseded = async \(\)[\s\S]*Engine\.task\(lau
 assert.match(js, /if \(await launchWasSuperseded\(\)\)[\s\S]*setMode\(st\.mode === 'server' \? chatUiTarget : st\.mode\)/, 'a superseded launch should adopt the newer ready mode without a false startup error');
 
 assert.match(js, /copy\.lanMirror\s*=\s*true/, 'LAN mirror rows should be marked read-only');
-assert.match(js, /for \(const mode of \['chat', 'agent', 'design', 'roadmap'\]\)/, 'mirror sync must cover chat, agent, design and roadmap');
+assert.match(js, /for \(const mode of \['chat', 'agent', 'cowork', 'design', 'roadmap'\]\)/, 'mirror sync must cover chat, agent, cowork, design and roadmap');
 assert.match(html, /chat-item__lan/, 'sidebar should render the LAN badge for mirrored chats');
 assert.match(js, /LAN mirrored chats are read-only/, 'mirrored chats must not be editable from the host');
 
@@ -1467,6 +1506,11 @@ assert.match(js, /window\.location\.href = '\/loading\.html'/, 'Switch to host s
 const settingsDialog = html.match(/<dialog id="settings-dialog"[\s\S]*?<dialog id="lan-client-settings-dialog"/)?.[0] || '';
 assert.match(settingsDialog, /Network access/, 'host settings should keep the LAN toggle');
 assert.match(settingsDialog, /Connect to LAN/, 'settings should allow entering LAN client mode');
+assert.match(settingsDialog, /id="set-http-port"[\s\S]*id="set-http-port-apply"/, 'Network settings should expose the persisted DStudio web port');
+assert.match(js, /async function changeHttpPort\(\)[\s\S]*Engine\.setHttpPort\(port\)[\s\S]*port-migrate=/, 'changing the web port should rebind live and migrate browser settings to the new origin');
+assert.match(loadingHtml, /#port-migrate=[\s\S]*localStorage\.setItem\(key, value\)/, 'the loading gate should restore settings after a port-origin change');
+assert.match(launcher, /static void api_http_port\(int fd, const char \*body\)[\s\S]*open_listener\(g_bind_host, port\)[\s\S]*persist_http_port\(port\)/, 'the launcher should bind and persist a requested web port without touching the model port');
+assert.match(app, /static int saved_http_port\(void\)[\s\S]*http-port[\s\S]*int saved = saved_http_port\(\)/, 'the native app should reuse the saved web port at its next launch');
 assert.match(js, /const SCHEMA_VERSION = 2;[\s\S]*settings: 'ds4web\.settings\.v2'/, 'current UI storage must use the breaking v2 schema');
 assert.doesNotMatch(js, /function migrate\(|webSearchEnabled|ssdStreamingAutoMigrated|deepseekV4ModelMigrated|lanClientDs4Dir/, 'current UI must not carry previous-schema migration branches');
 assert.match(js, /function mergeRemote\(remote\) \{[\s\S]*remote\.v !== SCHEMA_VERSION/, 'server chat sync must reject stores from a different schema');
@@ -1484,23 +1528,33 @@ assert.match(loadingHtml, /idlePolls >= 3[\s\S]*location\.replace\('\/'\)/, 'loa
 assert.doesNotMatch(loadingHtml, /class="mark"|@keyframes spin/, 'loading page should not use the old rotating mark');
 
 assert.match(gitignore, /^\/ds4\/$/m, 'managed upstream ds4 checkout should stay out of the DStudio source tree');
+assert.match(gitignore, /^\/ds4-glm5\.3\/$/m, 'managed GLM 5.3 checkout should stay out of the DStudio source tree');
 assert.match(launcher, /#define DS4_REPO_URL "https:\/\/github\.com\/antirez\/ds4"/, 'launcher should know the upstream ds4 repo URL');
-assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "84cc882352757baf628a1776badf7cc54d584e28"/, 'managed ds4 setup should pin the current main commit in code');
+assert.match(launcher, /#define DS4_UPSTREAM_COMMIT "8db89fe083ae4d17c9a2428ccd29803d3ae8f577"/, 'primary managed ds4 setup should pin upstream main');
 assert.match(launcher, /#define DS4_ARCHIVE_URL "https:\/\/codeload\.github\.com\/antirez\/ds4\/tar\.gz\/" DS4_UPSTREAM_COMMIT/, 'managed ds4 setup should download a pinned GitHub source archive');
-assert.doesNotMatch(`${launcher}\n${js}\n${gitignore}`, /DS4_GLM_|ds4-glm52|\/api\/glm\/setup|setupGlm/, 'retired GLM side-checkout support should be removed');
+assert.match(launcher, /#define DS4_GLM53_UPSTREAM_COMMIT "a60a2a0d25137a849a101e04e86ea830a346073a"[\s\S]*DS4_GLM53_DIR_NAME "ds4-glm5\.3"/, 'GLM 5.3 should pin its upstream inference branch in a separate managed checkout');
+assert.match(launcher, /api_setup_glm53[\s\S]*DS4_GLM53_ARCHIVE_URL[\s\S]*setup_link_shared_gguf\(target[\s\S]*setup_build_branch_runtimes\(target, "GLM 5\.3"/, 'GLM setup should build the side checkout while sharing the main GGUF store');
 assert.match(launcher, /#define DS4_LAGUNA_UPSTREAM_COMMIT "448d5695d1c86401a4e9447c440feb983b73e6de"/, 'managed Laguna checkout should pin the fetched laguna-s2.1 branch');
 assert.match(launcher, /api_setup_laguna[\s\S]*DS4_LAGUNA_ARCHIVE_URL[\s\S]*setup_build_branch_runtimes\(target, "Laguna S 2\.1"/, 'Laguna setup should download and build all pinned side-by-side runtimes');
-assert.match(launcher, /setup_apply_ds4_runtime_patches[\s\S]*apply-ds4-qwen-hot-memory\.sh[\s\S]*apply-ds4-server-metrics\.sh/, 'managed ds4 setup should apply memory and server-metrics patches together');
+assert.match(launcher, /setup_apply_ds4_runtime_patches[\s\S]*apply-ds4-qwen-hot-memory\.sh[\s\S]*apply-ds4-server-metrics\.sh[\s\S]*apply-ds4-glm53-runtime\.sh/, 'managed ds4 setup should apply memory, metrics and GLM branch patches together');
+assert.match(glmRuntimeScript, /marker=DS4UI_GLM53_STREAMING[\s\S]*static bool ds4_model_is_glm53[\s\S]*non-GLM checkout skipped[\s\S]*already applied/, 'the GLM patch hook should skip other checkouts and remain idempotent');
+assert.match(glmRuntimePatch, /DS4UI_GLM53_STREAMING[\s\S]*ds4_model_is_glm53\(\) \|\|[\s\S]*ds4_engine_is_glm53[\s\S]*glm-5\.3-flash/, 'the versioned GLM patch should remove its fixed host guard and expose the live GLM catalog');
 assert.match(launcher, /setup_build_branch_runtimes[\s\S]*setup_apply_ds4_runtime_patches\(\)[\s\S]*run_build_jsonl\("build"\)[\s\S]*build-design\.sh/, 'optional engine setup should prepare server, Agent and Design consistently');
 assert.match(jsonlBuild, /-I"\$\(DSTUDIO_REMOTE_DIR\)"[\s\S]*"\$\(DSTUDIO_REMOTE_DIR\)\/dstudio_remote_llm\.c"/, 'Agent build should quote the managed support path when it contains spaces');
 assert.match(designBuild, /-I"\$\(REMOTE_DIR\)"[\s\S]*"\$\(DESIGN_SRC\)"[\s\S]*"\$\(REMOTE_DIR\)\/dstudio_remote_llm\.c"/, 'Design build should quote external sources under macOS Application Support');
 assert.match(launcher, /!strcmp\(path, "\/api\/laguna\/setup"\)[\s\S]*api_setup_laguna\(fd\)/, 'launcher should expose POST /api/laguna/setup');
+assert.match(launcher, /!strcmp\(path, "\/api\/glm53\/setup"\)[\s\S]*api_setup_glm53\(fd\)/, 'launcher should expose POST /api/glm53/setup');
 assert.match(launcher, /DS4_METAL_LAGUNA_SOURCE[\s\S]*laguna\.metal/, 'Agent and Design should resolve the Laguna Metal source from any workspace');
 assert.match(launcher, /model_is_laguna\(\)[\s\S]*requires full model residency[\s\S]*SSD streaming cannot be forced on/, 'Laguna should disable automatic streaming and reject forced SSD streaming');
 assert.match(js, /setupLaguna\(\)[\s\S]*\/api\/laguna\/setup/, 'Engine API should install the optional Laguna checkout');
+assert.match(js, /setupGlm53\(\)[\s\S]*\/api\/glm53\/setup/, 'Engine API should install the optional GLM 5.3 checkout');
 assert.match(js, /target: 'laguna-q4', engine: 'laguna'/, 'model catalog should expose Laguna and route it to its managed engine');
-assert.match(js, /target: 'glm-antirez-iq2xxs', engine: 'main'[\s\S]*target: 'glm-antirez-q2', engine: 'main'[\s\S]*target: 'glm-antirez-q4', engine: 'main'[\s\S]*target: 'glm-unsloth-q4', engine: 'main'/, 'model catalog should route every GLM download through ds4 main');
-assert.match(js, /async function ensureModelDownloadEngine\(engine\)[\s\S]*Engine\.setupLaguna\(\)[\s\S]*Engine\.setEngineCheckout\(checkout\.dir\)/, 'branch-specific downloads should install and select their engine automatically');
+assert.match(js, /target: 'glm53-q2', engine: 'glm53'[\s\S]*GLM-5\\\.3-Flash-Q2/, 'model catalog should store GLM 5.3 Q2 centrally but route inference to its managed engine');
+assert.match(js, /function confirmGlm53Load\(path\)[\s\S]*GLM 5\.3 uses most of unified memory[\s\S]*will not reduce the context or force SSD streaming/, 'GLM selection should show one non-blocking memory notice without changing launch settings');
+assert.match(js, /async function switchToGguf\(path, label, engineDir = '', engineLabel = ''\)[\s\S]*await confirmGlm53Load\(path\)[\s\S]*Store\.setSettings/, 'the central GGUF switch should ask before persisting a GLM selection');
+assert.match(launcher, /model_file_is_supported[\s\S]*api_ggufs[\s\S]*!model_file_is_supported\(nm\)/, 'the GGUF catalog should expose only the supported GLM generation');
+assert.match(launcher, /has_explicit_gguf && !model_file_is_supported\(gguf\)[\s\S]*unsupported_model[\s\S]*Choose GLM 5\.3 Flash Q2/, 'the launcher should reject a stale unsupported GLM selection');
+assert.match(js, /async function ensureModelDownloadEngine\(engine\)[\s\S]*Engine\.setupGlm53\(\)[\s\S]*Engine\.setupLaguna\(\)[\s\S]*Engine\.setEngineCheckout\(checkout\.dir\)/, 'branch-specific downloads should install and select their engine automatically');
 assert.match(js, /function modelDownloadStatusText\(dl\)[\s\S]*dl\?\.stage[\s\S]*runs in the background/, 'model download row should expose a persistent setup/download phase');
 assert.match(js, /function modelDownloadStateFromStatus\(st\)[\s\S]*st\?\.pausedDownload[\s\S]*stage: 'Paused:'[\s\S]*paused: true/, 'stopped resumable downloads should become a persistent paused UI state');
 assert.match(js, /function appendModelDownloadStatus\(host, dl\)[\s\S]*text: 'Resume'[\s\S]*Switcher\.downloadModel\(choice\.body\)/, 'paused model feedback should include a Resume action');
@@ -1513,10 +1567,14 @@ assert.match(js, /Models available to download:[\s\S]*text: 'Open folder'[\s\S]*
 assert.match(js, /function modelDownloadOptionLabel\(choice\)[\s\S]*Not installed/, 'download choices must not look like already-installed or active models');
 assert.match(js, /DeepSeek V4 Flash · abliterated \(experimental\)/, 'the abliterated model must not be presented as universally uncensored');
 assert.match(js, /function modelDownloadStatusText\(dl\)[\s\S]*fmtGgufSize\(Number\(dl\.bytes\)\)[\s\S]*downloaded/, 'active model feedback should show transferred bytes as well as percentage');
-assert.match(js, /async function downloadModel\(spec\)[\s\S]*Preparing Laguna S 2\.1 engine for[\s\S]*await ensureModelDownloadEngine\(engine\)[\s\S]*Starting download of/, 'optional engine compilation should provide feedback before the weight download starts');
-assert.match(readme, /### GLM 5\.2 \(experimental, optional\)[\s\S]*standard `ds4\/main`[\s\S]*no extra engine checkout is required/, 'README should document GLM support in the main engine');
+assert.match(js, /async function downloadModel\(spec\)[\s\S]*Preparing GLM 5\.3 engine for[\s\S]*Preparing Laguna S 2\.1 engine for[\s\S]*await ensureModelDownloadEngine\(engine\)[\s\S]*Starting download of/, 'optional engine compilation should provide feedback before the weight download starts');
+assert.match(readme, /### GLM 5\.3 Flash \(experimental, optional\)[\s\S]*`\.\/ds4` on upstream `main`[\s\S]*`\.\/ds4-glm5\.3`[\s\S]*`\.\/ds4\/gguf`/, 'README should document the separate GLM runtime and centralized GGUF store');
 assert.match(readme, /### Laguna S 2\.1 \(experimental, optional\)[\s\S]*laguna-s2\.1[\s\S]*full model residency/, 'README should document the managed Laguna branch and residency requirement');
-assert.match(launcher, /static int ds4_server_compatible\(int port\)[\s\S]*GET \/v1\/models[\s\S]*owned_by/, 'launcher should identify a compatible DS4 server before reusing an occupied engine port');
+assert.match(launcher, /ds4_catalog_matches_selected_model[\s\S]*owned_by[\s\S]*static int ds4_server_compatible\(int port\)[\s\S]*GET \/v1\/models[\s\S]*return ds4_catalog_matches_selected_model/, 'launcher should identify a compatible DS4 server before reusing an occupied engine port');
+assert.match(launcher, /collect_engine_checkouts[\s\S]*managed_names\[\][\s\S]*DS4_GLM53_DIR_NAME[\s\S]*DS4_LAGUNA_DIR_NAME/, 'engine catalog should probe the bounded managed checkout names');
+const checkoutCollector = launcher.match(/static int collect_engine_checkouts\([\s\S]*?^}/m)?.[0] || '';
+assert.doesNotMatch(checkoutCollector, /DIR \*|readdir\s*\(/, 'engine catalog must not enumerate a macOS Documents workspace');
+assert.match(launcher, /ds4_catalog_matches_selected_model[\s\S]*model_is_glm\(\)[\s\S]*glm-5\.3-flash[\s\S]*model_is_laguna\(\)[\s\S]*laguna-s-2\.1[\s\S]*deepseek-v4-/, 'server reuse should require the selected model family instead of adopting any DS4 process');
 assert.match(launcher, /static pid_t ds4_instance_lock_owner\(void\)[\s\S]*flock\(fd, LOCK_EX \| LOCK_NB\)/, 'launcher should detect a DS4 process that owns the model lock before its port opens');
 assert.match(launcher, /requested_mode == ENGINE_SERVER[\s\S]*reuse_external_ds4\(&cfg, 0, owner\)/, 'server startup should wait for and attach to an existing DS4 process instead of spawning into its lock');
 assert.match(loadingHtml, /!st\.running && st\.engineError[\s\S]*location\.replace\('\/'\)/, 'loading page should leave a terminal engine error instead of remaining stuck on its stage');
@@ -1613,16 +1671,29 @@ assert.match(launcher, /child_download_dspark_resumable[\s\S]*MODEL_DSPARK_SHA25
 assert.match(launcher, /MODEL_UNC "gguf\/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128\.gguf"/, 'the uncensored Flash model should point to the 0731 abliterated build');
 assert.match(launcher, /MODEL_STD "gguf\/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731\.gguf"[\s\S]*MODEL_FLASH MODEL_STD/, 'Flash should default directly to the standard chat IQ2XXS GGUF');
 assert.doesNotMatch(launcher, /MODEL_FLASH MODEL_UNC/, 'the default Flash variant must never alias the abliterated model');
-assert.match(launcher, /ENGINE_DEFAULTS = \{ 0, 28000, 65536,/, 'native engine defaults should use the standard model and the resident-friendly 64k context');
+assert.match(launcher, /ENGINE_DEFAULTS = \{[\s\S]{0,100}0, 28000, 65536, 90, 24576, 128, 1, 0, SSD_STREAMING_OFF/, 'native engine defaults should use the standard model, resident-friendly 64k context, unlimited Design reasoning and DS4-only streaming off');
+assert.match(html, /id="set-design-think-tokens"[\s\S]*value="0"[\s\S]*Unlimited · recommended/, 'Settings should expose unlimited Design reasoning as the recommended default');
+assert.match(js, /designThinkTokens:\s*0[\s\S]*designThinkTokens: designThinkTokens\(\)/, 'Design launches should default to and send unlimited reasoning');
+assert.match(launcher, /--think-tokens[\s\S]*json_get_int\(body, "designThinkTokens"/, 'the native launcher should parse and forward the Design reasoning cap');
+assert.match(qualityGates, /Design and Cowork default to EOS\/context-bound[\s\S]*no application token cap/, 'the release quality contract should document uncapped Max reasoning as the default');
+assert.doesNotMatch(qualityGates, /Design additionally caps hidden reasoning at 16,384/, 'the release quality contract must not retain the obsolete mandatory 16k cap');
+assert.match(qualityGates, /all four one-shot model processes share a kernel-owned process[\s\S]*lock/, 'the release quality contract should count every serialized Qwen, Ideogram, Hunyuan and H3 process');
+assert.doesNotMatch(qualityGates, /the three one-shot workers share/, 'the release quality contract must not undercount the heavyweight workers');
+assert.match(lumenMediaModels, /no application hidden-reasoning token cap/, 'benchmark disclosure should describe the actual uncapped release mode');
+assert.doesNotMatch(lumenMediaModels, /16,384 hidden-reasoning tokens per tool round/, 'benchmark disclosure must not advertise the retired 16k default');
 assert.match(js, /runSwitch\('server', \{ mode: 'server', model: 'standard',[\s\S]*runSwitch\('agent', \{ mode: 'agent', model: 'standard',[\s\S]*runSwitch\('design', \{ mode: 'design', model: 'standard'/, 'Chat, Agent and Design should all launch the standard model by default');
 assert.match(loadingHtml, /startWithSavedSettings\(\)[\s\S]*mode: 'server',[\s\S]*model: 'standard'/, 'the native loading gate should also start the standard model');
 assert.match(js, /const DEFAULT_FLASH_GGUF =[\s\S]*function preferredDefaultGguf\(ggufs\)[\s\S]*g\?\.path[\s\S]*DEFAULT_FLASH_GGUF[\s\S]*preferredDefaultGguf\(ggufs\)/, 'fresh model discovery should prefer the standard chat GGUF instead of filesystem order');
-assert.match(launcher, /flash_context_memory_bytes[\s\S]*flash_largest_safe_context[\s\S]*normalize_flash_memory_config[\s\S]*config_adjusted/, 'the launcher should normalize Flash contexts that exceed the measured Metal budget');
+assert.match(launcher, /flash_context_memory_bytes[\s\S]*flash_largest_safe_context[\s\S]*normalize_flash_memory_config[\s\S]*lazy memory-mapped path/, 'the launcher should preserve oversized Flash contexts through the lazy mapped path');
+assert.doesNotMatch(launcher, /cfg->ctx\s*=\s*safe_ctx/, 'DS4-only SSD-off launches must not reduce the requested context');
+assert.match(launcher, /auto disabled: DS4 is the sole active heavyweight model/, 'automatic SSD streaming should remain off when only DS4 is active');
 assert.match(launcher, /resident_flash[\s\S]*unsetenv\("DS4_METAL_NO_RESIDENCY"\)[\s\S]*DS4_DSPARK_STATS/, 'a Flash configuration that fits should use Metal residency and expose DSpark statistics');
 assert.doesNotMatch(launcher, /while \(\(de = readdir\(d\)\) != NULL\)[\s\S]{0,500}!strstr\(name, "DSpark"\)/, 'DSpark resolution must not fall back to an arbitrary incompatible support GGUF');
 assert.match(js, /if \(res\.adjusted\)[\s\S]*patch\.ctxSize[\s\S]*patch\.dspark[\s\S]*Store\.setSettingsNow\(patch\)/, 'the UI should persist native memory-safety adjustments for every engine mode');
 assert.match(loadingHtml, /if \(started\?\.adjusted\)[\s\S]*saved\.ctxSize[\s\S]*saved\.dspark[\s\S]*localStorage\.setItem/, 'the native loading gate should persist memory-safety adjustments before opening the app');
-assert.match(modelDownloadHandler, /glm-unsloth-q4[\s\S]*glm-antirez-iq2xxs[\s\S]*glm-antirez-q2[\s\S]*glm-antirez-q4[\s\S]*laguna-q4/, 'model download API should whitelist the GLM and Laguna targets shown by the UI');
+assert.match(modelDownloadHandler, /glm53-q2[\s\S]*laguna-q4/, 'model download API should whitelist the GLM 5.3 and Laguna targets shown by the UI');
+assert.match(launcher, /MODEL_GLM53_Q2 "gguf\/GLM-5\.3-Flash-Q2\.gguf"[\s\S]*MODEL_GLM53_Q2_EXPECTED_BYTES 96505816384LL[\s\S]*!strcmp\(target, "glm53-q2"\)/, 'GLM 5.3 Q2 download progress should use the exact upstream filename and byte size');
+assert.match(launcher, /!model_is_flash\(\) && g_dspark_enabled[\s\S]*DSpark disabled because it is only compatible with DeepSeek V4 Flash/, 'a saved DeepSeek DSpark toggle must not be attached to GLM 5.3');
 assert.match(launcher, /g_dl_result = code == 0 \? 1 : -1[\s\S]*g_dl_result > 0[\s\S]*dl_pct = 100/, 'download completion should come from the downloader result for every model family');
 assert.match(launcher, /model_download_bytes_present[\s\S]*\.cache\/huggingface\/download[\s\S]*\.incomplete[\s\S]*g_dl_expected_bytes/, 'Hugging Face GLM/Laguna downloads should report progress from their opaque partial files');
 assert.match(launcher, /paused_model_download[\s\S]*DS4_LAGUNA_DIR_NAME[\s\S]*laguna-q4[\s\S]*pausedDownloadBytes[\s\S]*pausedDownloadPct/, 'launcher status should expose a stopped Laguna partial after restart');
@@ -1631,7 +1702,7 @@ assert.match(launcher, /prepare_laguna_resumable_partial[\s\S]*rename\(best_path
 assert.match(launcher, /api_model_partials_delete[\s\S]*explicit partial deletion confirmation is required[\s\S]*stop the active model download before deleting[\s\S]*delete_laguna_partial_files[\s\S]*removedBytes/, 'partial cleanup API should require confirmation, reject active transfers and report permanently removed temporary bytes');
 assert.match(launcher, /api_model_download_stop[\s\S]*kill\(-pid, SIGTERM\)[\s\S]*stopped\\":true/, 'model download stop API should terminate the isolated downloader process group');
 assert.match(launcher, /!strcmp\(path, "\/api\/model\/download\/stop"\)[\s\S]*api_model_download_stop\(fd\)/, 'launcher should expose the model download stop endpoint');
-assert.match(launcher, /api_model_folder_open[\s\S]*!strcmp\(engine, "main"\)[\s\S]*DS4_LAGUNA_DIR_NAME[\s\S]*execlp\("open", "open", folder/, 'model folder endpoint should open only a resolved managed GGUF directory on macOS');
+assert.match(launcher, /api_model_folder_open[\s\S]*!strcmp\(engine, "main"\)[\s\S]*!strcmp\(engine, "glm53"\)[\s\S]*!strcmp\(engine, "laguna"\)[\s\S]*"%s\/ds4"[\s\S]*execlp\("open", "open", folder/, 'model folder endpoint should open the one centralized managed GGUF directory on macOS');
 assert.match(launcher, /!strcmp\(path, "\/api\/model\/folder\/open"\)[\s\S]*api_model_folder_open\(fd, body\)/, 'launcher should expose the model folder endpoint');
 assert.match(launcher, /!strcmp\(path, "\/api\/model\/partials\/delete"\)[\s\S]*api_model_partials_delete\(fd, body\)/, 'launcher should expose the partial cleanup endpoint');
 assert.match(launcher, /connect_loopback_with_retry[\s\S]*attempts[\s\S]*usleep[\s\S]*api_v1_proxy[\s\S]*connect_loopback_with_retry\(eport, 25, 100\)/, 'the local model proxy should tolerate the engine accept-loop handoff after long generations');
@@ -1645,42 +1716,62 @@ assert.doesNotMatch(js, /choose-ds4|verifyPath|toggleFinder|loadFinder|PATHS/, '
 
 assert.match(js, /function classifyResearchRequest\(/, 'web research should classify the request before searching');
 assert.match(js, /async function generateImageFromDirective\(/, 'chat should route the model image directive to the local Qwen pipeline');
-assert.match(html, /id="set-vision-model"[\s\S]*Reads images · 3B[\s\S]*Reads images · 7B/, 'Vision settings should keep both image-reader sizes in the dropdown without exposing implementation branding');
-assert.match(html, /Image generation · creates images[\s\S]*Image editing · edits images[\s\S]*image pipelines are separate from the vision reader/, 'Vision settings should distinguish image reading, generation, and editing roles without exposing implementation branding');
+assert.match(html, /id="set-vision-model"[\s\S]*value="mlx-community\/Qwen3\.8-27B-8bit"[\s\S]*27B Q8/, 'Vision settings should expose the sole pinned Qwen3.8 vision reader');
+assert.doesNotMatch(html, /Qwen2\.5-VL|vision-3b|vision-7b/, 'Vision settings should not retain a smaller-model fallback');
+assert.match(html, /Image generation · creates images[\s\S]*Ideogram 4 FP8[\s\S]*Image editing · edits images[\s\S]*HunyuanImage-3\.0-Instruct[\s\S]*Qwen3\.8-27B Q8 inspects/, 'Vision settings should expose the authoritative router and both selected image roles');
 assert.match(js, /Understand the request semantically in whatever language the user uses; never depend on a keyword list/, 'the model prompt should classify image intent semantically in any language');
 assert.match(js, /exactly one fenced block with info string dstudio-image/, 'the model prompt should emit a structured image-generation directive');
 assert.match(js, /\{"action":"edit","prompt":"precise editing instructions","preserve":"none"\}/, 'the model prompt should distinguish edits that require source pixels');
-assert.match(js, /Set preserve to "face" only when the user explicitly asks/, 'the model should semantically select exact face preservation without a language regex');
+assert.match(js, /Set preserve to "face" only when the user explicitly asks/, 'the model should semantically select Hunyuan identity preservation without a language regex');
 assert.match(js, /function sourceImageForDirective\(chat, userMsg, directive, signal\)/, 'image edits should resolve the latest attached or generated source image');
-assert.match(js, /async function classifyImageRequestWithSource\([\s\S]*semantic router for local image and open-weight video models[\s\S]*thinkLevel: 'off'/, 'visual follow-ups should use a fast semantic router instead of relying only on model formatting');
-assert.match(js, /async function runRoutedImageReply\([\s\S]*executeImageDirective/, 'semantic image routes should start Qwen directly without waiting for a prose reply');
+assert.match(js, /async function classifyImageRequestWithSource\([\s\S]*You are Qwen3\.8-27B, the multilingual visual preflight router[\s\S]*describeVision\(\{ images, question \}\)/, 'visual follow-ups should use the sole Qwen3.8 vision model instead of the chat model');
+assert.doesNotMatch(extractFunction(js, 'classifyImageRequestWithSource'), /maxTokens|thinkLevel|AbortSignal\.timeout/, 'Qwen3.8 visual preflight must not impose a UI token, thinking or time limit');
+assert.match(extractFunction(js, 'classifyImageRequestWithSource'), /visual preflight failed; no fallback was used[\s\S]*VisualRoutingError[\s\S]*throw failure/, 'a failed visual preflight must fail closed instead of reaching a non-visual assistant');
+assert.doesNotMatch(extractFunction(js, 'classifyImageRequestWithSource'), /falling back to the normal assistant|catch[\s\S]{0,300}return null/, 'Qwen3.8 preflight errors must not become an ordinary assistant fallback');
+assert.match(js, /visualRoutingError[\s\S]*type: 'visual-routing'[\s\S]*Visual routing failed[\s\S]*return;/, 'visual routing failures must surface as a truthful terminal assistant error');
+assert.match(js, /async function runRoutedImageReply\([\s\S]*executeImageDirective/, 'semantic image routes should start the authoritative local pipeline without waiting for a prose reply');
 assert.doesNotMatch(js, /function classifyImageRequestWithSource\([\s\S]{0,3000}\.test\(/, 'image routing must not classify user intent with regular expressions');
 assert.match(js, /imageAttachData\.get\(attachment\.id\)\?\.dataUri \|\| attachment\.thumb/, 'image edits should prefer original session pixels and fall back to the persisted preview');
 assert.match(js, /preserve: directive\.preserve \|\| 'none'/, 'image edits should send semantic pixel-preservation intent to the backend');
-assert.match(js, /never claim that the image is already generated/, 'the model confirmation must not claim completion before Qwen returns');
+assert.match(js, /never claim that the image is already generated/, 'the model confirmation must not claim completion before the selected local worker returns');
 assert.match(js, /function extractImageGenerationDirectiveFromAssistant\(text\)/, 'chat should parse model-emitted image-generation directives');
 assert.match(js, /\/api\/image\/generate/, 'chat should call the local image generation endpoint');
 assert.match(js, /\/api\/image\/progress\?id=/, 'image generation should poll live job progress');
+assert.match(extractFunction(js, 'stopLocalMediaJob'), /\['image', 'video'\][\s\S]*`\/api\/\$\{kind\}\/stop`[\s\S]*JSON\.stringify\(\{ job \}\)/,
+  'media cancellation should use one bounded route allowlist and the exact generated job id');
+assert.match(js, /async function generateImageFromDirective[\s\S]{0,3500}let completed = false[\s\S]*?job,[\s\S]*?completed = true[\s\S]*?if \(!completed\) stopLocalMediaJob\('image', job\)/,
+  'an interrupted or disconnected image request must stop its exact backend worker');
+assert.match(js, /async function generateVideoFromDirective[\s\S]{0,3500}let completed = false[\s\S]*?job,[\s\S]*?completed = true[\s\S]*?if \(!completed\) stopLocalMediaJob\('video', job\)/,
+  'an interrupted or disconnected video request must stop its exact backend worker');
+assert.match(js, /async function generateImageFromDirective\([\s\S]{0,1200}progress\?\.ok \|\| progress\?\.state === 'error'[\s\S]{0,80}onProgress\(progress\)/, 'image progress polling must surface terminal worker errors instead of silently discarding them');
 assert.match(js, /function buildImageGenerationStatus\(status\)/, 'chat should render a dedicated image placeholder with progress');
 assert.match(html, /\.msg-image-generation__[\s\S]*\.msg-image-generation__track[\s\S]*\.msg-image-generation__bar/, 'image placeholder should include progress UI styling');
 assert.match(js, /imageGeneration = \{[\s\S]*stage: 'queued'[\s\S]*startedAt: Date\.now\(\)/, 'assistant messages should enter a visible image-generation state');
 assert.match(js, /First use downloads the local image model once/, 'first-run model download should be explained in the placeholder without exposing implementation branding');
 assert.match(fs.readFileSync('src/dstudio_image.c', 'utf8'), /static void api_image_progress\(/, 'backend should expose image job progress');
-assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /"loading_model": \("model", "Downloading or loading the local image generator/, 'Image runner should publish model-loading progress without exposing implementation branding');
-assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def report_edit_model_progress[\s\S]*Downloading the local image editor[\s\S]*loading the image editor into Metal/, 'Image editing should distinguish live model download progress from Metal loading');
-assert.match(fs.readFileSync('patch/qwen-image-mps/mps-direct-dtype.patch', 'utf8'), /EditPipeline\.from_pretrained[\s\S]*torch_dtype=torch_dtype/, 'Qwen edit should load weights in the target dtype before transferring them to Metal');
+assert.match(ideogramScript, /QUALITY_STEPS = 48[\s\S]*def publish_inference_progress\([\s\S]*status_write\(path, "running", "sampling"[\s\S]*steps=QUALITY_STEPS/, 'Ideogram should publish full Quality-48 sampling progress through its shared status publisher');
+assert.match(ideogramScript, /if step > last_step:[\s\S]*publish_inference_progress\([\s\S]*elif last_status_at == 0\.0 or now - last_status_at >= 30\.0:[\s\S]*heartbeat=True/, 'Ideogram should call the shared publisher for new sampling steps and 30-second heartbeats');
+assert.match(hunyuanScript, /loading_editor[\s\S]*Loading full HunyuanImage-3\.0-Instruct NF4 into Metal/, 'Hunyuan editing should distinguish its full model-loading phase');
+assert.match(hunyuanScript, /def validate_checkpoint_quantization[\s\S]*load_in_4bit[\s\S]*bnb_4bit_quant_type[\s\S]*bfloat16[\s\S]*dtype=torch\.bfloat16/, 'Hunyuan should validate the pinned full-Instruct NF4 map and retain BF16 compute');
+assert.match(hunyuanShell, /--reasoning-output[\s\S]*--reasoning-file/, 'Hunyuan should unload Max reasoning before starting fresh diffusion');
 assert.match(js, /function updateImageGeneration\(messageId, status\)[\s\S]*bar\.style\.width[\s\S]*return true/, 'image progress polling should update the existing placeholder without rebuilding the transcript');
-assert.match(js, /Messages\.updateImageGeneration\(asst\.id, imageGeneration\)/, 'Qwen progress should use the stable in-place placeholder update');
+assert.match(js, /Messages\.updateImageGeneration\(asst\.id, imageGeneration\)/, 'image pipeline progress should use the stable in-place placeholder update');
 assert.match(js, /return \[priorGenerated\[0\], currentAttachments\[0\]\]/, 'identity-preserving edits should use the prior generated image as base and the current attachment as face reference');
 assert.match(js, /referenceImage: sourceImages\?\.\[1\]/, 'multi-reference image edits should send the second source to the backend');
 assert.match(js, /function imageDirectiveFromRoutingPlan[\s\S]*sourceIds:[\s\S]*visualCandidates/, 'DeepSeek should map conversational image references to stable visual asset IDs');
 assert.match(js, /visualCandidateDataUri\(chat, candidate, signal\)/, 'semantic visual asset IDs should resolve to real image pixels before Qwen runs');
-assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /input=args\.input[\s\S]*preserve_original_face\(args\.input\[-1\]/, 'Qwen edit should pass all references upstream and preserve pixels from the identity source');
-assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /if args\.action == "edit":[\s\S]*edit_image\(edit_ns\)/, 'Qwen runner should invoke the upstream image-edit pipeline');
-assert.match(fs.readFileSync('scripts/qwen-image-run.py', 'utf8'), /def preserve_original_face\([\s\S]*Image\.composite\(source, edited, mask\)/, 'Qwen edits should be able to restore original face pixels with a feathered mask');
+assert.match(imageRouterScript, /mode not in \{"edit", "generate"\}[\s\S]*if mode == "edit" and not image_paths/, 'Qwen3.8 should authoritatively validate edit versus generation');
+assert.match(imagePipelineScript, /if mode == "generate"[\s\S]*ideogram4-generate\.sh[\s\S]*else:[\s\S]*hunyuan-image3-edit\.sh/, 'the router decision should select exactly Ideogram generation or Hunyuan editing');
+assert.match(hunyuanScript, /prompt=prompt,[\s\S]*image=input_paths[\s\S]*bot_task="think_recaption"/, 'Hunyuan editing should receive every selected source and use full recaption reasoning');
 assert.match(launcher, /qwen_memory_begin\("vision"\)/, 'Vision calls should acquire a temporary DS4 memory lease');
 assert.match(launcher, /qwen_memory_begin\("pdf"\)/, 'PDF calls should acquire a nested temporary DS4 memory lease');
 assert.match(js, /function routePdfReadPlan\([\s\S]*multilingual semantic PDF read planner[\s\S]*overview\|pages\|search/, 'Chat PDFs should use an LLM semantic read planner');
+assert.match(js, /async function agentAttachImages\([\s\S]*\[USER_SCREENSHOT path="\$\{r\.rel\}"\][\s\S]*Exact user-supplied pixels are primary visual evidence[\s\S]*see_image/,
+  'Design image attachments must pass the exact workspace screenshot path to DS4');
+assert.match(js, /on\(fileInput, 'change',[\s\S]*isWorkspaceFileDropMode\(\)[\s\S]*workspaceAttachFiles\(fileInput\.files\)/,
+  'file-picker screenshots in Agent/Design must use the same exact-workspace path as paste and drop');
+assert.match(js, /const runtimePrompt = Switcher\.wirePromptForRuntime[\s\S]*Engine\.agentSend\(runtimePrompt, displayPrompt\)/,
+  'the USER_SCREENSHOT marker must remain in the runtime prompt sent to DS4');
 assert.doesNotMatch(extractFunction(js, 'routePdfReadPlan'), /\.test\(/, 'PDF read intent must not use regular-expression classification');
 assert.match(js, /profile:\s*readPlan\.mode === 'search' \? 'semantic' : 'interactive'[\s\S]*max_chars:\s*maxChars/, 'Chat PDFs should route to bounded overview/page reads or semantic retrieval');
 assert.match(js, /cloudChat\s*\?\s*48\s*\*\s*1024[\s\S]*20\s*\*\s*1024/, 'PDF prompt budgets should stay bounded and adapt local versus cloud chat');
@@ -1690,20 +1781,22 @@ assert.match(launcher, /pdf_hybrid_page_scores[\s\S]*embed_call[\s\S]*pdf_select
 assert.match(js, /readPlan\.mode === 'pages'[\s\S]*payload\.pages = readPlan\.pages/, 'LLM-selected physical page ranges should be sent directly to the PDF reader');
 assert.match(js, /need\.needs === 'embedding'[\s\S]*ensureEmbeddingSetup/, 'Semantic PDF retrieval should install its local embedding sidecar on demand');
 assert.match(embedServer, /--parallel 1[\s\S]*--batch-size \$CTX[\s\S]*--ubatch-size \$CTX/, 'Metal embeddings should use one stable slot with a full-context physical batch');
-assert.match(visionServer, /DSTUDIO_VISION_PARALLEL:-1[\s\S]*--parallel "\$PARALLEL"/, 'Vision should default to one slot because DStudio serializes multimodal requests');
+assert.match(visionServer, /no longer starts a persistent vision[\s\S]*vision-qwen38-run\.sh/, 'Vision should use the isolated one-shot Qwen3.8 worker');
 assert.match(launcher, /PDF_RAG_EMBED_BATCH\s+4[\s\S]*pdf_embed_rag_batch[\s\S]*count \/ 2/, 'PDF RAG should use the measured embedding batch with recursive overflow splitting');
 assert.match(launcher, /PDF_INTERACTIVE_SCAN_PASSES\s+8[\s\S]*PDF_INTERACTIVE_FIG_PASSES\s+2/, 'Interactive PDF vision work should have separate bounded scan and figure budgets');
 assert.match(launcher, /vision_lease\s*=\s*qwen_memory_begin\("pdf"\)/, 'PDFs should acquire DS4 memory pressure only when a vision pass is actually required');
-assert.match(launcher, /qwen_memory_begin\("image-generation"\)/, 'image generation should acquire a temporary DS4 memory lease');
+assert.match(launcher, /qwen_memory_begin\("image-pipeline"\)/, 'the image pipeline should acquire a temporary DS4 memory lease');
 assert.match(remoteDesign, /--ssd-streaming[\s\S]*c\.engine\.ssd_streaming = true/, 'design agent should accept the SSD-streaming launch option passed by DStudio');
+assert.match(remoteDesign, /tool_call_building[\s\S]*tool_call_progress[\s\S]*raw_len/, 'Design should expose buffered DSML construction progress without exposing arguments');
+assert.match(js, /toolBuildEventTail[\s\S]*captureToolBuildStatus[\s\S]*tool_call_building[\s\S]*tool_call_progress[\s\S]*building \$\{name \|\| 'tool call'\} · \$\{bytes\} byte buffered/, 'Design UI should reassemble split progress events and show the active tool name with buffered byte count');
 assert.match(launcher, /model \+ reserve \+ 8ull \* gib > ram \* 82ull \/ 100ull/, 'Qwen lease policy should evaluate model, pipeline reserve and physical RAM');
 assert.match(remoteDesign, /ds4_engine_memory_pressure_begin/, 'Design vision tools should release DS4 memory in-process');
 assert.match(jsonlPatch.text, /ds4ui_tool_with_qwen_memory/, 'agent image and PDF tools should release DS4 memory in-process');
 assert.match(fs.readFileSync('patch/ds4-qwen-hot-memory/hot-memory.patch', 'utf8'), /ds4_gpu_model_residency_clear/, 'DS4 patch should suspend Metal model residency');
-assert.match(qwenImageScript, /fe70bd7b245307143d95cde5bc62c9aeff401e69/, 'qwen-image-mps runtime should be pinned');
-assert.match(qwenImageScript, /generation-direct-dtype\.patch[\s\S]*accelerator-lora-merge\.patch/, 'Qwen Image runtime should install the direct-dtype and accelerator-merge optimizations');
-assert.match(fs.readFileSync('patch/qwen-image-mps/generation-direct-dtype.patch', 'utf8'), /DiffusionPipeline\.from_pretrained[\s\S]*torch_dtype=torch_dtype/, 'Qwen generation should load BF16 weights directly instead of materializing FP32 before Metal transfer');
-assert.match(fs.readFileSync('patch/qwen-image-mps/accelerator-lora-merge.patch', 'utf8'), /merge_device[\s\S]*param\.device\.type in \("mps", "cuda"\)[\s\S]*torch\.matmul/, 'Qwen Lightning LoRA should merge in float32 on the active accelerator');
+assert.match(ideogramScript, /MODEL_REVISION = "bbee2ab2b14b2b5223448d12d6e31e5f9cec0546"/, 'Ideogram 4 FP8 weights should be pinned');
+assert.match(ideogramScript, /QUALITY_STEPS = 48[\s\S]*Ideogram4Scheduler/, 'Ideogram generation should use the full official Quality-48 scheduler');
+assert.match(hunyuanScript, /MODEL_REVISION = "98fda5c508c05f5407f036bca413149ca92c143b"/, 'HunyuanImage full-Instruct NF4 weights should be pinned');
+assert.match(imagePipelineScript, /run\(route_command\)[\s\S]*serialized": True/, 'Qwen3.8 must exit before either heavyweight image backend starts');
 assert.match(searchRuntime, /function classifyResearchRequest\(/, 'Search extension should own the research classifier runtime');
 assert.match(searchRuntime, /function roadmapResearchQueries\(/,
   'Roadmap Deep Research should expand learner goals into curriculum, prerequisite, practice, and assessment searches');

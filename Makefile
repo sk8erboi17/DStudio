@@ -52,6 +52,7 @@ PLIST    := assets/Info.plist
 TEST_BUILD := tests/.build
 TEST_UNIT  := $(TEST_BUILD)/lan_unit
 TEST_REMOTE_UTF8 := $(TEST_BUILD)/remote_utf8_unit
+TEST_COWORK_BRIDGE := $(TEST_BUILD)/ds4_cowork_bridge
 TEST_SERVER := $(TEST_BUILD)/dstudio-server-test
 LINUX_APP_ID := dev.ds4.DStudio
 DESKTOP  := $(LINUX_APP_ID).desktop
@@ -80,7 +81,7 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check check-fast check-real test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
+.PHONY: all run check check-fast check-real test-lan-unit test-remote-utf8 test-cowork test-cowork-unit test-cowork-contract test-cowork-http test-cowork-bench-validate test-design-build-freshness test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume test-design-qwen test-design-bench-validate test-design-release test-vision-qwen38 test-image-inference test-ideogram-vae-mps test-hunyuan-sdpa-mps test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-cowork test-real-cowork-long test-real-design test-real-design-long test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
@@ -110,7 +111,7 @@ ifeq ($(UNAME),Darwin)
 	@cp -X $(BIN) $(APPDIR)/Contents/MacOS/$(APPNAME)
 	@cp $(ICNS) $(APPDIR)/Contents/Resources/ds4.icns
 	@cp $(PLIST) $(APPDIR)/Contents/Info.plist
-	@cp -R extension/design extension/remote extension/craft extension/search $(APP_SUPPORT)/extension/
+	@cp -R extension/design extension/cowork extension/remote extension/craft extension/search $(APP_SUPPORT)/extension/
 	@mkdir -p $(APP_SUPPORT)/extension/gsa
 	@cp -R extension/gsa/templates $(APP_SUPPORT)/extension/gsa/
 	@cp extension/gsa/tools/catalog.json extension/gsa/tools/README.md $(APP_SUPPORT)/extension/gsa/tools/
@@ -300,6 +301,95 @@ $(TEST_REMOTE_UTF8): tests/remote_utf8_unit.c extension/remote/dstudio_remote_ll
 test-remote-utf8: $(TEST_REMOTE_UTF8)
 	@$(TEST_REMOTE_UTF8)
 
+$(TEST_COWORK_BRIDGE): tests/ds4_cowork_bridge_test.c extension/cowork/ds4_cowork.c extension/cowork/ds4_cowork.h
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) -Iextension/cowork tests/ds4_cowork_bridge_test.c extension/cowork/ds4_cowork.c -o $@
+
+test-cowork-unit: $(TEST_COWORK_BRIDGE)
+	@command -v python3 >/dev/null 2>&1 || (echo "python3 missing: Cowork Office runtime requires Python 3" && exit 1)
+	@python3 -m unittest -v tests/ds4_cowork_office_test.py
+	@$(TEST_COWORK_BRIDGE) "$$(pwd)/extension/cowork/office_tool.py"
+
+test-cowork-contract:
+	@command -v node >/dev/null 2>&1 || (echo "node missing: Cowork contract test requires node" && exit 1)
+	@node tests/ds4_cowork_contract_test.mjs
+
+test-cowork-http: $(TEST_SERVER)
+	@bash tests/ds4_cowork_http_test.sh $(TEST_SERVER)
+
+test-cowork: test-cowork-unit test-cowork-contract test-cowork-http
+
+test-cowork-bench-validate:
+	@command -v node >/dev/null 2>&1 || (echo "node missing: Cowork benchmark validation requires node" && exit 1)
+	@node extension/cowork/bench/validate.mjs
+
+test-design-build-freshness:
+	@bash tests/design_build_freshness_test.sh
+
+test-design-self: test-design-build-freshness
+	@extension/design/build-design.sh build
+	@./ds4/ds4-design --self-test
+
+test-design-controls:
+	@command -v node >/dev/null 2>&1 || (echo "node missing: Design control probe requires node" && exit 1)
+	@node tests/design_control_probe_test.mjs
+
+test-design-disclosure:
+	@command -v node >/dev/null 2>&1 || (echo "node missing: Lumen disclosure contract test requires node" && exit 1)
+	@node tests/lumen_disclosure_contract_test.mjs
+
+test-design-interrupt: test-design-self
+	@command -v node >/dev/null 2>&1 || (echo "node missing: Design interrupt test requires node" && exit 1)
+	@node tests/design_interrupt_test.mjs
+	@node tests/design_chrome_termination_test.mjs
+	@node tests/design_image_interrupt_test.mjs
+	@node tests/design_video_interrupt_test.mjs
+
+test-design-resume:
+	@node tests/design_resume_checkpoint_test.mjs
+
+test-design-qwen: test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume
+	@command -v node >/dev/null 2>&1 || (echo "node missing: Design Qwen contract test requires node" && exit 1)
+	@node tests/ds4_design_qwen_test.mjs
+
+test-design-bench-validate:
+	@command -v node >/dev/null 2>&1 || (echo "node missing: Design benchmark validation requires node" && exit 1)
+	@node extension/design/bench/validate.mjs
+
+test-design-release:
+	@command -v node >/dev/null 2>&1 || (echo "node missing: Design release gate requires node" && exit 1)
+	@node tests/package_design_release_test.mjs
+	@node tests/design_site_release_gate_test.mjs
+	@node tests/design_pages_release_gate_test.mjs
+
+test-vision-qwen38:
+	@python3 tests/image_route_qwen38_test.py
+	@python3 tests/image_pipeline_interrupt_test.py
+	@node tests/vision_qwen38_contract_test.mjs
+
+test-image-inference:
+	@if [ -x "$(HOME)/.dstudio/ideogram4/venv/bin/python" ] && \
+	    [ -f "$(HOME)/.dstudio/hunyuan-image/models/HunyuanImage-3-Instruct-NF4-v2/config.json" ]; then \
+	  "$(HOME)/.dstudio/ideogram4/venv/bin/python" tests/image_inference_conformance_test.py && \
+	  "$(HOME)/.dstudio/hunyuan-image/venv/bin/python" tests/hunyuan_native_source_conformance_test.py; \
+	else \
+	  echo "local Ideogram/Hunyuan runtimes missing: skipping image inference conformance"; \
+	fi
+
+test-ideogram-vae-mps:
+	@if [ -x "$(HOME)/.dstudio/ideogram4/venv/bin/python" ]; then \
+	  "$(HOME)/.dstudio/ideogram4/venv/bin/python" tests/ideogram_vae_mps_probe.py; \
+	else \
+	  echo "local Ideogram runtime missing: cannot run the real MPS VAE probe"; exit 1; \
+	fi
+
+test-hunyuan-sdpa-mps:
+	@if [ -x "$(HOME)/.dstudio/hunyuan-image/venv/bin/python" ]; then \
+	  "$(HOME)/.dstudio/hunyuan-image/venv/bin/python" tests/hunyuan_sdpa_mps_probe.py; \
+	else \
+	  echo "local Hunyuan runtime missing: cannot run the real MPS SDPA probe"; exit 1; \
+	fi
+
 test-ui-contract:
 	@if command -v node >/dev/null 2>&1; then node tests/ui_contract_test.mjs; else echo "node missing: skipping UI contract tests"; fi
 
@@ -327,6 +417,7 @@ test-markdown-math:
 test-video-open-weight:
 	@if command -v node >/dev/null 2>&1; then node tests/video_open_weight_contract_test.mjs; else echo "node missing: skipping open-weight video contract test"; fi
 	@if command -v python3 >/dev/null 2>&1; then python3 tests/h3_checkout_test.py; else echo "python3 missing: skipping H3 checkout regression test"; fi
+	@tests/h3_sdpa_query_chunk_equivalence_test.sh
 
 test-http-lan: $(TEST_SERVER)
 	@tests/http_lan_test.sh $(TEST_SERVER)
@@ -334,7 +425,7 @@ test-http-lan: $(TEST_SERVER)
 test-gsa-bench-validate:
 	@if command -v node >/dev/null 2>&1; then node extension/gsa/bench/validate.mjs; else echo "node missing: skipping GSA benchmark validation"; fi
 
-check-fast: $(BIN) test-lan-unit test-remote-utf8 test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate
+check-fast: $(BIN) test-lan-unit test-remote-utf8 test-cowork test-cowork-bench-validate test-design-qwen test-design-bench-validate test-design-release test-vision-qwen38 test-image-inference test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate
 	@file $(PAGE) | grep -q text && echo "$(PAGE): text OK" || (echo "$(PAGE) is not text!" && exit 1)
 	@file $(LOADING) | grep -q text && echo "$(LOADING): text OK" || (echo "$(LOADING) is not text!" && exit 1)
 	@command -v node >/dev/null 2>&1 && { \
@@ -351,6 +442,22 @@ test-real-search-research: $(TEST_SERVER)
 test-real-roadmap-quality: $(TEST_SERVER)
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real Roadmap quality tests require node" && exit 1)
 	@node tests/real_roadmap_quality_test.mjs $(TEST_SERVER)
+
+test-real-cowork: $(TEST_SERVER) test-cowork-bench-validate
+	@command -v node >/dev/null 2>&1 || (echo "node missing: real Cowork quality tests require node" && exit 1)
+	@DSTUDIO_COWORK_PROFILE=standard node tests/real_cowork_quality_test.mjs $(TEST_SERVER)
+
+test-real-cowork-long: $(TEST_SERVER) test-cowork-bench-validate
+	@command -v node >/dev/null 2>&1 || (echo "node missing: long Cowork quality tests require node" && exit 1)
+	@DSTUDIO_COWORK_PROFILE=long node tests/real_cowork_quality_test.mjs $(TEST_SERVER)
+
+test-real-design: $(TEST_SERVER) test-design-qwen test-design-bench-validate
+	@command -v node >/dev/null 2>&1 || (echo "node missing: real Design quality tests require node" && exit 1)
+	@DSTUDIO_DESIGN_PROFILE=standard node tests/real_design_quality_test.mjs $(TEST_SERVER)
+
+test-real-design-long: $(TEST_SERVER) test-design-qwen test-design-bench-validate
+	@command -v node >/dev/null 2>&1 || (echo "node missing: long Design quality tests require node" && exit 1)
+	@DSTUDIO_DESIGN_PROFILE=long node tests/real_design_quality_test.mjs $(TEST_SERVER)
 
 test-real-ascii-diagrams: $(TEST_SERVER)
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real ASCII diagram tests require node" && exit 1)

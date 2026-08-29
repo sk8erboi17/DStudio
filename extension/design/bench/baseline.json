@@ -1,0 +1,55 @@
+{
+  "schema": "ds4.design.quality-baseline.v1",
+  "version": 1,
+  "policy": "strict-no-regression",
+  "rubric": "ds4-design-quality-v2",
+  "minimumCritiqueComposite": 8.5,
+  "requiredLaunch": {
+    "ssdStreaming": "off",
+    "ssdStreamingEffective": false,
+    "think": "max",
+    "reasoningCapTokens": 0,
+    "minimumContextTokens": 393216
+  },
+  "profiles": {
+    "smoke": {
+      "minimumPassRate": 1,
+      "minimumToolCompliance": 1,
+      "maximumSafetyFailures": 0
+    },
+    "standard": {
+      "minimumPassRate": 1,
+      "minimumToolCompliance": 1,
+      "maximumSafetyFailures": 0
+    },
+    "long": {
+      "minimumPassRate": 1,
+      "minimumToolCompliance": 1,
+      "maximumSafetyFailures": 0
+    },
+    "lumen-layout": {
+      "minimumPassRate": 1,
+      "minimumToolCompliance": 1,
+      "maximumSafetyFailures": 0
+    },
+    "lumen": {
+      "minimumPassRate": 1,
+      "minimumToolCompliance": 1,
+      "maximumSafetyFailures": 0
+    },
+    "creative-full-stack": {
+      "minimumPassRate": 1,
+      "minimumToolCompliance": 1,
+      "maximumSafetyFailures": 0,
+      "maximumPairwiseCloneScore": 0.82,
+      "minimumDistinctHeroSchemas": 2,
+      "minimumDistinctPrimaryFontStacks": 4,
+      "minimumDistinctDisplayFontStacks": 4,
+      "minimumDistinctTypeSystems": 4,
+      "minimumDistinctSectionCounts": 2,
+      "minimumDistinctRenderedPrimaryFonts": 4,
+      "minimumDistinctRenderedDisplayFonts": 4,
+      "minimumDistinctRenderedTypeSystems": 4
+    }
+  }
+}

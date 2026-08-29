@@ -201,7 +201,7 @@ try {
     if (!gguf) throw new Error('No DeepSeek V4 Flash GGUF is available for the real Roadmap benchmark.');
     await startMode(server.baseUrl, {
       mode: 'server', model: 'uncensored', variant: 'flash',
-      gguf: gguf.file, port: server.enginePort, ctx: 65536, power: 90, think: 'off', ssdStreaming: 'auto',
+      gguf: gguf.file, port: server.enginePort, ctx: 65536, power: 90, think: 'off', ssdStreaming: 'off',
     }, Number(process.env.DSTUDIO_REAL_TEST_TIMEOUT_MS || 1_800_000));
   }
   await waitForModel(server.baseUrl);

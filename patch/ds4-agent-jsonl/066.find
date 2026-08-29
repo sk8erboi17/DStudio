@@ -1,0 +1,4 @@
+static char *ds4ui_tool_with_qwen_memory(agent_worker *w,
+                                          const agent_tool_call *call,
+                                          ds4ui_qwen_tool_fn fn) {
+#ifdef DS4UI_HAVE_MEMORY_PRESSURE_API

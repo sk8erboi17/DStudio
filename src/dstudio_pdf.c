@@ -312,13 +312,12 @@ static char *pdf_vision_page(const char *data_uri, int figures_only) {
         free(hit);
     }
 
-    /* max_tokens 3584: a dense scanned page transcribes to well past the 1536
-     * default (measured: 52 invoice lines truncated at ~2/3); the sidecar ctx
-     * (12288) minus image tokens (>=1024) and prompt leaves comfortable room. */
+    /* Qwen3.8 runs to EOS with Max reasoning by default, so dense scans are no
+     * longer truncated by a PDF-specific output budget. */
     json_dyn_buf up = {0};
     int okb = json_dyn_puts(&up, "{\"data_uri\":") &&
               json_dyn_put_escaped(&up, data_uri) &&
-              json_dyn_puts(&up, ",\"format\":\"text\",\"max_tokens\":3584,\"question\":") &&
+              json_dyn_puts(&up, ",\"format\":\"text\",\"reasoning_effort\":\"max\",\"question\":") &&
               json_dyn_put_escaped(&up, figures_only ? figs_prompt : scan_prompt) &&
               json_dyn_puts(&up, "}");
     if (!okb) { free(up.ptr); return NULL; }
@@ -1371,7 +1370,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     if (nvis > 0) {
         pdf_job_write(jobpath, "{\"phase\":\"vision\",\"page\":0,\"pages\":%d,\"done\":false}", nvis);
         vision_lease = qwen_memory_begin("pdf");
-        if (!vision_ensure_server(60000)) {
+        if (!qwen_memory_ready(&vision_lease) || !vision_ensure_server(60000)) {
             qwen_memory_end(&vision_lease);
             memset(&vision_lease, 0, sizeof vision_lease);
             /* In chat/RAG, figures and occasional scan neighbors supplement

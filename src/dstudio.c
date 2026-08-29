@@ -391,12 +391,12 @@ static char *ds4_strndup_local(const char *s, size_t n) {
     "DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128-DSpark-support.gguf?download=true"
 #define MODEL_PRO_EXPECTED_BYTES 430000000000LL  /* ~430 GB (pro-q2-imatrix), for the % */
 
-enum { ENGINE_NONE = 0, ENGINE_SERVER, ENGINE_AGENT, ENGINE_DESIGN };
+enum { ENGINE_NONE = 0, ENGINE_SERVER, ENGINE_AGENT, ENGINE_COWORK, ENGINE_DESIGN };
 enum { SSD_STREAMING_OFF = 0, SSD_STREAMING_ON = 1, SSD_STREAMING_AUTO = 2 };
 
-/* The piped modes (agent and design) share transcript and protocol
+/* The piped modes (agent, cowork and design) share transcript and protocol
  * (+DWARFSTAR_WAITING, \x1e events): same send/poll endpoints. */
-#define MODE_IS_PIPED(m) ((m) == ENGINE_AGENT || (m) == ENGINE_DESIGN)
+#define MODE_IS_PIPED(m) ((m) == ENGINE_AGENT || (m) == ENGINE_COWORK || (m) == ENGINE_DESIGN)
 
 typedef struct {
     int uncensored;   /* 0 standard, 1 uncensored */
@@ -406,10 +406,13 @@ typedef struct {
     int kv_space_mb;  /* server: default 24576 */
     int kv_min_tok;   /* server: default 128 */
     int think;        /* agent/design: 0 nothink, 1 think (high), 2 think-max. default 1 */
+    int design_think_tokens; /* design reasoning cap per tool round; 0 = unlimited */
     int ssd_streaming;/* 0 off, 1 force on, 2 auto. */
 } engine_cfg;
 
-static const engine_cfg ENGINE_DEFAULTS = { 0, 28000, 65536, 90, 24576, 128, 1, SSD_STREAMING_AUTO };
+static const engine_cfg ENGINE_DEFAULTS = {
+    0, 28000, 65536, 90, 24576, 128, 1, 0, SSD_STREAMING_OFF
+};
 
 /* ---- global engine state ---- */
 static int       g_mode = ENGINE_NONE;
@@ -1009,6 +1012,7 @@ static long long dstudio_now_ms(void) {
 static const char *task_mode_name(int m) {
     return m == ENGINE_SERVER ? "server" :
            m == ENGINE_AGENT ? "agent" :
+           m == ENGINE_COWORK ? "cowork" :
            m == ENGINE_DESIGN ? "design" : "none";
 }
 
@@ -1138,6 +1142,7 @@ static void maybe_complete_launch_task(int mode) {
 
 static const char *task_kind_for_mode(int mode) {
     return mode == ENGINE_DESIGN ? "design-turn" :
+           mode == ENGINE_COWORK ? "cowork-turn" :
            mode == ENGINE_AGENT ? "agent-turn" : "turn";
 }
 
@@ -1447,7 +1452,8 @@ static void api_diagnostics(int fd) {
              json_dyn_printf(&b, "\"physicalBytes\":%llu,\"modelBytes\":%lld,\"iogpuWiredLimitMb\":%lld,\"iogpuWiredTargetMb\":%lld,\"iogpuWiredMinMb\":%lld,\"iogpuWiredMaxMb\":%lld",
                              phys_mem, model_bytes, iogpu_wired_mb, IOGPU_WIRED_TARGET_MB,
                              IOGPU_WIRED_MIN_MB, IOGPU_WIRED_MAX_MB) &&
-             json_dyn_printf(&b, ",\"ctx\":%d,\"power\":%d", g_cfg.ctx, g_cfg.power) &&
+             json_dyn_printf(&b, ",\"ctx\":%d,\"power\":%d,\"designThinkTokens\":%d",
+                             g_cfg.ctx, g_cfg.power, g_cfg.design_think_tokens) &&
              json_dyn_puts(&b, ",\"ssdStreaming\":\"") &&
              json_dyn_puts(&b, g_cfg.ssd_streaming == SSD_STREAMING_ON ? "on" : g_cfg.ssd_streaming == SSD_STREAMING_OFF ? "off" : "auto") &&
              json_dyn_puts(&b, "\",\"ssdStreamingEffective\":") &&
@@ -3913,6 +3919,8 @@ static void child_setenv_skills(void) {
         char p[1100];
         snprintf(p, sizeof p, "%s/extension", g_web_dir);
         setenv("DS4UI_SKILLS_DIR", p, 1);
+        snprintf(p, sizeof p, "%s/extension/cowork/office_tool.py", g_web_dir);
+        setenv("DS4UI_COWORK_HELPER", p, 1);
     }
     /* The see_image agent tool posts images to this DStudio server's
      * /api/vision/describe (which runs the local vision model), so the agent
@@ -3988,6 +3996,7 @@ static void win_copy_packaged_engine_to_ds4(void) {
     static const char *files[] = {
         "ds4-server.exe",
         "ds4-agent-jsonl.exe",
+        "ds4-cowork.exe",
         "ds4-agent-jsonl.ver",
         "ds4-design.exe",
         NULL
@@ -4225,15 +4234,21 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
 
 #include "dstudio_patch.c"
 
-/* Build the -sys text injected into the agent and design engines: an optional
- * design system plus an optional user-authored skill. DStudio ships/downloads no
- * skills; the writable user directory is the sole skill source. */
-static char *build_skill_sys(int design_mode) {
+/* Build the -sys text injected into the piped engines: a Cowork charter or
+ * optional design system, followed by an optional user-authored skill. */
+static char *build_skill_sys(int mode) {
     if (!g_web_dir[0]) return NULL;
+    const int design_mode = mode == ENGINE_DESIGN;
+    const int cowork_mode = mode == ENGINE_COWORK;
     char path[2300];
     char *buf = NULL; size_t len = 0, cap = 0;
 
     size_t n = 0;
+    if (cowork_mode) {
+        snprintf(path, sizeof path, "%s/extension/cowork/COWORK.md", g_web_dir);
+        n = 0;
+        sys_append(&buf, &len, &cap, jsonl_read_file(path, &n), n);
+    }
     if (design_mode && g_design_system[0]) {
         snprintf(path, sizeof path, "%s/extension/design-systems/%s/DESIGN.md", g_web_dir, g_design_system);
         n = 0;
@@ -4246,7 +4261,7 @@ static char *build_skill_sys(int design_mode) {
 
     /* On-demand tools. User skills stay out of the startup prompt and are found
      * through the local user catalog; design systems/craft remain separate packs. */
-    const size_t catcap = design_mode ? 64 * 1024 : 8192;
+    const size_t catcap = design_mode ? 64 * 1024 : 16 * 1024;
     char *cat = malloc(catcap);
     if (cat) {
         size_t o = 0;
@@ -4597,8 +4612,8 @@ static int jsonl_make(const char *ds4_abs, const char *target) {
         if (chdir(ds4_abs) != 0) _exit(127);
         dup2(pp[0], STDIN_FILENO);
         close(pp[0]); close(pp[1]);
-        char core_arg[4096], libs_arg[4096], cflags_arg[4096], cc_arg[4096], remote_arg[4096];
-        char *argv[12];
+        char core_arg[4096], libs_arg[4096], cflags_arg[4096], cc_arg[4096], remote_arg[4096], cowork_arg[4096];
+        char *argv[14];
         int ai = 0;
         argv[ai++] = "make";
         argv[ai++] = "-f";
@@ -4612,7 +4627,12 @@ static int jsonl_make(const char *ds4_abs, const char *target) {
         if (cf && cf[0]) { snprintf(cflags_arg, sizeof cflags_arg, "JSONL_CFLAGS=%s", cf); argv[ai++] = cflags_arg; }
         if (co && co[0]) { snprintf(core_arg, sizeof core_arg, "JSONL_CORE_OBJS=%s", co); argv[ai++] = core_arg; }
         if (ll && ll[0]) { snprintf(libs_arg, sizeof libs_arg, "JSONL_LDLIBS=%s", ll); argv[ai++] = libs_arg; }
-        if (g_web_dir[0]) { snprintf(remote_arg, sizeof remote_arg, "DSTUDIO_REMOTE_DIR=%s/extension/remote", g_web_dir); argv[ai++] = remote_arg; }
+        if (g_web_dir[0]) {
+            snprintf(remote_arg, sizeof remote_arg, "DSTUDIO_REMOTE_DIR=%s/extension/remote", g_web_dir);
+            argv[ai++] = remote_arg;
+            snprintf(cowork_arg, sizeof cowork_arg, "DSTUDIO_COWORK_DIR=%s/extension/cowork", g_web_dir);
+            argv[ai++] = cowork_arg;
+        }
         argv[ai] = NULL;
         execvp("make", argv);
         _exit(127);
@@ -4765,19 +4785,21 @@ static int run_build_jsonl(const char *action) {
     char ver[DSTUDIO_PATH_MAX + 64];
     snprintf(ver, sizeof ver, "%s/ds4-agent-jsonl.ver", g_ds4_dir);
     int patch_version = jsonl_patch_version();
-    return patch_version > 0 && file_present("ds4-agent-jsonl.exe") && jsonl_sentinel_ok(ver, patch_version);
+    return patch_version > 0 && file_present("ds4-agent-jsonl.exe") &&
+           file_present("ds4-cowork.exe") && jsonl_sentinel_ok(ver, patch_version);
 #else
     char ds4_abs[DSTUDIO_PATH_MAX];
     if (!realpath(g_ds4_dir, ds4_abs)) return 0;
     char src[DSTUDIO_PATH_MAX + 64], bak[DSTUDIO_PATH_MAX + 64];
     char web_src[DSTUDIO_PATH_MAX + 64], web_tmp[DSTUDIO_PATH_MAX + 64], web_obj[DSTUDIO_PATH_MAX + 64];
-    char bin[DSTUDIO_PATH_MAX + 64], ver[DSTUDIO_PATH_MAX + 64];
+    char bin[DSTUDIO_PATH_MAX + 64], cowork_bin[DSTUDIO_PATH_MAX + 64], ver[DSTUDIO_PATH_MAX + 64];
     snprintf(src, sizeof src, "%s/ds4_agent.c", ds4_abs);
     snprintf(bak, sizeof bak, "%s/ds4_agent.c.ds4ui.bak", ds4_abs);
     snprintf(web_src, sizeof web_src, "%s/ds4_web.c", ds4_abs);
     snprintf(web_tmp, sizeof web_tmp, "%s/ds4_web_ds4ui.c", ds4_abs);
     snprintf(web_obj, sizeof web_obj, "%s/ds4_web_ds4ui.o", ds4_abs);
     snprintf(bin, sizeof bin, "%s/ds4-agent-jsonl", ds4_abs);
+    snprintf(cowork_bin, sizeof cowork_bin, "%s/ds4-cowork", ds4_abs);
     snprintf(ver, sizeof ver, "%s/ds4-agent-jsonl.ver", ds4_abs);
 
     jsonl_unlink_if_exists(web_tmp);
@@ -4800,10 +4822,12 @@ static int run_build_jsonl(const char *action) {
 
     /* idempotence: skip if the binary is newer than the source and the external patch
      * version matches. */
-    struct stat sb, wb, bb;
-    if (access(bin, X_OK) == 0 &&
+    struct stat sb, wb, bb, cb;
+    if (access(bin, X_OK) == 0 && access(cowork_bin, X_OK) == 0 &&
         stat(src, &sb) == 0 && stat(web_src, &wb) == 0 && stat(bin, &bb) == 0 &&
+        stat(cowork_bin, &cb) == 0 &&
         bb.st_mtime >= sb.st_mtime && bb.st_mtime >= wb.st_mtime &&
+        cb.st_mtime >= sb.st_mtime && cb.st_mtime >= wb.st_mtime &&
         !patch_dir_newer_than(JSONL_PATCH_DIR, bb.st_mtime) &&
         !patch_dir_newer_than(WEB_CDP_PATCH_DIR, bb.st_mtime) &&
         !patch_dir_newer_than(WEB_DIRECT_NAV_PATCH_DIR, bb.st_mtime) &&
@@ -4823,7 +4847,7 @@ static int run_build_jsonl(const char *action) {
         jsonl_unlink_if_exists(web_obj);
         return 0;
     }
-    int ok = jsonl_make(ds4_abs, "ds4-agent-jsonl");
+    int ok = jsonl_make(ds4_abs, "ds4-cowork");
     jsonl_copy_preserve(bak, src);  /* ALWAYS restore, even if the build fails */
     jsonl_unlink_if_exists(web_tmp);
     jsonl_unlink_if_exists(web_obj);
@@ -4993,8 +5017,12 @@ static int run_ext_script(const char *script, const char *action) {
 #endif
 }
 
-/* Starts ds4-agent-jsonl --non-interactive --jsonl. in/out/err on pipe. */
-static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, size_t errsz) {
+/* Starts the shared structured ds4-agent runtime. Cowork uses the same native
+ * tool parser and KV machinery with its own binary name, charter and cache. */
+static int spawn_agent(const engine_cfg *cfg, const char *workdir,
+                       int cowork_mode, char *err, size_t errsz) {
+    const int runtime_mode = cowork_mode ? ENGINE_COWORK : ENGINE_AGENT;
+    const char *runtime_label = cowork_mode ? "cowork" : "agent";
     int remote_model = g_remote_base_url[0] != '\0';
     if (!remote_model && !file_present(current_model_rel())) {
         snprintf(err, errsz, "model %.16s not found in %.180s",
@@ -5008,27 +5036,37 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     if (!g_remote_base_url[0] && port_listening(ENGINE_DEFAULTS.port)) {
         snprintf(err, errsz,
                  "a ds4-server is running outside the launcher (port %d): close it before "
-                 "switching to the agent — the instance-lock forbids two large processes",
-                 ENGINE_DEFAULTS.port);
+                 "switching to %s — the instance-lock forbids two large processes",
+                 ENGINE_DEFAULTS.port,
+                 runtime_label);
         return 0;
     }
     /* The current UI consumes structured events exclusively. Building the
      * derived agent is therefore a launch requirement, not an optional mode. */
     if (!run_build_jsonl("build")) {
 #ifdef _WIN32
-        snprintf(err, errsz,
-                 "agent requires the current DStudio Windows runtime "
-                 "(ds4-agent-jsonl.exe + ds4-agent-jsonl.ver)");
+        if (cowork_mode)
+            snprintf(err, errsz,
+                     "cowork requires the current DStudio Windows runtime "
+                     "(ds4-cowork.exe + ds4-agent-jsonl.ver)");
+        else
+            snprintf(err, errsz,
+                     "agent requires the current DStudio Windows runtime "
+                     "(ds4-agent-jsonl.exe + ds4-agent-jsonl.ver)");
 #else
-        snprintf(err, errsz, "agent requires the structured ds4-agent-jsonl build%s%s",
-                 g_engine_err[0] ? ": " : "", g_engine_err[0] ? g_engine_err : "");
+        if (cowork_mode)
+            snprintf(err, errsz, "cowork requires the structured ds4-cowork build%s%s",
+                     g_engine_err[0] ? ": " : "", g_engine_err[0] ? g_engine_err : "");
+        else
+            snprintf(err, errsz, "agent requires the structured ds4-agent-jsonl build%s%s",
+                     g_engine_err[0] ? ": " : "", g_engine_err[0] ? g_engine_err : "");
 #endif
         return 0;
     }
 #ifdef _WIN32
-    const char *agent_bin = "ds4-agent-jsonl.exe";
+    const char *agent_bin = cowork_mode ? "ds4-cowork.exe" : "ds4-agent-jsonl.exe";
 #else
-    const char *agent_bin = "ds4-agent-jsonl";
+    const char *agent_bin = cowork_mode ? "ds4-cowork" : "ds4-agent-jsonl";
 #endif
     if (!file_present(agent_bin)) {
         snprintf(err, errsz, "%.32s not found in %.150s — build ds4 first (make)", agent_bin, g_ds4_dir);
@@ -5068,8 +5106,8 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
      * parent frees its copy after the fork. The shared charter + active skill go in
      * via the agent's own -sys flag — no change to ds4-agent itself. The design-system
      * (brand) layer is design-only, so it is excluded here (0). */
-    char *skill_sys = build_skill_sys(0);
-    {
+    char *skill_sys = build_skill_sys(runtime_mode);
+    if (!cowork_mode) {
         /* Keep Claude-like discovery for direction-sensitive work without
          * slowing down straightforward code edits. This is injected via -sys;
          * antirez's ds4_agent.c stays untouched. */
@@ -5156,6 +5194,8 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     win_join_path(exe, sizeof exe, g_ds4_dir, agent_bin);
     win_prepare_engine_runtime();
     child_setenv_skills();
+    setenv("DS4UI_RUNTIME_NAME", runtime_label, 1);
+    setenv("DS4UI_SSD_STREAMING_EFFECTIVE", g_ssd_streaming_effective ? "1" : "0", 1);
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
                      : "--think";
@@ -5230,6 +5270,8 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
             child_setenv_metal_sources(ds4_abs); /* absolute: survive --chdir */
         }
         child_setenv_skills();                   /* on-demand skill()/design_system() packs */
+        setenv("DS4UI_RUNTIME_NAME", runtime_label, 1);
+        setenv("DS4UI_SSD_STREAMING_EFFECTIVE", g_ssd_streaming_effective ? "1" : "0", 1);
         dup2(ip[0], STDIN_FILENO);
         dup2(op[1], STDOUT_FILENO);
         dup2(ep[1], STDERR_FILENO);
@@ -5273,12 +5315,14 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir, char *err, si
     g_in_fd = ip[1]; g_out_fd = op[0]; g_err_fd = ep[0];
     set_nonblock(g_out_fd); set_nonblock(g_err_fd);
 #endif
-    g_child = pid; g_mode = ENGINE_AGENT; g_cfg = *cfg;
+    g_child = pid; g_mode = runtime_mode; g_cfg = *cfg;
     snprintf(g_workdir, sizeof g_workdir, "%s", wd);
     agent_buf_reset();
-    reset_progress("Starting the agent…");
-    g_agent_working = 0;
-    printf("engine: agent pid %d (chdir %s, %s, %s)\n", (int)pid, wd,
+    reset_progress(cowork_mode ? "Starting Cowork…" : "Starting the agent…");
+    /* Keep send/session APIs busy until the initial system-prompt prefill has
+     * completed and the child emits its first WAITING marker. */
+    g_agent_working = 1;
+    printf("engine: %s pid %d (chdir %s, %s, %s)\n", runtime_label, (int)pid, wd,
            cfg->uncensored ? "uncensored" : "standard",
            remote_model ? "jsonl/remote-model" : "jsonl");
     return 1;
@@ -5323,9 +5367,10 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     if (pipe(ip) != 0 || pipe(op) != 0 || pipe(ep) != 0) { snprintf(err, errsz, "pipe failed"); return 0; }
 #endif
 
-    char ctxs[16], pows[16];
+    char ctxs[16], pows[16], thinktokens[16];
     snprintf(ctxs, sizeof ctxs, "%d", cfg->ctx);
     snprintf(pows, sizeof pows, "%d", cfg->power);
+    snprintf(thinktokens, sizeof thinktokens, "%d", cfg->design_think_tokens);
     if (!cfg_ssd_streaming(cfg, remote_model, err, errsz)) return 0;
     char wd[1024];
     if (workdir && workdir[0]) {
@@ -5337,7 +5382,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
 
     /* Same as the agent, but design also gets the active design-system (brand) layer (1):
      * charter + DESIGN.md + SKILL.md, injected via ds4-design's -sys flag. */
-    char *skill_sys = build_skill_sys(1);
+    char *skill_sys = build_skill_sys(ENGINE_DESIGN);
 
     char dspark_path[DSTUDIO_PATH_MAX];
     int dspark_on = 0;
@@ -5356,10 +5401,12 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     char exe[2200];
     win_join_path(exe, sizeof exe, g_ds4_dir, "ds4-design.exe");
     child_setenv_skills();
+    setenv("DS4UI_RUNTIME_NAME", "design", 1);
+    setenv("DS4UI_SSD_STREAMING_EFFECTIVE", g_ssd_streaming_effective ? "1" : "0", 1);
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
                      : "--think";
-    char *argv[28]; int n = 0;
+    char *argv[32]; int n = 0;
     argv[n++] = exe;
     argv[n++] = "--jsonl";
     if (remote_model) {
@@ -5380,6 +5427,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     argv[n++] = "-c"; argv[n++] = ctxs;
     if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
     argv[n++] = think_flag;
+    argv[n++] = "--think-tokens"; argv[n++] = thinktokens;
     argv[n++] = "--workspace"; argv[n++] = wd;
     if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
     argv[n] = NULL;
@@ -5423,6 +5471,8 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         if (chdir(g_ds4_dir) != 0) _exit(127);   /* to find ./ds4-design */
         if (!remote_model) child_setenv_metal(cfg);
         child_setenv_skills();                   /* on-demand skill()/design_system() packs */
+        setenv("DS4UI_RUNTIME_NAME", "design", 1);
+        setenv("DS4UI_SSD_STREAMING_EFFECTIVE", g_ssd_streaming_effective ? "1" : "0", 1);
         dup2(ip[0], STDIN_FILENO);
         dup2(op[1], STDOUT_FILENO);
         dup2(ep[1], STDERR_FILENO);
@@ -5431,7 +5481,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         char *think_flag = cfg->think == 0 ? "--nothink"
                          : cfg->think == 2 ? "--think-max"
                          : "--think";
-        char *argv[28]; int n = 0;
+        char *argv[32]; int n = 0;
         argv[n++] = "./ds4-design";
         argv[n++] = "--jsonl";
         if (remote_model) {
@@ -5452,6 +5502,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         argv[n++] = "-c"; argv[n++] = ctxs;
         if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
         argv[n++] = think_flag;
+        argv[n++] = "--think-tokens"; argv[n++] = thinktokens;
         argv[n++] = "--workspace"; argv[n++] = wd;
         if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
         argv[n] = NULL;
@@ -5468,7 +5519,10 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     snprintf(g_design_dir, sizeof g_design_dir, "%s", wd);
     agent_buf_reset();
     reset_progress("Starting the design agent…");
-    g_agent_working = 0;
+    /* Model allocation can finish before Design has prefetched its system
+     * prompt. The first +DWARFSTAR_WAITING marker is the authoritative point
+     * at which prompts/session commands are safe to accept. */
+    g_agent_working = 1;
     printf("engine: design pid %d (workspace %s, %s%s)\n", (int)pid, wd,
            cfg->uncensored ? "uncensored" : "standard",
            remote_model ? ", remote-model" : "");
@@ -5511,6 +5565,7 @@ static void drain_child(void) {
 static const char *mode_name(int m) {
     return m == ENGINE_SERVER ? "server" :
            m == ENGINE_AGENT ? "agent" :
+           m == ENGINE_COWORK ? "cowork" :
            m == ENGINE_DESIGN ? "design" : "none";
 }
 
@@ -5815,11 +5870,12 @@ static void api_status(int fd) {
     char cfg[640];
     if (engine_running)
         snprintf(cfg, sizeof cfg,
-                 "{\"model\":\"%s\",\"port\":%d,\"ctx\":%d,\"power\":%d,\"think\":\"%s\","
+                 "{\"model\":\"%s\",\"port\":%d,\"ctx\":%d,\"power\":%d,\"think\":\"%s\",\"designThinkTokens\":%d,"
                  "\"ssdStreaming\":\"%s\",\"ssdStreamingEffective\":%s,\"ssdStreamingReason\":\"%s\","
                  "\"metalHotlistSeed\":%s,\"dspark\":%s}",
                  g_cfg.uncensored ? "uncensored" : "standard", g_cfg.port, g_cfg.ctx, g_cfg.power,
                  g_cfg.think == 0 ? "off" : g_cfg.think == 2 ? "max" : "high",
+                 g_cfg.design_think_tokens,
                  g_cfg.ssd_streaming == SSD_STREAMING_ON ? "on" : g_cfg.ssd_streaming == SSD_STREAMING_OFF ? "off" : "auto",
                  g_ssd_streaming_effective ? "true" : "false", ssd_reason_esc,
                  g_metal_hotlist_seed ? "true" : "false",
@@ -5950,6 +6006,10 @@ static void api_doctor(int fd) {
     int agent_src_ok = ds4_ok && rel_exists("ds4_agent.c");
     int agent_ok = ds4_ok && (agent_src_ok || rel_exists("ds4-agent-jsonl") ||
                               rel_exists("ds4-agent-jsonl.exe"));
+    char cowork_helper[DSTUDIO_PATH_MAX];
+    snprintf(cowork_helper, sizeof cowork_helper, "%s/extension/cowork/office_tool.py",
+             g_web_dir[0] ? g_web_dir : ".");
+    int cowork_ok = agent_ok && access(cowork_helper, R_OK) == 0;
     int design_ok = ds4_ok && (rel_exists("ds4-design") || rel_exists("ds4-design.exe") ||
                                rel_exists("ds4_design.c"));
     int web_ok = ds4_ok && agent_src_ok && chrome_available();
@@ -5998,6 +6058,13 @@ static void api_doctor(int fd) {
         agent_ok ? "ok" : "warn",
         agent_ok ? "Structured Agent runtime is available." : "Install the current Agent runtime before opening a workspace.",
         agent_ok ? NULL : "open-settings");
+
+    if (!cowork_ok) warn++;
+    ok = ok && doctor_add_check(&b, &first, "cowork", "Cowork",
+        cowork_ok ? "ok" : "warn",
+        cowork_ok ? "Cowork runtime and local Office tools are available."
+                  : "Cowork needs the structured runtime and extension/cowork Office helper.",
+        cowork_ok ? NULL : "open-settings");
 
     if (!design_ok) warn++;
     ok = ok && doctor_add_check(&b, &first, "design", "Design",
@@ -6514,6 +6581,8 @@ static void parse_cfg(const char *body, engine_cfg *cfg, int *bad) {
     r = json_get_int(body, "power", 1, 100, &v);         if (r < 0) *bad = 1; else if (r) cfg->power = (int)v;
     r = json_get_int(body, "kvSpaceMb", 256, 262144, &v);if (r < 0) *bad = 1; else if (r) cfg->kv_space_mb = (int)v;
     r = json_get_int(body, "kvMinTokens", 1, 100000, &v);if (r < 0) *bad = 1; else if (r) cfg->kv_min_tok = (int)v;
+    r = json_get_int(body, "designThinkTokens", 0, 262144, &v);
+    if (r < 0) *bad = 1; else if (r) cfg->design_think_tokens = (int)v;
     char ssd[16];
     if (json_get_string(body, "ssdStreaming", ssd, sizeof ssd) && ssd[0]) {
         if (!strcmp(ssd, "off")) cfg->ssd_streaming = SSD_STREAMING_OFF;
@@ -6599,7 +6668,8 @@ static int parse_remote_start(const char *body, int allow, char *err, size_t err
 }
 
 static int launch_workdir_missing(int requested_mode, const char *workdir) {
-    if (requested_mode != ENGINE_AGENT && requested_mode != ENGINE_DESIGN) return 0;
+    if (requested_mode != ENGINE_AGENT && requested_mode != ENGINE_COWORK &&
+        requested_mode != ENGINE_DESIGN) return 0;
     if (!workdir || !workdir[0]) return 0;
     struct stat st;
     return stat(workdir, &st) != 0 || !S_ISDIR(st.st_mode);
@@ -6609,9 +6679,10 @@ static void api_start(int fd, const char *body) {
     char mode[16] = "server";
     json_get_string(body, "mode", mode, sizeof mode);
     int want_agent = !strcmp(mode, "agent");
+    int want_cowork = !strcmp(mode, "cowork");
     int want_design = !strcmp(mode, "design");
-    if (!want_agent && !want_design && strcmp(mode, "server")) {
-        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"mode must be server, agent or design\"}");
+    if (!want_agent && !want_cowork && !want_design && strcmp(mode, "server")) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"mode must be server, agent, cowork or design\"}");
         return;
     }
 
@@ -6624,7 +6695,7 @@ static void api_start(int fd, const char *body) {
     }
 
     char remote_err[256] = "";
-    if (!parse_remote_start(body, want_agent || want_design, remote_err, sizeof remote_err)) {
+    if (!parse_remote_start(body, want_agent || want_cowork || want_design, remote_err, sizeof remote_err)) {
         char out[512], esc[384];
         json_escape_into(esc, sizeof esc, remote_err, strlen(remote_err));
         snprintf(out, sizeof out, "{\"ok\":false,\"error\":\"%s\"}", esc);
@@ -6635,7 +6706,9 @@ static void api_start(int fd, const char *body) {
     char workdir[1024] = "";
     json_get_string(body, "workdir", workdir, sizeof workdir);
     int force = json_get_bool(body, "force");
-    int requested_mode = want_agent ? ENGINE_AGENT : want_design ? ENGINE_DESIGN : ENGINE_SERVER;
+    int requested_mode = want_agent ? ENGINE_AGENT :
+                         want_cowork ? ENGINE_COWORK :
+                         want_design ? ENGINE_DESIGN : ENGINE_SERVER;
     if (launch_workdir_missing(requested_mode, workdir)) {
         char wd_esc[2200], mode_esc[32], out[2600];
         json_escape_into(wd_esc, sizeof wd_esc, workdir, strlen(workdir));
@@ -6681,7 +6754,7 @@ static void api_start(int fd, const char *body) {
     const int requested_ctx = cfg.ctx;
     const int requested_dspark = g_dspark_enabled;
     char config_note[384] = "";
-    const int remote_engine = g_remote_base_url[0] && (want_agent || want_design);
+    const int remote_engine = g_remote_base_url[0] && (want_agent || want_cowork || want_design);
     if (!normalize_flash_memory_config(&cfg, remote_engine, config_note, sizeof config_note)) {
         g_dspark_enabled = requested_dspark;
         task_mark_failed(task_id, config_note, config_note);
@@ -6775,7 +6848,8 @@ static void api_start(int fd, const char *body) {
     }
 
     char err[256] = "";
-    int ok = want_agent ? spawn_agent(&cfg, workdir, err, sizeof err)
+    int ok = want_agent ? spawn_agent(&cfg, workdir, 0, err, sizeof err)
+           : want_cowork ? spawn_agent(&cfg, workdir, 1, err, sizeof err)
            : want_design ? spawn_design(&cfg, workdir, err, sizeof err)
                          : spawn_server(&cfg, err, sizeof err);
     if (!ok) {
@@ -6851,8 +6925,10 @@ static void api_agent_send(int fd, const char *body) {
     size_t len = strlen(prompt);
     size_t display_len = strlen(display);
     const char *kind = task_kind_for_mode(g_mode);
-    const char *target = g_mode == ENGINE_DESIGN ? "design" : "agent";
-    unsigned long long task_id = task_begin(kind, g_mode == ENGINE_DESIGN ? "Design turn" : "Agent turn",
+    const char *target = mode_name(g_mode);
+    const char *turn_title = g_mode == ENGINE_DESIGN ? "Design turn" :
+                             g_mode == ENGINE_COWORK ? "Cowork turn" : "Agent turn";
+    unsigned long long task_id = task_begin(kind, turn_title,
                                             target, g_mode, g_workdir, (int)g_child, 1);
     if (!MODE_IS_PIPED(g_mode) || g_in_fd < 0 || g_child <= 0) {
         task_mark_failed(task_id, "agent/design runtime is not active", g_engine_err);
@@ -6937,6 +7013,13 @@ static void api_agent_interrupt(int fd, const char *body) {
         fd_write_all(g_in_fd, frame, sizeof(frame) - 1);
     }
 #else
+    /* Remote Design is blocked reading model frames from this same pipe. Wake
+     * it with the protocol control frame as well as SIGINT; the signal latches
+     * cancellation while the frame makes the blocking read return promptly. */
+    if (g_mode == ENGINE_DESIGN && g_remote_base_url[0] && g_in_fd >= 0) {
+        static const char frame[] = "\x1e{\"type\":\"control\",\"name\":\"interrupt\"}\n";
+        fd_write_all(g_in_fd, frame, sizeof(frame) - 1);
+    }
     kill(g_child, SIGINT);
 #endif
     g_interrupt_pending = 1;
@@ -6970,12 +7053,16 @@ static void api_agent_interrupt(int fd, const char *body) {
  * agent: plain status line) comes back on the /api/agent/poll stream. Used
  * e.g. to delete the KV session when its conversation is deleted in the UI. */
 static void api_design_session(int fd, const char *body) {
-    if ((g_mode != ENGINE_DESIGN && g_mode != ENGINE_AGENT) || g_in_fd < 0) {
-        send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"agent/design not active\"}");
+    if (!MODE_IS_PIPED(g_mode) || g_in_fd < 0) {
+        send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"agent/cowork/design not active\"}");
         return;
     }
     if (!g_ready) {
         send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"engine still loading\"}");
+        return;
+    }
+    if (g_agent_working) {
+        send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"agent is busy\"}");
         return;
     }
     char action[24] = {0};
@@ -7018,6 +7105,9 @@ static void api_design_session(int fd, const char *body) {
         send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"write to engine failed\"}");
         return;
     }
+    /* Session commands may rebuild/prefill a large KV state. Keep send/session
+     * callers serialized until the child announces its next WAITING marker. */
+    g_agent_working = 1;
     send_json(fd, "200 OK", "{\"ok\":true}");
 }
 
@@ -8454,6 +8544,150 @@ static void api_agent_attach_image(int fd, const char *body) {
 #endif
 }
 
+/* POST /api/cowork/attach-file {dir, name, data_uri} — save a supported
+ * knowledge-work input into the selected Cowork workspace.  This deliberately
+ * rejects executable and macro-enabled Office formats: Cowork reads document
+ * data, it never imports executable content. */
+#ifndef _WIN32
+static int cowork_attachment_name(const char *in, char *out, size_t outsz) {
+    const char *base = in ? in : "";
+    const char *s1 = strrchr(base, '/');
+    const char *s2 = strrchr(base, '\\');
+    if (s1) base = s1 + 1;
+    if (s2 && s2 + 1 > base) base = s2 + 1;
+    char clean[160];
+    size_t o = 0;
+    for (const char *p = base; *p && o < sizeof clean - 1; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (isalnum(c) || c == '.' || c == '_' || c == '-') clean[o++] = (char)c;
+        else if (c == ' ') clean[o++] = '-';
+    }
+    clean[o] = '\0';
+    while (clean[0] == '.') memmove(clean, clean + 1, strlen(clean));
+    char *dot = strrchr(clean, '.');
+    if (!clean[0] || !dot || dot == clean || !dot[1]) return 0;
+    char ext[16] = {0};
+    size_t j = 0;
+    for (const char *p = dot + 1; *p && j < sizeof ext - 1; p++)
+        ext[j++] = (char)tolower((unsigned char)*p);
+    static const char *const allowed[] = {
+        "pdf", "xlsx", "csv", "tsv", "docx", "pptx", "odt", "rtf",
+        "txt", "md", "markdown", "html", "htm", "json", "jsonl",
+        "yaml", "yml", "xml", "toml", "png", "jpg", "jpeg", "webp",
+        "gif", "bmp", "svg", NULL
+    };
+    int ok = 0;
+    for (size_t i = 0; allowed[i]; i++) {
+        if (!strcmp(ext, allowed[i])) { ok = 1; break; }
+    }
+    if (!ok) return 0;
+    cstr_copy(out, outsz, clean);
+    return out[0] != '\0';
+}
+#endif
+
+static void api_cowork_attach_file(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    web_json_error(fd, "501 Not Implemented", "not available in the Windows build yet");
+#else
+    char dir[DSTUDIO_PATH_MAX] = "";
+    if (!json_get_string(body, "dir", dir, sizeof dir) || dir[0] != '/') {
+        web_json_error(fd, "400 Bad Request", "dir (absolute workspace path) is required");
+        return;
+    }
+    struct stat st;
+    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        web_json_error(fd, "400 Bad Request", "workspace dir does not exist");
+        return;
+    }
+    char reqname[300] = "", name[192] = "";
+    (void)json_get_string(body, "name", reqname, sizeof reqname);
+    if (!cowork_attachment_name(reqname, name, sizeof name)) {
+        web_json_error(fd, "415 Unsupported Media Type",
+                       "unsupported file type; use PDF, XLSX/CSV/TSV, DOCX, PPTX, ODT, text/data or an image");
+        return;
+    }
+    char *data = json_get_string_alloc_rpc(body, "data_uri");
+    if (!data || !data[0]) {
+        free(data);
+        web_json_error(fd, "400 Bad Request", "data_uri is required");
+        return;
+    }
+    const char *b64 = data;
+    if (!strncmp(data, "data:", 5)) {
+        const char *comma = strchr(data, ',');
+        if (!comma) {
+            free(data);
+            web_json_error(fd, "400 Bad Request", "malformed data URI");
+            return;
+        }
+        b64 = comma + 1;
+    }
+    size_t blen = 0;
+    char *bytes = base64_decode(b64, &blen);
+    free(data);
+    if (!bytes || blen == 0 || blen > 64u * 1024 * 1024) {
+        free(bytes);
+        web_json_error(fd, "400 Bad Request", "invalid or oversized file payload (64MB max)");
+        return;
+    }
+
+    char final[224], full[DSTUDIO_PATH_MAX + 240];
+    int wfd = -1;
+    for (int i = 0; i < 100; i++) {
+        if (i == 0) cstr_copy(final, sizeof final, name);
+        else {
+            char stem[192];
+            cstr_copy(stem, sizeof stem, name);
+            char *dot = strrchr(stem, '.');
+            const char *ext = "";
+            if (dot) { *dot = '\0'; ext = dot + 1; }
+            if (ext[0]) snprintf(final, sizeof final, "%s-%d.%s", stem, i + 1, ext);
+            else snprintf(final, sizeof final, "%s-%d", stem, i + 1);
+        }
+        snprintf(full, sizeof full, "%s/%s", dir, final);
+        wfd = open(full, O_WRONLY | O_CREAT | O_EXCL, 0644);
+        if (wfd >= 0 || errno != EEXIST) break;
+    }
+    if (wfd < 0) {
+        free(bytes);
+        web_json_error(fd, "500 Internal Server Error", "cannot create the workspace file");
+        return;
+    }
+    size_t off = 0;
+    while (off < blen) {
+        ssize_t wrote = write(wfd, bytes + off, blen - off);
+        if (wrote < 0 && errno == EINTR) continue;
+        if (wrote <= 0) break;
+        off += (size_t)wrote;
+    }
+    close(wfd);
+    free(bytes);
+    if (off < blen) {
+        unlink(full);
+        web_json_error(fd, "500 Internal Server Error", "short write");
+        return;
+    }
+
+    json_dyn_buf b = {0};
+    int okb = json_dyn_printf(&b, "{\"ok\":true,\"bytes\":%lld,\"name\":", (long long)blen) &&
+              json_dyn_put_escaped(&b, final) &&
+              json_dyn_puts(&b, ",\"rel\":") &&
+              json_dyn_printf(&b, "\"./%s\"", final) &&
+              json_dyn_puts(&b, ",\"path\":") &&
+              json_dyn_put_escaped(&b, full) &&
+              json_dyn_puts(&b, "}");
+    if (!okb) {
+        free(b.ptr);
+        web_json_error(fd, "500 Internal Server Error", "out of memory");
+        return;
+    }
+    send_json(fd, "200 OK", b.ptr);
+    free(b.ptr);
+#endif
+}
+
 static void api_http_probe_run(int fd, const char *body) {
     char url[2048], method[16];
     method[0] = '\0';
@@ -9195,6 +9429,7 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/vision/describe")) { api_vision_describe(fd, body); return 200; }
     if (!strcmp(path, "/api/vision/stop")) { api_vision_stop(fd); return 200; }
     if (!strcmp(path, "/api/image/generate")) { api_image_generate(fd, body); return 200; }
+    if (!strcmp(path, "/api/image/stop")) { api_image_stop(fd, body); return 200; }
     if (!strcmp(path, "/api/video/setup")) { api_video_setup(fd, body); return 200; }
     if (!strcmp(path, "/api/video/generate")) { api_video_generate(fd, body); return 200; }
     if (!strcmp(path, "/api/video/stop")) { api_video_stop(fd, body); return 200; }
@@ -9451,6 +9686,26 @@ static void handle_connection(int fd) {
         return;
     }
 
+    /* Cowork attachments are larger than the normal JSON API cap because the
+     * file is base64 encoded.  Host-local + CSRF protected, like agent images. */
+    if (!strcmp(method, "POST") && path_eq_clean(path, "/api/cowork/attach-file")) {
+        if (!header_has(req, header_len, "x-requested-with: ds4web")) {
+            send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}"); close(fd); return;
+        }
+        char *buf = NULL;
+        size_t off = 0;
+        if (!read_request_body_alloc(fd, req, got, header_len, clen, 88L * 1024 * 1024,
+                                     "file too large\n", &buf, &off))
+        {
+            close(fd);
+            return;
+        }
+        api_cowork_attach_file(fd, buf);
+        free(buf);
+        close(fd);
+        return;
+    }
+
     /* Image editing carries the source pixels as a data URI. Generation without
      * a source also uses this path so both modes share one authorization and
      * body-handling contract. */
@@ -9677,6 +9932,8 @@ int main(int argc, char **argv)
     sa.sa_handler = on_term;
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
+    image_runtime_init();
+    video_runtime_init();
 
     g_srv_fd = ds4ui_forced_port > 0 ? open_listener(g_bind_host, port) : open_first_listener(g_bind_host, &port);
     if (g_srv_fd < 0) {
@@ -9775,6 +10032,7 @@ int main(int argc, char **argv)
     }
     sse_close_all();
     diag_sse_close_all();
+    image_runtime_shutdown();
     video_runtime_shutdown();
     stop_child();
     return 0;

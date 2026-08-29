@@ -13,7 +13,22 @@ fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/dstudio-lan-test.XXXXXX")"
 pid=""
+pid2=""
+sleep_a=""
+sleep_b=""
+image_sleep_a=""
+image_sleep_b=""
 cleanup() {
+  for child in "${sleep_a}" "${sleep_b}" "${image_sleep_a}" "${image_sleep_b}"; do
+    if [ -n "${child}" ] && kill -0 "${child}" >/dev/null 2>&1; then
+      kill "${child}" >/dev/null 2>&1 || true
+      wait "${child}" >/dev/null 2>&1 || true
+    fi
+  done
+  if [ -n "${pid2}" ] && kill -0 "${pid2}" >/dev/null 2>&1; then
+    kill "${pid2}" >/dev/null 2>&1 || true
+    wait "${pid2}" >/dev/null 2>&1 || true
+  fi
   if [ -n "${pid}" ] && kill -0 "${pid}" >/dev/null 2>&1; then
     kill "${pid}" >/dev/null 2>&1 || true
     wait "${pid}" >/dev/null 2>&1 || true
@@ -24,14 +39,18 @@ trap cleanup EXIT
 
 mkdir -p "${tmp}/home" \
   "${tmp}/ds4/gguf" "${tmp}/ds4/.git" \
-  "${tmp}/ds4-laguna-s21/gguf" "${tmp}/ds4-laguna-s21/.git"
+  "${tmp}/ds4-glm5.3/.git" "${tmp}/ds4-laguna-s21/.git"
 printf '%s\n' 'all:' >"${tmp}/ds4/Makefile"
+printf '%s\n' 'all:' >"${tmp}/ds4-glm5.3/Makefile"
 printf '%s\n' 'all:' >"${tmp}/ds4-laguna-s21/Makefile"
 printf '%s\n' 'ref: refs/heads/main' >"${tmp}/ds4/.git/HEAD"
+printf '%s\n' 'ref: refs/heads/glm-5.3-flash' >"${tmp}/ds4-glm5.3/.git/HEAD"
 printf '%s\n' 'ref: refs/heads/laguna-s2.1' >"${tmp}/ds4-laguna-s21/.git/HEAD"
+ln -s ../ds4/gguf "${tmp}/ds4-glm5.3/gguf"
+ln -s ../ds4/gguf "${tmp}/ds4-laguna-s21/gguf"
 printf '%s' 'main-test' >"${tmp}/ds4/gguf/main-test.gguf"
-printf '%s' 'glm-test' >"${tmp}/ds4/gguf/glm-test.gguf"
-printf '%s' 'laguna-test' >"${tmp}/ds4-laguna-s21/gguf/laguna-test.gguf"
+printf '%s' 'glm53-test' >"${tmp}/ds4/gguf/GLM-5.3-Flash-Q2.gguf"
+printf '%s' 'laguna-test' >"${tmp}/ds4/gguf/laguna-test.gguf"
 mkdir -p "${tmp}/project/src"
 mkdir -p "${tmp}/home/.local/share/flashcards/ds4-skills/analytics"
 mkdir -p "${tmp}/home/.local/share/flashcards/ds4-skills/api-auth-review"
@@ -85,6 +104,29 @@ curl -fsS --max-time 2 "${base}/api/tasks?limit=10" >"${tmp}/tasks.json"
 curl -fsS --max-time 2 "${base}/api/embed/status" >"${tmp}/embed-status.json"
 curl -fsS --max-time 2 "${base}/api/ggufs" >"${tmp}/ggufs.json"
 curl -fsS --max-time 2 "${base}/api/user-skills/get?id=analytics" >"${tmp}/skill-analytics.json"
+node - "${tmp}/agent-screenshot-request.json" "${tmp}/project" <<'NODE'
+const fs = require('fs');
+const [requestPath, workspace] = process.argv.slice(2);
+const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+fs.writeFileSync(requestPath, JSON.stringify({
+  dir: workspace,
+  name: 'user-layout.png',
+  data_uri: `data:image/png;base64,${png}`,
+}));
+NODE
+curl -fsS --max-time 5 -X POST "${base}/api/agent/attach-image" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  --data-binary @"${tmp}/agent-screenshot-request.json" >"${tmp}/agent-screenshot-response.json"
+node - "${tmp}/agent-screenshot-response.json" "${tmp}/project" <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const [responsePath, workspace] = process.argv.slice(2);
+const expected = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+const response = JSON.parse(fs.readFileSync(responsePath, 'utf8'));
+if (!response.ok || response.rel !== './user-layout.png') throw new Error('agent screenshot response did not preserve the workspace-relative path');
+if (path.resolve(response.path) !== path.join(path.resolve(workspace), 'user-layout.png')) throw new Error('agent screenshot escaped or changed its target path');
+if (!fs.readFileSync(response.path).equals(expected)) throw new Error('agent screenshot bytes changed before DS4 could inspect them');
+NODE
 curl -fsS --max-time 10 -X POST "${base}/api/image/generate" \
   -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
   -d '{"prompt":"test image","job":"image-http-test"}' >"${tmp}/image-generate.json"
@@ -92,8 +134,8 @@ curl -fsS --max-time 2 "${base}/api/image/progress?id=image-http-test" >"${tmp}/
 curl -fsS --max-time 10 -X POST "${base}/api/image/generate" \
   -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
   -d '{"action":"edit","prompt":"make it blue","preserve":"face","image":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=","referenceImage":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=","job":"image-edit-http-test"}' >"${tmp}/image-edit.json"
-[ -s "${tmp}/home/.dstudio/qwen-image/jobs/image-edit-http-test/source.png" ]
-[ -s "${tmp}/home/.dstudio/qwen-image/jobs/image-edit-http-test/reference.png" ]
+[ -s "${tmp}/home/.dstudio/image/jobs/image-edit-http-test/source.png" ]
+[ -s "${tmp}/home/.dstudio/image/jobs/image-edit-http-test/reference.png" ]
 curl -fsS --max-time 2 "${base}/api/image/progress?id=image-edit-http-test" >"${tmp}/image-edit-progress.json"
 curl -sS --max-time 5 -o "${tmp}/video-license-error.json" -w "%{http_code}" \
   -X POST "${base}/api/video/generate" \
@@ -112,6 +154,7 @@ const progress = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 const status = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
 if (!generated.ok || generated.model !== 'MiniMaxAI/MiniMax-H3' || !generated.url?.startsWith('/api/video/file?')) throw new Error('H3 generate response is incomplete');
 if (progress.state !== 'complete' || progress.progress !== 100) throw new Error('H3 progress should complete in test mode');
+if (!progress.fixture) throw new Error('H3 terminal worker metadata was overwritten by the HTTP coordinator');
 if (!status.ok || status.runtime !== 'h3.c/Metal' || status.model !== 'MiniMaxAI/MiniMax-H3') throw new Error('H3 status should identify the local runtime');
 fs.writeFileSync(process.argv[2] + '.url', generated.url);
 NODE
@@ -183,7 +226,7 @@ const root = fs.realpathSync(process.argv[3]);
 if (!r.ok || !Array.isArray(r.ggufs)) throw new Error('GGUF catalog shape incomplete');
 const expected = new Map([
   ['main-test.gguf', ['ds4', 'main']],
-  ['glm-test.gguf', ['ds4', 'main']],
+  ['GLM-5.3-Flash-Q2.gguf', ['ds4-glm5.3', 'glm-5.3-flash']],
   ['laguna-test.gguf', ['ds4-laguna-s21', 'laguna-s2.1']],
 ]);
 for (const [file, [checkout, branch]] of expected) {
@@ -195,7 +238,7 @@ for (const [file, [checkout, branch]] of expected) {
 }
 if (r.activeEngine !== path.join(root, 'ds4')) throw new Error(`wrong active GGUF engine: ${r.activeEngine}`);
 if (!r.ggufs.find((g) => g.file === 'main-test.gguf').activeEngine) throw new Error('active GGUF row should be marked');
-if (!r.ggufs.find((g) => g.file === 'glm-test.gguf').activeEngine) throw new Error('GLM should share the active main checkout');
+if (r.ggufs.find((g) => g.file === 'GLM-5.3-Flash-Q2.gguf').activeEngine) throw new Error('GLM 5.3 should use its inactive side checkout while main is active');
 NODE
 node - "${tmp}/skill-analytics.json" <<'NODE'
 const fs = require('fs');
@@ -210,6 +253,7 @@ const generated = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const progress = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 if (!generated.ok || !generated.url || generated.id !== 'image-http-test') throw new Error(`image generation response incomplete: ${JSON.stringify(generated)}`);
 if (!progress.ok || progress.state !== 'complete' || progress.progress !== 100) throw new Error(`image progress should reach complete: ${JSON.stringify(progress)}`);
+if (progress.provider !== 'ideogram4-fp8' || progress.quality !== 'quality-48') throw new Error(`image terminal worker metadata was overwritten: ${JSON.stringify(progress)}`);
 NODE
 node - "${tmp}/image-edit.json" "${tmp}/image-edit-progress.json" <<'NODE'
 const fs = require('fs');
@@ -217,6 +261,7 @@ const edited = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const progress = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 if (!edited.ok || !edited.url || edited.id !== 'image-edit-http-test') throw new Error(`image edit response incomplete: ${JSON.stringify(edited)}`);
 if (!progress.ok || progress.state !== 'complete' || progress.progress !== 100) throw new Error(`image edit progress should reach complete: ${JSON.stringify(progress)}`);
+if (progress.provider !== 'hunyuan-image3-instruct-nf4' || progress.quality !== 'full-50') throw new Error(`image-edit terminal worker metadata was overwritten: ${JSON.stringify(progress)}`);
 NODE
 node - "${tmp}/agent-send-large-code.txt" "${tmp}/agent-send-large-response.json" <<'NODE'
 const fs = require('fs');
@@ -968,5 +1013,272 @@ const fs = require('fs');
 const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (!r.ok || r.lan !== false) throw new Error('LAN disable failed');
 NODE
+
+# Two DStudio servers may share one downloaded H3 runtime. Stopping either one
+# must terminate only the workers it launched, never another server's job.
+port2="$(
+  node - <<'NODE'
+const net = require('net');
+const s = net.createServer();
+s.listen(0, '127.0.0.1', () => {
+  const port = s.address().port;
+  s.close(() => process.stdout.write(String(port)));
+});
+NODE
+)"
+HOME="${tmp}/home" DS4UI_TEST_MODE=1 DSTUDIO_IMAGE_TEST_MODE=1 \
+  DSTUDIO_VIDEO_TEST_MODE=1 DSTUDIO_GSA_INSTALL_DRY_RUN=1 \
+  DS4UI_PAGE_FROM_DISK=1 "${bin}" "${port2}" "${tmp}/ds4" \
+  >"${tmp}/server-2.log" 2>&1 &
+pid2="$!"
+base2="http://127.0.0.1:${port2}"
+for _ in $(seq 1 80); do
+  if curl -fsS --max-time 1 "${base2}/api/status" >/dev/null 2>&1; then break; fi
+  sleep 0.1
+done
+curl -fsS --max-time 2 "${base2}/api/status" >/dev/null
+
+# Image jobs use the same strict per-server ownership and interrupt lifecycle
+# as H3. A shared HOME must not let either server stop or reuse the other's job.
+curl -fsS --max-time 10 -X POST "${base2}/api/image/generate" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d '{"prompt":"second server image ownership fixture","job":"image-http-test-b"}' \
+  >"${tmp}/image-generate-b.json"
+image_duplicate_code="$(curl -sS --max-time 2 -o "${tmp}/image-duplicate-job.json" -w '%{http_code}' \
+  -X POST "${base}/api/image/generate" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d '{"prompt":"must not overwrite the first image job","job":"image-http-test"}')"
+if [ "${image_duplicate_code}" != "409" ]; then
+  echo "same-server duplicate image job returned ${image_duplicate_code}, expected 409" >&2
+  exit 1
+fi
+image_job_a="${tmp}/home/.dstudio/image/jobs/image-http-test"
+image_job_b="${tmp}/home/.dstudio/image/jobs/image-http-test-b"
+[ -s "${image_job_a}/server-owner" ]
+[ -s "${image_job_b}/server-owner" ]
+if cmp -s "${image_job_a}/server-owner" "${image_job_b}/server-owner"; then
+  echo "separate DStudio servers received the same image owner token" >&2
+  exit 1
+fi
+/bin/sleep 60 & image_sleep_a="$!"
+/bin/sleep 60 & image_sleep_b="$!"
+printf '%s\n' '{"ok":true,"state":"running","stage":"inference","label":"image ownership fixture","progress":50}' >"${image_job_a}/status.json"
+printf '%s\n' '{"ok":true,"state":"running","stage":"inference","label":"image ownership fixture","progress":50}' >"${image_job_b}/status.json"
+printf '%s\n' "${image_sleep_a}" >"${image_job_a}/worker.pid"
+printf '%s\n' "${image_sleep_b}" >"${image_job_b}/worker.pid"
+image_cross_stop_a="$(curl -sS --max-time 2 -o "${tmp}/image-cross-stop-a.json" -w '%{http_code}' \
+  -X POST "${base2}/api/image/stop" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d '{"job":"image-http-test"}')"
+image_cross_stop_b="$(curl -sS --max-time 2 -o "${tmp}/image-cross-stop-b.json" -w '%{http_code}' \
+  -X POST "${base}/api/image/stop" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d '{"job":"image-http-test-b"}')"
+if [ "${image_cross_stop_a}" != "409" ] || [ "${image_cross_stop_b}" != "409" ]; then
+  echo "cross-server image stop returned ${image_cross_stop_a}/${image_cross_stop_b}, expected 409/409" >&2
+  exit 1
+fi
+if ! kill -0 "${image_sleep_a}" >/dev/null 2>&1 || ! kill -0 "${image_sleep_b}" >/dev/null 2>&1; then
+  echo "a cross-server stop terminated a foreign image worker" >&2
+  exit 1
+fi
+image_owner_stop_code="$(curl -sS --max-time 2 -o "${tmp}/image-owner-stop.json" -w '%{http_code}' \
+  -X POST "${base}/api/image/stop" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d '{"job":"image-http-test"}')"
+if [ "${image_owner_stop_code}" != "200" ]; then
+  echo "owner image stop returned ${image_owner_stop_code}, expected 200" >&2
+  exit 1
+fi
+wait "${image_sleep_a}" >/dev/null 2>&1 || true
+image_sleep_a=""
+node - "${image_job_a}/status.json" <<'NODE'
+const fs = require('fs');
+const status = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (status.ok !== false || status.state !== 'error' || status.stage !== 'cancelled') {
+  throw new Error(`cancelled image status is not terminally false: ${JSON.stringify(status)}`);
+}
+NODE
+
+image_queued_job="${tmp}/home/.dstudio/image/jobs/image-http-queued-cancel"
+mkdir -p "${image_queued_job}"
+cp "${image_job_a}/server-owner" "${image_queued_job}/server-owner"
+image_queued_stop_code="$(curl -sS --max-time 2 -o "${tmp}/image-queued-stop.json" -w '%{http_code}' \
+  -X POST "${base}/api/image/stop" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d '{"job":"image-http-queued-cancel"}')"
+if [ "${image_queued_stop_code}" != "200" ]; then
+  echo "queued image stop returned ${image_queued_stop_code}, expected 200" >&2
+  exit 1
+fi
+[ -s "${image_queued_job}/cancel-requested" ]
+node - "${image_queued_job}/status.json" <<'NODE'
+const fs = require('fs');
+const status = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (status.ok !== false || status.state !== 'error' || status.stage !== 'cancelled') {
+  throw new Error(`queued image cancellation is not terminally false: ${JSON.stringify(status)}`);
+}
+NODE
+
+# Re-arm the first image worker so shutdown ownership is checked independently
+# from the explicit stop endpoint.
+/bin/sleep 60 & image_sleep_a="$!"
+printf '%s\n' "${image_sleep_a}" >"${image_job_a}/worker.pid"
+
+curl -fsS --max-time 10 -X POST "${base2}/api/video/generate" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d '{"prompt":"second server ownership fixture","duration":5,"aspect":"16:9","encoder":"official","licenseAccepted":true,"job":"video-http-test-b"}' \
+  >"${tmp}/video-generate-b.json"
+
+duplicate_code="$(curl -sS --max-time 2 -o "${tmp}/video-duplicate-job.json" -w '%{http_code}' \
+  -X POST "${base}/api/video/generate" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d '{"prompt":"must not overwrite the first job","duration":5,"aspect":"16:9","encoder":"official","licenseAccepted":true,"job":"video-http-test"}')"
+if [ "${duplicate_code}" != "409" ]; then
+  echo "same-server duplicate H3 job returned ${duplicate_code}, expected 409" >&2
+  exit 1
+fi
+
+# An explicit job id can arrive at both servers concurrently. Exactly one
+# server may atomically claim it; the loser must receive 409 without launching
+# or overwriting the winner's owner token.
+race_body='{"prompt":"concurrent ownership fixture","duration":5,"aspect":"16:9","encoder":"official","licenseAccepted":true,"job":"video-http-owner-race"}'
+curl -sS --max-time 10 -o "${tmp}/video-owner-race-a.json" -w '%{http_code}' \
+  -X POST "${base}/api/video/generate" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d "${race_body}" >"${tmp}/video-owner-race-a.code" &
+race_a_pid="$!"
+curl -sS --max-time 10 -o "${tmp}/video-owner-race-b.json" -w '%{http_code}' \
+  -X POST "${base2}/api/video/generate" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d "${race_body}" >"${tmp}/video-owner-race-b.code" &
+race_b_pid="$!"
+wait "${race_a_pid}"
+wait "${race_b_pid}"
+race_codes="$(sort "${tmp}/video-owner-race-a.code" "${tmp}/video-owner-race-b.code" | tr '\n' ' ' | sed 's/ $//')"
+if [ "${race_codes}" != "200 409" ]; then
+  echo "concurrent H3 job claim returned ${race_codes}, expected one 200 and one 409" >&2
+  exit 1
+fi
+[ -s "${tmp}/home/.dstudio/minimax-h3/jobs/video-http-owner-race/server-owner" ]
+
+job_a="${tmp}/home/.dstudio/minimax-h3/jobs/video-http-test"
+job_b="${tmp}/home/.dstudio/minimax-h3/jobs/video-http-test-b"
+[ -s "${job_a}/server-owner" ]
+[ -s "${job_b}/server-owner" ]
+if cmp -s "${job_a}/server-owner" "${job_b}/server-owner"; then
+  echo "separate DStudio servers received the same H3 owner token" >&2
+  exit 1
+fi
+/bin/sleep 60 & sleep_a="$!"
+/bin/sleep 60 & sleep_b="$!"
+printf '%s\n' '{"ok":true,"state":"running","stage":"inference","label":"ownership fixture","progress":50}' >"${job_a}/status.json"
+printf '%s\n' '{"ok":true,"state":"running","stage":"inference","label":"ownership fixture","progress":50}' >"${job_b}/status.json"
+printf '%s\n' "${sleep_a}" >"${job_a}/worker.pid"
+printf '%s\n' "${sleep_b}" >"${job_b}/worker.pid"
+
+cross_stop_a="$(curl -sS --max-time 2 -o "${tmp}/video-cross-stop-a.json" -w '%{http_code}' \
+  -X POST "${base2}/api/video/stop" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d '{"job":"video-http-test"}')"
+cross_stop_b="$(curl -sS --max-time 2 -o "${tmp}/video-cross-stop-b.json" -w '%{http_code}' \
+  -X POST "${base}/api/video/stop" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d '{"job":"video-http-test-b"}')"
+if [ "${cross_stop_a}" != "409" ] || [ "${cross_stop_b}" != "409" ]; then
+  echo "cross-server H3 stop returned ${cross_stop_a}/${cross_stop_b}, expected 409/409" >&2
+  exit 1
+fi
+if ! kill -0 "${sleep_a}" >/dev/null 2>&1 || ! kill -0 "${sleep_b}" >/dev/null 2>&1; then
+  echo "a cross-server stop terminated a foreign H3 worker" >&2
+  exit 1
+fi
+
+owner_stop_code="$(curl -sS --max-time 2 -o "${tmp}/video-owner-stop.json" -w '%{http_code}' \
+  -X POST "${base}/api/video/stop" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d '{"job":"video-http-test"}')"
+if [ "${owner_stop_code}" != "200" ]; then
+  echo "owner H3 stop returned ${owner_stop_code}, expected 200" >&2
+  exit 1
+fi
+wait "${sleep_a}" >/dev/null 2>&1 || true
+sleep_a=""
+node - "${job_a}/status.json" <<'NODE'
+const fs = require('fs');
+const status = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (status.ok !== false || status.state !== 'error' || status.stage !== 'cancelled') {
+  throw new Error(`cancelled H3 status is not terminally false: ${JSON.stringify(status)}`);
+}
+NODE
+
+# Cancellation must also win before worker.pid exists. Seed a queued job owned
+# by the first server, then prove /stop persists the marker and a terminal false
+# status instead of treating the absent pid as a completed generation.
+queued_job="${tmp}/home/.dstudio/minimax-h3/jobs/video-http-queued-cancel"
+mkdir -p "${queued_job}"
+cp "${job_a}/server-owner" "${queued_job}/server-owner"
+queued_stop_code="$(curl -sS --max-time 2 -o "${tmp}/video-queued-stop.json" -w '%{http_code}' \
+  -X POST "${base}/api/video/stop" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
+  -d '{"job":"video-http-queued-cancel"}')"
+if [ "${queued_stop_code}" != "200" ]; then
+  echo "queued H3 stop returned ${queued_stop_code}, expected 200" >&2
+  exit 1
+fi
+[ -s "${queued_job}/cancel-requested" ]
+node - "${queued_job}/status.json" <<'NODE'
+const fs = require('fs');
+const status = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (status.ok !== false || status.state !== 'error' || status.stage !== 'cancelled') {
+  throw new Error(`queued H3 cancellation is not terminally false: ${JSON.stringify(status)}`);
+}
+NODE
+
+# Re-arm an owned worker so the subsequent server-shutdown assertion remains
+# independent from the explicit stop-endpoint assertion above.
+/bin/sleep 60 & sleep_a="$!"
+printf '%s\n' "${sleep_a}" >"${job_a}/worker.pid"
+
+kill "${pid2}"
+wait "${pid2}" || true
+pid2=""
+wait "${image_sleep_b}" >/dev/null 2>&1 || true
+if kill -0 "${image_sleep_b}" >/dev/null 2>&1; then
+  echo "second server did not stop its own image worker" >&2
+  exit 1
+fi
+image_sleep_b=""
+if ! kill -0 "${image_sleep_a}" >/dev/null 2>&1; then
+  echo "second server stopped the first server's image worker" >&2
+  exit 1
+fi
+wait "${sleep_b}" >/dev/null 2>&1 || true
+if kill -0 "${sleep_b}" >/dev/null 2>&1; then
+  echo "second server did not stop its own H3 worker" >&2
+  exit 1
+fi
+sleep_b=""
+if ! kill -0 "${sleep_a}" >/dev/null 2>&1; then
+  echo "second server stopped the first server's H3 worker" >&2
+  exit 1
+fi
+[ -s "${job_a}/worker.pid" ]
+
+kill "${pid}"
+wait "${pid}" || true
+pid=""
+wait "${image_sleep_a}" >/dev/null 2>&1 || true
+if kill -0 "${image_sleep_a}" >/dev/null 2>&1; then
+  echo "first server did not stop its own image worker" >&2
+  exit 1
+fi
+image_sleep_a=""
+wait "${sleep_a}" >/dev/null 2>&1 || true
+if kill -0 "${sleep_a}" >/dev/null 2>&1; then
+  echo "first server did not stop its own H3 worker" >&2
+  exit 1
+fi
+sleep_a=""
 
 echo "http_lan_test: ok"

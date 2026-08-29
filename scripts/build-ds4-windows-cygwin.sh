@@ -55,6 +55,7 @@ echo "windows-cygwin: building DStudio jsonl patch helper"
   fi
   cp -f "$DS4_DIR/ds4_gpu_args_cpu.o" "$DS4_DIR/ds4_gpu_args.o"
   rm -f "$DS4_DIR/ds4-agent-jsonl" "$DS4_DIR/ds4-agent-jsonl.exe" \
+        "$DS4_DIR/ds4-cowork" "$DS4_DIR/ds4-cowork.exe" \
         "$DS4_DIR/ds4_agent_jsonl.o" "$DS4_DIR/dstudio_remote_llm.o"
   DS4UI_JSONL_CC="$CC_BIN" \
   DS4UI_JSONL_CFLAGS="$CPU_CFLAGS" \
@@ -78,7 +79,7 @@ echo "windows-cygwin: building ds4-design"
   METAL_LDLIBS="-lm -pthread" \
   ds4-design
 
-for exe in ds4-server ds4-agent-jsonl ds4-design; do
+for exe in ds4-server ds4-agent-jsonl ds4-cowork ds4-design; do
   if [ ! -f "$DS4_DIR/$exe" ] && [ ! -f "$DS4_DIR/$exe.exe" ]; then
     echo "missing expected engine binary: $exe" >&2
     exit 1

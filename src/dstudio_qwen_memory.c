@@ -4,6 +4,7 @@
 
 typedef struct {
     int acquired;
+    int required;
     const char *purpose;
 } qwen_memory_lease;
 
@@ -12,10 +13,15 @@ static int qwen_memory_should_yield(const char *purpose, char *reason, size_t re
     unsigned long long ram = dstudio_physical_memory_bytes();
     long long model = current_model_file_size();
     unsigned long long reserve = 16ull * gib;
-    if (purpose && !strcmp(purpose, "image-generation")) reserve = 48ull * gib;
-    else if (purpose && !strcmp(purpose, "vision")) reserve = 12ull * gib;
+    /* The image pipeline serializes Qwen3.8 routing, Ideogram 4 generation and
+     * HunyuanImage editing, but its largest measured worker still needs DS4
+     * fully evacuated on a 96 GiB unified-memory machine. */
+    if (purpose && !strcmp(purpose, "image-pipeline")) reserve = 80ull * gib;
+    else if (purpose && (!strcmp(purpose, "vision") || !strcmp(purpose, "pdf"))) reserve = 40ull * gib;
+    else if (purpose && !strcmp(purpose, "video-generation")) reserve = 48ull * gib;
 
-    if (g_remote_base_url[0] || g_mode != ENGINE_SERVER || g_child <= 0) {
+    if (g_remote_base_url[0] || g_mode != ENGINE_SERVER ||
+        (g_child <= 0 && !g_external_server)) {
         snprintf(reason, reasonsz, "no local ds4-server lease target");
         return 0;
     }
@@ -69,13 +75,14 @@ static int qwen_memory_post(int begin) {
 }
 
 static qwen_memory_lease qwen_memory_begin(const char *purpose) {
-    qwen_memory_lease lease = {0, purpose};
+    qwen_memory_lease lease = {0, 0, purpose};
     char reason[256];
     if (!qwen_memory_should_yield(purpose, reason, sizeof reason)) {
         dstudio_log_event("info", "qwen-memory", 0, "Qwen %s: %s",
                           purpose ? purpose : "pipeline", reason);
         return lease;
     }
+    lease.required = 1;
     lease.acquired = qwen_memory_post(1);
     dstudio_log_event(lease.acquired ? "info" : "warn", "qwen-memory", 0,
                       "Qwen %s: temporary SSD streaming %s (%s; saved setting=%s)",
@@ -84,6 +91,10 @@ static qwen_memory_lease qwen_memory_begin(const char *purpose) {
                       g_cfg.ssd_streaming == SSD_STREAMING_ON ? "on" :
                       g_cfg.ssd_streaming == SSD_STREAMING_OFF ? "off" : "auto");
     return lease;
+}
+
+static int qwen_memory_ready(const qwen_memory_lease *lease) {
+    return lease && (!lease->required || lease->acquired);
 }
 
 static void qwen_memory_end(qwen_memory_lease *lease) {

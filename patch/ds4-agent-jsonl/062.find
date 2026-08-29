@@ -1,0 +1,9 @@
+static char *agent_default_cache_dir(void) {
+    const char *home = getenv("HOME");
+    if (!home || !home[0]) home = ".";
+    agent_buf b = {0};
+    agent_buf_puts(&b, home);
+    if (b.len == 0 || b.ptr[b.len - 1] != '/') agent_buf_puts(&b, "/");
+    agent_buf_puts(&b, ".ds4/kvcache");
+    return agent_buf_take(&b);
+}

@@ -950,7 +950,8 @@ static void api_setup_ds4(int fd, const char *body) {
     int restarted = 0;
     char restart_err[256] = "";
     if (was_running) {
-        int ok = prev_mode == ENGINE_AGENT  ? spawn_agent(&prev_cfg, prev_wd, restart_err, sizeof restart_err)
+        int ok = prev_mode == ENGINE_AGENT  ? spawn_agent(&prev_cfg, prev_wd, 0, restart_err, sizeof restart_err)
+               : prev_mode == ENGINE_COWORK ? spawn_agent(&prev_cfg, prev_wd, 1, restart_err, sizeof restart_err)
                : prev_mode == ENGINE_DESIGN ? spawn_design(&prev_cfg, prev_wd, restart_err, sizeof restart_err)
                                             : spawn_server(&prev_cfg, restart_err, sizeof restart_err);
         restarted = ok ? 1 : 0;

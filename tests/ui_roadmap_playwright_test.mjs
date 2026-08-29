@@ -373,10 +373,14 @@ try {
   page.on('pageerror', (error) => pageErrors.push(error?.stack || error?.message || String(error)));
   page.on('console', (msg) => { if (msg.type() === 'error') pageErrors.push(msg.text()); });
   await page.addInitScript(() => {
+    // Preserve deliberately injected state across the reload used to verify
+    // recovery from an interrupted roadmap stream below.
+    if (localStorage.getItem('ds4web.chats.v2')) return;
     const now = Date.now();
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
       v: 2, onboarded: true, theme: 'dark', baseUrl: '', chatBackend: 'local',
       model: 'deepseek-v4-flash', modelVariant: 'flash', thinkLevel: 'off',
+      qualityDefaultsVersion: 1,
       ctxSize: 65536, enginePower: 90, ssdStreaming: 'auto', webMode: 'off',
       webSearchBrowserAllowed: true,
     }));
@@ -408,40 +412,46 @@ try {
   assert.equal(await page.locator('.cbar-think-menu').count(), 0, 'locked Roadmap thinking must not open a selector');
 
   await page.locator('#composer-input').fill('Voglio imparare lo sviluppo frontend da zero in tre mesi, con esercizi e verifiche pratiche.');
-  assert.equal(await page.locator('#composer-form').evaluate((node) => getComputedStyle(node).boxShadow), 'none',
-    'focusing the Roadmap composer must not add a selection shadow');
+  const focusedRoadmapComposer = await page.locator('#composer-form').evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { boxShadow: style.boxShadow, borderRadius: style.borderRadius };
+  });
+  assert.match(focusedRoadmapComposer.boxShadow, /0px 8px 30px/,
+    'Roadmap should use the same focused composer elevation as Agent');
+  assert.equal(focusedRoadmapComposer.borderRadius, '20px',
+    'Roadmap should use the same rounded composer geometry as Agent');
   await page.locator('#btn-send').click();
-  const assembly = page.locator('.roadmap-build-assembly');
-  await assembly.waitFor({ state: 'visible' });
-  assert.equal(await assembly.locator('.roadmap-build-piece').count(), 4,
-    'Roadmap loading should visibly assemble four connected graph pieces');
+  const loadingTrace = page.locator('.roadmap-loading__trace');
+  await loadingTrace.waitFor({ state: 'visible' });
+  assert.equal(await loadingTrace.locator('.roadmap-loading__step').count(), 3,
+    'Roadmap loading should show the three-step research trace from the approved design');
+  assert.equal(await page.locator('.roadmap-loading__phase').count(), 3,
+    'Roadmap loading should preview the upcoming vertical phases while the draft is being built');
   assert.match(await page.locator('.roadmap-direct-loading__label').textContent() || '', /Deep researching your learning path|Building your roadmap/);
 
-  // Sending must immediately lower the complete form while generation keeps
-  // running. The small Roadmap prompt handle remains available, and Stop stays
-  // mounted inside the lowered form without forcing that form back onscreen.
+  // The Roadmap keeps the shared Agent-sized composer visible at the bottom so
+  // the learner can refine the plan without discovering a hidden drawer.
   await page.waitForFunction(() => !document.body.classList.contains('composer-raised'));
-  await page.waitForTimeout(800);
   const streamingComposer = await page.locator('body.roadmap-mode:not(.composer-raised) .composer').evaluate((node) => {
-    const peek = node.querySelector('#roadmap-composer-peek').getBoundingClientRect();
     const form = node.querySelector('#composer-form').getBoundingClientRect();
     const stop = node.querySelector('#btn-stop');
+    const chat = node.closest('.chat').getBoundingClientRect();
     return {
-      peekTop: peek.top,
-      peekBottom: peek.bottom,
+      composerBottom: node.getBoundingClientRect().bottom,
       formTop: form.top,
+      formBottom: form.bottom,
+      formWidth: form.width,
+      chatWidth: chat.width,
       viewport: innerHeight,
       stopHidden: stop.hidden,
-      expanded: node.querySelector('#roadmap-composer-peek').getAttribute('aria-expanded'),
     };
   });
-  assert.ok(streamingComposer.peekTop >= streamingComposer.viewport - 64 && streamingComposer.peekBottom <= streamingComposer.viewport + 1,
-    `only the Roadmap prompt handle should remain visible after Send: ${JSON.stringify(streamingComposer)}`);
-  assert.ok(streamingComposer.formTop >= streamingComposer.viewport - 2,
-    `the full composer should slide below the viewport after Send: ${JSON.stringify(streamingComposer)}`);
+  assert.ok(streamingComposer.formTop < streamingComposer.viewport && streamingComposer.formBottom <= streamingComposer.viewport + 1,
+    `the Roadmap prompt should remain visible during generation: ${JSON.stringify(streamingComposer)}`);
+  assert.ok(streamingComposer.formWidth >= 760 && streamingComposer.formWidth <= 770,
+    'the Roadmap prompt should use the same 48rem composer measure as Agent');
   assert.equal(streamingComposer.stopHidden, false,
-    'Stop should remain available by raising the handle while generation is running');
-  assert.equal(streamingComposer.expanded, 'false', 'sending should leave the prompt handle in its lowered state');
+    'Stop should remain available while generation is running');
 
   const card = page.locator('.roadmap-card');
   await card.waitFor({ state: 'visible' });
@@ -542,78 +552,21 @@ try {
   assert.equal(await page.locator('.roadmap-card__head').count(), 0, 'Roadmap should start directly from the graph instead of a large summary header');
   assert.doesNotMatch(await page.locator('.msg--roadmap-direct').textContent() || '', /Questo testo introduttivo|Reasoning privato/);
 
-  // Once generated, only the dedicated Roadmap prompt handle remains visible.
-  // Hover raises the real composer and mouse leave lowers it again.
+  // The prompt remains in its normal footer position after generation too.
   const roadmapComposer = page.locator('body.roadmap-mode:not(.composer-raised) .composer');
   await page.setViewportSize({ width: 1800, height: 960 });
-  await page.mouse.move(12, 12);
-  await page.waitForTimeout(500);
-  const collapsedComposer = await roadmapComposer.evaluate((node) => {
+  const roadmapComposerLayout = await roadmapComposer.evaluate((node) => {
     const box = node.getBoundingClientRect();
-    const peekBox = node.querySelector('#roadmap-composer-peek').getBoundingClientRect();
     const formBox = node.querySelector('#composer-form').getBoundingClientRect();
     return {
-      top: box.top, bottom: box.bottom, peekTop: peekBox.top, peekBottom: peekBox.bottom, formTop: formBox.top,
-      viewport: innerHeight, transitionDuration: getComputedStyle(node).transitionDuration,
+      top: box.top, bottom: box.bottom, formTop: formBox.top, formBottom: formBox.bottom,
+      formWidth: formBox.width, viewport: innerHeight,
     };
   });
-  assert.ok(collapsedComposer.top >= collapsedComposer.viewport - 64 && collapsedComposer.top < collapsedComposer.viewport - 32,
-    `the Roadmap prompt handle should remain above the viewport edge: ${JSON.stringify(collapsedComposer)}`);
-  assert.ok(collapsedComposer.peekTop >= collapsedComposer.viewport - 64 && collapsedComposer.peekBottom <= collapsedComposer.viewport + 1,
-    'the visible slice should be the dedicated Roadmap prompt handle');
-  assert.ok(collapsedComposer.formTop >= collapsedComposer.viewport - 2,
-    'the full editable form should remain below the viewport until the handle is raised');
-  assert.notEqual(collapsedComposer.transitionDuration, '0s', 'the Roadmap composer should move with an animation');
-
-  const composerBox = await roadmapComposer.boundingBox();
-  await page.mouse.move(composerBox.x + composerBox.width / 2, collapsedComposer.viewport - 24);
-  await page.waitForTimeout(500);
-  const raisedComposer = await roadmapComposer.evaluate((node) => {
-    const box = node.getBoundingClientRect();
-    const formBox = node.querySelector('#composer-form').getBoundingClientRect();
-    const chatBox = node.closest('.chat').getBoundingClientRect();
-    return { bottom: box.bottom, formTop: formBox.top, formWidth: formBox.width, chatWidth: chatBox.width, viewport: innerHeight };
-  });
-  assert.ok(raisedComposer.bottom <= raisedComposer.viewport + 1, 'hover should raise the complete composer into view');
-  assert.ok(raisedComposer.formTop < raisedComposer.viewport - 80, 'hover should expose the editable Roadmap form');
-  assert.ok(raisedComposer.formWidth >= raisedComposer.chatWidth * 0.9,
-    'the open Roadmap composer should use almost all of the available workspace width');
-  assert.equal(await page.locator('#roadmap-composer-peek').getAttribute('aria-expanded'), 'true',
-    'raising the handle should expose its expanded state');
-
-  await page.mouse.move(12, 80);
-  await page.waitForTimeout(500);
-  const loweredComposer = await roadmapComposer.evaluate((node) => ({
-    top: node.getBoundingClientRect().top,
-    peekBottom: node.querySelector('#roadmap-composer-peek').getBoundingClientRect().bottom,
-    formTop: node.querySelector('#composer-form').getBoundingClientRect().top,
-    viewport: innerHeight,
-  }));
-  assert.ok(loweredComposer.top >= loweredComposer.viewport - 64, 'mouse leave should lower the composer again');
-  assert.ok(loweredComposer.peekBottom <= loweredComposer.viewport + 1, 'mouse leave should keep only the handle visible');
-  assert.ok(loweredComposer.formTop >= loweredComposer.viewport - 2, 'mouse leave should lower the full form again');
-  assert.equal(await page.locator('#roadmap-composer-peek').getAttribute('aria-expanded'), 'false',
-    'lowering the composer should restore the collapsed handle state');
-
-  // The handle is also a real up/down toggle: a second click must lower the
-  // form even while the pointer is still over the footer (hover cannot trap it).
-  const promptHandle = page.locator('#roadmap-composer-peek');
-  await promptHandle.click();
-  await page.waitForTimeout(500);
-  assert.equal(await roadmapComposer.evaluate((node) => node.classList.contains('is-roadmap-composer-pinned')), true,
-    'clicking the collapsed Roadmap prompt handle should pin the composer open');
-  await promptHandle.click();
-  await page.waitForTimeout(500);
-  const clickLoweredComposer = await roadmapComposer.evaluate((node) => ({
-    formTop: node.querySelector('#composer-form').getBoundingClientRect().top,
-    viewport: innerHeight,
-    pinned: node.classList.contains('is-roadmap-composer-pinned'),
-  }));
-  assert.equal(clickLoweredComposer.pinned, false,
-    'the down toggle should release the pinned state');
-  assert.ok(clickLoweredComposer.formTop >= clickLoweredComposer.viewport - 2,
-    'clicking the open Roadmap prompt handle should slide the complete form down');
-  await page.mouse.move(12, 80);
+  assert.ok(roadmapComposerLayout.formTop < roadmapComposerLayout.viewport && roadmapComposerLayout.formBottom <= roadmapComposerLayout.viewport + 1,
+    `the completed Roadmap prompt should remain visible: ${JSON.stringify(roadmapComposerLayout)}`);
+  assert.ok(roadmapComposerLayout.formWidth >= 760 && roadmapComposerLayout.formWidth <= 770,
+    'the completed Roadmap prompt should keep the shared Agent composer measure');
   await page.setViewportSize({ width: 1360, height: 960 });
 
   const cardVisual = await card.evaluate((node) => {
@@ -629,7 +582,10 @@ try {
   assert.equal(cardVisual.backgroundImage, 'none', 'the roadmap shell should not have a gradient');
   assert.equal(cardVisual.borderWidth, '0px', 'the roadmap should not sit inside a decorative card border');
   assert.equal(cardVisual.boxShadow, 'none', 'the roadmap should not sit inside a large card shadow');
-  assert.notEqual(cardVisual.stageColor, 'rgb(253, 224, 71)', 'stage nodes should use the new restrained palette');
+  assert.equal(cardVisual.stageColor, 'rgba(0, 0, 0, 0)', 'phase titles should sit directly on the white editorial canvas');
+  assert.equal(await page.locator('#roadmap-head-stats').isVisible(), true,
+    'the approved design exposes progress, completion and effort in the Roadmap header');
+  assert.match(await page.locator('#chat-title').textContent() || '', /Frontend moderno/);
 
   const exportMenu = card.locator('.roadmap-export');
   assert.match(await exportMenu.locator('summary').textContent() || '', /Download roadmap/);
@@ -679,15 +635,15 @@ try {
     return {
       card: node.getBoundingClientRect().width,
       stage: rect('.roadmap-stage__node'),
-      left: rect('.roadmap-topic--left'),
-      right: rect('.roadmap-topic--right'),
+      firstTopic: rect('.roadmap-topic--left'),
+      secondTopic: rect('.roadmap-topic--right'),
     };
   });
-  assert.ok(layout.card > 800, `Roadmap should use the available canvas: ${JSON.stringify(layout)}`);
-  assert.ok(layout.left.right < layout.right.left, `Alternating branches should remain visually separated: ${JSON.stringify(layout)}`);
-  const stageCenter = (layout.stage.left + layout.stage.right) / 2;
-  assert.ok(layout.left.right < stageCenter && layout.right.left > stageCenter,
-    `Topic branches should flank their stage dependency rail: ${JSON.stringify(layout)}`);
+  assert.ok(layout.card <= 740 && layout.card > 500, `Roadmap should use the reference reading column: ${JSON.stringify(layout)}`);
+  assert.ok(Math.abs(layout.firstTopic.left - layout.secondTopic.left) <= 1,
+    `Roadmap topics should share one vertical reading rail: ${JSON.stringify(layout)}`);
+  assert.ok(Math.abs(layout.firstTopic.left - (layout.stage.left + 50)) <= 2,
+    `Topic rows should align after the 32px phase markers: ${JSON.stringify(layout)}`);
 
   const firstTopic = card.locator('.roadmap-topic[data-topic-id="html-semantics"]');
   await firstTopic.locator('.roadmap-topic__toggle').click();
@@ -709,12 +665,33 @@ try {
 
   // Add a child on the same visual branch and verify the graph override is persisted.
   const addBranch = firstTopic.locator('.roadmap-node-action[aria-label^="Add a block"]');
+  await firstTopic.locator('.roadmap-topic__node').hover();
   await addBranch.click();
   const addForm = firstTopic.locator('.roadmap-add');
   await addForm.locator('input.roadmap-add__input').fill('Accessibilità HTML');
   await addForm.locator('.roadmap-add__description').fill('Struttura, nomi accessibili e navigazione da tastiera.');
   await addForm.locator('button[type="submit"]').click();
-  await addForm.locator('.roadmap-add__status').waitFor({ state: 'visible' });
+  try {
+    await addForm.locator('.roadmap-add__status').waitFor({ state: 'visible' });
+  } catch (error) {
+    const diagnostic = await page.evaluate(() => {
+      const form = document.querySelector('.roadmap-topic[data-topic-id="html-semantics"] .roadmap-add');
+      const status = form?.querySelector('.roadmap-add__status');
+      const toast = [...document.querySelectorAll('.toast')].at(-1);
+      return {
+        formConnected: !!form?.isConnected,
+        formGenerating: !!form?.classList.contains('is-generating'),
+        statusHidden: status?.hidden,
+        statusText: status?.textContent || '',
+        submitDisabled: form?.querySelector('button[type="submit"]')?.disabled,
+        titleValue: form?.querySelector('input.roadmap-add__input')?.value || '',
+        descriptionValue: form?.querySelector('.roadmap-add__description')?.value || '',
+        invalidFields: form?.querySelectorAll(':invalid').length || 0,
+        toast: toast?.textContent || '',
+      };
+    });
+    throw new Error(`Roadmap block generation never exposed its live status: ${JSON.stringify({ diagnostic, blockRequests: blockAttempts })}`, { cause: error });
+  }
   assert.match(await addForm.locator('.roadmap-add__status').textContent() || '', /Starting|Thinking|Writing/,
     'Add should visibly show that the model is elaborating the learner input');
   assert.equal(await addForm.locator('button[type="submit"]').isDisabled(), true,
@@ -916,6 +893,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.chat-item--active .chat-item__title')?.textContent === 'Frontend personale');
 
   // Delete the custom block through the in-app confirmation flow.
+  await customTopic.locator('.roadmap-topic__node').hover();
   await customTopic.locator('.roadmap-node-action[aria-label^="Delete "]').click();
   await page.locator('#confirm-dialog[open]').waitFor({ state: 'visible' });
   await page.locator('#confirm-go').click();
@@ -937,6 +915,96 @@ try {
   assert.ok(mobile.cardLeft >= -1 && mobile.cardRight <= mobile.viewport + 1, `Roadmap card must stay in the viewport: ${JSON.stringify(mobile)}`);
   assert.ok(Math.abs(mobile.topicLefts[0] - mobile.topicLefts[1]) <= 2,
     `Mobile branches should collapse onto one readable rail: ${JSON.stringify(mobile)}`);
+
+  // A new Roadmap generation is transactional: a reload or terminated engine
+  // must preserve the previous graph and expose both the interrupted prompt
+  // and a way back, instead of replacing it with a permanent loading trace.
+  await page.setViewportSize({ width: 1360, height: 960 });
+  await page.evaluate((previousRoadmap) => {
+    const savedChats = JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}');
+    const now = Date.now();
+    savedChats.chats.push({
+      id: 'interrupted-roadmap', mode: 'roadmap', title: 'Roadmap interrotta', createdAt: now, updatedAt: now,
+      messages: [
+        { id: 'previous-user', role: 'user', content: 'Voglio imparare frontend.', createdAt: now - 1000 },
+        {
+          id: 'previous-assistant', role: 'assistant', createdAt: now - 900,
+          content: `\`\`\`dstudio-roadmap\n${JSON.stringify(previousRoadmap)}\n\`\`\``,
+          finishReason: 'stop',
+        },
+        { id: 'interrupted-user', role: 'user', content: 'Aggiungi una settimana soltanto per TypeScript avanzato.', createdAt: now },
+        { id: 'interrupted-assistant', role: 'assistant', content: '', streaming: true, roadmapPending: true, createdAt: now },
+      ],
+    });
+    localStorage.setItem('ds4web.chats.v2', JSON.stringify(savedChats));
+    localStorage.setItem('ds4web.active.v2', JSON.stringify({
+      v: 2,
+      ids: { chat: 'chat-existing', agent: null, design: null, roadmap: 'interrupted-roadmap' },
+    }));
+  }, roadmap);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('#tab-server')?.classList.contains('tab--active'));
+  await page.locator('#tab-roadmap').click();
+  const interruptedState = page.locator('.roadmap-attempt.is-paused');
+  await interruptedState.waitFor({ state: 'visible' });
+  assert.equal(await page.locator('.roadmap-loading__trace').count(), 0,
+    'a restored interrupted update must not keep displaying a live loading trace');
+  assert.equal(await page.locator('.roadmap-card').count(), 1,
+    'the previous verified roadmap must remain visible while a replacement is interrupted');
+  assert.match(await interruptedState.textContent() || '', /roadmap precedente è ancora disponibile|modello locale è stato interrotto/i);
+  await interruptedState.locator('summary').click();
+  assert.match(await interruptedState.locator('.roadmap-attempt__prompt').textContent() || '', /TypeScript avanzato/,
+    'the learner must be able to inspect the prompt behind an unknown update');
+  assert.match(await interruptedState.locator('[data-act="retry"]').textContent() || '', /Riprova l’aggiornamento/);
+  assert.match(await interruptedState.locator('[data-act="restore-roadmap"]').textContent() || '', /Torna alla roadmap precedente/);
+  const recoveredState = await page.evaluate(() => {
+    const chats = JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}').chats || [];
+    return chats.find((chat) => chat.id === 'interrupted-roadmap')?.messages?.find((message) => message.id === 'interrupted-assistant');
+  });
+  assert.equal(recoveredState?.streaming, undefined, 'the stale stream marker must be removed during recovery');
+  assert.equal(recoveredState?.roadmapPending, false, 'the stale roadmap pending marker must be removed during recovery');
+  assert.equal(recoveredState?.finishReason, 'error', 'the interrupted roadmap must persist as a recoverable error');
+  await interruptedState.locator('[data-act="restore-roadmap"]').click();
+  await page.locator('.roadmap-attempt').waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('.roadmap-card').count(), 1,
+    'cancelling an update must immediately return to the previous roadmap');
+  const restoredState = await page.evaluate(() => {
+    const chats = JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}').chats || [];
+    return chats.find((chat) => chat.id === 'interrupted-roadmap')?.messages || [];
+  });
+  assert.equal(restoredState.find((message) => message.id === 'interrupted-assistant')?.roadmapDismissed, true,
+    'returning to the previous roadmap should preserve but dismiss the newer attempt');
+  assert.equal(restoredState.find((message) => message.id === 'interrupted-user')?.content,
+    'Aggiungi una settimana soltanto per TypeScript avanzato.',
+    'the cancelled prompt must stay recoverable in history');
+
+  // With no old graph to return to, recovery still has a clear paused state
+  // and a retry action rather than an endless loading card.
+  await page.evaluate(() => {
+    const savedChats = JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}');
+    const now = Date.now();
+    savedChats.chats.push({
+      id: 'orphaned-roadmap', mode: 'roadmap', title: 'Prima roadmap interrotta', createdAt: now, updatedAt: now,
+      messages: [
+        { id: 'orphaned-user', role: 'user', content: 'Voglio studiare algebra astratta.', createdAt: now },
+        { id: 'orphaned-assistant', role: 'assistant', content: '', streaming: true, roadmapPending: true, createdAt: now },
+      ],
+    });
+    localStorage.setItem('ds4web.chats.v2', JSON.stringify(savedChats));
+    localStorage.setItem('ds4web.active.v2', JSON.stringify({
+      v: 2,
+      ids: { chat: 'chat-existing', agent: null, design: null, roadmap: 'orphaned-roadmap' },
+    }));
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('#tab-server')?.classList.contains('tab--active'));
+  await page.locator('#tab-roadmap').click();
+  const orphanedState = page.locator('.roadmap-direct-error');
+  await orphanedState.waitFor({ state: 'visible' });
+  assert.equal(await page.locator('.roadmap-loading__trace').count(), 0,
+    'a first interrupted roadmap must not keep displaying a dead loading trace');
+  assert.match(await orphanedState.textContent() || '', /bozza non è in esecuzione|modello locale è stato interrotto/i);
+  assert.match(await orphanedState.locator('[data-act="retry"]').textContent() || '', /Riprova la roadmap/);
 
   assert.deepEqual(pageErrors, [], `page errors: ${JSON.stringify({ pageErrors, missingRequests }, null, 2)}`);
   console.log('ui_roadmap_playwright_test: ok');

@@ -4,56 +4,60 @@ This repository includes design-system content adapted from Open Design and
 integrations that download optional third-party runtimes or model weights on
 demand. Downloaded runtimes and weights are not committed to this repository.
 
-## qwen-image-mps (optional runtime)
+## Ideogram 4 FP8 (optional image-generation runtime)
 
-DStudio can install qwen-image-mps on demand for local text-to-image generation.
-The project and its Python dependencies are not vendored into this repository.
+DStudio downloads Ideogram 4 and its runtime on demand; neither code nor model
+weights are vendored in this repository.
 
-- Source: https://github.com/ivanfioravanti/qwen-image-mps
-- Pinned commit: `fe70bd7b245307143d95cde5bc62c9aeff401e69`
-- License: MIT
-- Install location: `~/.dstudio/qwen-image/venv`
+- Official source: https://github.com/ideogram-oss/ideogram4
+- Pinned source commit: `990fe1c4e950bb9e9dc90e01c0ad98ba434f83c2`
+- Source license: Apache-2.0
+- FP8 model repack: https://huggingface.co/Comfy-Org/Ideogram-4
+- Pinned model revision: `bbee2ab2b14b2b5223448d12d6e31e5f9cec0546`
+- Model terms: [Ideogram 4 Non-Commercial License](https://github.com/ideogram-oss/ideogram4/blob/main/model_licenses/LICENSE-IDEOGRAM-4-NON-COMMERCIAL)
+- ComfyUI source/commit: https://github.com/comfyanonymous/ComfyUI/tree/b78cec879b9460d5cb25228a83a942fb78d2cd24
+- Ideogram node source/commit: https://github.com/ideogram-oss/ComfyUI-Ideogram4/tree/c05545d71e61b7ce47534a972eaeefd958a3719f
+- Apple-Silicon FP8 compatibility source/commit: https://github.com/pawel-mazurkiewicz/ComfyUI-AppleSilicon-FP8/tree/911294ca35093eef56f7f2695414ff8810e88e50
+- Install location: `~/.dstudio/ideogram4`
 
-Model weights are downloaded separately by the upstream Hugging Face pipeline
-and remain subject to their respective model licenses and terms.
+The compatibility node preserves the downloaded FP8 values while using a
+Metal-supported compute representation; it does not replace the model with a
+lower-quality checkpoint. Users are responsible for complying with the model's
+non-commercial terms.
 
-## MiniMax H3 and ComfyUI (optional runtime)
+## HunyuanImage-3.0-Instruct (optional image-editing runtime)
 
-DStudio can download MiniMax H3 weights and run them locally through ComfyUI on
-Apple Silicon. Neither ComfyUI nor the model weights are vendored into this
-repository.
+- Official base model: https://huggingface.co/tencent/HunyuanImage-3.0-Instruct
+- Pinned base revision: `2ec2c78bee7d4b94157341fba86c4c2c7b1858b2`
+- Full-Instruct NF4 v2 quantization: https://huggingface.co/EricRollei/HunyuanImage-3.0-Instruct-NF4-v2
+- Pinned quantized revision: `98fda5c508c05f5407f036bca413149ca92c143b`
+- Model terms: [Tencent Hunyuan Community License](https://huggingface.co/tencent/HunyuanImage-3.0/blob/main/LICENSE.txt)
+- Install location: `~/.dstudio/hunyuan-image`
 
-- ComfyUI source: https://github.com/Comfy-Org/ComfyUI
-- Pinned ComfyUI commit: `2f40b7131cb26c7255d48f6f6d821bd5fd56bedf`
-- ComfyUI license: GPL-3.0
-- Apple-Silicon compatibility layer: https://github.com/pawel-mazurkiewicz/ComfyUI-AppleSilicon-FP8
-- Pinned compatibility-layer commit/tag: `3cc65dd8d8b98f4ab69cf48b8912a831dc8ccff3` (`v1.3.0`)
-- Compatibility-layer license: MIT
-- Original model: https://huggingface.co/MiniMaxAI/MiniMax-H3
-- Pinned ComfyUI model repack: https://huggingface.co/Comfy-Org/MiniMax-H3/tree/eb8a16107c595128b3a578f82d2ce2f75920c355
+The NF4 v2 repository declares the official full Instruct base and keeps its
+VAE, attention projections, embeddings and other quality-critical layers in
+BF16. DStudio uses it because the official BF16 and INT8 checkpoints cannot fit
+the 96 GB unified-memory reference machine together with inference activations;
+no distilled checkpoint is substituted. Runtime setup composes the eager
+DeepSeek MoE block from the pinned official Tencent source revision and applies
+the later upstream Transformers MPS allocator-warmup skip to the compatible
+pinned loader. DStudio does not substitute a custom numerical attention or MoE
+implementation.
+
+## MiniMax H3 and h3.c (optional video runtime)
+
+- Native engine: https://github.com/antirez/h3.c
+- Pinned engine commit: `8974cc055ea9c02fcd14cc27dfda3e1027c05153`
+- Engine license: MIT
+- Official model: https://huggingface.co/MiniMaxAI/MiniMax-H3
+- Pinned model revision: `9ac0dd7aabc2c651fcf0ace4c00b2bffd9c8c8a6`
 - Model terms: [MiniMax H3 Community License Agreement](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE)
 - Install location: `~/.dstudio/minimax-h3`
 
-The managed compatibility layer installs its declared optional-runtime Python
-dependencies (including `mtlflashattn` and `ninja`) into H3's isolated virtual
-environment. These packages and the compatibility-layer checkout are downloaded
-on demand and are not committed to or redistributed by this repository.
-
-The optional community text encoder is a third-party derivative, not an
-official Comfy-Org weight:
-
-- Source: https://huggingface.co/linjian257/qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257
-- Pinned revision: `19a1c202af96b9c3d51dd346ecd0168c2720b0d3`
-- Declared terms: [pinned model-card license section](https://huggingface.co/linjian257/qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257/blob/19a1c202af96b9c3d51dd346ecd0168c2720b0d3/README.md#license)
-
-The pinned community repository declares personal/non-commercial-only terms in
-its metadata and model card, but the referenced standalone `LICENSE.md` is not
-present in that revision. DStudio therefore labels this encoder unverified and
-non-commercial rather than representing those terms as a verified license file.
-
-Users must review the current upstream terms and confirm that their territory
-and intended use are authorized before DStudio downloads or runs H3. DStudio
-does not redistribute the downloaded weights or grant model-use rights.
+DStudio runs the official checkpoint through the pinned native Metal engine,
+not a hosted API. Users must review the current model terms and confirm that
+their territory and intended use are authorized before download or generation.
+DStudio does not redistribute the downloaded weights or grant model-use rights.
 
 ## Open Design
 

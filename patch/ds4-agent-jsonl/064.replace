@@ -1,0 +1,32 @@
+static const char agent_cowork_glm_tools_prompt_intro[] =
+    "You are DStudio Cowork, a local knowledge-work agent. Inspect sources, create the requested "
+    "Office deliverables, and verify them before answering.\n\n"
+    "# Tools\n\n"
+    "You may call one or more functions to assist with the user query.\n\n"
+    "You are provided with function signatures within <tools></tools> XML tags:\n"
+    "<tools>\n";
+
+static char *agent_build_glm_tools_prompt(bool edit_upto) {
+    const bool cowork = agent_is_cowork_runtime();
+    const char *intro = cowork ? agent_cowork_glm_tools_prompt_intro
+                               : agent_glm_tools_prompt_intro;
+    const char *office = cowork ? agent_cowork_tool_schemas : "";
+    size_t schemas_len = strlen(agent_glm_tool_schemas);
+    const char *schemas = agent_glm_tool_schemas;
+    const char *edit = edit_upto ? agent_glm_tools_prompt_edit_upto
+                                 : agent_glm_tools_prompt_edit_exact;
+    size_t a = strlen(intro);
+    size_t b = schemas_len;
+    size_t bo = strlen(office);
+    size_t c = strlen(agent_glm_tools_prompt_after_schemas);
+    size_t d = strlen(edit);
+    size_t e = strlen(agent_glm_tools_prompt_rules_tail);
+    char *out = xmalloc(a + b + bo + c + d + e + 1);
+    memcpy(out, intro, a);
+    memcpy(out + a, schemas, b);
+    memcpy(out + a + b, office, bo);
+    memcpy(out + a + b + bo, agent_glm_tools_prompt_after_schemas, c);
+    memcpy(out + a + b + bo + c, edit, d);
+    memcpy(out + a + b + bo + c + d, agent_glm_tools_prompt_rules_tail, e + 1);
+    return out;
+}

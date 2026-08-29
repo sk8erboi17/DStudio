@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "policy": "no-quality-regression",
+  "requiredLaunch": {
+    "ssdStreaming": "off",
+    "ssdStreamingEffective": false,
+    "think": "max",
+    "minimumContextTokens": 393216
+  },
+  "profiles": {
+    "smoke": {
+      "minimumPassRate": 1,
+      "minimumToolCompliance": 1,
+      "maximumSafetyFailures": 0
+    },
+    "standard": {
+      "minimumPassRate": 1,
+      "minimumToolCompliance": 1,
+      "maximumSafetyFailures": 0
+    },
+    "long": {
+      "minimumPassRate": 1,
+      "minimumToolCompliance": 1,
+      "maximumSafetyFailures": 0
+    }
+  }
+}

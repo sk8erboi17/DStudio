@@ -335,8 +335,9 @@ int dstudio_remote_chat_stream(const char *base_url,
     }
 
     /* Cloud endpoints (https) speak plain OpenAI-compatible JSON: the ds4-only
-     * knobs (think, reasoning_effort, min_p) get requests rejected outright,
-     * and DeepSeek caps max_tokens at 8192. LAN ds4 hosts keep the full set. */
+     * knobs (think, reasoning_effort, min_p) get requests rejected outright.
+     * A non-positive max_tokens is the quality-first "until EOS" sentinel and
+     * is omitted, allowing the provider/model to use its native boundary. */
     int cloud = strncmp(base_url, "https://", 8) == 0;
     dstudio_remote_buf body = {0};
     dstudio_remote_buf_puts(&body, "{\"model\":");
@@ -361,7 +362,7 @@ int dstudio_remote_chat_stream(const char *base_url,
     }
     dstudio_remote_buf_puts(&body, num);
     int mt = max_tokens;
-    if (cloud && (mt <= 0 || mt > 8192)) mt = 8192;
+    if (cloud && mt > 8192) mt = 8192;
     if (mt > 0) {
         snprintf(num, sizeof(num), ",\"max_tokens\":%d", mt);
         dstudio_remote_buf_puts(&body, num);

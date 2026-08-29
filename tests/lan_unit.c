@@ -34,6 +34,20 @@ static int test_valid_utf8(const unsigned char *s) {
 int main(void) {
 #ifndef _WIN32
     {
+        char label[160] = "";
+        assert(image_error_label_json(
+            "{\"ok\":false,\"state\":\"error\",\"label\":\"VAE decode failed\"}",
+            label, sizeof label));
+        assert(!strcmp(label, "VAE decode failed"));
+        assert(!image_error_label_json(
+            "{\"ok\":true,\"state\":\"running\",\"label\":\"sampling\"}",
+            label, sizeof label));
+        label[0] = '\0';
+        assert(image_error_label_json(
+            "{\"ok\":false,\"state\":\"error\"}", label, sizeof label));
+        assert(!strcmp(label, "Local image inference failed."));
+    }
+    {
         int plen[] = { 7000, 4000 };
         pdf_rag_chunk *chunks = NULL;
         int n = pdf_build_rag_chunks(plen, 2, 2, &chunks);
@@ -204,6 +218,7 @@ int main(void) {
     engine_cfg remote_cfg = ENGINE_DEFAULTS;
     assert(ENGINE_DEFAULTS.uncensored == 0);
     assert(ENGINE_DEFAULTS.ctx == 65536);
+    assert(ENGINE_DEFAULTS.ssd_streaming == SSD_STREAMING_OFF);
     assert(strcmp(MODEL_FLASH, MODEL_STD) == 0);
     assert(strcmp(MODEL_FLASH, MODEL_UNC) != 0);
     assert(strcmp(variant_rel("flash"), MODEL_STD) == 0);

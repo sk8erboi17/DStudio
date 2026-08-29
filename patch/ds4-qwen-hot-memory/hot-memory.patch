@@ -113,7 +113,7 @@ diff --git a/ds4_cuda.cu b/ds4_cuda.cu
 diff --git a/ds4_gpu.h b/ds4_gpu.h
 --- a/ds4_gpu.h
 +++ b/ds4_gpu.h
-@@ -75,6 +75,10 @@ int ds4_gpu_should_use_managed_kv_cache(uint64_t kv_cache_bytes, uint64_t contex
+@@ -161,4 +161,8 @@ int ds4_gpu_should_use_managed_kv_cache(uint64_t kv_cache_bytes, uint64_t contex
  void ds4_gpu_set_quality(bool quality);
  void ds4_gpu_set_glm_model(bool enabled);
  void ds4_gpu_set_ssd_streaming(bool enabled);
@@ -122,8 +122,6 @@ diff --git a/ds4_gpu.h b/ds4_gpu.h
 +int ds4_gpu_memory_pressure_begin(void);
 +int ds4_gpu_memory_pressure_end(void);
  void ds4_gpu_set_glm_streaming_prefill_full_layer(bool enabled);
- #ifdef __APPLE__
- void ds4_gpu_release_zero_prefix_prefill_mask_cache(void);
 diff --git a/ds4_metal.m b/ds4_metal.m
 --- a/ds4_metal.m
 +++ b/ds4_metal.m

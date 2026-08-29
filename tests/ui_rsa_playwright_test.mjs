@@ -24,6 +24,10 @@ const rsaStarts = [];
 const rsaPhases = [];
 const sends = [];
 const missingRequests = [];
+const requestStartedAt = Date.now();
+const requestTrace = [];
+let activeAgentPolls = 0;
+let maxConcurrentAgentPolls = 0;
 
 function byteLen(value) {
   return Buffer.byteLength(String(value || ''), 'utf8');
@@ -129,6 +133,12 @@ function phaseOutputForPrompt(prompt) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
+  requestTrace.push({
+    atMs: Date.now() - requestStartedAt,
+    method: req.method,
+    path: url.pathname,
+    query: url.search,
+  });
   if (url.pathname === '/api/status') {
     json(res, 200, {
       mode: currentMode,
@@ -237,14 +247,25 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/agent/poll') {
     const since = Math.max(0, Number(url.searchParams.get('since') || 0));
-    json(res, 200, {
+    const countedPhasePoll = rsaStarts.length > 0 && !url.searchParams.has('stream');
+    const snapshot = {
       base: 0,
       len: byteLen(transcript),
       working: false,
       ready: true,
       loadPct: 100,
       text: sliceUtf8From(transcript, since),
-    });
+    };
+    if (countedPhasePoll) {
+      activeAgentPolls += 1;
+      maxConcurrentAgentPolls = Math.max(maxConcurrentAgentPolls, activeAgentPolls);
+    }
+    // Return a deliberately stale idle snapshot. Phase-save requests can
+    // complete while this response is in flight, reproducing the race where
+    // an old poll used to consume the next send's working→idle edge.
+    await delay(75);
+    json(res, 200, snapshot);
+    if (countedPhasePoll) activeAgentPolls -= 1;
     return;
   }
   if (url.pathname === '/v1/models') {
@@ -326,6 +347,8 @@ try {
     rsaStarts,
     rsaPhases: rsaPhases.map((p) => ({ phase: p.phase, output: String(p.output || '').slice(0, 120) })),
     sends: sends.map((s) => ({ displayPrompt: s.displayPrompt, prompt: String(s.prompt || '').slice(0, 80) })),
+    requestTrace,
+    maxConcurrentAgentPolls,
     missingRequests,
     pageErrors,
   }, null, 2);
@@ -334,6 +357,7 @@ try {
   assert.equal(rsaStarts.length, 1);
   assert.match(rsaStarts[0].mission, /streamrecorder\.io/);
   assert.equal(rsaPhases.map((p) => p.phase).join(','), 'inventory,capture,structure,review');
+  assert.equal(maxConcurrentAgentPolls, 1, 'RSA phase polling must remain single-flight across send and watchdog callers');
   assert.ok(sends.every((s) => /"value":"max"/.test(s.prompt || '')), 'every RSA send should force thinking max');
 
   await page.locator('.gsa-phase-card').first().waitFor({ timeout: 5000 });

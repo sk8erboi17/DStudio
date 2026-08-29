@@ -1,46 +1,37 @@
 /* ============================================================================
- * Vision provider (local llama.cpp sidecar).
+ * Vision provider (one-shot Qwen3.8-27B Q8 on MLX).
  *
  * ds4 is text-only at every layer (engine takes token IDs only; ds4-server
  * fail-closes 400 on image content blocks). Image understanding is therefore
- * delegated to a local vision model server (llama-server + Qwen2.5-VL,
- * OpenAI-compatible) that runs as a SEPARATE sidecar process on VISION_PORT —
- * a different runtime, so it never trips ds4's single-instance lock. The exact
- * incantation lives in scripts/vision-server.sh (launch + idle watchdog) and
- * scripts/vision-setup.sh (install) so it is easy to adjust without touching
- * this C.
+ * delegated to a local Qwen3.8 multimodal worker.  It is deliberately one-shot:
+ * the caller releases DS4 residency, the worker loads the pinned MLX Q8 model,
+ * handles the complete multi-image request, and exits before DS4 is restored.
+ * Qwen3.8, Ideogram 4, HunyuanImage and H3 share one heavyweight-model lock.
  *
- *   POST /api/vision/setup    — install the llama.cpp runtime (on demand);
- *                               {hf} switches the vision model (3B <-> 7B)
- *   POST /api/vision/describe — proxy {images[]|data_uri|image_b64|path,
- *                               question?} to the sidecar, return the text
- *   POST /api/vision/stop     — stop the sidecar now (it restarts on demand)
- *   GET  /api/vision/status   — install/server state, disk usage, log tail
+ *   POST /api/vision/setup    — install mlx-vlm and the pinned Q8 snapshot
+ *   POST /api/vision/describe — run {images[]|data_uri|image_b64|path,
+ *                               question?} through one isolated worker
+ *   POST /api/vision/stop     — stop an active one-shot worker
+ *   GET  /api/vision/status   — install/worker state and disk usage
  *
- * Both the chat preprocess path (browser) and the agent see_image tool (C) hit
- * /api/vision/describe, so the sidecar wiring lives in one place. Every
- * describe/setup touches $VISION_DIR/.last-use; the launch script's watchdog
- * stops an idle sidecar so the multi-GB model does not stay resident forever.
+ * Both chat preprocessing and the agent/design see_image tools hit the same
+ * endpoint. There is no smaller-model fallback and no persistent vision server.
  * ==========================================================================*/
-#define VISION_PORT 28100
-/* llama-server ignores the request's "model" field (it serves the loaded GGUF),
- * so any label works. The actual model is chosen in scripts/vision-server.sh. */
-#define VISION_MODEL "qwen2.5-vl"
-/* Keep in sync with the HFREPO default in scripts/vision-server.sh: a model
- * pref written to $VISION_DIR/.hf (via /api/vision/setup {hf}) overrides both. */
-#define VISION_HF_DEFAULT "ggml-org/Qwen2.5-VL-7B-Instruct-GGUF"
+#define VISION_PORT 0
+#define VISION_MODEL "mlx-community/Qwen3.8-27B-8bit"
+#define VISION_MODEL_REVISION "815b83c0df8ffd1d1b5244cf75fd6ef14fca9ef9"
+#define VISION_HF_DEFAULT VISION_MODEL
 /* Multi-image describe cap: 4 images at >=1024 image tokens each still fit the
  * sidecar's default context (DSTUDIO_VISION_CTX 12288) with room to answer. */
 #define VISION_MAX_IMAGES 4
 
 #ifndef _WIN32
-/* Install dir of the vision sidecar (llama-server + lockfile + prefs). Must
- * match the DSTUDIO_VISION_DIR default in scripts/vision-*.sh. */
+/* Install dir of the MLX runtime and one-shot pid marker. */
 static void vision_dir_path(char *out, size_t outsz) {
-    const char *env = getenv("DSTUDIO_VISION_DIR");
+    const char *env = getenv("DSTUDIO_QWEN38_VISION_HOME");
     if (env && env[0]) { cstr_copy(out, outsz, env); return; }
     const char *home = getenv("HOME");
-    snprintf(out, outsz, "%s/.dstudio/llama-vision", home ? home : ".");
+    snprintf(out, outsz, "%s/.dstudio/qwen38-vision", home ? home : ".");
 }
 
 /* Idle-stop stamp: scripts/vision-server.sh's watchdog shuts the sidecar down
@@ -61,12 +52,12 @@ static void vision_touch_last_use(void) {
     (void)utimes(stamp, NULL);
 }
 
-/* PID of the running llama-server from the launcher's lockfile (0 = none). */
+/* PID of the active one-shot worker (0 = none). */
 static pid_t vision_lock_pid(void) {
     char p[DSTUDIO_PATH_MAX + 16];
     vision_dir_path(p, sizeof p);
     size_t l = strlen(p);
-    snprintf(p + l, sizeof p - l, "/.server.pid");
+    snprintf(p + l, sizeof p - l, "/.runner.pid");
     size_t n = 0;
     char *b = jsonl_read_file(p, &n);
     if (!b) return 0;
@@ -75,23 +66,20 @@ static pid_t vision_lock_pid(void) {
     return pid > 1 ? (pid_t)pid : 0;
 }
 
-/* A reboot can hand a lockfile pid to an unrelated process: never signal it
- * without checking that the pid actually runs llama-server. */
+/* A stale pid file may name an unrelated process: verify its full command. */
 static int vision_pid_is_llama(pid_t pid) {
     if (pid <= 1 || kill(pid, 0) != 0) return 0;
     char cmd[64];
-    snprintf(cmd, sizeof cmd, "ps -p %d -o comm=", (int)pid);
+    snprintf(cmd, sizeof cmd, "ps -p %d -o command=", (int)pid);
     FILE *f = popen(cmd, "r");
     if (!f) return 0;
     char line[512] = "";
     if (!fgets(line, sizeof line, f)) line[0] = '\0';
     pclose(f);
-    return strstr(line, "llama-server") != NULL;
+    return strstr(line, "vision-qwen38-run.py") != NULL;
 }
 
-/* SIGTERM (then SIGKILL) the sidecar named by the lockfile. Returns 1 when a
- * verified llama-server was stopped. The launcher's watchdog notices the child
- * exit and removes the lockfile; unlinking here too is harmless. */
+/* Stop the verified one-shot worker, if one is currently loading/inferencing. */
 static int vision_kill_server(void) {
     pid_t pid = vision_lock_pid();
     if (!vision_pid_is_llama(pid)) return 0;
@@ -105,33 +93,26 @@ static int vision_kill_server(void) {
     char p[DSTUDIO_PATH_MAX + 16];
     vision_dir_path(p, sizeof p);
     size_t l = strlen(p);
-    snprintf(p + l, sizeof p - l, "/.server.pid");
+    snprintf(p + l, sizeof p - l, "/.runner.pid");
     unlink(p);
     return 1;
 }
 
-/* Locate the installed llama-server under the vision dir (the release tarball
- * layout varies across llama.cpp builds, so scan a few levels). */
+/* Compatibility name used by PDF/status callers: verify the exact Qwen3.8
+ * runtime marker and return its Python executable. */
 static int vision_scan_for_bin(const char *dir, int depth, char *out, size_t outsz) {
-    if (depth > 5) return 0;
-    DIR *d = opendir(dir);
-    if (!d) return 0;
-    struct dirent *e;
-    int found = 0;
-    while (!found && (e = readdir(d)) != NULL) {
-        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
-        char p[DSTUDIO_PATH_MAX];
-        if ((size_t)snprintf(p, sizeof p, "%s/%s", dir, e->d_name) >= sizeof p) continue;
-        struct stat st;
-        if (stat(p, &st) != 0) continue;
-        if (S_ISDIR(st.st_mode)) found = vision_scan_for_bin(p, depth + 1, out, outsz);
-        else if (S_ISREG(st.st_mode) && !strcmp(e->d_name, "llama-server")) {
-            cstr_copy(out, outsz, p);
-            found = 1;
-        }
-    }
-    closedir(d);
-    return found;
+    (void)depth;
+    char python[DSTUDIO_PATH_MAX], marker[DSTUDIO_PATH_MAX];
+    snprintf(python, sizeof python, "%s/venv/bin/python", dir);
+    snprintf(marker, sizeof marker, "%s/.model-revision", dir);
+    struct stat st;
+    if (stat(python, &st) != 0 || !S_ISREG(st.st_mode) || access(python, X_OK) != 0) return 0;
+    size_t n = 0;
+    char *revision = jsonl_read_file(marker, &n);
+    int ok = revision && !strncmp(revision, VISION_MODEL_REVISION, strlen(VISION_MODEL_REVISION));
+    free(revision);
+    if (ok) cstr_copy(out, outsz, python);
+    return ok;
 }
 
 /* Recursive size of a directory tree (regular files only, bounded depth) —
@@ -155,20 +136,14 @@ static long long vision_tree_bytes(const char *dir, int depth) {
     return sum;
 }
 
-/* Where llama-server's -hf downloader caches the GGUFs (not inside the vision
- * dir): $LLAMA_CACHE, else the per-OS user cache. */
+/* Hugging Face hub root used by the pinned MLX snapshot. */
 static void vision_model_cache_path(char *out, size_t outsz) {
-    const char *env = getenv("LLAMA_CACHE");
-    if (env && env[0]) { cstr_copy(out, outsz, env); return; }
+    const char *hub = getenv("HF_HUB_CACHE");
+    if (hub && hub[0]) { cstr_copy(out, outsz, hub); return; }
+    const char *hfhome = getenv("HF_HOME");
+    if (hfhome && hfhome[0]) { snprintf(out, outsz, "%s/hub", hfhome); return; }
     const char *home = getenv("HOME");
-    if (!home) home = ".";
-#ifdef __APPLE__
-    snprintf(out, outsz, "%s/Library/Caches/llama.cpp", home);
-#else
-    const char *xdg = getenv("XDG_CACHE_HOME");
-    if (xdg && xdg[0]) snprintf(out, outsz, "%s/llama.cpp", xdg);
-    else snprintf(out, outsz, "%s/.cache/llama.cpp", home);
-#endif
+    snprintf(out, outsz, "%s/.cache/huggingface/hub", home ? home : ".");
 }
 
 /* Recent llama.cpp builds download -hf models into the Hugging Face hub cache
@@ -197,95 +172,24 @@ static long long vision_hf_hub_bytes(const char *hf) {
     return vision_tree_bytes(dir, 0);
 }
 
-/* Non-blocking-ish TCP connect probe: is the sidecar listening on loopback? */
+/* There is no TCP sidecar. "Open" means the one-shot worker is alive. */
 static int vision_port_open(void) {
-    int s = socket(AF_INET, SOCK_STREAM, 0);
-    if (s < 0) return 0;
-    struct sockaddr_in a;
-    memset(&a, 0, sizeof a);
-    a.sin_family = AF_INET;
-    a.sin_port = htons(VISION_PORT);
-    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    struct timeval tv = { 1, 0 };
-    (void)setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
-    (void)setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-    int ok = connect(s, (struct sockaddr *)&a, sizeof a) == 0;
-    close(s);
-    return ok;
+    return vision_pid_is_llama(vision_lock_pid());
 }
 
-/* True only when the sidecar is FULLY ready: llama-server binds the port before
- * the model finishes loading and answers 503 "Loading model" meanwhile, so a bare
- * TCP check isn't enough — GET /health and require 200. */
+/* Ready means the exact pinned runtime is installed. Loading is intentionally
+ * deferred until a request has acquired the heavyweight-model lock. */
 static int vision_server_ready(void) {
-    int s = socket(AF_INET, SOCK_STREAM, 0);
-    if (s < 0) return 0;
-    struct sockaddr_in a;
-    memset(&a, 0, sizeof a);
-    a.sin_family = AF_INET;
-    a.sin_port = htons(VISION_PORT);
-    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    struct timeval tv = { 3, 0 };
-    (void)setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
-    (void)setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-    if (connect(s, (struct sockaddr *)&a, sizeof a) != 0) { close(s); return 0; }
-    static const char *req = "GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
-    if (write(s, req, strlen(req)) < 0) { close(s); return 0; }
-    char buf[64];
-    ssize_t n = read(s, buf, sizeof buf - 1);
-    close(s);
-    if (n <= 0) return 0;
-    buf[n] = '\0';
-    return strstr(buf, " 200") != NULL;   /* "HTTP/1.1 200 OK" */
+    char dir[DSTUDIO_PATH_MAX], bin[DSTUDIO_PATH_MAX];
+    vision_dir_path(dir, sizeof dir);
+    return vision_scan_for_bin(dir, 0, bin, sizeof bin);
 }
 
-/* Launch scripts/vision-server.sh detached (double-fork → reparents to init).
- * Callers gate on vision_port_open() first. Output → /tmp/dstudio-vision.log. */
-static int vision_spawn_detached(void) {
-    if (!g_web_dir[0]) return 0;
-    char script[DSTUDIO_PATH_MAX + 64];
-    snprintf(script, sizeof script, "%s/scripts/vision-server.sh", g_web_dir);
-    struct stat stt;
-    if (stat(script, &stt) != 0) return 0;
-    pid_t pid = fork();
-    if (pid < 0) return 0;
-    if (pid == 0) {
-        if (fork() > 0) _exit(0);       /* grandchild survives us, reparents to init */
-        setsid();
-        if (chdir(g_web_dir) != 0) _exit(127);
-        child_setenv_metal(NULL);       /* Metal/MPS env for the vision runtime */
-        /* Close EVERY inherited fd (the DStudio instance-lock fd, the HTTP
-         * listener, engine pipes, sockets). This sidecar is long-lived and
-         * detached, so any fd it kept open would outlive DStudio — in particular
-         * the instance-lock fd, which would then block the next app launch. */
-        for (int cfd = 3; cfd < 256; cfd++) close(cfd);
-        int dn = open("/dev/null", O_RDWR);
-        if (dn >= 0) { dup2(dn, STDIN_FILENO); if (dn != STDIN_FILENO) close(dn); }
-        int lg = open("/tmp/dstudio-vision.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
-        if (lg >= 0) { dup2(lg, STDOUT_FILENO); dup2(lg, STDERR_FILENO); if (lg > STDERR_FILENO) close(lg); }
-        char *argv[] = { "/bin/sh", script, NULL };
-        execv("/bin/sh", argv);
-        _exit(127);
-    }
-    waitpid(pid, NULL, 0);              /* reap the immediate child */
-    return 1;
-}
-
-/* Ensure the sidecar is reachable, spawning it if needed. Bounded wait in ms
- * (first run loads/downloads the model). Runs inside the forked describe/setup
- * handler, so blocking here never stalls the main server loop. */
+/* Compatibility helper for PDF callers: verify that the pinned one-shot
+ * runtime is installed. It never starts or downloads a fallback model. */
 static int vision_ensure_server(int timeout_ms) {
-    if (vision_server_ready()) return 1;
-    /* Spawn only if nothing is listening yet; if the port is up but still loading
-     * the model (503), don't spawn a second one — just wait for /health. */
-    if (!vision_port_open()) vision_spawn_detached();
-    long long deadline = web_now_ms() + (timeout_ms > 0 ? timeout_ms : 120000);
-    while (web_now_ms() < deadline) {
-        struct timespec ts = { 0, 500 * 1000000 };  /* 500 ms */
-        nanosleep(&ts, NULL);
-        if (vision_server_ready()) return 1;
-    }
-    return 0;
+    (void)timeout_ms;
+    return vision_server_ready();
 }
 
 /* POST /api/vision/describe — proxy an image to the local vision sidecar. */
@@ -496,10 +400,8 @@ static void api_vision_describe_run(int fd, const char *body, int allow_path) {
         return;
     }
 
-    /* Frame the vision prompt in ENGLISH. The small Qwen2.5-VL model refuses
-     * non-English requests ("Mi dispiace, non posso…") even though it sees the
-     * image fine; an English frame makes it comply, and it can still address a
-     * request written in another language when embedded here. */
+    /* Frame the visual task in English for stable cross-language grading while
+     * preserving the caller's original request inside the frame. */
     char qbuf[4096];
     int has_q = json_get_string(body, "question", qbuf, sizeof qbuf) && qbuf[0];
     /* frame:"raw" — send the caller's question VERBATIM, without the
@@ -539,33 +441,32 @@ static void api_vision_describe_run(int fd, const char *body, int allow_path) {
     else
         snprintf(question, sizeof question, "%s%s", base, multi);
 
-    /* Short safety-net only: the heavy one-time model download happens in
-     * /api/vision/setup, so by now the sidecar is normally already serving.
-     * 60s covers a restart with the model already cached, not a fresh download. */
+    /* The setup path installs the exact pinned snapshot. Describe never falls
+     * back to another model or downloads implicitly. */
     if (!vision_ensure_server(60000)) {
         vision_free_urls(urls, nimg);
         if (want_text) send_text(fd, "503 Service Unavailable",
-                                 "see_image error: vision server is not running; run vision setup once\n", 0);
+                                 "see_image error: Qwen3.8 vision is not installed; run vision setup once\n", 0);
         else web_json_error(fd, "503 Service Unavailable",
-                       "vision model server is not running; call POST /api/vision/setup once to install it");
+                       "Qwen3.8-27B Q8 is not installed; call POST /api/vision/setup once");
         return;
     }
 
-    /* Build the upstream OpenAI chat body: one image_url content part per
-     * image, then the text prompt. temperature 0: perception/OCR is a factual
-     * task — greedy decoding is more precise and hallucinates fewer invented
-     * details. max_tokens is higher for the agent's text format, where dense
-     * OCR transcriptions were hitting the old 1024 cap; callers with denser
-     * output (the PDF page reader) can raise it further via the request's
-     * max_tokens — the sidecar ctx (12288) has room for a 4k answer. */
-    long mt = want_text ? 1536 : 1024;
-    (void)json_get_int(body, "max_tokens", 256, 4096, &mt);
+    /* Build the one-shot worker body: one image_url content part per image,
+     * then the text prompt. Max is the default and has no DStudio token or
+     * thinking budget; the worker stops at EOS (with only the model's native
+     * context as a hard architectural boundary). High and Off remain explicit
+     * user-selectable options. */
+    char reasoning[16] = "max";
+    (void)json_get_string(body, "reasoning_effort", reasoning, sizeof reasoning);
+    if (strcmp(reasoning, "off") && strcmp(reasoning, "high") && strcmp(reasoning, "max"))
+        snprintf(reasoning, sizeof reasoning, "max");
     json_dyn_buf up = {0};
     int okb = json_dyn_puts(&up, "{\"model\":") &&
               json_dyn_put_escaped(&up, VISION_MODEL) &&
-              json_dyn_printf(&up, ",\"max_tokens\":%d,\"temperature\":0,"
-                                   "\"messages\":[{\"role\":\"user\",\"content\":[",
-                              (int)mt);
+              json_dyn_puts(&up, ",\"reasoning_effort\":") &&
+              json_dyn_put_escaped(&up, reasoning) &&
+              json_dyn_puts(&up, ",\"messages\":[{\"role\":\"user\",\"content\":[");
     for (int i = 0; okb && i < nimg; i++) {
         okb = json_dyn_puts(&up, "{\"type\":\"image_url\",\"image_url\":{\"url\":") &&
               json_dyn_put_escaped(&up, urls[i]) &&
@@ -601,21 +502,17 @@ static void api_vision_describe_run(int fd, const char *body, int allow_path) {
         else web_json_error(fd, "500 Internal Server Error", "cannot write temp file");
         return; }
 
-    char url[80];  snprintf(url, sizeof url, "http://127.0.0.1:%d/v1/chat/completions", VISION_PORT);
-    char dataarg[80]; snprintf(dataarg, sizeof dataarg, "@%s", tmpl);
-    char *argv[16]; int n = 0;
-    argv[n++] = "curl"; argv[n++] = "-sS"; argv[n++] = "-X"; argv[n++] = "POST";
-    argv[n++] = "-H"; argv[n++] = "Content-Type: application/json";
-    argv[n++] = "--data-binary"; argv[n++] = dataarg;
-    argv[n++] = "--max-time"; argv[n++] = "300";
-    argv[n++] = url; argv[n] = NULL;
+    resolve_web_dir();
+    char runner[DSTUDIO_PATH_MAX + 64];
+    snprintf(runner, sizeof runner, "%s/scripts/vision-qwen38-run.sh", g_web_dir);
+    char *argv[] = { "/bin/sh", runner, "--request", tmpl, NULL };
 
     int st = 0;
-    char *resp = web_curl_capture(argv, 310000, &st);
+    char *resp = web_curl_capture(argv, -1, &st); /* user-controlled Stop; no wall-clock downgrade */
     unlink(tmpl);
-    if (!resp || !resp[0]) { free(resp);
-        if (want_text) send_text(fd, "502 Bad Gateway", "see_image error: vision server did not respond\n", 0);
-        else web_json_error(fd, "502 Bad Gateway", "vision server did not respond");
+    if (st != 0 || !resp || !resp[0]) { free(resp);
+        if (want_text) send_text(fd, "502 Bad Gateway", "see_image error: Qwen3.8 worker failed\n", 0);
+        else web_json_error(fd, "502 Bad Gateway", "Qwen3.8 vision worker failed");
         return; }
 
     char *text = json_get_string_alloc_rpc(resp, "content");
@@ -624,13 +521,13 @@ static void api_vision_describe_run(int fd, const char *body, int allow_path) {
         char *cap = web_strndup_cap(resp, strlen(resp), want_text ? 1500 : 4000);
         if (want_text) {
             char msg[1800];
-            snprintf(msg, sizeof msg, "see_image error: vision server returned no content. %s\n", cap ? cap : "");
+            snprintf(msg, sizeof msg, "see_image error: Qwen3.8 returned no content. %s\n", cap ? cap : "");
             free(cap); free(resp);
             send_text(fd, "502 Bad Gateway", msg, 0);
             return;
         }
         json_dyn_buf e = {0};
-        int oke = json_dyn_puts(&e, "{\"ok\":false,\"error\":\"vision server returned no content\",\"raw\":") &&
+        int oke = json_dyn_puts(&e, "{\"ok\":false,\"error\":\"Qwen3.8 returned no content\",\"raw\":") &&
                   json_dyn_put_escaped(&e, cap ? cap : "") &&
                   json_dyn_puts(&e, "}");
         free(cap); free(resp);
@@ -638,15 +535,15 @@ static void api_vision_describe_run(int fd, const char *body, int allow_path) {
         free(e.ptr);
         return;
     }
-    /* Silent truncation is worse than a longer answer: when generation stopped
-     * at max_tokens (finish_reason "length"), say so, so the model downstream
-     * knows the description (e.g. a dense OCR transcription) is incomplete. */
+    /* "length" can now mean only the model-native context boundary. Surface
+     * that rare case so downstream code never mistakes a partial OCR for a
+     * complete one. */
     char fr[24] = "";
     (void)json_get_string(resp, "finish_reason", fr, sizeof fr);
     free(resp);
     if (!strcmp(fr, "length")) {
         static const char *tnote =
-            "\n\n[Note: description truncated at the token limit — details may be missing.]";
+            "\n\n[Note: description reached the model's native context boundary — details may be missing.]";
         size_t tl = strlen(text), nl = strlen(tnote);
         char *nt = realloc(text, tl + nl + 1);
         if (nt) { text = nt; memcpy(text + tl, tnote, nl + 1); }
@@ -664,28 +561,14 @@ static void api_vision_describe_run(int fd, const char *body, int allow_path) {
     free(out.ptr);
 }
 
-/* Current vision model pref: $VISION_DIR/.hf when present (written below on a
- * {hf} switch and read by scripts/vision-server.sh), else the built-in default. */
+/* One model only: callers cannot switch to a smaller fallback. */
 static void vision_hf_pref(char *out, size_t outsz) {
-    char p[DSTUDIO_PATH_MAX + 8];
-    vision_dir_path(p, sizeof p);
-    size_t l = strlen(p);
-    snprintf(p + l, sizeof p - l, "/.hf");
-    size_t n = 0;
-    char *b = jsonl_read_file(p, &n);
-    if (b) {
-        while (n > 0 && (b[n - 1] == '\n' || b[n - 1] == '\r' || b[n - 1] == ' ')) b[--n] = '\0';
-        if (b[0]) { cstr_copy(out, outsz, b); free(b); return; }
-        free(b);
-    }
     cstr_copy(out, outsz, VISION_HF_DEFAULT);
 }
 
-/* POST /api/vision/setup — install the llama.cpp runtime on demand
- * (scripts/vision-setup.sh), then warm the sidecar so the first describe is
- * fast. Optional body {hf:"owner/Repo-GGUF"} switches the vision model (e.g.
- * Qwen2.5-VL 3B <-> 7B): the pref is persisted to $VISION_DIR/.hf, a running
- * sidecar is stopped so the warm-up below reloads with the new model. */
+/* POST /api/vision/setup — install mlx-vlm and the pinned Qwen3.8 Q8 snapshot.
+ * A supplied {hf} must name that exact model; alternate/fallback readers are
+ * rejected so configuration cannot silently regress visual quality. */
 static void api_vision_setup_run(int fd, const char *body) {
     resolve_web_dir();
     if (!web_dir_valid()) {
@@ -703,48 +586,21 @@ static void api_vision_setup_run(int fd, const char *body) {
 
     char hf[200] = "";
     if (body && json_get_string(body, "hf", hf, sizeof hf) && hf[0]) {
-        int sane = strchr(hf, '/') != NULL && strlen(hf) > 3;
-        for (const char *p = hf; sane && *p; p++)
-            if (!isalnum((unsigned char)*p) && !strchr("._/-", *p)) sane = 0;
-        if (!sane) {
-            send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"invalid hf repo\"}");
+        if (strcmp(hf, VISION_MODEL) != 0) {
+            send_json(fd, "400 Bad Request",
+                      "{\"ok\":false,\"error\":\"only mlx-community/Qwen3.8-27B-8bit is supported\"}");
             return;
-        }
-        char cur[200];
-        vision_hf_pref(cur, sizeof cur);
-        if (strcmp(cur, hf) != 0) {
-            char dir[DSTUDIO_PATH_MAX];
-            vision_dir_path(dir, sizeof dir);
-            char parent[DSTUDIO_PATH_MAX];
-            const char *home = getenv("HOME");
-            snprintf(parent, sizeof parent, "%s/.dstudio", home ? home : ".");
-            (void)mkdir(parent, 0755);
-            (void)mkdir(dir, 0755);
-            char pref[DSTUDIO_PATH_MAX + 8];
-            snprintf(pref, sizeof pref, "%s/.hf", dir);
-            if (!jsonl_write_file(pref, hf, strlen(hf))) {
-                send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"cannot write model pref\"}");
-                return;
-            }
-            /* The running sidecar still serves the old model: stop it so the
-             * warm-up below loads the new one. */
-            (void)vision_kill_server();
         }
     }
 
     char *argv[] = { "/bin/sh", script, NULL };
     char log_tail[8192] = "";
     int rc = setup_run_cmd_capture(g_web_dir, argv, log_tail, sizeof log_tail);
-    /* Warm the sidecar AS PART OF SETUP: this triggers + completes the one-time
-     * model download (multi-GB, llama.cpp -hf) and BLOCKS until the server is
-     * actually serving, so every later /api/vision/describe is instant. Long cap
-     * because a fresh download can take many minutes on a slow link. */
     vision_touch_last_use();
-    int server_up = (rc == 0) ? vision_ensure_server(1000000) : 0;   /* ~16 min */
-    if (server_up) vision_touch_last_use();   /* warm-up counts as use for the idle watchdog */
-    int ok = rc == 0 && server_up;
+    int installed = rc == 0 && vision_server_ready();
+    int ok = rc == 0 && installed;
     const char *err = rc != 0 ? "vision runtime install failed (see log)"
-                    : !server_up ? "vision model did not come up in time (download too slow?); retry"
+                    : !installed ? "pinned Qwen3.8 Q8 snapshot is incomplete"
                     : "";
 
     char hf_now[200];
@@ -753,7 +609,8 @@ static void api_vision_setup_run(int fd, const char *body) {
     char *cap = web_strndup_cap(log_tail, strlen(log_tail), 6000);
     int good = json_dyn_puts(&b, "{\"ok\":") &&
                json_dyn_puts(&b, ok ? "true" : "false") &&
-               json_dyn_printf(&b, ",\"exit\":%d,\"serverUp\":%s,\"hf\":", rc, server_up ? "true" : "false") &&
+               json_dyn_printf(&b, ",\"exit\":%d,\"serverUp\":false,\"oneShot\":true,\"installed\":%s,\"hf\":",
+                               rc, installed ? "true" : "false") &&
                json_dyn_put_escaped(&b, hf_now) &&
                json_dyn_puts(&b, ",\"model\":") &&
                json_dyn_put_escaped(&b, VISION_MODEL) &&
@@ -780,12 +637,21 @@ static void api_vision_fork(int fd, const char *body, int is_setup, int allow_pa
         if (g_out_fd >= 0) close(g_out_fd);
         if (g_err_fd >= 0) close(g_err_fd);
         if (g_in_fd  >= 0) close(g_in_fd);
-        struct timeval tv = { 620, 0 };
+        struct timeval tv = { 30 * 60, 0 };
         (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
         qwen_memory_lease lease = {0};
         if (!is_setup) lease = qwen_memory_begin("vision");
-        if (is_setup) api_vision_setup_run(fd, body);
-        else          api_vision_describe_run(fd, body, allow_path);
+        if (!is_setup && !qwen_memory_ready(&lease)) {
+            char fmt[16] = "";
+            (void)json_get_string(body, "format", fmt, sizeof fmt);
+            if (!strcmp(fmt, "text"))
+                send_text(fd, "503 Service Unavailable",
+                          "see_image error: DS4 memory could not be released; Qwen3.8 was not started\n", 0);
+            else
+                web_json_error(fd, "503 Service Unavailable",
+                               "DS4 memory could not be released; Qwen3.8 was not started");
+        } else if (is_setup) api_vision_setup_run(fd, body);
+        else               api_vision_describe_run(fd, body, allow_path);
         qwen_memory_end(&lease);
         close(fd);
         _exit(0);
@@ -844,15 +710,13 @@ static void api_vision_status(int fd) {
     int installed = vision_scan_for_bin(dir, 0, bin, sizeof bin);
     pid_t pid = vision_lock_pid();
     int pid_live = vision_pid_is_llama(pid);
-    const char *state = "stopped";
-    if (vision_server_ready()) state = "ready";
-    else if (vision_port_open() || pid_live) state = "starting";
+    const char *state = pid_live ? "running" : installed ? "ready" : "missing";
     long long run_bytes = installed ? vision_tree_bytes(dir, 0) : 0;
     char cache[DSTUDIO_PATH_MAX];
     vision_model_cache_path(cache, sizeof cache);
     char hf[200];
     vision_hf_pref(hf, sizeof hf);
-    long long cache_bytes = vision_tree_bytes(cache, 0) + vision_hf_hub_bytes(hf);
+    long long cache_bytes = vision_hf_hub_bytes(hf);
     char stamp[DSTUDIO_PATH_MAX + 16];
     snprintf(stamp, sizeof stamp, "%s/.last-use", dir);
     struct stat st;
@@ -874,13 +738,14 @@ static void api_vision_status(int fd) {
     }
 
     json_dyn_buf b = {0};
-    int okb = json_dyn_printf(&b, "{\"ok\":true,\"supported\":true,\"installed\":%s,\"state\":",
+    int okb = json_dyn_printf(&b, "{\"ok\":true,\"supported\":true,\"oneShot\":true,\"installed\":%s,\"state\":",
                               installed ? "true" : "false") &&
               json_dyn_put_escaped(&b, state) &&
-              json_dyn_printf(&b, ",\"pid\":%d,\"port\":%d,\"diskBytes\":%lld,\"cacheBytes\":%lld,"
+              json_dyn_printf(&b, ",\"pid\":%d,\"port\":0,\"diskBytes\":%lld,\"cacheBytes\":%lld,"
                                   "\"lastUse\":%lld,\"hf\":",
-                              pid_live ? (int)pid : 0, VISION_PORT, run_bytes, cache_bytes, last_use) &&
+                              pid_live ? (int)pid : 0, run_bytes, cache_bytes, last_use) &&
               json_dyn_put_escaped(&b, hf) &&
+              json_dyn_puts(&b, ",\"revision\":") && json_dyn_put_escaped(&b, VISION_MODEL_REVISION) &&
               json_dyn_puts(&b, ",\"dir\":") && json_dyn_put_escaped(&b, dir) &&
               json_dyn_puts(&b, ",\"cacheDir\":") && json_dyn_put_escaped(&b, cache) &&
               json_dyn_puts(&b, ",\"logTail\":") && json_dyn_put_escaped(&b, tail) &&
@@ -909,12 +774,10 @@ static int vision_doctor_row(char *msg, size_t msgsz) {
     }
     char hf[200];
     vision_hf_pref(hf, sizeof hf);
-    if (vision_server_ready())
-        snprintf(msg, msgsz, "Serving %s — used by chat image attachments and the agent's see_image tool.", hf);
-    else if (vision_port_open() || vision_pid_is_llama(vision_lock_pid()))
-        snprintf(msg, msgsz, "Starting (%s) — loading or downloading the model.", hf);
+    if (vision_port_open())
+        snprintf(msg, msgsz, "Running %s in an isolated one-shot worker; DS4 residency is suspended.", hf);
     else
-        snprintf(msg, msgsz, "Installed (%s). Starts on demand at the first image and stops itself when idle.", hf);
+        snprintf(msg, msgsz, "Installed (%s). Loads on demand and exits completely after each visual batch.", hf);
     return 1;
 #endif
 }

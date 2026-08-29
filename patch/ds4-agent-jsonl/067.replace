@@ -1,0 +1,46 @@
+/* Cowork promises a folder-scoped knowledge-work runtime. Native read tools
+ * predate that promise and otherwise accept ../ or absolute paths. Enforce the
+ * same canonical workspace boundary for every local read surface; bash is not
+ * safely reducible to path inspection, so it is unavailable in Cowork. */
+static char *ds4ui_cowork_workspace_guard(const agent_tool_call *call) {
+    if (!call || !call->name) return NULL;
+    const char *runtime = getenv("DS4UI_RUNTIME_NAME");
+    if (!runtime || strcmp(runtime, "cowork")) return NULL;
+    if (!strcmp(call->name, "bash") || !strcmp(call->name, "bash_poll") ||
+        !strcmp(call->name, "bash_stop"))
+        return xstrdup("Cowork tool error: bash is unavailable; use folder-scoped Office and file tools.\n");
+
+    int guarded = !strcmp(call->name, "read") || !strcmp(call->name, "list") ||
+                  !strcmp(call->name, "search") || !strcmp(call->name, "see_image") ||
+                  !strcmp(call->name, "read_pdf");
+    if (!guarded) return NULL;
+    const char *path = agent_tool_arg_value(call, "path");
+    if ((!path || !path[0]) && (!strcmp(call->name, "list") ||
+                                !strcmp(call->name, "search"))) path = ".";
+    if (!path || !path[0]) return NULL; /* native tool reports missing path */
+    if (!ds4ui_workspace_relative_path(path))
+        return xstrdup("Cowork tool error: read path must be relative to the selected workspace and must not contain .. segments.\n");
+
+    char cwd[PATH_MAX], root[PATH_MAX], joined[PATH_MAX], resolved[PATH_MAX];
+    if (!getcwd(cwd, sizeof(cwd)) || !realpath(cwd, root))
+        return xstrdup("Cowork tool error: selected workspace could not be resolved.\n");
+    if ((size_t)snprintf(joined, sizeof(joined), "%s/%s", root, path) >= sizeof(joined))
+        return xstrdup("Cowork tool error: read path is too long.\n");
+    struct stat st;
+    if (lstat(joined, &st) != 0 || S_ISLNK(st.st_mode) || !realpath(joined, resolved))
+        return xstrdup("Cowork tool error: read target is not a regular workspace path.\n");
+    if (!ds4ui_workspace_contains(root, resolved))
+        return xstrdup("Cowork tool error: read target is outside the selected workspace.\n");
+    return NULL;
+}
+
+static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {
+    agent_buf result = {0};
+    if (!call->name) return xstrdup("Tool error: missing tool name\n");
+    const char *runtime = getenv("DS4UI_RUNTIME_NAME");
+    if (runtime && !strcmp(runtime, "cowork")) {
+        char *guard = ds4ui_cowork_workspace_guard(call);
+        if (guard) return guard;
+        if (ds4_cowork_tool_known(call->name))
+            return ds4ui_execute_cowork_tool(call);   /*DS4UI_JSONL*/
+    }

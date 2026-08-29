@@ -1,0 +1,3 @@
+static char *agent_execute_tool_call(agent_worker *w, const agent_tool_call *call) {
+    agent_buf result = {0};
+    if (!call->name) return xstrdup("Tool error: missing tool name\n");

@@ -36,8 +36,12 @@ diagnostics.log
 # macOS
 .DS_Store
 
-# Design agent workspace/mockup (not source)
+# Design agent workspace/mockup (not source). The checked-in `design/`
+# references are deliberately kept under version control.
 ds4-design/
+!design/
+!design/**
+design/.DS_Store
 *.app/
 /dist/
 

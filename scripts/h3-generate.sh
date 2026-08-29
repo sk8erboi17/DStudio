@@ -14,4 +14,5 @@ else
   exit 127
 fi
 
-exec "$PYTHON_BIN" "$SCRIPT_DIR/h3-run.py" "$@"
+exec "$PYTHON_BIN" "$SCRIPT_DIR/heavy-model-lock.py" --kind minimax-h3 -- \
+  "$PYTHON_BIN" "$SCRIPT_DIR/h3-run.py" "$@"
