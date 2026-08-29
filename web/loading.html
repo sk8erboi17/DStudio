@@ -185,24 +185,9 @@
         return true; // waitForReady handles a launcher that is still connecting
       }
       if (st.running) return true;
-      const models = st.models || {};
-      const variants = st.variants || {};
-      if (!st.ds4dirOk || !(models.standard || models.uncensored || variants.flash || variants.pro || st.modelFile)) {
-        showProgress(visualPct, 'Setup required', 'Opening DStudio');
-        await sleep(250);
-        location.replace('/');
-        return false;
-      }
-
       let saved = {};
       try { saved = JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}') || {}; }
       catch { saved = {}; }
-      const ctx = Math.max(1024, Math.min(1048576, parseInt(saved.ctxSize, 10) || 65536));
-      const power = Math.max(1, Math.min(100, parseInt(saved.enginePower, 10) || 90));
-      const ssdStreaming = ['off', 'on', 'auto'].includes(saved.ssdStreaming) ? saved.ssdStreaming : 'off';
-      const metalHotlistSeed = !!saved.metalHotlistSeed;
-      const dspark = !!saved.dspark;
-      const variant = saved.modelVariant === 'pro' ? 'pro' : 'flash';
       const gguf = typeof saved.modelGguf === 'string' ? saved.modelGguf : '';
       let engineDir = typeof saved.modelEngineDir === 'string' ? saved.modelEngineDir : '';
       /* Upgrade missing checkout metadata and repair stale absolute paths after
@@ -218,6 +203,35 @@
           }
         } catch { /* /api/start below will expose a precise model error */ }
       }
+      /* Recover a previously selected checkout before deciding setup is
+       * required. This also repairs old installs whose managed ds4 symlink
+       * points at a repository that has since moved. The checkout endpoint now
+       * persists the repaired path for every later native-app launch. */
+      if (!st.ds4dirOk && engineDir) {
+        try {
+          await fetchJson('/api/engine/checkout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
+            body: JSON.stringify({ dir: engineDir }),
+          }, 10000);
+          st = await fetchJson('/api/status', {}, 3500);
+        } catch { /* the main UI will offer install, path and LAN recovery */ }
+      }
+      const models = st.models || {};
+      const variants = st.variants || {};
+      if (!st.ds4dirOk || !(models.standard || models.uncensored || variants.flash || variants.pro || st.modelFile)) {
+        showProgress(visualPct, 'Setup required', 'Opening DStudio');
+        await sleep(250);
+        location.replace('/');
+        return false;
+      }
+
+      const ctx = Math.max(1024, Math.min(1048576, parseInt(saved.ctxSize, 10) || 65536));
+      const power = Math.max(1, Math.min(100, parseInt(saved.enginePower, 10) || 90));
+      const ssdStreaming = ['off', 'on', 'auto'].includes(saved.ssdStreaming) ? saved.ssdStreaming : 'off';
+      const metalHotlistSeed = !!saved.metalHotlistSeed;
+      const dspark = !!saved.dspark;
+      const variant = saved.modelVariant === 'pro' ? 'pro' : 'flash';
       showProgress(5, 'Applying saved engine settings…',
         `${Math.round(ctx / 1024)}k context · SSD streaming ${ssdStreaming}`);
       try {

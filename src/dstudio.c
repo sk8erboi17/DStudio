@@ -3063,6 +3063,44 @@ static int persist_http_port(int port) {
     return ok;
 }
 
+/* Keep an explicitly selected engine checkout outside browser storage. The
+ * launcher needs this before the UI exists, otherwise every app restart falls
+ * back to the managed ./ds4 directory and immediately shows the engine gate
+ * again. */
+static int persist_ds4_checkout(const char *checkout) {
+    char dir[DSTUDIO_PATH_MAX], path[DSTUDIO_PATH_MAX + 32];
+    if (!checkout || !checkout[0] || !dstudio_data_dir_path(dir, sizeof dir)) return 0;
+    mkpath(dir);
+    int n = snprintf(path, sizeof path, "%s/engine-checkout", dir);
+    if (n < 0 || (size_t)n >= sizeof path) return 0;
+    FILE *f = fopen(path, "wb");
+    if (!f) return 0;
+    int ok = fprintf(f, "%s\n", checkout) > 0 && fflush(f) == 0;
+#ifndef _WIN32
+    if (ok) ok = fsync(fileno(f)) == 0;
+    (void)chmod(path, 0600);
+#endif
+    if (fclose(f) != 0) ok = 0;
+    return ok;
+}
+
+static int load_persisted_ds4_checkout(char *out, size_t outsz) {
+    char dir[DSTUDIO_PATH_MAX], path[DSTUDIO_PATH_MAX + 32];
+    if (!out || outsz == 0 || !dstudio_data_dir_path(dir, sizeof dir)) return 0;
+    int n = snprintf(path, sizeof path, "%s/engine-checkout", dir);
+    if (n < 0 || (size_t)n >= sizeof path) return 0;
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    if (!fgets(out, (int)outsz, f)) {
+        fclose(f);
+        out[0] = '\0';
+        return 0;
+    }
+    fclose(f);
+    out[strcspn(out, "\r\n")] = '\0';
+    return out[0] != '\0';
+}
+
 static void close_pipes(void);
 
 static int port_listening(int port) {
@@ -6073,48 +6111,28 @@ static int collect_engine_checkouts(
     if (active_out && active_outsz) cstr_copy(active_out, active_outsz, active);
 
     int ndirs = 0;
+    if (cap > 0 && ds4_dir_valid_path(active))
+        cstr_copy(dirs[ndirs++], DSTUDIO_PATH_MAX, active);
+
     char parent[DSTUDIO_PATH_MAX];
     cstr_copy(parent, sizeof parent, active);
     char *slash = strrchr(parent, '/');
     if (slash && slash != parent) *slash = '\0';
     else cstr_copy(parent, sizeof parent, "/");
-    /* g_web_dir is runtime state, and on macOS commonly contains only a
-     * `ds4` symlink back to the active checkout. Scanning it first duplicates
-     * the same catalog and can block the single local HTTP loop while the app
-     * is coming up. Real managed checkouts are siblings of the active one. */
-    const char *bases[1] = { parent };
 
-    for (int bi = 0; bi < 1; bi++) {
-        if (!bases[bi] || !bases[bi][0]) continue;
-        DIR *d = opendir(bases[bi]);
-        if (!d) continue;
-        struct dirent *de;
-        while ((de = readdir(d)) != NULL && ndirs < cap) {
-            if (strncmp(de->d_name, "ds4", 3)) continue;
-            char full[DSTUDIO_PATH_MAX + 300], abs[DSTUDIO_PATH_MAX];
-            snprintf(full, sizeof full, "%s/%s", bases[bi], de->d_name);
-            struct stat st;
-            if (stat(full, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
-            if (!ds4_dir_valid_path(full) || !realpath(full, abs)) continue;
-            int dup = 0;
-            for (int i = 0; i < ndirs && !dup; i++) dup = !strcmp(dirs[i], abs);
-            if (!dup) cstr_copy(dirs[ndirs++], DSTUDIO_PATH_MAX, abs);
-        }
-        closedir(d);
-    }
-
-    int active_idx = -1;
-    for (int i = 0; i < ndirs; i++)
-        if (!strcmp(dirs[i], active)) { active_idx = i; break; }
-    if (active_idx < 0 && ndirs < cap && ds4_dir_valid_path(active)) {
-        cstr_copy(dirs[ndirs], DSTUDIO_PATH_MAX, active);
-        active_idx = ndirs++;
-    }
-    if (active_idx > 0) {
-        char tmp[DSTUDIO_PATH_MAX];
-        cstr_copy(tmp, sizeof tmp, dirs[0]);
-        cstr_copy(dirs[0], DSTUDIO_PATH_MAX, dirs[active_idx]);
-        cstr_copy(dirs[active_idx], DSTUDIO_PATH_MAX, tmp);
+    /* Do not enumerate the workspace directory here. On macOS Documents may
+     * be backed by a file provider, where opendir() can block the single local
+     * HTTP loop indefinitely. Managed runtimes have fixed sibling names; an
+     * arbitrary user-selected checkout is already included as `active`. */
+    const char *managed_names[] = { "ds4", DS4_GLM53_DIR_NAME, DS4_LAGUNA_DIR_NAME };
+    for (size_t ni = 0; ni < sizeof managed_names / sizeof managed_names[0] && ndirs < cap; ni++) {
+        char full[DSTUDIO_PATH_MAX + 64], abs[DSTUDIO_PATH_MAX];
+        int n = snprintf(full, sizeof full, "%s/%s", parent, managed_names[ni]);
+        if (n < 0 || (size_t)n >= sizeof full || !ds4_dir_valid_path(full) || !realpath(full, abs))
+            continue;
+        int dup = 0;
+        for (int i = 0; i < ndirs && !dup; i++) dup = !strcmp(dirs[i], abs);
+        if (!dup) cstr_copy(dirs[ndirs++], DSTUDIO_PATH_MAX, abs);
     }
     return ndirs;
 }
@@ -6207,8 +6225,8 @@ static void api_ggufs(int fd) {
 /* ---- Engine checkout (ds4 git branch) picker ----
  * DStudio can sit next to several managed ds4 checkouts (main and optional
  * model-specific branches). These endpoints let the UI list them and swap the
- * active one at runtime. The swap is process-local and deliberately NOT
- * persisted: the next DStudio launch resolves ./ds4 again. */
+ * active one at runtime; the selected checkout is persisted for the next
+ * native-app launch. */
 
 /* Best-effort current git branch of a checkout. Handles both a regular clone
  * (.git is a directory) and a linked worktree (.git is a "gitdir: ..." pointer
@@ -6306,6 +6324,11 @@ static void api_engine_checkout_set(int fd, const char *body) {
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"not a ds4 checkout\"}");
         return;
     }
+    if (!persist_ds4_checkout(abs)) {
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"could not save the selected ds4 checkout\"}");
+        return;
+    }
     char branch[128];
     git_branch_of(abs, branch, sizeof branch);
     int changed = strcmp(abs, g_ds4_dir) != 0;
@@ -6319,7 +6342,7 @@ static void api_engine_checkout_set(int fd, const char *body) {
     int ok = json_dyn_puts(&b, "{\"ok\":true,\"dir\":") &&
              json_dyn_put_escaped(&b, abs) &&
              json_dyn_puts(&b, ",\"branch\":") && json_dyn_put_escaped(&b, branch) &&
-             json_dyn_printf(&b, ",\"changed\":%s}", changed ? "true" : "false");
+             json_dyn_printf(&b, ",\"changed\":%s,\"persisted\":true}", changed ? "true" : "false");
     if (!ok) {
         free(b.ptr);
         send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"out of memory\"}");
@@ -9629,7 +9652,14 @@ int main(int argc, char **argv)
         port = (int)p;
     }
     resolve_web_dir();   /* same for extension/ scripts (build-design.sh) */
-    if (argc > 2) { snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]); g_ds4_dir_explicit = 1; }
+    if (argc > 2) {
+        snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]);
+        g_ds4_dir_explicit = 1;
+    } else if (load_persisted_ds4_checkout(g_ds4_dir, sizeof g_ds4_dir)) {
+        /* A saved UI selection has the same precedence as an explicit path,
+         * but an actual CLI argument above always wins. */
+        g_ds4_dir_explicit = 1;
+    }
     resolve_ds4_dir();   /* launch from Finder/bundle: cwd = "/", the relative one must be resolved */
     int test_mode = getenv("DS4UI_TEST_MODE") && getenv("DS4UI_TEST_MODE")[0];
 

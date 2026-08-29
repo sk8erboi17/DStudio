@@ -1064,7 +1064,7 @@ assert.match(launcher, /collect_engine_checkouts\([\s\S]*api_ggufs/, 'GGUF API s
 assert.match(launcher, /\\"engineDir\\":[\s\S]*\\"engineName\\":[\s\S]*\\"branch\\":[\s\S]*\\"activeEngine\\":/, 'Every GGUF row should identify its checkout, branch and active state');
 assert.match(js, /modelEngineDir/, 'Saved model selection should persist its owning checkout');
 assert.match(js, /async function selectSavedModelCheckout\(\)[\s\S]*Engine\.ggufs\(\)[\s\S]*matches\.length === 1[\s\S]*modelEngineDir: dir/, 'Every model launch should restore the saved checkout and migrate legacy model picks');
-assert.match(loadingHtml, /modelEngineDir[\s\S]*ds4-glm[\s\S]*\/api\/ggufs[\s\S]*matches\.length === 1[\s\S]*\/api\/engine\/checkout[\s\S]*\/api\/start/, 'Native loading page should migrate retired GLM checkout picks and switch checkout before launch');
+assert.match(loadingHtml, /modelEngineDir[\s\S]*\/api\/ggufs[\s\S]*matches\.length === 1[\s\S]*\/api\/engine\/checkout[\s\S]*\/api\/start/, 'Native loading page should restore the model-specific checkout before launch');
 assert.match(js, /async function switchToGguf\(path, label, engineDir = '', engineLabel = ''\)/, 'Model switching should carry checkout metadata');
 assert.doesNotMatch(js, /build:\s*'off'/, 'Agent/Design should keep Plan mode as a per-turn UI contract instead of a launch mode');
 assert.doesNotMatch(js, /useJsonlPatch|set-jsonl/, 'Agent should expose one structured protocol instead of a legacy raw mode');
@@ -1473,6 +1473,7 @@ assert.match(js, /function mergeRemote\(remote\) \{[\s\S]*remote\.v !== SCHEMA_V
 
 assert.match(loadingHtml, /lanClientHost/, 'loading gate must skip when this browser is a LAN client');
 assert.match(loadingHtml, /settings\.onboarded !== true/, 'loading gate should wait until host onboarding is complete');
+assert.match(loadingHtml, /if \(!st\.ds4dirOk && engineDir\)[\s\S]*\/api\/engine\/checkout[\s\S]*st = await fetchJson\('\/api\/status'/, 'loading gate should restore a saved checkout before opening missing-engine setup');
 assert.doesNotMatch(loadingHtml, /hello are you alive\?|askAlive/, 'loading gate should not block app opening on a full model generation');
 assert.match(loadingHtml, /class="logo"[\s\S]*id="loading-progress"[\s\S]*id="loading-bar"[\s\S]*id="loading-stage"[\s\S]*id="loading-pct"/, 'loading page should show the DStudio logo above a labeled progress bar');
 assert.match(loadingHtml, /showProgress\(st\.loadPct,[\s\S]*st\.stage/, 'loading progress should consume the launcher percentage and stage');
@@ -1546,6 +1547,13 @@ assert.match(html, /id="onboard-ds4dir-choose-btn"/, 'onboarding should offer a 
 assert.match(js, /async function pickDs4GatePath\(\)[\s\S]*window\.ds4PickDirectory[\s\S]*useDs4GatePath\(\)/, 'Choose a path should use the native folder picker');
 assert.match(js, /async function useDs4GatePath\(\)[\s\S]*Engine\.setEngineCheckout\(path\)/, 'Choose a path should switch the engine checkout through the launcher API');
 assert.match(js, /async function chooseDs4FromUi\(\)[\s\S]*Engine\.setEngineCheckout\(path\)/, 'onboarding Choose should switch the engine checkout');
+assert.match(js, /let setModelScanning = false[\s\S]*if \(setModelScanFlight\) return setModelScanFlight[\s\S]*finally \{[\s\S]*setModelScanning = false[\s\S]*setModelScanFlight = null/, 'Settings model discovery should always leave its scanning state');
+assert.match(js, /setModelScanError[\s\S]*text: 'Retry'[\s\S]*Could not scan the engine folders/, 'Settings model discovery should offer Retry after errors');
+const openSettingsSource = js.match(/function openSettings\(\) \{[\s\S]*?\n      }\n\n      function openVideo/)?.[0] || '';
+assert.match(openSettingsSource, /requestAnimationFrame\(\(\) => \{[\s\S]*dialog\.showModal\(\)[\s\S]*loadSetModels\(\)/, 'Settings should start its filesystem model scan after the deferred dialog open');
+assert.match(html, /#ds4dir-dialog\.ds4dir-dialog\s*\{[\s\S]*width:\s*min\(94vw, 46rem\)[\s\S]*\.ds4dir-gate__path-row\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) auto auto/, 'engine-folder dialog should keep long paths and actions readable');
+assert.match(js, /ds4GateMode:\s*'local'[\s\S]*function setDs4GateMode\(mode, remember = true\)[\s\S]*Store\.setSettingsNow\(\{ ds4GateMode: mode \}\)[\s\S]*setDs4GateMode\(Store\.getSettings\(\)\.ds4GateMode \|\| 'local', false\)/, 'engine-folder dialog should remember the selected setup mode immediately');
+assert.match(launcher, /static int persist_ds4_checkout\([\s\S]*engine-checkout[\s\S]*static int load_persisted_ds4_checkout\([\s\S]*api_engine_checkout_set[\s\S]*persist_ds4_checkout\(abs\)[\s\S]*load_persisted_ds4_checkout\(g_ds4_dir/, 'selected ds4 checkout should survive a launcher restart');
 assert.match(html, /id="onboard-model-recheck"/, 'onboarding model section should offer an explicit Recheck button');
 assert.match(html, /Required for local use/, 'local onboarding should clearly require a model');
 assert.match(js, /await loadGgufs\(\);[\s\S]*if \(!selectedGguf\)[\s\S]*Download a model/, 'onboarding Start must refuse to finish without a selected local model');

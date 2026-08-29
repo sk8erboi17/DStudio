@@ -5275,6 +5275,154 @@
       box-shadow: inset 0 0 0 1px var(--border-2);
     }
 
+    /* Missing-engine gate: wide enough for real filesystem paths, with a
+       stable action row that does not turn the primary button into a tall
+       stack on medium-sized windows. */
+    #ds4dir-dialog.ds4dir-dialog {
+      width: min(94vw, 46rem);
+      max-height: min(90dvh, 44rem);
+      padding: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      border-radius: 18px;
+      box-shadow: 0 26px 80px rgb(0 0 0 / 0.28);
+    }
+    .ds4dir-gate { min-width: 0; }
+    .ds4dir-gate__head {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr);
+      gap: 14px;
+      padding: 22px 24px 16px;
+    }
+    .ds4dir-gate__icon {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+      color: var(--accent-2);
+    }
+    .ds4dir-gate__eyebrow {
+      margin: 1px 0 4px;
+      color: var(--accent-2);
+      font-size: 0.67rem;
+      font-weight: 700;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+    .ds4dir-gate h2 {
+      margin: 0;
+      font-family: var(--serif);
+      font-size: clamp(1.45rem, 4vw, 1.85rem);
+      font-weight: 500;
+      line-height: 1.12;
+      letter-spacing: -0.015em;
+    }
+    .ds4dir-gate__lede {
+      max-width: 55ch;
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 0.86rem;
+      line-height: 1.5;
+    }
+    .ds4dir-gate__location {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: center;
+      gap: 10px;
+      margin: 0 24px 16px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--bg);
+    }
+    .ds4dir-gate__location > span {
+      color: var(--faint);
+      font-size: 0.69rem;
+      font-weight: 650;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .ds4dir-gate__location code {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--text-2);
+      font-size: 0.76rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ds4dir-gate__modes {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin: 0 24px;
+    }
+    .ds4dir-gate__modes .onboard__seg-b {
+      min-height: 36px;
+      padding-inline: 10px;
+      white-space: nowrap;
+    }
+    .ds4dir-gate__body { padding: 14px 24px 24px; }
+    .ds4dir-gate__panel {
+      min-height: 132px;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--surface-2) 42%, var(--surface));
+    }
+    .ds4dir-gate__panel[hidden] { display: none; }
+    .ds4dir-gate__panel-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 5px;
+      color: var(--text);
+      font-size: 0.88rem;
+      font-weight: 650;
+    }
+    .ds4dir-gate__badge {
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      color: var(--accent-2);
+      font-size: 0.65rem;
+      font-weight: 650;
+    }
+    .ds4dir-gate__panel .wd-note { max-width: 62ch; }
+    .ds4dir-gate__panel .dialog__actions { justify-content: flex-start; margin-top: 14px; }
+    .ds4dir-gate__field { margin: 12px 0 0; }
+    .ds4dir-gate__field > span { color: var(--text-2); font-size: 0.75rem; font-weight: 600; }
+    .ds4dir-gate__path-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+      align-items: stretch;
+    }
+    .ds4dir-gate__path-row input,
+    .ds4dir-gate__path-row .btn,
+    .ds4dir-gate__lan-row input,
+    .ds4dir-gate__lan-row .btn {
+      min-height: 40px;
+    }
+    .ds4dir-gate__path-row .btn,
+    .ds4dir-gate__lan-row .btn { white-space: nowrap; }
+    .ds4dir-gate__lan-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+    .ds4dir-gate .set-inline-msg { margin-top: 8px; }
+    @media (max-width: 620px) {
+      #ds4dir-dialog.ds4dir-dialog { width: min(94vw, 31rem); }
+      .ds4dir-gate__head { padding: 18px 18px 14px; }
+      .ds4dir-gate__location { grid-template-columns: 1fr; gap: 4px; margin: 0 18px 14px; }
+      .ds4dir-gate__modes { grid-template-columns: 1fr; margin-inline: 18px; }
+      .ds4dir-gate__modes .onboard__seg-b { text-align: left; }
+      .ds4dir-gate__body { padding: 12px 18px 18px; }
+      .ds4dir-gate__path-row { grid-template-columns: 1fr 1fr; }
+      .ds4dir-gate__path-row input { grid-column: 1 / -1; }
+      .ds4dir-gate__path-row .btn { width: 100%; }
+    }
+
     .onboard__panel[hidden] { display: none; }
 
     .onboard__connect {
@@ -6568,44 +6716,61 @@
     </form>
   </dialog>
 
-  <dialog id="ds4dir-dialog" class="dialog" aria-label="ds4 engine folder">
-    <form method="dialog" class="settings">
-      <h2>Can't find the ds4 engine</h2>
-      <p class="wd-note">DStudio can install <strong>ds4</strong> into this repo and apply its local patches, or connect to a LAN host already running DStudio.</p>
-      <p class="wd-note">Looked in: <code id="ds4dir-cur" style="word-break:break-all"></code></p>
-      <div class="onboard__seg" role="radiogroup" aria-label="Choose local folder or LAN">
+  <dialog id="ds4dir-dialog" class="dialog ds4dir-dialog" aria-label="Set up the ds4 engine">
+    <form method="dialog" class="settings ds4dir-gate">
+      <header class="ds4dir-gate__head">
+        <span class="ds4dir-gate__icon" aria-hidden="true">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 6.5h7M6.5 9.5v5M17.5 9.5v5M8.5 17.5h7"/><circle cx="6.5" cy="6.5" r="2"/><circle cx="17.5" cy="6.5" r="2"/><circle cx="6.5" cy="17.5" r="2"/><circle cx="17.5" cy="17.5" r="2"/></svg>
+        </span>
+        <div>
+          <p class="ds4dir-gate__eyebrow">Local engine</p>
+          <h2>Connect the ds4 engine</h2>
+          <p class="ds4dir-gate__lede">Install DStudio's managed engine, use an existing checkout, or connect to another DStudio on your network.</p>
+        </div>
+      </header>
+      <div class="ds4dir-gate__location" title="Engine path checked by DStudio">
+        <span>Current location</span>
+        <code id="ds4dir-cur"></code>
+      </div>
+      <div class="onboard__seg ds4dir-gate__modes" role="radiogroup" aria-label="Choose how to connect the engine">
         <button type="button" id="ds4dir-mode-local" class="onboard__seg-b on" role="radio" aria-checked="true">Install local ds4</button>
         <button type="button" id="ds4dir-mode-path" class="onboard__seg-b" role="radio" aria-checked="false">Choose a path</button>
         <button type="button" id="ds4dir-mode-lan" class="onboard__seg-b" role="radio" aria-checked="false">Connect to LAN</button>
       </div>
-      <div id="ds4dir-local-panel">
-        <p class="wd-note">DStudio will use the managed checkout shown above and keep upstream source out of this repo history.</p>
-        <p class="wd-warn" id="ds4dir-warn" hidden></p>
-        <div class="dialog__actions">
-          <button type="button" id="ds4dir-setup" class="btn btn--primary">Install ds4</button>
-        </div>
-      </div>
-      <div id="ds4dir-lan-panel" hidden>
-        <label class="field">
-          <span>LAN address</span>
-          <div class="field__row">
-            <input type="text" id="ds4dir-lan-address" placeholder="192.168.1.207:5500" spellcheck="false" autocomplete="off">
-            <button type="button" id="ds4dir-lan-connect" class="btn btn--primary">Connect</button>
+      <div class="ds4dir-gate__body">
+        <section id="ds4dir-local-panel" class="ds4dir-gate__panel">
+          <div class="ds4dir-gate__panel-title"><span>Install the managed engine</span><span class="ds4dir-gate__badge">Recommended</span></div>
+          <p class="wd-note">DStudio downloads ds4, applies its local patches, and keeps the engine source outside this repository's history.</p>
+          <p class="wd-warn" id="ds4dir-warn" hidden></p>
+          <div class="dialog__actions">
+            <button type="button" id="ds4dir-setup" class="btn btn--primary">Install ds4</button>
           </div>
-        </label>
-        <p class="set-inline-msg" id="ds4dir-lan-msg"></p>
-      </div>
-      <div id="ds4dir-path-panel" hidden>
-        <p class="wd-note">Point DStudio at an existing ds4 checkout: a folder with <code>ds4-server</code>, <code>ds4-agent-jsonl</code> and <code>gguf/</code>.</p>
-        <label class="field">
-          <span>ds4 folder</span>
-          <div class="field__row">
-            <input type="text" id="ds4dir-path-in" placeholder="/path/to/ds4" spellcheck="false" autocomplete="off">
-            <button type="button" id="ds4dir-path-browse" class="btn">Browse…</button>
-            <button type="button" id="ds4dir-path-use" class="btn btn--primary">Use this path</button>
-          </div>
-        </label>
-        <p class="set-inline-msg" id="ds4dir-path-msg"></p>
+        </section>
+        <section id="ds4dir-lan-panel" class="ds4dir-gate__panel" hidden>
+          <div class="ds4dir-gate__panel-title"><span>Use a DStudio host</span></div>
+          <p class="wd-note">Enter the address shown by DStudio on a trusted device on the same network.</p>
+          <label class="field ds4dir-gate__field">
+            <span>LAN address</span>
+            <div class="ds4dir-gate__lan-row">
+              <input type="text" id="ds4dir-lan-address" placeholder="192.168.1.207:5500" spellcheck="false" autocomplete="off">
+              <button type="button" id="ds4dir-lan-connect" class="btn btn--primary">Connect</button>
+            </div>
+          </label>
+          <p class="set-inline-msg" id="ds4dir-lan-msg"></p>
+        </section>
+        <section id="ds4dir-path-panel" class="ds4dir-gate__panel" hidden>
+          <div class="ds4dir-gate__panel-title"><span>Use an existing checkout</span></div>
+          <p class="wd-note">Select a ds4 folder containing the engine source or a built <code>ds4-server</code>. DStudio will remember it after restart.</p>
+          <label class="field ds4dir-gate__field">
+            <span>ds4 folder</span>
+            <div class="ds4dir-gate__path-row">
+              <input type="text" id="ds4dir-path-in" placeholder="/path/to/ds4" spellcheck="false" autocomplete="off">
+              <button type="button" id="ds4dir-path-browse" class="btn">Browse…</button>
+              <button type="button" id="ds4dir-path-use" class="btn btn--primary">Use this path</button>
+            </div>
+          </label>
+          <p class="set-inline-msg" id="ds4dir-path-msg"></p>
+        </section>
       </div>
     </form>
   </dialog>
@@ -7359,6 +7524,7 @@
       webSearchBrowserAllowed: false,// remembers the local visible-browser consent
       lanEnabled: false,    // persisted host preference; reconciled with /api/status on Settings open
       workdirs: {},        // last working folder per mode (agent/design)
+      ds4GateMode: 'local', // last setup choice shown by the missing-engine gate
       onboarded: false,     // onboarding is shown while this is false
     };
 
@@ -22428,7 +22594,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         refreshVisionStatus();
         refreshVideoStatus();
         setPane(setPaneId);
-        requestAnimationFrame(() => { if (!dialog.open) { try { dialog.showModal(); } catch { dialog.show(); } } });
+        requestAnimationFrame(() => {
+          if (!dialog.open) { try { dialog.showModal(); } catch { dialog.show(); } }
+          /* refreshModels() starts before the deferred showModal above. A fast
+             response used to see dialog.open=false and permanently skip the
+             filesystem catalog, leaving "Scanning…" on screen forever. */
+          if (!isLanClientMode() && Store.getSettings().chatBackend !== 'deepseek') loadSetModels();
+        });
       }
 
       function openVideo() {
@@ -23009,6 +23181,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       let runningModel = '';
       let modelEngineDir = '';
       let switching = false;
+      let setModelScanning = false;
+      let setModelScanFlight = null;
+      let setModelScanError = '';
       async function loadSetModels() {
         if (isLanClientMode()) {
           ggufCache = [];
@@ -23016,17 +23191,35 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           renderSetModels();
           return;
         }
-        try {
-          const st = await Engine.status();
-          runningModel = st.modelFile || '';
-          modelEngineDir = st.ds4dir || '';
-          const downloadState = modelDownloadStateFromStatus(st);
-          if (downloadState) Store.setModelState({ download: downloadState });
-        }
-        catch { /* keep last known */ }
-        try { const r = await Engine.ggufs(); ggufCache = (r && r.ggufs) || []; }
-        catch { ggufCache = ggufCache || []; }
+        if (setModelScanFlight) return setModelScanFlight;
+        setModelScanning = true;
+        setModelScanError = '';
         renderSetModels();
+        setModelScanFlight = (async () => {
+          try {
+            try {
+              const st = await Engine.status();
+              runningModel = st.modelFile || '';
+              modelEngineDir = st.ds4dir || '';
+              const downloadState = modelDownloadStateFromStatus(st);
+              if (downloadState) Store.setModelState({ download: downloadState });
+            } catch { /* the catalog request below remains authoritative */ }
+            const r = await Engine.ggufs();
+            if (!r || r.ok === false || !Array.isArray(r.ggufs))
+              throw new Error(r?.error || 'The launcher returned an invalid model catalog.');
+            ggufCache = r.ggufs;
+          } catch (e) {
+            ggufCache = [];
+            setModelScanError = e?.name === 'TimeoutError'
+              ? 'The engine folder scan timed out.'
+              : (e?.message || 'Could not scan the engine folders.');
+          } finally {
+            setModelScanning = false;
+            setModelScanFlight = null;
+            renderSetModels();
+          }
+        })();
+        return setModelScanFlight;
       }
       function renderSetModels() {
         const host = f.models;
@@ -23050,9 +23243,21 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           return card;
         });
         if (!cards.length) {
-          cards.push(el('div', { class: 'onboard__model', text: ggufCache === null
-            ? 'Scanning the engine folder…'
-            : 'No .gguf model found in the managed engine folders — download one below.' }));
+          if (setModelScanning || ggufCache === null) {
+            cards.push(el('div', { class: 'onboard__model', text: 'Scanning the engine folders…' }));
+          } else if (setModelScanError) {
+            const retry = el('button', { class: 'btn btn--sm', type: 'button', text: 'Retry' });
+            on(retry, 'click', loadSetModels);
+            cards.push(el('div', { class: 'onboard__model' }, [
+              el('div', { class: 'onboard__model-body' }, [
+                el('div', { class: 'onboard__model-name', text: 'Could not scan the engine folders' }),
+                el('div', { class: 'onboard__model-sub', text: setModelScanError }),
+              ]),
+              retry,
+            ]));
+          } else {
+            cards.push(el('div', { class: 'onboard__model', text: 'No .gguf model found in the managed engine folders — download one below.' }));
+          }
         }
 
         // Download another model / a different quantization (ds4 download scripts).
@@ -28745,7 +28950,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           Messages.renderChat(Store.getActiveChat());
         }
       }
-      function setDs4GateMode(mode) {
+      function setDs4GateMode(mode, remember = true) {
+        if (!['local', 'path', 'lan'].includes(mode)) mode = 'local';
         const lan = mode === 'lan';
         const path = mode === 'path';
         const localBtn = qs('#ds4dir-mode-local');
@@ -28760,6 +28966,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         qs('#ds4dir-local-panel').hidden = lan;
         qs('#ds4dir-path-panel').hidden = !path;
         qs('#ds4dir-lan-panel').hidden = !lan;
+        if (remember && Store.getSettings().ds4GateMode !== mode) Store.setSettingsNow({ ds4GateMode: mode });
         if (lan) setTimeout(() => qs('#ds4dir-lan-address')?.focus(), 0);
         else if (path) setTimeout(() => qs('#ds4dir-path-in')?.focus(), 0);
         else setTimeout(() => qs('#ds4dir-setup')?.focus(), 0);
@@ -28863,10 +29070,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         d4dForced = true;
         d4dResolved = false;
         qs('#ds4dir-cur').textContent = st.ds4dir || '—';
+        qs('#ds4dir-path-in').value = st.ds4dir || '';
         qs('#ds4dir-warn').hidden = true;
+        qs('#ds4dir-path-msg').textContent = '';
         qs('#ds4dir-lan-msg').textContent = '';
         if (st.lanAddr && !qs('#ds4dir-lan-address').value) qs('#ds4dir-lan-address').value = st.lanAddr;
-        setDs4GateMode('local');
+        setDs4GateMode(Store.getSettings().ds4GateMode || 'local', false);
         d4d.showModal();
       }
 

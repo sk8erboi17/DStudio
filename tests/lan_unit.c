@@ -161,6 +161,16 @@ int main(void) {
     int saved_port = 0;
     assert(fscanf(pf, "%d", &saved_port) == 1 && saved_port == 15550);
     fclose(pf);
+
+    char checkout_dir[PATH_MAX], checkout_file[PATH_MAX], loaded_checkout[PATH_MAX];
+    snprintf(checkout_dir, sizeof checkout_dir, "%s/ds4 custom", data_dir);
+    assert(mkdir(checkout_dir, 0755) == 0);
+    assert(persist_ds4_checkout(checkout_dir));
+    assert(load_persisted_ds4_checkout(loaded_checkout, sizeof loaded_checkout));
+    assert(strcmp(loaded_checkout, checkout_dir) == 0);
+    snprintf(checkout_file, sizeof checkout_file, "%s/engine-checkout", data_dir);
+    unlink(checkout_file);
+    rmdir(checkout_dir);
     unlink(port_file);
     rmdir(data_dir);
     unsetenv("DS4UI_DATA_DIR");
