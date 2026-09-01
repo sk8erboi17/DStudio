@@ -1,6 +1,5 @@
-static char *agent_build_dsml_tools_prompt(bool edit_upto) {
-    const char *edit = edit_upto ? agent_tools_prompt_edit_upto
-                                 : agent_tools_prompt_edit_exact;
+static char *agent_build_tools_prompt(void) {
+    const char *edit = agent_tools_prompt_edit_line;
     size_t a = strlen(agent_tools_prompt_intro);
     size_t b = strlen(edit);
     size_t c = strlen(agent_tools_prompt_after_edit);

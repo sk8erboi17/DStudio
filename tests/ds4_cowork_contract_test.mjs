@@ -17,6 +17,7 @@ const dispatchPatch = read('patch/ds4-agent-jsonl/061.replace');
 const cachePatch = read('patch/ds4-agent-jsonl/062.replace');
 const dsmlPatch = read('patch/ds4-agent-jsonl/063.replace');
 const glmPatch = read('patch/ds4-agent-jsonl/064.replace');
+const lagunaPatch = read('patch/ds4-agent-jsonl/064.laguna.replace');
 const makefile = read('Makefile');
 
 assert.match(launcher, /ENGINE_NONE = 0, ENGINE_SERVER, ENGINE_AGENT, ENGINE_COWORK, ENGINE_DESIGN/);
@@ -63,7 +64,7 @@ assert.doesNotMatch(bridge, /\bsystem\s*\(/);
 assert.match(bridge, /execlp\(python, python, helper/);
 assert.match(bridge, /COWORK_OUTPUT_MAX/);
 
-assert.match(patchManifest, /version=74/);
+assert.match(patchManifest, /version=76/);
 assert.match(patchManifest, /edit=063[\s\S]*edit=064[\s\S]*edit=065[\s\S]*edit=067[\s\S]*edit=068[\s\S]*edit=069/);
 const textToolObservationPatch = fs.readFileSync(path.join(root, 'patch/ds4-agent-jsonl/068.replace'), 'utf8');
 assert.match(textToolObservationPatch, /if \(!obs->image_count\)[\s\S]*ds4_chat_append_message[\s\S]*else \{[\s\S]*ds4_chat_append_multimodal_message/,
@@ -75,9 +76,12 @@ assert.match(cachePatch, /\.ds4\/cowork-kvcache/);
 for (const schema of ['excel', 'read_document', 'write_document', 'write_pdf', 'presentation']) {
   assert.ok(dsmlPatch.includes(`name\\\":\\\"${schema}`), `DSML prompt patch should expose ${schema}`);
 }
-assert.match(glmPatch, /agent_cowork_tool_schemas/);
+assert.match(glmPatch, /one unified tool prompt/);
+assert.match(lagunaPatch, /agent_cowork_tool_schemas/);
 assert.match(read('patch/ds4-agent-jsonl/069.replace'), /reasoning_start/,
   'live Cowork and Agent reasoning should open its disclosure before the first token');
+assert.match(read('patch/ds4-agent-jsonl/069.laguna.replace'), /reasoning_start/,
+  'Laguna reasoning should use the same structured disclosure event');
 assert.match(makefile, /extension\/cowork/);
 
 console.log('ds4-cowork contract: ok');

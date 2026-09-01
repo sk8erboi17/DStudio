@@ -1,6 +1,7 @@
         agent_stream_renderer stream = {
             .renderer = &renderer,
             .parser = &dsml,
+            .syntax = tool_syntax,
             .in_think = ds4_think_mode_enabled(think_mode),
         };
         /* The chat template opens the first reasoning block implicitly, so

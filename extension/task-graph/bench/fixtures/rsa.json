@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"rsa","stages":["inventory","capture","structure","review"],"acceptance":["native phase events only","claims audited"]}

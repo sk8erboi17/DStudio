@@ -4945,6 +4945,22 @@
       font-size: 15px;
       overflow-wrap: anywhere;
     }
+    .gsa-phase-card--pending .gsa-phase-title { color: var(--text-2); }
+    .gsa-phase-spinner {
+      width: 14px;
+      height: 14px;
+      flex: 0 0 auto;
+      border: 2px solid var(--accent-dim);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: compact-spin 0.72s linear infinite;
+    }
+    .gsa-phase-pending-copy {
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
     .gsa-phase-meta {
       display: flex;
       flex-wrap: wrap;
@@ -7345,18 +7361,17 @@
       font-family: var(--font-mono);
       font-size: 10.5px;
     }
-    .tool-step-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tool-step-label { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
     .tool-step-status { color: var(--ok); font-family: var(--font-mono); font-size: 11px; }
     .tool-step-preview {
       grid-column: 2 / 4;
       min-width: 0;
-      overflow: hidden;
       color: var(--faint);
       font-family: var(--font-mono);
       font-size: 10.5px;
       line-height: 1.35;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      overflow-wrap: anywhere;
+      white-space: normal;
     }
     .agent-workstream .toolfold:not([data-complete="true"]) .tool-step-status { color: var(--accent-2); }
     .agent-workstream .tool-out {
@@ -14488,7 +14503,13 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
               if (form.isConnected && form.classList.contains('is-generating')) setGenerating(false);
             }
           });
-          requestAnimationFrame(() => input.focus());
+          /* The form is attached after this factory returns. Focus it on the
+           * next frame only if the user (or automation) has not already moved
+           * focus into one of its fields. Otherwise the deferred focus can
+           * steal keystrokes from the description and append them to title. */
+          requestAnimationFrame(() => {
+            if (form.isConnected && !form.contains(document.activeElement)) input.focus();
+          });
           return form;
         };
 
@@ -22670,6 +22691,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           profileRequested: res.profileRequested || securityProfileValue(),
           profileEffective: res.profileEffective || securityProfileValue(),
           iteration: Number(res.iteration) || 1,
+          repairAttempts: Object.create(null),
         };
         const runTools = res.gsaTools?.tools || [];
         const missing = runTools.filter((t) => t.enabled !== false && !t.found).map((t) => t.name);
@@ -22732,6 +22754,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           profileRequested: res.profileRequested || securityProfileValue(),
           profileEffective: res.profileEffective || securityProfileValue(),
           iteration: Number(res.iteration) || 1,
+          repairAttempts: Object.create(null),
         };
         const tools = res.rsaTools?.tools || [];
         const missing = tools.filter((t) => t.enabled !== false && !t.found).map((t) => t.name);
@@ -22936,6 +22959,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           mission: loopMission,
           targetUrl: gsaLoopState.targetUrl,
           iteration: Number(res.iteration) || gsaLoopState.iteration,
+          repairAttempts: Object.create(null),
         };
         renderGsaLoopPill();
         const display = `/gsa loop #${gsaLoopState.iteration} ${gsaLoopState.mission || ''}`.trim()
@@ -22944,13 +22968,58 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         AgentView.send(res.prompt, display, { forceThink: 'max' });
       }
 
-      // Called by the quiescence watchdog when a GSA phase turn has gone quiet
-      // for a long time with no valid phase JSON to commit: this is a genuine
-      // failure (the model never produced the required output), so stop.
+      function gsaRecoveryPrompt(phase) {
+        const isRsa = gsaRunState?.kind === 'rsa';
+        const requirements = phase === 'selection'
+          ? 'phase, files, targetUrl, localScripts, hypotheses, stop_if'
+          : phase === 'preflight'
+            ? 'phase, hypotheses, validationPlan'
+            : phase === 'validation'
+              ? 'phase, findings, validationExecutor, evidenceGraph, workbench'
+              : phase === 'inventory'
+                ? 'phase, surface, collectors, claims, unknowns'
+                : phase === 'capture'
+                  ? 'phase, evidence, routeGraph, claims, remainingUnknowns'
+                  : phase === 'structure'
+                    ? 'phase, sections, structurePath, claims, remainingUnknowns'
+                    : phase === 'review'
+                      ? 'phase, updatedSections, qualityGate, claims, remainingUnknowns'
+                      : '';
+        if (phase === 'report') {
+          return 'GSA output recovery. The previous report turn ended without a valid final report. Do not call tools or read files. Use only evidence already present in this session and return the report now, beginning exactly with `## Verdict: confirmed_issue`, `## Verdict: no_issue`, or `## Verdict: inconclusive`. No preamble.';
+        }
+        return `${isRsa ? 'RSA' : 'GSA'} structured-output recovery for phase ${phase}. ` +
+          'The previous turn ended without an accepted phase event. Do not call any tool except gsa_submit_phase, do not read files, explain, or use Markdown fences. ' +
+          `Using only evidence already present in this session, build exactly one compact valid JSON object whose phase is "${phase}"` +
+          (requirements ? ` and whose top-level contract includes: ${requirements}. ` : '. ') +
+          `Submit it exactly once with gsa_submit_phase using phase="${phase}" and payload=<the complete JSON object>; do not print it as assistant text, then stop.`;
+      }
+
+      // A long tool call can leave the transcript quiet for minutes, so the
+      // watchdog must never declare failure while the engine still owns the
+      // turn. Once idle, allow one bounded format-recovery turn: it uses the
+      // evidence already in session and is forbidden from doing more work.
+      function gsaRecoverStuck(phase) {
+        if (!gsaRunState?.active || gsaRunState.saving || gsaRunState.phase !== phase) return false;
+        const repairs = gsaRunState.repairAttempts || (gsaRunState.repairAttempts = Object.create(null));
+        const count = Number(repairs[phase] || 0);
+        if (count < 1) {
+          repairs[phase] = count + 1;
+          const name = gsaRunState.kind === 'rsa' ? 'RSA' : 'GSA';
+          toast(`${name} ${gsaPhaseDisplayName(phase)} ended without an accepted structured event. Retrying the submission once.`, 'warn');
+          AgentView.send(gsaRecoveryPrompt(phase), `/${gsaRunState.kind === 'rsa' ? 'rsa' : 'gsa'} ${phase} · output recovery`, { forceThink: 'max' });
+          return true;
+        }
+        gsaAbortStuck(phase);
+        return false;
+      }
+
+      // Called only after the watchdog has drained the transcript and
+      // confirmed that neither a model turn nor a session command is active.
       function gsaAbortStuck(phase) {
         if (!gsaRunState?.active || gsaRunState.saving || gsaRunState.phase !== phase) return;
         const name = gsaRunState.kind === 'rsa' ? 'RSA' : 'GSA';
-        toast(`${name} ${gsaPhaseDisplayName(phase)} did not return the required ${phase === 'report' ? 'Markdown report' : 'JSON object'}. Pipeline stopped; the run state remains incomplete.`, 'error');
+        toast(`${name} ${gsaPhaseDisplayName(phase)} did not return the required ${phase === 'report' ? 'Markdown report' : 'structured phase event'} after one bounded recovery turn. Pipeline stopped; the run state remains incomplete.`, 'error');
         gsaRunState.active = false;
       }
 
@@ -24729,7 +24798,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       return {
         mount, setMode, setAgentBusy, setQuestionMode, isQuestionMode: () => questionMode,
         invalidateUserSkills, openDesignGallery, buildDesignGalleryInline,
-        showPlanActions, hidePlanActions, onAgentTurnIdle, gsaAbortStuck, stopGsaLoop, currentGsaPhase,
+        showPlanActions, hidePlanActions, onAgentTurnIdle, gsaRecoverStuck, gsaAbortStuck, stopGsaLoop, currentGsaPhase,
         beginTutorAttachmentSession, endTutorAttachmentSession, addTutorFiles,
         prepareTutorAttachments, tutorAttachments, removeTutorAttachment,
         beginTutorModelSession, endTutorModelSession,
@@ -29613,14 +29682,35 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // GSA phase-advance watchdog. The working->idle edge that drives
       // onAgentTurnIdle can be missed on long turns, or fire on a stuck backend
       // working flag, leaving a valid captured phase JSON uncommitted forever.
-      // Independently of the working flag: once the transcript has been quiet
-      // for GSA_ADVANCE_QUIET_MS, commit any valid JSON for the current phase;
-      // after GSA_ADVANCE_FAIL_MS still quiet with no valid JSON, report a
-      // genuine failure. No-op unless a GSA/RSA run is active.
+      // Independently of the UI working edge: once the transcript has been
+      // quiet, drain it and commit valid phase output. Missing output is only
+      // recovered/failed after /api/status confirms both the model turn and
+      // session maintenance are idle; a silent long-running tool must never be
+      // mistaken for a completed phase.
       const GSA_WATCH_MS = 3000;
       const GSA_ADVANCE_QUIET_MS = 12000;
-      const GSA_ADVANCE_FAIL_MS = 180000;
       let gsaWatchLastLen = -1, gsaWatchQuiet = 0;
+      let gsaWatchSettling = false;
+      async function settleQuietGsaPhase(phase) {
+        if (gsaWatchSettling) return;
+        gsaWatchSettling = true;
+        try {
+          await poll(); // final bytes can arrive with the first idle response
+          if ((Composer.currentGsaPhase && Composer.currentGsaPhase()) !== phase) return;
+          const tx = (liveConvId && Store.getChat(liveConvId)?.transcript) || '';
+          const out = extractLastGsaPhaseOutput(tx, phase);
+          if (out && out.output) {
+            gsaWatchQuiet = 0;
+            await Composer.onAgentTurnIdle(out);
+            return;
+          }
+          const st = await Engine.status();
+          if (st?.agentWorking !== false || st?.agentSessionWorking === true || working) return;
+          gsaWatchQuiet = 0;
+          if (Composer.gsaRecoverStuck) Composer.gsaRecoverStuck(phase);
+        } catch { /* watchdog is best effort; the normal idle edge remains authoritative */ }
+        finally { gsaWatchSettling = false; }
+      }
       setInterval(() => {
         const phase = Composer.currentGsaPhase && Composer.currentGsaPhase();
         if (!phase) { gsaWatchLastLen = -1; gsaWatchQuiet = 0; return; }
@@ -29630,10 +29720,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (gsaWatchQuiet < GSA_ADVANCE_QUIET_MS) return;
         const out = extractLastGsaPhaseOutput(tx, phase);
         if (out && out.output) { gsaWatchQuiet = 0; Composer.onAgentTurnIdle(out); return; }
-        if (gsaWatchQuiet >= GSA_ADVANCE_FAIL_MS && Composer.gsaAbortStuck) {
-          gsaWatchQuiet = 0;
-          Composer.gsaAbortStuck(phase);
-        }
+        settleQuietGsaPhase(phase);
       }, GSA_WATCH_MS);
 
       async function reconcileIdle() {
@@ -30417,6 +30504,42 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return null;
       }
 
+      // A phase object printed as prose is a protocol violation. Hide the
+      // accidental stream behind a bounded card, but never accept it: only
+      // the native gsa_phase event may advance GSA/RSA.
+      function pendingStructuredPhase(text) {
+        const src = String(text || '').trimStart();
+        if (!src) return '';
+        const jsonish = src[0] === '{' || /^```(?:json)?\s*\{/i.test(src);
+        if (!jsonish) return '';
+        const parsedPhase = String(parseGsaPhaseJsonText(src)?.data?.phase || '').trim().toLowerCase();
+        const partialPhase = /["']phase["']\s*:\s*["']([a-z-]+)/i.exec(src)?.[1]?.toLowerCase() || '';
+        const phase = parsedPhase || partialPhase;
+        return ['selection', 'preflight', 'validation', 'inventory', 'capture', 'structure', 'review']
+          .includes(phase) ? phase : '';
+      }
+
+      function buildPendingGsaPhaseCard(seg) {
+        const phase = gsaPhaseName(seg.phase);
+        const isRsa = ['inventory', 'capture', 'structure', 'review']
+          .includes(String(seg.phase || '').toLowerCase());
+        return el('div', {
+          class: 'gsa-phase-card gsa-phase-card--pending',
+          role: 'status',
+          'aria-live': 'polite',
+        }, [
+          el('div', { class: 'gsa-phase-head' }, [
+            el('span', { class: 'gsa-phase-eye', text: isRsa ? 'RSA' : 'GSA' }),
+            el('span', { class: 'gsa-phase-spinner', 'aria-hidden': 'true' }),
+            el('span', { class: 'gsa-phase-title', text: `Capturing ${phase} data...` }),
+          ]),
+          el('div', {
+            class: 'gsa-phase-pending-copy',
+            text: 'Waiting for the engine to submit the authoritative structured phase event.',
+          }),
+        ]);
+      }
+
       function gsaPhaseName(phase) {
         const p = String(phase || '').trim().toLowerCase();
         return p === 'selection' ? 'Selection'
@@ -30740,7 +30863,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               host.append(buildQForm(qseg, partIdx < lastRealUser));
             }
           } else if (seg.kind === 'tool_live') {
-            workTarget().append(buildLiveToolBlock(seg));
+            workTarget().append(buildLiveToolBlock(seg, streaming));
             hadOutput = true;
           } else if (seg.kind === 'todos') {
             const card = buildTodosCard(seg.ev.todos);
@@ -30773,6 +30896,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             host.append(buildCompactCard(seg.ev));
           } else if (seg.kind === 'gsa_phase_json') {
             host.append(buildGsaPhaseCard(seg));
+            hadOutput = true;
+          } else if (seg.kind === 'gsa_phase_pending') {
+            host.append(buildPendingGsaPhaseCard(seg));
             hadOutput = true;
           } else if (seg.kind === 'sys') {
             host.append(el('div', { class: 'seg seg--sys', text: seg.text }));
@@ -31142,12 +31268,42 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         excel: '▦ spreadsheet', spreadsheet: '▦ spreadsheet', read_pdf: '▤ reads PDF',
         read_document: '▤ reads document', write_document: '✎ writes document',
         presentation: '▣ builds presentation', see_image: '◉ inspects image',
+        view_image: '◉ views image',
       };
+
+      const SECURITY_COMMAND_LABELS = [
+        [/\bkatana\b/i, 'Katana crawl'],
+        [/\bhttpx\b/i, 'HTTP probe (httpx)'],
+        [/\bnaabu\b/i, 'port probe (Naabu)'],
+        [/\bnuclei\b/i, 'Nuclei scan'],
+        [/\bsemgrep\b/i, 'Semgrep scan'],
+        [/\bplaywright\b/i, 'Playwright flow'],
+        [/\bsqlmap\b/i, 'SQLMap validation'],
+        [/\bffuf\b/i, 'FFUF discovery'],
+        [/\bsubfinder\b/i, 'subdomain discovery (Subfinder)'],
+        [/\bassetfinder\b/i, 'subdomain discovery (Assetfinder)'],
+        [/\bdnsx\b/i, 'DNS probe (dnsx)'],
+        [/\bnmap\b/i, 'Nmap scan'],
+        [/\bcurl\b/i, 'HTTP probe (curl)'],
+      ];
+
+      function semanticCommandLabel(ev) {
+        if (ev?.name !== 'bash' && ev?.name !== 'shell') return '';
+        const inp = ev.input || {};
+        const command = String(inp.command || inp.cmd || '');
+        return SECURITY_COMMAND_LABELS.find(([re]) => re.test(command))?.[1] || '';
+      }
+
+      function cleanToolPath(value) {
+        return String(value || '').replace(/^\s*path\s*=\s*/i, '').trim();
+      }
 
       function toolHead(ev) {
         const name = ev.name || 'tool';
         const inp = ev.input || {};
         if (name === 'bash' || name === 'shell') {
+          const semantic = semanticCommandLabel(ev);
+          if (semantic) return { mono: false, text: semantic };
           return { mono: true, text: `$ ${inp.command || inp.cmd || ''}`.trimEnd() };
         }
         if (name === 'skill' || name === 'craft' || name === 'design_system') {
@@ -31161,7 +31317,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
         const label = TOOL_LABEL[name];
         if (label) {
-          const arg = inp.query || inp.url || inp.path || inp.file || inp.entry || inp.pattern || inp.title || '';
+          const arg = name === 'view_image' || name === 'see_image'
+            ? cleanToolPath(inp.path || inp.file || '')
+            : (inp.query || inp.url || inp.path || inp.file || inp.entry || inp.pattern || inp.title || '');
           return { mono: false, text: `${label} ${arg}`.trim() };
         }
         const keys = Object.keys(inp);
@@ -31193,7 +31351,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
 
       function toolStepSummary(ev, live = false) {
-        const label = toolHead(ev).text.replace(TOOL_EMOJI_RE, '').trim() || ev.name || 'tool';
+        const semantic = semanticCommandLabel(ev);
+        let label = toolHead(ev).text.replace(TOOL_EMOJI_RE, '').trim() || ev.name || 'tool';
+        if (semantic) label = `${live ? 'Executing' : 'Executed'} ${semantic}`;
+        if ((ev.name === 'view_image' || ev.name === 'see_image') && live)
+          label = `Viewing image · ${cleanToolPath(ev.input?.path || ev.input?.file || '').split('/').pop() || 'image'}`;
         return el('summary', {}, [
           el('span', { class: 'tool-step-glyph', text: toolStepGlyph(ev.name) }),
           el('span', { class: 'tool-step-label', text: label }),
@@ -31203,25 +31365,33 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       function buildToolFold(ev) {
         const d = el('details', { class: 'thinking toolfold' + toolKindClass(ev.name), 'data-complete': 'false' });
+        d._toolEvent = ev;
         d.append(toolStepSummary(ev, true));
         return d;
       }
 
       function attachToolOutput(fold, ev) {
         const out = ev.output || '';
-        if (!out.trim()) return;
         const n = out.split('\n').filter((l) => l.trim()).length;
         const label = fold.querySelector('.tool-step-label');
-        if (label && n > 1) label.textContent += ` · ${n} lines`;
+        if (label) {
+          const semantic = semanticCommandLabel(fold._toolEvent);
+          if (semantic) label.textContent = `Executed ${semantic}${n > 1 ? ` · ${n} lines` : ''}`;
+          else if (n > 1) label.textContent += ` · ${n} lines`;
+        }
         const status = fold.querySelector('.tool-step-status');
         if (status) status.textContent = '✓';
         fold.dataset.complete = 'true';
+        if (!out.trim()) return;
         const summary = fold.querySelector('summary');
         if (summary) summary.append(el('span', {
           class: 'tool-step-preview',
           text: out.split('\n').map((line) => line.trim()).find(Boolean) || 'complete',
         }));
-        fold.append(el('pre', { class: 'tool-out', text: out }));
+        const command = fold._toolEvent && (fold._toolEvent.name === 'bash' || fold._toolEvent.name === 'shell')
+          ? String(fold._toolEvent.input?.command || fold._toolEvent.input?.cmd || '').trim()
+          : '';
+        fold.append(el('pre', { class: 'tool-out', text: command ? `$ ${command}\n\n${out}` : out }));
       }
 
       // Result with no preceding call in the delta (e.g. cut transcript).
@@ -31289,7 +31459,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // Live tool stanza (the model is STILL WRITING the call): the block is
       // born with the first byte and the body streams inside it. File ops use
       // the diffcard look; everything else a fold kept open.
-      function buildLiveToolBlock(seg) {
+      function buildLiveToolBlock(seg, liveNow = true) {
         if (DIFF_TOOLS.has(seg.name)) {
           const card = el('div', { class: 'diffcard diffcard--live' });
           card.append(el('div', { class: 'diff-head' }, [
@@ -31302,8 +31472,20 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           if (body.childNodes.length) card.append(body);
           return card;
         }
-        const d = el('details', { class: 'thinking toolfold' + toolKindClass(seg.name), 'data-complete': 'false', 'data-live': 'true' });
-        d.append(toolStepSummary({ name: seg.name, input: { path: seg.path || '' } }, true));
+        const d = el('details', { class: 'thinking toolfold' + toolKindClass(seg.name), 'data-complete': 'false', 'data-live': liveNow ? 'true' : 'false' });
+        const liveEvent = {
+          name: seg.name,
+          input: { path: cleanToolPath(seg.path || ''), command: seg.text || '' },
+        };
+        d._toolEvent = liveEvent;
+        d.append(toolStepSummary(liveEvent, liveNow));
+        if (!liveNow) {
+          const status = d.querySelector('.tool-step-status');
+          if (status) { status.textContent = '!'; status.title = 'Turn ended before a matching tool result arrived'; }
+        } else if (seg.name === 'view_image' || seg.name === 'see_image') {
+          const status = d.querySelector('.tool-step-status');
+          if (status) { status.textContent = 'prefill'; status.title = 'The image is being encoded into the model context'; }
+        }
         if (seg.oldText || seg.text) d.append(el('pre', { class: 'tool-out', text: (seg.oldText || '') + (seg.text || '') }));
         return d;
       }
@@ -31616,8 +31798,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           const pushDisplayText = (txt) => {
             txt = String(txt || '').trim();
             if (!txt) return;
-            const phaseJson = parseGsaPhaseJsonText(txt);
-            if (phaseJson) segs.push({ kind: 'gsa_phase_json', json: phaseJson.raw, data: phaseJson.data });
+            const pendingPhase = pendingStructuredPhase(txt);
+            if (pendingPhase) segs.push({ kind: 'gsa_phase_pending', phase: pendingPhase });
             else segs.push({ kind: 'text', text: txt });
           };
           while ((m = FORM_RE.exec(t)) !== null) {
@@ -31656,6 +31838,22 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             const ty = p.ev.type;
             if (ty === 'status') continue; // live stats: shown in the working label, never rendered
             if (ty === 'reasoning_start') { flush(); inReasoning = true; }
+            else if (ty === 'gsa_phase') {
+              flush();
+              const submittedPhase = String(p.ev.phase || '').trim().toLowerCase();
+              const phaseJson = parseGsaPhaseJsonText(p.ev.payloadJson || '');
+              const payloadPhase = String(phaseJson?.data?.phase || '').trim().toLowerCase();
+              if (phaseJson && submittedPhase && payloadPhase === submittedPhase) {
+                segs.push({
+                  kind: 'gsa_phase_json',
+                  json: phaseJson.raw,
+                  data: phaseJson.data,
+                  authoritative: true,
+                });
+              } else {
+                segs.push({ kind: 'sys', text: 'Rejected malformed structured GSA/RSA phase event.' });
+              }
+            }
             else if (ty === 'tool_call_begin' || ty === 'tool_call_param' || ty === 'tool_body_delta') {
               // Live tool-stanza events: pushed as-is, coalesced in the
               // post-pass below into streaming timeline rows.
@@ -31720,7 +31918,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           out.push(s);
         }
         out.push(...liveQueue);
-        return out;
+        return out.filter((s) => {
+          const name = s.ev?.name || s.name || '';
+          return name !== 'gsa_submit_phase';
+        });
       }
 
       function extractLastGsaPhaseOutput(raw, expectedPhase = '') {
