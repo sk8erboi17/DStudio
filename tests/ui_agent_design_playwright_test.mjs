@@ -25,6 +25,7 @@ const staleAgentWorkdir = '/tmp/dstudio-missing-agent';
 let failNextAgentSend = false;
 let agentPollText = '';
 let agentPollWorking = false;
+let agentPollSessionWorking = false;
 let agentPollDeliveredLen = 0;
 let agentPollCaughtUp = 0;
 
@@ -52,7 +53,8 @@ const server = http.createServer(async (req, res) => {
       ready: true,
       loadPct: 100,
       stage: 'Ready',
-      agentWorking: false,
+      agentWorking: agentPollWorking,
+      agentSessionWorking: agentPollSessionWorking,
       workdir: currentWorkdir,
       config: { ctx: 65536 },
       ds4dirOk: true,
@@ -162,6 +164,23 @@ const server = http.createServer(async (req, res) => {
         agentPollWorking = false;
       }, 1800);
     }
+    if (/Design a landing page/.test(body.displayPrompt || '')) {
+      agentPollText += [
+        `\x01USER\x02${body.displayPrompt}\x01ENDUSER\x02\n`,
+        '\x1e' + JSON.stringify({ seq: 1, type: 'run_started', run_id: 'flicker-regression' }) + '\n',
+      ].join('');
+      agentPollSessionWorking = false;
+      agentPollWorking = true;
+      setTimeout(() => {
+        agentPollText += '\x1e' + JSON.stringify({
+          seq: 2,
+          type: 'run_done',
+          run_id: 'flicker-regression',
+          payload: { phase: 'idle' },
+        }) + '\n';
+        agentPollWorking = false;
+      }, 900);
+    }
     json(res, 200, { ok: true, from, at: Buffer.byteLength(agentPollText) });
     return;
   }
@@ -171,7 +190,15 @@ const server = http.createServer(async (req, res) => {
     const text = raw.subarray(Math.min(since, raw.length)).toString('utf8');
     agentPollDeliveredLen = raw.length;
     if (since >= raw.length && !agentPollWorking) agentPollCaughtUp++;
-    json(res, 200, { base: 0, len: raw.length, working: agentPollWorking, ready: true, loadPct: 100, text });
+    json(res, 200, {
+      base: 0,
+      len: raw.length,
+      working: agentPollWorking,
+      sessionWorking: agentPollSessionWorking,
+      ready: true,
+      loadPct: 100,
+      text,
+    });
     return;
   }
   if (url.pathname === '/api/agent/interrupt' && req.method === 'POST') {
@@ -190,7 +217,28 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/design/session' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req) || '{}');
+    if (agentPollWorking) {
+      json(res, 409, { ok: false, error: 'agent is busy' });
+      return;
+    }
     sessions.push(body);
+    if (body.action === 'list') {
+      agentPollSessionWorking = true;
+      agentPollWorking = true;
+      const frame = '\x1e' + JSON.stringify({
+        type: 'sessions',
+        sessions: [{ sha: 'f1c7e2a9', title: 'Design a landing page', current: true }],
+      }) + '\n';
+      const splitAt = Math.floor(frame.length / 2);
+      setTimeout(() => {
+        agentPollText += frame.slice(0, splitAt);
+      }, 350);
+      setTimeout(() => {
+        agentPollText += frame.slice(splitAt);
+        agentPollWorking = false;
+        agentPollSessionWorking = false;
+      }, 1100);
+    }
     json(res, 200, { ok: true });
     return;
   }
@@ -461,6 +509,7 @@ try {
   // document-specific actions and workspace behavior.
   agentPollText = '';
   agentPollWorking = false;
+  agentPollSessionWorking = false;
   agentPollDeliveredLen = 0;
   agentPollCaughtUp = 0;
   await page.locator('#tab-cowork').click();
@@ -537,7 +586,7 @@ try {
   );
   assert.equal(await page.getByText('Work log', { exact: true }).count(), 0, 'Agent/Cowork should expose only the action timeline, not a second Work log');
   await page.locator('.agent-answer-streaming').filter({ hasText: /quarterly-summary\.xlsx/ }).waitFor({ timeout: 5000 });
-  assert.equal(await page.locator('.agent-response-status.is-live').last().textContent(), 'working', 'Cowork response header should report live streaming');
+  assert.match(await page.locator('.agent-response-status.is-live').last().textContent(), /^working/, 'Cowork response header should report live streaming');
   await page.getByText(/verified its totals against the PDF/).waitFor({ timeout: 5000 });
   await page.waitForFunction(() => !document.querySelector('.agent-answer-streaming'), null, { timeout: 5000 });
   assert.match(await page.locator('.agent-response-status').last().textContent(), /done/, 'Cowork response should settle on the same completed state as Agent');
@@ -550,6 +599,20 @@ try {
 
   await page.locator('#tab-design').click();
   await page.waitForFunction(() => !document.querySelector('#agent-view')?.hidden);
+  await page.evaluate(() => {
+    window.__designGeneratingMounts = 0;
+    let visible = false;
+    const sample = () => {
+      const next = !!document.querySelector('#agent-view .gen');
+      if (next && !visible) window.__designGeneratingMounts += 1;
+      visible = next;
+    };
+    new MutationObserver(sample).observe(document.querySelector('#agent-view'), {
+      childList: true,
+      subtree: true,
+    });
+    sample();
+  });
   await page.locator('#composer-input').fill('Design a landing page');
   await page.locator('#btn-send').click();
   await waitFor(
@@ -557,16 +620,45 @@ try {
     'design send did not reach /api/agent/send',
     debugDetails,
   );
-
+  await page.locator('#agent-view .gen').waitFor({ state: 'visible', timeout: 5000 });
+  await page.locator('#agent-view .gen').waitFor({ state: 'hidden', timeout: 5000 });
+  await waitFor(
+    () => sessions.some((s) => s.action === 'list'),
+    'completed Design turn should refresh the session binding once',
+    debugDetails,
+  );
   const startsBeforeNewDesign = starts.length;
   await page.locator('#btn-new-chat').click();
   await waitFor(
     () => sessions.some((s) => s.action === 'new'),
-    'new design session did not use /api/design/session',
+    'new design session should wait behind the in-flight session refresh',
     debugDetails,
+  );
+  assert.ok(
+    sessions.findIndex((s) => s.action === 'new') > sessions.findIndex((s) => s.action === 'list'),
+    'session commands should preserve request order',
   );
   assert.equal(starts.length, startsBeforeNewDesign, 'new design in the active workspace should not restart the design runtime');
   await page.getByRole('heading', { name: /What should we design\?/ }).waitFor({ timeout: 5000 });
+  await delay(1800);
+  assert.equal(
+    await page.evaluate(() => window.__designGeneratingMounts),
+    1,
+    'background /list maintenance must not remount the Design generating screen',
+  );
+  assert.equal(
+    sessions.filter((s) => s.action === 'list').length,
+    1,
+    'the /list completion must not recursively schedule another session refresh',
+  );
+  assert.equal(await page.locator('#agent-view .gen').count(), 0,
+    'Design should remain on the completed transcript while session metadata refreshes');
+  const oldDesignSession = await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}');
+    return (saved.chats || []).find((chat) => chat.id === 'design-seed') || null;
+  });
+  assert.equal(oldDesignSession?.sessionSha, 'f1c7e2a9',
+    'a split /list event must bind the session SHA to the conversation that requested it, not the newly active design');
   const designComposer = await page.locator('.composer').evaluate((node) => {
     const rect = node.getBoundingClientRect();
     const style = getComputedStyle(node);

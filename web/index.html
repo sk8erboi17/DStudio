@@ -23227,7 +23227,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           trig.setAttribute('aria-expanded', 'true');
           window.addEventListener('resize', onReflow);
           window.addEventListener('scroll', onReflow, true);
-          setTimeout(() => { document.addEventListener('click', onDoc, true); document.addEventListener('keydown', onKey); }, 0);
+          // Keyboard dismissal must be armed before returning from the opening
+          // click. A deferred listener leaves a short window where an immediate
+          // Escape is lost and the body-level menu keeps intercepting clicks.
+          document.addEventListener('keydown', onKey);
+          setTimeout(() => { document.addEventListener('click', onDoc, true); }, 0);
         }
         on(trig, 'click', (e) => { e.stopPropagation(); open ? collapse() : expand(); });
         wrap.append(trig, menu);
@@ -26569,7 +26573,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const pipedEmpty = (mode === 'agent' || mode === 'cowork' || mode === 'design') &&
           Store.listChats(mode).filter((c) => !c.lanMirror).length === 0;
         if (conv && conv.sessionSha && (mode === 'agent' || mode === 'cowork' || mode === 'design')) {
-          Engine.designSession('del', conv.sessionSha).catch(() => {});
+          AgentView.sessionAction('del', conv.sessionSha, {
+            mode, surviveViewChange: true, reportError: true,
+          });
         }
         if (mode === 'design' && pipedEmpty) {
           Engine.designClean().then((r) => {
@@ -27709,7 +27715,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           method: 'POST', headers: H,
           body: JSON.stringify(sha ? { action, sha } : { action }),
         });
-        return r.json();
+        const data = await r.json().catch(() => ({ ok: false, error: `design/session ${r.status}` }));
+        if (!r.ok && data && data.ok !== false) data.ok = false;
+        if (!r.ok && data && !data.error) data.error = `design/session ${r.status}`;
+        return data;
       }
       async function designEvents(since = 0) {
         const r = await apiFetch('/api/design/events?since=' + encodeURIComponent(String(since)), { signal: AbortSignal.timeout(5000) });
@@ -28072,6 +28081,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
     const DesignRuntime = (() => {
       const RS = String.fromCharCode(0x1e);
       let timer = null;
+      let streamCarry = '';
       const initialState = () => ({
         seq: 0,
         phase: 'idle',
@@ -28272,15 +28282,24 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return true;
       }
       function ingestText(delta) {
-        if (!delta || delta.indexOf(RS) < 0) return;
+        if (!delta && !streamCarry) return;
+        const input = streamCarry + String(delta || '');
+        streamCarry = '';
+        if (input.indexOf(RS) < 0) return;
         let changed = false;
         let i = 0;
-        while (i < delta.length) {
-          const rs = delta.indexOf(RS, i);
+        while (i < input.length) {
+          const rs = input.indexOf(RS, i);
           if (rs < 0) break;
-          const nl = delta.indexOf('\n', rs + 1);
-          if (nl < 0) break;
-          try { changed = applyEvent(JSON.parse(delta.slice(rs + 1, nl))) || changed; } catch { /* partial event */ }
+          const nl = input.indexOf('\n', rs + 1);
+          if (nl < 0) {
+            /* SSE and polling may split one RS+JSON line at any byte. Keep the
+             * unfinished frame; advancing the absolute poll offset means it
+             * will not be repeated by the server on the next response. */
+            streamCarry = input.slice(rs);
+            break;
+          }
+          try { changed = applyEvent(JSON.parse(input.slice(rs + 1, nl))) || changed; } catch { /* malformed event */ }
           i = nl + 1;
         }
         if (changed) notify();
@@ -28316,6 +28335,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
       function reset(notifySubscribers = true) {
         state = initialState();
+        streamCarry = '';
         if (notifySubscribers) notify();
       }
       function start() {
@@ -28385,6 +28405,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       const agentFollow = createFollowScroll(() => view, { isSelecting: () => agentSelectPointerDown });
       let pendingUserTurn = null; // optimistic UI until the backend echo lands in the stream
       let sendSerial = 0;         // invalidates async engine-buffer syncs started before a send
+      let sessionCommandTail = Promise.resolve();
+      let activeSessionCommand = null;
+      let sessionEventCarry = '';
 
       function displayedWorking() {
         return !suppressBusyUntilIdle && working && !!convId && convId === liveConvId;
@@ -28722,7 +28745,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (sameRun) {
           since = consumed;
           liveConvId = conv.id;
-          working = res.working;
+          working = res.working === true && res.sessionWorking !== true;
           syncComposerBusy();
           syncSpinner();
         } else if (!conv.transcript && conv.engineLen == null && res.len > res.base) {
@@ -28731,7 +28754,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           // the next poll pours it into this conversation.
           since = res.base;
           liveConvId = conv.id;
-          working = res.working;
+          working = res.working === true && res.sessionWorking !== true;
           syncComposerBusy();
           syncSpinner();
         } else {
@@ -28739,7 +28762,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           // contaminate. The context is recovered via the KV session (switch).
           since = res.len;
           liveConvId = null;
-          working = res.working; // the engine may be working for others
+          working = res.working === true && res.sessionWorking !== true; // session maintenance is not a visible turn
           syncComposerBusy();
           if (restoreIfNeeded && conv.id === convId) maybeRestoreSession(conv);
         }
@@ -28766,6 +28789,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         staleNotice = false;
         if (!conv.transcript) return;       // new conversation: nothing to do
         if (conv.sessionSha) {
+          if (viewMode === 'design') {
+            issueSwitch(conv);
+            return;
+          }
           if (working) { pendingCmd = { convId: conv.id, cmd: 'switch' }; return; }
           issueSwitch(conv);
         } else {
@@ -28774,9 +28801,15 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
       }
 
-      function issueSwitch(conv) {
+      function issueSwitch(conv, opts = {}) {
         liveConvId = conv.id; // the outcome of the switch belongs to this conv
+        if (viewMode === 'design') {
+          return sessionAction('switch', conv.sessionSha, {
+            mode: 'design', targetConvId: conv.id, reportError: opts.reportError !== false,
+          });
+        }
         send(`/switch ${conv.sessionSha}`);
+        return Promise.resolve({ ok: true });
       }
 
       function issueNew(conv) {
@@ -28784,9 +28817,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (viewMode === 'design') {
           DesignRuntime.reset?.();
           DesignPreview.reset?.();
-          Engine.designSession('new').catch(() => {});
+          return sessionAction('new', '', {
+            mode: 'design', targetConvId: conv.id, reportError: true,
+          });
         }
         else send('/new');
+        return Promise.resolve({ ok: true });
       }
 
       function needsSessionRestoreBeforeSend(conv, prompt) {
@@ -28806,6 +28842,20 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         };
         staleNotice = false;
         toast(`Restoring session ${conv.sessionSha} before sending...`, 'info');
+        if (viewMode === 'design') {
+          issueSwitch(conv, { reportError: false }).then((result) => {
+            const queued = pendingAfterRestore;
+            if (!queued || queued.convId !== conv.id) return;
+            pendingAfterRestore = null;
+            if (!result?.ok) {
+              toast(result?.error || 'Could not restore that session before sending.', 'error');
+              return;
+            }
+            if (conv.id !== convId || liveConvId !== conv.id) return;
+            requestAnimationFrame(() => send(queued.prompt, queued.displayOverride, queued.opts));
+          });
+          return;
+        }
         if (working) {
           pendingCmd = { convId: conv.id, cmd: 'switch' };
           return;
@@ -28818,6 +28868,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
        *  stays on disk (per-turn autosave) and reopens with /switch. */
       function beginEngineSession(conv) {
         Store.setChatMeta(conv.id, { engineLen: since });
+        if (viewMode === 'design') { issueNew(conv); return; }
         if (working) { pendingCmd = { convId: conv.id, cmd: 'new' }; return; }
         issueNew(conv);
       }
@@ -29342,6 +29393,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         restoreSharedComposer();
         viewMode = mode === 'design' || mode === 'cowork' ? mode : 'agent';
         epoch++;
+        clearSessionListPull();
+        sessionEventCarry = '';
         const myEpoch = epoch;
         // A pipe→pipe switch (e.g. design→agent) does NOT go through stop(): the old
         // timer would stay alive → TWO pollers on the same `since` = duplicated and
@@ -29380,6 +29433,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       function stop() {
         restoreSharedComposer();
         epoch++;
+        clearSessionListPull();
+        sessionEventCarry = '';
         activeView = false;
         if (streamAbort) { streamAbort.abort(); streamAbort = null; }
         if (timer) { clearInterval(timer); timer = null; }
@@ -29421,6 +29476,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         turnArtifact = null;
         pendingCmd = null;
         pendingUserTurn = null;
+        clearSessionListPull();
+        sessionEventCarry = '';
         clearLiveTail();
         resetLiveTurnTimer();
         agentFollow.setFollowing(false);
@@ -29546,6 +29603,116 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           if (Date.now() >= deadline) return false;
           await new Promise((r) => setTimeout(r, 250));
         }
+      }
+
+      function sessionStatusMatches(action, message) {
+        const text = String(message || '');
+        if (action === 'save') return /session saved|save failed/i.test(text);
+        if (action === 'switch') return /switched to|switch failed|usage:\s*\/switch/i.test(text);
+        if (action === 'del') return /deleted|delete failed|usage:\s*\/del/i.test(text);
+        if (action === 'new') return /started a new session|new failed/i.test(text);
+        return false;
+      }
+
+      function sessionRequestValid(request) {
+        if (request.surviveViewChange) return true;
+        return activeView && epoch === request.epoch && viewMode === request.mode;
+      }
+
+      async function runSessionAction(request) {
+        const deadline = Date.now() + request.timeoutMs;
+        let lastError = '';
+        for (;;) {
+          if (!sessionRequestValid(request)) return { ok: false, canceled: true, error: 'session request canceled after view change' };
+          if (Date.now() >= deadline) return { ok: false, error: lastError || `${request.action} session command timed out` };
+
+          let st;
+          try { st = await Engine.status(); }
+          catch (e) {
+            lastError = e?.message || 'runtime status unavailable';
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            continue;
+          }
+          if (st?.mode && st.mode !== request.mode) {
+            return { ok: false, canceled: true, error: `runtime changed from ${request.mode} to ${st.mode}` };
+          }
+          if (st?.running === false) return { ok: false, error: `${request.mode} runtime is not running` };
+          if (st?.ready !== true || st?.agentWorking === true) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            continue;
+          }
+
+          const command = {
+            action: request.action,
+            targetConvId: request.targetConvId || null,
+            error: '',
+            sawResult: false,
+          };
+          activeSessionCommand = command;
+          let response;
+          try { response = await Engine.designSession(request.action, request.sha); }
+          catch (e) { response = { ok: false, error: e?.message || 'session request failed' }; }
+          if (!response?.ok) {
+            if (activeSessionCommand === command) activeSessionCommand = null;
+            lastError = response?.error || `${request.action} session command failed`;
+            if (/agent is busy|still loading|still settling|turn is still running/i.test(lastError)) {
+              await new Promise((resolve) => setTimeout(resolve, 250));
+              continue;
+            }
+            return { ...(response || {}), ok: false, error: lastError };
+          }
+
+          /* The endpoint acknowledges the pipe write. Keep the command queue
+           * locked until the child emits WAITING, then drain its final JSONL
+           * event before another command or user prompt can start. */
+          for (;;) {
+            if (!sessionRequestValid(request)) {
+              if (activeSessionCommand === command) activeSessionCommand = null;
+              return { ok: false, canceled: true, error: 'session request canceled after view change' };
+            }
+            if (Date.now() >= deadline) {
+              if (activeSessionCommand === command) activeSessionCommand = null;
+              return { ok: false, error: `${request.action} session command timed out` };
+            }
+            try { st = await Engine.status(); }
+            catch {
+              await new Promise((resolve) => setTimeout(resolve, 250));
+              continue;
+            }
+            if (st?.mode && st.mode !== request.mode) {
+              if (activeSessionCommand === command) activeSessionCommand = null;
+              return { ok: false, canceled: true, error: `runtime changed from ${request.mode} to ${st.mode}` };
+            }
+            if (st?.agentWorking !== true) {
+              try { await poll(); } catch { /* the periodic poll will retry */ }
+              if (activeSessionCommand === command) activeSessionCommand = null;
+              return command.error ? { ok: false, error: command.error } : response;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 250));
+          }
+        }
+      }
+
+      function sessionAction(action, sha = '', opts = {}) {
+        const request = {
+          action,
+          sha,
+          mode: opts.mode || viewMode,
+          epoch: Number.isFinite(opts.epoch) ? opts.epoch : epoch,
+          targetConvId: opts.targetConvId || null,
+          surviveViewChange: opts.surviveViewChange === true,
+          timeoutMs: opts.timeoutMs || ((action === 'new' || action === 'switch') ? 600_000 : 120_000),
+        };
+        const run = () => runSessionAction(request);
+        const result = sessionCommandTail.then(run, run);
+        sessionCommandTail = result.catch(() => ({ ok: false }));
+        if (opts.reportError) {
+          result.then((outcome) => {
+            if (outcome && !outcome.ok && !outcome.canceled)
+              toast(outcome.error || `${action} session command failed`, 'error');
+          });
+        }
+        return result;
       }
 
       function engineStatusSummary(st) {
@@ -29733,13 +29900,19 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
         const wasWorking = working;
         const backendWorking = res.working === true;
+        /* /list and the other session-maintenance commands share the engine
+         * pipe, so the backend must remain serialized until WAITING. They are
+         * not model turns, though: treating them as visible work made Design
+         * alternate forever between the transcript and Generating, because
+         * every synthetic idle edge scheduled another /list. */
+        const visibleBackendWorking = backendWorking && res.sessionWorking !== true;
         if (suppressBusyUntilIdle && !backendWorking) suppressBusyUntilIdle = false;
         // A poll started before the current send is not allowed to mark that
         // newer turn idle when it contains no new bytes. Its trailing poll,
         // serialized above, will observe the current turn from the new offset.
-        const staleIdle = responseSendSerial !== sendSerial && !delta && !backendWorking;
-        const drainingAfterMarker = !!delta && wasWorking && !backendWorking;
-        if (!staleIdle) working = backendWorking || drainingAfterMarker;
+        const staleIdle = responseSendSerial !== sendSerial && !delta && !visibleBackendWorking;
+        const drainingAfterMarker = !!delta && wasWorking && !visibleBackendWorking;
+        if (!staleIdle) working = visibleBackendWorking || drainingAfterMarker;
         // A final payload can arrive in the same response that first reports
         // the backend idle. Keep the one-poll drain invariant, but confirm it
         // immediately instead of depending on the periodic timer: a delayed
@@ -29771,7 +29944,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           }
         }
 
-        if (wasWorking && !working && pendingAfterRestore) {
+        if (viewMode !== 'design' && wasWorking && !working && pendingAfterRestore) {
           const queued = pendingAfterRestore;
           const restoreFailed = delta && /\b(?:switch failed|usage: \/switch)\b/i.test(delta);
           if (restoreFailed) {
@@ -29802,7 +29975,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         // before/after). Small delay: the file must already be written to
         // disk and the file list updated.
         if (viewMode === 'design' && wasWorking && !working) {
-          pullSessionList();
+          pullSessionList(liveConvId);
           setTimeout(() => DesignPreview.snapshotCurrent && DesignPreview.snapshotCurrent(), 1200);
         }
 
@@ -29856,24 +30029,45 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // back-to-back "/list" lines merge into ONE command ("unknown command:
       // /list /list"). One trailing-debounced pull is also simply enough.
       let listPullTimer = null;
-      function pullSessionList() {
+      let listPullTarget = null;
+      let listPullEpoch = 0;
+      function clearSessionListPull() {
+        if (listPullTimer) clearTimeout(listPullTimer);
+        listPullTimer = null;
+        listPullTarget = null;
+        listPullEpoch = 0;
+      }
+      function pullSessionList(targetConvId = liveConvId) {
+        if (targetConvId) listPullTarget = targetConvId;
+        listPullEpoch = epoch;
         if (listPullTimer) return;
         listPullTimer = setTimeout(() => {
           listPullTimer = null;
-          Engine.designSession('list').catch(() => {});
+          const target = listPullTarget;
+          const requestedEpoch = listPullEpoch;
+          listPullTarget = null;
+          listPullEpoch = 0;
+          sessionAction('list', '', {
+            mode: 'design', epoch: requestedEpoch, targetConvId: target,
+          });
         }, 300);
       }
 
       // Extracts RS{json}\n events of type sessions/session_status from the delta.
       function drainSessionEvents(delta) {
         const RS = String.fromCharCode(0x1e);
+        const input = sessionEventCarry + String(delta || '');
+        sessionEventCarry = '';
         let i = 0;
-        while (i < delta.length) {
-          const rs = delta.indexOf(RS, i);
+        while (i < input.length) {
+          const rs = input.indexOf(RS, i);
           if (rs < 0) break;
-          const nl = delta.indexOf('\n', rs + 1);
-          if (nl < 0) break; // split event: reappears on the next poll (best-effort)
-          const slice = delta.slice(rs + 1, nl);
+          const nl = input.indexOf('\n', rs + 1);
+          if (nl < 0) {
+            sessionEventCarry = input.slice(rs);
+            break;
+          }
+          const slice = input.slice(rs + 1, nl);
           i = nl + 1;
           if (!slice.includes('"sessions"') && !slice.includes('"session_status"') &&
               !slice.includes('"proposal"')) continue;
@@ -29883,12 +30077,20 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             // of the design agent marks the live conv's session as `current`.
             const list = Array.isArray(ev.sessions) ? ev.sessions : [];
             const cur = list.find((s) => s && s.current && s.sha);
-            if (cur && liveConvId) Store.setChatMeta(liveConvId, { sessionSha: cur.sha });
+            const command = activeSessionCommand;
+            const target = command?.action === 'list' ? command.targetConvId : liveConvId;
+            if (command?.action === 'list') command.sawResult = true;
+            if (cur && target && Store.getChat(target)) Store.setChatMeta(target, { sessionSha: cur.sha });
           } else if (ev.type === 'session_status') {
             toast(ev.message || '', ev.level === 'error' ? 'error' : 'info');
+            const command = activeSessionCommand;
+            if (command && sessionStatusMatches(command.action, ev.message || '')) {
+              command.sawResult = true;
+              if (ev.level === 'error') command.error = ev.message || `${command.action} failed`;
+            }
             // after save/switch/new/del the current sha changed: re-pull the
             // list so the binding above sees the fresh `current` flag
-            if (ev.level !== 'error') pullSessionList();
+            if (ev.level !== 'error') pullSessionList(command?.targetConvId || liveConvId);
           } else if (ev.type === 'proposal') {
             // New multi-direction proposal: reset the choice and re-render
             // (the stepper moves to "proposal", the grid appears in chat).
@@ -29900,7 +30102,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       async function agentSendWhenSettled(runtimePrompt, displayPrompt, expectedMode) {
         let response = await Engine.agentSend(runtimePrompt, displayPrompt);
-        const transient = /interrupt is still settling|runtime is still loading/i.test(String(response?.error || ''));
+        const transient = /interrupt is still settling|session command is still settling|runtime is still loading/i.test(String(response?.error || ''));
         if (!response?.ok && transient) {
           /* A Stop/new-message interrupt is acknowledged before the worker's
            * WAITING marker arrives.  Never expose that normal hand-off as a
@@ -31483,7 +31685,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (shouldFocusComposerFromSurfaceClick(e)) focusComposerInput();
       }
 
-      return { mount, start, stop, send, beginEngineSession, isWorking: () => working, isLiveConv, reconcileIdle, waitIdle, stopLiveGeneration, refreshFlow: render, openDesignGalleryInline, closeDesignGalleryInline };
+      return { mount, start, stop, send, beginEngineSession, sessionAction, isWorking: () => working, isLiveConv, reconcileIdle, waitIdle, stopLiveGeneration, refreshFlow: render, openDesignGalleryInline, closeDesignGalleryInline };
     })();
 
     /* ==================== DesignPreview: project files + design canvas ==================== */
@@ -31910,7 +32112,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         // the user picked a destination
         setTimeout(() => URL.revokeObjectURL(url), 60_000);
         finalized = true;
-        Engine.designSession('save').catch(() => {}); // export = also save the session
+        AgentView.sessionAction('save', '', { mode: 'design', reportError: true }); // export = also save the session
         if (AgentView.refreshFlow) AgentView.refreshFlow(); // stepper → "Export"
         toast(`Exported ${entries.length} file${entries.length === 1 ? '' : 's'} → ${fname}`, 'info');
       }
@@ -33801,8 +34003,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           { group: 'Model', icon: 'brain', label: 'Thinking: max', hint: 'Deep reasoning', run: () => setThink('max') },
         );
         if (mode === 'design') cmds.push(
-          { group: 'Design', icon: 'download', label: 'Save session', hint: 'Save the design conversation', run: () => Engine.designSession('save').catch(() => {}) },
-          { group: 'Design', icon: 'plus', label: 'New design session', hint: 'Restart from an empty brief', run: () => Engine.designSession('new').catch(() => {}) },
+          { group: 'Design', icon: 'download', label: 'Save session', hint: 'Save the design conversation', run: () => AgentView.sessionAction('save', '', { mode: 'design', reportError: true }) },
+          { group: 'Design', icon: 'plus', label: 'New design session', hint: 'Restart from an empty brief', run: () => AgentView.sessionAction('new', '', { mode: 'design', reportError: true }) },
           { group: 'View', icon: 'panel', label: 'Open the canvas', hint: 'All the screens, full screen', run: () => DesignPreview.showOnCanvas() },
         );
         return cmds;

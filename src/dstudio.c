@@ -483,6 +483,11 @@ static int  g_load_pct = 0;
 static char g_stage[96] = "";
 static int  g_ready = 0;
 static int  g_agent_working = 0;   /* true between send and the next WAITING */
+/* Session maintenance commands (/list, /save, /switch, /del, /new) use the
+ * same pipe and WAITING marker as a model turn, but they are not user-visible
+ * generation. Expose that distinction so the UI can keep the transcript and
+ * composer stable while a background session refresh completes. */
+static int  g_agent_session_working = 0;
 static int  g_interrupt_pending = 0; /* SIGINT sent; wait for WAITING or child exit */
 static int  g_active_turn_compacting = 0;
 
@@ -1448,9 +1453,10 @@ static void api_diagnostics(int fd) {
              json_dyn_puts(&b, "\"runtime\":{") &&
              json_dyn_puts(&b, "\"mode\":") &&
              json_dyn_put_escaped(&b, task_mode_name(g_mode)) &&
-             json_dyn_printf(&b, ",\"running\":%s,\"ready\":%s,\"pid\":%d,\"agentWorking\":%s",
+             json_dyn_printf(&b, ",\"running\":%s,\"ready\":%s,\"pid\":%d,\"agentWorking\":%s,\"agentSessionWorking\":%s",
                              g_child > 0 ? "true" : "false", g_ready ? "true" : "false",
-                             (int)g_child, g_agent_working ? "true" : "false") &&
+                             (int)g_child, g_agent_working ? "true" : "false",
+                             g_agent_session_working ? "true" : "false") &&
              json_dyn_puts(&b, ",\"stage\":") &&
              json_dyn_put_escaped(&b, g_stage) &&
              json_dyn_puts(&b, ",\"engineError\":") &&
@@ -3570,6 +3576,7 @@ static void scan_lines(const char *data, size_t n, char *acc, size_t *acc_len, i
                     }
                     g_active_turn_compacting = 0;
                     g_agent_working = 0;
+                    g_agent_session_working = 0;
                     g_interrupt_pending = 0;
                 } else if (g_active_turn_task && strstr(acc, "COMPACTING")) {
                     if (!g_active_turn_compacting) {
@@ -3789,6 +3796,7 @@ static void reap_child(void) {
             if (n > 0) agent_buf_append(msg, (size_t)n);
         }
         g_agent_working = 0;
+        g_agent_session_working = 0;
         g_interrupt_pending = 0;
         g_active_turn_compacting = 0;
         g_child = -1;
@@ -3839,6 +3847,7 @@ static void stop_child(void) {
     g_external_server = 0;
     g_ready = 0;
     g_agent_working = 0;
+    g_agent_session_working = 0;
     g_interrupt_pending = 0;
     g_active_turn_compacting = 0;
 }
@@ -5459,6 +5468,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir,
     /* Keep send/session APIs busy until the initial system-prompt prefill has
      * completed and the child emits its first WAITING marker. */
     g_agent_working = 1;
+    g_agent_session_working = 0;
     printf("engine: %s pid %d (chdir %s, %s, %s)\n", runtime_label, (int)pid, wd,
            cfg->uncensored ? "uncensored" : "standard",
            remote_model ? "jsonl/remote-model" : "jsonl");
@@ -5663,6 +5673,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
      * prompt. The first +DWARFSTAR_WAITING marker is the authoritative point
      * at which prompts/session commands are safe to accept. */
     g_agent_working = 1;
+    g_agent_session_working = 0;
     printf("engine: design pid %d (workspace %s, %s%s)\n", (int)pid, wd,
            cfg->uncensored ? "uncensored" : "standard",
            remote_model ? ", remote-model" : "");
@@ -6068,7 +6079,7 @@ static void api_status(int fd) {
     char body[12288];
     snprintf(body, sizeof body,
         "{\"mode\":\"%s\",\"running\":%s,\"ready\":%s,\"loadPct\":%d,\"stage\":\"%s\","
-        "\"agentWorking\":%s,\"workdir\":\"%s\",\"config\":%s,"
+        "\"agentWorking\":%s,\"agentSessionWorking\":%s,\"workdir\":\"%s\",\"config\":%s,"
         "\"ds4dir\":\"%s\",\"ds4dirOk\":%s,\"webdir\":\"%s\",\"webdirOk\":%s,"
         "\"lan\":%s,\"lanAddr\":\"%s\",\"httpPort\":%d,"
         "\"models\":{\"standard\":%s,\"uncensored\":%s},"
@@ -6082,7 +6093,8 @@ static void api_status(int fd) {
         "\"nativeVisionActive\":%s,\"glmVisionActive\":%s,\"deepseekVisionActive\":%s,"
         "\"contentOk\":%s,\"contentDownloading\":%s}",
         mode_name(g_mode), engine_running ? "true" : "false", g_ready ? "true" : "false",
-        g_load_pct, stage_esc, g_agent_working ? "true" : "false", wd_esc, cfg,
+        g_load_pct, stage_esc, g_agent_working ? "true" : "false",
+        g_agent_session_working ? "true" : "false", wd_esc, cfg,
         d4_esc, ds4_dir_valid() ? "true" : "false", web_esc, web_dir_valid() ? "true" : "false",
         lan_on ? "true" : "false", lan_addr, g_http_port,
         model_present(0) ? "true" : "false", model_present(1) ? "true" : "false",
@@ -6343,7 +6355,7 @@ static void checkout_branch_label(const char *dir, char *out, size_t outsz) {
  * GLM 5.3 is owned by primary main; only Laguna still needs a side checkout.
  * A once-persisted ds4-glm5.3 path may remain on disk, but is deliberately not
  * emitted so the UI repairs its saved modelEngineDir to ./ds4/main. */
-static void api_ggufs(int fd) {
+static char *gguf_catalog_build(void) {
     char dirs[ENGINE_CHECKOUT_CAP][DSTUDIO_PATH_MAX];
     char active[DSTUDIO_PATH_MAX];
     int ndirs = collect_engine_checkouts(dirs, ENGINE_CHECKOUT_CAP,
@@ -6401,12 +6413,145 @@ static void api_ggufs(int fd) {
     ok = ok && json_dyn_puts(&b, "]}");
     if (!ok) {
         free(b.ptr);
+        return NULL;
+    }
+    return b.ptr;
+}
+
+#ifdef _WIN32
+static void api_ggufs_run(int fd) {
+    char *body = gguf_catalog_build();
+    if (!body) {
         send_json(fd, "500 Internal Server Error",
                   "{\"ok\":false,\"error\":\"out of memory\"}");
         return;
     }
-    send_json(fd, "200 OK", b.ptr);
-    free(b.ptr);
+    send_json(fd, "200 OK", body);
+    free(body);
+}
+#endif
+
+#ifndef _WIN32
+/* A selected checkout can live in Documents, iCloud, a File Provider or a
+ * disconnected volume. opendir() on those paths is allowed to block in the
+ * kernel. Never perform that scan in serve's single HTTP loop: an isolated
+ * worker builds the catalog while this short-lived responder enforces a hard
+ * deadline. The parent remains able to serve /api/status and the rest of the
+ * app even if Finder itself cannot enumerate the model directory. */
+#define GGUF_SCAN_TIMEOUT_MS 3000
+static void api_ggufs_isolated_run(int fd) {
+    int pp[2];
+    if (pipe(pp) != 0) {
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"could not isolate the model folder scan\"}");
+        return;
+    }
+    pid_t scanner = fork();
+    if (scanner < 0) {
+        close(pp[0]); close(pp[1]);
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"could not start the model folder scan\"}");
+        return;
+    }
+    if (scanner == 0) {
+        close(pp[0]);
+        close(fd); /* only the responder owns the HTTP socket */
+        char *body = gguf_catalog_build();
+        int ok = body && fd_write_all(pp[1], body, strlen(body));
+        free(body);
+        close(pp[1]);
+        _exit(ok ? 0 : 1);
+    }
+
+    close(pp[1]);
+    json_dyn_buf body = {0};
+    long long deadline = dstudio_now_ms() + GGUF_SCAN_TIMEOUT_MS;
+    int eof = 0, failed = 0, timed_out = 0;
+    while (!eof && !failed) {
+        long long left = deadline - dstudio_now_ms();
+        if (left <= 0) { timed_out = 1; break; }
+        struct pollfd pfd = { pp[0], POLLIN, 0 };
+        int wait_ms = left > 250 ? 250 : (int)left;
+        int rc = poll(&pfd, 1, wait_ms);
+        if (rc < 0) {
+            if (errno == EINTR) continue;
+            failed = 1;
+            break;
+        }
+        if (rc == 0) continue;
+        if (pfd.revents & (POLLIN | POLLHUP)) {
+            char chunk[16384];
+            ssize_t n = read(pp[0], chunk, sizeof chunk);
+            if (n > 0) {
+                if (!json_dyn_putn(&body, chunk, (size_t)n)) failed = 1;
+            } else if (n == 0) {
+                eof = 1;
+            } else if (errno != EINTR) {
+                failed = 1;
+            }
+        } else if (pfd.revents & (POLLERR | POLLNVAL)) {
+            failed = 1;
+        }
+    }
+    close(pp[0]);
+
+    if (timed_out || failed) {
+        kill(scanner, SIGKILL);
+        /* Do not wait on a process stuck in filesystem I/O. This responder is
+         * detached; after it exits the killed scanner is reparented and reaped. */
+        send_json(fd, timed_out ? "503 Service Unavailable" : "500 Internal Server Error",
+                  timed_out
+                    ? "{\"ok\":false,\"error\":\"model folder scan timed out; reconnect the folder and retry\"}"
+                    : "{\"ok\":false,\"error\":\"model folder scan failed\"}");
+        free(body.ptr);
+        return;
+    }
+
+    int status = 0;
+    while (waitpid(scanner, &status, 0) < 0 && errno == EINTR) {}
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || !body.ptr || !body.len) {
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"model folder scan failed\"}");
+    } else {
+        send_json(fd, "200 OK", body.ptr);
+    }
+    free(body.ptr);
+}
+#endif
+
+static void api_ggufs(int fd) {
+#ifdef _WIN32
+    api_ggufs_run(fd);
+#else
+    /* Same zombie-free relay pattern as web search and /v1: the intermediate
+     * child exits immediately, while the detached responder owns this request. */
+    pid_t intermediate = fork();
+    if (intermediate < 0) {
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"could not isolate the model folder scan\"}");
+        return;
+    }
+    if (intermediate == 0) {
+        pid_t responder = fork();
+        if (responder < 0) {
+            send_json(fd, "500 Internal Server Error",
+                      "{\"ok\":false,\"error\":\"could not isolate the model folder scan\"}");
+            close(fd);
+            _exit(1);
+        }
+        if (responder > 0) _exit(0);
+        if (g_srv_fd >= 0) close(g_srv_fd);
+        if (g_out_fd >= 0) close(g_out_fd);
+        if (g_err_fd >= 0) close(g_err_fd);
+        if (g_in_fd  >= 0) close(g_in_fd);
+        struct timeval tv = { 5, 0 };
+        (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+        api_ggufs_isolated_run(fd);
+        close(fd);
+        _exit(0);
+    }
+    while (waitpid(intermediate, NULL, 0) < 0 && errno == EINTR) {}
+#endif
 }
 
 /* ---- Engine checkout (ds4 git branch) picker ----
@@ -7023,9 +7168,10 @@ static void api_agent_send_state_error(int fd, const char *status, const char *m
     json_escape_into(line_esc, sizeof line_esc, g_last_engine_line, strlen(g_last_engine_line));
     snprintf(out, sizeof out,
         "{\"ok\":false,\"taskId\":%llu,\"error\":\"%s\",\"mode\":\"%s\",\"running\":%s,\"ready\":%s,"
-        "\"agentWorking\":%s,\"engineError\":\"%s\",\"engineLine\":\"%s\"}",
+        "\"agentWorking\":%s,\"agentSessionWorking\":%s,\"engineError\":\"%s\",\"engineLine\":\"%s\"}",
         task_id, msg_esc, mode_name(g_mode), g_child > 0 ? "true" : "false", g_ready ? "true" : "false",
-        g_agent_working ? "true" : "false", err_esc, line_esc);
+        g_agent_working ? "true" : "false", g_agent_session_working ? "true" : "false",
+        err_esc, line_esc);
     send_json(fd, status, out);
 }
 
@@ -7080,6 +7226,16 @@ static void api_agent_send(int fd, const char *body) {
         api_agent_send_state_error(fd, "409 Conflict", "agent/design runtime is still loading", 0);
         return;
     }
+    if (g_agent_working) {
+        /* A background session command can briefly own the pipe after a turn.
+         * Reject the prompt as a retryable hand-off instead of queueing it
+         * behind /list and letting the first WAITING marker end the wrong turn. */
+        const char *msg = g_agent_session_working
+            ? "agent/design session command is still settling"
+            : "agent/design turn is still running";
+        api_agent_send_state_error(fd, "409 Conflict", msg, 0);
+        return;
+    }
     unsigned long long task_id = task_begin(kind, turn_title,
                                             target, g_mode, g_workdir, (int)g_child, 1);
     size_t from = g_alen;
@@ -7105,6 +7261,7 @@ static void api_agent_send(int fd, const char *body) {
     g_active_turn_compacting = 0;
     task_mark_working(task_id, "prompt written; waiting for agent/design completion marker");
     g_agent_working = 1;
+    g_agent_session_working = 0;
     g_ready = 1;
     char out[128];
     snprintf(out, sizeof out, "{\"ok\":true,\"taskId\":%llu,\"from\":%zu,\"at\":%zu}", task_id, from, g_alen);
@@ -7244,6 +7401,7 @@ static void api_design_session(int fd, const char *body) {
     }
     /* Session commands may rebuild/prefill a large KV state. Keep send/session
      * callers serialized until the child announces its next WAITING marker. */
+    g_agent_session_working = 1;
     g_agent_working = 1;
     send_json(fd, "200 OK", "{\"ok\":true}");
 }
@@ -7283,8 +7441,9 @@ static int sse_send_chunk(int fd, size_t *since, int *last_working) {
     char *out = malloc(cap + 16);
     if (!out) return -1;
     int hn = snprintf(out, cap,
-        "data: {\"base\":%zu,\"len\":%zu,\"working\":%s,\"ready\":%s,\"loadPct\":%d,\"text\":\"",
+        "data: {\"base\":%zu,\"len\":%zu,\"working\":%s,\"sessionWorking\":%s,\"ready\":%s,\"loadPct\":%d,\"text\":\"",
         g_abase, g_alen, g_agent_working ? "true" : "false",
+        g_agent_session_working ? "true" : "false",
         g_ready ? "true" : "false", g_load_pct);
     size_t o = (size_t)hn;
     if (avail) o += json_escape_into(out + o, cap - o, g_abuf + (from - g_abase), avail);
@@ -7351,8 +7510,9 @@ static void api_agent_poll(int fd, const char *path) {
     char *out = malloc(cap);
     if (!out) { send_json(fd, "500 Internal Server Error", "{\"ok\":false}"); return; }
     int hn = snprintf(out, cap,
-        "{\"base\":%zu,\"len\":%zu,\"working\":%s,\"ready\":%s,\"loadPct\":%d,\"text\":\"",
+        "{\"base\":%zu,\"len\":%zu,\"working\":%s,\"sessionWorking\":%s,\"ready\":%s,\"loadPct\":%d,\"text\":\"",
         g_abase, g_alen, g_agent_working ? "true" : "false",
+        g_agent_session_working ? "true" : "false",
         g_ready ? "true" : "false", g_load_pct);
     size_t o = (size_t)hn;
     if (avail) o += json_escape_into(out + o, cap - o, g_abuf + (since - g_abase), avail);

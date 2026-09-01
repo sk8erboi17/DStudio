@@ -1079,6 +1079,7 @@ assert.match(js, /gguf:\s*isLanClientMode\(\) \? '' : modelGguf\(\)/, 'LAN Agent
 assert.match(js, /function startServer\(requestedUiMode, launchSettings = null\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*setMode\(chatUiTarget\)[\s\S]*return;[\s\S]*runSwitch\('server'/, 'LAN clients must not start a local server when switching back to Chat');
 assert.match(js, /if \(!isLanClientMode\(\) && selectedGguf &&[\s\S]*!ggufIsRunning\(selectedGguf, runningModel, activeEngineDir\)\)/, 'LAN onboarding must not start a local selected model');
 assert.match(launcher, /collect_engine_checkouts\([\s\S]*api_ggufs/, 'GGUF API should aggregate every managed DS4 checkout');
+assert.match(launcher, /GGUF_SCAN_TIMEOUT_MS[\s\S]*api_ggufs_isolated_run[\s\S]*pid_t responder = fork\(\)/, 'GGUF discovery should run outside the single HTTP loop with a bounded filesystem deadline');
 assert.match(launcher, /\\"engineDir\\":[\s\S]*\\"engineName\\":[\s\S]*\\"branch\\":[\s\S]*\\"activeEngine\\":/, 'Every GGUF row should identify its checkout, branch and active state');
 assert.match(js, /modelEngineDir/, 'Saved model selection should persist its owning checkout');
 assert.match(js, /async function selectSavedModelCheckout\(\)[\s\S]*Engine\.ggufs\(\)[\s\S]*matches\.length === 1[\s\S]*modelEngineDir: dir/, 'Every model launch should restore the saved checkout and migrate legacy model picks');
@@ -1317,6 +1318,7 @@ assert.match(js, /const markActiveOrNextTodoDone = \(\) => \{[\s\S]*!requiredOps
 assert.match(js, /type === 'run_started'[\s\S]*state\.todos = null[\s\S]*discoveryBlockedNotified = false/, 'Design runtime should clear stale todos and discovery warnings when a new run starts');
 assert.match(js, /type === 'discovery_blocked'[\s\S]*Questions required before building[\s\S]*Design needs the Questions step before building/, 'Design UI should surface a skipped-discovery runtime block to the user');
 assert.match(js, /function designPhase\(\)[\s\S]*DesignRuntime\.getState[\s\S]*return 'generating'/, 'Design stepper should use event-sourced runtime state, not only visible transcript text');
+assert.match(js, /let streamCarry = '';[\s\S]*const input = streamCarry \+ String\(delta \|\| ''\);[\s\S]*streamCarry = input\.slice\(rs\)/, 'Design runtime should preserve JSONL events split across SSE or poll responses');
 assert.match(js, /function designPhase\(\)[\s\S]*const emptyTranscript = viewMode === 'design' \? !hasDesignConversationContent\(text\) : !hasRenderableConversation\(text\)[\s\S]*if \(emptyTranscript && !working && !rt\?\.question && rt\?\.phase !== 'building'\) return 'brief'[\s\S]*ps0\.finalized/, 'Empty Design conversations should stay on Brief instead of inheriting stale runtime preview state');
 assert.match(js, /function hasRenderableConversation\(raw = text\)[\s\S]*session_status[\s\S]*return false/, 'Agent/Design empty states should ignore service-only transcripts');
 assert.match(js, /function hasDesignConversationContent\(raw = text\)[\s\S]*seg\.kind === 'proposal'[\s\S]*seg\.kind === 'artifact'[\s\S]*return false/, 'Design empty states should ignore reasoning-only or service-only transcripts');
@@ -1409,7 +1411,7 @@ assert.match(js, /const prog = performance\.now\(\) - progAt < 150[\s\S]*if \(pr
 assert.match(js, /deferFileOps: working/, 'Live Agent and Design tails should defer full file diffs while streaming');
 assert.match(js, /deferFreeText: working && viewMode === 'design'/, 'Only Design should defer free text while Agent and Cowork stream their answer visibly');
 assert.match(js, /streaming: working && \(viewMode === 'agent' \|\| viewMode === 'cowork'\)/, 'Agent and Cowork should use the same visible streaming answer surface');
-assert.match(js, /const drainingAfterMarker = !!delta && wasWorking && !backendWorking;[\s\S]*working = backendWorking \|\| drainingAfterMarker;/, 'Agent UI should stay busy while buffered output drains after the backend completion marker');
+assert.match(js, /const visibleBackendWorking = backendWorking && res\.sessionWorking !== true;[\s\S]*const drainingAfterMarker = !!delta && wasWorking && !visibleBackendWorking;[\s\S]*working = visibleBackendWorking \|\| drainingAfterMarker;/, 'Agent UI should stay busy while real turn output drains, without exposing session-maintenance commands as generation');
 assert.doesNotMatch(js, /seg\.kind === 'reasoning'\) \{\s*if \(deferLiveText\) return;/, 'Live Agent and Design tails should not hide reasoning until the final transcript render');
 assert.doesNotMatch(js, /tool_text|deferFallbackToolText|fallback = !hasEvents/, 'structured Agent rendering must not retain the raw transcript parser');
 assert.match(js, /seg\.text && seg\.text\.trim\(\)\) \{[\s\S]*if \(deferFreeText\) return;[\s\S]*agent-answer-streaming/, 'Live Agent and Cowork tails should render structured free text with the streaming treatment while Design may defer it');
@@ -1466,6 +1468,9 @@ assert.match(js, /const conv = activeConversationForMode\(viewMode\)/, 'Agent/De
 assert.match(js, /if \(agentBusy\) \{[\s\S]*AgentView\.reconcileIdle/, 'Agent composer must reconcile stale busy state instead of silently dropping input');
 assert.match(js, /toast\('Answer the question card first\.'/, 'Agent question mode must give feedback instead of silently swallowing input');
 assert.match(js, /async function reconcileIdle\(\)/, 'Agent view should recover when the backend is idle but the UI is still marked busy');
+assert.match(js, /let sessionCommandTail = Promise\.resolve\(\);[\s\S]*function sessionAction\(action, sha = '', opts = \{\}\)[\s\S]*sessionCommandTail\.then\(run, run\)/, 'Session maintenance commands should be serialized instead of being silently lost to busy races');
+assert.match(js, /let sessionEventCarry = '';[\s\S]*const input = sessionEventCarry \+ String\(delta \|\| ''\);[\s\S]*sessionEventCarry = input\.slice\(rs\)/, 'Session metadata should survive a split JSONL frame');
+assert.match(js, /const target = command\?\.action === 'list' \? command\.targetConvId : liveConvId;[\s\S]*Store\.setChatMeta\(target, \{ sessionSha: cur\.sha \}\)/, 'A delayed session list should bind its SHA to the originating conversation');
 assert.match(js, /function displayedWorking\(\)[\s\S]*!suppressBusyUntilIdle && working && !!convId && convId === liveConvId/, 'Agent visible busy state should belong only to the displayed live conversation and stay hidden while Stop settles');
 assert.match(js, /function syncComposerBusy\(\)[\s\S]*Composer\.setAgentBusy\(activeView && displayedWorking\(\)\)/, 'Agent composer stop button should not follow unrelated backend work');
 assert.match(js, /else if \(displayedWorking\(\)\)[\s\S]*buildAgentWorking\(\)/, 'Agent working footer should not render on a non-live new session');
@@ -1478,6 +1483,9 @@ assert.match(js, /return \{[\s\S]*wirePromptForRuntime,[\s\S]*planArmed/, 'Switc
 assert.match(js, /function runtimeIsSlashCommand\(t\)/, 'Switcher runtime prompt adapter must not depend on AgentView-only slash helpers');
 assert.doesNotMatch(js.match(/function wirePromptForRuntime\(prompt, forceThink = ''\) \{[\s\S]*?\n      \}/)?.[0] || '', /isSlashCommand\(/, 'wirePromptForRuntime should use its own slash helper in Switcher scope');
 assert.match(launcher, /api_agent_send_state_error/, 'Backend agent send failures should include engine state');
+assert.match(launcher, /static int\s+g_agent_session_working = 0;/, 'Backend should track session maintenance separately from a visible model turn');
+assert.match(launcher, /\\\"sessionWorking\\\":%s/, 'Backend poll/SSE payloads should expose the session-maintenance state');
+assert.match(launcher, /if \(g_agent_working\)[\s\S]*session command is still settling[\s\S]*turn is still running/, 'Backend should reject a prompt while another pipe command owns the completion marker');
 assert.match(launcher, /agent\/design runtime is not active/, 'Backend should report inactive Agent/Design runtime explicitly');
 assert.match(launcher, /Engine process stopped before completing the turn[\s\S]*g_agent_working = 0;/, 'Backend should make child crashes visible and clear Agent/Design working state');
 assert.match(js, /appendLocalSendFailure\(displayPrompt, msg, thisSend\)/, 'Agent/Design send failures should be persisted in the transcript');
@@ -1553,7 +1561,7 @@ assert.match(js, /target: 'laguna-q4', engine: 'laguna'/, 'model catalog should 
 assert.match(js, /target: 'glm53-q2', engine: 'main'[\s\S]*GLM-5\\\.3-Flash-Q2/, 'model catalog should route GLM 5.3 through primary main');
 assert.match(js, /function confirmGlm53Load\(path\)[\s\S]*GLM 5\.3 uses most of unified memory[\s\S]*will not reduce the context or force SSD streaming/, 'GLM selection should show one non-blocking memory notice without changing launch settings');
 assert.match(js, /async function switchToGguf\(path, label, engineDir = '', engineLabel = ''\)[\s\S]*await confirmGlm53Load\(path\)[\s\S]*Store\.setSettings/, 'the central GGUF switch should ask before persisting a GLM selection');
-assert.match(launcher, /model_file_is_supported[\s\S]*api_ggufs[\s\S]*!model_file_is_supported\(nm\)/, 'the GGUF catalog should expose only the supported GLM generation');
+assert.match(launcher, /static char \*gguf_catalog_build\(void\)[\s\S]*!model_file_is_supported\(nm\)/, 'the GGUF catalog should expose only the supported GLM generation');
 assert.match(launcher, /has_explicit_gguf && !model_file_is_supported\(gguf\)[\s\S]*unsupported_model[\s\S]*engine support files cannot be loaded directly/, 'the launcher should reject unsupported or auxiliary GGUF selections');
 assert.match(js, /async function ensureModelDownloadEngine\(engine\)[\s\S]*Engine\.setupLaguna\(\)[\s\S]*Engine\.setEngineCheckout\(checkout\.dir\)/, 'the remaining Laguna-specific downloads should install and select their engine automatically');
 assert.match(js, /function modelDownloadStatusText\(dl\)[\s\S]*dl\?\.stage[\s\S]*runs in the background/, 'model download row should expose a persistent setup/download phase');

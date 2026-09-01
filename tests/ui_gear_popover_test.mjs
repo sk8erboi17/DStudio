@@ -182,7 +182,14 @@ try {
   const gsaToggle = page.locator('#cbar-pop .cbar-menu-toggle').filter({ hasText: 'Guided Security Analysis' });
   assert.equal(await gsaToggle.getAttribute('role'), 'switch', 'GSA should be a semantic switch, not an Off/On dropdown');
   assert.equal(await gsaToggle.getAttribute('aria-checked'), 'true', 'persisted GSA On should be reflected in its switch');
-  await page.locator('#cbar-pop .cdrop-trig').filter({ hasText: 'Profile' }).click();
+  const profileTrigger = page.locator('#cbar-pop .cdrop-trig').filter({ hasText: 'Profile' });
+  await profileTrigger.evaluate((node) => {
+    node.click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+  assert.equal(await page.locator('body > .cdrop-menu:not([hidden])').count(), 0,
+    'Escape in the opening event loop should close the detached dropdown before it can intercept another control');
+  await profileTrigger.click();
   await page.locator('body > .cdrop-menu:not([hidden])').waitFor({ state: 'visible' });
 
   const boxes = await page.evaluate(() => {
