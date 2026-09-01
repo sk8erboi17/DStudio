@@ -2,9 +2,8 @@
  * Embedding provider (local llama.cpp sidecar) + SEMANTIC skill search.
  *
  * A SECOND llama-server in embedding mode (EMBED_PORT) embeds skill texts and
- * each query; /api/skills/search ranks by cosine. Same install/spawn/idle
- * pattern as the vision sidecar (helpers below mirror the vision_* ones; a few
- * dir/pid-generic vision helpers are reused). Skill search is SEMANTIC ONLY —
+ * each query; /api/skills/search ranks by cosine. The runtime, lifecycle and
+ * disk accounting are self-contained. Skill search is SEMANTIC ONLY —
  * no lexical fallback by design: if the sidecar/index is not ready the search
  * returns 503 and the agent proceeds without a skill.
  * ==========================================================================*/
@@ -17,6 +16,85 @@
     "Instruct: Given a user request, retrieve the skill that best helps.\nQuery: "
 
 #ifndef _WIN32
+static int embed_pid_is_llama(pid_t pid) {
+    if (pid <= 1 || kill(pid, 0) != 0) return 0;
+    char cmd[64];
+    snprintf(cmd, sizeof cmd, "ps -p %d -o command=", (int)pid);
+    FILE *f = popen(cmd, "r");
+    if (!f) return 0;
+    char line[512] = "";
+    if (!fgets(line, sizeof line, f)) line[0] = '\0';
+    pclose(f);
+    return strstr(line, "llama-server") != NULL && strstr(line, "--embeddings") != NULL;
+}
+
+static int embed_scan_for_bin(const char *dir, int depth, char *out, size_t outsz) {
+    if (!dir || depth > 6) return 0;
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    struct dirent *e;
+    int found = 0;
+    while (!found && (e = readdir(d)) != NULL) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char path[DSTUDIO_PATH_MAX];
+        if ((size_t)snprintf(path, sizeof path, "%s/%s", dir, e->d_name) >= sizeof path) continue;
+        struct stat st;
+        if (lstat(path, &st) != 0) continue;
+        if (S_ISREG(st.st_mode) && !strcmp(e->d_name, "llama-server") && access(path, X_OK) == 0) {
+            cstr_copy(out, outsz, path);
+            found = 1;
+        } else if (S_ISDIR(st.st_mode)) {
+            found = embed_scan_for_bin(path, depth + 1, out, outsz);
+        }
+    }
+    closedir(d);
+    return found;
+}
+
+static long long embed_tree_bytes(const char *dir, int depth) {
+    if (!dir || depth > 6) return 0;
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    struct dirent *e;
+    long long sum = 0;
+    while ((e = readdir(d)) != NULL) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char path[DSTUDIO_PATH_MAX];
+        if ((size_t)snprintf(path, sizeof path, "%s/%s", dir, e->d_name) >= sizeof path) continue;
+        struct stat st;
+        if (lstat(path, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) sum += embed_tree_bytes(path, depth + 1);
+        else if (S_ISREG(st.st_mode)) sum += (long long)st.st_size;
+    }
+    closedir(d);
+    return sum;
+}
+
+static void embed_model_cache_path(char *out, size_t outsz) {
+    const char *hub = getenv("HF_HUB_CACHE");
+    if (hub && hub[0]) { cstr_copy(out, outsz, hub); return; }
+    const char *hfhome = getenv("HF_HOME");
+    if (hfhome && hfhome[0]) { snprintf(out, outsz, "%s/hub", hfhome); return; }
+    const char *home = getenv("HOME");
+    snprintf(out, outsz, "%s/.cache/huggingface/hub", home ? home : ".");
+}
+
+static long long embed_hf_hub_bytes(const char *hf) {
+    if (!hf || !hf[0]) return 0;
+    char id[256];
+    size_t o = 0;
+    for (const char *p = hf; *p && *p != ':' && o < sizeof id - 3; p++) {
+        if (*p == '/') { id[o++] = '-'; id[o++] = '-'; }
+        else id[o++] = *p;
+    }
+    id[o] = '\0';
+    char root[DSTUDIO_PATH_MAX];
+    embed_model_cache_path(root, sizeof root);
+    char dir[DSTUDIO_PATH_MAX + 300];
+    snprintf(dir, sizeof dir, "%s/models--%s", root, id);
+    return embed_tree_bytes(dir, 0);
+}
+
 static void embed_dir_path(char *out, size_t outsz) {
     const char *env = getenv("DSTUDIO_EMBED_DIR");
     if (env && env[0]) { cstr_copy(out, outsz, env); return; }
@@ -45,7 +123,7 @@ static pid_t embed_lock_pid(void) {
 }
 static int embed_kill_server(void) {
     pid_t pid = embed_lock_pid();
-    if (!vision_pid_is_llama(pid)) return 0;
+    if (!embed_pid_is_llama(pid)) return 0;
     kill(pid, SIGTERM);
     for (int i = 0; i < 20; i++) { struct timespec ts = { 0, 100 * 1000000 }; nanosleep(&ts, NULL); if (kill(pid, 0) != 0) break; }
     if (kill(pid, 0) == 0) kill(pid, SIGKILL);

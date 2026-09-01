@@ -20,6 +20,11 @@
           history.replaceState(null, '', location.pathname);
         }
         const settings = JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}');
+        const requestedTheme = settings?.theme || 'light';
+        const resolvedTheme = requestedTheme === 'system'
+          ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+          : (requestedTheme === 'dark' ? 'dark' : 'light');
+        document.documentElement.dataset.theme = resolvedTheme;
         if (settings && settings.lanClientHost) location.replace('/');
         if (!settings || settings.onboarded !== true) location.replace('/');
       } catch {
@@ -29,21 +34,26 @@
   </script>
   <style>
     :root {
-      color-scheme: light dark;
+      color-scheme: light;
       --bg: #f7f7f4;
+      --surface: #ffffff;
       --accent: #7aa7ff;
       --accent-strong: #568fe8;
       --text: #202124;
       --muted: #73777f;
+      --faint: #a5a8ae;
+      --line: rgba(32, 33, 36, 0.09);
       --track: rgba(32, 33, 36, 0.10);
     }
-    @media (prefers-color-scheme: dark) {
-      :root {
+    :root[data-theme="dark"] {
+        color-scheme: dark;
         --bg: #070707;
+        --surface: #101114;
         --text: #f2f4f8;
         --muted: #8f949d;
+        --faint: #5f646d;
+        --line: rgba(255, 255, 255, 0.09);
         --track: rgba(255, 255, 255, 0.10);
-      }
     }
     * { box-sizing: border-box; }
     body {
@@ -56,15 +66,44 @@
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
     }
     main {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: min(392px, calc(100vw - 48px));
+    }
+    .logo-wrap {
+      position: relative;
       display: grid;
       place-items: center;
-      width: min(360px, calc(100vw - 64px));
+      width: 154px;
+      height: 154px;
+      margin-bottom: 23px;
+    }
+    .logo-wrap::before {
+      position: absolute;
+      inset: 1px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(86, 143, 232, .18), rgba(86, 143, 232, 0) 67%);
+      content: '';
+      animation: breathe 2.8s ease-in-out infinite;
     }
     .logo {
       width: 116px;
       height: 116px;
-      margin-bottom: 32px;
+      position: relative;
       filter: drop-shadow(0 12px 28px rgba(86, 143, 232, 0.16));
+    }
+    @keyframes breathe { 50% { transform: scale(1.08); opacity: .72; } }
+    .loading-main { width: 100%; }
+    .progress-meta {
+      width: 100%;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 11px;
+      font-size: 13px;
+      line-height: 1.35;
     }
     .progress {
       width: 100%;
@@ -81,20 +120,11 @@
       box-shadow: 0 0 16px rgba(122, 167, 255, 0.42);
       transition: width 420ms cubic-bezier(.2, .8, .2, 1);
     }
-    .progress-meta {
-      width: 100%;
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 20px;
-      margin-top: 13px;
-      font-size: 13px;
-      line-height: 1.35;
-    }
     .stage {
       min-width: 0;
       overflow: hidden;
       color: var(--text);
+      font-weight: 560;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
@@ -106,7 +136,7 @@
     .detail {
       width: 100%;
       min-height: 18px;
-      margin: 7px 0 0;
+      margin: 9px 0 0;
       overflow: hidden;
       color: var(--muted);
       font-size: 11px;
@@ -115,36 +145,95 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .boot-steps {
+      display: grid;
+      gap: 0;
+      width: 100%;
+      margin-top: 25px;
+      padding-top: 13px;
+      border-top: 1px solid var(--line);
+    }
+    .boot-step {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      min-height: 31px;
+      color: var(--faint);
+      opacity: .34;
+      transition: color .25s, opacity .25s;
+    }
+    .boot-step.active { color: var(--text); opacity: 1; }
+    .boot-step.done { color: var(--muted); opacity: .68; }
+    .boot-step__mark {
+      color: inherit;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      text-align: center;
+    }
+    .boot-step.active .boot-step__mark { color: var(--accent-strong); }
+    .boot-step__label { font-size: 12px; }
+    .boot-step__detail {
+      max-width: 172px;
+      overflow: hidden;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .boot-foot {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      width: 100%;
+      margin-top: 20px;
+      color: var(--faint);
+      font-size: 10.5px;
+    }
+    .boot-foot a { color: inherit; text-decoration: none; }
+    .boot-foot a:hover { color: var(--text); }
     @media (prefers-reduced-motion: reduce) {
       .progress__bar { transition: none; }
+      .logo-wrap::before { animation: none; }
     }
   </style>
 </head>
 <body>
   <main aria-label="DStudio is starting">
-    <svg class="logo" viewBox="0 0 100 100" role="img" aria-label="DStudio">
-      <defs>
-        <linearGradient id="logo-gradient" x1="12" y1="12" x2="88" y2="88" gradientUnits="userSpaceOnUse">
-          <stop stop-color="#a9caff"/>
-          <stop offset="1" stop-color="#568fe8"/>
-        </linearGradient>
-      </defs>
-      <g fill="none" stroke="url(#logo-gradient)" stroke-width="10.5" stroke-linecap="round">
-        <path d="M30 24C41 15 59 15 70 24"/>
-        <path d="M76 30C85 41 85 59 76 70"/>
-        <path d="M70 76C59 85 41 85 30 76"/>
-        <path d="M24 70C15 59 15 41 24 30"/>
-      </g>
-      <circle cx="50" cy="50" r="8" fill="url(#logo-gradient)"/>
-    </svg>
-    <div class="progress" id="loading-progress" role="progressbar" aria-label="DStudio loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="4">
-      <div class="progress__bar" id="loading-bar"></div>
+    <div class="logo-wrap">
+      <svg class="logo" viewBox="0 0 100 100" role="img" aria-label="DStudio">
+        <defs>
+          <linearGradient id="logo-gradient" x1="12" y1="12" x2="88" y2="88" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#a9caff"/>
+            <stop offset="1" stop-color="#568fe8"/>
+          </linearGradient>
+        </defs>
+        <g fill="none" stroke="url(#logo-gradient)" stroke-width="10.5" stroke-linecap="round">
+          <path d="M30 24C41 15 59 15 70 24"/>
+          <path d="M76 30C85 41 85 59 76 70"/>
+          <path d="M70 76C59 85 41 85 30 76"/>
+          <path d="M24 70C15 59 15 41 24 30"/>
+        </g>
+        <circle cx="50" cy="50" r="8" fill="url(#logo-gradient)"/>
+      </svg>
     </div>
-    <div class="progress-meta">
-      <span class="stage" id="loading-stage">Starting DStudio…</span>
-      <span class="pct" id="loading-pct">4%</span>
+    <div class="loading-main">
+      <div class="progress-meta">
+        <span class="stage" id="loading-stage">Starting DStudio…</span>
+        <span class="pct" id="loading-pct">4%</span>
+      </div>
+      <div class="progress" id="loading-progress" role="progressbar" aria-label="DStudio loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="4">
+        <div class="progress__bar" id="loading-bar"></div>
+      </div>
+      <p class="detail" id="loading-detail" aria-live="polite">Connecting to the local launcher</p>
     </div>
-    <p class="detail" id="loading-detail" aria-live="polite">Connecting to the local engine</p>
+    <div class="boot-steps" id="boot-steps" aria-label="Startup stages">
+      <div class="boot-step active" data-at="12"><span class="boot-step__mark">●</span><span class="boot-step__label">Launcher</span><span class="boot-step__detail">connecting</span></div>
+      <div class="boot-step" data-at="34"><span class="boot-step__mark">·</span><span class="boot-step__label">Engine settings</span><span class="boot-step__detail">—</span></div>
+      <div class="boot-step" data-at="82"><span class="boot-step__mark">·</span><span class="boot-step__label">Model runtime</span><span class="boot-step__detail">—</span></div>
+      <div class="boot-step" data-at="100"><span class="boot-step__mark">·</span><span class="boot-step__label">Workspace</span><span class="boot-step__detail">—</span></div>
+    </div>
+    <div class="boot-foot"><span>Everything runs on this Mac.</span><a href="/" aria-label="Open engine settings">Engine settings</a></div>
   </main>
   <script>
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -153,7 +242,24 @@
     const stage = document.querySelector('#loading-stage');
     const pct = document.querySelector('#loading-pct');
     const detail = document.querySelector('#loading-detail');
+    const bootSteps = [...document.querySelectorAll('.boot-step')];
     let visualPct = 4;
+
+    function syncBootSteps(message = '') {
+      let currentFound = false;
+      bootSteps.forEach((row) => {
+        const threshold = Number(row.dataset.at) || 100;
+        const done = visualPct >= threshold;
+        const active = !done && !currentFound;
+        if (active) currentFound = true;
+        row.classList.toggle('done', done);
+        row.classList.toggle('active', active);
+        const mark = row.querySelector('.boot-step__mark');
+        const status = row.querySelector('.boot-step__detail');
+        if (mark) mark.textContent = done ? '✓' : active ? '●' : '·';
+        if (status) status.textContent = done ? 'ready' : active ? (message || 'running') : '—';
+      });
+    }
 
     function showProgress(value, label, message = '') {
       const numeric = Number.isFinite(Number(value)) ? Number(value) : visualPct;
@@ -163,7 +269,10 @@
       pct.textContent = `${visualPct}%`;
       if (label) stage.textContent = label;
       detail.textContent = message || '';
+      syncBootSteps(message);
     }
+
+    syncBootSteps('connecting');
 
     async function fetchJson(url, opts = {}, timeout = 4000) {
       const ctl = new AbortController();

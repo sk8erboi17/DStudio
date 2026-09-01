@@ -3,7 +3,7 @@ set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 builder="$root/extension/design/build-design.sh"
-patcher="$root/scripts/apply-ds4-qwen-hot-memory.sh"
+patcher="$root/scripts/apply-ds4-media-memory.sh"
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/dstudio-design-build.XXXXXX")
 fixture="$temporary/ds4"
 trap 'rm -rf "$temporary"' EXIT HUP INT TERM

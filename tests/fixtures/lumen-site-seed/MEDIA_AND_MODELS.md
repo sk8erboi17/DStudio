@@ -6,22 +6,21 @@ The published page is a non-commercial fictional design study. Its generated med
 
 | Provider | Installed runtime / disk class | Use in this site run | Loading rule |
 | --- | --- | --- | --- |
-| DeepSeek V4 Design | local 81 GB GGUF | HTML, CSS, interaction and final composed-layout gate | Runs alone at Max; explicit expert SSD streaming is off |
-| Qwen3.8-27B Q8 | `~/.dstudio/qwen38-vision`, about 28 GB cached weights | Request-correspondence inspection and edit/new-image routing only | One-shot, only when the prompt or final layout needs it |
-| Ideogram 4 FP8 | `~/.dstudio/ideogram4`, about 29.5 GB model package | New images explicitly requested by the user | One-shot after Qwen exits |
-| HunyuanImage 3 Instruct NF4 | `~/.dstudio/hunyuan-image`, about 48 GB | Source-dependent edits explicitly requested by the user | One-shot after Qwen exits |
+| DeepSeek Vision-Exp or GLM 5.3 | local GGUF plus matching native encoder | HTML, CSS, request-correspondence inspection and final composed-layout gate | One selected DS4 runtime; pixels enter the model directly |
+| Ideogram 4 FP8 | `~/.dstudio/ideogram4`, about 29.5 GB model package | New images explicitly requested by the user | Direct one-shot generation |
+| HunyuanImage 3 Instruct NF4 | `~/.dstudio/hunyuan-image`, about 48 GB | Source-dependent edits explicitly requested by the user | Direct one-shot edit |
 | MiniMax H3 BF16 | `~/.dstudio/minimax-h3`, about 134 GiB on disk | Explicit hero motion only | Native one-shot phases; never overlaps another model |
 
 Do not search for provider setup during layout composition. A missing optional
 inspection is non-blocking after PNG signature, decode and dimensions pass; it
 must not be replaced with dominant-color, histogram or brightness analysis.
 
-## Visual routing and inspection
+## Native visual inspection
 
-- Model: `mlx-community/Qwen3.8-27B-8bit`
-- Revision: `815b83c0df8ffd1d1b5244cf75fd6ef14fca9ef9`
-- Role: sole edit/new-generation decision, official Ideogram structured-caption authoring, and request-correspondence inspection; aesthetic quality is gated only in the composed site layout
-- Default used for the release: Max reasoning, no DStudio thinking/output budget
+- Model: the selected DeepSeek Vision-Exp or GLM 5.3 language checkpoint
+- Encoder: the matching GGUF vision encoder loaded by ds4 with `--vision`
+- Role: inspect request correspondence and the composed page directly; no secondary visual model or routing pass exists
+- Image action: the selected native model emits an explicit `generate` or `edit` directive, dispatched directly to the appropriate worker
 
 ## New still images
 

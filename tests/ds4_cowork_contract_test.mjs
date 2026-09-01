@@ -59,8 +59,11 @@ assert.doesNotMatch(bridge, /\bsystem\s*\(/);
 assert.match(bridge, /execlp\(python, python, helper/);
 assert.match(bridge, /COWORK_OUTPUT_MAX/);
 
-assert.match(patchManifest, /version=68/);
-assert.match(patchManifest, /edit=063[\s\S]*edit=064[\s\S]*edit=065[\s\S]*edit=066[\s\S]*edit=067/);
+assert.match(patchManifest, /version=73/);
+assert.match(patchManifest, /edit=063[\s\S]*edit=064[\s\S]*edit=065[\s\S]*edit=067[\s\S]*edit=068/);
+const textToolObservationPatch = fs.readFileSync(path.join(root, 'patch/ds4-agent-jsonl/068.replace'), 'utf8');
+assert.match(textToolObservationPatch, /if \(!obs->image_count\)[\s\S]*ds4_chat_append_message[\s\S]*else \{[\s\S]*ds4_chat_append_multimodal_message/,
+  'text-only tool observations must bypass the native multimodal helper');
 assert.match(dispatchPatch, /runtime && !strcmp\(runtime, "cowork"\)/);
 assert.match(read('patch/ds4-agent-jsonl/067.replace'), /ds4ui_cowork_workspace_guard/);
 assert.match(read('patch/ds4-agent-jsonl/067.replace'), /bash is unavailable/);

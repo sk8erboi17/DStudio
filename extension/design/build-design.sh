@@ -32,8 +32,8 @@ SCRIPT="$EXT/build-design.sh"
 REMOTE_DIR="$(cd "$EXT/../remote" && pwd)"
 BIN="$DS4_DIR/ds4-design"
 STAMP="$DS4_DIR/ds4-design.ver"
-PATCHER="$ROOT/scripts/apply-ds4-qwen-hot-memory.sh"
-PATCH_FILE="$ROOT/patch/ds4-qwen-hot-memory/hot-memory.patch"
+PATCHER="$ROOT/scripts/apply-ds4-media-memory.sh"
+PATCH_FILE="$ROOT/patch/ds4-media-memory/residency-lease.patch"
 PATCH_APPLIED_BY_US=0
 STAMP_TMP=""
 

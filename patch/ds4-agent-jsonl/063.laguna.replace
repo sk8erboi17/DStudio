@@ -27,12 +27,11 @@ static const char agent_cowork_dsml_schema_heading[] =
 static const char agent_cowork_dsml_schema_rules[] =
     "\nCowork must inspect before editing and re-open every written artifact to verify it.\n";
 
-static char *agent_build_dsml_tools_prompt(bool edit_upto) {
+static char *agent_build_dsml_tools_prompt(void) {
     const bool cowork = agent_is_cowork_runtime();
     const char *intro = cowork ? agent_cowork_dsml_tools_prompt_intro
                                : agent_tools_prompt_intro;
-    const char *edit = edit_upto ? agent_tools_prompt_edit_upto
-                                 : agent_tools_prompt_edit_exact;
+    const char *edit = agent_tools_prompt_edit_line;
     const char *heading = cowork ? agent_cowork_dsml_schema_heading : "";
     const char *office = cowork ? agent_cowork_tool_schemas : "";
     const char *office_rules = cowork ? agent_cowork_dsml_schema_rules : "";
@@ -53,5 +52,6 @@ static char *agent_build_dsml_tools_prompt(bool edit_upto) {
 }
 
 static char *ds4ui_agent_build_dsml_tools_prompt(const agent_config *cfg) {
-    return agent_build_dsml_tools_prompt(cfg->edit_upto);
+    (void)cfg;
+    return agent_build_dsml_tools_prompt();
 }

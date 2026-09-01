@@ -1,10 +1,26 @@
 /*DS4UI_JSONL*/
-/* read_pdf: reads a PDF in the workspace via the DStudio server's hybrid
- * /api/pdf/describe (DS4UI_DSTUDIO_URL): pages with a text layer come back
- * verbatim (pdftotext), scanned pages are read by the local vision model.
- * The slow work and the by-content-hash result cache live server-side. An
+/* read_pdf: reads a PDF text layer via DStudio's /api/pdf/describe endpoint.
+ * Scanned/image-only pages are reported and skipped; vision belongs to the
+ * selected model's native image tools, not to a document sidecar. The
+ * by-content-hash result cache lives server-side. An
  * optional pages range ("N" | "N-M" | "N-") is passed through verbatim — how
  * the model continues past the server's caps on a long document. */
+static void ds4ui_json_escape_into(agent_buf *b, const char *s) {
+    for (; s && *s; s++) {
+        unsigned char c = (unsigned char)*s;
+        switch (c) {
+            case '"':  agent_buf_puts(b, "\\\""); break;
+            case '\\': agent_buf_puts(b, "\\\\"); break;
+            case '\n': agent_buf_puts(b, "\\n"); break;
+            case '\r': agent_buf_puts(b, "\\r"); break;
+            case '\t': agent_buf_puts(b, "\\t"); break;
+            default:
+                if (c < 0x20) { char u[8]; snprintf(u, sizeof u, "\\u%04x", c); agent_buf_puts(b, u); }
+                else { char ch = (char)c; agent_buf_append(b, &ch, 1); }
+        }
+    }
+}
+
 static char *ds4ui_tool_read_pdf(const agent_tool_call *call) {
     const char *path = agent_tool_arg_value(call, "path");
     const char *question = agent_tool_arg_value(call, "question");
@@ -26,7 +42,7 @@ static char *ds4ui_tool_read_pdf(const agent_tool_call *call) {
         ds4ui_json_escape_into(&req, pages);
         agent_buf_puts(&req, "\"");
     }
-    agent_buf_puts(&req, ",\"format\":\"text\"}");
+    agent_buf_puts(&req, ",\"format\":\"text\",\"text_only\":true}");
 
     char tmpl[] = "/tmp/ds4ui-read-pdf-XXXXXX";
     int tf = mkstemp(tmpl);
@@ -61,9 +77,7 @@ static char *ds4ui_tool_read_pdf(const agent_tool_call *call) {
         av[a++] = (char *)"-H"; av[a++] = (char *)"Content-Type: application/json";
         av[a++] = (char *)"-H"; av[a++] = (char *)"X-Requested-With: ds4web";
         av[a++] = (char *)"--data-binary"; av[a++] = dataarg;
-        /* Scanned pages cost one vision call each; outlast the server worker's
-         * 620s send timeout instead of cutting a long read short here. */
-        av[a++] = (char *)"--max-time"; av[a++] = (char *)"630";
+        av[a++] = (char *)"--max-time"; av[a++] = (char *)"120";
         av[a++] = url;
         av[a] = NULL;
         execvp("curl", av);
@@ -83,8 +97,7 @@ static char *ds4ui_tool_read_pdf(const agent_tool_call *call) {
     char *bodytext = agent_buf_take(&out);
     if (!bodytext || !bodytext[0]) {
         free(bodytext);
-        return xstrdup("read_pdf: no response from the DStudio server (is poppler installed? "
-                       "scanned pages also need the vision model set up once).\n");
+        return xstrdup("read_pdf: no response from the DStudio server (is poppler installed?).\n");
     }
     agent_buf res = {0};
     agent_buf_puts(&res, "[read_pdf: ");
@@ -103,31 +116,6 @@ static char *ds4ui_tool_read_pdf(const agent_tool_call *call) {
     if (bl == 0 || bodytext[bl - 1] != '\n') agent_buf_puts(&res, "\n");
     free(bodytext);
     return agent_buf_take(&res);
-}
-
-typedef char *(*ds4ui_qwen_tool_fn)(const agent_tool_call *);
-
-static char *ds4ui_tool_with_qwen_memory(agent_worker *w,
-                                          const agent_tool_call *call,
-                                          ds4ui_qwen_tool_fn fn) {
-#ifdef DS4UI_HAVE_MEMORY_PRESSURE_API
-    uint64_t advised = 0;
-    if (!w || !w->engine ||
-        ds4_engine_memory_pressure_begin(w->engine, &advised) != 0)
-        return xstrdup("Tool error: cannot free DS4 memory for the Qwen pipeline.\n");
-    char *result = fn(call);
-    if (ds4_engine_memory_pressure_end(w->engine) != 0) {
-        agent_buf b = {0};
-        agent_buf_puts(&b, result ? result : "");
-        agent_buf_puts(&b, "\n[warning: DS4 residency restore failed]\n");
-        free(result);
-        result = agent_buf_take(&b);
-    }
-    return result;
-#else
-    (void)w;
-    return fn(call);
-#endif
 }
 
 static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {

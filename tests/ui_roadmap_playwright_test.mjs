@@ -150,7 +150,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/diagnostics') { json(res, 200, { ok: true, tasks: [], recentLogs: [] }); return; }
   if (url.pathname === '/api/remote/status') { json(res, 200, { ok: true, enabled: false }); return; }
   if (url.pathname === '/api/lan-client/chats') { json(res, 200, { ok: true, chats: [] }); return; }
-  if ((url.pathname === '/api/vision/stop' || url.pathname === '/api/embed/stop') && req.method === 'POST') {
+  if (url.pathname === '/api/embed/stop' && req.method === 'POST') {
     json(res, 200, { ok: true, stopped: true });
     return;
   }

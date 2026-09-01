@@ -39,17 +39,18 @@ trap cleanup EXIT
 
 mkdir -p "${tmp}/home" \
   "${tmp}/ds4/gguf" "${tmp}/ds4/.git" \
-  "${tmp}/ds4-glm5.3/.git" "${tmp}/ds4-laguna-s21/.git"
+  "${tmp}/ds4-laguna-s21/.git"
 printf '%s\n' 'all:' >"${tmp}/ds4/Makefile"
-printf '%s\n' 'all:' >"${tmp}/ds4-glm5.3/Makefile"
 printf '%s\n' 'all:' >"${tmp}/ds4-laguna-s21/Makefile"
 printf '%s\n' 'ref: refs/heads/main' >"${tmp}/ds4/.git/HEAD"
-printf '%s\n' 'ref: refs/heads/glm-5.3-flash' >"${tmp}/ds4-glm5.3/.git/HEAD"
 printf '%s\n' 'ref: refs/heads/laguna-s2.1' >"${tmp}/ds4-laguna-s21/.git/HEAD"
-ln -s ../ds4/gguf "${tmp}/ds4-glm5.3/gguf"
 ln -s ../ds4/gguf "${tmp}/ds4-laguna-s21/gguf"
 printf '%s' 'main-test' >"${tmp}/ds4/gguf/main-test.gguf"
 printf '%s' 'glm53-test' >"${tmp}/ds4/gguf/GLM-5.3-Flash-Q2.gguf"
+printf '%s' 'glm53-vision-test' >"${tmp}/ds4/gguf/GLM-5.3-Flash-Vision-Encoder.gguf"
+printf '%s' 'deepseek-vision-test' >"${tmp}/ds4/gguf/DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf"
+printf '%s' 'deepseek-vision-encoder-test' >"${tmp}/ds4/gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf"
+printf '%s' 'deepseek-vision-dspark-test' >"${tmp}/ds4/gguf/DeepSeek-V4-Flash-Vision-Exp-DSpark-support.gguf"
 printf '%s' 'laguna-test' >"${tmp}/ds4/gguf/laguna-test.gguf"
 mkdir -p "${tmp}/project/src"
 mkdir -p "${tmp}/home/.local/share/flashcards/ds4-skills/analytics"
@@ -195,6 +196,11 @@ const fs = require('fs');
 const st = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (st.lan !== false) throw new Error('server should start localhost-only');
 if (st.httpPort <= 0) throw new Error('status.httpPort missing');
+if (st.glmVisionInstalled !== true) throw new Error('status should detect the native GLM vision encoder in main');
+if (st.deepseekVisionInstalled !== true) throw new Error('status should detect the native DeepSeek Vision-Exp encoder in main');
+if (typeof st.nativeVisionActive !== 'boolean') throw new Error('status.nativeVisionActive missing');
+if (typeof st.glmVisionActive !== 'boolean') throw new Error('status.glmVisionActive missing');
+if (typeof st.deepseekVisionActive !== 'boolean') throw new Error('status.deepseekVisionActive missing');
 NODE
 node - "${tmp}/lan-health-local.json" <<'NODE'
 const fs = require('fs');
@@ -226,7 +232,11 @@ const root = fs.realpathSync(process.argv[3]);
 if (!r.ok || !Array.isArray(r.ggufs)) throw new Error('GGUF catalog shape incomplete');
 const expected = new Map([
   ['main-test.gguf', ['ds4', 'main']],
-  ['GLM-5.3-Flash-Q2.gguf', ['ds4-glm5.3', 'glm-5.3-flash']],
+  ['GLM-5.3-Flash-Q2.gguf', ['ds4', 'main']],
+  ['GLM-5.3-Flash-Vision-Encoder.gguf', ['ds4', 'main']],
+  ['DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf', ['ds4', 'main']],
+  ['DeepSeek-V4-Flash-Vision-Encoder.gguf', ['ds4', 'main']],
+  ['DeepSeek-V4-Flash-Vision-Exp-DSpark-support.gguf', ['ds4', 'main']],
   ['laguna-test.gguf', ['ds4-laguna-s21', 'laguna-s2.1']],
 ]);
 for (const [file, [checkout, branch]] of expected) {
@@ -238,7 +248,9 @@ for (const [file, [checkout, branch]] of expected) {
 }
 if (r.activeEngine !== path.join(root, 'ds4')) throw new Error(`wrong active GGUF engine: ${r.activeEngine}`);
 if (!r.ggufs.find((g) => g.file === 'main-test.gguf').activeEngine) throw new Error('active GGUF row should be marked');
-if (r.ggufs.find((g) => g.file === 'GLM-5.3-Flash-Q2.gguf').activeEngine) throw new Error('GLM 5.3 should use its inactive side checkout while main is active');
+if (!r.ggufs.find((g) => g.file === 'GLM-5.3-Flash-Q2.gguf').activeEngine) throw new Error('GLM 5.3 should use the active main checkout');
+if (!r.ggufs.find((g) => g.file === 'GLM-5.3-Flash-Vision-Encoder.gguf').activeEngine) throw new Error('GLM 5.3 vision should use the active main checkout');
+if (!r.ggufs.find((g) => g.file === 'DeepSeek-V4-Flash-Vision-Encoder.gguf').activeEngine) throw new Error('DeepSeek Vision-Exp encoder should use the active main checkout');
 NODE
 node - "${tmp}/skill-analytics.json" <<'NODE'
 const fs = require('fs');

@@ -1,11 +1,10 @@
 #!/bin/sh
-# The coordinator itself never owns the heavyweight lock: its Qwen router and
-# selected image worker acquire it in sequence, making overlap impossible.
+# The coordinator dispatches the native model's explicit generate/edit action
+# to exactly one local image worker.
 set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if [ "${DSTUDIO_IMAGE_TEST_MODE:-0}" = 1 ]; then
-    export DSTUDIO_IMAGE_ROUTE_TEST_MODE=1
     export DSTUDIO_IDEOGRAM4_TEST_MODE=1
     export DSTUDIO_HUNYUAN_IMAGE3_TEST_MODE=1
 fi

@@ -341,15 +341,11 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define LOG_RING_CAP 768
 #define DIAG_SSE_MAX 8
 #define DS4_REPO_URL "https://github.com/antirez/ds4"
-/* The primary managed checkout always follows the pinned upstream main. */
-#define DS4_UPSTREAM_COMMIT "8db89fe083ae4d17c9a2428ccd29803d3ae8f577"
+/* The primary managed checkout always follows the pinned upstream main. GLM
+ * 5.3 and DeepSeek Vision-Exp (including native image input) live there, so
+ * neither model needs a side checkout. */
+#define DS4_UPSTREAM_COMMIT "b0982a1b4ee9d0f157e600bfd102fbeac951a829"
 #define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
-
-/* GLM 5.3 uses its upstream inference branch in a side-by-side runtime. Model
- * files remain centralized under ./ds4/gguf and are shared by that checkout. */
-#define DS4_GLM53_UPSTREAM_COMMIT "a60a2a0d25137a849a101e04e86ea830a346073a"
-#define DS4_GLM53_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_GLM53_UPSTREAM_COMMIT
-#define DS4_GLM53_DIR_NAME "ds4-glm5.3"
 
 /* Optional Laguna S 2.1 engine checkout. Laguna lives on its own upstream
  * branch and currently requires Metal plus full model residency, so DStudio
@@ -370,10 +366,25 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 /* Model variants the UI can pick: flash = the official chat-tuned Flash IQ2XXS,
  * pro = the official V4-Pro IQ2XXS. Abliterated remains an explicit GGUF pick. */
 #define MODEL_FLASH MODEL_STD
-#define MODEL_PRO   "gguf/DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix.gguf"
+#define MODEL_PRO   "gguf/DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix-0813.gguf"
 #define MODEL_LAGUNA "gguf/laguna-s-2.1-Q4_K_M.gguf"
 #define MODEL_GLM53_Q2 "gguf/GLM-5.3-Flash-Q2.gguf"
 #define MODEL_GLM53_Q2_EXPECTED_BYTES 96505816384LL
+#define MODEL_GLM53_VISION "gguf/GLM-5.3-Flash-Vision-Encoder.gguf"
+#define MODEL_GLM53_VISION_EXPECTED_BYTES 1127280960LL
+#define MODEL_GLM53_VISION_SHA256 "ae23e14c6979e889051b2e4a39351abcdafb161e18e606fae4d8c40095a4bf3a"
+#define MODEL_DSVISION_Q2 "gguf/DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf"
+#define MODEL_DSVISION_Q2_EXPECTED_BYTES 86720111776LL
+#define MODEL_DSVISION_Q2_Q4 "gguf/DeepSeek-V4-Flash-Vision-Exp-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf"
+#define MODEL_DSVISION_Q2_Q4_EXPECTED_BYTES 97591747744LL
+#define MODEL_DSVISION_MXFP4 "gguf/DeepSeek-V4-Flash-Vision-Exp-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out.gguf"
+#define MODEL_DSVISION_MXFP4_EXPECTED_BYTES 155976459136LL
+#define MODEL_DSVISION_ENCODER "gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf"
+#define MODEL_DSVISION_ENCODER_EXPECTED_BYTES 932857760LL
+#define MODEL_DSVISION_ENCODER_SHA256 "00cd4d81a435364967400a95c42703343e11da6b6f18c5143fe76e1d94d5035f"
+#define MODEL_DSVISION_DSPARK "gguf/DeepSeek-V4-Flash-Vision-Exp-DSpark-support.gguf"
+#define MODEL_DSVISION_DSPARK_EXPECTED_BYTES 5989114528LL
+#define MODEL_DSVISION_DSPARK_SHA256 "0807a67fd9ce5874bfc60d8d2461f50e11657e3dd94913d3473f85aa679bc877"
 #define MODEL_ABLITERATED_HF_REVISION "08f6c6225ab4d29a735ab7d48d46bd0a3a767a07"
 #define MODEL_ABLITERATED_EXPECTED_BYTES 86720111552LL
 #define MODEL_ABLITERATED_SHA256 "55a46e7e9a51f3d6708559b8b284c3e60f6b97f9bab1f2c9633948c8331e99ee"
@@ -1365,6 +1376,9 @@ static unsigned long long dstudio_physical_memory_bytes(void);
 static long long current_model_file_size(void);
 static long long sysctl_iogpu_wired_limit_mb(void);
 static int setup_run_cmd_capture(const char *cwd, char *const argv[], char *out, size_t outsz);
+static int native_glm_vision_installed(void);
+static int native_deepseek_vision_installed(void);
+static const char *native_selected_vision_encoder(void);
 
 static void api_stream_logs(int fd, const char *path) {
     if (g_log_sse_n >= DIAG_SSE_MAX) {
@@ -2122,6 +2136,18 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
         file = MODEL_PRO; bytes = MODEL_PRO_EXPECTED_BYTES;
     } else if (!strcmp(target, "glm53-q2")) {
         file = MODEL_GLM53_Q2; bytes = MODEL_GLM53_Q2_EXPECTED_BYTES;
+    } else if (!strcmp(target, "glm53-vision")) {
+        file = MODEL_GLM53_VISION; bytes = MODEL_GLM53_VISION_EXPECTED_BYTES;
+    } else if (!strcmp(target, "ds4f-vision-q2")) {
+        file = MODEL_DSVISION_Q2; bytes = MODEL_DSVISION_Q2_EXPECTED_BYTES;
+    } else if (!strcmp(target, "ds4f-vision-q2-q4")) {
+        file = MODEL_DSVISION_Q2_Q4; bytes = MODEL_DSVISION_Q2_Q4_EXPECTED_BYTES;
+    } else if (!strcmp(target, "ds4f-vision-mxfp4")) {
+        file = MODEL_DSVISION_MXFP4; bytes = MODEL_DSVISION_MXFP4_EXPECTED_BYTES;
+    } else if (!strcmp(target, "ds4f-vision-encoder")) {
+        file = MODEL_DSVISION_ENCODER; bytes = MODEL_DSVISION_ENCODER_EXPECTED_BYTES;
+    } else if (!strcmp(target, "ds4f-vision-dspark")) {
+        file = MODEL_DSVISION_DSPARK; bytes = MODEL_DSVISION_DSPARK_EXPECTED_BYTES;
     } else if (!strcmp(target, "laguna-q4")) {
         file = MODEL_LAGUNA; bytes = 68000000000LL;
     }
@@ -2183,33 +2209,29 @@ static int paused_model_download(char *target, size_t targetsz,
                                  long long *bytes, long long *expected) {
     if (g_dl_pid > 0) return 0;
 
-    /* The abliterated model is downloaded directly into the main managed checkout
-     * using one stable .part file, so it remains resumable across app restarts. */
-    char flash_final[DSTUDIO_PATH_MAX + 1100], flash_part[DSTUDIO_PATH_MAX + 1110];
-    struct stat flash_st;
-    snprintf(flash_final, sizeof flash_final, "%s/%s", g_ds4_dir, MODEL_UNC);
-    snprintf(flash_part, sizeof flash_part, "%s.part", flash_final);
-    if ((stat(flash_final, &flash_st) != 0 || !S_ISREG(flash_st.st_mode) ||
-         flash_st.st_size <= 0) &&
-        stat(flash_part, &flash_st) == 0 && S_ISREG(flash_st.st_mode) &&
-        flash_st.st_size > 0) {
-        cstr_copy(target, targetsz, "flash-abliterated");
-        if (bytes) *bytes = (long long)flash_st.st_size;
-        if (expected) *expected = MODEL_ABLITERATED_EXPECTED_BYTES;
-        return 1;
-    }
-
-    char dspark_final[DSTUDIO_PATH_MAX + 1100], dspark_part[DSTUDIO_PATH_MAX + 1110];
-    struct stat dspark_st;
-    snprintf(dspark_final, sizeof dspark_final, "%s/%s", g_ds4_dir, MODEL_DSPARK_ABLITERATED);
-    snprintf(dspark_part, sizeof dspark_part, "%s.part", dspark_final);
-    if ((stat(dspark_final, &dspark_st) != 0 || !S_ISREG(dspark_st.st_mode) ||
-         dspark_st.st_size <= 0) &&
-        stat(dspark_part, &dspark_st) == 0 && S_ISREG(dspark_st.st_mode) &&
-        dspark_st.st_size > 0) {
-        cstr_copy(target, targetsz, "flash-dspark");
-        if (bytes) *bytes = (long long)dspark_st.st_size;
-        if (expected) *expected = MODEL_DSPARK_EXPECTED_BYTES;
+    /* Every main downloader target uses a stable, visible .part beside its
+     * final GGUF. Find it after an app restart so Resume/Delete still work. */
+    static const char *stable_targets[] = {
+        "flash-abliterated",
+        "ds4f-q2", "ds4f-q2-q4", "ds4f-q4", "ds4f-mxfp4",
+        "ds4f-dspark", "flash-dspark",
+        "pro-q2-imatrix", "glm53-q2", "glm53-vision",
+        "ds4f-vision-q2", "ds4f-vision-q2-q4", "ds4f-vision-mxfp4",
+        "ds4f-vision-encoder", "ds4f-vision-dspark",
+    };
+    for (size_t i = 0; i < sizeof stable_targets / sizeof stable_targets[0]; i++) {
+        char rel[1100], final[DSTUDIO_PATH_MAX + 1100], part[DSTUDIO_PATH_MAX + 1110];
+        long long want = 0;
+        struct stat st;
+        model_download_details(stable_targets[i], rel, sizeof rel, &want);
+        if (!rel[0] || want <= 0) continue;
+        snprintf(final, sizeof final, "%s/%s", g_ds4_dir, rel);
+        if (stat(final, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) continue;
+        snprintf(part, sizeof part, "%s.part", final);
+        if (stat(part, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) continue;
+        cstr_copy(target, targetsz, stable_targets[i]);
+        if (bytes) *bytes = (long long)st.st_size;
+        if (expected) *expected = want;
         return 1;
     }
 
@@ -2502,9 +2524,23 @@ static int model_is_glm(void) {
     const char *base = strrchr(rel, '/');
     return strstr(base ? base + 1 : rel, "GLM") != NULL;
 }
+static int model_is_deepseek_vision(void) {
+    const char *rel = current_model_rel();
+    const char *base = strrchr(rel, '/');
+    const char *name = base ? base + 1 : rel;
+    return mem_contains_ci(name, strlen(name), "deepseek-v4-flash-vision-exp");
+}
+static int model_file_is_auxiliary(const char *name) {
+    if (!name) return 0;
+    size_t len = strlen(name);
+    return mem_contains_ci(name, len, "dspark-support") ||
+           mem_contains_ci(name, len, "glm-5.3-flash-vision-encoder") ||
+           mem_contains_ci(name, len, "deepseek-v4-flash-vision-encoder");
+}
 static int model_file_is_supported(const char *name) {
     if (!name) return 0;
     size_t len = strlen(name);
+    if (model_file_is_auxiliary(name)) return 0;
     if (!mem_contains_ci(name, len, "glm")) return 1;
     return mem_contains_ci(name, len, "glm-5.3");
 }
@@ -2529,6 +2565,32 @@ static int file_present_in_dir(const char *dir, const char *rel) {
 
 static int file_present(const char *rel) {
     return file_present_in_dir(g_ds4_dir, rel);
+}
+
+/* Native GLM and DeepSeek Vision-Exp are upstream Metal/CUDA/ROCm paths.
+ * DStudio's Windows portable runtime remains CPU-only, so do not advertise or
+ * pass an encoder there even if a copied file happens to exist. */
+static int native_glm_vision_installed(void) {
+#ifdef _WIN32
+    return 0;
+#else
+    return file_present(MODEL_GLM53_VISION);
+#endif
+}
+
+static int native_deepseek_vision_installed(void) {
+#ifdef _WIN32
+    return 0;
+#else
+    return file_present(MODEL_DSVISION_ENCODER);
+#endif
+}
+
+static const char *native_selected_vision_encoder(void) {
+    if (model_is_glm() && native_glm_vision_installed()) return MODEL_GLM53_VISION;
+    if (model_is_deepseek_vision() && native_deepseek_vision_installed())
+        return MODEL_DSVISION_ENCODER;
+    return NULL;
 }
 
 static unsigned long long dstudio_physical_memory_bytes(void) {
@@ -2560,6 +2622,7 @@ static long long current_model_file_size(void) {
 }
 
 static const char *current_dspark_rel(void) {
+    if (model_is_deepseek_vision()) return MODEL_DSVISION_DSPARK;
     return strstr(current_model_rel(), "Abliterated")
         ? MODEL_DSPARK_ABLITERATED : MODEL_DSPARK_UPSTREAM;
 }
@@ -3922,12 +3985,14 @@ static void child_setenv_skills(void) {
         snprintf(p, sizeof p, "%s/extension/cowork/office_tool.py", g_web_dir);
         setenv("DS4UI_COWORK_HELPER", p, 1);
     }
-    /* The see_image agent tool posts images to this DStudio server's
-     * /api/vision/describe (which runs the local vision model), so the agent
-     * needs no vision code of its own. */
+    /* Local GLM 5.3 and DeepSeek Vision-Exp receive their matching encoder and
+     * inspect pixels natively. Laguna and every non-native/remote runtime are
+     * deliberately text-only; the guard also fails closed for stale schemas. */
     char vurl[64];
     snprintf(vurl, sizeof vurl, "http://127.0.0.1:%d", g_http_port);
     setenv("DS4UI_DSTUDIO_URL", vurl, 1);
+    if (model_is_laguna()) setenv("DS4UI_DISABLE_VISION", "1", 1);
+    else unsetenv("DS4UI_DISABLE_VISION");
     char u[1100];
     user_skills_dir(u, sizeof u);
     setenv("DS4UI_USER_SKILLS_DIR", u, 1);
@@ -4142,6 +4207,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     kv_dir_for_model(current_model_rel(), kvdir, sizeof kvdir);  /* per-model cache */
     mkpath(kvdir);
     if (!cfg_ssd_streaming(cfg, 0, err, errsz)) return 0;
+    const char *vision_rel = native_selected_vision_encoder();
 
     char dspark_path[DSTUDIO_PATH_MAX];
     int dspark_on = 0;
@@ -4177,6 +4243,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     argv[n++] = "--host"; argv[n++] = g_bind_host; argv[n++] = "--port"; argv[n++] = ports;
     argv[n++] = "--ctx"; argv[n++] = ctxs;
     if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
+    if (vision_rel) { argv[n++] = "--vision"; argv[n++] = (char *)vision_rel; }
     argv[n++] = "--kv-disk-dir"; argv[n++] = kvdir; argv[n++] = "--kv-disk-space-mb"; argv[n++] = kvs;
     argv[n++] = "--kv-cache-min-tokens"; argv[n++] = mins; argv[n++] = "--cors";
     if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp"; argv[n++] = dspark_path; }
@@ -4207,6 +4274,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
         argv[n++] = "--host"; argv[n++] = g_bind_host; argv[n++] = "--port"; argv[n++] = ports;
         argv[n++] = "--ctx"; argv[n++] = ctxs;
         if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
+        if (vision_rel) { argv[n++] = "--vision"; argv[n++] = (char *)vision_rel; }
         if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
         /* GLM: the auto expert-cache budget lands under the per-token working
          * set (heavy thrashing); a larger explicit budget decodes ~2x faster.
@@ -4277,23 +4345,34 @@ static char *build_skill_sys(int mode) {
             "{\"type\":\"function\",\"function\":{\"name\":\"design_system\",\"description\":\"Load a brand pack (color tokens, type, components, voice) by id, then bind its tokens.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n"
             "{\"type\":\"function\",\"function\":{\"name\":\"pack_file\",\"description\":\"Read an allowlisted pack file such as assets/template.html, references/checklist.md, references/layouts.md, or example.html after a pack lists available files.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"type\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"type\",\"name\",\"path\"]}}}\n"
             "{\"type\":\"function\",\"function\":{\"name\":\"skills_search\",\"description\":\"Search the user's skill catalog by topic and get matching ids with one-line descriptions, best first.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}}}\n");
-        /* Both current runtimes expose see_image. */
-        o += (size_t)snprintf(cat + o, catcap - o,
-            "\nVision: you cannot see pixels directly, but you can inspect an image file in the "
-            "workspace by calling the `see_image` tool — a local vision model returns a text "
-            "description plus any transcribed text. Use it before reasoning about a screenshot, "
-            "photo, diagram, or scanned page; to zoom in, crop the region to a new file (e.g. via "
-            "the bash tool) and call see_image on it.\n"
-            "{\"type\":\"function\",\"function\":{\"name\":\"see_image\",\"description\":\"Look at a local image file (png/jpg/webp/gif) and get a text description plus any transcribed text.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the image file in the workspace.\"},\"question\":{\"type\":\"string\",\"description\":\"Optional: what to look for, or a question about the image.\"}},\"required\":[\"path\"]}}}\n");
+        const int native_vision = !g_remote_base_url[0] &&
+                                  native_selected_vision_encoder() != NULL;
+        if (native_vision) {
+            /* Agent uses upstream view_image; Design exposes its own
+             * see_image tool. Both feed pixels to the selected model itself. */
+            o += (size_t)snprintf(cat + o, catcap - o,
+                "\nVision: this runtime sees PNG and JPEG pixels natively. Use the "
+                "%s tool before reasoning about a screenshot, photo, diagram, "
+                "or scanned page. To zoom in, crop the region to a new PNG/JPEG and call "
+                "%s on that file.\n",
+                design_mode ? "built-in `see_image`" : "built-in `view_image`",
+                design_mode ? "see_image" : "view_image");
+        } else {
+            o += (size_t)snprintf(cat + o, catcap - o,
+                "\nVision: this engine is text-only in DStudio. Image attachments, "
+                "`view_image`, `see_image`, screenshot inspection and visual fallbacks are "
+                "unavailable. Do not claim to have inspected pixels. Ask the user for a text "
+                "description or switch to DeepSeek Vision-Exp / GLM 5.3 with its native encoder.\n");
+        }
         /* read_pdf and question are Agent-only tools. */
         if (!design_mode)
             o += (size_t)snprintf(cat + o, catcap - o,
                 "\nPDF: to read a PDF file in the workspace call the `read_pdf` tool — pages with a "
-                "text layer come back verbatim, scanned pages and large figures are read by the "
-                "local vision model (slower). Results are cached, so re-reading the same file is "
+                "text layer come back verbatim; scanned/image-only pages are reported and skipped. "
+                "Results are cached, so re-reading the same file is "
                 "instant. A long document comes back truncated (the text notes where it stops): "
                 "call the tool again with pages (e.g. \"11-25\") to continue from there.\n"
-                "{\"type\":\"function\",\"function\":{\"name\":\"read_pdf\",\"description\":\"Read a local PDF file: verbatim text of digital pages plus a vision reading of scanned pages and large figures. Long PDFs are truncated at a page cap; pass pages to read a specific range.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the PDF file in the workspace.\"},\"pages\":{\"type\":\"string\",\"description\":\"Optional page range: \\\"N\\\" (one page), \\\"N-M\\\", or \\\"N-\\\" (from N to the end).\"}},\"required\":[\"path\"]}}}\n");
+                "{\"type\":\"function\",\"function\":{\"name\":\"read_pdf\",\"description\":\"Read the text layer of a local PDF. Scanned/image-only pages are reported and skipped. Long PDFs are truncated at a page cap; pass pages to read a specific range.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the PDF file in the workspace.\"},\"pages\":{\"type\":\"string\",\"description\":\"Optional page range: \\\"N\\\" (one page), \\\"N-M\\\", or \\\"N-\\\" (from N to the end).\"}},\"required\":[\"path\"]}}}\n");
         if (!design_mode)
             o += (size_t)snprintf(cat + o, catcap - o,
                 "{\"type\":\"function\",\"function\":{\"name\":\"question\",\"description\":\"Emit a structured question event for the UI. Use when you need the user to choose or clarify, then stop the turn.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"questions\":{\"type\":\"string\",\"description\":\"JSON array of question objects, e.g. [{id,label,type,options}].\"}},\"required\":[\"id\",\"title\",\"questions\"]}}}\n");
@@ -4393,15 +4472,51 @@ static void patch_anchor_preview(const char *find, char *preview, size_t preview
     preview[k] = '\0';
 }
 
+/* Select exactly one upstream-shape anchor. Most edits have one canonical
+ * anchor; branch-specific drift can provide an optional strict Laguna pair. */
+static int patch_select_edit_variant(ds4ui_patch_edit *edit, const char *buf,
+                                     const char **find, const char **replace,
+                                     const char **find_path, const char **variant,
+                                     int *primary_count, int *laguna_count) {
+    int pc = patch_count_occurrences(buf, edit->find);
+    int lc = edit->laguna_find
+           ? patch_count_occurrences(buf, edit->laguna_find) : 0;
+    if (primary_count) *primary_count = pc;
+    if (laguna_count) *laguna_count = lc;
+    if (pc == 1 && lc == 0) {
+        *find = edit->find;
+        *replace = edit->replace;
+        *find_path = edit->find_path;
+        *variant = "main";
+        return 1;
+    }
+    if (pc == 0 && lc == 1) {
+        *find = edit->laguna_find;
+        *replace = edit->laguna_replace;
+        *find_path = edit->laguna_find_path;
+        *variant = "laguna";
+        return 1;
+    }
+    return 0;
+}
+
 static int patch_apply_edits(ds4ui_patch_set *patch, char **buf, size_t *n, const char *src_path) {
     for (int i = 0; i < patch->count; i++) {
         ds4ui_patch_edit *edit = &patch->edits[i];
-        if (!jsonl_replace_once(buf, n, edit->find, edit->replace)) {
-            int cnt = patch_count_occurrences(*buf, edit->find);
-            return patch_fail("%s edit %s anchor %s in %s (%s)",
-                              patch->name, edit->id,
-                              cnt == 0 ? "missing" : (cnt > 1 ? "ambiguous" : "replace failed"),
-                              src_path, edit->find_path);
+        const char *find = NULL, *replace = NULL, *find_path = NULL, *variant = NULL;
+        int pc = 0, lc = 0;
+        if (!patch_select_edit_variant(edit, *buf, &find, &replace, &find_path,
+                                       &variant, &pc, &lc)) {
+            const char *why = (pc + lc) == 0 ? "missing" : "ambiguous";
+            return patch_fail("%s edit %s anchor %s in %s (%s%s%s)",
+                              patch->name, edit->id, why, src_path,
+                              edit->find_path,
+                              edit->laguna_find ? " or " : "",
+                              edit->laguna_find ? edit->laguna_find_path : "");
+        }
+        if (!jsonl_replace_once(buf, n, find, replace)) {
+            return patch_fail("%s edit %s %s anchor replace failed in %s (%s)",
+                              patch->name, edit->id, variant, src_path, find_path);
         }
     }
     return 1;
@@ -4525,14 +4640,20 @@ static int patch_check_anchors(ds4ui_patch_set *patch, char **buf, size_t *n, co
     int fails = 0;
     for (int i = 0; i < patch->count; i++) {
         ds4ui_patch_edit *edit = &patch->edits[i];
-        int cnt = patch_count_occurrences(*buf, edit->find);
-        const char *verdict = cnt == 1 ? "ok" : (cnt == 0 ? "MISSING" : "AMBIGUOUS");
-        if (cnt != 1) fails++;
+        const char *find = NULL, *replace = NULL, *find_path = NULL, *variant = NULL;
+        int pc = 0, lc = 0;
+        int selected = patch_select_edit_variant(edit, *buf, &find, &replace,
+                                                 &find_path, &variant, &pc, &lc);
+        const char *verdict = selected ? "ok"
+                              : ((pc + lc) == 0 ? "MISSING" : "AMBIGUOUS");
+        if (!selected) fails++;
         char preview[56];
-        patch_anchor_preview(edit->find, preview, sizeof preview);
-        printf("  %s anchor %2d/%d  %-9s  %s%s  [%s]\n", label, i + 1, patch->count,
-               verdict, preview, strlen(preview) < strlen(edit->find) ? " ..." : "", edit->id);
-        if (cnt == 1 && !jsonl_replace_once(buf, n, edit->find, edit->replace)) fails++;
+        patch_anchor_preview(selected ? find : edit->find, preview, sizeof preview);
+        printf("  %s anchor %2d/%d  %-9s  %s%s  [%s%s%s]\n",
+               label, i + 1, patch->count, verdict, preview,
+               strlen(preview) < strlen(selected ? find : edit->find) ? " ..." : "",
+               edit->id, selected ? "/" : "", selected ? variant : "");
+        if (selected && !jsonl_replace_once(buf, n, find, replace)) fails++;
     }
     return fails;
 }
@@ -4993,13 +5114,14 @@ static void resolve_web_dir(void) {
     g_web_dir[0] = '\0'; /* fall back to a relative path in run_ext_script */
 }
 
-static int run_ext_script(const char *script, const char *action) {
+static int run_ext_script_for_dir(const char *script, const char *action,
+                                  const char *checkout_dir) {
 #ifdef _WIN32
-    (void)script; (void)action;
+    (void)script; (void)action; (void)checkout_dir;
     return file_present("ds4-design.exe");
 #else
     char ds4_abs[DSTUDIO_PATH_MAX];
-    if (!realpath(g_ds4_dir, ds4_abs)) return 0;
+    if (!checkout_dir || !realpath(checkout_dir, ds4_abs)) return 0;
     /* Absolute script path so it resolves regardless of cwd (bundle = "/"). */
     char abs_script[DSTUDIO_PATH_MAX + 1024];
     if (g_web_dir[0]) snprintf(abs_script, sizeof abs_script, "%s/%s", g_web_dir, script);
@@ -5015,6 +5137,10 @@ static int run_ext_script(const char *script, const char *action) {
     if (waitpid(pid, &st, 0) != pid) return 0;
     return WIFEXITED(st) && WEXITSTATUS(st) == 0;
 #endif
+}
+
+static int run_ext_script(const char *script, const char *action) {
+    return run_ext_script_for_dir(script, action, g_ds4_dir);
 }
 
 /* Starts the shared structured ds4-agent runtime. Cowork uses the same native
@@ -5090,11 +5216,20 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir,
     /* The agent's --chdir changes cwd BEFORE loading the assets, so both the
      * model and the Metal sources must be passed as ABSOLUTE paths. */
     char cand[DSTUDIO_PATH_MAX + 256], model_abs[DSTUDIO_PATH_MAX] = "", ds4_abs[DSTUDIO_PATH_MAX];
+    char vision_abs[DSTUDIO_PATH_MAX] = "";
     if (!remote_model) {
         snprintf(cand, sizeof cand, "%s/%s", g_ds4_dir, current_model_rel());
         if (!realpath(cand, model_abs)) {
             snprintf(err, errsz, "model not resolvable: %.200s", cand);
             return 0;
+        }
+        const char *vision_rel = native_selected_vision_encoder();
+        if (vision_rel) {
+            snprintf(cand, sizeof cand, "%s/%s", g_ds4_dir, vision_rel);
+            if (!realpath(cand, vision_abs)) {
+                snprintf(err, errsz, "native vision encoder not resolvable: %.200s", cand);
+                return 0;
+            }
         }
     }
     if (!realpath(g_ds4_dir, ds4_abs)) {
@@ -5220,6 +5355,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir,
     }
     argv[n++] = "-c"; argv[n++] = ctxs;
     if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
+    if (vision_abs[0]) { argv[n++] = "--vision"; argv[n++] = vision_abs; }
     argv[n++] = think_flag;
     argv[n++] = "--chdir"; argv[n++] = wd;
     if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
@@ -5303,6 +5439,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir,
         }
         argv[n++] = "-c"; argv[n++] = ctxs;
         if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
+        if (vision_abs[0]) { argv[n++] = "--vision"; argv[n++] = vision_abs; }
         argv[n++] = think_flag;
         argv[n++] = "--chdir"; argv[n++] = wd;
         if (skill_sys && skill_sys[0]) { argv[n++] = "-sys"; argv[n++] = skill_sys; }
@@ -5372,6 +5509,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     snprintf(pows, sizeof pows, "%d", cfg->power);
     snprintf(thinktokens, sizeof thinktokens, "%d", cfg->design_think_tokens);
     if (!cfg_ssd_streaming(cfg, remote_model, err, errsz)) return 0;
+    const char *vision_rel = remote_model ? NULL : native_selected_vision_encoder();
     char wd[1024];
     if (workdir && workdir[0]) {
         snprintf(wd, sizeof wd, "%s", workdir);
@@ -5416,6 +5554,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         argv[n++] = "--cpu";
         if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
         argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
+        if (vision_rel) { argv[n++] = "--vision"; argv[n++] = (char *)vision_rel; }
         if (dspark_on) {
             argv[n++] = "--dspark";
             argv[n++] = "--mtp";
@@ -5491,6 +5630,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
             argv[n++] = "--metal";
             if (g_ssd_streaming_effective) argv[n++] = "--ssd-streaming";
             argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
+            if (vision_rel) { argv[n++] = "--vision"; argv[n++] = (char *)vision_rel; }
             if (dspark_on) {
                 argv[n++] = "--dspark";
                 argv[n++] = "--mtp";
@@ -5586,8 +5726,10 @@ static void api_model_download(int fd, const char *body) {
     static const char *TARGETS[] = {
         "ds4f-q2", "ds4f-q2-q4", "ds4f-q4", "ds4f-mxfp4",
         "ds4f-dspark", "flash-dspark",
+        "ds4f-vision-q2", "ds4f-vision-q2-q4", "ds4f-vision-mxfp4",
+        "ds4f-vision-encoder", "ds4f-vision-dspark",
         "pro-q2-imatrix", "pro-q4-layers00-30", "pro-q4-layers31-output", "pro-q4-split",
-        "glm53-q2",
+        "glm53-q2", "glm53-vision",
         "laguna-q4",
     };
     int valid = 0;
@@ -5683,10 +5825,12 @@ static void api_model_folder_open(int fd, const char *body) {
     char engine[24] = "";
     json_get_string(body, "engine", engine, sizeof engine);
     char checkout[DSTUDIO_PATH_MAX];
-    if (!engine[0] || !strcmp(engine, "main") ||
-        !strcmp(engine, "glm53") || !strcmp(engine, "laguna")) {
-        /* Every managed engine shares the primary physical GGUF store. */
-        snprintf(checkout, sizeof checkout, "%s/ds4", g_web_dir);
+    if (!engine[0] || !strcmp(engine, "main") || !strcmp(engine, "laguna")) {
+        /* The native app's web directory is Application Support, while the
+         * selected engine checkout can live anywhere. Every managed engine's
+         * gguf entry points at the shared physical store, so resolve it from
+         * the active checkout instead of assuming <webdir>/ds4 exists. */
+        cstr_copy(checkout, sizeof checkout, g_ds4_dir);
     } else {
         send_json(fd, "400 Bad Request",
                   "{\"ok\":false,\"error\":\"unknown model engine folder\"}");
@@ -5744,8 +5888,10 @@ static void api_model_partials_delete(int fd, const char *body) {
                   "{\"ok\":false,\"error\":\"explicit partial deletion confirmation is required\"}");
         return;
     }
-    if (strcmp(target, "laguna-q4") && strcmp(target, "flash-abliterated") &&
-        strcmp(target, "flash-dspark")) {
+    char target_rel[1100];
+    long long target_expected = 0;
+    model_download_details(target, target_rel, sizeof target_rel, &target_expected);
+    if (strcmp(target, "laguna-q4") && (!target_rel[0] || target_expected <= 0)) {
         send_json(fd, "400 Bad Request",
                   "{\"ok\":false,\"error\":\"unknown partial model target\"}");
         return;
@@ -5758,12 +5904,9 @@ static void api_model_partials_delete(int fd, const char *body) {
     char checkout[DSTUDIO_PATH_MAX];
     int failed = 0;
     long long removed = 0;
-    if (!strcmp(target, "flash-abliterated")) {
+    if (strcmp(target, "laguna-q4")) {
         cstr_copy(checkout, sizeof checkout, g_ds4_dir);
-        removed = delete_stable_model_partial(checkout, MODEL_UNC, &failed);
-    } else if (!strcmp(target, "flash-dspark")) {
-        cstr_copy(checkout, sizeof checkout, g_ds4_dir);
-        removed = delete_stable_model_partial(checkout, MODEL_DSPARK_ABLITERATED, &failed);
+        removed = delete_stable_model_partial(checkout, target_rel, &failed);
     } else {
         snprintf(checkout, sizeof checkout, "%s/%s", g_web_dir, DS4_LAGUNA_DIR_NAME);
         removed = delete_laguna_partial_files(checkout, &failed);
@@ -5859,6 +6002,9 @@ static void api_status(int fd) {
             snprintf(g_stage, sizeof g_stage, "Engine disconnected");
         }
     }
+    int native_vision_active = engine_running && !g_external_server &&
+        native_selected_vision_encoder() != NULL &&
+        (g_mode == ENGINE_SERVER || g_mode == ENGINE_AGENT || g_mode == ENGINE_COWORK);
     char stage_esc[192];
     json_escape_into(stage_esc, sizeof stage_esc, g_stage, strlen(g_stage));
     char wd_esc[1100];
@@ -5932,6 +6078,8 @@ static void api_status(int fd) {
         "\"pausedDownload\":%s,\"pausedDownloadVariant\":\"%s\","
         "\"pausedDownloadBytes\":%lld,\"pausedDownloadExpectedBytes\":%lld,\"pausedDownloadPct\":%lld,"
         "\"engineError\":\"%s\",\"engineLine\":\"%s\",\"modelFile\":\"%s\",\"skill\":\"%s\",\"designSystem\":\"%s\","
+        "\"glmVisionInstalled\":%s,\"deepseekVisionInstalled\":%s,"
+        "\"nativeVisionActive\":%s,\"glmVisionActive\":%s,\"deepseekVisionActive\":%s,"
         "\"contentOk\":%s,\"contentDownloading\":%s}",
         mode_name(g_mode), engine_running ? "true" : "false", g_ready ? "true" : "false",
         g_load_pct, stage_esc, g_agent_working ? "true" : "false", wd_esc, cfg,
@@ -5943,6 +6091,11 @@ static void api_status(int fd) {
         dl_bytes, g_dl_expected_bytes,
         paused ? "true" : "false", paused_variant, paused_bytes, paused_expected, paused_pct,
         err_esc, line_esc, mf_esc, g_skill, g_design_system,
+        native_glm_vision_installed() ? "true" : "false",
+        native_deepseek_vision_installed() ? "true" : "false",
+        native_vision_active ? "true" : "false",
+        (native_vision_active && model_is_glm()) ? "true" : "false",
+        (native_vision_active && model_is_deepseek_vision()) ? "true" : "false",
         content_present() ? "true" : "false", g_content_dl_pid > 0 ? "true" : "false");
     send_json(fd, "200 OK", body);
 }
@@ -5957,18 +6110,8 @@ static void api_lan_health(int fd) {
     send_json_cors(fd, "200 OK", body);
 }
 
-static int glm53_dir_path(char *out, size_t outsz);
-static int glm53_checkout_ready(const char *dir);
 static int laguna_dir_path(char *out, size_t outsz);
 static int laguna_checkout_ready(const char *dir);
-/* Vision sidecar doctor row (defined next to the vision handlers below). */
-static int vision_doctor_row(char *msg, size_t msgsz);
-/* Generic sidecar helpers reused by the embedding sidecar (defined with the
- * vision provider below); safe to share — they take dir/pid arguments. */
-static int  vision_pid_is_llama(pid_t pid);
-static int  vision_scan_for_bin(const char *dir, int depth, char *out, size_t outsz);
-static long long vision_tree_bytes(const char *dir, int depth);
-static void vision_model_cache_path(char *out, size_t outsz);
 static int pdf_find_tool(const char *name, char *out, size_t outsz);
 static const char *pdf_poppler_hint(void);
 static char *web_curl_capture(char *const argv[], int timeout_ms, int *exit_status);
@@ -6080,18 +6223,6 @@ static void api_doctor(int fd) {
         web_ok ? NULL : "open-settings");
 
 #ifndef _WIN32
-    char glm53_dir[DSTUDIO_PATH_MAX];
-    int glm53_have_path = glm53_dir_path(glm53_dir, sizeof glm53_dir);
-    int glm53_present = glm53_have_path && ds4_dir_valid_path(glm53_dir);
-    int glm53_ready = glm53_present && glm53_checkout_ready(glm53_dir);
-    if (glm53_present && !glm53_ready) warn++;
-    ok = ok && doctor_add_check(&b, &first, "glm53", "GLM 5.3 engine (optional)",
-        glm53_present && !glm53_ready ? "warn" : "ok",
-        glm53_ready ? "GLM 5.3 installed — its weights remain in ds4/gguf." :
-        glm53_present ? "GLM 5.3 checkout found but not built — reinstall it." :
-                        "Not installed. Optional: adds the GLM 5.3 inference runtime.",
-        glm53_ready ? NULL : "setup-glm53");
-
     char laguna_dir[DSTUDIO_PATH_MAX];
     int laguna_have_path = laguna_dir_path(laguna_dir, sizeof laguna_dir);
     int laguna_present = laguna_have_path && ds4_dir_valid_path(laguna_dir);
@@ -6104,13 +6235,6 @@ static void api_doctor(int fd) {
                          "Not installed. Optional: adds Laguna S 2.1 on Apple Metal.",
         laguna_ready ? NULL : "setup-laguna");
 
-    /* Vision sidecar (optional): local image understanding for chat + agent. */
-    {
-        char vmsg[420];
-        int vinst = vision_doctor_row(vmsg, sizeof vmsg);
-        ok = ok && doctor_add_check(&b, &first, "vision", "Vision (optional)", "ok", vmsg,
-                                    vinst ? NULL : "open-settings");
-    }
     /* Embedding sidecar (optional): semantic skill routing for the Agent. */
     {
         char emsg[420];
@@ -6118,15 +6242,15 @@ static void api_doctor(int fd) {
         ok = ok && doctor_add_check(&b, &first, "embed", "Semantic skill search (optional)", "ok", emsg,
                                     einst ? NULL : "open-settings");
     }
-    /* PDF reading (optional): needs poppler for the text layer + page render. */
+    /* PDF reading (optional): Poppler extracts text and renders thumbnails. */
     {
         char ptool[256];
         int phave = pdf_find_tool("pdftoppm", ptool, sizeof ptool) &&
                     pdf_find_tool("pdftotext", ptool, sizeof ptool);
         ok = ok && doctor_add_check(&b, &first, "pdf", "PDF reading (optional)",
             phave ? "ok" : "warn",
-            phave ? "poppler found — PDF attachments and the agent's read_pdf tool are available "
-                    "(text pages are instant; scanned pages use the vision model)."
+            phave ? "poppler found — PDF attachments and the agent's read_pdf tool are available; "
+                    "scanned pages without a text layer are reported and skipped."
                   : pdf_poppler_hint(),
             NULL);
         if (!phave) warn++;
@@ -6191,7 +6315,7 @@ static int collect_engine_checkouts(
      * be backed by a file provider, where opendir() can block the single local
      * HTTP loop indefinitely. Managed runtimes have fixed sibling names; an
      * arbitrary user-selected checkout is already included as `active`. */
-    const char *managed_names[] = { "ds4", DS4_GLM53_DIR_NAME, DS4_LAGUNA_DIR_NAME };
+    const char *managed_names[] = { "ds4", DS4_LAGUNA_DIR_NAME };
     for (size_t ni = 0; ni < sizeof managed_names / sizeof managed_names[0] && ndirs < cap; ni++) {
         char full[DSTUDIO_PATH_MAX + 64], abs[DSTUDIO_PATH_MAX];
         int n = snprintf(full, sizeof full, "%s/%s", parent, managed_names[ni]);
@@ -6211,16 +6335,14 @@ static void checkout_branch_label(const char *dir, char *out, size_t outsz) {
     if (out[0]) return;
     const char *name = strrchr(dir, '/');
     name = name ? name + 1 : dir;
-    if (!strcmp(name, DS4_GLM53_DIR_NAME))
-        cstr_copy(out, outsz, "glm-5.3-flash");
-    else if (!strcmp(name, DS4_LAGUNA_DIR_NAME))
+    if (!strcmp(name, DS4_LAGUNA_DIR_NAME))
         cstr_copy(out, outsz, "laguna-s2.1");
 }
 
 /* GET /api/ggufs — list .gguf files across every managed engine checkout.
- * Each row carries its owning checkout so selecting a model can atomically
- * switch branch before starting it. Optional checkouts share ./ds4/gguf, so
- * every family is emitted only from the runtime that can execute it. */
+ * GLM 5.3 is owned by primary main; only Laguna still needs a side checkout.
+ * A once-persisted ds4-glm5.3 path may remain on disk, but is deliberately not
+ * emitted so the UI repairs its saved modelEngineDir to ./ds4/main. */
 static void api_ggufs(int fd) {
     char dirs[ENGINE_CHECKOUT_CAP][DSTUDIO_PATH_MAX];
     char active[DSTUDIO_PATH_MAX];
@@ -6237,10 +6359,11 @@ static void api_ggufs(int fd) {
         engine_name = engine_name ? engine_name + 1 : dirs[ci];
         char branch[128];
         checkout_branch_label(dirs[ci], branch, sizeof branch);
-        int glm53_engine = !strcmp(engine_name, DS4_GLM53_DIR_NAME) ||
-                           !strcmp(branch, "glm-5.3-flash");
+        int legacy_glm_engine = !strcmp(engine_name, "ds4-glm5.3") ||
+                                !strcmp(branch, "glm-5.3-flash");
         int laguna_engine = !strcmp(engine_name, DS4_LAGUNA_DIR_NAME) ||
                             !strcmp(branch, "laguna-s2.1");
+        if (legacy_glm_engine) continue;
         for (int di = 0; di < 2 && ok; di++) {
             char dir[DSTUDIO_PATH_MAX + 16];
             snprintf(dir, sizeof dir, "%s%s%s", dirs[ci],
@@ -6252,13 +6375,10 @@ static void api_ggufs(int fd) {
                 const char *nm = de->d_name;
                 size_t len = strlen(nm);
                 if (len < 6 || strcmp(nm + len - 5, ".gguf")) continue;
-                if (!model_file_is_supported(nm)) continue;
-                int glm53_model = mem_contains_ci(nm, len, "glm-5.3");
+                if (!model_file_is_supported(nm) && !model_file_is_auxiliary(nm)) continue;
                 int laguna_model = mem_contains_ci(nm, len, "laguna");
-                if (glm53_model != glm53_engine) continue;
                 if (laguna_model != laguna_engine) continue;
-                if ((glm53_engine || laguna_engine) &&
-                    !glm53_model && !laguna_model) continue;
+                if (laguna_engine && !laguna_model) continue;
                 char full[DSTUDIO_PATH_MAX + 400];
                 struct stat st;
                 snprintf(full, sizeof full, "%s/%s", dir, nm);
@@ -6391,6 +6511,15 @@ static void api_engine_checkout_set(int fd, const char *body) {
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"not a ds4 checkout\"}");
         return;
     }
+#ifndef _WIN32
+    /* Keep upstream pristine in Git: DStudio owns this behavior as a reversible
+     * patch and applies it as soon as a checkout is selected. */
+    if (!run_ext_script_for_dir("scripts/apply-ds4-visible-downloads.sh", "apply", abs)) {
+        send_json(fd, "409 Conflict",
+                  "{\"ok\":false,\"error\":\"could not apply the DStudio download patch; the checkout may not match supported upstream sources\"}");
+        return;
+    }
+#endif
     if (!persist_ds4_checkout(abs)) {
         send_json(fd, "500 Internal Server Error",
                   "{\"ok\":false,\"error\":\"could not save the selected ds4 checkout\"}");
@@ -6735,9 +6864,9 @@ static void api_start(int fd, const char *body) {
     char gguf[1024] = {0};
     const int has_explicit_gguf = json_get_string(body, "gguf", gguf, sizeof gguf) && gguf[0];
     if (has_explicit_gguf && !model_file_is_supported(gguf)) {
-        task_mark_failed(task_id, "Choose GLM 5.3 Flash Q2", gguf);
+        task_mark_failed(task_id, "Choose a supported chat model GGUF", gguf);
         send_json(fd, "400 Bad Request",
-                  "{\"ok\":false,\"code\":\"unsupported_model\",\"error\":\"Choose GLM 5.3 Flash Q2\"}");
+                  "{\"ok\":false,\"code\":\"unsupported_model\",\"error\":\"Choose a supported chat model GGUF; engine support files cannot be loaded directly\"}");
         return;
     }
     const int explicit_gguf = has_explicit_gguf &&
@@ -7504,7 +7633,6 @@ static void api_fs_mkdir(int fd, const char *body) {
 }
 
 #include "dstudio_setup.c"
-#include "dstudio_glm53.c"
 #include "dstudio_laguna.c"
 #include "dstudio_updates.c"
 
@@ -8165,10 +8293,9 @@ typedef struct {
 #include "dstudio_remote.c"
 #include "dstudio_websearch.c"
 
-#include "dstudio_qwen_memory.c"
+#include "dstudio_media_memory.c"
 #include "dstudio_image.c"
 #include "dstudio_video.c"
-#include "dstudio_vision.c"
 
 /* ---- Embedding sidecar endpoints (semantic skill search) ---- */
 #ifndef _WIN32
@@ -8183,8 +8310,8 @@ static int embed_index_count(void) {
     return n;
 }
 
-/* POST /api/embed/setup — install the llama.cpp runtime (shared with vision) on
- * demand, warm the embedding model, and BUILD the skill index so the first
+/* POST /api/embed/setup — install the dedicated llama.cpp runtime on demand,
+ * warm the embedding model, and BUILD the skill index so the first
  * search is instant. Optional body {hf} switches the embedding model. */
 static void api_embed_setup_run(int fd, const char *body) {
     resolve_web_dir();
@@ -8193,10 +8320,10 @@ static void api_embed_setup_run(int fd, const char *body) {
         return;
     }
     char setup_script[DSTUDIO_PATH_MAX + 64];
-    snprintf(setup_script, sizeof setup_script, "%s/scripts/vision-setup.sh", g_web_dir);
+    snprintf(setup_script, sizeof setup_script, "%s/scripts/embed-setup.sh", g_web_dir);
     struct stat stt;
     if (stat(setup_script, &stt) != 0) {
-        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"scripts/vision-setup.sh missing\"}");
+        send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"scripts/embed-setup.sh missing\"}");
         return;
     }
     char embed_dir[DSTUDIO_PATH_MAX]; embed_dir_path(embed_dir, sizeof embed_dir);
@@ -8223,19 +8350,16 @@ static void api_embed_setup_run(int fd, const char *body) {
         }
     }
 
-    /* Ensure a llama-server binary exists: reuse the vision runtime if present,
-     * else install one INTO the embed dir (vision-setup.sh honors this env). */
-    char probe[DSTUDIO_PATH_MAX] = "", vdir[DSTUDIO_PATH_MAX];
-    vision_dir_path(vdir, sizeof vdir);
-    int have_bin = vision_scan_for_bin(embed_dir, 0, probe, sizeof probe) ||
-                   vision_scan_for_bin(vdir, 0, probe, sizeof probe);
+    /* Ensure the dedicated embedding runtime contains llama-server. */
+    char probe[DSTUDIO_PATH_MAX] = "";
+    int have_bin = embed_scan_for_bin(embed_dir, 0, probe, sizeof probe);
     int rc = 0;
     char log_tail[8192] = "";
     if (!have_bin) {
-        setenv("DSTUDIO_VISION_DIR", embed_dir, 1);
+        setenv("DSTUDIO_EMBED_DIR", embed_dir, 1);
         char *argv[] = { "/bin/sh", setup_script, NULL };
         rc = setup_run_cmd_capture(g_web_dir, argv, log_tail, sizeof log_tail);
-        unsetenv("DSTUDIO_VISION_DIR");
+        unsetenv("DSTUDIO_EMBED_DIR");
     }
 
     embed_touch_last_use();
@@ -8331,18 +8455,17 @@ static void api_embed_status(int fd) {
               "\"pid\":0,\"indexed\":0,\"diskBytes\":0,\"lastUse\":0,\"hf\":\"\",\"logTail\":\"\"}");
 #else
     char dir[DSTUDIO_PATH_MAX]; embed_dir_path(dir, sizeof dir);
-    char vdir[DSTUDIO_PATH_MAX]; vision_dir_path(vdir, sizeof vdir);
     char bin[DSTUDIO_PATH_MAX] = "";
-    int installed = vision_scan_for_bin(dir, 0, bin, sizeof bin) || vision_scan_for_bin(vdir, 0, bin, sizeof bin);
+    int installed = embed_scan_for_bin(dir, 0, bin, sizeof bin);
     pid_t pid = embed_lock_pid();
-    int pid_live = vision_pid_is_llama(pid);
+    int pid_live = embed_pid_is_llama(pid);
     const char *state = "stopped";
     if (embed_server_ready()) state = "ready";
     else if (embed_port_open() || pid_live) state = "starting";
-    long long run_bytes = vision_tree_bytes(dir, 0);
-    char cache[DSTUDIO_PATH_MAX]; vision_model_cache_path(cache, sizeof cache);
+    long long run_bytes = embed_tree_bytes(dir, 0);
+    char cache[DSTUDIO_PATH_MAX]; embed_model_cache_path(cache, sizeof cache);
     char hf[200]; embed_hf_pref(hf, sizeof hf);
-    long long cache_bytes = vision_tree_bytes(cache, 0) + vision_hf_hub_bytes(hf);
+    long long cache_bytes = embed_hf_hub_bytes(hf);
     char stamp[DSTUDIO_PATH_MAX + 16]; snprintf(stamp, sizeof stamp, "%s/.last-use", dir);
     struct stat st;
     long long last_use = stat(stamp, &st) == 0 ? (long long)st.st_mtime : 0;
@@ -8377,9 +8500,8 @@ static int embed_doctor_row(char *msg, size_t msgsz) {
     return 0;
 #else
     char dir[DSTUDIO_PATH_MAX]; embed_dir_path(dir, sizeof dir);
-    char vdir[DSTUDIO_PATH_MAX]; vision_dir_path(vdir, sizeof vdir);
     char bin[DSTUDIO_PATH_MAX] = "";
-    int installed = vision_scan_for_bin(dir, 0, bin, sizeof bin) || vision_scan_for_bin(vdir, 0, bin, sizeof bin);
+    int installed = embed_scan_for_bin(dir, 0, bin, sizeof bin);
     int indexed = embed_index_count();
     if (!installed || indexed == 0) {
         cstr_copy(msg, msgsz,
@@ -8396,8 +8518,8 @@ static int embed_doctor_row(char *msg, size_t msgsz) {
 }
 
 /* POST /api/agent/attach-image {dir, name?, data_uri} — write a dropped/pasted
- * image into the agent workspace so the model can inspect it with see_image
- * so Agent receives the same pixel payload as Chat.
+ * image into the agent workspace so a native-vision Agent receives the same
+ * pixel payload as Chat.
  * Host-local only (not in the LAN allowlist) + CSRF header; the UI sends its
  * selected agent workdir — the same trust boundary as /api/start's workdir. */
 #ifndef _WIN32
@@ -8417,8 +8539,8 @@ static void agent_attach_image_name(const char *in, const char *mime, char *out,
     clean[o] = '\0';
     while (clean[0] == '.') memmove(clean, clean + 1, strlen(clean));   /* no hidden files */
     if (!clean[0]) cstr_copy(clean, sizeof clean, "image");
-    /* Ensure an image extension consistent with the payload (see_image and the
-     * describe path branch pick the mime from it). */
+    /* Ensure an image extension consistent with the payload so native vision
+     * can infer and validate the mime type. */
     const char *ext = ".png";
     if (mime) {
         if (strstr(mime, "jpeg") || strstr(mime, "jpg")) ext = ".jpg";
@@ -9423,11 +9545,7 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/fs/list")) { api_fs_list(fd, body); return 200; }
     if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); return 200; }
     if (!strcmp(path, "/api/ds4/setup")) { api_setup_ds4(fd, body); return 200; }
-    if (!strcmp(path, "/api/glm53/setup")) { api_setup_glm53(fd); return 200; }
     if (!strcmp(path, "/api/laguna/setup")) { api_setup_laguna(fd); return 200; }
-    if (!strcmp(path, "/api/vision/setup")) { api_vision_setup(fd, body); return 200; }
-    if (!strcmp(path, "/api/vision/describe")) { api_vision_describe(fd, body); return 200; }
-    if (!strcmp(path, "/api/vision/stop")) { api_vision_stop(fd); return 200; }
     if (!strcmp(path, "/api/image/generate")) { api_image_generate(fd, body); return 200; }
     if (!strcmp(path, "/api/image/stop")) { api_image_stop(fd, body); return 200; }
     if (!strcmp(path, "/api/video/setup")) { api_video_setup(fd, body); return 200; }
@@ -9466,7 +9584,6 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
         send_json(fd, "200 OK", out);
         return 200;
     }
-    if (is_get && !strcmp(path, "/api/vision/status")) { api_vision_status(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/image/progress")) { api_image_progress(fd, path); return 200; }
     if (is_get && path_eq_clean(path, "/api/image/file")) { api_image_file(fd, path, head_only); return 200; }
     if (is_get && path_eq_clean(path, "/api/video/status")) { api_video_status(fd, path); return 200; }
@@ -9917,6 +10034,15 @@ int main(int argc, char **argv)
     }
     resolve_ds4_dir();   /* launch from Finder/bundle: cwd = "/", the relative one must be resolved */
     int test_mode = getenv("DS4UI_TEST_MODE") && getenv("DS4UI_TEST_MODE")[0];
+
+#ifndef _WIN32
+    /* Existing persisted selections also receive newly shipped reversible
+     * patches after an app update, without waiting for another folder pick. */
+    if (!test_mode && ds4_dir_valid_path(g_ds4_dir) &&
+        !run_ext_script("scripts/apply-ds4-visible-downloads.sh", "apply")) {
+        fprintf(stderr, "engine: visible-download patch failed for %s\n", g_ds4_dir);
+    }
+#endif
 
     const char *bind_env = getenv("DS4UI_HOST");
     if (bind_env && bind_env[0]) snprintf(g_bind_host, sizeof g_bind_host, "%s", bind_env);

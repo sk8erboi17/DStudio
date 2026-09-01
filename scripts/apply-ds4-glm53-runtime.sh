@@ -12,8 +12,8 @@ patch_file="$script_dir/../patch/ds4-glm53-runtime/streaming-memory.patch"
 marker=DS4UI_GLM53_STREAMING
 action=${1:-apply}
 
-# This hook runs for main and every optional checkout. Only the upstream GLM
-# 5.3 branch contains this model predicate and the matching source anchors.
+# This hook runs for main and every optional checkout. Upstream main contains
+# GLM 5.3 now; older/non-GLM checkouts are skipped by the model predicate.
 if ! grep -q 'static bool ds4_model_is_glm53' "$ds4_dir/ds4.c"; then
     echo "DStudio GLM 5.3 runtime patch: non-GLM checkout skipped"
     exit 0

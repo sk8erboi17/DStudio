@@ -7,14 +7,14 @@ const kindAt = argv.indexOf('--kind');
 const outputAt = argv.indexOf('--output');
 const separator = argv.indexOf('--');
 if (kindAt < 0 || outputAt < 0 || separator < 0 || separator === argv.length - 1) {
-  console.error('usage: node tests/heavy_media_benchmark.mjs --kind qwen-router|ideogram4|hunyuan-edit|image-pipeline|h3|design --output dir -- command [args...]');
+  console.error('usage: node tests/heavy_media_benchmark.mjs --kind ideogram4|hunyuan-edit|image-pipeline|h3|design --output dir -- command [args...]');
   process.exit(2);
 }
 const kind = argv[kindAt + 1];
 const outputDir = path.resolve(argv[outputAt + 1]);
 const command = argv[separator + 1];
 const commandArgs = argv.slice(separator + 2);
-if (!['qwen-router', 'ideogram4', 'hunyuan-edit', 'image-pipeline', 'h3', 'design'].includes(kind)) {
+if (!['ideogram4', 'hunyuan-edit', 'image-pipeline', 'h3', 'design'].includes(kind)) {
   throw new Error(`unsupported benchmark kind: ${kind}`);
 }
 
@@ -24,13 +24,8 @@ const commandHasScript = (command, name) =>
 const commandStartsExecutable = (command, name) =>
   new RegExp(`^(?:\\S*/)?${escaped(name)}(?:\\s|$)`).test(command);
 function isRealHeavyConflict(command) {
-  // Contract fixtures call the one-shot Python entry point directly but set
-  // test mode and use a clearly isolated request path; they never load MLX.
-  if (command.includes('/dstudio-qwen38-contract-')) return false;
   // Native Design self-tests do not map a GGUF or start an inference engine.
   if (commandStartsExecutable(command, 'ds4-design') && /(?:^|\s)--self-test(?:\s|$)/.test(command)) return false;
-  const qwenRouter = commandHasScript(command, 'image-route-qwen38.py');
-  const qwenVision = commandHasScript(command, 'vision-qwen38-run.py');
   const ideogram = commandHasScript(command, 'ideogram4-run.py') ||
     /(?:^|\s)\S*ideogram4\S*\/comfyui\/main\.py(?:\s|$)/.test(command);
   const hunyuan = commandHasScript(command, 'hunyuan-image3-edit.py') ||
@@ -46,13 +41,12 @@ function isRealHeavyConflict(command) {
   // silently force an image/video render into swap.
   const residentLlamaModel = commandStartsExecutable(command, 'llama-server') &&
     /(?:^|\s)--(?:model|hf-repo)(?:\s|=)/.test(command);
-  const own = kind === 'qwen-router' ? qwenRouter :
-    kind === 'ideogram4' ? ideogram :
+  const own = kind === 'ideogram4' ? ideogram :
     kind === 'hunyuan-edit' ? hunyuan :
-    kind === 'image-pipeline' ? (qwenRouter || ideogram || hunyuan) :
+    kind === 'image-pipeline' ? (ideogram || hunyuan) :
     kind === 'h3' ? h3 : ds4;
   return !own && (
-    qwenRouter || qwenVision || ideogram || hunyuan || h3 || ds4 || residentLlamaModel
+    ideogram || hunyuan || h3 || ds4 || residentLlamaModel
   );
 }
 const conflicts = () => spawnSync('ps', ['-axo', 'pid=,rss=,command='], { encoding: 'utf8' })

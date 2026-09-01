@@ -105,7 +105,7 @@ def compare(source_path: Path, candidate_path: Path) -> dict[str, object]:
     }
     return {
         "ok": all(checks.values()),
-        "policy": "source-preservation gate; semantic repair still requires Qwen3.8 Max PASS",
+        "policy": "source-preservation gate; semantic repair requires native DeepSeek/GLM vision",
         "source": {"path": str(source_path), **source_metadata},
         "candidate": {"path": str(candidate_path), **candidate_metadata},
         "comparisonSize": list(comparison_size),

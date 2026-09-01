@@ -10,12 +10,12 @@ Published page: `__GITHUB_PAGES_URL__`
 
 ## Local generation pipeline
 
-- Qwen3.8-27B Q8 is the sole authoritative visual router. It decides whether source-dependent work is an edit or a new generation and confirms whether generated content corresponds to the requested subject and constraints; isolated images do not receive an aesthetic score. Max reasoning has no DStudio thinking/output budget and stops at EOS or the model-native context boundary.
+- DeepSeek Vision-Exp or GLM 5.3 sees source and rendered pixels through its matching native encoder. Its explicit `generate` or `edit` directive is dispatched directly; there is no secondary visual router.
 - New stills use Ideogram 4 FP8 with the official Quality-48 sampler at full declared output size.
 - Source-dependent edits use the full, non-distilled HunyuanImage-3.0-Instruct NF4-v2 checkpoint with BF16 critical layers, `think_recaption`, 50 diffusion steps, no routed-token dropping, and Tencent's official eager MoE implementation without a DStudio numerical forward.
 - Hero motion uses the official MiniMax H3 FL2VA checkpoint through pinned native `h3.c`, at the Quality profile: all 50 transformer blocks, no denoiser reuse, 20 native steps, 1344×768, five seconds.
 - The final HTML/CSS/JavaScript pass uses DeepSeek V4 Design at true Max thinking with a 393,216-token context, unlimited hidden reasoning and explicit expert SSD streaming off. Metal uses normal resident/lazy-mapped access without reducing context. Its deterministic artifact, browser, interaction, accessibility, responsive-layout, and critique gates must all pass.
-- A kernel-owned lock serializes Qwen3.8, Ideogram, Hunyuan, MiniMax H3, and DeepSeek. A heavyweight model is fully released before the next starts.
+- A kernel-owned lock serializes Ideogram, Hunyuan and MiniMax H3. The selected DS4 model yields residency when a separate media worker needs unified memory.
 
 ## Measured production time
 
@@ -23,7 +23,7 @@ All values below come from durable benchmark JSON, not UI estimates. `__PENDING_
 
 | Stage | Quality setting | Wall time | Peak process / accelerator memory | Result |
 | --- | --- | ---: | ---: | --- |
-| Qwen3.8 visual routing and captions | Max, unbudgeted thinking | __QWEN_TIME__ | __QWEN_MEMORY__ | __QWEN_RESULT__ |
+| Native visual inspection | Selected model + matching encoder | Included in Design stage | Included in DS4 memory | __NATIVE_VISION_RESULT__ |
 | Ideogram still generation | Quality-48, full resolution | __IDEOGRAM_TIME__ | __IDEOGRAM_MEMORY__ | __IDEOGRAM_RESULT__ |
 | Hunyuan editing benchmark | Full Instruct, `think_recaption`, 50 steps | __HUNYUAN_TIME__ | __HUNYUAN_MEMORY__ | __HUNYUAN_RESULT__ |
 | MiniMax H3 hero motion | Quality, 1344×768, 5 s | __H3_TIME__ | __H3_MEMORY__ | __H3_RESULT__ |
@@ -50,7 +50,7 @@ No serial number, hardware UUID, account name, computer name, or other device id
 
 ## Quality gates
 
-The release gate covers pinned model/runtime revisions, full-quality profile contracts, byte-for-byte composition of the official Tencent MoE source, real finite MPS prefill/diffusion probes, no heavyweight-process overlap, native build/tests, semantic HTML, keyboard and Escape behavior, 44 px touch targets, visible focus, reduced-motion fallback, 390 px overflow, desktop/mobile renders, all visible controls, truthful local form state, media validity, Qwen request-correspondence inspection, and a fresh Design critique of at least 8.5/10. Aesthetic acceptance is decided only in the composed site: an asset is regenerated or repaired only when it creates a concrete layout/design blocker there. Technical inference failures remain immediate blockers regardless of generation cost.
+The release gate covers pinned model/runtime revisions, full-quality profile contracts, byte-for-byte composition of the official Tencent MoE source, real finite MPS prefill/diffusion probes, no heavyweight-process overlap, native build/tests, semantic HTML, keyboard and Escape behavior, 44 px touch targets, visible focus, reduced-motion fallback, 390 px overflow, desktop/mobile renders, all visible controls, truthful local form state, media validity, native request-correspondence inspection, and a fresh Design critique of at least 8.5/10. Aesthetic acceptance is decided only in the composed site: an asset is regenerated or repaired only when it creates a concrete layout/design blocker there. Technical inference failures remain immediate blockers regardless of generation cost.
 
 ## Media and model terms
 

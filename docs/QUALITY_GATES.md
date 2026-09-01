@@ -35,16 +35,15 @@ safety, visual, or persistence metric goes down.
   hidden reasoning with no application token cap. Design exposes optional 8k,
   16k and 24k per-round caps only when the user explicitly selects one; such a
   cap closes the native `</think>` transition without capping the tool response
-  or later rounds;
-  Qwen3.8 27B Q8 defaults to unbudgeted Max reasoning with no
-  smaller-model fallback; Qwen3.8 authoritatively routes new images to Ideogram
-  4 FP8 Quality-48 and edits to full HunyuanImage-3.0-Instruct NF4/full-50,
-  without Turbo or distilled fallback; and MiniMax H3 defaults to Quality. Users may explicitly
+  or later rounds. DeepSeek Vision-Exp and GLM 5.3 inspect pixels with their
+  matching native encoders. Their explicit image directive dispatches new images
+  directly to Ideogram 4 FP8 Quality-48 and edits directly to full
+  HunyuanImage-3.0-Instruct NF4/full-50, without Turbo, distilled or visual-router
+  fallback; MiniMax H3 defaults to Quality. Users may explicitly
   select lower settings, but automation must never lower one to save time.
-- Qwen3.8, Ideogram 4, HunyuanImage, MiniMax H3 and a resident DS4 model may not overlap on
-  the 96 GB reference machine. Media/vision calls fail closed if DS4 cannot be
-  evacuated, and all four one-shot model processes share a kernel-owned process
-  lock.
+- Ideogram 4, HunyuanImage and MiniMax H3 may not overlap on the 96 GB
+  reference machine. Media calls fail closed if DS4 cannot yield enough
+  residency, and all three one-shot workers share a kernel-owned process lock.
   A lower profile is permitted only for a reproduced engine bug, with the bug
   and restoration test recorded under the exception rule above.
 
@@ -58,7 +57,7 @@ safety, visual, or persistence metric goes down.
 | G3 — SSD smoke | two representative real-model cases per runtime | 100% pass/tool compliance, SSD effective, KV present |
 | G4 — SSD standard | broad source/tool and artifact matrix | 100% pass/tool compliance, zero safety failures |
 | G5 — SSD long session | context retention plus several dependent revisions | facts/copy persist, targeted edits apply, final deliverable passes |
-| G6 — visual/Qwen | generated-asset correspondence plus full desktop/mobile layout render | valid local PNG, generation precedes a request-correspondence inspection, exact 390px mobile viewport, no skipped layout check, no reported layout/design defect, overlap or stretched sparse panel |
+| G6 — native visual | generated-asset correspondence plus full desktop/mobile layout render | matching native encoder active, valid local PNG, generation precedes request-correspondence inspection, exact 390px mobile viewport, no skipped layout check, reported defect, overlap or stretched sparse panel |
 | G7 — release/platform | packaging and fast repository checks | packaged helpers/binaries present; no new failure in `check-fast` |
 
 Run gates in order. A later green gate does not excuse an earlier red one.
@@ -120,8 +119,8 @@ Design is graded at source, artifact, rendered-pixel and multi-turn levels.
 - `verify_artifact` must report zero P0 findings. A successful
   `critique_write` uses `ds4-design-quality-v2` with a composite of at least
   `8.5`, no must-fix items and `ship` as the decision.
-- Desktop (1280 px) and mobile (390 px) renders must reach the local Qwen3.8 vision
-  check. Chrome's macOS 500 px minimum is neutralized with exact-width framed
+- Desktop (1280 px) and mobile (390 px) renders must reach the selected
+  DeepSeek/GLM native vision encoder. Chrome's macOS 500 px minimum is neutralized with exact-width framed
   viewports. The `visual_check` event records DOM `clientWidth`, `scrollWidth`,
   horizontal overflow, interactive-overlap pair counts and stretched sparse
   panel counts for both renders; deterministic page overflow or substantially
@@ -129,10 +128,10 @@ Design is graded at source, artifact, rendered-pixel and multi-turn levels.
   blank tail of at least 260 px and 42% of its height is P1. A deliberate
   working canvas must opt out explicitly with `data-allow-empty-space`. A
   missing probe, skipped visual check, incomplete/truncated five-criterion
-  grading, or Qwen-reported contrast, overlap, clipping, overflow or
+  grading, or model-reported contrast, overlap, clipping, overflow or
   completeness defect is red in the real suite.
 - `generate_image` writes a sandboxed, atomic project-local PNG through the
-  local Qwen3.8-routed image endpoint. The agent calls `see_image` after generation
+  direct local image endpoint. The selected native-vision agent calls `see_image` after generation
   and before use only to confirm that the visible subject and explicit constraints
   correspond to the user's request. Saved image provenance is part of project history.
 - An isolated image is not assigned an aesthetic release score and is not regenerated
@@ -144,7 +143,7 @@ Design is graded at source, artifact, rendered-pixel and multi-turn levels.
   composition. Media generation is reopened only by an explicit user revision request or
   evidence from the composed-page gate that the asset materially harms the final result.
   Technical inference failures (invalid file, non-finite output, incomplete schedule,
-  worker overlap or wrong route) remain immediate blockers.
+  worker overlap or wrong action) remain immediate blockers.
 - `make test-image-inference` compares the installed pinned runtimes against the
   official image profiles before a real run. Ideogram must resolve to 48 Euler
   steps with the resolution-aware logit-normal schedule and exactly 45 CFG-7
@@ -165,14 +164,15 @@ Design is graded at source, artifact, rendered-pixel and multi-turn levels.
 Commands:
 
 ```sh
-make test-design-qwen test-design-bench-validate
+make test-design-native-vision test-design-bench-validate
 make test-real-design
 make test-real-design-long
 ```
 
-The regular real suite uses a deterministic routed-image fixture so generation
-transport is repeatable, while Qwen3.8 still grades actual browser renders. Run
-the image case against the real local Qwen3.8 + Ideogram/Hunyuan weights before a release that
+The regular real suite uses deterministic image-worker fixtures so generation
+transport is repeatable, while the selected DS4 model grades actual browser
+renders through its native encoder. Run the image case against real native
+vision plus Ideogram/Hunyuan weights before a release that
 changes image generation:
 
 ```sh

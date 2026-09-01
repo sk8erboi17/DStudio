@@ -114,26 +114,12 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, sections: [], tasks: [] });
     return;
   }
-  if (url.pathname === '/api/vision/status') {
-    json(res, 200, { ok: true, supported: true, installed: false, state: 'stopped' });
-    return;
-  }
-  if (url.pathname === '/api/vision/describe' && req.method === 'POST') {
-    await readBody(req);
-    json(res, 200, { ok: false, error: 'intentional Qwen visual fixture failure' });
-    return;
-  }
   if (url.pathname === '/api/remote/status') {
     json(res, 200, { ok: true, enabled: false });
     return;
   }
   if (url.pathname === '/api/lan-client/chats') {
     json(res, 200, { ok: true, chats: [] });
-    return;
-  }
-  if (url.pathname === '/api/vision/stop' && req.method === 'POST') {
-    requestOrder.push('vision-stop');
-    json(res, 200, { ok: true, stopped: true });
     return;
   }
   if (url.pathname === '/api/embed/stop' && req.method === 'POST') {
@@ -214,7 +200,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/image/progress') {
     json(res, 200, {
       ok: true, state: 'running', stage: 'sampling',
-      label: 'Generating the Qwen opening frame…', progress: 60,
+      label: 'Generating the Ideogram opening frame…', progress: 60,
     });
     return;
   }
@@ -223,7 +209,7 @@ const server = http.createServer(async (req, res) => {
     if (!imageGenerationBody) imageGenerationBody = body;
     else cancelledImageGenerationBody = body;
     requestOrder.push('image-generate');
-    assert.equal(engineRunning, false, 'the chat model must remain stopped while Qwen creates the H3 frame');
+    assert.equal(engineRunning, false, 'the chat model must remain stopped while Ideogram creates the H3 frame');
     if (holdNextImageGeneration) {
       holdNextImageGeneration = false;
       await new Promise((resolve) => { releaseHeldImageGeneration = resolve; });
@@ -233,8 +219,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (res.destroyed) return;
     json(res, 200, {
-      ok: true, id: body.job, filename: 'qwen-first-frame.png',
-      url: `/api/image/file?id=${encodeURIComponent(body.job)}&name=qwen-first-frame.png`,
+      ok: true, id: body.job, filename: 'ideogram-first-frame.png',
+      url: `/api/image/file?id=${encodeURIComponent(body.job)}&name=ideogram-first-frame.png`,
     });
     return;
   }
@@ -282,7 +268,7 @@ const server = http.createServer(async (req, res) => {
       : chatRequests === 5
       ? 'Ripresa completata dopo l’interruzione.'
       : [
-          'Creo prima il frame con Qwen e poi lo animo localmente.',
+          'Creo prima il frame con Ideogram e poi lo animo localmente.',
           '```dstudio-video',
           JSON.stringify({
             prompt: 'The paper boat begins to move across the puddle; cinematic tracking shot and synchronized rain.',
@@ -386,12 +372,11 @@ try {
   assert.equal('image' in generationBody, false, 'text-to-video should not invent a first frame');
 
   const chatIndex = requestOrder.indexOf('chat');
-  const releaseVision = requestOrder.indexOf('vision-stop', chatIndex + 1);
-  const releaseEmbed = requestOrder.indexOf('embed-stop', releaseVision + 1);
+  const releaseEmbed = requestOrder.indexOf('embed-stop', chatIndex + 1);
   const stopIndex = requestOrder.indexOf('engine-stop', releaseEmbed + 1);
   const generateIndex = requestOrder.indexOf('video-generate', stopIndex + 1);
   const restartIndex = requestOrder.indexOf('engine-start', generateIndex + 1);
-  assert.ok(chatIndex >= 0 && releaseVision > chatIndex && releaseEmbed > releaseVision &&
+  assert.ok(chatIndex >= 0 && releaseEmbed > chatIndex &&
     stopIndex > releaseEmbed && generateIndex > stopIndex && restartIndex > generateIndex,
   `memory handoff order is wrong: ${JSON.stringify(requestOrder)}`);
   assert.ok(progressStages.includes('model-load') && progressStages.includes('sampling'),
@@ -425,7 +410,7 @@ try {
   await pipelineReply.locator('.msg-generated-image').waitFor({ state: 'visible', timeout: 15000 });
   await pipelineReply.locator('.msg-generated-video').waitFor({ state: 'visible', timeout: 20000 });
 
-  assert.ok(imageGenerationBody, 'the Qwen3.8-routed image pipeline must receive the generated-first-frame request');
+  assert.ok(imageGenerationBody, 'the direct Ideogram pipeline must receive the generated-first-frame request');
   assert.equal(imageGenerationBody.action, 'generate');
   assert.match(imageGenerationBody.prompt, /paper boat.*rain puddle/i);
   assert.ok(pipelineGenerationBody, 'H3 must receive the chained video request');
@@ -488,7 +473,7 @@ try {
   assert.equal(chatRequests, directChatRequests, 'direct H3 mode must not call the Chat model first');
 
   // An image attached while H3 is selected is sent directly as --first-frame;
-  // the vision sidecar is deliberately not involved.
+  // no secondary visual model is involved.
   await page.locator('#chat-file-input').setInputFiles({
     name: 'opening-frame.png', mimeType: 'image/png', buffer: testImage,
   });
@@ -503,10 +488,9 @@ try {
     'the attached PNG must become native H3 first-frame data');
   assert.equal(directFrameGenerationBody.duration, 8, 'saved duration should apply without an explicit value');
   assert.equal(directFrameGenerationBody.aspect, '9:16', 'saved aspect should apply without an explicit value');
-  assert.equal(chatRequests, directChatRequests, 'opening-frame H3 mode must also bypass Chat and vision routing');
+  assert.equal(chatRequests, directChatRequests, 'opening-frame H3 mode must also bypass Chat routing');
 
-  // A failed Qwen visual preflight must not silently hand an image request to
-  // the non-visual chat model. This mock intentionally has no describe route.
+  // Return to the text-only Chat model before exercising its attachment guard.
   await page.locator('#cbar-model .cbar-model-btn').click();
   const chatModelOption = page.locator('#cbar-model .cbar-model-item').filter({ hasText: 'DeepSeek V4 Flash' });
   await chatModelOption.waitFor({ state: 'visible', timeout: 10000 });
@@ -552,35 +536,22 @@ try {
     .filter({ hasText: 'Ripresa completata dopo l’interruzione.' })
     .waitFor({ state: 'visible', timeout: 10000 });
 
-  const chatsBeforeVisionFailure = chatRequests;
+  const chatsBeforeImageGuard = chatRequests;
   await page.locator('#chat-file-input').setInputFiles({
     name: 'edit-source.png', mimeType: 'image/png', buffer: testImage,
   });
   await page.locator('.composer__file').waitFor({ state: 'visible' });
   await page.locator('#composer-input').fill('Edit this image and make the background blue.');
-  const userCountBeforeRoutingFailure = await page.locator('.msg--user').count();
+  const userCountBeforeImageGuard = await page.locator('.msg--user').count();
   assert.equal(await page.locator('#btn-send').isEnabled(), true,
-    'the fail-closed visual request must be sendable');
+    'the text-only attachment guard must be reachable');
   await page.locator('#btn-send').click();
-  await page.locator('.toast').filter({ hasText: 'press send again' })
+  await page.locator('.toast').filter({ hasText: 'This model is text-only' })
     .waitFor({ state: 'visible', timeout: 10000 });
-  assert.equal(await page.locator('.msg--user').count(), userCountBeforeRoutingFailure,
-    'the first failed visual read must retain the unsent request for one explicit retry');
-  await page.locator('#btn-send').click();
-  await page.waitForFunction((count) => document.querySelectorAll('.msg--user').length > count,
-    userCountBeforeRoutingFailure, { timeout: 10000 });
-  const routingFailure = page.locator('.msg--assistant .msg__content').last();
-  try {
-    await routingFailure.filter({ hasText: 'Qwen3.8 visual routing failed' })
-      .waitFor({ state: 'visible', timeout: 10000 });
-  } catch (error) {
-    const target = await page.locator('#cbar-model .cbar-model-btn').textContent().catch(() => 'missing');
-    const messages = await page.locator('.msg .msg__content').allTextContents().catch(() => []);
-    const composer = await page.locator('#composer-input').inputValue().catch(() => 'missing');
-    throw new Error(`visual fail-closed result missing; target=${target}; chatRequests=${chatRequests}; composer=${composer}; messages=${JSON.stringify(messages)}`, { cause: error });
-  }
-  assert.equal(chatRequests, chatsBeforeVisionFailure,
-    'a failed visual preflight must not call the normal chat model');
+  assert.equal(await page.locator('.msg--user').count(), userCountBeforeImageGuard,
+    'a text-only model must retain the unsent image request');
+  assert.equal(chatRequests, chatsBeforeImageGuard,
+    'a rejected image attachment must not call the text-only chat model');
 
   assert.deepEqual(pageErrors, [], `page errors: ${JSON.stringify(pageErrors, null, 2)}`);
   console.log('ui_video_generation_playwright_test: ok');

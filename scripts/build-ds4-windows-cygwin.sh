@@ -34,7 +34,7 @@ if ! command -v "$CC_BIN" >/dev/null 2>&1 && [ ! -x "$CC_BIN" ]; then
 fi
 
 echo "windows-cygwin: applying DStudio runtime patches"
-DS4_DIR="$DS4_DIR" "$ROOT/scripts/apply-ds4-qwen-hot-memory.sh" apply
+DS4_DIR="$DS4_DIR" "$ROOT/scripts/apply-ds4-media-memory.sh" apply
 DS4_DIR="$DS4_DIR" "$ROOT/scripts/apply-ds4-server-metrics.sh" apply
 
 echo "windows-cygwin: building ds4 CPU binaries"
@@ -87,7 +87,7 @@ for exe in ds4-server ds4-agent-jsonl ds4-cowork ds4-design; do
 done
 
 echo "windows-cygwin: restoring upstream ds4 sources"
-DS4_DIR="$DS4_DIR" "$ROOT/scripts/apply-ds4-qwen-hot-memory.sh" restore
+DS4_DIR="$DS4_DIR" "$ROOT/scripts/apply-ds4-media-memory.sh" restore
 DS4_DIR="$DS4_DIR" "$ROOT/scripts/apply-ds4-server-metrics.sh" restore
 
 echo "windows-cygwin: DS4 CPU staging ready"

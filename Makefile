@@ -81,7 +81,7 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check check-fast check-real test-lan-unit test-remote-utf8 test-cowork test-cowork-unit test-cowork-contract test-cowork-http test-cowork-bench-validate test-design-build-freshness test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume test-design-qwen test-design-bench-validate test-design-release test-vision-qwen38 test-image-inference test-ideogram-vae-mps test-hunyuan-sdpa-mps test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-cowork test-real-cowork-long test-real-design test-real-design-long test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
+.PHONY: all run check check-fast check-real test-lan-unit test-remote-utf8 test-cowork test-cowork-unit test-cowork-contract test-cowork-http test-cowork-bench-validate test-design-build-freshness test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume test-design-native-vision test-design-bench-validate test-design-release test-image-pipeline test-image-inference test-ideogram-vae-mps test-hunyuan-sdpa-mps test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-cowork test-real-cowork-long test-real-design test-real-design-long test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
@@ -348,9 +348,9 @@ test-design-interrupt: test-design-self
 test-design-resume:
 	@node tests/design_resume_checkpoint_test.mjs
 
-test-design-qwen: test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume
-	@command -v node >/dev/null 2>&1 || (echo "node missing: Design Qwen contract test requires node" && exit 1)
-	@node tests/ds4_design_qwen_test.mjs
+test-design-native-vision: test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume
+	@command -v node >/dev/null 2>&1 || (echo "node missing: Design native-vision contract test requires node" && exit 1)
+	@node tests/ds4_design_native_vision_test.mjs
 
 test-design-bench-validate:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Design benchmark validation requires node" && exit 1)
@@ -358,14 +358,11 @@ test-design-bench-validate:
 
 test-design-release:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Design release gate requires node" && exit 1)
-	@node tests/package_design_release_test.mjs
-	@node tests/design_site_release_gate_test.mjs
+	@node tests/design_release_native_contract_test.mjs
 	@node tests/design_pages_release_gate_test.mjs
 
-test-vision-qwen38:
-	@python3 tests/image_route_qwen38_test.py
+test-image-pipeline:
 	@python3 tests/image_pipeline_interrupt_test.py
-	@node tests/vision_qwen38_contract_test.mjs
 
 test-image-inference:
 	@if [ -x "$(HOME)/.dstudio/ideogram4/venv/bin/python" ] && \
@@ -425,7 +422,7 @@ test-http-lan: $(TEST_SERVER)
 test-gsa-bench-validate:
 	@if command -v node >/dev/null 2>&1; then node extension/gsa/bench/validate.mjs; else echo "node missing: skipping GSA benchmark validation"; fi
 
-check-fast: $(BIN) test-lan-unit test-remote-utf8 test-cowork test-cowork-bench-validate test-design-qwen test-design-bench-validate test-design-release test-vision-qwen38 test-image-inference test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate
+check-fast: $(BIN) test-lan-unit test-remote-utf8 test-cowork test-cowork-bench-validate test-design-native-vision test-design-bench-validate test-design-release test-image-pipeline test-image-inference test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate
 	@file $(PAGE) | grep -q text && echo "$(PAGE): text OK" || (echo "$(PAGE) is not text!" && exit 1)
 	@file $(LOADING) | grep -q text && echo "$(LOADING): text OK" || (echo "$(LOADING) is not text!" && exit 1)
 	@command -v node >/dev/null 2>&1 && { \
@@ -451,11 +448,11 @@ test-real-cowork-long: $(TEST_SERVER) test-cowork-bench-validate
 	@command -v node >/dev/null 2>&1 || (echo "node missing: long Cowork quality tests require node" && exit 1)
 	@DSTUDIO_COWORK_PROFILE=long node tests/real_cowork_quality_test.mjs $(TEST_SERVER)
 
-test-real-design: $(TEST_SERVER) test-design-qwen test-design-bench-validate
+test-real-design: $(TEST_SERVER) test-design-native-vision test-design-bench-validate
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real Design quality tests require node" && exit 1)
 	@DSTUDIO_DESIGN_PROFILE=standard node tests/real_design_quality_test.mjs $(TEST_SERVER)
 
-test-real-design-long: $(TEST_SERVER) test-design-qwen test-design-bench-validate
+test-real-design-long: $(TEST_SERVER) test-design-native-vision test-design-bench-validate
 	@command -v node >/dev/null 2>&1 || (echo "node missing: long Design quality tests require node" && exit 1)
 	@DSTUDIO_DESIGN_PROFILE=long node tests/real_design_quality_test.mjs $(TEST_SERVER)
 

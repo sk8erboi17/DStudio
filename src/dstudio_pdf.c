@@ -1,38 +1,18 @@
 /* ============================================================================
- * PDF attachments — hybrid reader: text layer first, vision for scanned pages.
+ * PDF attachments — local text extraction and semantic retrieval.
  *
- * pdftotext (poppler) extracts each page's embedded text layer — instant and
- * verbatim, so a long digital PDF costs no vision time at all. Pages with no
- * usable text layer (scans, pure-image pages) are rasterized by pdftoppm and
- * READ by the local vision sidecar via a loopback POST to /api/vision/describe
- * (format=text) — no duplication of the vision wiring. ONE page per vision
- * call: a dense scan gets the whole answer-token budget and the per-page
- * attribution stays exact. The combined page-by-page text becomes the
- * attachment content that the ds4/DeepSeek chat model reads.
- *
- * Pages are rasterized as JPEG (not PNG) on purpose: a scanned page at 1400px
- * is ~2MB as PNG — one page alone overflows the 2MB /api body cap once
- * base64'd — but a few hundred KB as JPEG q85, which OCRs the same. A page
- * that still exceeds the per-request budget is re-rendered smaller before
- * being reported unreadable.
- *
- * Full/Agent reads are question-independent and page-addressable. Interactive
- * chat uses one of three LLM-selected read plans: exact physical pages, a
- * bounded whole-book overview, or hybrid retrieval across overlapping text
+ * pdftotext (Poppler) extracts every embedded text layer verbatim. Interactive
+ * chat then uses one of three model-selected read plans: exact physical pages,
+ * a bounded whole-book overview, or hybrid retrieval across overlapping text
  * passages. Dense embeddings provide semantic recall, BM25 recovers exact
  * names/formulas, and every hit retains its physical page and byte offset.
- * This keeps a 1000-page book bounded without losing evidence across arbitrary
- * page boundaries. Results are cached by document + profile/query;
- * every single page's
- * vision transcription is cached by its rendered image, so a partial failure
- * retries only failed pages. Text pages that also carry a
- * meaningful raster figure (>=5% of the page and >=3 in², via pdfimages
- * -list) get an extra figures-only vision pass so charts/diagrams are not
- * silently dropped; vector-drawn figures are a known blind spot.
+ * Scanned/image-only pages are counted and reported but are never sent to a
+ * secondary visual model. Native DeepSeek Vision-Exp and GLM 5.3 can inspect
+ * explicitly attached rendered pages through their own encoders.
  *
  *   POST /api/pdf/thumb    — render page 1 → {ok, thumb: data-URI} (attach-time preview)
- *   POST /api/pdf/describe — hybrid read → {ok, text, pages, total, first,
- *                            last, textPages, visionPages, truncated, cached}.
+ *   POST /api/pdf/describe — text read → {ok, text, pages, total, first,
+ *                            last, textPages, scannedPages, truncated, cached}.
  *                            format:"text" → text/plain (the agent's read_pdf
  *                            tool). pages:"N"|"N-M"|"N-" reads only that page
  *                            range — how a caller reaches pages past the caps
@@ -40,8 +20,6 @@
  *                            readable at GET /api/pdf/progress?job=<id>.
  * ==========================================================================*/
 #ifndef _WIN32
-#define PDF_MAX_VISION_PAGES 10          /* vision-read pages cap (env DSTUDIO_PDF_MAX_PAGES) */
-#define PDF_MAX_VISION_PAGES_HARD 200
 #define PDF_MAX_TOTAL_PAGES 2000         /* sanity cap for the per-page bookkeeping */
 #define PDF_TEXT_MIN_CHARS 24            /* page text layer below this → treat as scanned */
 #define PDF_TEXT_TOTAL_CAP (160 * 1024)  /* total text-layer bytes shipped to the model */
@@ -49,8 +27,6 @@
 #define PDF_INTERACTIVE_TEXT_CAP_MIN (8 * 1024)
 #define PDF_INTERACTIVE_TEXT_CAP_MAX (64 * 1024)
 #define PDF_INTERACTIVE_MAX_TEXT_PAGES 48 /* enough context per selected page even for 1000-page books */
-#define PDF_INTERACTIVE_SCAN_PASSES 8    /* representative OCR for a fully scanned long document */
-#define PDF_INTERACTIVE_FIG_PASSES 2     /* figures supplement text; do not make chat wait for every chart */
 #define PDF_SEMANTIC_MAX_PAGES 6         /* three evidence anchors plus nearby continuity pages */
 #define PDF_RAG_CHUNK_CHARS 3200          /* bounded semantic windows, not arbitrary full pages */
 #define PDF_RAG_CHUNK_OVERLAP 500         /* preserves passages spanning adjacent windows */
@@ -58,22 +34,14 @@
 #define PDF_RAG_EMBED_BATCH 4             /* best end-to-end latency; oversized inputs split recursively */
 #define PDF_RAG_MAX_QUERY_TERMS 16
 #define PDF_TEXT_CACHE_MAX_FILES 32
-#define PDF_FIG_CACHE_MAX_FILES 32
 #define PDF_EMBED_CACHE_MAX_FILES 32
-#define PDF_PAGE_B64_BUDGET (1500 * 1024) /* per-page data-URI budget (loopback 2MB body cap) */
 #define PDF_EMBED_INDEX_MAGIC 0x44504532u /* "DPE2": overlapping chunk vectors */
-#define PDF_FIG_INDEX_MAGIC 0x44504632u   /* "DPF2": full-document raster figure flags */
 typedef struct {
     unsigned magic;
     int dim, count;
     unsigned long long docfnv;
     char model[128];
 } pdf_embed_index_hdr;
-typedef struct {
-    unsigned magic;
-    int pages;
-    unsigned long long docfnv;
-} pdf_fig_index_hdr;
 typedef struct {
     int page;       /* zero-based physical page owning the window */
     int start;      /* byte offset inside that page */
@@ -181,10 +149,7 @@ static char *pdf_write_temp(const char *body, int allow_path, int *forbidden,
     return ds4_strdup_local(tmpl);
 }
 
-/* Rasterize pages [first..last] of pdfpath to <prefix>[-N].{jpg,png} via
- * pdftoppm. JPEG for the vision pages (a 1400px scan is ~2MB as PNG — over the
- * loopback body cap on its own — but a few hundred KB as JPEG); quality only
- * applies to JPEG. */
+/* Rasterize pages [first..last] for the PDF attachment thumbnail. */
 static int pdf_render(const char *pdftoppm, const char *pdfpath, const char *prefix,
                       int first, int last, int scale_to, int singlefile,
                       int jpeg, int quality) {
@@ -210,12 +175,31 @@ static int pdf_render(const char *pdftoppm, const char *pdfpath, const char *pre
     return st == 0;
 }
 
+static char *pdf_base64_encode(const unsigned char *data, size_t len) {
+    static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t out_len = 4 * ((len + 2) / 3);
+    char *out = malloc(out_len + 1);
+    if (!out) return NULL;
+    size_t o = 0;
+    for (size_t i = 0; i < len; i += 3) {
+        unsigned int value = (unsigned int)data[i] << 16;
+        if (i + 1 < len) value |= (unsigned int)data[i + 1] << 8;
+        if (i + 2 < len) value |= (unsigned int)data[i + 2];
+        out[o++] = table[(value >> 18) & 63];
+        out[o++] = table[(value >> 12) & 63];
+        out[o++] = i + 1 < len ? table[(value >> 6) & 63] : '=';
+        out[o++] = i + 2 < len ? table[value & 63] : '=';
+    }
+    out[o] = '\0';
+    return out;
+}
+
 /* Read a rendered page image → "data:image/…;base64,…" (malloc'd) or NULL. */
 static char *pdf_img_data_uri(const char *imgpath) {
     size_t n = 0;
     char *bytes = jsonl_read_file(imgpath, &n);
     if (!bytes || n == 0) { free(bytes); return NULL; }
-    char *b64 = base64_encode((const unsigned char *)bytes, n);
+    char *b64 = pdf_base64_encode((const unsigned char *)bytes, n);
     free(bytes);
     if (!b64) return NULL;
     size_t l = strlen(imgpath);
@@ -266,89 +250,8 @@ static void pdf_cache_dir_path(char *out, size_t outsz) {
     snprintf(out, outsz, "%s/.dstudio/pdf-cache", home ? home : ".");
 }
 
-/* Per-page transcription cache path: pg-<fnv>.txt in the pdf-cache dir. Key =
- * rendered page image + vision model + prompt mode — question-INDEPENDENT by
- * design: the vision pass is pure perception, so a new question over the same
- * document reuses every already-read page instead of ~35s of OCR each. */
-static void pdf_page_cache_path(unsigned long long key, char *out, size_t outsz) {
-    char dir[DSTUDIO_PATH_MAX];
-    pdf_cache_dir_path(dir, sizeof dir);
-    snprintf(out, outsz, "%s/pg-%016llx.txt", dir, key);
-}
 static void pdf_cache_write(const char *cpath, const char *data, const char *suffix, int cap);
 static void pdf_cache_prune_suffix(const char *dir, const char *suffix, int cap);
-
-/* POST ONE page image to the local /api/vision/describe (format=text) over
- * loopback; returns the vision text (malloc'd) or NULL. One page per call on
- * purpose: a dense scan needs the whole answer-token budget, and per-page
- * attribution ("--- Pagina N ---") stays exact. figures_only = the page's text
- * layer already ships verbatim, so the model describes only charts/photos. */
-static char *pdf_vision_page(const char *data_uri, int figures_only) {
-    static const char *scan_prompt =
-        "Transcribe and describe this document page precisely and completely: all text "
-        "(verbatim), tables, figures and layout. State only what is visible.";
-    static const char *figs_prompt =
-        "This document page's plain text is already extracted separately, so do NOT re-transcribe "
-        "the body text. Describe the page's non-text content precisely: every figure, chart, "
-        "graph, diagram or photo — type, axes, labels, series, values and visible trends. "
-        "State only what is visible.";
-
-    /* Per-page cache first. */
-    char hf[256] = "";
-    vision_hf_pref(hf, sizeof hf);
-    unsigned long long key = 1469598103934665603ULL;
-    for (const char *s = data_uri; *s; s++) { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
-    for (const char *s = hf; *s; s++)       { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
-    key ^= (unsigned long long)(figures_only ? 'f' : 's');
-    key *= 1099511628211ULL;
-    static const char *psalt = "|pg-v1|";
-    for (const char *s = psalt; *s; s++)    { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
-    char ppath[DSTUDIO_PATH_MAX];
-    pdf_page_cache_path(key, ppath, sizeof ppath);
-    {
-        size_t hn = 0;
-        char *hit = jsonl_read_file(ppath, &hn);
-        if (hit && hn > 0) { (void)utimes(ppath, NULL); return hit; }   /* LRU touch */
-        free(hit);
-    }
-
-    /* Qwen3.8 runs to EOS with Max reasoning by default, so dense scans are no
-     * longer truncated by a PDF-specific output budget. */
-    json_dyn_buf up = {0};
-    int okb = json_dyn_puts(&up, "{\"data_uri\":") &&
-              json_dyn_put_escaped(&up, data_uri) &&
-              json_dyn_puts(&up, ",\"format\":\"text\",\"reasoning_effort\":\"max\",\"question\":") &&
-              json_dyn_put_escaped(&up, figures_only ? figs_prompt : scan_prompt) &&
-              json_dyn_puts(&up, "}");
-    if (!okb) { free(up.ptr); return NULL; }
-
-    char tmpl[] = "/tmp/dstudio-pdfvis-XXXXXX";
-    int tf = mkstemp(tmpl);
-    if (tf < 0) { free(up.ptr); return NULL; }
-    size_t off = 0, tot = up.len;
-    while (off < tot) { ssize_t w = write(tf, up.ptr + off, tot - off); if (w <= 0) break; off += (size_t)w; }
-    close(tf); free(up.ptr);
-    if (off < tot) { unlink(tmpl); return NULL; }
-
-    char url[80]; snprintf(url, sizeof url, "http://127.0.0.1:%d/api/vision/describe", g_http_port);
-    char dataarg[80]; snprintf(dataarg, sizeof dataarg, "@%s", tmpl);
-    char *argv[16]; int n = 0;
-    argv[n++] = "curl"; argv[n++] = "-sS"; argv[n++] = "-X"; argv[n++] = "POST";
-    argv[n++] = "-H"; argv[n++] = "Content-Type: application/json";
-    argv[n++] = "-H"; argv[n++] = "X-Requested-With: ds4web";
-    argv[n++] = "--data-binary"; argv[n++] = dataarg;
-    argv[n++] = "--max-time"; argv[n++] = "320";
-    argv[n++] = url; argv[n] = NULL;
-    int st = 0;
-    char *resp = web_curl_capture(argv, 330000, &st);
-    unlink(tmpl);
-    /* Cache only good reads: a "see_image error: …" body must never be frozen
-     * into future hits. Page files are small (a few KB), cap 256. */
-    if (resp && resp[0] && strncmp(resp, "see_image error", 15) != 0)
-        pdf_cache_write(ppath, resp, ".txt", 256);
-    return resp;
-}
-
 static void pdf_text_cache_path(unsigned long long docfnv, char *out, size_t outsz) {
     char dir[DSTUDIO_PATH_MAX];
     pdf_cache_dir_path(dir, sizeof dir);
@@ -536,60 +439,7 @@ static void pdf_embed_index_save(const pdf_embed_index_hdr *h, const float *vecs
         unlink(tmp);
 }
 
-static void pdf_fig_index_path(unsigned long long docfnv, char *out, size_t outsz) {
-    char dir[DSTUDIO_PATH_MAX];
-    pdf_cache_dir_path(dir, sizeof dir);
-    snprintf(out, outsz, "%s/fig-%016llx.figbin", dir, docfnv);
-}
 
-static int pdf_fig_index_load(unsigned long long docfnv, int pages,
-                              unsigned char *flags) {
-    char path[DSTUDIO_PATH_MAX];
-    pdf_fig_index_path(docfnv, path, sizeof path);
-    FILE *f = fopen(path, "rb");
-    if (!f) return 0;
-    pdf_fig_index_hdr got;
-    int ok = fread(&got, sizeof got, 1, f) == 1 &&
-             got.magic == PDF_FIG_INDEX_MAGIC && got.pages == pages &&
-             got.docfnv == docfnv &&
-             fread(flags, 1, (size_t)pages, f) == (size_t)pages;
-    fclose(f);
-    if (!ok) return 0;
-    (void)utimes(path, NULL);
-    return 1;
-}
-
-static void pdf_fig_index_save(unsigned long long docfnv, int pages,
-                               const unsigned char *flags) {
-    char path[DSTUDIO_PATH_MAX], dir[DSTUDIO_PATH_MAX];
-    pdf_fig_index_path(docfnv, path, sizeof path);
-    cstr_copy(dir, sizeof dir, path);
-    char *slash = strrchr(dir, '/');
-    if (!slash) return;
-    *slash = '\0';
-    char parent[DSTUDIO_PATH_MAX];
-    cstr_copy(parent, sizeof parent, dir);
-    char *pslash = strrchr(parent, '/');
-    if (pslash) { *pslash = '\0'; (void)mkdir(parent, 0755); }
-    (void)mkdir(dir, 0755);
-    char tmp[DSTUDIO_PATH_MAX + 8];
-    snprintf(tmp, sizeof tmp, "%s.tmp", path);
-    FILE *f = fopen(tmp, "wb");
-    if (!f) return;
-    pdf_fig_index_hdr h = { PDF_FIG_INDEX_MAGIC, pages, docfnv };
-    int ok = fwrite(&h, sizeof h, 1, f) == 1 &&
-             fwrite(flags, 1, (size_t)pages, f) == (size_t)pages;
-    fclose(f);
-    if (ok && rename(tmp, path) == 0)
-        pdf_cache_prune_suffix(dir, ".figbin", PDF_FIG_CACHE_MAX_FILES);
-    else
-        unlink(tmp);
-}
-
-/* Build deterministic overlapping windows inside each physical page. The
- * owning page remains exact metadata, while each embedding also sees a short
- * tail/head from its neighbors so a sentence split by a page break is still
- * retrievable. */
 static int pdf_build_rag_chunks(const int *plen, int tpages, int npages,
                                 pdf_rag_chunk **out) {
     *out = NULL;
@@ -943,12 +793,9 @@ static int pdf_select_semantic_pages(unsigned char *selected, const int *scores,
     return selected_count;
 }
 
-/* Describe cache: ~/.dstudio/pdf-cache/<fnv16>.json holds the full response
- * JSON of a successful read. Full reads use document + vision model + caps;
- * overview reads include their content budget; semantic reads also include
- * the retrieval query. pg-<fnv16>.txt
- * holds query-independent single-page vision transcriptions. Both stores are
- * pruned oldest-first per suffix. */
+/* Describe cache: ~/.dstudio/pdf-cache/<fnv16>.json holds a successful text
+ * read. Overview reads include their content budget; semantic reads also
+ * include the retrieval query. Stores are pruned oldest-first per suffix. */
 #define PDF_CACHE_MAX_FILES 32
 static void pdf_cache_path(unsigned long long key, char *out, size_t outsz) {
     char dir[DSTUDIO_PATH_MAX];
@@ -1031,7 +878,7 @@ static void pdf_describe_need_embedding(int fd, int want_text) {
     }
 }
 
-/* POST /api/pdf/describe — hybrid read: text layer first, vision for scans. */
+/* POST /api/pdf/describe — text layer plus optional semantic retrieval. */
 static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     char fmt[16] = "";
     (void)json_get_string(body, "format", fmt, sizeof fmt);
@@ -1059,8 +906,8 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     size_t interactive_cap = (size_t)interactive_cap_long;
 
     /* Optional pages:"N" | "N-M" | "N-" — read only that page range. This is
-     * how a caller reaches pages past the text/vision caps of a long document
-     * (the caps then apply within the range). rq_last 0 = to the end. */
+     * how a caller reaches pages past the context caps of a long document.
+     * rq_last 0 = to the end. */
     int rq_first = 0, rq_last = 0, has_range = 0;
     {
         char spec[48] = "";
@@ -1098,18 +945,14 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         }
     }
 
-    char toppm[256];
-    if (!pdf_find_tool("pdftoppm", toppm, sizeof toppm)) {
+    char texttool[256];
+    if (!pdf_find_tool("pdftotext", texttool, sizeof texttool)) {
         pdf_describe_fail(fd, want_text, "503 Service Unavailable", pdf_poppler_hint());
         return;
     }
     char jobid[64] = "", jobpath[DSTUDIO_PATH_MAX] = "";
     if (json_get_string(body, "job", jobid, sizeof jobid) && jobid[0])
         (void)pdf_job_path(jobid, jobpath, sizeof jobpath);
-
-    int vcap = PDF_MAX_VISION_PAGES;
-    const char *envc = getenv("DSTUDIO_PDF_MAX_PAGES");
-    if (envc && envc[0]) { int v = atoi(envc); if (v > 0 && v <= PDF_MAX_VISION_PAGES_HARD) vcap = v; }
 
     int forbidden = 0;
     unsigned long long docfnv = 0;
@@ -1119,19 +962,15 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     pdf_job_write(jobpath, "{\"phase\":\"start\",\"done\":false}");
 
     /* Cache lookup — overview/full reads are question-independent. Semantic
-     * reads include the LLM-produced retrieval query. Per-page embeddings and
-     * vision remain reusable across questions. */
+     * reads include the model-produced retrieval query; embedding indexes stay
+     * reusable across questions. */
     unsigned long long key = docfnv;
     {
-        char hf[256] = "";
-        vision_hf_pref(hf, sizeof hf);
         /* Bump this salt on ANY pipeline-behavior change (thresholds, prompts,
          * classification): cached entries carry the OLD behavior and would
          * silently mask the fix for already-seen documents. */
-        static const char *salt = "|hybrid-v8-document-caches|";
+        static const char *salt = "|text-native-v1-document-caches|";
         for (const char *s = salt; *s; s++)     { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
-        for (const char *s = hf; *s; s++)       { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
-        key ^= (unsigned long long)vcap;        key *= 1099511628211ULL;
         if (interactive) {
             static const char *ip = "|interactive-adaptive|";
             for (const char *s = ip; *s; s++)       { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
@@ -1182,7 +1021,6 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     /* Total page count + page size via pdfinfo (drives the per-page walk, the
      * truncation note, and the figure-coverage math below). */
     int total = 0;
-    double page_w_pts = 612, page_h_pts = 792;   /* Letter fallback */
     char pdfinfo[256];
     if (pdf_find_tool("pdfinfo", pdfinfo, sizeof pdfinfo)) {
         char *ia[] = { pdfinfo, pdf, NULL };
@@ -1190,20 +1028,13 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         if (iout) {
             const char *p = strstr(iout, "Pages:");
             if (p) { int v = atoi(p + 6); if (v > 0) total = v; }
-            const char *ps = strstr(iout, "Page size:");
-            if (ps) {
-                double w = 0, h = 0;
-                if (sscanf(ps + 10, " %lf x %lf", &w, &h) == 2 && w > 1 && h > 1) {
-                    page_w_pts = w; page_h_pts = h;
-                }
-            }
             free(iout);
         }
     }
 
     /* Text layer, split per page on pdftotext's form-feeds. pvis[] counts the
      * VISIBLE characters of each page: a page under PDF_TEXT_MIN_CHARS has no
-     * usable text layer (scan / pure image) and goes to the vision model. */
+     * usable text layer and is reported as a scanned/image-only page. */
     pdf_job_write(jobpath, "{\"phase\":\"text\",\"done\":false}");
     int text_layer_cached = 0;
     char *layer = pdf_text_layer(pdf, docfnv, &text_layer_cached);
@@ -1288,122 +1119,19 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
                                                        page_limit);
     }
 
-    /* Mixed pages: a TEXT page that also carries a meaningful raster image
-     * (chart, diagram, photo) additionally gets a figures-only vision pass —
-     * pdftotext alone would silently drop the visual content of such pages.
-     * One pdfimages -list call per document; placed size = pixels / x-ppi,
-     * page size from pdfinfo above. Threshold: >=5% of the page AND >=3 in²
-     * (letterhead logos are ~1-2 in²; real inline charts measured at ~7-15 in²
-     * — a 6.8x2.1in Gantt strip is only ~15% of an A4 page, so a bare
-     * fraction-of-page rule missed it). Vector-drawn figures (no raster) are a
-     * known blind spot: pdfimages cannot see them. The full-document result is
-     * cached independently of the query; otherwise every new question over a
-     * large book would rescan its complete image catalog. */
-    static unsigned char page_has_fig[PDF_MAX_TOTAL_PAGES];
-    memset(page_has_fig, 0, sizeof page_has_fig);
-    int figure_index_cached = pdf_fig_index_load(docfnv, npages, page_has_fig);
-    char pimg[256];
-    if (!figure_index_cached && pdf_find_tool("pdfimages", pimg, sizeof pimg)) {
-        char *la[] = { pimg, "-list", pdf, NULL };
-        int lst = 0; char *lout = web_curl_capture(la, 30000, &lst);
-        if (lout && lst == 0) {
-            double page_in2 = (page_w_pts / 72.0) * (page_h_pts / 72.0);
-            for (char *line = lout; line && *line; ) {
-                char *nl = strchr(line, '\n');
-                if (nl) *nl = '\0';
-                int pg = 0, num = 0, w = 0, h = 0, comp = 0, bpc = 0, obj = 0, oid = 0;
-                char type[16] = "", color[16] = "", enc[16] = "", interp[8] = "";
-                double xppi = 0, yppi = 0;
-                if (sscanf(line, "%d %d %15s %d %d %15s %d %d %15s %7s %d %d %lf %lf",
-                           &pg, &num, type, &w, &h, color, &comp, &bpc, enc, interp,
-                           &obj, &oid, &xppi, &yppi) == 14 &&
-                    !strcmp(type, "image") && pg >= 1 && pg <= npages &&
-                    xppi > 1 && yppi > 1 && page_in2 > 0.1) {
-                    double in2 = ((double)w / xppi) * ((double)h / yppi);
-                    if (in2 / page_in2 >= 0.05 && in2 >= 3.0) page_has_fig[pg - 1] = 1;
-                }
-                line = nl ? nl + 1 : NULL;
-            }
-            pdf_fig_index_save(docfnv, npages, page_has_fig);
-        }
-        free(lout);
-    }
-
-    /* Count the vision passes up front so the work is announced (and the
-     * sidecar started) only when actually needed: a plain digital PDF never
-     * touches the multi-GB vision model. Scanned pages take one full-page
-     * transcription pass; mixed text+figure pages take one figures-only pass. */
-    int nvis_wanted = 0, scans_wanted = 0, figs_wanted = 0, text_wanted = 0;
+    /* No secondary vision model is used. Count selected pages that have no
+     * usable text layer so callers can tell a scanned document from an empty
+     * or failed extraction. Native multimodal models may inspect explicitly
+     * attached rendered pages through their own encoder, outside this reader. */
+    int scanned_pages = 0;
     for (int i = pfirst - 1; i < plast; i++) {
         if (!page_selected[i]) continue;
-        int is_text = (i < tpages && pvis[i] >= PDF_TEXT_MIN_CHARS);
-        if (!is_text) scans_wanted++;
-        else {
-            text_wanted++;
-            if (page_has_fig[i]) figs_wanted++;
-        }
+        if (i >= tpages || pvis[i] < PDF_TEXT_MIN_CHARS) scanned_pages++;
     }
-    if (interactive) {
-        int ns = scans_wanted > PDF_INTERACTIVE_SCAN_PASSES ? PDF_INTERACTIVE_SCAN_PASSES : scans_wanted;
-        int nf = figs_wanted > PDF_INTERACTIVE_FIG_PASSES ? PDF_INTERACTIVE_FIG_PASSES : figs_wanted;
-        nvis_wanted = ns + nf;
-    } else {
-        nvis_wanted = scans_wanted + figs_wanted;
-    }
-    int nvis = nvis_wanted > vcap ? vcap : nvis_wanted;
-
-    char dir[] = "/tmp/dstudio-pdfr-XXXXXX";
-    int have_dir = 0;
-    int vision_unavailable = 0;
-    qwen_memory_lease vision_lease = {0};
-    if (nvis > 0 && interactive && text_wanted > 0 && !vision_server_ready()) {
-        char vision_dir[DSTUDIO_PATH_MAX], vision_bin[DSTUDIO_PATH_MAX];
-        vision_dir_path(vision_dir, sizeof vision_dir);
-        /* A text-backed chat answer may omit visual supplements immediately
-         * when the optional runtime was never installed. If it is installed,
-         * retain the normal on-demand startup behavior. */
-        if (!vision_scan_for_bin(vision_dir, 0, vision_bin, sizeof vision_bin)) {
-            vision_unavailable = nvis_wanted;
-            nvis = 0;
-        }
-    }
-    if (nvis > 0) {
-        pdf_job_write(jobpath, "{\"phase\":\"vision\",\"page\":0,\"pages\":%d,\"done\":false}", nvis);
-        vision_lease = qwen_memory_begin("pdf");
-        if (!qwen_memory_ready(&vision_lease) || !vision_ensure_server(60000)) {
-            qwen_memory_end(&vision_lease);
-            memset(&vision_lease, 0, sizeof vision_lease);
-            /* In chat/RAG, figures and occasional scan neighbors supplement
-             * an already useful text result. Missing optional vision must not
-             * discard the retrieved evidence. A fully scanned selection still
-             * requires vision because otherwise the response would be empty. */
-            if (interactive && text_wanted > 0) {
-                vision_unavailable = nvis_wanted;
-                nvis = 0;
-            } else {
-                free(layer); unlink(pdf); free(pdf);
-                pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
-                pdf_describe_fail(fd, want_text, "503 Service Unavailable",
-                                  "vision model is not running (needed for this PDF's scanned pages); "
-                                  "attach an image once or run vision setup");
-                return;
-            }
-        }
-        if (!vision_unavailable && !mkdtemp(dir)) {
-            qwen_memory_end(&vision_lease);
-            free(layer); unlink(pdf); free(pdf);
-            pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
-            pdf_describe_fail(fd, want_text, "500 Internal Server Error", "temp dir");
-            return;
-        }
-        if (!vision_unavailable) have_dir = 1;
-    }
-
     json_dyn_buf text = {0};
     int ok = 1, text_used = 0, text_skipped = 0, text_partial = 0;
-    int vdone = 0, vfail = 0, vskipped = 0, scan_pass = 0, fig_pass = 0, fig_skipped = 0;
     int pages_omitted = (plast - pfirst + 1) - selected_pages;
-    size_t text_bytes = 0, vision_bytes = 0;
+    size_t text_bytes = 0;
     size_t content_cap = interactive ? interactive_cap : PDF_TEXT_TOTAL_CAP;
     size_t text_cap = content_cap;
     int total_weight = 0, semantic_min = INT_MAX, semantic_max = INT_MIN;
@@ -1428,119 +1156,46 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         }
         total_weight += weight;
     }
-    /* The advertised interactive limit covers perception text too. A mixed
-     * digital document reserves 25% for charts; a scan-only document gives the
-     * whole budget to OCR. This prevents eight dense Qwen transcriptions from
-     * quietly turning a 20KB book context back into an 80KB prompt. */
-    if (interactive && nvis > 0)
-        text_cap = total_weight > 0 ? content_cap * 3 / 4 : 0;
-    size_t vision_cap = interactive ? content_cap - text_cap : (size_t)-1;
     for (int i = pfirst - 1; ok && i < plast; i++) {
         if (!page_selected[i]) continue;
         int is_text = (i < tpages && pvis[i] >= PDF_TEXT_MIN_CHARS);
-        int wants_fig = is_text && page_has_fig[i];
-        if (is_text) {
-            size_t take = (size_t)plen[i];
-            if (interactive && total_weight > 0) {
-                int weight = 1;
-                if (semantic && pscore[i] != INT_MIN) {
-                    weight += 2;
-                    if (semantic_max > semantic_min)
-                        weight += (int)(3LL * (pscore[i] - semantic_min) /
-                                        (semantic_max - semantic_min));
-                } else if (!semantic) {
-                    if (i == pfirst - 1) weight += 5;
-                    else if (i == pfirst || i == plast - 1) weight += 1;
-                }
-                take = text_cap * (size_t)weight / (size_t)total_weight;
-                if (take < 32) take = 32;
-                if (take > (size_t)plen[i]) take = (size_t)plen[i];
-            } else {
-                if (text_bytes >= text_cap) { text_skipped++; continue; }
-                if (text_bytes + take > text_cap) take = text_cap - text_bytes;
+        if (!is_text) continue;
+        size_t take = (size_t)plen[i];
+        if (interactive && total_weight > 0) {
+            int weight = 1;
+            if (semantic && pscore[i] != INT_MIN) {
+                weight += 2;
+                if (semantic_max > semantic_min)
+                    weight += (int)(3LL * (pscore[i] - semantic_min) /
+                                    (semantic_max - semantic_min));
+            } else if (!semantic) {
+                if (i == pfirst - 1) weight += 5;
+                else if (i == pfirst || i == plast - 1) weight += 1;
             }
-            int excerpt_match = pmatch[i];
-            if (!semantic && i == pfirst - 1 && excerpt_match < 0) excerpt_match = 0;
-            ok = json_dyn_printf(&text, "\n--- Pagina %d (testo) ---\n", i + 1) &&
-                 pdf_append_page_excerpt(&text, pstart[i], (size_t)plen[i], take, excerpt_match) &&
-                 json_dyn_puts(&text, "\n");
-            text_bytes += take;
-            text_used++;
-            if (take < (size_t)plen[i]) text_partial++;
+            take = text_cap * (size_t)weight / (size_t)total_weight;
+            if (take < 32) take = 32;
+            if (take > (size_t)plen[i]) take = (size_t)plen[i];
+        } else {
+            if (text_bytes >= text_cap) { text_skipped++; continue; }
+            if (text_bytes + take > text_cap) take = text_cap - text_bytes;
         }
-        if (!ok || (is_text && !wants_fig)) continue;
-        if (vision_unavailable) {
-            if (wants_fig) fig_skipped++; else vskipped++;
-            continue;
-        }
-        /* Vision pass: full transcription for scans, figures-only for mixed
-         * text+figure pages (their body text already shipped above). */
-        int pass_cap_hit = vdone >= vcap ||
-            (interactive && wants_fig && fig_pass >= PDF_INTERACTIVE_FIG_PASSES) ||
-            (interactive && !wants_fig && scan_pass >= PDF_INTERACTIVE_SCAN_PASSES);
-        if (pass_cap_hit) {
-            if (wants_fig) fig_skipped++; else vskipped++;
-            continue;
-        }
-        vdone++;
-        if (wants_fig) fig_pass++; else scan_pass++;
-        pdf_job_write(jobpath, "{\"phase\":\"vision\",\"page\":%d,\"pages\":%d,\"done\":false}", vdone, nvis);
-        char pfx[sizeof dir + 16], img[sizeof dir + 24];
-        snprintf(pfx, sizeof pfx, "%s/pg%d", dir, i + 1);
-        snprintf(img, sizeof img, "%s.jpg", pfx);
-        /* Adaptive size: re-render smaller until the data URI fits the
-         * loopback body budget (a photo-dense scan can exceed it at 1400px
-         * even as JPEG). */
-        static const int scales[]    = { 1400, 1000, 800 };
-        static const int qualities[] = { 85,   78,   70  };
-        char *uri = NULL;
-        for (int a = 0; a < 3 && !uri; a++) {
-            if (!pdf_render(toppm, pdf, pfx, i + 1, i + 1, scales[a], 1, 1, qualities[a])) break;
-            char *u = pdf_img_data_uri(img);
-            unlink(img);
-            if (u && strlen(u) <= PDF_PAGE_B64_BUDGET) uri = u;
-            else free(u);
-        }
-        char *vt = uri ? pdf_vision_page(uri, wants_fig) : NULL;
-        free(uri);
-        /* format=text errors come back as a "see_image error: …" body. */
-        int good = vt && vt[0] && strncmp(vt, "see_image error", 15) != 0;
-        if (!good) vfail++;
-        ok = json_dyn_printf(&text, wants_fig
-                                 ? "\n--- Pagina %d (figure/grafici, letti dal modello vision locale) ---\n"
-                                 : "\n--- Pagina %d (scansione, letta dal modello vision locale) ---\n",
-                             i + 1);
-        if (ok && good && interactive) {
-            size_t remain = vision_bytes < vision_cap ? vision_cap - vision_bytes : 0;
-            int passes_left = nvis - vdone + 1;
-            size_t take = passes_left > 0 ? remain / (size_t)passes_left : remain;
-            size_t vlen = strlen(vt);
-            if (take > vlen) take = vlen;
-            ok = take > 0 && pdf_append_page_excerpt(&text, vt, vlen, take, -1);
-            vision_bytes += take;
-        } else if (ok) {
-            const char *shown = good ? vt : (wants_fig ? "(figure non leggibili)" : "(pagina non leggibile)");
-            ok = json_dyn_puts(&text, shown);
-            if (good) vision_bytes += strlen(vt);
-        }
-        if (ok) ok = json_dyn_puts(&text, "\n");
-        free(vt);
+        int excerpt_match = pmatch[i];
+        if (!semantic && i == pfirst - 1 && excerpt_match < 0) excerpt_match = 0;
+        ok = json_dyn_printf(&text, "\n--- Pagina %d (testo) ---\n", i + 1) &&
+             pdf_append_page_excerpt(&text, pstart[i], (size_t)plen[i], take, excerpt_match) &&
+             json_dyn_puts(&text, "\n");
+        text_bytes += take;
+        text_used++;
+        if (take < (size_t)plen[i]) text_partial++;
     }
-    qwen_memory_end(&vision_lease);
-    int pages_read = text_used + scan_pass;   /* distinct pages with content */
+    int pages_read = text_used;
     int range_partial = has_range ? (pfirst > 1 || plast < total) : (total > npages);
     int sampled = interactive && (pages_omitted > 0 || text_partial > 0);
-    int truncated = vskipped > 0 || fig_skipped > 0 || text_skipped > 0 || range_partial || sampled;
-    if (ok && vskipped > 0 && !vision_unavailable)
-        ok = json_dyn_printf(&text, "\n[PDF troncato: %d pagine scansionate oltre il limite di %d non lette.]\n",
-                             vskipped, vcap);
-    if (ok && fig_skipped > 0 && !vision_unavailable)
-        ok = json_dyn_printf(&text, "\n[%d pagine con figure oltre il limite vision: incluso solo il loro testo.]\n",
-                             fig_skipped);
-    if (ok && vision_unavailable > 0)
+    int truncated = scanned_pages > 0 || text_skipped > 0 || range_partial || sampled;
+    if (ok && scanned_pages > 0)
         ok = json_dyn_printf(&text,
-                             "\n[Modello vision non disponibile: %d supplementi visivi omessi; il testo recuperato resta incluso.]\n",
-                             vision_unavailable);
+                             "\n[%d pagine scansionate o solo-immagine omesse: nessun livello testuale disponibile.]\n",
+                             scanned_pages);
     if (ok && text_skipped > 0)
         ok = json_dyn_printf(&text, "\n[Testo troncato: %d pagine di testo oltre il limite di %dKB omesse.]\n",
                              text_skipped, (int)(text_cap / 1024));
@@ -1548,19 +1203,18 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         ok = json_dyn_printf(&text,
             "\n[Ricerca ibrida PDF: valutati %d passaggi sovrapposti; lette %d pagine candidate "
             "su %d, %zu caratteri di contenuto.]\n",
-            rag_chunks, selected_pages, plast - pfirst + 1, text_bytes + vision_bytes);
+            rag_chunks, selected_pages, plast - pfirst + 1, text_bytes);
     else if (ok && sampled)
         ok = json_dyn_printf(&text,
             "\n[Contesto PDF adattivo: %d pagine rappresentative su %d, %zu caratteri di contenuto; "
             "estratti distribuiti tra inizio e fine del documento.]\n",
-            selected_pages, plast - pfirst + 1, text_bytes + vision_bytes);
+            selected_pages, plast - pfirst + 1, text_bytes);
     if (ok && has_range)
         ok = json_dyn_printf(&text, "\n[Intervallo letto: pagine %d-%d di %d totali.]\n", pfirst, plast, total);
     else if (ok && total > npages)
         ok = json_dyn_printf(&text, "\n[PDF troncato alle prime %d di %d pagine.]\n", npages, total);
 
     free(layer);
-    if (have_dir) rmdir(dir);
     unlink(pdf); free(pdf);
 
     if (!ok) {
@@ -1571,17 +1225,16 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     }
     json_dyn_buf out = {0};
     int good = json_dyn_printf(&out, "{\"ok\":true,\"pages\":%d,\"total\":%d,\"first\":%d,\"last\":%d,"
-                                     "\"textPages\":%d,\"visionPages\":%d,\"figPages\":%d,"
+                                     "\"textPages\":%d,\"scannedPages\":%d,\"visionPages\":0,\"figPages\":0,"
                                      "\"selectedPages\":%d,\"retrievalChunks\":%d,"
-                                     "\"textLayerCached\":%s,\"embeddingIndexCached\":%s,\"figureIndexCached\":%s,"
-                                     "\"textChars\":%zu,\"visionChars\":%zu,\"contentChars\":%zu,"
+                                     "\"textLayerCached\":%s,\"embeddingIndexCached\":%s,"
+                                     "\"textChars\":%zu,\"visionChars\":0,\"contentChars\":%zu,"
                                      "\"semantic\":%s,\"hybrid\":%s,\"sampled\":%s,\"truncated\":%s,\"text\":",
-                               pages_read, total, pfirst, plast, text_used, vdone, fig_pass,
+                               pages_read, total, pfirst, plast, text_used, scanned_pages,
                                selected_pages, rag_chunks,
                                text_layer_cached ? "true" : "false",
                                embedding_index_cached ? "true" : "false",
-                               figure_index_cached ? "true" : "false",
-                               text_bytes, vision_bytes, text_bytes + vision_bytes,
+                               text_bytes, text_bytes,
                                semantic ? "true" : "false", semantic ? "true" : "false", sampled ? "true" : "false",
                                truncated ? "true" : "false") &&
                json_dyn_put_escaped(&out, text.ptr ? text.ptr : "") &&
@@ -1592,11 +1245,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         pdf_describe_fail(fd, want_text, "500 Internal Server Error", "oom");
         return;
     }
-    /* Cache only clean, non-empty reads: a transient vision failure must not
-     * freeze "(pagina non leggibile)" into every future hit. (Successful pages
-     * are still cached individually by pdf_vision_page, so a retry after a
-     * partial failure redoes only the failed pages.) */
-    if (vfail == 0 && pages_read > 0) pdf_cache_write(cpath, out.ptr, ".json", PDF_CACHE_MAX_FILES);
+    if (pages_read > 0) pdf_cache_write(cpath, out.ptr, ".json", PDF_CACHE_MAX_FILES);
     pdf_job_write(jobpath, "{\"phase\":\"done\",\"done\":true}");
     if (want_text) send_text(fd, "200 OK", text.ptr && text.ptr[0] ? text.ptr : "(empty PDF)", 0);
     else           send_json(fd, "200 OK", out.ptr);
@@ -1604,7 +1253,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     free(out.ptr);
 }
 
-/* Fork a detached worker (rendering + per-page vision are slow) — like vision. */
+/* Fork a detached worker because Poppler extraction and embedding can be slow. */
 static void api_pdf_fork(int fd, const char *body, int is_describe, int allow_path) {
     pid_t pid = fork();
     if (pid < 0) { if (is_describe) api_pdf_describe_run(fd, body, allow_path); else api_pdf_thumb_run(fd, body, allow_path); return; }
@@ -1638,7 +1287,6 @@ static void api_pdf_describe(int fd, const char *body) {
     (void)body;
     web_json_error(fd, "501 Not Implemented", "PDF is not available on the Windows build yet");
 #else
-    vision_touch_last_use();
     api_pdf_fork(fd, body, 1, client_is_loopback(fd));
 #endif
 }

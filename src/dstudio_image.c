@@ -1,6 +1,7 @@
-/* Local image endpoint. Qwen3.8-27B Max makes the authoritative edit/generate
- * decision, exits, and only then may Ideogram 4 or HunyuanImage load. The
- * worker is detached so the main HTTP loop stays responsive during inference. */
+/* Local image endpoint. The active native model makes the edit/generate
+ * decision in its explicit dstudio-image directive. DStudio dispatches that
+ * action directly to Ideogram 4 or HunyuanImage; no second vision router runs.
+ * The worker is detached so the main HTTP loop stays responsive. */
 
 #define IMAGE_JOB_OWNER_FILE "server-owner"
 #define IMAGE_JOB_CANCEL_FILE "cancel-requested"
@@ -303,11 +304,6 @@ static void api_image_generate_run(int fd, const char *body) {
         strcmp(aspect, "1:1")) {
         free(prompt); web_json_error(fd, "400 Bad Request", "unsupported image aspect ratio"); return;
     }
-    char reasoning[16] = "max";
-    (void)json_get_string(body, "reasoning_effort", reasoning, sizeof reasoning);
-    if (strcmp(reasoning, "max") && strcmp(reasoning, "high") && strcmp(reasoning, "off")) {
-        free(prompt); web_json_error(fd, "400 Bad Request", "reasoning_effort must be max, high or off"); return;
-    }
     char base[DSTUDIO_PATH_MAX], id[80], dir[DSTUDIO_PATH_MAX];
     if (!image_jobs_dir(base, sizeof base)) {
         free(prompt); web_json_error(fd, "500 Internal Server Error", "cannot create image job directory"); return;
@@ -347,7 +343,9 @@ static void api_image_generate_run(int fd, const char *body) {
         free(prompt); web_json_error(fd, "500 Internal Server Error", "cannot write image prompt"); return;
     }
     free(prompt);
-    image_write_status(dir, "running", "preparing", "Preparing Qwen3.8 Max image routing…", 3);
+    image_write_status(dir, "running", "preparing",
+                       !strcmp(action, "edit") ? "Preparing the local image editor…"
+                                                : "Preparing Ideogram 4 generation…", 3);
     if (image_cancel_requested(dir)) {
         image_generation_cancelled(fd, dir);
         return;
@@ -368,7 +366,7 @@ static void api_image_generate_run(int fd, const char *body) {
     snprintf(status_path, sizeof status_path, "%s/status.json", dir);
     char *argv[30] = { "/bin/sh", script, "--prompt-file", prompt_path,
                        "--outdir", dir, "--status-file", status_path,
-                       "--aspect", aspect, "--reasoning-effort", reasoning,
+                       "--aspect", aspect, "--action", action,
                        "--preserve", preserve, "--cancel-file", cancel_path, NULL };
     int ai = 16;
     if (input_path[0]) { argv[ai++] = "--input"; argv[ai++] = input_path; }
@@ -376,8 +374,8 @@ static void api_image_generate_run(int fd, const char *body) {
     if (reference2_path[0]) { argv[ai++] = "--input"; argv[ai++] = reference2_path; }
     if (reference3_path[0]) { argv[ai++] = "--input"; argv[ai++] = reference3_path; }
     argv[ai] = NULL;
-    qwen_memory_lease lease = qwen_memory_begin("image-pipeline");
-    if (!qwen_memory_ready(&lease)) {
+    media_memory_lease lease = media_memory_begin("image-pipeline");
+    if (!media_memory_ready(&lease)) {
         if (image_cancel_requested(dir)) {
             image_generation_cancelled(fd, dir);
             return;
@@ -388,12 +386,12 @@ static void api_image_generate_run(int fd, const char *body) {
         return;
     }
     if (image_cancel_requested(dir)) {
-        qwen_memory_end(&lease);
+        media_memory_end(&lease);
         image_generation_cancelled(fd, dir);
         return;
     }
     int rc = setup_run_cmd_capture(NULL, argv, log, sizeof log);
-    qwen_memory_end(&lease);
+    media_memory_end(&lease);
     if (image_cancel_requested(dir)) {
         image_generation_cancelled(fd, dir);
         return;

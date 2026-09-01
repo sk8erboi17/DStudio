@@ -1,0 +1,19 @@
+    ds4_tokens_copy(tokens, &w->transcript);
+    /* A zero-image observation is an ordinary tool response.  The upstream
+     * multimodal helper deliberately rejects text-only DeepSeek runtimes, so
+     * calling it unconditionally makes every read/search result look as if it
+     * overflowed context and can end the turn after a pointless compaction. */
+    bool ok;
+    if (!obs->image_count) {
+        ds4_chat_append_message(w->engine, tokens, "tool", parts[0]);
+        ok = true;
+    } else {
+        /* GLM grounds image tokens in user turns; DeepSeek Vision uses the
+         * native tool-response role. */
+        ok = ds4_chat_append_multimodal_message(
+            w->engine, tokens,
+            ds4_engine_is_glm_dsa(w->engine) ? "user" : "tool",
+            parts, images, obs->image_count, spans,
+            err, err_len) != 0;
+    }
+    free(parts);

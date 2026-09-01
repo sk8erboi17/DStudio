@@ -1,0 +1,24 @@
+static const char agent_cowork_laguna_tools_prompt_intro[] =
+    "You are DStudio Cowork, a local knowledge-work agent. Inspect sources, create the requested "
+    "Office deliverables, and verify them before answering.\n\n"
+    "### Tools\n\n"
+    "You may call functions to assist with the user query.\n"
+    "All available function signatures are listed below:\n"
+    "<available_tools>\n";
+
+static char *agent_build_laguna_tools_prompt(void) {
+    const bool cowork = agent_is_cowork_runtime();
+    const char *intro = cowork ? agent_cowork_laguna_tools_prompt_intro
+                               : agent_laguna_tools_prompt_intro;
+    const char *office = cowork ? agent_cowork_tool_schemas : "";
+    size_t a = strlen(intro);
+    size_t b = strlen(agent_glm_tool_schemas);
+    size_t bo = strlen(office);
+    size_t c = strlen(agent_laguna_tools_prompt_after_schemas);
+    char *out = xmalloc(a + b + bo + c + 1);
+    memcpy(out, intro, a);
+    memcpy(out + a, agent_glm_tool_schemas, b);
+    memcpy(out + a + b, office, bo);
+    memcpy(out + a + b + bo, agent_laguna_tools_prompt_after_schemas, c + 1);
+    return out;
+}

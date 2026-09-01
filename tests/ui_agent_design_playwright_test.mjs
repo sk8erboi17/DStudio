@@ -18,6 +18,7 @@ const starts = [];
 const sends = [];
 const sessions = [];
 const chatRequests = [];
+const coworkAttachments = [];
 let currentMode = 'server';
 let currentWorkdir = '/tmp/dstudio-ui-test';
 const staleAgentWorkdir = '/tmp/dstudio-missing-agent';
@@ -116,6 +117,51 @@ const server = http.createServer(async (req, res) => {
       ].join('');
       agentPollWorking = false;
     }
+    if (/Cowork streaming fixture/.test(body.displayPrompt || '')) {
+      agentPollText += [
+        `\x01USER\x02${body.displayPrompt || 'Cowork streaming fixture'}\x01ENDUSER\x02\n`,
+        'I should inspect the source before reporting a result.\n',
+        '\x1e' + JSON.stringify({ type: 'reasoning_end' }) + '\n',
+        '\x1e' + JSON.stringify({ type: 'tool_call_begin', name: 'read_pdf' }) + '\n',
+        '🛠️ Reading ',
+        '\x1e' + JSON.stringify({ type: 'tool_call_param', param: 'path', path: '' }) + '\n',
+        'inbox/quarterly-report.pdf 1:500...\n',
+        '\x1e' + JSON.stringify({ type: 'tool_call_begin', name: 'read' }) + '\n',
+        '🛠️ Reading ',
+        '\x1e' + JSON.stringify({ type: 'tool_call_param', param: 'path', path: '' }) + '\n',
+        'inbox/totals.csv 1:500...\n',
+      ].join('');
+      agentPollWorking = true;
+      setTimeout(() => {
+        agentPollText += [
+        '\x1e' + JSON.stringify({
+          type: 'tool_call',
+          name: 'read_pdf',
+          input: { path: 'inbox/quarterly-report.pdf' },
+        }) + '\n',
+        '\x1e' + JSON.stringify({
+          type: 'tool_result',
+          name: 'read_pdf',
+          output: 'Read 12 pages and extracted the quarterly totals.',
+        }) + '\n',
+        '\x1e' + JSON.stringify({
+          type: 'tool_call',
+          name: 'read',
+          input: { path: 'inbox/totals.csv' },
+        }) + '\n',
+        '\x1e' + JSON.stringify({
+          type: 'tool_result',
+          name: 'read',
+          output: 'Read 48 rows of quarterly totals.',
+        }) + '\n',
+        ].join('');
+        agentPollText += 'I created `deliverables/quarterly-summary.xlsx` from the source data';
+      }, 700);
+      setTimeout(() => {
+        agentPollText += ' and verified its totals against the PDF.';
+        agentPollWorking = false;
+      }, 1800);
+    }
     json(res, 200, { ok: true, from, at: Buffer.byteLength(agentPollText) });
     return;
   }
@@ -130,6 +176,16 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/agent/interrupt' && req.method === 'POST') {
     json(res, 200, { ok: true });
+    return;
+  }
+  if (url.pathname === '/api/cowork/attach-file' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req) || '{}');
+    coworkAttachments.push(body);
+    json(res, 200, {
+      ok: true,
+      name: body.name || 'document.pdf',
+      rel: `inbox/${body.name || 'document.pdf'}`,
+    });
     return;
   }
   if (url.pathname === '/api/design/session' && req.method === 'POST') {
@@ -181,7 +237,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/user-skills') {
     json(res, 200, { ok: true, skills: [
-      { id: 'ecc-security-review', name: 'ecc-security-review', description: 'User-created security checklist and review patterns.', modes: '[agent]' },
+      { id: 'ecc-security-review', name: 'ecc-security-review', description: 'User-created security checklist and review patterns.', modes: '[agent,cowork]' },
       { id: 'superpowers-systematic-debugging', name: 'superpowers-systematic-debugging', description: 'User-created root-cause debugging workflow.', modes: '[agent]' },
       { id: 'anthropic-claude-code-security-review', name: 'anthropic-claude-code-security-review', description: 'User-created high-confidence branch security review.', modes: '[agent]' },
     ] });
@@ -248,7 +304,9 @@ try {
   await page.addInitScript(() => {
     const now = Date.now();
     window.ds4PickDirectory = async ({ mode }) => (
-      mode === 'design' ? '/tmp/dstudio-ui-design' : '/tmp/dstudio-ui-agent'
+      mode === 'design' ? '/tmp/dstudio-ui-design'
+        : mode === 'cowork' ? '/tmp/dstudio-ui-cowork'
+        : '/tmp/dstudio-ui-agent'
     );
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
       v: 2,
@@ -259,17 +317,18 @@ try {
       thinkLevel: 'high',
       ctxSize: 65536,
       webMode: 'off',
-      workdirs: { agent: '/tmp/dstudio-missing-agent', design: '/tmp/dstudio-ui-design' },
+      workdirs: { agent: '/tmp/dstudio-missing-agent', cowork: '/tmp/dstudio-ui-cowork', design: '/tmp/dstudio-ui-design' },
     }));
     localStorage.setItem('ds4web.chats.v2', JSON.stringify({
       v: 2,
       deleted: [],
       chats: [
         { id: 'agent-seed', mode: 'agent', title: 'Agent seed', createdAt: now - 2, updatedAt: now - 2, messages: [], transcript: 'seed' },
+        { id: 'cowork-seed', mode: 'cowork', title: 'Cowork seed', createdAt: now - 1, updatedAt: now - 1, messages: [], transcript: '' },
         { id: 'design-seed', mode: 'design', title: 'Design seed', createdAt: now - 1, updatedAt: now - 1, messages: [], transcript: 'seed' },
       ],
     }));
-    localStorage.setItem('ds4web.active.v2', JSON.stringify({ v: 2, ids: { chat: null, agent: 'agent-seed', design: 'design-seed' } }));
+    localStorage.setItem('ds4web.active.v2', JSON.stringify({ v: 2, ids: { chat: null, agent: 'agent-seed', cowork: 'cowork-seed', design: 'design-seed' } }));
   });
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
@@ -398,6 +457,93 @@ try {
     debugDetails,
   );
 
+  // Cowork deliberately shares the Agent conversation surface, but keeps its
+  // document-specific actions and workspace behavior.
+  agentPollText = '';
+  agentPollWorking = false;
+  agentPollDeliveredLen = 0;
+  agentPollCaughtUp = 0;
+  await page.locator('#tab-cowork').click();
+  await page.waitForFunction(() => !document.querySelector('#agent-view')?.hidden && document.body.classList.contains('agent-cowork-mode'));
+  await waitFor(
+    () => starts.some((s) => s.mode === 'cowork' && s.workdir === '/tmp/dstudio-ui-cowork'),
+    'Cowork tab should start its runtime in the selected workspace',
+    debugDetails,
+  );
+  assert.equal(await page.locator('#pipe-head-mode').textContent(), 'Cowork', 'Cowork should identify itself in the shared session header');
+  assert.match(await page.locator('#pipe-head-path').textContent(), /dstudio-ui-cowork/, 'Cowork should show its active working folder');
+  await page.locator('#pipe-command-hints').waitFor({ state: 'visible' });
+  for (const command of ['/help', '/list', '/save', '/new', '/compact']) {
+    await page.getByRole('button', { name: command, exact: true }).waitFor({ state: 'visible' });
+  }
+
+  await page.locator('#cbar-gear').click();
+  await page.locator('#cbar-pop').waitFor({ state: 'visible' });
+  await page.locator('#cbar-attach').filter({ hasText: 'Attach files' }).waitFor({ state: 'visible' });
+  await page.locator('#cbar-pop .cbar-menu-row').filter({ hasText: 'Add a folder' }).waitFor({ state: 'visible' });
+  await page.getByRole('button', { name: /Working folder:/ }).waitFor({ state: 'visible' });
+  await page.locator('#chat-file-input').setInputFiles({
+    name: 'quarterly-report.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4\nCowork fixture\n'),
+  });
+  await page.getByText(/Saved to Cowork: quarterly-report\.pdf/).waitFor({ timeout: 5000 });
+  assert.equal(coworkAttachments.length, 1, 'Cowork attachment should reach its workspace upload endpoint');
+  assert.equal(coworkAttachments[0].dir, '/tmp/dstudio-ui-cowork', 'Cowork attachment should use the visible workspace');
+  const coworkAttachmentHint = await page.locator('#composer-input').inputValue();
+  assert.match(coworkAttachmentHint, /read it with read_pdf/, 'Cowork should add the correct PDF inspection instruction');
+
+  await page.locator('#cbar-gear').click();
+  await page.locator('#cbar-pop').waitFor({ state: 'hidden' });
+  const startsBeforeCoworkSkill = starts.length;
+  await page.locator('#cbar-gear').click();
+  await page.locator('#cbar-pop').waitFor({ state: 'visible' });
+  await page.locator('.skill-open').click();
+  await page.getByRole('dialog', { name: /Your skills/i }).waitFor({ timeout: 5000 });
+  await page.locator('.skills-cat').filter({ hasText: /Your skills/ }).click();
+  await page.locator('.skill-card').filter({ hasText: 'ecc-security-review' }).click();
+  assert.equal(starts.length, startsBeforeCoworkSkill, 'picking a Cowork skill should not restart the runtime');
+
+  await page.locator('#composer-input').fill(`Cowork streaming fixture\n${coworkAttachmentHint}`);
+  await page.locator('#btn-send').click();
+  await waitFor(
+    () => sends.some((s) => s.mode === 'cowork' &&
+      /Cowork streaming fixture/.test(s.body?.displayPrompt || '') &&
+      /\[DStudio selected skill: ecc-security-review\]/.test(s.body?.prompt || '') &&
+      /read it with read_pdf/.test(s.body?.prompt || '')),
+    'Cowork send should preserve the selected skill and document instruction',
+    debugDetails,
+  );
+  await page.locator('.agent-response-name').filter({ hasText: 'Cowork' }).waitFor({ timeout: 5000 });
+  await page.locator('.agent-user-meta').filter({ hasText: 'YOU' }).last().waitFor({ timeout: 5000 });
+  const coworkThought = page.locator('details.agent-thought').last();
+  await coworkThought.waitFor({ timeout: 5000 });
+  assert.equal(await coworkThought.getAttribute('open'), null, 'Cowork reasoning should stay collapsed like Agent reasoning');
+  await page.locator('.agent-workstream').last().waitFor({ timeout: 5000 });
+  await page.locator('.agent-workstream .toolfold[data-live="true"]').first().waitFor({ timeout: 5000 });
+  assert.equal(
+    await page.locator('.agent-workstream .toolfold[data-live="true"]').count(),
+    2,
+    'every announced read should be a formatted timeline action before execution completes',
+  );
+  assert.equal(
+    await page.locator('.agent-inner > .seg--text').filter({ hasText: /inbox\/(quarterly-report\.pdf|totals\.csv).*1:500/ }).count(),
+    0,
+    'split terminal read paths must never leak above the Working timeline as prose',
+  );
+  assert.equal(await page.getByText('Work log', { exact: true }).count(), 0, 'Agent/Cowork should expose only the action timeline, not a second Work log');
+  await page.locator('.agent-answer-streaming').filter({ hasText: /quarterly-summary\.xlsx/ }).waitFor({ timeout: 5000 });
+  assert.equal(await page.locator('.agent-response-status.is-live').last().textContent(), 'working', 'Cowork response header should report live streaming');
+  await page.getByText(/verified its totals against the PDF/).waitFor({ timeout: 5000 });
+  await page.waitForFunction(() => !document.querySelector('.agent-answer-streaming'), null, { timeout: 5000 });
+  assert.match(await page.locator('.agent-response-status').last().textContent(), /done/, 'Cowork response should settle on the same completed state as Agent');
+  await page.getByRole('button', { name: '/list', exact: true }).click();
+  await waitFor(
+    () => sends.some((s) => s.mode === 'cowork' && s.body?.prompt === '/list'),
+    'Cowork command hints should invoke the existing session commands',
+    debugDetails,
+  );
+
   await page.locator('#tab-design').click();
   await page.waitForFunction(() => !document.querySelector('#agent-view')?.hidden);
   await page.locator('#composer-input').fill('Design a landing page');
@@ -417,10 +563,38 @@ try {
   );
   assert.equal(starts.length, startsBeforeNewDesign, 'new design in the active workspace should not restart the design runtime');
   await page.getByRole('heading', { name: /What should we design\?/ }).waitFor({ timeout: 5000 });
+  const designComposer = await page.locator('.composer').evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    const style = getComputedStyle(node);
+    return {
+      display: style.display,
+      top: rect.top,
+      bottom: rect.bottom,
+      viewportHeight: innerHeight,
+      agentScrollTop: document.querySelector('#agent-view')?.scrollTop || 0,
+      agentTop: document.querySelector('#agent-view')?.getBoundingClientRect().top || 0,
+      briefTop: document.querySelector('.brief')?.getBoundingClientRect().top || 0,
+      bodyClass: document.body.className,
+      placeholder: document.querySelector('#composer-input')?.getAttribute('placeholder') || '',
+    };
+  });
+  assert.notEqual(designComposer.display, 'none', 'Design brief should keep the shared chat composer visible');
+  assert.ok(designComposer.top >= 0 && designComposer.bottom <= designComposer.viewportHeight + 1,
+    `Design composer must stay docked inside the viewport: ${JSON.stringify(designComposer)}`);
+  assert.match(designComposer.placeholder, /Describe the screen, flow, audience and visual direction/,
+    'Design composer should explain what can be sent');
+  assert.equal(await page.locator('.design-brief-composer-slot > .composer').count(), 1,
+    'Design should place the real shared chat directly below its intro');
   assert.equal(await page.getByRole('button', { name: /Open gallery/i }).count(), 0, 'Design brief should not require an Open gallery button');
   await page.locator('.design-gallery-card__title').filter({ hasText: 'Airbnb' }).waitFor({ timeout: 5000 });
   await page.locator('.design-gallery-card__title').filter({ hasText: 'Apple' }).waitFor({ timeout: 5000 });
   await page.locator('.brief-gallery-panel__title', { hasText: 'Visual starting points' }).waitFor({ timeout: 5000 });
+  const designOrder = await page.evaluate(() => ({
+    composerBottom: document.querySelector('.design-brief-composer-slot > .composer')?.getBoundingClientRect().bottom || 0,
+    galleryTop: document.querySelector('.brief-gallery-panel')?.getBoundingClientRect().top || 0,
+  }));
+  assert.ok(designOrder.composerBottom <= designOrder.galleryTop,
+    `Design chat must precede Visual starting points: ${JSON.stringify(designOrder)}`);
   const designSearch = page.getByLabel('Search design gallery');
   await designSearch.fill('Apple');
   await page.locator('.design-gallery-card__title').filter({ hasText: 'Apple' }).first().waitFor({ timeout: 5000 });
@@ -443,6 +617,7 @@ try {
   await page.getByText(/Design send failed: agent\/design runtime is not active/).waitFor({ timeout: 5000 });
 
   assert.ok(starts.some((s) => s.mode === 'agent'), 'agent tab should start the agent runtime');
+  assert.ok(starts.some((s) => s.mode === 'cowork'), 'cowork tab should start the cowork runtime');
   assert.ok(starts.some((s) => s.mode === 'design'), 'design tab should start the design runtime');
   console.log('ui_agent_design_playwright_test: ok');
 } finally {

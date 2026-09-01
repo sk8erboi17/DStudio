@@ -28,6 +28,7 @@ core.*
 # runtime here and applies reversible patch sets without vendoring source.
 /ds4/
 /ds4-glm5.3/
+/ds4-glm5.3.zip
 /ds4-laguna-s21/
 
 # Runtime diagnostic dump

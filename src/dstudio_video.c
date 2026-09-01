@@ -634,8 +634,8 @@ static void api_video_generate_run(int fd, const char *body) {
     if (reference_image_1[0]) { argv[a++] = "--reference-image"; argv[a++] = reference_image_1; }
     if (reference_image_2[0]) { argv[a++] = "--reference-image"; argv[a++] = reference_image_2; }
     argv[a] = NULL;
-    qwen_memory_lease lease = qwen_memory_begin("video-generation");
-    if (!qwen_memory_ready(&lease)) {
+    media_memory_lease lease = media_memory_begin("video-generation");
+    if (!media_memory_ready(&lease)) {
         if (video_cancel_requested(dir)) {
             video_generation_cancelled(fd, dir);
             return;
@@ -646,12 +646,12 @@ static void api_video_generate_run(int fd, const char *body) {
         return;
     }
     if (video_cancel_requested(dir)) {
-        qwen_memory_end(&lease);
+        media_memory_end(&lease);
         video_generation_cancelled(fd, dir);
         return;
     }
     int rc = setup_run_cmd_capture(NULL, argv, log, sizeof log);
-    qwen_memory_end(&lease);
+    media_memory_end(&lease);
     if (video_cancel_requested(dir)) {
         video_generation_cancelled(fd, dir);
         return;

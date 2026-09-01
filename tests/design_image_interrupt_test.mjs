@@ -53,7 +53,9 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
       generatedJob = body.job;
       assert.match(generatedJob, /^design-image-\d+-\d+$/);
-      assert.equal(body.reasoning_effort, 'max');
+      assert.equal(body.action, 'generate');
+      assert.equal(Object.hasOwn(body, 'reasoning_effort'), false,
+        'the direct image worker must not receive a retired router reasoning field');
       if (!interruptSent) {
         interruptSent = true;
         setImmediate(() => {
