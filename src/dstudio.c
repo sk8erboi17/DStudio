@@ -2739,14 +2739,20 @@ static int flash_config_fits_metal(const engine_cfg *cfg, int with_dspark,
     return required <= budget;
 }
 
-/* Make a pathological DSpark configuration safe before spawning. Plain DS4
- * must preserve the requested context when explicit expert SSD streaming is
- * off: Metal uses full residency when it fits and its existing lazy mmap path
+/* Preflight a Flash/DSpark configuration before spawning. Plain DS4 must
+ * preserve the requested context when explicit expert SSD streaming is off:
+ * Metal uses full residency when it fits and its existing lazy mmap path
  * otherwise. Context reduction is a quality regression, so the largest fully
- * resident context is diagnostic information only. */
+ * resident context is diagnostic information only. DSpark is never silently
+ * removed for capacity: an oversized pair pauses for explicit confirmation. */
 static int normalize_flash_memory_config(engine_cfg *cfg, int remote_model,
-                                         char *note, size_t notesz) {
+                                         int allow_over_budget_dspark,
+                                         char *note, size_t notesz,
+                                         unsigned long long *required_out,
+                                         unsigned long long *budget_out) {
     if (note && notesz) note[0] = '\0';
+    if (required_out) *required_out = 0;
+    if (budget_out) *budget_out = 0;
     /* DSpark is an external DeepSeek Flash draft model. GLM 5.3 has its own
      * integrated MTP block, so a persisted DSpark toggle must never attach a
      * DeepSeek support GGUF to GLM (or to another model family). */
@@ -2757,18 +2763,39 @@ static int normalize_flash_memory_config(engine_cfg *cfg, int remote_model,
                      "DSpark disabled because it is only compatible with DeepSeek V4 Flash");
     }
 #ifndef __APPLE__
-    (void)cfg; (void)remote_model;
+    (void)cfg; (void)remote_model; (void)allow_over_budget_dspark;
     return 1;
 #else
     if (!cfg || remote_model || !model_is_flash() || current_model_file_size() <= 0 ||
         local_metal_budget_bytes() == 0) return 1;
     const int requested_ctx = cfg->ctx;
-    const int requested_dspark = g_dspark_enabled;
     unsigned long long required = 0, budget = 0;
 
     if (g_dspark_enabled &&
         !flash_config_fits_metal(cfg, 1, &required, &budget)) {
-        g_dspark_enabled = 0;
+        /* A missing support checkpoint is diagnosed precisely by spawn_*.
+         * When both sizes and the Metal budget are known, exceeding the
+         * estimate is a user choice: never silently rewrite the DSpark
+         * preference. The first request is a non-destructive preflight; a
+         * second request carrying the explicit confirmation launches the
+         * exact requested configuration. */
+        if (required > 0 && budget > 0) {
+            if (required_out) *required_out = required;
+            if (budget_out) *budget_out = budget;
+            const double required_gib = (double)required / (1024.0 * 1024.0 * 1024.0);
+            const double budget_gib = (double)budget / (1024.0 * 1024.0 * 1024.0);
+            if (!allow_over_budget_dspark) {
+                if (note && notesz)
+                    snprintf(note, notesz,
+                             "DSpark needs the main model, its support model and the requested context at the same time (estimated %.1f GiB), which exceeds this Mac's %.1f GiB Metal memory budget. macOS may page heavily or terminate the engine.",
+                             required_gib, budget_gib);
+                return 0;
+            }
+            if (note && notesz)
+                snprintf(note, notesz,
+                         "Starting DSpark by user confirmation despite an estimated %.1f GiB requirement exceeding the %.1f GiB Metal memory budget",
+                         required_gib, budget_gib);
+        }
     }
 
     const int mapped = !g_dspark_enabled &&
@@ -2780,11 +2807,7 @@ static int normalize_flash_memory_config(engine_cfg *cfg, int remote_model,
             requested_ctx,
             model_bytes > 0 ? (unsigned long long)model_bytes : 0ull,
             0, budget);
-        if (requested_dspark && !g_dspark_enabled) {
-            snprintf(note, notesz,
-                     "DSpark disabled because the support model exceeds the Metal budget; preserving the requested %d-token context through DS4's lazy memory-mapped path with explicit SSD streaming off",
-                     requested_ctx);
-        } else if (resident_ctx > 0) {
+        if (resident_ctx > 0) {
             snprintf(note, notesz,
                      "Preserving the requested %d-token context through DS4's lazy memory-mapped path with explicit SSD streaming off (%d tokens is the largest estimated fully resident context)",
                      requested_ctx, resident_ctx);
@@ -2793,9 +2816,6 @@ static int normalize_flash_memory_config(engine_cfg *cfg, int remote_model,
                      "Preserving the requested %d-token context through DS4's lazy memory-mapped path with explicit SSD streaming off",
                      requested_ctx);
         }
-    } else if (note && notesz && requested_dspark && !g_dspark_enabled) {
-        snprintf(note, notesz,
-                 "DSpark disabled because the main and support models exceed the Metal memory budget");
     }
     return 1;
 #endif
@@ -4255,7 +4275,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     if (vision_rel) { argv[n++] = "--vision"; argv[n++] = (char *)vision_rel; }
     argv[n++] = "--kv-disk-dir"; argv[n++] = kvdir; argv[n++] = "--kv-disk-space-mb"; argv[n++] = kvs;
     argv[n++] = "--kv-cache-min-tokens"; argv[n++] = mins; argv[n++] = "--cors";
-    if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp"; argv[n++] = dspark_path; }
+    if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp-model"; argv[n++] = dspark_path; }
     argv[n] = NULL;
     pid_t pid = 0;
     if (!win_spawn(g_ds4_dir, argv, 0, 0, NULL, &g_out_fd, &g_err_fd, &pid, err, errsz))
@@ -4293,7 +4313,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
         }
         argv[n++] = "--kv-disk-dir"; argv[n++] = kvdir; argv[n++] = "--kv-disk-space-mb"; argv[n++] = kvs;
         argv[n++] = "--kv-cache-min-tokens"; argv[n++] = mins; argv[n++] = "--cors";
-        if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp"; argv[n++] = dspark_path; }
+        if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp-model"; argv[n++] = dspark_path; }
         argv[n] = NULL;
         execv("./ds4-server", argv);
         _exit(127);
@@ -5356,7 +5376,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir,
         argv[n++] = "-m"; argv[n++] = model_abs;
         if (dspark_on) {
             argv[n++] = "--dspark";
-            argv[n++] = "--mtp";
+            argv[n++] = "--mtp-model";
             argv[n++] = dspark_path;
             argv[n++] = "--temp";
             argv[n++] = "0";
@@ -5440,7 +5460,7 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir,
             argv[n++] = "-m"; argv[n++] = model_abs;
             if (dspark_on) {
                 argv[n++] = "--dspark";
-                argv[n++] = "--mtp";
+                argv[n++] = "--mtp-model";
                 argv[n++] = dspark_path;
                 argv[n++] = "--temp";
                 argv[n++] = "0";
@@ -5567,7 +5587,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         if (vision_rel) { argv[n++] = "--vision"; argv[n++] = (char *)vision_rel; }
         if (dspark_on) {
             argv[n++] = "--dspark";
-            argv[n++] = "--mtp";
+            argv[n++] = "--mtp-model";
             argv[n++] = dspark_path;
             argv[n++] = "--temp";
             argv[n++] = "0";
@@ -5643,7 +5663,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
             if (vision_rel) { argv[n++] = "--vision"; argv[n++] = (char *)vision_rel; }
             if (dspark_on) {
                 argv[n++] = "--dspark";
-                argv[n++] = "--mtp";
+                argv[n++] = "--mtp-model";
                 argv[n++] = dspark_path;
                 argv[n++] = "--temp";
                 argv[n++] = "0";
@@ -7027,16 +7047,22 @@ static void api_start(int fd, const char *body) {
 
     const int requested_ctx = cfg.ctx;
     const int requested_dspark = g_dspark_enabled;
+    const int allow_over_budget_dspark = json_get_bool(body, "allowOverBudgetDspark");
     char config_note[384] = "";
+    unsigned long long dspark_required = 0, metal_budget = 0;
     const int remote_engine = g_remote_base_url[0] && (want_agent || want_cowork || want_design);
-    if (!normalize_flash_memory_config(&cfg, remote_engine, config_note, sizeof config_note)) {
+    if (!normalize_flash_memory_config(&cfg, remote_engine, allow_over_budget_dspark,
+                                       config_note, sizeof config_note,
+                                       &dspark_required, &metal_budget)) {
         g_dspark_enabled = requested_dspark;
-        task_mark_failed(task_id, config_note, config_note);
-        char note_esc[768], out[1024];
+        task_mark_canceled(task_id, "Launch paused for DSpark memory confirmation");
+        char note_esc[768], out[1280];
         json_escape_into(note_esc, sizeof note_esc, config_note, strlen(config_note));
         snprintf(out, sizeof out,
-                 "{\"ok\":false,\"taskId\":%llu,\"code\":\"memory_budget\",\"error\":\"%s\"}",
-                 task_id, note_esc);
+                 "{\"ok\":false,\"taskId\":%llu,\"code\":\"dspark_memory_confirmation\","
+                 "\"confirmationRequired\":true,\"requiredBytes\":%llu,\"budgetBytes\":%llu,"
+                 "\"error\":\"%s\"}",
+                 task_id, dspark_required, metal_budget, note_esc);
         send_json(fd, "409 Conflict", out);
         return;
     }
@@ -10295,6 +10321,7 @@ int main(int argc, char **argv)
 
     while (!g_stop) {
         reap_child();
+        gsa_tools_install_reap();
         struct pollfd pfd[3];
         int nf = 0;
         pfd[nf].fd = g_srv_fd; pfd[nf].events = POLLIN; nf++;  /* rebindable: the LAN toggle swaps this */
@@ -10328,6 +10355,7 @@ int main(int argc, char **argv)
     diag_sse_close_all();
     image_runtime_shutdown();
     video_runtime_shutdown();
+    gsa_tools_install_shutdown();
     stop_child();
     return 0;
 }

@@ -1,6 +1,8 @@
 $ErrorActionPreference = 'Continue'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Bin = Join-Path $Root 'bin'
+$PythonStateRoot = Join-Path $env:USERPROFILE '.dstudio\gsa\python'
+$PipxHome = Join-Path $env:USERPROFILE '.dstudio\gsa\pipx\home'
 $NucleiTemplatesDir = Join-Path $Root 'nuclei-templates'
 $TrivyCacheDir = Join-Path $Root 'trivy-cache'
 $GrypeDbCacheDir = Join-Path $Root 'grype\db'
@@ -15,8 +17,8 @@ New-Item -ItemType Directory -Force -Path $GrypeDbCacheDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Root 'go') | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Root 'cargo\home') | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Root 'cargo\target') | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $Root 'pipx') | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $Root 'python') | Out-Null
+New-Item -ItemType Directory -Force -Path $PipxHome | Out-Null
+New-Item -ItemType Directory -Force -Path $PythonStateRoot | Out-Null
 $env:Path = "$Bin;$env:ProgramFiles\Go\bin;$env:ProgramFiles\nodejs;$env:USERPROFILE\.cargo\bin;$env:Path"
 $env:GOBIN = $Bin
 $env:GOPATH = Join-Path $Root 'go'
@@ -24,7 +26,7 @@ $env:GOMODCACHE = Join-Path $env:GOPATH 'pkg\mod'
 $env:GOCACHE = Join-Path $env:GOPATH 'cache'
 $env:CARGO_HOME = Join-Path $Root 'cargo\home'
 $env:CARGO_TARGET_DIR = Join-Path $Root 'cargo\target'
-$env:PIPX_HOME = Join-Path $Root 'pipx\home'
+$env:PIPX_HOME = $PipxHome
 $env:PIPX_BIN_DIR = $Bin
 $env:NUCLEI_TEMPLATES_DIR = $NucleiTemplatesDir
 $env:TRIVY_CACHE_DIR = $TrivyCacheDir
@@ -32,6 +34,10 @@ $env:GRYPE_DB_CACHE_DIR = $GrypeDbCacheDir
 Write-Host "Installing Go-based GSA tools into $Bin"
 if (Get-Command go -ErrorAction SilentlyContinue) {
 {{GO_INSTALL_LINES}}} else { Add-Fail 'Go is not installed; cannot install Go-based GSA tools. Install Go, then rerun this script.' }
+if (Get-Command go -ErrorAction SilentlyContinue) {
+  go clean -cache -modcache
+  if ($LASTEXITCODE -ne 0) { Add-Warn 'could not fully clean the temporary managed Go build cache' }
+}
 function Test-AnyCommand([string[]]$Commands) { foreach ($Cmd in $Commands) { if (Get-Command $Cmd -ErrorAction SilentlyContinue) { return $true } }; return $false }
 function Ensure-SystemTool([string]$Label, [string[]]$Commands, [string]$ChocoPackage) {
   if (Test-AnyCommand $Commands) { Write-Host "  - $Label present"; return }
@@ -95,12 +101,16 @@ if ($Grype) {
   & $Grype.Source db update
   if ($LASTEXITCODE -ne 0) { Add-Fail 'grype DB update failed' }
 } else { Add-Fail 'grype is not installed after system tool installation; cannot prefetch vulnerability database' }
-if (Get-Command cargo -ErrorAction SilentlyContinue) {
+if (Get-Command binwalk -ErrorAction SilentlyContinue) {
+  Write-Host 'binwalk already present'
+} elseif (Get-Command cargo -ErrorAction SilentlyContinue) {
   cargo install binwalk --root $Root --locked --force
   if ($LASTEXITCODE -ne 0) { Add-Fail 'binwalk install failed via cargo' }
 } else { Add-Fail 'Cargo is not installed; cannot install binwalk. Install Rust/Cargo, then rerun this script.' }
 Write-Host 'Installing Node-based optional tools'
-if (Get-Command npm -ErrorAction SilentlyContinue) {
+if (Get-Command playwright -ErrorAction SilentlyContinue) {
+  Write-Host '  - playwright already present'
+} elseif (Get-Command npm -ErrorAction SilentlyContinue) {
   $NodeRoot = Join-Path $Root 'node'
   New-Item -ItemType Directory -Force -Path $NodeRoot | Out-Null
   npm install --prefix $NodeRoot playwright
@@ -113,11 +123,12 @@ if (Get-Command npm -ErrorAction SilentlyContinue) {
   } else { Add-Fail 'playwright binary was not produced by npm install' }
 } else { Add-Fail 'Node.js/npm is not installed; cannot install Playwright. Install Node.js, then rerun this script.' }
 $PyPkgs = @('plaso','volatility3','semgrep','sqlmap','arjun','uro','pwntools')
-$PyConstraints = Join-Path $Root 'python\constraints.txt'
+$PyConstraints = Join-Path $PythonStateRoot 'constraints.txt'
 Set-Content -Path $PyConstraints -Value 'setuptools<81'
 $env:PIP_CONSTRAINT = $PyConstraints
 if (Get-Command pipx -ErrorAction SilentlyContinue) {
-  function Install-ManagedPipxPackage([string]$Pkg) {
+  function Install-ManagedPipxPackage([string]$Pkg, [string[]]$Commands) {
+    if (Test-AnyCommand $Commands) { Write-Host "  - $Pkg already present"; return }
     Write-Host "  - $Pkg"
     $Venv = Join-Path $env:PIPX_HOME "venvs\$Pkg"
     if (Test-Path $Venv) {
@@ -127,10 +138,16 @@ if (Get-Command pipx -ErrorAction SilentlyContinue) {
     pipx install --force --pip-args "--constraint $PyConstraints" $Pkg
     if ($LASTEXITCODE -ne 0) { Add-Fail "$Pkg install failed via pipx" }
   }
-  foreach ($Pkg in $PyPkgs) { Install-ManagedPipxPackage $Pkg }
+  Install-ManagedPipxPackage 'plaso' @('log2timeline','log2timeline.py','psort','psort.py','pinfo','pinfo.py')
+  Install-ManagedPipxPackage 'volatility3' @('vol','vol.py')
+  Install-ManagedPipxPackage 'semgrep' @('semgrep')
+  Install-ManagedPipxPackage 'sqlmap' @('sqlmap')
+  Install-ManagedPipxPackage 'arjun' @('arjun')
+  Install-ManagedPipxPackage 'uro' @('uro')
+  Install-ManagedPipxPackage 'pwntools' @('pwn')
 } elseif ((Get-Command python3 -ErrorAction SilentlyContinue) -or (Get-Command python -ErrorAction SilentlyContinue)) {
   $Python = if (Get-Command python3 -ErrorAction SilentlyContinue) { 'python3' } else { 'python' }
-  $Venv = Join-Path $Root 'python\venv'
+  $Venv = Join-Path $PythonStateRoot 'venv'
   if (Test-Path $Venv) { try { Remove-Item $Venv -Recurse -Force -ErrorAction Stop } catch { Add-Fail 'could not remove existing managed Python venv' } }
   & $Python -m venv $Venv
   if ($LASTEXITCODE -eq 0) {

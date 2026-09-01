@@ -21591,6 +21591,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       let userSkillCache = null; // [{id,name,description}] from the user's private catalog
       let gsaToolCache = null;   // optional GSA tool status from /api/gsa/tools
       let gsaToolLoading = false;
+      let gsaToolInstallTaskId = 0;
+      let gsaToolInstallWatch = null;
       let gsaToolsFilter = 'all';
       let dsCache = null;        // [{id,name,description}] from /api/design-systems
       let agentBusy = false;
@@ -23310,6 +23312,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         try {
           const res = await Engine.gsaTools();
           gsaToolCache = res?.gsaTools || null;
+          const installTaskId = Number(gsaToolCache?.installTaskId || 0);
+          if (gsaToolCache?.installing && installTaskId) watchGsaToolInstall(installTaskId);
         } catch {
           gsaToolCache = null;
         } finally {
@@ -23320,23 +23324,76 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return gsaToolCache;
       }
 
+      function gsaToolInstallBusy() {
+        return !!gsaToolInstallTaskId || gsaToolCache?.installing === true;
+      }
+
+      function watchGsaToolInstall(taskId) {
+        const id = Number(taskId || 0);
+        if (!id) return Promise.resolve(null);
+        if (gsaToolInstallWatch && gsaToolInstallTaskId === id) return gsaToolInstallWatch;
+        gsaToolInstallTaskId = id;
+        const watchedId = id;
+        gsaToolInstallWatch = (async () => {
+          let terminalTask = null;
+          for (;;) {
+            try {
+              const res = await Engine.task(watchedId);
+              const task = res?.task || null;
+              const status = String(task?.status || '');
+              if (['completed', 'failed', 'canceled', 'incomplete'].includes(status)) {
+                terminalTask = task;
+                break;
+              }
+            } catch { /* the server may be briefly busy while package managers start */ }
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+          try {
+            const refreshed = await Engine.gsaTools();
+            gsaToolCache = refreshed?.gsaTools || gsaToolCache;
+          } catch { /* retain the latest known catalog */ }
+          if (terminalTask?.status === 'completed') {
+            const found = Number(gsaToolCache?.found || 0);
+            const total = Number(gsaToolCache?.total || 0);
+            toast(`GSA tools installed. ${found}/${total} detected.`, 'info');
+          } else {
+            const log = gsaToolCache?.installLog ? ` Log: ${gsaToolCache.installLog}` : '';
+            toast(`${terminalTask?.error || 'GSA tool installation did not complete.'}${log}`, 'error');
+          }
+          return terminalTask;
+        })().finally(() => {
+          if (gsaToolInstallTaskId === watchedId) {
+            gsaToolInstallTaskId = 0;
+            gsaToolInstallWatch = null;
+          }
+          if (gsaToolCache && Number(gsaToolCache.installTaskId || 0) === watchedId)
+            gsaToolCache = { ...gsaToolCache, installing: false, installTaskId: 0 };
+          if (gsaToolsDialog?.open) renderGsaToolsDialog();
+          rebuildGearIfOpen();
+        });
+        if (gsaToolsDialog?.open) renderGsaToolsDialog();
+        rebuildGearIfOpen();
+        return gsaToolInstallWatch;
+      }
+
       async function installGsaTools() {
-        if (gsaToolLoading) return;
+        if (gsaToolLoading || gsaToolInstallBusy()) return;
         gsaToolLoading = true;
         rebuildGearIfOpen();
-        toast('Preparing GSA tool install scripts…', 'info');
+        toast('Starting GSA tool installation…', 'info');
         try {
           const res = await Engine.gsaToolsInstall();
           gsaToolCache = res?.gsaTools || gsaToolCache;
-          if (!res?.ok) toast(res?.error || 'GSA preparation failed.', 'error');
+          if (!res?.ok) toast(res?.error || res?.detail || 'GSA installation failed to start.', 'error');
           else {
-            const blocked = Number(res?.gsaTools?.notInstallable || 0);
-            toast(blocked
-              ? `GSA scripts ready. ${blocked} tools need Go/Python/Cargo or a package manager first.`
-              : 'GSA tool scripts ready.', 'info');
+            const taskId = Number(res?.taskId || res?.gsaTools?.installTaskId || 0);
+            toast(res?.started === false
+              ? 'GSA tool installation is already running.'
+              : 'GSA tool installation is running in the background.', 'info');
+            if (taskId) watchGsaToolInstall(taskId);
           }
         } catch (e) {
-          toast(`GSA preparation failed: ${e?.message || e}`, 'error');
+          toast(`GSA installation failed to start: ${e?.message || e}`, 'error');
         } finally {
           gsaToolLoading = false;
           if (gsaToolsDialog?.open) renderGsaToolsDialog();
@@ -23637,14 +23694,15 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const enabled = tools.filter((t) => gsaToolIsEnabled(t));
         const missing = enabled.filter((t) => !t.found);
         const blocked = missing.filter((t) => t.installable === false);
+        const installing = gsaToolInstallBusy();
         box.append(el('div', { class: 'gsa-tools__head' }, [
           el('span', { class: 'gsa-tools__title', text: 'Analysis automation' }),
-          el('span', { class: 'gsa-tools__sub', text: gsaToolLoading ? 'checking…' : `${found.length}/${enabled.length || 0} active ready · ${securityProfileValue()}` }),
+          el('span', { class: 'gsa-tools__sub', text: gsaToolLoading ? 'checking…' : (installing ? 'installing tools…' : `${found.length}/${enabled.length || 0} active ready · ${securityProfileValue()}`) }),
         ]));
         const open = el('button', { class: 'gsa-tools__btn gsa-tools__btn--open', type: 'button', text: 'Open tools' });
         on(open, 'click', (e) => { e.stopPropagation(); openGsaToolsDialog(); });
         box.append(el('div', { class: 'gsa-tools__actions' }, [
-          el('span', { class: 'gsa-tools__sub', text: gsaToolLoading ? 'checking' : (blocked.length ? `${blocked.length} need installers` : (missing.length ? `${missing.length} missing, optional` : 'All detected tools ready')) }),
+          el('span', { class: 'gsa-tools__sub', text: gsaToolLoading ? 'checking' : (installing ? 'running in background' : (blocked.length ? `${blocked.length} need installers` : (missing.length ? `${missing.length} missing, optional` : 'All detected tools ready'))) }),
           el('span', {}, [open]),
         ]));
         if (isBlackHatSecurityProfile()) {
@@ -23699,7 +23757,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const tools = gsaToolList();
         const enabledTools = tools.filter((tool) => gsaToolIsEnabled(tool));
         const missingTools = tools.filter((tool) => !tool.found);
-        const installableMissing = missingTools.filter((tool) => tool.installable !== false);
+        const installing = gsaToolInstallBusy();
         const stat = (count, label, cls = '') => el('span', { class: cls }, [
           el('b', { text: String(count) }),
           document.createTextNode(` ${label}`),
@@ -23709,7 +23767,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           : [
               stat(enabledTools.length, 'enabled'),
               stat(tools.length, 'in catalog'),
-              stat(missingTools.length, 'not installed', 'is-missing'),
+              stat(missingTools.length, installing ? 'not installed · installing…' : 'not installed', 'is-missing'),
             ]));
         gsaToolsDialog?.querySelectorAll('[data-gsa-tools-filter]').forEach((button) => {
           const active = button.dataset.gsaToolsFilter === gsaToolsFilter;
@@ -23718,8 +23776,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         });
         const installAll = qs('#gsa-tools-install');
         if (installAll) {
-          installAll.textContent = installableMissing.length ? `Install missing (${installableMissing.length})` : 'Install missing';
-          installAll.disabled = gsaToolLoading || !installableMissing.length;
+          installAll.textContent = installing ? 'Installing…' : (missingTools.length ? `Install missing (${missingTools.length})` : 'Install missing');
+          installAll.disabled = gsaToolLoading || installing || !missingTools.length;
         }
         if (!tools.length) {
           gsaToolsDialogGrid.replaceChildren(el('div', { class: 'wd-empty', text: gsaToolLoading ? 'Checking installed tools...' : 'No GSA tools reported yet.' }));
@@ -23780,7 +23838,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
                 class: 'gsa-tool-install', type: 'button', text: 'Install',
                 title: installProblem || tool.installHint || tool.install || `Install ${primary}`,
               };
-              if (tool.installable === false) installProps.disabled = '';
+              if (installing || tool.installable === false) installProps.disabled = '';
               const install = el('button', installProps);
               on(install, 'click', () => installGsaTools());
               action.append(install);
@@ -28406,6 +28464,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       let pendingUserTurn = null; // optimistic UI until the backend echo lands in the stream
       let sendSerial = 0;         // invalidates async engine-buffer syncs started before a send
       let sessionCommandTail = Promise.resolve();
+      let sessionCommandPending = 0;
       let activeSessionCommand = null;
       let sessionEventCarry = '';
 
@@ -29433,6 +29492,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       function stop() {
         restoreSharedComposer();
         epoch++;
+        sendSerial++; // cancel a prompt queued behind slow session maintenance
         clearSessionListPull();
         sessionEventCarry = '';
         activeView = false;
@@ -29593,9 +29653,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return !working;
       }
 
-      async function waitIdle(timeoutMs = 4000) {
+      async function waitIdle(timeoutMs = 4000, stillValid = null) {
         const deadline = Date.now() + timeoutMs;
         for (;;) {
+          if (stillValid && !stillValid()) return false;
           try {
             const st = await Engine.status();
             if (st && st.agentWorking === false) return true;
@@ -29705,7 +29766,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         };
         const run = () => runSessionAction(request);
         const result = sessionCommandTail.then(run, run);
-        sessionCommandTail = result.catch(() => ({ ok: false }));
+        sessionCommandPending++;
+        const tracked = result.finally(() => {
+          sessionCommandPending = Math.max(0, sessionCommandPending - 1);
+        });
+        sessionCommandTail = tracked.catch(() => ({ ok: false }));
         if (opts.reportError) {
           result.then((outcome) => {
             if (outcome && !outcome.ok && !outcome.canceled)
@@ -30100,16 +30165,37 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
       }
 
-      async function agentSendWhenSettled(runtimePrompt, displayPrompt, expectedMode) {
+      async function agentSendWhenSettled(runtimePrompt, displayPrompt, expectedMode, expectedSerial) {
+        const requestIsCurrent = () => activeView && viewMode === expectedMode && sendSerial === expectedSerial;
+        /* A fresh Design conversation queues /new, which may need minutes to
+         * rebuild/prefill its 131k system context.  Keep the user's first
+         * prompt behind that exact maintenance command instead of racing the
+         * backend and turning a healthy prefill into a failed task. */
+        const hasQueuedMaintenance = sessionCommandPending > 0;
+        const queuedMaintenance = hasQueuedMaintenance ? sessionCommandTail : Promise.resolve({ ok: true });
+        let waitNotice = setTimeout(() => {
+          if (hasQueuedMaintenance && requestIsCurrent())
+            toast(`Preparing the fresh ${expectedMode === 'design' ? 'Design' : expectedMode} context; your prompt will start automatically.`, 'info');
+        }, 700);
+        let maintenance;
+        try { maintenance = await queuedMaintenance; }
+        catch (e) { maintenance = { ok: false, error: e?.message || 'session preparation failed' }; }
+        clearTimeout(waitNotice);
+        waitNotice = null;
+        if (!requestIsCurrent()) return { ok: false, canceled: true };
+        if (maintenance && maintenance.ok === false && !maintenance.canceled)
+          return { ok: false, error: maintenance.error || 'session preparation failed' };
+
         let response = await Engine.agentSend(runtimePrompt, displayPrompt);
-        const transient = /interrupt is still settling|session command is still settling|runtime is still loading/i.test(String(response?.error || ''));
+        const transient = /interrupt is still settling|session command is still settling|runtime is still loading|agent is busy|turn is still running/i.test(String(response?.error || ''));
         if (!response?.ok && transient) {
           /* A Stop/new-message interrupt is acknowledged before the worker's
            * WAITING marker arrives.  Never expose that normal hand-off as a
            * failed Design task: wait for the marker and retry the exact turn
            * once, provided the user has not switched to another runtime. */
-          const settled = await waitIdle(15000);
-          if (settled && activeView && viewMode === expectedMode)
+          const settled = await waitIdle(expectedMode === 'design' ? 600_000 : 120_000, requestIsCurrent);
+          if (!requestIsCurrent()) return { ok: false, canceled: true };
+          if (settled)
             response = await Engine.agentSend(runtimePrompt, displayPrompt);
         }
         return response;
@@ -30205,8 +30291,19 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         render();
         const runtimePrompt = Switcher.wirePromptForRuntime ? Switcher.wirePromptForRuntime(prompt, opts.forceThink) : prompt;
         const expectedMode = viewMode;
-        agentSendWhenSettled(runtimePrompt, displayPrompt, expectedMode)
+        agentSendWhenSettled(runtimePrompt, displayPrompt, expectedMode, thisSend)
           .then(async (r) => {
+            if (sendSerial !== thisSend) return;
+            if (r?.canceled) {
+              working = false;
+              pendingUserTurn = null;
+              stopIdleWatch();
+              resetLiveTurnTimer();
+              syncComposerBusy();
+              syncSpinner();
+              render();
+              return;
+            }
             if (!r || !r.ok) {
               const msg = await agentSendErrorMessage(r?.error || '/api/agent/send failed', r);
               appendLocalSendFailure(displayPrompt, msg, thisSend);
@@ -30224,6 +30321,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             poll();
           })
           .catch(async (e) => {
+            if (sendSerial !== thisSend) return;
             const msg = await agentSendErrorMessage(e?.message || '/api/agent/send request failed');
             appendLocalSendFailure(displayPrompt, msg, thisSend);
             working = false;
@@ -33638,6 +33736,26 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           launchTarget = null;
           Statusbar.render();
           return { ok: false, error: 'Unable to contact the launcher.' };
+        }
+        // DSpark deliberately keeps two heavyweight checkpoints active. If
+        // the native preflight estimates that this exceeds the Metal budget,
+        // preserve the requested setting and let the user make the decision.
+        // The explicit capability is sent only by the confirmation retry, so
+        // accepting the dialog launches with --dspark/--mtp-model for real.
+        if (res && res.code === 'dspark_memory_confirmation') {
+          hideOverlay();
+          switching = false;
+          launchTarget = null;
+          Statusbar.render();
+          const yes = await askConfirm({
+            title: 'DSpark may exceed Metal memory',
+            body: res.error || 'The main and DSpark support models exceed the estimated Metal memory budget. macOS may page heavily or terminate the engine. Do you want to start it anyway?',
+            cta: 'Start DSpark anyway',
+          });
+          if (yes) {
+            return runSwitch(target, { ...cfg, allowOverBudgetDspark: true }, title, force);
+          }
+          return res;
         }
         // An external ds4-server holds the instance-lock: instead of dead-ending
         // on the overlay, offer to kill it and restart in this mode.

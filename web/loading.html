@@ -192,6 +192,54 @@
     }
     .boot-foot a { color: inherit; text-decoration: none; }
     .boot-foot a:hover { color: var(--text); }
+    .memory-dialog {
+      width: min(470px, calc(100vw - 40px));
+      padding: 0;
+      overflow: hidden;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: 0 28px 90px rgba(0, 0, 0, .28);
+    }
+    .memory-dialog::backdrop {
+      background: color-mix(in srgb, var(--bg) 58%, transparent);
+      backdrop-filter: blur(12px);
+    }
+    .memory-dialog__content { padding: 28px; }
+    .memory-dialog h1 {
+      margin: 0 0 12px;
+      font-size: 22px;
+      line-height: 1.2;
+      letter-spacing: -.02em;
+    }
+    .memory-dialog p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .memory-dialog__actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 24px;
+    }
+    .memory-dialog button {
+      min-height: 38px;
+      padding: 0 16px;
+      color: var(--text);
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .memory-dialog button.primary {
+      color: #fff;
+      background: var(--accent-strong);
+      border-color: var(--accent-strong);
+    }
     @media (prefers-reduced-motion: reduce) {
       .progress__bar { transition: none; }
       .logo-wrap::before { animation: none; }
@@ -235,6 +283,16 @@
     </div>
     <div class="boot-foot"><span>Everything runs on this Mac.</span><a href="/" aria-label="Open engine settings">Engine settings</a></div>
   </main>
+  <dialog class="memory-dialog" id="dspark-memory-dialog" aria-labelledby="dspark-memory-title">
+    <div class="memory-dialog__content">
+      <h1 id="dspark-memory-title">DSpark may exceed Metal memory</h1>
+      <p id="dspark-memory-reason"></p>
+      <div class="memory-dialog__actions">
+        <button type="button" id="dspark-memory-cancel">Open settings</button>
+        <button type="button" class="primary" id="dspark-memory-start">Start DSpark anyway</button>
+      </div>
+    </div>
+  </dialog>
   <script>
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const progress = document.querySelector('#loading-progress');
@@ -274,13 +332,43 @@
 
     syncBootSteps('connecting');
 
+    function askDsparkMemoryConfirmation(reason) {
+      return new Promise((resolve) => {
+        const dlg = document.querySelector('#dspark-memory-dialog');
+        const start = document.querySelector('#dspark-memory-start');
+        const cancel = document.querySelector('#dspark-memory-cancel');
+        if (!dlg || typeof dlg.showModal !== 'function') { resolve(false); return; }
+        document.querySelector('#dspark-memory-reason').textContent = reason;
+        const done = (value) => {
+          start.removeEventListener('click', onStart);
+          cancel.removeEventListener('click', onCancel);
+          dlg.removeEventListener('cancel', onDialogCancel);
+          if (dlg.open) dlg.close();
+          resolve(value);
+        };
+        const onStart = () => done(true);
+        const onCancel = () => done(false);
+        const onDialogCancel = (event) => { event.preventDefault(); done(false); };
+        start.addEventListener('click', onStart);
+        cancel.addEventListener('click', onCancel);
+        dlg.addEventListener('cancel', onDialogCancel);
+        dlg.showModal();
+      });
+    }
+
     async function fetchJson(url, opts = {}, timeout = 4000) {
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), timeout);
       try {
         const res = await fetch(url, { ...opts, signal: ctl.signal });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return await res.json();
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          const error = new Error(data?.error || ('HTTP ' + res.status));
+          error.data = data;
+          throw error;
+        }
+        if (!data) throw new Error('Invalid JSON response');
+        return data;
       } finally {
         clearTimeout(timer);
       }
@@ -351,22 +439,38 @@
             body: JSON.stringify({ dir: engineDir }),
           }, 10000);
         }
-        const started = await fetchJson('/api/start', {
+        const startBody = {
+          mode: 'server',
+          force: true,
+          model: 'standard',
+          variant,
+          gguf,
+          ctx,
+          power,
+          ssdStreaming,
+          metalHotlistSeed,
+          dspark,
+        };
+        const postStart = (payload) => fetchJson('/api/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
-          body: JSON.stringify({
-            mode: 'server',
-            force: true,
-            model: 'standard',
-            variant,
-            gguf,
-            ctx,
-            power,
-            ssdStreaming,
-            metalHotlistSeed,
-            dspark,
-          }),
+          body: JSON.stringify(payload),
         }, 15000);
+        let started;
+        try {
+          started = await postStart(startBody);
+        } catch (error) {
+          if (error?.data?.code !== 'dspark_memory_confirmation') throw error;
+          showProgress(visualPct, 'DSpark needs confirmation', 'Waiting for your choice');
+          const proceed = await askDsparkMemoryConfirmation(error.data.error ||
+            'The main and DSpark support models exceed the estimated Metal memory budget. macOS may page heavily or terminate the engine.');
+          if (!proceed) {
+            location.replace('/');
+            return false;
+          }
+          showProgress(visualPct, 'Starting DSpark…', 'Using the configuration you confirmed');
+          started = await postStart({ ...startBody, allowOverBudgetDspark: true });
+        }
         if (started?.adjusted) {
           if (Number.isFinite(Number(started.ctx)) && Number(started.ctx) > 0) {
             saved.ctxSize = Math.round(Number(started.ctx));

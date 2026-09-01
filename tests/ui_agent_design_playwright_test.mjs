@@ -28,6 +28,8 @@ let agentPollWorking = false;
 let agentPollSessionWorking = false;
 let agentPollDeliveredLen = 0;
 let agentPollCaughtUp = 0;
+let holdNextNewSession = false;
+let releaseHeldNewSession = null;
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -238,6 +240,17 @@ const server = http.createServer(async (req, res) => {
         agentPollWorking = false;
         agentPollSessionWorking = false;
       }, 1100);
+    } else if (body.action === 'new' && holdNextNewSession) {
+      holdNextNewSession = false;
+      agentPollSessionWorking = true;
+      agentPollWorking = true;
+      const release = () => {
+        agentPollWorking = false;
+        agentPollSessionWorking = false;
+        if (releaseHeldNewSession === release) releaseHeldNewSession = null;
+      };
+      releaseHeldNewSession = release;
+      setTimeout(release, 15000);
     }
     json(res, 200, { ok: true });
     return;
@@ -519,6 +532,7 @@ try {
     'Cowork tab should start its runtime in the selected workspace',
     debugDetails,
   );
+  await page.waitForFunction(() => document.querySelector('#pipe-head-mode')?.textContent === 'Cowork');
   assert.equal(await page.locator('#pipe-head-mode').textContent(), 'Cowork', 'Cowork should identify itself in the shared session header');
   assert.match(await page.locator('#pipe-head-path').textContent(), /dstudio-ui-cowork/, 'Cowork should show its active working folder');
   await page.locator('#pipe-command-hints').waitFor({ state: 'visible' });
@@ -628,6 +642,7 @@ try {
     debugDetails,
   );
   const startsBeforeNewDesign = starts.length;
+  holdNextNewSession = true;
   await page.locator('#btn-new-chat').click();
   await waitFor(
     () => sessions.some((s) => s.action === 'new'),
@@ -707,6 +722,20 @@ try {
   await page.frameLocator('#design-preview-frame').getByRole('heading', { name: 'Airbnb Components' }).waitFor({ timeout: 5000 });
   await page.locator('#design-preview-close').click();
 
+  const queuedPrompt = 'Design prompt queued behind fresh context';
+  await page.locator('#composer-input').fill(queuedPrompt);
+  await page.locator('#btn-send').click();
+  await delay(250);
+  assert.equal(sends.some((entry) => entry.body?.displayPrompt === queuedPrompt), false,
+    'the first Design prompt must not race a fresh-session context prefill');
+  assert.equal(typeof releaseHeldNewSession, 'function', 'the delayed Design session fixture should still be active');
+  releaseHeldNewSession();
+  await waitFor(
+    () => sends.some((entry) => entry.mode === 'design' && entry.body?.displayPrompt === queuedPrompt),
+    'the queued Design prompt should start automatically after /new settles',
+    debugDetails,
+  );
+  await page.waitForFunction(() => document.querySelector('#btn-stop')?.hidden === true, null, { timeout: 5000 });
   failNextAgentSend = true;
   await page.locator('#composer-input').fill('Trigger send failure');
   await page.locator('#btn-send').click();

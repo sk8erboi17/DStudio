@@ -641,6 +641,7 @@ assert.match(gsaRuntimeSource, /static int gsa_start_prepare_automation_artifact
 assert.match(gsaRuntimeSource, /static int gsa_start_build_response/, 'GSA start should keep response assembly in a helper');
 assert.match(gsaRuntime, /static void api_gsa_tools\(int fd\)/, 'backend should expose GSA tool status');
 assert.match(gsaRuntime, /static void api_gsa_tools_install\(int fd\)/, 'backend should expose managed GSA tool install');
+assert.match(gsaRuntimeSource, /gsa_tools_install_spawn[\s\S]*fork\(\)[\s\S]*execl\("\/bin\/bash"[\s\S]*gsa_tools_install_reap/, 'GSA install should execute the generated installer as a supervised background task');
 assert.match(launcher, /path_eq_clean\(path, "\/api\/gsa\/tools"\)/, 'router should serve /api/gsa/tools');
 assert.match(launcher, /\/api\/gsa\/tools\/install/, 'router should serve /api/gsa/tools/install');
 assert.ok(Array.isArray(gsaToolCatalog.tools), 'GSA tool catalog should be a JSON tools array');
@@ -841,7 +842,7 @@ assert.match(js, /icon: 'spark', title: 'Visual starting points'[\s\S]*openDesig
 assert.match(js, /function renderGsaToolsDialog\(\)[\s\S]*gsa-tool-card__purpose/, 'GSA tools modal should render purpose text');
 assert.match(js, /function renderGsaToolsDialog\(\)[\s\S]*gsa-tool-toggle/, 'GSA tools modal should render enable toggles');
 assert.match(js, /function gsaToolInstallProblem\(tool\)[\s\S]*missingInstaller/, 'GSA tools modal should surface missing installer prerequisites');
-assert.match(js, /function renderGsaToolsDialog\(\)[\s\S]*installableMissing[\s\S]*Install missing/, 'GSA tools modal should summarize and install missing tools');
+assert.match(js, /function renderGsaToolsDialog\(\)[\s\S]*gsaToolInstallBusy\(\)[\s\S]*Install missing/, 'GSA tools modal should summarize, execute and track missing-tool installation');
 assert.match(html, /id="gsa-tools-search"[\s\S]*data-gsa-tools-filter="all"[\s\S]*data-gsa-tools-filter="enabled"[\s\S]*data-gsa-tools-filter="missing"/, 'GSA tools modal should match the reference search and segmented filters');
 assert.match(js, /GSA_TOOL_GROUP_ORDER[\s\S]*Recon & scanning[\s\S]*Web & browser[\s\S]*Reverse & pwn/, 'GSA tools modal should group the catalog like the supplied layout');
 assert.match(js, /function setGsaToolEnabled\(tool, enabled\)[\s\S]*gsaDisabledTools/, 'GSA tool toggles should persist enabled\/disabled state');
@@ -956,8 +957,8 @@ assert.match(launcher, /context compaction during active turn/, 'Backend should 
 assert.match(launcher, /static void api_agent_interrupt\(int fd, const char \*body\)/, 'Backend interrupt should accept a reason/status body');
 assert.match(launcher, /task_mark_completed\(g_active_turn_task, msg\)[\s\S]*task_mark_incomplete\(g_active_turn_task, msg, msg\)/, 'Backend interrupt should distinguish completed technical interrupts from incomplete stalls');
 assert.match(launcher, /g_interrupt_pending[\s\S]*agent\/design interrupt is still settling/, 'Backend should reject a new Agent prompt while SIGINT is still settling');
-assert.match(js, /agentSendWhenSettled[\s\S]*interrupt is still settling[\s\S]*waitIdle\(15000\)[\s\S]*Engine\.agentSend/,
-  'Agent, Cowork and Design should wait and retry a prompt across the interrupt-settling race');
+assert.match(js, /agentSendWhenSettled[\s\S]*queuedMaintenance[\s\S]*600_000[\s\S]*Engine\.agentSend/,
+  'Agent, Cowork and Design should queue prompts behind session maintenance and allow long Design context prefill');
 assert.match(launcher, /waitpid\(g_child, &st, WNOHANG\) == g_child[\s\S]*close_pipes\(\);[\s\S]*g_mode = ENGINE_NONE/, 'Backend should close child pipes after an engine exits to avoid a POLLHUP spin');
 assert.match(launcher, /\\"taskId\\":%llu/, 'start/send/setup/download responses should carry taskId metadata');
 assert.match(js, /task #\$\{res\.taskId\}/, 'Agent/Design send errors should show the backend task id');
@@ -1683,7 +1684,8 @@ assert.match(js, /dspark: false/, 'DSpark should default to off');
 assert.match(js, /dspark: dspark\(\)/, 'engine starts should send the DSpark preference');
 assert.match(js, /const dsparkGreedy = !cloud && !!Store\.getSettings\(\)\.dspark[\s\S]*if \(dsparkGreedy\) body\.temperature = 0/, 'local Chat requests should use greedy decoding when DSpark is enabled');
 assert.match(launcher, /json_get_bool\(body, "dspark"\)/, 'launcher should parse the DSpark setting');
-assert.match(launcher, /--dspark[\s\S]*--mtp/, 'engine and agent spawns should pass the DSpark flags');
+assert.match(launcher, /--dspark[\s\S]*--mtp-model/, 'engine and agent spawns should pass the current upstream DSpark support-model flags');
+assert.match(remoteDesign, /--mtp-model <gguf>[\s\S]*!strcmp\(arg, "--mtp"\)[\s\S]*glm_mtp = true[\s\S]*!strcmp\(arg, "--mtp-model"\)/, 'the Design runtime should share upstream MTP and external DSpark flag semantics');
 assert.match(launcher, /child_download_dspark_resumable[\s\S]*MODEL_DSPARK_SHA256/, 'the uncensored DSpark download should be resumable and pinned by SHA-256');
 assert.match(launcher, /MODEL_UNC "gguf\/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128\.gguf"/, 'the uncensored Flash model should point to the 0731 abliterated build');
 assert.match(launcher, /MODEL_STD "gguf\/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731\.gguf"[\s\S]*MODEL_FLASH MODEL_STD/, 'Flash should default directly to the standard chat IQ2XXS GGUF');
@@ -1705,6 +1707,11 @@ assert.match(launcher, /resident_flash[\s\S]*unsetenv\("DS4_METAL_NO_RESIDENCY"\
 assert.doesNotMatch(launcher, /while \(\(de = readdir\(d\)\) != NULL\)[\s\S]{0,500}!strstr\(name, "DSpark"\)/, 'DSpark resolution must not fall back to an arbitrary incompatible support GGUF');
 assert.match(js, /if \(res\.adjusted\)[\s\S]*patch\.ctxSize[\s\S]*patch\.dspark[\s\S]*Store\.setSettingsNow\(patch\)/, 'the UI should persist native memory-safety adjustments for every engine mode');
 assert.match(loadingHtml, /if \(started\?\.adjusted\)[\s\S]*saved\.ctxSize[\s\S]*saved\.dspark[\s\S]*localStorage\.setItem/, 'the native loading gate should persist memory-safety adjustments before opening the app');
+assert.match(launcher, /allowOverBudgetDspark[\s\S]*dspark_memory_confirmation[\s\S]*confirmationRequired[\s\S]*requiredBytes[\s\S]*budgetBytes/, 'an oversized DSpark launch should require an explicit structured confirmation instead of silently disabling DSpark');
+assert.match(launcher, /Starting DSpark by user confirmation[\s\S]*g_dspark_enabled \? "true" : "false"/, 'the confirmed retry should preserve DSpark through the real engine spawn response');
+assert.doesNotMatch(launcher, /DSpark disabled because the main and support models exceed the Metal memory budget/, 'the launcher must not silently disable an otherwise compatible DSpark configuration');
+assert.match(js, /res\.code === 'dspark_memory_confirmation'[\s\S]*askConfirm\([\s\S]*Start DSpark anyway[\s\S]*allowOverBudgetDspark: true/, 'every in-app engine switch should explain the Metal risk and retry only after user confirmation');
+assert.match(loadingHtml, /askDsparkMemoryConfirmation[\s\S]*dspark_memory_confirmation[\s\S]*allowOverBudgetDspark: true/, 'native app boot should expose the same DSpark memory confirmation instead of dropping the 409 response');
 assert.match(modelDownloadHandler, /ds4f-vision-q2[\s\S]*ds4f-vision-q2-q4[\s\S]*ds4f-vision-mxfp4[\s\S]*ds4f-vision-encoder[\s\S]*ds4f-vision-dspark[\s\S]*glm53-q2[\s\S]*glm53-vision[\s\S]*laguna-q4/, 'model download API should whitelist DeepSeek Vision-Exp, GLM 5.3 and Laguna targets shown by the UI');
 assert.match(launcher, /MODEL_GLM53_Q2 "gguf\/GLM-5\.3-Flash-Q2\.gguf"[\s\S]*MODEL_GLM53_Q2_EXPECTED_BYTES 96505816384LL[\s\S]*!strcmp\(target, "glm53-q2"\)/, 'GLM 5.3 Q2 download progress should use the exact upstream filename and byte size');
 assert.match(launcher, /MODEL_GLM53_VISION "gguf\/GLM-5\.3-Flash-Vision-Encoder\.gguf"[\s\S]*MODEL_GLM53_VISION_EXPECTED_BYTES 1127280960LL[\s\S]*MODEL_GLM53_VISION_SHA256 "ae23e14c6979e889051b2e4a39351abcdafb161e18e606fae4d8c40095a4bf3a"[\s\S]*!strcmp\(target, "glm53-vision"\)/, 'native GLM vision should use the published encoder filename, exact size and SHA-256');
@@ -1791,7 +1798,7 @@ assert.match(js, /async function agentAttachImages\([\s\S]*\[USER_SCREENSHOT pat
   'native-vision Agent and Design attachments must pass the exact workspace screenshot path to DS4');
 assert.match(js, /on\(fileInput, 'change',[\s\S]*isWorkspaceFileDropMode\(\)[\s\S]*workspaceAttachFiles\(fileInput\.files\)/,
   'file-picker screenshots in Agent/Design must use the same exact-workspace path as paste and drop');
-assert.match(js, /const runtimePrompt = Switcher\.wirePromptForRuntime[\s\S]*agentSendWhenSettled\(runtimePrompt, displayPrompt, expectedMode\)/,
+assert.match(js, /const runtimePrompt = Switcher\.wirePromptForRuntime[\s\S]*agentSendWhenSettled\(runtimePrompt, displayPrompt, expectedMode, thisSend\)/,
   'the USER_SCREENSHOT marker must remain in the runtime prompt sent to DS4');
 assert.doesNotMatch(extractFunction(js, 'routePdfReadPlan'), /\.test\(/, 'PDF read intent must not use regular-expression classification');
 assert.match(js, /profile:\s*readPlan\.mode === 'search' \? 'semantic' : 'interactive'[\s\S]*max_chars:\s*maxChars/, 'Chat PDFs should route to bounded overview/page reads or semantic retrieval');

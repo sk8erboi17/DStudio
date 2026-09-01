@@ -178,6 +178,13 @@ curl -sS --max-time 5 -o "${tmp}/agent-send-large-response.json" -w "%{http_code
 curl -fsS --max-time 2 "${base}/api/gsa/tools" >"${tmp}/gsa-tools-before.json"
 curl -fsS --max-time 5 -X POST "${base}/api/gsa/tools/install" \
   -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' >"${tmp}/gsa-tools-install.json"
+gsa_install_task_id="$(node -e "const r=require(process.argv[1]); process.stdout.write(String(r.taskId || ''))" "${tmp}/gsa-tools-install.json")"
+for _ in $(seq 1 50); do
+  curl -fsS --max-time 2 "${base}/api/task?id=${gsa_install_task_id}" >"${tmp}/gsa-tools-install-task.json"
+  gsa_install_status="$(node -e "const r=require(process.argv[1]); process.stdout.write(String(r.task?.status || ''))" "${tmp}/gsa-tools-install-task.json")"
+  case "${gsa_install_status}" in completed|failed|canceled|incomplete) break ;; esac
+  sleep 0.1
+done
 curl -fsS --max-time 2 "${base}/api/gsa/tools" >"${tmp}/gsa-tools-after.json"
 curl -fsS --max-time 2 "${base}/loading.html" >"${tmp}/loading.html"
 grep -q 'startWithSavedSettings' "${tmp}/loading.html"
@@ -302,11 +309,12 @@ if (r.ok !== false || r.code !== 'workdir_missing' || r.mode !== 'agent' || r.wo
   throw new Error(`missing workdir response should be structured, got ${JSON.stringify(r)}`);
 }
 NODE
-node - "${tmp}/gsa-tools-before.json" "${tmp}/gsa-tools-install.json" "${tmp}/gsa-tools-after.json" <<'NODE'
+node - "${tmp}/gsa-tools-before.json" "${tmp}/gsa-tools-install.json" "${tmp}/gsa-tools-after.json" "${tmp}/gsa-tools-install-task.json" <<'NODE'
 const fs = require('fs');
 const before = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const install = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 const after = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
+const task = JSON.parse(fs.readFileSync(process.argv[5], 'utf8')).task;
 for (const r of [before, install, after]) {
   if (!r.ok || !r.gsaTools || !Array.isArray(r.gsaTools.tools)) throw new Error('GSA tools shape incomplete');
 }
@@ -317,9 +325,11 @@ if (!nuclei || !nuclei.templatesDir || typeof nuclei.templatesFound !== 'boolean
   throw new Error(`GSA nuclei status should expose managed templates and usage hints: ${JSON.stringify(nuclei)}`);
 }
 if (after.gsaTools.mode !== 'tool-assisted' || after.gsaTools.externalToolsRequired !== false) throw new Error('GSA should report optional tool-assisted mode');
-if (install.installed !== 0 || !install.installSh || !install.installPs1) throw new Error('GSA install endpoint should prepare install scripts without running network installs');
-if (!/tool data/.test(install.detail || '') || !/nuclei templates/.test(install.detail || '')) throw new Error(`GSA install detail should mention managed tool data: ${install.detail}`);
+if (!install.started || !install.running || !install.installSh || !install.installPs1 || !install.installLog) throw new Error('GSA install endpoint should start and supervise the generated installer');
+if (!/Installation started in the background/.test(install.detail || '')) throw new Error(`GSA install detail should describe the real background task: ${install.detail}`);
 if (!install.taskId) throw new Error('GSA tool install should return a task id');
+if (task?.status !== 'completed') throw new Error(`GSA installer fixture task should complete, got ${JSON.stringify(task)}`);
+if (after.gsaTools.installing !== false) throw new Error('GSA status should clear installing after the child exits');
 NODE
 
 curl -fsS --max-time 5 -X POST "${base}/api/gsa/start" \

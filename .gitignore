@@ -79,6 +79,7 @@ extension/gsa/tools/nuclei-templates/
 extension/gsa/tools/smoke/
 extension/gsa/tools/install-gsa-tools.sh
 extension/gsa/tools/install-gsa-tools.ps1
+extension/gsa/tools/install-gsa-tools.log
 extension/gsa/tools/.crates*
 
 # Optional design systems downloaded by the setup doctor at first run.

@@ -9442,7 +9442,9 @@ static void usage(FILE *fp) {
         "  --seed <n>              sampling seed\n"
         "  --think|--think-max|--nothink   reasoning effort (default max)\n"
         "  --metal|--cuda|--cpu    backend\n"
-        "  --dspark --mtp <gguf>   enable greedy DSpark speculative decoding\n"
+        "  --mtp                   enable model-embedded MTP speculation\n"
+        "  --mtp-model <gguf>      external MTP or DSpark support GGUF\n"
+        "  --dspark                enable greedy DSpark speculative decoding\n"
         "  --dspark-confidence <f> proposal confidence threshold (0..1)\n"
         "  --dspark-strict         keep target-only byte-identical decoding\n"
         "  --ssd-streaming         stream routed experts from SSD\n"
@@ -9533,6 +9535,8 @@ static design_config parse_options(int argc, char **argv) {
         } else if (!strcmp(arg, "--cpu")) {
             c.engine.backend = DS4_BACKEND_CPU;
         } else if (!strcmp(arg, "--mtp")) {
+            c.engine.glm_mtp = true;
+        } else if (!strcmp(arg, "--mtp-model")) {
             c.engine.mtp_path = need_arg(&i, argc, argv, arg);
         } else if (!strcmp(arg, "--dspark")) {
             c.engine.dspark = true;

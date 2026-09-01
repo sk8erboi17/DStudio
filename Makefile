@@ -37,6 +37,7 @@ SRC      := src/dstudio.c
 # static — same pattern as the GSA/RSA .cfrag includes). Listed as build
 # prerequisites so editing a domain file triggers a rebuild.
 SUBSRC   := $(wildcard src/dstudio_*.c)
+EXT_SUBSRC := $(wildcard extension/gsa/*.cfrag extension/rsa/*.cfrag)
 APP      := src/app.cc
 HDR      := src/webview.h
 PAGE     := web/index.html
@@ -201,7 +202,7 @@ $(LOGO_HDR): $(LOGO)
 	@echo "$(LOGO_HDR): embedded $$(wc -c < $(LOGO) | tr -d ' ') bytes of $(LOGO)"
 
 # HTTP server (dstudio.c) as an object: its main becomes ds4_serve_main.
-dstudio.o: $(SRC) $(SUBSRC) $(GEN) $(LOADING_GEN)
+dstudio.o: $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN)
 	$(CC) $(CFLAGS) -DDS4_WITH_WEBVIEW -c $(SRC) -o dstudio.o
 
 # Entry point + native webview window. On Linux $(APP_DEPS) pulls in logo_data.h.
@@ -287,7 +288,7 @@ $(TEST_UNIT): tests/lan_unit.c $(SRC) $(SUBSRC) $(GEN) $(LOADING_GEN)
 	@mkdir -p $(TEST_BUILD)
 	$(CC) $(CFLAGS) tests/lan_unit.c -o $@
 
-$(TEST_SERVER): $(SRC) $(SUBSRC) $(GEN) $(LOADING_GEN)
+$(TEST_SERVER): $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN)
 	@mkdir -p $(TEST_BUILD)
 	$(CC) $(CFLAGS) $(SRC) -o $@
 
