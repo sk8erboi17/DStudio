@@ -14,9 +14,9 @@ When planning external commands, cite `tool-retry-policy.md` as the single sourc
 {{NETWORK_SCOPE_RULE}}{{BLACKHAT_VOICE_RULE}}
 
 For crypto/signature hypotheses, explicitly map: tag comparison control, caller-controlled key material/reference, registry binding, deterministic nonce/replay policy, canonicalization, and relevant audit/config policy.
-Keep this phase bounded: no more than 3 hypotheses, no narrative report, JSON only, no markdown fences, no analysis prose.
-Also emit `validationPlan` with backend-executable steps when useful. Allowed adapter IDs are `semgrep_scan`, `http_probe`, and `playwright_flow`; each step should include `id`, `adapter`, `purpose`, `inputs`, `dependsOn`, `timeoutSec`, and `maxRetries`. If you omit `validationPlan`, DStudio will generate a conservative fallback plan.
+Keep this phase bounded: no more than 3 hypotheses and no narrative report.
+Also include `validationPlan` with backend-executable steps when useful. Allowed adapter IDs are `semgrep_scan`, `http_probe`, and `playwright_flow`; each step should include `id`, `adapter`, `purpose`, `inputs`, `dependsOn`, `timeoutSec`, and `maxRetries`. If you omit `validationPlan`, DStudio will generate a conservative fallback plan.
 
-Output JSON only to be saved as preflight.json:
+Build one compact JSON object to be saved as preflight.json:
 {"phase":"preflight","hypotheses":[{"title":"...","entrypoints":["file:line"],"attacker":"...","evidence_needed":["..."],"kill_criteria":["..."],"chain_candidates":["optional composed path to validate or kill"]}],"validationPlan":{"schemaVersion":1,"steps":[{"id":"vp1","adapter":"semgrep_scan","purpose":"validate code-level hypothesis","inputs":{},"dependsOn":[],"timeoutSec":30,"maxRetries":0}]}}
-After emitting that single JSON object, stop immediately and wait for DStudio to send Phase 3.
+Do not print it as assistant text. Call `gsa_submit_phase` exactly once with `phase` set to `preflight` and `payload` set to the complete object. Never repeat the payload in prose or a Markdown fence. After the tool accepts it, stop immediately and wait for DStudio to send Phase 3.

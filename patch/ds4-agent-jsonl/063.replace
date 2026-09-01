@@ -3,7 +3,7 @@ static bool agent_is_cowork_runtime(void) {   /*DS4UI_JSONL*/
     return runtime && !strcmp(runtime, "cowork");
 }
 
-static const char agent_cowork_dsml_tools_prompt_intro[] =
+static const char agent_cowork_tools_prompt_intro[] =
     "You are DStudio Cowork, a local knowledge-work agent. Use tools to inspect source files, "
     "create the requested Office deliverables, and verify them before answering.\n\n"
     "## Tools\n\n"
@@ -23,21 +23,20 @@ static const char agent_cowork_tool_schemas[] =
     "{\"type\":\"function\",\"function\":{\"name\":\"write_pdf\",\"description\":\"Create a polished paginated workspace PDF directly; use this instead of bash or a converter.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}}\n"
     "{\"type\":\"function\",\"function\":{\"name\":\"presentation\",\"description\":\"Create a polished 16:9 workspace PPTX.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"slides_json\":{\"type\":\"string\"}},\"required\":[\"path\",\"slides_json\"]}}}\n";
 
-static const char agent_cowork_dsml_schema_heading[] =
+static const char agent_cowork_schema_heading[] =
     "\n\n### Cowork Office Tool Schemas\n\n";
-static const char agent_cowork_dsml_schema_rules[] =
+static const char agent_cowork_unified_tools_rules[] =
     "\nCowork must inspect before editing and re-open every written artifact to verify it. "
     "When the user requests a PDF, call write_pdf directly; bash and converter workarounds are unavailable.\n";
 
-static char *agent_build_dsml_tools_prompt(bool edit_upto) {
+static char *agent_build_tools_prompt(void) {
     const bool cowork = agent_is_cowork_runtime();
-    const char *intro = cowork ? agent_cowork_dsml_tools_prompt_intro
+    const char *intro = cowork ? agent_cowork_tools_prompt_intro
                                : agent_tools_prompt_intro;
-    const char *edit = edit_upto ? agent_tools_prompt_edit_upto
-                                 : agent_tools_prompt_edit_exact;
-    const char *heading = cowork ? agent_cowork_dsml_schema_heading : "";
+    const char *edit = agent_tools_prompt_edit_line;
+    const char *heading = cowork ? agent_cowork_schema_heading : "";
     const char *office = cowork ? agent_cowork_tool_schemas : "";
-    const char *office_rules = cowork ? agent_cowork_dsml_schema_rules : "";
+    const char *office_rules = cowork ? agent_cowork_unified_tools_rules : "";
     size_t a = strlen(intro);
     size_t b = strlen(edit);
     size_t c = strlen(agent_tools_prompt_after_edit);
@@ -55,5 +54,6 @@ static char *agent_build_dsml_tools_prompt(bool edit_upto) {
 }
 
 static char *ds4ui_agent_build_dsml_tools_prompt(const agent_config *cfg) {
-    return agent_build_dsml_tools_prompt(cfg->edit_upto);
+    (void)cfg;
+    return agent_build_tools_prompt();
 }

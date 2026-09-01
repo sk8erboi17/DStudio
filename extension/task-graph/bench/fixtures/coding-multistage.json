@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"coding-multistage","stages":["inspect","patch","unit-test","regression","verify"],"acceptance":["tests pass","changed files stay in scope"]}

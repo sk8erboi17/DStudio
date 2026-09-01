@@ -16,4 +16,28 @@ static void ds4ui_emit_question(agent_worker *w, const char *id, const char *tit
     agent_publish(w, line, (size_t)k);
     free(line);
 }
+/* GSA/RSA phase payloads are control-plane data, never assistant prose. Keep
+ * the payload as an escaped JSON string so every event remains one physical
+ * JSONL record even when the submitted object contains formatting whitespace. */
+static int ds4ui_emit_gsa_phase(agent_worker *w, const char *phase, const char *payload_json) {
+    size_t pl = payload_json ? strlen(payload_json) : 0;
+    if (pl == 0 || pl > 262144) return 0;
+    char ph[96];
+    ds4ui_json_escape(phase ? phase : "", ph, sizeof ph);
+    size_t esc_cap = pl * 6 + 8;
+    char *esc = (char *)malloc(esc_cap);
+    if (!esc) return 0;
+    ds4ui_json_escape(payload_json, esc, esc_cap);
+    size_t cap = strlen(ph) + strlen(esc) + 128;
+    char *line = (char *)malloc(cap);
+    if (!line) { free(esc); return 0; }
+    int k = snprintf(line, cap,
+        "\x1e{\"type\":\"gsa_phase\",\"phase\":\"%s\",\"payloadJson\":\"%s\"}\n",
+        ph, esc);
+    free(esc);
+    if (k < 0 || (size_t)k >= cap) { free(line); return 0; }
+    agent_publish(w, line, (size_t)k);
+    free(line);
+    return 1;
+}
 static void ds4ui_emit_tool_call(agent_worker *w, const agent_tool_call *tc) {

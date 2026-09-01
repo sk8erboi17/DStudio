@@ -505,8 +505,7 @@ static char *rsa_prompt_start(const char *run_id, const char *run_dir,
         "- Heavy SPA apps: capture runtime markers, hydration data, chunk names, client routes, deferred network requests, local/session storage, and blank-loading states.\n"
         "- Auth-heavy sites: map visible auth/account gates and session indicators only; keep authenticated internals UNKNOWN unless the user supplied access.\n"
         "- Player/video/CDN sites: record video/player libraries, manifest/object URL shapes, signed URL indicators, cache headers, and public CDN domains without attempting private downloads.\n\n"
-        "Output compact JSON only, no markdown fences, no prose. Save no files yourself in Phase 1. "
-        "Output JSON to be saved as inventory.json:\n"
+        "Save no files yourself in Phase 1. Build one compact JSON object to be saved as inventory.json:\n"
         "{\"phase\":\"inventory\",\"kind\":\"rsa\",\"targetUrl\":\"...\",\"targetHost\":\"...\","
         "\"collectors\":[{\"id\":\"html_inventory\",\"why\":\"...\",\"status\":\"selected|skipped\"}],"
         "\"workbench\":{\"domains\":[\"web\",\"infra\"],\"artifacts\":[\"workbench-web.jsonl\"],\"toolRuns\":0},"
@@ -523,6 +522,10 @@ static char *rsa_prompt_start(const char *run_id, const char *run_dir,
         profile_read_rule, profile_rule, research_rule, action_rule, blackhat_voice_rule, workbench_rule,
         run_dir, run_files_scope_gate, run_dir, run_dir, run_dir, run_dir, run_dir,
         run_dir, run_dir, run_dir, run_dir, run_dir, structure_path);
+    json_dyn_puts(&p,
+        "\nDo not print that object as assistant text. Call `gsa_submit_phase` exactly once with "
+        "`phase` set to `inventory` and `payload` set to the complete object. Never repeat the "
+        "payload in prose or a Markdown fence. After the tool accepts it, stop immediately.\n");
     return p.ptr;
 }
 
@@ -562,7 +565,7 @@ static char *rsa_prompt_next(const char *run_dir, const char *workdir,
             "Also update `%s/route-graph.json` with page, asset, API, media/storage, auth, and client-route nodes when discovered. "
             "For SPA-heavy sites, wait for app hydration and capture post-load network. For auth/player/CDN sites, record visible auth/player/CDN clues but do not bypass gates. "
             "Do not edit STRUCTURE.MD in this phase. Do not produce a narrative report.\n\n"
-            "Output compact JSON only to be saved as capture.json:\n"
+            "Build one compact JSON object to be saved as capture.json:\n"
             "{\"phase\":\"capture\",\"kind\":\"rsa\","
             "\"collectors\":[{\"id\":\"network_har\",\"status\":\"complete|partial|skipped\",\"evidenceRefs\":[\"...\"]}],"
             "\"workbench\":{\"domains\":[\"web\",\"infra\"],\"artifacts\":[\"workbench-web.jsonl\",\"workbench-infra.jsonl\"],\"toolRuns\":1,\"notable\":[\"...\"]},"
@@ -586,7 +589,7 @@ static char *rsa_prompt_next(const char *run_dir, const char *workdir,
             "%s"
             "Update `%s/claims.jsonl` with one JSON line per claim: id, section, status, claim, evidenceRefs, confidence. Do not write a final summary report. Do not include security verdict language. "
             "If evidence is weak, keep the claim `[UNKNOWN]` and add what would verify it.\n\n"
-            "After editing `%s`, output compact JSON only to be saved as structure.json:\n"
+            "After editing `%s`, build one compact JSON object to be saved as structure.json:\n"
             "{\"phase\":\"structure\",\"kind\":\"rsa\",\"structurePath\":\"%s\",\"updatedSections\":[\"...\"],"
             "\"claims\":[{\"id\":\"C1\",\"status\":\"VERIFIED|INFERRED|UNKNOWN\",\"section\":\"...\",\"claim\":\"...\",\"evidenceRefs\":[\"evidence.jsonl:E1\"],\"confidence\":\"high|medium|low\"}],"
             "\"claimAudit\":{\"unsupportedClaims\":0,\"missingEvidenceRefs\":0},"
@@ -610,7 +613,7 @@ static char *rsa_prompt_next(const char *run_dir, const char *workdir,
             "Before declaring complete, compare claims against evidence references: VERIFIED/INFERRED claims need specific evidence from evidence.jsonl, route-graph.json, or workbench-*.jsonl; unsupported backend internals stay UNKNOWN. "
             "Keep the quality gate strict for SPA-heavy apps, auth-gated flows, media players, signed CDN URLs, and large JS apps: visible clues are evidence, hidden internals remain UNKNOWN. "
             "Do not browse new areas unless a contradiction must be resolved. Do not produce Markdown as the final answer.\n\n"
-            "Output compact JSON only to be saved as review.json:\n"
+            "Build one compact JSON object to be saved as review.json:\n"
             "{\"phase\":\"review\",\"kind\":\"rsa\",\"structurePath\":\"%s\",\"status\":\"complete|needs_more_evidence\","
             "\"qualityGate\":{\"pass\":true,\"failedChecks\":[]},"
             "\"claimAudit\":{\"unsupportedClaims\":0,\"missingEvidenceRefs\":0},"
@@ -623,6 +626,13 @@ static char *rsa_prompt_next(const char *run_dir, const char *workdir,
         gsa_append_run_file_excerpt(&p, run_dir, "claim-audit.json", "Inline claim-audit.json", 8192);
         gsa_append_run_file_excerpt(&p, run_dir, "route-graph.json", "Inline route-graph.json", 12000);
     }
+    const char *submit_phase = !strcmp(phase, "inventory") ? "capture" :
+                               !strcmp(phase, "capture") ? "structure" : "review";
+    json_dyn_printf(&p,
+        "\nDo not print that object as assistant text. Call `gsa_submit_phase` exactly once with "
+        "`phase` set to `%s` and `payload` set to the complete object. Never repeat the payload "
+        "in prose or a Markdown fence. After the tool accepts it, stop immediately.\n",
+        submit_phase);
     return p.ptr;
 }
 

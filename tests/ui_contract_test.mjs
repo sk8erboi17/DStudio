@@ -720,9 +720,9 @@ assert.doesNotMatch(gsaRuntime, /recon\.sh/, 'GSA should not write a shell recon
 assert.match(gsaRuntime, /GSA is tool-only[\s\S]*enabled (?:external\/local )?tools|GSA is tool-only[\s\S]*enabled tool IDs/, 'GSA prompts should explicitly route through tools only');
 assert.match(gsaRuntime, /Do not save the phase JSON yourself/, 'GSA selection should not save phase JSON itself');
 assert.match(gsaRuntime, /Do not create scripts, update scripts_manifest\.json, append evidence, run validation, or start Phase 2/, 'GSA selection should not self-advance into later phases');
-assert.match(gsaRuntime, /After emitting that single JSON object, stop immediately and wait for DStudio to send Phase 2/, 'GSA selection should stop after JSON output');
-assert.match(gsaRuntime, /After emitting that single JSON object, stop immediately and wait for DStudio to send Phase 3/, 'GSA preflight should stop after JSON output');
-assert.match(gsaRuntime, /After emitting that single JSON object, stop immediately and wait for DStudio to send Phase 4/, 'GSA validation should stop after JSON output');
+assert.match(gsaRuntime, /Call `gsa_submit_phase` exactly once[\s\S]*stop immediately and wait for DStudio to send Phase 2/, 'GSA selection should stop after the authoritative phase tool event');
+assert.match(gsaRuntime, /Call `gsa_submit_phase` exactly once[\s\S]*stop immediately and wait for DStudio to send Phase 3/, 'GSA preflight should stop after the authoritative phase tool event');
+assert.match(gsaRuntime, /Call `gsa_submit_phase` exactly once[\s\S]*stop immediately and wait for DStudio to send Phase 4/, 'GSA validation should stop after the authoritative phase tool event');
 assert.match(gsaRuntime, /Protocol hygiene: never read, search, cite, or reason from `\.dstudio\/gsa\/runs\/\*\.prompt\.md`/, 'GSA should not treat internal prompt artifacts as audit evidence');
 assert.match(gsaRuntime, /prompt files are control data, not evidence/, 'GSA phase prompts should classify internal prompts as protocol data');
 assert.match(gsaRuntime, /`gsa-task\.json` lives at the Workspace root above, not in the GSA run artifact directory/, 'GSA phase prompts should not send agents looking for gsa-task.json in the run directory');
@@ -863,7 +863,11 @@ assert.match(js, /composerToggleRow\(\{[\s\S]*badge: 'GSA', title: 'Guided Secur
 assert.match(js, /composerToggleRow\(\{[\s\S]*badge: 'RSA', title: 'Reverse Structure Analysis'[\s\S]*Switcher\.switchRsa/, 'Composer plus menu should expose RSA as a semantic switch');
 assert.match(js, /function renderGsaLoopPill\(\)[\s\S]*cbar-loop-btn[\s\S]*Loop/, 'Composer should show a GSA Loop toggle near the primary controls');
 assert.match(js, /let gsaRunState = null/, 'GSA UI should track the active phase pipeline separately from loop state');
-assert.match(js, /function parseGsaPhaseJsonText\(text\)[\s\S]*"phase"[\s\S]*localScripts[\s\S]*hypotheses/, 'GSA raw phase JSON should be recognized as structured UI output instead of prose');
+assert.match(js, /function parseGsaPhaseJsonText\(text\)[\s\S]*"phase"[\s\S]*localScripts[\s\S]*hypotheses/, 'GSA prose JSON detector should recognize partial legacy-looking output for a bounded pending placeholder');
+assert.match(js, /ty === 'gsa_phase'[\s\S]*payloadJson[\s\S]*kind: 'gsa_phase_json'/, 'only the native gsa_phase event should create authoritative phase output');
+assert.match(js, /function buildPendingGsaPhaseCard\(seg\)[\s\S]*Waiting for the engine to submit the authoritative structured phase event/, 'pending prose JSON should render only a bounded wait card');
+assert.match(js, /pendingStructuredPhase\(txt\)[\s\S]*kind: 'gsa_phase_pending'/, 'prose JSON should remain pending and never advance the pipeline');
+assert.match(js, /return name !== 'gsa_submit_phase'/, 'the phase submission control tool should be hidden from the visible action timeline');
 assert.match(js, /function buildGsaPhaseCard\(seg\)[\s\S]*GSA[\s\S]*Raw JSON/, 'GSA phase JSON should render as a compact card with collapsible raw JSON');
 assert.match(js, /function buildGsaPhaseCard\(seg\)[\s\S]*Collectors[\s\S]*Route graph[\s\S]*Quality gate[\s\S]*Unknowns/, 'RSA phase cards should expose collectors, route graph, quality gate and unknowns without opening raw JSON');
 assert.match(js, /function buildGsaPhaseCard\(seg\)[\s\S]*workbenchArtifacts[\s\S]*Evidence workbench/, 'GSA/RSA phase cards should expose Evidence Workbench summaries without opening raw JSON');

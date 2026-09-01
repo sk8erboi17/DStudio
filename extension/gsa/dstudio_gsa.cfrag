@@ -2403,42 +2403,65 @@ static int gsa_write_loop_context(const char *run_dir, const char *parent_run_di
 }
 
 static int gsa_json_object_valid(const char *s, const char *phase, char *err, size_t errsz) {
-    const char *p = s;
-    while (p && *p && isspace((unsigned char)*p)) p++;
-    if (!p || *p != '{') {
-        snprintf(err, errsz, "%s output must be a JSON object", phase);
-        return 0;
+    if (!dtg_json_validate_complete(s, '{', err, errsz)) return 0;
+    size_t len = strlen(s), cap = len / 2 + 256;
+    if (cap < 256) cap = 256;
+    if (cap > 65536) cap = 65536;
+    dtg_json_token *tokens = calloc(cap, sizeof *tokens);
+    if (!tokens) { snprintf(err, errsz, "out of memory validating %s output", phase); return 0; }
+    int count = dtg_json_tokenize(s, len, tokens, cap);
+    if (count < 1 || tokens[0].type != DTG_JSON_OBJECT) {
+        free(tokens); snprintf(err, errsz, "%s output could not be tokenized", phase); return 0;
     }
-    int depth = 0, in_str = 0, esc = 0;
-    const char *last = p;
-    for (; *p; p++) {
-        unsigned char c = (unsigned char)*p;
-        if (in_str) {
-            if (esc) esc = 0;
-            else if (c == '\\') esc = 1;
-            else if (c == '"') in_str = 0;
-        } else {
-            if (c == '"') in_str = 1;
-            else if (c == '{' || c == '[') depth++;
-            else if (c == '}' || c == ']') {
-                depth--;
-                if (depth < 0) {
-                    snprintf(err, errsz, "%s output has unbalanced JSON brackets", phase);
-                    return 0;
-                }
-            }
-        }
-        if (!isspace(c)) last = p;
-    }
-    if (in_str || depth != 0 || *last != '}') {
-        snprintf(err, errsz, "%s output is not complete JSON", phase);
-        return 0;
-    }
+    if (!dtg_json_unique_object_keys(s, tokens, count, err, errsz)) { free(tokens); return 0; }
     char found[48] = "";
-    if (!json_get_string(s, "phase", found, sizeof found) || strcmp(found, phase) != 0) {
+    int phase_at = dtg_json_object_field(s, tokens, count, 0, "phase");
+    if (phase_at < 0 || !dtg_json_token_string(s, &tokens[phase_at], found, sizeof found) || strcmp(found, phase) != 0) {
+        free(tokens);
         snprintf(err, errsz, "%s output must include \"phase\":\"%s\"", phase, phase);
         return 0;
     }
+    typedef struct { const char *key; dtg_json_type type; } gsa_required_field;
+    static const gsa_required_field selection[] = {
+        {"files", DTG_JSON_ARRAY}, {"hypotheses", DTG_JSON_ARRAY}, {"localScripts", DTG_JSON_ARRAY}, {"stop_if", DTG_JSON_STRING}
+    };
+    static const gsa_required_field preflight[] = { {"hypotheses", DTG_JSON_ARRAY} };
+    static const gsa_required_field validation[] = {
+        {"findings", DTG_JSON_ARRAY}, {"validationExecutor", DTG_JSON_OBJECT},
+        {"evidenceGraph", DTG_JSON_OBJECT}, {"workbench", DTG_JSON_OBJECT}
+    };
+    static const gsa_required_field inventory[] = {
+        {"collectors", DTG_JSON_ARRAY}, {"surface", DTG_JSON_ARRAY}, {"sections", DTG_JSON_ARRAY}
+    };
+    static const gsa_required_field capture[] = {
+        {"collectors", DTG_JSON_ARRAY}, {"evidence", DTG_JSON_ARRAY}, {"routeGraph", DTG_JSON_OBJECT}
+    };
+    static const gsa_required_field structure[] = {
+        {"structurePath", DTG_JSON_STRING}, {"updatedSections", DTG_JSON_ARRAY}, {"claims", DTG_JSON_ARRAY}
+    };
+    static const gsa_required_field review[] = {
+        {"structurePath", DTG_JSON_STRING}, {"status", DTG_JSON_STRING}, {"qualityGate", DTG_JSON_OBJECT}
+    };
+    const gsa_required_field *required = NULL;
+    size_t required_count = 0;
+#define GSA_FIELDS(name) do { required = name; required_count = sizeof(name) / sizeof((name)[0]); } while (0)
+    if (!strcmp(phase, "selection")) GSA_FIELDS(selection);
+    else if (!strcmp(phase, "preflight")) GSA_FIELDS(preflight);
+    else if (!strcmp(phase, "validation")) GSA_FIELDS(validation);
+    else if (!strcmp(phase, "inventory")) GSA_FIELDS(inventory);
+    else if (!strcmp(phase, "capture")) GSA_FIELDS(capture);
+    else if (!strcmp(phase, "structure")) GSA_FIELDS(structure);
+    else if (!strcmp(phase, "review")) GSA_FIELDS(review);
+#undef GSA_FIELDS
+    for (size_t i = 0; i < required_count; i++) {
+        int at = dtg_json_object_field(s, tokens, count, 0, required[i].key);
+        if (at < 0 || tokens[at].type != required[i].type) {
+            snprintf(err, errsz, "%s output requires top-level %s with the correct type", phase, required[i].key);
+            free(tokens);
+            return 0;
+        }
+    }
+    free(tokens);
     return 1;
 }
 

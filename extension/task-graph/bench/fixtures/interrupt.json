@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"interrupt","interruptAt":["node-turn","session-command"],"acceptance":["lease held until settled","no double dispatch"]}

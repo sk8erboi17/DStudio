@@ -22,6 +22,17 @@ static int ds4ui_json_validate_array(const char *json, char *err, size_t errsz) 
     if (p != end) { snprintf(err, errsz, "trailing data after JSON value"); return 0; }
     return 1;
 }
+static int ds4ui_json_validate_object(const char *json, char *err, size_t errsz) {
+    if (!json) { snprintf(err, errsz, "missing JSON"); return 0; }
+    const char *end = json + strlen(json);
+    const char *p = ds4ui_json_ws(json, end);
+    if (p >= end || *p != '{') { snprintf(err, errsz, "JSON must start with '{'"); return 0; }
+    p = ds4ui_json_skip_value(p, end, 0, err, errsz);
+    if (!p) return 0;
+    p = ds4ui_json_ws(p, end);
+    if (p != end) { snprintf(err, errsz, "trailing data after JSON object"); return 0; }
+    return 1;
+}
 static char *ds4ui_tool_question(agent_worker *w, const agent_tool_call *call) {
     const char *id = agent_tool_arg_value(call, "id");
     const char *title = agent_tool_arg_value(call, "title");
@@ -33,5 +44,28 @@ static char *ds4ui_tool_question(agent_worker *w, const agent_tool_call *call) {
     if (!ds4ui_json_validate_array(questions, err, sizeof err)) { agent_buf b = {0}; agent_buf_puts(&b, "Tool error: "); agent_buf_puts(&b, err); agent_buf_puts(&b, "\n"); return agent_buf_take(&b); }
     ds4ui_emit_question(w, id, title, questions);
     return xstrdup("Question event emitted. Stop this turn and wait for the user's answer.\n");
+}
+static char *ds4ui_tool_gsa_submit_phase(agent_worker *w, const agent_tool_call *call) {
+    const char *phase = agent_tool_arg_value(call, "phase");
+    const char *payload = agent_tool_arg_value(call, "payload");
+    if (!phase || !phase[0]) return xstrdup("Tool error: gsa_submit_phase requires phase\n");
+    if (strcmp(phase, "selection") && strcmp(phase, "preflight") &&
+        strcmp(phase, "validation") && strcmp(phase, "inventory") &&
+        strcmp(phase, "capture") && strcmp(phase, "structure") &&
+        strcmp(phase, "review"))
+        return xstrdup("Tool error: unsupported GSA/RSA phase\n");
+    if (!payload || !payload[0]) return xstrdup("Tool error: gsa_submit_phase requires payload\n");
+    if (strlen(payload) > 262144) return xstrdup("Tool error: phase payload exceeds 256 KiB\n");
+    char err[256];
+    if (!ds4ui_json_validate_object(payload, err, sizeof err)) {
+        agent_buf b = {0};
+        agent_buf_puts(&b, "Tool error: invalid phase payload: ");
+        agent_buf_puts(&b, err);
+        agent_buf_puts(&b, "\n");
+        return agent_buf_take(&b);
+    }
+    if (!ds4ui_emit_gsa_phase(w, phase, payload))
+        return xstrdup("Tool error: could not publish structured phase event\n");
+    return xstrdup("Structured phase accepted by DStudio. Stop this turn immediately.\n");
 }
 static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {

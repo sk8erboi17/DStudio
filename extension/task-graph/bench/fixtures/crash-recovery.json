@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"crash-recovery","failpoints":["after-event-append","before-state-rename"],"acceptance":["no accepted event lost","replay reaches identical state"]}

@@ -28,8 +28,8 @@ endif
 CFLAGS  ?= -O2 $(WARN_CFLAGS) -std=c11
 PORT    ?= 5500
 DS4_DIR ?= ../ds4
-VERSION ?= 1.0.0
-BUILD_NUMBER ?= 1
+VERSION ?= 1.1.0
+BUILD_NUMBER ?= 110
 
 BIN      := dstudio
 SRC      := src/dstudio.c
@@ -55,6 +55,7 @@ TEST_UNIT  := $(TEST_BUILD)/lan_unit
 TEST_REMOTE_UTF8 := $(TEST_BUILD)/remote_utf8_unit
 TEST_COWORK_BRIDGE := $(TEST_BUILD)/ds4_cowork_bridge
 TEST_SERVER := $(TEST_BUILD)/dstudio-server-test
+TEST_TASK_GRAPH := $(TEST_BUILD)/task_graph_unit
 LINUX_APP_ID := dev.ds4.DStudio
 DESKTOP  := $(LINUX_APP_ID).desktop
 XDG_DATA_HOME ?= $(HOME)/.local/share
@@ -82,7 +83,7 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check check-fast check-real test-lan-unit test-remote-utf8 test-cowork test-cowork-unit test-cowork-contract test-cowork-http test-cowork-bench-validate test-design-build-freshness test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume test-design-native-vision test-design-bench-validate test-design-release test-image-pipeline test-image-inference test-ideogram-vae-mps test-hunyuan-sdpa-mps test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-cowork test-real-cowork-long test-real-design test-real-design-long test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
+.PHONY: all run check check-fast check-real test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-lan-unit test-remote-utf8 test-cowork test-cowork-unit test-cowork-contract test-cowork-http test-cowork-bench-validate test-design-build-freshness test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume test-design-native-vision test-design-bench-validate test-design-release test-image-pipeline test-image-inference test-ideogram-vae-mps test-hunyuan-sdpa-mps test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-cowork test-real-cowork-long test-real-design test-real-design-long test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
@@ -112,7 +113,7 @@ ifeq ($(UNAME),Darwin)
 	@cp -X $(BIN) $(APPDIR)/Contents/MacOS/$(APPNAME)
 	@cp $(ICNS) $(APPDIR)/Contents/Resources/ds4.icns
 	@cp $(PLIST) $(APPDIR)/Contents/Info.plist
-	@cp -R extension/design extension/cowork extension/remote extension/craft extension/search $(APP_SUPPORT)/extension/
+	@cp -R extension/design extension/cowork extension/remote extension/craft extension/search extension/task-graph $(APP_SUPPORT)/extension/
 	@mkdir -p $(APP_SUPPORT)/extension/gsa
 	@cp -R extension/gsa/templates $(APP_SUPPORT)/extension/gsa/
 	@cp extension/gsa/tools/catalog.json extension/gsa/tools/README.md $(APP_SUPPORT)/extension/gsa/tools/
@@ -295,6 +296,20 @@ $(TEST_SERVER): $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN)
 test-lan-unit: $(TEST_UNIT)
 	@$(TEST_UNIT)
 
+$(TEST_TASK_GRAPH): tests/task_graph_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/task_graph_unit.c -o $@
+
+test-task-graph-unit: $(TEST_TASK_GRAPH)
+	@$(TEST_TASK_GRAPH)
+
+test-task-graph-http: $(TEST_SERVER)
+	@bash tests/task_graph_http_test.sh $(TEST_SERVER)
+
+test-task-graph-bench-validate:
+	@command -v node >/dev/null 2>&1 || (echo "node missing: Task Graph benchmark validation requires node" && exit 1)
+	@node extension/task-graph/bench/validate.mjs
+
 $(TEST_REMOTE_UTF8): tests/remote_utf8_unit.c extension/remote/dstudio_remote_llm.c extension/remote/dstudio_remote_llm.h
 	@mkdir -p $(TEST_BUILD)
 	$(CC) $(CFLAGS) tests/remote_utf8_unit.c extension/remote/dstudio_remote_llm.c -o $@
@@ -423,7 +438,7 @@ test-http-lan: $(TEST_SERVER)
 test-gsa-bench-validate:
 	@if command -v node >/dev/null 2>&1; then node extension/gsa/bench/validate.mjs; else echo "node missing: skipping GSA benchmark validation"; fi
 
-check-fast: $(BIN) test-lan-unit test-remote-utf8 test-cowork test-cowork-bench-validate test-design-native-vision test-design-bench-validate test-design-release test-image-pipeline test-image-inference test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate
+check-fast: $(BIN) test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-lan-unit test-remote-utf8 test-cowork test-cowork-bench-validate test-design-native-vision test-design-bench-validate test-design-release test-image-pipeline test-image-inference test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate
 	@file $(PAGE) | grep -q text && echo "$(PAGE): text OK" || (echo "$(PAGE) is not text!" && exit 1)
 	@file $(LOADING) | grep -q text && echo "$(LOADING): text OK" || (echo "$(LOADING) is not text!" && exit 1)
 	@command -v node >/dev/null 2>&1 && { \

@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"media","stages":["image","verify","video"],"acceptance":["memory lease count recorded","artifacts verified"]}
