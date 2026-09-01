@@ -61,7 +61,6 @@ Attack-chain policy: a reportable issue may be a chain of smaller weaknesses rat
 
 Candidate files discovered: {{CANDIDATE_COUNT}}{{TRUNCATED_NOTE}}.
 
-When you are done reading, your final assistant text must be JSON only: no analysis prose, bullet lists, markdown, or code fences before or after the JSON.
-Output JSON only with this shape:
+When you are done reading, do not print the phase object as assistant text. Build one compact JSON object with this shape:
 {"phase":"selection","files":[{"path":"relative/path","reason":"why this file matters"}],"targetUrl":"authorized target url or empty","localScripts":[{"path":"scripts/name.py","purpose":"what it checks","status":"planned|written|ran|failed"}],"hypotheses":[{"title":"concrete risk","why":"reachable code path","tools":["enabled-tool-id"]}],"stop_if":"what would make this audit not worth continuing"}
-After emitting that single JSON object, stop immediately and wait for DStudio to send Phase 2.
+Call `gsa_submit_phase` exactly once with `phase` set to `selection` and `payload` set to that complete JSON object. The tool payload is control data: never repeat it in prose or a Markdown fence. After the tool accepts it, stop immediately and wait for DStudio to send Phase 2.

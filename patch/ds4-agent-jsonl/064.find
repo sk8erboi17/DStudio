@@ -1,18 +1,1 @@
-static char *agent_build_glm_tools_prompt(bool edit_upto) {
-    size_t schemas_len = strlen(agent_glm_tool_schemas);
-    const char *schemas = agent_glm_tool_schemas;
-    const char *edit = edit_upto ? agent_glm_tools_prompt_edit_upto
-                                 : agent_glm_tools_prompt_edit_exact;
-    size_t a = strlen(agent_glm_tools_prompt_intro);
-    size_t b = schemas_len;
-    size_t c = strlen(agent_glm_tools_prompt_after_schemas);
-    size_t d = strlen(edit);
-    size_t e = strlen(agent_glm_tools_prompt_rules_tail);
-    char *out = xmalloc(a + b + c + d + e + 1);
-    memcpy(out, agent_glm_tools_prompt_intro, a);
-    memcpy(out + a, schemas, b);
-    memcpy(out + a + b, agent_glm_tools_prompt_after_schemas, c);
-    memcpy(out + a + b + c, edit, d);
-    memcpy(out + a + b + c + d, agent_glm_tools_prompt_rules_tail, e + 1);
-    return out;
-}
+static const char agent_cowork_unified_tools_rules[] =

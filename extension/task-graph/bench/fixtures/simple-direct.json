@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"simple-direct","expectGraph":false,"goal":"Rename one local symbol","acceptance":["direct loop remains selected","no graph persistence overhead"]}

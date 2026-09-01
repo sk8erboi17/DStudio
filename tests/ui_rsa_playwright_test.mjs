@@ -240,7 +240,9 @@ const server = http.createServer(async (req, res) => {
     const body = JSON.parse(await readBody(req) || '{}');
     sends.push(body);
     const from = byteLen(transcript);
-    const output = phaseOutputForPrompt(body.prompt || '');
+    const raw = phaseOutputForPrompt(body.prompt || '');
+    const payload = JSON.parse(raw);
+    const output = `\u001e${JSON.stringify({ type: 'gsa_phase', phase: payload.phase, payloadJson: raw })}`;
     transcript += `${U_OPEN}${body.displayPrompt || ''}${U_CLOSE}\n${output}\n`;
     json(res, 200, { ok: true, from, at: byteLen(transcript) });
     return;

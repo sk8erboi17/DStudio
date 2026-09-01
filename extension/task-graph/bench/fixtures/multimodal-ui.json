@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"multimodal-ui","stages":["inspect-screenshot","patch-ui","rerender","vision-gate"],"acceptance":["visual gate passes","no layout regression"]}

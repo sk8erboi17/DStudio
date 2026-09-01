@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"gsa","stages":["selection","preflight","validation","report"],"acceptance":["native phase events only","evidence chain complete"]}

@@ -212,6 +212,8 @@ GSA gives the Agent a security-analysis operating mode instead of a loose prompt
 
 The experience is productized, but the mechanics stay inspectable: **selection** chooses files and hypotheses; **preflight** maps evidence, trust boundaries and safe checks; **validation** gathers concrete proof with bounded scripts or optional local tools; **report** produces a compact verdict with sources, limitations and next actions. Security profiles distinguish passive, blue-team, explicitly authorized red-team and purple-team work; the run can never infer authorization from the prompt alone. External tools are evidence helpers: DStudio shows what each one does, lets you disable it, records failed invocations and keeps a normalized evidence workbench. **Install missing** executes a supervised background installer, exposes its task/log state and refreshes the catalog automatically when it finishes.
 
+Each GSA/RSA phase is committed through a native structured control call and validated again by the host. Partial JSON streamed as prose is held in a bounded pending card and can never advance the pipeline or leak into the final answer. If a completed turn has the right work but the wrong envelope, DStudio grants one format-only recovery turn with tools disabled; a second invalid result leaves the run explicitly incomplete. The watchdog also waits while inference or a tool is genuinely active, so a slow evidence collector is not killed as an idle phase.
+
 ### RSA: reverse structure analysis
 
 RSA is the non-security reverse-structure workflow. It inventories a public site's visible routes and assets, captures ordinary browser/network evidence, maps frontend, public API, product-flow, data and infrastructure clues, and writes `STRUCTURE.MD` in the selected workspace. Claims are labeled **VERIFIED**, **INFERRED** or **UNKNOWN**; an evidence audit and final review gate prevent external guesses from being presented as private implementation facts. RSA shares GSA's managed tools but never scans, fuzzes, brute-forces or calls private endpoints outside normal navigation.
@@ -246,6 +248,12 @@ Toggle **Plan** in Agent mode, describe what you want, and DStudio writes a **Ma
 **3 · The file is useful immediately.** The plan includes objective, assumptions, deliverables, milestones, task breakdown, technical/design decisions, risks, validation checklist and next actions.
 
 **4 · Then you decide.** Turn Plan off and use Agent/Design to implement, or keep the Markdown file as the execution reference.
+
+## Task Graph runtime
+
+DStudio 1.1 includes the host-authoritative Task Graph V1 execution core as shared infrastructure rather than a new sidebar mode. It parses and strictly validates bounded DAG proposals, rejects cycles, unsafe paths and invalid retry/side-effect combinations, persists an append-only event journal before exposing transitions, rebuilds its materialized state after a crash, and provides optimistic-concurrency controls for approve, start, pause, resume, cancel, retry and skip. One global model lease and one workspace-writer lease prevent accidental double use while independent synthetic host nodes exercise bounded fan-out/fan-in.
+
+The first rollout intentionally exposes real Agent/Plan/GSA/RSA graphs as **validated proposals only** until each real executor clears its own model-quality gate. Starting an unregistered proposal fails before appending `graph.started`, so it cannot leave a run stuck half-started. Ordinary Agent, Plan, GSA and RSA behavior therefore remains unchanged in 1.1, while the durable core, recovery path and local HTTP contract are already packaged and regression-tested. See [`extension/task-graph/README.md`](extension/task-graph/README.md) for the store/API contract and staged adapters.
 
 ## Highlights
 
@@ -375,10 +383,12 @@ For local development and headless runs, keep the web server explicit:
 
 ```sh
 make run        # build + start on http://127.0.0.1:5500
-make check      # sanity: page stays text, JS syntax OK
+make check-fast # deterministic unit, HTTP, UI and fixture checks; no model
+make test-task-graph-unit test-task-graph-http test-task-graph-bench-validate
+make check      # check-fast plus explicitly configured real-model suites
 make test-image-inference  # Ideogram/Hunyuan pinned Max-profile conformance
 make test-video-open-weight  # H3 pinning, local-only contract and checkout repair
-make dist-macos VERSION=1.0.0  # signed .app smoke test + release zip/checksum
+make dist-macos VERSION=1.1.0  # signed .app smoke test + release zip/checksum
 ```
 
 Optional parameters:
@@ -412,6 +422,7 @@ Behind the scenes DStudio **reverse-proxies the engine API** (`/v1`) to the loca
 - **C launcher, not a script.** `dstudio.c` is both the local HTTP server and the engine supervisor: it starts/stops `ds4-server` for chat, `ds4-agent-jsonl` for coding, `ds4-cowork` for Office work and `ds4-design` for design, manages working directories, runs the setup doctor, proxies `/v1`, serves Web Search and exposes a small local API.
 - **Native window.** `app.cc` forks the server and opens a WKWebView (macOS) / WebKitGTK (Linux) window via `webview.h`; the page is base64-embedded (`page_data.h`).
 - **Same-origin proxy.** The page calls DStudio for `/v1`; DStudio forwards streaming requests to the local engine, which is why LAN works with no engine exposure and no settings.
+- **Durable Task Graph core.** A bounded DAG validator, append-first event store, cooperative scheduler and localhost-only API provide crash-safe orchestration foundations without reusing the transient `/api/tasks` telemetry ring. Heavy real-model A/B fixtures are prepared separately and are never run by `check-fast`.
 - **Native vision only.** DeepSeek Vision-Exp and GLM 5.3 Chat/Agent/Cowork/Design use their ds4 native encoders directly. Every other engine is text-only; no secondary VLM, visual router or fallback is installed. Ideogram 4 FP8 Quality-48 creates new images and full HunyuanImage-3.0-Instruct NF4/50-step edits source pixels directly.
 - **Text-first, native-vision PDF acceleration.** Poppler extraction, chunking and BM25 stay on the CPU. Qwen3-Embedding-0.6B ranks multilingual text only; it is not a router. DeepSeek Vision-Exp or GLM 5.3 can inspect a bounded selection of rendered pages through the currently loaded native encoder, while Laguna reports and skips image-only pages.
 

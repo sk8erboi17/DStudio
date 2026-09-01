@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "execution": "prepare-only",
+  "comparison": ["direct-loop", "task-graph"],
+  "controls": ["commit", "model", "quantization", "context", "hardware", "fixture"],
+  "scenarios": [
+    {"id":"simple-direct","fixture":"fixtures/simple-direct.json","metrics":["taskSuccess","wallClockMs","llmTokens","toolCalls","modelReloads","peakMemoryBytes","humanInterventions"]},
+    {"id":"coding-multistage","fixture":"fixtures/coding-multistage.json","metrics":["taskSuccess","wallClockMs","llmTokens","toolCalls","modelReloads","peakMemoryBytes","humanInterventions"]},
+    {"id":"research-code","fixture":"fixtures/research-code.json","metrics":["taskSuccess","wallClockMs","llmTokens","toolCalls","modelReloads","peakMemoryBytes","humanInterventions"]},
+    {"id":"multimodal-ui","fixture":"fixtures/multimodal-ui.json","metrics":["taskSuccess","wallClockMs","llmTokens","toolCalls","modelReloads","peakMemoryBytes","humanInterventions"]},
+    {"id":"gsa","fixture":"fixtures/gsa.json","metrics":["taskSuccess","wallClockMs","llmTokens","toolCalls","modelReloads","peakMemoryBytes","humanInterventions"]},
+    {"id":"rsa","fixture":"fixtures/rsa.json","metrics":["taskSuccess","wallClockMs","llmTokens","toolCalls","modelReloads","peakMemoryBytes","humanInterventions"]},
+    {"id":"media","fixture":"fixtures/media.json","metrics":["taskSuccess","wallClockMs","llmTokens","toolCalls","modelReloads","peakMemoryBytes","humanInterventions"]},
+    {"id":"crash-recovery","fixture":"fixtures/crash-recovery.json","metrics":["taskSuccess","wallClockMs","recoveryMs","toolCalls","humanInterventions"]},
+    {"id":"interrupt","fixture":"fixtures/interrupt.json","metrics":["taskSuccess","wallClockMs","settleMs","toolCalls","humanInterventions"]},
+    {"id":"workspace-collision","fixture":"fixtures/workspace-collision.json","metrics":["taskSuccess","wallClockMs","serializationWaitMs","toolCalls","humanInterventions"]}
+  ]
+}

@@ -4405,6 +4405,9 @@ static char *build_skill_sys(int mode) {
         if (!design_mode)
             o += (size_t)snprintf(cat + o, catcap - o,
                 "{\"type\":\"function\",\"function\":{\"name\":\"question\",\"description\":\"Emit a structured question event for the UI. Use when you need the user to choose or clarify, then stop the turn.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"questions\":{\"type\":\"string\",\"description\":\"JSON array of question objects, e.g. [{id,label,type,options}].\"}},\"required\":[\"id\",\"title\",\"questions\"]}}}\n");
+        if (mode == ENGINE_AGENT)
+            o += (size_t)snprintf(cat + o, catcap - o,
+                "{\"type\":\"function\",\"function\":{\"name\":\"gsa_submit_phase\",\"description\":\"Submit one complete GSA or RSA phase as an authoritative structured event. Call only when a DStudio GSA/RSA phase prompt explicitly requests it, then stop the turn. Never print the payload as assistant prose.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"phase\":{\"type\":\"string\",\"enum\":[\"selection\",\"preflight\",\"validation\",\"inventory\",\"capture\",\"structure\",\"review\"]},\"payload\":{\"type\":\"string\",\"description\":\"One complete JSON object matching the requested phase contract.\"}},\"required\":[\"phase\",\"payload\"]}}}\n");
         if (design_mode)
             o += (size_t)snprintf(cat + o, catcap - o,
                 "{\"type\":\"function\",\"function\":{\"name\":\"craft\",\"description\":\"Load a universal craft rules pack by id (accessibility before shipping; layout-responsive before any resize).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}}\n");
@@ -6853,6 +6856,14 @@ oom:
 
 #include "dstudio_embed.c"
 #include "dstudio_user_skills.c"
+/* Task Graph is a common host service, not a UI mode.  The core is included
+ * before GSA/RSA so all structured pipelines share its strict JSON grammar. */
+#include "dstudio_task_graph.c"
+#include "dstudio_task_store.c"
+#include "dstudio_task_policy.c"
+#include "dstudio_task_executor.c"
+#include "dstudio_task_scheduler.c"
+#include "dstudio_task_api.c"
 /* GSA implementation lives with the extension assets. It is included here so
  * DStudio still builds as one C translation unit while keeping GSA ownership
  * under extension/gsa/. */
@@ -9716,6 +9727,17 @@ static int read_request_body_alloc(int fd, const char *req, size_t got, size_t h
 }
 
 static int route_post_api(int fd, const char *path, const char *body) {
+    if (!strcmp(path, "/api/task-graph/create") || !strcmp(path, "/api/task-graphs/create")) return api_dtg_create(fd, body);
+    if (!strcmp(path, "/api/task-graph/validate") || !strcmp(path, "/api/task-graphs/validate")) return api_dtg_validate(fd, body);
+    if (!strcmp(path, "/api/task-graph/approve") || !strcmp(path, "/api/task-graphs/approve")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_approve_graph);
+    if (!strcmp(path, "/api/task-graph/start") || !strcmp(path, "/api/task-graphs/start")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_start);
+    if (!strcmp(path, "/api/task-graph/pause") || !strcmp(path, "/api/task-graphs/pause")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_pause);
+    if (!strcmp(path, "/api/task-graph/resume") || !strcmp(path, "/api/task-graphs/resume")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_resume);
+    if (!strcmp(path, "/api/task-graph/cancel") || !strcmp(path, "/api/task-graphs/cancel")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_cancel);
+    if (!strcmp(path, "/api/task-graph/node/retry")) return api_dtg_node_mutation(fd, body, dtg_scheduler_retry_node);
+    if (!strcmp(path, "/api/task-graph/node/skip")) return api_dtg_node_mutation(fd, body, dtg_scheduler_skip_node);
+    if (!strcmp(path, "/api/task-graph/node/approve")) return api_dtg_node_mutation(fd, body, dtg_scheduler_approve_node);
+    if (!strcmp(path, "/api/task-graph/node/cancel")) return api_dtg_node_mutation(fd, body, dtg_node_cancel);
     if (!strcmp(path, "/api/start"))       { api_start(fd, body); return 200; }
     if (!strcmp(path, "/api/user-skills/delete")) { api_user_skill_delete(fd, body); return 200; }
     if (!strcmp(path, "/api/user-skills")) { api_user_skill_save(fd, body); return 200; }
@@ -9769,6 +9791,9 @@ static size_t g_route_request_header_len = 0;
 
 static int route_get_or_static(int fd, const char *method, const char *path, int head_only) {
     const int is_get = !strcmp(method, "GET") || head_only;
+    if (is_get && path_eq_clean(path, "/api/task-graphs")) return api_dtg_list(fd, path);
+    if (is_get && (path_eq_clean(path, "/api/task-graph/events") || path_eq_clean(path, "/api/task-graph/stream"))) return api_dtg_events(fd, path);
+    if (is_get && path_eq_clean(path, "/api/task-graph")) return api_dtg_get(fd, path);
     if (is_get && !strcmp(path, "/api/store")) {
         api_store_get(fd);
         return 200;
@@ -10322,6 +10347,7 @@ int main(int argc, char **argv)
     while (!g_stop) {
         reap_child();
         gsa_tools_install_reap();
+        dtg_scheduler_tick(dstudio_now_ms());
         struct pollfd pfd[3];
         int nf = 0;
         pfd[nf].fd = g_srv_fd; pfd[nf].events = POLLIN; nf++;  /* rebindable: the LAN toggle swaps this */
@@ -10356,6 +10382,7 @@ int main(int argc, char **argv)
     image_runtime_shutdown();
     video_runtime_shutdown();
     gsa_tools_install_shutdown();
+    dtg_store_shutdown();
     stop_child();
     return 0;
 }

@@ -45,28 +45,14 @@ echo "windows-cygwin: building DStudio jsonl patch helper"
   cd "$ROOT"
   /usr/bin/gcc -O2 -Wall -Wextra -std=gnu11 -D_GNU_SOURCE -o dstudio-jsonl-builder src/dstudio.c
   ./dstudio-jsonl-builder --check-anchors "$DS4_DIR"
-  # The jsonl build.mk links ds4_gpu_args.o, but the CPU build provides
-  # ds4_gpu_args_cpu.o (GPU stubs). Use the CPU object for this link and add
-  # the TP/layer-pack objects the engine needs.
-  GPU_ARGS_BAK=""
-  if [ -f "$DS4_DIR/ds4_gpu_args.o" ]; then
-    GPU_ARGS_BAK="$DS4_DIR/.ds4_gpu_args.o.bak"
-    mv -f "$DS4_DIR/ds4_gpu_args.o" "$GPU_ARGS_BAK"
-  fi
-  cp -f "$DS4_DIR/ds4_gpu_args_cpu.o" "$DS4_DIR/ds4_gpu_args.o"
   rm -f "$DS4_DIR/ds4-agent-jsonl" "$DS4_DIR/ds4-agent-jsonl.exe" \
         "$DS4_DIR/ds4-cowork" "$DS4_DIR/ds4-cowork.exe" \
         "$DS4_DIR/ds4_agent_jsonl.o" "$DS4_DIR/dstudio_remote_llm.o"
   DS4UI_JSONL_CC="$CC_BIN" \
   DS4UI_JSONL_CFLAGS="$CPU_CFLAGS" \
-  DS4UI_JSONL_CORE_OBJS="ds4_cpu.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_layer_pack.o" \
+  DS4UI_JSONL_CORE_OBJS="ds4_cpu.o ds4_distributed.o ds4_ssd.o" \
   DS4UI_JSONL_LDLIBS="-lm -pthread" \
     ./dstudio-jsonl-builder --build-jsonl "$DS4_DIR"
-  if [ -n "$GPU_ARGS_BAK" ]; then
-    mv -f "$GPU_ARGS_BAK" "$DS4_DIR/ds4_gpu_args.o"
-  else
-    rm -f "$DS4_DIR/ds4_gpu_args.o"
-  fi
 )
 
 echo "windows-cygwin: building ds4-design"
@@ -75,7 +61,7 @@ echo "windows-cygwin: building ds4-design"
   DESIGN_SRC="$ROOT/extension/design/ds4_design.c" \
   REMOTE_DIR="$ROOT/extension/remote" \
   CFLAGS="$CPU_CFLAGS" \
-  CORE_OBJS="ds4_cpu.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_layer_pack.o" \
+  CORE_OBJS="ds4_cpu.o ds4_distributed.o ds4_ssd.o" \
   METAL_LDLIBS="-lm -pthread" \
   ds4-design
 

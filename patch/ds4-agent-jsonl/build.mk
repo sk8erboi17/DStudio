@@ -19,7 +19,7 @@ dstudio_remote_llm.o: dstudio-jsonl-force
 	$(CC) $(JSONL_CFLAGS) -I"$(DSTUDIO_REMOTE_DIR)" -c -o $@ "$(DSTUDIO_REMOTE_DIR)/dstudio_remote_llm.c"
 ds4_cowork.o: dstudio-jsonl-force
 	$(CC) $(JSONL_CFLAGS) -I"$(DSTUDIO_COWORK_DIR)" -c -o $@ "$(DSTUDIO_COWORK_DIR)/ds4_cowork.c"
-ds4-agent-jsonl: ds4_agent_jsonl.o ds4_cowork.o dstudio_remote_llm.o ds4_help.o ds4_web_ds4ui.o ds4_kvstore.o linenoise.o ds4_gpu_args.o $(JSONL_CORE_OBJS)
-	$(CC) $(JSONL_CFLAGS) -o $@ ds4_agent_jsonl.o ds4_cowork.o dstudio_remote_llm.o ds4_help.o ds4_web_ds4ui.o ds4_kvstore.o linenoise.o ds4_gpu_args.o $(JSONL_CORE_OBJS) $(JSONL_LDLIBS)
+ds4-agent-jsonl: ds4_agent_jsonl.o ds4_cowork.o dstudio_remote_llm.o ds4_help.o ds4_web_ds4ui.o ds4_kvstore.o linenoise.o $(JSONL_CORE_OBJS)
+	$(CC) $(JSONL_CFLAGS) -o $@ ds4_agent_jsonl.o ds4_cowork.o dstudio_remote_llm.o ds4_help.o ds4_web_ds4ui.o ds4_kvstore.o linenoise.o $(JSONL_CORE_OBJS) $(JSONL_LDLIBS)
 ds4-cowork: ds4-agent-jsonl
 	cp -f ds4-agent-jsonl ds4-cowork

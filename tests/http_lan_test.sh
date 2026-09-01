@@ -427,7 +427,9 @@ const output = {
   targetUrl: 'https://test.example/',
   files: ['src/api.ts', 'src/auth.ts'],
   hypotheses: [{ title: 'API authorization path can be validated', why: 'Exercise backend validation runtime.' }],
-  tools: ['semgrep']
+  tools: ['semgrep'],
+  localScripts: [],
+  stop_if: 'Stop when the selected evidence cannot support an authorized validation plan.'
 };
 fs.writeFileSync(process.argv[2], JSON.stringify({ workdir: process.argv[3], runId: process.argv[4], phase: 'selection', output: JSON.stringify(output) }));
 NODE
@@ -650,6 +652,7 @@ const output = {
   kind: 'rsa',
   targetUrl: 'https://streamrecorder.io/',
   targetHost: 'streamrecorder.io',
+  collectors: [{ id: 'playwright_capture', status: 'selected' }],
   surface: [{ url: 'https://streamrecorder.io/', type: 'page', evidence: 'Public homepage selected for capture.' }],
   sections: [{ name: 'Frontend Architecture', status: 'weak', nextEvidence: 'Capture public HTML, scripts and initial network requests.' }],
   tools: ['playwright'],
@@ -676,7 +679,9 @@ const fs = require('fs');
 const output = {
   phase: 'capture',
   kind: 'rsa',
+  collectors: [{ id: 'playwright_capture', status: 'complete' }],
   evidence: [{ status: 'VERIFIED', source: 'url', evidence: 'Public homepage URL exists as capture target.', confidence: 'high' }],
+  routeGraph: { nodes: ['https://streamrecorder.io/'], edges: [] },
   files: ['evidence.jsonl'],
   sectionsReady: ['Frontend Architecture'],
   unknowns: ['Backend internals are not externally visible.']
@@ -726,6 +731,7 @@ const output = {
   kind: 'rsa',
   structurePath: process.argv[5],
   status: 'complete',
+  qualityGate: { pass: true, checks: ['claims-labeled', 'unknowns-preserved'] },
   fixed: [],
   remainingUnknowns: ['Backend internals remain unknown.'],
   nextRecommendedLoop: 'Public API Surface'
