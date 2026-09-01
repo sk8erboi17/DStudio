@@ -280,7 +280,7 @@ static char *ds4ui_remote_system_prompt(agent_config *cfg) {
     /* Remote DeepSeek endpoints use DSML and do not initialize a local
      * ds4_engine. Upstream's generic helper now requires an engine so it can
      * choose DSML versus GLM syntax; select the remote protocol directly. */
-    char *tools = agent_build_dsml_tools_prompt(cfg->edit_upto);
+    char *tools = ds4ui_agent_build_dsml_tools_prompt(cfg);
     agent_buf b = {0};
     agent_buf_puts(&b, tools);
     free(tools);
@@ -491,6 +491,28 @@ static void ds4ui_remote_chunk(void *ud, const char *kind, const char *text, siz
     ds4ui_remote_flush(w);
 }
 
+/* Keep remote inference independent from upstream's internal observation
+ * container. Current upstream main uses a multimodal observation object here,
+ * while Laguna still exposes agent_execute_tool_calls(); both retain the
+ * stable single-call dispatcher used by DStudio's textual remote protocol. */
+static char *ds4ui_remote_execute_tool_calls_text(
+        agent_worker *w, const agent_tool_calls *calls) {
+    agent_buf all = {0};
+    for (int i = 0; i < calls->len; i++) {
+        char *res = agent_execute_tool_call(w, &calls->v[i]);
+        char hdr[128];
+        snprintf(hdr, sizeof(hdr), "Tool result %d (%s):\n", i + 1,
+                 calls->v[i].name ? calls->v[i].name : "unknown");
+        agent_buf_puts(&all, hdr);
+        agent_buf_puts(&all, res);
+        if (res[0] && res[strlen(res) - 1] != '\n') agent_buf_puts(&all, "\n");
+        free(res);
+    }
+    if (calls->len == 0)
+        agent_buf_puts(&all, "Tool error: empty tool call block\n");
+    return agent_buf_take(&all);
+}
+
 static char *ds4ui_remote_tool_result(agent_worker *w,
                                       agent_stream_renderer *stream,
                                       agent_dsml_parser *dsml,
@@ -507,7 +529,8 @@ static char *ds4ui_remote_tool_result(agent_worker *w,
     /* A valid tool call parsed from the CONTENT channel is authoritative and
      * must execute even if the model also mentioned DSML markers while
      * REASONING (the reasoning channel is separate in the remote bridge). */
-    if (dsml->state == AGENT_DSML_DONE) return agent_execute_tool_calls(w, &dsml->calls);
+    if (dsml->state == AGENT_DSML_DONE)
+        return ds4ui_remote_execute_tool_calls_text(w, &dsml->calls);
     if (reasoning_mentioned_dsml) {
         agent_buf b = {0};
         agent_buf_puts(&b, "Tool error: invalid DSML tool call: tool calling is not allowed inside <think></think>\n");

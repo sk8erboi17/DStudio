@@ -24,6 +24,12 @@ const gsaStarts = [];
 const gsaPhases = [];
 const sends = [];
 const missingRequests = [];
+const gsaCatalog = [
+  { name: 'subfinder', category: 'recon/subdomains', aliases: 'subfinder', notes: 'Passive subdomain enumeration.', found: true, installable: true },
+  { name: 'nuclei', category: 'scan/templates', aliases: 'nuclei', notes: 'Template-based vulnerability checks; use only against authorized targets.', found: true, installable: true },
+  { name: 'playwright', category: 'browser/automation', aliases: 'playwright', notes: 'Browser automation and screenshots.', found: false, installable: true, install: 'managed npm install playwright' },
+  { name: 'semgrep', category: 'code/sast', aliases: 'semgrep', notes: 'Static code analysis.', found: false, installable: false, missingInstaller: 'pipx' },
+];
 
 function byteLen(value) {
   return Buffer.byteLength(String(value || ''), 'utf8');
@@ -153,7 +159,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/api/gsa/tools') {
-    json(res, 200, { ok: true, gsaTools: { mode: 'tool-assisted', tools: [] } });
+    json(res, 200, { ok: true, gsaTools: { mode: 'tool-assisted', tools: gsaCatalog } });
     return;
   }
   if (url.pathname === '/api/gsa/start' && req.method === 'POST') {
@@ -273,6 +279,7 @@ try {
       modelVariant: 'flash',
       thinkLevel: 'max',
       ctxSize: 65536,
+      gsaMode: 'on',
       gsaLoop: 'on',
       webMode: 'off',
       workdirs: { agent: '/tmp/dstudio-gsa-ui-test' },
@@ -288,6 +295,19 @@ try {
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
   await page.locator('#tab-agent').click();
   await page.waitForFunction(() => !document.querySelector('#agent-view')?.hidden);
+  await page.locator('#cbar-gear').click();
+  await page.getByRole('button', { name: 'Open tools' }).click();
+  const toolsDialog = page.locator('#gsa-tools-dialog');
+  await toolsDialog.waitFor({ state: 'visible' });
+  await page.getByText('Recon & scanning', { exact: true }).waitFor();
+  await page.getByText('Web & browser', { exact: true }).waitFor();
+  assert.match(await page.locator('#gsa-tools-dialog-summary').innerText(), /4 enabled.*4 in catalog.*2 not installed/s);
+  await page.locator('#gsa-tools-search').fill('semgrep');
+  assert.equal(await page.locator('#gsa-tools-dialog-grid .gsa-tool-row').count(), 1, 'GSA search should filter the grouped list immediately');
+  await page.locator('#gsa-tools-search').fill('');
+  await page.getByRole('button', { name: 'Not installed' }).click();
+  assert.equal(await page.locator('#gsa-tools-dialog-grid .gsa-tool-row').count(), 2, 'Not installed should expose only missing catalog entries');
+  await page.locator('#gsa-tools-close').click();
   await page.locator('#composer-input').fill('/gsa Review https://tikrec.com/latest');
   await page.locator('#btn-send').click();
 

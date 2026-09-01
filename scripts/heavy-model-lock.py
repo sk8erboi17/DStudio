@@ -3,7 +3,7 @@
 
 The lock is intentionally process-wide and survives exec().  DS4 residency is
 released by the caller before this wrapper is entered; this guard prevents the
-Qwen3.8 vision, Ideogram 4, HunyuanImage and MiniMax H3 workers from ever loading together.
+Ideogram 4, HunyuanImage and MiniMax H3 workers from ever loading together.
 """
 
 from __future__ import annotations

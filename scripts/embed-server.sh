@@ -2,14 +2,12 @@
 # DStudio — local text-embedding server (llama.cpp, OpenAI-compatible).
 #
 # Powers SEMANTIC skill search: the DStudio server embeds skill descriptions once
-# and embeds each agent/UI query, then ranks by cosine. This is a SEPARATE
-# llama-server from the vision sidecar (different port, dir, model), run in
-# embedding mode. Same install/watchdog pattern as scripts/vision-server.sh:
-# dstudio.c touches $DIR/.last-use on every embed request and this wrapper
+# and embeds each agent/UI query, then ranks by cosine. It runs in embedding
+# mode as a dedicated, independently installed helper. DStudio touches
+# $DIR/.last-use on every embed request and this wrapper
 # self-reaps after an idle period so the model does not sit resident forever.
 #
-# The llama-server binary is shared with the vision runtime (same llama.cpp
-# release); only a small embedding GGUF is fetched by -hf on first run.
+# The small embedding GGUF is fetched by llama-server's -hf on first run.
 #
 # Override via env:
 #   DSTUDIO_EMBED_PORT      (default 28101)
@@ -18,8 +16,6 @@
 #                            MUST be a multilingual embedding model — queries arrive
 #                            in the user's own language)
 #   DSTUDIO_EMBED_DIR       (default $HOME/.dstudio/llama-embed)
-#   DSTUDIO_EMBED_BIN_DIR   (fallback dir to find llama-server if not in EMBED_DIR;
-#                            default $HOME/.dstudio/llama-vision — reuse the vision binary)
 #   DSTUDIO_EMBED_CTX       (default 8192)  — max input tokens per embed request
 #   DSTUDIO_EMBED_NGL       (default 999)   — GPU offload
 #   DSTUDIO_EMBED_IDLE_MIN  (default 20)    — idle minutes before auto-shutdown
@@ -29,16 +25,14 @@ set -eu
 PORT="${DSTUDIO_EMBED_PORT:-28101}"
 HOST="${DSTUDIO_EMBED_HOST:-127.0.0.1}"
 DIR="${DSTUDIO_EMBED_DIR:-$HOME/.dstudio/llama-embed}"
-BIN_DIR="${DSTUDIO_EMBED_BIN_DIR:-$HOME/.dstudio/llama-vision}"
 HFREPO="${DSTUDIO_EMBED_HF:-$(cat "$DIR/.hf" 2>/dev/null || echo Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0)}"
 CTX="${DSTUDIO_EMBED_CTX:-8192}"
 NGL="${DSTUDIO_EMBED_NGL:-999}"
 IDLE_MIN="${DSTUDIO_EMBED_IDLE_MIN:-20}"
 BOOT_MAX="${DSTUDIO_EMBED_BOOT_MAX:-3600}"
 
-# Find llama-server: prefer the embed dir, else reuse the vision runtime's binary.
+# Find the dedicated llama-server binary installed in the embedding directory.
 SERVER="$(find "$DIR" -name llama-server -type f 2>/dev/null | head -1 || true)"
-[ -n "$SERVER" ] || SERVER="$(find "$BIN_DIR" -name llama-server -type f 2>/dev/null | head -1 || true)"
 [ -n "$SERVER" ] || { echo "embed-server: llama-server not installed — run embed setup first" >&2; exit 127; }
 
 mkdir -p "$DIR"

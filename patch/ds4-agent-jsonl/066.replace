@@ -1,9 +1,0 @@
-static char *ds4ui_tool_with_qwen_memory(agent_worker *w,
-                                          const agent_tool_call *call,
-                                          ds4ui_qwen_tool_fn fn) {
-    /* SSD-streamed routed experts already leave headroom for the local Qwen
-     * sidecar. Evicting/restoring the live Metal checkpoint here is both
-     * unnecessary and can invalidate a resumed multi-tool prefill. */
-    const char *ssd_streaming = getenv("DS4UI_SSD_STREAMING_EFFECTIVE");
-    if (ssd_streaming && !strcmp(ssd_streaming, "1")) return fn(call);
-#ifdef DS4UI_HAVE_MEMORY_PRESSURE_API

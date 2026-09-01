@@ -14,15 +14,15 @@ No push or release was performed.
 - Removed DStudio agent edits 058 and 059 from the JSONL patch manifest. Their old argmax speculative-decoding path is superseded by DS4's native full speculative-decoding implementation in `c1d4597`.
 - Kept the remaining DStudio integration anchors compatible with the updated DS4 source: 66/66 pass.
 - Added a DS4 source/build signature for `ds4-design`, so an executable compiled against an older DS4 commit is no longer incorrectly accepted as fresh.
-- Made the Design build apply and restore the Qwen hot-memory patch transactionally. A clean DS4 checkout now builds successfully and remains clean afterward.
+- Made the Design build apply and restore the generic media-residency patch transactionally. A clean DS4 checkout now builds successfully and remains clean afterward.
 - Added a regression test covering commit changes, tracked source changes, missing stamps, patch cleanup, and caller-owned pre-applied patches.
 
 ## Verification results
 
 - `make check-fast`: pass.
-- DStudio core, Cowork, Design, Qwen, Hunyuan, H3, UI/Playwright, HTTP/LAN, packaging, release gates, and 16 Design contract cases: pass.
+- DStudio core, Cowork, Design, Hunyuan, H3, UI/Playwright, HTTP/LAN, packaging, release gates, and 16 Design contract cases: pass.
 - `ds4-design --self-test`: pass.
-- Qwen hot-memory and server-metrics patches apply in dry-run against `c1d4597`: pass.
+- Media-residency and server-metrics patches apply in dry-run against `c1d4597`: pass.
 - DS4 upstream Q4_K, MXFP4, extractor, agent, layer-pack, multi-GPU placement, GPU argument/CLI, sampling, and server tests: pass.
 - Full upstream model-dependent DS4 tests were not run because their default fixture `ds4flash.gguf` is absent from the checkout.
 

@@ -4,9 +4,22 @@ This directory contains the patches that DStudio applies to the upstream DS4 che
 
 Derived helper binaries use a `manifest` with ordered `NNN.find` / `NNN.replace` anchors. Small engine/server extensions use unified patches through dedicated scripts. Both paths fail explicitly when upstream anchors drift.
 
+`ds4-agent-jsonl/` builds the structured Agent and Cowork runtime without editing the selected upstream checkout in place. Native DeepSeek Vision-Exp and GLM 5.3 sessions expose `view_image` through their own encoders; Laguna S 2.1 is deliberately fail-closed and text-only, including PDF extraction. Text-only tool results stay on the normal chat-message path so an empty image list cannot be mistaken for a full context window during compaction.
+
 `ds4-server-metrics/usage-metrics.patch` exposes ds4's own measured decode rate in the OpenAI-compatible usage object. The UI never estimates token speed from character counts.
 
-`ds4-glm53-runtime/streaming-memory.patch` is applied only to the pinned GLM 5.3 checkout. It fixes the active mapped-span calculation used by SSD streaming and removes the branch's fixed host-memory rejection; DStudio presents the model-size guidance as a non-blocking selection modal instead.
+`ds4-glm53-runtime/streaming-memory.patch` is applied to the pinned upstream `main`, where GLM 5.3 now lives. It fixes the active mapped-span calculation used by SSD streaming and removes the fixed host-memory rejection; DStudio presents the model-size guidance as a non-blocking selection modal instead. The hook skips older/non-GLM checkouts.
+
+`ds4-visible-downloads/visible-partials.patch` replaces the main checkout's
+opaque Hugging Face local-dir cache path with resumable `curl` transfers. Every
+incomplete model is written as a stable `<filename>.part` directly beside the
+final GGUF. DStudio applies the patch idempotently when it installs, starts with
+or selects a compatible engine checkout; older optional branches are skipped.
+
+`ds4-media-memory/residency-lease.patch` adds a reversible residency lease used
+only by the direct Ideogram, Hunyuan and MiniMax H3 workers. It does not install
+or select a vision model and never changes the user's persistent SSD-streaming
+preference.
 
 `h3-metal-watchdog/stage-command-submits.patch` adds opt-in, arithmetic-preserving
 Metal submit boundaries between the native MiniMax-H3 DiT stages and partitions

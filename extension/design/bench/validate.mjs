@@ -55,7 +55,7 @@ const longSessions = casesDoc.profiles.long.map((id) =>
 assert.ok(longSessions.includes('fresh-long') && longSessions.filter((value) => value === 'continue-long').length >= 3,
   'long profile must contain a seeded multi-turn revision session');
 assert.ok(casesDoc.cases.some((testCase) => testCase.requiredTools.includes('generate_image')),
-  'benchmark must cover Qwen3.8-routed local image generation');
+  'benchmark must cover direct local image generation');
 const creativeCases = casesDoc.profiles['creative-full-stack'].map((id) =>
   casesDoc.cases.find((testCase) => testCase.id === id));
 assert.ok(creativeCases.length >= 4,
@@ -69,7 +69,7 @@ for (const testCase of creativeCases) {
   assert.ok(testCase.requiredToolCounts?.generate_image >= 2,
     `${testCase.id}: must exercise Ideogram generation and Hunyuan editing`);
   assert.equal(testCase.requiredToolCounts?.see_image, 2,
-    `${testCase.id}: Qwen correspondence must inspect exactly the generation and edit, not H3 frames`);
+    `${testCase.id}: native vision must inspect exactly the generation and edit, not H3 frames`);
   assert.ok(testCase.requiredToolCounts?.generate_video >= 1,
     `${testCase.id}: every creative site test must include MiniMax H3`);
   assert.deepEqual(testCase.requiredToolOrder?.slice(0, 5),

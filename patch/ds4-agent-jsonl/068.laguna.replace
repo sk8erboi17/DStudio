@@ -1,0 +1,8 @@
+/* Laguna already appends text-only results through ds4_chat_append_message;
+ * keep that path and explicitly mark it as free of the multimodal regression. */
+static bool agent_tool_result_fits_context(agent_worker *w, const char *result,
+                                           int reserve_tokens,
+                                           int *tokens_out) {
+    ds4_tokens tmp = {0};
+    ds4_tokens_copy(&tmp, &w->transcript);
+    ds4_chat_append_message(w->engine, &tmp, "tool", result ? result : "");

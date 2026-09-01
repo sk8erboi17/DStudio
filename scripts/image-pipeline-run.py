@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serialize Qwen3.8 routing and the selected local image backend."""
+"""Run the image backend selected by the native model's explicit directive."""
 
 from __future__ import annotations
 
@@ -88,7 +88,7 @@ def main() -> int:
     parser.add_argument("--status-file", required=True)
     parser.add_argument("--cancel-file")
     parser.add_argument("--aspect", default="16:9")
-    parser.add_argument("--reasoning-effort", choices=("off", "high", "max"), default="max")
+    parser.add_argument("--action", choices=("generate", "edit"), required=True)
     parser.add_argument("--preserve", choices=("none", "face"), default="none")
     parser.add_argument("--input", action="append", default=[])
     args = parser.parse_args()
@@ -98,7 +98,6 @@ def main() -> int:
     outdir = Path(args.outdir).resolve()
     status_path = Path(args.status_file).resolve()
     cancel_path = Path(args.cancel_file).resolve() if args.cancel_file else None
-    route_path = outdir / "image-route.json"
     outdir.mkdir(parents=True, exist_ok=True)
     worker_pid = outdir / "worker.pid"
     worker_pid.write_text(f"{os.getpid()}\n", encoding="ascii")
@@ -110,33 +109,28 @@ def main() -> int:
                          "Image generation cancelled before worker startup.", 100)
             return 130
         source_paths = [str(Path(value).expanduser().resolve()) for value in args.input if value]
-        route_command = [
-            str(script_dir / "image-route-qwen38.sh"),
-            "--prompt-file", str(prompt_path),
-            "--route-file", str(route_path),
-            "--status-file", str(status_path),
-            "--aspect", args.aspect,
-            "--reasoning-effort", args.reasoning_effort,
-        ]
-        for source in source_paths:
-            route_command.extend(("--input", source))
-        run(route_command)
-        if cancel_path is not None and cancel_path.is_file():
-            status_write(status_path, "error", "cancelled",
-                         "Image generation cancelled after routing.", 100)
-            return 130
-        try:
-            route = json.loads(route_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise PipelineError(f"Qwen3.8 produced no valid durable route: {exc}") from exc
-        mode = route.get("mode") if isinstance(route, dict) else None
-        if mode not in {"generate", "edit"}:
-            raise PipelineError("Qwen3.8 route has an invalid mode")
+        mode = args.action
 
         if mode == "generate":
-            caption = route.get("caption")
-            if not isinstance(caption, dict):
-                raise PipelineError("Qwen3.8 selected generation without an Ideogram caption")
+            prompt = prompt_path.read_text(encoding="utf-8").strip()
+            if not prompt:
+                raise PipelineError("image generation prompt is empty")
+            # Ideogram's local worker accepts its official structured caption
+            # schema. The native chat/design model has already authored the
+            # complete visual direction and selected `generate`; preserve that
+            # text byte-for-byte instead of asking a second VLM to reinterpret
+            # or route it.
+            caption = {
+                "aspect_ratio": args.aspect,
+                "high_level_description": prompt,
+                "compositional_deconstruction": {
+                    "background": (
+                        "Use the setting, background, lighting and palette "
+                        "specified in the high-level description."
+                    ),
+                    "elements": [{"type": "obj", "desc": prompt}],
+                },
+            }
             caption_path = outdir / "ideogram-caption.json"
             caption_path.write_text(
                 json.dumps(caption, ensure_ascii=False, separators=(",", ":")) + "\n",
@@ -153,7 +147,7 @@ def main() -> int:
             provider = "ideogram4-fp8"
         else:
             if not source_paths:
-                raise PipelineError("Qwen3.8 selected editing without a source image")
+                raise PipelineError("image editing requires a source image")
             editor_prompt = prompt_path
             if args.preserve == "face":
                 original = prompt_path.read_text(encoding="utf-8").strip()
@@ -175,12 +169,10 @@ def main() -> int:
             provider = "hunyuan-image3-instruct-nf4"
 
         provenance = {
-            "router": {
-                "model": "mlx-community/Qwen3.8-27B-8bit",
-                "revision": "815b83c0df8ffd1d1b5244cf75fd6ef14fca9ef9",
-                "reasoning": args.reasoning_effort,
+            "routing": {
+                "source": "native-model-directive",
                 "decision": mode,
-                "reason": route.get("reason"),
+                "secondaryVisionRouter": None,
             },
             "provider": provider,
             "serialized": True,

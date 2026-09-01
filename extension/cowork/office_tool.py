@@ -18,6 +18,7 @@ import posixpath
 import re
 import shutil
 import tempfile
+import textwrap
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -759,6 +760,181 @@ def write_document_tool(ws: Workspace, args: dict[str, str]) -> str:
     return f"Created document {path.name}.\n"
 
 
+def pdf_literal(text: str) -> bytes:
+    """Encode a PDF literal string with WinAnsi-compatible text.
+
+    The Cowork bridge intentionally has no third-party runtime dependency. The
+    built-in PDF fonts use WinAnsiEncoding, which covers Italian/Western text,
+    the euro sign and typographic punctuation. Characters outside that set are
+    replaced deterministically instead of producing an invalid PDF stream.
+    """
+    normalized = str(text).translate(str.maketrans({
+        "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-",
+        "\u2212": "-", "\u2026": "...", "\u00a0": " ", "\u200b": "", "\ufeff": "",
+        "\u2713": "OK", "\u2714": "OK", "\u2192": "->", "\u2190": "<-",
+    }))
+    raw = normalized.encode("cp1252", errors="replace")
+    escaped = bytearray()
+    for byte in raw:
+        if byte in (0x28, 0x29, 0x5C):
+            escaped.extend(b"\\" + bytes((byte,)))
+        elif 0x20 <= byte <= 0x7E:
+            escaped.append(byte)
+        elif byte in (0x09, 0x0A, 0x0D):
+            escaped.append(0x20)
+        else:
+            escaped.extend(f"\\{byte:03o}".encode("ascii"))
+    return b"(" + bytes(escaped) + b")"
+
+
+def create_pdf(path: Path, title: str, content: str) -> int:
+    """Create a compact, paginated A4 PDF using only the Python stdlib."""
+    page_width, page_height = 595.0, 842.0
+    left, right, top, bottom = 54.0, 54.0, 58.0, 54.0
+    usable_width = page_width - left - right
+    pages: list[list[bytes]] = [[]]
+    y = page_height - top
+
+    def new_page() -> None:
+        nonlocal y
+        pages.append([])
+        y = page_height - top
+
+    def line(text: str, *, font: str = "F1", size: float = 10.5,
+             leading: float = 14.0, indent: float = 0.0,
+             before: float = 0.0, color: tuple[float, float, float] = (0.12, 0.14, 0.18)) -> None:
+        nonlocal y
+        if before:
+            y -= before
+        if y - leading < bottom + 18:
+            new_page()
+        r, g, b = color
+        command = (
+            f"BT {r:.3f} {g:.3f} {b:.3f} rg /{font} {size:.1f} Tf "
+            f"1 0 0 1 {left + indent:.1f} {y:.1f} Tm ".encode("ascii")
+            + pdf_literal(text) + b" Tj ET\n"
+        )
+        pages[-1].append(command)
+        y -= leading
+
+    def wrapped(text: str, *, prefix: str = "", continuation: str = "",
+                font: str = "F1", size: float = 10.5, leading: float = 14.0,
+                indent: float = 0.0, before: float = 0.0,
+                color: tuple[float, float, float] = (0.12, 0.14, 0.18)) -> None:
+        approx_char_width = max(4.5, size * 0.52)
+        width = max(12, int((usable_width - indent) / approx_char_width))
+        body_width = max(8, width - len(prefix))
+        chunks = textwrap.wrap(
+            re.sub(r"\s+", " ", text).strip(), width=body_width,
+            break_long_words=True, break_on_hyphens=True,
+        ) or [""]
+        for index, chunk in enumerate(chunks):
+            lead = prefix if index == 0 else continuation
+            line(lead + chunk, font=font, size=size, leading=leading,
+                 indent=indent, before=before if index == 0 else 0.0, color=color)
+
+    # A restrained DStudio-style title and rule make the generated artifact
+    # useful as a deliverable, while keeping the renderer dependency-free.
+    wrapped(title or path.stem, font="F2", size=20.0, leading=25.0,
+            color=(0.12, 0.29, 0.82))
+    pages[-1].append(
+        f"0.12 0.29 0.82 RG 1.2 w {left:.1f} {y + 5:.1f} m {page_width - right:.1f} {y + 5:.1f} l S\n".encode("ascii")
+    )
+    y -= 10.0
+
+    source_lines = content.splitlines()
+    first_nonempty = next((item.strip() for item in source_lines if item.strip()), "")
+    if first_nonempty.startswith("# ") and first_nonempty[2:].strip().casefold() == (title or "").strip().casefold():
+        skipped = False
+        filtered = []
+        for item in source_lines:
+            if not skipped and item.strip():
+                skipped = True
+                continue
+            filtered.append(item)
+        source_lines = filtered
+
+    for raw_line in source_lines:
+        stripped = raw_line.strip()
+        if not stripped:
+            y -= 6.0
+            continue
+        if stripped.startswith("### "):
+            wrapped(stripped[4:], font="F2", size=12.0, leading=16.0, before=7.0,
+                    color=(0.16, 0.20, 0.28))
+        elif stripped.startswith("## "):
+            wrapped(stripped[3:], font="F2", size=14.5, leading=19.0, before=10.0,
+                    color=(0.13, 0.19, 0.32))
+        elif stripped.startswith("# "):
+            wrapped(stripped[2:], font="F2", size=16.5, leading=21.0, before=12.0,
+                    color=(0.12, 0.29, 0.82))
+        elif re.match(r"^[-*]\s+", stripped):
+            wrapped(stripped[2:].strip(), prefix="\u2022  ", continuation="   ", indent=12.0)
+        elif re.match(r"^\d+[.)]\s+", stripped):
+            match = re.match(r"^(\d+[.)])\s+(.*)$", stripped)
+            assert match is not None
+            prefix = f"{match.group(1)} "
+            wrapped(match.group(2), prefix=prefix, continuation=" " * len(prefix), indent=12.0)
+        else:
+            wrapped(stripped)
+
+    page_count = len(pages)
+    for index, commands in enumerate(pages, 1):
+        footer = f"DStudio Cowork  |  {index} / {page_count}"
+        commands.append(
+            b"BT 0.48 0.50 0.56 rg /F1 8.0 Tf 1 0 0 1 "
+            + f"{left:.1f} 28.0 Tm ".encode("ascii")
+            + pdf_literal(footer) + b" Tj ET\n"
+        )
+
+    # Objects: catalog, pages tree, two built-in fonts, then page/content pairs.
+    objects: dict[int, bytes] = {}
+    objects[1] = b"<< /Type /Catalog /Pages 2 0 R >>"
+    page_ids = [5 + index * 2 for index in range(page_count)]
+    kids = b" ".join(f"{obj_id} 0 R".encode("ascii") for obj_id in page_ids)
+    objects[2] = b"<< /Type /Pages /Count " + str(page_count).encode("ascii") + b" /Kids [" + kids + b"] >>"
+    objects[3] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+    objects[4] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"
+    for index, commands in enumerate(pages):
+        page_id = 5 + index * 2
+        stream_id = page_id + 1
+        stream = b"".join(commands)
+        objects[page_id] = (
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+            b"/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> "
+            + f"/Contents {stream_id} 0 R >>".encode("ascii")
+        )
+        objects[stream_id] = b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"endstream"
+
+    output = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0] * (max(objects) + 1)
+    for object_id in range(1, max(objects) + 1):
+        offsets[object_id] = len(output)
+        output.extend(f"{object_id} 0 obj\n".encode("ascii"))
+        output.extend(objects[object_id])
+        output.extend(b"\nendobj\n")
+    xref = len(output)
+    output.extend(f"xref\n0 {len(offsets)}\n".encode("ascii"))
+    output.extend(b"0000000000 65535 f \n")
+    for object_id in range(1, len(offsets)):
+        output.extend(f"{offsets[object_id]:010d} 00000 n \n".encode("ascii"))
+    output.extend(
+        f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode("ascii")
+    )
+    atomic_bytes(path, bytes(output))
+    return page_count
+
+
+def write_pdf_tool(ws: Workspace, args: dict[str, str]) -> str:
+    path = ws.resolve(arg(args, "path"), write=True)
+    if path.suffix.lower() != ".pdf":
+        raise ToolError("write_pdf output path must end in .pdf")
+    content = arg(args, "content")
+    title = arg(args, "title", path.stem.replace("-", " ").title())
+    pages = create_pdf(path, title, content)
+    return f"Created PDF {path.name} with {pages} page(s).\n"
+
+
 def slide_shape(shape_id: int, name: str, text: str, x: int, y: int, cx: int, cy: int, *, size: int, bold: bool = False, color: str = "18324A") -> str:
     paragraphs = []
     for line in text.splitlines() or [""]:
@@ -827,6 +1003,8 @@ def dispatch(request: dict[str, Any], ws: Workspace) -> str:
         return read_document_tool(ws, args)
     if tool == "write_document":
         return write_document_tool(ws, args)
+    if tool == "write_pdf":
+        return write_pdf_tool(ws, args)
     if tool == "presentation":
         return presentation_tool(ws, args)
     raise ToolError(f"unknown Cowork tool: {tool!r}")

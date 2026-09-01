@@ -29,7 +29,14 @@ const ggufs = [
     file: 'GLM-5.3-Flash-Q2.gguf',
     path: 'gguf/GLM-5.3-Flash-Q2.gguf',
     size: 97_000_000_000,
-    branch: 'glm-5.3-flash',
+    branch: 'main',
+    engineDir: '/tmp/dstudio-settings',
+  },
+  {
+    file: 'GLM-5.3-Flash-Vision-Encoder.gguf',
+    path: 'gguf/GLM-5.3-Flash-Vision-Encoder.gguf',
+    size: 1_127_280_960,
+    branch: 'main',
     engineDir: '/tmp/dstudio-settings',
   },
   {
@@ -40,9 +47,37 @@ const ggufs = [
     engineDir: '/tmp/dstudio-settings',
   },
   {
+    file: 'DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf',
+    path: 'gguf/DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf',
+    size: 86_720_111_776,
+    branch: 'main',
+    engineDir: '/tmp/dstudio-settings',
+  },
+  {
+    file: 'DeepSeek-V4-Flash-Vision-Encoder.gguf',
+    path: 'gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf',
+    size: 932_857_760,
+    branch: 'main',
+    engineDir: '/tmp/dstudio-settings',
+  },
+  {
     file: 'DeepSeek-V4-Flash-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-mxfp4-0731.gguf',
     path: 'gguf/DeepSeek-V4-Flash-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-mxfp4-0731.gguf',
     size: 156_000_000_000,
+    branch: 'main',
+    engineDir: '/tmp/dstudio-settings',
+  },
+  {
+    file: 'DeepSeek-V4-Flash-DSpark-support-0731.gguf',
+    path: 'gguf/DeepSeek-V4-Flash-DSpark-support-0731.gguf',
+    size: 6_000_000_000,
+    branch: 'main',
+    engineDir: '/tmp/dstudio-settings',
+  },
+  {
+    file: 'DeepSeek-V4-Flash-Vision-Exp-DSpark-support.gguf',
+    path: 'gguf/DeepSeek-V4-Flash-Vision-Exp-DSpark-support.gguf',
+    size: 5_989_114_528,
     branch: 'main',
     engineDir: '/tmp/dstudio-settings',
   },
@@ -108,10 +143,6 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === '/v1/models') {
     json(res, { data: [{ id: 'glm-5.3-flash' }] });
-    return;
-  }
-  if (url.pathname === '/api/vision/status') {
-    json(res, { ok: true, supported: true, installed: false });
     return;
   }
   if (url.pathname === '/api/video/status') {
@@ -182,6 +213,8 @@ try {
   assert.ok(dialogBox && dialogBox.width > 850 && dialogBox.height > 650, `settings dialog should use the wide reference layout: ${JSON.stringify(dialogBox)}`);
   assert.ok(dialogBox.x >= 0 && dialogBox.y >= 0 && dialogBox.x + dialogBox.width <= 1441 && dialogBox.y + dialogBox.height <= 901,
     `settings dialog should stay inside the viewport: ${JSON.stringify(dialogBox)}`);
+  assert.equal(await page.locator('#settings-dialog').evaluate((node) => getComputedStyle(node).outlineStyle), 'none',
+    'settings should not show the native blue focus outline');
   assert.deepEqual(
     await page.locator('.set-nav__eyebrow').allTextContents(),
     ['Engine', 'Capabilities', 'App'],
@@ -194,11 +227,14 @@ try {
   await page.locator('#set-nav [data-pane="models"]').click();
   await page.locator('.set-model-family').first().waitFor({ state: 'visible' });
   assert.equal(await page.locator('#set-pane-title').innerText(), 'Models');
-  assert.equal(await page.locator('.set-models .onboard__model.ready').count(), ggufs.length);
+  assert.equal(await page.locator('.set-models .onboard__model.ready').count(), ggufs.length - 4,
+    'engine support files must not appear as selectable chat models');
+  assert.equal(await page.locator('.set-models').getByText('DSpark-support', { exact: false }).count(), 0);
+  assert.equal(await page.locator('.set-models').getByText('Vision-Encoder', { exact: false }).count(), 0);
   assert.equal(await page.locator('.set-models .onboard__model.is-running').count(), 1);
   await page.locator('#set-model-filter').fill('Q8ATTN');
   assert.equal(await page.locator('.set-models .onboard__model.ready').count(), 1);
-  assert.match(await page.locator('#set-model-count').innerText(), /1 of 4 installed/);
+  assert.match(await page.locator('#set-model-count').innerText(), /1 of 5 installed/);
   await page.locator('#set-model-filter').fill('');
 
   await page.locator('#set-search').fill('wired limit');
@@ -212,7 +248,16 @@ try {
   assert.equal(await page.locator('#set-pane-title').innerText(), 'Advanced');
   assert.equal(await page.locator('.set-toggle-card').count(), 2);
   assert.ok(await page.locator('#set-metal-hotlist').isChecked());
+  assert.equal(await page.locator('#set-dspark-support .set-dspark-file').count(), 2);
+  assert.match(await page.locator('#set-dspark-support').innerText(), /Chat 0731 draft.*6\.0 GB.*Installed.*Vision-Exp draft.*6\.0 GB.*Installed/s);
   await page.screenshot({ path: '/tmp/dstudio-settings-advanced.png' });
+
+  await page.locator('#set-nav [data-pane="vision"]').click();
+  assert.equal(await page.locator('#set-pane-title').innerText(), 'Vision');
+  await page.waitForFunction(() => /Installed/.test(document.querySelector('#set-native-vision-support')?.textContent || ''));
+  assert.match(await page.locator('#set-native-vision-support').innerText(), /GLM 5\.3 encoder.*1\.1 GB.*Installed.*DeepSeek Vision-Exp encoder.*933 MB.*Installed/s);
+  assert.match(await page.locator('.set-grp[data-pane="vision"] .set-help').first().innerText(), /DeepSeek Vision-Exp and GLM 5\.3 do not use this reader.*pixels directly/s);
+  await page.screenshot({ path: '/tmp/dstudio-settings-vision.png' });
 
   await page.locator('#set-nav [data-pane="interface"]').click();
   assert.equal(await page.locator('#set-pane-title').innerText(), 'Interface');

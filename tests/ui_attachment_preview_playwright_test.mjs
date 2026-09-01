@@ -86,11 +86,6 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, chats: [] });
     return;
   }
-  if (url.pathname === '/api/vision/stop' && req.method === 'POST') {
-    requestOrder.push('vision-stop');
-    json(res, 200, { ok: true, stopped: true });
-    return;
-  }
   if (url.pathname === '/api/embed/stop' && req.method === 'POST') {
     requestOrder.push('embed-stop');
     json(res, 200, { ok: true, stopped: true });
@@ -211,9 +206,9 @@ try {
   await page.locator('#composer-input').fill('Ciao');
   await page.locator('#btn-send').click();
   await page.locator('.msg--assistant .md').filter({ hasText: 'OK' }).waitFor({ state: 'visible' });
-  assert.deepEqual(requestOrder.filter((entry) => ['vision-stop', 'embed-stop', 'chat'].includes(entry)).slice(-3),
-    ['vision-stop', 'embed-stop', 'chat'],
-    'local chat must release both Metal sidecars before prefill');
+  assert.deepEqual(requestOrder.filter((entry) => ['embed-stop', 'chat'].includes(entry)).slice(-2),
+    ['embed-stop', 'chat'],
+    'local chat must release the embedding helper before prefill');
   assert.deepEqual(pageErrors, [], `page errors: ${JSON.stringify({ pageErrors, missingRequests }, null, 2)}`);
   console.log('ui_attachment_preview_playwright_test: ok');
 } finally {

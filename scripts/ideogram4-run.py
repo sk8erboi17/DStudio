@@ -173,12 +173,8 @@ def verify_caption(raw: str) -> str:
         raise IdeogramError(f"Ideogram 4 requires a structured JSON caption: {exc}") from exc
     if not isinstance(parsed, dict):
         raise IdeogramError("Ideogram 4 caption must be one JSON object")
-    # A durable Qwen route envelope can be passed directly for manual/benchmark
-    # replay. Fail closed unless it is a generation route with one caption.
     if "mode" in parsed or "caption" in parsed:
-        if parsed.get("mode") != "generate" or not isinstance(parsed.get("caption"), dict):
-            raise IdeogramError("Ideogram 4 requires a Qwen generation route with a caption")
-        parsed = parsed["caption"]
+        raise IdeogramError("Ideogram 4 accepts the structured caption directly, not a routing envelope")
     parsed.pop("aspect_ratio", None)
     # Bounding boxes are useful for the captioner but the official local magic
     # prompt strips them before inference to avoid brittle placement artifacts.
@@ -442,7 +438,7 @@ def main() -> int:
             base_url = f"http://127.0.0.1:{port}"
             wait_for_server(base_url, process)
             status_write(status_path, "running", "loading_model",
-                         "Loading Ideogram 4 FP8 and its Qwen3-VL encoder into Metal…", 10,
+                         "Loading Ideogram 4 FP8 and its internal text encoder into Metal…", 10,
                          quality="quality-48", width=width, height=height)
             client_id = f"dstudio-{os.getpid()}-{int(time.time())}"
             queued = http_json(base_url + "/prompt", {

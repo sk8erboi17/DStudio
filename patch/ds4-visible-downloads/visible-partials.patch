@@ -1,0 +1,224 @@
+diff --git a/download_model.sh b/download_model.sh
+index 32665c4..83afdb6 100755
+--- a/download_model.sh
++++ b/download_model.sh
+@@ -185,9 +185,9 @@ Then the default commands work:
+ After downloading DSpark support, enable it explicitly:
+   ./ds4 --dspark --mtp-model <download directory>/$DS4F_DSPARK_FILE
+ 
+-PRO and GLM files are downloaded with the official Hugging Face downloader
+-because they are too large, sharded, or nested for the curl path used by the
+-smaller DeepSeek Flash GGUF files.
++Every transfer is written as a visible <filename>.part file in the download
++directory. Re-running the same target resumes that file with curl before it is
++renamed to the final GGUF name.
+ EOF
+ }
+ 
+@@ -200,38 +200,32 @@ MODEL=$1
+ shift
+ MODEL_FILES=
+ LINK_MODEL=1
+-FORCE_HF_DOWNLOAD=0
+ FLATTEN_DOWNLOADS=0
+ 
+ case "$MODEL" in
+     ds4f-q2) MODEL_FILE=$DS4F_Q2_FILE ;;
+     ds4f-q2-q4) MODEL_FILE=$DS4F_Q2_Q4_FILE ;;
+     ds4f-q4) MODEL_FILE=$DS4F_Q4_FILE ;;
+-    ds4f-mxfp4) MODEL_FILE=$DS4F_MXFP4_FILE; FORCE_HF_DOWNLOAD=1 ;;
++    ds4f-mxfp4) MODEL_FILE=$DS4F_MXFP4_FILE ;;
+     ds4f-dspark) MODEL_FILE=$DS4F_DSPARK_FILE; LINK_MODEL=0 ;;
+     ds4f-vision-q2)
+         MODEL_FILE=$DS4F_VISION_Q2_FILE
+         MODEL_FILES="$MODEL_FILE $DS4F_VISION_ENCODER_FILE"
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     ds4f-vision-q2-q4)
+         MODEL_FILE=$DS4F_VISION_Q2_Q4_FILE
+         MODEL_FILES="$MODEL_FILE $DS4F_VISION_ENCODER_FILE"
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     ds4f-vision-mxfp4)
+         MODEL_FILE=$DS4F_VISION_MXFP4_FILE
+         MODEL_FILES="$MODEL_FILE $DS4F_VISION_ENCODER_FILE"
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     ds4f-vision-encoder)
+         MODEL_FILE=$DS4F_VISION_ENCODER_FILE
+-        FORCE_HF_DOWNLOAD=1
+         LINK_MODEL=0
+         ;;
+     ds4f-vision-dspark)
+         MODEL_FILE=$DS4F_VISION_DSPARK_FILE
+-        FORCE_HF_DOWNLOAD=1
+         LINK_MODEL=0
+         ;;
+     pro-q2-imatrix) MODEL_FILE=$PRO_Q2_IMATRIX_FILE ;;
+@@ -248,49 +242,40 @@ case "$MODEL" in
+         for part in 00001 00002 00003 00004 00005 00006 00007 00008 00009 00010 00011; do
+             MODEL_FILES="$MODEL_FILES $GLM_UNSLOTH_Q4_REMOTE_BASE-${part}-of-00011.gguf"
+         done
+-        FORCE_HF_DOWNLOAD=1
+         FLATTEN_DOWNLOADS=1
+         ;;
+     glm-antirez-q2)
+         REPO=$GLM_ANTIREZ_REPO
+         MODEL_FILE=$GLM_ANTIREZ_Q2_FILE
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     glm-antirez-iq2xxs)
+         REPO=$GLM_ANTIREZ_REPO
+         MODEL_FILE=$GLM_ANTIREZ_IQ2XXS_FILE
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     glm-antirez-q4)
+         REPO=$GLM_ANTIREZ_REPO
+         MODEL_FILE=$GLM_ANTIREZ_Q4_FILE
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     glm53-full-q2)
+         REPO=$GLM53_FULL_REPO
+         MODEL_FILE=$GLM53_FULL_Q2_FILE
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     glm53-q2)
+         REPO=$GLM53_REPO
+         MODEL_FILE=$GLM53_Q2_FILE
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     glm53-q4)
+         REPO=$GLM53_REPO
+         MODEL_FILE=$GLM53_Q4_FILE
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     glm53-fp8)
+         REPO=$GLM53_REPO
+         MODEL_FILE=$GLM53_FP8_FILE
+-        FORCE_HF_DOWNLOAD=1
+         LINK_MODEL=0
+         ;;
+     glm53-vision)
+         REPO=$GLM53_REPO
+         MODEL_FILE=$GLM53_VISION_FILE
+-        FORCE_HF_DOWNLOAD=1
+         LINK_MODEL=0
+         ;;
+     -h|--help|help)
+@@ -327,34 +312,6 @@ if [ -z "$TOKEN" ] && [ -s "$HOME/.cache/huggingface/token" ]; then
+     TOKEN=$(cat "$HOME/.cache/huggingface/token")
+ fi
+ 
+-needs_hf_download() {
+-    if [ "${FORCE_HF_DOWNLOAD:-0}" -eq 1 ]; then
+-        return 0
+-    fi
+-    case "$1" in
+-        "$PRO_Q2_IMATRIX_FILE"|"$PRO_Q4_LAYERS00_30_FILE"|"$PRO_Q4_LAYERS31_OUTPUT_FILE")
+-            return 0
+-            ;;
+-        *)
+-            return 1
+-            ;;
+-    esac
+-}
+-
+-find_hf_command() {
+-    if command -v hf >/dev/null 2>&1; then
+-        printf '%s\n' hf
+-        return 0
+-    fi
+-    for dir in "$HOME"/Library/Python/*/bin "$HOME"/.local/bin; do
+-        if [ -x "$dir/hf" ]; then
+-            printf '%s\n' "$dir/hf"
+-            return 0
+-        fi
+-    done
+-    return 1
+-}
+-
+ local_download_name() {
+     if [ "${FLATTEN_DOWNLOADS:-0}" -eq 1 ]; then
+         basename "$1"
+@@ -363,57 +320,6 @@ local_download_name() {
+     fi
+ }
+ 
+-download_one_hf() {
+-    file=$1
+-    local_file=$(local_download_name "$file")
+-    out="$OUT_DIR/$local_file"
+-    hf_out="$OUT_DIR/$file"
+-    part="$out.part"
+-
+-    mkdir -p "$(dirname "$out")"
+-
+-    if [ -s "$out" ]; then
+-        echo "Already downloaded: $out"
+-        return
+-    fi
+-
+-    if [ -e "$part" ]; then
+-        echo "Found curl partial download: $part" >&2
+-        echo "The Hugging Face downloader cannot resume curl .part files." >&2
+-        echo "Move or remove that partial download before retrying this target." >&2
+-        exit 1
+-    fi
+-
+-    HF_CMD=$(find_hf_command || true)
+-    if [ -z "$HF_CMD" ]; then
+-        echo "Large GGUF downloads require the official Hugging Face CLI." >&2
+-        echo "Install it with:" >&2
+-        echo "  python3 -m pip install -U huggingface_hub hf_xet" >&2
+-        exit 1
+-    fi
+-
+-    echo "Downloading $file"
+-    echo "from https://huggingface.co/$REPO"
+-    echo "using $HF_CMD download"
+-    echo "If the download stops, run the same command again to resume it."
+-
+-    if [ -n "$TOKEN" ]; then
+-        "$HF_CMD" download "$REPO" "$file" --repo-type model --local-dir "$OUT_DIR" --token "$TOKEN"
+-    else
+-        "$HF_CMD" download "$REPO" "$file" --repo-type model --local-dir "$OUT_DIR"
+-    fi
+-
+-    if [ "$hf_out" != "$out" ] && [ -s "$hf_out" ]; then
+-        mv "$hf_out" "$out"
+-        rmdir "$(dirname "$hf_out")" 2>/dev/null || true
+-    fi
+-
+-    if [ ! -s "$out" ]; then
+-        echo "Hugging Face download finished but expected file is missing: $out" >&2
+-        exit 1
+-    fi
+-}
+-
+ download_one() {
+     file=$1
+     local_file=$(local_download_name "$file")
+@@ -422,11 +328,6 @@ download_one() {
+     aria2_part="$out.aria2"
+     url="https://huggingface.co/$REPO/resolve/main/$file"
+ 
+-    if needs_hf_download "$file"; then
+-        download_one_hf "$file"
+-        return
+-    fi
+-
+     mkdir -p "$(dirname "$out")"
+ 
+     if [ -e "$aria2_part" ]; then
+@@ -445,9 +346,9 @@ download_one() {
+     echo "If the download stops, run the same command again to resume it."
+ 
+     if [ -n "$TOKEN" ]; then
+-        curl -fL --progress-meter -C - -H "Authorization: Bearer $TOKEN" -o "$part" "$url"
++        curl -fL --show-error --retry 5 --retry-all-errors --progress-meter -C - -H "Authorization: Bearer $TOKEN" -o "$part" "$url"
+     else
+-        curl -fL --progress-meter -C - -o "$part" "$url"
++        curl -fL --show-error --retry 5 --retry-all-errors --progress-meter -C - -o "$part" "$url"
+     fi
+ 
+     mv "$part" "$out"

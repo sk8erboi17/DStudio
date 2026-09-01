@@ -163,6 +163,26 @@ class CoworkOfficeTests(unittest.TestCase):
             self.assertIn("ppt/theme/theme1.xml", archive.namelist())
             self.assertIn("ppt/slides/_rels/slide2.xml.rels", archive.namelist())
 
+    def test_direct_pdf_creation_is_valid_and_paginated(self):
+        content = "# Recap\n\n## Totals\n- Ordinary hours: 164\n- Vacation: 8\n\n" + "\n".join(
+            f"{index}. Verified payroll line {index}" for index in range(1, 125)
+        )
+        created = self.call(
+            "write_pdf",
+            path="payroll-recap.pdf",
+            title="Payroll recap",
+            content=content,
+        )
+        self.assertIn("Created PDF payroll-recap.pdf", created)
+        self.assertRegex(created, r"with [2-9][0-9]* page")
+        data = (self.root / "payroll-recap.pdf").read_bytes()
+        self.assertTrue(data.startswith(b"%PDF-1.4"))
+        self.assertTrue(data.rstrip().endswith(b"%%EOF"))
+        self.assertIn(b"/Type /Catalog", data)
+        self.assertGreater(data.count(b"/Type /Page "), 1)
+        with self.assertRaisesRegex(office.ToolError, r"end in \.pdf"):
+            self.call("write_pdf", path="wrong.txt", content="No")
+
     def test_workspace_traversal_absolute_and_symlink_escape_are_blocked(self):
         outside = self.root.parent / f"{self.root.name}-outside.txt"
         outside.write_text("secret", encoding="utf-8")

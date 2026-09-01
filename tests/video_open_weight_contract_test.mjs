@@ -162,7 +162,7 @@ assert.match(video,
   /api_video_stop\(int fd, const char \*body\)[\s\S]*video_request_cancel\(dir\)[\s\S]*worker\.pid/,
   'the stop endpoint must persist cancellation before racing worker startup');
 assert.match(video,
-  /--cancel-file[\s\S]*qwen_memory_begin\("video-generation"\)[\s\S]*video_cancel_requested\(dir\)[\s\S]*setup_run_cmd_capture/,
+  /--cancel-file[\s\S]*media_memory_begin\("video-generation"\)[\s\S]*video_cancel_requested\(dir\)[\s\S]*setup_run_cmd_capture/,
   'the coordinator and worker must both honor cancellation before inference starts');
 assert.match(video, /O_WRONLY\s*\|\s*O_CREAT\s*\|\s*O_EXCL/,
   'POSIX H3 job ownership must use an atomic exclusive create');
@@ -200,7 +200,7 @@ assert.match(web, /"duration":null,"aspect":null/,
 assert.match(web, /"firstFramePrompt":null/,
   'the video directive must support a locally generated opening frame');
 assert.match(web, /generatedFirstFrame\s*=\s*await generateImageFromDirective/,
-  'the Qwen3.8-routed Ideogram pipeline must run before H3 for a generated first frame');
+  'the direct Ideogram pipeline must run before H3 for a generated first frame');
 assert.match(web, /firstFrame\s*=\s*await blobToDataUri/,
   'the locally generated Ideogram image must be passed to H3 as first-frame data');
 assert.match(web, /fetch\('\/api\/video\/generate'/);

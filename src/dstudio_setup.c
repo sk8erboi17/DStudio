@@ -693,11 +693,11 @@ static void setup_send_json(int fd, const char *status, int ok, const char *targ
     free(b.ptr);
 }
 
-/* Prepare a side-by-side branch checkout for every DStudio mode. The helper
- * temporarily points the existing patch/build machinery at that checkout,
- * then restores the user's active engine selection. */
+/* Apply the reversible runtime patches to the active managed checkout. Main
+ * now owns both DeepSeek and GLM; this helper is also reused by Laguna setup. */
 static int setup_apply_ds4_runtime_patches(void) {
-    return run_ext_script("scripts/apply-ds4-qwen-hot-memory.sh", "apply") &&
+    return run_ext_script("scripts/apply-ds4-visible-downloads.sh", "apply") &&
+           run_ext_script("scripts/apply-ds4-media-memory.sh", "apply") &&
            run_ext_script("scripts/apply-ds4-server-metrics.sh", "apply") &&
            run_ext_script("scripts/apply-ds4-glm53-runtime.sh", "apply");
 }
@@ -705,7 +705,8 @@ static int setup_apply_ds4_runtime_patches(void) {
 static int setup_restore_ds4_runtime_patches(void) {
     return run_ext_script("scripts/apply-ds4-glm53-runtime.sh", "restore") &&
            run_ext_script("scripts/apply-ds4-server-metrics.sh", "restore") &&
-           run_ext_script("scripts/apply-ds4-qwen-hot-memory.sh", "restore");
+           run_ext_script("scripts/apply-ds4-media-memory.sh", "restore") &&
+           run_ext_script("scripts/apply-ds4-visible-downloads.sh", "restore");
 }
 
 /* Optional inference branches share one physical model store. Their `gguf`

@@ -241,11 +241,20 @@ int main(void) {
         oversized.ssd_streaming = SSD_STREAMING_OFF;
         g_dspark_enabled = 1;
         char adjustment[384] = "";
-        assert(normalize_flash_memory_config(&oversized, 0, adjustment, sizeof adjustment));
-        assert(!g_dspark_enabled);
+        unsigned long long required = 0, budget = 0;
+        assert(!normalize_flash_memory_config(&oversized, 0, 0,
+                                              adjustment, sizeof adjustment,
+                                              &required, &budget));
+        assert(g_dspark_enabled);
         assert(oversized.ctx == 1048576);
-        assert(strstr(adjustment, "DSpark disabled") != NULL);
-        assert(strstr(adjustment, "preserving the requested") != NULL);
+        assert(required > budget && budget > 0);
+        assert(strstr(adjustment, "exceeds this Mac's") != NULL);
+        assert(strstr(adjustment, "terminate the engine") != NULL);
+        assert(normalize_flash_memory_config(&oversized, 0, 1,
+                                             adjustment, sizeof adjustment,
+                                             &required, &budget));
+        assert(g_dspark_enabled);
+        assert(strstr(adjustment, "user confirmation") != NULL);
     }
 #endif
 

@@ -179,7 +179,17 @@ try {
   await page.waitForFunction(() => !document.querySelector('#agent-view')?.hidden);
   await page.locator('#cbar-gear').click();
   await page.locator('#cbar-pop').waitFor({ state: 'visible' });
-  await page.locator('#cbar-pop .cdrop-trig').filter({ hasText: 'GSA' }).click();
+  const gsaToggle = page.locator('#cbar-pop .cbar-menu-toggle').filter({ hasText: 'Guided Security Analysis' });
+  assert.equal(await gsaToggle.getAttribute('role'), 'switch', 'GSA should be a semantic switch, not an Off/On dropdown');
+  assert.equal(await gsaToggle.getAttribute('aria-checked'), 'true', 'persisted GSA On should be reflected in its switch');
+  const profileTrigger = page.locator('#cbar-pop .cdrop-trig').filter({ hasText: 'Profile' });
+  await profileTrigger.evaluate((node) => {
+    node.click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+  assert.equal(await page.locator('body > .cdrop-menu:not([hidden])').count(), 0,
+    'Escape in the opening event loop should close the detached dropdown before it can intercept another control');
+  await profileTrigger.click();
   await page.locator('body > .cdrop-menu:not([hidden])').waitFor({ state: 'visible' });
 
   const boxes = await page.evaluate(() => {
@@ -199,6 +209,9 @@ try {
     assert.ok(r.bottom <= boxes.viewport.height + 1, `${name} overflows bottom: ${JSON.stringify(boxes)}`);
     assert.ok(r.width > 100 && r.height > 30, `${name} is not visibly sized: ${JSON.stringify(boxes)}`);
   }
+  await page.keyboard.press('Escape');
+  await gsaToggle.click();
+  await page.waitForFunction(() => document.querySelector('#cbar-pop .cbar-menu-toggle')?.getAttribute('aria-checked') === 'false');
   statusMode = 'server';
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('#conn-indicator .conn-model').filter({ hasText: 'deepseek-v4-flash' }).waitFor();

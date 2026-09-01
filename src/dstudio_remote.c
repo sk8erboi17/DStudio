@@ -354,8 +354,7 @@ static int lan_public_path_allowed(const char *method, const char *path) {
     if (!strcmp(method, "OPTIONS") &&
         (!strncmp(path, "/v1/", 4) || path_eq_clean(path, "/api/lan-client/chats") ||
          path_eq_clean(path, "/api/lan-health") || (lan_on && lan_web_tool_path(path)) ||
-         (lan_on && (path_eq_clean(path, "/api/vision/describe") ||
-                     path_eq_clean(path, "/api/image/generate") ||
+         (lan_on && (path_eq_clean(path, "/api/image/generate") ||
                      path_eq_clean(path, "/api/pdf/thumb") || path_eq_clean(path, "/api/pdf/describe"))))) return 1;
     if (get && (remote_page_path(path) || lan_root_path(path))) return 1;
     if (get && (path_eq_clean(path, "/api/remote/status") || path_eq_clean(path, "/api/remote/chat"))) return 1;
@@ -363,9 +362,6 @@ static int lan_public_path_allowed(const char *method, const char *path) {
     if (!strcmp(method, "POST") && path_eq_clean(path, "/api/remote/chat")) return 1;
     if (!strcmp(method, "POST") && path_eq_clean(path, "/api/lan-client/chats")) return 1;
     if (lan_on && !strcmp(method, "POST") && lan_web_tool_path(path)) return 1;
-    /* Image describe for LAN clients (inline data only: the handler rejects
-     * `path` sources from non-loopback peers). Setup/stop/status stay host-local. */
-    if (lan_on && !strcmp(method, "POST") && path_eq_clean(path, "/api/vision/describe")) return 1;
     if (lan_on && !strcmp(method, "POST") && path_eq_clean(path, "/api/image/generate")) return 1;
     if (lan_on && get && (path_eq_clean(path, "/api/image/file") ||
                           path_eq_clean(path, "/api/image/progress"))) return 1;

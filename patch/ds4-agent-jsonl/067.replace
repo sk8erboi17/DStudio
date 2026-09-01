@@ -11,7 +11,7 @@ static char *ds4ui_cowork_workspace_guard(const agent_tool_call *call) {
         return xstrdup("Cowork tool error: bash is unavailable; use folder-scoped Office and file tools.\n");
 
     int guarded = !strcmp(call->name, "read") || !strcmp(call->name, "list") ||
-                  !strcmp(call->name, "search") || !strcmp(call->name, "see_image") ||
+                  !strcmp(call->name, "search") || !strcmp(call->name, "view_image") ||
                   !strcmp(call->name, "read_pdf");
     if (!guarded) return NULL;
     const char *path = agent_tool_arg_value(call, "path");

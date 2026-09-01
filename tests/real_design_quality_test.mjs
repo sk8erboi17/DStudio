@@ -162,15 +162,11 @@ async function waitQuiet(baseUrl, timeoutMs = 120_000) {
   throw new Error('Design runtime did not become quiet');
 }
 
-async function preflightVision(baseUrl) {
-  const status = await jsonFetch(baseUrl, '/api/vision/status', { timeoutMs: 30_000 });
-  assert.equal(status?.supported, true, 'Qwen Vision is not supported by this runtime');
-  assert.equal(status?.installed, true,
-    `Qwen3.8 Vision preflight failed before Design received the prompt: ${status?.state || 'missing'}`);
-  assert.equal(status?.state, 'ready',
-    `Qwen3.8 must be installed but unloaded before the DS4-only run: ${status?.state || 'unknown'}`);
-  assert.equal(Number(status?.pid || 0), 0,
-    'Qwen3.8 must not overlap the resident DS4 process during preflight');
+async function preflightNativeVision(baseUrl) {
+  const status = await jsonFetch(baseUrl, '/api/status', { timeoutMs: 30_000 });
+  assert.equal(status?.running, true, 'Design engine is not running during native-vision preflight');
+  assert.equal(status?.nativeVisionActive, true,
+    'Design quality tests require DeepSeek Vision-Exp or GLM 5.3 with its matching native encoder');
   return status;
 }
 
@@ -455,9 +451,9 @@ function gradeCase(testCase, run, beforeSnapshot) {
       const seeImagePositions = names.flatMap((name, index) => name === 'see_image' ? [index] : []);
       const videoPosition = names.indexOf('generate_video');
       addCheck(checks, seeImagePositions.length === expectedSeeImageCount,
-        `Qwen correspondence ran exactly ${expectedSeeImageCount} times (source and edit only)`, 'tool');
+        `native correspondence ran exactly ${expectedSeeImageCount} times (source and edit only)`, 'tool');
       addCheck(checks, videoPosition >= 0 && seeImagePositions.every((index) => index < videoPosition),
-        'Qwen correspondence finished before H3 with no unsolicited video-frame gate', 'tool');
+        'native correspondence finished before H3 with no unsolicited video-frame gate', 'tool');
       for (const image of [testCase.generatedImage, testCase.editedImage]) {
         addCheck(checks, validPng(path.join(workspace, image), realImage ? 1000 : 60),
           `full-stack PNG is valid: ${image}`);
@@ -604,13 +600,13 @@ function gradeCase(testCase, run, beforeSnapshot) {
     addCheck(checks, artifactCheck && Number(artifactCheck.p0) === 0, 'artifact gate has zero P0');
     const visualCheck = lastEntryEvent(run.events, 'visual_check', testCase.entry);
     const findings = artifactCheck?.findings || [];
-    const qwenGateExecuted = Boolean(artifactCheck && visualCheck) &&
+    const nativeVisionGateExecuted = Boolean(artifactCheck && visualCheck) &&
       !findings.some((finding) => /visual check skipped/i.test(finding.message || ''));
-    addCheck(checks, qwenGateExecuted,
-      'Qwen visual gate executed');
-    addCheck(checks, qwenGateExecuted && visualCheck?.pass === true &&
+    addCheck(checks, nativeVisionGateExecuted,
+      'native visual gate executed');
+    addCheck(checks, nativeVisionGateExecuted && visualCheck?.pass === true &&
       !findings.some((finding) => finding.severity === 'P1' &&
-      /visual \(vision model/i.test(finding.message || '')), 'Qwen visual gate reported no rendered defect');
+      /visual \(vision model/i.test(finding.message || '')), 'native visual gate reported no rendered defect');
     addCheck(checks, visualCheck?.pass === true, 'visual/DOM viewport probe passed');
     addCheck(checks, visualCheck?.desktop?.clientWidth === 1280 &&
       visualCheck?.desktop?.overflow === false &&
@@ -651,37 +647,19 @@ function selectGguf(ggufs) {
     assert.ok(exact, `DSTUDIO_DESIGN_GGUF not found: ${requestedFile}`);
     return exact;
   }
-  const usable = ggufs.filter((item) => !/DSpark-support|MXFP4/i.test(item.file));
-  return usable.find((item) => /IQ2XXS.*imatrix/i.test(item.file)) ||
-    usable.find((item) => /Headroom/i.test(item.file)) || usable[0];
+  const usable = ggufs.filter((item) =>
+    !/DSpark-support|Vision-Encoder|MXFP4/i.test(item.file));
+  return usable.find((item) => /DeepSeek.*Vision-Exp|GLM-5\.3-Flash-Q2/i.test(item.file));
 }
 
 const realHome = process.env.DSTUDIO_REAL_HOME || os.homedir();
 const realImage = process.env.DSTUDIO_DESIGN_REAL_IMAGE === '1';
 const realVideo = process.env.DSTUDIO_DESIGN_REAL_VIDEO === '1';
-const realVision = process.env.DSTUDIO_DESIGN_REAL_VISION !== '0';
-const visionFixture = [
-  'GRADE|DESKTOP|CONTRAST|PASS|Readable contrast.',
-  'GRADE|DESKTOP|OVERLAP|PASS|No overlap.',
-  'GRADE|DESKTOP|CLIPPING|PASS|No clipping.',
-  'GRADE|DESKTOP|OVERFLOW|PASS|No overflow.',
-  'GRADE|DESKTOP|COMPLETENESS|PASS|Complete composition.',
-  'GRADE|MOBILE|CONTRAST|PASS|Readable contrast.',
-  'GRADE|MOBILE|OVERLAP|PASS|No overlap.',
-  'GRADE|MOBILE|CLIPPING|PASS|No clipping.',
-  'GRADE|MOBILE|OVERFLOW|PASS|No overflow.',
-  'GRADE|MOBILE|COMPLETENESS|PASS|Complete composition.',
-  'The supplied image corresponds to the requested subject and constraints.',
-].join('\n');
 const server = await startDStudio({
   binaryArg: process.argv[2], label: 'dstudio-design-real', isolatedEnginePort: true,
   env: {
     DSTUDIO_IMAGE_TEST_MODE: realImage ? '0' : '1',
     DSTUDIO_VIDEO_TEST_MODE: realVideo ? '0' : '1',
-    DSTUDIO_VISION_TEST_MODE: realVision ? '0' : '1',
-    DSTUDIO_VISION_TEST_TEXT: process.env.DSTUDIO_VISION_TEST_TEXT || visionFixture,
-    DSTUDIO_VISION_DIR: process.env.DSTUDIO_VISION_DIR || path.join(realHome, '.dstudio', 'llama-vision'),
-    DSTUDIO_QWEN38_VISION_HOME: process.env.DSTUDIO_QWEN38_VISION_HOME || path.join(realHome, '.dstudio', 'qwen38-vision'),
     DSTUDIO_IDEOGRAM4_HOME: process.env.DSTUDIO_IDEOGRAM4_HOME || path.join(realHome, '.dstudio', 'ideogram4'),
     DSTUDIO_HUNYUAN_IMAGE3_HOME: process.env.DSTUDIO_HUNYUAN_IMAGE3_HOME || path.join(realHome, '.dstudio', 'hunyuan-image'),
     DSTUDIO_H3_HOME: process.env.DSTUDIO_H3_HOME || path.join(realHome, '.dstudio', 'minimax-h3'),
@@ -715,8 +693,8 @@ try {
     'Design real tests must request true Max thinking');
   assert.equal(startup.config?.designThinkTokens, baseline.requiredLaunch.reasoningCapTokens,
     'Design real tests must use the configured reasoning policy');
-  const visionStatus = await preflightVision(server.baseUrl);
-  writeArtifact(artifacts, 'vision-preflight.json', visionStatus);
+  const visionStatus = await preflightNativeVision(server.baseUrl);
+  writeArtifact(artifacts, 'native-vision-preflight.json', visionStatus);
   if (resumeConfig) {
     writeArtifact(artifacts, 'resume.json', {
       schema: resumeConfig.manifest.schema,
@@ -879,8 +857,8 @@ try {
   const summary = {
     profile, selectedCases: selectedIds, model: gguf.file,
     unbounded, think: launchBody.think,
-    imageMode: realImage ? 'real-qwen38-router-ideogram4-hunyuan3' : 'deterministic-image-pipeline-fixtures',
-    visionMode: realVision ? 'real-qwen3.8-27b-max' : 'deterministic-qwen-fixture',
+    imageMode: realImage ? 'real-direct-ideogram4-hunyuan3' : 'deterministic-image-pipeline-fixtures',
+    visionMode: 'native-selected-model',
     videoMode: realVideo ? 'real-minimax-h3' : 'deterministic-h3-fixture',
     ssdStreaming: startup.config?.ssdStreaming,
     ssdStreamingEffective: startup.config?.ssdStreamingEffective,
@@ -913,8 +891,8 @@ try {
     `- Context: ${launchBody.ctx.toLocaleString('en-US')} tokens`,
     `- Thinking: ${launchBody.think}; Design reasoning cap: ${launchBody.designThinkTokens || 'unlimited'}`,
     `- DS4-only SSD streaming: ${startup.config?.ssdStreamingEffective ? 'on' : 'off'}`,
-    `- Image pipeline: ${realImage ? 'real Qwen3.8 + Ideogram 4 + HunyuanImage 3' : 'deterministic contract fixtures'}`,
-    `- Vision review: ${realVision ? 'real Qwen3.8-27B Max' : 'deterministic Qwen contract fixture'}`,
+    `- Image pipeline: ${realImage ? 'direct Ideogram 4 + HunyuanImage 3' : 'deterministic contract fixtures'}`,
+    '- Vision review: selected DS4 model with its native encoder',
     `- Video pipeline: ${realVideo ? 'real MiniMax H3 quality' : 'deterministic H3 contract fixture'}`,
     '', '## Results and generation time', '',
     '| Site | Result | Time | HTML | Desktop | Mobile |',

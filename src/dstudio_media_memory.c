@@ -1,4 +1,4 @@
-/* Temporary DS4 memory lease for local Qwen pipelines. The persistent
+/* Temporary DS4 memory lease for local image/video pipelines. The persistent
  * Off/Auto/On preference is never mutated; the patched engine only suspends
  * residency and page-cache while the lease is active. */
 
@@ -6,18 +6,17 @@ typedef struct {
     int acquired;
     int required;
     const char *purpose;
-} qwen_memory_lease;
+} media_memory_lease;
 
-static int qwen_memory_should_yield(const char *purpose, char *reason, size_t reasonsz) {
+static int media_memory_should_yield(const char *purpose, char *reason, size_t reasonsz) {
     const unsigned long long gib = 1024ull * 1024ull * 1024ull;
     unsigned long long ram = dstudio_physical_memory_bytes();
     long long model = current_model_file_size();
     unsigned long long reserve = 16ull * gib;
-    /* The image pipeline serializes Qwen3.8 routing, Ideogram 4 generation and
-     * HunyuanImage editing, but its largest measured worker still needs DS4
+    /* The image pipeline serializes Ideogram 4 generation and HunyuanImage
+     * editing, but its largest measured worker still needs DS4
      * fully evacuated on a 96 GiB unified-memory machine. */
     if (purpose && !strcmp(purpose, "image-pipeline")) reserve = 80ull * gib;
-    else if (purpose && (!strcmp(purpose, "vision") || !strcmp(purpose, "pdf"))) reserve = 40ull * gib;
     else if (purpose && !strcmp(purpose, "video-generation")) reserve = 48ull * gib;
 
     if (g_remote_base_url[0] || g_mode != ENGINE_SERVER ||
@@ -42,7 +41,7 @@ static int qwen_memory_should_yield(const char *purpose, char *reason, size_t re
     return pressure;
 }
 
-static int qwen_memory_post(int begin) {
+static int media_memory_post(int begin) {
     int port = g_cfg.port > 0 ? g_cfg.port : ENGINE_DEFAULTS.port;
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return 0;
@@ -74,18 +73,18 @@ static int qwen_memory_post(int begin) {
     return strstr(response, " 200 ") != NULL;
 }
 
-static qwen_memory_lease qwen_memory_begin(const char *purpose) {
-    qwen_memory_lease lease = {0, 0, purpose};
+static media_memory_lease media_memory_begin(const char *purpose) {
+    media_memory_lease lease = {0, 0, purpose};
     char reason[256];
-    if (!qwen_memory_should_yield(purpose, reason, sizeof reason)) {
-        dstudio_log_event("info", "qwen-memory", 0, "Qwen %s: %s",
+    if (!media_memory_should_yield(purpose, reason, sizeof reason)) {
+        dstudio_log_event("info", "media-memory", 0, "Media %s: %s",
                           purpose ? purpose : "pipeline", reason);
         return lease;
     }
     lease.required = 1;
-    lease.acquired = qwen_memory_post(1);
-    dstudio_log_event(lease.acquired ? "info" : "warn", "qwen-memory", 0,
-                      "Qwen %s: temporary SSD streaming %s (%s; saved setting=%s)",
+    lease.acquired = media_memory_post(1);
+    dstudio_log_event(lease.acquired ? "info" : "warn", "media-memory", 0,
+                      "Media %s: temporary SSD streaming %s (%s; saved setting=%s)",
                       purpose ? purpose : "pipeline",
                       lease.acquired ? "active" : "unavailable", reason,
                       g_cfg.ssd_streaming == SSD_STREAMING_ON ? "on" :
@@ -93,15 +92,15 @@ static qwen_memory_lease qwen_memory_begin(const char *purpose) {
     return lease;
 }
 
-static int qwen_memory_ready(const qwen_memory_lease *lease) {
+static int media_memory_ready(const media_memory_lease *lease) {
     return lease && (!lease->required || lease->acquired);
 }
 
-static void qwen_memory_end(qwen_memory_lease *lease) {
+static void media_memory_end(media_memory_lease *lease) {
     if (!lease || !lease->acquired) return;
-    int ok = qwen_memory_post(0);
-    dstudio_log_event(ok ? "info" : "warn", "qwen-memory", 0,
-                      "Qwen %s: temporary SSD streaming %s; persistent setting unchanged",
+    int ok = media_memory_post(0);
+    dstudio_log_event(ok ? "info" : "warn", "media-memory", 0,
+                      "Media %s: temporary SSD streaming %s; persistent setting unchanged",
                       lease->purpose ? lease->purpose : "pipeline",
                       ok ? "released" : "release failed");
     lease->acquired = 0;

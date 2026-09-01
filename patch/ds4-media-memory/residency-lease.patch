@@ -41,7 +41,7 @@ diff --git a/ds4.c b/ds4.c
 +    e->memory_pressure_advised_bytes = total;
 +    if (advised_bytes) *advised_bytes = total;
 +    fprintf(stderr,
-+            "ds4: temporary Qwen memory pressure active backend=%s advised=%.2f GiB configured_ssd_streaming=%s\n",
++            "ds4: temporary media memory pressure active backend=%s advised=%.2f GiB configured_ssd_streaming=%s\n",
 +            ds4_backend_name(e->backend), (double)total / 1073741824.0,
 +            e->ssd_streaming ? "on" : "off");
 +    return 0;
@@ -55,7 +55,7 @@ diff --git a/ds4.c b/ds4.c
 +#endif
 +    e->memory_pressure_advised_bytes = 0;
 +    fprintf(stderr,
-+            "ds4: temporary Qwen memory pressure released backend=%s configured_ssd_streaming=%s\n",
++            "ds4: temporary media memory pressure released backend=%s configured_ssd_streaming=%s\n",
 +            ds4_backend_name(e->backend), e->ssd_streaming ? "on" : "off");
 +    return 0;
 +}
@@ -79,7 +79,7 @@ diff --git a/ds4.h b/ds4.h
  int ds4_engine_power(ds4_engine *e);
  int ds4_engine_set_power(ds4_engine *e, int power_percent);
 +/* Temporarily yield model residency/page-cache to a co-located accelerator
-+ * pipeline (vision, PDF OCR or image generation). Calls are nestable. This
++ * media-generation pipeline. Calls are nestable. This
 + * does not change the engine's configured --ssd-streaming mode. */
 +int ds4_engine_memory_pressure_begin(ds4_engine *e, uint64_t *advised_bytes);
 +int ds4_engine_memory_pressure_end(ds4_engine *e);
@@ -134,14 +134,14 @@ diff --git a/ds4_metal.m b/ds4_metal.m
 +    if (!ds4_gpu_synchronize()) return 0;
 +    ds4_gpu_model_residency_clear();
 +    ds4_gpu_stream_expert_cache_clear_all(1);
-+    fprintf(stderr, "ds4: Metal model residency suspended for Qwen\n");
++    fprintf(stderr, "ds4: Metal model residency suspended for local media\n");
 +    return 1;
 +}
 +
 +int ds4_gpu_memory_pressure_end(void) {
 +    if (!g_initialized) return 1;
 +    if (!ds4_gpu_model_residency_request_views()) return 0;
-+    fprintf(stderr, "ds4: Metal model residency restored after Qwen\n");
++    fprintf(stderr, "ds4: Metal model residency restored after local media\n");
 +    return 1;
 +}
 +

@@ -14,6 +14,8 @@ const loadingHtml = fs.readFileSync('web/loading.html');
 let started = false;
 let startBody = null;
 let checkoutBody = null;
+let requireDsparkConfirmation = false;
+const startBodies = [];
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -74,11 +76,24 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/start' && req.method === 'POST') {
     startBody = JSON.parse(await readBody(req) || '{}');
+    startBodies.push(startBody);
+    if (requireDsparkConfirmation && startBody.dspark && !startBody.allowOverBudgetDspark) {
+      json(res, 409, {
+        ok: false,
+        code: 'dspark_memory_confirmation',
+        confirmationRequired: true,
+        requiredBytes: 108 * 1024 ** 3,
+        budgetBytes: 88 * 1024 ** 3,
+        error: "DSpark needs the main model, its support model and the requested context at the same time (estimated 108.0 GiB), which exceeds this Mac's 88.0 GiB Metal memory budget. macOS may page heavily or terminate the engine.",
+      });
+      return;
+    }
     started = true;
-    json(res, 200, {
-      ok: true, mode: 'server', adjusted: true, ctx: 65536, dspark: false,
-      warning: 'Memory-safe test adjustment',
-    });
+    json(res, 200, requireDsparkConfirmation
+      ? { ok: true, mode: 'server', adjusted: false, ctx: startBody.ctx, dspark: true,
+          warning: 'Starting DSpark by user confirmation' }
+      : { ok: true, mode: 'server', adjusted: true, ctx: 65536, dspark: false,
+          warning: 'Memory-safe test adjustment' });
     return;
   }
   if (url.pathname === '/') {
@@ -146,6 +161,43 @@ try {
   assert.equal(savedAfterStart.ctxSize, 65536, 'native memory adjustment should replace the unsafe saved context');
   assert.equal(savedAfterStart.dspark, false, 'native memory adjustment should persist DSpark being disabled');
   assert.deepEqual(pageErrors, []);
+
+  started = false;
+  startBody = null;
+  requireDsparkConfirmation = true;
+  const callsBeforeConfirmation = startBodies.length;
+  const confirmPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const confirmErrors = [];
+  confirmPage.on('pageerror', (e) => confirmErrors.push(e?.stack || e?.message || String(e)));
+  confirmPage.on('console', (msg) => { if (msg.type() === 'error') confirmErrors.push(msg.text()); });
+  await confirmPage.addInitScript(() => {
+    localStorage.setItem('ds4web.settings.v2', JSON.stringify({
+      v: 2,
+      onboarded: true,
+      modelVariant: 'flash',
+      modelGguf: '',
+      modelEngineDir: '',
+      ctxSize: 131072,
+      enginePower: 90,
+      ssdStreaming: 'off',
+      dspark: true,
+    }));
+  });
+  await confirmPage.goto(`http://127.0.0.1:${port}/loading.html`, { waitUntil: 'domcontentloaded' });
+  const dialog = confirmPage.locator('#dspark-memory-dialog');
+  await dialog.waitFor({ state: 'visible' });
+  assert.equal(started, false, 'the over-budget preflight must not start the engine before confirmation');
+  assert.match(await confirmPage.locator('#dspark-memory-reason').innerText(), /108\.0 GiB.*88\.0 GiB.*terminate the engine/s);
+  assert.equal(startBodies.length, callsBeforeConfirmation + 1, 'the loading gate should make one non-destructive preflight request');
+  assert.equal(startBodies.at(-1).allowOverBudgetDspark, undefined);
+  await confirmPage.locator('#dspark-memory-start').click();
+  await confirmPage.waitForURL(`http://127.0.0.1:${port}/`, { timeout: 8000 });
+  assert.equal(startBodies.length, callsBeforeConfirmation + 2, 'confirmation should retry the launch exactly once');
+  assert.equal(startBodies.at(-1).allowOverBudgetDspark, true, 'the retry must carry the explicit DSpark override');
+  assert.equal(startBodies.at(-1).dspark, true, 'the confirmed launch must keep DSpark enabled');
+  assert.equal(started, true);
+  assert.deepEqual(confirmErrors.filter((message) => !/Failed to load resource:.*409 \(Conflict\)/.test(message)), []);
+  await confirmPage.close();
   console.log('ui_loading_playwright_test: ok');
 } finally {
   await browser.close().catch(() => {});

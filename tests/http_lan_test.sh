@@ -39,17 +39,18 @@ trap cleanup EXIT
 
 mkdir -p "${tmp}/home" \
   "${tmp}/ds4/gguf" "${tmp}/ds4/.git" \
-  "${tmp}/ds4-glm5.3/.git" "${tmp}/ds4-laguna-s21/.git"
+  "${tmp}/ds4-laguna-s21/.git"
 printf '%s\n' 'all:' >"${tmp}/ds4/Makefile"
-printf '%s\n' 'all:' >"${tmp}/ds4-glm5.3/Makefile"
 printf '%s\n' 'all:' >"${tmp}/ds4-laguna-s21/Makefile"
 printf '%s\n' 'ref: refs/heads/main' >"${tmp}/ds4/.git/HEAD"
-printf '%s\n' 'ref: refs/heads/glm-5.3-flash' >"${tmp}/ds4-glm5.3/.git/HEAD"
 printf '%s\n' 'ref: refs/heads/laguna-s2.1' >"${tmp}/ds4-laguna-s21/.git/HEAD"
-ln -s ../ds4/gguf "${tmp}/ds4-glm5.3/gguf"
 ln -s ../ds4/gguf "${tmp}/ds4-laguna-s21/gguf"
 printf '%s' 'main-test' >"${tmp}/ds4/gguf/main-test.gguf"
 printf '%s' 'glm53-test' >"${tmp}/ds4/gguf/GLM-5.3-Flash-Q2.gguf"
+printf '%s' 'glm53-vision-test' >"${tmp}/ds4/gguf/GLM-5.3-Flash-Vision-Encoder.gguf"
+printf '%s' 'deepseek-vision-test' >"${tmp}/ds4/gguf/DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf"
+printf '%s' 'deepseek-vision-encoder-test' >"${tmp}/ds4/gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf"
+printf '%s' 'deepseek-vision-dspark-test' >"${tmp}/ds4/gguf/DeepSeek-V4-Flash-Vision-Exp-DSpark-support.gguf"
 printf '%s' 'laguna-test' >"${tmp}/ds4/gguf/laguna-test.gguf"
 mkdir -p "${tmp}/project/src"
 mkdir -p "${tmp}/home/.local/share/flashcards/ds4-skills/analytics"
@@ -177,6 +178,13 @@ curl -sS --max-time 5 -o "${tmp}/agent-send-large-response.json" -w "%{http_code
 curl -fsS --max-time 2 "${base}/api/gsa/tools" >"${tmp}/gsa-tools-before.json"
 curl -fsS --max-time 5 -X POST "${base}/api/gsa/tools/install" \
   -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' >"${tmp}/gsa-tools-install.json"
+gsa_install_task_id="$(node -e "const r=require(process.argv[1]); process.stdout.write(String(r.taskId || ''))" "${tmp}/gsa-tools-install.json")"
+for _ in $(seq 1 50); do
+  curl -fsS --max-time 2 "${base}/api/task?id=${gsa_install_task_id}" >"${tmp}/gsa-tools-install-task.json"
+  gsa_install_status="$(node -e "const r=require(process.argv[1]); process.stdout.write(String(r.task?.status || ''))" "${tmp}/gsa-tools-install-task.json")"
+  case "${gsa_install_status}" in completed|failed|canceled|incomplete) break ;; esac
+  sleep 0.1
+done
 curl -fsS --max-time 2 "${base}/api/gsa/tools" >"${tmp}/gsa-tools-after.json"
 curl -fsS --max-time 2 "${base}/loading.html" >"${tmp}/loading.html"
 grep -q 'startWithSavedSettings' "${tmp}/loading.html"
@@ -195,6 +203,11 @@ const fs = require('fs');
 const st = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (st.lan !== false) throw new Error('server should start localhost-only');
 if (st.httpPort <= 0) throw new Error('status.httpPort missing');
+if (st.glmVisionInstalled !== true) throw new Error('status should detect the native GLM vision encoder in main');
+if (st.deepseekVisionInstalled !== true) throw new Error('status should detect the native DeepSeek Vision-Exp encoder in main');
+if (typeof st.nativeVisionActive !== 'boolean') throw new Error('status.nativeVisionActive missing');
+if (typeof st.glmVisionActive !== 'boolean') throw new Error('status.glmVisionActive missing');
+if (typeof st.deepseekVisionActive !== 'boolean') throw new Error('status.deepseekVisionActive missing');
 NODE
 node - "${tmp}/lan-health-local.json" <<'NODE'
 const fs = require('fs');
@@ -226,7 +239,11 @@ const root = fs.realpathSync(process.argv[3]);
 if (!r.ok || !Array.isArray(r.ggufs)) throw new Error('GGUF catalog shape incomplete');
 const expected = new Map([
   ['main-test.gguf', ['ds4', 'main']],
-  ['GLM-5.3-Flash-Q2.gguf', ['ds4-glm5.3', 'glm-5.3-flash']],
+  ['GLM-5.3-Flash-Q2.gguf', ['ds4', 'main']],
+  ['GLM-5.3-Flash-Vision-Encoder.gguf', ['ds4', 'main']],
+  ['DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf', ['ds4', 'main']],
+  ['DeepSeek-V4-Flash-Vision-Encoder.gguf', ['ds4', 'main']],
+  ['DeepSeek-V4-Flash-Vision-Exp-DSpark-support.gguf', ['ds4', 'main']],
   ['laguna-test.gguf', ['ds4-laguna-s21', 'laguna-s2.1']],
 ]);
 for (const [file, [checkout, branch]] of expected) {
@@ -238,7 +255,9 @@ for (const [file, [checkout, branch]] of expected) {
 }
 if (r.activeEngine !== path.join(root, 'ds4')) throw new Error(`wrong active GGUF engine: ${r.activeEngine}`);
 if (!r.ggufs.find((g) => g.file === 'main-test.gguf').activeEngine) throw new Error('active GGUF row should be marked');
-if (r.ggufs.find((g) => g.file === 'GLM-5.3-Flash-Q2.gguf').activeEngine) throw new Error('GLM 5.3 should use its inactive side checkout while main is active');
+if (!r.ggufs.find((g) => g.file === 'GLM-5.3-Flash-Q2.gguf').activeEngine) throw new Error('GLM 5.3 should use the active main checkout');
+if (!r.ggufs.find((g) => g.file === 'GLM-5.3-Flash-Vision-Encoder.gguf').activeEngine) throw new Error('GLM 5.3 vision should use the active main checkout');
+if (!r.ggufs.find((g) => g.file === 'DeepSeek-V4-Flash-Vision-Encoder.gguf').activeEngine) throw new Error('DeepSeek Vision-Exp encoder should use the active main checkout');
 NODE
 node - "${tmp}/skill-analytics.json" <<'NODE'
 const fs = require('fs');
@@ -290,11 +309,12 @@ if (r.ok !== false || r.code !== 'workdir_missing' || r.mode !== 'agent' || r.wo
   throw new Error(`missing workdir response should be structured, got ${JSON.stringify(r)}`);
 }
 NODE
-node - "${tmp}/gsa-tools-before.json" "${tmp}/gsa-tools-install.json" "${tmp}/gsa-tools-after.json" <<'NODE'
+node - "${tmp}/gsa-tools-before.json" "${tmp}/gsa-tools-install.json" "${tmp}/gsa-tools-after.json" "${tmp}/gsa-tools-install-task.json" <<'NODE'
 const fs = require('fs');
 const before = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const install = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 const after = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
+const task = JSON.parse(fs.readFileSync(process.argv[5], 'utf8')).task;
 for (const r of [before, install, after]) {
   if (!r.ok || !r.gsaTools || !Array.isArray(r.gsaTools.tools)) throw new Error('GSA tools shape incomplete');
 }
@@ -305,9 +325,11 @@ if (!nuclei || !nuclei.templatesDir || typeof nuclei.templatesFound !== 'boolean
   throw new Error(`GSA nuclei status should expose managed templates and usage hints: ${JSON.stringify(nuclei)}`);
 }
 if (after.gsaTools.mode !== 'tool-assisted' || after.gsaTools.externalToolsRequired !== false) throw new Error('GSA should report optional tool-assisted mode');
-if (install.installed !== 0 || !install.installSh || !install.installPs1) throw new Error('GSA install endpoint should prepare install scripts without running network installs');
-if (!/tool data/.test(install.detail || '') || !/nuclei templates/.test(install.detail || '')) throw new Error(`GSA install detail should mention managed tool data: ${install.detail}`);
+if (!install.started || !install.running || !install.installSh || !install.installPs1 || !install.installLog) throw new Error('GSA install endpoint should start and supervise the generated installer');
+if (!/Installation started in the background/.test(install.detail || '')) throw new Error(`GSA install detail should describe the real background task: ${install.detail}`);
 if (!install.taskId) throw new Error('GSA tool install should return a task id');
+if (task?.status !== 'completed') throw new Error(`GSA installer fixture task should complete, got ${JSON.stringify(task)}`);
+if (after.gsaTools.installing !== false) throw new Error('GSA status should clear installing after the child exits');
 NODE
 
 curl -fsS --max-time 5 -X POST "${base}/api/gsa/start" \

@@ -1,0 +1,11 @@
+static char *agent_build_dsml_tools_prompt(void) {
+    const char *edit = agent_tools_prompt_edit_line;
+    size_t a = strlen(agent_tools_prompt_intro);
+    size_t b = strlen(edit);
+    size_t c = strlen(agent_tools_prompt_after_edit);
+    char *out = xmalloc(a + b + c + 1);
+    memcpy(out, agent_tools_prompt_intro, a);
+    memcpy(out + a, edit, b);
+    memcpy(out + a + b, agent_tools_prompt_after_edit, c + 1);
+    return out;
+}
