@@ -251,6 +251,16 @@ const server = http.createServer(async (req, res) => {
       };
       releaseHeldNewSession = release;
       setTimeout(release, 15000);
+    } else if (body.action === 'new') {
+      agentPollSessionWorking = true;
+      agentPollWorking = true;
+      setTimeout(() => {
+        agentPollText += currentMode === 'design'
+          ? '\x1e' + JSON.stringify({ type: 'session_status', level: 'info', message: 'started a new session' }) + '\n'
+          : 'new session started\n';
+        agentPollWorking = false;
+        agentPollSessionWorking = false;
+      }, 120);
     }
     json(res, 200, { ok: true });
     return;
@@ -518,6 +528,39 @@ try {
     debugDetails,
   );
 
+  // A fresh pipe conversation must start at the current engine tail. It must
+  // never adopt a previous run's circular buffer (which can begin halfway
+  // through a status JSON frame) or render the internal /new acknowledgement.
+  agentPollText = [
+    'efill","prefillDone":3834,"prefillTotal":4256,"prefillTps":179.1,"generated":0,"ctxUsed":4256,"ctxSize":131072}\n',
+    'deleted session 71d85b92\n',
+  ].join('');
+  agentPollWorking = false;
+  agentPollSessionWorking = false;
+  agentPollDeliveredLen = 0;
+  agentPollCaughtUp = 0;
+  const sessionsBeforeFreshAgent = sessions.length;
+  await page.locator('#btn-new-chat').click();
+  await waitFor(
+    () => sessions.slice(sessionsBeforeFreshAgent).some((entry) => entry.action === 'new'),
+    'fresh Agent conversation should use the serialized session endpoint',
+    debugDetails,
+  );
+  await page.getByRole('heading', { name: /What should we build\?/ }).waitFor({ timeout: 5000 });
+  const freshAgentSurface = await page.locator('#agent-view').innerText();
+  assert.doesNotMatch(freshAgentSurface, /prefillDone|deleted session|new session started|Selection persistence fixture|\/new/,
+    'fresh Agent UI must not inherit model output or engine-maintenance chatter');
+  assert.equal(await page.locator('#btn-stop').isHidden(), true,
+    'fresh Agent conversation must be idle after its internal /new settles');
+  const freshAgentPrompt = 'Fresh Agent prompt after the previous run was closed';
+  await page.locator('#composer-input').fill(freshAgentPrompt);
+  await page.locator('#btn-send').click();
+  await waitFor(
+    () => sends.some((entry) => entry.mode === 'agent' && entry.body?.displayPrompt === freshAgentPrompt),
+    'first prompt in the fresh Agent conversation should start normally',
+    debugDetails,
+  );
+
   // Cowork deliberately shares the Agent conversation surface, but keeps its
   // document-specific actions and workspace behavior.
   agentPollText = '';
@@ -642,15 +685,17 @@ try {
     debugDetails,
   );
   const startsBeforeNewDesign = starts.length;
+  const sessionsBeforeNewDesign = sessions.length;
+  const designListIndex = sessions.findLastIndex((entry) => entry.action === 'list');
   holdNextNewSession = true;
   await page.locator('#btn-new-chat').click();
   await waitFor(
-    () => sessions.some((s) => s.action === 'new'),
+    () => sessions.slice(sessionsBeforeNewDesign).some((s) => s.action === 'new'),
     'new design session should wait behind the in-flight session refresh',
     debugDetails,
   );
   assert.ok(
-    sessions.findIndex((s) => s.action === 'new') > sessions.findIndex((s) => s.action === 'list'),
+    sessions.findIndex((entry, index) => index >= sessionsBeforeNewDesign && entry.action === 'new') > designListIndex,
     'session commands should preserve request order',
   );
   assert.equal(starts.length, startsBeforeNewDesign, 'new design in the active workspace should not restart the design runtime');

@@ -95,9 +95,29 @@ function readPatchSet(dir, options = {}) {
     const find = fs.readFileSync(findPath, 'utf8');
     const replace = fs.readFileSync(replacePath, 'utf8');
     assert.ok(find.length > 0, `${findPath} should not be empty`);
-    return { id, find, replace };
+    const alternatives = ['modern', 'laguna'].map((variant) => {
+      const alternativeFind = `${dir}/${id}.${variant}.find`;
+      const alternativeReplace = `${dir}/${id}.${variant}.replace`;
+      assert.equal(fs.existsSync(alternativeFind), fs.existsSync(alternativeReplace),
+        `${dir}/${id}.${variant} must provide both find and replace`);
+      if (!fs.existsSync(alternativeFind)) return null;
+      const variantFind = fs.readFileSync(alternativeFind, 'utf8');
+      assert.ok(variantFind.length > 0, `${alternativeFind} should not be empty`);
+      return {
+        variant,
+        find: variantFind,
+        replace: fs.readFileSync(alternativeReplace, 'utf8'),
+      };
+    }).filter(Boolean);
+    return { id, find, replace, alternatives };
   });
-  return { values, edits: bodies, text: bodies.map((e) => `${e.find}\n${e.replace}`).join('\n') };
+  return {
+    values,
+    edits: bodies,
+    text: bodies.map((e) => [e.find, e.replace,
+      ...e.alternatives.flatMap((alternative) => [alternative.find, alternative.replace])]
+      .join('\n')).join('\n'),
+  };
 }
 
 const jsonlPatch = readPatchSet('patch/ds4-agent-jsonl', { version: true, fragment: true, makefile: true });
@@ -924,7 +944,9 @@ assert.match(js, /launchTarget = target;[\s\S]*Statusbar\.render\(\);[\s\S]*show
 assert.match(js, /Launch task #\$\{launchTaskId\}/, 'startup overlay should expose the backend launch task id');
 assert.match(js, /const timeoutMs = target === 'server' \? 180000 : 15 \* 60 \* 1000;/, 'agent/design startup should allow longer model and system-prompt loading than chat server startup');
 assert.match(launcher, /\\"engineLine\\":\\"%s\\"/, 'status endpoint should expose the latest engine log line');
-assert.match(launcher, /MODE_IS_PIPED\(g_mode\)[\s\S]*set_stage\("Ready", 100\)[\s\S]*maybe_complete_launch_task\(g_mode\)/, 'Agent/Design piped runtimes should become ready after context buffers are allocated');
+assert.match(launcher, /context buffers[\s\S]*Prefilling the context/, 'Agent/Design should expose context allocation as prefill, not as a false ready state');
+assert.doesNotMatch(launcher.match(/else if \(strstr\(line, "context buffers"\)[\s\S]*?\n    \}/)?.[0] || '', /g_ready\s*=\s*1|maybe_complete_launch_task/, 'Piped runtimes must not become ready before their initial WAITING marker');
+assert.match(launcher, /is_err && strstr\(acc, "\+DWARFSTAR_WAITING"\)[\s\S]*g_ready = 1;[\s\S]*g_agent_working = 0;/, 'The initial WAITING marker should be the authoritative ready/idle boundary');
 assert.match(launcher, /#define TASK_RING_CAP 128/, 'launcher should keep a bounded task lifecycle ring buffer');
 assert.match(launcher, /#define LOG_RING_CAP 768/, 'launcher should keep a bounded log ring buffer');
 assert.match(launcher, /static void api_diagnostics\(int fd\)/, 'launcher should expose workspace diagnostics');
@@ -1084,7 +1106,10 @@ assert.match(js, /gguf:\s*isLanClientMode\(\) \? '' : modelGguf\(\)/, 'LAN Agent
 assert.match(js, /function startServer\(requestedUiMode, launchSettings = null\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*setMode\(chatUiTarget\)[\s\S]*return;[\s\S]*runSwitch\('server'/, 'LAN clients must not start a local server when switching back to Chat');
 assert.match(js, /if \(!isLanClientMode\(\) && selectedGguf &&[\s\S]*!ggufIsRunning\(selectedGguf, runningModel, activeEngineDir\)\)/, 'LAN onboarding must not start a local selected model');
 assert.match(launcher, /collect_engine_checkouts\([\s\S]*api_ggufs/, 'GGUF API should aggregate every managed DS4 checkout');
-assert.match(launcher, /GGUF_SCAN_TIMEOUT_MS[\s\S]*api_ggufs_isolated_run[\s\S]*pid_t responder = fork\(\)/, 'GGUF discovery should run outside the single HTTP loop with a bounded filesystem deadline');
+assert.match(launcher, /GGUF_SCAN_TIMEOUT_MS[\s\S]*typedef struct gguf_responder[\s\S]*deadline_ms[\s\S]*pid_t responder = fork\(\)/, 'GGUF discovery should run in a tracked responder outside the single HTTP loop');
+assert.match(launcher, /gguf_responders_reap\([\s\S]*dstudio_now_ms\(\) >= r->deadline_ms[\s\S]*kill\(r->pid, SIGKILL\)/, 'GGUF responders should have a parent-enforced filesystem deadline');
+assert.match(launcher, /gguf_catalog_build_known\([\s\S]*partial[\s\S]*g_gguf_directory_scan_blocked/, 'A blocked File Provider scan should fall back to exact installed DStudio model paths');
+assert.match(launcher, /opendir_bounded\([\s\S]*O_NONBLOCK \| O_DIRECTORY[\s\S]*fdopendir/, 'GGUF enumeration should request a non-blocking directory descriptor');
 assert.match(launcher, /\\"engineDir\\":[\s\S]*\\"engineName\\":[\s\S]*\\"branch\\":[\s\S]*\\"activeEngine\\":/, 'Every GGUF row should identify its checkout, branch and active state');
 assert.match(js, /modelEngineDir/, 'Saved model selection should persist its owning checkout');
 assert.match(js, /async function selectSavedModelCheckout\(\)[\s\S]*Engine\.ggufs\(\)[\s\S]*matches\.length === 1[\s\S]*modelEngineDir: dir/, 'Every model launch should restore the saved checkout and migrate legacy model picks');

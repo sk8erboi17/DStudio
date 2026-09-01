@@ -1,0 +1,5 @@
+static char *agent_build_tools_prompt(ds4_engine *engine, bool edit_upto) {
+    if (agent_tool_syntax_for_engine(engine) == AGENT_TOOL_SYNTAX_GLM)
+        return agent_build_glm_tools_prompt(edit_upto);
+    return agent_build_dsml_tools_prompt(edit_upto);
+}

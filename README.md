@@ -384,6 +384,9 @@ For local development and headless runs, keep the web server explicit:
 ```sh
 make run        # build + start on http://127.0.0.1:5500
 make check-fast # deterministic unit, HTTP, UI and fixture checks; no model
+make test-ui-live-vision DSTUDIO_LIVE_URL=http://127.0.0.1:5999
+                # isolated Playwright E2E over the running saved Vision model:
+                # Chat, Agent, Cowork, Design, Learn and Settings; no H3/image job
 make test-task-graph-unit test-task-graph-http test-task-graph-bench-validate
 make check      # check-fast plus explicitly configured real-model suites
 make test-image-inference  # Ideogram/Hunyuan pinned Max-profile conformance

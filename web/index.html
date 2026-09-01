@@ -22794,6 +22794,15 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         renderGsaLoopPill();
       }
 
+      function resetPipeRunState() {
+        // GSA/RSA orchestration belongs to one Agent conversation. Starting or
+        // deleting that conversation must cancel every deferred phase/watchdog
+        // callback, otherwise it can submit into the next ordinary chat. Keep
+        // the user's mode toggles unchanged; only transient run ownership dies.
+        stopGsaLoop('', { silent: true, keepSetting: true });
+        gsaRunState = null;
+      }
+
       function renderGsaLoopPill() {
         if (!cbarGsaLoop) return;
         const show = gsaLoopVisible();
@@ -24798,7 +24807,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       return {
         mount, setMode, setAgentBusy, setQuestionMode, isQuestionMode: () => questionMode,
         invalidateUserSkills, openDesignGallery, buildDesignGalleryInline,
-        showPlanActions, hidePlanActions, onAgentTurnIdle, gsaRecoverStuck, gsaAbortStuck, stopGsaLoop, currentGsaPhase,
+        showPlanActions, hidePlanActions, onAgentTurnIdle, gsaRecoverStuck, gsaAbortStuck, stopGsaLoop, resetPipeRunState, currentGsaPhase,
         beginTutorAttachmentSession, endTutorAttachmentSession, addTutorFiles,
         prepareTutorAttachments, tutorAttachments, removeTutorAttachment,
         beginTutorModelSession, endTutorModelSession,
@@ -26683,7 +26692,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       // Delete a conversation: removes it, its engine KV session (agent/design),
       // and clears the design workspace when it was the last design chat.
-      function deleteConv(item) {
+      async function deleteConv(item) {
         const conv = Store.getChat(item.dataset.id);
         if (conv?.lanMirror) {
           toast('LAN mirrored chats are read-only.', 'warn');
@@ -26694,7 +26703,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         // first — the engine must not keep working (and writing files) for a
         // project that is being deleted.
         if (conv && (mode === 'agent' || mode === 'cowork' || mode === 'design') && AgentView.isLiveConv && AgentView.isLiveConv(conv.id)) {
-          AgentView.stopLiveGeneration();
+          if (mode === 'agent') Composer.resetPipeRunState?.();
+          await AgentView.stopLiveGeneration({
+            reason: 'live conversation deleted by user',
+            status: 'incomplete',
+          });
         }
         Store.deleteChat(item.dataset.id);
         const pipedEmpty = (mode === 'agent' || mode === 'cowork' || mode === 'design') &&
@@ -27611,6 +27624,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return data;
       }
       async function ggufs() {   // the actual .gguf files in the engine folder
+        /* A cold File Provider volume can need a few seconds to materialize
+           directory metadata. Stay just above the launcher's bounded scan so
+           Settings receives its useful timeout error instead of aborting first. */
         const r = await apiFetch('/api/ggufs', { signal: AbortSignal.timeout(4000) });
         return r.json();
       }
@@ -28546,9 +28562,28 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
 
       // Engine service lines (KV sessions): they are not model prose,
-      // they should be rendered as muted notes (kind 'sys'). EXACT patterns of the
-      // printf of ds4-agent/ds4-design — do not widen, it would suppress prose.
+      // they are hidden from the conversation. EXACT patterns of the printf of
+      // ds4-agent/ds4-design — do not widen, it would suppress model prose.
       const SYS_LINE_RE = /^(saved session [0-9a-f]{8} \(\d+ tokens\)|switched to session [0-9a-f]{8}.*|new session started|started a new session|(save|switch|delete|new session) failed: .*|deleted session [0-9a-f]{8}|rebuilding stripped session [0-9a-f]{8}.*|command ignored \(model busy\)|compaction scheduled|save scheduled at next safe point|no saved sessions)$/;
+
+      // The engine output is a bounded circular byte buffer. If its base moves
+      // while the UI is away, the first retained byte can be in the middle of
+      // an RS+JSON status/protocol frame (for example `efillDone":3834,...}`).
+      // That orphan is transport bookkeeping, never assistant prose. Strip
+      // only a leading, unmistakably-internal partial frame; valid GSA JSON and
+      // ordinary model text remain untouched.
+      function stripTruncatedEnginePrefix(raw) {
+        raw = String(raw || '');
+        const nl = raw.indexOf('\n');
+        const end = nl < 0 ? raw.length : nl;
+        const first = raw.slice(0, end);
+        const completeInternal = /^\{\s*"type"\s*:\s*"(?:status|protocol|sessions|session_status)"/.test(first);
+        const truncatedStatus = !/^\s*[\u001e{]/.test(first) &&
+          /"(?:prefillDone|prefillTotal|prefillTps|genTps|ctxUsed|ctxSize)"\s*:/.test(first) &&
+          /}\s*$/.test(first);
+        if (!completeInternal && !truncatedStatus) return raw;
+        return nl < 0 ? '' : raw.slice(nl + 1);
+      }
 
       // REAL slash commands (same whitelist as ds4ui_pipe_slash in dstudio.c):
       // only these become muted chips. Prose starting with '/' (e.g. a
@@ -28876,13 +28911,16 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           working = res.working === true && res.sessionWorking !== true;
           syncComposerBusy();
           syncSpinner();
-        } else if (!conv.transcript && conv.engineLen == null && res.len > res.base) {
-          // VIRGIN conversation + non-empty engine buffer (e.g. UI opened
-          // from a new browser on an in-progress session): adopt the buffer —
-          // the next poll pours it into this conversation.
-          since = res.base;
+        } else if (!conv.transcript && conv.engineLen == null) {
+          // A virgin conversation is a NEW ownership boundary. Never adopt an
+          // arbitrary non-empty global engine buffer: it can belong to the GSA
+          // or chat that was just closed, and a circular-buffer base may even
+          // begin halfway through a JSON frame. New turns record `engineLen`
+          // before sending, so a reload can still reattach deliberately.
+          since = res.len;
           liveConvId = conv.id;
-          working = res.working === true && res.sessionWorking !== true;
+          working = false;
+          Store.setChatMeta(conv.id, { engineLen: since, bufRun: 0 });
           syncComposerBusy();
           syncSpinner();
         } else {
@@ -28930,27 +28968,19 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
 
       function issueSwitch(conv, opts = {}) {
-        liveConvId = conv.id; // the outcome of the switch belongs to this conv
-        if (viewMode === 'design') {
-          return sessionAction('switch', conv.sessionSha, {
-            mode: 'design', targetConvId: conv.id, reportError: opts.reportError !== false,
-          });
-        }
-        send(`/switch ${conv.sessionSha}`);
-        return Promise.resolve({ ok: true });
+        return sessionAction('switch', conv.sessionSha, {
+          mode: viewMode, targetConvId: conv.id, reportError: opts.reportError !== false,
+        });
       }
 
       function issueNew(conv) {
-        liveConvId = conv.id;
         if (viewMode === 'design') {
           DesignRuntime.reset?.();
           DesignPreview.reset?.();
-          return sessionAction('new', '', {
-            mode: 'design', targetConvId: conv.id, reportError: true,
-          });
         }
-        else send('/new');
-        return Promise.resolve({ ok: true });
+        return sessionAction('new', '', {
+          mode: viewMode, targetConvId: conv.id, reportError: true,
+        });
       }
 
       function needsSessionRestoreBeforeSend(conv, prompt) {
@@ -28996,9 +29026,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
        *  stays on disk (per-turn autosave) and reopens with /switch. */
       function beginEngineSession(conv) {
         Store.setChatMeta(conv.id, { engineLen: since });
-        if (viewMode === 'design') { issueNew(conv); return; }
-        if (working) { pendingCmd = { convId: conv.id, cmd: 'new' }; return; }
-        issueNew(conv);
+        return issueNew(conv);
       }
 
       // "Generating" spinner in the sidebar for the live conversation (reuses
@@ -29325,7 +29353,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // session_status, e.g. the session list at startup): they do not render,
       // so they do not count toward deciding whether the conversation is "empty". The
       // other events (proposal, artifact, todos, tool…) do render.
-      const strippedVisibleText = (raw = text) => String(raw || '')
+      const strippedVisibleText = (raw = text) => stripTruncatedEnginePrefix(raw)
         .replace(/\u001e\{"type":"(?:sessions|session_status|status)"[^\n]*(\n|$)/g, '')
         .replace(/\u0001USER\u0002\/(?:(?:save|list|new|help|compact)|(?:switch|del)[^\u0001]*)\u0001ENDUSER\u0002\n?/g, '')
         .split('\n').filter((ln) => !SYS_LINE_RE.test(ln.trim())).join('\n')
@@ -29621,7 +29649,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
            * a turn is actually running before skipping the interrupt. */
           return Engine.status()
             .then((st) => {
-              if (!st || st.agentWorking !== true) return { ok: true, skipped: true };
+              if (!st || st.agentWorking !== true || st.agentSessionWorking === true)
+                return { ok: true, skipped: true };
               return Engine.agentInterrupt(reason, status)
                 .catch((e) => ({ ok: false, error: e?.message || String(e) }))
                 .finally(() => {
@@ -29790,6 +29819,15 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             continue;
           }
 
+          // Drain the previous turn while it still belongs to its previous
+          // conversation, then move ownership atomically to the target. This
+          // prevents a late GSA/status tail from landing in a fresh chat.
+          try { await poll(); } catch { /* the absolute offset still protects the next poll */ }
+          if (request.targetConvId && Store.getChat(request.targetConvId)) {
+            liveConvId = request.targetConvId;
+            Store.setChatMeta(request.targetConvId, { engineLen: since, bufRun: 0 });
+          }
+
           const command = {
             action: request.action,
             targetConvId: request.targetConvId || null,
@@ -29864,7 +29902,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               toast(outcome.error || `${action} session command failed`, 'error');
           });
         }
-        return result;
+        return tracked;
       }
 
       function engineStatusSummary(st) {
@@ -30356,6 +30394,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         sendSerial++;
         const thisSend = sendSerial;
         liveConvId = convId;
+        // Mark the exact engine tail before dispatch. An empty conversation
+        // that reloads mid-turn can reattach deliberately without adopting an
+        // unrelated global pipe buffer.
+        Store.setChatMeta(conv.id, { engineLen: since, bufRun: 0 });
         staleNotice = false;
         if (!isSlashCommand(displayPrompt)) pendingUserTurn = { convId, text: displayPrompt, serial: thisSend };
         else pendingUserTurn = null;
@@ -30901,7 +30943,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             host.append(buildPendingGsaPhaseCard(seg));
             hadOutput = true;
           } else if (seg.kind === 'sys') {
-            host.append(el('div', { class: 'seg seg--sys', text: seg.text }));
+            // KV/session acknowledgements are transport state. Their action
+            // already has UI feedback; never present them as an Agent answer.
+            return;
           } else if (seg.text && seg.text.trim()) {
             if (deferFreeText) return;
             if (segIdx < lastWork) {
@@ -31750,6 +31794,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
 
       function segmentAgent(raw) {
+        raw = stripTruncatedEnginePrefix(raw);
         // Status events interleave with the token stream every ~300ms: strip
         // them BEFORE tokenizing (event + trailing newline), otherwise every
         // event boundary becomes a spurious line break in the middle of prose
@@ -33872,7 +33917,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
 
       async function startNewSession(target, wd) {
-        if (mode === target && AgentView.isWorking && AgentView.isWorking()) {
+        if (target === 'agent') Composer.resetPipeRunState?.();
+        if (mode === target) {
           await AgentView.stopLiveGeneration({
             reason: 'new session started by user',
             status: 'incomplete',
@@ -33883,7 +33929,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         Store.setActiveChat(conv.id);
         const cur = currentRuntimeWorkdir(target);
         if (mode === target && sameWorkdir(wd, cur)) {
-          AgentView.beginEngineSession(conv);
+          await AgentView.beginEngineSession(conv);
         } else {
           const prev = (Store.getSettings().workdirs || {});
           Store.setSettings({ workdirs: { ...prev, [target]: wd } });

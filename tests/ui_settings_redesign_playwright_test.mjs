@@ -256,7 +256,7 @@ try {
   assert.equal(await page.locator('#set-pane-title').innerText(), 'Vision');
   await page.waitForFunction(() => /Installed/.test(document.querySelector('#set-native-vision-support')?.textContent || ''));
   assert.match(await page.locator('#set-native-vision-support').innerText(), /GLM 5\.3 encoder.*1\.1 GB.*Installed.*DeepSeek Vision-Exp encoder.*933 MB.*Installed/s);
-  assert.match(await page.locator('.set-grp[data-pane="vision"] .set-help').first().innerText(), /DeepSeek Vision-Exp and GLM 5\.3 do not use this reader.*pixels directly/s);
+  assert.match(await page.locator('.set-grp[data-pane="vision"] .set-help').first().innerText(), /DeepSeek Vision-Exp or GLM 5\.3 reads source pixels.*dispatches that explicit decision directly/s);
   await page.screenshot({ path: '/tmp/dstudio-settings-vision.png' });
 
   await page.locator('#set-nav [data-pane="interface"]').click();

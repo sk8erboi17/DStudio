@@ -3560,13 +3560,15 @@ static void progress_from_line(const char *line) {
     if (strstr(line, "mapped") || strstr(line, "model views") || strstr(line, "mmap"))
         set_stage("Mapping the model…", 40);
     else if (strstr(line, "context buffers") || strstr(line, "KV disk cache")) {
-        if (MODE_IS_PIPED(g_mode)) {
-            set_stage("Ready", 100);
-            g_ready = 1;
-            maybe_complete_launch_task(g_mode);
-        } else {
-            set_stage("Allocating the context…", 75);
-        }
+        /* Allocating the KV/context buffers is not the ready boundary for a
+         * piped runtime. Agent/Cowork/Design still have to prefill their system
+         * prompt and emit +DWARFSTAR_WAITING. Marking them ready here let the UI
+         * issue /new or a user prompt too early, leaving the composer disabled
+         * (or returning a transient busy error) for the rest of the hand-off. */
+        set_stage(MODE_IS_PIPED(g_mode)
+                    ? "Prefilling the context…"
+                    : "Allocating the context…",
+                  MODE_IS_PIPED(g_mode) ? 85 : 75);
     }
     else if (strstr(line, "warming") || strstr(line, "expert"))
         set_stage("Warming up…", 85);
@@ -4505,24 +4507,35 @@ static void patch_anchor_preview(const char *find, char *preview, size_t preview
 }
 
 /* Select exactly one upstream-shape anchor. Most edits have one canonical
- * anchor; branch-specific drift can provide an optional strict Laguna pair. */
+ * anchor; upstream drift and Laguna can provide strict alternative pairs. */
 static int patch_select_edit_variant(ds4ui_patch_edit *edit, const char *buf,
                                      const char **find, const char **replace,
                                      const char **find_path, const char **variant,
-                                     int *primary_count, int *laguna_count) {
+                                     int *primary_count, int *modern_count,
+                                     int *laguna_count) {
     int pc = patch_count_occurrences(buf, edit->find);
+    int mc = edit->modern_find
+           ? patch_count_occurrences(buf, edit->modern_find) : 0;
     int lc = edit->laguna_find
            ? patch_count_occurrences(buf, edit->laguna_find) : 0;
     if (primary_count) *primary_count = pc;
+    if (modern_count) *modern_count = mc;
     if (laguna_count) *laguna_count = lc;
-    if (pc == 1 && lc == 0) {
+    if (pc == 1 && mc == 0 && lc == 0) {
         *find = edit->find;
         *replace = edit->replace;
         *find_path = edit->find_path;
         *variant = "main";
         return 1;
     }
-    if (pc == 0 && lc == 1) {
+    if (pc == 0 && mc == 1 && lc == 0) {
+        *find = edit->modern_find;
+        *replace = edit->modern_replace;
+        *find_path = edit->modern_find_path;
+        *variant = "modern";
+        return 1;
+    }
+    if (pc == 0 && mc == 0 && lc == 1) {
         *find = edit->laguna_find;
         *replace = edit->laguna_replace;
         *find_path = edit->laguna_find_path;
@@ -4536,13 +4549,15 @@ static int patch_apply_edits(ds4ui_patch_set *patch, char **buf, size_t *n, cons
     for (int i = 0; i < patch->count; i++) {
         ds4ui_patch_edit *edit = &patch->edits[i];
         const char *find = NULL, *replace = NULL, *find_path = NULL, *variant = NULL;
-        int pc = 0, lc = 0;
+        int pc = 0, mc = 0, lc = 0;
         if (!patch_select_edit_variant(edit, *buf, &find, &replace, &find_path,
-                                       &variant, &pc, &lc)) {
-            const char *why = (pc + lc) == 0 ? "missing" : "ambiguous";
-            return patch_fail("%s edit %s anchor %s in %s (%s%s%s)",
+                                       &variant, &pc, &mc, &lc)) {
+            const char *why = (pc + mc + lc) == 0 ? "missing" : "ambiguous";
+            return patch_fail("%s edit %s anchor %s in %s (%s%s%s%s%s)",
                               patch->name, edit->id, why, src_path,
                               edit->find_path,
+                              edit->modern_find ? " or " : "",
+                              edit->modern_find ? edit->modern_find_path : "",
                               edit->laguna_find ? " or " : "",
                               edit->laguna_find ? edit->laguna_find_path : "");
         }
@@ -4673,11 +4688,11 @@ static int patch_check_anchors(ds4ui_patch_set *patch, char **buf, size_t *n, co
     for (int i = 0; i < patch->count; i++) {
         ds4ui_patch_edit *edit = &patch->edits[i];
         const char *find = NULL, *replace = NULL, *find_path = NULL, *variant = NULL;
-        int pc = 0, lc = 0;
+        int pc = 0, mc = 0, lc = 0;
         int selected = patch_select_edit_variant(edit, *buf, &find, &replace,
-                                                 &find_path, &variant, &pc, &lc);
+                                                 &find_path, &variant, &pc, &mc, &lc);
         const char *verdict = selected ? "ok"
-                              : ((pc + lc) == 0 ? "MISSING" : "AMBIGUOUS");
+                              : ((pc + mc + lc) == 0 ? "MISSING" : "AMBIGUOUS");
         if (!selected) fails++;
         char preview[56];
         patch_anchor_preview(selected ? find : edit->find, preview, sizeof preview);
@@ -6374,6 +6389,21 @@ static void checkout_branch_label(const char *dir, char *out, size_t outsz) {
         cstr_copy(out, outsz, "laguna-s2.1");
 }
 
+#ifndef _WIN32
+static DIR *opendir_bounded(const char *path) {
+    /* macOS File Provider can suspend opendir() in open$NOCANCEL even when the
+     * directory is otherwise healthy. An explicitly non-blocking directory fd
+     * either materializes immediately or fails cleanly; fdopendir then owns it. */
+    int dfd = open(path, O_RDONLY | O_NONBLOCK | O_DIRECTORY);
+    if (dfd < 0) return NULL;
+    DIR *dir = fdopendir(dfd);
+    if (!dir) close(dfd);
+    return dir;
+}
+#else
+static DIR *opendir_bounded(const char *path) { return opendir(path); }
+#endif
+
 /* GET /api/ggufs — list .gguf files across every managed engine checkout.
  * GLM 5.3 is owned by primary main; only Laguna still needs a side checkout.
  * A once-persisted ds4-glm5.3 path may remain on disk, but is deliberately not
@@ -6403,7 +6433,7 @@ static char *gguf_catalog_build(void) {
             char dir[DSTUDIO_PATH_MAX + 16];
             snprintf(dir, sizeof dir, "%s%s%s", dirs[ci],
                      subs[di][0] ? "/" : "", subs[di]);
-            DIR *d = opendir(dir);
+            DIR *d = opendir_bounded(dir);
             if (!d) continue;
             struct dirent *de;
             while ((de = readdir(d)) != NULL && ok) {
@@ -6441,7 +6471,82 @@ static char *gguf_catalog_build(void) {
     return b.ptr;
 }
 
-#ifdef _WIN32
+/* Exact-path fallback for macOS privacy/File Provider configurations that
+ * allow the selected model files to be opened but do not allow directory
+ * enumeration from the app process. These are all model/component filenames
+ * DStudio itself can install, plus the currently selected model. */
+static char *gguf_catalog_build_known(void) {
+    static const char *known[] = {
+        MODEL_STD,
+        MODEL_UNC,
+        "gguf/DeepSeek-V4-Flash-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-fixed-0731.gguf",
+        "gguf/DeepSeek-V4-Flash-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-mxfp4-0731.gguf",
+        MODEL_PRO,
+        "gguf/GLM-5.2-UD-Q2_K_RoutedQ2K.gguf",
+        MODEL_GLM53_Q2,
+        MODEL_GLM53_VISION,
+        MODEL_DSVISION_Q2,
+        MODEL_DSVISION_Q2_Q4,
+        MODEL_DSVISION_MXFP4,
+        MODEL_DSVISION_ENCODER,
+        MODEL_DSPARK_UPSTREAM,
+        MODEL_DSPARK_ABLITERATED,
+        MODEL_DSVISION_DSPARK,
+        MODEL_LAGUNA,
+    };
+    char dirs[ENGINE_CHECKOUT_CAP][DSTUDIO_PATH_MAX];
+    char active[DSTUDIO_PATH_MAX];
+    int ndirs = collect_engine_checkouts(dirs, ENGINE_CHECKOUT_CAP,
+                                         active, sizeof active);
+    json_dyn_buf b = {0};
+    int ok = json_dyn_puts(&b, "{\"ok\":true,\"partial\":true,\"warning\":") &&
+             json_dyn_put_escaped(&b, "Directory enumeration is unavailable; showing installed DStudio models by exact path.") &&
+             json_dyn_puts(&b, ",\"activeEngine\":") &&
+             json_dyn_put_escaped(&b, active) &&
+             json_dyn_puts(&b, ",\"ggufs\":[");
+    int rows = 0;
+    const char *current = current_model_rel();
+    size_t known_n = sizeof known / sizeof known[0];
+    for (int ci = 0; ci < ndirs && ok; ci++) {
+        const char *engine_name = strrchr(dirs[ci], '/');
+        engine_name = engine_name ? engine_name + 1 : dirs[ci];
+        char branch[128];
+        checkout_branch_label(dirs[ci], branch, sizeof branch);
+        int laguna_engine = !strcmp(engine_name, DS4_LAGUNA_DIR_NAME) ||
+                            !strcmp(branch, "laguna-s2.1");
+        for (size_t ki = 0; ki <= known_n && ok; ki++) {
+            const char *rel = ki < known_n ? known[ki] : current;
+            if (!rel || !rel[0] || rel[0] == '/') continue;
+            int duplicate = 0;
+            for (size_t pi = 0; pi < ki && pi < known_n; pi++)
+                if (!strcmp(rel, known[pi])) { duplicate = 1; break; }
+            if (duplicate) continue;
+            int laguna_model = !strcmp(rel, MODEL_LAGUNA) ||
+                               mem_contains_ci(rel, strlen(rel), "laguna");
+            if (laguna_model != laguna_engine) continue;
+            char full[DSTUDIO_PATH_MAX + 512];
+            struct stat st;
+            int fn = snprintf(full, sizeof full, "%s/%s", dirs[ci], rel);
+            if (fn < 0 || (size_t)fn >= sizeof full ||
+                stat(full, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+            const char *file = strrchr(rel, '/');
+            file = file ? file + 1 : rel;
+            ok = json_dyn_puts(&b, rows++ ? ",{\"file\":" : "{\"file\":") &&
+                 json_dyn_put_escaped(&b, file) &&
+                 json_dyn_puts(&b, ",\"path\":") && json_dyn_put_escaped(&b, rel) &&
+                 json_dyn_printf(&b, ",\"size\":%lld", (long long)st.st_size) &&
+                 json_dyn_puts(&b, ",\"engineDir\":") && json_dyn_put_escaped(&b, dirs[ci]) &&
+                 json_dyn_puts(&b, ",\"engineName\":") && json_dyn_put_escaped(&b, engine_name) &&
+                 json_dyn_puts(&b, ",\"branch\":") && json_dyn_put_escaped(&b, branch) &&
+                 json_dyn_printf(&b, ",\"activeEngine\":%s}",
+                                 !strcmp(dirs[ci], active) ? "true" : "false");
+        }
+    }
+    ok = ok && json_dyn_puts(&b, "]}");
+    if (!ok) { free(b.ptr); return NULL; }
+    return b.ptr;
+}
+
 static void api_ggufs_run(int fd) {
     char *body = gguf_catalog_build();
     if (!body) {
@@ -6452,7 +6557,6 @@ static void api_ggufs_run(int fd) {
     send_json(fd, "200 OK", body);
     free(body);
 }
-#endif
 
 #ifndef _WIN32
 /* A selected checkout can live in Documents, iCloud, a File Provider or a
@@ -6461,84 +6565,62 @@ static void api_ggufs_run(int fd) {
  * worker builds the catalog while this short-lived responder enforces a hard
  * deadline. The parent remains able to serve /api/status and the rest of the
  * app even if Finder itself cannot enumerate the model directory. */
-#define GGUF_SCAN_TIMEOUT_MS 3000
-static void api_ggufs_isolated_run(int fd) {
-    int pp[2];
-    if (pipe(pp) != 0) {
-        send_json(fd, "500 Internal Server Error",
-                  "{\"ok\":false,\"error\":\"could not isolate the model folder scan\"}");
-        return;
-    }
-    pid_t scanner = fork();
-    if (scanner < 0) {
-        close(pp[0]); close(pp[1]);
-        send_json(fd, "500 Internal Server Error",
-                  "{\"ok\":false,\"error\":\"could not start the model folder scan\"}");
-        return;
-    }
-    if (scanner == 0) {
-        close(pp[0]);
-        close(fd); /* only the responder owns the HTTP socket */
-        char *body = gguf_catalog_build();
-        int ok = body && fd_write_all(pp[1], body, strlen(body));
-        free(body);
-        close(pp[1]);
-        _exit(ok ? 0 : 1);
-    }
+#define GGUF_SCAN_TIMEOUT_MS 1500
+#define GGUF_RESPONDER_CAP 8
+typedef struct gguf_responder {
+    pid_t pid;
+    int guard_fd;
+    long long deadline_ms;
+    int timed_out;
+} gguf_responder;
+static gguf_responder g_gguf_responders[GGUF_RESPONDER_CAP];
+static int g_gguf_responder_n = 0;
+static int g_gguf_directory_scan_blocked = 0;
 
-    close(pp[1]);
-    json_dyn_buf body = {0};
-    long long deadline = dstudio_now_ms() + GGUF_SCAN_TIMEOUT_MS;
-    int eof = 0, failed = 0, timed_out = 0;
-    while (!eof && !failed) {
-        long long left = deadline - dstudio_now_ms();
-        if (left <= 0) { timed_out = 1; break; }
-        struct pollfd pfd = { pp[0], POLLIN, 0 };
-        int wait_ms = left > 250 ? 250 : (int)left;
-        int rc = poll(&pfd, 1, wait_ms);
-        if (rc < 0) {
-            if (errno == EINTR) continue;
-            failed = 1;
-            break;
-        }
-        if (rc == 0) continue;
-        if (pfd.revents & (POLLIN | POLLHUP)) {
-            char chunk[16384];
-            ssize_t n = read(pp[0], chunk, sizeof chunk);
-            if (n > 0) {
-                if (!json_dyn_putn(&body, chunk, (size_t)n)) failed = 1;
-            } else if (n == 0) {
-                eof = 1;
-            } else if (errno != EINTR) {
-                failed = 1;
+static void gguf_responders_reap(void) {
+    for (int i = 0; i < g_gguf_responder_n;) {
+        gguf_responder *r = &g_gguf_responders[i];
+        int status = 0;
+        pid_t done = waitpid(r->pid, &status, WNOHANG);
+        if (done == r->pid || (done < 0 && errno == ECHILD)) {
+            if (r->guard_fd >= 0) {
+                if (done == r->pid && (!WIFEXITED(status) || WEXITSTATUS(status) != 0))
+                    send_json(r->guard_fd, "500 Internal Server Error",
+                              "{\"ok\":false,\"error\":\"model folder scan failed\"}");
+                close(r->guard_fd);
             }
-        } else if (pfd.revents & (POLLERR | POLLNVAL)) {
-            failed = 1;
+            g_gguf_responders[i] = g_gguf_responders[--g_gguf_responder_n];
+            continue;
         }
+        if (!r->timed_out && dstudio_now_ms() >= r->deadline_ms) {
+            kill(r->pid, SIGKILL);
+            if (r->guard_fd >= 0) {
+                char *fallback = gguf_catalog_build_known();
+                if (fallback) {
+                    send_json(r->guard_fd, "200 OK", fallback);
+                    free(fallback);
+                } else {
+                    send_json(r->guard_fd, "500 Internal Server Error",
+                              "{\"ok\":false,\"error\":\"model folder scan failed\"}");
+                }
+                close(r->guard_fd);
+                r->guard_fd = -1;
+            }
+            g_gguf_directory_scan_blocked = 1;
+            r->timed_out = 1;
+        }
+        i++;
     }
-    close(pp[0]);
+}
 
-    if (timed_out || failed) {
-        kill(scanner, SIGKILL);
-        /* Do not wait on a process stuck in filesystem I/O. This responder is
-         * detached; after it exits the killed scanner is reparented and reaped. */
-        send_json(fd, timed_out ? "503 Service Unavailable" : "500 Internal Server Error",
-                  timed_out
-                    ? "{\"ok\":false,\"error\":\"model folder scan timed out; reconnect the folder and retry\"}"
-                    : "{\"ok\":false,\"error\":\"model folder scan failed\"}");
-        free(body.ptr);
-        return;
+static void gguf_responders_shutdown(void) {
+    for (int i = 0; i < g_gguf_responder_n; i++)
+        if (g_gguf_responders[i].pid > 0) kill(g_gguf_responders[i].pid, SIGKILL);
+    for (int i = 0; i < g_gguf_responder_n; i++) {
+        if (g_gguf_responders[i].guard_fd >= 0) close(g_gguf_responders[i].guard_fd);
+        if (g_gguf_responders[i].pid > 0) (void)waitpid(g_gguf_responders[i].pid, NULL, WNOHANG);
     }
-
-    int status = 0;
-    while (waitpid(scanner, &status, 0) < 0 && errno == EINTR) {}
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || !body.ptr || !body.len) {
-        send_json(fd, "500 Internal Server Error",
-                  "{\"ok\":false,\"error\":\"model folder scan failed\"}");
-    } else {
-        send_json(fd, "200 OK", body.ptr);
-    }
-    free(body.ptr);
+    g_gguf_responder_n = 0;
 }
 #endif
 
@@ -6546,34 +6628,58 @@ static void api_ggufs(int fd) {
 #ifdef _WIN32
     api_ggufs_run(fd);
 #else
-    /* Same zombie-free relay pattern as web search and /v1: the intermediate
-     * child exits immediately, while the detached responder owns this request. */
-    pid_t intermediate = fork();
-    if (intermediate < 0) {
+    /* Keep the responder as a direct child and reap it from the main loop.
+     * Double-forking made the responder an orphan; on macOS that loses the
+     * native app's privacy-responsibility chain, so its scanner could block in
+     * opendir() forever on a perfectly local Documents checkout. */
+    gguf_responders_reap();
+    if (g_gguf_directory_scan_blocked) {
+        char *fallback = gguf_catalog_build_known();
+        if (!fallback) {
+            send_json(fd, "500 Internal Server Error",
+                      "{\"ok\":false,\"error\":\"model folder scan failed\"}");
+        } else {
+            send_json(fd, "200 OK", fallback);
+            free(fallback);
+        }
+        return;
+    }
+    if (g_gguf_responder_n >= GGUF_RESPONDER_CAP) {
+        send_json(fd, "503 Service Unavailable",
+                  "{\"ok\":false,\"error\":\"too many model folder scans are already running\"}");
+        return;
+    }
+    int guard_fd = dup(fd);
+    if (guard_fd < 0) {
+        send_json(fd, "500 Internal Server Error",
+                  "{\"ok\":false,\"error\":\"could not guard the model folder scan\"}");
+        return;
+    }
+    pid_t responder = fork();
+    if (responder < 0) {
+        close(guard_fd);
         send_json(fd, "500 Internal Server Error",
                   "{\"ok\":false,\"error\":\"could not isolate the model folder scan\"}");
         return;
     }
-    if (intermediate == 0) {
-        pid_t responder = fork();
-        if (responder < 0) {
-            send_json(fd, "500 Internal Server Error",
-                      "{\"ok\":false,\"error\":\"could not isolate the model folder scan\"}");
-            close(fd);
-            _exit(1);
-        }
-        if (responder > 0) _exit(0);
+    if (responder == 0) {
+        close(guard_fd);
         if (g_srv_fd >= 0) close(g_srv_fd);
         if (g_out_fd >= 0) close(g_out_fd);
         if (g_err_fd >= 0) close(g_err_fd);
         if (g_in_fd  >= 0) close(g_in_fd);
-        struct timeval tv = { 5, 0 };
+        struct timeval tv = { 15, 0 };
         (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
-        api_ggufs_isolated_run(fd);
+        api_ggufs_run(fd);
         close(fd);
         _exit(0);
     }
-    while (waitpid(intermediate, NULL, 0) < 0 && errno == EINTR) {}
+    g_gguf_responders[g_gguf_responder_n++] = (gguf_responder){
+        .pid = responder,
+        .guard_fd = guard_fd,
+        .deadline_ms = dstudio_now_ms() + GGUF_SCAN_TIMEOUT_MS,
+        .timed_out = 0,
+    };
 #endif
 }
 
@@ -10346,6 +10452,9 @@ int main(int argc, char **argv)
 
     while (!g_stop) {
         reap_child();
+#ifndef _WIN32
+        gguf_responders_reap();
+#endif
         gsa_tools_install_reap();
         dtg_scheduler_tick(dstudio_now_ms());
         struct pollfd pfd[3];
@@ -10382,6 +10491,9 @@ int main(int argc, char **argv)
     image_runtime_shutdown();
     video_runtime_shutdown();
     gsa_tools_install_shutdown();
+#ifndef _WIN32
+    gguf_responders_shutdown();
+#endif
     dtg_store_shutdown();
     stop_child();
     return 0;

@@ -1,0 +1,101 @@
+static bool agent_is_cowork_runtime(void) {   /*DS4UI_JSONL*/
+    const char *runtime = getenv("DS4UI_RUNTIME_NAME");
+    return runtime && !strcmp(runtime, "cowork");
+}
+
+static const char agent_cowork_dsml_tools_prompt_intro[] =
+    "You are DStudio Cowork, a local knowledge-work agent. Use tools to inspect source files, "
+    "create the requested Office deliverables, and verify them before answering.\n\n"
+    "## Tools\n\n"
+    "You have access to native DSML tools. Invoke tools by writing exactly this shape:\n\n"
+    "<｜DSML｜tool_calls>\n"
+    "<｜DSML｜invoke name=\"$TOOL_NAME\">\n"
+    "<｜DSML｜parameter name=\"$PARAMETER_NAME\" string=\"true|false\">$PARAMETER_VALUE</｜DSML｜parameter>\n"
+    "</｜DSML｜invoke>\n"
+    "</｜DSML｜tool_calls>\n\n"
+    "Tool calls are not allowed inside <think></think>; finish thinking before emitting DSML.\n\n"
+    "String parameters use raw text and string=\"true\". Numbers and booleans use JSON text and string=\"false\".\n\n";
+
+static const char agent_cowork_tool_schemas[] =
+    "{\"type\":\"function\",\"function\":{\"name\":\"excel\",\"description\":\"Inspect, read, create, write or append a workspace XLSX, CSV or TSV file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\",\"enum\":[\"inspect\",\"read\",\"create\",\"write\",\"append\"]},\"path\":{\"type\":\"string\"},\"sheet\":{\"type\":\"string\"},\"range\":{\"type\":\"string\"},\"data_json\":{\"type\":\"string\"},\"sheets_json\":{\"type\":\"string\"},\"header\":{\"type\":\"boolean\"}},\"required\":[\"action\",\"path\"]}}}\n"
+    "{\"type\":\"function\",\"function\":{\"name\":\"read_document\",\"description\":\"Extract bounded text from a workspace DOCX, PPTX, ODT, RTF, HTML, Markdown, text, JSON or delimited file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}}\n"
+    "{\"type\":\"function\",\"function\":{\"name\":\"write_document\",\"description\":\"Create a polished workspace DOCX, Markdown, text or HTML document.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}}\n"
+    "{\"type\":\"function\",\"function\":{\"name\":\"write_pdf\",\"description\":\"Create a polished paginated workspace PDF directly; use this instead of bash or a converter.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}}\n"
+    "{\"type\":\"function\",\"function\":{\"name\":\"presentation\",\"description\":\"Create a polished 16:9 workspace PPTX.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"slides_json\":{\"type\":\"string\"}},\"required\":[\"path\",\"slides_json\"]}}}\n";
+
+static const char agent_cowork_glm_tools_prompt_intro[] =
+    "You are DStudio Cowork, a local knowledge-work agent. Inspect sources, create the requested "
+    "Office deliverables, and verify them before answering.\n\n"
+    "# Tools\n\n"
+    "You may call one or more functions to assist with the user query.\n\n"
+    "You are provided with function signatures within <tools></tools> XML tags:\n"
+    "<tools>\n";
+
+static const char agent_cowork_glm_tool_schemas[] =
+    "{\"name\":\"excel\",\"description\":\"Inspect or edit a workspace spreadsheet.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"},\"sheet\":{\"type\":\"string\"},\"range\":{\"type\":\"string\"},\"data_json\":{\"type\":\"string\"},\"sheets_json\":{\"type\":\"string\"},\"header\":{\"type\":\"boolean\"}},\"required\":[\"action\",\"path\"]}}\n"
+    "{\"name\":\"read_document\",\"description\":\"Extract bounded text from a workspace document.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}\n"
+    "{\"name\":\"write_document\",\"description\":\"Create a workspace DOCX, Markdown, text or HTML document.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}\n"
+    "{\"name\":\"write_pdf\",\"description\":\"Create a paginated workspace PDF directly.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}\n"
+    "{\"name\":\"presentation\",\"description\":\"Create a 16:9 workspace PPTX.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"slides_json\":{\"type\":\"string\"}},\"required\":[\"path\",\"slides_json\"]}}\n";
+
+static const char agent_cowork_schema_heading[] =
+    "\n\n### Cowork Office Tool Schemas\n\n";
+static const char agent_cowork_unified_tools_rules[] =
+    "\nCowork must inspect before editing and re-open every written artifact to verify it. "
+    "When the user requests a PDF, call write_pdf directly; bash and converter workarounds are unavailable.\n";
+
+static char *agent_build_cowork_dsml_tools_prompt(bool edit_upto) {
+    const char *edit = edit_upto ? agent_tools_prompt_edit_upto
+                                 : agent_tools_prompt_edit_exact;
+    size_t a = strlen(agent_cowork_dsml_tools_prompt_intro);
+    size_t b = strlen(edit);
+    size_t c = strlen(agent_tools_prompt_after_edit);
+    size_t d = strlen(agent_cowork_schema_heading);
+    size_t e = strlen(agent_cowork_tool_schemas);
+    size_t f = strlen(agent_cowork_unified_tools_rules);
+    char *out = xmalloc(a + b + c + d + e + f + 1);
+    memcpy(out, agent_cowork_dsml_tools_prompt_intro, a);
+    memcpy(out + a, edit, b);
+    memcpy(out + a + b, agent_tools_prompt_after_edit, c);
+    memcpy(out + a + b + c, agent_cowork_schema_heading, d);
+    memcpy(out + a + b + c + d, agent_cowork_tool_schemas, e);
+    memcpy(out + a + b + c + d + e, agent_cowork_unified_tools_rules, f + 1);
+    return out;
+}
+
+static char *agent_build_cowork_glm_tools_prompt(bool edit_upto) {
+    const char *edit = edit_upto ? agent_glm_tools_prompt_edit_upto
+                                 : agent_glm_tools_prompt_edit_exact;
+    size_t a = strlen(agent_cowork_glm_tools_prompt_intro);
+    size_t b = strlen(agent_glm_tool_schemas);
+    size_t c = strlen(agent_cowork_glm_tool_schemas);
+    size_t d = strlen(agent_glm_tools_prompt_after_schemas);
+    size_t e = strlen(edit);
+    size_t f = strlen(agent_glm_tools_prompt_rules_tail);
+    size_t g = strlen(agent_cowork_unified_tools_rules);
+    char *out = xmalloc(a + b + c + d + e + f + g + 1);
+    memcpy(out, agent_cowork_glm_tools_prompt_intro, a);
+    memcpy(out + a, agent_glm_tool_schemas, b);
+    memcpy(out + a + b, agent_cowork_glm_tool_schemas, c);
+    memcpy(out + a + b + c, agent_glm_tools_prompt_after_schemas, d);
+    memcpy(out + a + b + c + d, edit, e);
+    memcpy(out + a + b + c + d + e, agent_glm_tools_prompt_rules_tail, f);
+    memcpy(out + a + b + c + d + e + f, agent_cowork_unified_tools_rules, g + 1);
+    return out;
+}
+
+static char *agent_build_tools_prompt(ds4_engine *engine, bool edit_upto) {
+    const bool glm = agent_tool_syntax_for_engine(engine) == AGENT_TOOL_SYNTAX_GLM;
+    if (agent_is_cowork_runtime())
+        return glm ? agent_build_cowork_glm_tools_prompt(edit_upto)
+                   : agent_build_cowork_dsml_tools_prompt(edit_upto);
+    return glm ? agent_build_glm_tools_prompt(edit_upto)
+               : agent_build_dsml_tools_prompt(edit_upto);
+}
+
+static char *ds4ui_agent_build_dsml_tools_prompt(const agent_config *cfg) {
+    const bool edit_upto = cfg && cfg->edit_upto;
+    return agent_is_cowork_runtime()
+         ? agent_build_cowork_dsml_tools_prompt(edit_upto)
+         : agent_build_dsml_tools_prompt(edit_upto);
+}

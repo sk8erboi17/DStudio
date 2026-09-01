@@ -83,7 +83,7 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check check-fast check-real test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-lan-unit test-remote-utf8 test-cowork test-cowork-unit test-cowork-contract test-cowork-http test-cowork-bench-validate test-design-build-freshness test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume test-design-native-vision test-design-bench-validate test-design-release test-image-pipeline test-image-inference test-ideogram-vae-mps test-hunyuan-sdpa-mps test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-cowork test-real-cowork-long test-real-design test-real-design-long test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
+.PHONY: all run check check-fast check-real test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-lan-unit test-remote-utf8 test-cowork test-cowork-unit test-cowork-contract test-cowork-http test-cowork-bench-validate test-design-build-freshness test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume test-design-native-vision test-design-bench-validate test-design-release test-image-pipeline test-image-inference test-ideogram-vae-mps test-hunyuan-sdpa-mps test-ui-contract test-ui-browser test-ui-live-vision test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-cowork test-real-cowork-long test-real-design test-real-design-long test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
@@ -407,7 +407,10 @@ test-ui-contract:
 	@if command -v node >/dev/null 2>&1; then node tests/ui_contract_test.mjs; else echo "node missing: skipping UI contract tests"; fi
 
 test-ui-browser:
-	@if command -v node >/dev/null 2>&1; then node tests/ui_loading_playwright_test.mjs && node tests/ui_agent_design_playwright_test.mjs && node tests/ui_gear_popover_test.mjs && node tests/ui_attachment_preview_playwright_test.mjs && node tests/ui_roadmap_playwright_test.mjs && node tests/ui_video_generation_playwright_test.mjs; else echo "node missing: skipping UI browser tests"; fi
+	@if command -v node >/dev/null 2>&1; then node tests/ui_loading_playwright_test.mjs && node tests/ui_agent_design_playwright_test.mjs && node tests/ui_gear_popover_test.mjs && node tests/ui_attachment_preview_playwright_test.mjs && node tests/ui_roadmap_playwright_test.mjs && node tests/ui_settings_redesign_playwright_test.mjs && node tests/ui_video_generation_playwright_test.mjs; else echo "node missing: skipping UI browser tests"; fi
+
+test-ui-live-vision:
+	@if command -v node >/dev/null 2>&1; then node tests/ui_live_vision_playwright_test.mjs; else echo "node missing: skipping live Vision UI test"; fi
 
 test-ui-plan:
 	@if command -v node >/dev/null 2>&1; then node tests/ui_plan_mode_playwright_test.mjs && node tests/ui_plan_mode_matrix_test.mjs; else echo "node missing: skipping Plan mode UI tests"; fi
