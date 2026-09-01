@@ -204,7 +204,9 @@ const roadmapBlockAlias = roadmapHelpers.extractRoadmapBlockFromAssistant(`Model
   practiceTask: 'Build a small example.', masteryCheck: 'Explain and test the finished example.',
 })}`);
 assert.equal(roadmapBlockAlias?.outcome, 'Demonstrate the skill.', 'block parsing should recover common outcome/practice aliases and surrounding prose');
-assert.match(html, /id="tab-roadmap"[\s\S]*>Roadmap</, 'sidebar should expose the Roadmap workspace');
+assert.match(html, /id="tab-roadmap"[\s\S]*>Learn</, 'sidebar should expose the Learn workspace');
+assert.match(html, /:root\[data-theme="dark"\] body\.roadmap-mode[\s\S]*roadmap-stage__topics[\s\S]*background: var\(--surface\)/,
+  'Learn should map its formerly white reference surfaces onto the selected dark theme');
 assert.doesNotMatch(html, /roadmap-source-panel|roadmap-url-input/,
   'Roadmap links should come from the prompt without a duplicate source field');
 assert.match(html, /id="roadmap-composer-peek"[\s\S]*Roadmap prompt/,
@@ -231,9 +233,13 @@ assert.match(js, /Roadmaps use true Thinking: max with a temporary 384k\+ local 
 assert.match(js, /const DS4_TRUE_MAX_CONTEXT = 393216;[\s\S]*ctxSize: Math\.max\([\s\S]*DS4_TRUE_MAX_CONTEXT\)/,
   'Roadmap generation should request the ds4 context threshold required for true Thinking max');
 assert.match(js, /const trueMaxContext = \(\) => thinkLevel\(\) === 'max'[\s\S]*Math\.max\(ctxSize\(\), DS4_TRUE_MAX_CONTEXT\)/,
-  'Cowork and Design should resolve Max to the ds4 true-Max context floor');
-assert.match(js, /runSwitch\('cowork',[\s\S]{0,1400}ctx: trueMaxContext\(\)[\s\S]{0,1800}runSwitch\('design',[\s\S]{0,1400}ctx: trueMaxContext\(\)/,
-  'Cowork and Design launches must not silently downgrade Max at 64k or 128k');
+  'Design should resolve Max to the ds4 true-Max context floor');
+assert.doesNotMatch(extractFunction(js, 'startCowork'), /ctx:\s*trueMaxContext\(\)/,
+  'Cowork must honor the context selected in Settings instead of silently forcing 392k');
+assert.match(extractFunction(js, 'startCowork'), /\.\.\.launchBase\(/,
+  'Cowork should inherit the saved context through the shared launch settings');
+assert.match(extractFunction(js, 'startDesign'), /ctx:\s*trueMaxContext\(\)/,
+  'Design may retain the true-Max context floor required by its generation workflow');
 assert.match(js, /function auditRoadmapStage\([\s\S]*function auditRoadmapGlobally\([\s\S]*Checking cross-stage contradictions/,
   'Roadmaps should receive per-stage factual audits followed by a global contradiction audit');
 assert.match(js, /DStudio roadmap factual auditor[\s\S]*Ignore prose quality, curriculum completeness, pedagogy[\s\S]*DStudio roadmap curriculum judge[\s\S]*Do not fact-check/,
@@ -416,6 +422,8 @@ assert.match(gitignore, /^extension\/gsa\/benchmark\/$/m, 'generated GSA benchma
 assert.match(gitignore, /^\*\.log\.gz$/m, 'compressed local timeline/log artifacts should stay out of git status');
 assert.match(gitignore, /^MEMORY\.MD$/m, 'local memory scratch files should stay out of git status');
 assert.match(gitignore, /^\.tmp\/$/m, 'local UI screenshots and scratch artifacts should stay out of git status');
+assert.match(gitignore, /^\/design\/$/m, 'generated Design workspaces should stay out of git status');
+assert.match(gitignore, /^\/exports\/$/m, 'generated exports should stay out of git status');
 
 assert.deepEqual(sourceAdapterHelpers.validSourceKinds(), ['article', 'docs', 'product', 'academic', 'social', 'repo', 'generic']);
 const balancedEvidence = sourceAdapterHelpers.balancedEvidenceText(
@@ -948,6 +956,8 @@ assert.match(launcher, /context compaction during active turn/, 'Backend should 
 assert.match(launcher, /static void api_agent_interrupt\(int fd, const char \*body\)/, 'Backend interrupt should accept a reason/status body');
 assert.match(launcher, /task_mark_completed\(g_active_turn_task, msg\)[\s\S]*task_mark_incomplete\(g_active_turn_task, msg, msg\)/, 'Backend interrupt should distinguish completed technical interrupts from incomplete stalls');
 assert.match(launcher, /g_interrupt_pending[\s\S]*agent\/design interrupt is still settling/, 'Backend should reject a new Agent prompt while SIGINT is still settling');
+assert.match(js, /agentSendWhenSettled[\s\S]*interrupt is still settling[\s\S]*waitIdle\(15000\)[\s\S]*Engine\.agentSend/,
+  'Agent, Cowork and Design should wait and retry a prompt across the interrupt-settling race');
 assert.match(launcher, /waitpid\(g_child, &st, WNOHANG\) == g_child[\s\S]*close_pipes\(\);[\s\S]*g_mode = ENGINE_NONE/, 'Backend should close child pipes after an engine exits to avoid a POLLHUP spin');
 assert.match(launcher, /\\"taskId\\":%llu/, 'start/send/setup/download responses should carry taskId metadata');
 assert.match(js, /task #\$\{res\.taskId\}/, 'Agent/Design send errors should show the backend task id');
@@ -1218,8 +1228,10 @@ assert.match(html, /\.msg-source__favicon/, 'Source cards should style site favi
 assert.match(launcher, /img-src data: http: https:/, 'Main app CSP should allow remote favicons for web source cards');
 assert.match(js, /async function sendMessage\(text, \{ regenerate = false, attachments = \[\], roadmapSources = \[\] \} = \{\}\)/, 'Chat send should accept attachments');
 assert.match(js, /msg\.attachments = cleanAttachments/, 'User messages should persist attached file metadata/content');
-assert.match(js, /buildAttachments\(m\.attachments, 'user'\)[\s\S]*article\.append\(el\('div', \{ class: 'msg__content'/, 'Sent user attachments should render above the text bubble');
+assert.match(js, /article\.append\(el\('div', \{ class: 'msg__content'[\s\S]*buildAttachments\(m\.attachments, 'user'\)/, 'Sent user attachments should render below the text bubble');
 assert.match(html, /\.msg--user-wrap[\s\S]*background: transparent/, 'User messages with attachments should use a transparent wrapper around separate file and text cards');
+assert.match(html, /\.msg-attachments--user[\s\S]*justify-content: flex-end;[\s\S]*align-self: flex-end;/,
+  'Sent images should align with the user message instead of jumping to the left edge');
 assert.match(html, /\.msg-attachments--user \.msg-attachment[\s\S]*flex-direction: row/, 'Sent user attachments should render as horizontal file cards');
 assert.match(js, /function openChatFilePicker\(\)/, 'Chat attach button should open the file picker through a dedicated wrapper');
 assert.match(js, /fileInput\.showPicker/, 'Chat attach button should prefer the native showPicker API when available');
@@ -1697,7 +1709,7 @@ assert.match(js, /function localLagunaSelected[\s\S]*Laguna S 2\.1 is text-only 
 assert.match(launcher, /model_is_laguna\(\)[\s\S]*DS4UI_DISABLE_VISION/, 'Laguna Agent and Cowork processes should fail closed for stale image-tool calls');
 assert.doesNotMatch(jsonlPatchText, /ds4ui_tool_see_image|\/api\/vision/, 'Agent patches must not inject a visual sidecar');
 assert.match(jsonlPatchText, /text_only\\":true/, 'patched PDF reads should always request text-layer extraction');
-assert.match(launcher, /scannedPages[\s\S]{0,80}visionPages[\s\S]{0,40}figPages/, 'the PDF reader should report scanned pages while omitting every visual pass');
+assert.match(launcher, /scannedPages[\s\S]{0,120}visionPages[\s\S]{0,120}figPages/, 'the PDF reader should report scanned pages and bounded native-vision pages');
 assert.match(js, /function msgContentForModel\(m, nativeImages = new Map\(\)\)[\s\S]*type: 'image_url'[\s\S]*function buildHistory\(chat, settings, \{ nativeModelVision = false \} = \{\}\)/, 'Chat history should support native DeepSeek and GLM image blocks');
 assert.match(js, /nativeVisionActive !== true[\s\S]*buildHistory\(chat, settings,[\s\S]*nativeModelVision: localNativeVisionSelected\([^)]+\) && readyStatus\?\.nativeVisionActive === true/, 'Chat should send native model image blocks only after the launcher confirms the encoder is active');
 assert.doesNotMatch(js, /classifyImageRequestWithSource|runRoutedImageReply|describeVision/, 'Chat must not retain a secondary visual router');
@@ -1771,7 +1783,7 @@ assert.match(js, /async function agentAttachImages\([\s\S]*\[USER_SCREENSHOT pat
   'native-vision Agent and Design attachments must pass the exact workspace screenshot path to DS4');
 assert.match(js, /on\(fileInput, 'change',[\s\S]*isWorkspaceFileDropMode\(\)[\s\S]*workspaceAttachFiles\(fileInput\.files\)/,
   'file-picker screenshots in Agent/Design must use the same exact-workspace path as paste and drop');
-assert.match(js, /const runtimePrompt = Switcher\.wirePromptForRuntime[\s\S]*Engine\.agentSend\(runtimePrompt, displayPrompt\)/,
+assert.match(js, /const runtimePrompt = Switcher\.wirePromptForRuntime[\s\S]*agentSendWhenSettled\(runtimePrompt, displayPrompt, expectedMode\)/,
   'the USER_SCREENSHOT marker must remain in the runtime prompt sent to DS4');
 assert.doesNotMatch(extractFunction(js, 'routePdfReadPlan'), /\.test\(/, 'PDF read intent must not use regular-expression classification');
 assert.match(js, /profile:\s*readPlan\.mode === 'search' \? 'semantic' : 'interactive'[\s\S]*max_chars:\s*maxChars/, 'Chat PDFs should route to bounded overview/page reads or semantic retrieval');
@@ -1783,7 +1795,14 @@ assert.match(js, /readPlan\.mode === 'pages'[\s\S]*payload\.pages = readPlan\.pa
 assert.match(js, /need\.needs !== 'embedding'[\s\S]*ensureEmbeddingSetup/, 'Semantic PDF retrieval should install its local embedding helper on demand');
 assert.match(embedServer, /--parallel 1[\s\S]*--batch-size \$CTX[\s\S]*--ubatch-size \$CTX/, 'Metal embeddings should use one stable slot with a full-context physical batch');
 assert.match(launcher, /PDF_RAG_EMBED_BATCH\s+4[\s\S]*pdf_embed_rag_batch[\s\S]*count \/ 2/, 'PDF RAG should use the measured embedding batch with recursive overflow splitting');
-assert.match(launcher, /scannedPages[\s\S]*visionPages\\":0[\s\S]*figPages\\":0/, 'PDF extraction should expose skipped scanned pages and zero sidecar vision work');
+assert.match(launcher, /PDF_NATIVE_VISION_MAX_PAGES\s+4[\s\S]*pdf_render_native_pages[\s\S]*native_vision/,
+  'PDF visual pages should be rendered only for the selected model native encoder');
+assert.match(js, /native_vision:\s*!!opts\.nativeVision/,
+  'Cowork should request PDF pixels only when the selected model exposes native vision');
+assert.match(js, /coworkVisionPages[\s\S]*Native rendering of physical PDF page/,
+  'Cowork should route rendered PDF pages to the current model through workspace image evidence');
+assert.match(js, /selected model is text-only:[\s\S]*scanned\/image-only pages/,
+  'Laguna and every text-only model should explain that scanned PDF pixels were not interpreted');
 assert.match(launcher, /media_memory_begin\("image-pipeline"\)/, 'the direct image pipeline should acquire a temporary DS4 media lease');
 assert.match(remoteDesign, /--ssd-streaming[\s\S]*c\.engine\.ssd_streaming = true/, 'design agent should accept the SSD-streaming launch option passed by DStudio');
 assert.match(remoteDesign, /tool_call_building[\s\S]*tool_call_progress[\s\S]*raw_len/, 'Design should expose buffered DSML construction progress without exposing arguments');

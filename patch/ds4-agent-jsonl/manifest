@@ -1,6 +1,6 @@
 # DStudio anchored patch manifest
 name=ds4-agent-jsonl
-version=73
+version=74
 edit=001
 edit=002
 edit=003
@@ -64,5 +64,6 @@ edit=064
 edit=065
 edit=067
 edit=068
+edit=069
 fragment=remote-agent.cfrag
 makefile=build.mk

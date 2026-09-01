@@ -490,8 +490,9 @@ try {
   await page.getByText(/Saved to Cowork: quarterly-report\.pdf/).waitFor({ timeout: 5000 });
   assert.equal(coworkAttachments.length, 1, 'Cowork attachment should reach its workspace upload endpoint');
   assert.equal(coworkAttachments[0].dir, '/tmp/dstudio-ui-cowork', 'Cowork attachment should use the visible workspace');
-  const coworkAttachmentHint = await page.locator('#composer-input').inputValue();
-  assert.match(coworkAttachmentHint, /read it with read_pdf/, 'Cowork should add the correct PDF inspection instruction');
+  assert.equal(await page.locator('#composer-input').inputValue(), '',
+    'Cowork should keep tool instructions out of the visible composer');
+  await page.locator('.composer__file-name').filter({ hasText: 'quarterly-report.pdf' }).waitFor({ state: 'visible' });
 
   await page.locator('#cbar-gear').click();
   await page.locator('#cbar-pop').waitFor({ state: 'hidden' });
@@ -504,18 +505,21 @@ try {
   await page.locator('.skill-card').filter({ hasText: 'ecc-security-review' }).click();
   assert.equal(starts.length, startsBeforeCoworkSkill, 'picking a Cowork skill should not restart the runtime');
 
-  await page.locator('#composer-input').fill(`Cowork streaming fixture\n${coworkAttachmentHint}`);
+  await page.locator('#composer-input').fill('Cowork streaming fixture');
   await page.locator('#btn-send').click();
   await waitFor(
     () => sends.some((s) => s.mode === 'cowork' &&
       /Cowork streaming fixture/.test(s.body?.displayPrompt || '') &&
       /\[DStudio selected skill: ecc-security-review\]/.test(s.body?.prompt || '') &&
-      /read it with read_pdf/.test(s.body?.prompt || '')),
+      /Call read_pdf/.test(s.body?.prompt || '') &&
+      /DSTUDIO_COWORK_ATTACHMENT/.test(s.body?.displayPrompt || '')),
     'Cowork send should preserve the selected skill and document instruction',
     debugDetails,
   );
   await page.locator('.agent-response-name').filter({ hasText: 'Cowork' }).waitFor({ timeout: 5000 });
   await page.locator('.agent-user-meta').filter({ hasText: 'YOU' }).last().waitFor({ timeout: 5000 });
+  assert.equal(await page.locator('.agent-user-turn').last().textContent().then((value) => /DSTUDIO_COWORK_ATTACHMENT/.test(value)), false,
+    'Cowork attachment metadata must render as a tile rather than raw prompt text');
   const coworkThought = page.locator('details.agent-thought').last();
   await coworkThought.waitFor({ timeout: 5000 });
   assert.equal(await coworkThought.getAttribute('open'), null, 'Cowork reasoning should stay collapsed like Agent reasoning');

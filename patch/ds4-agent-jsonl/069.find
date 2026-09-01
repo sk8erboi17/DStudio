@@ -1,0 +1,7 @@
+        agent_stream_renderer stream = {
+            .renderer = &renderer,
+            .parser = &dsml,
+            .syntax = tool_syntax,
+            .in_think = ds4_think_mode_enabled(think_mode),
+        };
+        agent_edit_upto_forcer upto_forcer = {0};

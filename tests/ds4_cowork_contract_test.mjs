@@ -36,11 +36,14 @@ assert.match(ui, /runSwitch\('cowork', \{\s*mode: 'cowork'/);
 assert.match(ui, /const piped = m === 'agent' \|\| m === 'cowork' \|\| m === 'design'/);
 assert.match(ui, /async function coworkAttachFiles\(fileList\)/);
 assert.match(ui, /fetch\('\/api\/cowork\/attach-file'/);
-assert.match(ui, /Spreadsheet saved to \$\{rel\} — inspect it with the excel tool/);
+assert.match(ui, /Cowork spreadsheet[\s\S]*Inspect it with the excel tool/);
+assert.match(ui, /prepareCoworkPendingAttachments[\s\S]*coworkAttachmentDisplayMarker/);
+assert.doesNotMatch(ui, /input\.value[\s\S]{0,180}coworkAttachmentHint/,
+  'Cowork attachment instructions must stay out of the visible composer text');
 assert.match(ui, /cowork: 'New workspace'/);
 assert.match(ui, /active: \{ chat: null, agent: null, cowork: null, design: null, roadmap: null \}/);
 
-for (const tool of ['excel', 'read_pdf', 'read_document', 'write_document', 'presentation']) {
+for (const tool of ['excel', 'read_pdf', 'read_document', 'write_document', 'write_pdf', 'presentation']) {
   assert.ok(charter.includes('`' + tool + '`') || charter.includes(`"name":"${tool}"`), `Cowork charter should describe ${tool}`);
 }
 assert.match(charter, /reconcile totals, signs, units, date periods and\s+formulas/i);
@@ -54,13 +57,14 @@ assert.match(office, /MAX_ZIP_EXPANDED/);
 assert.match(office, /def create_xlsx/);
 assert.match(office, /def update_xlsx/);
 assert.match(office, /def create_docx/);
+assert.match(office, /def create_pdf/);
 assert.match(office, /def create_pptx/);
 assert.doesNotMatch(bridge, /\bsystem\s*\(/);
 assert.match(bridge, /execlp\(python, python, helper/);
 assert.match(bridge, /COWORK_OUTPUT_MAX/);
 
-assert.match(patchManifest, /version=73/);
-assert.match(patchManifest, /edit=063[\s\S]*edit=064[\s\S]*edit=065[\s\S]*edit=067[\s\S]*edit=068/);
+assert.match(patchManifest, /version=74/);
+assert.match(patchManifest, /edit=063[\s\S]*edit=064[\s\S]*edit=065[\s\S]*edit=067[\s\S]*edit=068[\s\S]*edit=069/);
 const textToolObservationPatch = fs.readFileSync(path.join(root, 'patch/ds4-agent-jsonl/068.replace'), 'utf8');
 assert.match(textToolObservationPatch, /if \(!obs->image_count\)[\s\S]*ds4_chat_append_message[\s\S]*else \{[\s\S]*ds4_chat_append_multimodal_message/,
   'text-only tool observations must bypass the native multimodal helper');
@@ -68,10 +72,12 @@ assert.match(dispatchPatch, /runtime && !strcmp\(runtime, "cowork"\)/);
 assert.match(read('patch/ds4-agent-jsonl/067.replace'), /ds4ui_cowork_workspace_guard/);
 assert.match(read('patch/ds4-agent-jsonl/067.replace'), /bash is unavailable/);
 assert.match(cachePatch, /\.ds4\/cowork-kvcache/);
-for (const schema of ['excel', 'read_document', 'write_document', 'presentation']) {
+for (const schema of ['excel', 'read_document', 'write_document', 'write_pdf', 'presentation']) {
   assert.ok(dsmlPatch.includes(`name\\\":\\\"${schema}`), `DSML prompt patch should expose ${schema}`);
 }
 assert.match(glmPatch, /agent_cowork_tool_schemas/);
+assert.match(read('patch/ds4-agent-jsonl/069.replace'), /reasoning_start/,
+  'live Cowork and Agent reasoning should open its disclosure before the first token');
 assert.match(makefile, /extension\/cowork/);
 
 console.log('ds4-cowork contract: ok');

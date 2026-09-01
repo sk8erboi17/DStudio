@@ -123,6 +123,7 @@ int ds4_cowork_tool_known(const char *name) {
                     !strcmp(name, "spreadsheet") ||
                     !strcmp(name, "read_document") ||
                     !strcmp(name, "write_document") ||
+                    !strcmp(name, "write_pdf") ||
                     !strcmp(name, "presentation"));
 }
 

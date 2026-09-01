@@ -29,9 +29,11 @@ safety, visual, or persistence metric goes down.
 - New baselines ratchet upward. They never replace raw run artifacts: every
   release decision must remain reproducible from prompts, transcripts, tool
   events, generated files, screenshots, launch status and summary JSON.
-- Quality-first inference is part of the baseline, not a benchmark option:
-  DeepSeek Cowork/Design defaults to Max with at least 393,216 context tokens
-  (the ds4 true-Max floor). Design and Cowork default to EOS/context-bound
+- Quality-first inference is part of the baseline, not a benchmark option.
+  Real-model Cowork benchmark profiles may explicitly request 393,216 context
+  tokens, but the interactive Cowork surface must preserve the context selected
+  by the user in Settings. Design and Learn own the temporary 393,216-token
+  true-Max launch override. Design and Cowork default to EOS/context-bound
   hidden reasoning with no application token cap. Design exposes optional 8k,
   16k and 24k per-round caps only when the user explicitly selects one; such a
   cap closes the native `</think>` transition without capping the tool response
@@ -67,8 +69,8 @@ Run gates in order. A later green gate does not excuse an earlier red one.
 Cowork is graded on source-grounded answers and deliverables, not eloquence.
 
 - Office operations must use the native `excel`, `read_document`,
-  `write_document`, `presentation`, and `read_pdf` surfaces as required by the
-  case. Generated files are reopened and checked independently.
+  `write_document`, `write_pdf`, `presentation`, and `read_pdf` surfaces as
+  required by the case. Generated files are reopened and checked independently.
 - Spreadsheet identifiers, formulas, sheets/ranges and source facts must survive
   a write/read round trip.
 - Missing evidence must be declared, never estimated. Ambiguous destructive

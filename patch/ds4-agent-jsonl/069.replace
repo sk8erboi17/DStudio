@@ -1,0 +1,14 @@
+        agent_stream_renderer stream = {
+            .renderer = &renderer,
+            .parser = &dsml,
+            .syntax = tool_syntax,
+            .in_think = ds4_think_mode_enabled(think_mode),
+        };
+        /* The chat template opens the first reasoning block implicitly, so
+         * upstream only emits its closing marker.  Publish the matching start
+         * before the first token: DStudio can then keep live reasoning inside
+         * the collapsed Thinking disclosure instead of briefly rendering it
+         * as final prose.  This runs for every post-tool generation block too. */
+        if (cfg->jsonl && ds4_think_mode_enabled(think_mode))
+            ds4ui_emit_event(w, "reasoning_start"); /*DS4UI_JSONL*/
+        agent_edit_upto_forcer upto_forcer = {0};

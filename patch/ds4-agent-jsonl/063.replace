@@ -20,12 +20,14 @@ static const char agent_cowork_tool_schemas[] =
     "{\"type\":\"function\",\"function\":{\"name\":\"excel\",\"description\":\"Inspect, read, create, write or append a workspace XLSX, CSV or TSV file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\",\"enum\":[\"inspect\",\"read\",\"create\",\"write\",\"append\"]},\"path\":{\"type\":\"string\"},\"sheet\":{\"type\":\"string\"},\"range\":{\"type\":\"string\"},\"data_json\":{\"type\":\"string\"},\"sheets_json\":{\"type\":\"string\"},\"header\":{\"type\":\"boolean\"}},\"required\":[\"action\",\"path\"]}}}\n"
     "{\"type\":\"function\",\"function\":{\"name\":\"read_document\",\"description\":\"Extract bounded text from a workspace DOCX, PPTX, ODT, RTF, HTML, Markdown, text, JSON or delimited file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}}\n"
     "{\"type\":\"function\",\"function\":{\"name\":\"write_document\",\"description\":\"Create a polished workspace DOCX, Markdown, text or HTML document.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}}\n"
+    "{\"type\":\"function\",\"function\":{\"name\":\"write_pdf\",\"description\":\"Create a polished paginated workspace PDF directly; use this instead of bash or a converter.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}}\n"
     "{\"type\":\"function\",\"function\":{\"name\":\"presentation\",\"description\":\"Create a polished 16:9 workspace PPTX.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"slides_json\":{\"type\":\"string\"}},\"required\":[\"path\",\"slides_json\"]}}}\n";
 
 static const char agent_cowork_dsml_schema_heading[] =
     "\n\n### Cowork Office Tool Schemas\n\n";
 static const char agent_cowork_dsml_schema_rules[] =
-    "\nCowork must inspect before editing and re-open every written artifact to verify it.\n";
+    "\nCowork must inspect before editing and re-open every written artifact to verify it. "
+    "When the user requests a PDF, call write_pdf directly; bash and converter workarounds are unavailable.\n";
 
 static char *agent_build_dsml_tools_prompt(bool edit_upto) {
     const bool cowork = agent_is_cowork_runtime();

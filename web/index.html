@@ -3223,8 +3223,8 @@
     .msg-attachment { margin-top: 7px; }
     .msg-attachments--user {
       width: min(100%, 420px);
-      justify-content: flex-start;
-      align-self: flex-start;
+      justify-content: flex-end;
+      align-self: flex-end;
     }
     .msg-attachments--user .msg-attachment {
       width: 100%;
@@ -7611,6 +7611,121 @@
       body.roadmap-mode .roadmap-topic .roadmap-node-action:first-child { padding-inline: 8px; font-size: 11px; }
     }
 
+    /* Learn uses the selected application theme.  The approved reference was
+       authored on white and its late, high-specificity rules used literal
+       colours; keep that light treatment intact while mapping every surface,
+       trace and card onto the dark token scale when Dark is selected. */
+    :root[data-theme="dark"] body.roadmap-mode {
+      --roadmap-ink: var(--text);
+      --roadmap-copy: var(--text-2);
+      --roadmap-muted: var(--muted);
+      --roadmap-line: var(--border);
+    }
+    :root[data-theme="dark"] body.roadmap-mode,
+    :root[data-theme="dark"] body.roadmap-mode .chat,
+    :root[data-theme="dark"] body.roadmap-mode .stage,
+    :root[data-theme="dark"] body.roadmap-mode .messages,
+    :root[data-theme="dark"] body.roadmap-mode .chat__head,
+    :root[data-theme="dark"] body.roadmap-mode:not(.composer-raised) .composer {
+      background: var(--bg);
+      color: var(--text);
+      border-color: var(--border);
+    }
+    :root[data-theme="dark"] body.roadmap-mode .chat__title,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-direct-loading,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-direct-loading__label,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-stage__node,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-stage__title,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-topic__node,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-topic__title,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-topic__detail strong,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-capstone__title,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-direct-error h2,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-attempt__copy h2 {
+      color: var(--text);
+    }
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-head-stats,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-stage__duration,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-topic__tag,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__elapsed,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__step-detail,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__time,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__draft,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-direct-error__eyebrow,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-direct-error p,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-attempt__copy > p {
+      color: var(--muted);
+    }
+    :root[data-theme="dark"] body.roadmap-mode .composer__card,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__trace,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-direct-error,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-attempt,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-attempt.is-paused,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-attempt__prompt p,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-export > summary,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-export__menu,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-stage__topics,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-topic__node,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-add__input {
+      border-color: var(--border);
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: none;
+    }
+    :root[data-theme="dark"] body.roadmap-mode .composer__card:focus-within {
+      border-color: var(--border-2);
+      box-shadow: 0 8px 30px rgb(0 0 0 / .34);
+    }
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-card {
+      --rm-main: var(--accent);
+      --rm-main-edge: var(--accent);
+      --rm-main-ink: var(--text);
+      --rm-support: var(--surface);
+      --rm-support-edge: var(--border);
+      --rm-ink: var(--text);
+      --rm-line: var(--border);
+      --rm-done: color-mix(in srgb, var(--ok) 13%, var(--surface));
+    }
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-topic + .roadmap-topic,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-topic__detail,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__head,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-topic__detail-actions {
+      border-color: var(--border);
+    }
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-topic__detail,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-topic__node:hover,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-export__option:hover,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-node-action:hover {
+      background: var(--surface-2);
+      color: var(--text);
+    }
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-topic__check,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__dot,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__phase-node {
+      border-color: var(--border-2);
+      background: var(--surface-2);
+    }
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__bar {
+      background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 38%, var(--surface-2) 63%);
+      background-size: 300% 100%;
+    }
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__draft::after,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__skeleton::before,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-graph::before,
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-head-stats__track {
+      background: var(--border);
+      border-color: var(--border);
+    }
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-stage__checkpoint {
+      border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+      background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+      color: var(--text-2);
+    }
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-capstone {
+      border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+      background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+    }
+
     /* ==================== Editorial Chat ====================
        Chat uses the same calm, paper-like visual language as the renewed
        Roadmap while keeping all existing controls and message semantics. */
@@ -8347,9 +8462,9 @@
           <span class="sb-ic"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.7l2.8 2.8M9.5 3.7L3.5 9.7l-.6 3.2 3.2-.6 6-6z"/></svg></span>
           <span>Design</span>
         </button>
-        <button type="button" id="tab-roadmap" class="sb-item" role="tab" aria-selected="false" title="Roadmap">
+        <button type="button" id="tab-roadmap" class="sb-item" role="tab" aria-selected="false" title="Learn">
           <span class="sb-ic"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="3.2" cy="3.2" r="1.4"/><circle cx="12.8" cy="6.2" r="1.4"/><circle cx="5.2" cy="12.8" r="1.4"/><path d="M4.5 3.8l7 1.8M11.9 7.4l-5.8 4.3"/></svg></span>
-          <span>Roadmap</span>
+          <span>Learn</span>
         </button>
       </nav>
       <nav class="chat-list" id="chat-list" aria-label="Conversations list"></nav>
@@ -9532,7 +9647,7 @@
     const DEFAULT_CHAT_TITLE = 'New chat';
     // Default titles per mode: every surface has its own conversation list and
     // active item. Roadmap uses the chat engine but keeps an independent history.
-    const DEFAULT_TITLES = { chat: DEFAULT_CHAT_TITLE, agent: 'New session', cowork: 'New workspace', design: 'New design', roadmap: 'New roadmap' };
+    const DEFAULT_TITLES = { chat: DEFAULT_CHAT_TITLE, agent: 'New session', cowork: 'New workspace', design: 'New design', roadmap: 'New learning path' };
     const AUTO_TITLE_MAX_CHARS = 48;
 
     // Agent/design transcript persisted per conversation (RAW text of the
@@ -14824,7 +14939,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           m.imageGeneration ? JSON.stringify(m.imageGeneration) : '',
           m.generatedVideos ? JSON.stringify(m.generatedVideos.map((f) => [f.url, f.name, f.duration, f.aspect, f.profile])) : '',
           m.videoGeneration ? JSON.stringify(m.videoGeneration) : '',
-          m.attachments ? JSON.stringify(m.attachments.map((a) => [a.name, a.size, a.truncated])) : '',
+          m.attachments ? JSON.stringify(m.attachments.map((a) => [a.name, a.size, a.truncated, a.internal])) : '',
           m.roadmapSources ? JSON.stringify(m.roadmapSources) : '',
           m.roadmapProgress ? JSON.stringify(m.roadmapProgress) : '',
           m.roadmapOverride ? JSON.stringify(m.roadmapOverride) : '',
@@ -14852,9 +14967,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
         if (m.role === 'user') {
           if (editingUserMsgId === m.id && !chat?.lanMirror) return buildInlineUserEditor(m, chat);
+          article.append(el('div', { class: 'msg__content', text: m.content || 'Attached files' }));
           if (m.attachments?.length) article.append(buildAttachments(m.attachments, 'user'));
           if (m.roadmapSources?.length) article.append(buildRoadmapUserSources(m.roadmapSources));
-          article.append(el('div', { class: 'msg__content', text: m.content || 'Attached files' }));
           if (!chat?.lanMirror) {
             const edit = el('button', {
               class: 'msg-edit-button',
@@ -14967,11 +15082,11 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         });
         const save = el('button', { class: 'btn btn--primary', type: 'button', 'data-act': 'save-user-edit', text: 'Save' });
         const cancel = el('button', { class: 'btn', type: 'button', 'data-act': 'cancel-user-edit', text: 'Cancel' });
-        if (m.attachments?.length) article.append(buildAttachments(m.attachments, 'user'));
         article.append(el('div', { class: 'msg-edit' }, [
           textarea,
           el('div', { class: 'msg-edit__actions' }, [cancel, save]),
         ].filter(Boolean)));
+        if (m.attachments?.length) article.append(buildAttachments(m.attachments, 'user'));
         requestAnimationFrame(() => {
           if (!root?.contains(textarea)) return;
           textarea.focus();
@@ -14982,7 +15097,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
       function buildAttachments(attachments, variant = '') {
         const wrap = el('div', { class: `msg-attachments${variant === 'user' ? ' msg-attachments--user' : ''}`, 'aria-label': 'Attached files' });
-        (attachments || []).forEach((a, i) => {
+        (attachments || []).filter((attachment) => !attachment?.internal).forEach((a, i) => {
           const mediaUri = attachMediaUri(a);
           if (mediaUri) {
             // Images and PDFs (rendered first page) show as a large preview, not
@@ -21589,6 +21704,25 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             await startGsaCommand(/^\/gsa\b/i.test(text) ? text : `/gsa ${text}`, targetUrl);
             return;
           }
+          if (curMode === 'cowork' && hasFiles) {
+            const request = text || 'Use the attached Cowork file(s).';
+            if (sendBtn) sendBtn.disabled = true;
+            if (input) input.disabled = true;
+            let attachments = null;
+            try { attachments = await prepareCoworkPendingAttachments(request); }
+            finally {
+              if (sendBtn) sendBtn.disabled = false;
+              if (input) input.disabled = false;
+            }
+            if (!attachments) return;
+            const visible = attachments.filter((attachment) => !attachment.internal);
+            const runtimePrompt = [request, ...visible.map(coworkAttachmentHint)].join('\n\n');
+            const displayPrompt = [request, ...visible.map(coworkAttachmentDisplayMarker)].join('\n');
+            input.value = '';
+            autogrow();
+            AgentView.send(runtimePrompt, displayPrompt);
+            return;
+          }
           input.value = '';
           autogrow();
           AgentView.send(text);
@@ -21747,22 +21881,48 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return COWORK_ATTACH_EXT_RE.test(file?.name || '');
       }
 
-      function coworkAttachmentHint(rel, name) {
-        if (/\.pdf$/i.test(name)) return `[PDF saved to ${rel} — read it with read_pdf before answering]`;
-        if (/\.(xlsx|csv|tsv)$/i.test(name)) return `[Spreadsheet saved to ${rel} — inspect it with the excel tool before answering]`;
-        if (/\.(png|jpe?g|webp|gif|bmp)$/i.test(name)) return `[Image saved to ${rel} — inspect it with the runtime's image tool before answering]`;
-        return `[Document saved to ${rel} — inspect it with read_document before answering]`;
+      function coworkAttachmentHint(att) {
+        const rel = String(att?.coworkRel || '').replace(/"/g, '\\"');
+        const name = att?.name || rel;
+        if (att?.kind === 'pdf') {
+          const visual = (att.coworkVisionPages || []).map((page) =>
+            `[USER_SCREENSHOT path="${String(page.rel || '').replace(/"/g, '\\"')}"] Native rendering of physical PDF page ${page.page}; inspect these exact pixels with view_image before making visual claims.`
+          ).join('\n');
+          return [
+            `[Cowork PDF "${name}" saved as "${rel}".] Call read_pdf(path="${rel}") before answering; its extracted text is primary document evidence.`,
+            visual || (att.coworkNativeVisionRequested
+              ? 'No selected PDF page could be rendered for native vision. Use the extracted text; if read_pdf reports scanned/image-only pages, explain that those pixels were not interpreted.'
+              : 'The selected model is text-only: use only the extracted PDF text. If read_pdf reports scanned/image-only pages, explain that those pixels were not interpreted.'),
+          ].join('\n');
+        }
+        if (/\.(xlsx|csv|tsv)$/i.test(name))
+          return `[Cowork spreadsheet "${name}" saved as "${rel}".] Inspect it with the excel tool before answering.`;
+        if (att?.kind === 'image')
+          return `[USER_SCREENSHOT path="${rel}"] Exact user-supplied pixels are primary evidence. Inspect this workspace image with view_image before answering.`;
+        return `[Cowork document "${name}" saved as "${rel}".] Inspect it with read_document before answering.`;
+      }
+
+      function coworkAttachmentDisplayMarker(att) {
+        const meta = {
+          id: att.id, name: att.name, type: att.type || '', size: att.size || 0,
+          kind: att.kind || '', rel: att.coworkRel || '',
+        };
+        return `[[DSTUDIO_COWORK_ATTACHMENT:${encodeURIComponent(JSON.stringify(meta))}]]`;
       }
 
       async function coworkAttachFiles(fileList) {
         const files = Array.from(fileList || []);
         if (!files.length) return;
-        const wd = Store.getState().ui.agentWorkdir || Store.getSettings().workdirs?.cowork || '';
+        const wd = Store.getSettings().workdirs?.cowork || Store.getState().ui.agentWorkdir || '';
         if (!wd) {
           toast('Choose the Cowork folder first — files are saved into that workspace.', 'warn');
           return;
         }
         for (const file of files) {
+          if (pendingAttachments.length >= CHAT_ATTACH_MAX_FILES) {
+            toast(`Attach up to ${CHAT_ATTACH_MAX_FILES} files per message.`, 'warn');
+            break;
+          }
           if (!coworkAttachmentAllowed(file)) {
             toast(`${file.name || 'File'}: unsupported Cowork format.`, 'warn');
             continue;
@@ -21783,9 +21943,41 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               body: JSON.stringify({ dir: wd, name: file.name || 'document.txt', data_uri: dataUri }),
             }).then((x) => x.json());
             if (!r.ok) throw new Error(r.error || 'save failed');
-            const hint = coworkAttachmentHint(r.rel, r.name);
-            input.value = input.value.trim() ? `${input.value.replace(/\s+$/, '')}\n${hint}\n` : `${hint}\n`;
-            autogrow();
+            const id = `att_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+            const pdf = attachmentIsPdf(file);
+            const image = attachmentIsImage(file);
+            let previewUri = '', thumb = '';
+            if (pdf) {
+              try {
+                const preview = await fetch('/api/pdf/thumb', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
+                  body: JSON.stringify({ data_uri: dataUri }),
+                }).then((x) => x.json()).catch(() => ({}));
+                if (preview?.ok && preview.thumb) {
+                  previewUri = preview.thumb;
+                  thumb = await shrinkDataUri(preview.thumb, 640, 0.82);
+                }
+              } catch { /* generic PDF tile remains usable */ }
+            } else if (image) {
+              try {
+                previewUri = await imageFileToDataUri(file, 1200, 0.9, 'image/jpeg');
+                thumb = await imageFileToDataUri(file, 640, 0.82, 'image/jpeg');
+              } catch { /* generic image tile remains usable */ }
+            }
+            const att = {
+              id, name: r.name || file.name || 'document', type: file.type || '',
+              size: file.size || 0, kind: pdf ? 'pdf' : image ? 'image' : '',
+              content: '', thumb, coworkRel: r.rel,
+            };
+            if (pdf) rememberImageData(id, {
+              dataUri: previewUri || thumb, status: 'ready', name: att.name, pdfBytes: dataUri,
+            });
+            else if (image) rememberImageData(id, {
+              dataUri: previewUri || thumb, status: 'ready', name: att.name,
+            });
+            pendingAttachments.push(att);
+            renderPendingAttachments();
             toast(`Saved to Cowork: ${r.name}`, 'info');
           } catch (e) {
             toast(`Could not save ${file.name}: ${e?.message || e}`, 'error');
@@ -21946,7 +22138,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // being sent to a secondary vision model. While the read runs, a progress
       // poll keeps the attachment tile updated.
       // Never throws.
-      async function analyzePdfAttachment(att, question, readPlan = { mode: 'overview' }) {
+      async function analyzePdfAttachment(att, question, readPlan = { mode: 'overview' }, opts = {}) {
         const entry = imageAttachData.get(att.id);
         if (!entry || !entry.pdfBytes) return;
         entry.status = 'analyzing';
@@ -21962,7 +22154,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           data_uri: entry.pdfBytes, job,
           profile: readPlan.mode === 'search' ? 'semantic' : 'interactive',
           max_chars: maxChars,
-          text_only: true,
+          text_only: !opts.nativeVision,
+          native_vision: !!opts.nativeVision,
         };
         if (readPlan.mode === 'pages') payload.pages = readPlan.pages;
         if (readPlan.mode === 'search') payload.semantic_query = readPlan.query;
@@ -21996,6 +22189,39 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           const t = String(r.text || '').trim();
           const txt = r.textPages | 0;
           const scans = r.scannedPages | 0;
+          const visionPages = Array.isArray(r.vision) ? r.vision.filter((page) => page?.image) : [];
+          const visualRefs = [];
+          if (opts.nativeVision && visionPages.length) {
+            if (opts.coworkDir) {
+              for (const page of visionPages) {
+                const safeBase = String(att.name || 'document.pdf').replace(/\.pdf$/i, '').replace(/[^a-z0-9._-]+/gi, '-').slice(0, 64) || 'document';
+                const saved = await fetch('/api/cowork/attach-file', {
+                  method: 'POST',
+                  headers: H,
+                  body: JSON.stringify({
+                    dir: opts.coworkDir,
+                    name: `${safeBase}-page-${page.page | 0}.jpg`,
+                    data_uri: page.image,
+                  }),
+                }).then((response) => response.json()).catch(() => ({}));
+                if (saved?.ok && saved.rel) visualRefs.push({ page: page.page | 0, rel: saved.rel });
+              }
+              att.coworkVisionPages = visualRefs;
+            } else {
+              for (const page of visionPages) {
+                const id = `${att.id}_page_${page.page | 0}`;
+                const derived = {
+                  id, name: `${att.name} · page ${page.page | 0}`,
+                  type: 'image/jpeg', size: 0, kind: 'image', content: '', internal: true,
+                };
+                rememberImageData(id, {
+                  dataUri: page.image, status: 'native-model', name: derived.name,
+                });
+                pendingAttachments.push(derived);
+                visualRefs.push({ page: page.page | 0, id });
+              }
+            }
+          }
           const parts = [];
           if (txt > 0) parts.push('text layer extracted locally');
           if (r.semantic) {
@@ -22005,14 +22231,16 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             if (readPlan.mode === 'pages') parts.push(`physical page selection ${readPlan.pages}`);
             if (r.sampled) parts.push(`${r.selectedPages || r.pages}/${r.total || r.pages} representative pages selected for the prompt`);
           }
-          if (scans > 0) parts.push(`${scans} scanned page${scans > 1 ? 's' : ''} skipped because no text layer was available`);
+          if (scans > 0) parts.push(visualRefs.length
+            ? `${visualRefs.length} selected visual page${visualRefs.length > 1 ? 's' : ''} routed to the current model's native encoder (${scans} page${scans > 1 ? 's' : ''} had no usable text layer)`
+            : `${scans} scanned page${scans > 1 ? 's' : ''} skipped because no text layer was available`);
           const how = parts.join('; ') || 'no readable content';
           const limited = r.sampled ? '; adaptive excerpt' : (r.truncated ? '; truncated' : '');
           att.content = t
             ? `[PDF "${att.name}" — ${how}${limited}]\n${t}`
             : `[PDF "${att.name}" attached, but no readable content was found.]`;
           att.truncated = !!r.truncated;
-          entry.status = 'ok';
+          entry.status = visualRefs.length ? 'native-model' : 'ok';
         } catch (e) {
           att.content = `[PDF "${att.name}" attached, but reading it failed: ${e?.message || e}.]`;
           entry.status = 'failed';
@@ -22071,7 +22299,36 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           pdfReadPlan = roadmapPdfPlan
             ? { mode: 'search', query: `Learning path evidence: prerequisites, concept order, curriculum, outcomes, exercises and projects. Learner goal: ${q || 'infer the goal from this document'}`.slice(0, 900) }
             : await routePdfReadPlan(q, Store.getSettings());
-          await Promise.all(pdfs.map((a) => analyzePdfAttachment(a, q, pdfReadPlan)));
+          await Promise.all(pdfs.map((a) => analyzePdfAttachment(a, q, pdfReadPlan, {
+            nativeVision: nativeModelVision,
+          })));
+        }
+        return takePendingAttachments();
+      }
+
+      async function prepareCoworkPendingAttachments(text) {
+        const q = text && text.trim() ? text.trim() : 'Use the attached Cowork files.';
+        const nativeVision = localNativeVisionSelected();
+        const images = pendingAttachments.filter((attachment) => attachment.kind === 'image');
+        if (images.length && !nativeVision) {
+          toast('Laguna is text-only. Remove the image or select DeepSeek Vision-Exp / GLM 5.3.', 'warn');
+          return null;
+        }
+        const pdfs = pendingAttachments.filter((attachment) =>
+          attachment.kind === 'pdf' && imageAttachData.get(attachment.id)?.pdfBytes);
+        pdfs.forEach((attachment) => { attachment.coworkNativeVisionRequested = nativeVision; });
+        if (pdfs.length) {
+          pdfs.forEach((attachment) => {
+            const entry = imageAttachData.get(attachment.id);
+            if (entry) { entry.status = 'analyzing'; entry.progress = 'planning pages'; }
+          });
+          renderPendingAttachments();
+          const readPlan = await routePdfReadPlan(q, Store.getSettings());
+          const coworkDir = Store.getSettings().workdirs?.cowork || Store.getState().ui.agentWorkdir || '';
+          await Promise.all(pdfs.map((attachment) => analyzePdfAttachment(attachment, q, readPlan, {
+            nativeVision,
+            coworkDir,
+          })));
         }
         return takePendingAttachments();
       }
@@ -26107,8 +26364,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       const closeDrawer = () => document.body.classList.remove('sidebar-open');
 
       // Labels for the «New» button per mode (the + is the circled icon).
-      const NEW_LABELS = { chat: 'New chat', agent: 'New session', cowork: 'New workspace', design: 'New design', roadmap: 'New roadmap' };
-      const MODE_LABEL = { chat: 'Chat', agent: 'Agent', cowork: 'Cowork', design: 'Design', roadmap: 'Roadmap' };
+      const NEW_LABELS = { chat: 'New chat', agent: 'New session', cowork: 'New workspace', design: 'New design', roadmap: 'New learning path' };
+      const MODE_LABEL = { chat: 'Chat', agent: 'Agent', cowork: 'Cowork', design: 'Design', roadmap: 'Learn' };
 
       // Bucket per day (DS4 Agent mockup style): Today / Yesterday / date.
       function dayLabel(ts) {
@@ -28618,11 +28875,51 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         ]);
       }
 
+      function parseCoworkDisplayAttachments(text) {
+        const attachments = [];
+        const clean = String(text || '').replace(/\[\[DSTUDIO_COWORK_ATTACHMENT:([^\]]+)\]\]/g, (_, encoded) => {
+          try {
+            const item = JSON.parse(decodeURIComponent(encoded));
+            if (item && item.id && item.name) attachments.push(item);
+          } catch { /* malformed internal marker stays hidden, never user prose */ }
+          return '';
+        }).replace(/\n{3,}/g, '\n\n').trim();
+        return { clean, attachments };
+      }
+
+      function buildAgentUserAttachments(attachments) {
+        const wrap = el('div', {
+          class: 'msg-attachments msg-attachments--user agent-user-attachments',
+          'aria-label': 'Attached files',
+        });
+        for (const attachment of attachments || []) {
+          const uri = attachMediaUri(attachment);
+          const card = el('button', {
+            class: `msg-attachment${uri ? ' msg-attachment--media' : ''}`,
+            type: 'button', title: attachment.name || 'attachment',
+          }, uri ? [
+            el('img', { class: 'msg-attachment__img', src: uri, alt: attachment.name || '' }),
+            attachment.kind === 'pdf' ? el('span', { class: 'msg-attachment__badge', text: 'PDF' }) : null,
+          ].filter(Boolean) : [
+            attachVisualEl(attachment),
+            el('span', { class: 'file-tile-body' }, [
+              el('span', { class: 'msg-attachment__name', text: attachment.name || 'attachment' }),
+              el('span', { class: 'msg-attachment__meta', text: [attachmentKindLabel(attachment), attachment.size ? fmtFileSize(attachment.size) : ''].filter(Boolean).join(' · ') }),
+            ]),
+          ]);
+          on(card, 'click', () => AttachmentPreview.open(attachment));
+          wrap.append(card);
+        }
+        return wrap;
+      }
+
       function buildAgentUserTurn(text, pending = false) {
+        const parsed = parseCoworkDisplayAttachments(text);
         return el('div', { class: `agent-user-turn${pending ? ' is-pending' : ''}` }, [
           el('div', { class: 'agent-user-meta', text: 'YOU' }),
-          el('div', { class: 'seg seg--user', text }),
-        ]);
+          el('div', { class: 'seg seg--user', text: parsed.clean || (parsed.attachments.length ? 'Attached files' : '') }),
+          parsed.attachments.length ? buildAgentUserAttachments(parsed.attachments) : null,
+        ].filter(Boolean));
       }
 
       function buildAgentResumeNote() {
@@ -29601,6 +29898,21 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
       }
 
+      async function agentSendWhenSettled(runtimePrompt, displayPrompt, expectedMode) {
+        let response = await Engine.agentSend(runtimePrompt, displayPrompt);
+        const transient = /interrupt is still settling|runtime is still loading/i.test(String(response?.error || ''));
+        if (!response?.ok && transient) {
+          /* A Stop/new-message interrupt is acknowledged before the worker's
+           * WAITING marker arrives.  Never expose that normal hand-off as a
+           * failed Design task: wait for the marker and retry the exact turn
+           * once, provided the user has not switched to another runtime. */
+          const settled = await waitIdle(15000);
+          if (settled && activeView && viewMode === expectedMode)
+            response = await Engine.agentSend(runtimePrompt, displayPrompt);
+        }
+        return response;
+      }
+
       function send(prompt, displayOverride, opts = {}) {
         if (Store.getChat(convId)?.lanMirror) {
           toast('LAN mirrored chats are read-only.', 'warn');
@@ -29618,11 +29930,29 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           const deferredDisplay = displayOverride;
           const deferredOpts = opts;
           (async () => {
-            await stopLiveGeneration({
-              reason: 'new message sent while the agent was working',
-              status: 'incomplete',
-            });
-            if (waitIdle) await waitIdle(4000);
+            /* `working` is a UI cache and can remain true after the worker has
+             * already returned to WAITING.  Check the process before sending
+             * SIGINT, otherwise a stale Stop can interrupt the new Design turn
+             * that follows it. */
+            let backendBusy = true;
+            try { backendBusy = (await Engine.status())?.agentWorking === true; }
+            catch { /* the guarded send below still reports a real failure */ }
+            if (backendBusy) {
+              await stopLiveGeneration({
+                reason: 'new message sent while the agent was working',
+                status: 'incomplete',
+              });
+              const settled = await waitIdle(15000);
+              if (!settled) {
+                toast('The previous turn is still stopping. Try again in a moment.', 'warn');
+                return;
+              }
+            } else {
+              working = false;
+              pendingUserTurn = null;
+              syncComposerBusy();
+              syncSpinner();
+            }
             send(deferredPrompt, deferredDisplay, { ...deferredOpts, force: true });
           })();
           return;
@@ -29672,7 +30002,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         syncSpinner();
         render();
         const runtimePrompt = Switcher.wirePromptForRuntime ? Switcher.wirePromptForRuntime(prompt, opts.forceThink) : prompt;
-        Engine.agentSend(runtimePrompt, displayPrompt)
+        const expectedMode = viewMode;
+        agentSendWhenSettled(runtimePrompt, displayPrompt, expectedMode)
           .then(async (r) => {
             if (!r || !r.ok) {
               const msg = await agentSendErrorMessage(r?.error || '/api/agent/send failed', r);
@@ -32276,7 +32607,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         // Start browsing from the CURRENT working dir (the running engine's, or
         // this mode's last-used folder) so the picker opens where you already
         // are. Attach-a-folder browses from $HOME (you pick a source elsewhere).
-        const cur = Store.getState().ui.agentWorkdir || Store.getSettings().workdirs?.[target] || '';
+        const cur = Store.getSettings().workdirs?.[target] || Store.getState().ui.agentWorkdir || '';
         loadDirs(startPath || (target === 'import' ? '' : cur));
       }
 
@@ -32662,7 +32993,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           mode: 'cowork', model: 'standard', variant: variant(),
           gguf: isLanClientMode() ? '' : modelGguf(), skill,
           ...launchBase(remote.modelBackend === 'remote'),
-          ctx: trueMaxContext(),
           think: thinkLevel(), workdir, ...remote,
         }, 'Starting Cowork…');
       }
@@ -33248,7 +33578,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return target === 'cowork' ? 'Cowork'
           : target === 'design' ? 'Design'
           : target === 'agent' ? 'Agent'
-          : target === 'roadmap' ? 'Roadmap' : 'Chat';
+          : target === 'roadmap' ? 'Learn' : 'Chat';
       }
 
       function launchModelMeta(cfg) {
@@ -33457,9 +33787,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           { group: 'Go to', icon: 'panel', label: 'Agent', hint: 'Switch to the coding agent', kbd: kbdLabel('2'), run: () => qs('#tab-agent').click() },
           { group: 'Go to', icon: 'file', label: 'Cowork', hint: 'Work with PDFs, spreadsheets and Office files', kbd: kbdLabel('5'), run: () => qs('#tab-cowork').click() },
           { group: 'Go to', icon: 'panel', label: 'Design', hint: 'Switch to design', kbd: kbdLabel('3'), run: () => qs('#tab-design').click() },
-          { group: 'Go to', icon: 'spark', label: 'Roadmap', hint: 'Build a learning path from PDFs and links', kbd: kbdLabel('4'), run: () => qs('#tab-roadmap').click() },
+          { group: 'Go to', icon: 'spark', label: 'Learn', hint: 'Build a learning path from PDFs and links', kbd: kbdLabel('4'), run: () => qs('#tab-roadmap').click() },
           { group: 'Session', icon: 'plus',
-            label: mode === 'design' ? 'New design' : mode === 'cowork' ? 'New workspace' : mode === 'agent' ? 'New session' : mode === 'roadmap' ? 'New roadmap' : 'New chat',
+            label: mode === 'design' ? 'New design' : mode === 'cowork' ? 'New workspace' : mode === 'agent' ? 'New session' : mode === 'roadmap' ? 'New learning path' : 'New chat',
             hint: 'Start fresh', kbd: kbdLabel('N'), run: () => qs('#btn-new-chat').click() },
           { group: 'Session', icon: 'sliders', label: 'Settings', hint: 'Open the settings', kbd: kbdLabel(','), run: () => qs('#btn-settings').click() },
           { group: 'Session', icon: 'check', label: 'System check', hint: 'Check model, agent, web and design readiness', run: () => Doctor.open() },

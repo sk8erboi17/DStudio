@@ -7057,23 +7057,31 @@ static void api_agent_send(int fd, const char *body) {
     const char *target = mode_name(g_mode);
     const char *turn_title = g_mode == ENGINE_DESIGN ? "Design turn" :
                              g_mode == ENGINE_COWORK ? "Cowork turn" : "Agent turn";
-    unsigned long long task_id = task_begin(kind, turn_title,
-                                            target, g_mode, g_workdir, (int)g_child, 1);
     if (!MODE_IS_PIPED(g_mode) || g_in_fd < 0 || g_child <= 0) {
-        task_mark_failed(task_id, "agent/design runtime is not active", g_engine_err);
+        /* A genuinely inactive runtime is a terminal, diagnosable failure, so
+         * retain it in the task log.  Loading/interrupt hand-offs below are
+         * transient and deliberately do not create failed phantom turns. */
+        unsigned long long task_id = task_begin(kind, turn_title,
+                                                target, g_mode, g_workdir,
+                                                g_child > 0 ? (int)g_child : 0, 1);
+        task_mark_failed(task_id, "agent/design runtime is not active",
+                         g_engine_err[0] ? g_engine_err : "runtime is not active");
         api_agent_send_state_error(fd, "409 Conflict", "agent/design runtime is not active", task_id);
         return;
     }
     if (g_interrupt_pending) {
-        task_mark_failed(task_id, "agent/design interrupt is still settling", g_engine_err);
-        api_agent_send_state_error(fd, "409 Conflict", "agent/design interrupt is still settling", task_id);
+        /* This is a transient hand-off, not a model turn.  Do not create a
+         * zero-duration failed task; the UI waits for WAITING and retries the
+         * exact prompt once the previous SIGINT has settled. */
+        api_agent_send_state_error(fd, "409 Conflict", "agent/design interrupt is still settling", 0);
         return;
     }
     if (!g_ready) {
-        task_mark_failed(task_id, "agent/design runtime is still loading", g_stage);
-        api_agent_send_state_error(fd, "409 Conflict", "agent/design runtime is still loading", task_id);
+        api_agent_send_state_error(fd, "409 Conflict", "agent/design runtime is still loading", 0);
         return;
     }
+    unsigned long long task_id = task_begin(kind, turn_title,
+                                            target, g_mode, g_workdir, (int)g_child, 1);
     size_t from = g_alen;
     int force_gsa_think_max = g_mode == ENGINE_AGENT && display_prompt_is_guided_analysis(display);
     static const char gsa_think_max_frame[] =

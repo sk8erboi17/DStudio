@@ -28,6 +28,7 @@
 #define PDF_INTERACTIVE_TEXT_CAP_MAX (64 * 1024)
 #define PDF_INTERACTIVE_MAX_TEXT_PAGES 48 /* enough context per selected page even for 1000-page books */
 #define PDF_SEMANTIC_MAX_PAGES 6         /* three evidence anchors plus nearby continuity pages */
+#define PDF_NATIVE_VISION_MAX_PAGES 4    /* bounded native-encoder PDF page handoff */
 #define PDF_RAG_CHUNK_CHARS 3200          /* bounded semantic windows, not arbitrary full pages */
 #define PDF_RAG_CHUNK_OVERLAP 500         /* preserves passages spanning adjacent windows */
 #define PDF_RAG_CROSS_PAGE_CHARS 320      /* preserves sentences split by physical page breaks */
@@ -209,6 +210,48 @@ static char *pdf_img_data_uri(const char *imgpath) {
     if (uri) snprintf(uri, need, "data:%s;base64,%s", mime, b64);
     free(b64);
     return uri;
+}
+
+/* Render a bounded set of already-selected PDF pages for the CURRENT model's
+ * native image encoder.  Scanned/image-only pages come first, then selected
+ * text pages so charts and layout can still be inspected.  This function does
+ * no inference and never routes to a secondary model. */
+static int pdf_render_native_pages(const char *pdfpath,
+                                   const unsigned char *selected,
+                                   const int *pvis, int tpages,
+                                   int first, int last,
+                                   int *page_numbers, char **uris,
+                                   int *scanned_out) {
+    if (scanned_out) *scanned_out = 0;
+    char tool[256];
+    if (!pdf_find_tool("pdftoppm", tool, sizeof tool)) return 0;
+    char dir[] = "/tmp/dstudio-pdfvision-XXXXXX";
+    if (!mkdtemp(dir)) return 0;
+    int count = 0, scanned = 0;
+    for (int pass = 0; pass < 2 && count < PDF_NATIVE_VISION_MAX_PAGES; pass++) {
+        for (int i = first; i <= last && count < PDF_NATIVE_VISION_MAX_PAGES; i++) {
+            if (!selected[i]) continue;
+            int is_scanned = i >= tpages || pvis[i] < PDF_TEXT_MIN_CHARS;
+            if ((pass == 0) != is_scanned) continue;
+            char prefix[DSTUDIO_PATH_MAX], image[DSTUDIO_PATH_MAX];
+            snprintf(prefix, sizeof prefix, "%s/page-%d", dir, i + 1);
+            snprintf(image, sizeof image, "%s.jpg", prefix);
+            if (!pdf_render(tool, pdfpath, prefix, i + 1, i + 1,
+                            1100, 1, 1, 80)) {
+                unlink(image);
+                continue;
+            }
+            char *uri = pdf_img_data_uri(image);
+            unlink(image);
+            if (!uri) continue;
+            page_numbers[count] = i + 1;
+            uris[count++] = uri;
+            if (is_scanned) scanned++;
+        }
+    }
+    rmdir(dir);
+    if (scanned_out) *scanned_out = scanned;
+    return count;
 }
 
 /* POST /api/pdf/thumb — render page 1 to an image for the attachment preview. */
@@ -883,6 +926,9 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     char fmt[16] = "";
     (void)json_get_string(body, "format", fmt, sizeof fmt);
     int want_text = !strcmp(fmt, "text");
+    /* UI-only request: return rendered selected pages to the model already in
+     * use.  The folder-scoped read_pdf tool remains text-only. */
+    int native_vision = !want_text && json_get_bool(body, "native_vision");
 
     char profile[24] = "", semantic_query[1024] = "";
     (void)json_get_string(body, "profile", profile, sizeof profile);
@@ -993,7 +1039,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     }
     char cpath[DSTUDIO_PATH_MAX];
     pdf_cache_path(key, cpath, sizeof cpath);
-    {
+    if (!native_vision) {
         size_t cn = 0;
         char *cached = jsonl_read_file(cpath, &cn);
         if (cached && cn > 2 && cached[0] == '{') {
@@ -1128,6 +1174,15 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         if (!page_selected[i]) continue;
         if (i >= tpages || pvis[i] < PDF_TEXT_MIN_CHARS) scanned_pages++;
     }
+    char *vision_uris[PDF_NATIVE_VISION_MAX_PAGES] = {0};
+    int vision_page_numbers[PDF_NATIVE_VISION_MAX_PAGES] = {0};
+    int vision_scanned_pages = 0;
+    int vision_pages = native_vision
+        ? pdf_render_native_pages(pdf, page_selected, pvis, tpages,
+                                  pfirst - 1, plast - 1,
+                                  vision_page_numbers, vision_uris,
+                                  &vision_scanned_pages)
+        : 0;
     json_dyn_buf text = {0};
     int ok = 1, text_used = 0, text_skipped = 0, text_partial = 0;
     int pages_omitted = (plast - pfirst + 1) - selected_pages;
@@ -1192,10 +1247,17 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     int range_partial = has_range ? (pfirst > 1 || plast < total) : (total > npages);
     int sampled = interactive && (pages_omitted > 0 || text_partial > 0);
     int truncated = scanned_pages > 0 || text_skipped > 0 || range_partial || sampled;
-    if (ok && scanned_pages > 0)
-        ok = json_dyn_printf(&text,
-                             "\n[%d pagine scansionate o solo-immagine omesse: nessun livello testuale disponibile.]\n",
-                             scanned_pages);
+    if (ok && scanned_pages > 0) {
+        if (vision_scanned_pages > 0)
+            ok = json_dyn_printf(&text,
+                "\n[%d pagine scansionate o solo-immagine senza livello testuale; "
+                "%d selezionate e renderizzate per la visione nativa del modello.]\n",
+                scanned_pages, vision_scanned_pages);
+        else
+            ok = json_dyn_printf(&text,
+                "\n[%d pagine scansionate o solo-immagine omesse: nessun livello testuale disponibile.]\n",
+                scanned_pages);
+    }
     if (ok && text_skipped > 0)
         ok = json_dyn_printf(&text, "\n[Testo troncato: %d pagine di testo oltre il limite di %dKB omesse.]\n",
                              text_skipped, (int)(text_cap / 1024));
@@ -1218,39 +1280,53 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     unlink(pdf); free(pdf);
 
     if (!ok) {
+        for (int i = 0; i < vision_pages; i++) free(vision_uris[i]);
         free(text.ptr);
         pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
         pdf_describe_fail(fd, want_text, "500 Internal Server Error", "oom");
         return;
     }
     json_dyn_buf out = {0};
+    size_t vision_chars = 0;
+    for (int i = 0; i < vision_pages; i++) vision_chars += strlen(vision_uris[i]);
     int good = json_dyn_printf(&out, "{\"ok\":true,\"pages\":%d,\"total\":%d,\"first\":%d,\"last\":%d,"
-                                     "\"textPages\":%d,\"scannedPages\":%d,\"visionPages\":0,\"figPages\":0,"
+                                     "\"textPages\":%d,\"scannedPages\":%d,\"visionPages\":%d,\"visionScannedPages\":%d,\"figPages\":0,"
                                      "\"selectedPages\":%d,\"retrievalChunks\":%d,"
                                      "\"textLayerCached\":%s,\"embeddingIndexCached\":%s,"
-                                     "\"textChars\":%zu,\"visionChars\":0,\"contentChars\":%zu,"
+                                     "\"textChars\":%zu,\"visionChars\":%zu,\"contentChars\":%zu,"
                                      "\"semantic\":%s,\"hybrid\":%s,\"sampled\":%s,\"truncated\":%s,\"text\":",
                                pages_read, total, pfirst, plast, text_used, scanned_pages,
+                               vision_pages, vision_scanned_pages,
                                selected_pages, rag_chunks,
                                text_layer_cached ? "true" : "false",
                                embedding_index_cached ? "true" : "false",
-                               text_bytes, text_bytes,
+                               text_bytes, vision_chars, text_bytes + vision_chars,
                                semantic ? "true" : "false", semantic ? "true" : "false", sampled ? "true" : "false",
                                truncated ? "true" : "false") &&
                json_dyn_put_escaped(&out, text.ptr ? text.ptr : "") &&
-               json_dyn_puts(&out, "}");
+               json_dyn_puts(&out, ",\"vision\":[");
+    for (int i = 0; good && i < vision_pages; i++) {
+        if (i) good = json_dyn_puts(&out, ",");
+        if (good) good = json_dyn_printf(&out, "{\"page\":%d,\"image\":", vision_page_numbers[i]) &&
+                         json_dyn_put_escaped(&out, vision_uris[i]) &&
+                         json_dyn_puts(&out, "}");
+    }
+    if (good) good = json_dyn_puts(&out, "]}");
     if (!good) {
+        for (int i = 0; i < vision_pages; i++) free(vision_uris[i]);
         free(text.ptr); free(out.ptr);
         pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
         pdf_describe_fail(fd, want_text, "500 Internal Server Error", "oom");
         return;
     }
-    if (pages_read > 0) pdf_cache_write(cpath, out.ptr, ".json", PDF_CACHE_MAX_FILES);
+    if (!native_vision && pages_read > 0)
+        pdf_cache_write(cpath, out.ptr, ".json", PDF_CACHE_MAX_FILES);
     pdf_job_write(jobpath, "{\"phase\":\"done\",\"done\":true}");
     if (want_text) send_text(fd, "200 OK", text.ptr && text.ptr[0] ? text.ptr : "(empty PDF)", 0);
     else           send_json(fd, "200 OK", out.ptr);
     free(text.ptr);
     free(out.ptr);
+    for (int i = 0; i < vision_pages; i++) free(vision_uris[i]);
 }
 
 /* Fork a detached worker because Poppler extraction and embedding can be slow. */
