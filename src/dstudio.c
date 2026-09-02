@@ -324,11 +324,16 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #  include "loading_data.h"       /* defines: static const char LOADING_B64[] */
 #  define HAVE_EMBEDDED_LOADING 1
 #endif
+#if __has_include("design_annotator_data.h")
+#  include "design_annotator_data.h" /* defines: static const char DESIGN_ANNOTATOR_B64[] */
+#  define HAVE_EMBEDDED_DESIGN_ANNOTATOR 1
+#endif
 
 #define DEFAULT_PORT 5500
 /* DS4UI_PAGE_FROM_DISK reads this, relative to the cwd (the repo root). */
 #define PAGE_PATH    "web/index.html"
 #define LOADING_PATH "web/loading.html"
+#define DESIGN_ANNOTATOR_PATH "web/design-annotator.js"
 #define MAX_PAGE     (8 * 1024 * 1024)
 #define REQ_BUF      65536
 #define BODY_MAX     (2 * 1024 * 1024)   /* normal /api JSON body cap; large stores use dedicated paths */
@@ -605,6 +610,12 @@ static int ascii_eq_ci(char a, char b) {
     return a == b;
 }
 
+static int ascii_str_eq_ci(const char *a, const char *b) {
+    if (!a || !b) return a == b;
+    while (*a && *b && ascii_eq_ci(*a, *b)) { a++; b++; }
+    return *a == '\0' && *b == '\0';
+}
+
 static int mem_contains_ci(const char *hay, size_t hlen, const char *needle) {
     size_t nlen = strlen(needle);
     if (!hay || !needle || nlen == 0 || hlen < nlen) return 0;
@@ -614,6 +625,17 @@ static int mem_contains_ci(const char *hay, size_t hlen, const char *needle) {
         if (j == nlen) return 1;
     }
     return 0;
+}
+
+static const char *mem_find_ci(const char *hay, size_t hlen, const char *needle) {
+    size_t nlen = strlen(needle);
+    if (!hay || !needle || nlen == 0 || hlen < nlen) return NULL;
+    for (size_t i = 0; i + nlen <= hlen; i++) {
+        size_t j = 0;
+        while (j < nlen && ascii_eq_ci(hay[i + j], needle[j])) j++;
+        if (j == nlen) return hay + i;
+    }
+    return NULL;
 }
 
 static void relay_engine_response(int client_fd, int engine_fd, int cors) {
@@ -681,7 +703,11 @@ static char *read_loading_disk(size_t *out_len) {
     return read_html_disk(LOADING_PATH, out_len);
 }
 
-#if defined(HAVE_EMBEDDED_PAGE) || defined(HAVE_EMBEDDED_LOADING) || !defined(_WIN32)
+static char *read_design_annotator_disk(size_t *out_len) {
+    return read_html_disk(DESIGN_ANNOTATOR_PATH, out_len);
+}
+
+#if defined(HAVE_EMBEDDED_PAGE) || defined(HAVE_EMBEDDED_LOADING) || defined(HAVE_EMBEDDED_DESIGN_ANNOTATOR) || !defined(_WIN32)
 /* Decodes base64 → malloc'd buffer. Ignores spaces/newlines. Returns
  * NULL on malformed input. Table: value+1 for valid characters, 0 = not
  * valid (so 'A'→1 is distinguished from the default zeroed entries).
@@ -745,6 +771,19 @@ static char *read_loading_page(size_t *out_len) {
     return base64_decode(LOADING_B64, out_len);
 #else
     return read_loading_disk(out_len);
+#endif
+}
+
+static char *read_design_annotator(size_t *out_len) {
+#ifdef HAVE_EMBEDDED_DESIGN_ANNOTATOR
+    if (!getenv("DS4UI_PAGE_FROM_DISK")) {
+        return base64_decode(DESIGN_ANNOTATOR_B64, out_len);
+    }
+    char *disk = read_design_annotator_disk(out_len);
+    if (disk) return disk;
+    return base64_decode(DESIGN_ANNOTATOR_B64, out_len);
+#else
+    return read_design_annotator_disk(out_len);
 #endif
 }
 
@@ -8354,19 +8393,29 @@ static void api_design_import(int fd, const char *body) {
 static const char *design_content_type(const char *name) {
     const char *dot = strrchr(name, '.');
     const char *ext = dot ? dot + 1 : "";
-    if (!strcmp(ext, "html") || !strcmp(ext, "htm")) return "text/html; charset=utf-8";
-    if (!strcmp(ext, "css"))  return "text/css; charset=utf-8";
-    if (!strcmp(ext, "js") || !strcmp(ext, "mjs")) return "text/javascript; charset=utf-8";
-    if (!strcmp(ext, "svg"))  return "image/svg+xml";
-    if (!strcmp(ext, "json")) return "application/json; charset=utf-8";
-    if (!strcmp(ext, "png"))  return "image/png";
-    if (!strcmp(ext, "jpg") || !strcmp(ext, "jpeg")) return "image/jpeg";
-    if (!strcmp(ext, "webp")) return "image/webp";
-    if (!strcmp(ext, "md") || !strcmp(ext, "txt")) return "text/plain; charset=utf-8";
+    if (ascii_str_eq_ci(ext, "html") || ascii_str_eq_ci(ext, "htm")) return "text/html; charset=utf-8";
+    if (ascii_str_eq_ci(ext, "css"))  return "text/css; charset=utf-8";
+    if (ascii_str_eq_ci(ext, "js") || ascii_str_eq_ci(ext, "mjs")) return "text/javascript; charset=utf-8";
+    if (ascii_str_eq_ci(ext, "svg"))  return "image/svg+xml";
+    if (ascii_str_eq_ci(ext, "json")) return "application/json; charset=utf-8";
+    if (ascii_str_eq_ci(ext, "png"))  return "image/png";
+    if (ascii_str_eq_ci(ext, "jpg") || ascii_str_eq_ci(ext, "jpeg")) return "image/jpeg";
+    if (ascii_str_eq_ci(ext, "webp")) return "image/webp";
+    if (ascii_str_eq_ci(ext, "gif"))  return "image/gif";
+    if (ascii_str_eq_ci(ext, "avif")) return "image/avif";
+    if (ascii_str_eq_ci(ext, "mp4") || ascii_str_eq_ci(ext, "m4v")) return "video/mp4";
+    if (ascii_str_eq_ci(ext, "webm")) return "video/webm";
+    if (ascii_str_eq_ci(ext, "mov"))  return "video/quicktime";
+    if (ascii_str_eq_ci(ext, "mp3"))  return "audio/mpeg";
+    if (ascii_str_eq_ci(ext, "wav"))  return "audio/wav";
+    if (ascii_str_eq_ci(ext, "woff2")) return "font/woff2";
+    if (ascii_str_eq_ci(ext, "woff")) return "font/woff";
+    if (ascii_str_eq_ci(ext, "ttf"))  return "font/ttf";
+    if (ascii_str_eq_ci(ext, "md") || ascii_str_eq_ci(ext, "txt")) return "text/plain; charset=utf-8";
     return "application/octet-stream";
 }
 
-static void serve_design_project_file(int fd, const char *name, int head_only) {
+static void serve_design_project_file(int fd, const char *name, int head_only, int annotate) {
     if (!g_design_dir[0]) {
         send_text(fd, "404 Not Found", "no design workspace\n", head_only);
         return;
@@ -8389,7 +8438,51 @@ static void serve_design_project_file(int fd, const char *name, int head_only) {
     size_t got = fread(buf, 1, (size_t)sz, f);
     fclose(f);
     if (got != (size_t)sz) { free(buf); send_text(fd, "500 Internal Server Error", "read\n", head_only); return; }
-    send_response_hdrs(fd, "200 OK", design_content_type(name), buf, got, head_only, DESIGN_HEADERS);
+    size_t out_len = got;
+    const char *ctype = design_content_type(name);
+    if (annotate && !strncmp(ctype, "text/html", 9)) {
+        static const char bridge_tag[] =
+            "\n<script src=\"/api/design/annotator.js\" data-dstudio-preview-bridge=\"1\"></script>\n";
+        const size_t extra = sizeof bridge_tag - 1;
+        if (out_len > MAX_PAGE - extra) {
+            free(buf);
+            send_text(fd, "500 Internal Server Error", "annotated preview too large\n", head_only);
+            return;
+        }
+        char *grown = realloc(buf, out_len + extra);
+        if (!grown) {
+            free(buf);
+            send_text(fd, "500 Internal Server Error", "memory\n", head_only);
+            return;
+        }
+        buf = grown;
+        /* Insert first in <head>, before any artifact-authored CSP meta tag.
+         * Appending after </html> makes a stricter meta policy block the bridge;
+         * prepending before <!doctype> would instead force quirks mode. */
+        size_t insert_at = 0;
+        const char *head = mem_find_ci(buf, out_len, "<head");
+        while (head && (size_t)(head - buf) + 5 < out_len &&
+               head[5] != '>' && head[5] != ' ' && head[5] != '\t' &&
+               head[5] != '\r' && head[5] != '\n') {
+            size_t used = (size_t)(head - buf) + 5;
+            const char *next = mem_find_ci(buf + used, out_len - used, "<head");
+            head = next;
+        }
+        if (head) {
+            const char *end = memchr(head, '>', out_len - (size_t)(head - buf));
+            if (end) insert_at = (size_t)(end - buf) + 1;
+        } else {
+            const char *doctype = mem_find_ci(buf, out_len, "<!doctype");
+            if (doctype) {
+                const char *end = memchr(doctype, '>', out_len - (size_t)(doctype - buf));
+                if (end) insert_at = (size_t)(end - buf) + 1;
+            }
+        }
+        memmove(buf + insert_at + extra, buf + insert_at, out_len - insert_at);
+        memcpy(buf + insert_at, bridge_tag, extra);
+        out_len += extra;
+    }
+    send_response_hdrs(fd, "200 OK", ctype, buf, out_len, head_only, DESIGN_HEADERS);
     free(buf);
 }
 
@@ -8403,20 +8496,42 @@ static void api_design_file(int fd, const char *path, int head_only) {
     size_t qlen = strcspn(q, "&");
     char name[1024];
     url_decode_into(q, qlen, name, sizeof name);
-    serve_design_project_file(fd, name, head_only);
+    serve_design_project_file(fd, name, head_only, 0);
+}
+
+static void api_design_annotator_script(int fd, int head_only) {
+    size_t len = 0;
+    char *script = read_design_annotator(&len);
+    if (!script) {
+        send_text(fd, "500 Internal Server Error", "design annotator unavailable\n", head_only);
+        return;
+    }
+    send_response_hdrs(fd, "200 OK", "text/javascript; charset=utf-8",
+                       script, len, head_only, DESIGN_HEADERS);
+    free(script);
 }
 
 /* Preview route with a real path: /api/design/preview/<relative-path>.
  * Iframes loaded through /file?name=... cannot resolve relative assets like
  * css/blog.css; this route preserves the directory base while keeping the same
  * workspace sandbox. */
+static int design_preview_annotation_requested(const char *query) {
+    if (!query || *query != '?') return 0;
+    const char *flag = strstr(query + 1, "annotate=1");
+    return flag != NULL &&
+        (flag == query + 1 || flag[-1] == '&') &&
+        (flag[10] == '\0' || flag[10] == '&');
+}
+
 static void api_design_preview_file(int fd, const char *path, int head_only) {
     static const char prefix[] = "/api/design/preview/";
     const char *raw = path + strlen(prefix);
     size_t n = strcspn(raw, "?");
     char name[1024];
     url_decode_into(raw, n, name, sizeof name);
-    serve_design_project_file(fd, name, head_only);
+    const char *query = raw + n;
+    serve_design_project_file(fd, name, head_only,
+                              design_preview_annotation_requested(query));
 }
 
 /* ==================== header helpers ==================== */
@@ -10023,6 +10138,7 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
     if (is_get && !strcmp(path, "/api/design/state")) { api_design_state(fd); return 200; }
     if (is_get && !strcmp(path, "/api/design/artifacts")) { api_design_artifacts(fd); return 200; }
     if (is_get && !strcmp(path, "/api/design/files")) { api_design_files(fd); return 200; }
+    if (is_get && path_eq_clean(path, "/api/design/annotator.js")) { api_design_annotator_script(fd, head_only); return 200; }
     if (is_get && !strncmp(path, "/api/design/preview/", 20)) { api_design_preview_file(fd, path, head_only); return 200; }
     if (is_get && !strncmp(path, "/api/design/file?", 17)) { api_design_file(fd, path, head_only); return 200; }
     if (!head_only && strcmp(method, "GET") != 0) {

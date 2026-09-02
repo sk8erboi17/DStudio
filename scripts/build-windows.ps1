@@ -174,6 +174,11 @@ Write-Base64Header `
   (Join-Path $Root "src\loading_data.h") `
   "LOADING_B64" `
   "loading.html"
+Write-Base64Header `
+  (Join-Path $Root "web\design-annotator.js") `
+  (Join-Path $Root "src\design_annotator_data.h") `
+  "DESIGN_ANNOTATOR_B64" `
+  "design-annotator.js"
 
 Write-Host "windows: generating app icon resource"
 $Icon = Join-Path $Root "build\windows\dstudio.ico"

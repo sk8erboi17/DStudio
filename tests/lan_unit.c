@@ -323,8 +323,79 @@ int main(void) {
     char *loading = read_loading_page(&loading_len);
     assert(loading && loading_len > 1000);
     free(loading);
+    size_t annotator_len = 0;
+    char *annotator = read_design_annotator(&annotator_len);
+    assert(annotator && annotator_len > 1000);
+    assert(mem_contains_ci(annotator, annotator_len, "dstudio:annotator:selected"));
+    free(annotator);
     assert(chdir(cwd) == 0);
     unsetenv("DS4UI_PAGE_FROM_DISK");
+
+    assert(design_preview_annotation_requested("?annotate=1"));
+    assert(design_preview_annotation_requested("?t=42&annotate=1"));
+    assert(design_preview_annotation_requested("?annotate=1&t=42"));
+    assert(!design_preview_annotation_requested(""));
+    assert(!design_preview_annotation_requested("?annotate=0"));
+    assert(!design_preview_annotation_requested("?notannotate=1"));
+    assert(!strcmp(design_content_type("assets/generated.mp4"), "video/mp4"));
+    assert(!strcmp(design_content_type("assets/generated.webm"), "video/webm"));
+    assert(!strcmp(design_content_type("assets/poster.avif"), "image/avif"));
+    assert(!strcmp(design_content_type("SCREENS/LANDING.HTML"), "text/html; charset=utf-8"));
+    assert(!strcmp(design_content_type("assets/HERO.MP4"), "video/mp4"));
+
+    {
+        char temp[] = "/tmp/dstudio-annotator-test-XXXXXX";
+        assert(mkdtemp(temp) != NULL);
+        char fixture[DSTUDIO_PATH_MAX];
+        snprintf(fixture, sizeof fixture, "%s/landing.html", temp);
+        FILE *f = fopen(fixture, "wb");
+        assert(f != NULL);
+        const char *document = "<!doctype html><html><head>"
+            "<meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'none'\">"
+            "</head><body><main id=\"target\">fixture</main></body></html>";
+        assert(fwrite(document, 1, strlen(document), f) == strlen(document));
+        fclose(f);
+
+        snprintf(g_design_dir, sizeof g_design_dir, "%s", temp);
+        int pair[2];
+        assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
+        serve_design_project_file(pair[0], "landing.html", 0, 1);
+        shutdown(pair[0], SHUT_WR);
+        close(pair[0]);
+        char response[20000];
+        size_t used = 0;
+        ssize_t chunk;
+        while ((chunk = read(pair[1], response + used, sizeof response - 1 - used)) > 0) {
+            used += (size_t)chunk;
+            assert(used < sizeof response - 1);
+        }
+        assert(used > 0);
+        response[used] = '\0';
+        close(pair[1]);
+        const char *bridge = strstr(response, "data-dstudio-preview-bridge=\"1\"");
+        const char *meta = strstr(response, "Content-Security-Policy\" content");
+        assert(bridge != NULL && meta != NULL && bridge < meta);
+        assert(strstr(response, "Content-Type: text/html; charset=utf-8") != NULL);
+
+        assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
+        api_design_annotator_script(pair[0], 0);
+        shutdown(pair[0], SHUT_WR);
+        close(pair[0]);
+        used = 0;
+        while ((chunk = read(pair[1], response + used, sizeof response - 1 - used)) > 0) {
+            used += (size_t)chunk;
+            assert(used < sizeof response - 1);
+        }
+        assert(used > 0);
+        response[used] = '\0';
+        close(pair[1]);
+        assert(strstr(response, "Content-Type: text/javascript; charset=utf-8") != NULL);
+        assert(strstr(response, "dstudio:annotator:selected") != NULL);
+
+        g_design_dir[0] = '\0';
+        assert(unlink(fixture) == 0);
+        assert(rmdir(temp) == 0);
+    }
 
     int start = 25000 + (int)(getpid() % 20000);
     int p1 = start;

@@ -31,6 +31,7 @@ let agentPollCaughtUp = 0;
 let holdNextNewSession = false;
 let releaseHeldNewSession = null;
 let designStartupAt = 0;
+let designAnnotationFixture = false;
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -289,7 +290,35 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/api/design/files') {
-    json(res, 200, { ok: true, files: [] });
+    json(res, 200, {
+      ok: true,
+      files: designAnnotationFixture
+        ? [{ name: 'landing.html', size: 640, mtime: 1700000000 }]
+        : [],
+    });
+    return;
+  }
+  if (url.pathname === '/api/design/annotator.js') {
+    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
+    fs.createReadStream(path.join(webRoot, 'design-annotator.js')).pipe(res);
+    return;
+  }
+  if (url.pathname === '/api/design/preview/fixture.css') {
+    res.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
+    res.end('#hero-copy { color: rgb(12, 74, 110); }');
+    return;
+  }
+  if (url.pathname === '/api/design/preview/landing.html') {
+    const bridge = url.searchParams.get('annotate') === '1'
+      ? '<script src="/api/design/annotator.js" data-dstudio-preview-bridge="1"></script>'
+      : '';
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(`<!doctype html><html><head><link rel="stylesheet" href="fixture.css"><style>
+      body { margin: 0; font: 18px system-ui; background: #f8fafc; }
+      main { padding: 72px; }
+      #hero-copy { width: 520px; min-height: 110px; padding: 24px; background: white; border-radius: 20px; }
+    </style></head><body><main><section id="hero-copy"><h1>Record every creator you love.</h1><p>Selection fixture copy.</p></section></main>
+    <script>document.documentElement.dataset.fixtureScript = 'ran';</script>${bridge}</body></html>`);
     return;
   }
   if (url.pathname === '/api/fs/list' && req.method === 'POST') {
@@ -817,6 +846,72 @@ try {
   await page.locator('#composer-input').fill('Trigger send failure');
   await page.locator('#btn-send').click();
   await page.getByText(/Design send failed: agent\/design runtime is not active/).waitFor({ timeout: 5000 });
+
+  // Full-screen artifact selection: keep the generated page interactive and
+  // sandboxed, select one exact DOM target, place the comment beside it and
+  // send bounded structured evidence without leaking it into the user bubble.
+  designAnnotationFixture = true;
+  agentPollText += '\x1e' + JSON.stringify({
+    type: 'proposal',
+    directions: [{
+      entry: 'landing.html', tag: 'A', name: 'Annotation fixture',
+      desc: 'A generated landing page ready for visual refinement.',
+    }],
+  }) + '\n';
+  const fixtureCard = page.locator('.pd-card').filter({ hasText: 'Annotation fixture' });
+  await fixtureCard.waitFor({ timeout: 5000 });
+  await fixtureCard.locator('.pd-frame-wrap').click();
+  await page.locator('#ws-fs').waitFor({ state: 'visible', timeout: 5000 });
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-fs="select"]');
+    return button && !button.disabled;
+  }, null, { timeout: 5000 });
+  const fullscreenFrame = page.locator('#ws-fs .fs-frame');
+  assert.equal(await fullscreenFrame.getAttribute('sandbox'), 'allow-scripts',
+    'annotated previews must remain opaque and must never gain allow-same-origin');
+  const fixtureFrame = page.frameLocator('#ws-fs .fs-frame');
+  const heroTarget = fixtureFrame.locator('#hero-copy');
+  await heroTarget.waitFor({ timeout: 5000 });
+  assert.equal(await fixtureFrame.locator('html').getAttribute('data-fixture-script'), 'ran',
+    'annotation instrumentation must preserve the generated page scripts');
+  assert.equal(await heroTarget.evaluate((node) => getComputedStyle(node).color), 'rgb(12, 74, 110)',
+    'annotation instrumentation must preserve project-relative stylesheets');
+
+  await page.getByRole('button', { name: /Select to edit/ }).click();
+  assert.equal(await page.locator('[data-fs="select"]').getAttribute('aria-pressed'), 'true');
+  await heroTarget.click({ position: { x: 8, y: 8 } });
+  const annotationCard = page.getByRole('form', { name: 'Visual edit comment' });
+  await annotationCard.waitFor({ state: 'visible', timeout: 5000 });
+  await page.getByText('Selected <section>', { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(await page.locator('.fs-annotation__selector').textContent(), '#hero-copy',
+    'the comment card should identify the exact selected DOM target');
+  const targetBox = await heroTarget.boundingBox();
+  const commentBox = await annotationCard.boundingBox();
+  assert.ok(targetBox && commentBox && commentBox.y >= targetBox.y + targetBox.height,
+    `the visual-edit comment should appear below the selected area: ${JSON.stringify({ targetBox, commentBox })}`);
+  assert.equal(await page.locator('.fs-annotation__type option').filter({ hasText: 'Video' }).count(), 1,
+    'the visual edit should offer a video request type');
+  await page.locator('.fs-annotation__type').selectOption('image');
+  const visualInstruction = 'Replace this copy block with a product illustration and keep the same footprint.';
+  await page.getByLabel('Describe the visual change').fill(visualInstruction);
+  await page.getByRole('button', { name: 'Send to Design' }).click();
+  await page.locator('#ws-fs').waitFor({ state: 'hidden', timeout: 5000 });
+  await waitFor(
+    () => sends.some((entry) =>
+      entry.mode === 'design' &&
+      entry.body?.displayPrompt === `Visual edit · landing.html · Image\n${visualInstruction}` &&
+      /\[DESIGN_SELECTION_JSON\]/.test(entry.body?.prompt || '') &&
+      /"entry":"landing\.html"/.test(entry.body?.prompt || '') &&
+      /"changeType":"image"/.test(entry.body?.prompt || '') &&
+      /"selector":"#hero-copy"/.test(entry.body?.prompt || '') &&
+      /inspect_layout/.test(entry.body?.prompt || '') &&
+      /see_page/.test(entry.body?.prompt || '')),
+    'the visual annotation should reach Design as bounded target evidence',
+    debugDetails,
+  );
+  const visibleVisualPrompt = sends.findLast((entry) => /Visual edit · landing\.html/.test(entry.body?.displayPrompt || ''));
+  assert.doesNotMatch(visibleVisualPrompt?.body?.displayPrompt || '', /DESIGN_SELECTION_JSON|outerHTML|"rect"/,
+    'internal selector metadata must stay out of the visible user message');
 
   assert.ok(starts.some((s) => s.mode === 'agent'), 'agent tab should start the agent runtime');
   assert.ok(starts.some((s) => s.mode === 'cowork'), 'cowork tab should start the cowork runtime');

@@ -6,6 +6,7 @@ const readme = fs.readFileSync('README.md', 'utf8');
 const qualityGates = fs.readFileSync('docs/QUALITY_GATES.md', 'utf8');
 const algebraRoadmapExport = fs.readFileSync('exports/abstract-algebra-roadmap.json', 'utf8');
 const loadingHtml = fs.readFileSync('web/loading.html', 'utf8');
+const designAnnotator = fs.readFileSync('web/design-annotator.js', 'utf8');
 const launcherMain = fs.readFileSync('src/dstudio.c', 'utf8');
 const launcherDomains = fs.readdirSync('src')
   .filter((name) => /^dstudio_.*\.c$/.test(name))
@@ -1012,6 +1013,15 @@ assert.match(launcher, /api_design_preview_file/, 'Design preview should have a 
 assert.match(launcher, /!strncmp\(path, "\/api\/design\/preview\/", 20\)/, 'Design preview route should be served by the local launcher');
 assert.match(js, /designPreviewUrl = \(name, mtime\)/, 'Design preview should build path-based URLs for iframe assets');
 assert.match(js, /Engine\.designPreviewUrl\(f\.name, f\.mtime\)/, 'Design canvas iframes should use the path-based preview route');
+assert.match(js, /Select to edit/, 'Design fullscreen should expose visual element selection');
+assert.match(js, /\[DESIGN_SELECTION_JSON\]/, 'Design visual edits should send structured target evidence to the runtime');
+assert.match(js, /el\('iframe', \{ class: 'fs-frame', sandbox: 'allow-scripts', title: f\.name \}\)/, 'Design fullscreen previews should keep generated artifacts in an opaque script sandbox');
+assert.match(designAnnotator, /dstudio:annotator:selected/, 'the isolated preview bridge should report selected DOM evidence');
+assert.match(designAnnotator, /getBoundingClientRect/, 'the preview bridge should report exact target geometry');
+assert.match(launcher, /api_design_annotator_script/, 'the launcher should serve the embedded visual-selection bridge');
+assert.match(launcher, /data-dstudio-preview-bridge/, 'annotated HTML previews should receive the isolated bridge script');
+assert.match(remoteDesign, /DESIGN_SELECTION_JSON[\s\S]*inspect_layout\(entry, selector\)[\s\S]*see_page/, 'Design should measure and visually inspect selected targets before editing');
+assert.match(windowsBuild, /design-annotator\.js[\s\S]*DESIGN_ANNOTATOR_B64/, 'Windows builds should embed the visual-selection bridge');
 assert.match(js, /if \(seq <= state\.seq\) return false;/, 'Design runtime should ignore duplicate event seqs from stream and poll');
 assert.match(js, /const reconcileTodos = \(todos\) =>/, 'Design runtime should reconcile stale todo_write checklists from real events');
 assert.match(js, /state\.donePaths\.add\(payload\.path\)/, 'Design runtime should mark file-backed todos completed from file_written events');
