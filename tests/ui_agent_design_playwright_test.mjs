@@ -30,6 +30,7 @@ let agentPollDeliveredLen = 0;
 let agentPollCaughtUp = 0;
 let holdNextNewSession = false;
 let releaseHeldNewSession = null;
+let designStartupAt = 0;
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -49,12 +50,17 @@ async function readBody(req) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
   if (url.pathname === '/api/status') {
+    const designStartupMs = designStartupAt ? Date.now() - designStartupAt : Number.POSITIVE_INFINITY;
+    const designStarting = currentMode === 'design' && designStartupMs < 2200;
+    const designPrefillDone = designStartupMs < 1250 ? 0 : designStartupMs < 1750 ? 1024 : 3072;
     json(res, 200, {
       mode: currentMode,
       running: true,
-      ready: true,
-      loadPct: 100,
-      stage: 'Ready',
+      ready: !designStarting,
+      loadPct: designStarting ? (designPrefillDone ? (85 + Math.floor(designPrefillDone * 14 / 4096)) : 85) : 100,
+      stage: designStarting
+        ? (designPrefillDone ? `Prefilling ${designPrefillDone} / 4096 tokens…` : 'Prefilling the context…')
+        : 'Ready',
       agentWorking: agentPollWorking,
       agentSessionWorking: agentPollSessionWorking,
       workdir: currentWorkdir,
@@ -64,7 +70,11 @@ const server = http.createServer(async (req, res) => {
       lan: false,
       variants: { flash: true, pro: false },
       variant: 'flash',
-      engineLine: 'ui test ready',
+      engineLine: designStarting
+        ? (designPrefillDone
+          ? `ds4-design: system prefill ${designPrefillDone}/4096 tokens (180.0 tok/s)`
+          : 'ds4-design: context buffers 1392.12 MiB (ctx=65536, backend=metal)')
+        : 'ui test ready',
     });
     return;
   }
@@ -82,6 +92,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     currentMode = body.mode || 'server';
+    if (currentMode === 'design') designStartupAt = Date.now();
     if (body.workdir) currentWorkdir = body.workdir;
     json(res, 200, { ok: true });
     return;
@@ -655,7 +666,28 @@ try {
   );
 
   await page.locator('#tab-design').click();
+  await page.locator('#loading-overlay').waitFor({ state: 'visible', timeout: 5000 });
+  await page.locator('#loading-stage').filter({ hasText: 'Prefilling the context' }).waitFor({ timeout: 5000 });
+  await delay(700);
+  const staticPrefillOverlay = await page.evaluate(() => ({
+    log: document.querySelector('#loading-log')?.innerText || '',
+    eta: document.querySelector('#loading-eta')?.textContent || '',
+    ctx: document.querySelector('#loading-gauge-context')?.textContent || '',
+  }));
+  assert.equal((staticPrefillOverlay.log.match(/Prefilling the context/g) || []).length, 1,
+    'repeated status polls must add the unchanged prefill stage only once');
+  assert.equal((staticPrefillOverlay.log.match(/ds4-design: context buffers/g) || []).length, 1,
+    'repeated status polls must add the unchanged engine line only once');
+  assert.equal(staticPrefillOverlay.eta, 'prefilling…',
+    'an indeterminate cold prefill must not display a fake linear ETA');
+  assert.equal(staticPrefillOverlay.ctx, '66k',
+    'the loading card should display the saved 65k Design context, not a hidden 393k override');
+  await page.waitForFunction(() => /Prefilling \d+ \/ \d+ tokens/.test(document.querySelector('#loading-stage')?.textContent || ''), null, { timeout: 5000 });
   await page.waitForFunction(() => !document.querySelector('#agent-view')?.hidden);
+  await page.locator('#loading-overlay').waitFor({ state: 'hidden', timeout: 5000 });
+  const designStart = starts.findLast((entry) => entry.mode === 'design');
+  assert.equal(designStart?.ctx, 65536,
+    'Design must pass the saved context to the launcher instead of forcing true Max context');
   await page.evaluate(() => {
     window.__designGeneratingMounts = 0;
     let visible = false;

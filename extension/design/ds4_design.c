@@ -11122,13 +11122,113 @@ static void design_build_system_tokens(design_agent *a, ds4_tokens *out) {
     }
 }
 
+typedef struct {
+    double started_at;
+    double last_emit_at;
+    int last_current;
+} design_system_prefill_progress;
+
+/* Headless Design used to spend minutes in ds4_session_sync() without
+ * publishing any movement between "context buffers" and WAITING. Surface the
+ * engine's real fine-grained prefill counters on stderr; the DStudio launcher
+ * maps these to 85-99% and the loading UI can now distinguish slow work from a
+ * dead process. Keep output bounded to roughly one line per second. */
+static void design_system_prefill_progress_cb(void *ud, const char *event,
+                                              int current, int total) {
+    design_system_prefill_progress *p = ud;
+    if (!p || !event || total <= 0) return;
+    if (strcmp(event, "prefill_chunk") && strcmp(event, "prefill_display"))
+        return;
+    if (current < 0) current = 0;
+    if (current > total) current = total;
+    double now = now_sec();
+    if (current == p->last_current && current < total) return;
+    if (current > 0 && current < total && p->last_emit_at > 0.0 &&
+        now - p->last_emit_at < 0.8)
+        return;
+    const double elapsed = now - p->started_at;
+    const double tps = current > 0 && elapsed > 0.0 ? current / elapsed : 0.0;
+    fprintf(stderr, "ds4-design: system prefill %d/%d tokens (%.1f tok/s)\n",
+            current, total, tps);
+    fflush(stderr);
+    p->last_current = current;
+    p->last_emit_at = now;
+}
+
 static int design_build_system_transcript(design_agent *a, char *err, size_t err_len) {
     ds4_tokens sys = {0};
     design_build_system_tokens(a, &sys);
-    ds4_tokens_free(&a->transcript);
-    a->transcript = sys;
-    if (ds4_session_sync(a->session, &a->transcript, err, err_len) != 0)
-        return 1;
+
+    /* Like ds4-agent, keep one exact-text system-prompt KV checkpoint. The
+     * model id, quantization and rendered text are verified by the loader, so
+     * prompt/model changes safely fall back to one cold prefill and overwrite
+     * the cache. This makes later Design starts and /new operations immediate. */
+    size_t text_len = 0;
+    char *text = ds4_kvstore_render_tokens_text(a->engine, &sys, &text_len);
+    char *cache_path = a->cache_dir ?
+        ds4_kvstore_path_join(a->cache_dir, "sysprompt.kv") : NULL;
+    ds4_tokens cached = {0};
+    bool loaded = false;
+    if (text && cache_path) {
+        char load_err[160] = {0};
+        loaded = design_kv_load_path(a, cache_path, NULL,
+                                     text, text_len, &cached, NULL,
+                                     load_err, sizeof(load_err));
+    }
+    if (loaded) {
+        ds4_tokens_free(&a->transcript);
+        a->transcript = cached;
+        fprintf(stderr, "ds4-design: restored system prompt cache (%d tokens)\n",
+                a->transcript.len);
+    } else {
+        ds4_tokens_free(&cached);
+        ds4_session_invalidate(a->session);
+        ds4_tokens_free(&a->transcript);
+        a->transcript = sys;
+        memset(&sys, 0, sizeof(sys));
+
+        design_system_prefill_progress progress = {
+            .started_at = now_sec(),
+            .last_emit_at = 0.0,
+            .last_current = -1,
+        };
+        fprintf(stderr, "ds4-design: cold system prefill (%d tokens)\n",
+                a->transcript.len);
+        ds4_session_set_progress(a->session, design_system_prefill_progress_cb,
+                                 &progress);
+        ds4_session_set_display_progress(a->session,
+                                         design_system_prefill_progress_cb,
+                                         &progress);
+        int sync_rc = ds4_session_sync(a->session, &a->transcript,
+                                       err, err_len);
+        ds4_session_set_progress(a->session, NULL, NULL);
+        ds4_session_set_display_progress(a->session, NULL, NULL);
+        if (sync_rc != 0) {
+            free(cache_path);
+            free(text);
+            ds4_tokens_free(&sys);
+            return 1;
+        }
+
+        if (cache_path && design_mkdir_p(a->cache_dir)) {
+            char save_err[160] = {0};
+            char ignored_sha[41];
+            if (design_kv_save_path(a, cache_path, &a->transcript,
+                                    "agent-system", ignored_sha,
+                                    NULL, 0, save_err, sizeof(save_err))) {
+                fprintf(stderr,
+                        "ds4-design: stored system prompt cache (%d tokens)\n",
+                        a->transcript.len);
+            } else {
+                fprintf(stderr,
+                        "ds4-design: could not store system prompt cache: %s\n",
+                        save_err[0] ? save_err : "unknown error");
+            }
+        }
+    }
+    ds4_tokens_free(&sys);
+    free(cache_path);
+    free(text);
     return 0;
 }
 

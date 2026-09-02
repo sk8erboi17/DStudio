@@ -3557,7 +3557,39 @@ static void set_stage(const char *stage, int pct) {
 /* Maps an engine log line to a loading milestone. */
 static void progress_from_line(const char *line) {
     if (g_ready) return;
-    if (strstr(line, "mapped") || strstr(line, "model views") || strstr(line, "mmap"))
+    int prefill_done = 0, prefill_total = 0;
+    long status_done = 0, status_total = 0;
+    const int agent_prefill_status =
+        strstr(line, "\"type\":\"status\"") &&
+        strstr(line, "\"state\":\"prefill\"") &&
+        json_get_int(line, "prefillDone", 0, INT_MAX, &status_done) > 0 &&
+        json_get_int(line, "prefillTotal", 1, INT_MAX, &status_total) > 0;
+    if (agent_prefill_status) {
+        prefill_done = (int)status_done;
+        prefill_total = (int)status_total;
+        snprintf(g_last_engine_line, sizeof g_last_engine_line,
+                 "ds4-agent: system prefill %d/%d tokens",
+                 prefill_done, prefill_total);
+    }
+    if ((agent_prefill_status ||
+         sscanf(line, "ds4-design: system prefill %d/%d tokens",
+                &prefill_done, &prefill_total) == 2) && prefill_total > 0) {
+        if (prefill_done < 0) prefill_done = 0;
+        if (prefill_done > prefill_total) prefill_done = prefill_total;
+        int pct = 85 + (int)(((long long)prefill_done * 14LL) /
+                             (long long)prefill_total);
+        if (pct > 99) pct = 99;
+        char stage[96];
+        if (prefill_done >= prefill_total)
+            snprintf(stage, sizeof stage, "Finalizing the local runtime…");
+        else
+            snprintf(stage, sizeof stage, "Prefilling %d / %d tokens…",
+                     prefill_done, prefill_total);
+        set_stage(stage, pct);
+    }
+    else if (strstr(line, "restored system prompt cache"))
+        set_stage("Restoring the system context…", 98);
+    else if (strstr(line, "mapped") || strstr(line, "model views") || strstr(line, "mmap"))
         set_stage("Mapping the model…", 40);
     else if (strstr(line, "context buffers") || strstr(line, "KV disk cache")) {
         /* Allocating the KV/context buffers is not the ready boundary for a
@@ -3586,7 +3618,9 @@ static void scan_lines(const char *data, size_t n, char *acc, size_t *acc_len, i
                 progress_from_line(acc);
                 /* keep the last substantive line so that, if the engine dies,
                  * reap_child can report WHY instead of a bare "unreachable". */
-                if (!strstr(acc, "+DWARFSTAR_"))
+                if (!strstr(acc, "+DWARFSTAR_") &&
+                    !(strstr(acc, "\"type\":\"status\"") &&
+                      strstr(acc, "\"state\":\"prefill\"")))
                     snprintf(g_last_engine_line, sizeof g_last_engine_line, "%s", acc);
                 if (is_err && strstr(acc, "+DWARFSTAR_WAITING")) {
                     set_stage("Ready", 100);
@@ -4333,8 +4367,13 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
 
 #include "dstudio_patch.c"
 
-/* Build the -sys text injected into the piped engines: a Cowork charter or
- * optional design system, followed by an optional user-authored skill. */
+/* Build the -sys text injected into the piped engines. Design already owns the
+ * complete tool schemas and loads skill/design/craft packs on demand. Do not
+ * copy a selected DESIGN.md (or the complete 150+ pack catalog) into its
+ * bootstrap prompt: doing so makes every process prefill thousands of
+ * avoidable tokens before it can accept the first message. Preserve the
+ * selection as a small binding instruction instead; the first model turn then
+ * loads the exact local pack through design_system()/skill(). */
 static char *build_skill_sys(int mode) {
     if (!g_web_dir[0]) return NULL;
     const int design_mode = mode == ENGINE_DESIGN;
@@ -4342,14 +4381,51 @@ static char *build_skill_sys(int mode) {
     char path[2300];
     char *buf = NULL; size_t len = 0, cap = 0;
 
+    if (design_mode) {
+        const size_t ctxcap = 4096;
+        char *ctx = malloc(ctxcap);
+        if (!ctx) return NULL;
+        size_t o = 0;
+        o += (size_t)snprintf(ctx + o, ctxcap - o,
+            "## DStudio runtime selection\n\n");
+        if (g_design_system[0]) {
+            o += (size_t)snprintf(ctx + o, ctxcap - o,
+                "The active design-system id is `%s`. Its full pack is intentionally "
+                "loaded on demand, not duplicated in this startup prompt. On the first "
+                "user turn, call `design_system(\"%s\")` before choosing tokens or "
+                "building, then follow the returned pack and inventory.\n",
+                g_design_system, g_design_system);
+        } else {
+            o += (size_t)snprintf(ctx + o, ctxcap - o,
+                "No design-system pack is selected. Use a built-in direction unless the "
+                "user supplies an exact pack id; never guess a pack id.\n");
+        }
+        if (g_skill[0]) {
+            o += (size_t)snprintf(ctx + o, ctxcap - o,
+                "The active user skill id is `%s`. On the first user turn, call "
+                "`skill(\"%s\")` before doing the work; the full skill stays out of the "
+                "startup prompt and is returned by that local tool.\n",
+                g_skill, g_skill);
+        }
+        o += (size_t)snprintf(ctx + o, ctxcap - o,
+            "Available universal craft ids are `accessibility`, `anti-slop`, "
+            "`carousel`, `color`, `layout-responsive`, `motion`, `state-coverage`, "
+            "and `typography`. Load only those relevant to the request.\n");
+        const int native_vision = !g_remote_base_url[0] &&
+                                  native_selected_vision_encoder() != NULL;
+        o += (size_t)snprintf(ctx + o, ctxcap - o,
+            native_vision
+                ? "The selected local runtime has native vision; inspect user pixels with "
+                  "`see_image` before reasoning about them.\n"
+                : "The selected runtime is text-only. Do not call `see_image` or claim to "
+                  "have inspected pixels.\n");
+        sys_append(&buf, &len, &cap, ctx, o);
+        return buf;
+    }
+
     size_t n = 0;
     if (cowork_mode) {
         snprintf(path, sizeof path, "%s/extension/cowork/COWORK.md", g_web_dir);
-        n = 0;
-        sys_append(&buf, &len, &cap, jsonl_read_file(path, &n), n);
-    }
-    if (design_mode && g_design_system[0]) {
-        snprintf(path, sizeof path, "%s/extension/design-systems/%s/DESIGN.md", g_web_dir, g_design_system);
         n = 0;
         sys_append(&buf, &len, &cap, jsonl_read_file(path, &n), n);
     }
@@ -5566,8 +5642,9 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         snprintf(wd, sizeof wd, "%s/Documents/ds4-designs", home ? home : ".");
     }
 
-    /* Same as the agent, but design also gets the active design-system (brand) layer (1):
-     * charter + DESIGN.md + SKILL.md, injected via ds4-design's -sys flag. */
+    /* Design receives only compact active-pack bindings here. The complete
+     * DESIGN.md/SKILL.md bodies are loaded by native tools on the first turn,
+     * so startup does not prefill the whole catalog or selected pack. */
     char *skill_sys = build_skill_sys(ENGINE_DESIGN);
 
     char dspark_path[DSTUDIO_PATH_MAX];

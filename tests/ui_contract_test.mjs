@@ -252,14 +252,14 @@ assert.match(js, /Roadmaps use true Thinking: max with a temporary 384k\+ local 
   'Roadmap thinking selector should explain the effective true-Max context override');
 assert.match(js, /const DS4_TRUE_MAX_CONTEXT = 393216;[\s\S]*ctxSize: Math\.max\([\s\S]*DS4_TRUE_MAX_CONTEXT\)/,
   'Roadmap generation should request the ds4 context threshold required for true Thinking max');
-assert.match(js, /const trueMaxContext = \(\) => thinkLevel\(\) === 'max'[\s\S]*Math\.max\(ctxSize\(\), DS4_TRUE_MAX_CONTEXT\)/,
-  'Design should resolve Max to the ds4 true-Max context floor');
+assert.doesNotMatch(js, /const trueMaxContext = \(\)/,
+  'Design must not couple Thinking max to an unrelated hidden context override');
 assert.doesNotMatch(extractFunction(js, 'startCowork'), /ctx:\s*trueMaxContext\(\)/,
   'Cowork must honor the context selected in Settings instead of silently forcing 392k');
 assert.match(extractFunction(js, 'startCowork'), /\.\.\.launchBase\(/,
   'Cowork should inherit the saved context through the shared launch settings');
-assert.match(extractFunction(js, 'startDesign'), /ctx:\s*trueMaxContext\(\)/,
-  'Design may retain the true-Max context floor required by its generation workflow');
+assert.match(extractFunction(js, 'startDesign'), /ctx:\s*ctxSize\(\)/,
+  'Design must honor the context selected in Settings even at Thinking max');
 assert.match(js, /function auditRoadmapStage\([\s\S]*function auditRoadmapGlobally\([\s\S]*Checking cross-stage contradictions/,
   'Roadmaps should receive per-stage factual audits followed by a global contradiction audit');
 assert.match(js, /DStudio roadmap factual auditor[\s\S]*Ignore prose quality, curriculum completeness, pedagogy[\s\S]*DStudio roadmap curriculum judge[\s\S]*Do not fact-check/,
@@ -945,6 +945,18 @@ assert.match(js, /Launch task #\$\{launchTaskId\}/, 'startup overlay should expo
 assert.match(js, /const timeoutMs = target === 'server' \? 180000 : 15 \* 60 \* 1000;/, 'agent/design startup should allow longer model and system-prompt loading than chat server startup');
 assert.match(launcher, /\\"engineLine\\":\\"%s\\"/, 'status endpoint should expose the latest engine log line');
 assert.match(launcher, /context buffers[\s\S]*Prefilling the context/, 'Agent/Design should expose context allocation as prefill, not as a false ready state');
+assert.match(launcher, /\"prefillDone\"[\s\S]*ds4-agent: system prefill %d\/%d tokens/,
+  'Agent and Cowork should map their existing JSONL prefill status into a readable launcher line');
+assert.match(launcher, /ds4-design: system prefill %d\/%d tokens[\s\S]*Prefilling %d \/ %d tokens/,
+  'Design should expose real cold-prefill counters to the shared loading UI');
+assert.match(launcherMain, /full pack is intentionally[\s\S]*loaded on demand[\s\S]*design_system\(\\\"%s\\\"\)[\s\S]*return buf;/,
+  'Design startup should bind the selected pack id without injecting its complete body or catalog');
+assert.match(remoteDesign, /sysprompt\.kv[\s\S]*restored system prompt cache[\s\S]*stored system prompt cache/,
+  'Design should cache an exact-text system-prompt KV after the first cold prefill');
+assert.match(js, /lastOverlayStage[\s\S]*lastOverlayLine[\s\S]*nextStage !== lastOverlayStage[\s\S]*nextLine !== lastOverlayLine/,
+  'the shared loading overlay should deduplicate stage and engine lines independently across polls');
+assert.match(js, /prefillIsIndeterminate[\s\S]*'prefilling…'/,
+  'the loading overlay should not fabricate a linear ETA while prefill has no token counter');
 assert.doesNotMatch(launcher.match(/else if \(strstr\(line, "context buffers"\)[\s\S]*?\n    \}/)?.[0] || '', /g_ready\s*=\s*1|maybe_complete_launch_task/, 'Piped runtimes must not become ready before their initial WAITING marker');
 assert.match(launcher, /is_err && strstr\(acc, "\+DWARFSTAR_WAITING"\)[\s\S]*g_ready = 1;[\s\S]*g_agent_working = 0;/, 'The initial WAITING marker should be the authoritative ready/idle boundary');
 assert.match(launcher, /#define TASK_RING_CAP 128/, 'launcher should keep a bounded task lifecycle ring buffer');

@@ -32522,6 +32522,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       let switching = false;
       let launchTarget = null;
       let lastOverlayLog = '';
+      let lastOverlayStage = '';
+      let lastOverlayLine = '';
       let overlayStartedAt = 0;
       let overlayLastPct = 0;
       let overlayCfg = null;
@@ -33277,9 +33279,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const value = Number(Store.getSettings().designThinkTokens);
         return Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
       };
-      const trueMaxContext = () => thinkLevel() === 'max'
-        ? Math.max(ctxSize(), DS4_TRUE_MAX_CONTEXT)
-        : ctxSize();
       // An explicit GGUF the user picked (chat model menu / Settings / onboarding).
       // Re-sent on every start so it survives restarts (a variant param would
       // otherwise reset it on the backend); empty = use the variant default.
@@ -33288,7 +33287,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // The active user-created skill for agent/design, injected as
       // -sys at spawn. Stored per mode; sent on every start so it survives restarts.
       const skillForMode = (m) => (Store.getSettings().skillByMode || {})[m] || '';
-      // The active design-system (brand) for DESIGN mode only; injected alongside the skill.
+      // The active design-system (brand) for DESIGN mode only. The id is sent
+      // at launch; the native design_system tool loads its body on first use.
       const designSystem = () => Store.getSettings().designSystem || '';
       const gsaMode = () => Store.getSettings().gsaMode === 'on' ? 'on' : 'off';
       const CONTROL_RS = String.fromCharCode(0x1e);
@@ -33567,7 +33567,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (!isLanClientMode() && !await selectSavedModelCheckout()) return;
         runtimeThinkDirty = false;
         runtimeSkillAtLaunch.design = skill || '';
-        runSwitch('design', { mode: 'design', model: 'standard', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, designSystem: designSystem(), ...launchBase(remote.modelBackend === 'remote'), ctx: trueMaxContext(), think: thinkLevel(), designThinkTokens: designThinkTokens(), workdir, ...remote }, 'Starting the design agent…');
+        // Thinking effort and context capacity are independent settings.
+        // Respect the saved context instead of silently inflating Max thinking
+        // to 393216 tokens (and allocating about 4 GiB of context buffers).
+        runSwitch('design', { mode: 'design', model: 'standard', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, designSystem: designSystem(), ...launchBase(remote.modelBackend === 'remote'), ctx: ctxSize(), think: thinkLevel(), designThinkTokens: designThinkTokens(), workdir, ...remote }, 'Starting the design agent…');
       }
 
       // Switch the active model variant (v4-flash / v4-pro): persist the choice
@@ -34208,6 +34211,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (overlayElapsed) overlayElapsed.textContent = '0:00';
         if (overlayEta) overlayEta.textContent = 'estimating…';
         lastOverlayLog = '';
+        lastOverlayStage = '';
+        lastOverlayLine = '';
         if (logEl) logEl.replaceChildren();
         if (overlayRawPreview) overlayRawPreview.textContent = 'runtime payload';
         if (overlayRawBody) overlayRawBody.textContent = '';
@@ -34237,18 +34242,29 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (overlayGaugeProgressBar) overlayGaugeProgressBar.style.width = `${overlayLastPct}%`;
         if (stage) {
           stageEl.textContent = stage;
-          appendOverlayLog(stage, overlayTag(stage));
+          const nextStage = String(stage).replace(/\s+/g, ' ').trim();
+          if (nextStage && nextStage !== lastOverlayStage) {
+            lastOverlayStage = nextStage;
+            appendOverlayLog(nextStage, overlayTag(nextStage));
+          }
         }
         if (line) {
-          if (overlaySubline) overlaySubline.textContent = String(line).replace(/\s+/g, ' ').trim();
-          appendOverlayLog(line, overlayTag(line));
+          const nextLine = String(line).replace(/\s+/g, ' ').trim();
+          if (overlaySubline) overlaySubline.textContent = nextLine;
+          if (nextLine && nextLine !== lastOverlayLine) {
+            lastOverlayLine = nextLine;
+            appendOverlayLog(nextLine, overlayTag(nextLine));
+          }
         }
         const elapsedMs = Math.max(0, Date.now() - overlayStartedAt);
         if (overlayElapsed) overlayElapsed.textContent = overlayClock(elapsedMs);
         if (overlayEta) {
-          const remaining = overlayLastPct > 3 && overlayLastPct < 100
+          const prefillIsIndeterminate = overlayLastPct >= 85 && overlayLastPct < 100 &&
+            /prefill/i.test(String(stage || '')) && !/\d+\s*\/\s*\d+/.test(String(line || ''));
+          const remaining = !prefillIsIndeterminate && overlayLastPct > 3 && overlayLastPct < 100
             ? elapsedMs * (100 - overlayLastPct) / overlayLastPct : 0;
           overlayEta.textContent = overlayLastPct >= 100 ? 'done'
+            : prefillIsIndeterminate ? 'prefilling…'
             : remaining > 0 && Number.isFinite(remaining) ? `~${overlayClock(remaining)} left` : 'estimating…';
         }
       }
