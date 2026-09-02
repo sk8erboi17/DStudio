@@ -28995,7 +28995,14 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
         convId = conv.id;
         // Switching conversation leaves the canvas takeover, if open.
-        if (viewMode === 'design' && DesignPreview.exitCanvas) DesignPreview.exitCanvas();
+        if (viewMode === 'design' && DesignPreview.exitCanvas) {
+          DesignPreview.exitCanvas();
+          // The project files live in the workspace, but the selected artifact
+          // belongs to one conversation. Rebind it before rendering so a
+          // completed Design chat can restore its canvas after a sidebar/app
+          // reopen instead of falling back to a transcript-only surface.
+          DesignPreview.activateConversation?.(conv);
+        }
         text = conv.transcript || '';
         maxPhaseReached = 0;
         currentProposal = null;
@@ -30291,8 +30298,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         // before/after). Small delay: the file must already be written to
         // disk and the file list updated.
         if (viewMode === 'design' && wasWorking && !working) {
-          pullSessionList(liveConvId);
-          setTimeout(() => DesignPreview.snapshotCurrent && DesignPreview.snapshotCurrent(), 1200);
+          const finishedConvId = liveConvId;
+          pullSessionList(finishedConvId);
+          setTimeout(() => DesignPreview.snapshotCurrent && DesignPreview.snapshotCurrent(finishedConvId), 1200);
+          if (finishedConvId !== convId) {
+            const displayedConv = Store.getChat(convId);
+            setTimeout(() => DesignPreview.activateConversation?.(displayedConv), 1250);
+          }
         }
 
         // Artifact registration: a NEW artifact event (only in the delta just
@@ -30305,10 +30317,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           if (last) {
             try {
               const entry = JSON.parse(`"${last}"`);
+              if (liveConvId) Store.setChatMeta(liveConvId, { designArtifactEntry: entry });
               // Only a LIVE turn arms the canvas landing: historical replay
               // at boot/adoption must not trigger a surprise fit later.
               if (wasWorking || working) turnArtifact = entry;
-              DesignPreview.showArtifact(entry);
+              DesignPreview.showArtifact(entry, liveConvId);
             } catch { /* odd path: ignore */ }
           }
         }
@@ -30318,7 +30331,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (viewMode === 'design' && wasWorking && !working && turnArtifact) {
           const entry = turnArtifact;
           turnArtifact = null;
-          setTimeout(() => DesignPreview.showOnCanvas(entry), 600);
+          if (liveConvId === convId)
+            setTimeout(() => DesignPreview.showOnCanvas(entry), 600);
         }
 
         // Session events (design only): I pull them out of the delta just received —
@@ -32174,6 +32188,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       let timer = null;
       let files = [];          // [{name,size,mtime}]
       let lastSig = '';        // signature of the list for change detection
+      let started = false;
+      let restoreSerial = 0;   // invalidates an async restore after a chat switch
+      let restoreConvId = null;
       // Version snapshots: each artifact/end-of-turn = one snapshot. Only used
       // to drive the flow stepper (v2+ = "refine") — no version UI.
       let versions = [];       // [{tag, entry, html, time}]
@@ -32182,6 +32199,102 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         Engine.apiUrl(`/api/design/file?name=${encodeURIComponent(name)}${mtime ? `&t=${mtime}` : ''}`);
 
       const isHtml = (name) => /\.html?$/i.test(name);
+
+      function structuredArtifactEntry(raw) {
+        const source = String(raw || '');
+        const RS = String.fromCharCode(0x1e);
+        let entry = '';
+        let cursor = 0;
+        while (cursor < source.length) {
+          const start = source.indexOf(RS, cursor);
+          if (start < 0) break;
+          const end = source.indexOf('\n', start + 1);
+          if (end < 0) break;
+          try {
+            const ev = JSON.parse(source.slice(start + 1, end));
+            const payload = ev?.payload && typeof ev.payload === 'object' ? ev.payload : {};
+            const manifest = ev?.manifest && typeof ev.manifest === 'object'
+              ? ev.manifest
+              : payload?.manifest && typeof payload.manifest === 'object' ? payload.manifest : {};
+            if (ev?.type === 'artifact' || ev?.type === 'artifact_registered') {
+              const next = ev.entry || payload.entry || manifest.entry;
+              if (typeof next === 'string') entry = next;
+            }
+          } catch { /* incomplete or non-JSON engine frame */ }
+          cursor = end + 1;
+        }
+        return entry;
+      }
+
+      function artifactEntryForConversation(conv) {
+        const htmls = files.filter((file) => isHtml(file.name));
+        if (!htmls.length || !conv) return '';
+        const available = new Set(htmls.map((file) => file.name));
+        if (available.has(conv.designArtifactEntry)) return conv.designArtifactEntry;
+        const structured = structuredArtifactEntry(conv.transcript);
+        if (available.has(structured)) return structured;
+
+        // Migration for chats saved before designArtifactEntry existed. A
+        // completed saved Design session normally ends by naming the HTML it
+        // refined, so recover the last available filename mentioned. Requiring
+        // a saved session prevents a question-only draft from opening unrelated
+        // files that merely happen to share the workspace.
+        if (!conv.sessionSha) return '';
+        const transcript = String(conv.transcript || '');
+        let candidate = '';
+        let lastAt = -1;
+        for (const file of htmls) {
+          const at = transcript.lastIndexOf(file.name);
+          if (at > lastAt) { candidate = file.name; lastAt = at; }
+        }
+        return candidate;
+      }
+
+      function prepareConversation(conv) {
+        const nextId = conv?.id || null;
+        if (restoreConvId === nextId) return;
+        restoreSerial++;
+        restoreConvId = nextId;
+        versions = [];
+        finalized = false;
+        cvSel = null;
+      }
+
+      async function restoreConversation(conv, { open = true } = {}) {
+        if (!started || !conv || (conv.mode || 'chat') !== 'design') return false;
+        prepareConversation(conv);
+        const serial = ++restoreSerial;
+        await poll();
+        if (!started || serial !== restoreSerial || restoreConvId !== conv.id ||
+            Store.getActiveChat()?.id !== conv.id) return false;
+        const entry = artifactEntryForConversation(conv);
+        if (!entry) {
+          AgentView.refreshFlow?.();
+          return false;
+        }
+        if (conv.designArtifactEntry !== entry)
+          Store.setChatMeta(conv.id, { designArtifactEntry: entry });
+        const restored = await snapshotArtifact(entry, conv.id, serial);
+        if (!restored) return false;
+        if (!started || serial !== restoreSerial || restoreConvId !== conv.id ||
+            Store.getActiveChat()?.id !== conv.id) return false;
+        if (!open || AgentView.isWorking?.()) return true;
+        try {
+          const status = await Engine.status();
+          if (status?.agentWorking === true && status?.agentSessionWorking !== true) return true;
+        } catch { /* the local canvas stays usable if status briefly fails */ }
+        if (!started || serial !== restoreSerial || Store.getActiveChat()?.id !== conv.id) return false;
+        openCanvas();
+        selectBoard(entry);
+        fitCanvas();
+        return true;
+      }
+
+      function activateConversation(conv) {
+        if (!started) return Promise.resolve(false);
+        prepareConversation(conv);
+        return restoreConversation(conv);
+      }
 
       function mount() {
         canvasEl = qs('#ws-canvas');
@@ -32232,8 +32345,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       /* Called by the AgentView when the artifact event arrives: register the
        * file as a version snapshot (drives the stepper). The VIEW does not
        * move mid-turn — the finished turn lands on the canvas. */
-      function showArtifact(entry) {
-        poll().then(() => { if (isHtml(entry) && fileInfo(entry)) snapshotArtifact(entry); });
+      function showArtifact(entry, ownerConvId = restoreConvId) {
+        if (ownerConvId && restoreConvId && ownerConvId !== restoreConvId) return;
+        const serial = restoreSerial;
+        poll().then(() => {
+          if (serial !== restoreSerial || (ownerConvId && restoreConvId !== ownerConvId)) return;
+          if (isHtml(entry) && fileInfo(entry)) snapshotArtifact(entry, ownerConvId, serial);
+        });
       }
 
       /* End of the generating flow (mockup step: "Laying them out on the
@@ -32241,7 +32359,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
        * with the new screen selected. Refinement continues from the canvas
        * floating chat. */
       function showOnCanvas(entry) {
+        const ownerConvId = Store.getActiveChat()?.id || null;
+        const serial = restoreSerial;
         poll().then(() => {
+          if (!started || serial !== restoreSerial || Store.getActiveChat()?.id !== ownerConvId) return;
+          const conv = Store.getActiveChat();
+          if (entry && conv && (conv.mode || 'chat') === 'design' && conv.designArtifactEntry !== entry)
+            Store.setChatMeta(conv.id, { designArtifactEntry: entry });
           openCanvas();
           if (entry && isHtml(entry) && fileInfo(entry)) selectBoard(entry);
           fitCanvas();
@@ -32255,25 +32379,29 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (onCanvas) closeCanvas();
       }
 
-      async function snapshotArtifact(entry) {
-        if (!isHtml(entry)) return; // we only version self-contained HTML
+      async function snapshotArtifact(entry, ownerConvId = restoreConvId, serial = restoreSerial) {
+        if (!isHtml(entry)) return false; // we only version self-contained HTML
         let html = '';
         try {
           const r = await fetch(fileUrl(entry, Date.now()), { signal: AbortSignal.timeout(4000) });
           html = await r.text();
-        } catch { return; }
+        } catch { return false; }
+        if (!started || serial !== restoreSerial ||
+            (ownerConvId && restoreConvId !== ownerConvId)) return false;
         const last = versions[versions.length - 1];
-        if (last && last.entry === entry && last.html === html) return; // dedup
+        if (last && last.entry === entry && last.html === html) return true; // dedup
         versions.push({ tag: 'v' + (versions.length + 1), entry, html, time: Date.now() });
         if (AgentView.refreshFlow) AgentView.refreshFlow(); // stepper/message-actions updated
+        return true;
       }
 
       // Snapshot at end of turn: captures in-place refines (which do NOT emit
       // an artifact) as new versions → the stepper reaches "refine".
-      async function snapshotCurrent() {
+      async function snapshotCurrent(ownerConvId = restoreConvId) {
+        if (ownerConvId && restoreConvId && ownerConvId !== restoreConvId) return;
         if (!versions.length) return;
         const entry = versions[versions.length - 1].entry;
-        await snapshotArtifact(entry);
+        await snapshotArtifact(entry, ownerConvId, restoreSerial);
       }
 
       // ---- Canvas pan/zoom (Stage D): the artboards are the project's HTML
@@ -32656,12 +32784,16 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             el('button', { class: 'btn btn--primary fs-annotation__send', type: 'submit', text: 'Send to Design' }),
           ]),
         ]);
+        // Keep the form measurable but not paintable until its first anchored
+        // position is known; otherwise a fast frame can flash it at (0, 0).
+        card.style.visibility = 'hidden';
         on(card, 'submit', (event) => { event.preventDefault(); sendVisualAnnotation(); });
         on(qs('.fs-annotation__close', card), 'click', () => clearAnnotationSelection());
         on(qs('[data-annotation-cancel]', card), 'click', () => clearAnnotationSelection());
         fsEl.append(card);
         requestAnimationFrame(() => {
           positionAnnotationCard();
+          card.style.visibility = '';
           comment.focus({ preventScroll: true });
         });
       }
@@ -32887,6 +33019,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
 
       function reset() {
+        restoreSerial++;
+        restoreConvId = null;
         files = [];
         lastSig = '';
         versions = [];
@@ -32898,12 +33032,17 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
 
       function start() {
+        started = true;
         reset();
-        poll(); // an already-existing project appears immediately
+        // Workspace files plus the conversation transcript are enough to
+        // rebuild a completed canvas after switching chat or restarting DStudio.
+        activateConversation(Store.getActiveChat());
         timer = setInterval(poll, 1000);
       }
 
       function stop() {
+        started = false;
+        restoreSerial++;
         closeCanvas();
         if (fsEl && !fsEl.hidden) closeFullscreen();
         if (timer) { clearInterval(timer); timer = null; }
@@ -32911,6 +33050,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       return {
         mount, start, stop, reset, showArtifact, showOnCanvas, exitCanvas, snapshotCurrent,
+        activateConversation,
         refreshFiles: poll,
         // Full-size view of one screen (proposal thumbnails use it); the
         // poll first makes sure the file list knows the entry.

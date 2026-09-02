@@ -419,6 +419,7 @@ try {
         : mode === 'cowork' ? '/tmp/dstudio-ui-cowork'
         : '/tmp/dstudio-ui-agent'
     );
+    if (sessionStorage.getItem('dstudio-ui-preserve-storage') === '1') return;
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
       v: 2,
       onboarded: true,
@@ -912,6 +913,41 @@ try {
   const visibleVisualPrompt = sends.findLast((entry) => /Visual edit · landing\.html/.test(entry.body?.displayPrompt || ''));
   assert.doesNotMatch(visibleVisualPrompt?.body?.displayPrompt || '', /DESIGN_SELECTION_JSON|outerHTML|"rect"/,
     'internal selector metadata must stay out of the visible user message');
+
+  // Reopening a completed Design conversation must reconstruct and reopen its
+  // canvas from workspace files. This fixture intentionally omits the new
+  // designArtifactEntry field to exercise migration of already-saved chats.
+  await page.evaluate(() => {
+    const now = Date.now();
+    const settings = JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}');
+    settings.workdirs = { ...(settings.workdirs || {}), design: '/tmp/dstudio-ui-design' };
+    sessionStorage.setItem('dstudio-ui-preserve-storage', '1');
+    localStorage.setItem('ds4web.settings.v2', JSON.stringify(settings));
+    localStorage.setItem('ds4web.chats.v2', JSON.stringify({
+      v: 2,
+      deleted: [],
+      chats: [{
+        id: 'legacy-design-canvas', mode: 'design', title: 'Legacy completed design',
+        createdAt: now - 1000, updatedAt: now, messages: [], sessionSha: 'f1c7e2a9',
+        transcript: '\u0001USER\u0002Build the landing page\u0001ENDUSER\u0002\nRefined landing.html and verified every breakpoint.\n',
+      }],
+    }));
+    localStorage.setItem('ds4web.active.v2', JSON.stringify({
+      v: 2, ids: { chat: null, agent: null, cowork: null, design: 'legacy-design-canvas', roadmap: null },
+    }));
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('#ws-canvas').waitFor({ state: 'visible', timeout: 5000 });
+  await page.locator('.cv-board[data-name="landing.html"]').waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(
+    await page.locator('.cv-board[data-name="landing.html"]').evaluate((node) => node.classList.contains('sel')),
+    true,
+    'the restored canvas should select the artifact owned by the reopened chat',
+  );
+  await page.waitForFunction(() => {
+    const saved = JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}');
+    return saved.chats?.find((chat) => chat.id === 'legacy-design-canvas')?.designArtifactEntry === 'landing.html';
+  }, null, { timeout: 5000 });
 
   assert.ok(starts.some((s) => s.mode === 'agent'), 'agent tab should start the agent runtime');
   assert.ok(starts.some((s) => s.mode === 'cowork'), 'cowork tab should start the cowork runtime');
