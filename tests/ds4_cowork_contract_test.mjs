@@ -13,6 +13,7 @@ const charter = read('extension/cowork/COWORK.md');
 const office = read('extension/cowork/office_tool.py');
 const bridge = read('extension/cowork/ds4_cowork.c');
 const patchManifest = read('patch/ds4-agent-jsonl/manifest');
+const patchBuild = read('patch/ds4-agent-jsonl/build.mk');
 const dispatchPatch = read('patch/ds4-agent-jsonl/061.replace');
 const cachePatch = read('patch/ds4-agent-jsonl/062.replace');
 const dsmlPatch = read('patch/ds4-agent-jsonl/063.replace');
@@ -65,7 +66,9 @@ assert.doesNotMatch(bridge, /\bsystem\s*\(/);
 assert.match(bridge, /execlp\(python, python, helper/);
 assert.match(bridge, /COWORK_OUTPUT_MAX/);
 
-assert.match(patchManifest, /version=77/);
+assert.match(patchManifest, /version=78/);
+assert.match(patchBuild, /ds4_prompt_prefix\.o/,
+  'the structured runtimes must link upstream conversation-prefix support');
 assert.match(patchManifest, /edit=063[\s\S]*edit=064[\s\S]*edit=065[\s\S]*edit=067[\s\S]*edit=068[\s\S]*edit=069/);
 const textToolObservationPatch = fs.readFileSync(path.join(root, 'patch/ds4-agent-jsonl/068.replace'), 'utf8');
 assert.match(textToolObservationPatch, /if \(!obs->image_count\)[\s\S]*ds4_chat_append_message[\s\S]*else \{[\s\S]*ds4_chat_append_multimodal_message/,
