@@ -6,6 +6,7 @@ const readme = fs.readFileSync('README.md', 'utf8');
 const qualityGates = fs.readFileSync('docs/QUALITY_GATES.md', 'utf8');
 const algebraRoadmapExport = fs.readFileSync('exports/abstract-algebra-roadmap.json', 'utf8');
 const loadingHtml = fs.readFileSync('web/loading.html', 'utf8');
+const designAnnotator = fs.readFileSync('web/design-annotator.js', 'utf8');
 const launcherMain = fs.readFileSync('src/dstudio.c', 'utf8');
 const launcherDomains = fs.readdirSync('src')
   .filter((name) => /^dstudio_.*\.c$/.test(name))
@@ -95,9 +96,29 @@ function readPatchSet(dir, options = {}) {
     const find = fs.readFileSync(findPath, 'utf8');
     const replace = fs.readFileSync(replacePath, 'utf8');
     assert.ok(find.length > 0, `${findPath} should not be empty`);
-    return { id, find, replace };
+    const alternatives = ['modern', 'laguna'].map((variant) => {
+      const alternativeFind = `${dir}/${id}.${variant}.find`;
+      const alternativeReplace = `${dir}/${id}.${variant}.replace`;
+      assert.equal(fs.existsSync(alternativeFind), fs.existsSync(alternativeReplace),
+        `${dir}/${id}.${variant} must provide both find and replace`);
+      if (!fs.existsSync(alternativeFind)) return null;
+      const variantFind = fs.readFileSync(alternativeFind, 'utf8');
+      assert.ok(variantFind.length > 0, `${alternativeFind} should not be empty`);
+      return {
+        variant,
+        find: variantFind,
+        replace: fs.readFileSync(alternativeReplace, 'utf8'),
+      };
+    }).filter(Boolean);
+    return { id, find, replace, alternatives };
   });
-  return { values, edits: bodies, text: bodies.map((e) => `${e.find}\n${e.replace}`).join('\n') };
+  return {
+    values,
+    edits: bodies,
+    text: bodies.map((e) => [e.find, e.replace,
+      ...e.alternatives.flatMap((alternative) => [alternative.find, alternative.replace])]
+      .join('\n')).join('\n'),
+  };
 }
 
 const jsonlPatch = readPatchSet('patch/ds4-agent-jsonl', { version: true, fragment: true, makefile: true });
@@ -232,14 +253,14 @@ assert.match(js, /Roadmaps use true Thinking: max with a temporary 384k\+ local 
   'Roadmap thinking selector should explain the effective true-Max context override');
 assert.match(js, /const DS4_TRUE_MAX_CONTEXT = 393216;[\s\S]*ctxSize: Math\.max\([\s\S]*DS4_TRUE_MAX_CONTEXT\)/,
   'Roadmap generation should request the ds4 context threshold required for true Thinking max');
-assert.match(js, /const trueMaxContext = \(\) => thinkLevel\(\) === 'max'[\s\S]*Math\.max\(ctxSize\(\), DS4_TRUE_MAX_CONTEXT\)/,
-  'Design should resolve Max to the ds4 true-Max context floor');
+assert.doesNotMatch(js, /const trueMaxContext = \(\)/,
+  'Design must not couple Thinking max to an unrelated hidden context override');
 assert.doesNotMatch(extractFunction(js, 'startCowork'), /ctx:\s*trueMaxContext\(\)/,
   'Cowork must honor the context selected in Settings instead of silently forcing 392k');
 assert.match(extractFunction(js, 'startCowork'), /\.\.\.launchBase\(/,
   'Cowork should inherit the saved context through the shared launch settings');
-assert.match(extractFunction(js, 'startDesign'), /ctx:\s*trueMaxContext\(\)/,
-  'Design may retain the true-Max context floor required by its generation workflow');
+assert.match(extractFunction(js, 'startDesign'), /ctx:\s*ctxSize\(\)/,
+  'Design must honor the context selected in Settings even at Thinking max');
 assert.match(js, /function auditRoadmapStage\([\s\S]*function auditRoadmapGlobally\([\s\S]*Checking cross-stage contradictions/,
   'Roadmaps should receive per-stage factual audits followed by a global contradiction audit');
 assert.match(js, /DStudio roadmap factual auditor[\s\S]*Ignore prose quality, curriculum completeness, pedagogy[\s\S]*DStudio roadmap curriculum judge[\s\S]*Do not fact-check/,
@@ -647,6 +668,19 @@ assert.match(launcher, /\/api\/gsa\/tools\/install/, 'router should serve /api/g
 assert.ok(Array.isArray(gsaToolCatalog.tools), 'GSA tool catalog should be a JSON tools array');
 assert.ok(gsaToolCatalog.tools.length >= 30, 'GSA tool catalog should keep the managed tool set in JSON');
 assert.ok(gsaToolCatalog.tools.every((tool) => tool.name && tool.category && tool.aliases && tool.install && tool.notes), 'Every GSA tool catalog entry should carry required fields');
+const gsaCommandSpecs = html.slice(html.indexOf('const GSA_COMMAND_SPECS = ['), html.indexOf('const SUPPORT_COMMAND_SPECS = ['));
+assert.ok(gsaCommandSpecs.length > 0, 'Agent timeline should declare semantic command specs for GSA tools');
+for (const tool of gsaToolCatalog.tools) {
+  const aliases = String(tool.aliases || '').split('|').filter(Boolean);
+  assert.ok(aliases.some((alias) => gsaCommandSpecs.includes(`'${alias}'`)),
+    `Agent timeline should recognize the catalog command for ${tool.name}`);
+}
+assert.match(html, /function semanticCommandSummary\(ev, live, lineCount = 0\)[\s\S]*parameters:/,
+  'GSA shell actions should keep effective parameters in both live and completed timeline summaries');
+assert.match(html, /function compactShellText\(text\)[\s\S]*map\(\(word\) => word\.raw\)/,
+  'GSA parameter summaries should preserve the exact flags and values supplied to the tool');
+assert.doesNotMatch(gsaCommandSpecs, /redact|SECRET_PARAMETER|SECRET_QUERY/,
+  'GSA command presentation must not obscure credentials or other parameter values');
 assert.match(gsaRuntimeSource, /static int gsa_load_tool_catalog/, 'GSA runtime should load the tool catalog from JSON');
 assert.doesNotMatch(gsaRuntimeSource, /GSA_TOOL_SPECS/, 'GSA runtime should not keep the old compiled-in tool catalog');
 assert.match(gsaRuntime, /mode\\":\\"tool-assisted/, 'GSA tool status should explicitly be tool-assisted');
@@ -796,12 +830,32 @@ assert.match(js, /AgentView\.send\(res\.prompt,[\s\S]*\{ forceThink: 'max' \}\)/
 assert.match(js, /function wirePromptForRuntime\(prompt, forceThink = ''\)[\s\S]*runtimeThinkControlFrame\(forceThink\) \+ prompt/, 'Runtime prompt wiring should support forced thinking for GSA');
 assert.match(js, /Store\.setSettings\(\{ gsaMode: v,[\s\S]*thinkLevel: 'max'/, 'Enabling GSA should move the composer thinking pill to max');
 assert.match(js, /Guided analysis always runs with Thinking: max/, 'Thinking selector should reject lowering guided analysis below max');
+// Thinking: max only becomes real at DS4_TRUE_MAX_CONTEXT, so it must be an
+// explicit choice that negotiates the context — never an imposed default.
+assert.match(js, /thinkLevel: 'high',\s*\/\/ user may choose off\/high\/max/, 'a fresh profile should default to high thinking, not max');
+assert.doesNotMatch(js, /thinkLevel: 'max', videoProfile: 'quality'/, 'the quality-defaults migration must not impose Thinking: max on existing installs');
+assert.match(js, /qualityDefaultsVersion \|\| 0\) < 2[\s\S]*qualityDefaultsVersion: 2/, 'the quality-defaults migration should advance past the version that imposed max');
+assert.doesNotMatch(js, /qualityDefaultsVersion \|\| 0\) < 2[\s\S]{0,180}videoProfile:/, 'the thinking migration must preserve an explicitly selected video profile');
+assert.match(js, /async function confirmTrueThinkingMax\(\)[\s\S]*current >= DS4_TRUE_MAX_CONTEXT[\s\S]*Store\.setSettings\(\{ ctxSize: DS4_TRUE_MAX_CONTEXT, ctxBeforeThinkMax: current \}\)/, 'choosing max below the minimum context should offer to raise it and remember the previous value');
+assert.match(js, /function restoreContextAfterThinkingMax\(\)[\s\S]*Store\.setSettings\(\{ ctxSize: previous, ctxBeforeThinkMax: 0 \}\)/, 'leaving max should hand the original context back');
+assert.match(js, /if \(!ok\) \{ renderThinkingPill\(\); return; \}\s*\/\/ declined: keep the previous level/, 'declining the context raise must leave the thinking level untouched');
+assert.match(js, /function metalResidencyEstimate\(ctxSize, memory\)[\s\S]*required <= budget/, 'the UI should estimate Metal residency before proposing a bigger context');
+assert.match(js, /function flashContextMemoryBytes\(ctxSize\)[\s\S]*43 \* rawCap \* 512 \* 4/, 'the UI estimate should mirror flash_context_memory_bytes from the launcher');
+assert.match(js, /drops off full residency onto the memory-mapped path/, 'the max prompt should state the residency cost when the raised context no longer fits');
+assert.match(js, /maxUnderfed = !roadmapLocked && value === 'max' && ctxNow < DS4_TRUE_MAX_CONTEXT/, 'a persisted max below the minimum context should be flagged in the composer pill');
+assert.match(html, /<option value="393216">384k tokens<\/option>/, 'the context pickers should be able to express the true-max minimum');
+// Recovering your own prompt must not depend on dragging a selection across a
+// transcript that keeps repainting underneath the cursor.
+assert.match(js, /function buildAgentUserTurn\(text, pending = false\)[\s\S]*class: 'agent-user-copy'[\s\S]*copyTextToClipboard\(copy, parsed\.clean \|\| body\)/, 'every Agent/Cowork user turn should carry a copy button');
+assert.match(html, /\.agent-user-turn:hover \.agent-user-copy,[\s\S]*\.agent-user-copy\.is-copied \{ opacity: 1; \}/, 'the user-turn copy button should reveal on hover and stay visible while confirming');
 assert.match(js, /async function gsaTools\(\)[\s\S]*\/api\/gsa\/tools/, 'Engine client should expose GSA tool status');
 assert.match(js, /async function gsaToolsInstall\(\)[\s\S]*\/api\/gsa\/tools\/install/, 'Engine client should expose managed GSA tool install');
 assert.match(html, /\.msg__activity-dots[\s\S]*@keyframes msgactivity/, 'Chat streaming should show an animated activity indicator');
 assert.match(js, /function assistantInitialActivity\(userMsg\)[\s\S]*Reading attached file[\s\S]*Reading sources[\s\S]*Preparing response/, 'Chat activity should describe file/source reading when applicable');
 assert.match(js, /decodeTokPerSec: Number\(u\.ds4\?\.decode_tokens_per_second\) > 0/, 'Chat should read exact decode speed from the ds4 usage extension');
 assert.doesNotMatch(js, /content\.length \+ reasoning\.length\) \/ 4/, 'Chat should not present chars/4 as live token speed');
+assert.match(launcher, /setup_ensure_server_metrics_runtime[\s\S]*setup_binary_contains_ascii\(server, "decode_tokens_per_second"\)[\s\S]*"make", "-C", g_ds4_dir, "ds4-server"/, 'Chat startup should self-heal when an upstream make replaces the metrics-enabled server');
+assert.match(launcher, /spawn_server[\s\S]*setup_ensure_server_metrics_runtime\(err, errsz\)/, 'Chat must verify exact-throughput support before launching ds4-server');
 assert.match(js, /\/gsa\s/, 'composer should expose the GSA slash command');
 assert.match(html, /id="gsa-target-panel"[\s\S]*id="gsa-target-url"/, 'Agent composer should expose an optional GSA target URL field');
 assert.match(js, /gsaTargetUrl: ''/, 'GSA target URL should be persisted as an explicit setting');
@@ -924,14 +978,28 @@ assert.match(js, /launchTarget = target;[\s\S]*Statusbar\.render\(\);[\s\S]*show
 assert.match(js, /Launch task #\$\{launchTaskId\}/, 'startup overlay should expose the backend launch task id');
 assert.match(js, /const timeoutMs = target === 'server' \? 180000 : 15 \* 60 \* 1000;/, 'agent/design startup should allow longer model and system-prompt loading than chat server startup');
 assert.match(launcher, /\\"engineLine\\":\\"%s\\"/, 'status endpoint should expose the latest engine log line');
-assert.match(launcher, /MODE_IS_PIPED\(g_mode\)[\s\S]*set_stage\("Ready", 100\)[\s\S]*maybe_complete_launch_task\(g_mode\)/, 'Agent/Design piped runtimes should become ready after context buffers are allocated');
+assert.match(launcher, /context buffers[\s\S]*Prefilling the context/, 'Agent/Design should expose context allocation as prefill, not as a false ready state');
+assert.match(launcher, /\"prefillDone\"[\s\S]*ds4-agent: system prefill %d\/%d tokens/,
+  'Agent and Cowork should map their existing JSONL prefill status into a readable launcher line');
+assert.match(launcher, /ds4-design: system prefill %d\/%d tokens[\s\S]*Prefilling %d \/ %d tokens/,
+  'Design should expose real cold-prefill counters to the shared loading UI');
+assert.match(launcherMain, /full pack is intentionally[\s\S]*loaded on demand[\s\S]*design_system\(\\\"%s\\\"\)[\s\S]*return buf;/,
+  'Design startup should bind the selected pack id without injecting its complete body or catalog');
+assert.match(remoteDesign, /sysprompt\.kv[\s\S]*restored system prompt cache[\s\S]*stored system prompt cache/,
+  'Design should cache an exact-text system-prompt KV after the first cold prefill');
+assert.match(js, /lastOverlayStage[\s\S]*lastOverlayLine[\s\S]*nextStage !== lastOverlayStage[\s\S]*nextLine !== lastOverlayLine/,
+  'the shared loading overlay should deduplicate stage and engine lines independently across polls');
+assert.match(js, /prefillIsIndeterminate[\s\S]*'prefilling…'/,
+  'the loading overlay should not fabricate a linear ETA while prefill has no token counter');
+assert.doesNotMatch(launcher.match(/else if \(strstr\(line, "context buffers"\)[\s\S]*?\n    \}/)?.[0] || '', /g_ready\s*=\s*1|maybe_complete_launch_task/, 'Piped runtimes must not become ready before their initial WAITING marker');
+assert.match(launcher, /is_err && strstr\(acc, "\+DWARFSTAR_WAITING"\)[\s\S]*g_ready = 1;[\s\S]*g_agent_working = 0;/, 'The initial WAITING marker should be the authoritative ready/idle boundary');
 assert.match(launcher, /#define TASK_RING_CAP 128/, 'launcher should keep a bounded task lifecycle ring buffer');
 assert.match(launcher, /#define LOG_RING_CAP 768/, 'launcher should keep a bounded log ring buffer');
 assert.match(launcher, /static void api_diagnostics\(int fd\)/, 'launcher should expose workspace diagnostics');
 assert.match(launcher, /sysctl_iogpu_wired_limit_mb[\s\S]*len == sizeof\(int\)[\s\S]*memcpy\(&vi, &v, sizeof vi\)/, 'launcher should decode iogpu.wired_limit_mb when macOS returns a 32-bit sysctl value');
-assert.match(launcher, /#define IOGPU_WIRED_MIN_MB 86016LL[\s\S]*#define IOGPU_WIRED_MAX_MB 90112LL[\s\S]*#define IOGPU_WIRED_TARGET_MB IOGPU_WIRED_MIN_MB/, 'launcher should keep the approved macOS IOGPU wired-limit range and recommended target');
-assert.match(launcher, /iogpuWiredMinMb[\s\S]*iogpuWiredMaxMb/, 'diagnostics should expose the allowed IOGPU wired-limit range');
-assert.match(launcher, /json_get_int\(body, "mb", IOGPU_WIRED_MIN_MB, IOGPU_WIRED_MAX_MB, &target\)/, 'IOGPU endpoint should accept only the approved custom range');
+assert.match(launcher, /#define IOGPU_WIRED_MIN_MB 86016LL[\s\S]*#define IOGPU_WIRED_TARGET_MB IOGPU_WIRED_MIN_MB/, 'launcher should retain the minimum macOS IOGPU wired limit and default target');
+assert.doesNotMatch(launcher, /IOGPU_WIRED_MAX_MB|iogpuWiredMaxMb/, 'launcher diagnostics should not impose or advertise an app-level IOGPU maximum');
+assert.match(launcher, /json_get_int\(body, "mb", IOGPU_WIRED_MIN_MB, LONG_MAX, &target\)/, 'IOGPU endpoint should accept any integer at or above the minimum');
 assert.match(launcher, /static void api_iogpu_wired_limit\(int fd, const char \*body\)[\s\S]*LaunchDaemons\/com\.dstudio\.iogpu-wired-limit\.plist[\s\S]*launchctl bootstrap system[\s\S]*persistent\\":true/, 'launcher should apply iogpu.wired_limit_mb and install a persistent LaunchDaemon');
 assert.match(launcher, /static void api_updates_check\(int fd\)/, 'launcher should expose Update Doctor status');
 assert.match(launcher, /static void api_updates_run\(int fd, const char \*body\)/, 'launcher should expose selected Update Doctor updates');
@@ -978,6 +1046,15 @@ assert.match(launcher, /api_design_preview_file/, 'Design preview should have a 
 assert.match(launcher, /!strncmp\(path, "\/api\/design\/preview\/", 20\)/, 'Design preview route should be served by the local launcher');
 assert.match(js, /designPreviewUrl = \(name, mtime\)/, 'Design preview should build path-based URLs for iframe assets');
 assert.match(js, /Engine\.designPreviewUrl\(f\.name, f\.mtime\)/, 'Design canvas iframes should use the path-based preview route');
+assert.match(js, /Select to edit/, 'Design fullscreen should expose visual element selection');
+assert.match(js, /\[DESIGN_SELECTION_JSON\]/, 'Design visual edits should send structured target evidence to the runtime');
+assert.match(js, /el\('iframe', \{ class: 'fs-frame', sandbox: 'allow-scripts', title: f\.name \}\)/, 'Design fullscreen previews should keep generated artifacts in an opaque script sandbox');
+assert.match(designAnnotator, /dstudio:annotator:selected/, 'the isolated preview bridge should report selected DOM evidence');
+assert.match(designAnnotator, /getBoundingClientRect/, 'the preview bridge should report exact target geometry');
+assert.match(launcher, /api_design_annotator_script/, 'the launcher should serve the embedded visual-selection bridge');
+assert.match(launcher, /data-dstudio-preview-bridge/, 'annotated HTML previews should receive the isolated bridge script');
+assert.match(remoteDesign, /DESIGN_SELECTION_JSON[\s\S]*inspect_layout\(entry, selector\)[\s\S]*see_page/, 'Design should measure and visually inspect selected targets before editing');
+assert.match(windowsBuild, /design-annotator\.js[\s\S]*DESIGN_ANNOTATOR_B64/, 'Windows builds should embed the visual-selection bridge');
 assert.match(js, /if \(seq <= state\.seq\) return false;/, 'Design runtime should ignore duplicate event seqs from stream and poll');
 assert.match(js, /const reconcileTodos = \(todos\) =>/, 'Design runtime should reconcile stale todo_write checklists from real events');
 assert.match(js, /state\.donePaths\.add\(payload\.path\)/, 'Design runtime should mark file-backed todos completed from file_written events');
@@ -1084,7 +1161,10 @@ assert.match(js, /gguf:\s*isLanClientMode\(\) \? '' : modelGguf\(\)/, 'LAN Agent
 assert.match(js, /function startServer\(requestedUiMode, launchSettings = null\) \{[\s\S]*if \(isLanClientMode\(\)\)[\s\S]*setMode\(chatUiTarget\)[\s\S]*return;[\s\S]*runSwitch\('server'/, 'LAN clients must not start a local server when switching back to Chat');
 assert.match(js, /if \(!isLanClientMode\(\) && selectedGguf &&[\s\S]*!ggufIsRunning\(selectedGguf, runningModel, activeEngineDir\)\)/, 'LAN onboarding must not start a local selected model');
 assert.match(launcher, /collect_engine_checkouts\([\s\S]*api_ggufs/, 'GGUF API should aggregate every managed DS4 checkout');
-assert.match(launcher, /GGUF_SCAN_TIMEOUT_MS[\s\S]*api_ggufs_isolated_run[\s\S]*pid_t responder = fork\(\)/, 'GGUF discovery should run outside the single HTTP loop with a bounded filesystem deadline');
+assert.match(launcher, /GGUF_SCAN_TIMEOUT_MS[\s\S]*typedef struct gguf_responder[\s\S]*deadline_ms[\s\S]*pid_t responder = fork\(\)/, 'GGUF discovery should run in a tracked responder outside the single HTTP loop');
+assert.match(launcher, /gguf_responders_reap\([\s\S]*dstudio_now_ms\(\) >= r->deadline_ms[\s\S]*kill\(r->pid, SIGKILL\)/, 'GGUF responders should have a parent-enforced filesystem deadline');
+assert.match(launcher, /gguf_catalog_build_known\([\s\S]*partial[\s\S]*g_gguf_directory_scan_blocked/, 'A blocked File Provider scan should fall back to exact installed DStudio model paths');
+assert.match(launcher, /opendir_bounded\([\s\S]*O_NONBLOCK \| O_DIRECTORY[\s\S]*fdopendir/, 'GGUF enumeration should request a non-blocking directory descriptor');
 assert.match(launcher, /\\"engineDir\\":[\s\S]*\\"engineName\\":[\s\S]*\\"branch\\":[\s\S]*\\"activeEngine\\":/, 'Every GGUF row should identify its checkout, branch and active state');
 assert.match(js, /modelEngineDir/, 'Saved model selection should persist its owning checkout');
 assert.match(js, /async function selectSavedModelCheckout\(\)[\s\S]*Engine\.ggufs\(\)[\s\S]*matches\.length === 1[\s\S]*modelEngineDir: dir/, 'Every model launch should restore the saved checkout and migrate legacy model picks');
@@ -1263,8 +1343,11 @@ assert.match(js, /enginePower:\s*90[\s\S]*ssdStreaming:\s*'off'[\s\S]*metalHotli
 assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\), metalHotlistSeed: metalHotlistSeed\(\), dspark: dspark\(\) \}\)/, 'engine starts should keep SSD streaming, hotlist seed and DSpark local-only');
 assert.match(js, /function applyEngineConfig\(\)[\s\S]*Restart to apply engine settings\?[\s\S]*restartCurrent\(\)/, 'engine launch setting changes should offer to restart the active engine');
 assert.match(js, /setIogpuWiredLimit\(mb\)[\s\S]*\/api\/iogpu-wired-limit/, 'frontend should expose the IOGPU wired-limit apply endpoint');
-assert.match(html, /id="set-iogpu-limit-mb"[\s\S]*min="86016"[\s\S]*max="90112"[\s\S]*id="set-iogpu-limit"[\s\S]*Apply wired limit[\s\S]*LaunchDaemon/, 'Settings should offer a custom persistent macOS IOGPU limit action');
-assert.match(js, /const minMb = Number\(m\.iogpuWiredMinMb \|\| 86016\)[\s\S]*const maxMb = Number\(m\.iogpuWiredMaxMb \|\| 90112\)[\s\S]*const iogpuLimitRisk = m\.iogpuWiredLimitMb > maxMb/, 'memory doctor should only warn when iogpu.wired_limit_mb exceeds the approved range');
+assert.match(html, /id="set-iogpu-limit-mb"[\s\S]*min="86016"[\s\S]*id="set-iogpu-limit"[\s\S]*Apply wired limit[\s\S]*controls how many megabytes of unified memory[\s\S]*LaunchDaemon/, 'Settings should explain and expose the persistent macOS IOGPU limit action');
+assert.doesNotMatch(html.match(/<input type="number" id="set-iogpu-limit-mb"[^>]*>/)?.[0] || '', /\smax=/, 'IOGPU input should not impose an upper limit');
+assert.match(js, /const minMb = Number\(m\.iogpuWiredMinMb \|\| 86016\)[\s\S]*removeAttribute\('max'\)[\s\S]*const next = current >= minMb \? current : targetMb/, 'memory doctor should preserve any current IOGPU value at or above the minimum');
+assert.match(js, /const mb = Number\(f\.iogpuLimitMb\?\.value \|\| '86016'\)[\s\S]*!Number\.isSafeInteger\(mb\) \|\| mb < minMb/, 'IOGPU apply validation should enforce only an integer minimum');
+assert.doesNotMatch(js, /iogpuLimitRisk|iogpuAggressive|Above recommended media-headroom value|lower iogpu\.wired_limit_mb/, 'memory doctor should not warn against values solely because they exceed the former ceiling');
 assert.match(js, /function generatedFilesForMessage\(m\)[\s\S]*extractGeneratedFilesFromAssistant\(m\?\.content \|\| ''\)\.files[\s\S]*function displayContentForMessage\(m\)[\s\S]*stripGeneratedFilePayloadPreview\(m\.content\)/, 'message rendering should convert dstudio-files fences into generated file tiles instead of showing the protocol block');
 assert.match(html, /body\.composer-raised \.cbar-model-menu \{ top: calc\(100% \+ 6px\); bottom: auto; \}/, 'raised composer model menu should open downward with the other menus');
 assert.match(js, /composerTarget:\s*'chat'/, 'the composer should default to the normal Chat target');

@@ -180,7 +180,9 @@ Search runs through DStudio's local web helper, not a hosted browsing service. *
 
 </div>
 
-`ds4-agent` becomes a local coding agent: it reads and edits files, runs commands inside a working directory you choose, streams its answer while it works, folds private reasoning into a **Thought** disclosure and groups structured tool calls/results into a compact action timeline. The session header always shows the active mode, model and working folder; `/help`, `/list`, `/save`, `/new` and `/compact` remain available below the composer. A post-edit verifier catches common syntax errors immediately, so the model can repair broken code in the same turn. The same surface exposes Plan, GSA and RSA without silently turning any of them into an unrestricted autonomous mode.
+`ds4-agent` becomes a local coding agent: it reads and edits files, runs commands inside a working directory you choose, streams its answer while it works, folds private reasoning into a **Thought** disclosure and groups structured tool calls/results into a compact action timeline. Every user turn has a copy control that returns the exact visible prompt even while the transcript is updating. The session header always shows the active mode, model and working folder; `/help`, `/list`, `/save`, `/new` and `/compact` remain available below the composer. A post-edit verifier catches common syntax errors immediately, so the model can repair broken code in the same turn. The same surface exposes Plan, GSA and RSA without silently turning any of them into an unrestricted autonomous mode.
+
+Thinking defaults to **high**. Selecting **max** below its real 384k-token engine threshold explains the required context and estimated Metal residency cost before restarting; declining changes nothing, while leaving max restores the user's previous context. Existing video-quality choices and other saved Settings are preserved during that migration.
 
 ### Cowork
 
@@ -214,6 +216,8 @@ The experience is productized, but the mechanics stay inspectable: **selection**
 
 Each GSA/RSA phase is committed through a native structured control call and validated again by the host. Partial JSON streamed as prose is held in a bounded pending card and can never advance the pipeline or leak into the final answer. If a completed turn has the right work but the wrong envelope, DStudio grants one format-only recovery turn with tools disabled; a second invalid result leaves the run explicitly incomplete. The watchdog also waits while inference or a tool is genuinely active, so a slow evidence collector is not killed as an idle phase.
 
+The Agent timeline recognizes every command in the managed GSA catalog and keeps its complete effective parameters visible in both the running and completed action row. Long invocations wrap instead of being clipped. Parameter values are shown verbatim—including tokens, passwords, cookies, authorization headers and URL query values—and the expanded row retains the exact command and its output.
+
 ### RSA: reverse structure analysis
 
 RSA is the non-security reverse-structure workflow. It inventories a public site's visible routes and assets, captures ordinary browser/network evidence, maps frontend, public API, product-flow, data and infrastructure clues, and writes `STRUCTURE.MD` in the selected workspace. Claims are labeled **VERIFIED**, **INFERRED** or **UNKNOWN**; an evidence audit and final review gate prevent external guesses from being presented as private implementation facts. RSA shares GSA's managed tools but never scans, fuzzes, brute-forces or calls private endpoints outside normal navigation.
@@ -232,10 +236,10 @@ The whole pipeline, from a one-line idea to laid-out screens:
 
 - **1 · Brief and questions.** Design starts with a structured interview instead of a blank prompt: what you're making, target platform, tone, brand direction, scale and constraints.
 - **2 · Generating.** It loads the right skills/design systems, writes a short plan, builds the screens and shows live progress from real runtime events instead of raw tool noise.
-- **Reasoning control.** Design keeps true Max at the 393,216-token context floor and defaults to unlimited hidden reasoning for every tool round. Settings still offers optional 8k, 16k and 24k caps; when explicitly selected, a cap closes only the model's native `</think>` block and leaves the visible/tool response unrestricted.
+- **Reasoning control.** Thinking effort and context capacity are independent. Design honors the context selected in Settings (with a 32k minimum) even at Thinking Max instead of silently allocating 393,216 tokens. Max keeps hidden reasoning unlimited across tool rounds; the optional 8k, 16k and 24k caps close only the model's native `</think>` block and leave the visible/tool response unrestricted.
 - **3 · Proposal.** It can offer distinct directions to compare side by side, each with a name and rationale; pick one to refine or use.
 - **4 · Native visual loop.** With DeepSeek Vision-Exp or GLM 5.3, Design can generate a project-local PNG directly with Ideogram 4 or edit supplied pixels directly with HunyuanImage, then inspect the result using the same selected model and its native encoder. The composed desktop/mobile page is graded in a native multimodal turn alongside deterministic 1280/390 px DOM evidence. Text-only engines, including Laguna, do not expose this visual loop.
-- **5 · Quality gate, canvas and export.** Deterministic checks (including balanced structural HTML, visible literal-copy preservation, stale-copy removal, real horizontal overflow, overlapping controls and excessively stretched sparse panels) plus a role-weighted critique (minimum 8.5) block or warn on weak HTML before artifact registration. Every accepted screen lands on the canvas for refinement and zip export.
+- **5 · Quality gate, canvas and export.** Deterministic checks (including balanced structural HTML, visible literal-copy preservation, stale-copy removal, real horizontal overflow, overlapping controls and excessively stretched sparse panels) plus a role-weighted critique (minimum 8.5) block or warn on weak HTML before artifact registration. Every accepted screen lands on the canvas for refinement and zip export; reopening its Design conversation reconstructs that canvas from the persisted artifact instead of dropping back to transcript-only history. In the full-screen preview, **Select to edit** highlights the exact DOM element and opens a contextual comment directly beside it; choose General, Layout, Text, Style, Image or Video and send the bounded selector/text/geometry evidence back to Design. The preview stays in an opaque sandbox, while Design measures the selector and inspects the rendered page before applying a targeted revision.
 
 ## Plan: from a rough goal to a Markdown execution plan
 
@@ -261,7 +265,7 @@ The first rollout intentionally exposes real Agent/Plan/GSA/RSA graphs as **vali
 - **Self-contained native app.** The UI is one vanilla file base64-embedded in the binary. No Electron, no asset server, no CDN.
 - **Non-invasive integration.** The agent's structured output comes from a small, **reversible, build-time patch** of the engine source: DStudio backs it up, builds a separately-named binary and restores the original immediately. The current DStudio release requires this structured runtime and fails clearly if its pinned patch cannot be built.
 - **Setup doctor.** First run checks the ds4 folder, GGUF model, chat engine, Agent/Cowork/Design runtimes, Cowork's Python helper, Web Search, port and LAN state, then gives a direct fix button.
-- **Clear controls and startup state.** The composer **+** menu groups labelled attachment, workspace, Skill and workflow actions by mode. App boot and engine changes show real launcher phases, segmented progress, runtime/context/power instruments, recent structured logs and elapsed/estimated time instead of a generic spinner.
+- **Clear controls and startup state.** The composer **+** menu groups labelled attachment, workspace, Skill and workflow actions by mode. App boot and engine changes show real launcher phases, segmented progress, runtime/context/power instruments and deduplicated structured logs. Agent, Cowork and Design expose actual system-prefill token counters; an unknown prefill duration is labeled as such instead of presenting a false linear ETA.
 - **Local tools with a remote model.** The optional DeepSeek API and LAN-host backends replace inference only; Agent, Cowork, Design, GSA and RSA tools remain on the client machine with the selected workspace.
 - **Pinned and repairable runtimes.** Setup and the update center install immutable engine/media revisions, verify patch anchors, rebuild separately named runtimes and keep resumable weight transfers outside the app bundle.
 - **Configurable networking.** Localhost by default; Settings can change DStudio's web/LAN port or expose the UI on trusted Wi-Fi, while the model engine still never leaves localhost (see below).
@@ -384,6 +388,9 @@ For local development and headless runs, keep the web server explicit:
 ```sh
 make run        # build + start on http://127.0.0.1:5500
 make check-fast # deterministic unit, HTTP, UI and fixture checks; no model
+make test-ui-live-vision DSTUDIO_LIVE_URL=http://127.0.0.1:5999
+                # isolated Playwright E2E over the running saved Vision model:
+                # Chat, Agent, Cowork, Design, Learn and Settings; no H3/image job
 make test-task-graph-unit test-task-graph-http test-task-graph-bench-validate
 make check      # check-fast plus explicitly configured real-model suites
 make test-image-inference  # Ideogram/Hunyuan pinned Max-profile conformance
@@ -435,7 +442,7 @@ ds4's agent is a separate, fast-moving codebase that can't be modified permanent
 3. builds **separately named** Agent/Cowork runtimes while reusing compatible engine objects,
 4. **restores the original upstream source immediately.**
 
-The canonical `ds4-agent` source is restored after the JSONL build; the build is idempotent (a version stamp forces a rebuild only when the patch itself changes), and it self-heals on the next launch even after a crash. A patch mismatch is a startup error: DStudio does not maintain a second raw-output parser or silently downgrade the Agent. The managed runtime patches add multimodal hot-memory coordination, expose ds4's measured decode throughput, and correct GLM 5.3 streaming/catalog behavior; they are reversed/reapplied automatically around upstream pulls. (`ds4-design` is *our* code, in this repo, so it emits these events natively with no patch needed.)
+The canonical `ds4-agent` source is restored after the JSONL build; the build is idempotent (a version stamp forces a rebuild only when the patch itself changes), and it self-heals on the next launch even after a crash. A patch mismatch is a startup error: DStudio does not maintain a second raw-output parser or silently downgrade the Agent. The managed runtime patches add multimodal hot-memory coordination, expose ds4's measured decode throughput, and correct GLM 5.3 streaming/catalog behavior; they are reversed/reapplied automatically around upstream pulls. Chat also checks the actual `ds4-server` executable before launch and repairs/rebuilds it if a later plain upstream `make` removed the exact-throughput extension, so `tok/s` cannot silently disappear while the app itself remains current. (`ds4-design` is *our* code, in this repo, so it emits these events natively with no patch needed.)
 
 #### ⚠️ The patch targets DStudio's pinned ds4 commit
 
@@ -448,7 +455,7 @@ Forks that change those anchors are unsupported by that release and the Agent re
 The selected local model keeps conversation state in ds4-server's **KV cache** instead of re-encoding it from scratch every turn:
 
 - **Chat** re-sends its history behind a **stable prefix**, so the server reuses the cached prefix automatically, shown as the blue *cached* token count under each reply. The KV cache is also written **to disk**, so context survives engine restarts.
-- **Agent, Cowork & Design** get independent named KV sessions, autosaved every turn. Reopening a conversation restores its exact engine state, so threads do not share accidental context.
+- **Agent, Cowork & Design** get independent named KV sessions, autosaved every turn. Reopening a conversation restores its exact engine state, so threads do not share accidental context. Design also keeps an exact-text, model-validated cache of its bootstrap prompt: the first cold launch reports real prefill progress, while later launches restore that prefix without recomputing it. Selected Design systems and Skills are loaded by their native tools on the first user turn rather than copied wholesale into every startup prompt.
 
 ## Security
 

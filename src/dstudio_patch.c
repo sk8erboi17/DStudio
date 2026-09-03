@@ -14,10 +14,14 @@ typedef struct {
     char id[32];
     char find_path[DSTUDIO_PATH_MAX + 512];
     char replace_path[DSTUDIO_PATH_MAX + 512];
+    char modern_find_path[DSTUDIO_PATH_MAX + 512];
+    char modern_replace_path[DSTUDIO_PATH_MAX + 512];
     char laguna_find_path[DSTUDIO_PATH_MAX + 512];
     char laguna_replace_path[DSTUDIO_PATH_MAX + 512];
     char *find;
     char *replace;
+    char *modern_find;
+    char *modern_replace;
     char *laguna_find;
     char *laguna_replace;
 } ds4ui_patch_edit;
@@ -164,6 +168,8 @@ static void patch_free_set(ds4ui_patch_set *set) {
     for (int i = 0; i < set->count; i++) {
         free(set->edits[i].find);
         free(set->edits[i].replace);
+        free(set->edits[i].modern_find);
+        free(set->edits[i].modern_replace);
         free(set->edits[i].laguna_find);
         free(set->edits[i].laguna_replace);
     }
@@ -283,9 +289,45 @@ static int patch_load_set(const char *rel_dir, ds4ui_patch_set *set) {
             return 0;
         }
 
-        /* A branch may intentionally keep a different upstream function shape.
-         * Optional <id>.laguna.find/.replace files retain the same strict
-         * exactly-once contract without duplicating the complete manifest. */
+        /* Upstream and Laguna may intentionally keep different function
+         * shapes. Optional <id>.modern and <id>.laguna pairs retain the same
+         * strict exactly-once contract without duplicating the manifest. */
+        n = snprintf(leaf, sizeof leaf, "%s.modern.find", set->edits[i].id);
+        if (n < 0 || (size_t)n >= sizeof leaf ||
+            !patch_join_leaf(set, leaf, set->edits[i].modern_find_path,
+                             sizeof set->edits[i].modern_find_path)) {
+            patch_free_set(set);
+            return 0;
+        }
+        n = snprintf(leaf, sizeof leaf, "%s.modern.replace", set->edits[i].id);
+        if (n < 0 || (size_t)n >= sizeof leaf ||
+            !patch_join_leaf(set, leaf, set->edits[i].modern_replace_path,
+                             sizeof set->edits[i].modern_replace_path)) {
+            patch_free_set(set);
+            return 0;
+        }
+        int has_modern_find = access(set->edits[i].modern_find_path, R_OK) == 0;
+        int has_modern_replace = access(set->edits[i].modern_replace_path, R_OK) == 0;
+        if (has_modern_find != has_modern_replace) {
+            patch_fail("incomplete modern alternative for edit %s in %s",
+                       set->edits[i].id, set->rel_dir);
+            patch_free_set(set);
+            return 0;
+        }
+        if (has_modern_find) {
+            set->edits[i].modern_find =
+                patch_read_text(set->edits[i].modern_find_path, NULL);
+            set->edits[i].modern_replace =
+                patch_read_text(set->edits[i].modern_replace_path, NULL);
+            if (!set->edits[i].modern_find || !set->edits[i].modern_replace ||
+                !set->edits[i].modern_find[0]) {
+                patch_fail("invalid modern alternative for edit %s in %s",
+                           set->edits[i].id, set->rel_dir);
+                patch_free_set(set);
+                return 0;
+            }
+        }
+
         n = snprintf(leaf, sizeof leaf, "%s.laguna.find", set->edits[i].id);
         if (n < 0 || (size_t)n >= sizeof leaf ||
             !patch_join_leaf(set, leaf, set->edits[i].laguna_find_path,

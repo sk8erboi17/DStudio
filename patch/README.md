@@ -4,7 +4,7 @@ This directory contains the patches that DStudio applies to the upstream DS4 che
 
 Derived helper binaries use a `manifest` with ordered `NNN.find` / `NNN.replace` anchors. Small engine/server extensions use unified patches through dedicated scripts. Both paths fail explicitly when upstream anchors drift.
 
-`ds4-agent-jsonl/` builds the structured Agent and Cowork runtime without editing the selected upstream checkout in place. Native DeepSeek Vision-Exp and GLM 5.3 sessions expose `view_image` through their own encoders; Laguna S 2.1 is deliberately fail-closed and text-only, including PDF extraction. Text-only tool results stay on the normal chat-message path so an empty image list cannot be mistaken for a full context window during compaction.
+`ds4-agent-jsonl/` builds the structured Agent and Cowork runtime without editing the selected upstream checkout in place. Patch version 78 links the mandatory upstream `ds4_prompt_prefix` module so conversation-prefix conditioning is preserved in both managed runtimes. Native DeepSeek Vision-Exp and GLM 5.3 sessions expose `view_image` through their own encoders; Laguna S 2.1 is deliberately fail-closed and text-only, including PDF extraction. Text-only tool results stay on the normal chat-message path so an empty image list cannot be mistaken for a full context window during compaction.
 
 `ds4-server-metrics/usage-metrics.patch` exposes ds4's own measured decode rate in the OpenAI-compatible usage object. The UI never estimates token speed from character counts.
 

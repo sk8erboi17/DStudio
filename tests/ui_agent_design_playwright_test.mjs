@@ -30,6 +30,8 @@ let agentPollDeliveredLen = 0;
 let agentPollCaughtUp = 0;
 let holdNextNewSession = false;
 let releaseHeldNewSession = null;
+let designStartupAt = 0;
+let designAnnotationFixture = false;
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -49,12 +51,17 @@ async function readBody(req) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
   if (url.pathname === '/api/status') {
+    const designStartupMs = designStartupAt ? Date.now() - designStartupAt : Number.POSITIVE_INFINITY;
+    const designStarting = currentMode === 'design' && designStartupMs < 2200;
+    const designPrefillDone = designStartupMs < 1250 ? 0 : designStartupMs < 1750 ? 1024 : 3072;
     json(res, 200, {
       mode: currentMode,
       running: true,
-      ready: true,
-      loadPct: 100,
-      stage: 'Ready',
+      ready: !designStarting,
+      loadPct: designStarting ? (designPrefillDone ? (85 + Math.floor(designPrefillDone * 14 / 4096)) : 85) : 100,
+      stage: designStarting
+        ? (designPrefillDone ? `Prefilling ${designPrefillDone} / 4096 tokens…` : 'Prefilling the context…')
+        : 'Ready',
       agentWorking: agentPollWorking,
       agentSessionWorking: agentPollSessionWorking,
       workdir: currentWorkdir,
@@ -64,7 +71,11 @@ const server = http.createServer(async (req, res) => {
       lan: false,
       variants: { flash: true, pro: false },
       variant: 'flash',
-      engineLine: 'ui test ready',
+      engineLine: designStarting
+        ? (designPrefillDone
+          ? `ds4-design: system prefill ${designPrefillDone}/4096 tokens (180.0 tok/s)`
+          : 'ds4-design: context buffers 1392.12 MiB (ctx=65536, backend=metal)')
+        : 'ui test ready',
     });
     return;
   }
@@ -82,6 +93,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     currentMode = body.mode || 'server';
+    if (currentMode === 'design') designStartupAt = Date.now();
     if (body.workdir) currentWorkdir = body.workdir;
     json(res, 200, { ok: true });
     return;
@@ -118,6 +130,30 @@ const server = http.createServer(async (req, res) => {
           name: 'write',
           output: 'Wrote selection fixture',
         }) + '\n',
+      ].join('');
+      agentPollWorking = false;
+    }
+    if (/GSA parameter visibility fixture/.test(body.displayPrompt || '')) {
+      agentPollText += [
+        '\x01USER\x02GSA parameter visibility fixture\x01ENDUSER\x02\n',
+        '\x1e' + JSON.stringify({
+          type: 'tool_call',
+          name: 'bash',
+          input: {
+            command: 'cd "/tmp/gsa/run-1" && "/tmp/gsa/bin/katana" -u "https://example.test/start?api_key=secret-query" -d 3 -jc -timeout 20 -H "Authorization: Bearer secret-header" -o "/tmp/gsa/run-1/katana.jsonl"',
+          },
+        }) + '\n',
+        '\x1e' + JSON.stringify({
+          type: 'tool_result',
+          name: 'bash',
+          output: 'https://example.test/\nhttps://example.test/archive\n',
+        }) + '\n',
+        '\x1e' + JSON.stringify({
+          type: 'tool_call',
+          name: 'bash',
+          input: { command: 'trivy fs --scanners vuln,secret --format json --output report.json .' },
+        }) + '\n',
+        '\x1e' + JSON.stringify({ type: 'tool_result', name: 'bash', output: 'scan complete\n' }) + '\n',
       ].join('');
       agentPollWorking = false;
     }
@@ -251,6 +287,16 @@ const server = http.createServer(async (req, res) => {
       };
       releaseHeldNewSession = release;
       setTimeout(release, 15000);
+    } else if (body.action === 'new') {
+      agentPollSessionWorking = true;
+      agentPollWorking = true;
+      setTimeout(() => {
+        agentPollText += currentMode === 'design'
+          ? '\x1e' + JSON.stringify({ type: 'session_status', level: 'info', message: 'started a new session' }) + '\n'
+          : 'new session started\n';
+        agentPollWorking = false;
+        agentPollSessionWorking = false;
+      }, 120);
     }
     json(res, 200, { ok: true });
     return;
@@ -268,7 +314,35 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/api/design/files') {
-    json(res, 200, { ok: true, files: [] });
+    json(res, 200, {
+      ok: true,
+      files: designAnnotationFixture
+        ? [{ name: 'landing.html', size: 640, mtime: 1700000000 }]
+        : [],
+    });
+    return;
+  }
+  if (url.pathname === '/api/design/annotator.js') {
+    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
+    fs.createReadStream(path.join(webRoot, 'design-annotator.js')).pipe(res);
+    return;
+  }
+  if (url.pathname === '/api/design/preview/fixture.css') {
+    res.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
+    res.end('#hero-copy { color: rgb(12, 74, 110); }');
+    return;
+  }
+  if (url.pathname === '/api/design/preview/landing.html') {
+    const bridge = url.searchParams.get('annotate') === '1'
+      ? '<script src="/api/design/annotator.js" data-dstudio-preview-bridge="1"></script>'
+      : '';
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(`<!doctype html><html><head><link rel="stylesheet" href="fixture.css"><style>
+      body { margin: 0; font: 18px system-ui; background: #f8fafc; }
+      main { padding: 72px; }
+      #hero-copy { width: 520px; min-height: 110px; padding: 24px; background: white; border-radius: 20px; }
+    </style></head><body><main><section id="hero-copy"><h1>Record every creator you love.</h1><p>Selection fixture copy.</p></section></main>
+    <script>document.documentElement.dataset.fixtureScript = 'ran';</script>${bridge}</body></html>`);
     return;
   }
   if (url.pathname === '/api/fs/list' && req.method === 'POST') {
@@ -309,11 +383,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
-    chatRequests.push(JSON.parse(await readBody(req) || '{}'));
+    const chatRequest = JSON.parse(await readBody(req) || '{}');
+    chatRequests.push(chatRequest);
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-store',
     });
+    const lastText = chatRequest.messages?.at(-1)?.content || '';
+    if (lastText.includes('Test exact chat speed')) {
+      res.write('data: {"choices":[{"delta":{"content":"measured answer"},"finish_reason":null}]}\n\n');
+      res.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
+      res.write('data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12,"prompt_tokens_details":{"cached_tokens":4,"cache_write_tokens":6},"ds4":{"decode_tokens_per_second":12.34,"decode_elapsed_seconds":0.162}}}\n\n');
+      res.end('data: [DONE]\n\n');
+      return;
+    }
     await delay(250);
     res.write('data: {"choices":[{"delta":{"content":"partial answer"},"finish_reason":"stop"}]}\n\n');
     res.end();
@@ -369,6 +452,7 @@ try {
         : mode === 'cowork' ? '/tmp/dstudio-ui-cowork'
         : '/tmp/dstudio-ui-agent'
     );
+    if (sessionStorage.getItem('dstudio-ui-preserve-storage') === '1') return;
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
       v: 2,
       onboarded: true,
@@ -393,6 +477,11 @@ try {
   });
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#composer-input').fill('Test exact chat speed');
+  await page.locator('#btn-send').click();
+  await page.getByText('decode 12.3 tok/s', { exact: true }).waitFor({ timeout: 5000 });
+  assert.match(await page.locator('.msg__meta').last().textContent(), /2 tokens[\s\S]*decode 12\.3 tok\/s[\s\S]*4 cached/, 'Chat should render ds4 exact decode throughput from the final usage chunk');
+
   await page.locator('#composer-input').fill('Test incomplete chat stream');
   await page.locator('#btn-send').click();
   await page.locator('.msg__activity').waitFor({ timeout: 2000 });
@@ -400,7 +489,7 @@ try {
   assert.equal(await page.locator('.msg__rate').count(), 0, 'chat should not show an estimated live token rate');
   await page.getByText(/Response incomplete: stream ended before data: \[DONE\]/).waitFor({ timeout: 5000 });
   await page.getByRole('button', { name: 'Continue' }).waitFor({ timeout: 5000 });
-  assert.equal(chatRequests.length, 1, 'chat request should reach /v1/chat/completions');
+  assert.equal(chatRequests.length, 2, 'both complete and incomplete Chat requests should reach /v1/chat/completions');
 
   await page.locator('#tab-agent').click();
   await page.waitForFunction(() => !document.querySelector('#agent-view')?.hidden);
@@ -518,6 +607,78 @@ try {
     debugDetails,
   );
 
+  // Getting your own prompt back out must not depend on dragging a selection
+  // across a transcript that is still streaming: every user turn carries a
+  // copy button that yields the exact text the model was sent.
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const lastUserTurn = page.locator('.agent-user-turn').last();
+  const copyButton = lastUserTurn.locator('.agent-user-copy');
+  assert.equal(await copyButton.count(), 1, 'each Agent user turn should expose a copy button');
+  await copyButton.click();
+  assert.equal(
+    (await page.evaluate(() => navigator.clipboard.readText())).trim(),
+    'Selection persistence fixture',
+    'the user-turn copy button should put the prompt text on the clipboard',
+  );
+  assert.match(
+    await copyButton.textContent(),
+    /Copied/,
+    'the copy button should confirm the copy',
+  );
+
+  await page.locator('#composer-input').fill('GSA parameter visibility fixture');
+  await page.locator('#btn-send').click();
+  const katanaToolLabel = page.locator('.tool-step-label').filter({ hasText: 'Executed Katana crawl' }).last();
+  await katanaToolLabel.waitFor({ timeout: 5000 });
+  const katanaSummary = await katanaToolLabel.textContent();
+  assert.match(katanaSummary || '', /parameters: -u "https:\/\/example\.test\/start\?api_key=secret-query" -d 3 -jc -timeout 20 -H "Authorization: Bearer secret-header" -o "\/tmp\/gsa\/run-1\/katana\.jsonl"/,
+    'completed GSA actions should retain every exact tool parameter in the collapsed timeline');
+  assert.match(katanaSummary || '', /2 lines$/, 'GSA summaries should retain their compact output count after the parameters');
+  assert.match(katanaSummary || '', /secret-query.*secret-header/,
+    'GSA parameter summaries should not obscure credentials or authorization values');
+  const trivyToolLabel = page.locator('.tool-step-label').filter({ hasText: 'Executed Trivy scan' }).last();
+  await trivyToolLabel.waitFor({ timeout: 5000 });
+  assert.match(await trivyToolLabel.textContent() || '', /parameters: fs --scanners vuln,secret --format json --output report\.json \.$/,
+    'the same parameter presentation should apply beyond the original small scanner allow-list');
+  assert.equal(await katanaToolLabel.evaluate((node) => getComputedStyle(node).whiteSpace), 'normal',
+    'long GSA parameter summaries should wrap instead of being clipped');
+  await katanaToolLabel.click();
+  assert.match(await katanaToolLabel.locator('xpath=../..').locator('.tool-out').textContent() || '', /api_key=secret-query.*Authorization: Bearer secret-header/s,
+    'the expanded GSA command should also preserve the exact parameter values');
+
+  // A fresh pipe conversation must start at the current engine tail. It must
+  // never adopt a previous run's circular buffer (which can begin halfway
+  // through a status JSON frame) or render the internal /new acknowledgement.
+  agentPollText = [
+    'efill","prefillDone":3834,"prefillTotal":4256,"prefillTps":179.1,"generated":0,"ctxUsed":4256,"ctxSize":131072}\n',
+    'deleted session 71d85b92\n',
+  ].join('');
+  agentPollWorking = false;
+  agentPollSessionWorking = false;
+  agentPollDeliveredLen = 0;
+  agentPollCaughtUp = 0;
+  const sessionsBeforeFreshAgent = sessions.length;
+  await page.locator('#btn-new-chat').click();
+  await waitFor(
+    () => sessions.slice(sessionsBeforeFreshAgent).some((entry) => entry.action === 'new'),
+    'fresh Agent conversation should use the serialized session endpoint',
+    debugDetails,
+  );
+  await page.getByRole('heading', { name: /What should we build\?/ }).waitFor({ timeout: 5000 });
+  const freshAgentSurface = await page.locator('#agent-view').innerText();
+  assert.doesNotMatch(freshAgentSurface, /prefillDone|deleted session|new session started|Selection persistence fixture|\/new/,
+    'fresh Agent UI must not inherit model output or engine-maintenance chatter');
+  assert.equal(await page.locator('#btn-stop').isHidden(), true,
+    'fresh Agent conversation must be idle after its internal /new settles');
+  const freshAgentPrompt = 'Fresh Agent prompt after the previous run was closed';
+  await page.locator('#composer-input').fill(freshAgentPrompt);
+  await page.locator('#btn-send').click();
+  await waitFor(
+    () => sends.some((entry) => entry.mode === 'agent' && entry.body?.displayPrompt === freshAgentPrompt),
+    'first prompt in the fresh Agent conversation should start normally',
+    debugDetails,
+  );
+
   // Cowork deliberately shares the Agent conversation surface, but keeps its
   // document-specific actions and workspace behavior.
   agentPollText = '';
@@ -612,7 +773,28 @@ try {
   );
 
   await page.locator('#tab-design').click();
+  await page.locator('#loading-overlay').waitFor({ state: 'visible', timeout: 5000 });
+  await page.locator('#loading-stage').filter({ hasText: 'Prefilling the context' }).waitFor({ timeout: 5000 });
+  await delay(700);
+  const staticPrefillOverlay = await page.evaluate(() => ({
+    log: document.querySelector('#loading-log')?.innerText || '',
+    eta: document.querySelector('#loading-eta')?.textContent || '',
+    ctx: document.querySelector('#loading-gauge-context')?.textContent || '',
+  }));
+  assert.equal((staticPrefillOverlay.log.match(/Prefilling the context/g) || []).length, 1,
+    'repeated status polls must add the unchanged prefill stage only once');
+  assert.equal((staticPrefillOverlay.log.match(/ds4-design: context buffers/g) || []).length, 1,
+    'repeated status polls must add the unchanged engine line only once');
+  assert.equal(staticPrefillOverlay.eta, 'prefilling…',
+    'an indeterminate cold prefill must not display a fake linear ETA');
+  assert.equal(staticPrefillOverlay.ctx, '66k',
+    'the loading card should display the saved 65k Design context, not a hidden 393k override');
+  await page.waitForFunction(() => /Prefilling \d+ \/ \d+ tokens/.test(document.querySelector('#loading-stage')?.textContent || ''), null, { timeout: 5000 });
   await page.waitForFunction(() => !document.querySelector('#agent-view')?.hidden);
+  await page.locator('#loading-overlay').waitFor({ state: 'hidden', timeout: 5000 });
+  const designStart = starts.findLast((entry) => entry.mode === 'design');
+  assert.equal(designStart?.ctx, 65536,
+    'Design must pass the saved context to the launcher instead of forcing true Max context');
   await page.evaluate(() => {
     window.__designGeneratingMounts = 0;
     let visible = false;
@@ -642,15 +824,17 @@ try {
     debugDetails,
   );
   const startsBeforeNewDesign = starts.length;
+  const sessionsBeforeNewDesign = sessions.length;
+  const designListIndex = sessions.findLastIndex((entry) => entry.action === 'list');
   holdNextNewSession = true;
   await page.locator('#btn-new-chat').click();
   await waitFor(
-    () => sessions.some((s) => s.action === 'new'),
+    () => sessions.slice(sessionsBeforeNewDesign).some((s) => s.action === 'new'),
     'new design session should wait behind the in-flight session refresh',
     debugDetails,
   );
   assert.ok(
-    sessions.findIndex((s) => s.action === 'new') > sessions.findIndex((s) => s.action === 'list'),
+    sessions.findIndex((entry, index) => index >= sessionsBeforeNewDesign && entry.action === 'new') > designListIndex,
     'session commands should preserve request order',
   );
   assert.equal(starts.length, startsBeforeNewDesign, 'new design in the active workspace should not restart the design runtime');
@@ -740,6 +924,107 @@ try {
   await page.locator('#composer-input').fill('Trigger send failure');
   await page.locator('#btn-send').click();
   await page.getByText(/Design send failed: agent\/design runtime is not active/).waitFor({ timeout: 5000 });
+
+  // Full-screen artifact selection: keep the generated page interactive and
+  // sandboxed, select one exact DOM target, place the comment beside it and
+  // send bounded structured evidence without leaking it into the user bubble.
+  designAnnotationFixture = true;
+  agentPollText += '\x1e' + JSON.stringify({
+    type: 'proposal',
+    directions: [{
+      entry: 'landing.html', tag: 'A', name: 'Annotation fixture',
+      desc: 'A generated landing page ready for visual refinement.',
+    }],
+  }) + '\n';
+  const fixtureCard = page.locator('.pd-card').filter({ hasText: 'Annotation fixture' });
+  await fixtureCard.waitFor({ timeout: 5000 });
+  await fixtureCard.locator('.pd-frame-wrap').click();
+  await page.locator('#ws-fs').waitFor({ state: 'visible', timeout: 5000 });
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-fs="select"]');
+    return button && !button.disabled;
+  }, null, { timeout: 5000 });
+  const fullscreenFrame = page.locator('#ws-fs .fs-frame');
+  assert.equal(await fullscreenFrame.getAttribute('sandbox'), 'allow-scripts',
+    'annotated previews must remain opaque and must never gain allow-same-origin');
+  const fixtureFrame = page.frameLocator('#ws-fs .fs-frame');
+  const heroTarget = fixtureFrame.locator('#hero-copy');
+  await heroTarget.waitFor({ timeout: 5000 });
+  assert.equal(await fixtureFrame.locator('html').getAttribute('data-fixture-script'), 'ran',
+    'annotation instrumentation must preserve the generated page scripts');
+  assert.equal(await heroTarget.evaluate((node) => getComputedStyle(node).color), 'rgb(12, 74, 110)',
+    'annotation instrumentation must preserve project-relative stylesheets');
+
+  await page.getByRole('button', { name: /Select to edit/ }).click();
+  assert.equal(await page.locator('[data-fs="select"]').getAttribute('aria-pressed'), 'true');
+  await heroTarget.click({ position: { x: 8, y: 8 } });
+  const annotationCard = page.getByRole('form', { name: 'Visual edit comment' });
+  await annotationCard.waitFor({ state: 'visible', timeout: 5000 });
+  await page.getByText('Selected <section>', { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(await page.locator('.fs-annotation__selector').textContent(), '#hero-copy',
+    'the comment card should identify the exact selected DOM target');
+  const targetBox = await heroTarget.boundingBox();
+  const commentBox = await annotationCard.boundingBox();
+  assert.ok(targetBox && commentBox && commentBox.y >= targetBox.y + targetBox.height,
+    `the visual-edit comment should appear below the selected area: ${JSON.stringify({ targetBox, commentBox })}`);
+  assert.equal(await page.locator('.fs-annotation__type option').filter({ hasText: 'Video' }).count(), 1,
+    'the visual edit should offer a video request type');
+  await page.locator('.fs-annotation__type').selectOption('image');
+  const visualInstruction = 'Replace this copy block with a product illustration and keep the same footprint.';
+  await page.getByLabel('Describe the visual change').fill(visualInstruction);
+  await page.getByRole('button', { name: 'Send to Design' }).click();
+  await page.locator('#ws-fs').waitFor({ state: 'hidden', timeout: 5000 });
+  await waitFor(
+    () => sends.some((entry) =>
+      entry.mode === 'design' &&
+      entry.body?.displayPrompt === `Visual edit · landing.html · Image\n${visualInstruction}` &&
+      /\[DESIGN_SELECTION_JSON\]/.test(entry.body?.prompt || '') &&
+      /"entry":"landing\.html"/.test(entry.body?.prompt || '') &&
+      /"changeType":"image"/.test(entry.body?.prompt || '') &&
+      /"selector":"#hero-copy"/.test(entry.body?.prompt || '') &&
+      /inspect_layout/.test(entry.body?.prompt || '') &&
+      /see_page/.test(entry.body?.prompt || '')),
+    'the visual annotation should reach Design as bounded target evidence',
+    debugDetails,
+  );
+  const visibleVisualPrompt = sends.findLast((entry) => /Visual edit · landing\.html/.test(entry.body?.displayPrompt || ''));
+  assert.doesNotMatch(visibleVisualPrompt?.body?.displayPrompt || '', /DESIGN_SELECTION_JSON|outerHTML|"rect"/,
+    'internal selector metadata must stay out of the visible user message');
+
+  // Reopening a completed Design conversation must reconstruct and reopen its
+  // canvas from workspace files. This fixture intentionally omits the new
+  // designArtifactEntry field to exercise migration of already-saved chats.
+  await page.evaluate(() => {
+    const now = Date.now();
+    const settings = JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}');
+    settings.workdirs = { ...(settings.workdirs || {}), design: '/tmp/dstudio-ui-design' };
+    sessionStorage.setItem('dstudio-ui-preserve-storage', '1');
+    localStorage.setItem('ds4web.settings.v2', JSON.stringify(settings));
+    localStorage.setItem('ds4web.chats.v2', JSON.stringify({
+      v: 2,
+      deleted: [],
+      chats: [{
+        id: 'legacy-design-canvas', mode: 'design', title: 'Legacy completed design',
+        createdAt: now - 1000, updatedAt: now, messages: [], sessionSha: 'f1c7e2a9',
+        transcript: '\u0001USER\u0002Build the landing page\u0001ENDUSER\u0002\nRefined landing.html and verified every breakpoint.\n',
+      }],
+    }));
+    localStorage.setItem('ds4web.active.v2', JSON.stringify({
+      v: 2, ids: { chat: null, agent: null, cowork: null, design: 'legacy-design-canvas', roadmap: null },
+    }));
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('#ws-canvas').waitFor({ state: 'visible', timeout: 5000 });
+  await page.locator('.cv-board[data-name="landing.html"]').waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(
+    await page.locator('.cv-board[data-name="landing.html"]').evaluate((node) => node.classList.contains('sel')),
+    true,
+    'the restored canvas should select the artifact owned by the reopened chat',
+  );
+  await page.waitForFunction(() => {
+    const saved = JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}');
+    return saved.chats?.find((chat) => chat.id === 'legacy-design-canvas')?.designArtifactEntry === 'landing.html';
+  }, null, { timeout: 5000 });
 
   assert.ok(starts.some((s) => s.mode === 'agent'), 'agent tab should start the agent runtime');
   assert.ok(starts.some((s) => s.mode === 'cowork'), 'cowork tab should start the cowork runtime');
