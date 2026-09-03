@@ -854,6 +854,8 @@ assert.match(html, /\.msg__activity-dots[\s\S]*@keyframes msgactivity/, 'Chat st
 assert.match(js, /function assistantInitialActivity\(userMsg\)[\s\S]*Reading attached file[\s\S]*Reading sources[\s\S]*Preparing response/, 'Chat activity should describe file/source reading when applicable');
 assert.match(js, /decodeTokPerSec: Number\(u\.ds4\?\.decode_tokens_per_second\) > 0/, 'Chat should read exact decode speed from the ds4 usage extension');
 assert.doesNotMatch(js, /content\.length \+ reasoning\.length\) \/ 4/, 'Chat should not present chars/4 as live token speed');
+assert.match(launcher, /setup_ensure_server_metrics_runtime[\s\S]*setup_binary_contains_ascii\(server, "decode_tokens_per_second"\)[\s\S]*"make", "-C", g_ds4_dir, "ds4-server"/, 'Chat startup should self-heal when an upstream make replaces the metrics-enabled server');
+assert.match(launcher, /spawn_server[\s\S]*setup_ensure_server_metrics_runtime\(err, errsz\)/, 'Chat must verify exact-throughput support before launching ds4-server');
 assert.match(js, /\/gsa\s/, 'composer should expose the GSA slash command');
 assert.match(html, /id="gsa-target-panel"[\s\S]*id="gsa-target-url"/, 'Agent composer should expose an optional GSA target URL field');
 assert.match(js, /gsaTargetUrl: ''/, 'GSA target URL should be persisted as an explicit setting');

@@ -702,6 +702,94 @@ static int setup_apply_ds4_runtime_patches(void) {
            run_ext_script("scripts/apply-ds4-glm53-runtime.sh", "apply");
 }
 
+#ifndef _WIN32
+/* Search a binary as bytes: strstr() cannot cross the executable's embedded
+ * NULs. The exact usage key is part of the patched server's live format
+ * string, so this detects both a never-patched build and a later upstream
+ * `make` that overwrote DStudio's managed binary. */
+static int setup_binary_contains_ascii(const char *path, const char *needle) {
+    if (!path || !needle || !needle[0]) return 0;
+    const size_t needle_len = strlen(needle);
+    if (needle_len > 255) return 0;
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return 0;
+
+    unsigned char buf[8192 + 255];
+    size_t kept = 0;
+    int found = 0;
+    while (!found) {
+        const size_t got = fread(buf + kept, 1, 8192, fp);
+        const size_t total = kept + got;
+        if (total >= needle_len) {
+            const size_t last = total - needle_len;
+            for (size_t i = 0; i <= last; i++) {
+                if (memcmp(buf + i, needle, needle_len) == 0) {
+                    found = 1;
+                    break;
+                }
+            }
+        }
+        if (found || got == 0) break;
+        kept = total < needle_len - 1 ? total : needle_len - 1;
+        if (kept) memmove(buf, buf + total - kept, kept);
+    }
+    fclose(fp);
+    return found;
+}
+
+static int setup_server_metrics_binary_ready(void) {
+    char server[DSTUDIO_PATH_MAX + 32];
+    int n = snprintf(server, sizeof server, "%s/ds4-server", g_ds4_dir);
+    return n > 0 && (size_t)n < sizeof server && access(server, X_OK) == 0 &&
+           setup_binary_contains_ascii(server, "decode_tokens_per_second") &&
+           setup_binary_contains_ascii(server, "decode_elapsed_seconds");
+}
+#endif
+
+/* `ds4-server` is an upstream build output, so running `make` directly in the
+ * managed checkout can replace the patched executable while leaving DStudio
+ * itself completely current. Check the executable at every Chat launch and
+ * rebuild only when that capability is absent. This keeps exact tok/s
+ * reporting self-healing without adding work to normal launches. */
+static int setup_ensure_server_metrics_runtime(char *err, size_t errsz) {
+#ifdef _WIN32
+    (void)err;
+    (void)errsz;
+    return 1; /* The portable build prepares its patched server as one unit. */
+#else
+    if (setup_server_metrics_binary_ready()) return 1;
+    if (!ds4_dir_valid()) {
+        snprintf(err, errsz, "ds4 checkout is invalid; cannot prepare Chat metrics");
+        return 0;
+    }
+
+    printf("engine: ds4-server lacks exact throughput metrics; rebuilding managed runtime\n");
+    set_stage("Repairing Chat runtime metrics…", 2);
+    if (!setup_apply_ds4_runtime_patches()) {
+        snprintf(err, errsz,
+                 "could not apply the managed ds4-server metrics patch; upstream anchors may have changed");
+        return 0;
+    }
+
+    char log_tail[8192] = "";
+    char *make_argv[] = { "make", "-C", g_ds4_dir, "ds4-server", NULL };
+    int rc = setup_run_cmd_capture(NULL, make_argv, log_tail, sizeof log_tail);
+    if (rc != 0) {
+        snprintf(err, errsz,
+                 "managed ds4-server metrics rebuild failed (exit %d). Output: %.7000s",
+                 rc, log_tail[0] ? log_tail : "(no output)");
+        return 0;
+    }
+    if (!setup_server_metrics_binary_ready()) {
+        snprintf(err, errsz,
+                 "rebuilt ds4-server still lacks exact decode throughput metrics");
+        return 0;
+    }
+    printf("engine: managed ds4-server throughput metrics restored\n");
+    return 1;
+#endif
+}
+
 static int setup_restore_ds4_runtime_patches(void) {
     return run_ext_script("scripts/apply-ds4-glm53-runtime.sh", "restore") &&
            run_ext_script("scripts/apply-ds4-server-metrics.sh", "restore") &&

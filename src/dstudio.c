@@ -1420,6 +1420,7 @@ static unsigned long long dstudio_physical_memory_bytes(void);
 static long long current_model_file_size(void);
 static long long sysctl_iogpu_wired_limit_mb(void);
 static int setup_run_cmd_capture(const char *cwd, char *const argv[], char *out, size_t outsz);
+static int setup_ensure_server_metrics_runtime(char *err, size_t errsz);
 static int native_glm_vision_installed(void);
 static int native_deepseek_vision_installed(void);
 static const char *native_selected_vision_encoder(void);
@@ -4298,6 +4299,12 @@ static int resolve_dspark_file(char *out, size_t outsz) {
 }
 
 static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
+#ifndef _WIN32
+    /* A plain upstream `make` can replace the managed server with a binary
+     * that does not expose exact decode throughput. Repair that drift before
+     * launching Chat instead of silently dropping tok/s from the transcript. */
+    if (!setup_ensure_server_metrics_runtime(err, errsz)) return 0;
+#endif
     if (!file_present(current_model_rel())) {
         snprintf(err, errsz, "model %.16s not found in %.180s",
                  g_variant, g_ds4_dir);

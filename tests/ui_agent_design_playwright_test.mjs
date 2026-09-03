@@ -383,11 +383,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
-    chatRequests.push(JSON.parse(await readBody(req) || '{}'));
+    const chatRequest = JSON.parse(await readBody(req) || '{}');
+    chatRequests.push(chatRequest);
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-store',
     });
+    const lastText = chatRequest.messages?.at(-1)?.content || '';
+    if (lastText.includes('Test exact chat speed')) {
+      res.write('data: {"choices":[{"delta":{"content":"measured answer"},"finish_reason":null}]}\n\n');
+      res.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
+      res.write('data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12,"prompt_tokens_details":{"cached_tokens":4,"cache_write_tokens":6},"ds4":{"decode_tokens_per_second":12.34,"decode_elapsed_seconds":0.162}}}\n\n');
+      res.end('data: [DONE]\n\n');
+      return;
+    }
     await delay(250);
     res.write('data: {"choices":[{"delta":{"content":"partial answer"},"finish_reason":"stop"}]}\n\n');
     res.end();
@@ -468,6 +477,11 @@ try {
   });
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#composer-input').fill('Test exact chat speed');
+  await page.locator('#btn-send').click();
+  await page.getByText('decode 12.3 tok/s', { exact: true }).waitFor({ timeout: 5000 });
+  assert.match(await page.locator('.msg__meta').last().textContent(), /2 tokens[\s\S]*decode 12\.3 tok\/s[\s\S]*4 cached/, 'Chat should render ds4 exact decode throughput from the final usage chunk');
+
   await page.locator('#composer-input').fill('Test incomplete chat stream');
   await page.locator('#btn-send').click();
   await page.locator('.msg__activity').waitFor({ timeout: 2000 });
@@ -475,7 +489,7 @@ try {
   assert.equal(await page.locator('.msg__rate').count(), 0, 'chat should not show an estimated live token rate');
   await page.getByText(/Response incomplete: stream ended before data: \[DONE\]/).waitFor({ timeout: 5000 });
   await page.getByRole('button', { name: 'Continue' }).waitFor({ timeout: 5000 });
-  assert.equal(chatRequests.length, 1, 'chat request should reach /v1/chat/completions');
+  assert.equal(chatRequests.length, 2, 'both complete and incomplete Chat requests should reach /v1/chat/completions');
 
   await page.locator('#tab-agent').click();
   await page.waitForFunction(() => !document.querySelector('#agent-view')?.hidden);
