@@ -31,7 +31,6 @@ const memory = {
   iogpuWiredLimitMb: 90112,
   iogpuWiredTargetMb: 86016,
   iogpuWiredMinMb: 86016,
-  iogpuWiredMaxMb: 90112,
   ssdStreamingEffective: false,
 };
 

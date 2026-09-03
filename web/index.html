@@ -9249,10 +9249,10 @@
             </details>
             <p class="set-inline-msg set-memory-readout" id="set-memory-msg"></p>
             <div class="field__row" style="margin-top:0.45rem">
-              <input type="number" id="set-iogpu-limit-mb" min="86016" max="90112" step="1024" value="86016" aria-label="IOGPU wired limit MB">
+              <input type="number" id="set-iogpu-limit-mb" min="86016" step="1024" value="86016" aria-label="IOGPU wired limit MB">
               <button type="button" id="set-iogpu-limit" class="btn">Apply wired limit</button>
             </div>
-            <p class="set-help">Allowed range: <code>86016</code> recommended to preserve media headroom, up to <code>90112</code> for the previous aggressive value. Applies now and installs a LaunchDaemon so the value is restored after reboot.</p>
+            <p class="set-help"><code>iogpu.wired_limit_mb</code> controls how many megabytes of unified memory macOS may reserve as wired memory for the integrated GPU. Wired memory cannot be reclaimed while it is in use, allowing larger models and contexts to remain GPU-resident. Applying the value changes it immediately and installs a LaunchDaemon that restores it after reboot.</p>
           </label>
         </section>
 
@@ -25848,13 +25848,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           const notes = [];
           const targetMb = Number(m.iogpuWiredTargetMb || 86016);
           const minMb = Number(m.iogpuWiredMinMb || 86016);
-          const maxMb = Number(m.iogpuWiredMaxMb || 90112);
           if (f.iogpuLimitMb) {
             f.iogpuLimitMb.min = String(minMb);
-            f.iogpuLimitMb.max = String(maxMb);
+            f.iogpuLimitMb.removeAttribute('max');
             if (document.activeElement !== f.iogpuLimitMb) {
               const current = Number(m.iogpuWiredLimitMb || 0);
-              const next = current >= minMb && current <= maxMb ? current : targetMb;
+              const next = current >= minMb ? current : targetMb;
               f.iogpuLimitMb.value = String(next);
             }
           }
@@ -25865,15 +25864,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           const runningSsd = m.ssdStreaming || 'off';
           notes.push(`SSD streaming running ${runningSsd}${m.ssdStreamingEffective ? ' (active)' : ''}`);
           if (desiredSsd !== runningSsd) notes.push(`next restart ${desiredSsd}`);
-          const iogpuLimitRisk = m.iogpuWiredLimitMb > maxMb;
-          const iogpuAggressive = m.iogpuWiredLimitMb > targetMb && m.iogpuWiredLimitMb <= maxMb;
-          const risky = iogpuLimitRisk;
-          const hints = [];
-          if (iogpuLimitRisk) hints.push(`lower iogpu.wired_limit_mb to ${maxMb} or below`);
-          f.memoryMsg.classList.toggle('is-error', risky);
-          f.memoryMsg.textContent = risky
-            ? `${notes.join(' · ')}. Media may fail under memory pressure: ${hints.join('; ')}.`
-            : `${notes.join(' · ')}${iogpuAggressive ? '. Above recommended media-headroom value.' : ''}`;
+          f.memoryMsg.classList.remove('is-error');
+          f.memoryMsg.textContent = notes.join(' · ');
         } catch {
           f.memoryMsg.classList.add('is-error');
           f.memoryMsg.textContent = 'Memory diagnostics unavailable.';
@@ -25883,11 +25875,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       async function applyIogpuLimit() {
         if (!f.iogpuLimit || !f.memoryMsg) return;
         const minMb = Number(f.iogpuLimitMb?.min || 86016);
-        const maxMb = Number(f.iogpuLimitMb?.max || 90112);
-        const mb = Number.parseInt(f.iogpuLimitMb?.value || '86016', 10);
-        if (!Number.isFinite(mb) || mb < minMb || mb > maxMb) {
+        const mb = Number(f.iogpuLimitMb?.value || '86016');
+        if (!Number.isSafeInteger(mb) || mb < minMb) {
           f.memoryMsg.classList.add('is-error');
-          f.memoryMsg.textContent = `iogpu.wired_limit_mb must be between ${minMb} and ${maxMb}.`;
+          f.memoryMsg.textContent = `iogpu.wired_limit_mb must be an integer of at least ${minMb}.`;
           return;
         }
         const old = f.iogpuLimit.textContent;

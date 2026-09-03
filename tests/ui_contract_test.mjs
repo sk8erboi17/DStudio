@@ -997,9 +997,9 @@ assert.match(launcher, /#define TASK_RING_CAP 128/, 'launcher should keep a boun
 assert.match(launcher, /#define LOG_RING_CAP 768/, 'launcher should keep a bounded log ring buffer');
 assert.match(launcher, /static void api_diagnostics\(int fd\)/, 'launcher should expose workspace diagnostics');
 assert.match(launcher, /sysctl_iogpu_wired_limit_mb[\s\S]*len == sizeof\(int\)[\s\S]*memcpy\(&vi, &v, sizeof vi\)/, 'launcher should decode iogpu.wired_limit_mb when macOS returns a 32-bit sysctl value');
-assert.match(launcher, /#define IOGPU_WIRED_MIN_MB 86016LL[\s\S]*#define IOGPU_WIRED_MAX_MB 90112LL[\s\S]*#define IOGPU_WIRED_TARGET_MB IOGPU_WIRED_MIN_MB/, 'launcher should keep the approved macOS IOGPU wired-limit range and recommended target');
-assert.match(launcher, /iogpuWiredMinMb[\s\S]*iogpuWiredMaxMb/, 'diagnostics should expose the allowed IOGPU wired-limit range');
-assert.match(launcher, /json_get_int\(body, "mb", IOGPU_WIRED_MIN_MB, IOGPU_WIRED_MAX_MB, &target\)/, 'IOGPU endpoint should accept only the approved custom range');
+assert.match(launcher, /#define IOGPU_WIRED_MIN_MB 86016LL[\s\S]*#define IOGPU_WIRED_TARGET_MB IOGPU_WIRED_MIN_MB/, 'launcher should retain the minimum macOS IOGPU wired limit and default target');
+assert.doesNotMatch(launcher, /IOGPU_WIRED_MAX_MB|iogpuWiredMaxMb/, 'launcher diagnostics should not impose or advertise an app-level IOGPU maximum');
+assert.match(launcher, /json_get_int\(body, "mb", IOGPU_WIRED_MIN_MB, LONG_MAX, &target\)/, 'IOGPU endpoint should accept any integer at or above the minimum');
 assert.match(launcher, /static void api_iogpu_wired_limit\(int fd, const char \*body\)[\s\S]*LaunchDaemons\/com\.dstudio\.iogpu-wired-limit\.plist[\s\S]*launchctl bootstrap system[\s\S]*persistent\\":true/, 'launcher should apply iogpu.wired_limit_mb and install a persistent LaunchDaemon');
 assert.match(launcher, /static void api_updates_check\(int fd\)/, 'launcher should expose Update Doctor status');
 assert.match(launcher, /static void api_updates_run\(int fd, const char \*body\)/, 'launcher should expose selected Update Doctor updates');
@@ -1343,8 +1343,11 @@ assert.match(js, /enginePower:\s*90[\s\S]*ssdStreaming:\s*'off'[\s\S]*metalHotli
 assert.match(js, /const launchBase = \(remote = false\)[\s\S]*\.\.\.\(remote \? \{\} : \{ ssdStreaming: ssdStreaming\(\), metalHotlistSeed: metalHotlistSeed\(\), dspark: dspark\(\) \}\)/, 'engine starts should keep SSD streaming, hotlist seed and DSpark local-only');
 assert.match(js, /function applyEngineConfig\(\)[\s\S]*Restart to apply engine settings\?[\s\S]*restartCurrent\(\)/, 'engine launch setting changes should offer to restart the active engine');
 assert.match(js, /setIogpuWiredLimit\(mb\)[\s\S]*\/api\/iogpu-wired-limit/, 'frontend should expose the IOGPU wired-limit apply endpoint');
-assert.match(html, /id="set-iogpu-limit-mb"[\s\S]*min="86016"[\s\S]*max="90112"[\s\S]*id="set-iogpu-limit"[\s\S]*Apply wired limit[\s\S]*LaunchDaemon/, 'Settings should offer a custom persistent macOS IOGPU limit action');
-assert.match(js, /const minMb = Number\(m\.iogpuWiredMinMb \|\| 86016\)[\s\S]*const maxMb = Number\(m\.iogpuWiredMaxMb \|\| 90112\)[\s\S]*const iogpuLimitRisk = m\.iogpuWiredLimitMb > maxMb/, 'memory doctor should only warn when iogpu.wired_limit_mb exceeds the approved range');
+assert.match(html, /id="set-iogpu-limit-mb"[\s\S]*min="86016"[\s\S]*id="set-iogpu-limit"[\s\S]*Apply wired limit[\s\S]*controls how many megabytes of unified memory[\s\S]*LaunchDaemon/, 'Settings should explain and expose the persistent macOS IOGPU limit action');
+assert.doesNotMatch(html.match(/<input type="number" id="set-iogpu-limit-mb"[^>]*>/)?.[0] || '', /\smax=/, 'IOGPU input should not impose an upper limit');
+assert.match(js, /const minMb = Number\(m\.iogpuWiredMinMb \|\| 86016\)[\s\S]*removeAttribute\('max'\)[\s\S]*const next = current >= minMb \? current : targetMb/, 'memory doctor should preserve any current IOGPU value at or above the minimum');
+assert.match(js, /const mb = Number\(f\.iogpuLimitMb\?\.value \|\| '86016'\)[\s\S]*!Number\.isSafeInteger\(mb\) \|\| mb < minMb/, 'IOGPU apply validation should enforce only an integer minimum');
+assert.doesNotMatch(js, /iogpuLimitRisk|iogpuAggressive|Above recommended media-headroom value|lower iogpu\.wired_limit_mb/, 'memory doctor should not warn against values solely because they exceed the former ceiling');
 assert.match(js, /function generatedFilesForMessage\(m\)[\s\S]*extractGeneratedFilesFromAssistant\(m\?\.content \|\| ''\)\.files[\s\S]*function displayContentForMessage\(m\)[\s\S]*stripGeneratedFilePayloadPreview\(m\.content\)/, 'message rendering should convert dstudio-files fences into generated file tiles instead of showing the protocol block');
 assert.match(html, /body\.composer-raised \.cbar-model-menu \{ top: calc\(100% \+ 6px\); bottom: auto; \}/, 'raised composer model menu should open downward with the other menus');
 assert.match(js, /composerTarget:\s*'chat'/, 'the composer should default to the normal Chat target');

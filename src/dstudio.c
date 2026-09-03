@@ -63,7 +63,6 @@
 #define DSTUDIO_PATH_MAX PATH_MAX
 #endif
 #define IOGPU_WIRED_MIN_MB 86016LL
-#define IOGPU_WIRED_MAX_MB 90112LL
 #define IOGPU_WIRED_TARGET_MB IOGPU_WIRED_MIN_MB
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -1509,9 +1508,9 @@ static void api_diagnostics(int fd) {
              json_dyn_printf(&b, "\"enabled\":%s,\"addr\":", lan_on ? "true" : "false") &&
              json_dyn_put_escaped(&b, lan_addr) &&
              json_dyn_puts(&b, "},\"memory\":{") &&
-             json_dyn_printf(&b, "\"physicalBytes\":%llu,\"modelBytes\":%lld,\"iogpuWiredLimitMb\":%lld,\"iogpuWiredTargetMb\":%lld,\"iogpuWiredMinMb\":%lld,\"iogpuWiredMaxMb\":%lld",
+             json_dyn_printf(&b, "\"physicalBytes\":%llu,\"modelBytes\":%lld,\"iogpuWiredLimitMb\":%lld,\"iogpuWiredTargetMb\":%lld,\"iogpuWiredMinMb\":%lld",
                              phys_mem, model_bytes, iogpu_wired_mb, IOGPU_WIRED_TARGET_MB,
-                             IOGPU_WIRED_MIN_MB, IOGPU_WIRED_MAX_MB) &&
+                             IOGPU_WIRED_MIN_MB) &&
              json_dyn_printf(&b, ",\"ctx\":%d,\"power\":%d,\"designThinkTokens\":%d",
                              g_cfg.ctx, g_cfg.power, g_cfg.design_think_tokens) &&
              json_dyn_puts(&b, ",\"ssdStreaming\":\"") &&
@@ -1553,9 +1552,9 @@ static void api_diagnostics(int fd) {
 static void api_iogpu_wired_limit(int fd, const char *body) {
 #ifdef __APPLE__
     long target = IOGPU_WIRED_TARGET_MB;
-    int parsed = json_get_int(body, "mb", IOGPU_WIRED_MIN_MB, IOGPU_WIRED_MAX_MB, &target);
+    int parsed = json_get_int(body, "mb", IOGPU_WIRED_MIN_MB, LONG_MAX, &target);
     if (parsed < 0) {
-        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"unsupported iogpu.wired_limit_mb target\"}");
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"iogpu.wired_limit_mb must be an integer of at least 86016\"}");
         return;
     }
     char tmp[] = "/tmp/dstudio-iogpu-wired-limit-XXXXXX";

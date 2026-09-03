@@ -14,6 +14,7 @@ try {
 const repoRoot = process.cwd();
 const webRoot = path.join(repoRoot, 'web');
 const pageErrors = [];
+let appliedIogpuMb = null;
 
 function json(res, value, status = 200) {
   const body = JSON.stringify(value);
@@ -122,10 +123,19 @@ const server = http.createServer((req, res) => {
         iogpuWiredLimitMb: 86016,
         iogpuWiredTargetMb: 86016,
         iogpuWiredMinMb: 86016,
-        iogpuWiredMaxMb: 90112,
         ssdStreaming: 'off',
         ssdStreamingEffective: false,
       },
+    });
+    return;
+  }
+  if (url.pathname === '/api/iogpu-wired-limit' && req.method === 'POST') {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      appliedIogpuMb = JSON.parse(body).mb;
+      json(res, { ok: true, currentMb: appliedIogpuMb, persistent: true });
     });
     return;
   }
@@ -241,6 +251,16 @@ try {
   assert.equal(await page.locator('#set-pane-title').innerText(), 'Performance');
   assert.ok(await page.locator('#set-nav [data-pane="performance"]').isVisible());
   assert.equal(await page.locator('#set-nav .set-nav__b:visible').count(), 1);
+  const wiredLimit = page.locator('#set-iogpu-limit-mb');
+  assert.equal(await wiredLimit.getAttribute('min'), '86016');
+  assert.equal(await wiredLimit.getAttribute('max'), null, 'IOGPU input should not impose an upper limit');
+  await wiredLimit.fill('94112');
+  assert.equal(await wiredLimit.inputValue(), '94112', 'values above the former 90112 ceiling should remain accepted');
+  assert.match(await page.locator('.set-grp[data-pane="performance"]').innerText(), /controls how many megabytes of unified memory macOS may reserve as wired memory for the integrated GPU/i);
+  await page.locator('#set-iogpu-limit').click();
+  await page.waitForFunction(() => /set to 94112/.test(document.querySelector('#set-memory-msg')?.textContent || ''));
+  assert.equal(appliedIogpuMb, 94112, 'Apply should send a value above the former ceiling unchanged');
+  assert.equal(await page.locator('#set-memory-msg').evaluate((node) => node.classList.contains('is-error')), false);
   await page.screenshot({ path: '/tmp/dstudio-settings-performance.png' });
   await page.locator('#set-search').fill('');
 
