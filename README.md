@@ -180,7 +180,9 @@ Search runs through DStudio's local web helper, not a hosted browsing service. *
 
 </div>
 
-`ds4-agent` becomes a local coding agent: it reads and edits files, runs commands inside a working directory you choose, streams its answer while it works, folds private reasoning into a **Thought** disclosure and groups structured tool calls/results into a compact action timeline. The session header always shows the active mode, model and working folder; `/help`, `/list`, `/save`, `/new` and `/compact` remain available below the composer. A post-edit verifier catches common syntax errors immediately, so the model can repair broken code in the same turn. The same surface exposes Plan, GSA and RSA without silently turning any of them into an unrestricted autonomous mode.
+`ds4-agent` becomes a local coding agent: it reads and edits files, runs commands inside a working directory you choose, streams its answer while it works, folds private reasoning into a **Thought** disclosure and groups structured tool calls/results into a compact action timeline. Every user turn has a copy control that returns the exact visible prompt even while the transcript is updating. The session header always shows the active mode, model and working folder; `/help`, `/list`, `/save`, `/new` and `/compact` remain available below the composer. A post-edit verifier catches common syntax errors immediately, so the model can repair broken code in the same turn. The same surface exposes Plan, GSA and RSA without silently turning any of them into an unrestricted autonomous mode.
+
+Thinking defaults to **high**. Selecting **max** below its real 384k-token engine threshold explains the required context and estimated Metal residency cost before restarting; declining changes nothing, while leaving max restores the user's previous context. Existing video-quality choices and other saved Settings are preserved during that migration.
 
 ### Cowork
 
@@ -213,6 +215,8 @@ GSA gives the Agent a security-analysis operating mode instead of a loose prompt
 The experience is productized, but the mechanics stay inspectable: **selection** chooses files and hypotheses; **preflight** maps evidence, trust boundaries and safe checks; **validation** gathers concrete proof with bounded scripts or optional local tools; **report** produces a compact verdict with sources, limitations and next actions. Security profiles distinguish passive, blue-team, explicitly authorized red-team and purple-team work; the run can never infer authorization from the prompt alone. External tools are evidence helpers: DStudio shows what each one does, lets you disable it, records failed invocations and keeps a normalized evidence workbench. **Install missing** executes a supervised background installer, exposes its task/log state and refreshes the catalog automatically when it finishes.
 
 Each GSA/RSA phase is committed through a native structured control call and validated again by the host. Partial JSON streamed as prose is held in a bounded pending card and can never advance the pipeline or leak into the final answer. If a completed turn has the right work but the wrong envelope, DStudio grants one format-only recovery turn with tools disabled; a second invalid result leaves the run explicitly incomplete. The watchdog also waits while inference or a tool is genuinely active, so a slow evidence collector is not killed as an idle phase.
+
+The Agent timeline recognizes every command in the managed GSA catalog and keeps its effective parameters visible in both the running and completed action row. Long invocations wrap instead of being clipped, while tokens, passwords, cookies, authorization headers and secret URL parameters are redacted from the UI; the expanded row retains the sanitized command and its output.
 
 ### RSA: reverse structure analysis
 

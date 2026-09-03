@@ -2717,6 +2717,9 @@
     .wd-htext { flex: 1; min-width: 0; }
     .wd-title { font-family: var(--serif); font-weight: 500; font-size: 23px; color: var(--text); letter-spacing: 0; margin: 0 0 5px; }
     .wd-note { font-size: 13px; line-height: 1.55; color: var(--muted); margin: 0; }
+    /* Confirm bodies are plain text set through textContent: keep the blank
+       lines between paragraphs instead of collapsing them into one block. */
+    .wd-note--paragraphs { white-space: pre-line; }
     .wd-note strong { color: var(--text-2); font-weight: 500; }
     .wd-browser { margin: 0 24px; border: 1px solid var(--border-2); border-radius: 14px; background: var(--inset); overflow: hidden; }
     .wd-crumbs { display: flex; align-items: center; gap: 2px; padding: 9px 10px; border-bottom: 1px solid var(--border);
@@ -3148,6 +3151,9 @@
     }
     .cbar-think-item:hover { background: var(--surface-2); color: var(--text); }
     .cbar-think-item.on { background: var(--accent-soft); color: var(--text); }
+    .cbar-think-btn--underfed { border-color: rgb(234 179 8 / .45); color: #eab308; }
+    .cbar-think-btn--underfed:hover { border-color: rgb(234 179 8 / .7); color: #eab308; }
+    .cbar-think-hint { display: block; margin-top: 2px; color: var(--faint); font-size: 0.7rem; }
     .cbar-think-ck { color: var(--accent-2); opacity: 0; }
     .cbar-think-item.on .cbar-think-ck { opacity: 1; }
     .field-note { font-weight: 400; color: var(--faint); font-size: 0.72rem; }
@@ -7336,6 +7342,9 @@
       max-width: min(70%, 590px);
     }
     .agent-user-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       padding-right: 3px;
       color: var(--faint);
       font-family: var(--font-mono);
@@ -7343,6 +7352,24 @@
       font-weight: 600;
       letter-spacing: .13em;
     }
+    /* Copying your own turn must never depend on dragging a selection across a
+       transcript that is still streaming underneath the cursor. */
+    .agent-user-copy {
+      padding: 1px 7px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      letter-spacing: .1em;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity .15s, border-color .15s, color .15s;
+    }
+    .agent-user-turn:hover .agent-user-copy,
+    .agent-user-turn:focus-within .agent-user-copy,
+    .agent-user-copy.is-copied { opacity: 1; }
+    .agent-user-copy:hover { border-color: var(--accent); color: var(--accent-2); }
     .agent-user-turn .seg--user {
       max-width: 100%;
       padding: 11px 14px;
@@ -8838,7 +8865,7 @@
   <dialog id="confirm-dialog" class="dialog" aria-label="Confirm">
     <form method="dialog" class="settings">
       <h2 id="confirm-title">Are you sure?</h2>
-      <p class="wd-note" id="confirm-body"></p>
+      <p class="wd-note wd-note--paragraphs" id="confirm-body"></p>
       <div class="dialog__actions">
         <button type="button" id="confirm-cancel" class="btn">Cancel</button>
         <button type="button" id="confirm-go" class="btn btn--primary">Continue</button>
@@ -9033,6 +9060,7 @@
             <option value="65536">64k tokens</option>
             <option value="131072">128k tokens</option>
             <option value="262144">256k tokens</option>
+            <option value="393216">384k tokens</option>
             <option value="524288">512k tokens</option>
             <option value="1048576">1M tokens</option>
           </select>
@@ -9192,6 +9220,7 @@
               <option value="65536">64k tokens</option>
               <option value="131072">128k tokens</option>
               <option value="262144">256k tokens</option>
+              <option value="393216">384k tokens</option>
               <option value="524288">512k tokens</option>
               <option value="1048576">1M tokens</option>
             </select>
@@ -9752,8 +9781,12 @@
       temperature: 0.7,
       maxTokens: null,      // null = server default
       designThinkTokens: 0, // unlimited by default; optional per-round caps remain user-selectable
-      thinkLevel: 'max',    // quality-first default; user may choose off/high/max
-      qualityDefaultsVersion: 1,
+      // Thinking is NOT max by default: on this engine max only becomes real at
+      // DS4_TRUE_MAX_CONTEXT, and forcing that context can push a large model off
+      // Metal residency. 'high' is the safe default; max is an explicit choice.
+      thinkLevel: 'high',   // user may choose off/high/max
+      ctxBeforeThinkMax: 0, // context to restore when Thinking leaves max
+      qualityDefaultsVersion: 2,
       systemPrompt: '',
       composerTarget: 'chat', // 'chat' | 'h3' — H3 makes the Chat composer a direct video prompt
       videoLicenseAccepted: false,
@@ -10227,6 +10260,50 @@
     }
 
     const DS4_TRUE_MAX_CONTEXT = 393216;
+
+    /* Mirror of flash_context_memory_bytes() in src/dstudio.c: the exact Metal
+     * graph allocation for DeepSeek V4 Flash with the launcher's 1024-token
+     * prefill chunk. Kept in sync so the UI can warn BEFORE a restart instead of
+     * letting the launcher silently fall back to the lazy memory-mapped path. */
+    function flashContextMemoryBytes(ctxSize) {
+      const ctx = ctxSize > 0 ? ctxSize : 1;
+      const prefillCap = Math.min(ctx, 1024);
+      let rawCap = Math.min(128 + prefillCap, ctx);
+      rawCap = (rawCap + 255) & ~255;
+      if (rawCap > 8192) rawCap = 8192;
+      if (rawCap < 128) rawCap = Math.min(ctx, 128);
+      const comp4 = Math.floor(ctx / 4) + 2;
+      const comp128 = Math.floor(ctx / 128) + 2;
+      const raw = 43 * rawCap * 512 * 4;
+      const compressed = 21 * comp4 * (512 * 2 + 128 * 4) + 20 * comp128 * 512 * 2;
+      const scratch = 2 * comp4 * prefillCap * 4 + (Math.floor(prefillCap / 4) + 2) * 512 * 4;
+      return raw + compressed + scratch;
+    }
+
+    /* Mirror of flash_required_memory_bytes()/local_metal_budget_bytes(). Returns
+     * null when diagnostics cannot tell us enough to judge (remote engine, model
+     * size unknown, non-Apple), so callers degrade to "no machine-specific
+     * warning" rather than to a wrong one. */
+    function metalResidencyEstimate(ctxSize, memory) {
+      const GIB = 1073741824;
+      const model = Number(memory?.modelBytes || 0);
+      const physical = Number(memory?.physicalBytes || 0);
+      const wiredMb = Number(memory?.iogpuWiredLimitMb || 0);
+      if (!(model > 0) || !(physical > 0)) return null;
+      const physicalBudget = physical > 8 * GIB ? physical - 8 * GIB : 0;
+      let budget = wiredMb > 0 ? wiredMb * 1048576 : 0;
+      if (budget === 0 || (physicalBudget !== 0 && physicalBudget < budget)) budget = physicalBudget;
+      if (!(budget > 0)) return null;
+      const required = model + flashContextMemoryBytes(ctxSize) + 4 * GIB;
+      return {
+        fits: required <= budget,
+        requiredGib: required / GIB,
+        budgetGib: budget / GIB,
+        physicalGib: physical / GIB,
+        modelGib: model / GIB,
+      };
+    }
+
     const ROADMAP_AUDIT_CONFIDENCE = .8;
     const ROADMAP_CURRICULUM_DIMENSIONS = [
       'coverage', 'sequencing', 'granularity', 'practice',
@@ -11456,6 +11533,12 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     }
 
     /** Formats a token count: 850, 1.2k, 262k. */
+    /* Context windows are named in binary k by the pickers (65536 -> "64k"), so
+     * fmtK's decimal rounding would print DS4_TRUE_MAX_CONTEXT as "393k". */
+    function fmtCtxK(n) {
+      return `${Math.round((Number(n) || 0) / 1024)}k`;
+    }
+
     function fmtK(n) {
       if (n == null) return '0';
       if (n >= 10_000) return `${Math.round(n / 1000)}k`;
@@ -13371,10 +13454,17 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           state.settings = { ...DEFAULT_SETTINGS, ...settings };
           // Apply the quality-first profile once to existing installations.
           // Afterward every control remains user-selectable and persisted.
-          if ((settings.qualityDefaultsVersion || 0) < 1) {
+          //
+          // v1 also forced thinkLevel:'max'. That is why installs kept coming up
+          // in max nobody had picked — and below DS4_TRUE_MAX_CONTEXT the engine
+          // cannot even deliver it. v2 drops that: thinking is the user's choice.
+          // A level v1 already imposed is left alone rather than silently flipped
+          // a second time; the composer pill flags it when the context is too
+          // small for max to be real. This migration must not touch videoProfile
+          // either: preview/balanced/quality may be an explicit user choice.
+          if ((settings.qualityDefaultsVersion || 0) < 2) {
             Object.assign(state.settings, {
-              thinkLevel: 'max', videoProfile: 'quality',
-              qualityDefaultsVersion: 1,
+              qualityDefaultsVersion: 2,
             });
             settingsChanged = true;
           }
@@ -24147,6 +24237,62 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return btn;
       }
 
+      function commitThinkingLevel(v) {
+        if (cbarThink) {
+          cbarThink.value = v;
+          cbarThink.dispatchEvent(new Event('change'));
+          return;
+        }
+        Store.setSettings({ thinkLevel: v });
+        Switcher.applyThinkLevel();
+      }
+
+      /* ds4 only implements TRUE Thinking: max at DS4_TRUE_MAX_CONTEXT or above —
+       * below it, --think-max is accepted but the reasoning budget is not the max
+       * one. Rather than let the pill claim a level the engine will not deliver,
+       * choosing max negotiates the context first: raise it and restart, or keep
+       * the previous level. On a Mac where that context no longer fits the Metal
+       * budget the launcher silently falls back to the lazy memory-mapped path
+       * (prefill collapses), so that cost is stated before the restart, never
+       * discovered afterwards. */
+      async function confirmTrueThinkingMax() {
+        const settings = Store.getSettings();
+        const current = Number(settings.ctxSize) || 0;
+        if (current >= DS4_TRUE_MAX_CONTEXT) return true;
+        let memory = null;
+        try { memory = (await Engine.diagnostics())?.memory || null; }
+        catch { /* diagnostics are best-effort: fall back to the generic prompt */ }
+        const estimate = metalResidencyEstimate(DS4_TRUE_MAX_CONTEXT, memory);
+        const body = [
+          `Thinking: max is only the real maximum from ${fmtCtxK(DS4_TRUE_MAX_CONTEXT)} of context; you are at ${fmtCtxK(current)}.`,
+          `Raising the context to ${fmtCtxK(DS4_TRUE_MAX_CONTEXT)} restarts the engine — your conversation is kept, and leaving max later restores ${fmtCtxK(current)}.`,
+          estimate && !estimate.fits
+            ? `On this Mac (${Math.round(estimate.physicalGib)} GB RAM, ${estimate.modelGib.toFixed(1)} GiB model) that context needs about ${estimate.requiredGib.toFixed(1)} GiB against a ${estimate.budgetGib.toFixed(1)} GiB Metal budget. The model drops off full residency onto the memory-mapped path, so prefill and decode get much slower.`
+            : '',
+        ].filter(Boolean).join('\n\n');
+        const yes = await askConfirm({
+          title: `Raise the context to ${fmtCtxK(DS4_TRUE_MAX_CONTEXT)} for Thinking: max?`,
+          body,
+          cta: `Raise to ${fmtCtxK(DS4_TRUE_MAX_CONTEXT)} and restart`,
+        });
+        if (!yes) return false;
+        Store.setSettings({ ctxSize: DS4_TRUE_MAX_CONTEXT, ctxBeforeThinkMax: current });
+        return true;
+      }
+
+      /* Leaving max gives the context back: the widening was a means to an end,
+       * so it must not outlive the setting that asked for it. */
+      function restoreContextAfterThinkingMax() {
+        const settings = Store.getSettings();
+        const previous = Number(settings.ctxBeforeThinkMax) || 0;
+        if (!previous || Number(settings.ctxSize) !== DS4_TRUE_MAX_CONTEXT) {
+          if (previous) Store.setSettings({ ctxBeforeThinkMax: 0 });
+          return false;
+        }
+        Store.setSettings({ ctxSize: previous, ctxBeforeThinkMax: 0 });
+        return true;
+      }
+
       function setThinkingLevel(v) {
         if (curMode === 'roadmap') {
           toast('Roadmaps use true Thinking: max with a temporary 384k+ local context.', 'info');
@@ -24156,18 +24302,31 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         // The GSA/RSA thinking lock only applies where guided analysis actually
         // runs (agent mode) — the persisted gsa/rsa flags must not block the
         // thinking picker in chat or design.
+        let forcedMax = false;
         if (Switcher.mode() === 'agent' &&
             (Store.getSettings().gsaMode === 'on' || Store.getSettings().gsaLoop === 'on' || Store.getSettings().rsaMode === 'on') && v !== 'max') {
           v = 'max';
+          forcedMax = true;
           toast('Guided analysis always runs with Thinking: max.', 'info');
         }
-        if (cbarThink) {
-          cbarThink.value = v;
-          cbarThink.dispatchEvent(new Event('change'));
+        // Only a deliberate pick negotiates the context. Someone who just tried
+        // to LOWER thinking under guided analysis is not asking to restart the
+        // engine at a bigger context; the pill flags the mismatch instead.
+        if (v === 'max' && !forcedMax) {
+          const before = Number(Store.getSettings().ctxSize) || 0;
+          confirmTrueThinkingMax().then((ok) => {
+            if (!ok) { renderThinkingPill(); return; }   // declined: keep the previous level
+            commitThinkingLevel('max');
+            // The restart was part of what the user just agreed to, so it is not
+            // put to them a second time.
+            if ((Number(Store.getSettings().ctxSize) || 0) !== before) Switcher.restartCurrent();
+          });
           return;
         }
-        Store.setSettings({ thinkLevel: v });
-        Switcher.applyThinkLevel();
+        commitThinkingLevel(v);
+        // Giving the context back does need its own restart prompt: the user
+        // asked to leave max, not to reload the engine.
+        if (restoreContextAfterThinkingMax()) Switcher.applyCtxSize();
       }
 
       let thinkMenuOpen = false;
@@ -24187,19 +24346,29 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       function renderThinkingPill() {
         if (!cbarThinkWrap) return;
         const roadmapLocked = curMode === 'roadmap';
-        const value = roadmapLocked ? 'max' : (Store.getSettings().thinkLevel || 'max');
+        const value = roadmapLocked ? 'max' : (Store.getSettings().thinkLevel || 'high');
+        // A settings file written before the context gate existed (or a remote
+        // command) can leave max selected below the context ds4 needs for it.
+        // The pill says so rather than claiming a level the engine is not running.
+        const ctxNow = Number(Store.getSettings().ctxSize) || 0;
+        const maxUnderfed = !roadmapLocked && value === 'max' && ctxNow < DS4_TRUE_MAX_CONTEXT;
+        const label = roadmapLocked
+          ? 'Thinking: max · 384k+'
+          : maxUnderfed ? `${thinkLabel(value)} · needs ${fmtCtxK(DS4_TRUE_MAX_CONTEXT)}` : thinkLabel(value);
         const btn = el('button', {
-          class: `cbar-think-btn${thinkMenuOpen ? ' open' : ''}${roadmapLocked ? ' cbar-think-btn--locked' : ''}`,
+          class: `cbar-think-btn${thinkMenuOpen ? ' open' : ''}${roadmapLocked ? ' cbar-think-btn--locked' : ''}${maxUnderfed ? ' cbar-think-btn--underfed' : ''}`,
           type: 'button',
           'aria-haspopup': roadmapLocked ? 'false' : 'true',
           'aria-expanded': thinkMenuOpen ? 'true' : 'false',
           title: roadmapLocked
             ? 'Roadmaps temporarily run the local engine at 384k+ context so Thinking max is effective; your normal Chat context setting is preserved'
+            : maxUnderfed
+            ? `ds4 only runs the real Thinking: max from ${fmtCtxK(DS4_TRUE_MAX_CONTEXT)} of context — you are at ${fmtCtxK(ctxNow)}. Pick max again to raise the context and restart.`
             : agentMode
             ? 'Reasoning level - changing it restarts the engine (your conversation is kept)'
             : 'Reasoning level - applies from the next message',
         }, [
-          el('span', { class: 'cbar-think-label', text: roadmapLocked ? 'Thinking: max · 384k+' : thinkLabel(value) }),
+          el('span', { class: 'cbar-think-label', text: label }),
           el('span', { class: 'cbar-think-cv', text: roadmapLocked ? 'locked' : '▾' }),
         ]);
         on(btn, 'click', (e) => {
@@ -24221,13 +24390,20 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             role: 'menuitemradio',
             'aria-checked': opt.value === value ? 'true' : 'false',
           }, [
-            el('span', { text: opt.label }),
+            el('span', {}, [
+              el('span', { text: opt.label }),
+              opt.value === 'max' && ctxNow < DS4_TRUE_MAX_CONTEXT
+                ? el('span', { class: 'cbar-think-hint', text: `needs ${fmtCtxK(DS4_TRUE_MAX_CONTEXT)} context` })
+                : null,
+            ].filter(Boolean)),
             el('span', { class: 'cbar-think-ck', text: '✓' }),
           ]);
           on(item, 'click', (e) => {
             e.stopPropagation();
             thinkMenuOpen = false;
-            if (opt.value !== value) setThinkingLevel(opt.value);
+            // Re-picking max while it is underfed is a deliberate retry of the
+            // context negotiation, so it must not be short-circuited as a no-op.
+            if (opt.value !== value || (opt.value === 'max' && maxUnderfed)) setThinkingLevel(opt.value);
             else renderThinkingPill();
           });
           menu.append(item);
@@ -26041,6 +26217,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const ceil = Math.max(cap || 0, 1048576);
         if (s.ctxSize > ceil) {
           f.ctxNote.textContent = `· model max ${fmtK(ceil)} — will be clamped`;
+        } else if (s.thinkLevel === 'max' && (Number(s.ctxSize) || 0) < DS4_TRUE_MAX_CONTEXT) {
+          // Thinking is set to max but the engine cannot deliver it at this
+          // context: say so where the context is chosen, not only in the picker.
+          f.ctxNote.textContent =
+            `· Thinking: max needs ${fmtCtxK(DS4_TRUE_MAX_CONTEXT)} — at ${fmtCtxK(s.ctxSize)} ds4 runs a lower reasoning budget`;
         } else {
           f.ctxNote.textContent = '· restarts the engine, keeps the chat';
         }
@@ -29255,9 +29436,19 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       function buildAgentUserTurn(text, pending = false) {
         const parsed = parseCoworkDisplayAttachments(text);
+        const body = parsed.clean || (parsed.attachments.length ? 'Attached files' : '');
+        const copy = el('button', {
+          class: 'agent-user-copy', type: 'button',
+          title: 'Copy this message', text: 'COPY',
+        });
+        on(copy, 'click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          copyTextToClipboard(copy, parsed.clean || body);
+        });
         return el('div', { class: `agent-user-turn${pending ? ' is-pending' : ''}` }, [
-          el('div', { class: 'agent-user-meta', text: 'YOU' }),
-          el('div', { class: 'seg seg--user', text: parsed.clean || (parsed.attachments.length ? 'Attached files' : '') }),
+          el('div', { class: 'agent-user-meta' }, [el('span', { text: 'YOU' }), copy]),
+          el('div', { class: 'seg seg--user', text: body }),
           parsed.attachments.length ? buildAgentUserAttachments(parsed.attachments) : null,
         ].filter(Boolean));
       }
@@ -31455,27 +31646,193 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         view_image: '◉ views image',
       };
 
-      const SECURITY_COMMAND_LABELS = [
-        [/\bkatana\b/i, 'Katana crawl'],
-        [/\bhttpx\b/i, 'HTTP probe (httpx)'],
-        [/\bnaabu\b/i, 'port probe (Naabu)'],
-        [/\bnuclei\b/i, 'Nuclei scan'],
-        [/\bsemgrep\b/i, 'Semgrep scan'],
-        [/\bplaywright\b/i, 'Playwright flow'],
-        [/\bsqlmap\b/i, 'SQLMap validation'],
-        [/\bffuf\b/i, 'FFUF discovery'],
-        [/\bsubfinder\b/i, 'subdomain discovery (Subfinder)'],
-        [/\bassetfinder\b/i, 'subdomain discovery (Assetfinder)'],
-        [/\bdnsx\b/i, 'DNS probe (dnsx)'],
-        [/\bnmap\b/i, 'Nmap scan'],
-        [/\bcurl\b/i, 'HTTP probe (curl)'],
+      // Keep this list aligned with extension/gsa/tools/catalog.json. External
+      // GSA commands arrive through the generic shell tool, so the timeline
+      // must recover both their human name and their effective arguments.
+      const GSA_COMMAND_SPECS = [
+        { aliases: ['subfinder'], label: 'Subfinder enumeration' },
+        { aliases: ['assetfinder'], label: 'Assetfinder enumeration' },
+        { aliases: ['httpx'], label: 'HTTP probe (httpx)' },
+        { aliases: ['nuclei'], label: 'Nuclei scan' },
+        { aliases: ['dnsx'], label: 'DNS probe (dnsx)' },
+        { aliases: ['naabu'], label: 'port probe (Naabu)' },
+        { aliases: ['katana'], label: 'Katana crawl' },
+        { aliases: ['tlsx'], label: 'TLS probe (tlsx)' },
+        { aliases: ['mapcidr'], label: 'CIDR expansion (mapcidr)' },
+        { aliases: ['alterx'], label: 'subdomain permutations (alterx)' },
+        { aliases: ['ffuf'], label: 'FFUF discovery' },
+        { aliases: ['gobuster'], label: 'Gobuster discovery' },
+        { aliases: ['gau'], label: 'archived URL collection (gau)' },
+        { aliases: ['hakrawler'], label: 'Hakrawler crawl' },
+        { aliases: ['dalfox'], label: 'Dalfox XSS scan' },
+        { aliases: ['sqlmap', 'sqlmap.py'], label: 'SQLMap validation' },
+        { aliases: ['arjun', 'arjun.py'], label: 'Arjun parameter discovery' },
+        { aliases: ['uro'], label: 'URL normalization (uro)' },
+        { aliases: ['playwright'], label: 'Playwright flow' },
+        { aliases: ['semgrep'], label: 'Semgrep scan' },
+        { aliases: ['trivy'], label: 'Trivy scan' },
+        { aliases: ['syft'], label: 'Syft SBOM' },
+        { aliases: ['grype'], label: 'Grype scan' },
+        { aliases: ['log2timeline', 'log2timeline.py', 'psort', 'psort.py', 'pinfo', 'pinfo.py', 'plaso'], label: 'Plaso timeline' },
+        { aliases: ['vol', 'vol.py', 'volatility3'], label: 'Volatility analysis' },
+        { aliases: ['yara'], label: 'YARA scan' },
+        { aliases: ['binwalk'], label: 'Binwalk analysis' },
+        { aliases: ['tshark'], label: 'Tshark analysis' },
+        { aliases: ['zeek'], label: 'Zeek analysis' },
+        { aliases: ['nmap'], label: 'Nmap scan' },
+        { aliases: ['rizin', 'rz-bin', 'rz-find'], label: 'Rizin analysis' },
+        { aliases: ['radare2', 'r2'], label: 'Radare2 analysis' },
+        { aliases: ['gdb'], label: 'GDB session' },
+        { aliases: ['pwn', 'pwntools'], label: 'Pwntools helper' },
+        { aliases: ['exiftool'], label: 'ExifTool metadata' },
+        { aliases: ['jq'], label: 'jq processing' },
       ];
+      const SUPPORT_COMMAND_SPECS = [
+        { aliases: ['curl'], label: 'HTTP probe (curl)' },
+      ];
+      const SHELL_INSPECTION_COMMANDS = new Set([
+        'cat', 'echo', 'find', 'grep', 'head', 'ls', 'printf', 'rg', 'sed',
+        'stat', 'tail', 'type', 'wc', 'whereis', 'which',
+      ]);
+      const SECRET_PARAMETER_RE = /^(?:--?)?(?:api[-_]?key|access[-_]?token|auth(?:orization)?|bearer|client[-_]?secret|cookie|pass(?:word|wd)?|secret|session(?:[-_]?id)?|token)(?:=|$)/i;
+      const SECRET_ASSIGNMENT_RE = /^((?:api[-_]?key|access[-_]?token|auth(?:orization)?|client[-_]?secret|cookie|pass(?:word|wd)?|secret|session(?:[-_]?id)?|token)=)/i;
+      const SECRET_QUERY_RE = /([?&](?:api[-_]?key|access[-_]?token|auth(?:orization)?|client[-_]?secret|cookie|pass(?:word|wd)?|secret|session(?:[-_]?id)?|token)=)[^&#\s"']*/gi;
+
+      function shellSegments(command) {
+        const value = String(command || '');
+        const segments = [];
+        let start = 0;
+        let quote = '';
+        let escaped = false;
+        for (let i = 0; i < value.length; i++) {
+          const ch = value[i];
+          if (escaped) { escaped = false; continue; }
+          if (ch === '\\' && quote !== "'") { escaped = true; continue; }
+          if (quote) {
+            if (ch === quote) quote = '';
+            continue;
+          }
+          if (ch === "'" || ch === '"' || ch === '`') { quote = ch; continue; }
+          const pair = value.slice(i, i + 2);
+          const boundary = ch === '\n' || ch === ';' || ch === '|' || pair === '&&' || pair === '||';
+          if (!boundary) continue;
+          if (value.slice(start, i).trim()) segments.push({ text: value.slice(start, i), start });
+          i += pair === '&&' || pair === '||' ? 1 : 0;
+          start = i + 1;
+        }
+        if (value.slice(start).trim()) segments.push({ text: value.slice(start), start });
+        return segments;
+      }
+
+      function shellWords(segment) {
+        const value = String(segment || '');
+        const words = [];
+        let i = 0;
+        while (i < value.length) {
+          while (i < value.length && /\s/.test(value[i])) i++;
+          if (i >= value.length) break;
+          const start = i;
+          let quote = '';
+          let escaped = false;
+          for (; i < value.length; i++) {
+            const ch = value[i];
+            if (escaped) { escaped = false; continue; }
+            if (ch === '\\' && quote !== "'") { escaped = true; continue; }
+            if (quote) {
+              if (ch === quote) quote = '';
+              continue;
+            }
+            if (ch === "'" || ch === '"') { quote = ch; continue; }
+            if (/\s/.test(ch)) break;
+          }
+          const raw = value.slice(start, i);
+          const unquoted = raw.length >= 2 && ((raw[0] === '"' && raw.at(-1) === '"') || (raw[0] === "'" && raw.at(-1) === "'"))
+            ? raw.slice(1, -1) : raw;
+          words.push({ raw, value: unquoted.replace(/\\([\\\s"'])/g, '$1'), start, end: i });
+        }
+        return words;
+      }
+
+      function commandWordName(word) {
+        return String(word || '').replace(/\\/g, '/').split('/').pop().toLowerCase();
+      }
+
+      function findCommandSpec(command, specs) {
+        const aliases = new Map();
+        for (const spec of specs) for (const alias of spec.aliases) aliases.set(alias.toLowerCase(), spec);
+        for (const segment of shellSegments(command)) {
+          const words = shellWords(segment.text);
+          if (!words.length) continue;
+          const first = commandWordName(words[0].value);
+          if (SHELL_INSPECTION_COMMANDS.has(first)) continue;
+          if (first === 'command' && words[1]?.value === '-v') continue;
+          for (const word of words) {
+            const spec = aliases.get(commandWordName(word.value));
+            if (spec) return { spec, segment, word };
+          }
+        }
+        return null;
+      }
+
+      function redactShellToken(token) {
+        let value = String(token || '');
+        value = value.replace(/(https?:\/\/)[^\s/@:"']+:[^\s/@"']+@/gi, '$1[redacted]@');
+        value = value.replace(SECRET_QUERY_RE, '$1[redacted]');
+        if (SECRET_ASSIGNMENT_RE.test(value)) value = value.replace(SECRET_ASSIGNMENT_RE, '$1') + '[redacted]';
+        if (/^(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key):/i.test(value.replace(/^["']/, '')))
+          return '[redacted header]';
+        return value;
+      }
+
+      function safeShellText(text) {
+        const words = shellWords(String(text || ''));
+        const rendered = [];
+        let redactNext = false;
+        let headerNext = false;
+        for (const word of words) {
+          let token = word.raw;
+          if (redactNext) {
+            token = '[redacted]';
+            redactNext = false;
+          } else if (headerNext) {
+            token = /^(?:["']?)(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key):/i.test(token)
+              ? '[redacted header]' : redactShellToken(token);
+            headerNext = false;
+          } else if (/^(?:-H|--header)$/i.test(token)) {
+            headerNext = true;
+          } else if (SECRET_PARAMETER_RE.test(token)) {
+            if (token.includes('=')) token = token.slice(0, token.indexOf('=') + 1) + '[redacted]';
+            else redactNext = true;
+          } else {
+            token = redactShellToken(token);
+          }
+          rendered.push(token);
+        }
+        return rendered.join(' ').trim();
+      }
+
+      function semanticCommandInfo(ev) {
+        if (ev?.name !== 'bash' && ev?.name !== 'shell') return null;
+        const command = String(ev.input?.command || ev.input?.cmd || '');
+        const found = findCommandSpec(command, GSA_COMMAND_SPECS) || findCommandSpec(command, SUPPORT_COMMAND_SPECS);
+        if (!found) return null;
+        const rawParameters = found.segment.text.slice(found.word.end).trim();
+        return {
+          label: found.spec.label,
+          parameters: safeShellText(rawParameters) || 'none',
+          command: safeShellText(command),
+        };
+      }
 
       function semanticCommandLabel(ev) {
-        if (ev?.name !== 'bash' && ev?.name !== 'shell') return '';
-        const inp = ev.input || {};
-        const command = String(inp.command || inp.cmd || '');
-        return SECURITY_COMMAND_LABELS.find(([re]) => re.test(command))?.[1] || '';
+        return semanticCommandInfo(ev)?.label || '';
+      }
+
+      function semanticCommandSummary(ev, live, lineCount = 0) {
+        const info = semanticCommandInfo(ev);
+        if (!info) return '';
+        const lines = lineCount > 1 ? ` · ${lineCount} lines` : '';
+        return `${live ? 'Executing' : 'Executed'} ${info.label} · parameters: ${info.parameters}${lines}`;
       }
 
       function cleanToolPath(value) {
@@ -31486,8 +31843,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const name = ev.name || 'tool';
         const inp = ev.input || {};
         if (name === 'bash' || name === 'shell') {
-          const semantic = semanticCommandLabel(ev);
-          if (semantic) return { mono: false, text: semantic };
+          const semantic = semanticCommandInfo(ev);
+          if (semantic) return { mono: false, text: `${semantic.label} · parameters: ${semantic.parameters}` };
           return { mono: true, text: `$ ${inp.command || inp.cmd || ''}`.trimEnd() };
         }
         if (name === 'skill' || name === 'craft' || name === 'design_system') {
@@ -31535,9 +31892,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
 
       function toolStepSummary(ev, live = false) {
-        const semantic = semanticCommandLabel(ev);
+        const semantic = semanticCommandSummary(ev, live);
         let label = toolHead(ev).text.replace(TOOL_EMOJI_RE, '').trim() || ev.name || 'tool';
-        if (semantic) label = `${live ? 'Executing' : 'Executed'} ${semantic}`;
+        if (semantic) label = semantic;
         if ((ev.name === 'view_image' || ev.name === 'see_image') && live)
           label = `Viewing image · ${cleanToolPath(ev.input?.path || ev.input?.file || '').split('/').pop() || 'image'}`;
         return el('summary', {}, [
@@ -31559,8 +31916,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const n = out.split('\n').filter((l) => l.trim()).length;
         const label = fold.querySelector('.tool-step-label');
         if (label) {
-          const semantic = semanticCommandLabel(fold._toolEvent);
-          if (semantic) label.textContent = `Executed ${semantic}${n > 1 ? ` · ${n} lines` : ''}`;
+          const semantic = semanticCommandSummary(fold._toolEvent, false, n);
+          if (semantic) label.textContent = semantic;
           else if (n > 1) label.textContent += ` · ${n} lines`;
         }
         const status = fold.querySelector('.tool-step-status');
@@ -31573,7 +31930,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           text: out.split('\n').map((line) => line.trim()).find(Boolean) || 'complete',
         }));
         const command = fold._toolEvent && (fold._toolEvent.name === 'bash' || fold._toolEvent.name === 'shell')
-          ? String(fold._toolEvent.input?.command || fold._toolEvent.input?.cmd || '').trim()
+          ? safeShellText(String(fold._toolEvent.input?.command || fold._toolEvent.input?.cmd || '').trim())
           : '';
         fold.append(el('pre', { class: 'tool-out', text: command ? `$ ${command}\n\n${out}` : out }));
       }
@@ -31581,6 +31938,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // Result with no preceding call in the delta (e.g. cut transcript).
       function buildResultFold(ev) {
         const d = el('details', { class: 'thinking toolfold' + toolKindClass(ev.name), 'data-complete': 'true' });
+        d._toolEvent = ev;
         d.append(toolStepSummary(ev, false));
         attachToolOutput(d, ev);
         return d;
@@ -33825,7 +34183,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         ...(remote ? {} : { ssdStreaming: ssdStreaming(), metalHotlistSeed: metalHotlistSeed(), dspark: dspark() }),
       });
       const variant = () => Store.getSettings().modelVariant || 'flash';
-      const thinkLevel = () => Store.getSettings().thinkLevel || 'max';
+      const thinkLevel = () => Store.getSettings().thinkLevel || 'high';
       const designThinkTokens = () => {
         const value = Number(Store.getSettings().designThinkTokens);
         return Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;

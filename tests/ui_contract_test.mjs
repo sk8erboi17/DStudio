@@ -668,6 +668,17 @@ assert.match(launcher, /\/api\/gsa\/tools\/install/, 'router should serve /api/g
 assert.ok(Array.isArray(gsaToolCatalog.tools), 'GSA tool catalog should be a JSON tools array');
 assert.ok(gsaToolCatalog.tools.length >= 30, 'GSA tool catalog should keep the managed tool set in JSON');
 assert.ok(gsaToolCatalog.tools.every((tool) => tool.name && tool.category && tool.aliases && tool.install && tool.notes), 'Every GSA tool catalog entry should carry required fields');
+const gsaCommandSpecs = html.slice(html.indexOf('const GSA_COMMAND_SPECS = ['), html.indexOf('const SUPPORT_COMMAND_SPECS = ['));
+assert.ok(gsaCommandSpecs.length > 0, 'Agent timeline should declare semantic command specs for GSA tools');
+for (const tool of gsaToolCatalog.tools) {
+  const aliases = String(tool.aliases || '').split('|').filter(Boolean);
+  assert.ok(aliases.some((alias) => gsaCommandSpecs.includes(`'${alias}'`)),
+    `Agent timeline should recognize the catalog command for ${tool.name}`);
+}
+assert.match(html, /function semanticCommandSummary\(ev, live, lineCount = 0\)[\s\S]*parameters:/,
+  'GSA shell actions should keep effective parameters in both live and completed timeline summaries');
+assert.match(html, /function safeShellText\(text\)[\s\S]*redactNext[\s\S]*redacted header/,
+  'GSA parameter summaries should redact secret flags and sensitive request headers');
 assert.match(gsaRuntimeSource, /static int gsa_load_tool_catalog/, 'GSA runtime should load the tool catalog from JSON');
 assert.doesNotMatch(gsaRuntimeSource, /GSA_TOOL_SPECS/, 'GSA runtime should not keep the old compiled-in tool catalog');
 assert.match(gsaRuntime, /mode\\":\\"tool-assisted/, 'GSA tool status should explicitly be tool-assisted');
@@ -817,6 +828,24 @@ assert.match(js, /AgentView\.send\(res\.prompt,[\s\S]*\{ forceThink: 'max' \}\)/
 assert.match(js, /function wirePromptForRuntime\(prompt, forceThink = ''\)[\s\S]*runtimeThinkControlFrame\(forceThink\) \+ prompt/, 'Runtime prompt wiring should support forced thinking for GSA');
 assert.match(js, /Store\.setSettings\(\{ gsaMode: v,[\s\S]*thinkLevel: 'max'/, 'Enabling GSA should move the composer thinking pill to max');
 assert.match(js, /Guided analysis always runs with Thinking: max/, 'Thinking selector should reject lowering guided analysis below max');
+// Thinking: max only becomes real at DS4_TRUE_MAX_CONTEXT, so it must be an
+// explicit choice that negotiates the context — never an imposed default.
+assert.match(js, /thinkLevel: 'high',\s*\/\/ user may choose off\/high\/max/, 'a fresh profile should default to high thinking, not max');
+assert.doesNotMatch(js, /thinkLevel: 'max', videoProfile: 'quality'/, 'the quality-defaults migration must not impose Thinking: max on existing installs');
+assert.match(js, /qualityDefaultsVersion \|\| 0\) < 2[\s\S]*qualityDefaultsVersion: 2/, 'the quality-defaults migration should advance past the version that imposed max');
+assert.doesNotMatch(js, /qualityDefaultsVersion \|\| 0\) < 2[\s\S]{0,180}videoProfile:/, 'the thinking migration must preserve an explicitly selected video profile');
+assert.match(js, /async function confirmTrueThinkingMax\(\)[\s\S]*current >= DS4_TRUE_MAX_CONTEXT[\s\S]*Store\.setSettings\(\{ ctxSize: DS4_TRUE_MAX_CONTEXT, ctxBeforeThinkMax: current \}\)/, 'choosing max below the minimum context should offer to raise it and remember the previous value');
+assert.match(js, /function restoreContextAfterThinkingMax\(\)[\s\S]*Store\.setSettings\(\{ ctxSize: previous, ctxBeforeThinkMax: 0 \}\)/, 'leaving max should hand the original context back');
+assert.match(js, /if \(!ok\) \{ renderThinkingPill\(\); return; \}\s*\/\/ declined: keep the previous level/, 'declining the context raise must leave the thinking level untouched');
+assert.match(js, /function metalResidencyEstimate\(ctxSize, memory\)[\s\S]*required <= budget/, 'the UI should estimate Metal residency before proposing a bigger context');
+assert.match(js, /function flashContextMemoryBytes\(ctxSize\)[\s\S]*43 \* rawCap \* 512 \* 4/, 'the UI estimate should mirror flash_context_memory_bytes from the launcher');
+assert.match(js, /drops off full residency onto the memory-mapped path/, 'the max prompt should state the residency cost when the raised context no longer fits');
+assert.match(js, /maxUnderfed = !roadmapLocked && value === 'max' && ctxNow < DS4_TRUE_MAX_CONTEXT/, 'a persisted max below the minimum context should be flagged in the composer pill');
+assert.match(html, /<option value="393216">384k tokens<\/option>/, 'the context pickers should be able to express the true-max minimum');
+// Recovering your own prompt must not depend on dragging a selection across a
+// transcript that keeps repainting underneath the cursor.
+assert.match(js, /function buildAgentUserTurn\(text, pending = false\)[\s\S]*class: 'agent-user-copy'[\s\S]*copyTextToClipboard\(copy, parsed\.clean \|\| body\)/, 'every Agent/Cowork user turn should carry a copy button');
+assert.match(html, /\.agent-user-turn:hover \.agent-user-copy,[\s\S]*\.agent-user-copy\.is-copied \{ opacity: 1; \}/, 'the user-turn copy button should reveal on hover and stay visible while confirming');
 assert.match(js, /async function gsaTools\(\)[\s\S]*\/api\/gsa\/tools/, 'Engine client should expose GSA tool status');
 assert.match(js, /async function gsaToolsInstall\(\)[\s\S]*\/api\/gsa\/tools\/install/, 'Engine client should expose managed GSA tool install');
 assert.match(html, /\.msg__activity-dots[\s\S]*@keyframes msgactivity/, 'Chat streaming should show an animated activity indicator');

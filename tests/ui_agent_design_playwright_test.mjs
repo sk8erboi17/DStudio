@@ -133,6 +133,30 @@ const server = http.createServer(async (req, res) => {
       ].join('');
       agentPollWorking = false;
     }
+    if (/GSA parameter visibility fixture/.test(body.displayPrompt || '')) {
+      agentPollText += [
+        '\x01USER\x02GSA parameter visibility fixture\x01ENDUSER\x02\n',
+        '\x1e' + JSON.stringify({
+          type: 'tool_call',
+          name: 'bash',
+          input: {
+            command: 'cd "/tmp/gsa/run-1" && "/tmp/gsa/bin/katana" -u "https://example.test/start?api_key=secret-query" -d 3 -jc -timeout 20 -H "Authorization: Bearer secret-header" -o "/tmp/gsa/run-1/katana.jsonl"',
+          },
+        }) + '\n',
+        '\x1e' + JSON.stringify({
+          type: 'tool_result',
+          name: 'bash',
+          output: 'https://example.test/\nhttps://example.test/archive\n',
+        }) + '\n',
+        '\x1e' + JSON.stringify({
+          type: 'tool_call',
+          name: 'bash',
+          input: { command: 'trivy fs --scanners vuln,secret --format json --output report.json .' },
+        }) + '\n',
+        '\x1e' + JSON.stringify({ type: 'tool_result', name: 'bash', output: 'scan complete\n' }) + '\n',
+      ].join('');
+      agentPollWorking = false;
+    }
     if (/Cowork streaming fixture/.test(body.displayPrompt || '')) {
       agentPollText += [
         `\x01USER\x02${body.displayPrompt || 'Cowork streaming fixture'}\x01ENDUSER\x02\n`,
@@ -568,6 +592,42 @@ try {
     'Agent did not settle to idle after the selection refresh',
     debugDetails,
   );
+
+  // Getting your own prompt back out must not depend on dragging a selection
+  // across a transcript that is still streaming: every user turn carries a
+  // copy button that yields the exact text the model was sent.
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const lastUserTurn = page.locator('.agent-user-turn').last();
+  const copyButton = lastUserTurn.locator('.agent-user-copy');
+  assert.equal(await copyButton.count(), 1, 'each Agent user turn should expose a copy button');
+  await copyButton.click();
+  assert.equal(
+    (await page.evaluate(() => navigator.clipboard.readText())).trim(),
+    'Selection persistence fixture',
+    'the user-turn copy button should put the prompt text on the clipboard',
+  );
+  assert.match(
+    await copyButton.textContent(),
+    /Copied/,
+    'the copy button should confirm the copy',
+  );
+
+  await page.locator('#composer-input').fill('GSA parameter visibility fixture');
+  await page.locator('#btn-send').click();
+  const katanaToolLabel = page.locator('.tool-step-label').filter({ hasText: 'Executed Katana crawl' }).last();
+  await katanaToolLabel.waitFor({ timeout: 5000 });
+  const katanaSummary = await katanaToolLabel.textContent();
+  assert.match(katanaSummary || '', /parameters: -u "https:\/\/example\.test\/start\?api_key=\[redacted\]" -d 3 -jc -timeout 20 -H \[redacted header\] -o "\/tmp\/gsa\/run-1\/katana\.jsonl"/,
+    'completed GSA actions should retain every safe tool parameter in the collapsed timeline');
+  assert.match(katanaSummary || '', /2 lines$/, 'GSA summaries should retain their compact output count after the parameters');
+  assert.doesNotMatch(katanaSummary || '', /secret-query|secret-header/,
+    'GSA parameter summaries must redact URL credentials and authorization headers');
+  const trivyToolLabel = page.locator('.tool-step-label').filter({ hasText: 'Executed Trivy scan' }).last();
+  await trivyToolLabel.waitFor({ timeout: 5000 });
+  assert.match(await trivyToolLabel.textContent() || '', /parameters: fs --scanners vuln,secret --format json --output report\.json \.$/,
+    'the same parameter presentation should apply beyond the original small scanner allow-list');
+  assert.equal(await katanaToolLabel.evaluate((node) => getComputedStyle(node).whiteSpace), 'normal',
+    'long GSA parameter summaries should wrap instead of being clipped');
 
   // A fresh pipe conversation must start at the current engine tail. It must
   // never adopt a previous run's circular buffer (which can begin halfway
