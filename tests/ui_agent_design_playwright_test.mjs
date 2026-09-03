@@ -617,17 +617,20 @@ try {
   const katanaToolLabel = page.locator('.tool-step-label').filter({ hasText: 'Executed Katana crawl' }).last();
   await katanaToolLabel.waitFor({ timeout: 5000 });
   const katanaSummary = await katanaToolLabel.textContent();
-  assert.match(katanaSummary || '', /parameters: -u "https:\/\/example\.test\/start\?api_key=\[redacted\]" -d 3 -jc -timeout 20 -H \[redacted header\] -o "\/tmp\/gsa\/run-1\/katana\.jsonl"/,
-    'completed GSA actions should retain every safe tool parameter in the collapsed timeline');
+  assert.match(katanaSummary || '', /parameters: -u "https:\/\/example\.test\/start\?api_key=secret-query" -d 3 -jc -timeout 20 -H "Authorization: Bearer secret-header" -o "\/tmp\/gsa\/run-1\/katana\.jsonl"/,
+    'completed GSA actions should retain every exact tool parameter in the collapsed timeline');
   assert.match(katanaSummary || '', /2 lines$/, 'GSA summaries should retain their compact output count after the parameters');
-  assert.doesNotMatch(katanaSummary || '', /secret-query|secret-header/,
-    'GSA parameter summaries must redact URL credentials and authorization headers');
+  assert.match(katanaSummary || '', /secret-query.*secret-header/,
+    'GSA parameter summaries should not obscure credentials or authorization values');
   const trivyToolLabel = page.locator('.tool-step-label').filter({ hasText: 'Executed Trivy scan' }).last();
   await trivyToolLabel.waitFor({ timeout: 5000 });
   assert.match(await trivyToolLabel.textContent() || '', /parameters: fs --scanners vuln,secret --format json --output report\.json \.$/,
     'the same parameter presentation should apply beyond the original small scanner allow-list');
   assert.equal(await katanaToolLabel.evaluate((node) => getComputedStyle(node).whiteSpace), 'normal',
     'long GSA parameter summaries should wrap instead of being clipped');
+  await katanaToolLabel.click();
+  assert.match(await katanaToolLabel.locator('xpath=../..').locator('.tool-out').textContent() || '', /api_key=secret-query.*Authorization: Bearer secret-header/s,
+    'the expanded GSA command should also preserve the exact parameter values');
 
   // A fresh pipe conversation must start at the current engine tail. It must
   // never adopt a previous run's circular buffer (which can begin halfway

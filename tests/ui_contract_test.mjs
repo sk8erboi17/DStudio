@@ -677,8 +677,10 @@ for (const tool of gsaToolCatalog.tools) {
 }
 assert.match(html, /function semanticCommandSummary\(ev, live, lineCount = 0\)[\s\S]*parameters:/,
   'GSA shell actions should keep effective parameters in both live and completed timeline summaries');
-assert.match(html, /function safeShellText\(text\)[\s\S]*redactNext[\s\S]*redacted header/,
-  'GSA parameter summaries should redact secret flags and sensitive request headers');
+assert.match(html, /function compactShellText\(text\)[\s\S]*map\(\(word\) => word\.raw\)/,
+  'GSA parameter summaries should preserve the exact flags and values supplied to the tool');
+assert.doesNotMatch(gsaCommandSpecs, /redact|SECRET_PARAMETER|SECRET_QUERY/,
+  'GSA command presentation must not obscure credentials or other parameter values');
 assert.match(gsaRuntimeSource, /static int gsa_load_tool_catalog/, 'GSA runtime should load the tool catalog from JSON');
 assert.doesNotMatch(gsaRuntimeSource, /GSA_TOOL_SPECS/, 'GSA runtime should not keep the old compiled-in tool catalog');
 assert.match(gsaRuntime, /mode\\":\\"tool-assisted/, 'GSA tool status should explicitly be tool-assisted');

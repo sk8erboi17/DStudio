@@ -216,7 +216,7 @@ The experience is productized, but the mechanics stay inspectable: **selection**
 
 Each GSA/RSA phase is committed through a native structured control call and validated again by the host. Partial JSON streamed as prose is held in a bounded pending card and can never advance the pipeline or leak into the final answer. If a completed turn has the right work but the wrong envelope, DStudio grants one format-only recovery turn with tools disabled; a second invalid result leaves the run explicitly incomplete. The watchdog also waits while inference or a tool is genuinely active, so a slow evidence collector is not killed as an idle phase.
 
-The Agent timeline recognizes every command in the managed GSA catalog and keeps its effective parameters visible in both the running and completed action row. Long invocations wrap instead of being clipped, while tokens, passwords, cookies, authorization headers and secret URL parameters are redacted from the UI; the expanded row retains the sanitized command and its output.
+The Agent timeline recognizes every command in the managed GSA catalog and keeps its complete effective parameters visible in both the running and completed action row. Long invocations wrap instead of being clipped. Parameter values are shown verbatim—including tokens, passwords, cookies, authorization headers and URL query values—and the expanded row retains the exact command and its output.
 
 ### RSA: reverse structure analysis
 

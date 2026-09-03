@@ -31694,9 +31694,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         'cat', 'echo', 'find', 'grep', 'head', 'ls', 'printf', 'rg', 'sed',
         'stat', 'tail', 'type', 'wc', 'whereis', 'which',
       ]);
-      const SECRET_PARAMETER_RE = /^(?:--?)?(?:api[-_]?key|access[-_]?token|auth(?:orization)?|bearer|client[-_]?secret|cookie|pass(?:word|wd)?|secret|session(?:[-_]?id)?|token)(?:=|$)/i;
-      const SECRET_ASSIGNMENT_RE = /^((?:api[-_]?key|access[-_]?token|auth(?:orization)?|client[-_]?secret|cookie|pass(?:word|wd)?|secret|session(?:[-_]?id)?|token)=)/i;
-      const SECRET_QUERY_RE = /([?&](?:api[-_]?key|access[-_]?token|auth(?:orization)?|client[-_]?secret|cookie|pass(?:word|wd)?|secret|session(?:[-_]?id)?|token)=)[^&#\s"']*/gi;
 
       function shellSegments(command) {
         const value = String(command || '');
@@ -31774,41 +31771,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return null;
       }
 
-      function redactShellToken(token) {
-        let value = String(token || '');
-        value = value.replace(/(https?:\/\/)[^\s/@:"']+:[^\s/@"']+@/gi, '$1[redacted]@');
-        value = value.replace(SECRET_QUERY_RE, '$1[redacted]');
-        if (SECRET_ASSIGNMENT_RE.test(value)) value = value.replace(SECRET_ASSIGNMENT_RE, '$1') + '[redacted]';
-        if (/^(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key):/i.test(value.replace(/^["']/, '')))
-          return '[redacted header]';
-        return value;
-      }
-
-      function safeShellText(text) {
-        const words = shellWords(String(text || ''));
-        const rendered = [];
-        let redactNext = false;
-        let headerNext = false;
-        for (const word of words) {
-          let token = word.raw;
-          if (redactNext) {
-            token = '[redacted]';
-            redactNext = false;
-          } else if (headerNext) {
-            token = /^(?:["']?)(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key):/i.test(token)
-              ? '[redacted header]' : redactShellToken(token);
-            headerNext = false;
-          } else if (/^(?:-H|--header)$/i.test(token)) {
-            headerNext = true;
-          } else if (SECRET_PARAMETER_RE.test(token)) {
-            if (token.includes('=')) token = token.slice(0, token.indexOf('=') + 1) + '[redacted]';
-            else redactNext = true;
-          } else {
-            token = redactShellToken(token);
-          }
-          rendered.push(token);
-        }
-        return rendered.join(' ').trim();
+      function compactShellText(text) {
+        // Parameters are deliberately shown verbatim. Only insignificant shell
+        // whitespace is collapsed so a long invocation can wrap cleanly in the
+        // timeline without changing any flag or value supplied to the tool.
+        return shellWords(String(text || '')).map((word) => word.raw).join(' ').trim();
       }
 
       function semanticCommandInfo(ev) {
@@ -31819,8 +31786,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const rawParameters = found.segment.text.slice(found.word.end).trim();
         return {
           label: found.spec.label,
-          parameters: safeShellText(rawParameters) || 'none',
-          command: safeShellText(command),
+          parameters: compactShellText(rawParameters) || 'none',
+          command: command.trim(),
         };
       }
 
@@ -31930,7 +31897,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           text: out.split('\n').map((line) => line.trim()).find(Boolean) || 'complete',
         }));
         const command = fold._toolEvent && (fold._toolEvent.name === 'bash' || fold._toolEvent.name === 'shell')
-          ? safeShellText(String(fold._toolEvent.input?.command || fold._toolEvent.input?.cmd || '').trim())
+          ? String(fold._toolEvent.input?.command || fold._toolEvent.input?.cmd || '').trim()
           : '';
         fold.append(el('pre', { class: 'tool-out', text: command ? `$ ${command}\n\n${out}` : out }));
       }
