@@ -12,7 +12,7 @@ if (!competitorInput || !baselineInput || !output) {
 const raw = JSON.parse(fs.readFileSync(path.resolve(competitorInput), 'utf8'));
 const baseline = JSON.parse(fs.readFileSync(path.resolve(baselineInput), 'utf8'));
 if (raw.ok !== true) throw new Error('refusing to publish a competitor run with a broken protocol');
-if (baseline.benchmark !== 'native-agent-vs-task-graph-reliability')
+if (baseline.benchmark !== 'native-agent-vs-task-graph-diverse-reliability')
   throw new Error('unexpected Native Agent / Task Graph baseline');
 
 const piRuns = raw.comparison.runs?.pi || [];
@@ -34,11 +34,15 @@ if (path.basename(raw.model.file) !== baseline.model.file ||
   throw new Error('competitor run does not match the published model, machine and no-SSD baseline');
 }
 
-const taskTypes = [
-  { id: 'read-fact', label: 'Read a fact' },
-  { id: 'write-file', label: 'Create a file' },
-  { id: 'repair-code', label: 'Repair code' },
-];
+if (raw.fixture?.id !== baseline.fixture?.id || raw.fixture?.id !== 'diverse-local-agent-v2')
+  throw new Error('competitor and DStudio runs do not use the same diverse fixture');
+const taskTypes = baseline.fixture.taskTypes || [];
+if (taskTypes.length !== 10) throw new Error('expected ten balanced task families');
+for (let index = 0; index < 50; index++) {
+  const ids = [nativeRuns[index], graphRuns[index], piRuns[index], openCodeRuns[index]]
+    .map((run) => run.scenario);
+  if (new Set(ids).size !== 1) throw new Error(`unmatched fixture at run ${index + 1}: ${ids.join(', ')}`);
+}
 
 function rounded(value, digits = 2) {
   return Number(Number(value).toFixed(digits));
@@ -50,13 +54,9 @@ function median(values) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-function taskType(scenario) {
-  return scenario.replace(/-\d+$/, '');
-}
-
 function byTask(runs) {
   return Object.fromEntries(taskTypes.map(({ id, label }) => {
-    const matching = runs.filter((run) => taskType(run.scenario) === id);
+    const matching = runs.filter((run) => run.taskType === id);
     const completed = matching.filter((run) => run.taskSuccess).length;
     return [id, {
       label,
@@ -69,11 +69,14 @@ function byTask(runs) {
 
 function summarizeCli(runs) {
   const completed = runs.filter((run) => run.taskSuccess).length;
+  const toolCalls = runs.map((run) => Number(run.toolStats.calls));
   return {
     tasksCompleted: completed,
     tasksRun: runs.length,
     completionRatePercent: rounded(completed / runs.length * 100, 1),
     medianTaskMs: rounded(median(runs.map((run) => run.wallClockMs))),
+    totalToolCalls: toolCalls.reduce((total, value) => total + value, 0),
+    meanToolCalls: rounded(toolCalls.reduce((total, value) => total + value, 0) / runs.length),
     unexpectedModificationRuns: runs.filter((run) => run.unexpectedChanges.length).length,
     incorrectCompletionClaims: runs.filter((run) => run.incorrectCompletionClaim).length,
     processFailures: runs.filter((run) => run.process.exitCode !== 0).length,
@@ -96,6 +99,7 @@ function pair(firstRuns, secondRuns, firstOnlyKey, secondOnlyKey) {
 function compactCliRun(run) {
   return {
     scenario: run.scenario,
+    taskType: run.taskType,
     taskSuccess: run.taskSuccess,
     wallClockMs: run.wallClockMs,
     externalCheckPassed: Boolean(run.externalCheck?.ok),
@@ -135,9 +139,10 @@ const published = {
     ...baseline.model,
     maxOutputTokensForCliCompetitors: raw.configuration.maxOutputTokens,
   },
+  fixture: baseline.fixture,
   cliVersions: raw.cliVersions,
   comparison: {
-    protocol: 'The same 50 read, write and repair fixtures; fresh session per task; independent file/test scoring; full local model; thinking and SSD streaming off.',
+    protocol: 'The same 50 unique fixtures across 10 local-agent task families; fresh session per task; hidden-answer and independent file/test scoring; full local model; thinking and SSD streaming off.',
     nativeAgent,
     taskGraph,
     pi,
@@ -163,7 +168,8 @@ const published = {
     opencode: openCodeRuns.map(compactCliRun),
   },
   notes: [
-    'A task passed only when a real tool result was followed by the requested completion marker and the independent file or Python check passed.',
+    'A task passed only when a real tool result was followed by the required answer and completion marker, the independent file or Python check passed and no out-of-scope file changed.',
+    'The 50 cases contain five distinct fixtures in each of ten task families. Read/search answers are hidden in files and are not leaked by completion markers.',
     'Pi and OpenCode ran in alternating order against one continuously loaded ds4-server process. A local compatibility proxy rejected every model id except ds4 and forced the declared thinking=off setting.',
     'The Native Agent and automatic checked Agent numbers come from the immediately preceding 50-case publication on the same machine, model file and configuration. DS4 cannot load its large Agent runtime and server runtime simultaneously, so these two phases used separate model loads.',
     'Pi and OpenCode received the same four relevant capabilities: read, write/edit and shell. Plugins, external skills, LSP, formatters, MCPs, sharing and model-catalog updates were disabled.',
@@ -171,6 +177,7 @@ const published = {
     'OpenCode 1.18.18 required both PWD and --dir to keep absolute tool paths inside the nested benchmark workspace; the runner also creates an isolated Git root and checks changed files externally.',
     'CLI process startup is included in each task time. Reliability is the primary measurement; latency is reported as context, not as the winner criterion.',
     'This is a single-machine sample, not a universal guarantee for other models, prompts, versions or hardware.',
+    `The suite does not cover: ${baseline.fixture.coverage.excluded.join('; ')}.`,
   ],
 };
 

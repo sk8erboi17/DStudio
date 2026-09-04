@@ -138,10 +138,10 @@ make test-task-graph-bench-validate
 # Explicit heavyweight test: starts a real local Agent with forced SSD streaming
 make test-task-graph-real
 
-# 50 matched Native Agent / Task Graph tasks with SSD streaming off
+# 50 unique tasks across ten families, Native Agent / checked DStudio, SSD off
 DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-reliability-real
 
-# 50 matched Pi / OpenCode tasks on the same local model with SSD streaming off
+# The same 50 fixtures through Pi / OpenCode on the same local model, SSD off
 DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-cli-competitors-real
 
 # Publication data and Matplotlib figures
@@ -149,12 +149,11 @@ DSTUDIO_TASK_GRAPH_BENCH_RUNS=3 make test-task-graph-real
 python3 extension/task-graph/bench/plot-results.py
 node extension/task-graph/bench/publish-reliability.mjs \
   tests/.artifacts/task-graph-reliability-real/result.json \
-  extension/task-graph/bench/results/2026-09-04-m2-max-reliability-no-ssd.json
-python3 extension/task-graph/bench/plot-reliability.py
+  extension/task-graph/bench/results/2026-09-04-m2-max-diverse-reliability-no-ssd.json
 node extension/task-graph/bench/publish-cli-comparison.mjs \
   tests/.artifacts/task-graph-cli-competitors-real/result.json \
-  extension/task-graph/bench/results/2026-09-04-m2-max-reliability-no-ssd.json \
-  extension/task-graph/bench/results/2026-09-04-m2-max-agent-comparison-no-ssd.json
+  extension/task-graph/bench/results/2026-09-04-m2-max-diverse-reliability-no-ssd.json \
+  extension/task-graph/bench/results/2026-09-04-m2-max-diverse-agent-comparison-no-ssd.json
 python3 extension/task-graph/bench/plot-cli-comparison.py
 ```
 
@@ -172,8 +171,10 @@ receipts. Its working artifacts live under
 The measured public snapshot, including per-run values, hardware, configuration
 and methodological limitations, is stored in
 [`bench/results/2026-09-04-m2-max-native-ssd.json`](bench/results/2026-09-04-m2-max-native-ssd.json).
-The matched 50-task publication, including all 100 Agent/Task Graph outcomes,
-is stored in
-[`bench/results/2026-09-04-m2-max-reliability-no-ssd.json`](bench/results/2026-09-04-m2-max-reliability-no-ssd.json).
-The main README leads with the two reliability figures generated from the
-no-SSD result; the earlier SSD run remains available as a runtime snapshot.
+The diverse 50-task publication, including all 100 Native/checked DStudio
+outcomes and the ten-family coverage declaration, is stored in
+[`bench/results/2026-09-04-m2-max-diverse-reliability-no-ssd.json`](bench/results/2026-09-04-m2-max-diverse-reliability-no-ssd.json).
+The four-agent result is stored in
+[`bench/results/2026-09-04-m2-max-diverse-agent-comparison-no-ssd.json`](bench/results/2026-09-04-m2-max-diverse-agent-comparison-no-ssd.json).
+The main README uses its two Matplotlib figures; the earlier SSD run remains a
+runtime snapshot.

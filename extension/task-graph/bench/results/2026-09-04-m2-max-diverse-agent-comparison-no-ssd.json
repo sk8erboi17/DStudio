@@ -1,0 +1,3594 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "dstudio-agent-harness-comparison",
+  "measuredAt": "2026-09-04T19:42:19.294Z",
+  "source": {
+    "nativeTaskGraphMeasuredAt": "2026-09-04T18:39:19.969Z",
+    "competitorDStudioBaseCommit": "6bac24177863",
+    "competitorWorkingTreeIncludedThisChangeSet": true,
+    "ds4Commit": "b0a147a7fba6",
+    "ds4ManagedRuntimeWorkingTree": true
+  },
+  "hardware": {
+    "chip": "Apple M2 Max",
+    "logicalCores": 12,
+    "memoryBytes": 103079215104,
+    "os": "Darwin 25.5.0 arm64"
+  },
+  "model": {
+    "file": "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf",
+    "bytes": 86720111488,
+    "contextTokens": 8192,
+    "power": 70,
+    "thinking": "off",
+    "ssdStreamingRequested": "off",
+    "ssdStreamingEffective": false,
+    "ssdStreamingReason": "disabled: DS4-only mode uses normal Metal mapped residency",
+    "fullModelReady": true,
+    "nativeRuntime": "ds4-agent-jsonl",
+    "maxOutputTokensForCliCompetitors": 1024
+  },
+  "fixture": {
+    "id": "diverse-local-agent-v2",
+    "suiteSize": 50,
+    "taskTypes": [
+      {
+        "id": "read-fact",
+        "label": "Extract a fact",
+        "dimension": "read"
+      },
+      {
+        "id": "search-repository",
+        "label": "Search nested files",
+        "dimension": "read"
+      },
+      {
+        "id": "cross-file-reasoning",
+        "label": "Combine file evidence",
+        "dimension": "reason"
+      },
+      {
+        "id": "write-exact-file",
+        "label": "Create exact output",
+        "dimension": "write"
+      },
+      {
+        "id": "edit-json",
+        "label": "Edit structured data",
+        "dimension": "write"
+      },
+      {
+        "id": "surgical-edit",
+        "label": "Preserve unrelated text",
+        "dimension": "write"
+      },
+      {
+        "id": "repair-code",
+        "label": "Repair failing code",
+        "dimension": "code"
+      },
+      {
+        "id": "implement-function",
+        "label": "Implement missing code",
+        "dimension": "code"
+      },
+      {
+        "id": "multi-file-refactor",
+        "label": "Refactor across files",
+        "dimension": "code"
+      },
+      {
+        "id": "diagnose-test",
+        "label": "Diagnose a test failure",
+        "dimension": "diagnose"
+      }
+    ],
+    "coverage": {
+      "casesPerFamily": 5,
+      "dimensions": [
+        "read",
+        "reason",
+        "write",
+        "code",
+        "diagnose"
+      ],
+      "included": [
+        "single-file extraction",
+        "nested repository search",
+        "cross-file calculation",
+        "exact file creation",
+        "JSON-preserving edit",
+        "surgical text edit",
+        "bug repair with tests",
+        "missing-function implementation",
+        "multi-file symbol refactor",
+        "failure diagnosis without source mutation"
+      ],
+      "excluded": [
+        "network and browser work",
+        "multimodal UI judgment",
+        "very long autonomous tasks",
+        "parallel agents",
+        "human approval latency",
+        "in-flight token recovery"
+      ]
+    }
+  },
+  "cliVersions": {
+    "pi": "0.84.1",
+    "opencode": "1.18.18"
+  },
+  "comparison": {
+    "protocol": "The same 50 unique fixtures across 10 local-agent task families; fresh session per task; hidden-answer and independent file/test scoring; full local model; thinking and SSD streaming off.",
+    "nativeAgent": {
+      "tasksCompleted": 42,
+      "tasksRun": 50,
+      "completionRatePercent": 84,
+      "medianTaskMs": 21043.15,
+      "totalToolCalls": 111,
+      "meanToolCalls": 2.22,
+      "unexpectedModificationRuns": 0,
+      "incorrectCompletionClaims": 0,
+      "byTask": {
+        "read-fact": {
+          "label": "Extract a fact",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "search-repository": {
+          "label": "Search nested files",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "cross-file-reasoning": {
+          "label": "Combine file evidence",
+          "runs": 5,
+          "completed": 4,
+          "completionRatePercent": 80
+        },
+        "write-exact-file": {
+          "label": "Create exact output",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "edit-json": {
+          "label": "Edit structured data",
+          "runs": 5,
+          "completed": 4,
+          "completionRatePercent": 80
+        },
+        "surgical-edit": {
+          "label": "Preserve unrelated text",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "repair-code": {
+          "label": "Repair failing code",
+          "runs": 5,
+          "completed": 0,
+          "completionRatePercent": 0
+        },
+        "implement-function": {
+          "label": "Implement missing code",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "multi-file-refactor": {
+          "label": "Refactor across files",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "diagnose-test": {
+          "label": "Diagnose a test failure",
+          "runs": 5,
+          "completed": 4,
+          "completionRatePercent": 80
+        }
+      }
+    },
+    "taskGraph": {
+      "tasksCompleted": 50,
+      "tasksRun": 50,
+      "completionRatePercent": 100,
+      "medianTaskMs": 33644.82,
+      "totalToolCalls": 130,
+      "meanToolCalls": 2.6,
+      "unexpectedModificationRuns": 0,
+      "incorrectCompletionClaims": 0,
+      "incorrectResultsBlocked": 0,
+      "graphsCompletedWithoutTaskSuccess": 0,
+      "watchdogTrips": 0,
+      "byTask": {
+        "read-fact": {
+          "label": "Extract a fact",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "search-repository": {
+          "label": "Search nested files",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "cross-file-reasoning": {
+          "label": "Combine file evidence",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "write-exact-file": {
+          "label": "Create exact output",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "edit-json": {
+          "label": "Edit structured data",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "surgical-edit": {
+          "label": "Preserve unrelated text",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "repair-code": {
+          "label": "Repair failing code",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "implement-function": {
+          "label": "Implement missing code",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "multi-file-refactor": {
+          "label": "Refactor across files",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "diagnose-test": {
+          "label": "Diagnose a test failure",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        }
+      }
+    },
+    "pi": {
+      "tasksCompleted": 50,
+      "tasksRun": 50,
+      "completionRatePercent": 100,
+      "medianTaskMs": 36981.84,
+      "totalToolCalls": 157,
+      "meanToolCalls": 3.14,
+      "unexpectedModificationRuns": 0,
+      "incorrectCompletionClaims": 0,
+      "processFailures": 0,
+      "modelPinFailures": 0,
+      "byTask": {
+        "read-fact": {
+          "label": "Extract a fact",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "search-repository": {
+          "label": "Search nested files",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "cross-file-reasoning": {
+          "label": "Combine file evidence",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "write-exact-file": {
+          "label": "Create exact output",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "edit-json": {
+          "label": "Edit structured data",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "surgical-edit": {
+          "label": "Preserve unrelated text",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "repair-code": {
+          "label": "Repair failing code",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "implement-function": {
+          "label": "Implement missing code",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "multi-file-refactor": {
+          "label": "Refactor across files",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "diagnose-test": {
+          "label": "Diagnose a test failure",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        }
+      }
+    },
+    "opencode": {
+      "tasksCompleted": 50,
+      "tasksRun": 50,
+      "completionRatePercent": 100,
+      "medianTaskMs": 29496.62,
+      "totalToolCalls": 138,
+      "meanToolCalls": 2.76,
+      "unexpectedModificationRuns": 0,
+      "incorrectCompletionClaims": 0,
+      "processFailures": 0,
+      "modelPinFailures": 0,
+      "byTask": {
+        "read-fact": {
+          "label": "Extract a fact",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "search-repository": {
+          "label": "Search nested files",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "cross-file-reasoning": {
+          "label": "Combine file evidence",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "write-exact-file": {
+          "label": "Create exact output",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "edit-json": {
+          "label": "Edit structured data",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "surgical-edit": {
+          "label": "Preserve unrelated text",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "repair-code": {
+          "label": "Repair failing code",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "implement-function": {
+          "label": "Implement missing code",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "multi-file-refactor": {
+          "label": "Refactor across files",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        },
+        "diagnose-test": {
+          "label": "Diagnose a test failure",
+          "runs": 5,
+          "completed": 5,
+          "completionRatePercent": 100
+        }
+      }
+    },
+    "taskGraphVsPi": {
+      "bothCompleted": 50,
+      "taskGraphOnly": 0,
+      "piOnly": 0,
+      "neitherCompleted": 0
+    },
+    "taskGraphVsOpenCode": {
+      "bothCompleted": 50,
+      "taskGraphOnly": 0,
+      "openCodeOnly": 0,
+      "neitherCompleted": 0
+    }
+  },
+  "localModelVerification": {
+    "enforcedProxy": true,
+    "acceptedModelId": "ds4",
+    "piModelPinFailures": 0,
+    "openCodeModelPinFailures": 0,
+    "piPreflightPassed": true,
+    "openCodePreflightPassed": true
+  },
+  "humanRecoveryInterventions": 0,
+  "competitorModelStartupMs": 1962.42,
+  "competitorBenchmarkMs": 3755925.97,
+  "runs": {
+    "nativeAgent": [
+      {
+        "scenario": "read-fact-01",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 13026.26,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "search-repository-01",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 13024.91,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "cross-file-reasoning-01",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 18036.38,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2
+      },
+      {
+        "scenario": "write-exact-file-01",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 15030.49,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-01/direct/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "edit-json-01",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 35079.09,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-01/direct/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3
+      },
+      {
+        "scenario": "surgical-edit-01",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 42081.91,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-01/direct/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3
+      },
+      {
+        "scenario": "repair-code-01",
+        "taskType": "repair-code",
+        "taskSuccess": false,
+        "wallClockMs": 4009.57,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "implement-function-01",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 39086.78,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-01/direct/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-01/direct/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4
+      },
+      {
+        "scenario": "multi-file-refactor-01",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 55107.02,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-01/direct/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-01/direct/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-01/direct/consumer.py",
+          "cases/multi-file-refactor-01/direct/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 6
+      },
+      {
+        "scenario": "diagnose-test-01",
+        "taskType": "diagnose-test",
+        "taskSuccess": false,
+        "wallClockMs": 5018.09,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "read-fact-02",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 11024.15,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "search-repository-02",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 12020.28,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "cross-file-reasoning-02",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 17040.98,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2
+      },
+      {
+        "scenario": "write-exact-file-02",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 15032.37,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-02/direct/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "edit-json-02",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 35068.05,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-02/direct/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3
+      },
+      {
+        "scenario": "surgical-edit-02",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 36157.31,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-02/direct/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3
+      },
+      {
+        "scenario": "repair-code-02",
+        "taskType": "repair-code",
+        "taskSuccess": false,
+        "wallClockMs": 4009.53,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "implement-function-02",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 51116.34,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-02/direct/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-02/direct/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4
+      },
+      {
+        "scenario": "multi-file-refactor-02",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 64141.51,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-02/direct/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-02/direct/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-02/direct/consumer.py",
+          "cases/multi-file-refactor-02/direct/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 5
+      },
+      {
+        "scenario": "diagnose-test-02",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 35062.3,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-02/direct/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-02/direct/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2
+      },
+      {
+        "scenario": "read-fact-03",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 12020.52,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "search-repository-03",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 13021.19,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "cross-file-reasoning-03",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 17031.78,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2
+      },
+      {
+        "scenario": "write-exact-file-03",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 16028.85,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-03/direct/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "edit-json-03",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 41079.13,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-03/direct/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3
+      },
+      {
+        "scenario": "surgical-edit-03",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 25051.54,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-03/direct/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2
+      },
+      {
+        "scenario": "repair-code-03",
+        "taskType": "repair-code",
+        "taskSuccess": false,
+        "wallClockMs": 5013.78,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "implement-function-03",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 72127.79,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-03/direct/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-03/direct/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4
+      },
+      {
+        "scenario": "multi-file-refactor-03",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 103241.89,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-03/direct/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-03/direct/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-03/direct/consumer.py",
+          "cases/multi-file-refactor-03/direct/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 8
+      },
+      {
+        "scenario": "diagnose-test-03",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 25055.08,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-03/direct/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-03/direct/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2
+      },
+      {
+        "scenario": "read-fact-04",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 12032.77,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "search-repository-04",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 41076.67,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 4
+      },
+      {
+        "scenario": "cross-file-reasoning-04",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": false,
+        "wallClockMs": 5010.59,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "write-exact-file-04",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 16042.01,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-04/direct/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "edit-json-04",
+        "taskType": "edit-json",
+        "taskSuccess": false,
+        "wallClockMs": 5009.76,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "surgical-edit-04",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 26054.09,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-04/direct/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2
+      },
+      {
+        "scenario": "repair-code-04",
+        "taskType": "repair-code",
+        "taskSuccess": false,
+        "wallClockMs": 5011.78,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "implement-function-04",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 49104.45,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-04/direct/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-04/direct/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4
+      },
+      {
+        "scenario": "multi-file-refactor-04",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 56113.14,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-04/direct/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-04/direct/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-04/direct/consumer.py",
+          "cases/multi-file-refactor-04/direct/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 5
+      },
+      {
+        "scenario": "diagnose-test-04",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 25052.98,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-04/direct/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-04/direct/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2
+      },
+      {
+        "scenario": "read-fact-05",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 11022.45,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "search-repository-05",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 24049.92,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2
+      },
+      {
+        "scenario": "cross-file-reasoning-05",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 15027.15,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2
+      },
+      {
+        "scenario": "write-exact-file-05",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 15036.61,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-05/direct/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "edit-json-05",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 41085.92,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-05/direct/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3
+      },
+      {
+        "scenario": "surgical-edit-05",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 55104.24,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-05/direct/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4
+      },
+      {
+        "scenario": "repair-code-05",
+        "taskType": "repair-code",
+        "taskSuccess": false,
+        "wallClockMs": 5011.68,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "implement-function-05",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 51115.46,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-05/direct/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-05/direct/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4
+      },
+      {
+        "scenario": "multi-file-refactor-05",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 70152.29,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-05/direct/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-05/direct/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-05/direct/consumer.py",
+          "cases/multi-file-refactor-05/direct/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 6
+      },
+      {
+        "scenario": "diagnose-test-05",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 25060.83,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-05/direct/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-05/direct/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2
+      }
+    ],
+    "taskGraph": [
+      {
+        "scenario": "read-fact-01",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 14650.69,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "search-repository-01",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 21618.77,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "cross-file-reasoning-01",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 19037.18,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-exact-file-01",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 18893.08,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-01/graph/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "edit-json-01",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 47644.45,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-01/graph/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "surgical-edit-01",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 29886.15,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-01/graph/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-01",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 39749.2,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-01/graph/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-01/graph/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "implement-function-01",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 44264.93,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-01/graph/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-01/graph/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "multi-file-refactor-01",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 75676.67,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-01/graph/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-01/graph/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-01/graph/consumer.py",
+          "cases/multi-file-refactor-01/graph/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 6,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "diagnose-test-01",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 30185.4,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-01/graph/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-01/graph/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-02",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 12994.64,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "search-repository-02",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 14097.33,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "cross-file-reasoning-02",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 18948.45,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-exact-file-02",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 19258.36,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-02/graph/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "edit-json-02",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 39282.75,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-02/graph/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "surgical-edit-02",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 33408.53,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-02/graph/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-02",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 42033.24,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-02/graph/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-02/graph/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "implement-function-02",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 50281.55,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-02/graph/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-02/graph/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "multi-file-refactor-02",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 100023.88,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-02/graph/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-02/graph/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-02/graph/consumer.py",
+          "cases/multi-file-refactor-02/graph/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 6,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "diagnose-test-02",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 32350.43,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-02/graph/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-02/graph/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-03",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 13645.61,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "search-repository-03",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 14875.11,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "cross-file-reasoning-03",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 19675.44,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-exact-file-03",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 19550.71,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-03/graph/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "edit-json-03",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 50809.79,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-03/graph/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "surgical-edit-03",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 33277.43,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-03/graph/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-03",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 68317.41,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-03/graph/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-03/graph/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "implement-function-03",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 68500.86,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-03/graph/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-03/graph/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "multi-file-refactor-03",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 57808.72,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-03/graph/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-03/graph/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-03/graph/consumer.py",
+          "cases/multi-file-refactor-03/graph/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 5,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "diagnose-test-03",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 34820.62,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-03/graph/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-03/graph/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-04",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 13572.39,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "search-repository-04",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 14703.74,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "cross-file-reasoning-04",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 20221.98,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-exact-file-04",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 19559.38,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-04/graph/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "edit-json-04",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 51053.32,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-04/graph/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "surgical-edit-04",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 33881.1,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-04/graph/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-04",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 56020.09,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-04/graph/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-04/graph/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "implement-function-04",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 54163.62,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-04/graph/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-04/graph/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "multi-file-refactor-04",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 62441,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-04/graph/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-04/graph/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-04/graph/consumer.py",
+          "cases/multi-file-refactor-04/graph/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 6,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "diagnose-test-04",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 36945.45,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-04/graph/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-04/graph/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-05",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 12656.53,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "search-repository-05",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 16949.77,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "cross-file-reasoning-05",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 18764.18,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-exact-file-05",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 17338.54,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-05/graph/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "edit-json-05",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 47223.44,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-05/graph/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "surgical-edit-05",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 51422.27,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-05/graph/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-05",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 44380.48,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-05/graph/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-05/graph/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "implement-function-05",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 48971.17,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-05/graph/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-05/graph/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "multi-file-refactor-05",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 78370.32,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-05/graph/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-05/graph/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-05/graph/consumer.py",
+          "cases/multi-file-refactor-05/graph/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 6,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "diagnose-test-05",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 37008.84,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-05/graph/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-05/graph/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      }
+    ],
+    "pi": [
+      {
+        "scenario": "read-fact-01",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 26683.38,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "search-repository-01",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 19197.3,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "cross-file-reasoning-01",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 16330.63,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "write-exact-file-01",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 14310.43,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-01/pi/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "edit-json-01",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 48051.27,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-01/pi/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "surgical-edit-01",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 47190.96,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-01/pi/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "repair-code-01",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 45728.53,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-01/pi/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-01/pi/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "implement-function-01",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 38738.79,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-01/pi/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-01/pi/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "multi-file-refactor-01",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 60236.36,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-01/pi/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-01/pi/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-01/pi/consumer.py",
+          "cases/multi-file-refactor-01/pi/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 5,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "diagnose-test-01",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 38439.48,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-01/pi/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-01/pi/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "read-fact-02",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 11264.21,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "search-repository-02",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 18832.64,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "cross-file-reasoning-02",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 19065.49,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "write-exact-file-02",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 19728.09,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-02/pi/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "edit-json-02",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 47684.2,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-02/pi/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "surgical-edit-02",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 100612.43,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-02/pi/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 7,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 8,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "repair-code-02",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 41960.84,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-02/pi/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-02/pi/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "implement-function-02",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 36332.39,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-02/pi/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-02/pi/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "multi-file-refactor-02",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 102683.23,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-02/pi/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-02/pi/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-02/pi/consumer.py",
+          "cases/multi-file-refactor-02/pi/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 8,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 6,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "diagnose-test-02",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 52243.47,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-02/pi/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-02/pi/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "read-fact-03",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 10407.59,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "search-repository-03",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 16382.84,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "cross-file-reasoning-03",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 16938.2,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "write-exact-file-03",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 14823.81,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-03/pi/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "edit-json-03",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 47130.98,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-03/pi/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "surgical-edit-03",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 45343.83,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-03/pi/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "repair-code-03",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 44824.58,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-03/pi/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-03/pi/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "implement-function-03",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 39180.63,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-03/pi/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-03/pi/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "multi-file-refactor-03",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 52364.97,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-03/pi/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-03/pi/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-03/pi/consumer.py",
+          "cases/multi-file-refactor-03/pi/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 6,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "diagnose-test-03",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 28415.27,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-03/pi/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-03/pi/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "read-fact-04",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 10218.12,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "search-repository-04",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 15291.59,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "cross-file-reasoning-04",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 15247.52,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "write-exact-file-04",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 13311.81,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-04/pi/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "edit-json-04",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 34388.79,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-04/pi/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "surgical-edit-04",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 43358.34,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-04/pi/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "repair-code-04",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 41562.65,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-04/pi/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-04/pi/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "implement-function-04",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 36782.17,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-04/pi/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-04/pi/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "multi-file-refactor-04",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 60663.42,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-04/pi/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-04/pi/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-04/pi/consumer.py",
+          "cases/multi-file-refactor-04/pi/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 6,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "diagnose-test-04",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 32717.59,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-04/pi/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-04/pi/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "read-fact-05",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 11331.03,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "search-repository-05",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 13834.97,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "cross-file-reasoning-05",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 15943.41,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "write-exact-file-05",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 16120.59,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-05/pi/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "edit-json-05",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 43096.97,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-05/pi/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "surgical-edit-05",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 76461.89,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-05/pi/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "repair-code-05",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 42534.9,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-05/pi/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-05/pi/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "implement-function-05",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 37181.51,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-05/pi/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-05/pi/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "multi-file-refactor-05",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 86196.8,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-05/pi/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-05/pi/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-05/pi/consumer.py",
+          "cases/multi-file-refactor-05/pi/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 7,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "diagnose-test-05",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 108912.42,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-05/pi/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-05/pi/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 6,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 7,
+        "modelPinVerified": true
+      }
+    ],
+    "opencode": [
+      {
+        "scenario": "read-fact-01",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 54998.8,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "search-repository-01",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 16529.95,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "cross-file-reasoning-01",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 23612.63,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "write-exact-file-01",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 16722.96,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-01/opencode/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "edit-json-01",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 41375.24,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-01/opencode/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "surgical-edit-01",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 30709.63,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-01/opencode/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "repair-code-01",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 52095.54,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-01/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-01/opencode/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "implement-function-01",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 54777.41,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-01/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-01/opencode/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "multi-file-refactor-01",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 102475.46,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-01/opencode/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-01/opencode/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-01/opencode/consumer.py",
+          "cases/multi-file-refactor-01/opencode/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 6,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "diagnose-test-01",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 24106.04,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-01/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-01/opencode/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "read-fact-02",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 16209.76,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "search-repository-02",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 24267.5,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "cross-file-reasoning-02",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 24485.33,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "write-exact-file-02",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 17841.08,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-02/opencode/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "edit-json-02",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 56588.26,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-02/opencode/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "surgical-edit-02",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 59613.87,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-02/opencode/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "repair-code-02",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 73241.18,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-02/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-02/opencode/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "implement-function-02",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 54424.76,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-02/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-02/opencode/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "multi-file-refactor-02",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 76354.49,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-02/opencode/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-02/opencode/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-02/opencode/consumer.py",
+          "cases/multi-file-refactor-02/opencode/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 7,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "diagnose-test-02",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 20846.21,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-02/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-02/opencode/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "read-fact-03",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 15968.52,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "search-repository-03",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 15172.06,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "cross-file-reasoning-03",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 23501.67,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "write-exact-file-03",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 26274.82,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-03/opencode/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "edit-json-03",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 48071.33,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-03/opencode/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "surgical-edit-03",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 30469.22,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-03/opencode/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "repair-code-03",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 47824.89,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-03/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-03/opencode/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "implement-function-03",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 49423.64,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-03/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-03/opencode/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "multi-file-refactor-03",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 78641.99,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-03/opencode/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-03/opencode/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-03/opencode/consumer.py",
+          "cases/multi-file-refactor-03/opencode/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 8,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 6,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "diagnose-test-03",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 22426.24,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-03/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-03/opencode/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "read-fact-04",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 15438.75,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "search-repository-04",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 14423.19,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "cross-file-reasoning-04",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 16843.72,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "write-exact-file-04",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 16745.96,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-04/opencode/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "edit-json-04",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 43925.09,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-04/opencode/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "surgical-edit-04",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 28524.02,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-04/opencode/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "repair-code-04",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 51606.49,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-04/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-04/opencode/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "implement-function-04",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 50919.58,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-04/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-04/opencode/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "multi-file-refactor-04",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 78935.16,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-04/opencode/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-04/opencode/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-04/opencode/consumer.py",
+          "cases/multi-file-refactor-04/opencode/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 6,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "diagnose-test-04",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 21698.54,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-04/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-04/opencode/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "read-fact-05",
+        "taskType": "read-fact",
+        "taskSuccess": true,
+        "wallClockMs": 15956.09,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "search-repository-05",
+        "taskType": "search-repository",
+        "taskSuccess": true,
+        "wallClockMs": 15405.44,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "cross-file-reasoning-05",
+        "taskType": "cross-file-reasoning",
+        "taskSuccess": true,
+        "wallClockMs": 18007.55,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "write-exact-file-05",
+        "taskType": "write-exact-file",
+        "taskSuccess": true,
+        "wallClockMs": 16120.18,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/write-exact-file-05/opencode/output.env"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 2,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "edit-json-05",
+        "taskType": "edit-json",
+        "taskSuccess": true,
+        "wallClockMs": 40960.57,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/edit-json-05/opencode/config.json"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "surgical-edit-05",
+        "taskType": "surgical-edit",
+        "taskSuccess": true,
+        "wallClockMs": 31633.57,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/surgical-edit-05/opencode/release.md"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "repair-code-05",
+        "taskType": "repair-code",
+        "taskSuccess": true,
+        "wallClockMs": 53081.77,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/repair-code-05/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/repair-code-05/opencode/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "implement-function-05",
+        "taskType": "implement-function",
+        "taskSuccess": true,
+        "wallClockMs": 46637.92,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/implement-function-05/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/implement-function-05/opencode/app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 4,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "multi-file-refactor-05",
+        "taskType": "multi-file-refactor",
+        "taskSuccess": true,
+        "wallClockMs": 71937.39,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/multi-file-refactor-05/opencode/__pycache__/consumer.cpython-314.pyc",
+          "cases/multi-file-refactor-05/opencode/__pycache__/package.cpython-314.pyc",
+          "cases/multi-file-refactor-05/opencode/consumer.py",
+          "cases/multi-file-refactor-05/opencode/package.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 6,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 5,
+        "modelPinVerified": true
+      },
+      {
+        "scenario": "diagnose-test-05",
+        "taskType": "diagnose-test",
+        "taskSuccess": true,
+        "wallClockMs": 21349.21,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "cases/diagnose-test-05/opencode/__pycache__/app.cpython-314.pyc",
+          "cases/diagnose-test-05/opencode/diagnosis.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 2,
+        "incorrectCompletionClaim": false,
+        "exitCode": 0,
+        "timedOut": false,
+        "modelRequests": 3,
+        "modelPinVerified": true
+      }
+    ]
+  },
+  "notes": [
+    "A task passed only when a real tool result was followed by the required answer and completion marker, the independent file or Python check passed and no out-of-scope file changed.",
+    "The 50 cases contain five distinct fixtures in each of ten task families. Read/search answers are hidden in files and are not leaked by completion markers.",
+    "Pi and OpenCode ran in alternating order against one continuously loaded ds4-server process. A local compatibility proxy rejected every model id except ds4 and forced the declared thinking=off setting.",
+    "The Native Agent and automatic checked Agent numbers come from the immediately preceding 50-case publication on the same machine, model file and configuration. DS4 cannot load its large Agent runtime and server runtime simultaneously, so these two phases used separate model loads.",
+    "Pi and OpenCode received the same four relevant capabilities: read, write/edit and shell. Plugins, external skills, LSP, formatters, MCPs, sharing and model-catalog updates were disabled.",
+    "Each CLI competitor used a 1,024-token maximum per model response. All tasks are deliberately short; the limit bounds verbose or looping turns rather than changing acceptance checks.",
+    "OpenCode 1.18.18 required both PWD and --dir to keep absolute tool paths inside the nested benchmark workspace; the runner also creates an isolated Git root and checks changed files externally.",
+    "CLI process startup is included in each task time. Reliability is the primary measurement; latency is reported as context, not as the winner criterion.",
+    "This is a single-machine sample, not a universal guarantee for other models, prompts, versions or hardware.",
+    "The suite does not cover: network and browser work; multimodal UI judgment; very long autonomous tasks; parallel agents; human approval latency; in-flight token recovery."
+  ]
+}

@@ -437,9 +437,20 @@ static int dtg_build_automatic_agent_graph(const char *prompt, const char *displ
         "User request:\n") &&
         json_dyn_puts(&work, prompt) &&
         json_dyn_puts(&work,
-          "\n\nBefore the final answer: inspect the actual current state; perform only the requested work; "
-          "run the strongest relevant check available; if that check fails, diagnose and repair the result. "
-          "Do not claim completion from intention or prose alone. Give the user a concise, honest result. "
+          "\n\nBefore the final answer: perform only the requested work and use successful structured "
+          "tool results as evidence. Use paths relative to the active workspace and do not scan outside "
+          "that workspace merely to rediscover a supplied path. Do not claim completion from intention "
+          "or prose alone. ") &&
+        json_dyn_puts(&work, route == DTG_AUTO_WORKSPACE_WRITE
+          ? "Inspect existing content before changing it when the task depends on that content. "
+            "For an exact create or edit, a successful write/edit result is sufficient: do not re-read "
+            "the file only to confirm that same operation. For behavioral code changes, run the requested "
+            "or strongest relevant test once after the edit. Do not repeat a passing check; if a check "
+            "fails, diagnose, repair and rerun only that failed check. "
+          : "Use the minimum read or search calls needed to obtain the requested evidence. Do not repeat "
+            "an identical read or search after its result already contains that evidence. ") &&
+        json_dyn_puts(&work,
+          "Give the user a concise, honest result. "
           "Only after at least one tool result and all relevant checks pass, put this receipt on its own final line:\n") &&
         json_dyn_puts(&work, marker);
     if (!ok) { free(work.ptr); return 0; }

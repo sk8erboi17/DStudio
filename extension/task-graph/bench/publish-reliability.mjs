@@ -16,11 +16,9 @@ const graphRuns = raw.comparison.runs?.taskGraph ||
 if (nativeRuns.length !== 50 || graphRuns.length !== 50)
   throw new Error(`expected 50 matched runs, got ${nativeRuns.length} and ${graphRuns.length}`);
 
-const taskTypes = [
-  { id: 'read-fact', label: 'Read a fact' },
-  { id: 'write-file', label: 'Create a file' },
-  { id: 'repair-code', label: 'Repair code' },
-];
+const taskTypes = raw.fixture?.taskTypes || [];
+if (raw.fixture?.id !== 'diverse-local-agent-v2' || taskTypes.length !== 10)
+  throw new Error('expected the diverse 10-family reliability fixture');
 
 function rounded(value, digits = 2) {
   return Number(Number(value).toFixed(digits));
@@ -32,13 +30,9 @@ function median(values) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-function taskType(scenario) {
-  return scenario.replace(/-\d+$/, '');
-}
-
 function byTask(runs) {
   return Object.fromEntries(taskTypes.map(({ id, label }) => {
-    const matching = runs.filter((run) => taskType(run.scenario) === id);
+    const matching = runs.filter((run) => run.taskType === id);
     const completed = matching.filter((run) => run.taskSuccess).length;
     return [id, {
       label,
@@ -51,11 +45,16 @@ function byTask(runs) {
 
 function summarize(runs, isGraph) {
   const completed = runs.filter((run) => run.taskSuccess).length;
+  const toolCalls = runs.map((run) => Number(isGraph
+    ? run.toolStats.toolCalls
+    : run.toolStats.calls));
   return {
     tasksCompleted: completed,
     tasksRun: runs.length,
     completionRatePercent: rounded(completed / runs.length * 100, 1),
     medianTaskMs: rounded(median(runs.map((run) => run.wallClockMs))),
+    totalToolCalls: toolCalls.reduce((total, value) => total + value, 0),
+    meanToolCalls: rounded(toolCalls.reduce((total, value) => total + value, 0) / runs.length),
     unexpectedModificationRuns: runs.filter((run) => run.unexpectedChanges.length).length,
     incorrectCompletionClaims: runs.filter((run) => run.incorrectCompletionClaim).length,
     ...(isGraph ? {
@@ -81,6 +80,7 @@ if (paired.nativeAgentOnly !== 0)
 function compactRun(run, isGraph) {
   return {
     scenario: run.scenario,
+    taskType: run.taskType,
     taskSuccess: run.taskSuccess,
     wallClockMs: run.wallClockMs,
     externalCheckPassed: Boolean(run.externalCheck?.ok),
@@ -103,7 +103,7 @@ if (graphSummary.tasksCompleted < nativeSummary.tasksCompleted)
   throw new Error('automatic checked Agent regressed below Native Agent');
 const published = {
   schemaVersion: 1,
-  benchmark: 'native-agent-vs-task-graph-reliability',
+  benchmark: 'native-agent-vs-task-graph-diverse-reliability',
   measuredAt: raw.measuredAt,
   source: {
     dstudioBaseCommit: raw.dstudio.commit,
@@ -124,8 +124,9 @@ const published = {
     fullModelReady: raw.configuration.fullModelReady,
     nativeRuntime: 'ds4-agent-jsonl',
   },
+  fixture: raw.fixture,
   comparison: {
-    protocol: '50 matched tasks; Native Agent versus the automatic correctness-first Agent route; fresh session per variant; one continuously loaded model',
+    protocol: '50 unique matched fixtures across 10 local-agent task families; Native Agent versus the automatic correctness-first route; fresh session per variant; one continuously loaded model',
     nativeAgent: nativeSummary,
     taskGraph: graphSummary,
     percentagePointDifference: rounded(graphSummary.completionRatePercent - nativeSummary.completionRatePercent, 1),
@@ -141,13 +142,15 @@ const published = {
     taskGraph: graphRuns.map((run) => compactRun(run, true)),
   },
   notes: [
-    'The same 50 task fixtures were run once with Native Agent and once through DStudio’s automatic correctness-first route; execution order alternated.',
+    'The same 50 unique fixtures across 10 balanced task families were run once with Native Agent and once through DStudio’s automatic correctness-first route; execution order alternated.',
     'Every variant started with a fresh Agent session while the same full model remained loaded.',
-    'A task passed only when the requested tool-backed answer and the independent file or test check both passed.',
+    'A task passed only when the required answer appeared after a real tool result, the independent file or test check passed and no out-of-scope file changed.',
+    'Read, search and cross-file answers are hidden in fixture files rather than disclosed by the requested completion marker.',
     'The automatic route used the same generic graph for every task: native Agent execution, a required tool-backed completion receipt, a deterministic receipt gate and a final join. It was not specialized for a known fixture.',
     'A prose-only stop is not success. Read-only attempts may retry; mutating attempts retry only when the structured transcript proves that no tool call ran.',
     'The crash injection covers durable graph recovery after deterministic work, not continuation of an in-flight model token stream.',
     'This is a single-machine sample, not a universal guarantee for other models, prompts or hardware.',
+    `The suite does not cover: ${raw.fixture.coverage.excluded.join('; ')}.`,
   ],
 };
 

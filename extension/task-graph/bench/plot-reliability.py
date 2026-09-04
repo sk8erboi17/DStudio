@@ -12,7 +12,7 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_RESULT = Path(__file__).with_name("results") / "2026-09-04-m2-max-reliability-no-ssd.json"
+DEFAULT_RESULT = Path(__file__).with_name("results") / "2026-09-04-m2-max-diverse-reliability-no-ssd.json"
 DEFAULT_OUTPUT = ROOT / "assets" / "README images" / "benchmarks"
 
 BLUE = "#2563EB"
@@ -48,7 +48,7 @@ def plot_completion(result: dict, output: Path) -> None:
     comparison = result["comparison"]
     native = comparison["nativeAgent"]
     graph = comparison["taskGraph"]
-    task_ids = ["read-fact", "write-file", "repair-code"]
+    task_ids = [item["id"] for item in result["fixture"]["taskTypes"]]
     labels = [native["byTask"][task_id]["label"] for task_id in task_ids] + ["All 50 tasks"]
     native_counts = [native["byTask"][task_id]["tasksCompleted"] if "tasksCompleted" in native["byTask"][task_id]
                      else native["byTask"][task_id]["completed"] for task_id in task_ids] + [native["tasksCompleted"]]
@@ -60,9 +60,9 @@ def plot_completion(result: dict, output: Path) -> None:
     x = np.arange(len(labels))
     width = 0.34
 
-    fig, axis = plt.subplots(figsize=(11, 5.8))
-    fig.subplots_adjust(left=0.09, right=0.97, bottom=0.2, top=0.70)
-    fig.suptitle("50 real tasks: Native Agent vs automatic checks", fontsize=18, weight="bold", y=0.96)
+    fig, axis = plt.subplots(figsize=(17, 6.8))
+    fig.subplots_adjust(left=0.07, right=0.98, bottom=0.3, top=0.70)
+    fig.suptitle("50 diverse tasks: Native Agent vs automatic checks", fontsize=18, weight="bold", y=0.96)
     fig.text(0.5, 0.87, "Tasks actually completed · higher is better · SSD streaming off",
              ha="center", color=SLATE)
     native_bars = axis.bar(x - width / 2, native_values, width, color=BLUE, label="Native Agent")
@@ -73,6 +73,9 @@ def plot_completion(result: dict, output: Path) -> None:
                       f"{completed}/{total}", ha="center", va="bottom", weight="bold")
     axis.set_ylabel("Tasks completed (%)")
     axis.set_xticks(x, labels)
+    axis.tick_params(axis="x", labelrotation=32)
+    for label in axis.get_xticklabels():
+        label.set_horizontalalignment("right")
     axis.set_ylim(0, 112)
     axis.set_yticks(np.arange(0, 101, 20))
     fig.legend([native_bars, graph_bars], ["Native Agent", "Agent + automatic checks"],

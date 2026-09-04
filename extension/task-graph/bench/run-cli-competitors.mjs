@@ -9,7 +9,8 @@ import {
   artifactDir, safeReadTail, startDStudio, startMode, writeArtifact,
 } from '../../../tests/real_harness.mjs';
 import {
-  changeAllowed, changedFiles, createReliabilityFixture, workspaceSnapshot,
+  changeAllowed, changedFiles, createReliabilityFixture, RELIABILITY_SUITE_SIZE,
+  workspaceSnapshot,
 } from './reliability-fixture.mjs';
 
 if (process.env.RUN_HEAVY !== '1') {
@@ -23,7 +24,7 @@ for (const name of fs.readdirSync(artifacts))
 const workspace = path.join(artifacts, 'workspace');
 const configRoot = path.join(artifacts, 'isolated-cli-config');
 fs.mkdirSync(configRoot, { recursive: true });
-const caseCount = Math.max(1, Math.min(100,
+const caseCount = Math.max(1, Math.min(RELIABILITY_SUITE_SIZE,
   Number(process.env.DSTUDIO_RELIABILITY_CASES || 50) || 50));
 const maxOutputTokens = Math.max(256, Math.min(4096,
   Number(process.env.DSTUDIO_COMPETITOR_MAX_OUTPUT_TOKENS || 1024) || 1024));
@@ -32,7 +33,14 @@ const fixture = createReliabilityFixture({
   caseCount,
   variants: ['pi', 'opencode'],
 });
-const scenarios = fixture.scenarios;
+const onlyIds = new Set(String(process.env.DSTUDIO_RELIABILITY_ONLY || '')
+  .split(',').map((value) => value.trim()).filter(Boolean));
+const scenarios = onlyIds.size
+  ? fixture.scenarios.filter((scenario) => onlyIds.has(scenario.id))
+  : fixture.scenarios;
+if (onlyIds.size && scenarios.length !== onlyIds.size)
+  throw new Error(`unknown DSTUDIO_RELIABILITY_ONLY case(s): ${[...onlyIds].filter((id) =>
+    !scenarios.some((scenario) => scenario.id === id)).join(', ')}`);
 execFileSync('git', ['init', '--quiet'], { cwd: workspace, stdio: 'ignore' });
 execFileSync('git', ['config', 'user.name', 'DStudio Benchmark'], { cwd: workspace, stdio: 'ignore' });
 execFileSync('git', ['config', 'user.email', 'benchmark@localhost'], { cwd: workspace, stdio: 'ignore' });
@@ -402,7 +410,7 @@ function eventText(harness, event) {
     .join('\n');
 }
 
-function analyzeEvents(harness, stdout, expected) {
+function analyzeEvents(harness, stdout, task) {
   const events = parseEvents(stdout);
   const completedTools = events
     .map((event, index) => ({ event, index }))
@@ -410,8 +418,9 @@ function analyzeEvents(harness, stdout, expected) {
       ? event.type === 'tool_execution_end'
       : event.type === 'tool_use' && ['completed', 'error'].includes(event.part?.state?.status));
   const lastToolIndex = completedTools.at(-1)?.index ?? -1;
-  const answerIndex = events.findIndex((event, index) =>
-    index > lastToolIndex && eventText(harness, event).includes(expected));
+  const answerText = events.slice(lastToolIndex + 1)
+    .map((event) => eventText(harness, event)).join('\n');
+  const required = [task.expected, ...(task.answerMustContain || [])];
   let previous = '';
   let repeated = 0;
   let maximumRepeated = 0;
@@ -425,7 +434,7 @@ function analyzeEvents(harness, stdout, expected) {
     parsedEvents: events.length,
     calls: completedTools.length,
     maximumRepeated,
-    answerAfterTool: lastToolIndex >= 0 && answerIndex > lastToolIndex,
+    answerAfterTool: lastToolIndex >= 0 && required.every((value) => answerText.includes(value)),
   };
 }
 
@@ -474,16 +483,18 @@ async function runCompetitor(proxy, environments, harness, scenario) {
   const changed = changedFiles(before, after);
   const unexpectedChanges = changed.filter((file) => !changeAllowed(file, task.allowedChanges));
   const external = task.score();
-  const events = analyzeEvents(harness, execution.stdout, task.expected);
+  const events = analyzeEvents(harness, execution.stdout, task);
   const modelPinVerified = modelRequests.length > 0 &&
     modelRequests.every((request) => request.path === '/v1/chat/completions' && request.model === 'ds4');
   const agentClaimedDone = events.answerAfterTool;
   const result = {
     variant: harness,
     scenario: scenario.id,
-    taskSuccess: Boolean(execution.code === 0 && external.ok && agentClaimedDone),
+    taskType: scenario.templateId,
+    taskSuccess: Boolean(execution.code === 0 && external.ok && agentClaimedDone &&
+      unexpectedChanges.length === 0),
     expectedAnswerAfterTool: agentClaimedDone,
-    incorrectCompletionClaim: Boolean(agentClaimedDone && !external.ok),
+    incorrectCompletionClaim: Boolean(agentClaimedDone && (!external.ok || unexpectedChanges.length)),
     externalCheck: external,
     changedFiles: changed,
     unexpectedChanges,
@@ -513,7 +524,7 @@ async function runCompetitor(proxy, environments, harness, scenario) {
 
 function byTask(runs) {
   return Object.fromEntries(fixture.templates.map((template) => {
-    const matching = runs.filter((run) => run.scenario.replace(/-\d+$/, '') === template.id);
+    const matching = runs.filter((run) => run.taskType === template.id);
     return [template.id, {
       runs: matching.length,
       successes: matching.filter((run) => run.taskSuccess).length,
@@ -636,11 +647,13 @@ try {
       ssdStreamingEffective: startup.config?.ssdStreamingEffective,
       ssdStreamingReason: startup.config?.ssdStreamingReason,
       fullModelReady: startup.ready === true,
-      matchedCases: caseCount,
+      matchedCases: scenarios.length,
+      selectedCaseFilter: onlyIds.size ? [...onlyIds] : null,
       maxOutputTokens,
       localEndpointEnforced: true,
     },
     cliVersions: versions,
+    fixture: fixture.metadata,
     preflight,
     startupMs,
     comparison: {
@@ -652,7 +665,8 @@ try {
     humanRecoveryInterventions: 0,
     wallClockMs: rounded(performance.now() - benchmarkStartedAt),
     limitations: [
-      `${caseCount} matched cases cycle through read, write and code-repair fixtures.`,
+      `${scenarios.length} matched cases draw from ${fixture.templates.length} local-agent task families with five different fixtures per family in the complete suite.`,
+      `Out of scope: ${fixture.metadata.coverage.excluded.join('; ')}.`,
       'Pi and OpenCode ran in alternating order with a fresh non-interactive session for every task.',
       'Both CLIs used the same continuously loaded DStudio server model; a local proxy rejected any model id other than ds4.',
       'The DStudio Native Agent and automatic checked Agent results are produced in a separate load because ds4 prevents the large Agent and server runtimes from owning the model simultaneously.',

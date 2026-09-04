@@ -9,7 +9,8 @@ import {
   startDStudio, startMode, waitForAgentText, writeArtifact,
 } from '../../../tests/real_harness.mjs';
 import {
-  changeAllowed, changedFiles, createReliabilityFixture, workspaceSnapshot,
+  changeAllowed, changedFiles, createReliabilityFixture, RELIABILITY_SUITE_SIZE,
+  workspaceSnapshot,
 } from './reliability-fixture.mjs';
 
 if (process.env.RUN_HEAVY !== '1') {
@@ -22,7 +23,7 @@ for (const name of fs.readdirSync(artifacts))
   fs.rmSync(path.join(artifacts, name), { recursive: true, force: true });
 const workspace = path.join(artifacts, 'workspace');
 fs.mkdirSync(workspace, { recursive: true });
-const caseCount = Math.max(1, Math.min(100,
+const caseCount = Math.max(1, Math.min(RELIABILITY_SUITE_SIZE,
   Number(process.env.DSTUDIO_RELIABILITY_CASES || 50) || 50));
 const fixture = createReliabilityFixture({
   workspace,
@@ -30,7 +31,14 @@ const fixture = createReliabilityFixture({
   variants: ['native-agent', 'task-graph'],
 });
 const scenarioTemplates = fixture.templates;
-const scenarios = fixture.scenarios;
+const onlyIds = new Set(String(process.env.DSTUDIO_RELIABILITY_ONLY || '')
+  .split(',').map((value) => value.trim()).filter(Boolean));
+const scenarios = onlyIds.size
+  ? fixture.scenarios.filter((scenario) => onlyIds.has(scenario.id))
+  : fixture.scenarios;
+if (onlyIds.size && scenarios.length !== onlyIds.size)
+  throw new Error(`unknown DSTUDIO_RELIABILITY_ONLY case(s): ${[...onlyIds].filter((id) =>
+    !scenarios.some((scenario) => scenario.id === id)).join(', ')}`);
 
 function rounded(value, digits = 2) {
   return Number(Number(value).toFixed(digits));
@@ -42,13 +50,9 @@ function median(values) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-function taskType(scenario) {
-  return scenario.replace(/-\d+$/, '');
-}
-
 function byTask(runs) {
   return Object.fromEntries(scenarioTemplates.map((template) => {
-    const matching = runs.filter((run) => taskType(run.scenario) === template.id);
+    const matching = runs.filter((run) => run.taskType === template.id);
     return [template.id, {
       runs: matching.length,
       successes: matching.filter((run) => run.taskSuccess).length,
@@ -114,7 +118,7 @@ function toolStats(text) {
   return { calls: calls.length, maximumRepeated };
 }
 
-function answerAfterTool(text, expected) {
+function answerAfterTool(text, task) {
   const toolResultAt = text.lastIndexOf('"type":"tool_result"');
   if (toolResultAt < 0) return false;
   const visibleAnswer = text.slice(text.indexOf('\n', toolResultAt) + 1)
@@ -122,7 +126,8 @@ function answerAfterTool(text, expected) {
     .replace(/[\x01\x02]/g, '')
     .replace(/saved session[^\r\n]*/g, '')
     .replace(/\s+/g, '');
-  return visibleAnswer.includes(expected.replace(/\s+/g, ''));
+  const required = [task.expected, ...(task.answerMustContain || [])];
+  return required.every((value) => visibleAnswer.includes(value.replace(/\s+/g, '')));
 }
 
 async function runDirect(server, scenario) {
@@ -141,12 +146,12 @@ async function runDirect(server, scenario) {
   const changed = changedFiles(before, after);
   const unexpectedChanges = changed.filter((file) => !changeAllowed(file, task.allowedChanges));
   const external = task.score();
-  const agentClaimedDone = answerAfterTool(completed.text, task.expected);
+  const agentClaimedDone = answerAfterTool(completed.text, task);
   const result = {
-    variant: 'native-agent', scenario: scenario.id,
-    taskSuccess: Boolean(external.ok && agentClaimedDone),
+    variant: 'native-agent', scenario: scenario.id, taskType: scenario.templateId,
+    taskSuccess: Boolean(external.ok && agentClaimedDone && unexpectedChanges.length === 0),
     expectedAnswerAfterTool: agentClaimedDone,
-    incorrectCompletionClaim: Boolean(agentClaimedDone && !external.ok),
+    incorrectCompletionClaim: Boolean(agentClaimedDone && (!external.ok || unexpectedChanges.length)),
     externalCheck: external,
     changedFiles: changed,
     unexpectedChanges,
@@ -234,22 +239,23 @@ async function runTaskGraph(server, scenario) {
   const unexpectedChanges = changed.filter((file) => !changeAllowed(file, task.allowedChanges));
   const external = task.score();
   const finalJoinRan = completed.graph.nodes.some((node) => node.kind === 'join' && node.state === 'succeeded');
-  const agentClaimedDone = answerAfterTool(transcript, task.expected);
+  const agentClaimedDone = answerAfterTool(transcript, task);
   const graphToolStats = {
     toolCalls: agentNodes.reduce((total, node) => total + Number(node.watchdog?.toolCalls || 0), 0),
     repeatedCalls: Math.max(0, ...agentNodes.map((node) => Number(node.watchdog?.repeatedCalls || 0))),
     tripped: agentNodes.some((node) => node.watchdog?.tripped),
   };
   const result = {
-    variant: 'task-graph', scenario: scenario.id,
+    variant: 'task-graph', scenario: scenario.id, taskType: scenario.templateId,
     taskSuccess: Boolean(completed.graph.state === 'succeeded' && external.ok &&
-      agentClaimedDone),
+      agentClaimedDone && unexpectedChanges.length === 0),
     graphState: completed.graph.state,
     gatesPassed: completed.graph.nodes.filter((node) => node.kind === 'gate' && node.state === 'succeeded').length,
     expectedAnswerAfterTool: agentClaimedDone,
     finalJoinRan,
     incorrectResultBlocked: Boolean(!external.ok && completed.graph.state === 'failed' && !finalJoinRan),
-    incorrectCompletionClaim: Boolean(!external.ok && completed.graph.state === 'succeeded' && agentClaimedDone),
+    incorrectCompletionClaim: Boolean((!external.ok || unexpectedChanges.length) &&
+      completed.graph.state === 'succeeded' && agentClaimedDone),
     externalCheck: external,
     changedFiles: changed,
     unexpectedChanges,
@@ -447,6 +453,8 @@ try {
   const directSuccesses = direct.filter((result) => result.taskSuccess).length;
   const graphSuccesses = taskGraph.filter((result) => result.taskSuccess).length;
   const graphBlockedIncorrect = taskGraph.filter((result) => result.incorrectResultBlocked).length;
+  const graphFalseSuccesses = taskGraph.filter((result) =>
+    !result.taskSuccess && result.graphState === 'succeeded').length;
   const paired = scenarios.reduce((summary, _scenario, index) => {
     const directOk = direct[index].taskSuccess;
     const graphOk = taskGraph[index].taskSuccess;
@@ -460,6 +468,8 @@ try {
     schemaVersion: 1,
     ok: direct.length === scenarios.length && taskGraph.length === scenarios.length &&
       graphSuccesses >= directSuccesses && paired.nativeAgentOnly === 0 &&
+      graphFalseSuccesses === 0 &&
+      taskGraph.every((run) => !run.incorrectCompletionClaim && !run.unexpectedChanges.length) &&
       faults.invalidPath.preventedBeforeExecution &&
       faults.corruptedOutput.graphState === 'failed' && !faults.corruptedOutput.downstreamJoinRan &&
       faults.conflictingUndo.refused && faults.conflictingUndo.externalChangePreserved &&
@@ -478,8 +488,10 @@ try {
       ssdStreamingEffective: startup.config?.ssdStreamingEffective,
       ssdStreamingReason: startup.config?.ssdStreamingReason,
       fullModelReady: startup.ready === true,
-      matchedCases: caseCount,
+      matchedCases: scenarios.length,
+      selectedCaseFilter: onlyIds.size ? [...onlyIds] : null,
     },
+    fixture: fixture.metadata,
     startupMs,
     comparison: {
       scenarios: scenarios.length,
@@ -496,7 +508,7 @@ try {
         successes: graphSuccesses,
         successRatePercent: rounded(graphSuccesses / taskGraph.length * 100, 1),
         incorrectResultsBlocked: graphBlockedIncorrect,
-        graphsCompletedWithoutTaskSuccess: taskGraph.filter((run) => !run.taskSuccess && run.graphState === 'succeeded').length,
+        graphsCompletedWithoutTaskSuccess: graphFalseSuccesses,
         incorrectCompletionClaims: taskGraph.filter((run) => run.incorrectCompletionClaim).length,
         unexpectedModificationRuns: taskGraph.filter((run) => run.unexpectedChanges.length).length,
         watchdogTrips: taskGraph.filter((run) => run.toolStats.tripped).length,
@@ -511,7 +523,8 @@ try {
     humanRecoveryInterventions: 0,
     wallClockMs: rounded(performance.now() - benchmarkStartedAt),
     limitations: [
-      `${caseCount} matched A/B cases cycle through read, write and code-repair fixtures.`,
+      `${scenarios.length} matched A/B cases draw from ${fixture.templates.length} local-agent task families with five different fixtures per family in the complete suite.`,
+      `Out of scope: ${fixture.metadata.coverage.excluded.join('; ')}.`,
       'Every variant uses a fresh Agent session while keeping the same full model loaded; they are not independent cold model starts.',
       'The crash test targets the durable graph runtime after deterministic work, not resumption of an in-flight LLM token stream.',
       'The approval benchmark uses no human click; approval behavior is covered by the separate native SSD benchmark.',

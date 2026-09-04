@@ -408,7 +408,18 @@ static void test_automatic_correctness_route_and_receipt(const char *workspace) 
     CHECK(!strcmp(graph.nodes[0].action_display, "Fix app.py"));
     CHECK(graph.nodes[0].action_require_tool_result == 1);
     CHECK(graph.nodes[0].automatic_retry == 1 && graph.nodes[0].idempotent == 0);
+    CHECK(strstr(graph.nodes[0].action_text, "paths relative to the active workspace") != NULL);
+    CHECK(strstr(graph.nodes[0].action_text, "successful write/edit result is sufficient") != NULL);
+    CHECK(strstr(graph.nodes[0].action_text, "Do not repeat a passing check") != NULL);
     CHECK(!strcmp(graph.nodes[1].action_name, "agent.receipt.verify"));
+    dtg_graph_free(&graph);
+    free(automatic.ptr);
+
+    automatic.ptr = NULL; automatic.len = automatic.cap = 0;
+    CHECK(dtg_build_automatic_agent_graph("Read facts.txt", "Read facts.txt", DTG_AUTO_READ_ONLY, &automatic));
+    CHECK(dtg_parse_graph_json(automatic.ptr, &graph, err, sizeof err));
+    CHECK(strstr(graph.nodes[0].action_text, "minimum read or search calls") != NULL);
+    CHECK(strstr(graph.nodes[0].action_text, "Do not repeat an identical read") != NULL);
     dtg_graph_free(&graph);
     free(automatic.ptr);
     cstr_copy(g_workdir, sizeof g_workdir, old_workdir);
