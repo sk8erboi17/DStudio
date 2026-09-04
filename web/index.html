@@ -32293,13 +32293,17 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
 
       function cleanRuntimeMarkup(t) {
-        if (!t || (t.indexOf('§QUESTION_ANSWER') < 0 && t.indexOf('PLAN MODE') < 0)) return t;
+        if (!t || (t.indexOf('§QUESTION_ANSWER') < 0 && t.indexOf('PLAN MODE') < 0 &&
+                   t.indexOf('[[DSTUDIO_CORRECTNESS_COMPLETE]]') < 0)) return t;
         // Plan mode is a hidden per-turn contract appended to the user's real
         // prompt. It must affect the agent, but never show up in the chat bubble.
         t = t.replace(/\n+PLAN MODE\s*[—-]\s*create a Markdown planning file for the request above\.[\s\S]*$/i, '');
         t = t.replace(/§QUESTION_ANSWER\s*[\s\S]*?§END/g, 'Clarification answered');
         t = t.replace(/§QUESTION_ANSWER\b[\s\S]*$/g, '');
         t = t.replace(/^[ \t]*§END[ \t]*$/gm, '');
+        // Automatic Task Graph completion receipts are checked and persisted
+        // by the host. They are protocol evidence, not part of the answer.
+        t = t.replace(/[ \t]*\[\[DSTUDIO_CORRECTNESS_COMPLETE\]\][ \t]*/g, '');
         return t.replace(/\n{3,}/g, '\n\n').trim();
       }
 

@@ -325,3 +325,178 @@ static int api_dtg_list(int fd, const char *path) {
     if (!ok) { free(out.ptr); dtg_api_error(fd, "500 Internal Server Error", "cannot serialize graph list"); return 500; }
     send_json(fd, "200 OK", out.ptr); free(out.ptr); return 200;
 }
+
+enum {
+    DTG_AUTO_DIRECT = 0,
+    DTG_AUTO_READ_ONLY,
+    DTG_AUTO_WORKSPACE_WRITE
+};
+
+static int dtg_text_contains_ci(const char *text, const char *needle) {
+    if (!text || !needle || !needle[0]) return 0;
+    size_t n = strlen(needle);
+    for (const unsigned char *p = (const unsigned char *)text; *p; p++) {
+        size_t i = 0;
+        while (i < n && p[i] &&
+               tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i])) i++;
+        if (i == n) return 1;
+    }
+    return 0;
+}
+
+static int dtg_text_has_any(const char *text, const char *const *needles) {
+    for (size_t i = 0; needles[i]; i++)
+        if (dtg_text_contains_ci(text, needles[i])) return 1;
+    return 0;
+}
+
+/* Deterministic and deliberately conservative.  Questions that do not need
+ * workspace evidence keep the exact native path.  Imperative project work is
+ * routed through a durable correctness receipt without asking the user to
+ * manage a mode or toggle. */
+static int dtg_agent_auto_route(const char *display, const char **reason) {
+    static const char *const bypass[] = {
+        "plan mode", "§question_answer", NULL
+    };
+    static const char *const question_starts[] = {
+        "chi ", "cosa ", "come ", "dove ", "perche ", "perché ", "qual ", "quale ",
+        "what ", "why ", "how ", "where ", "when ", "who ", "explain ", "spiega ", NULL
+    };
+    static const char *const strong_write[] = {
+        "implement", "fix ", "repair", "refactor", "migliora", "corregg", "procedi",
+        "commit", "benchmark", "build ", "compila",
+        "aggiung", "rimuov", "elimin", "rinomin", "modific", "aggiorn", NULL
+    };
+    static const char *const write_verbs[] = {
+        "create ", "crea ", "write ", "scriv", "edit ", "change ", "cambia ",
+        "make ", "genera ", "generate ", NULL
+    };
+    static const char *const execute_verbs[] = {
+        "run ", "execute ", "esegui", "lancia ", NULL
+    };
+    static const char *const read_verbs[] = {
+        "read ", "inspect", "review", "analy", "analizz", "leggi", "controlla",
+        "verifica", "check ", "diagnos", "cerca", "search ", NULL
+    };
+    static const char *const read_only_constraints[] = {
+        "do not modify", "don't modify", "do not edit", "without changing", "read-only",
+        "non modific", "non cambiare", "senza modific", "sola lettura", NULL
+    };
+    static const char *const workspace_terms[] = {
+        " file", "files", "cartella", "folder", "directory", "path", "code", "codice",
+        "project", "progetto", "repo", "readme", "test", "src/", "web/", "tests/",
+        ".py", ".js", ".ts", ".c", ".h", ".cpp", ".rs", ".go", ".java", ".md",
+        ".json", ".html", ".css", ".sh", ".txt", "output", "git", NULL
+    };
+    const char *p = display ? display : "";
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (!*p || *p == '/' || dtg_text_has_any(p, bypass)) {
+        if (reason) *reason = "runtime control or empty prompt";
+        return DTG_AUTO_DIRECT;
+    }
+    int question = 0;
+    for (size_t i = 0; question_starts[i]; i++) {
+        size_t n = strlen(question_starts[i]);
+        if (!strncasecmp(p, question_starts[i], n)) { question = 1; break; }
+    }
+    const int workspace = dtg_text_has_any(p, workspace_terms);
+    const int strong = dtg_text_has_any(p, strong_write);
+    const int write = dtg_text_has_any(p, write_verbs);
+    const int execute = dtg_text_has_any(p, execute_verbs);
+    const int read = dtg_text_has_any(p, read_verbs);
+    if (dtg_text_has_any(p, read_only_constraints) && (read || workspace)) {
+        if (reason) *reason = "explicit read-only workspace request";
+        return DTG_AUTO_READ_ONLY;
+    }
+    if (strong && !question) {
+        if (reason) *reason = "project-changing request";
+        return DTG_AUTO_WORKSPACE_WRITE;
+    }
+    if (write && workspace && !question) {
+        if (reason) *reason = "workspace write request";
+        return DTG_AUTO_WORKSPACE_WRITE;
+    }
+    if (execute && workspace && !question) {
+        if (reason) *reason = "workspace execution request";
+        return DTG_AUTO_WORKSPACE_WRITE;
+    }
+    if (read && workspace) {
+        if (reason) *reason = "workspace evidence request";
+        return DTG_AUTO_READ_ONLY;
+    }
+    if (reason) *reason = "no workspace action detected";
+    return DTG_AUTO_DIRECT;
+}
+
+static int dtg_build_automatic_agent_graph(const char *prompt, const char *display,
+                                           int route, json_dyn_buf *definition) {
+    static const char marker[] = "[[DSTUDIO_CORRECTNESS_COMPLETE]]";
+    json_dyn_buf work = {0};
+    int ok = json_dyn_puts(&work,
+        "Correctness-first execution. Perform the user's request now with the available tools.\n\n"
+        "User request:\n") &&
+        json_dyn_puts(&work, prompt) &&
+        json_dyn_puts(&work,
+          "\n\nBefore the final answer: inspect the actual current state; perform only the requested work; "
+          "run the strongest relevant check available; if that check fails, diagnose and repair the result. "
+          "Do not claim completion from intention or prose alone. Give the user a concise, honest result. "
+          "Only after at least one tool result and all relevant checks pass, put this receipt on its own final line:\n") &&
+        json_dyn_puts(&work, marker);
+    if (!ok) { free(work.ptr); return 0; }
+
+    ok = json_dyn_puts(definition,
+        "{\"schemaVersion\":1,\"policy\":\"agent.general.v1\",\"mode\":\"agent\","
+        "\"executorMode\":\"native\",\"goal\":\"Automatic correctness-first Agent execution\",\"workspace\":") &&
+        json_dyn_put_escaped(definition, g_workdir) &&
+        json_dyn_puts(definition,
+        ",\"limits\":{\"maxParallelHostNodes\":1,\"maxParallelLlmNodes\":1,\"maxAttemptsPerNode\":2},"
+        "\"nodes\":[{\"id\":\"work\",\"kind\":\"agent_turn\",\"title\":\"Do and verify the requested work\","
+        "\"description\":\"Native Agent work with evidence-based completion\",\"mutation\":") &&
+        json_dyn_put_escaped(definition, route == DTG_AUTO_WORKSPACE_WRITE ? "workspace_write" : "read_only") &&
+        json_dyn_puts(definition, ",\"capabilities\":[\"filesystem.read\",\"git.read\"") &&
+        (route != DTG_AUTO_WORKSPACE_WRITE ||
+          json_dyn_puts(definition, ",\"filesystem.write\",\"terminal\",\"test.run\"")) &&
+        json_dyn_puts(definition, "],\"retry\":{\"maxAttempts\":2,\"automatic\":true},\"idempotent\":") &&
+        json_dyn_puts(definition, route == DTG_AUTO_WORKSPACE_WRITE ? "false" : "true") &&
+        json_dyn_puts(definition, ",\"action\":{\"name\":\"agent.prompt\",\"text\":") &&
+        json_dyn_put_escaped(definition, work.ptr) &&
+        json_dyn_puts(definition, ",\"display\":") && json_dyn_put_escaped(definition, display) &&
+        json_dyn_puts(definition, ",\"contains\":") && json_dyn_put_escaped(definition, marker) &&
+        json_dyn_puts(definition,
+        ",\"requireToolResult\":true}},{\"id\":\"verify\",\"kind\":\"gate\","
+        "\"title\":\"Verify real completion evidence\",\"description\":\"Rejects prose-only completion\","
+        "\"mutation\":\"read_only\",\"dependsOn\":[\"work\"],\"capabilities\":[\"filesystem.read\"],"
+        "\"action\":{\"name\":\"agent.receipt.verify\"}},{\"id\":\"done\",\"kind\":\"join\","
+        "\"title\":\"Complete verified request\",\"dependsOn\":[\"verify\"],"
+        "\"action\":{\"name\":\"join.all\"}}]}");
+    free(work.ptr);
+    return ok;
+}
+
+static void api_dtg_agent_auto_send(int fd, const char *prompt, const char *display,
+                                    int route, const char *route_reason) {
+    char err[512] = "";
+    json_dyn_buf definition = {0};
+    size_t from = g_alen;
+    if (!dtg_build_automatic_agent_graph(prompt, display, route, &definition)) {
+        free(definition.ptr);
+        dtg_api_error(fd, "500 Internal Server Error", "cannot build automatic Agent graph");
+        return;
+    }
+    dtg_runtime *rt = dtg_store_create(definition.ptr, 1, err, sizeof err);
+    free(definition.ptr);
+    if (!rt) { dtg_api_error(fd, "422 Unprocessable Entity", err); return; }
+    if (!dtg_scheduler_start(rt, err, sizeof err)) {
+        dtg_api_error(fd, "422 Unprocessable Entity", err); return;
+    }
+    const dtg_node *work = dtg_find_node_const(&rt->graph, "work");
+    json_dyn_buf out = {0};
+    int ok = json_dyn_puts(&out, "{\"ok\":true,\"orchestration\":\"automatic-task-graph\",\"routeReason\":") &&
+        json_dyn_put_escaped(&out, route_reason ? route_reason : "workspace action") &&
+        json_dyn_puts(&out, ",\"graphId\":") && json_dyn_put_escaped(&out, rt->graph.id) &&
+        json_dyn_printf(&out, ",\"taskId\":%llu,\"from\":%zu,\"at\":%zu}",
+                        work ? work->operation_task_id : 0, from, g_alen);
+    if (!ok) { free(out.ptr); dtg_api_error(fd, "500 Internal Server Error", "cannot serialize automatic Agent graph"); return; }
+    send_json(fd, "200 OK", out.ptr);
+    free(out.ptr);
+}

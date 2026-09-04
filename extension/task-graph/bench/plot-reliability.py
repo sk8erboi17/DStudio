@@ -61,12 +61,12 @@ def plot_completion(result: dict, output: Path) -> None:
     width = 0.34
 
     fig, axis = plt.subplots(figsize=(11, 5.8))
-    fig.subplots_adjust(left=0.09, right=0.97, bottom=0.2, top=0.78)
-    fig.suptitle("50 real tasks: Native Agent vs Task Graph", fontsize=18, weight="bold", y=0.96)
-    fig.text(0.5, 0.87, "Task completion rate · higher is better · SSD streaming off",
+    fig.subplots_adjust(left=0.09, right=0.97, bottom=0.2, top=0.70)
+    fig.suptitle("50 real tasks: Native Agent vs automatic checks", fontsize=18, weight="bold", y=0.96)
+    fig.text(0.5, 0.87, "Tasks actually completed · higher is better · SSD streaming off",
              ha="center", color=SLATE)
     native_bars = axis.bar(x - width / 2, native_values, width, color=BLUE, label="Native Agent")
-    graph_bars = axis.bar(x + width / 2, graph_values, width, color=TEAL, label="Task Graph")
+    graph_bars = axis.bar(x + width / 2, graph_values, width, color=TEAL, label="Agent + automatic checks")
     for bars, counts in ((native_bars, native_counts), (graph_bars, graph_counts)):
         for bar, completed, total in zip(bars, counts, totals):
             axis.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 2,
@@ -75,7 +75,8 @@ def plot_completion(result: dict, output: Path) -> None:
     axis.set_xticks(x, labels)
     axis.set_ylim(0, 112)
     axis.set_yticks(np.arange(0, 101, 20))
-    axis.legend(frameon=False, ncols=2, loc="upper left")
+    fig.legend([native_bars, graph_bars], ["Native Agent", "Agent + automatic checks"],
+               frameon=False, ncols=2, loc="upper center", bbox_to_anchor=(0.5, 0.81))
     axis.grid(axis="y")
     axis.grid(axis="x", visible=False)
     axis.spines[["top", "right"]].set_visible(False)
@@ -85,7 +86,7 @@ def plot_completion(result: dict, output: Path) -> None:
 
 def plot_paired(result: dict, output: Path) -> None:
     paired = result["comparison"]["paired"]
-    labels = ["Both completed", "Task Graph only", "Native Agent only", "Neither"]
+    labels = ["Both completed", "Automatic checks only", "Native Agent only", "Neither"]
     values = [paired["bothCompleted"], paired["taskGraphOnly"],
               paired["nativeAgentOnly"], paired["neitherCompleted"]]
     colors = [SLATE, TEAL, BLUE, ORANGE]
@@ -94,7 +95,7 @@ def plot_paired(result: dict, output: Path) -> None:
     fig, axis = plt.subplots(figsize=(10, 4.8))
     fig.subplots_adjust(left=0.22, right=0.95, bottom=0.18, top=0.75)
     fig.suptitle("What happened on the same 50 tasks", fontsize=18, weight="bold", y=0.96)
-    fig.text(0.5, 0.85, "Each task was run once in each mode", ha="center", color=SLATE)
+    fig.text(0.5, 0.85, "Same model and task; the checked route starts automatically", ha="center", color=SLATE)
     bars = axis.barh(y, values, height=0.54, color=colors)
     for bar, value in zip(bars, values):
         axis.text(value + 0.7, bar.get_y() + bar.get_height() / 2, str(value),

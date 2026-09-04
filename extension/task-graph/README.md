@@ -4,6 +4,13 @@ Task Graph is common Agent Runtime infrastructure, not a separate DStudio mode.
 It provides a bounded DAG, strict policy validation, an event-sourced store,
 native executors, optimistic-concurrency controls and a live Agent UI.
 
+Ordinary Agent sends use adaptive orchestration by default. Conversational
+questions keep the direct native path; deterministic classification routes
+workspace inspection and mutation requests through a generic correctness-first
+graph. There is no user-facing on/off switch. `orchestration: "native"` exists
+for the matched benchmark, while `orchestration: "task-graph"` forces the
+checked route for tests and API clients.
+
 ## Native action contract
 
 Set `policy: "agent.general.v1"`, `mode: "agent"` and
@@ -12,12 +19,13 @@ never retained or evaluated. V1 accepts only:
 
 | Node kind | Action | Required declaration |
 | --- | --- | --- |
-| `agent_turn` | `agent.prompt` | bounded `text`; mutation/capabilities must agree |
+| `agent_turn` | `agent.prompt` | bounded `text`; mutation/capabilities must agree; optional tool-backed completion contract |
 | `host_tool` | `workspace.read` | `read_only`, `filesystem.read`, relative `path` |
 | `host_tool` | `workspace.write` | `workspace_write`, `filesystem.write`, `path`, `text`, downstream gate |
 | `host_tool` | `test.run` | argv array, `workspace_write`, `test.run`, downstream gate |
 | `gate` | `workspace.assert` | `read_only`, `filesystem.read`, `path`, optional `contains` |
 | `gate` | `outputs.verify` | verifies required output contracts of direct dependencies |
+| `gate` | `agent.receipt.verify` | verifies one Agent dependency's tool evidence and completion marker |
 | `approval` | `approval.wait` | default action; explicit user approval completes it |
 | `join` | `join.all` | default action; completes after dependencies |
 
@@ -35,8 +43,18 @@ the parent of a new file, so symlink traversal cannot leave the workspace.
 
 An Agent node acquires DStudio's single global LLM lease and writes its prompt
 to the already-running structured `ds4-agent-jsonl` process. The attempt ends
-only at the Agent's explicit `+DWARFSTAR_WAITING` boundary; model prose cannot
-complete a node. Its bounded transcript is stored as an immutable receipt.
+at the Agent's explicit `+DWARFSTAR_WAITING` boundary, but that boundary alone
+does not imply success. With `requireToolResult: true`, the host requires a
+structured tool result and the declared `contains` marker afterwards. Status
+frames may interleave generated token chunks, so the host removes RS+JSON event
+lines before matching the textual marker. The user prompt is excluded from the
+search and cannot satisfy its own contract. The bounded transcript is stored as
+an immutable receipt.
+
+The automatic graph gives read-only turns at most two attempts. A mutating turn
+is also configured for two attempts, but its second attempt is legal only when
+the first transcript proves that zero tool calls ran. Once any tool was called,
+the scheduler will not replay a non-idempotent action automatically.
 
 The Moven-inspired watchdog observes structured `tool_call` and `tool_result`
 events only for a graph-owned turn. It interrupts the turn after four byte-

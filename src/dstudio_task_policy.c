@@ -46,6 +46,12 @@ static int dtg_native_action_policy(const dtg_graph *graph, const dtg_node *node
         if (node->kind != DTG_NODE_AGENT_TURN || !node->action_text || !node->action_text[0]) {
             snprintf(err, errsz, "action agent.prompt requires an agent_turn and non-empty text"); return 0;
         }
+        if (node->action_require_tool_result &&
+            (!node->action_expect || !node->action_expect[0])) {
+            snprintf(err, errsz,
+                     "agent.prompt requireToolResult also requires a completion marker");
+            return 0;
+        }
         if (node->mutation == DTG_MUTATION_READ_ONLY &&
             dtg_node_has_capability(node, "filesystem.write")) {
             snprintf(err, errsz, "read-only agent.prompt cannot request filesystem.write"); return 0;
@@ -70,6 +76,23 @@ static int dtg_native_action_policy(const dtg_graph *graph, const dtg_node *node
             (!graph->approval_required ||
              (!dtg_node_has_capability(node, "network") && !dtg_node_has_capability(node, "browser")))) {
             snprintf(err, errsz, "external agent.prompt requires graph approval and network or browser capability"); return 0;
+        }
+        return 1;
+    }
+    if (!strcmp(action, "agent.receipt.verify")) {
+        if (node->kind != DTG_NODE_GATE || node->mutation != DTG_MUTATION_READ_ONLY ||
+            !dtg_node_has_only_capability(node, "filesystem.read") ||
+            node->dependency_count != 1) {
+            snprintf(err, errsz,
+                     "agent.receipt.verify requires a read-only gate, filesystem.read and one dependency");
+            return 0;
+        }
+        const dtg_node *source = dtg_find_node_const(graph, node->dependencies[0].node_id);
+        if (!source || strcmp(source->action_name, "agent.prompt") ||
+            !source->action_expect || !source->action_expect[0]) {
+            snprintf(err, errsz,
+                     "agent.receipt.verify dependency must be an agent.prompt with a completion marker");
+            return 0;
         }
         return 1;
     }

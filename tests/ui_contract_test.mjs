@@ -2057,6 +2057,12 @@ for (const control of ['start', 'pause', 'resume', 'approve', 'cancel', 'node/ap
 }
 assert.match(launcher, /dtg_watchdog_observe_event_line[\s\S]*Watchdog stopped four identical Agent tool calls/,
   'native Agent turns should have a structured anti-loop watchdog');
+assert.match(launcher, /char orchestration\[32\] = "auto"[\s\S]*dtg_agent_auto_route[\s\S]*api_dtg_agent_auto_send/,
+  'ordinary Agent sends should route workspace actions through the automatic graph by default');
+assert.match(launcher, /requireToolResult[\s\S]*agent\.receipt\.verify[\s\S]*Agent stopped without completing a structured tool action/,
+  'automatic graphs should reject prose-only completion and verify tool-backed receipts');
+assert.match(js, /DSTUDIO_CORRECTNESS_COMPLETE[\s\S]*protocol evidence, not part of the answer/,
+  'the host completion receipt should remain hidden from the user-facing answer');
 assert.match(launcher, /\/api\/task-graph\/node\/undo[\s\S]*dtg_node_undo/,
   'Task Graph should expose checkpoint undo through the host API');
 

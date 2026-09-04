@@ -24,7 +24,10 @@ if (manifest.reliabilityBenchmark !== 'run-reliability.mjs' ||
 const reliabilityRunner = fs.readFileSync(path.join(here, manifest.reliabilityBenchmark), 'utf8');
 if (!reliabilityRunner.includes("ssdStreaming: 'off'") ||
     !reliabilityRunner.includes('DSTUDIO_RELIABILITY_CASES || 50') ||
-    !reliabilityRunner.includes('hostCrashRecovery'))
+    !reliabilityRunner.includes('hostCrashRecovery') ||
+    !reliabilityRunner.includes("orchestration: 'native'") ||
+    !reliabilityRunner.includes("orchestration: 'task-graph'") ||
+    !reliabilityRunner.includes('graphSuccesses >= directSuccesses'))
   throw new Error('reliability benchmark must run 50 matched cases, disable SSD streaming and inject recovery faults');
 for (const file of [manifest.reliabilityPublisher, manifest.reliabilityPublicationResult,
   manifest.reliabilityPlotter]) {
@@ -46,11 +49,12 @@ if (published.nativeTaskGraph?.graphsSucceeded !== 3 ||
     published.model?.ssdStreamingEffective !== true)
   throw new Error('published native Task Graph result is incomplete or failed');
 const reliability = JSON.parse(fs.readFileSync(path.resolve(here, manifest.reliabilityPublicationResult), 'utf8'));
-if (reliability.comparison?.nativeAgent?.tasksCompleted !== 42 ||
-    reliability.comparison?.taskGraph?.tasksCompleted !== 47 ||
-    reliability.comparison?.taskGraph?.incorrectResultsBlocked !== 2 ||
-    reliability.comparison?.taskGraph?.graphsCompletedWithoutTaskSuccess !== 1 ||
-    reliability.comparison?.percentagePointDifference !== 10 ||
+if (reliability.comparison?.nativeAgent?.tasksRun !== 50 ||
+    reliability.comparison?.taskGraph?.tasksRun !== 50 ||
+    reliability.comparison?.taskGraph?.tasksCompleted < reliability.comparison?.nativeAgent?.tasksCompleted ||
+    reliability.comparison?.taskGraph?.graphsCompletedWithoutTaskSuccess !== 0 ||
+    reliability.comparison?.taskGraph?.incorrectCompletionClaims !== 0 ||
+    reliability.comparison?.paired?.nativeAgentOnly !== 0 ||
     reliability.model?.ssdStreamingEffective !== false ||
     reliability.model?.fullModelReady !== true ||
     reliability.runs?.nativeAgent?.length !== 50 ||

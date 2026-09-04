@@ -169,7 +169,7 @@ async function runDirect(server, scenario) {
   const startedAt = performance.now();
   const sent = await jsonFetch(server.baseUrl, '/api/agent/send', {
     method: 'POST', headers: csrfHeaders,
-    body: JSON.stringify({ prompt: scenario.directPrompt }), timeoutMs: 30_000,
+    body: JSON.stringify({ prompt: scenario.directPrompt, orchestration: 'native' }), timeoutMs: 30_000,
   });
   const completed = await waitForAgentText(server.baseUrl, sent.at,
     (_text, poll) => poll.working === false,
@@ -242,24 +242,17 @@ async function createAndStartGraph(baseUrl, definition) {
   });
 }
 
-function graphDefinition(scenario) {
-  return {
-    schemaVersion: 1,
-    policy: 'agent.general.v1',
-    mode: 'agent',
-    executorMode: 'native',
-    goal: `Reliability A/B: ${scenario.id}`,
-    workspace,
-    limits: { maxParallelHostNodes: 2, maxParallelLlmNodes: 1, maxAttemptsPerNode: 1 },
-    nodes: scenario.graphNodes,
-  };
-}
-
 async function runTaskGraph(server, scenario) {
   const before = workspaceSnapshot();
   const startedAt = performance.now();
-  const started = await createAndStartGraph(server.baseUrl, graphDefinition(scenario));
-  const completed = await waitForGraph(server.baseUrl, started.graph.graphId,
+  const started = await jsonFetch(server.baseUrl, '/api/agent/send', {
+    method: 'POST', headers: csrfHeaders,
+    body: JSON.stringify({ prompt: scenario.graphPrompt, orchestration: 'task-graph' }),
+    timeoutMs: 30_000,
+  });
+  assert.equal(started.orchestration, 'automatic-task-graph');
+  assert.ok(started.graphId, 'Automatic Agent route did not return a graphId');
+  const completed = await waitForGraph(server.baseUrl, started.graphId,
     Number(process.env.DSTUDIO_RELIABILITY_TURN_TIMEOUT_MS || 1_200_000));
   const wallClockMs = rounded(performance.now() - startedAt);
   const agentNodes = completed.graph.nodes.filter((node) => node.kind === 'agent_turn');
@@ -270,7 +263,7 @@ async function runTaskGraph(server, scenario) {
       'attempts', node.id, `${node.attemptId}.transcript.json`);
     return [node.id, JSON.parse(fs.readFileSync(transcriptPath, 'utf8')).content];
   }));
-  const resultAgent = completed.graph.nodes.find((node) => node.id === (scenario.graphResultNodeId || 'agent')) || agentNodes.at(-1);
+  const resultAgent = completed.graph.nodes.find((node) => node.id === 'work') || agentNodes.at(-1);
   const transcript = transcripts.get(resultAgent.id);
   const combinedTranscript = agentNodes.map((node) => `--- ${node.id} ---\n${transcripts.get(node.id)}`).join('\n');
   const after = workspaceSnapshot();
@@ -318,80 +311,33 @@ const scenarioTemplates = [
     directExpected: 'DIRECT_READ_ALPHA_729',
     graphExpected: 'GRAPH_READ_ALPHA_729',
     directPrompt: 'Use the read tool to inspect facts.txt. Do not modify any file. Then reply with exactly: DIRECT_READ_ALPHA_729',
+    graphPrompt: 'Use the read tool to inspect facts.txt. Do not modify any file. Then reply with exactly: GRAPH_READ_ALPHA_729',
     directAllowedChanges: [],
     graphAllowedChanges: [],
     scoreDirect: () => ({ ok: fs.readFileSync(path.join(workspace, 'facts.txt'), 'utf8').includes('ALPHA-729') }),
     scoreGraph: () => ({ ok: fs.readFileSync(path.join(workspace, 'facts.txt'), 'utf8').includes('ALPHA-729') }),
-    graphNodes: [
-      {
-        id: 'agent', kind: 'agent_turn', title: 'Read the release code', mutation: 'read_only',
-        capabilities: ['filesystem.read'],
-        action: { name: 'agent.prompt', text: 'Use the read tool to inspect facts.txt. Do not modify any file. Then reply with exactly: GRAPH_READ_ALPHA_729' },
-      },
-      {
-        id: 'gate', kind: 'gate', title: 'Verify the source fact', dependsOn: ['agent'],
-        capabilities: ['filesystem.read'], action: { name: 'workspace.assert', path: 'facts.txt', contains: 'ALPHA-729' },
-      },
-      { id: 'join', kind: 'join', title: 'Complete read task', dependsOn: ['gate'], action: { name: 'join.all' } },
-    ],
   },
   {
     id: 'write-file',
     directExpected: 'DIRECT_WRITE_DONE',
     graphExpected: 'GRAPH_WRITE_DONE',
     directPrompt: 'Use the write tool to create direct-output.txt with exactly this text and a final newline: RELIABLE_OUTPUT. Then reply with exactly: DIRECT_WRITE_DONE',
+    graphPrompt: 'Use the write tool to create graph-output.txt with exactly this text and a final newline: RELIABLE_OUTPUT. Then reply with exactly: GRAPH_WRITE_DONE',
     directAllowedChanges: ['direct-output.txt'],
     graphAllowedChanges: ['graph-output.txt'],
     scoreDirect: () => ({ ok: fs.existsSync(path.join(workspace, 'direct-output.txt')) && fs.readFileSync(path.join(workspace, 'direct-output.txt'), 'utf8') === 'RELIABLE_OUTPUT\n' }),
     scoreGraph: () => ({ ok: fs.existsSync(path.join(workspace, 'graph-output.txt')) && fs.readFileSync(path.join(workspace, 'graph-output.txt'), 'utf8') === 'RELIABLE_OUTPUT\n' }),
-    graphNodes: [
-      {
-        id: 'agent', kind: 'agent_turn', title: 'Write the requested output', mutation: 'workspace_write',
-        capabilities: ['filesystem.write'], outputs: [{ name: 'output', path: 'graph-output.txt', required: true, minimumBytes: 16 }],
-        action: { name: 'agent.prompt', text: 'Use the write tool to create graph-output.txt with exactly this text and a final newline: RELIABLE_OUTPUT. Then reply with exactly: GRAPH_WRITE_DONE' },
-      },
-      {
-        id: 'gate', kind: 'gate', title: 'Verify declared output', dependsOn: ['agent'],
-        capabilities: ['filesystem.read'], action: { name: 'outputs.verify' },
-      },
-      { id: 'join', kind: 'join', title: 'Complete write task', dependsOn: ['gate'], action: { name: 'join.all' } },
-    ],
   },
   {
     id: 'repair-code',
     directExpected: 'DIRECT_REPAIR_DONE',
     graphExpected: 'GRAPH_REPAIR_DONE',
     directPrompt: 'Fix the bug in direct_app.py so direct_test.py passes. Run python3 direct_test.py to verify it. Then reply with exactly: DIRECT_REPAIR_DONE',
+    graphPrompt: 'Fix the bug in graph_app.py so graph_test.py passes. Run python3 graph_test.py to verify it. Then reply with exactly: GRAPH_REPAIR_DONE',
     directAllowedChanges: ['__pycache__/direct_app.cpython-*', 'direct_app.py'],
     graphAllowedChanges: ['__pycache__/graph_app.cpython-*', 'graph_app.py'],
     scoreDirect: () => runPythonTest('direct_test.py'),
     scoreGraph: () => runPythonTest('graph_test.py'),
-    graphNodes: [
-      {
-        id: 'inspect', kind: 'agent_turn', title: 'Understand the failing code', mutation: 'read_only',
-        capabilities: ['filesystem.read'],
-        action: { name: 'agent.prompt', text: 'Use the read tool now on graph_app.py and graph_test.py to understand why the test fails. Do not modify files yet. Then reply with exactly: GRAPH_INSPECT_DONE' },
-      },
-      {
-        id: 'agent', kind: 'agent_turn', title: 'Repair the implementation', dependsOn: ['inspect'], mutation: 'workspace_write',
-        capabilities: ['filesystem.read', 'filesystem.write'], outputs: [{ name: 'source', path: 'graph_app.py', required: true, minimumBytes: 20 }],
-        action: { name: 'agent.prompt', text: 'Using the files and failing test you just inspected, use the edit tool now to fix graph_app.py. Make the code change; do not merely describe it and do not run the test yourself. Then reply with exactly: GRAPH_REPAIR_DONE' },
-      },
-      {
-        id: 'output_gate', kind: 'gate', title: 'Verify repaired source exists', dependsOn: ['agent'],
-        capabilities: ['filesystem.read'], action: { name: 'outputs.verify' },
-      },
-      {
-        id: 'test', kind: 'host_tool', title: 'Run deterministic test', dependsOn: ['output_gate'],
-        mutation: 'workspace_write', capabilities: ['test.run'],
-        action: { name: 'test.run', argv: ['python3', 'graph_test.py'] },
-      },
-      {
-        id: 'test_gate', kind: 'gate', title: 'Verify repaired expression', dependsOn: ['test'],
-        capabilities: ['filesystem.read'], action: { name: 'workspace.assert', path: 'graph_app.py', contains: 'return a + b' },
-      },
-      { id: 'join', kind: 'join', title: 'Complete repair', dependsOn: ['test_gate'], action: { name: 'join.all' } },
-    ],
   },
 ];
 
@@ -504,7 +450,7 @@ async function runGuardrailFaults(server) {
   });
   results.antiLoop = {
     fourIdenticalStructuredCallsInjected: true,
-    watchdogThresholdTestPassed: unit.status === 0 && /2524 lightweight checks passed/.test(unit.stdout),
+    watchdogThresholdTestPassed: unit.status === 0 && /task_graph_unit: \d+ lightweight checks passed/.test(unit.stdout),
   };
   return results;
 }
@@ -609,6 +555,7 @@ try {
   const result = {
     schemaVersion: 1,
     ok: direct.length === scenarios.length && taskGraph.length === scenarios.length &&
+      graphSuccesses >= directSuccesses && paired.nativeAgentOnly === 0 &&
       faults.invalidPath.preventedBeforeExecution &&
       faults.corruptedOutput.graphState === 'failed' && !faults.corruptedOutput.downstreamJoinRan &&
       faults.conflictingUndo.refused && faults.conflictingUndo.externalChangePreserved &&

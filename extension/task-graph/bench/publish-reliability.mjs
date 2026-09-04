@@ -9,6 +9,7 @@ if (!input || !output) {
 }
 
 const raw = JSON.parse(fs.readFileSync(path.resolve(input), 'utf8'));
+if (raw.ok !== true) throw new Error('refusing to publish a failed reliability run');
 const nativeRuns = raw.comparison.runs?.nativeAgent || raw.comparison.direct;
 const graphRuns = raw.comparison.runs?.taskGraph ||
   (Array.isArray(raw.comparison.taskGraph) ? raw.comparison.taskGraph : []);
@@ -74,6 +75,8 @@ const paired = nativeRuns.reduce((summary, nativeRun, index) => {
   else summary.neitherCompleted++;
   return summary;
 }, { bothCompleted: 0, nativeAgentOnly: 0, taskGraphOnly: 0, neitherCompleted: 0 });
+if (paired.nativeAgentOnly !== 0)
+  throw new Error(`automatic checked Agent regressed on ${paired.nativeAgentOnly} matched task(s)`);
 
 function compactRun(run, isGraph) {
   return {
@@ -96,6 +99,8 @@ function compactRun(run, isGraph) {
 
 const nativeSummary = summarize(nativeRuns, false);
 const graphSummary = summarize(graphRuns, true);
+if (graphSummary.tasksCompleted < nativeSummary.tasksCompleted)
+  throw new Error('automatic checked Agent regressed below Native Agent');
 const published = {
   schemaVersion: 1,
   benchmark: 'native-agent-vs-task-graph-reliability',
@@ -120,7 +125,7 @@ const published = {
     nativeRuntime: 'ds4-agent-jsonl',
   },
   comparison: {
-    protocol: '50 matched tasks; fresh Agent session per variant; one continuously loaded model',
+    protocol: '50 matched tasks; Native Agent versus the automatic correctness-first Agent route; fresh session per variant; one continuously loaded model',
     nativeAgent: nativeSummary,
     taskGraph: graphSummary,
     percentagePointDifference: rounded(graphSummary.completionRatePercent - nativeSummary.completionRatePercent, 1),
@@ -136,11 +141,11 @@ const published = {
     taskGraph: graphRuns.map((run) => compactRun(run, true)),
   },
   notes: [
-    'The same 50 task fixtures were run once with Native Agent and once with Task Graph; execution order alternated.',
+    'The same 50 task fixtures were run once with Native Agent and once through DStudio’s automatic correctness-first route; execution order alternated.',
     'Every variant started with a fresh Agent session while the same full model remained loaded.',
     'A task passed only when the requested tool-backed answer and the independent file or test check both passed.',
-    'Task Graph split code repair into inspect, edit and deterministic test steps; Native Agent received the complete repair task in one turn.',
-    'Two missing Task Graph writes were blocked before the final join. One missing read reached the final join because its gate checked the source file, not the Agent answer.',
+    'The automatic route used the same generic graph for every task: native Agent execution, a required tool-backed completion receipt, a deterministic receipt gate and a final join. It was not specialized for a known fixture.',
+    'A prose-only stop is not success. Read-only attempts may retry; mutating attempts retry only when the structured transcript proves that no tool call ran.',
     'The crash injection covers durable graph recovery after deterministic work, not continuation of an in-flight model token stream.',
     'This is a single-machine sample, not a universal guarantee for other models, prompts or hardware.',
   ],

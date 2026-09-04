@@ -384,6 +384,80 @@ static void test_native_policy_checkpoint_undo_and_watchdog(const char *workspac
     CHECK(rt->graph.state == DTG_GRAPH_SUCCEEDED);
 }
 
+static void test_automatic_correctness_route_and_receipt(const char *workspace) {
+    const char *reason = NULL;
+    CHECK(dtg_agent_auto_route("Qual è il modello migliore?", &reason) == DTG_AUTO_DIRECT);
+    CHECK(dtg_agent_auto_route("Come implemento questa funzione nel codice?", &reason) == DTG_AUTO_DIRECT);
+    CHECK(dtg_agent_auto_route("Analizza il codice in src/main.c", &reason) == DTG_AUTO_READ_ONLY);
+    CHECK(dtg_agent_auto_route("Analizza app.py ma non modificare il file", &reason) == DTG_AUTO_READ_ONLY);
+    CHECK(dtg_agent_auto_route("Read facts.txt and do not modify any file", &reason) == DTG_AUTO_READ_ONLY);
+    CHECK(dtg_agent_auto_route("Migliora questa implementazione", &reason) == DTG_AUTO_WORKSPACE_WRITE);
+    CHECK(dtg_agent_auto_route("Run the tests in this project", &reason) == DTG_AUTO_WORKSPACE_WRITE);
+    CHECK(dtg_agent_auto_route("/new", &reason) == DTG_AUTO_DIRECT);
+
+    char old_workdir[DSTUDIO_PATH_MAX];
+    cstr_copy(old_workdir, sizeof old_workdir, g_workdir);
+    cstr_copy(g_workdir, sizeof g_workdir, workspace);
+    json_dyn_buf automatic = {0};
+    CHECK(dtg_build_automatic_agent_graph("Fix app.py and run its test", "Fix app.py", DTG_AUTO_WORKSPACE_WRITE, &automatic));
+    dtg_graph graph;
+    char err[512] = "";
+    CHECK(dtg_parse_graph_json(automatic.ptr, &graph, err, sizeof err));
+    CHECK(dtg_policy_validate(&graph, 1, err, sizeof err));
+    CHECK(graph.node_count == 3);
+    CHECK(!strcmp(graph.nodes[0].action_display, "Fix app.py"));
+    CHECK(graph.nodes[0].action_require_tool_result == 1);
+    CHECK(graph.nodes[0].automatic_retry == 1 && graph.nodes[0].idempotent == 0);
+    CHECK(!strcmp(graph.nodes[1].action_name, "agent.receipt.verify"));
+    dtg_graph_free(&graph);
+    free(automatic.ptr);
+    cstr_copy(g_workdir, sizeof g_workdir, old_workdir);
+
+    char *old_abuf = g_abuf;
+    size_t old_alen = g_alen, old_abase = g_abase, old_acap = g_acap;
+    dtg_node node;
+    memset(&node, 0, sizeof node);
+    node.action_expect = "[[DSTUDIO_CORRECTNESS_COMPLETE]]";
+    node.action_require_tool_result = 1;
+    node.watchdog_tool_calls = 1;
+
+    const char valid[] =
+        "\x01" "USER\x02 request [[DSTUDIO_CORRECTNESS_COMPLETE]]\x01" "ENDUSER\x02\n"
+        "\x1e{\"type\":\"tool_call\",\"name\":\"read\"}\n"
+        "\x1e{\"type\":\"tool_result\",\"result\":\"ok\"}\n"
+        "Done\n[[DSTUDIO_COR"
+        "\x1e{\"type\":\"status\",\"state\":\"generating\"}\n"
+        "RECTNESS_COMPLETE]]\n";
+    g_abuf = strdup(valid); CHECK(g_abuf != NULL);
+    g_abase = 0; g_alen = strlen(valid); g_acap = g_alen + 1;
+    node.transcript_from = 0; node.transcript_to = g_alen;
+    CHECK(dtg_agent_completion_contract(&node, err, sizeof err));
+    free(g_abuf);
+
+    const char premature[] =
+        "\x01" "USER\x02 request\x01" "ENDUSER\x02\n"
+        "[[DSTUDIO_CORRECTNESS_COMPLETE]]\n"
+        "\x1e{\"type\":\"tool_result\",\"result\":\"late\"}\n";
+    g_abuf = strdup(premature); CHECK(g_abuf != NULL);
+    g_alen = strlen(premature); g_acap = g_alen + 1;
+    node.transcript_to = g_alen;
+    err[0] = '\0'; CHECK(!dtg_agent_completion_contract(&node, err, sizeof err));
+    CHECK(strstr(err, "did not follow") != NULL);
+    free(g_abuf);
+
+    const char prose_only[] =
+        "\x01" "USER\x02 request [[DSTUDIO_CORRECTNESS_COMPLETE]]\x01" "ENDUSER\x02\n"
+        "I will do it now.\n";
+    g_abuf = strdup(prose_only); CHECK(g_abuf != NULL);
+    g_alen = strlen(prose_only); g_acap = g_alen + 1;
+    node.transcript_to = g_alen; node.watchdog_tool_calls = 0;
+    err[0] = '\0'; CHECK(!dtg_agent_completion_contract(&node, err, sizeof err));
+    CHECK(strstr(err, "tool action") != NULL);
+    free(g_abuf);
+
+    g_abuf = old_abuf; g_alen = old_alen; g_abase = old_abase; g_acap = old_acap;
+}
+
 static void test_recovery_failpoints_and_lock(const char *workspace) {
     char err[512] = "";
     dtg_runtime *rt = create_graph(workspace,
@@ -511,6 +585,7 @@ int main(void) {
     test_global_leases(workspace);
     test_unregistered_executor_guard(workspace);
     test_native_policy_checkpoint_undo_and_watchdog(workspace);
+    test_automatic_correctness_route_and_receipt(workspace);
     test_recovery_failpoints_and_lock(workspace);
     test_light_benchmark(workspace);
     dtg_store_shutdown();

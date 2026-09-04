@@ -133,7 +133,9 @@ typedef struct {
     char action_name[DTG_ACTION_NAME_MAX + 1];
     char action_path[DSTUDIO_PATH_MAX];
     char *action_text;
+    char *action_display;
     char *action_expect;
+    int action_require_tool_result;
     char (*action_argv)[DTG_ACTION_ARG_MAX + 1];
     size_t action_argc;
     unsigned long long action_max_bytes;
@@ -710,6 +712,7 @@ static void dtg_graph_free(dtg_graph *g) {
         free(g->nodes[i].outputs);
         free(g->nodes[i].capabilities);
         free(g->nodes[i].action_text);
+        free(g->nodes[i].action_display);
         free(g->nodes[i].action_expect);
         free(g->nodes[i].action_argv);
     }
@@ -755,8 +758,12 @@ static int dtg_parse_action(const char *json, const dtg_json_token *tokens,
                                 node->action_path, sizeof node->action_path, 0, err, errsz) ||
         !dtg_json_object_alloc_string(json, tokens, count, action, "text",
                                       &node->action_text, DTG_ACTION_TEXT_MAX, err, errsz) ||
+        !dtg_json_object_alloc_string(json, tokens, count, action, "display",
+                                      &node->action_display, DTG_ACTION_TEXT_MAX, err, errsz) ||
         !dtg_json_object_alloc_string(json, tokens, count, action, "contains",
                                       &node->action_expect, DTG_ACTION_TEXT_MAX, err, errsz)) return 0;
+    if (!dtg_json_object_bool(json, tokens, count, action, "requireToolResult", 0,
+                              &node->action_require_tool_result, err, errsz)) return 0;
     long long max_bytes = 1024 * 1024;
     if (!dtg_json_object_int(json, tokens, count, action, "maxBytes",
                              max_bytes, 1, 16 * 1024 * 1024,
@@ -1161,7 +1168,15 @@ static int dtg_validate_graph(const dtg_graph *g, int strict,
             if (!strcmp(n->id, g->nodes[j].id)) { snprintf(err, errsz, "duplicate node id '%s'", n->id); return 0; }
         }
         if (n->kind == DTG_NODE_APPROVAL) has_approval = 1;
-        if (n->automatic_retry && !n->idempotent) { snprintf(err, errsz, "node '%s' enables automatic retry but is not idempotent", n->id); return 0; }
+        /* A mutating Agent turn may be retried only under the stronger
+         * completion contract.  The scheduler below still retries it solely
+         * when the structured transcript proves that zero tool calls ran, so
+         * no mutation was dispatched. */
+        if (n->automatic_retry && !n->idempotent &&
+            (strcmp(n->action_name, "agent.prompt") || !n->action_require_tool_result)) {
+            snprintf(err, errsz, "node '%s' enables automatic retry but is not idempotent", n->id);
+            return 0;
+        }
         if (n->max_attempts > g->max_attempts_per_node) { snprintf(err, errsz, "node '%s' exceeds graph maxAttemptsPerNode", n->id); return 0; }
         for (size_t c = 0; c < n->capability_count; c++) {
             if (!dtg_capability_allowed(g->policy, n->capabilities[c])) {
@@ -1322,8 +1337,12 @@ static int dtg_graph_definition_json(const dtg_graph *g, json_dyn_buf *b) {
                  json_dyn_printf(b, ",\"maxBytes\":%llu", n->action_max_bytes);
             if (ok && n->action_text)
                 ok = json_dyn_puts(b, ",\"text\":") && json_dyn_put_escaped(b, n->action_text);
+            if (ok && n->action_display)
+                ok = json_dyn_puts(b, ",\"display\":") && json_dyn_put_escaped(b, n->action_display);
             if (ok && n->action_expect)
                 ok = json_dyn_puts(b, ",\"contains\":") && json_dyn_put_escaped(b, n->action_expect);
+            if (ok && n->action_require_tool_result)
+                ok = json_dyn_puts(b, ",\"requireToolResult\":true");
             if (ok && n->action_argc) {
                 ok = json_dyn_puts(b, ",\"argv\":[");
                 for (size_t a = 0; ok && a < n->action_argc; a++) {

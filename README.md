@@ -83,6 +83,7 @@ network state. Missing pieces show a direct **Choose**, **Download**, **Install*
 - Send image pixels directly to **DeepSeek V4 Flash Vision-Exp** or **GLM 5.3 native vision** in Chat, Agent, Cowork and Design. Older DeepSeek checkpoints and **Laguna S 2.1 are strictly text-only**. Generate directly with **Ideogram 4 FP8** or edit source pixels directly with **HunyuanImage 3 NF4**.
 - Generate text-to-video or image-to-video clips with synchronized audio through the optional local **MiniMax H3** pipeline.
 - Use a **local coding agent** that reads, edits and verifies files inside a folder you choose.
+- Let Agent **add checks automatically for workspace actions**: no Task Graph toggle is required, while ordinary questions keep the direct path.
 - Use **Cowork** for source-grounded spreadsheet, PDF, document and presentation work with native Office tools and no arbitrary shell.
 - Toggle **Plan** to produce a decision-ready Markdown execution plan without modifying the project.
 - Create and load **Skills**: private instruction packs authored by the current user for Agent, Cowork and Design.
@@ -268,10 +269,16 @@ Toggle **Plan** in Agent mode, describe what you want, and DStudio writes a **Ma
 
 ## Task Graph: what it does
 
-Native Agent is still the quickest choice for one clear job. Task Graph is for
-work with several dependent steps: DStudio turns the job into a visible
-checklist, lets the same Agent handle the parts that need AI, and runs concrete
-checks before moving on.
+Task Graph is now part of Agent automatically; it is not a mode you have to keep
+turning on and off. A normal question still takes the direct native path. When
+DStudio detects a request to inspect, edit, test or otherwise act on the
+workspace, it starts a checked graph around the same native Agent.
+
+The priority is correctness before speed. An action is not marked successful
+just because the model stopped talking: DStudio requires evidence from a real
+tool result followed by a completion receipt. A prose-only “I’ll do it” fails.
+Read-only work can retry; work that may change files retries automatically only
+when the structured transcript proves that no tool call ran.
 
 You can watch the graph live, pause it, resume it and reopen its saved progress
 after DStudio restarts. It also records what changed and only offers automatic
@@ -282,57 +289,55 @@ and local API are documented in
 ### Native Agent or Task Graph?
 
 Task Graph is **not another AI model**. Both options use the same native
-`ds4-agent-jsonl` runtime and the same local model. The difference is what
-DStudio puts around the Agent.
+`ds4-agent-jsonl` runtime and the same local model. “Native Agent” below is the
+unwrapped baseline used by the benchmark. In the app, DStudio chooses the path
+for you.
 
-| | Native Agent | Agent with Task Graph |
+| | Native Agent baseline | Current Agent with automatic checks |
 | --- | --- | --- |
-| Best for | One quick, clear task | Longer multi-step work |
-| How it works | The Agent receives a prompt and uses its tools | The same Agent handles selected steps inside a visible workflow |
-| Checks | The Agent decides when it is done | Explicit gates can block the next step when output is wrong |
+| When used | Simple questions, or explicit benchmark baseline | Workspace actions, selected automatically |
+| How it works | The Agent receives the prompt and decides when it is done | The same Agent works, verifies, then passes a completion gate |
+| Checks | A stopped response can look complete | Prose alone cannot complete an action; tool evidence is required |
 | Rules | Normal tool permissions | Every action is checked against the graph's declared rules |
-| Interruption | Continue the conversation manually | Pause, resume and recover the graph from its journal |
+| Interruption | Continue the conversation manually | Pause, resume and recover from the saved journal |
 | Undo evidence | Depends on what the Agent changed | Exact writes get checkpoints; uncertain effects are reported honestly |
-| Visibility | Conversation and tool timeline | Live graph showing every running, waiting or completed step |
-
-**Choose Native Agent** for a small edit, question or isolated coding task.
-**Choose Task Graph** when the result needs several dependent steps, repeatable
-checks, pause/resume or recovery after an interruption.
+| Visibility | Conversation and tool timeline | The same chat, plus an optional live graph |
 
 ### 50-task reliability benchmark
 
-We ran the same 50 real tasks twice: once with Native Agent and once with Task
-Graph. Both used the same complete 86.72 GB DeepSeek V4 Flash model. The model
-stayed loaded, but every task started with a clean conversation. SSD streaming
-was requested **Off** and confirmed inactive.
+We ran the same 50 real tasks twice: once through the unwrapped Native Agent
+baseline and once through the automatic checked path now used by DStudio. Both
+used the same complete 86.72 GB DeepSeek V4 Flash model. The model stayed
+loaded, but every task started with a clean conversation. SSD streaming was
+requested **Off** and confirmed inactive.
 
-| Result | Native Agent | Task Graph |
+| Result | Native Agent | Agent + automatic checks |
 | --- | ---: | ---: |
-| Tasks completed | **42/50** | **47/50** |
-| Completion rate | **84%** | **94%** |
-| Code repairs completed | **10/16** | **16/16** |
+| Tasks completed | **41/50** | **50/50** |
+| Completion rate | **82%** | **100%** |
+| Code repairs completed | **9/16** | **16/16** |
 | Unexpected file changes | **0** | **0** |
 
-In this run, Task Graph completed **5 more tasks**, a difference of **10
-percentage points**. The largest gain came from code repair: instead of asking
-the model to understand, edit and test everything in one turn, the graph split
-the work into small steps and ran the test itself.
+In this run, automatic checks completed **9 more tasks**, a difference of **18
+percentage points**. The gains were seven code repairs and two source readings
+that the baseline did not finish. Every recovered repair passed the external
+Python test. The graph was generic—not customized for any known fixture.
 
 <div align="center">
-  <img src="assets/README%20images/benchmarks/native-agent-vs-task-graph.png" width="920" alt="Completion rates across 50 matched tasks: Native Agent completed 42 and Task Graph completed 47">
+  <img src="assets/README%20images/benchmarks/native-agent-vs-task-graph.png" width="920" alt="Completion rates across 50 matched tasks: Native Agent completed 41 and Agent with automatic checks completed 50">
 </div>
 
-The modes did not always fail on the same task: both completed 39 tasks, Task
-Graph alone completed 8, and Native Agent alone completed 3.
+Both paths completed 41 tasks. The automatic path alone completed 9; Native
+Agent alone completed **0**; neither path failed the same task.
 
 <div align="center">
-  <img src="assets/README%20images/benchmarks/task-graph-reliability-paired.png" width="860" alt="Paired outcomes: both modes completed 39 tasks, only Task Graph completed 8, only Native Agent completed 3, and neither completed zero">
+  <img src="assets/README%20images/benchmarks/task-graph-reliability-paired.png" width="860" alt="Paired outcomes: both paths completed 41 tasks, only automatic checks completed 9, Native Agent alone completed zero, and neither completed zero">
 </div>
 
-Task Graph was not perfect. It missed 3 tasks. Two missing file writes were
-stopped before the graph could finish. One missed read was not stopped because
-that check only verified the source file, not the Agent's answer. That weak
-check is kept in the published result rather than hidden.
+This does not mean every future prompt or model is guaranteed to score 100%.
+It means this fixed 50-case run had no regression and the release gate refuses
+to publish a checked path that scores below the baseline or loses a matched
+task that Native Agent completes.
 
 <details>
 <summary><strong>Open the technical benchmark details</strong></summary>
@@ -340,19 +345,23 @@ check is kept in the published result rather than hidden.
 This is a single-machine sample, not a guarantee for every model, prompt or
 computer. It was measured on 4 September 2026 on an Apple M2 Max with 96 GB of
 memory. The model was DeepSeek V4 Flash IQ2XXS, 86.72 GB (80.76 GiB), with an
-8,192-token context, power 70 and thinking off. Full-model startup took 31.99 s.
+8,192-token context, power 70 and thinking off. Full-model startup took 31.38 s.
 
 | Measurement | Result |
 | --- | ---: |
 | Matched task pairs | **50** (100 total Agent executions) |
-| Reading | Agent **16/17** · Graph **16/17** |
-| File creation | Agent **16/17** · Graph **15/17** |
-| Code repair | Agent **10/16** · Graph **16/16** |
-| Same-task outcomes | both **39** · Graph only **8** · Agent only **3** · neither **0** |
-| Median task time | Agent **10.03 s** · Graph **10.27 s** |
-| Graph misses caught before completion | **2/3** |
+| Reading | Agent **15/17** · automatic **17/17** |
+| File creation | Agent **17/17** · automatic **17/17** |
+| Code repair | Agent **9/16** · automatic **16/16** |
+| Same-task outcomes | both **41** · automatic only **9** · Agent only **0** · neither **0** |
+| Median task time | Agent **10.02 s** · automatic **24.55 s** |
+| False completion claims | **0** in both paths |
 | Human recovery interventions | **0** |
-| Total benchmark time | **29 min 19 s** |
+| Total benchmark time | **42 min 59 s** |
+
+The checked path is slower here because it asks the model to inspect and verify
+before declaring completion. That is the intended tradeoff: correctness comes
+before performance for workspace actions.
 
 After the 50 pairs, separate injected checks confirmed that an invalid path was
 rejected before execution, corrupted output stopped downstream work, undo

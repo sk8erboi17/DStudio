@@ -148,10 +148,17 @@ static int dtg_scheduler_finish_node(dtg_runtime *rt, dtg_node *node,
                               node->attempts_started, attempt, operation, 0,
                               node->native_message[0] ? node->native_message : "Node executor failed",
                               err, errsz)) return 0;
-    if (node->automatic_retry && node->idempotent && node->attempts_started < node->max_attempts) {
+    const int proven_no_effect_agent_attempt =
+        !strcmp(node->action_name, "agent.prompt") &&
+        node->action_require_tool_result && node->watchdog_tool_calls == 0;
+    if (node->automatic_retry && (node->idempotent || proven_no_effect_agent_attempt) &&
+        node->attempts_started < node->max_attempts) {
         return dtg_store_node_event(rt, node, "node.retry_scheduled", DTG_NODE_PENDING,
                                     node->attempts_started, "", 0, 0,
-                                    "Idempotent automatic retry scheduled", err, errsz);
+                                    proven_no_effect_agent_attempt && !node->idempotent
+                                      ? "Automatic retry scheduled: transcript proves zero tool calls"
+                                      : "Idempotent automatic retry scheduled",
+                                    err, errsz);
     }
     return 1;
 }

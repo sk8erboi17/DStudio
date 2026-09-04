@@ -382,6 +382,102 @@ static int dtg_write_agent_transcript(dtg_runtime *rt, dtg_node *node,
     return ok;
 }
 
+/* Progress/status frames may arrive between two generated token chunks.  They
+ * are authoritative events, but not answer text; remove every RS+JSON line
+ * before matching a textual completion marker. */
+static int dtg_visible_transcript_contains(const char *text, const char *needle) {
+    if (!text || !needle || !needle[0]) return 0;
+    size_t len = strlen(text), out = 0;
+    char *visible = malloc(len + 1);
+    if (!visible) return 0;
+    for (size_t i = 0; i < len;) {
+        if ((unsigned char)text[i] == 0x1e) {
+            const char *newline = strchr(text + i, '\n');
+            if (!newline) break;
+            i = (size_t)(newline - text) + 1;
+            continue;
+        }
+        visible[out++] = text[i++];
+    }
+    visible[out] = '\0';
+    int found = strstr(visible, needle) != NULL;
+    free(visible);
+    return found;
+}
+
+/* A WAITING marker proves only that generation stopped.  For correctness-first
+ * nodes, success additionally requires structured evidence that a tool
+ * completed and a completion marker emitted afterwards.  The user prompt is
+ * explicitly excluded so it cannot satisfy its own contract. */
+static int dtg_agent_completion_contract(const dtg_node *node,
+                                         char *err, size_t errsz) {
+    if (!node || (!node->action_require_tool_result &&
+                  (!node->action_expect || !node->action_expect[0]))) return 1;
+    size_t from = node->transcript_from < g_abase ? g_abase : node->transcript_from;
+    size_t to = node->transcript_to > g_alen ? g_alen : node->transcript_to;
+    if (!g_abuf || to <= from) {
+        snprintf(err, errsz, "Agent completion receipt has no transcript evidence");
+        return 0;
+    }
+    size_t len = to - from;
+    char *copy = malloc(len + 1);
+    if (!copy) { snprintf(err, errsz, "out of memory checking Agent completion receipt"); return 0; }
+    memcpy(copy, g_abuf + (from - g_abase), len);
+    copy[len] = '\0';
+
+    const char user_close[] = "\x01" "ENDUSER\x02";
+    char *evidence = copy;
+    for (char *p = strstr(evidence, user_close); p; p = strstr(p + 1, user_close))
+        evidence = p + sizeof user_close - 1;
+
+    char *last_result = NULL;
+    for (char *p = strstr(evidence, "\"type\":\"tool_result\""); p;
+         p = strstr(p + 1, "\"type\":\"tool_result\"")) last_result = p;
+    if (node->action_require_tool_result && (!node->watchdog_tool_calls || !last_result)) {
+        free(copy);
+        snprintf(err, errsz, "Agent stopped without completing a structured tool action");
+        return 0;
+    }
+
+    if (node->action_expect && node->action_expect[0]) {
+        const char *marker_scope = evidence;
+        if (node->action_require_tool_result && last_result) {
+            char *result_end = strchr(last_result, '\n');
+            if (!result_end) {
+                free(copy);
+                snprintf(err, errsz, "Agent completion receipt preceded its final tool result");
+                return 0;
+            }
+            marker_scope = result_end + 1;
+        }
+        if (!dtg_visible_transcript_contains(marker_scope, node->action_expect)) {
+            free(copy);
+            snprintf(err, errsz, node->action_require_tool_result
+                               ? "Agent completion receipt did not follow its final tool result"
+                               : "Agent stopped without the required completion receipt");
+            return 0;
+        }
+    }
+    free(copy);
+    return 1;
+}
+
+static int dtg_native_verify_agent_receipt(dtg_runtime *rt, dtg_node *gate,
+                                           char *err, size_t errsz) {
+    if (!rt || !gate || gate->dependency_count != 1) {
+        snprintf(err, errsz, "Agent receipt gate has no single source"); return 0;
+    }
+    const dtg_node *source = dtg_find_node_const(&rt->graph,
+                                                 gate->dependencies[0].node_id);
+    if (!source || source->state != DTG_NODE_SUCCEEDED) {
+        snprintf(err, errsz, "Agent receipt source did not succeed"); return 0;
+    }
+    if (!dtg_agent_completion_contract(source, err, errsz)) return 0;
+    snprintf(gate->native_message, sizeof gate->native_message,
+             "Verified Agent tool evidence and completion receipt");
+    return 1;
+}
+
 static int dtg_executor_can_dispatch(const dtg_node *node) {
     if (!node) return 0;
     if (node->kind == DTG_NODE_AGENT_TURN &&
@@ -514,7 +610,11 @@ static int dtg_executor_begin_native(dtg_runtime *rt, dtg_node *node,
                 "Avoid repeated identical tool calls; stop and explain if no progress is possible.\n\n") &&
             json_dyn_puts(&prompt, node->action_text);
         if (!ok) { free(prompt.ptr); snprintf(err, errsz, "cannot build bounded agent prompt"); return 0; }
-        if (!dtg_agent_submit_for_graph(node->title, prompt.ptr, operation_task_id,
+        const char *display_prompt = node->action_display
+            ? (node->attempts_started == 0 ? node->action_display : NULL)
+            : prompt.ptr;
+        if (!dtg_agent_submit_for_graph(node->title, prompt.ptr, display_prompt,
+                                        operation_task_id,
                                         &node->transcript_from, err, errsz)) {
             free(prompt.ptr);
             if (!*operation_task_id)
@@ -551,6 +651,8 @@ static int dtg_executor_begin_native(dtg_runtime *rt, dtg_node *node,
                          "Gate verified %s", node->action_path);
     } else if (!strcmp(node->action_name, "outputs.verify"))
         ok = dtg_native_verify_outputs(rt, node, err, errsz);
+    else if (!strcmp(node->action_name, "agent.receipt.verify"))
+        ok = dtg_native_verify_agent_receipt(rt, node, err, errsz);
     else if (!strcmp(node->action_name, "test.run"))
         ok = dtg_native_start_test(rt, node, err, errsz);
     else if (!strcmp(node->action_name, "approval.wait"))
@@ -676,8 +778,16 @@ static int dtg_executor_poll(dtg_runtime *rt, dtg_node *node, long long now,
         node->native_done = 1;
         node->native_success = !node->watchdog_tripped && !node->native_cancel_requested &&
                                g_child > 0 && g_ready;
-        if (node->native_success)
-            cstr_copy(node->native_message, sizeof node->native_message, "Agent turn completed at WAITING boundary");
+        char contract_err[256] = "";
+        if (node->native_success &&
+            !dtg_agent_completion_contract(node, contract_err, sizeof contract_err)) {
+            node->native_success = 0;
+            cstr_copy(node->native_message, sizeof node->native_message, contract_err);
+        } else if (node->native_success)
+            cstr_copy(node->native_message, sizeof node->native_message,
+                      node->action_require_tool_result
+                        ? "Agent turn completed with verified tool evidence and receipt"
+                        : "Agent turn completed at WAITING boundary");
         else if (!node->watchdog_tripped && !node->native_cancel_requested)
             cstr_copy(node->native_message, sizeof node->native_message,
                       "Agent runtime exited before a healthy completion boundary");
