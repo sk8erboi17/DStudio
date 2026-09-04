@@ -1,7 +1,14 @@
 {
   "schemaVersion": 1,
-  "execution": "prepare-only",
-  "comparison": ["direct-loop", "task-graph"],
+  "execution": "explicit-heavy",
+  "realSmoke": "run-heavy.mjs",
+  "publicationResult": "results/2026-09-04-m2-max-native-ssd.json",
+  "plotter": "plot-results.py",
+  "figures": [
+    "../../../assets/README images/benchmarks/task-graph-native-ssd-breakdown.png",
+    "../../../assets/README images/benchmarks/task-graph-runtime-overhead.png"
+  ],
+  "comparison": ["native-agent-node", "complete-native-task-graph"],
   "controls": ["commit", "model", "quantization", "context", "hardware", "fixture"],
   "scenarios": [
     {"id":"simple-direct","fixture":"fixtures/simple-direct.json","metrics":["taskSuccess","wallClockMs","llmTokens","toolCalls","modelReloads","peakMemoryBytes","humanInterventions"]},

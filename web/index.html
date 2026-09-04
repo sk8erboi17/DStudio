@@ -8601,6 +8601,41 @@
         transition-duration: 0.01ms !important;
       }
     }
+    .task-graph-pill { min-width: 4.1rem; text-align: center; }
+    .task-graph-dialog { width: min(1180px, calc(100vw - 28px)); max-width: none; padding: 0; overflow: hidden; }
+    .task-graph-dialog::backdrop { background: rgba(3, 6, 12, .72); backdrop-filter: blur(5px); }
+    .task-graph-shell { display: grid; grid-template-rows: auto auto auto auto minmax(260px, 1fr) auto auto; gap: 12px; width: 100%; max-height: min(840px, calc(100vh - 36px)); padding: 20px; background: var(--bg, #0d0f13); color: var(--text, #f3f4f6); }
+    .task-graph-head, .task-graph-picker, .task-graph-controls { display: flex; align-items: center; gap: 9px; }
+    .task-graph-head { justify-content: space-between; }
+    .task-graph-head h2 { margin: 3px 0 0; font-size: 1.35rem; }
+    .task-graph-eyebrow { color: var(--muted, #8e96a4); font-size: .66rem; letter-spacing: .13em; }
+    .task-graph-picker select { min-width: min(520px, 72vw); }
+    .task-graph-meta { color: var(--muted, #a1a7b2); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+    .task-graph-controls { flex-wrap: wrap; }
+    .task-graph-canvas { display: flex; align-items: stretch; gap: 34px; min-height: 270px; overflow: auto; padding: 18px; border: 1px solid var(--line, #292d36); border-radius: 12px; background: color-mix(in srgb, var(--bg, #0d0f13) 82%, #161b26); }
+    .task-graph-level { display: flex; flex: 0 0 238px; flex-direction: column; gap: 12px; min-width: 0; }
+    .task-graph-level::before { content: attr(data-level); color: var(--muted, #8e96a4); font: 10px ui-monospace, monospace; letter-spacing: .1em; }
+    .task-graph-node { position: relative; display: grid; gap: 7px; padding: 12px; border: 1px solid var(--line, #343946); border-left: 3px solid #687083; border-radius: 10px; background: var(--panel, #151820); box-shadow: 0 8px 22px rgba(0,0,0,.12); }
+    .task-graph-level:not(:first-child) .task-graph-node::before { content: '←'; position: absolute; left: -26px; top: 18px; color: var(--muted, #7f8794); font: 18px ui-monospace, monospace; }
+    .task-graph-node[data-state="running"] { border-left-color: #70a5ff; }
+    .task-graph-node[data-state="succeeded"] { border-left-color: #51c878; }
+    .task-graph-node[data-state="failed"], .task-graph-node[data-state="cancelled"] { border-left-color: #ef6b73; }
+    .task-graph-node[data-state="waiting_approval"] { border-left-color: #e3ad45; }
+    .task-graph-node strong { font-size: .88rem; }
+    .task-graph-node small { color: var(--muted, #9aa1ac); line-height: 1.35; overflow-wrap: anywhere; }
+    .task-graph-node-state { width: max-content; padding: 2px 6px; border-radius: 999px; background: rgba(127,139,160,.13); font: 10px ui-monospace, monospace; text-transform: uppercase; }
+    .task-graph-node-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .task-graph-node-actions .btn { min-height: 27px; padding: 3px 8px; font-size: 11px; }
+    .task-graph-events-wrap { border-top: 1px solid var(--line, #292d36); padding-top: 8px; }
+    .task-graph-events { max-height: 130px; overflow: auto; margin: 8px 0 0; padding-left: 24px; color: var(--muted, #a1a7b2); font: 11px/1.5 ui-monospace, monospace; }
+    .task-graph-error { margin: 0; color: #ff8b91; }
+    @media (max-width: 720px) {
+      .task-graph-shell { padding: 14px; }
+      .task-graph-picker { align-items: stretch; }
+      .task-graph-picker select { min-width: 0; width: 100%; }
+      .task-graph-canvas { gap: 28px; }
+      .task-graph-level { flex-basis: 210px; }
+    }
   </style>
 </head>
 <body>
@@ -8668,6 +8703,7 @@
           <span class="pipe-head-pill pipe-head-pill--path" id="pipe-head-path"></span>
         </div>
         <button type="button" id="btn-cmdk" class="cmdk-pill" title="Commands (⌘K)" aria-label="Open command palette" hidden><kbd>⌘K</kbd></button>
+        <button type="button" id="btn-task-graph" class="cmdk-pill task-graph-pill" title="Live Task Graph" aria-haspopup="dialog" hidden>Graph</button>
       </header>
       <div class="stage">
         <section class="messages" id="messages" aria-label="Messages" tabindex="0"></section>
@@ -8862,6 +8898,24 @@
        yet — otherwise the last used folder is reused without asking. -->
   <!-- Generic in-app confirm: blocking confirm() is banned (bare WKWebView
        returns false silently) — this dialog is the safe equivalent. -->
+  <dialog id="task-graph-dialog" class="dialog task-graph-dialog" aria-label="Live Task Graph">
+    <div class="task-graph-shell">
+      <header class="task-graph-head">
+        <div><span class="task-graph-eyebrow">HOST-AUTHORITATIVE DAG</span><h2>Live Task Graph</h2></div>
+        <button type="button" id="task-graph-close" class="btn btn--icon" aria-label="Close Task Graph">×</button>
+      </header>
+      <div class="task-graph-picker">
+        <select id="task-graph-list" aria-label="Task Graph"></select>
+        <button type="button" id="task-graph-refresh" class="btn">Refresh</button>
+      </div>
+      <div id="task-graph-meta" class="task-graph-meta" role="status"></div>
+      <div id="task-graph-controls" class="task-graph-controls" aria-label="Graph controls"></div>
+      <div id="task-graph-canvas" class="task-graph-canvas" role="img" aria-label="Task Graph nodes and dependencies"></div>
+      <details class="task-graph-events-wrap"><summary>Durable event stream</summary><ol id="task-graph-events" class="task-graph-events"></ol></details>
+      <p id="task-graph-error" class="task-graph-error" role="alert" hidden></p>
+    </div>
+  </dialog>
+
   <dialog id="confirm-dialog" class="dialog" aria-label="Confirm">
     <form method="dialog" class="settings">
       <h2 id="confirm-title">Are you sure?</h2>
@@ -33747,6 +33801,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         document.body.classList.toggle('pipe-mode', piped);
         document.body.classList.toggle('agent-cowork-mode', m === 'agent' || m === 'cowork');
         syncPipeHeader(m);
+        TaskGraphView.setMode(m);
         Statusbar.render(); // the footer indicator follows the mode
         qs('#messages').hidden = piped;
         qs('#agent-view').hidden = !piped;
@@ -35402,6 +35457,155 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       applySidebarCollapsed(next);
     });
 
+    const TaskGraphView = (() => {
+      let dialog, list, canvas, meta, controls, events, error;
+      let graph = null;
+      let timer = null;
+      let loading = false;
+      const headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' };
+
+      const workspace = () => Store.getState().ui.agentWorkdir || Store.getSettings().workdirs?.agent || '';
+      const query = (id) => `graphId=${encodeURIComponent(id)}&workspace=${encodeURIComponent(workspace())}`;
+      function showError(message = '') {
+        if (!error) return;
+        error.textContent = message;
+        error.hidden = !message;
+      }
+      async function jsonFetch(url, init) {
+        const response = await fetch(url, init);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(data.error || `Task Graph HTTP ${response.status}`);
+        return data;
+      }
+      function button(label, action, danger = false) {
+        const b = el('button', { type: 'button', class: `btn${danger ? ' btn--danger-outline' : ''}`, text: label });
+        on(b, 'click', action);
+        return b;
+      }
+      function renderGraph(next) {
+        graph = next || null;
+        canvas.innerHTML = '';
+        controls.innerHTML = '';
+        if (!graph) {
+          meta.textContent = 'No graph selected.';
+          canvas.append(el('p', { text: 'Create or select a Task Graph for this workspace.' }));
+          return;
+        }
+        meta.textContent = `${graph.state} · ${graph.executorMode || 'proposal'} · policy ${graph.policyDigest || '—'} · event ${graph.lastEventSeq} · ${graph.workspace}`;
+        const graphAction = (label, endpoint, danger = false) => controls.append(button(label, () => mutate(endpoint), danger));
+        if (graph.state === 'validated' && graph.approvalRequired && !graph.approved) graphAction('Approve graph', 'approve');
+        if (graph.state === 'ready') graphAction('Start', 'start');
+        if (graph.state === 'running') graphAction('Pause', 'pause');
+        if (graph.state === 'paused') graphAction('Resume', 'resume');
+        if (!['succeeded', 'failed', 'cancelled', 'corrupt'].includes(graph.state)) graphAction('Cancel', 'cancel', true);
+
+        const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+        const depthMemo = new Map();
+        function depth(node, seen = new Set()) {
+          if (depthMemo.has(node.id)) return depthMemo.get(node.id);
+          if (seen.has(node.id)) return 0;
+          seen.add(node.id);
+          const value = (node.dependsOn || []).reduce((max, dep) => {
+            const source = byId.get(dep.nodeId);
+            return Math.max(max, source ? depth(source, new Set(seen)) + 1 : 0);
+          }, 0);
+          depthMemo.set(node.id, value);
+          return value;
+        }
+        const levels = [];
+        for (const node of graph.nodes) (levels[depth(node)] ||= []).push(node);
+        levels.forEach((nodes, index) => {
+          const column = el('div', { class: 'task-graph-level', 'data-level': `STAGE ${index + 1}` });
+          for (const node of nodes) {
+            const incoming = (node.dependsOn || []).map((d) => `${d.nodeId}:${d.condition}`).join(', ') || 'root';
+            const card = el('article', { class: 'task-graph-node', 'data-state': node.state }, [
+              el('span', { class: 'task-graph-node-state', text: node.state }),
+              el('strong', { text: node.title || node.id }),
+              el('small', { text: `${node.kind} · ${node.action || 'proposal'} · ${node.mutation}` }),
+              el('small', { text: `← ${incoming}` }),
+              node.watchdog?.toolCalls ? el('small', { text: `watchdog ${node.watchdog.toolCalls} calls · repeat ${node.watchdog.repeatedCalls}${node.watchdog.tripped ? ' · TRIPPED' : ''}` }) : null,
+            ].filter(Boolean));
+            const actions = el('div', { class: 'task-graph-node-actions' });
+            if (node.state === 'waiting_approval') actions.append(button('Approve', () => mutate('node/approve', node.id)));
+            if (node.state === 'failed' && node.attemptsStarted < node.maxAttempts) actions.append(button('Retry', () => mutate('node/retry', node.id)));
+            if (node.undo?.available && !node.undo?.applied) actions.append(button('Undo', () => mutate('node/undo', node.id), true));
+            if (node.undo?.message) actions.append(el('small', { text: `Receipt: ${node.undo.message}` }));
+            if (actions.childNodes.length) card.append(actions);
+            column.append(card);
+          }
+          canvas.append(column);
+        });
+      }
+      function renderEvents(items) {
+        events.innerHTML = '';
+        for (const item of (items || []).slice(-100).reverse()) {
+          events.append(el('li', { text: `#${item.seq} ${item.type}${item.nodeId ? ` · ${item.nodeId}` : ''} — ${item.message || ''}` }));
+        }
+      }
+      async function loadCurrent(report = true) {
+        const id = list.value;
+        if (!id || loading) return;
+        loading = true;
+        try {
+          const [current, stream] = await Promise.all([
+            jsonFetch(`/api/task-graph?${query(id)}`),
+            jsonFetch(`/api/task-graph/events?${query(id)}&since=0`),
+          ]);
+          renderGraph(current.graph);
+          renderEvents(stream.events);
+          showError();
+        } catch (e) { if (report) showError(e.message || String(e)); }
+        finally { loading = false; }
+      }
+      async function refreshList(preserve = true) {
+        const selected = preserve ? list.value : '';
+        try {
+          const data = await jsonFetch(`/api/task-graphs?workspace=${encodeURIComponent(workspace())}`);
+          list.innerHTML = '';
+          const sorted = [...data.graphs].sort((a, b) => b.updatedMs - a.updatedMs);
+          for (const item of sorted) list.append(el('option', { value: item.graphId, text: `${item.state} · ${item.goal || item.graphId}` }));
+          if (selected && sorted.some((item) => item.graphId === selected)) list.value = selected;
+          if (list.value) await loadCurrent(); else renderGraph(null);
+        } catch (e) { showError(e.message || String(e)); }
+      }
+      async function mutate(endpoint, nodeId = '') {
+        if (!graph) return;
+        const body = { graphId: graph.graphId, workspace: graph.workspace,
+          expectedRevision: graph.revision, expectedLastEventSeq: graph.lastEventSeq };
+        if (nodeId) body.nodeId = nodeId;
+        controls.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+        try {
+          const data = await jsonFetch(`/api/task-graph/${endpoint}`, { method: 'POST', headers, body: JSON.stringify(body) });
+          renderGraph(data.graph);
+          await loadCurrent(false);
+          showError();
+        } catch (e) { showError(e.message || String(e)); await loadCurrent(false); }
+      }
+      function open() {
+        if (!workspace()) { toast('Start Agent with a workspace first.', 'error'); return; }
+        dialog.showModal();
+        refreshList(false);
+        clearInterval(timer);
+        timer = setInterval(() => { if (dialog.open && !document.hidden) loadCurrent(false); }, 750);
+      }
+      function close() { clearInterval(timer); timer = null; dialog.close(); }
+      function setMode(mode) {
+        const trigger = qs('#btn-task-graph');
+        if (trigger) trigger.hidden = mode !== 'agent';
+        if (mode !== 'agent' && dialog?.open) close();
+      }
+      function mount() {
+        dialog = qs('#task-graph-dialog'); list = qs('#task-graph-list'); canvas = qs('#task-graph-canvas');
+        meta = qs('#task-graph-meta'); controls = qs('#task-graph-controls'); events = qs('#task-graph-events'); error = qs('#task-graph-error');
+        on(qs('#btn-task-graph'), 'click', open);
+        on(qs('#task-graph-close'), 'click', close);
+        on(qs('#task-graph-refresh'), 'click', () => refreshList(true));
+        on(list, 'change', () => loadCurrent());
+        on(dialog, 'close', () => { clearInterval(timer); timer = null; });
+      }
+      return { mount, setMode, open, refresh: loadCurrent };
+    })();
+
     Messages.mount(qs('#messages'), {
       onRegenerate: () => Chat.regenerateLast(),
       onRestoreRoadmap: () => Chat.restorePreviousRoadmap(),
@@ -35414,6 +35618,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
     Skills.mount();
     Statusbar.mount();
     ThinkSelect.mount();
+    TaskGraphView.mount();
     AgentView.mount();
     DesignPreview.mount();
     Switcher.mount();   // detect the real engine and set the mode

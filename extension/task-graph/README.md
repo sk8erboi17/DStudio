@@ -1,50 +1,99 @@
 # DStudio Task Graph V1
 
 Task Graph is common Agent Runtime infrastructure, not a separate DStudio mode.
-The shipped V1 core provides a bounded DAG model, strict policy validation, an
-event-sourced persistent store, optimistic-concurrency HTTP controls and a
-cooperative synthetic executor. The synthetic executor validates scheduling,
-leases and crash recovery deterministically without invoking a model, a shell,
-the network or external tools.
+It provides a bounded DAG, strict policy validation, an event-sourced store,
+native executors, optimistic-concurrency controls and a live Agent UI.
 
-## Guarantees
+## Native action contract
 
-- The host owns every state transition; model prose can never complete a node.
-- A transition is appended and `fsync`ed before its new state is visible.
-- `events.jsonl` is authoritative and `state.json` is a replace-atomically
-  materialized view. Cold load replays the journal and repairs a stale view.
-- Unknown schemas, duplicate JSON keys, cycles, escaping output paths,
-  non-idempotent automatic retries and unapproved external effects are rejected.
-- Completed attempts are immutable. Requests and results are written beneath
-  `attempts/<nodeId>/` before completion is exposed.
-- V1 permits one LLM node globally and one workspace/external writer globally;
-  bounded read-only synthetic host work may run concurrently.
-- Start, pause, resume, cancel, approve, retry and skip require both the expected
-  graph revision and last event sequence. Stale callers receive `409 Conflict`.
-- A valid graph whose real executor is not registered remains an inspectable
-  proposal. Start returns `422` without changing its revision, event sequence or
-  `ready` state.
+Set `policy: "agent.general.v1"`, `mode: "agent"` and
+`executorMode: "native"`. Execution is closed-world: arbitrary tool JSON is
+never retained or evaluated. V1 accepts only:
+
+| Node kind | Action | Required declaration |
+| --- | --- | --- |
+| `agent_turn` | `agent.prompt` | bounded `text`; mutation/capabilities must agree |
+| `host_tool` | `workspace.read` | `read_only`, `filesystem.read`, relative `path` |
+| `host_tool` | `workspace.write` | `workspace_write`, `filesystem.write`, `path`, `text`, downstream gate |
+| `host_tool` | `test.run` | argv array, `workspace_write`, `test.run`, downstream gate |
+| `gate` | `workspace.assert` | `read_only`, `filesystem.read`, `path`, optional `contains` |
+| `gate` | `outputs.verify` | verifies required output contracts of direct dependencies |
+| `approval` | `approval.wait` | default action; explicit user approval completes it |
+| `join` | `join.all` | default action; completes after dependencies |
+
+`test.run` uses `fork` + `execvp` with an argv array and a bounded executable
+allowlist; it never invokes a shell. Its stdout/stderr stream is retained with
+the immutable attempt envelopes. Windows currently rejects this one action
+explicitly; the other native actions are portable.
+
+Every dispatch reevaluates the same deterministic policy used at validation and
+writes an immutable `*.policy.json` receipt bound to a digest of the immutable
+graph definition. Paths are checked lexically and after `realpath`, including
+the parent of a new file, so symlink traversal cannot leave the workspace.
+
+## Agent executor and anti-loop watchdog
+
+An Agent node acquires DStudio's single global LLM lease and writes its prompt
+to the already-running structured `ds4-agent-jsonl` process. The attempt ends
+only at the Agent's explicit `+DWARFSTAR_WAITING` boundary; model prose cannot
+complete a node. Its bounded transcript is stored as an immutable receipt.
+
+The Moven-inspired watchdog observes structured `tool_call` and `tool_result`
+events only for a graph-owned turn. It interrupts the turn after four byte-
+identical calls, four identical results without progress, or 128 tool calls.
+Counters and the trip reason are returned by the API and persisted in the
+result receipt. Ordinary interactive Agent turns are not observed by it.
+
+## Checkpoint and honest undo
+
+Every native attempt writes a checkpoint receipt before its action. A
+`workspace.write` snapshots the target bytes (or records that it did not
+exist), fsyncs them, and records before/expected-after FNV-1a fingerprints.
+`POST /api/task-graph/node/undo` is allowed only while the graph is paused or
+terminal. It first proves the target still equals the expected post-action
+state byte-for-byte, then atomically restores the snapshot and verifies the
+result. A successful receipt says `fullyReversed: true` within the explicit
+scope `declared target bytes and existence`; unrelated filesystem metadata is
+not claimed as checkpointed.
+
+Agent turns and `test.run` may cause nested filesystem effects that the host did
+not observe file-by-file. Their receipts therefore say `reversible: false`;
+undo returns `applied: false`, `fullyReversed: false` and
+`manualReviewRequired: true`. This limitation is deliberate: evidence is not
+misrepresented as rollback.
+
+## Durability and scheduling guarantees
+
+- The host owns every state transition.
+- A transition is appended and fsynced before its new state is exposed.
+- `events.jsonl` is authoritative; `state.json` is an atomically replaced view.
+- Unknown schemas/actions/capabilities, duplicate JSON keys, cycles, escaping
+  paths, unsafe retries and unapproved external effects are rejected.
+- Attempts and policy/checkpoint/result/undo envelopes are immutable.
+- One LLM node and one workspace writer run globally at a time. Bounded host
+  reads may run concurrently.
+- Pause drains running actions cooperatively and freezes ready nodes; resume
+  reenqueues them. Cancel sends SIGTERM to a `test.run` process group or SIGINT
+  to the graph-owned Agent turn.
+- A native running attempt found after a cold restart has no reusable process
+  lease and is recorded as interrupted/failed rather than falsely shown alive.
+- Mutations require expected graph revision and event sequence; stale callers
+  receive `409 Conflict`.
 
 ## Persistent layout
-
-Workspace graphs live at:
 
 ```text
 <workspace>/.dstudio/task-graphs/<graphId>/
   graph.json       immutable validated definition
   state.json       rebuildable materialized state
   events.jsonl     authoritative append-only transitions
-  artifacts.json  bounded provenance registry (empty in the synthetic rollout)
-  attempts/        immutable request/result envelopes
+  artifacts.json  bounded provenance registry
+  attempts/<node>/ immutable request, policy, checkpoint, result,
+                    transcript/test stream and undo receipts
   lock             advisory single-writer lock
 ```
 
-When no workspace is attached, the same layout lives under DStudio's writable
-data directory. No graph data is written into the application bundle.
-
-## Local API
-
-The localhost-only API accepts `X-Requested-With: ds4web` on mutations:
+## Local API and live graph
 
 ```text
 POST /api/task-graph/validate
@@ -53,12 +102,13 @@ GET  /api/task-graph?graphId=...&workspace=...
 GET  /api/task-graph/events?graphId=...&workspace=...&since=...
 GET  /api/task-graphs?workspace=...
 POST /api/task-graph/{approve,start,pause,resume,cancel}
-POST /api/task-graph/node/{approve,retry,skip,cancel}
+POST /api/task-graph/node/{approve,retry,skip,cancel,undo}
 ```
 
-Runtime responses report `executionAvailable`. Validation is deliberately
-separate from execution: Plan and future Agent/GSA/RSA compilers can persist a
-safe proposal before their executor is enabled.
+The Agent header's **Graph** button opens the live DAG. It groups nodes by
+dependency depth, shows incoming edges, action/state/watchdog/undo receipts,
+tails the durable journal every 750 ms and exposes the valid controls for the
+current state.
 
 ## Verification
 
@@ -66,22 +116,27 @@ safe proposal before their executor is enabled.
 make test-task-graph-unit
 make test-task-graph-http
 make test-task-graph-bench-validate
+
+# Explicit heavyweight test: starts a real local Agent with forced SSD streaming
+make test-task-graph-real
+
+# Publication run and Matplotlib figures
+DSTUDIO_TASK_GRAPH_BENCH_RUNS=3 make test-task-graph-real
+python3 extension/task-graph/bench/plot-results.py
 ```
 
-These gates cover parse/validation, transitions, leases, retry, approval,
-pause/resume/cancel, journal replay, stale snapshots, duplicate event keys,
-append/rename failpoints, API preconditions and lightweight timing loops. The
-ten real-model A/B scenarios under `bench/` are deliberately marked
-`prepare-only`; `check-fast` validates them but never starts a model. Their
-heavy runner remains guarded by `RUN_HEAVY=1` and must not be used as a release
-claim until the corresponding real adapters and reproducible hardware controls
-are available.
+The lightweight gates cover parser/policy decisions, native reads and writes,
+real argv process execution, gates, approval, watchdog thresholds, checkpoint
+rollback, pause/resume/cancel, replay/failpoints, API preconditions and the live
+UI contract. The heavy runner requires `RUN_HEAVY=1`, asserts
+`ssdStreamingEffective: true`, and can repeat a real eight-node chain containing
+`ds4-agent-jsonl`, gates, explicit approval, host write, argv process and join.
+It proves the model's expected answer occurs after its structured tool result,
+then verifies policy/checkpoint/result, approval, transcript and process-stream
+receipts. Its working artifacts live under
+`tests/.artifacts/task-graph-ssd-real/` and are gitignored.
 
-## Rollout boundary
-
-This merge completes phases 1–3 of the architecture plan: DAG core, durable
-store, recovery, HTTP surface and synthetic scheduling. Ordinary simple Agent
-turns remain direct, Plan remains planning-only, and existing GSA/RSA pipelines
-retain their native structured phase contracts. Real Plan/Agent/GSA/RSA,
-hardware/media and cross-mode executors stay behind their later benchmark gates
-instead of being silently simulated by the synthetic runtime.
+The measured public snapshot, including per-run values, hardware, configuration
+and methodological limitations, is stored in
+[`bench/results/2026-09-04-m2-max-native-ssd.json`](bench/results/2026-09-04-m2-max-native-ssd.json).
+The main README renders the two figures generated from that file.

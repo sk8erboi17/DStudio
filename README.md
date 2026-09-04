@@ -255,9 +255,64 @@ Toggle **Plan** in Agent mode, describe what you want, and DStudio writes a **Ma
 
 ## Task Graph runtime
 
-DStudio 1.1 includes the host-authoritative Task Graph V1 execution core as shared infrastructure rather than a new sidebar mode. It parses and strictly validates bounded DAG proposals, rejects cycles, unsafe paths and invalid retry/side-effect combinations, persists an append-only event journal before exposing transitions, rebuilds its materialized state after a crash, and provides optimistic-concurrency controls for approve, start, pause, resume, cancel, retry and skip. One global model lease and one workspace-writer lease prevent accidental double use while independent synthetic host nodes exercise bounded fan-out/fan-in.
+DStudio 1.1 includes a host-authoritative Task Graph V1 runtime as shared infrastructure rather than a separate workflow mode. It parses and strictly validates bounded DAGs, rejects cycles and unsafe paths, persists an append-only journal before exposing transitions, rebuilds materialized state after a crash, and provides optimistic-concurrency controls for approve, start, pause, resume, cancel, retry, skip and undo. One global model lease and one workspace-writer lease prevent accidental double use.
 
-The first rollout intentionally exposes real Agent/Plan/GSA/RSA graphs as **validated proposals only** until each real executor clears its own model-quality gate. Starting an unregistered proposal fails before appending `graph.started`, so it cannot leave a run stuck half-started. Ordinary Agent, Plan, GSA and RSA behavior therefore remains unchanged in 1.1, while the durable core, recovery path and local HTTP contract are already packaged and regression-tested. See [`extension/task-graph/README.md`](extension/task-graph/README.md) for the store/API contract and staged adapters.
+Registered native actions execute real Agent turns, bounded workspace reads/writes, argv-only test processes, deterministic gates, approvals and joins. Every dispatch re-evaluates a closed-world policy and records immutable policy/checkpoint/result receipts; the Agent watchdog stops repeated structured tool calls/results or excessive tool churn. Automatic undo is intentionally limited to exact, unchanged bytes written by `workspace.write`: broader Agent or test side effects produce an honest non-reversible receipt for manual review. A live DAG dialog exposes node state, durable events, watchdog counters, pause/resume and per-node controls. Unregistered action types still fail before `graph.started`, so a proposal cannot become a half-started run. See [`extension/task-graph/README.md`](extension/task-graph/README.md) for the action, receipt and local API contracts.
+
+### Measured native benchmark
+
+This is a measured snapshot of the implementation in this change set, not a
+universal speed claim. On 4 September 2026, three sequential Task Graphs ran in
+one real `ds4-agent-jsonl` session with forced SSD streaming. Every graph used
+eight native nodes: Agent read → gate → approval → host write → output gate →
+argv test process → file gate → join.
+
+Test machine: Apple M2 Max (12 cores), 96 GB unified memory, Apple 4 TB SSD,
+Darwin 25.5. Model: DeepSeek V4 Flash IQ2XXS, 86.72 GB (80.76 GiB), 16,384-token
+context, power 70, thinking off. DStudio confirmed
+`ssdStreamingEffective: true`; model startup took 73.42 s and is excluded from
+the graph times below.
+
+| Measured outcome | Result |
+| --- | ---: |
+| Complete native graphs | **3/3** |
+| Native nodes completed | **24/24** |
+| End-to-end graph time | **103.10 s median** (80.23–104.90 s) |
+| Real DS4 Agent node | **101.89 s median** (79.16–103.86 s) |
+| Other seven native nodes, including approval and work | **1.06 s median** (1.02–1.19 s) |
+| Scheduler/journal gap between node timings | **22 ms median** (21–23 ms) |
+| API validation / create / start | **0.67 / 3.01 / 5.74 ms median** |
+| DS4 status throughput, prefill / decode | **12.90 / 0.60 tok/s median** |
+| Structured Agent tool calls / watchdog trips | **3 / 0** |
+| Durable events / verified immutable receipts and streams | **144 / 105** |
+
+The LLM node accounts for nearly all end-to-end time. The seven-node figure is
+not pure overhead: it includes a real file write, a real Python argv process,
+four policy/checkpoint/result persistence steps per node, gates, the benchmark's
+automatic approval, and the scheduler cadence. The isolated gap left between
+the journaled node durations is 22 ms at the median.
+
+<div align="center">
+  <img src="assets/README%20images/benchmarks/task-graph-native-ssd-breakdown.png" width="920" alt="Three real native DS4 Agent Task Graph benchmark runs, with Agent time, seven non-Agent nodes and scheduler journal gap separated">
+</div>
+
+The control-plane plot uses a logarithmic axis so microseconds and fsynced graph
+replay remain visible together. Its durable sample is an eight-node graph
+scheduled, journaled and reloaded from disk; the dots are medians and whiskers
+are observed minima and maxima across five processes.
+
+<div align="center">
+  <img src="assets/README%20images/benchmarks/task-graph-runtime-overhead.png" width="920" alt="Task Graph control-plane latency from core parse and policy validation through durable eight-node scheduling and replay">
+</div>
+
+Raw per-run measurements and limitations are versioned in
+[`extension/task-graph/bench/results/2026-09-04-m2-max-native-ssd.json`](extension/task-graph/bench/results/2026-09-04-m2-max-native-ssd.json).
+Reproduce both the three-run benchmark and its Matplotlib figures with:
+
+```sh
+DSTUDIO_TASK_GRAPH_BENCH_RUNS=3 make test-task-graph-real
+python3 extension/task-graph/bench/plot-results.py
+```
 
 ## Highlights
 
@@ -392,6 +447,7 @@ make test-ui-live-vision DSTUDIO_LIVE_URL=http://127.0.0.1:5999
                 # isolated Playwright E2E over the running saved Vision model:
                 # Chat, Agent, Cowork, Design, Learn and Settings; no H3/image job
 make test-task-graph-unit test-task-graph-http test-task-graph-bench-validate
+make test-task-graph-real  # explicit real Agent + GGUF SSD-streaming smoke test
 make check      # check-fast plus explicitly configured real-model suites
 make test-image-inference  # Ideogram/Hunyuan pinned Max-profile conformance
 make test-video-open-weight  # H3 pinning, local-only contract and checkout repair
@@ -429,7 +485,7 @@ Behind the scenes DStudio **reverse-proxies the engine API** (`/v1`) to the loca
 - **C launcher, not a script.** `dstudio.c` is both the local HTTP server and the engine supervisor: it starts/stops `ds4-server` for chat, `ds4-agent-jsonl` for coding, `ds4-cowork` for Office work and `ds4-design` for design, manages working directories, runs the setup doctor, proxies `/v1`, serves Web Search and exposes a small local API.
 - **Native window.** `app.cc` forks the server and opens a WKWebView (macOS) / WebKitGTK (Linux) window via `webview.h`; the page is base64-embedded (`page_data.h`).
 - **Same-origin proxy.** The page calls DStudio for `/v1`; DStudio forwards streaming requests to the local engine, which is why LAN works with no engine exposure and no settings.
-- **Durable Task Graph core.** A bounded DAG validator, append-first event store, cooperative scheduler and localhost-only API provide crash-safe orchestration foundations without reusing the transient `/api/tasks` telemetry ring. Heavy real-model A/B fixtures are prepared separately and are never run by `check-fast`.
+- **Durable native Task Graph runtime.** A bounded DAG validator, append-first event store, deterministic action policies, real Agent/tool/gate/approval executors, anti-loop watchdog, exact-write undo receipts and a live DAG view provide crash-safe local orchestration without reusing the transient `/api/tasks` telemetry ring. The explicit `test-task-graph-real` target exercises a real GGUF Agent with forced SSD streaming and remains outside `check-fast`.
 - **Native vision only.** DeepSeek Vision-Exp and GLM 5.3 Chat/Agent/Cowork/Design use their ds4 native encoders directly. Every other engine is text-only; no secondary VLM, visual router or fallback is installed. Ideogram 4 FP8 Quality-48 creates new images and full HunyuanImage-3.0-Instruct NF4/50-step edits source pixels directly.
 - **Text-first, native-vision PDF acceleration.** Poppler extraction, chunking and BM25 stay on the CPU. Qwen3-Embedding-0.6B ranks multilingual text only; it is not a router. DeepSeek Vision-Exp or GLM 5.3 can inspect a bounded selection of rendered pages through the currently loaded native encoder, while Laguna reports and skips image-only pages.
 

@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-04T10:55:49.325Z",
+  "source": {
+    "dstudioBaseCommit": "cbd8efe71d15",
+    "dstudioWorkingTreeIncludedThisChangeSet": true,
+    "ds4Commit": "b0a147a7fba6",
+    "ds4WorkingTreeDirty": true
+  },
+  "hardware": {
+    "chip": "Apple M2 Max",
+    "logicalCores": 12,
+    "memoryBytes": 103079215104,
+    "ssd": "APPLE SSD AP4096Z, 4 TB",
+    "os": "Darwin 25.5.0 arm64"
+  },
+  "model": {
+    "file": "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf",
+    "bytes": 86720111488,
+    "contextTokens": 16384,
+    "power": 70,
+    "thinking": "off",
+    "ssdStreamingRequested": "on",
+    "ssdStreamingEffective": true,
+    "ssdStreamingReason": "forced on by user",
+    "nativeRuntime": "ds4-agent-jsonl"
+  },
+  "nativeTaskGraph": {
+    "protocol": "three sequential eight-node graphs in one native Agent session",
+    "nodesPerGraph": [
+      "agent.prompt",
+      "workspace.assert",
+      "approval.wait",
+      "workspace.write",
+      "outputs.verify",
+      "test.run",
+      "workspace.assert",
+      "join.all"
+    ],
+    "modelStartupMs": 73421.95,
+    "runs": 3,
+    "graphsSucceeded": 3,
+    "nodesSucceeded": 24,
+    "structuredAgentToolCalls": 3,
+    "watchdogTrips": 0,
+    "durableEvents": 144,
+    "immutableReceiptsAndStreamsVerified": 105,
+    "graphMs": {
+      "values": [104899, 103097, 80234],
+      "median": 103097,
+      "min": 80234,
+      "max": 104899
+    },
+    "agentNodeMs": {
+      "values": [103860, 101885, 79155],
+      "median": 101885,
+      "min": 79155,
+      "max": 103860
+    },
+    "sevenNonAgentNodesMs": {
+      "values": [1018, 1190, 1056],
+      "median": 1056,
+      "min": 1018,
+      "max": 1190
+    },
+    "orchestrationGapMs": {
+      "values": [21, 22, 23],
+      "median": 22,
+      "min": 21,
+      "max": 23
+    },
+    "validationApiMs": {
+      "values": [1.02, 0.66, 0.67],
+      "median": 0.67,
+      "min": 0.66,
+      "max": 1.02
+    },
+    "createApiMs": {
+      "values": [3.21, 2.61, 3.01],
+      "median": 3.01,
+      "min": 2.61,
+      "max": 3.21
+    },
+    "startApiMs": {
+      "values": [5.45, 5.74, 5.74],
+      "median": 5.74,
+      "min": 5.45,
+      "max": 5.74
+    },
+    "ds4StructuredStatus": {
+      "prefillTokens": [175, 142, 142],
+      "generatedTokens": [53, 53, 52],
+      "prefillTokensPerSecond": [12.9, 11.59, 13.78],
+      "decodeTokensPerSecond": [0.6, 0.6, 0.77],
+      "medianPrefillTokensPerSecond": 12.9,
+      "medianDecodeTokensPerSecond": 0.6
+    }
+  },
+  "coreMicrobenchmark": {
+    "processes": 5,
+    "parseValidateGraphsPerProcess": 1000,
+    "parseValidateBatchMs": [3.33, 3.19, 3.36, 3.3, 3.33],
+    "medianParseValidateMicrosecondsPerGraph": 3.33,
+    "durableEightNodeGraphsPerProcess": 6,
+    "durableScheduleReplayBatchMs": [98.6, 100.38, 97.84, 101.42, 101.6],
+    "medianDurableScheduleReplayMsPerGraph": 16.73
+  },
+  "notes": [
+    "Graph and node durations come from the fsynced event journal, not HTTP polling time.",
+    "The approval node was approved automatically by the benchmark harness; its wait is included.",
+    "The three Agent measurements are sequential and share one growing KV session; only startup is cold.",
+    "Throughput is derived from the terminal structured DS4 status of each model round and weighted by tokens.",
+    "This is a reproducible single-machine snapshot, not a universal performance claim or a before/after comparison."
+  ]
+}

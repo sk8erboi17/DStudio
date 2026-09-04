@@ -43,6 +43,8 @@ static void dtg_api_error(int fd, const char *status, const char *error) {
 
 static int dtg_runtime_json(const dtg_runtime *rt, json_dyn_buf *out) {
     const dtg_graph *graph = &rt->graph;
+    char policy_digest[17] = "unavailable";
+    (void)dtg_policy_digest(graph, policy_digest);
     size_t done = 0;
     for (size_t i = 0; i < graph->node_count; i++) if (dtg_node_terminal(graph->nodes[i].state)) done++;
     int ok = json_dyn_puts(out, "{\"ok\":true,\"graph\":{\"graphId\":") &&
@@ -55,6 +57,7 @@ static int dtg_runtime_json(const dtg_runtime *rt, json_dyn_buf *out) {
         json_dyn_puts(out, ",\"executorMode\":") && json_dyn_put_escaped(out, graph->executor_mode) &&
         json_dyn_printf(out, ",\"executionAvailable\":%s",
                         dtg_executor_graph_is_available(graph) ? "true" : "false") &&
+        json_dyn_puts(out, ",\"policyDigest\":") && json_dyn_put_escaped(out, policy_digest) &&
         json_dyn_puts(out, ",\"goal\":") && json_dyn_put_escaped(out, graph->goal) &&
         json_dyn_puts(out, ",\"workspace\":") && json_dyn_put_escaped(out, graph->workspace) &&
         json_dyn_printf(out, ",\"approvalRequired\":%s,\"approved\":%s,\"progress\":{\"completed\":%zu,\"total\":%zu},\"createdMs\":%lld,\"updatedMs\":%lld,\"startedMs\":%lld,\"completedMs\":%lld,\"error\":",
@@ -64,6 +67,10 @@ static int dtg_runtime_json(const dtg_runtime *rt, json_dyn_buf *out) {
         json_dyn_put_escaped(out, graph->error) && json_dyn_puts(out, ",\"nodes\":[");
     for (size_t i = 0; ok && i < graph->node_count; i++) {
         const dtg_node *node = &graph->nodes[i];
+        int undo_available = 0, undo_applied = 0, undo_fully = 0;
+        char undo_message[256] = "";
+        dtg_executor_undo_summary(rt, node, &undo_available, &undo_applied,
+                                  &undo_fully, undo_message, sizeof undo_message);
         if (i) ok = json_dyn_puts(out, ",");
         ok = ok && json_dyn_puts(out, "{\"id\":") && json_dyn_put_escaped(out, node->id) &&
             json_dyn_puts(out, ",\"title\":") && json_dyn_put_escaped(out, node->title) &&
@@ -71,9 +78,17 @@ static int dtg_runtime_json(const dtg_runtime *rt, json_dyn_buf *out) {
             json_dyn_puts(out, ",\"kind\":") && json_dyn_put_escaped(out, dtg_node_kind_name(node->kind)) &&
             json_dyn_puts(out, ",\"state\":") && json_dyn_put_escaped(out, dtg_node_state_name(node->state)) &&
             json_dyn_puts(out, ",\"mutation\":") && json_dyn_put_escaped(out, dtg_mutation_name(node->mutation)) &&
-            json_dyn_printf(out, ",\"optional\":%s,\"priority\":%d,\"attemptsStarted\":%d,\"maxAttempts\":%d,\"operationTaskId\":%llu,\"attemptId\":",
+            json_dyn_puts(out, ",\"action\":") && json_dyn_put_escaped(out, node->action_name) &&
+            json_dyn_printf(out, ",\"optional\":%s,\"priority\":%d,\"attemptsStarted\":%d,\"maxAttempts\":%d,\"operationTaskId\":%llu,\"watchdog\":{\"toolCalls\":%u,\"repeatedCalls\":%u,\"tripped\":%s},\"undo\":{\"available\":%s,\"applied\":%s,\"fullyReversed\":%s,\"message\":",
                             node->optional ? "true" : "false", node->priority,
-                            node->attempts_started, node->max_attempts, node->operation_task_id) &&
+                            node->attempts_started, node->max_attempts, node->operation_task_id,
+                            node->watchdog_tool_calls, node->watchdog_repeated_calls,
+                            node->watchdog_tripped ? "true" : "false",
+                            undo_available ? "true" : "false",
+                            undo_applied ? "true" : "false",
+                            undo_fully ? "true" : "false") &&
+            json_dyn_put_escaped(out, undo_message) &&
+            json_dyn_puts(out, "},\"attemptId\":") &&
             json_dyn_put_escaped(out, node->active_attempt_id) && json_dyn_puts(out, ",\"dependsOn\":[");
         for (size_t d = 0; ok && d < node->dependency_count; d++) {
             if (d) ok = json_dyn_puts(out, ",");
@@ -189,12 +204,19 @@ static int dtg_node_cancel(dtg_runtime *rt, const char *node_id, char *err, size
     dtg_node *node = rt ? dtg_find_node(&rt->graph, node_id) : NULL;
     if (!node || dtg_node_terminal(node->state)) { snprintf(err, errsz, "node is missing or terminal"); return 0; }
     if (node->state == DTG_NODE_RUNNING || node->state == DTG_NODE_LEASED) {
+        (void)dtg_executor_cancel(rt, node, "Task graph node cancelled");
         if (!dtg_scheduler_set_node(rt, node, "node.cancelling", DTG_NODE_CANCELLING,
                                     "Node cancellation requested", err, errsz)) return 0;
     }
     if (node->operation_task_id) task_mark_canceled(node->operation_task_id, "Task graph node cancelled");
     return dtg_scheduler_set_node(rt, node, "node.cancelled", DTG_NODE_CANCELLED,
                                   "Node cancelled", err, errsz);
+}
+
+static int dtg_node_undo(dtg_runtime *rt, const char *node_id, char *err, size_t errsz) {
+    dtg_node *node = rt ? dtg_find_node(&rt->graph, node_id) : NULL;
+    if (!node) { snprintf(err, errsz, "node is missing"); return 0; }
+    return dtg_executor_undo(rt, node, err, errsz);
 }
 
 static int api_dtg_node_mutation(int fd, const char *body,

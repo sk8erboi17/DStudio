@@ -104,8 +104,8 @@ static int dtg_scheduler_dispatch(dtg_runtime *rt, dtg_node *node,
     char attempt[DTG_ID_MAX + 1] = "";
     unsigned long long operation = 0;
     long long due = 0;
-    if (!dtg_executor_begin_synthetic(rt, node, now, attempt, sizeof attempt,
-                                      &operation, &due, err, errsz)) {
+    if (!dtg_executor_begin(rt, node, now, attempt, sizeof attempt,
+                            &operation, &due, err, errsz)) {
         char persist_err[256] = "";
         (void)dtg_store_node_event(rt, node, "node.dispatch_deferred", DTG_NODE_READY,
                                    node->attempts_started, "", 0, 0,
@@ -115,7 +115,9 @@ static int dtg_scheduler_dispatch(dtg_runtime *rt, dtg_node *node,
     int attempts = node->attempts_started + 1;
     if (!dtg_store_node_event(rt, node, "attempt.started", DTG_NODE_RUNNING,
                               attempts, attempt, operation, due,
-                              "Synthetic attempt started", err, errsz)) {
+                              !strcmp(rt->graph.executor_mode, "native") ?
+                                "Native attempt started with policy receipt" :
+                                "Synthetic attempt started", err, errsz)) {
         task_mark_failed(operation, "Task graph state persistence failed", err);
         return 0;
     }
@@ -130,9 +132,10 @@ static int dtg_scheduler_dispatch(dtg_runtime *rt, dtg_node *node,
 
 static int dtg_scheduler_finish_node(dtg_runtime *rt, dtg_node *node,
                                      long long now, char *err, size_t errsz) {
-    (void)now;
-    int succeeded = 0;
-    if (!dtg_executor_finish_synthetic(rt, node, &succeeded, err, errsz)) return 0;
+    int finished = 0, succeeded = 0;
+    if (!dtg_executor_poll(rt, node, now, &finished, &succeeded, err, errsz)) return 0;
+    if (!finished) return 1;
+    if (!dtg_executor_finish(rt, node, succeeded, err, errsz)) return 0;
     char attempt[DTG_ID_MAX + 1];
     cstr_copy(attempt, sizeof attempt, node->active_attempt_id);
     unsigned long long operation = node->operation_task_id;
@@ -143,7 +146,8 @@ static int dtg_scheduler_finish_node(dtg_runtime *rt, dtg_node *node,
     }
     if (!dtg_store_node_event(rt, node, "attempt.failed", DTG_NODE_FAILED,
                               node->attempts_started, attempt, operation, 0,
-                              "Synthetic node failed", err, errsz)) return 0;
+                              node->native_message[0] ? node->native_message : "Node executor failed",
+                              err, errsz)) return 0;
     if (node->automatic_retry && node->idempotent && node->attempts_started < node->max_attempts) {
         return dtg_store_node_event(rt, node, "node.retry_scheduled", DTG_NODE_PENDING,
                                     node->attempts_started, "", 0, 0,
@@ -184,6 +188,7 @@ static int dtg_scheduler_process_cancelling(dtg_runtime *rt, char *err, size_t e
                                         "Graph cancellation requested", err, errsz)) return 0;
         }
         if (node->state == DTG_NODE_CANCELLING) {
+            (void)dtg_executor_cancel(rt, node, "Task graph cancelled");
             if (node->operation_task_id) task_mark_canceled(node->operation_task_id, "Task graph cancelled");
             if (!dtg_scheduler_set_node(rt, node, "node.cancelled", DTG_NODE_CANCELLED,
                                         "Graph cancelled", err, errsz)) return 0;
@@ -208,7 +213,7 @@ static void dtg_scheduler_tick(long long now) {
         if (graph->state == DTG_GRAPH_PAUSING) {
             for (size_t i = 0; i < graph->node_count; i++) {
                 dtg_node *node = &graph->nodes[i];
-                if (node->state == DTG_NODE_RUNNING && node->synthetic_due_ms <= now &&
+                if (node->state == DTG_NODE_RUNNING &&
                     !dtg_scheduler_finish_node(rt, node, now, err, sizeof err)) break;
             }
             if (!dtg_graph_running_nodes(graph, DTG_NODE_KIND_INVALID, 0)) {
@@ -239,10 +244,18 @@ static void dtg_scheduler_tick(long long now) {
         for (size_t i = 0; i < graph->node_count; i++) {
             dtg_node *node = &graph->nodes[i];
             if (node->state != DTG_NODE_RUNNING) continue;
+            if (!strcmp(graph->executor_mode, "native") && !node->native_done &&
+                !node->native_pid && node != g_dtg_agent_owner_node &&
+                node->kind != DTG_NODE_APPROVAL && !node->native_message[0]) {
+                node->native_done = 1;
+                node->native_success = 0;
+                cstr_copy(node->native_message, sizeof node->native_message,
+                          "Attempt interrupted by host restart; no live executor lease exists");
+            }
             if (node->timeout_ms > 0 && node->started_ms > 0 && now - node->started_ms > node->timeout_ms) {
-                node->synthetic_should_fail = 1;
+                (void)dtg_executor_cancel(rt, node, "Node timeout reached");
                 if (!dtg_scheduler_finish_node(rt, node, now, err, sizeof err)) break;
-            } else if (node->synthetic_due_ms <= now) {
+            } else {
                 if (!dtg_scheduler_finish_node(rt, node, now, err, sizeof err)) break;
             }
         }
@@ -332,6 +345,7 @@ static int dtg_scheduler_approve_graph(dtg_runtime *rt, char *err, size_t errsz)
         rt->graph.state != DTG_GRAPH_VALIDATED) {
         snprintf(err, errsz, "graph is not awaiting approval"); return 0;
     }
+    if (!dtg_write_approval_receipt(rt, NULL, err, errsz)) return 0;
     return dtg_store_graph_event(rt, "graph.approved", DTG_GRAPH_READY, 1,
                                  "Graph approved by user", err, errsz);
 }
@@ -342,6 +356,7 @@ static int dtg_scheduler_approve_node(dtg_runtime *rt, const char *node_id,
     if (!node || node->kind != DTG_NODE_APPROVAL || node->state != DTG_NODE_WAITING_APPROVAL) {
         snprintf(err, errsz, "node is not awaiting approval"); return 0;
     }
+    if (!dtg_write_approval_receipt(rt, node, err, errsz)) return 0;
     if (node->operation_task_id) task_mark_completed(node->operation_task_id, "Approval granted");
     if (!dtg_write_attempt_result(rt, node, node->active_attempt_id, 1,
                                   "Approval granted", err, errsz)) return 0;

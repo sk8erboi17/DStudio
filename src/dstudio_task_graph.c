@@ -23,6 +23,10 @@
 #define DTG_MODE_MAX               32
 #define DTG_EXECUTOR_MAX           32
 #define DTG_MAX_REGISTRY           32
+#define DTG_ACTION_NAME_MAX        64
+#define DTG_ACTION_TEXT_MAX     16384
+#define DTG_ACTION_ARG_MAX        512
+#define DTG_MAX_ACTION_ARGS        32
 
 typedef enum {
     DTG_NODE_AGENT_TURN = 0,
@@ -122,12 +126,43 @@ typedef struct {
     int synthetic_delay_ms;
     int synthetic_should_fail;
 
+    /* Native V1 actions are deliberately closed-world.  The parser does not
+     * retain an arbitrary JSON blob: every executable byte is represented by
+     * one of these bounded fields and is checked again immediately before
+     * dispatch by dstudio_task_policy.c. */
+    char action_name[DTG_ACTION_NAME_MAX + 1];
+    char action_path[DSTUDIO_PATH_MAX];
+    char *action_text;
+    char *action_expect;
+    char (*action_argv)[DTG_ACTION_ARG_MAX + 1];
+    size_t action_argc;
+    unsigned long long action_max_bytes;
+
     char active_attempt_id[DTG_ID_MAX + 1];
     unsigned long long operation_task_id;
     long long ready_ms;
     long long started_ms;
     long long finished_ms;
     long long synthetic_due_ms;
+
+    /* In-memory executor state.  Process identifiers are intentionally not
+     * replayed after a crash: recovery records an interrupted attempt instead
+     * of pretending that an unowned process is still controllable. */
+    pid_t native_pid;
+    int native_done;
+    int native_success;
+    int native_cancel_requested;
+    size_t transcript_from;
+    size_t transcript_to;
+    unsigned watchdog_tool_calls;
+    unsigned watchdog_repeated_calls;
+    int watchdog_tripped;
+    char native_message[512];
+
+    int undo_available;
+    int undo_applied;
+    int undo_fully_reversed;
+    char undo_message[256];
 } dtg_node;
 
 typedef struct {
@@ -674,9 +709,80 @@ static void dtg_graph_free(dtg_graph *g) {
         free(g->nodes[i].dependencies);
         free(g->nodes[i].outputs);
         free(g->nodes[i].capabilities);
+        free(g->nodes[i].action_text);
+        free(g->nodes[i].action_expect);
+        free(g->nodes[i].action_argv);
     }
     free(g->nodes);
     memset(g, 0, sizeof *g);
+}
+
+static int dtg_json_object_alloc_string(const char *json,
+                                        const dtg_json_token *tokens,
+                                        int count, int object,
+                                        const char *key, char **out,
+                                        size_t limit, char *err, size_t errsz) {
+    int at = dtg_json_object_field(json, tokens, count, object, key);
+    *out = NULL;
+    if (at < 0) return 1;
+    if (tokens[at].type != DTG_JSON_STRING ||
+        tokens[at].end < tokens[at].start ||
+        (size_t)(tokens[at].end - tokens[at].start) > limit) {
+        snprintf(err, errsz, "field '%s' is not a bounded string", key);
+        return 0;
+    }
+    size_t cap = (size_t)(tokens[at].end - tokens[at].start) + 1;
+    char *value = calloc(cap, 1);
+    if (!value || !dtg_json_token_string(json, &tokens[at], value, cap)) {
+        free(value); snprintf(err, errsz, "cannot decode field '%s'", key); return 0;
+    }
+    *out = value;
+    return 1;
+}
+
+static int dtg_parse_action(const char *json, const dtg_json_token *tokens,
+                            int count, int object, dtg_node *node,
+                            char *err, size_t errsz) {
+    int action = dtg_json_object_field(json, tokens, count, object, "action");
+    node->action_max_bytes = 1024u * 1024u;
+    if (action < 0) return 1;
+    if (tokens[action].type != DTG_JSON_OBJECT) {
+        snprintf(err, errsz, "node '%s' action must be an object", node->id); return 0;
+    }
+    if (!dtg_json_object_string(json, tokens, count, action, "name",
+                                node->action_name, sizeof node->action_name, 1, err, errsz) ||
+        !dtg_json_object_string(json, tokens, count, action, "path",
+                                node->action_path, sizeof node->action_path, 0, err, errsz) ||
+        !dtg_json_object_alloc_string(json, tokens, count, action, "text",
+                                      &node->action_text, DTG_ACTION_TEXT_MAX, err, errsz) ||
+        !dtg_json_object_alloc_string(json, tokens, count, action, "contains",
+                                      &node->action_expect, DTG_ACTION_TEXT_MAX, err, errsz)) return 0;
+    long long max_bytes = 1024 * 1024;
+    if (!dtg_json_object_int(json, tokens, count, action, "maxBytes",
+                             max_bytes, 1, 16 * 1024 * 1024,
+                             &max_bytes, err, errsz)) return 0;
+    node->action_max_bytes = (unsigned long long)max_bytes;
+
+    int argv = dtg_json_object_field(json, tokens, count, action, "argv");
+    if (argv < 0) return 1;
+    if (tokens[argv].type != DTG_JSON_ARRAY || tokens[argv].size < 1 ||
+        tokens[argv].size > DTG_MAX_ACTION_ARGS) {
+        snprintf(err, errsz, "node '%s' action argv must contain 1..%d strings",
+                 node->id, DTG_MAX_ACTION_ARGS); return 0;
+    }
+    node->action_argc = (size_t)tokens[argv].size;
+    node->action_argv = calloc(node->action_argc, sizeof *node->action_argv);
+    if (!node->action_argv) { snprintf(err, errsz, "out of memory parsing action argv"); return 0; }
+    for (size_t i = 0; i < node->action_argc; i++) {
+        int at = dtg_json_array_nth(tokens, count, argv, (int)i);
+        if (at < 0 || !dtg_json_token_string(json, &tokens[at],
+                                             node->action_argv[i],
+                                             sizeof node->action_argv[i])) {
+            snprintf(err, errsz, "node '%s' action argv[%zu] is not a bounded string",
+                     node->id, i); return 0;
+        }
+    }
+    return 1;
 }
 
 static int dtg_add_dependency(dtg_node *node, const char *id,
@@ -812,7 +918,12 @@ static int dtg_parse_node(const char *json, const dtg_json_token *tokens,
     int caps = dtg_json_object_field(json, tokens, count, object, "capabilities");
     if (!dtg_parse_dependencies(json, tokens, count, deps, node, err, errsz) ||
         !dtg_parse_outputs(json, tokens, count, outputs, node, err, errsz) ||
-        !dtg_parse_string_array(json, tokens, count, caps, &node->capabilities, &node->capability_count, err, errsz)) return 0;
+        !dtg_parse_string_array(json, tokens, count, caps, &node->capabilities, &node->capability_count, err, errsz) ||
+        !dtg_parse_action(json, tokens, count, object, node, err, errsz)) return 0;
+    if (!node->action_name[0] && node->kind == DTG_NODE_APPROVAL)
+        cstr_copy(node->action_name, sizeof node->action_name, "approval.wait");
+    if (!node->action_name[0] && node->kind == DTG_NODE_JOIN)
+        cstr_copy(node->action_name, sizeof node->action_name, "join.all");
 
     long long v = 0;
     int retry = dtg_json_object_field(json, tokens, count, object, "retry");
@@ -1033,11 +1144,15 @@ static int dtg_validate_graph(const dtg_graph *g, int strict,
     if (strcmp(g->policy, "agent.general.v1") && strcmp(g->policy, "plan.v1") && strcmp(g->policy, "test.synthetic.v1")) {
         snprintf(err, errsz, "unknown task graph policy '%s'", g->policy); return 0;
     }
-    if (g->executor_mode[0] && strcmp(g->executor_mode, "synthetic")) {
+    if (g->executor_mode[0] && strcmp(g->executor_mode, "synthetic") &&
+        strcmp(g->executor_mode, "native")) {
         snprintf(err, errsz, "unknown executorMode '%s'", g->executor_mode); return 0;
     }
     if (!strcmp(g->executor_mode, "synthetic") && strcmp(g->policy, "test.synthetic.v1")) {
         snprintf(err, errsz, "synthetic executor is restricted to test.synthetic.v1"); return 0;
+    }
+    if (!strcmp(g->executor_mode, "native") && strcmp(g->policy, "agent.general.v1")) {
+        snprintf(err, errsz, "native executor is restricted to agent.general.v1"); return 0;
     }
     int has_approval = 0;
     for (size_t i = 0; i < g->node_count; i++) {
@@ -1196,10 +1311,30 @@ static int dtg_graph_definition_json(const dtg_graph *g, json_dyn_buf *b) {
                 json_dyn_puts(b, ",\"path\":") && json_dyn_put_escaped(b, n->outputs[o].path) &&
                 json_dyn_printf(b, ",\"required\":%s,\"minimumBytes\":%llu}", n->outputs[o].required ? "true" : "false", n->outputs[o].minimum_bytes);
         }
-        ok = ok && json_dyn_printf(b, "],\"retry\":{\"maxAttempts\":%d,\"automatic\":%s},\"timeoutMs\":%lld,\"idempotent\":%s,\"optional\":%s,\"priority\":%d,\"synthetic\":{\"delayMs\":%d,\"result\":\"%s\"}}",
+        ok = ok && json_dyn_printf(b, "],\"retry\":{\"maxAttempts\":%d,\"automatic\":%s},\"timeoutMs\":%lld,\"idempotent\":%s,\"optional\":%s,\"priority\":%d,\"synthetic\":{\"delayMs\":%d,\"result\":\"%s\"}",
             n->max_attempts, n->automatic_retry ? "true" : "false", n->timeout_ms,
             n->idempotent ? "true" : "false", n->optional ? "true" : "false", n->priority,
             n->synthetic_delay_ms, n->synthetic_should_fail ? "failed" : "succeeded");
+        if (ok && n->action_name[0]) {
+            ok = json_dyn_puts(b, ",\"action\":{\"name\":") &&
+                 json_dyn_put_escaped(b, n->action_name) &&
+                 json_dyn_puts(b, ",\"path\":") && json_dyn_put_escaped(b, n->action_path) &&
+                 json_dyn_printf(b, ",\"maxBytes\":%llu", n->action_max_bytes);
+            if (ok && n->action_text)
+                ok = json_dyn_puts(b, ",\"text\":") && json_dyn_put_escaped(b, n->action_text);
+            if (ok && n->action_expect)
+                ok = json_dyn_puts(b, ",\"contains\":") && json_dyn_put_escaped(b, n->action_expect);
+            if (ok && n->action_argc) {
+                ok = json_dyn_puts(b, ",\"argv\":[");
+                for (size_t a = 0; ok && a < n->action_argc; a++) {
+                    if (a) ok = json_dyn_puts(b, ",");
+                    ok = ok && json_dyn_put_escaped(b, n->action_argv[a]);
+                }
+                ok = ok && json_dyn_puts(b, "]");
+            }
+            ok = ok && json_dyn_puts(b, "}");
+        }
+        ok = ok && json_dyn_puts(b, "}");
     }
     return ok && json_dyn_puts(b, "],\"edges\":[]}");
 }

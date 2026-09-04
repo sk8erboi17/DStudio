@@ -2048,4 +2048,16 @@ assert.match(js, /Prefer evidence from read pages over snippets; treat unread se
 assert.match(js, /Read page: \$\{s\.read \?/, 'final web contexts should expose whether a source was actually read');
 assert.match(js, /Primary-source score: \$\{sourcePrimaryReadScore\(s, plan \|\| \{ mustMatch: \[\] \}\)\}/, 'read selector context should expose primary-source priority');
 
+assert.match(html, /id="task-graph-dialog"[\s\S]*id="task-graph-canvas"[\s\S]*id="task-graph-events"/,
+  'Agent should expose a live Task Graph DAG and its durable event stream');
+assert.match(js, /const TaskGraphView = \(\(\) => \{[\s\S]*setInterval\(\(\) => \{ if \(dialog\.open && !document\.hidden\) loadCurrent\(false\); \}, 750\)/,
+  'Task Graph view should refresh live while open');
+for (const control of ['start', 'pause', 'resume', 'approve', 'cancel', 'node/approve', 'node/undo']) {
+  assert.ok(js.includes(`'${control}'`), `Task Graph UI should expose ${control}`);
+}
+assert.match(launcher, /dtg_watchdog_observe_event_line[\s\S]*Watchdog stopped four identical Agent tool calls/,
+  'native Agent turns should have a structured anti-loop watchdog');
+assert.match(launcher, /\/api\/task-graph\/node\/undo[\s\S]*dtg_node_undo/,
+  'Task Graph should expose checkpoint undo through the host API');
+
 console.log('ui_contract_test: ok');

@@ -508,6 +508,16 @@ static size_t g_line_err_len = 0;
 static char g_last_engine_line[256] = ""; /* last substantive line the engine printed (any stream) */
 static char g_engine_err[256] = "";       /* why the engine last died, surfaced to the UI; "" = none */
 
+/* Task Graph's native Agent executor is defined later in this single
+ * translation unit.  The stream hook lets its watchdog observe structured
+ * tool events without changing the ds4-agent wire protocol. */
+static void dtg_watchdog_observe_event_line(const char *line);
+static void dtg_agent_owner_release_if_terminal(void);
+static int dtg_agent_submit_for_graph(const char *title, const char *prompt,
+                                      unsigned long long *task_id,
+                                      size_t *transcript_from,
+                                      char *err, size_t errsz);
+
 /* connect-src widened to http/https: with bind on the LAN the page, loaded
  * from another host, must be able to contact ds4-server on the server IP (no
  * longer just loopback). img-src also allows remote favicons for cited web
@@ -3673,6 +3683,7 @@ static void scan_lines(const char *data, size_t n, char *acc, size_t *acc_len, i
                     g_agent_working = 0;
                     g_agent_session_working = 0;
                     g_interrupt_pending = 0;
+                    dtg_agent_owner_release_if_terminal();
                 } else if (g_active_turn_task && strstr(acc, "COMPACTING")) {
                     if (!g_active_turn_compacting) {
                         g_active_turn_compacting = 1;
@@ -3761,6 +3772,7 @@ static int handle_child_event_line(const char *line) {
 static void drain_child_event_finish(void) {
     if (!g_child_event_active) return;
     if (g_child_event_line.ptr && g_child_event_line.len) {
+        dtg_watchdog_observe_event_line(g_child_event_line.ptr);
         if (!handle_child_event_line(g_child_event_line.ptr))
             drain_child_stdout_plain(g_child_event_line.ptr, g_child_event_line.len);
     }
@@ -7451,6 +7463,40 @@ static int display_prompt_is_guided_analysis(const char *display) {
     return 0;
 }
 
+static int dtg_agent_submit_for_graph(const char *title, const char *prompt,
+                                      unsigned long long *task_id,
+                                      size_t *transcript_from,
+                                      char *err, size_t errsz) {
+    if (task_id) *task_id = 0;
+    if (transcript_from) *transcript_from = g_alen;
+    if (!prompt || !prompt[0]) { snprintf(err, errsz, "agent.prompt text is empty"); return 0; }
+    if (g_mode != ENGINE_AGENT || g_in_fd < 0 || g_child <= 0 || !g_ready) {
+        snprintf(err, errsz, "Agent runtime must be running and ready before graph start"); return 0;
+    }
+    if (g_interrupt_pending || g_agent_working || g_agent_session_working) {
+        snprintf(err, errsz, "Agent runtime is busy"); return 0;
+    }
+    unsigned long long operation = task_begin("task-graph-agent",
+        title && title[0] ? title : "Task Graph Agent turn", "task-graph",
+        ENGINE_AGENT, g_workdir, (int)g_child, 1);
+    size_t len = strlen(prompt);
+    if (!fd_write_all(g_in_fd, prompt, len) || !fd_write_all(g_in_fd, "\n", 1)) {
+        snprintf(err, errsz, "write to Agent failed: %s", strerror(errno));
+        task_mark_failed(operation, "write to Agent failed", err);
+        return 0;
+    }
+    agent_buf_append("\x01" "USER\x02", 6);
+    agent_buf_append(prompt, len);
+    agent_buf_append("\x01" "ENDUSER\x02\n", 10);
+    g_active_turn_task = operation;
+    g_active_turn_compacting = 0;
+    task_mark_working(operation, "Task Graph prompt written; waiting for Agent completion marker");
+    g_agent_working = 1;
+    g_agent_session_working = 0;
+    if (task_id) *task_id = operation;
+    return 1;
+}
+
 static void api_agent_send(int fd, const char *body) {
     reap_child();
     static char prompt[BODY_MAX];
@@ -7499,6 +7545,10 @@ static void api_agent_send(int fd, const char *body) {
             ? "agent/design session command is still settling"
             : "agent/design turn is still running";
         api_agent_send_state_error(fd, "409 Conflict", msg, 0);
+        return;
+    }
+    if (dtg_agent_turn_owned()) {
+        api_agent_send_state_error(fd, "409 Conflict", "a Task Graph owns the Agent turn lease", 0);
         return;
     }
     unsigned long long task_id = task_begin(kind, turn_title,
@@ -10042,6 +10092,7 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/task-graph/node/skip")) return api_dtg_node_mutation(fd, body, dtg_scheduler_skip_node);
     if (!strcmp(path, "/api/task-graph/node/approve")) return api_dtg_node_mutation(fd, body, dtg_scheduler_approve_node);
     if (!strcmp(path, "/api/task-graph/node/cancel")) return api_dtg_node_mutation(fd, body, dtg_node_cancel);
+    if (!strcmp(path, "/api/task-graph/node/undo")) return api_dtg_node_mutation(fd, body, dtg_node_undo);
     if (!strcmp(path, "/api/start"))       { api_start(fd, body); return 200; }
     if (!strcmp(path, "/api/user-skills/delete")) { api_user_skill_delete(fd, body); return 200; }
     if (!strcmp(path, "/api/user-skills")) { api_user_skill_save(fd, body); return 200; }
