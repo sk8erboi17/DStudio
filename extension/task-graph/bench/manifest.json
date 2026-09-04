@@ -5,6 +5,7 @@
   "publicationResult": "results/2026-09-04-m2-max-native-ssd.json",
   "plotter": "plot-results.py",
   "figures": [
+    "../../../assets/README images/benchmarks/native-agent-vs-task-graph.png",
     "../../../assets/README images/benchmarks/task-graph-native-ssd-breakdown.png",
     "../../../assets/README images/benchmarks/task-graph-runtime-overhead.png"
   ],

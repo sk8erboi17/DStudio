@@ -259,21 +259,49 @@ DStudio 1.1 includes a host-authoritative Task Graph V1 runtime as shared infras
 
 Registered native actions execute real Agent turns, bounded workspace reads/writes, argv-only test processes, deterministic gates, approvals and joins. Every dispatch re-evaluates a closed-world policy and records immutable policy/checkpoint/result receipts; the Agent watchdog stops repeated structured tool calls/results or excessive tool churn. Automatic undo is intentionally limited to exact, unchanged bytes written by `workspace.write`: broader Agent or test side effects produce an honest non-reversible receipt for manual review. A live DAG dialog exposes node state, durable events, watchdog counters, pause/resume and per-node controls. Unregistered action types still fail before `graph.started`, so a proposal cannot become a half-started run. See [`extension/task-graph/README.md`](extension/task-graph/README.md) for the action, receipt and local API contracts.
 
-### Measured native benchmark
+### Native Agent or Task Graph?
 
-This is a measured snapshot of the implementation in this change set, not a
-universal speed claim. On 4 September 2026, three sequential Task Graphs ran in
-one real `ds4-agent-jsonl` session with forced SSD streaming. Every graph used
-eight native nodes: Agent read → gate → approval → host write → output gate →
-argv test process → file gate → join.
+Task Graph is **not another AI model**. Both options use the same native
+`ds4-agent-jsonl` runtime and the same local model. The difference is what
+DStudio puts around the Agent.
 
-Test machine: Apple M2 Max (12 cores), 96 GB unified memory, Apple 4 TB SSD,
-Darwin 25.5. Model: DeepSeek V4 Flash IQ2XXS, 86.72 GB (80.76 GiB), 16,384-token
-context, power 70, thinking off. DStudio confirmed
-`ssdStreamingEffective: true`; model startup took 73.42 s and is excluded from
-the graph times below.
+| | Native Agent | Agent with Task Graph |
+| --- | --- | --- |
+| Best for | One quick, clear task | Longer or riskier multi-step work |
+| How it works | The Agent receives a prompt and uses its tools | The same Agent handles selected steps inside a visible workflow |
+| Checks | The Agent decides when it is done | Explicit gates can block the next step when output is wrong |
+| Safety | Normal tool permissions | Deterministic policy, declared actions and approval steps |
+| Interruption | Continue the conversation manually | Pause, resume and recover the graph from its journal |
+| Undo evidence | Depends on what the Agent changed | Exact writes get checkpoints; uncertain effects are reported honestly |
+| Visibility | Conversation and tool timeline | Live graph showing every running, waiting or completed step |
 
-| Measured outcome | Result |
+**Choose Native Agent** for a small edit, question or isolated coding task.
+**Choose Task Graph** when the result needs approvals, several dependent steps,
+repeatable checks, recovery after interruption or an auditable history.
+
+In the representative benchmark run, the native Agent work took **101.9 s**.
+The complete eight-step Task Graph took **103.1 s**: **1.2 s more** to execute
+the additional write, test, gates, approval, checkpoints and durable journal.
+The blue value below is the Agent node measured inside that same run—not a
+separate model-quality comparison.
+
+<div align="center">
+  <img src="assets/README%20images/benchmarks/native-agent-vs-task-graph.png" width="920" alt="The same native Agent workload takes 101.9 seconds, while the complete Task Graph with checks and coordination takes 103.1 seconds">
+</div>
+
+All three measured graphs completed successfully: **3/3 graphs, 24/24 nodes,
+zero watchdog stops**. SSD streaming was forced on and confirmed active.
+
+<details>
+<summary><strong>Open the technical benchmark details</strong></summary>
+
+This is a single-machine snapshot, not a universal speed claim. It was measured
+on 4 September 2026 using an Apple M2 Max with 96 GB memory and a 4 TB Apple SSD.
+The model was DeepSeek V4 Flash IQ2XXS, 86.72 GB (80.76 GiB), with a 16,384-token
+context, power 70 and thinking off. Cold model startup took 73.42 s and is not
+included in the graph times.
+
+| Measurement | Result |
 | --- | ---: |
 | Complete native graphs | **3/3** |
 | Native nodes completed | **24/24** |
@@ -286,33 +314,29 @@ the graph times below.
 | Structured Agent tool calls / watchdog trips | **3 / 0** |
 | Durable events / verified immutable receipts and streams | **144 / 105** |
 
-The LLM node accounts for nearly all end-to-end time. The seven-node figure is
-not pure overhead: it includes a real file write, a real Python argv process,
-four policy/checkpoint/result persistence steps per node, gates, the benchmark's
-automatic approval, and the scheduler cadence. The isolated gap left between
-the journaled node durations is 22 ms at the median.
+Each graph executed: Agent read → gate → approval → host write → output gate →
+argv test process → file gate → join. The seven-node measurement includes real
+work and the scheduler cadence; it must not be interpreted as pure framework
+overhead. The isolated scheduler/journal gap was 22 ms at the median.
 
 <div align="center">
   <img src="assets/README%20images/benchmarks/task-graph-native-ssd-breakdown.png" width="920" alt="Three real native DS4 Agent Task Graph benchmark runs, with Agent time, seven non-Agent nodes and scheduler journal gap separated">
 </div>
 
-The control-plane plot uses a logarithmic axis so microseconds and fsynced graph
-replay remain visible together. Its durable sample is an eight-node graph
-scheduled, journaled and reloaded from disk; the dots are medians and whiskers
-are observed minima and maxima across five processes.
-
 <div align="center">
   <img src="assets/README%20images/benchmarks/task-graph-runtime-overhead.png" width="920" alt="Task Graph control-plane latency from core parse and policy validation through durable eight-node scheduling and replay">
 </div>
 
-Raw per-run measurements and limitations are versioned in
+Raw results and methodological limitations are in
 [`extension/task-graph/bench/results/2026-09-04-m2-max-native-ssd.json`](extension/task-graph/bench/results/2026-09-04-m2-max-native-ssd.json).
-Reproduce both the three-run benchmark and its Matplotlib figures with:
+Reproduce the benchmark and Matplotlib figures with:
 
 ```sh
 DSTUDIO_TASK_GRAPH_BENCH_RUNS=3 make test-task-graph-real
 python3 extension/task-graph/bench/plot-results.py
 ```
+
+</details>
 
 ## Highlights
 

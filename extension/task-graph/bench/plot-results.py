@@ -50,6 +50,55 @@ def range_values(metric: dict) -> tuple[float, float, float]:
     return float(metric["median"]), float(metric["min"]), float(metric["max"])
 
 
+def plot_user_comparison(result: dict, output: Path) -> None:
+    native = result["nativeTaskGraph"]
+    graph_values = np.asarray(native["graphMs"]["values"], dtype=float)
+    representative = int(np.argsort(graph_values)[len(graph_values) // 2])
+    agent_seconds = float(native["agentNodeMs"]["values"][representative]) / 1000
+    graph_seconds = float(graph_values[representative]) / 1000
+    added_seconds = graph_seconds - agent_seconds
+    added_percent = added_seconds / agent_seconds * 100
+
+    fig, axis = plt.subplots(figsize=(11, 4.8))
+    fig.subplots_adjust(left=0.22, right=0.94, bottom=0.18, top=0.72)
+    fig.suptitle("What Task Graph adds around the native Agent", fontsize=18, weight="bold", y=0.96)
+    fig.text(
+        0.5,
+        0.84,
+        "Representative median run · lower is faster",
+        ha="center",
+        color=SLATE,
+    )
+    y = np.arange(2)
+    axis.barh(y, [agent_seconds, agent_seconds], height=0.46, color=BLUE, label="Native DS4 Agent work")
+    axis.barh(1, added_seconds, left=agent_seconds, height=0.46, color=ORANGE,
+              label="Task Graph steps + coordination")
+    axis.set_yticks(y, ["Agent work only", "Complete Task Graph"])
+    axis.invert_yaxis()
+    axis.set_xlabel("Time (seconds)")
+    axis.set_xlim(0, graph_seconds * 1.12)
+    axis.text(agent_seconds - 1.2, 0, f"{agent_seconds:.1f} s", ha="right", va="center",
+              color="white", weight="bold", fontsize=12)
+    axis.text(graph_seconds + 0.8, 1, f"{graph_seconds:.1f} s", ha="left", va="center",
+              weight="bold", fontsize=12)
+    axis.annotate(
+        f"+{added_seconds:.1f} s ({added_percent:.1f}%)",
+        xy=(agent_seconds + added_seconds / 2, 1),
+        xytext=(agent_seconds - 7, 1.7),
+        arrowprops={"arrowstyle": "->", "color": ORANGE, "linewidth": 1.8},
+        ha="center",
+        color=ORANGE,
+        weight="bold",
+    )
+    axis.legend(frameon=False, ncols=2, loc="lower left", bbox_to_anchor=(0, -0.42))
+    axis.grid(axis="x")
+    axis.grid(axis="y", visible=False)
+    axis.tick_params(axis="y", length=0)
+    axis.spines[["top", "right", "left"]].set_visible(False)
+    fig.savefig(output / "native-agent-vs-task-graph.png", dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+
 def plot_native_breakdown(result: dict, output: Path) -> None:
     native = result["nativeTaskGraph"]
     graph = np.asarray(native["graphMs"]["values"], dtype=float) / 1000
@@ -172,9 +221,10 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     result = json.loads(result_path.read_text(encoding="utf-8"))
     setup_style()
+    plot_user_comparison(result, output)
     plot_native_breakdown(result, output)
     plot_runtime_overhead(result, output)
-    print(f"task_graph_benchmark_plots: wrote 2 figures to {output}")
+    print(f"task_graph_benchmark_plots: wrote 3 figures to {output}")
 
 
 if __name__ == "__main__":
