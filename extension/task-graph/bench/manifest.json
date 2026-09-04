@@ -6,16 +6,22 @@
   "reliabilityPublisher": "publish-reliability.mjs",
   "reliabilityPublicationResult": "results/2026-09-04-m2-max-reliability-no-ssd.json",
   "reliabilityPlotter": "plot-reliability.py",
+  "cliCompetitorBenchmark": "run-cli-competitors.mjs",
+  "cliCompetitorPublisher": "publish-cli-comparison.mjs",
+  "cliCompetitorPublicationResult": "results/2026-09-04-m2-max-agent-comparison-no-ssd.json",
+  "cliCompetitorPlotter": "plot-cli-comparison.py",
   "publicationResult": "results/2026-09-04-m2-max-native-ssd.json",
   "plotter": "plot-results.py",
   "figures": [
     "../../../assets/README images/benchmarks/native-agent-vs-task-graph.png",
     "../../../assets/README images/benchmarks/task-graph-reliability-paired.png",
+    "../../../assets/README images/benchmarks/agent-harness-comparison.png",
+    "../../../assets/README images/benchmarks/agent-harness-by-task.png",
     "../../../assets/README images/benchmarks/native-agent-vs-task-graph-speed.png",
     "../../../assets/README images/benchmarks/task-graph-native-ssd-breakdown.png",
     "../../../assets/README images/benchmarks/task-graph-runtime-overhead.png"
   ],
-  "comparison": ["native-agent", "native-agent-with-task-graph"],
+  "comparison": ["native-agent", "native-agent-with-task-graph", "pi", "opencode"],
   "controls": ["commit", "model", "quantization", "context", "hardware", "fixture"],
   "scenarios": [
     {"id":"simple-direct","fixture":"fixtures/simple-direct.json","metrics":["taskSuccess","wallClockMs","llmTokens","toolCalls","modelReloads","peakMemoryBytes","humanInterventions"]},

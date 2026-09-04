@@ -21,7 +21,8 @@
 - [What DStudio can do](#what-you-can-do)
 - [Modes](#modes)
 - [Native Agent or Task Graph](#native-agent-or-task-graph)
-- [50-task reliability benchmark](#50-task-reliability-benchmark)
+- [50-task comparison with Pi and OpenCode](#50-task-comparison-dstudio-pi-and-opencode)
+- [Why automatic checks help](#why-automatic-checks-help)
 - [Requirements](#requirements)
 - [Development](#development)
 - [Network access](#network-lan)
@@ -303,9 +304,88 @@ for you.
 | Undo evidence | Depends on what the Agent changed | Exact writes get checkpoints; uncertain effects are reported honestly |
 | Visibility | Conversation and tool timeline | The same chat, plus an optional live graph |
 
-### 50-task reliability benchmark
+### 50-task comparison: DStudio, Pi and OpenCode
 
-We ran the same 50 real tasks twice: once through the unwrapped Native Agent
+We gave four agent paths the same 50 small but real file tasks: read a fact,
+create an exact file, or repair code and pass a Python test. A task counted only
+when a real tool ran, the requested final answer followed the tool result, and
+an independent check confirmed the file or test. All paths used the same full
+86.72 GB DeepSeek V4 Flash model, with thinking and SSD streaming Off.
+
+| Agent path | Tasks completed | What it shows |
+| --- | ---: | --- |
+| Native Agent baseline | **41/50** | The model and tools without DStudio's completion checks |
+| DStudio Agent today | **50/50** | Native Agent plus automatic checks and recovery |
+| Pi 0.84.1 | **50/50** | Pi using the same local model and relevant tools |
+| OpenCode 1.18.18 | **50/50** | OpenCode using the same local model and relevant tools |
+
+The honest result is a **three-way tie at 50/50** between current DStudio, Pi
+and OpenCode on these fixtures. DStudio does not beat them here. Its automatic
+checks do improve the same Native Agent from 82% to 100%, bringing it to their
+measured reliability without asking the user to install or operate a separate
+coding CLI.
+
+<div align="center">
+  <img src="assets/README%20images/benchmarks/agent-harness-comparison.png" width="920" alt="Completion rates across 50 checked tasks: Native Agent 41, DStudio checked Agent 50, Pi 50 and OpenCode 50">
+</div>
+
+All three checked competitors completed every category. The Native baseline
+lost most of its tasks on code repair; DStudio's integrated checks recovered
+all seven of those repairs and both missed readings.
+
+<div align="center">
+  <img src="assets/README%20images/benchmarks/agent-harness-by-task.png" width="920" alt="Completion by task: DStudio checked Agent, Pi and OpenCode completed every read, write and repair task; Native Agent completed 15 of 17 reads, 17 of 17 writes and 9 of 16 repairs">
+</div>
+
+The practical DStudio advantage is not a higher score than Pi or OpenCode in
+this run. It is that the checked path is built into Agent and selected
+automatically for workspace actions, with a visible graph, deterministic gates,
+pause/resume, crash recovery and evidence-aware undo. Simple questions still go
+directly to the Native Agent.
+
+Correctness came before speed. Median task time was Pi **9.50 s**, Native Agent
+**10.02 s**, OpenCode **14.02 s**, and DStudio with automatic checks **24.55 s**.
+The checked DStudio path was slowest, but it did not lose a task that Native
+Agent completed and it recovered nine that Native missed.
+
+<details>
+<summary><strong>Open the four-agent benchmark method</strong></summary>
+
+Pi and OpenCode ran in alternating order with a fresh non-interactive session
+for each task and one continuously loaded `ds4-server`. Their model calls went
+through a local verifier that rejected any model id other than `ds4`; no model
+fallbacks occurred. Both received the same four relevant capabilities: read,
+write/edit and shell. Plugins, external skills, LSP, formatters, MCPs, sharing
+and catalog updates were disabled. A 1,024-token limit per model response kept
+verbose turns finite; the tasks need only short answers.
+
+Native Agent and DStudio's checked path use `ds4-agent-jsonl`, while Pi and
+OpenCode use the OpenAI-compatible `ds4-server`. DS4 does not allow both large
+runtimes to own the model simultaneously, so the two groups used separate model
+loads on the same machine, model file, context, power and no-SSD configuration.
+CLI startup time is included. The Pi/OpenCode phase took **32 min 37 s**.
+
+This is a repeated 50-case tool-use sample on one Apple M2 Max with 96 GB, not a
+claim that any agent will score 100% on arbitrary projects. The public result
+contains every run and the methodological limitations:
+[`extension/task-graph/bench/results/2026-09-04-m2-max-agent-comparison-no-ssd.json`](extension/task-graph/bench/results/2026-09-04-m2-max-agent-comparison-no-ssd.json).
+
+Reproduce the competitor phase and its Matplotlib figures with:
+
+```sh
+DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-cli-competitors-real
+node extension/task-graph/bench/publish-cli-comparison.mjs \
+  tests/.artifacts/task-graph-cli-competitors-real/result.json \
+  extension/task-graph/bench/results/2026-09-04-m2-max-reliability-no-ssd.json \
+  extension/task-graph/bench/results/2026-09-04-m2-max-agent-comparison-no-ssd.json
+python3 extension/task-graph/bench/plot-cli-comparison.py
+```
+
+</details>
+
+### Why automatic checks help
+
+We ran the same 50 file tasks twice: once through the unwrapped Native Agent
 baseline and once through the automatic checked path now used by DStudio. Both
 used the same complete 86.72 GB DeepSeek V4 Flash model. The model stayed
 loaded, but every task started with a clean conversation. SSD streaming was

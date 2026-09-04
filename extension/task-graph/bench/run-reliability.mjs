@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +8,9 @@ import {
   artifactDir, csrfHeaders, jsonFetch, pollAgent, safeReadTail, sleep,
   startDStudio, startMode, waitForAgentText, writeArtifact,
 } from '../../../tests/real_harness.mjs';
+import {
+  changeAllowed, changedFiles, createReliabilityFixture, workspaceSnapshot,
+} from './reliability-fixture.mjs';
 
 if (process.env.RUN_HEAVY !== '1') {
   console.error('Real reliability benchmark is disabled. Set RUN_HEAVY=1 explicitly.');
@@ -22,24 +24,13 @@ const workspace = path.join(artifacts, 'workspace');
 fs.mkdirSync(workspace, { recursive: true });
 const caseCount = Math.max(1, Math.min(100,
   Number(process.env.DSTUDIO_RELIABILITY_CASES || 50) || 50));
-
-fs.writeFileSync(path.join(workspace, 'facts.txt'), [
-  'Project: Aurora',
-  'Release code: ALPHA-729',
-  'Owner: Sofia',
-].join('\n'));
-fs.writeFileSync(path.join(workspace, 'direct_app.py'), 'def total(a, b):\n    return a - b\n');
-fs.writeFileSync(path.join(workspace, 'graph_app.py'), 'def total(a, b):\n    return a - b\n');
-fs.writeFileSync(path.join(workspace, 'direct_test.py'), [
-  'from direct_app import total',
-  'assert total(7, 5) == 12, total(7, 5)',
-  "print('DIRECT_TEST_OK')",
-].join('\n'));
-fs.writeFileSync(path.join(workspace, 'graph_test.py'), [
-  'from graph_app import total',
-  'assert total(7, 5) == 12, total(7, 5)',
-  "print('GRAPH_TEST_OK')",
-].join('\n'));
+const fixture = createReliabilityFixture({
+  workspace,
+  caseCount,
+  variants: ['native-agent', 'task-graph'],
+});
+const scenarioTemplates = fixture.templates;
+const scenarios = fixture.scenarios;
 
 function rounded(value, digits = 2) {
   return Number(Number(value).toFixed(digits));
@@ -103,36 +94,6 @@ function hardwareInfo() {
   };
 }
 
-function sha256(file) {
-  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-}
-
-function workspaceSnapshot() {
-  const result = {};
-  function visit(relative) {
-    const absolute = path.join(workspace, relative);
-    for (const entry of fs.readdirSync(absolute, { withFileTypes: true })) {
-      const child = relative ? path.join(relative, entry.name) : entry.name;
-      if (child === '.dstudio' || child.startsWith(`.dstudio${path.sep}`)) continue;
-      if (entry.isDirectory()) visit(child);
-      else if (entry.isFile()) result[child] = sha256(path.join(workspace, child));
-    }
-  }
-  visit('');
-  return result;
-}
-
-function changedFiles(before, after) {
-  return [...new Set([...Object.keys(before), ...Object.keys(after)])]
-    .filter((file) => before[file] !== after[file]).sort();
-}
-
-function changeAllowed(file, patterns) {
-  return patterns.some((pattern) => pattern.endsWith('*')
-    ? file.startsWith(pattern.slice(0, -1))
-    : file === pattern);
-}
-
 function structuredEvents(text) {
   const events = [];
   for (const match of text.matchAll(/\x1e(\{[^\r\n]*\})/g)) {
@@ -165,21 +126,22 @@ function answerAfterTool(text, expected) {
 }
 
 async function runDirect(server, scenario) {
-  const before = workspaceSnapshot();
+  const task = scenario.variants['native-agent'];
+  const before = workspaceSnapshot(workspace);
   const startedAt = performance.now();
   const sent = await jsonFetch(server.baseUrl, '/api/agent/send', {
     method: 'POST', headers: csrfHeaders,
-    body: JSON.stringify({ prompt: scenario.directPrompt, orchestration: 'native' }), timeoutMs: 30_000,
+    body: JSON.stringify({ prompt: task.prompt, orchestration: 'native' }), timeoutMs: 30_000,
   });
   const completed = await waitForAgentText(server.baseUrl, sent.at,
     (_text, poll) => poll.working === false,
     Number(process.env.DSTUDIO_RELIABILITY_TURN_TIMEOUT_MS || 1_200_000));
   const wallClockMs = rounded(performance.now() - startedAt);
-  const after = workspaceSnapshot();
+  const after = workspaceSnapshot(workspace);
   const changed = changedFiles(before, after);
-  const unexpectedChanges = changed.filter((file) => !changeAllowed(file, scenario.directAllowedChanges));
-  const external = scenario.scoreDirect();
-  const agentClaimedDone = answerAfterTool(completed.text, scenario.directExpected);
+  const unexpectedChanges = changed.filter((file) => !changeAllowed(file, task.allowedChanges));
+  const external = task.score();
+  const agentClaimedDone = answerAfterTool(completed.text, task.expected);
   const result = {
     variant: 'native-agent', scenario: scenario.id,
     taskSuccess: Boolean(external.ok && agentClaimedDone),
@@ -243,11 +205,12 @@ async function createAndStartGraph(baseUrl, definition) {
 }
 
 async function runTaskGraph(server, scenario) {
-  const before = workspaceSnapshot();
+  const task = scenario.variants['task-graph'];
+  const before = workspaceSnapshot(workspace);
   const startedAt = performance.now();
   const started = await jsonFetch(server.baseUrl, '/api/agent/send', {
     method: 'POST', headers: csrfHeaders,
-    body: JSON.stringify({ prompt: scenario.graphPrompt, orchestration: 'task-graph' }),
+    body: JSON.stringify({ prompt: task.prompt, orchestration: 'task-graph' }),
     timeoutMs: 30_000,
   });
   assert.equal(started.orchestration, 'automatic-task-graph');
@@ -266,12 +229,12 @@ async function runTaskGraph(server, scenario) {
   const resultAgent = completed.graph.nodes.find((node) => node.id === 'work') || agentNodes.at(-1);
   const transcript = transcripts.get(resultAgent.id);
   const combinedTranscript = agentNodes.map((node) => `--- ${node.id} ---\n${transcripts.get(node.id)}`).join('\n');
-  const after = workspaceSnapshot();
+  const after = workspaceSnapshot(workspace);
   const changed = changedFiles(before, after);
-  const unexpectedChanges = changed.filter((file) => !changeAllowed(file, scenario.graphAllowedChanges));
-  const external = scenario.scoreGraph();
+  const unexpectedChanges = changed.filter((file) => !changeAllowed(file, task.allowedChanges));
+  const external = task.score();
   const finalJoinRan = completed.graph.nodes.some((node) => node.kind === 'join' && node.state === 'succeeded');
-  const agentClaimedDone = answerAfterTool(transcript, scenario.graphExpected);
+  const agentClaimedDone = answerAfterTool(transcript, task.expected);
   const graphToolStats = {
     toolCalls: agentNodes.reduce((total, node) => total + Number(node.watchdog?.toolCalls || 0), 0),
     repeatedCalls: Math.max(0, ...agentNodes.map((node) => Number(node.watchdog?.repeatedCalls || 0))),
@@ -300,67 +263,8 @@ async function runTaskGraph(server, scenario) {
   return result;
 }
 
-function runPythonTest(file) {
-  const run = spawnSync('python3', [file], { cwd: workspace, encoding: 'utf8', timeout: 30_000 });
-  return { ok: run.status === 0, exitCode: run.status, output: `${run.stdout || ''}${run.stderr || ''}`.trim() };
-}
-
-const scenarioTemplates = [
-  {
-    id: 'read-fact',
-    directExpected: 'DIRECT_READ_ALPHA_729',
-    graphExpected: 'GRAPH_READ_ALPHA_729',
-    directPrompt: 'Use the read tool to inspect facts.txt. Do not modify any file. Then reply with exactly: DIRECT_READ_ALPHA_729',
-    graphPrompt: 'Use the read tool to inspect facts.txt. Do not modify any file. Then reply with exactly: GRAPH_READ_ALPHA_729',
-    directAllowedChanges: [],
-    graphAllowedChanges: [],
-    scoreDirect: () => ({ ok: fs.readFileSync(path.join(workspace, 'facts.txt'), 'utf8').includes('ALPHA-729') }),
-    scoreGraph: () => ({ ok: fs.readFileSync(path.join(workspace, 'facts.txt'), 'utf8').includes('ALPHA-729') }),
-  },
-  {
-    id: 'write-file',
-    directExpected: 'DIRECT_WRITE_DONE',
-    graphExpected: 'GRAPH_WRITE_DONE',
-    directPrompt: 'Use the write tool to create direct-output.txt with exactly this text and a final newline: RELIABLE_OUTPUT. Then reply with exactly: DIRECT_WRITE_DONE',
-    graphPrompt: 'Use the write tool to create graph-output.txt with exactly this text and a final newline: RELIABLE_OUTPUT. Then reply with exactly: GRAPH_WRITE_DONE',
-    directAllowedChanges: ['direct-output.txt'],
-    graphAllowedChanges: ['graph-output.txt'],
-    scoreDirect: () => ({ ok: fs.existsSync(path.join(workspace, 'direct-output.txt')) && fs.readFileSync(path.join(workspace, 'direct-output.txt'), 'utf8') === 'RELIABLE_OUTPUT\n' }),
-    scoreGraph: () => ({ ok: fs.existsSync(path.join(workspace, 'graph-output.txt')) && fs.readFileSync(path.join(workspace, 'graph-output.txt'), 'utf8') === 'RELIABLE_OUTPUT\n' }),
-  },
-  {
-    id: 'repair-code',
-    directExpected: 'DIRECT_REPAIR_DONE',
-    graphExpected: 'GRAPH_REPAIR_DONE',
-    directPrompt: 'Fix the bug in direct_app.py so direct_test.py passes. Run python3 direct_test.py to verify it. Then reply with exactly: DIRECT_REPAIR_DONE',
-    graphPrompt: 'Fix the bug in graph_app.py so graph_test.py passes. Run python3 graph_test.py to verify it. Then reply with exactly: GRAPH_REPAIR_DONE',
-    directAllowedChanges: ['__pycache__/direct_app.cpython-*', 'direct_app.py'],
-    graphAllowedChanges: ['__pycache__/graph_app.cpython-*', 'graph_app.py'],
-    scoreDirect: () => runPythonTest('direct_test.py'),
-    scoreGraph: () => runPythonTest('graph_test.py'),
-  },
-];
-
-const scenarios = Array.from({ length: caseCount }, (_unused, index) => {
-  const template = scenarioTemplates[index % scenarioTemplates.length];
-  return {
-    ...template,
-    templateId: template.id,
-    id: `${template.id}-${String(index + 1).padStart(2, '0')}`,
-  };
-});
-
 function resetScenario(scenario, variant) {
-  const direct = variant === 'native-agent';
-  if (scenario.templateId === 'write-file') {
-    const target = direct ? 'direct-output.txt' : 'graph-output.txt';
-    try { fs.unlinkSync(path.join(workspace, target)); } catch {}
-  }
-  if (scenario.templateId === 'repair-code') {
-    const target = direct ? 'direct_app.py' : 'graph_app.py';
-    fs.writeFileSync(path.join(workspace, target), 'def total(a, b):\n    return a - b\n');
-    fs.rmSync(path.join(workspace, '__pycache__'), { recursive: true, force: true });
-  }
+  fixture.resetScenario(scenario, variant);
 }
 
 async function runGuardrailFaults(server) {

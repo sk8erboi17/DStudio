@@ -141,6 +141,9 @@ make test-task-graph-real
 # 50 matched Native Agent / Task Graph tasks with SSD streaming off
 DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-reliability-real
 
+# 50 matched Pi / OpenCode tasks on the same local model with SSD streaming off
+DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-cli-competitors-real
+
 # Publication data and Matplotlib figures
 DSTUDIO_TASK_GRAPH_BENCH_RUNS=3 make test-task-graph-real
 python3 extension/task-graph/bench/plot-results.py
@@ -148,6 +151,11 @@ node extension/task-graph/bench/publish-reliability.mjs \
   tests/.artifacts/task-graph-reliability-real/result.json \
   extension/task-graph/bench/results/2026-09-04-m2-max-reliability-no-ssd.json
 python3 extension/task-graph/bench/plot-reliability.py
+node extension/task-graph/bench/publish-cli-comparison.mjs \
+  tests/.artifacts/task-graph-cli-competitors-real/result.json \
+  extension/task-graph/bench/results/2026-09-04-m2-max-reliability-no-ssd.json \
+  extension/task-graph/bench/results/2026-09-04-m2-max-agent-comparison-no-ssd.json
+python3 extension/task-graph/bench/plot-cli-comparison.py
 ```
 
 The lightweight gates cover parser/policy decisions, native reads and writes,

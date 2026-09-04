@@ -34,6 +34,18 @@ for (const file of [manifest.reliabilityPublisher, manifest.reliabilityPublicati
   if (!file || !fs.existsSync(path.resolve(here, file)))
     throw new Error(`missing published reliability artifact ${file}`);
 }
+for (const file of [manifest.cliCompetitorBenchmark, manifest.cliCompetitorPublisher,
+  manifest.cliCompetitorPublicationResult, manifest.cliCompetitorPlotter]) {
+  if (!file || !fs.existsSync(path.resolve(here, file)))
+    throw new Error(`missing Pi/OpenCode benchmark artifact ${file}`);
+}
+const cliRunner = fs.readFileSync(path.resolve(here, manifest.cliCompetitorBenchmark), 'utf8');
+if (!cliRunner.includes("variants: ['pi', 'opencode']") ||
+    !cliRunner.includes("ssdStreaming: 'off'") ||
+    !cliRunner.includes('DSTUDIO_RELIABILITY_CASES || 50') ||
+    !cliRunner.includes("request.model === 'ds4'") ||
+    !cliRunner.includes('DSTUDIO_COMPETITOR_MAX_OUTPUT_TOKENS || 1024'))
+  throw new Error('Pi/OpenCode benchmark must run 50 matched cases against the pinned local no-SSD model');
 for (const file of [manifest.publicationResult, manifest.plotter, ...(manifest.figures || [])]) {
   if (!file || !fs.existsSync(path.resolve(here, file))) throw new Error(`missing published benchmark artifact ${file}`);
 }
@@ -66,6 +78,21 @@ if (!reliability.injectedChecks?.invalidPath?.preventedBeforeExecution ||
     !reliability.injectedChecks?.antiLoop?.watchdogThresholdTestPassed ||
     !reliability.injectedChecks?.hostCrashRecovery?.recoveredWithoutModelReload)
   throw new Error('published reliability checks are incomplete');
+const competitors = JSON.parse(fs.readFileSync(path.resolve(here, manifest.cliCompetitorPublicationResult), 'utf8'));
+if (competitors.benchmark !== 'dstudio-agent-harness-comparison' ||
+    competitors.comparison?.nativeAgent?.tasksRun !== 50 ||
+    competitors.comparison?.taskGraph?.tasksRun !== 50 ||
+    competitors.comparison?.pi?.tasksRun !== 50 ||
+    competitors.comparison?.opencode?.tasksRun !== 50 ||
+    competitors.comparison?.taskGraph?.tasksCompleted < competitors.comparison?.nativeAgent?.tasksCompleted ||
+    competitors.comparison?.pi?.modelPinFailures !== 0 ||
+    competitors.comparison?.opencode?.modelPinFailures !== 0 ||
+    competitors.localModelVerification?.enforcedProxy !== true ||
+    competitors.localModelVerification?.piPreflightPassed !== true ||
+    competitors.localModelVerification?.openCodePreflightPassed !== true ||
+    competitors.model?.ssdStreamingEffective !== false ||
+    competitors.runs?.pi?.length !== 50 || competitors.runs?.opencode?.length !== 50)
+  throw new Error('published Pi/OpenCode 50-case comparison is incomplete');
 for (const id of required) if (!manifest.scenarios.some((s) => s.id === id)) throw new Error(`missing benchmark scenario ${id}`);
 for (const scenario of manifest.scenarios) {
   if (!scenario.fixture || !Array.isArray(scenario.metrics) || !scenario.metrics.includes('wallClockMs') || !scenario.metrics.includes('taskSuccess'))
@@ -76,4 +103,4 @@ for (const scenario of manifest.scenarios) {
   if (fixture.schemaVersion !== 1 || fixture.id !== scenario.id || !Array.isArray(fixture.acceptance) || !fixture.acceptance.length)
     throw new Error(`invalid fixture ${scenario.fixture}`);
 }
-console.log(`task_graph_bench_validate: ${manifest.scenarios.length} scenarios; SSD and 50-case no-SSD publications verified`);
+console.log(`task_graph_bench_validate: ${manifest.scenarios.length} scenarios; SSD, Native/Task Graph and Pi/OpenCode 50-case publications verified`);

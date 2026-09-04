@@ -85,7 +85,7 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check check-fast check-real test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-task-graph-real test-task-graph-reliability-real test-lan-unit test-remote-utf8 test-cowork test-cowork-unit test-cowork-contract test-cowork-http test-cowork-bench-validate test-design-build-freshness test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume test-design-native-vision test-design-bench-validate test-design-release test-image-pipeline test-image-inference test-ideogram-vae-mps test-hunyuan-sdpa-mps test-ui-contract test-ui-browser test-ui-live-vision test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-cowork test-real-cowork-long test-real-design test-real-design-long test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
+.PHONY: all run check check-fast check-real test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-task-graph-real test-task-graph-reliability-real test-task-graph-cli-competitors-real test-lan-unit test-remote-utf8 test-cowork test-cowork-unit test-cowork-contract test-cowork-http test-cowork-bench-validate test-design-build-freshness test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume test-design-native-vision test-design-bench-validate test-design-release test-image-pipeline test-image-inference test-ideogram-vae-mps test-hunyuan-sdpa-mps test-ui-contract test-ui-browser test-ui-live-vision test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-cowork test-real-cowork-long test-real-design test-real-design-long test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
@@ -326,6 +326,11 @@ test-task-graph-real: $(TEST_SERVER)
 
 test-task-graph-reliability-real: $(TEST_SERVER) $(TEST_TASK_GRAPH)
 	@RUN_HEAVY=1 node extension/task-graph/bench/run-reliability.mjs $(TEST_SERVER)
+
+test-task-graph-cli-competitors-real: $(TEST_SERVER)
+	@command -v pi >/dev/null 2>&1 || (echo "pi missing: install @earendil-works/pi-coding-agent" && exit 1)
+	@command -v opencode >/dev/null 2>&1 || (echo "opencode missing" && exit 1)
+	@RUN_HEAVY=1 node extension/task-graph/bench/run-cli-competitors.mjs $(TEST_SERVER)
 
 $(TEST_REMOTE_UTF8): tests/remote_utf8_unit.c extension/remote/dstudio_remote_llm.c extension/remote/dstudio_remote_llm.h
 	@mkdir -p $(TEST_BUILD)
