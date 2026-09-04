@@ -42,6 +42,7 @@ diagnostics.log
 ds4-design/
 /design/
 /exports/
+/discord/
 *.app/
 /dist/
 

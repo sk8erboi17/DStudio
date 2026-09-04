@@ -15,6 +15,20 @@
 
 </div>
 
+## Contents
+
+- [Install](#install-on-macos)
+- [What DStudio can do](#what-you-can-do)
+- [Modes](#modes)
+- [Native Agent or Task Graph](#native-agent-or-task-graph)
+- [50 diverse tasks with Pi and OpenCode](#50-diverse-task-comparison-dstudio-pi-and-opencode)
+- [Why automatic checks help](#why-automatic-checks-help)
+- [Requirements](#requirements)
+- [Development](#development)
+- [Network access](#network-lan)
+- [How it works](#how-it-works)
+- [Contributing](#contributing)
+
 DStudio turns [ds4](https://github.com/antirez/ds4), antirez's native local inference engine, into a complete desktop AI workspace. One UI combines private Chat, evidence-backed Learn paths and Tutor rooms, Agent with Plan/GSA/RSA workflows, document-focused Cowork, a gated Design studio, local image understanding/generation/editing and optional MiniMax H3 video. Model execution, project files and generated artifacts stay under the user's control by default.
 
 Network access is still explicit and documented. Installation and model setup download source archives and weights from GitHub or Hugging Face; Web Search, Learn links and Deep Research read public websites; and the optional DeepSeek API backend sends the selected Chat, Learn, Agent, Cowork or Design requests to DeepSeek when the user supplies an API key. DStudio has no telemetry and does not require a cloud account for its local inference path.
@@ -70,6 +84,7 @@ network state. Missing pieces show a direct **Choose**, **Download**, **Install*
 - Send image pixels directly to **DeepSeek V4 Flash Vision-Exp** or **GLM 5.3 native vision** in Chat, Agent, Cowork and Design. Older DeepSeek checkpoints and **Laguna S 2.1 are strictly text-only**. Generate directly with **Ideogram 4 FP8** or edit source pixels directly with **HunyuanImage 3 NF4**.
 - Generate text-to-video or image-to-video clips with synchronized audio through the optional local **MiniMax H3** pipeline.
 - Use a **local coding agent** that reads, edits and verifies files inside a folder you choose.
+- Let Agent **add checks automatically for workspace actions**: no Task Graph toggle is required, while ordinary questions keep the direct path.
 - Use **Cowork** for source-grounded spreadsheet, PDF, document and presentation work with native Office tools and no arbitrary shell.
 - Toggle **Plan** to produce a decision-ready Markdown execution plan without modifying the project.
 - Create and load **Skills**: private instruction packs authored by the current user for Agent, Cowork and Design.
@@ -253,11 +268,161 @@ Toggle **Plan** in Agent mode, describe what you want, and DStudio writes a **Ma
 
 **4 · Then you decide.** Turn Plan off and use Agent/Design to implement, or keep the Markdown file as the execution reference.
 
-## Task Graph runtime
+## Task Graph: what it does
 
-DStudio 1.1 includes the host-authoritative Task Graph V1 execution core as shared infrastructure rather than a new sidebar mode. It parses and strictly validates bounded DAG proposals, rejects cycles, unsafe paths and invalid retry/side-effect combinations, persists an append-only event journal before exposing transitions, rebuilds its materialized state after a crash, and provides optimistic-concurrency controls for approve, start, pause, resume, cancel, retry and skip. One global model lease and one workspace-writer lease prevent accidental double use while independent synthetic host nodes exercise bounded fan-out/fan-in.
+Task Graph is now part of Agent automatically; it is not a mode you have to keep
+turning on and off. A normal question still takes the direct native path. When
+DStudio detects a request to inspect, edit, test or otherwise act on the
+workspace, it starts a checked graph around the same native Agent.
 
-The first rollout intentionally exposes real Agent/Plan/GSA/RSA graphs as **validated proposals only** until each real executor clears its own model-quality gate. Starting an unregistered proposal fails before appending `graph.started`, so it cannot leave a run stuck half-started. Ordinary Agent, Plan, GSA and RSA behavior therefore remains unchanged in 1.1, while the durable core, recovery path and local HTTP contract are already packaged and regression-tested. See [`extension/task-graph/README.md`](extension/task-graph/README.md) for the store/API contract and staged adapters.
+The priority is correctness before speed. An action is not marked successful
+just because the model stopped talking: DStudio requires evidence from a real
+tool result followed by a completion receipt. A prose-only “I’ll do it” fails.
+Read-only work can retry; work that may change files retries automatically only
+when the structured transcript proves that no tool call ran.
+
+You can watch the graph live, pause it, resume it and reopen its saved progress
+after DStudio restarts. It also records what changed and only offers automatic
+undo when it can prove exactly what will be restored. The implementation details
+and local API are documented in
+[`extension/task-graph/README.md`](extension/task-graph/README.md).
+
+### Native Agent or Task Graph?
+
+Task Graph is **not another AI model**. Both options use the same native
+`ds4-agent-jsonl` runtime and the same local model. “Native Agent” below is the
+unwrapped baseline used by the benchmark. In the app, DStudio chooses the path
+for you.
+
+| | Native Agent baseline | Current Agent with automatic checks |
+| --- | --- | --- |
+| When used | Simple questions, or explicit benchmark baseline | Workspace actions, selected automatically |
+| How it works | The Agent receives the prompt and decides when it is done | The same Agent works, verifies, then passes a completion gate |
+| Checks | A stopped response can look complete | Prose alone cannot complete an action; tool evidence is required |
+| Rules | Normal tool permissions | Every action is checked against the graph's declared rules |
+| Interruption | Continue the conversation manually | Pause, resume and recover from the saved journal |
+| Undo evidence | Depends on what the Agent changed | Exact writes get checkpoints; uncertain effects are reported honestly |
+| Visibility | Conversation and tool timeline | The same chat, plus an optional live graph |
+
+### 50 diverse task comparison: DStudio, Pi and OpenCode
+
+These are not 50 repetitions of the same three prompts. The suite contains ten
+task families with five different fixtures in each family. Values, paths,
+symbols, file contents and bugs change between cases. Read and search answers
+are hidden inside the workspace instead of being disclosed by the completion
+marker.
+
+A task passed only when a real tool completed, the required answer followed its
+result, an independent file or Python check passed, and no file outside the
+declared scope changed. Every path used the same complete 86.72 GB DeepSeek V4
+Flash model, 8,192-token context, power 70, thinking Off and SSD streaming Off.
+
+| Agent path | Tasks completed | Median task time | Mean tool calls |
+| --- | ---: | ---: | ---: |
+| Native Agent baseline | **42/50** | **21.04 s** | **2.22** |
+| DStudio Agent today | **50/50** | **33.64 s** | **2.60** |
+| Pi 0.84.1 | **50/50** | **36.98 s** | **3.14** |
+| OpenCode 1.18.18 | **50/50** | **29.50 s** | **2.76** |
+
+The honest result remains a **three-way correctness tie** between DStudio, Pi
+and OpenCode. DStudio does not beat either competitor on completion count in
+this run. It does improve the same Native baseline by eight tasks, finishes
+faster than Pi and is 4.15 seconds slower than OpenCode at the median.
+
+<div align="center">
+  <img src="assets/README%20images/benchmarks/agent-harness-diverse-comparison.png" width="1100" alt="Across 50 diverse tasks Native Agent completed 42, while DStudio checked Agent, Pi and OpenCode completed 50; median times were 21.04, 33.64, 36.98 and 29.50 seconds">
+</div>
+
+The 50 cases cover a broad local coding-agent field, but not every possible
+agent workload:
+
+| Area | Cases | What changes across the five fixtures |
+| --- | ---: | --- |
+| Read | 10 | Hidden facts and targets in different nested paths with decoys |
+| Reason across files | 5 | Different quantities and values that must be combined |
+| Write and edit | 15 | Exact output, semantic JSON changes and byte-preserving edits |
+| Code | 15 | Five different bugs, missing functions and multi-file symbol refactors |
+| Diagnose | 5 | Different failing tests whose source must remain unchanged |
+
+<div align="center">
+  <img src="assets/README%20images/benchmarks/agent-harness-diverse-by-capability.png" width="920" alt="Results across ten task families: DStudio, Pi and OpenCode completed five of five in every family; Native completed zero of five repairs, four of five cross-file, JSON and diagnosis cases, and five of five elsewhere">
+</div>
+
+The suite does **not** claim complete coverage. Network/browser work,
+multimodal UI judgment, very long autonomous tasks, parallel agents, human
+approval latency and continuation of an interrupted token stream remain outside
+this four-agent comparison. DStudio's deterministic crash, undo, corrupted
+output and anti-loop checks run separately after the matched tasks.
+
+The latency optimization keeps correctness-first behavior but removes redundant
+work: successful exact writes are no longer re-read solely for confirmation,
+passing tests are not repeated, and supplied workspace paths are not rediscovered
+by scanning the machine. Across this harder suite DStudio needed only 0.38 more
+tool calls per task than Native while recovering all eight Native failures.
+
+<details>
+<summary><strong>Open the benchmark method and raw results</strong></summary>
+
+Every variant started with a fresh conversation or non-interactive CLI session.
+Native and checked DStudio alternated execution order against one continuously
+loaded `ds4-agent-jsonl` process. Pi and OpenCode also alternated order against
+one continuously loaded `ds4-server`; a local verifier rejected every model id
+except `ds4`, and no fallback occurred.
+
+Pi and OpenCode received read, write/edit and shell capabilities. Plugins,
+external skills, LSP, formatters, MCPs, sharing and catalog updates were
+disabled. Their maximum model response was 1,024 tokens. CLI process startup is
+included in task time. The DStudio phase took **56 min 11 s** and the
+Pi/OpenCode phase **1 h 2 min 36 s**.
+
+The runtimes cannot own the large model simultaneously, so the two phases used
+separate model loads on the same machine, model file and configuration. This is
+a single Apple M2 Max/96 GB sample, not a guarantee for other prompts, versions,
+models or computers.
+
+Public results include every run and the declared exclusions:
+
+- [Native and checked DStudio result](extension/task-graph/bench/results/2026-09-04-m2-max-diverse-reliability-no-ssd.json)
+- [Four-agent comparison](extension/task-graph/bench/results/2026-09-04-m2-max-diverse-agent-comparison-no-ssd.json)
+
+Reproduce both phases and the Matplotlib figures with:
+
+```sh
+DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-reliability-real
+DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-cli-competitors-real
+node extension/task-graph/bench/publish-reliability.mjs \
+  tests/.artifacts/task-graph-reliability-real/result.json \
+  extension/task-graph/bench/results/2026-09-04-m2-max-diverse-reliability-no-ssd.json
+node extension/task-graph/bench/publish-cli-comparison.mjs \
+  tests/.artifacts/task-graph-cli-competitors-real/result.json \
+  extension/task-graph/bench/results/2026-09-04-m2-max-diverse-reliability-no-ssd.json \
+  extension/task-graph/bench/results/2026-09-04-m2-max-diverse-agent-comparison-no-ssd.json
+python3 extension/task-graph/bench/plot-cli-comparison.py
+```
+
+</details>
+
+### Why automatic checks help
+
+Both DStudio paths completed the same 42 tasks. The checked path alone completed
+eight; Native alone completed **zero**. The gains were all five code repairs,
+one cross-file calculation, one JSON edit and one constrained diagnosis. Every
+result was scored outside the agent transcript.
+
+The automatic path still uses one generic three-node flow: do the work, verify
+real tool-backed completion, then finish. It is not customized for any benchmark
+answer. Read/search attempts can retry; a mutating attempt retries automatically
+only when its transcript proves that no tool ran.
+
+After the 50 task pairs, separate injected checks confirmed path rejection,
+downstream blocking after corrupted output, conflict-aware undo, the anti-loop
+watchdog and graph recovery after the DStudio process was killed. No human
+recovery intervention was used.
+
+This result demonstrates a measured improvement over Native on these fixtures;
+it does not guarantee 100% on every future project. The publication gate rejects
+a result if the checked path scores below Native or loses any matched task that
+Native completes.
 
 ## Highlights
 
@@ -392,6 +557,7 @@ make test-ui-live-vision DSTUDIO_LIVE_URL=http://127.0.0.1:5999
                 # isolated Playwright E2E over the running saved Vision model:
                 # Chat, Agent, Cowork, Design, Learn and Settings; no H3/image job
 make test-task-graph-unit test-task-graph-http test-task-graph-bench-validate
+make test-task-graph-real  # explicit real Agent + GGUF SSD-streaming smoke test
 make check      # check-fast plus explicitly configured real-model suites
 make test-image-inference  # Ideogram/Hunyuan pinned Max-profile conformance
 make test-video-open-weight  # H3 pinning, local-only contract and checkout repair
@@ -429,7 +595,7 @@ Behind the scenes DStudio **reverse-proxies the engine API** (`/v1`) to the loca
 - **C launcher, not a script.** `dstudio.c` is both the local HTTP server and the engine supervisor: it starts/stops `ds4-server` for chat, `ds4-agent-jsonl` for coding, `ds4-cowork` for Office work and `ds4-design` for design, manages working directories, runs the setup doctor, proxies `/v1`, serves Web Search and exposes a small local API.
 - **Native window.** `app.cc` forks the server and opens a WKWebView (macOS) / WebKitGTK (Linux) window via `webview.h`; the page is base64-embedded (`page_data.h`).
 - **Same-origin proxy.** The page calls DStudio for `/v1`; DStudio forwards streaming requests to the local engine, which is why LAN works with no engine exposure and no settings.
-- **Durable Task Graph core.** A bounded DAG validator, append-first event store, cooperative scheduler and localhost-only API provide crash-safe orchestration foundations without reusing the transient `/api/tasks` telemetry ring. Heavy real-model A/B fixtures are prepared separately and are never run by `check-fast`.
+- **Durable native Task Graph runtime.** Multi-step work can use real Agent/tool/check/approval executors, loop detection, exact-write undo receipts and a live graph with pause/resume. The explicit `test-task-graph-reliability-real` target compares 50 real tasks using the full GGUF with SSD streaming off and remains outside `check-fast`.
 - **Native vision only.** DeepSeek Vision-Exp and GLM 5.3 Chat/Agent/Cowork/Design use their ds4 native encoders directly. Every other engine is text-only; no secondary VLM, visual router or fallback is installed. Ideogram 4 FP8 Quality-48 creates new images and full HunyuanImage-3.0-Instruct NF4/50-step edits source pixels directly.
 - **Text-first, native-vision PDF acceleration.** Poppler extraction, chunking and BM25 stay on the CPU. Qwen3-Embedding-0.6B ranks multilingual text only; it is not a router. DeepSeek Vision-Exp or GLM 5.3 can inspect a bounded selection of rendered pages through the currently loaded native encoder, while Laguna reports and skips image-only pages.
 

@@ -191,6 +191,45 @@ node - "${tmp}/cancelled.json" <<'NODE'
 const r=require(process.argv[2]).graph;if(r.state!=='cancelled'||r.nodes[0].state!=='cancelled')throw new Error('cancel did not settle');
 NODE
 
+# Native host actions execute through closed-world policy, create a durable
+# checkpoint, verify through a real gate, and expose an honest undo receipt.
+node - "${tmp}/native-graph.json" "${tmp}/workspace" <<'NODE'
+const fs=require('fs');
+fs.writeFileSync(process.argv[2],JSON.stringify({schemaVersion:1,policy:'agent.general.v1',mode:'agent',executorMode:'native',goal:'native host lifecycle',workspace:process.argv[3],nodes:[
+  {id:'write',kind:'host_tool',title:'Write file',mutation:'workspace_write',capabilities:['filesystem.write'],outputs:[{name:'file',path:'native-http.txt',required:true,minimumBytes:6}],action:{name:'workspace.write',path:'native-http.txt',text:'native\n'}},
+  {id:'verify',kind:'gate',title:'Verify file',dependsOn:['write'],capabilities:['filesystem.read'],action:{name:'workspace.assert',path:'native-http.txt',contains:'native'}},
+  {id:'done',kind:'join',title:'Done',dependsOn:['verify']},
+]}));
+NODE
+post /api/task-graph/validate "${tmp}/native-graph.json" "${tmp}/native-valid.json"
+post /api/task-graph/create "${tmp}/native-graph.json" "${tmp}/native-created.json"
+node - "${tmp}/native-valid.json" "${tmp}/native-created.json" "${tmp}/native-start.json" <<'NODE'
+const fs=require('fs'),valid=JSON.parse(fs.readFileSync(process.argv[2])),r=JSON.parse(fs.readFileSync(process.argv[3])).graph;
+if(!valid.executionAvailable||!r.executionAvailable||!/^[0-9a-f]{16}$/.test(r.policyDigest))throw new Error('native policy unavailable');
+fs.writeFileSync(process.argv[4],JSON.stringify({graphId:r.graphId,workspace:r.workspace,expectedRevision:r.revision,expectedLastEventSeq:r.lastEventSeq}));
+NODE
+post /api/task-graph/start "${tmp}/native-start.json" "${tmp}/native-started.json"
+native_id="$(node -e "const r=require(process.argv[1]);process.stdout.write(r.graph.graphId)" "${tmp}/native-created.json")"
+for _ in $(seq 1 80); do
+  curl -fsS --max-time 2 "${base}/api/task-graph?graphId=${native_id}&workspace=${encoded_workspace}" >"${tmp}/native-current.json"
+  state="$(node -e "const r=require(process.argv[1]);process.stdout.write(r.graph.state)" "${tmp}/native-current.json")"
+  [ "${state}" = "succeeded" ] && break
+  sleep 0.03
+done
+[ "${state}" = "succeeded" ]
+[ "$(cat "${tmp}/workspace/native-http.txt")" = "native" ]
+node - "${tmp}/native-current.json" "${tmp}/native-undo.json" <<'NODE'
+const fs=require('fs'),r=JSON.parse(fs.readFileSync(process.argv[2])).graph,w=r.nodes.find(n=>n.id==='write');
+if(!w.undo.available||w.undo.applied)throw new Error('checkpoint not exposed');
+fs.writeFileSync(process.argv[3],JSON.stringify({graphId:r.graphId,workspace:r.workspace,nodeId:'write',expectedRevision:r.revision,expectedLastEventSeq:r.lastEventSeq}));
+NODE
+post /api/task-graph/node/undo "${tmp}/native-undo.json" "${tmp}/native-undone.json"
+[ ! -e "${tmp}/workspace/native-http.txt" ]
+node - "${tmp}/native-undone.json" <<'NODE'
+const r=require(process.argv[2]).graph,w=r.nodes.find(n=>n.id==='write');
+if(!w.undo.applied||!w.undo.fullyReversed||!w.undo.message.includes('Declared target bytes'))throw new Error('honest undo receipt missing');
+NODE
+
 # Invalid control data and oversized normal API bodies stay bounded.
 printf '%s' '{"goal":"bad","nodes":[{"id":"a","kind":"join","title":"A","dependsOn":["a"]}]}' >"${tmp}/bad.json"
 bad_code="$(curl -sS --max-time 3 -o "${tmp}/bad-response.json" -w '%{http_code}' \
@@ -222,4 +261,4 @@ if(!/not registered/.test(rejected.error||''))throw new Error('missing executor 
 if(now.state!=='ready'||now.revision!==created.revision||now.lastEventSeq!==created.lastEventSeq)throw new Error('rejected start mutated proposal');
 NODE
 
-echo "task_graph_http: 37 lightweight lifecycle checks passed"
+echo "task_graph_http: lightweight synthetic + native lifecycle checks passed"

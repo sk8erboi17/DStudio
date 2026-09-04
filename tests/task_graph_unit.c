@@ -274,6 +274,201 @@ static void test_unregistered_executor_guard(const char *workspace) {
     CHECK(rt->graph.revision == revision && rt->graph.last_event_seq == sequence);
 }
 
+static void test_native_policy_checkpoint_undo_and_watchdog(const char *workspace) {
+    char err[512] = "", target[PATH_MAX];
+    snprintf(target, sizeof target, "%s/native-undo.txt", workspace);
+    FILE *seed = fopen(target, "wb");
+    CHECK(seed != NULL);
+    CHECK(fwrite("before\n", 1, 7, seed) == 7);
+    CHECK(fclose(seed) == 0);
+
+    json_dyn_buf body = {0};
+    CHECK(json_dyn_puts(&body,
+        "{\"schemaVersion\":1,\"policy\":\"agent.general.v1\",\"mode\":\"agent\","
+        "\"executorMode\":\"native\",\"goal\":\"Native checkpoint lifecycle\",\"workspace\":"));
+    CHECK(json_dyn_put_escaped(&body, workspace));
+    CHECK(json_dyn_puts(&body,
+        ",\"nodes\":["
+        "{\"id\":\"write\",\"kind\":\"host_tool\",\"title\":\"Write\",\"mutation\":\"workspace_write\","
+        "\"capabilities\":[\"filesystem.write\"],\"outputs\":[{\"name\":\"changed\",\"path\":\"native-undo.txt\",\"required\":true,\"minimumBytes\":6}],"
+        "\"action\":{\"name\":\"workspace.write\",\"path\":\"native-undo.txt\",\"text\":\"after\\n\"}},"
+        "{\"id\":\"gate\",\"kind\":\"gate\",\"title\":\"Verify\",\"dependsOn\":[\"write\"],"
+        "\"capabilities\":[\"filesystem.read\"],\"action\":{\"name\":\"workspace.assert\",\"path\":\"native-undo.txt\",\"contains\":\"after\"}},"
+        "{\"id\":\"join\",\"kind\":\"join\",\"title\":\"Done\",\"dependsOn\":[\"gate\"]}]}"));
+    dtg_runtime *rt = dtg_store_create(body.ptr, 0, err, sizeof err);
+    free(body.ptr);
+    if (!rt) fprintf(stderr, "native create: %s\n", err);
+    CHECK(rt != NULL && dtg_executor_graph_is_available(&rt->graph));
+    char digest[17] = "";
+    CHECK(dtg_policy_digest(&rt->graph, digest) && strlen(digest) == 16);
+    CHECK(dtg_scheduler_start(rt, err, sizeof err));
+    drive(rt, 2, 12);
+    CHECK(rt->graph.state == DTG_GRAPH_SUCCEEDED);
+    size_t changed_len = 0;
+    char *changed = dtg_read_file_bounded(target, 128, &changed_len, err, sizeof err);
+    CHECK(changed && !strcmp(changed, "after\n")); free(changed);
+    dtg_node *writer = dtg_find_node(&rt->graph, "write");
+    CHECK(writer && writer->undo_available);
+    CHECK(dtg_executor_undo(rt, writer, err, sizeof err));
+    char *restored = dtg_read_file_bounded(target, 128, &changed_len, err, sizeof err);
+    CHECK(restored && !strcmp(restored, "before\n")); free(restored);
+    CHECK(writer->undo_applied && writer->undo_fully_reversed);
+
+    /* Same decision for the same malformed action, before dispatch. */
+    const char *denied =
+        "{\"schemaVersion\":1,\"policy\":\"agent.general.v1\",\"mode\":\"agent\",\"executorMode\":\"native\","
+        "\"goal\":\"deny\",\"nodes\":[{\"id\":\"bad\",\"kind\":\"host_tool\",\"title\":\"Bad\","
+        "\"mutation\":\"read_only\",\"capabilities\":[\"filesystem.write\"],"
+        "\"action\":{\"name\":\"workspace.write\",\"path\":\"x\",\"text\":\"x\"}}]}";
+    dtg_graph graph;
+    CHECK(dtg_parse_graph_json(denied, &graph, err, sizeof err));
+    CHECK(!dtg_policy_validate(&graph, 1, err, sizeof err));
+    CHECK(strstr(err, "workspace.write requires") != NULL);
+    dtg_graph_free(&graph);
+
+    /* Structured tool-event watchdog: fourth identical call trips exactly. */
+    g_dtg_agent_owner_rt = rt;
+    g_dtg_agent_owner_node = writer;
+    writer->watchdog_tripped = 0;
+    writer->watchdog_tool_calls = 0;
+    g_dtg_watchdog_last_call = 0;
+    g_dtg_watchdog_same_call = 0;
+    const char *event = "\x1e{\"type\":\"tool_call\",\"name\":\"read\",\"input\":{\"path\":\"same\"}}\n";
+    for (int i = 0; i < 3; i++) dtg_watchdog_observe_event_line(event);
+    CHECK(!writer->watchdog_tripped);
+    dtg_watchdog_observe_event_line(event);
+    CHECK(writer->watchdog_tripped && writer->watchdog_tool_calls == 4);
+    g_dtg_agent_owner_node = NULL;
+    g_dtg_agent_owner_rt = NULL;
+
+    /* Real argv-array tool process (no shell), followed by a real gate. */
+    json_dyn_buf test_graph = {0};
+    CHECK(json_dyn_puts(&test_graph,
+        "{\"schemaVersion\":1,\"policy\":\"agent.general.v1\",\"mode\":\"agent\","
+        "\"executorMode\":\"native\",\"goal\":\"Native process\",\"workspace\":"));
+    CHECK(json_dyn_put_escaped(&test_graph, workspace));
+    CHECK(json_dyn_puts(&test_graph,
+        ",\"nodes\":[{\"id\":\"test\",\"kind\":\"host_tool\",\"title\":\"Run test\","
+        "\"mutation\":\"workspace_write\",\"capabilities\":[\"test.run\"],"
+        "\"action\":{\"name\":\"test.run\",\"argv\":[\"python3\",\"-c\",\"open('native-test.txt','w').write('ok')\"]}},"
+        "{\"id\":\"test_gate\",\"kind\":\"gate\",\"title\":\"Test gate\",\"dependsOn\":[\"test\"],"
+        "\"capabilities\":[\"filesystem.read\"],\"action\":{\"name\":\"workspace.assert\",\"path\":\"native-test.txt\",\"contains\":\"ok\"}}]}"));
+    rt = dtg_store_create(test_graph.ptr, 0, err, sizeof err);
+    free(test_graph.ptr);
+    CHECK(rt && dtg_scheduler_start(rt, err, sizeof err));
+    for (int i = 0; i < 200 && !dtg_graph_terminal(rt->graph.state); i++) {
+        dtg_scheduler_tick(dstudio_now_ms());
+        usleep(10000);
+    }
+    CHECK(rt->graph.state == DTG_GRAPH_SUCCEEDED);
+    dtg_node *test_node = dtg_find_node(&rt->graph, "test");
+    CHECK(test_node && test_node->undo_available);
+    CHECK(dtg_executor_undo(rt, test_node, err, sizeof err));
+    CHECK(!test_node->undo_applied && !test_node->undo_fully_reversed);
+    CHECK(strstr(test_node->undo_message, "No automatic undo") != NULL);
+
+    json_dyn_buf approval = {0};
+    CHECK(json_dyn_puts(&approval,
+        "{\"schemaVersion\":1,\"policy\":\"agent.general.v1\",\"mode\":\"agent\","
+        "\"executorMode\":\"native\",\"goal\":\"Native approval\",\"workspace\":"));
+    CHECK(json_dyn_put_escaped(&approval, workspace));
+    CHECK(json_dyn_puts(&approval,
+        ",\"nodes\":[{\"id\":\"approve\",\"kind\":\"approval\",\"title\":\"Approve\"},"
+        "{\"id\":\"after\",\"kind\":\"join\",\"title\":\"After\",\"dependsOn\":[\"approve\"]}]}"));
+    rt = dtg_store_create(approval.ptr, 0, err, sizeof err);
+    free(approval.ptr);
+    CHECK(rt && dtg_scheduler_start(rt, err, sizeof err));
+    CHECK(rt->graph.state == DTG_GRAPH_WAITING_APPROVAL);
+    CHECK(dtg_scheduler_approve_node(rt, "approve", err, sizeof err));
+    drive(rt, 2, 6);
+    CHECK(rt->graph.state == DTG_GRAPH_SUCCEEDED);
+}
+
+static void test_automatic_correctness_route_and_receipt(const char *workspace) {
+    const char *reason = NULL;
+    CHECK(dtg_agent_auto_route("Qual è il modello migliore?", &reason) == DTG_AUTO_DIRECT);
+    CHECK(dtg_agent_auto_route("Come implemento questa funzione nel codice?", &reason) == DTG_AUTO_DIRECT);
+    CHECK(dtg_agent_auto_route("Analizza il codice in src/main.c", &reason) == DTG_AUTO_READ_ONLY);
+    CHECK(dtg_agent_auto_route("Analizza app.py ma non modificare il file", &reason) == DTG_AUTO_READ_ONLY);
+    CHECK(dtg_agent_auto_route("Read facts.txt and do not modify any file", &reason) == DTG_AUTO_READ_ONLY);
+    CHECK(dtg_agent_auto_route("Migliora questa implementazione", &reason) == DTG_AUTO_WORKSPACE_WRITE);
+    CHECK(dtg_agent_auto_route("Run the tests in this project", &reason) == DTG_AUTO_WORKSPACE_WRITE);
+    CHECK(dtg_agent_auto_route("/new", &reason) == DTG_AUTO_DIRECT);
+
+    char old_workdir[DSTUDIO_PATH_MAX];
+    cstr_copy(old_workdir, sizeof old_workdir, g_workdir);
+    cstr_copy(g_workdir, sizeof g_workdir, workspace);
+    json_dyn_buf automatic = {0};
+    CHECK(dtg_build_automatic_agent_graph("Fix app.py and run its test", "Fix app.py", DTG_AUTO_WORKSPACE_WRITE, &automatic));
+    dtg_graph graph;
+    char err[512] = "";
+    CHECK(dtg_parse_graph_json(automatic.ptr, &graph, err, sizeof err));
+    CHECK(dtg_policy_validate(&graph, 1, err, sizeof err));
+    CHECK(graph.node_count == 3);
+    CHECK(!strcmp(graph.nodes[0].action_display, "Fix app.py"));
+    CHECK(graph.nodes[0].action_require_tool_result == 1);
+    CHECK(graph.nodes[0].automatic_retry == 1 && graph.nodes[0].idempotent == 0);
+    CHECK(strstr(graph.nodes[0].action_text, "paths relative to the active workspace") != NULL);
+    CHECK(strstr(graph.nodes[0].action_text, "successful write/edit result is sufficient") != NULL);
+    CHECK(strstr(graph.nodes[0].action_text, "Do not repeat a passing check") != NULL);
+    CHECK(!strcmp(graph.nodes[1].action_name, "agent.receipt.verify"));
+    dtg_graph_free(&graph);
+    free(automatic.ptr);
+
+    automatic.ptr = NULL; automatic.len = automatic.cap = 0;
+    CHECK(dtg_build_automatic_agent_graph("Read facts.txt", "Read facts.txt", DTG_AUTO_READ_ONLY, &automatic));
+    CHECK(dtg_parse_graph_json(automatic.ptr, &graph, err, sizeof err));
+    CHECK(strstr(graph.nodes[0].action_text, "minimum read or search calls") != NULL);
+    CHECK(strstr(graph.nodes[0].action_text, "Do not repeat an identical read") != NULL);
+    dtg_graph_free(&graph);
+    free(automatic.ptr);
+    cstr_copy(g_workdir, sizeof g_workdir, old_workdir);
+
+    char *old_abuf = g_abuf;
+    size_t old_alen = g_alen, old_abase = g_abase, old_acap = g_acap;
+    dtg_node node;
+    memset(&node, 0, sizeof node);
+    node.action_expect = "[[DSTUDIO_CORRECTNESS_COMPLETE]]";
+    node.action_require_tool_result = 1;
+    node.watchdog_tool_calls = 1;
+
+    const char valid[] =
+        "\x01" "USER\x02 request [[DSTUDIO_CORRECTNESS_COMPLETE]]\x01" "ENDUSER\x02\n"
+        "\x1e{\"type\":\"tool_call\",\"name\":\"read\"}\n"
+        "\x1e{\"type\":\"tool_result\",\"result\":\"ok\"}\n"
+        "Done\n[[DSTUDIO_COR"
+        "\x1e{\"type\":\"status\",\"state\":\"generating\"}\n"
+        "RECTNESS_COMPLETE]]\n";
+    g_abuf = strdup(valid); CHECK(g_abuf != NULL);
+    g_abase = 0; g_alen = strlen(valid); g_acap = g_alen + 1;
+    node.transcript_from = 0; node.transcript_to = g_alen;
+    CHECK(dtg_agent_completion_contract(&node, err, sizeof err));
+    free(g_abuf);
+
+    const char premature[] =
+        "\x01" "USER\x02 request\x01" "ENDUSER\x02\n"
+        "[[DSTUDIO_CORRECTNESS_COMPLETE]]\n"
+        "\x1e{\"type\":\"tool_result\",\"result\":\"late\"}\n";
+    g_abuf = strdup(premature); CHECK(g_abuf != NULL);
+    g_alen = strlen(premature); g_acap = g_alen + 1;
+    node.transcript_to = g_alen;
+    err[0] = '\0'; CHECK(!dtg_agent_completion_contract(&node, err, sizeof err));
+    CHECK(strstr(err, "did not follow") != NULL);
+    free(g_abuf);
+
+    const char prose_only[] =
+        "\x01" "USER\x02 request [[DSTUDIO_CORRECTNESS_COMPLETE]]\x01" "ENDUSER\x02\n"
+        "I will do it now.\n";
+    g_abuf = strdup(prose_only); CHECK(g_abuf != NULL);
+    g_alen = strlen(prose_only); g_acap = g_alen + 1;
+    node.transcript_to = g_alen; node.watchdog_tool_calls = 0;
+    err[0] = '\0'; CHECK(!dtg_agent_completion_contract(&node, err, sizeof err));
+    CHECK(strstr(err, "tool action") != NULL);
+    free(g_abuf);
+
+    g_abuf = old_abuf; g_alen = old_alen; g_abase = old_abase; g_acap = old_acap;
+}
+
 static void test_recovery_failpoints_and_lock(const char *workspace) {
     char err[512] = "";
     dtg_runtime *rt = create_graph(workspace,
@@ -400,6 +595,8 @@ int main(void) {
     test_approval_pause_cancel(workspace);
     test_global_leases(workspace);
     test_unregistered_executor_guard(workspace);
+    test_native_policy_checkpoint_undo_and_watchdog(workspace);
+    test_automatic_correctness_route_and_receipt(workspace);
     test_recovery_failpoints_and_lock(workspace);
     test_light_benchmark(workspace);
     dtg_store_shutdown();
