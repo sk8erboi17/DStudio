@@ -1,0 +1,677 @@
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { performance } from 'node:perf_hooks';
+import {
+  artifactDir, csrfHeaders, jsonFetch, pollAgent, safeReadTail, sleep,
+  startDStudio, startMode, waitForAgentText, writeArtifact,
+} from '../../../tests/real_harness.mjs';
+
+if (process.env.RUN_HEAVY !== '1') {
+  console.error('Real reliability benchmark is disabled. Set RUN_HEAVY=1 explicitly.');
+  process.exit(2);
+}
+
+const artifacts = artifactDir('task-graph-reliability-real');
+for (const name of fs.readdirSync(artifacts))
+  fs.rmSync(path.join(artifacts, name), { recursive: true, force: true });
+const workspace = path.join(artifacts, 'workspace');
+fs.mkdirSync(workspace, { recursive: true });
+const caseCount = Math.max(1, Math.min(100,
+  Number(process.env.DSTUDIO_RELIABILITY_CASES || 50) || 50));
+
+fs.writeFileSync(path.join(workspace, 'facts.txt'), [
+  'Project: Aurora',
+  'Release code: ALPHA-729',
+  'Owner: Sofia',
+].join('\n'));
+fs.writeFileSync(path.join(workspace, 'direct_app.py'), 'def total(a, b):\n    return a - b\n');
+fs.writeFileSync(path.join(workspace, 'graph_app.py'), 'def total(a, b):\n    return a - b\n');
+fs.writeFileSync(path.join(workspace, 'direct_test.py'), [
+  'from direct_app import total',
+  'assert total(7, 5) == 12, total(7, 5)',
+  "print('DIRECT_TEST_OK')",
+].join('\n'));
+fs.writeFileSync(path.join(workspace, 'graph_test.py'), [
+  'from graph_app import total',
+  'assert total(7, 5) == 12, total(7, 5)',
+  "print('GRAPH_TEST_OK')",
+].join('\n'));
+
+function rounded(value, digits = 2) {
+  return Number(Number(value).toFixed(digits));
+}
+
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function taskType(scenario) {
+  return scenario.replace(/-\d+$/, '');
+}
+
+function byTask(runs) {
+  return Object.fromEntries(scenarioTemplates.map((template) => {
+    const matching = runs.filter((run) => taskType(run.scenario) === template.id);
+    return [template.id, {
+      runs: matching.length,
+      successes: matching.filter((run) => run.taskSuccess).length,
+    }];
+  }));
+}
+
+function commandOutput(command, args, cwd) {
+  try {
+    return execFileSync(command, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function revisionInfo(cwd) {
+  return {
+    commit: commandOutput('git', ['rev-parse', '--short=12', 'HEAD'], cwd) || 'unknown',
+    dirty: Boolean(commandOutput('git', ['status', '--porcelain'], cwd)),
+  };
+}
+
+function selectModel(ggufs) {
+  const requested = process.env.DSTUDIO_TASK_GRAPH_GGUF;
+  if (requested) {
+    const exact = ggufs.find((item) => item.file === requested || item.file.endsWith(`/${requested}`));
+    assert.ok(exact, `DSTUDIO_TASK_GRAPH_GGUF not found: ${requested}`);
+    return exact;
+  }
+  const usable = ggufs.filter((item) => !/DSpark-support|MXFP4|Vision-Encoder|GLM-5\.2/i.test(item.file));
+  return usable.find((item) => /DeepSeek-V4-Flash-IQ2XXS.*imatrix/i.test(item.file)) || usable[0];
+}
+
+function hardwareInfo() {
+  const chip = process.platform === 'darwin'
+    ? commandOutput('sysctl', ['-n', 'machdep.cpu.brand_string'])
+    : os.cpus()[0]?.model;
+  return {
+    chip: chip || os.arch(),
+    logicalCores: os.cpus().length,
+    memoryBytes: os.totalmem(),
+    os: `${os.type()} ${os.release()} ${os.arch()}`,
+  };
+}
+
+function sha256(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function workspaceSnapshot() {
+  const result = {};
+  function visit(relative) {
+    const absolute = path.join(workspace, relative);
+    for (const entry of fs.readdirSync(absolute, { withFileTypes: true })) {
+      const child = relative ? path.join(relative, entry.name) : entry.name;
+      if (child === '.dstudio' || child.startsWith(`.dstudio${path.sep}`)) continue;
+      if (entry.isDirectory()) visit(child);
+      else if (entry.isFile()) result[child] = sha256(path.join(workspace, child));
+    }
+  }
+  visit('');
+  return result;
+}
+
+function changedFiles(before, after) {
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])]
+    .filter((file) => before[file] !== after[file]).sort();
+}
+
+function changeAllowed(file, patterns) {
+  return patterns.some((pattern) => pattern.endsWith('*')
+    ? file.startsWith(pattern.slice(0, -1))
+    : file === pattern);
+}
+
+function structuredEvents(text) {
+  const events = [];
+  for (const match of text.matchAll(/\x1e(\{[^\r\n]*\})/g)) {
+    try { events.push(JSON.parse(match[1])); } catch {}
+  }
+  return events;
+}
+
+function toolStats(text) {
+  const calls = structuredEvents(text).filter((event) => event.type === 'tool_call');
+  let previous = '', repeated = 0, maximumRepeated = 0;
+  for (const call of calls) {
+    const canonical = JSON.stringify({ name: call.name, input: call.input });
+    repeated = canonical === previous ? repeated + 1 : 1;
+    previous = canonical;
+    maximumRepeated = Math.max(maximumRepeated, repeated);
+  }
+  return { calls: calls.length, maximumRepeated };
+}
+
+function answerAfterTool(text, expected) {
+  const toolResultAt = text.lastIndexOf('"type":"tool_result"');
+  if (toolResultAt < 0) return false;
+  const visibleAnswer = text.slice(text.indexOf('\n', toolResultAt) + 1)
+    .replace(/\x1e[^\r\n]*/g, '')
+    .replace(/[\x01\x02]/g, '')
+    .replace(/saved session[^\r\n]*/g, '')
+    .replace(/\s+/g, '');
+  return visibleAnswer.includes(expected.replace(/\s+/g, ''));
+}
+
+async function runDirect(server, scenario) {
+  const before = workspaceSnapshot();
+  const startedAt = performance.now();
+  const sent = await jsonFetch(server.baseUrl, '/api/agent/send', {
+    method: 'POST', headers: csrfHeaders,
+    body: JSON.stringify({ prompt: scenario.directPrompt }), timeoutMs: 30_000,
+  });
+  const completed = await waitForAgentText(server.baseUrl, sent.at,
+    (_text, poll) => poll.working === false,
+    Number(process.env.DSTUDIO_RELIABILITY_TURN_TIMEOUT_MS || 1_200_000));
+  const wallClockMs = rounded(performance.now() - startedAt);
+  const after = workspaceSnapshot();
+  const changed = changedFiles(before, after);
+  const unexpectedChanges = changed.filter((file) => !changeAllowed(file, scenario.directAllowedChanges));
+  const external = scenario.scoreDirect();
+  const agentClaimedDone = answerAfterTool(completed.text, scenario.directExpected);
+  const result = {
+    variant: 'native-agent', scenario: scenario.id,
+    taskSuccess: Boolean(external.ok && agentClaimedDone),
+    expectedAnswerAfterTool: agentClaimedDone,
+    incorrectCompletionClaim: Boolean(agentClaimedDone && !external.ok),
+    externalCheck: external,
+    changedFiles: changed,
+    unexpectedChanges,
+    toolStats: toolStats(completed.text),
+    wallClockMs,
+    humanRecoveryInterventions: 0,
+  };
+  writeArtifact(artifacts, `${scenario.id}-direct-transcript.txt`, completed.text);
+  writeArtifact(artifacts, `${scenario.id}-direct-result.json`, result);
+  return result;
+}
+
+async function freshAgentSession(server) {
+  const before = await pollAgent(server.baseUrl, 0);
+  await jsonFetch(server.baseUrl, '/api/design/session', {
+    method: 'POST', headers: csrfHeaders,
+    body: JSON.stringify({ action: 'new' }), timeoutMs: 30_000,
+  });
+  const completed = await waitForAgentText(server.baseUrl, Number(before.len || 0),
+    (_text, poll) => poll.working === false,
+    Number(process.env.DSTUDIO_RELIABILITY_SESSION_TIMEOUT_MS || 600_000));
+  assert.match(completed.text, /started a new session|new session started/i,
+    'The native Agent did not acknowledge a fresh benchmark session');
+}
+
+async function waitForGraph(baseUrl, graphId, timeoutMs = 1_200_000) {
+  const query = `graphId=${encodeURIComponent(graphId)}&workspace=${encodeURIComponent(workspace)}`;
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await jsonFetch(baseUrl, `/api/task-graph?${query}`, { timeoutMs: 10_000 });
+    if (['succeeded', 'failed', 'cancelled', 'corrupt'].includes(last.graph?.state)) return last;
+    await sleep(100);
+  }
+  throw new Error(`Task Graph timed out: ${JSON.stringify(last)}`);
+}
+
+async function createAndStartGraph(baseUrl, definition) {
+  const validated = await jsonFetch(baseUrl, '/api/task-graph/validate', {
+    method: 'POST', headers: csrfHeaders, body: JSON.stringify(definition), timeoutMs: 30_000,
+  });
+  assert.equal(validated.executionAvailable, true);
+  const created = await jsonFetch(baseUrl, '/api/task-graph/create', {
+    method: 'POST', headers: csrfHeaders, body: JSON.stringify(definition), timeoutMs: 30_000,
+  });
+  assert.ok(['ready', 'validated'].includes(created.graph.state));
+  return await jsonFetch(baseUrl, '/api/task-graph/start', {
+    method: 'POST', headers: csrfHeaders,
+    body: JSON.stringify({
+      graphId: created.graph.graphId, workspace,
+      expectedRevision: created.graph.revision,
+      expectedLastEventSeq: created.graph.lastEventSeq,
+    }),
+    timeoutMs: 30_000,
+  });
+}
+
+function graphDefinition(scenario) {
+  return {
+    schemaVersion: 1,
+    policy: 'agent.general.v1',
+    mode: 'agent',
+    executorMode: 'native',
+    goal: `Reliability A/B: ${scenario.id}`,
+    workspace,
+    limits: { maxParallelHostNodes: 2, maxParallelLlmNodes: 1, maxAttemptsPerNode: 1 },
+    nodes: scenario.graphNodes,
+  };
+}
+
+async function runTaskGraph(server, scenario) {
+  const before = workspaceSnapshot();
+  const startedAt = performance.now();
+  const started = await createAndStartGraph(server.baseUrl, graphDefinition(scenario));
+  const completed = await waitForGraph(server.baseUrl, started.graph.graphId,
+    Number(process.env.DSTUDIO_RELIABILITY_TURN_TIMEOUT_MS || 1_200_000));
+  const wallClockMs = rounded(performance.now() - startedAt);
+  const agentNodes = completed.graph.nodes.filter((node) => node.kind === 'agent_turn');
+  assert.ok(agentNodes.length && agentNodes.every((node) => node.attemptId),
+    'Task Graph Agent attempt is missing');
+  const transcripts = new Map(agentNodes.map((node) => {
+    const transcriptPath = path.join(workspace, '.dstudio', 'task-graphs', completed.graph.graphId,
+      'attempts', node.id, `${node.attemptId}.transcript.json`);
+    return [node.id, JSON.parse(fs.readFileSync(transcriptPath, 'utf8')).content];
+  }));
+  const resultAgent = completed.graph.nodes.find((node) => node.id === (scenario.graphResultNodeId || 'agent')) || agentNodes.at(-1);
+  const transcript = transcripts.get(resultAgent.id);
+  const combinedTranscript = agentNodes.map((node) => `--- ${node.id} ---\n${transcripts.get(node.id)}`).join('\n');
+  const after = workspaceSnapshot();
+  const changed = changedFiles(before, after);
+  const unexpectedChanges = changed.filter((file) => !changeAllowed(file, scenario.graphAllowedChanges));
+  const external = scenario.scoreGraph();
+  const finalJoinRan = completed.graph.nodes.some((node) => node.kind === 'join' && node.state === 'succeeded');
+  const agentClaimedDone = answerAfterTool(transcript, scenario.graphExpected);
+  const graphToolStats = {
+    toolCalls: agentNodes.reduce((total, node) => total + Number(node.watchdog?.toolCalls || 0), 0),
+    repeatedCalls: Math.max(0, ...agentNodes.map((node) => Number(node.watchdog?.repeatedCalls || 0))),
+    tripped: agentNodes.some((node) => node.watchdog?.tripped),
+  };
+  const result = {
+    variant: 'task-graph', scenario: scenario.id,
+    taskSuccess: Boolean(completed.graph.state === 'succeeded' && external.ok &&
+      agentClaimedDone),
+    graphState: completed.graph.state,
+    gatesPassed: completed.graph.nodes.filter((node) => node.kind === 'gate' && node.state === 'succeeded').length,
+    expectedAnswerAfterTool: agentClaimedDone,
+    finalJoinRan,
+    incorrectResultBlocked: Boolean(!external.ok && completed.graph.state === 'failed' && !finalJoinRan),
+    incorrectCompletionClaim: Boolean(!external.ok && completed.graph.state === 'succeeded' && agentClaimedDone),
+    externalCheck: external,
+    changedFiles: changed,
+    unexpectedChanges,
+    toolStats: graphToolStats,
+    wallClockMs,
+    humanRecoveryInterventions: 0,
+    graphId: completed.graph.graphId,
+  };
+  writeArtifact(artifacts, `${scenario.id}-graph-transcript.txt`, combinedTranscript);
+  writeArtifact(artifacts, `${scenario.id}-graph-result.json`, result);
+  return result;
+}
+
+function runPythonTest(file) {
+  const run = spawnSync('python3', [file], { cwd: workspace, encoding: 'utf8', timeout: 30_000 });
+  return { ok: run.status === 0, exitCode: run.status, output: `${run.stdout || ''}${run.stderr || ''}`.trim() };
+}
+
+const scenarioTemplates = [
+  {
+    id: 'read-fact',
+    directExpected: 'DIRECT_READ_ALPHA_729',
+    graphExpected: 'GRAPH_READ_ALPHA_729',
+    directPrompt: 'Use the read tool to inspect facts.txt. Do not modify any file. Then reply with exactly: DIRECT_READ_ALPHA_729',
+    directAllowedChanges: [],
+    graphAllowedChanges: [],
+    scoreDirect: () => ({ ok: fs.readFileSync(path.join(workspace, 'facts.txt'), 'utf8').includes('ALPHA-729') }),
+    scoreGraph: () => ({ ok: fs.readFileSync(path.join(workspace, 'facts.txt'), 'utf8').includes('ALPHA-729') }),
+    graphNodes: [
+      {
+        id: 'agent', kind: 'agent_turn', title: 'Read the release code', mutation: 'read_only',
+        capabilities: ['filesystem.read'],
+        action: { name: 'agent.prompt', text: 'Use the read tool to inspect facts.txt. Do not modify any file. Then reply with exactly: GRAPH_READ_ALPHA_729' },
+      },
+      {
+        id: 'gate', kind: 'gate', title: 'Verify the source fact', dependsOn: ['agent'],
+        capabilities: ['filesystem.read'], action: { name: 'workspace.assert', path: 'facts.txt', contains: 'ALPHA-729' },
+      },
+      { id: 'join', kind: 'join', title: 'Complete read task', dependsOn: ['gate'], action: { name: 'join.all' } },
+    ],
+  },
+  {
+    id: 'write-file',
+    directExpected: 'DIRECT_WRITE_DONE',
+    graphExpected: 'GRAPH_WRITE_DONE',
+    directPrompt: 'Use the write tool to create direct-output.txt with exactly this text and a final newline: RELIABLE_OUTPUT. Then reply with exactly: DIRECT_WRITE_DONE',
+    directAllowedChanges: ['direct-output.txt'],
+    graphAllowedChanges: ['graph-output.txt'],
+    scoreDirect: () => ({ ok: fs.existsSync(path.join(workspace, 'direct-output.txt')) && fs.readFileSync(path.join(workspace, 'direct-output.txt'), 'utf8') === 'RELIABLE_OUTPUT\n' }),
+    scoreGraph: () => ({ ok: fs.existsSync(path.join(workspace, 'graph-output.txt')) && fs.readFileSync(path.join(workspace, 'graph-output.txt'), 'utf8') === 'RELIABLE_OUTPUT\n' }),
+    graphNodes: [
+      {
+        id: 'agent', kind: 'agent_turn', title: 'Write the requested output', mutation: 'workspace_write',
+        capabilities: ['filesystem.write'], outputs: [{ name: 'output', path: 'graph-output.txt', required: true, minimumBytes: 16 }],
+        action: { name: 'agent.prompt', text: 'Use the write tool to create graph-output.txt with exactly this text and a final newline: RELIABLE_OUTPUT. Then reply with exactly: GRAPH_WRITE_DONE' },
+      },
+      {
+        id: 'gate', kind: 'gate', title: 'Verify declared output', dependsOn: ['agent'],
+        capabilities: ['filesystem.read'], action: { name: 'outputs.verify' },
+      },
+      { id: 'join', kind: 'join', title: 'Complete write task', dependsOn: ['gate'], action: { name: 'join.all' } },
+    ],
+  },
+  {
+    id: 'repair-code',
+    directExpected: 'DIRECT_REPAIR_DONE',
+    graphExpected: 'GRAPH_REPAIR_DONE',
+    directPrompt: 'Fix the bug in direct_app.py so direct_test.py passes. Run python3 direct_test.py to verify it. Then reply with exactly: DIRECT_REPAIR_DONE',
+    directAllowedChanges: ['__pycache__/direct_app.cpython-*', 'direct_app.py'],
+    graphAllowedChanges: ['__pycache__/graph_app.cpython-*', 'graph_app.py'],
+    scoreDirect: () => runPythonTest('direct_test.py'),
+    scoreGraph: () => runPythonTest('graph_test.py'),
+    graphNodes: [
+      {
+        id: 'inspect', kind: 'agent_turn', title: 'Understand the failing code', mutation: 'read_only',
+        capabilities: ['filesystem.read'],
+        action: { name: 'agent.prompt', text: 'Use the read tool now on graph_app.py and graph_test.py to understand why the test fails. Do not modify files yet. Then reply with exactly: GRAPH_INSPECT_DONE' },
+      },
+      {
+        id: 'agent', kind: 'agent_turn', title: 'Repair the implementation', dependsOn: ['inspect'], mutation: 'workspace_write',
+        capabilities: ['filesystem.read', 'filesystem.write'], outputs: [{ name: 'source', path: 'graph_app.py', required: true, minimumBytes: 20 }],
+        action: { name: 'agent.prompt', text: 'Using the files and failing test you just inspected, use the edit tool now to fix graph_app.py. Make the code change; do not merely describe it and do not run the test yourself. Then reply with exactly: GRAPH_REPAIR_DONE' },
+      },
+      {
+        id: 'output_gate', kind: 'gate', title: 'Verify repaired source exists', dependsOn: ['agent'],
+        capabilities: ['filesystem.read'], action: { name: 'outputs.verify' },
+      },
+      {
+        id: 'test', kind: 'host_tool', title: 'Run deterministic test', dependsOn: ['output_gate'],
+        mutation: 'workspace_write', capabilities: ['test.run'],
+        action: { name: 'test.run', argv: ['python3', 'graph_test.py'] },
+      },
+      {
+        id: 'test_gate', kind: 'gate', title: 'Verify repaired expression', dependsOn: ['test'],
+        capabilities: ['filesystem.read'], action: { name: 'workspace.assert', path: 'graph_app.py', contains: 'return a + b' },
+      },
+      { id: 'join', kind: 'join', title: 'Complete repair', dependsOn: ['test_gate'], action: { name: 'join.all' } },
+    ],
+  },
+];
+
+const scenarios = Array.from({ length: caseCount }, (_unused, index) => {
+  const template = scenarioTemplates[index % scenarioTemplates.length];
+  return {
+    ...template,
+    templateId: template.id,
+    id: `${template.id}-${String(index + 1).padStart(2, '0')}`,
+  };
+});
+
+function resetScenario(scenario, variant) {
+  const direct = variant === 'native-agent';
+  if (scenario.templateId === 'write-file') {
+    const target = direct ? 'direct-output.txt' : 'graph-output.txt';
+    try { fs.unlinkSync(path.join(workspace, target)); } catch {}
+  }
+  if (scenario.templateId === 'repair-code') {
+    const target = direct ? 'direct_app.py' : 'graph_app.py';
+    fs.writeFileSync(path.join(workspace, target), 'def total(a, b):\n    return a - b\n');
+    fs.rmSync(path.join(workspace, '__pycache__'), { recursive: true, force: true });
+  }
+}
+
+async function runGuardrailFaults(server) {
+  const results = {};
+
+  const escape = path.resolve(workspace, '..', 'task-graph-escape.txt');
+  try { fs.unlinkSync(escape); } catch {}
+  const invalid = {
+    schemaVersion: 1, policy: 'agent.general.v1', mode: 'agent', executorMode: 'native',
+    goal: 'Reject path traversal', workspace,
+    nodes: [{
+      id: 'bad', kind: 'host_tool', title: 'Escape', mutation: 'workspace_write',
+      capabilities: ['filesystem.write'], action: { name: 'workspace.write', path: '../task-graph-escape.txt', text: 'bad' },
+    }],
+  };
+  let policyRejected = false;
+  try {
+    await jsonFetch(server.baseUrl, '/api/task-graph/validate', {
+      method: 'POST', headers: csrfHeaders, body: JSON.stringify(invalid), timeoutMs: 30_000,
+    });
+  } catch { policyRejected = true; }
+  results.invalidPath = { injected: true, preventedBeforeExecution: policyRejected, outsideFileCreated: fs.existsSync(escape) };
+
+  const gateDefinition = {
+    schemaVersion: 1, policy: 'agent.general.v1', mode: 'agent', executorMode: 'native',
+    goal: 'Detect corrupted output', workspace,
+    nodes: [
+      {
+        id: 'write', kind: 'host_tool', title: 'Write invalid output', mutation: 'workspace_write',
+        capabilities: ['filesystem.write'], action: { name: 'workspace.write', path: 'corrupt-output.txt', text: 'WRONG\n' },
+      },
+      {
+        id: 'gate', kind: 'gate', title: 'Require correct output', dependsOn: ['write'],
+        capabilities: ['filesystem.read'], action: { name: 'workspace.assert', path: 'corrupt-output.txt', contains: 'EXPECTED_OK' },
+      },
+      { id: 'join', kind: 'join', title: 'Must not run', dependsOn: ['gate'], action: { name: 'join.all' } },
+    ],
+  };
+  const gateStarted = await createAndStartGraph(server.baseUrl, gateDefinition);
+  const gateCompleted = await waitForGraph(server.baseUrl, gateStarted.graph.graphId, 30_000);
+  results.corruptedOutput = {
+    injected: true,
+    graphState: gateCompleted.graph.state,
+    gateState: gateCompleted.graph.nodes.find((node) => node.id === 'gate')?.state,
+    downstreamJoinRan: gateCompleted.graph.nodes.find((node) => node.id === 'join')?.attemptsStarted > 0,
+  };
+
+  fs.writeFileSync(path.join(workspace, 'undo-target.txt'), 'BEFORE\n');
+  const undoDefinition = {
+    schemaVersion: 1, policy: 'agent.general.v1', mode: 'agent', executorMode: 'native',
+    goal: 'Refuse conflicting undo', workspace,
+    nodes: [
+      {
+        id: 'write', kind: 'host_tool', title: 'Write checkpointed output', mutation: 'workspace_write',
+        capabilities: ['filesystem.write'], action: { name: 'workspace.write', path: 'undo-target.txt', text: 'AFTER\n' },
+      },
+      {
+        id: 'gate', kind: 'gate', title: 'Verify changed output', dependsOn: ['write'],
+        capabilities: ['filesystem.read'], action: { name: 'workspace.assert', path: 'undo-target.txt', contains: 'AFTER' },
+      },
+      { id: 'join', kind: 'join', title: 'Complete checkpoint', dependsOn: ['gate'], action: { name: 'join.all' } },
+    ],
+  };
+  const undoStarted = await createAndStartGraph(server.baseUrl, undoDefinition);
+  const undoCompleted = await waitForGraph(server.baseUrl, undoStarted.graph.graphId, 30_000);
+  assert.equal(undoCompleted.graph.state, 'succeeded');
+  fs.writeFileSync(path.join(workspace, 'undo-target.txt'), 'EXTERNAL_CHANGE\n');
+  let undoRefused = false;
+  try {
+    await jsonFetch(server.baseUrl, '/api/task-graph/node/undo', {
+      method: 'POST', headers: csrfHeaders,
+      body: JSON.stringify({
+        graphId: undoCompleted.graph.graphId, workspace, nodeId: 'write',
+        expectedRevision: undoCompleted.graph.revision,
+        expectedLastEventSeq: undoCompleted.graph.lastEventSeq,
+      }), timeoutMs: 30_000,
+    });
+  } catch { undoRefused = true; }
+  results.conflictingUndo = {
+    injected: true,
+    refused: undoRefused,
+    externalChangePreserved: fs.readFileSync(path.join(workspace, 'undo-target.txt'), 'utf8') === 'EXTERNAL_CHANGE\n',
+  };
+
+  const unit = spawnSync(path.join(process.cwd(), 'tests', '.build', 'task_graph_unit'), [], {
+    cwd: process.cwd(), encoding: 'utf8', timeout: 60_000,
+  });
+  results.antiLoop = {
+    fourIdenticalStructuredCallsInjected: true,
+    watchdogThresholdTestPassed: unit.status === 0 && /2524 lightweight checks passed/.test(unit.stdout),
+  };
+  return results;
+}
+
+async function createCrashGraph(server) {
+  const definition = {
+    schemaVersion: 1, policy: 'test.synthetic.v1', executorMode: 'synthetic',
+    goal: 'Recover a running graph after host crash', workspace,
+    nodes: [
+      { id: 'delayed', kind: 'host_tool', title: 'Durable delayed work', synthetic: { delayMs: 3000 } },
+      { id: 'join', kind: 'join', title: 'Finish after restart', dependsOn: ['delayed'], synthetic: { delayMs: 0 } },
+    ],
+  };
+  const started = await createAndStartGraph(server.baseUrl, definition);
+  assert.ok(started.graph.nodes.some((node) => node.state === 'running'));
+  return started.graph.graphId;
+}
+
+async function waitForChildExit(child, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (child.exitCode === null && child.signalCode === null && Date.now() < deadline) await sleep(50);
+  assert.ok(child.exitCode !== null || child.signalCode !== null, 'DStudio did not exit after injected crash');
+}
+
+let server = await startDStudio({
+  binaryArg: process.argv[2], label: 'dstudio-task-graph-reliability', isolatedEnginePort: true,
+});
+const benchmarkStartedAt = performance.now();
+
+try {
+  const model = selectModel(server.ggufs);
+  assert.ok(model, 'No supported full local GGUF found');
+  const launch = {
+    mode: 'agent', model: 'standard', variant: 'flash', gguf: model.file,
+    port: server.enginePort,
+    ctx: Number(process.env.DSTUDIO_RELIABILITY_CTX || 8192),
+    power: Number(process.env.DSTUDIO_RELIABILITY_POWER || 70),
+    think: 'off', ssdStreaming: 'off', workdir: workspace,
+  };
+  writeArtifact(artifacts, 'launch.json', launch);
+  const startupStartedAt = performance.now();
+  const startup = await startMode(server.baseUrl, launch,
+    Number(process.env.DSTUDIO_RELIABILITY_START_TIMEOUT_MS || 1_800_000));
+  const startupMs = rounded(performance.now() - startupStartedAt);
+  writeArtifact(artifacts, 'startup.json', startup);
+  assert.equal(startup.config?.ssdStreaming, 'off');
+  assert.equal(startup.config?.ssdStreamingEffective, false,
+    `SSD streaming remained effective: ${startup.config?.ssdStreamingReason || 'unknown'}`);
+
+  const direct = [];
+  const taskGraph = [];
+  for (let index = 0; index < scenarios.length; index++) {
+    const scenario = scenarios[index];
+    if (index % 2 === 0) {
+      resetScenario(scenario, 'native-agent');
+      await freshAgentSession(server);
+      direct.push(await runDirect(server, scenario));
+      resetScenario(scenario, 'task-graph');
+      await freshAgentSession(server);
+      taskGraph.push(await runTaskGraph(server, scenario));
+    } else {
+      resetScenario(scenario, 'task-graph');
+      await freshAgentSession(server);
+      taskGraph.push(await runTaskGraph(server, scenario));
+      resetScenario(scenario, 'native-agent');
+      await freshAgentSession(server);
+      direct.push(await runDirect(server, scenario));
+    }
+    console.log(`reliability_ab: ${index + 1}/${scenarios.length} ${scenario.id} · direct=${direct.at(-1).taskSuccess} graph=${taskGraph.at(-1).taskSuccess}`);
+  }
+
+  const faults = await runGuardrailFaults(server);
+  const crashGraphId = await createCrashGraph(server);
+  const crashedServer = server;
+  crashedServer.child.kill('SIGKILL');
+  await waitForChildExit(crashedServer.child);
+  await crashedServer.stop();
+  await sleep(3500);
+  server = await startDStudio({
+    binaryArg: process.argv[2], label: 'dstudio-task-graph-recovery', isolatedEnginePort: true,
+  });
+  const recovered = await waitForGraph(server.baseUrl, crashGraphId, 30_000);
+  faults.hostCrashRecovery = {
+    crashInjectedWhileRunning: true,
+    recoveredGraphState: recovered.graph.state,
+    recoveredWithoutModelReload: recovered.graph.state === 'succeeded',
+    humanRecoveryInterventions: 0,
+  };
+
+  const directSuccesses = direct.filter((result) => result.taskSuccess).length;
+  const graphSuccesses = taskGraph.filter((result) => result.taskSuccess).length;
+  const graphBlockedIncorrect = taskGraph.filter((result) => result.incorrectResultBlocked).length;
+  const paired = scenarios.reduce((summary, _scenario, index) => {
+    const directOk = direct[index].taskSuccess;
+    const graphOk = taskGraph[index].taskSuccess;
+    if (directOk && graphOk) summary.bothSucceeded++;
+    else if (directOk) summary.nativeAgentOnly++;
+    else if (graphOk) summary.taskGraphOnly++;
+    else summary.bothFailed++;
+    return summary;
+  }, { bothSucceeded: 0, nativeAgentOnly: 0, taskGraphOnly: 0, bothFailed: 0 });
+  const result = {
+    schemaVersion: 1,
+    ok: direct.length === scenarios.length && taskGraph.length === scenarios.length &&
+      faults.invalidPath.preventedBeforeExecution &&
+      faults.corruptedOutput.graphState === 'failed' && !faults.corruptedOutput.downstreamJoinRan &&
+      faults.conflictingUndo.refused && faults.conflictingUndo.externalChangePreserved &&
+      faults.antiLoop.watchdogThresholdTestPassed &&
+      faults.hostCrashRecovery.recoveredWithoutModelReload,
+    measuredAt: new Date().toISOString(),
+    dstudio: revisionInfo(process.cwd()),
+    ds4: revisionInfo(server.ds4Dir),
+    hardware: hardwareInfo(),
+    model: { file: model.file, bytes: model.size },
+    configuration: {
+      contextTokens: launch.ctx,
+      power: launch.power,
+      thinking: launch.think,
+      ssdStreaming: startup.config?.ssdStreaming,
+      ssdStreamingEffective: startup.config?.ssdStreamingEffective,
+      ssdStreamingReason: startup.config?.ssdStreamingReason,
+      fullModelReady: startup.ready === true,
+      matchedCases: caseCount,
+    },
+    startupMs,
+    comparison: {
+      scenarios: scenarios.length,
+      nativeAgent: {
+        successes: directSuccesses,
+        successRatePercent: rounded(directSuccesses / direct.length * 100, 1),
+        incorrectCompletionClaims: direct.filter((run) => run.incorrectCompletionClaim).length,
+        unexpectedModificationRuns: direct.filter((run) => run.unexpectedChanges.length).length,
+        maximumRepeatedToolCalls: Math.max(...direct.map((run) => run.toolStats.maximumRepeated)),
+        medianWallClockMs: rounded(median(direct.map((run) => run.wallClockMs))),
+        byTask: byTask(direct),
+      },
+      taskGraph: {
+        successes: graphSuccesses,
+        successRatePercent: rounded(graphSuccesses / taskGraph.length * 100, 1),
+        incorrectResultsBlocked: graphBlockedIncorrect,
+        graphsCompletedWithoutTaskSuccess: taskGraph.filter((run) => !run.taskSuccess && run.graphState === 'succeeded').length,
+        incorrectCompletionClaims: taskGraph.filter((run) => run.incorrectCompletionClaim).length,
+        unexpectedModificationRuns: taskGraph.filter((run) => run.unexpectedChanges.length).length,
+        watchdogTrips: taskGraph.filter((run) => run.toolStats.tripped).length,
+        medianWallClockMs: rounded(median(taskGraph.map((run) => run.wallClockMs))),
+        byTask: byTask(taskGraph),
+      },
+      percentagePointDifference: rounded((graphSuccesses - directSuccesses) / scenarios.length * 100, 1),
+      paired,
+      runs: { nativeAgent: direct, taskGraph },
+    },
+    injectedFaults: faults,
+    humanRecoveryInterventions: 0,
+    wallClockMs: rounded(performance.now() - benchmarkStartedAt),
+    limitations: [
+      `${caseCount} matched A/B cases cycle through read, write and code-repair fixtures.`,
+      'Every variant uses a fresh Agent session while keeping the same full model loaded; they are not independent cold model starts.',
+      'The crash test targets the durable graph runtime after deterministic work, not resumption of an in-flight LLM token stream.',
+      'The approval benchmark uses no human click; approval behavior is covered by the separate native SSD benchmark.',
+    ],
+  };
+  writeArtifact(artifacts, 'result.json', result);
+  assert.equal(result.ok, true, `Reliability benchmark failed: ${JSON.stringify(result, null, 2)}`);
+  console.log(`task_graph_reliability_real: ok · direct ${directSuccesses}/${direct.length} · graph ${graphSuccesses}/${taskGraph.length} · graph blocked ${graphBlockedIncorrect} incorrect result(s) · SSD streaming off`);
+} catch (error) {
+  writeArtifact(artifacts, 'failure.txt', `${error?.stack || error}\n\n${safeReadTail(server?.logPath)}`);
+  throw error;
+} finally {
+  if (server) await server.stop();
+}

@@ -18,6 +18,19 @@ for (const action of ['agent.prompt', 'approval.wait', 'workspace.write', 'outpu
 if (!heavyRunner.includes('DSTUDIO_TASK_GRAPH_BENCH_RUNS') ||
     !heavyRunner.includes("lastIndexOf(expectedReply) > toolResultAt"))
   throw new Error('real benchmark must support repeated runs and prove the Agent answer follows its tool result');
+if (manifest.reliabilityBenchmark !== 'run-reliability.mjs' ||
+    !fs.existsSync(path.join(here, manifest.reliabilityBenchmark)))
+  throw new Error('real A/B reliability benchmark runner is missing');
+const reliabilityRunner = fs.readFileSync(path.join(here, manifest.reliabilityBenchmark), 'utf8');
+if (!reliabilityRunner.includes("ssdStreaming: 'off'") ||
+    !reliabilityRunner.includes('DSTUDIO_RELIABILITY_CASES || 50') ||
+    !reliabilityRunner.includes('hostCrashRecovery'))
+  throw new Error('reliability benchmark must run 50 matched cases, disable SSD streaming and inject recovery faults');
+for (const file of [manifest.reliabilityPublisher, manifest.reliabilityPublicationResult,
+  manifest.reliabilityPlotter]) {
+  if (!file || !fs.existsSync(path.resolve(here, file)))
+    throw new Error(`missing published reliability artifact ${file}`);
+}
 for (const file of [manifest.publicationResult, manifest.plotter, ...(manifest.figures || [])]) {
   if (!file || !fs.existsSync(path.resolve(here, file))) throw new Error(`missing published benchmark artifact ${file}`);
 }
@@ -32,6 +45,23 @@ if (published.nativeTaskGraph?.graphsSucceeded !== 3 ||
     published.nativeTaskGraph?.watchdogTrips !== 0 ||
     published.model?.ssdStreamingEffective !== true)
   throw new Error('published native Task Graph result is incomplete or failed');
+const reliability = JSON.parse(fs.readFileSync(path.resolve(here, manifest.reliabilityPublicationResult), 'utf8'));
+if (reliability.comparison?.nativeAgent?.tasksCompleted !== 42 ||
+    reliability.comparison?.taskGraph?.tasksCompleted !== 47 ||
+    reliability.comparison?.taskGraph?.incorrectResultsBlocked !== 2 ||
+    reliability.comparison?.taskGraph?.graphsCompletedWithoutTaskSuccess !== 1 ||
+    reliability.comparison?.percentagePointDifference !== 10 ||
+    reliability.model?.ssdStreamingEffective !== false ||
+    reliability.model?.fullModelReady !== true ||
+    reliability.runs?.nativeAgent?.length !== 50 ||
+    reliability.runs?.taskGraph?.length !== 50)
+  throw new Error('published 50-case no-SSD reliability result is incomplete');
+if (!reliability.injectedChecks?.invalidPath?.preventedBeforeExecution ||
+    reliability.injectedChecks?.corruptedOutput?.downstreamJoinRan ||
+    !reliability.injectedChecks?.conflictingUndo?.refused ||
+    !reliability.injectedChecks?.antiLoop?.watchdogThresholdTestPassed ||
+    !reliability.injectedChecks?.hostCrashRecovery?.recoveredWithoutModelReload)
+  throw new Error('published reliability checks are incomplete');
 for (const id of required) if (!manifest.scenarios.some((s) => s.id === id)) throw new Error(`missing benchmark scenario ${id}`);
 for (const scenario of manifest.scenarios) {
   if (!scenario.fixture || !Array.isArray(scenario.metrics) || !scenario.metrics.includes('wallClockMs') || !scenario.metrics.includes('taskSuccess'))
@@ -42,4 +72,4 @@ for (const scenario of manifest.scenarios) {
   if (fixture.schemaVersion !== 1 || fixture.id !== scenario.id || !Array.isArray(fixture.acceptance) || !fixture.acceptance.length)
     throw new Error(`invalid fixture ${scenario.fixture}`);
 }
-console.log(`task_graph_bench_validate: ${manifest.scenarios.length} scenarios; published native SSD benchmark verified`);
+console.log(`task_graph_bench_validate: ${manifest.scenarios.length} scenarios; SSD and 50-case no-SSD publications verified`);

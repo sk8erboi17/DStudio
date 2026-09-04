@@ -95,7 +95,7 @@ def plot_user_comparison(result: dict, output: Path) -> None:
     axis.grid(axis="y", visible=False)
     axis.tick_params(axis="y", length=0)
     axis.spines[["top", "right", "left"]].set_visible(False)
-    fig.savefig(output / "native-agent-vs-task-graph.png", dpi=180, bbox_inches="tight")
+    fig.savefig(output / "native-agent-vs-task-graph-speed.png", dpi=180, bbox_inches="tight")
     plt.close(fig)
 
 

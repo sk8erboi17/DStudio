@@ -1,0 +1,1435 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "native-agent-vs-task-graph-reliability",
+  "measuredAt": "2026-09-04T12:04:39.619Z",
+  "source": {
+    "dstudioBaseCommit": "f901b6aa263c",
+    "dstudioWorkingTreeIncludedThisChangeSet": true,
+    "ds4Commit": "b0a147a7fba6",
+    "ds4ManagedRuntimeWorkingTree": true
+  },
+  "hardware": {
+    "chip": "Apple M2 Max",
+    "logicalCores": 12,
+    "memoryBytes": 103079215104,
+    "os": "Darwin 25.5.0 arm64"
+  },
+  "model": {
+    "file": "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf",
+    "bytes": 86720111488,
+    "contextTokens": 8192,
+    "power": 70,
+    "thinking": "off",
+    "ssdStreamingRequested": "off",
+    "ssdStreamingEffective": false,
+    "ssdStreamingReason": "disabled: DS4-only mode uses normal Metal mapped residency",
+    "fullModelReady": true,
+    "nativeRuntime": "ds4-agent-jsonl"
+  },
+  "comparison": {
+    "protocol": "50 matched tasks; fresh Agent session per variant; one continuously loaded model",
+    "nativeAgent": {
+      "tasksCompleted": 42,
+      "tasksRun": 50,
+      "completionRatePercent": 84,
+      "medianTaskMs": 10028.05,
+      "unexpectedModificationRuns": 0,
+      "incorrectCompletionClaims": 0,
+      "byTask": {
+        "read-fact": {
+          "label": "Read a fact",
+          "runs": 17,
+          "completed": 16,
+          "completionRatePercent": 94.1
+        },
+        "write-file": {
+          "label": "Create a file",
+          "runs": 17,
+          "completed": 16,
+          "completionRatePercent": 94.1
+        },
+        "repair-code": {
+          "label": "Repair code",
+          "runs": 16,
+          "completed": 10,
+          "completionRatePercent": 62.5
+        }
+      }
+    },
+    "taskGraph": {
+      "tasksCompleted": 47,
+      "tasksRun": 50,
+      "completionRatePercent": 94,
+      "medianTaskMs": 10270.89,
+      "unexpectedModificationRuns": 0,
+      "incorrectCompletionClaims": 0,
+      "incorrectResultsBlocked": 2,
+      "graphsCompletedWithoutTaskSuccess": 1,
+      "watchdogTrips": 0,
+      "byTask": {
+        "read-fact": {
+          "label": "Read a fact",
+          "runs": 17,
+          "completed": 16,
+          "completionRatePercent": 94.1
+        },
+        "write-file": {
+          "label": "Create a file",
+          "runs": 17,
+          "completed": 15,
+          "completionRatePercent": 88.2
+        },
+        "repair-code": {
+          "label": "Repair code",
+          "runs": 16,
+          "completed": 16,
+          "completionRatePercent": 100
+        }
+      }
+    },
+    "percentagePointDifference": 10,
+    "additionalTasksCompleted": 5,
+    "paired": {
+      "bothCompleted": 39,
+      "nativeAgentOnly": 3,
+      "taskGraphOnly": 8,
+      "neitherCompleted": 0
+    }
+  },
+  "injectedChecks": {
+    "invalidPath": {
+      "injected": true,
+      "preventedBeforeExecution": true,
+      "outsideFileCreated": false
+    },
+    "corruptedOutput": {
+      "injected": true,
+      "graphState": "failed",
+      "gateState": "failed",
+      "downstreamJoinRan": false
+    },
+    "conflictingUndo": {
+      "injected": true,
+      "refused": true,
+      "externalChangePreserved": true
+    },
+    "antiLoop": {
+      "fourIdenticalStructuredCallsInjected": true,
+      "watchdogThresholdTestPassed": true
+    },
+    "hostCrashRecovery": {
+      "crashInjectedWhileRunning": true,
+      "recoveredGraphState": "succeeded",
+      "recoveredWithoutModelReload": true,
+      "humanRecoveryInterventions": 0
+    }
+  },
+  "humanRecoveryInterventions": 0,
+  "modelStartupMs": 31994.81,
+  "totalBenchmarkMs": 1759260.95,
+  "runs": {
+    "nativeAgent": [
+      {
+        "scenario": "read-fact-01",
+        "taskSuccess": true,
+        "wallClockMs": 12033.38,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-02",
+        "taskSuccess": true,
+        "wallClockMs": 11024.47,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-03",
+        "taskSuccess": false,
+        "wallClockMs": 4013.11,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "read-fact-04",
+        "taskSuccess": true,
+        "wallClockMs": 9024.49,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-05",
+        "taskSuccess": true,
+        "wallClockMs": 11031.26,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-06",
+        "taskSuccess": true,
+        "wallClockMs": 47118.11,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/direct_app.cpython-314.pyc",
+          "direct_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 5
+      },
+      {
+        "scenario": "read-fact-07",
+        "taskSuccess": true,
+        "wallClockMs": 10025.83,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-08",
+        "taskSuccess": true,
+        "wallClockMs": 11029.5,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-09",
+        "taskSuccess": true,
+        "wallClockMs": 45114.52,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/direct_app.cpython-314.pyc",
+          "direct_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 5
+      },
+      {
+        "scenario": "read-fact-10",
+        "taskSuccess": false,
+        "wallClockMs": 4015.17,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "write-file-11",
+        "taskSuccess": true,
+        "wallClockMs": 10024.51,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-12",
+        "taskSuccess": false,
+        "wallClockMs": 4012.08,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "read-fact-13",
+        "taskSuccess": true,
+        "wallClockMs": 9028.8,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-14",
+        "taskSuccess": true,
+        "wallClockMs": 10025.51,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-15",
+        "taskSuccess": false,
+        "wallClockMs": 3008.17,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "read-fact-16",
+        "taskSuccess": true,
+        "wallClockMs": 9027.81,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-17",
+        "taskSuccess": true,
+        "wallClockMs": 10027.24,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-18",
+        "taskSuccess": false,
+        "wallClockMs": 4011.28,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "read-fact-19",
+        "taskSuccess": true,
+        "wallClockMs": 9026.04,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-20",
+        "taskSuccess": true,
+        "wallClockMs": 10027.85,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-21",
+        "taskSuccess": true,
+        "wallClockMs": 45131.24,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/direct_app.cpython-314.pyc",
+          "direct_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 5
+      },
+      {
+        "scenario": "read-fact-22",
+        "taskSuccess": true,
+        "wallClockMs": 9028.7,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-23",
+        "taskSuccess": true,
+        "wallClockMs": 10031.84,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-24",
+        "taskSuccess": true,
+        "wallClockMs": 33097.3,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/direct_app.cpython-314.pyc",
+          "direct_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 5
+      },
+      {
+        "scenario": "read-fact-25",
+        "taskSuccess": true,
+        "wallClockMs": 9024.36,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-26",
+        "taskSuccess": false,
+        "wallClockMs": 4012.84,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "repair-code-27",
+        "taskSuccess": true,
+        "wallClockMs": 64192.91,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/direct_app.cpython-314.pyc",
+          "direct_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 6
+      },
+      {
+        "scenario": "read-fact-28",
+        "taskSuccess": true,
+        "wallClockMs": 9029.03,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-29",
+        "taskSuccess": true,
+        "wallClockMs": 10030.27,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-30",
+        "taskSuccess": true,
+        "wallClockMs": 28082.05,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/direct_app.cpython-314.pyc",
+          "direct_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3
+      },
+      {
+        "scenario": "read-fact-31",
+        "taskSuccess": true,
+        "wallClockMs": 9028.54,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-32",
+        "taskSuccess": true,
+        "wallClockMs": 10029.75,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-33",
+        "taskSuccess": true,
+        "wallClockMs": 50142.64,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/direct_app.cpython-314.pyc",
+          "direct_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 5
+      },
+      {
+        "scenario": "read-fact-34",
+        "taskSuccess": true,
+        "wallClockMs": 10033.43,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-35",
+        "taskSuccess": true,
+        "wallClockMs": 11032.2,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-36",
+        "taskSuccess": false,
+        "wallClockMs": 4014.36,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "read-fact-37",
+        "taskSuccess": true,
+        "wallClockMs": 9028.95,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-38",
+        "taskSuccess": true,
+        "wallClockMs": 10033.02,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-39",
+        "taskSuccess": false,
+        "wallClockMs": 4013.23,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0
+      },
+      {
+        "scenario": "read-fact-40",
+        "taskSuccess": true,
+        "wallClockMs": 9025.47,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-41",
+        "taskSuccess": true,
+        "wallClockMs": 10029.34,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-42",
+        "taskSuccess": true,
+        "wallClockMs": 48158.03,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/direct_app.cpython-314.pyc",
+          "direct_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 5
+      },
+      {
+        "scenario": "read-fact-43",
+        "taskSuccess": true,
+        "wallClockMs": 10030.61,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-44",
+        "taskSuccess": true,
+        "wallClockMs": 10028.25,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-45",
+        "taskSuccess": true,
+        "wallClockMs": 35109.1,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/direct_app.cpython-314.pyc",
+          "direct_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 4
+      },
+      {
+        "scenario": "read-fact-46",
+        "taskSuccess": true,
+        "wallClockMs": 9028.58,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-47",
+        "taskSuccess": true,
+        "wallClockMs": 10034.75,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "repair-code-48",
+        "taskSuccess": true,
+        "wallClockMs": 117323.63,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/direct_app.cpython-314.pyc",
+          "direct_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 8
+      },
+      {
+        "scenario": "read-fact-49",
+        "taskSuccess": true,
+        "wallClockMs": 9023.59,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      },
+      {
+        "scenario": "write-file-50",
+        "taskSuccess": true,
+        "wallClockMs": 11032.5,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "direct-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1
+      }
+    ],
+    "taskGraph": [
+      {
+        "scenario": "read-fact-01",
+        "taskSuccess": true,
+        "wallClockMs": 11325.94,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-02",
+        "taskSuccess": true,
+        "wallClockMs": 11843.03,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-03",
+        "taskSuccess": true,
+        "wallClockMs": 28087.02,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-04",
+        "taskSuccess": true,
+        "wallClockMs": 9763.36,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-05",
+        "taskSuccess": true,
+        "wallClockMs": 10906.71,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-06",
+        "taskSuccess": true,
+        "wallClockMs": 29225.36,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-07",
+        "taskSuccess": true,
+        "wallClockMs": 9446.13,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-08",
+        "taskSuccess": true,
+        "wallClockMs": 10592.05,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-09",
+        "taskSuccess": true,
+        "wallClockMs": 26376.77,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-10",
+        "taskSuccess": true,
+        "wallClockMs": 9590.76,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-11",
+        "taskSuccess": true,
+        "wallClockMs": 11047.83,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-12",
+        "taskSuccess": true,
+        "wallClockMs": 30712.77,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-13",
+        "taskSuccess": true,
+        "wallClockMs": 9392.31,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-14",
+        "taskSuccess": true,
+        "wallClockMs": 10312.83,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-15",
+        "taskSuccess": true,
+        "wallClockMs": 31329.94,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-16",
+        "taskSuccess": true,
+        "wallClockMs": 9383.47,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-17",
+        "taskSuccess": false,
+        "wallClockMs": 4436.02,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0,
+        "graphState": "failed",
+        "gatesPassed": 0,
+        "finalJoinRan": false,
+        "incorrectResultBlocked": true,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-18",
+        "taskSuccess": true,
+        "wallClockMs": 24504.86,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-19",
+        "taskSuccess": true,
+        "wallClockMs": 9176.4,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-20",
+        "taskSuccess": true,
+        "wallClockMs": 10324.73,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-21",
+        "taskSuccess": true,
+        "wallClockMs": 25773.71,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-22",
+        "taskSuccess": true,
+        "wallClockMs": 9292.08,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-23",
+        "taskSuccess": true,
+        "wallClockMs": 9998.5,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-24",
+        "taskSuccess": true,
+        "wallClockMs": 28546.32,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-25",
+        "taskSuccess": true,
+        "wallClockMs": 8983.19,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-26",
+        "taskSuccess": true,
+        "wallClockMs": 10511.87,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-27",
+        "taskSuccess": true,
+        "wallClockMs": 25273.67,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-28",
+        "taskSuccess": true,
+        "wallClockMs": 9300.99,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-29",
+        "taskSuccess": true,
+        "wallClockMs": 10118.39,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-30",
+        "taskSuccess": true,
+        "wallClockMs": 25065.8,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-31",
+        "taskSuccess": true,
+        "wallClockMs": 8972.58,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-32",
+        "taskSuccess": true,
+        "wallClockMs": 10105.32,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-33",
+        "taskSuccess": true,
+        "wallClockMs": 26206.55,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-34",
+        "taskSuccess": true,
+        "wallClockMs": 9172.61,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-35",
+        "taskSuccess": true,
+        "wallClockMs": 9772.25,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-36",
+        "taskSuccess": true,
+        "wallClockMs": 23912.47,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-37",
+        "taskSuccess": true,
+        "wallClockMs": 9717.02,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-38",
+        "taskSuccess": false,
+        "wallClockMs": 3827.6,
+        "externalCheckPassed": false,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0,
+        "graphState": "failed",
+        "gatesPassed": 0,
+        "finalJoinRan": false,
+        "incorrectResultBlocked": true,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-39",
+        "taskSuccess": true,
+        "wallClockMs": 29187.58,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-40",
+        "taskSuccess": true,
+        "wallClockMs": 8950.81,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-41",
+        "taskSuccess": true,
+        "wallClockMs": 10135.85,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-42",
+        "taskSuccess": true,
+        "wallClockMs": 28993.01,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-43",
+        "taskSuccess": true,
+        "wallClockMs": 9616.2,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-44",
+        "taskSuccess": true,
+        "wallClockMs": 10526.12,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-45",
+        "taskSuccess": true,
+        "wallClockMs": 25602.55,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-46",
+        "taskSuccess": true,
+        "wallClockMs": 9212.16,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-47",
+        "taskSuccess": true,
+        "wallClockMs": 10143.78,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "repair-code-48",
+        "taskSuccess": true,
+        "wallClockMs": 27699.04,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "__pycache__/graph_app.cpython-314.pyc",
+          "graph_app.py"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 3,
+        "graphState": "succeeded",
+        "gatesPassed": 2,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "read-fact-49",
+        "taskSuccess": false,
+        "wallClockMs": 3732.1,
+        "externalCheckPassed": true,
+        "changedFiles": [],
+        "unexpectedChanges": [],
+        "toolCalls": 0,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      },
+      {
+        "scenario": "write-file-50",
+        "taskSuccess": true,
+        "wallClockMs": 10228.95,
+        "externalCheckPassed": true,
+        "changedFiles": [
+          "graph-output.txt"
+        ],
+        "unexpectedChanges": [],
+        "toolCalls": 1,
+        "graphState": "succeeded",
+        "gatesPassed": 1,
+        "finalJoinRan": true,
+        "incorrectResultBlocked": false,
+        "watchdogTripped": false
+      }
+    ]
+  },
+  "notes": [
+    "The same 50 task fixtures were run once with Native Agent and once with Task Graph; execution order alternated.",
+    "Every variant started with a fresh Agent session while the same full model remained loaded.",
+    "A task passed only when the requested tool-backed answer and the independent file or test check both passed.",
+    "Task Graph split code repair into inspect, edit and deterministic test steps; Native Agent received the complete repair task in one turn.",
+    "Two missing Task Graph writes were blocked before the final join. One missing read reached the final join because its gate checked the source file, not the Agent answer.",
+    "The crash injection covers durable graph recovery after deterministic work, not continuation of an in-flight model token stream.",
+    "This is a single-machine sample, not a universal guarantee for other models, prompts or hardware."
+  ]
+}

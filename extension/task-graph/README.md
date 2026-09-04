@@ -68,7 +68,7 @@ misrepresented as rollback.
 - A transition is appended and fsynced before its new state is exposed.
 - `events.jsonl` is authoritative; `state.json` is an atomically replaced view.
 - Unknown schemas/actions/capabilities, duplicate JSON keys, cycles, escaping
-  paths, unsafe retries and unapproved external effects are rejected.
+  paths, invalid retries and unapproved external effects are rejected.
 - Attempts and policy/checkpoint/result/undo envelopes are immutable.
 - One LLM node and one workspace writer run globally at a time. Bounded host
   reads may run concurrently.
@@ -120,9 +120,16 @@ make test-task-graph-bench-validate
 # Explicit heavyweight test: starts a real local Agent with forced SSD streaming
 make test-task-graph-real
 
-# Publication run and Matplotlib figures
+# 50 matched Native Agent / Task Graph tasks with SSD streaming off
+DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-reliability-real
+
+# Publication data and Matplotlib figures
 DSTUDIO_TASK_GRAPH_BENCH_RUNS=3 make test-task-graph-real
 python3 extension/task-graph/bench/plot-results.py
+node extension/task-graph/bench/publish-reliability.mjs \
+  tests/.artifacts/task-graph-reliability-real/result.json \
+  extension/task-graph/bench/results/2026-09-04-m2-max-reliability-no-ssd.json
+python3 extension/task-graph/bench/plot-reliability.py
 ```
 
 The lightweight gates cover parser/policy decisions, native reads and writes,
@@ -139,4 +146,8 @@ receipts. Its working artifacts live under
 The measured public snapshot, including per-run values, hardware, configuration
 and methodological limitations, is stored in
 [`bench/results/2026-09-04-m2-max-native-ssd.json`](bench/results/2026-09-04-m2-max-native-ssd.json).
-The main README renders the two figures generated from that file.
+The matched 50-task publication, including all 100 Agent/Task Graph outcomes,
+is stored in
+[`bench/results/2026-09-04-m2-max-reliability-no-ssd.json`](bench/results/2026-09-04-m2-max-reliability-no-ssd.json).
+The main README leads with the two reliability figures generated from the
+no-SSD result; the earlier SSD run remains available as a runtime snapshot.

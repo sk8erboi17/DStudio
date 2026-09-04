@@ -15,6 +15,19 @@
 
 </div>
 
+## Contents
+
+- [Install](#install-on-macos)
+- [What DStudio can do](#what-you-can-do)
+- [Modes](#modes)
+- [Native Agent or Task Graph](#native-agent-or-task-graph)
+- [50-task reliability benchmark](#50-task-reliability-benchmark)
+- [Requirements](#requirements)
+- [Development](#development)
+- [Network access](#network-lan)
+- [How it works](#how-it-works)
+- [Contributing](#contributing)
+
 DStudio turns [ds4](https://github.com/antirez/ds4), antirez's native local inference engine, into a complete desktop AI workspace. One UI combines private Chat, evidence-backed Learn paths and Tutor rooms, Agent with Plan/GSA/RSA workflows, document-focused Cowork, a gated Design studio, local image understanding/generation/editing and optional MiniMax H3 video. Model execution, project files and generated artifacts stay under the user's control by default.
 
 Network access is still explicit and documented. Installation and model setup download source archives and weights from GitHub or Hugging Face; Web Search, Learn links and Deep Research read public websites; and the optional DeepSeek API backend sends the selected Chat, Learn, Agent, Cowork or Design requests to DeepSeek when the user supplies an API key. DStudio has no telemetry and does not require a cloud account for its local inference path.
@@ -253,11 +266,18 @@ Toggle **Plan** in Agent mode, describe what you want, and DStudio writes a **Ma
 
 **4 · Then you decide.** Turn Plan off and use Agent/Design to implement, or keep the Markdown file as the execution reference.
 
-## Task Graph runtime
+## Task Graph: what it does
 
-DStudio 1.1 includes a host-authoritative Task Graph V1 runtime as shared infrastructure rather than a separate workflow mode. It parses and strictly validates bounded DAGs, rejects cycles and unsafe paths, persists an append-only journal before exposing transitions, rebuilds materialized state after a crash, and provides optimistic-concurrency controls for approve, start, pause, resume, cancel, retry, skip and undo. One global model lease and one workspace-writer lease prevent accidental double use.
+Native Agent is still the quickest choice for one clear job. Task Graph is for
+work with several dependent steps: DStudio turns the job into a visible
+checklist, lets the same Agent handle the parts that need AI, and runs concrete
+checks before moving on.
 
-Registered native actions execute real Agent turns, bounded workspace reads/writes, argv-only test processes, deterministic gates, approvals and joins. Every dispatch re-evaluates a closed-world policy and records immutable policy/checkpoint/result receipts; the Agent watchdog stops repeated structured tool calls/results or excessive tool churn. Automatic undo is intentionally limited to exact, unchanged bytes written by `workspace.write`: broader Agent or test side effects produce an honest non-reversible receipt for manual review. A live DAG dialog exposes node state, durable events, watchdog counters, pause/resume and per-node controls. Unregistered action types still fail before `graph.started`, so a proposal cannot become a half-started run. See [`extension/task-graph/README.md`](extension/task-graph/README.md) for the action, receipt and local API contracts.
+You can watch the graph live, pause it, resume it and reopen its saved progress
+after DStudio restarts. It also records what changed and only offers automatic
+undo when it can prove exactly what will be restored. The implementation details
+and local API are documented in
+[`extension/task-graph/README.md`](extension/task-graph/README.md).
 
 ### Native Agent or Task Graph?
 
@@ -267,73 +287,91 @@ DStudio puts around the Agent.
 
 | | Native Agent | Agent with Task Graph |
 | --- | --- | --- |
-| Best for | One quick, clear task | Longer or riskier multi-step work |
+| Best for | One quick, clear task | Longer multi-step work |
 | How it works | The Agent receives a prompt and uses its tools | The same Agent handles selected steps inside a visible workflow |
 | Checks | The Agent decides when it is done | Explicit gates can block the next step when output is wrong |
-| Safety | Normal tool permissions | Deterministic policy, declared actions and approval steps |
+| Rules | Normal tool permissions | Every action is checked against the graph's declared rules |
 | Interruption | Continue the conversation manually | Pause, resume and recover the graph from its journal |
 | Undo evidence | Depends on what the Agent changed | Exact writes get checkpoints; uncertain effects are reported honestly |
 | Visibility | Conversation and tool timeline | Live graph showing every running, waiting or completed step |
 
 **Choose Native Agent** for a small edit, question or isolated coding task.
-**Choose Task Graph** when the result needs approvals, several dependent steps,
-repeatable checks, recovery after interruption or an auditable history.
+**Choose Task Graph** when the result needs several dependent steps, repeatable
+checks, pause/resume or recovery after an interruption.
 
-In the representative benchmark run, the native Agent work took **101.9 s**.
-The complete eight-step Task Graph took **103.1 s**: **1.2 s more** to execute
-the additional write, test, gates, approval, checkpoints and durable journal.
-The blue value below is the Agent node measured inside that same run—not a
-separate model-quality comparison.
+### 50-task reliability benchmark
+
+We ran the same 50 real tasks twice: once with Native Agent and once with Task
+Graph. Both used the same complete 86.72 GB DeepSeek V4 Flash model. The model
+stayed loaded, but every task started with a clean conversation. SSD streaming
+was requested **Off** and confirmed inactive.
+
+| Result | Native Agent | Task Graph |
+| --- | ---: | ---: |
+| Tasks completed | **42/50** | **47/50** |
+| Completion rate | **84%** | **94%** |
+| Code repairs completed | **10/16** | **16/16** |
+| Unexpected file changes | **0** | **0** |
+
+In this run, Task Graph completed **5 more tasks**, a difference of **10
+percentage points**. The largest gain came from code repair: instead of asking
+the model to understand, edit and test everything in one turn, the graph split
+the work into small steps and ran the test itself.
 
 <div align="center">
-  <img src="assets/README%20images/benchmarks/native-agent-vs-task-graph.png" width="920" alt="The same native Agent workload takes 101.9 seconds, while the complete Task Graph with checks and coordination takes 103.1 seconds">
+  <img src="assets/README%20images/benchmarks/native-agent-vs-task-graph.png" width="920" alt="Completion rates across 50 matched tasks: Native Agent completed 42 and Task Graph completed 47">
 </div>
 
-All three measured graphs completed successfully: **3/3 graphs, 24/24 nodes,
-zero watchdog stops**. SSD streaming was forced on and confirmed active.
+The modes did not always fail on the same task: both completed 39 tasks, Task
+Graph alone completed 8, and Native Agent alone completed 3.
+
+<div align="center">
+  <img src="assets/README%20images/benchmarks/task-graph-reliability-paired.png" width="860" alt="Paired outcomes: both modes completed 39 tasks, only Task Graph completed 8, only Native Agent completed 3, and neither completed zero">
+</div>
+
+Task Graph was not perfect. It missed 3 tasks. Two missing file writes were
+stopped before the graph could finish. One missed read was not stopped because
+that check only verified the source file, not the Agent's answer. That weak
+check is kept in the published result rather than hidden.
 
 <details>
 <summary><strong>Open the technical benchmark details</strong></summary>
 
-This is a single-machine snapshot, not a universal speed claim. It was measured
-on 4 September 2026 using an Apple M2 Max with 96 GB memory and a 4 TB Apple SSD.
-The model was DeepSeek V4 Flash IQ2XXS, 86.72 GB (80.76 GiB), with a 16,384-token
-context, power 70 and thinking off. Cold model startup took 73.42 s and is not
-included in the graph times.
+This is a single-machine sample, not a guarantee for every model, prompt or
+computer. It was measured on 4 September 2026 on an Apple M2 Max with 96 GB of
+memory. The model was DeepSeek V4 Flash IQ2XXS, 86.72 GB (80.76 GiB), with an
+8,192-token context, power 70 and thinking off. Full-model startup took 31.99 s.
 
 | Measurement | Result |
 | --- | ---: |
-| Complete native graphs | **3/3** |
-| Native nodes completed | **24/24** |
-| End-to-end graph time | **103.10 s median** (80.23–104.90 s) |
-| Real DS4 Agent node | **101.89 s median** (79.16–103.86 s) |
-| Other seven native nodes, including approval and work | **1.06 s median** (1.02–1.19 s) |
-| Scheduler/journal gap between node timings | **22 ms median** (21–23 ms) |
-| API validation / create / start | **0.67 / 3.01 / 5.74 ms median** |
-| DS4 status throughput, prefill / decode | **12.90 / 0.60 tok/s median** |
-| Structured Agent tool calls / watchdog trips | **3 / 0** |
-| Durable events / verified immutable receipts and streams | **144 / 105** |
+| Matched task pairs | **50** (100 total Agent executions) |
+| Reading | Agent **16/17** · Graph **16/17** |
+| File creation | Agent **16/17** · Graph **15/17** |
+| Code repair | Agent **10/16** · Graph **16/16** |
+| Same-task outcomes | both **39** · Graph only **8** · Agent only **3** · neither **0** |
+| Median task time | Agent **10.03 s** · Graph **10.27 s** |
+| Graph misses caught before completion | **2/3** |
+| Human recovery interventions | **0** |
+| Total benchmark time | **29 min 19 s** |
 
-Each graph executed: Agent read → gate → approval → host write → output gate →
-argv test process → file gate → join. The seven-node measurement includes real
-work and the scheduler cadence; it must not be interpreted as pure framework
-overhead. The isolated scheduler/journal gap was 22 ms at the median.
-
-<div align="center">
-  <img src="assets/README%20images/benchmarks/task-graph-native-ssd-breakdown.png" width="920" alt="Three real native DS4 Agent Task Graph benchmark runs, with Agent time, seven non-Agent nodes and scheduler journal gap separated">
-</div>
-
-<div align="center">
-  <img src="assets/README%20images/benchmarks/task-graph-runtime-overhead.png" width="920" alt="Task Graph control-plane latency from core parse and policy validation through durable eight-node scheduling and replay">
-</div>
+After the 50 pairs, separate injected checks confirmed that an invalid path was
+rejected before execution, corrupted output stopped downstream work, undo
+refused to overwrite a later external change, the four-call loop watchdog
+triggered in its native test, and a running durable graph recovered after the
+DStudio process was killed and restarted. The crash check covers the graph
+runtime, not continuation of an in-flight model token stream.
 
 Raw results and methodological limitations are in
-[`extension/task-graph/bench/results/2026-09-04-m2-max-native-ssd.json`](extension/task-graph/bench/results/2026-09-04-m2-max-native-ssd.json).
-Reproduce the benchmark and Matplotlib figures with:
+[`extension/task-graph/bench/results/2026-09-04-m2-max-reliability-no-ssd.json`](extension/task-graph/bench/results/2026-09-04-m2-max-reliability-no-ssd.json).
+The file includes all 100 per-run outcomes. Reproduce the run and Matplotlib
+figures with:
 
 ```sh
-DSTUDIO_TASK_GRAPH_BENCH_RUNS=3 make test-task-graph-real
-python3 extension/task-graph/bench/plot-results.py
+DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-reliability-real
+node extension/task-graph/bench/publish-reliability.mjs \
+  tests/.artifacts/task-graph-reliability-real/result.json \
+  extension/task-graph/bench/results/2026-09-04-m2-max-reliability-no-ssd.json
+python3 extension/task-graph/bench/plot-reliability.py
 ```
 
 </details>
@@ -509,7 +547,7 @@ Behind the scenes DStudio **reverse-proxies the engine API** (`/v1`) to the loca
 - **C launcher, not a script.** `dstudio.c` is both the local HTTP server and the engine supervisor: it starts/stops `ds4-server` for chat, `ds4-agent-jsonl` for coding, `ds4-cowork` for Office work and `ds4-design` for design, manages working directories, runs the setup doctor, proxies `/v1`, serves Web Search and exposes a small local API.
 - **Native window.** `app.cc` forks the server and opens a WKWebView (macOS) / WebKitGTK (Linux) window via `webview.h`; the page is base64-embedded (`page_data.h`).
 - **Same-origin proxy.** The page calls DStudio for `/v1`; DStudio forwards streaming requests to the local engine, which is why LAN works with no engine exposure and no settings.
-- **Durable native Task Graph runtime.** A bounded DAG validator, append-first event store, deterministic action policies, real Agent/tool/gate/approval executors, anti-loop watchdog, exact-write undo receipts and a live DAG view provide crash-safe local orchestration without reusing the transient `/api/tasks` telemetry ring. The explicit `test-task-graph-real` target exercises a real GGUF Agent with forced SSD streaming and remains outside `check-fast`.
+- **Durable native Task Graph runtime.** Multi-step work can use real Agent/tool/check/approval executors, loop detection, exact-write undo receipts and a live graph with pause/resume. The explicit `test-task-graph-reliability-real` target compares 50 real tasks using the full GGUF with SSD streaming off and remains outside `check-fast`.
 - **Native vision only.** DeepSeek Vision-Exp and GLM 5.3 Chat/Agent/Cowork/Design use their ds4 native encoders directly. Every other engine is text-only; no secondary VLM, visual router or fallback is installed. Ideogram 4 FP8 Quality-48 creates new images and full HunyuanImage-3.0-Instruct NF4/50-step edits source pixels directly.
 - **Text-first, native-vision PDF acceleration.** Poppler extraction, chunking and BM25 stay on the CPU. Qwen3-Embedding-0.6B ranks multilingual text only; it is not a router. DeepSeek Vision-Exp or GLM 5.3 can inspect a bounded selection of rendered pages through the currently loaded native encoder, while Laguna reports and skips image-only pages.
 
