@@ -4312,6 +4312,7 @@ static int design_exec_capture(char *const argv[], size_t max_bytes,
 static int design_stop_media_job(const char *base, const char *route,
                                  const char *job_id);
 
+#if DSTUDIO_HAS_NATIVE_VISION
 static void design_native_vision_spans_free(ds4_vision_span *spans, size_t count) {
     if (!spans) return;
     for (size_t i = 0; i < count; i++)
@@ -4426,6 +4427,17 @@ static char *design_native_vision_describe(design_project *pr,
     }
     return buf_take(&answer);
 }
+
+#else
+static char *design_native_vision_describe(design_project *pr,
+                                           const design_string_list *paths,
+                                           const char *question,
+                                           char *error, size_t error_cap) {
+    (void)pr; (void)paths; (void)question;
+    snprintf(error, error_cap, "the selected engine has no native vision API; use a multimodal DeepSeek or GLM checkpoint");
+    return NULL;
+}
+#endif
 
 /* see_image resolves project-relative paths, then sends the pixels directly to
  * the selected native multimodal model. */
@@ -9500,7 +9512,12 @@ static design_config parse_options(int argc, char **argv) {
         } else if (!strcmp(arg, "-m") || !strcmp(arg, "--model")) {
             c.engine.model_path = need_arg(&i, argc, argv, arg);
         } else if (!strcmp(arg, "--vision")) {
+#if DSTUDIO_HAS_NATIVE_VISION
             c.engine.vision_path = need_arg(&i, argc, argv, arg);
+#else
+            fprintf(stderr, "ds4-design: this engine has no native vision API\n");
+            exit(2);
+#endif
         } else if (!strcmp(arg, "-c") || !strcmp(arg, "--ctx")) {
             c.ctx_size = parse_int_arg(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "-n") || !strcmp(arg, "--tokens")) {

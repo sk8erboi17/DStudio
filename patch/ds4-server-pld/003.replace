@@ -1,0 +1,6 @@
+        ds4ui_pld_transaction pld_tx = {0};
+        const int pld_completion_start = completion;
+        bool pld_discard = false;
+        int toks[17];
+        int ntok = 0;
+        if (!s->batched_mode &&

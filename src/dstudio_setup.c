@@ -699,7 +699,8 @@ static int setup_apply_ds4_runtime_patches(void) {
     return run_ext_script("scripts/apply-ds4-visible-downloads.sh", "apply") &&
            run_ext_script("scripts/apply-ds4-media-memory.sh", "apply") &&
            run_ext_script("scripts/apply-ds4-server-metrics.sh", "apply") &&
-           run_ext_script("scripts/apply-ds4-glm53-runtime.sh", "apply");
+           run_ext_script("scripts/apply-ds4-glm53-runtime.sh", "apply") &&
+           run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply");
 }
 
 #ifndef _WIN32
@@ -740,6 +741,16 @@ static int setup_binary_contains_ascii(const char *path, const char *needle) {
 static int setup_server_metrics_binary_ready(void) {
     char server[DSTUDIO_PATH_MAX + 32];
     int n = snprintf(server, sizeof server, "%s/ds4-server", g_ds4_dir);
+#ifdef __APPLE__
+    char source[DSTUDIO_PATH_MAX + 32];
+    int sn = snprintf(source, sizeof source, "%s/ds4.c", g_ds4_dir);
+    if (sn <= 0 || (size_t)sn >= sizeof source) return 0;
+    /* A metrics-enabled server may still predate the managed GLM port. The
+     * string is compiled on every Mac; device selection remains in ds4. */
+    if (setup_binary_contains_ascii(source, "static bool ds4_model_is_glm53") &&
+        !setup_binary_contains_ascii(server, "DS4_METAL_DISABLE_M2_GLM53_TOP8_STREAM_ADDR"))
+        return 0;
+#endif
     return n > 0 && (size_t)n < sizeof server && access(server, X_OK) == 0 &&
            setup_binary_contains_ascii(server, "decode_tokens_per_second") &&
            setup_binary_contains_ascii(server, "decode_elapsed_seconds");
@@ -752,6 +763,7 @@ static int setup_server_metrics_binary_ready(void) {
  * rebuild only when that capability is absent. This keeps exact tok/s
  * reporting self-healing without adding work to normal launches. */
 static int setup_ensure_server_metrics_runtime(char *err, size_t errsz) {
+    if (selected_checkout_is_qwen()) return 1; /* Qwen runs its pinned native server. */
 #ifdef _WIN32
     (void)err;
     (void)errsz;
@@ -763,11 +775,11 @@ static int setup_ensure_server_metrics_runtime(char *err, size_t errsz) {
         return 0;
     }
 
-    printf("engine: ds4-server lacks exact throughput metrics; rebuilding managed runtime\n");
-    set_stage("Repairing Chat runtime metrics…", 2);
+    printf("engine: ds4-server lacks managed metrics or GLM support; rebuilding runtime\n");
+    set_stage("Repairing Chat runtime…", 2);
     if (!setup_apply_ds4_runtime_patches()) {
         snprintf(err, errsz,
-                 "could not apply the managed ds4-server metrics patch; upstream anchors may have changed");
+                 "could not apply the managed ds4 runtime patches; upstream anchors may have changed");
         return 0;
     }
 
@@ -782,7 +794,7 @@ static int setup_ensure_server_metrics_runtime(char *err, size_t errsz) {
     }
     if (!setup_server_metrics_binary_ready()) {
         snprintf(err, errsz,
-                 "rebuilt ds4-server still lacks exact decode throughput metrics");
+                 "rebuilt ds4-server still lacks managed metrics or GLM support");
         return 0;
     }
     printf("engine: managed ds4-server throughput metrics restored\n");
@@ -791,7 +803,8 @@ static int setup_ensure_server_metrics_runtime(char *err, size_t errsz) {
 }
 
 static int setup_restore_ds4_runtime_patches(void) {
-    return run_ext_script("scripts/apply-ds4-glm53-runtime.sh", "restore") &&
+    return run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "restore") &&
+           run_ext_script("scripts/apply-ds4-glm53-runtime.sh", "restore") &&
            run_ext_script("scripts/apply-ds4-server-metrics.sh", "restore") &&
            run_ext_script("scripts/apply-ds4-media-memory.sh", "restore") &&
            run_ext_script("scripts/apply-ds4-visible-downloads.sh", "restore");
@@ -824,10 +837,17 @@ static int setup_link_shared_gguf(const char *target, char *err, size_t errsz) {
         snprintf(err, errsz, "could not create the shared model folder: %s", strerror(errno));
         return 0;
     }
+    if (stat(shared, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        snprintf(err, errsz, "the shared model path is not a directory");
+        return 0;
+    }
     if (lstat(side, &st) == 0) {
         if (S_ISLNK(st.st_mode)) {
-            if (stat(side, &st) == 0 && S_ISDIR(st.st_mode)) return 1;
-            snprintf(err, errsz, "the optional engine gguf link is broken");
+            struct stat primary_st;
+            if (stat(side, &st) == 0 && S_ISDIR(st.st_mode) &&
+                stat(shared, &primary_st) == 0 &&
+                st.st_dev == primary_st.st_dev && st.st_ino == primary_st.st_ino) return 1;
+            snprintf(err, errsz, "the optional engine gguf link is broken or points outside the shared model store");
             return 0;
         }
         if (!S_ISDIR(st.st_mode)) {

@@ -12,6 +12,10 @@ include Makefile
 
 REMOTE_DIR ?= ../DStudio/extension/remote
 
+# Compile the actual upstream public type: Laguna has no native vision API.
+# This is a capability probe, not a source-text/version-name guess.
+DESIGN_HAS_NATIVE_VISION := $(shell printf '\043include "ds4.h"\nds4_vision_span probe;\n' | $(CC) $(CFLAGS) -I. -x c -fsyntax-only - >/dev/null 2>&1 && echo 1 || echo 0)
+
 .PHONY: dstudio-design-force
 dstudio-design-force:
 
@@ -20,7 +24,7 @@ dstudio-design-force:
 # paths stay out of Make prerequisites because the standard macOS support path
 # contains a space; the wrapper performs the freshness check before invoking us.
 ds4_design.o: ds4.h ds4_ssd.h ds4_web.h ds4_kvstore.h dstudio-design-force
-	$(CC) $(CFLAGS) -I. -I"$(REMOTE_DIR)" -c -o $@ "$(DESIGN_SRC)"
+	$(CC) $(CFLAGS) -DDSTUDIO_HAS_NATIVE_VISION=$(DESIGN_HAS_NATIVE_VISION) -I. -I"$(REMOTE_DIR)" -c -o $@ "$(DESIGN_SRC)"
 
 dstudio_remote_llm.o: dstudio-design-force
 	$(CC) $(CFLAGS) -I"$(REMOTE_DIR)" -c -o $@ "$(REMOTE_DIR)/dstudio_remote_llm.c"

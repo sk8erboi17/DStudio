@@ -6654,6 +6654,19 @@
     .loading-card .btn { margin-top: 1rem; }
 
     /* ==================== Stage (center row of the grid) ==================== */
+    .document-table-preview { min-width: 0; padding: 12px; font: 13px/1.5 var(--font-sans, system-ui); }
+    .document-table-preview h3 { font-size: 16px; margin: 0 0 8px; }
+    .document-table-scroll { overflow: auto; max-width: 100%; }
+    .document-table-preview table { border-collapse: collapse; min-width: 100%; }
+    .document-table-preview th, .document-table-preview td { border: 1px solid rgba(128,128,128,.3); padding: 10px; vertical-align: top; text-align: left; min-width: 140px; }
+    .document-table-preview .document-table-cell > summary,
+    .agent-workstream .toolfold .document-table-cell > summary { display: block; cursor: pointer; font: inherit; color: inherit; }
+    .document-table-cell > summary::before { content: '▸ '; }
+    .document-table-cell[open] > summary::before { content: '▾ '; }
+    .document-table-cell small { display: block; opacity: .75; overflow-wrap: anywhere; }
+    .document-table-cell blockquote { margin: 8px 0; padding-left: 8px; border-left: 2px solid currentColor; white-space: pre-wrap; }
+    .document-table-cell p, .document-table-cell blockquote { min-width: 160px; max-width: 360px; overflow-wrap: anywhere; }
+
     /* The transcript, full width — the canvas takeover is the artifact view. */
     .stage {
       display: flex;
@@ -8636,6 +8649,21 @@
       .task-graph-canvas { gap: 28px; }
       .task-graph-level { flex-basis: 210px; }
     }
+    .pdf-evidence { margin: 16px 0; padding: 14px; border: 1px solid var(--border); border-radius: 12px; font-size: 13px; }
+    .pdf-evidence p, .pdf-evidence-outline p { color: var(--text-2); line-height: 1.5; }
+    .pdf-evidence blockquote { margin: 8px 0 14px; padding-left: 12px; border-left: 2px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .pdf-evidence-source { max-width: 100%; white-space: normal; text-align: left; }
+    .pdf-evidence-inline { color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 5px; cursor: pointer; font: inherit; padding: 0 4px; }
+    .pdf-evidence-dialog { width: min(1100px, 95vw); max-height: 94vh; margin: auto; padding: 18px; overflow: auto; border: 1px solid var(--border); border-radius: 14px; color: var(--text); background: var(--bg); }
+    .pdf-evidence-dialog::backdrop { background: #0009; }
+    .pdf-evidence-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .pdf-evidence-dialog blockquote { white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0; }
+    .pdf-evidence-page { position: relative; width: 100%; line-height: 0; background: white; }
+    .pdf-evidence-viewport { overflow: auto; max-height: 70vh; }
+    .pdf-evidence-page img { display: block; width: 100%; height: auto; }
+    .pdf-evidence-highlight { position: absolute; background: #ffd00066; outline: 1px solid #bb880099; pointer-events: none; }
+    .pdf-evidence-outline { width: 100%; padding: 12px; }
+    .pdf-evidence-outline .btn { display: block; max-width: 100%; white-space: normal; margin: 8px 0; text-align: left; }
   </style>
 </head>
 <body>
@@ -9291,15 +9319,15 @@
           </label>
           <label class="field" id="set-ssd-streaming-row">
             <span>SSD streaming <small class="set-restart-badge">Needs restart</small></span>
-            <small class="field-note field-note--block">Metal-only. Keep Off unless the model cannot remain resident in memory.</small>
-            <select id="set-ssd-streaming" aria-label="SSD streaming">
+            <small class="field-note field-note--block" id="set-ssd-streaming-note">Metal-only. Keep Off unless the model cannot remain resident in memory.</small>
+            <select id="set-ssd-streaming" aria-label="SSD streaming" aria-describedby="set-ssd-streaming-note">
               <option value="off">Off</option>
               <option value="auto">Auto</option>
               <option value="on">On</option>
             </select>
             <details class="set-disclosure">
               <summary>How SSD streaming behaves</summary>
-              <p class="set-help">Default is Off while DS4 is the only heavyweight model. Metal uses full residency when it fits and its normal lazy memory-mapped path otherwise, without enabling expert SSD streaming or reducing context. On remains an explicit launch choice.</p>
+              <p class="set-help">Default is Off while DS4 is the only heavyweight model. Metal uses full residency when it fits and its normal lazy memory-mapped path otherwise, without enabling expert SSD streaming or reducing context. On remains an explicit launch choice for supported models. Qwen always keeps expert streaming Off; its required PLE file is still read from SSD.</p>
             </details>
             <p class="set-inline-msg set-memory-readout" id="set-memory-msg"></p>
             <div class="field__row" style="margin-top:0.45rem">
@@ -10868,6 +10896,256 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       return new Blob(chunks, { type: 'application/pdf' });
     }
 
+    /* PDF evidence protocol: rendering never trusts model-authored coordinates
+       or arithmetic. Only the local extractor can confirm an exact passage. */
+    const PdfEvidence = (() => {
+      const validDoc = (id) => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id);
+      const normalize = (s) => String(s).replace(/[\s\u00a0]+/g, ' ').trim();
+      const statuses = {
+        matched: 'Exact passage found · not a check of the answer’s meaning',
+        ambiguous: 'Passage appears more than once · no highlight selected',
+        not_found: 'Exact passage not found · no highlight',
+        no_text_layer: 'This page has no searchable text · no OCR was run',
+        unsupported_coordinates: 'Passage found, but its position cannot be highlighted reliably',
+        page_only: 'Original page · no passage selected',
+      };
+
+      function extract(content) {
+        let evidence = null;
+        const text = String(content || '').replace(/```dstudio-pdf-evidence\s*\n([\s\S]*?)\n```/g, (block, raw) => {
+          if (evidence || raw.length > 24000) return block;
+          try {
+            const value = JSON.parse(raw);
+            if (!Array.isArray(value.citations) || !value.citations.length || value.citations.length > 20) return block;
+            const ids = new Set();
+            for (const c of value.citations) {
+              if (!c || typeof c.id !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]{0,23}$/.test(c.id) || ids.has(c.id) || !validDoc(c.documentId) ||
+                  !Number.isInteger(c.page) || c.page < 1 || c.page > 2000 || typeof c.quote !== 'string' ||
+                  !normalize(c.quote) || new TextEncoder().encode(c.quote).length > 2000) return block;
+              ids.add(c.id);
+            }
+            if (value.calculations !== undefined && (!Array.isArray(value.calculations) || value.calculations.length > 8)) return block;
+            evidence = { citations: value.citations, calculations: value.calculations || [] };
+            return '';
+          } catch { return block; }
+        });
+        return { content: text.trim(), evidence };
+      }
+
+      function preview(content) {
+        const text = String(content || '');
+        const at = text.search(/^```dstudio-pdf-evidence\b/m);
+        return at < 0 ? text : `${text.slice(0, at).trimEnd()}\n\nPreparing PDF sources…`;
+      }
+
+      function documents(chat, message) {
+        const docs = new Map();
+        for (const m of chat?.messages || []) {
+          if (m.id === message?.id) break;
+          if (m.role !== 'user') continue;
+          for (const a of m.attachments || []) if (a.kind === 'pdf' && validDoc(a.documentId)) docs.set(a.documentId, a);
+        }
+        return docs;
+      }
+
+      function context(file) {
+        if (!validDoc(file.documentId)) return '';
+        return [
+          `PDF evidence documentId: ${file.documentId}. Page numbers are physical PDF pages (not printed labels).`,
+          'When citing this PDF, use [P1], [P2], etc. and append ONE ```dstudio-pdf-evidence JSON fence containing',
+          '{"citations":[{"id":"P1","documentId":"<exact documentId>","page":1,"quote":"an exact short passage copied from that page"}],"calculations":[]}.',
+          'Copy original wording, punctuation and numbers, not a translation or paraphrase. Use enough context to identify one occurrence. Never invent a passage or claim it has been verified.',
+          'For numeric results you may add calculations: {"operation":"sum|difference|product|ratio|percentage","operands":[{"citation":"P1","literal":"1,234.50","decimal":"."}],"claimed":"1234.50","precision":2}.',
+          'Each literal must be copied exactly from its cited passage; decimal is "." or ",". Claimed uses a dot and no grouping. Difference, ratio and percentage take exactly two operands; percentage is first / second * 100. Precision is 0–12 decimal places. No implicit unit conversions.',
+          ...(file.pdfSections?.length ? ['Recognized heading hints (not a complete table of contents; bounded preview):', file.pdfSections.map((s) => `p. ${s.page}: ${s.title}`).join('\n').slice(0, 2400)] : []),
+          ...(file.pdfSectionLinks?.length ? ['Explicit cross-references (not semantic relationships; bounded preview):', file.pdfSectionLinks.map((s) => `p. ${s.page} says "${s.quote}" → p. ${s.targetPage}: ${s.targetTitle}`).join('\n').slice(0, 1200)] : []),
+        ].join('\n');
+      }
+
+      async function request(citation, render = false, signal) {
+        const response = await fetch('/api/pdf/evidence', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
+          body: JSON.stringify({ documentId: citation.documentId, page: citation.page, quote: citation.quote, render }), signal,
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || `PDF evidence: HTTP ${response.status}`);
+        return result;
+      }
+
+      // Exact rational arithmetic, with explicitly declared decimal separators.
+      // Decimal rounding is half away from zero, applied only to the result.
+      function decimal(raw, separator = '.') {
+        if (typeof raw !== 'string' || raw.length > 80 || !['.', ','].includes(separator)) throw new Error('Invalid numeric format');
+        const text = raw.trim();
+        const sign = text.startsWith('-') ? -1n : 1n;
+        const unsigned = text.replace(/^[+-]/, '');
+        const parts = unsigned.split(separator);
+        if (parts.length > 2 || (parts.length === 2 && !/^\d{1,18}$/.test(parts[1]))) throw new Error('Ambiguous decimal separator');
+        const grouping = separator === '.' ? ',' : '.';
+        let whole = parts[0];
+        if (!/^\d+$/.test(whole)) {
+          const escaped = grouping === '.' ? '\\.' : ',';
+          if (!new RegExp(`^\\d{1,3}(?:${escaped}\\d{3})+$`).test(whole) && !/^\d{1,3}(?: \d{3})+$/.test(whole) && !/^\d{1,3}(?:\u00a0\d{3})+$/.test(whole)) throw new Error('Invalid digit grouping');
+          whole = whole.split(grouping).join('').replace(/[ \u00a0]/g, '');
+        }
+        if (whole.length > 30) throw new Error('Number too large');
+        return { n: sign * BigInt(whole + (parts[1] || '')), d: 10n ** BigInt((parts[1] || '').length) };
+      }
+
+      function literalInQuote(quote, literal) {
+        const q = normalize(quote), s = normalize(literal);
+        if (!s) return false;
+        let found = 0;
+        for (let at = q.indexOf(s); at >= 0; at = q.indexOf(s, at + 1)) {
+          const left = q.slice(0, at), right = q.slice(at + s.length);
+          if (/[\p{L}\p{N}_.,+\-\u2212]$/u.test(left) || /^[\p{L}\p{N}_.,+\-\u2212]/u.test(right) || /\d $/.test(left) || /^ \d{3}(?:\D|$)/.test(right) || (/\($/.test(left) && /^\)/.test(right))) continue;
+          found++;
+        }
+        return found === 1;
+      }
+
+      function calculate(calc, verified) {
+        if (!calc || !['sum', 'difference', 'product', 'ratio', 'percentage'].includes(calc.operation) ||
+            !Array.isArray(calc.operands) || calc.operands.length < 2 || calc.operands.length > 12 ||
+            (!['sum', 'product'].includes(calc.operation) && calc.operands.length !== 2) ||
+            !Number.isInteger(calc.precision) || calc.precision < 0 || calc.precision > 12 ||
+            typeof calc.claimed !== 'string' || !/^[+-]?\d+(?:\.\d+)?$/.test(calc.claimed)) throw new Error('Unsupported calculation format');
+        const values = calc.operands.map((o) => {
+          const proof = verified.get(o?.citation);
+          if (!proof || proof.status !== 'matched') throw new Error('Every operand needs a uniquely located source passage');
+          if (!['.', ','].includes(o.decimal)) throw new Error('Declare the decimal separator for every operand');
+          if (typeof o.literal !== 'string' || !literalInQuote(proof.quote, o.literal)) throw new Error('Operand is missing or ambiguous in the source passage');
+          return decimal(o.literal, o.decimal);
+        });
+        let r = values[0];
+        for (const b of values.slice(1)) {
+          if (calc.operation === 'sum') r = { n: r.n * b.d + b.n * r.d, d: r.d * b.d };
+          else if (calc.operation === 'difference') r = { n: r.n * b.d - b.n * r.d, d: r.d * b.d };
+          else if (calc.operation === 'product') r = { n: r.n * b.n, d: r.d * b.d };
+          else { if (!b.n) throw new Error('Division by zero'); r = { n: r.n * b.d * (calc.operation === 'percentage' ? 100n : 1n), d: r.d * b.n }; }
+        }
+        if (r.d < 0) r = { n: -r.n, d: -r.d };
+        const scale = 10n ** BigInt(calc.precision), abs = r.n < 0 ? -r.n : r.n;
+        const scaled = abs * scale;
+        const rounded = (scaled / r.d + (scaled % r.d * 2n >= r.d ? 1n : 0n)) * (r.n < 0 ? -1n : 1n);
+        const digits = (rounded < 0 ? -rounded : rounded).toString().padStart(calc.precision + 1, '0');
+        const value = (rounded < 0 ? '-' : '') + (calc.precision ? `${digits.slice(0, -calc.precision)}.${digits.slice(-calc.precision)}` : digits);
+        const claimed = decimal(calc.claimed);
+        return { value, agrees: claimed.n * scale === rounded * claimed.d };
+      }
+
+      async function open(citation, file) {
+        const dialog = el('dialog', { class: 'pdf-evidence-dialog', 'aria-label': 'Original PDF evidence' });
+        const close = el('button', { class: 'btn', text: 'Close', type: 'button' });
+        const zoom = el('button', { class: 'btn', text: 'Zoom in', type: 'button' });
+        const status = el('p', { role: 'status', text: 'Opening original PDF…' });
+        const stage = el('div', { class: 'pdf-evidence-page' });
+        const controller = new AbortController();
+        dialog.append(el('header', {}, [el('strong', { text: `${file?.name || 'PDF'} · page ${citation.page}` }), zoom, close]), status,
+          el('blockquote', { text: citation.quote || '' }), el('div', { class: 'pdf-evidence-viewport' }, [stage]));
+        on(zoom, 'click', () => { const enlarged = stage.style.width === '200%'; stage.style.width = enlarged ? '100%' : '200%'; zoom.textContent = enlarged ? 'Zoom in' : 'Fit page'; });
+        on(close, 'click', () => dialog.close());
+        on(dialog, 'close', () => { controller.abort(); dialog.remove(); });
+        document.body.append(dialog); dialog.showModal();
+        try {
+          const r = await request(citation, true, controller.signal);
+          if (!dialog.isConnected) return;
+          status.textContent = statuses[r.status] || 'Passage could not be checked';
+          const image = el('img', { src: r.image, alt: `Original PDF, physical page ${citation.page}` });
+          stage.append(image);
+          await image.decode();
+          // Do not draw on a renderer/extractor geometry mismatch.
+          const ratio = image.naturalWidth / image.naturalHeight;
+          if (Math.abs(ratio - r.width / r.height) > 0.005) {
+            status.textContent = 'Page opened, but its geometry does not permit reliable highlighting'; return;
+          }
+          if (r.status === 'matched') for (const b of r.boxes || []) {
+            const mark = el('span', { class: 'pdf-evidence-highlight', 'aria-hidden': 'true' });
+            Object.assign(mark.style, { left: `${b.x * 100}%`, top: `${b.y * 100}%`, width: `${b.width * 100}%`, height: `${b.height * 100}%` });
+            stage.append(mark);
+          }
+        } catch (e) { if (!controller.signal.aborted) status.textContent = e.message || 'Original PDF unavailable'; }
+      }
+
+      function build(message, chat, contentNode) {
+        const payload = extract(message.content).evidence;
+        if (!payload || message.role !== 'assistant' || message.streaming) return null;
+        const docs = documents(chat, message);
+        const wrap = el('section', { class: 'pdf-evidence', 'aria-label': 'PDF sources and calculations' });
+        wrap.append(el('strong', { text: 'PDF sources' }), el('p', { text: 'Check the original passages. Finding a quotation does not verify the answer’s interpretation.' }));
+        const verified = new Map(), buttons = new Map();
+        for (const c of payload.citations) {
+          const file = docs.get(c.documentId);
+          const button = el('button', { class: 'btn pdf-evidence-source', type: 'button', text: `[${c.id}] ${file?.name || 'Unattached PDF'} · p. ${c.page}` });
+          if (!file) button.disabled = true;
+          else on(button, 'click', () => open(c, file));
+          buttons.set(c.id, button);
+          wrap.append(button, el('blockquote', { text: c.quote }));
+          if (!file) wrap.append(el('p', { text: 'This source is not attached to this conversation.' }));
+        }
+        // Convert only exact citation markers in prose, never code or existing links.
+        const walker = document.createTreeWalker(contentNode, NodeFilter.SHOW_TEXT);
+        const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
+        for (const node of nodes) {
+          if (node.parentElement?.closest('a, button, pre, code')) continue;
+          const re = /\[([A-Za-z][A-Za-z0-9_-]{0,23})\]/g;
+          let match, pos = 0; const fragment = document.createDocumentFragment();
+          while ((match = re.exec(node.textContent))) {
+            const source = buttons.get(match[1]); if (!source) continue;
+            fragment.append(node.textContent.slice(pos, match.index));
+            const button = el('button', { class: 'pdf-evidence-inline', type: 'button', text: match[0], 'aria-label': source.textContent });
+            button.disabled = source.disabled; on(button, 'click', () => source.click()); fragment.append(button);
+            pos = re.lastIndex;
+          }
+          if (pos) { fragment.append(node.textContent.slice(pos)); node.replaceWith(fragment); }
+        }
+        const check = el('button', { class: 'btn', type: 'button', text: 'Check passages and calculations' });
+        const result = el('div', { class: 'pdf-evidence-results', 'aria-live': 'polite' });
+        on(check, 'click', async () => {
+          check.disabled = true; result.replaceChildren(); verified.clear();
+          try {
+            for (const c of payload.citations) {
+              let label = 'Source is not attached';
+              if (docs.has(c.documentId)) {
+                try { const r = await request(c); verified.set(c.id, r); label = statuses[r.status] || 'Not checked'; }
+                catch (e) { label = e.message; }
+              }
+              result.append(el('p', { text: `[${c.id}] ${label}` }));
+            }
+            for (const calc of payload.calculations) {
+              try {
+                const r = calculate(calc, verified);
+                const operands = calc.operands.map((o) => `${o.literal} [${o.citation}]`).join(', ');
+                result.append(el('p', { text: `${calc.operation} (${operands}) → ${r.value}. ${r.agrees ? 'Arithmetic agrees with the answer' : `Differs from the answer (${calc.claimed})`}. Rounded to ${calc.precision} decimal places; units and choice of operands are not verified.` }));
+              } catch (e) { result.append(el('p', { text: `Calculation not verified: ${e.message}` })); }
+            }
+          } finally { check.disabled = false; }
+        });
+        wrap.append(check, result); return wrap;
+      }
+
+      function outline(file) {
+        if (!validDoc(file.documentId)) return null;
+        const details = el('details', { class: 'pdf-evidence-outline' }, [el('summary', { text: 'Open original PDF / recognized headings' })]);
+        const pages = file.pdfSections?.length ? file.pdfSections : [{ page: 1, title: 'Open first page' }];
+        details.append(el('p', { text: 'Heading hints come from the text layer; this is not a complete document outline.' }));
+        for (const section of pages) {
+          const b = el('button', { class: 'btn', type: 'button', text: `p. ${section.page} · ${section.title}` });
+          if (section.parentPage) b.style.marginLeft = `${Math.min(4, (section.level || 1) - 1) * 12}px`;
+          on(b, 'click', () => open({ documentId: file.documentId, page: section.page, quote: '' }, file)); details.append(b);
+        }
+        for (const link of file.pdfSectionLinks || []) {
+          const from = el('button', { class: 'btn', type: 'button', text: `p. ${link.page}: “${link.quote}”` });
+          const to = el('button', { class: 'btn', type: 'button', text: `→ p. ${link.targetPage}: ${link.targetTitle}` });
+          on(from, 'click', () => open({ documentId: file.documentId, page: link.page, quote: link.quote }, file));
+          on(to, 'click', () => open({ documentId: file.documentId, page: link.targetPage, quote: '' }, file));
+          details.append(from, to);
+        }
+        return details;
+      }
+      return { extract, preview, documents, context, decimal, literalInQuote, calculate, open, build, outline };
+    })();
+
     const AttachmentPreview = (() => {
       function open(file) {
         if (!file) return;
@@ -10905,6 +11183,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             ]);
             body.append(details);
           }
+          if (file.kind === 'pdf') { const outline = PdfEvidence.outline(file); if (outline) body.append(outline); }
           if (!uri && !file.content) body.append(el('p', { class: 'file-preview-empty', text: file.kind === 'pdf' ? 'PDF preview unavailable' : 'Image preview unavailable' }));
         } else {
           body.append(el('pre', { class: 'file-preview-text', text: file.content || '' }));
@@ -11549,6 +11828,14 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
     const isGlm53Gguf = (path) => /glm[-_. ]?5\.3/i.test(String(path || ''));
     const isLagunaGguf = (path) => /laguna[-_. ]?s(?:[-_. ]?2\.1)?/i.test(String(path || ''));
+    const localQwenSelected = (settings = Store.getSettings()) =>
+      /qwen3\.8-flash-next/i.test(String(settings?.modelGguf || settings?.model || ''));
+    function localSsdStreaming(settings = Store.getSettings()) {
+      // Apply a compatible launch value, never overwrite the preference used
+      // when the user switches back to DeepSeek. Qwen's PLE stays SSD-backed.
+      return !localQwenSelected(settings) && ['off', 'on', 'auto'].includes(settings.ssdStreaming)
+        ? settings.ssdStreaming : 'off';
+    }
     const isDeepseekVisionGguf = (path) => /deepseek-v4-flash-vision-exp/i.test(String(path || ''));
     function localLagunaSelected(settings = Store.getSettings()) {
       const model = settings?.modelGguf || settings?.model || '';
@@ -11612,7 +11899,10 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
     // Derive {model, kind, quant} from a GGUF filename (shared by onboarding + settings).
     function parseGgufName(file) {
-      const model = /laguna[-_ ]?s/i.test(file) ? 'Laguna S 2.1'
+      if (/qwen3\.8-flash-next-q4kimatrix/i.test(file))
+        return { model: 'Qwen3.8-Flash-Next', kind: 'Chat/native', quant: 'Q4K / MXFP4' };
+      const model = /qwen3\.8/i.test(file) ? 'Qwen3.8-Flash-Next'
+        : /laguna[-_ ]?s/i.test(file) ? 'Laguna S 2.1'
         : /\bglm[-_ ]?5\.3/i.test(file) ? 'GLM 5.3 Flash'
         : /deepseek-v4-flash-vision-exp/i.test(file) ? 'DeepSeek V4 Flash Vision-Exp'
         : /\bpro\b/i.test(file) ? 'DeepSeek V4 Pro'
@@ -11628,6 +11918,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     }
     function modelIdForEngineStatus(st) {
       const file = String(st?.modelFile || '');
+      if (/qwen3\.8/i.test(file)) return 'qwen3.8-flash-next';
       if (/laguna[-_ ]?s/i.test(file)) return 'laguna-s-2.1';
       if (/\bglm[-_ ]?5\.3/i.test(file)) return 'glm-5.3-flash';
       if (/deepseek-v4-flash-vision-exp/i.test(file)) return 'deepseek-v4-flash-vision-exp';
@@ -11660,7 +11951,16 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         /(?:^|\/)DeepSeek-V4-Flash-Vision-Encoder\.gguf$/i.test(String(g?.path || ''));
     }
     function ggufIsEngineComponent(g) {
-      return ggufIsDsparkSupport(g) || ggufIsGlmVisionEncoder(g) || ggufIsDeepseekVisionEncoder(g);
+      const name = String(g?.file || g?.path || '');
+      return ggufIsDsparkSupport(g) || ggufIsGlmVisionEncoder(g) || ggufIsDeepseekVisionEncoder(g)
+        || (/qwen3\.8/i.test(name) && /-ple-|-mtp\.gguf$/i.test(name));
+    }
+    function ggufIsUsableModel(g, allGgufs) {
+      if (ggufIsEngineComponent(g)) return false;
+      if (!/qwen3\.8/i.test(String(g?.file || g?.path || ''))) return true;
+      return (allGgufs || []).some((part) =>
+        /^Qwen3\.8-Flash-Next-PLE-Q4_1\.gguf$/i.test(String(part?.file || '')) &&
+        String(part?.engineDir || '') === String(g?.engineDir || ''));
     }
     function ggufBranchLabel(g) {
       return String(g?.branch || g?.engineName || 'ds4');
@@ -11685,10 +11985,13 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       { id: 'glm53-q2', label: 'GLM 5.3 Flash · Q2 — ~96.5 GB / 90 GiB', body: { target: 'glm53-q2', engine: 'main' }, match: /^GLM-5\.3-Flash-Q2\.gguf$/i },
       { id: 'glm53-vision', role: 'vision-support', label: 'GLM 5.3 Flash · native vision encoder — ~1.13 GB', body: { target: 'glm53-vision', engine: 'main' }, match: /^GLM-5\.3-Flash-Vision-Encoder\.gguf$/i },
       { id: 'laguna-q4', label: 'Laguna S 2.1 · Q4_K_M — ~68 GB · Metal/full residency', body: { target: 'laguna-q4', engine: 'laguna' }, match: /^laguna-s-2\.1-Q4_K_M\.gguf$/i },
+      { id: 'qwen38-q4k', label: 'Qwen3.8-Flash-Next · Q4_K — 105.4 GB base + PLE · Chat/native', body: { target: 'qwen38-q4k', engine: 'qwen' }, match: /^Qwen3\.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out\.gguf$/i },
     ];
     function availableModelDownloads(ggufs) {
       const files = (ggufs || []).map((g) => String(g?.file || ''));
-      return MODEL_DOWNLOADS.filter((d) => !d.role && !files.some((file) => d.match.test(file)));
+      return MODEL_DOWNLOADS.filter((d) => !d.role &&
+        (!files.some((file) => d.match.test(file)) ||
+         (d.id === 'qwen38-q4k' && !files.some((file) => /^Qwen3\.8-Flash-Next-PLE-Q4_1\.gguf$/i.test(file)))));
     }
     function availableDsparkDownloads(ggufs) {
       const files = (ggufs || []).map((g) => String(g?.file || ''));
@@ -14274,11 +14577,12 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
       function displayContentForMessage(m) {
         if (!m?.content) return '';
-        if (m.streaming) return stripGeneratedFilePayloadPreview(m.content);
+        if (m.streaming) return PdfEvidence.preview(stripGeneratedFilePayloadPreview(m.content));
         const withoutFiles = Array.isArray(m.generatedFiles) && m.generatedFiles.length
           ? m.content
           : extractGeneratedFilesFromAssistant(m.content).content;
-        return extractRoadmapFromAssistant(withoutFiles).content;
+        const withoutRoadmap = extractRoadmapFromAssistant(withoutFiles).content;
+        return m.role === 'assistant' ? PdfEvidence.extract(withoutRoadmap).content : withoutRoadmap;
       }
 
       function mount(rootEl, h) {
@@ -15345,6 +15649,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           content.innerHTML = '<p class="placeholder">(no response)</p>';
         }
         article.append(content);
+        const pdfEvidence = PdfEvidence.build(m, chat, content);
+        if (pdfEvidence) article.append(pdfEvidence);
         if (roadmap) article.append(buildRoadmapCard(roadmap, m, chat));
         if (m.sources?.length) article.append(buildSources(m.sources));
         decorateCitationTargets(article, m.sources || []);
@@ -15854,7 +16160,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           if (content) {
             const ph = content.querySelector('.placeholder');
             if (ph) ph.remove();
-            if (fullContent) setMarkdown(content, stripGeneratedFilePayloadPreview(fullContent));
+            if (fullContent) setMarkdown(content, PdfEvidence.preview(stripGeneratedFilePayloadPreview(fullContent)));
           }
           let activityEl = article.querySelector('.msg__activity');
           if (activity) {
@@ -16187,6 +16493,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             '',
             `--- ${kind} ${i + 1}: ${a.name || 'attachment'} (${fmtFileSize(a.size)}${a.truncated ? ', truncated' : ''}) ---`,
             String(a.content || ''),
+            ...(a.kind === 'pdf' ? [PdfEvidence.context(a)] : []),
             `--- end ${kind} ${i + 1} ---`,
           );
         });
@@ -22449,6 +22756,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           max_chars: maxChars,
           text_only: !opts.nativeVision,
           native_vision: !!opts.nativeVision,
+          evidence: !isLanClientMode(),
         };
         if (readPlan.mode === 'pages') payload.pages = readPlan.pages;
         if (readPlan.mode === 'search') payload.semantic_query = readPlan.query;
@@ -22533,6 +22841,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             ? `[PDF "${att.name}" — ${how}${limited}]\n${t}`
             : `[PDF "${att.name}" attached, but no readable content was found.]`;
           att.truncated = !!r.truncated;
+          att.documentId = typeof r.documentId === 'string' ? r.documentId : null;
+          att.pdfSections = Array.isArray(r.sections) ? r.sections : [];
+          att.pdfSectionLinks = Array.isArray(r.sectionLinks) ? r.sectionLinks : [];
           entry.status = visualRefs.length ? 'native-model' : 'ok';
         } catch (e) {
           att.content = `[PDF "${att.name}" attached, but reading it failed: ${e?.message || e}.]`;
@@ -24981,7 +25292,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           return;
         }
         const dl = Store.getState().ui.modelDownload;     // {variant, pct} | null
-        const ggufs = (ggufList || []).filter((g) => !ggufIsEngineComponent(g));
+        const ggufs = (ggufList || []).filter((g) => ggufIsUsableModel(g, ggufList));
         const running = ggufs.find((g) => ggufIsRunning(g, runningModelFile, runningEngineDir));
         const activeCo = (checkoutList || []).find((c) => c.active);
         const coTag = activeCo && activeCo.name !== 'ds4' ? ` · ${activeCo.branch || activeCo.name}` : '';
@@ -25368,6 +25679,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           Switcher.applyEngineConfig();
         });
         on(f.ssdStreaming, 'change', () => {
+          if (localQwenSelected()) { syncSsdStreamingFields(); return; }
           const v = ['off', 'on', 'auto'].includes(f.ssdStreaming.value) ? f.ssdStreaming.value : 'off';
           if (v === Store.getSettings().ssdStreaming) return;
           Store.setSettings({ ssdStreaming: v });
@@ -25461,6 +25773,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
         Store.subscribe('models', renderSetModels);
         Store.subscribe('modelDownload', renderSetModels);
+        Store.subscribe('settings', syncSsdStreamingFields);
       }
 
       // Two-pane settings: the sidebar switches which .set-grp pane is shown.
@@ -25851,6 +26164,16 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
       }
 
+      function syncSsdStreamingFields() {
+        const s = Store.getSettings();
+        const qwen = localQwenSelected(s);
+        f.ssdStreaming.value = localSsdStreaming(s);
+        f.ssdStreaming.disabled = qwen;
+        qs('#set-ssd-streaming-note').textContent = qwen
+          ? 'Qwen keeps the main weights in RAM and its PLE on SSD. Expert streaming stays Off; your preference for other models is kept.'
+          : 'Metal-only. Keep Off unless the model cannot remain resident in memory.';
+      }
+
       function syncFields() {
         const s = Store.getSettings();
         f.baseUrl.value = s.baseUrl;
@@ -25872,7 +26195,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         setThemeActive(s.theme || 'light');
         f.ctx.value = String(s.ctxSize ?? 65536);
         f.power.value = String(s.enginePower ?? 90);
-        f.ssdStreaming.value = ['off', 'on', 'auto'].includes(s.ssdStreaming) ? s.ssdStreaming : 'off';
+        syncSsdStreamingFields();
         f.metalHotlist.checked = !!s.metalHotlistSeed;
         f.dspark.checked = !!s.dspark;
         f.system.value = s.systemPrompt ?? '';
@@ -25914,7 +26237,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           if (m.physicalBytes) notes.push(`RAM ${fmtGib(m.physicalBytes)}`);
           if (m.modelBytes > 0) notes.push(`model ${fmtGib(m.modelBytes)}`);
           if (m.iogpuWiredLimitMb >= 0) notes.push(`iogpu.wired_limit_mb ${m.iogpuWiredLimitMb}`);
-          const desiredSsd = Store.getSettings().ssdStreaming || 'off';
+          const desiredSsd = localSsdStreaming();
           const runningSsd = m.ssdStreaming || 'off';
           notes.push(`SSD streaming running ${runningSsd}${m.ssdStreamingEffective ? ' (active)' : ''}`);
           if (desiredSsd !== runningSsd) notes.push(`next restart ${desiredSsd}`);
@@ -26378,7 +26701,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const host = f.models;
         if (!host) return;
         const allGgufs = ggufCache || [];
-        const ggufs = allGgufs.filter((g) => !ggufIsEngineComponent(g));
+        const ggufs = allGgufs.filter((g) => ggufIsUsableModel(g, allGgufs));
         const query = String(f.modelFilter?.value || '').trim().toLowerCase();
         const visibleGgufs = ggufs.filter((g) => {
           if (!query) return true;
@@ -26458,7 +26781,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               const t = choices.find((x) => x.id === sel.value);
               if (!t) return;
               const branchNote = t.body.engine === 'main' ? ''
-                : ' DStudio will install and select the laguna-s2.1 engine if needed.';
+                : ' DStudio will install and select the matching optional engine if needed.';
               askConfirm({ title: 'Download this model?', body: `${t.label}.${branchNote} Large file — it downloads in the background.`, cta: 'Download' })
                 .then((yes) => { if (yes) Switcher.downloadModel(t.body); });
             });
@@ -27476,7 +27799,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (isLanClientMode()) { ggufCache = []; renderModels(); return; }
         try { const r = await Engine.ggufs(); ggufCache = (r && r.ggufs) || []; }
         catch { ggufCache = ggufCache || []; }
-        const ggufs = (ggufCache || []).filter((g) => !ggufIsEngineComponent(g));
+        const ggufs = (ggufCache || []).filter((g) => ggufIsUsableModel(g, ggufCache));
         const settings = Store.getSettings();
         const savedPath = String(settings.modelGguf || '');
         const savedEngine = String(settings.modelEngineDir || '');
@@ -27492,7 +27815,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
       // Derive {model, kind, quant} from a GGUF filename.
       function parseGguf(file) {
-        const model = /laguna[-_ ]?s/i.test(file) ? 'Laguna S 2.1'
+        if (/qwen3\.8/i.test(file)) return parseGgufName(file);
+        const model = /qwen3\.8/i.test(file) ? 'Qwen3.8-Flash-Next' : /laguna[-_ ]?s/i.test(file) ? 'Laguna S 2.1'
           : /\bglm[-_ ]?5\.3/i.test(file) ? 'GLM 5.3 Flash'
           : /\bpro\b/i.test(file) ? 'DeepSeek V4 Pro'
           : /\bflash\b/i.test(file) ? 'DeepSeek V4 Flash' : 'DeepSeek V4';
@@ -27512,7 +27836,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const host = qs('#onboard-models');
         const note = qs('#onboard-model-note');
         if (!host) return;
-        const ggufs = (ggufCache || []).filter((g) => !ggufIsEngineComponent(g));
+        const ggufs = (ggufCache || []).filter((g) => ggufIsUsableModel(g, ggufCache));
         const dl = Store.getState().ui.modelDownload;
         if (note) note.textContent = !lastDs4Ok
           ? 'Install ds4 above first — the weights live in it.'
@@ -27546,7 +27870,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (dl) {
           appendModelDownloadStatus(dlBox, dl);
         } else {
-          const choices = availableModelDownloads(ggufs);
+          const choices = availableModelDownloads(ggufCache);
           if (choices.length) {
             const sel = el('select', { class: 'onboard__ctx', 'aria-label': 'Model / quantization to download' });
             choices.forEach((t) => sel.append(el('option', { value: t.id, text: modelDownloadOptionLabel(t) })));
@@ -27556,7 +27880,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               const t = choices.find((x) => x.id === sel.value);
               if (!t) return;
               const branchNote = t.body.engine === 'main' ? ''
-                : ' DStudio will install and select the laguna-s2.1 engine if needed.';
+                : ' DStudio will install and select the matching optional engine if needed.';
               askConfirm({ title: 'Download this model?', body: `${t.label}.${branchNote} Large file — it downloads in the background.`, cta: 'Download' })
                 .then((yes) => { if (yes) Switcher.downloadModel(t.body); });
             });
@@ -27968,6 +28292,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (!r.ok && data && !data.error) data.error = `/api/laguna/setup returned HTTP ${r.status}`;
         return data;
       }
+      async function setupQwen() {
+        const r = await apiFetch('/api/qwen/setup', { method: 'POST', headers: H });
+        const data = await r.json();
+        if (!r.ok) return { ...data, ok: false, error: data.error || `Qwen setup HTTP ${r.status}` };
+        return data;
+      }
       async function setupContent() {   // download optional design systems
         const r = await apiFetch('/api/setup/content', { method: 'POST', headers: H });
         const data = await r.json().catch(() => ({ ok: false, error: `/api/setup/content returned HTTP ${r.status} with invalid JSON` }));
@@ -28231,7 +28561,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return r.json();
       }
 
-      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, stop, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupLaguna, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, stopModelDownload, openModelFolder, deleteModelPartials, engineCheckouts, setEngineCheckout, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, setHttpPort, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
+      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, stop, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupLaguna, setupQwen, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, stopModelDownload, openModelFolder, deleteModelPartials, engineCheckouts, setEngineCheckout, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, setHttpPort, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
     })();
 
     /* ==================== Remote LAN chat ==================== */
@@ -29531,7 +29861,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           starters: [
             ['table', 'Analyze a workbook', 'Inspect the spreadsheets in this folder, identify the important trends and create a verified summary workbook.'],
             ['document', 'Turn sources into a brief', 'Read the source documents in this folder and create a polished, source-grounded brief.'],
-            ['refine', 'Clean and reconcile data', 'Audit the tabular data in this folder, reconcile totals and produce a clean workbook with formulas.'],
+            ['refine', 'Compare documents', 'Compare the source documents in this folder in a source-backed table. Choose columns relevant to their subject and my goal, not preset financial fields. Use document_table, retain the exact evidence for each cell, mark missing or conflicting information and export an Excel workbook and an expandable HTML table.'],
             ['panel', 'Build a presentation', 'Study the source files and create a concise presentation with one clear claim per slide.'],
           ],
         });
@@ -31688,6 +32018,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         excel: '▦ spreadsheet', spreadsheet: '▦ spreadsheet', read_pdf: '▤ reads PDF',
         read_document: '▤ reads document', write_document: '✎ writes document',
         presentation: '▣ builds presentation', see_image: '◉ inspects image',
+        document_table: '▦ source-backed table',
         view_image: '◉ views image',
       };
 
@@ -31923,6 +32254,62 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return d;
       }
 
+      const documentTableOpenCells = new Set();
+      function buildDocumentTablePreview(output, scope = '') {
+        let data;
+        try { data = JSON.parse(output); } catch { return null; }
+        if (data?.format !== 'dstudio.document-table.v1' || !Array.isArray(data.columns) ||
+            !Array.isArray(data.rows) || data.columns.length > 32 || data.rows.length > 20) return null;
+        const labels = { sourced: 'Source matched', missing: 'Not extracted', needs_review: 'Review needed',
+          conflict: 'Conflicting candidates', stale_source: 'Source changed', unavailable: 'Source unavailable' };
+        const box = el('section', { class: 'document-table-preview', 'aria-label': 'Source-backed document table' });
+        box.append(el('h3', { text: String(data.title || 'Document comparison') }),
+          el('p', { text: `Revision ${data.revision} · ${data.totalRows} rows · Checked ${data.checkedAt || 'unknown'}` }),
+          el('p', { text: 'Source matched means the quoted text and value occur in the document, not that the interpretation is correct. This is a snapshot of the last check.' }));
+        const table = el('table');
+        const head = el('tr', {}, [el('th', { scope: 'col', text: 'Document / item' })]);
+        for (const col of data.columns) head.append(el('th', { scope: 'col', text: String(col.label || col.id) + (col.unit ? ` (${col.unit})` : '') }));
+        table.append(el('thead', {}, [head]));
+        const body = el('tbody');
+        for (const row of data.rows) {
+          const tr = el('tr', {}, [el('th', { scope: 'row', text: String(row.label || row.id || '') })]);
+          for (const col of data.columns) {
+            const cell = row.cells?.[col.id] || {};
+            const label = labels[cell.status] || 'Review needed';
+            const detail = el('details', { class: 'document-table-cell' });
+            detail.append(el('summary', {}, [el('span', { text: cell.value == null ? '—' : String(cell.value) }), el('small', { text: label })]));
+            const key = JSON.stringify([scope, data.path || data.title, data.revision, row.id, col.id]);
+            detail.open = documentTableOpenCells.has(key);
+            detail.querySelector('summary').addEventListener('click', () => {
+              if (detail.open) documentTableOpenCells.delete(key);
+              else {
+                if (documentTableOpenCells.size >= 4096) documentTableOpenCells.delete(documentTableOpenCells.values().next().value);
+                documentTableOpenCells.add(key);
+              }
+            });
+            if (cell.note) detail.append(el('p', { text: String(cell.note) }));
+            for (const candidate of (Array.isArray(cell.candidates) ? cell.candidates.slice(0, 8) : [])) {
+              detail.append(el('p', { text: `${candidate.value} · ${labels[candidate.status] || 'Review needed'}` }));
+              for (const ref of (Array.isArray(candidate.evidence) ? candidate.evidence.slice(0, 8) : [])) {
+                detail.append(el('p', { text: `${ref.path} · ${ref.segment}` }),
+                  el('blockquote', { text: String(ref.quote || '') }),
+                  el('small', { text: `SHA256 ${ref.sha256 || 'unknown'}` }));
+              }
+              for (const issue of (Array.isArray(candidate.issues) ? candidate.issues : [])) detail.append(el('p', { text: String(issue) }));
+            }
+            if (!cell.candidates?.length) detail.append(el('p', { text: 'Not extracted; this does not prove the information is absent.' }));
+            tr.append(el('td', {}, [detail]));
+          }
+          body.append(tr);
+        }
+        table.append(body);
+        box.append(el('div', { class: 'document-table-scroll', tabindex: '0', role: 'region', 'aria-label': 'Comparison cells' }, [table]));
+        if (data.nextOffset != null) box.append(el('p', { text: `More rows available. Ask Cowork to inspect from row offset ${data.nextOffset}. The exports contain all ${data.totalRows} rows.` }));
+        for (const check of (Array.isArray(data.checks) ? data.checks : [])) box.append(el('p', { text: `${check.kind} · ${check.column}: ${check.status} — supplied rows only` }));
+        if (data.exported) box.append(el('p', { text: `Saved in your workspace: ${data.exported}` }));
+        return box;
+      }
+
       function attachToolOutput(fold, ev) {
         const out = ev.output || '';
         const n = out.split('\n').filter((l) => l.trim()).length;
@@ -31936,6 +32323,14 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (status) status.textContent = '✓';
         fold.dataset.complete = 'true';
         if (!out.trim()) return;
+        if ((fold._toolEvent?.name || ev.name) === 'document_table') {
+          const table = buildDocumentTablePreview(out, Store.getActiveChat()?.id || '');
+          if (table) {
+            fold.append(table);
+            fold.open = true;
+            return;
+          }
+        }
         const summary = fold.querySelector('summary');
         if (summary) summary.append(el('span', {
           class: 'tool-step-preview',
@@ -34191,13 +34586,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       const ctxSize = () => Store.getSettings().ctxSize || 65536;
       const enginePower = () => Math.max(1, Math.min(100, parseInt(Store.getSettings().enginePower ?? 90, 10) || 90));
-      const ssdStreaming = () => ['off', 'on', 'auto'].includes(Store.getSettings().ssdStreaming) ? Store.getSettings().ssdStreaming : 'off';
       const metalHotlistSeed = () => !!Store.getSettings().metalHotlistSeed;
       const dspark = () => !!Store.getSettings().dspark;
       const launchBase = (remote = false) => ({
         ctx: ctxSize(),
         power: enginePower(),
-        ...(remote ? {} : { ssdStreaming: ssdStreaming(), metalHotlistSeed: metalHotlistSeed(), dspark: dspark() }),
+        ...(remote ? {} : { ssdStreaming: localSsdStreaming(), metalHotlistSeed: metalHotlistSeed(), dspark: dspark() }),
       });
       const variant = () => Store.getSettings().modelVariant || 'flash';
       const thinkLevel = () => Store.getSettings().thinkLevel || 'high';
@@ -34740,6 +35134,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const branch = String(c?.branch || '').toLowerCase();
         const name = String(c?.name || '').toLowerCase();
         if (engine === 'laguna') return branch === 'laguna-s2.1' || name === 'ds4-laguna-s21';
+        if (engine === 'qwen') return branch === 'qwen3.8-flash-next' || name === 'ds4-qwen38';
         return branch === 'main' || name === 'ds4';
       }
       async function ensureModelDownloadEngine(engine) {
@@ -34748,9 +35143,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         catch { /* setup below can still recover optional engines */ }
         let checkout = list.find((c) => checkoutMatchesEngine(c, engine));
         if (!checkout && engine !== 'main') {
-          const label = 'Laguna S 2.1';
+          const label = engine === 'qwen' ? 'Qwen3.8-Flash-Next' : 'Laguna S 2.1';
           toast(`Installing the ${label} engine first…`, 'info');
-          const setup = await Engine.setupLaguna();
+          const setup = await (engine === 'qwen' ? Engine.setupQwen() : Engine.setupLaguna());
           if (!setup || setup.ok === false) throw new Error(setup?.error || `${label} engine setup failed`);
           list = (await Engine.engineCheckouts())?.checkouts || [];
           checkout = list.find((c) => checkoutMatchesEngine(c, engine));
@@ -34779,7 +35174,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           download: {
             variant: label,
             pct: 0,
-            stage: engine === 'main' ? 'Preparing download for' : 'Preparing Laguna S 2.1 engine for',
+            stage: engine === 'main' ? 'Preparing download for' : `Preparing ${engine} engine for`,
           },
         });
         try {

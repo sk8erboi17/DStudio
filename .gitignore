@@ -31,6 +31,8 @@ core.*
 /ds4-glm5.3/
 /ds4-glm5.3.zip
 /ds4-laguna-s21/
+/ds4-qwen38/
+/build/
 
 # Runtime diagnostic dump
 diagnostics.log

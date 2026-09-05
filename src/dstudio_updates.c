@@ -88,6 +88,11 @@ static int updates_ds4_managed_dirty_path(const char *path) {
            !strcmp(path, "ds4-design") ||
            !strcmp(path, "ds4-design.exe") ||
            !strcmp(path, "ds4_agent.c.ds4ui.bak") ||
+           !strcmp(path, ".gitignore") ||
+           !strcmp(path, "Makefile") ||
+           !strcmp(path, "ds4_bench.c") ||
+           !strcmp(path, "metal/moe.metal") ||
+           !strcmp(path, "tests/test_metal_stream_index.m") ||
            !strcmp(path, "ds4.c") ||
            !strcmp(path, "ds4.h") ||
            !strcmp(path, "ds4_gpu.h") ||
@@ -372,6 +377,13 @@ static int updates_run_ds4_latest(unsigned long long task_id, char *log_tail, si
     }
     if (!setup_restore_ds4_runtime_patches()) {
         snprintf(err, errsz, "could not restore the managed runtime patches before pulling ds4");
+        return 0;
+    }
+    /* A pathname whitelist is not proof that a user's edits are ours. After
+     * exact patch removal, refuse to pull over any remaining tracked delta. */
+    char *clean_argv[] = { "git", "-C", g_ds4_dir, "diff", "--quiet", "HEAD", "--", NULL };
+    if (setup_run_cmd_capture(NULL, clean_argv, log_tail, logsz) != 0) {
+        snprintf(err, errsz, "ds4 still has local edits after managed patch restore; no fetch or pull was run");
         return 0;
     }
     char *fetch_argv[] = { "git", "-C", g_ds4_dir, "fetch", "origin", NULL };

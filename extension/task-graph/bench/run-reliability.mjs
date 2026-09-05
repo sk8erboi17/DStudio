@@ -7,7 +7,7 @@ import { performance } from 'node:perf_hooks';
 import {
   artifactDir, csrfHeaders, jsonFetch, pollAgent, safeReadTail, sleep,
   startDStudio, startMode, waitForAgentText, writeArtifact,
-} from '../../../tests/real_harness.mjs';
+} from '../../../tests/support/real_harness.mjs';
 import {
   changeAllowed, changedFiles, createReliabilityFixture, RELIABILITY_SUITE_SIZE,
   workspaceSnapshot,

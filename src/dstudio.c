@@ -348,7 +348,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 /* The primary managed checkout always follows the pinned upstream main. GLM
  * 5.3 and DeepSeek Vision-Exp (including native image input) live there, so
  * neither model needs a side checkout. */
-#define DS4_UPSTREAM_COMMIT "b0982a1b4ee9d0f157e600bfd102fbeac951a829"
+#define DS4_UPSTREAM_COMMIT "b0a147a7fba6d1a104d047d5a140e9bb4bfc13cd"
 #define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
 
 /* Optional Laguna S 2.1 engine checkout. Laguna lives on its own upstream
@@ -357,6 +357,11 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define DS4_LAGUNA_UPSTREAM_COMMIT "448d5695d1c86401a4e9447c440feb983b73e6de"
 #define DS4_LAGUNA_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_LAGUNA_UPSTREAM_COMMIT
 #define DS4_LAGUNA_DIR_NAME "ds4-laguna-s21"
+#define DS4_QWEN_UPSTREAM_COMMIT "bd9cfbccc03a709a3f00b50e0ac1cc41c3fcf02d"
+#define DS4_QWEN_ARCHIVE_URL "https://codeload.github.com/ivanfioravanti/ds4-metal/tar.gz/" DS4_QWEN_UPSTREAM_COMMIT
+#define DS4_QWEN_DIR_NAME "ds4-qwen38"
+#define MODEL_QWEN "gguf/Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf"
+#define MODEL_QWEN_PLE "gguf/Qwen3.8-Flash-Next-PLE-Q4_1.gguf"
 
 /* Downloadable content is limited to design systems. Skills are user-authored
  * and live in the writable user-skills directory; DStudio never downloads a
@@ -1431,6 +1436,9 @@ static long long current_model_file_size(void);
 static long long sysctl_iogpu_wired_limit_mb(void);
 static int setup_run_cmd_capture(const char *cwd, char *const argv[], char *out, size_t outsz);
 static int setup_ensure_server_metrics_runtime(char *err, size_t errsz);
+static int run_ext_script(const char *script, const char *action);
+static int run_build_server_pld(void);
+static void git_branch_of(const char *dir, char *out, size_t outsz);
 static int native_glm_vision_installed(void);
 static int native_deepseek_vision_installed(void);
 static const char *native_selected_vision_encoder(void);
@@ -2206,6 +2214,8 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
         file = MODEL_DSVISION_DSPARK; bytes = MODEL_DSVISION_DSPARK_EXPECTED_BYTES;
     } else if (!strcmp(target, "laguna-q4")) {
         file = MODEL_LAGUNA; bytes = 68000000000LL;
+    } else if (!strcmp(target, "qwen38-q4k")) {
+        file = MODEL_QWEN; /* Multi-file progress is indeterminate until exit. */
     }
     cstr_copy(rel, relsz, file);
     if (expected_bytes) *expected_bytes = bytes;
@@ -2590,6 +2600,8 @@ static int model_file_is_auxiliary(const char *name) {
     if (!name) return 0;
     size_t len = strlen(name);
     return mem_contains_ci(name, len, "dspark-support") ||
+           (mem_contains_ci(name, len, "qwen3.8") &&
+            (mem_contains_ci(name, len, "-ple-") || mem_contains_ci(name, len, "-mtp."))) ||
            mem_contains_ci(name, len, "glm-5.3-flash-vision-encoder") ||
            mem_contains_ci(name, len, "deepseek-v4-flash-vision-encoder");
 }
@@ -2605,6 +2617,16 @@ static int model_is_laguna(void) {
     const char *base = strrchr(rel, '/');
     const char *name = base ? base + 1 : rel;
     return mem_contains_ci(name, strlen(name), "laguna");
+}
+static int model_is_qwen(void) {
+    const char *rel = current_model_rel();
+    return mem_contains_ci(rel, strlen(rel), "qwen3.8-flash-next");
+}
+static int selected_checkout_is_qwen(void) {
+    const char *base = strrchr(g_ds4_dir, '/');
+    if (!strcmp(base ? base + 1 : g_ds4_dir, DS4_QWEN_DIR_NAME)) return 1;
+    char branch[128]; git_branch_of(g_ds4_dir, branch, sizeof branch);
+    return !strcmp(branch, "qwen3.8-flash-next");
 }
 static int model_is_flash(void) {
     const char *rel = current_model_rel();
@@ -2877,7 +2899,9 @@ static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_mode
     if (reason && reasonsz) reason[0] = '\0';
     if (err && errsz) err[0] = '\0';
     if (!cfg || cfg->ssd_streaming == SSD_STREAMING_OFF) {
-        snprintf(reason, reasonsz, "disabled: DS4-only mode uses normal Metal mapped residency");
+        snprintf(reason, reasonsz, "%s", !remote_model && model_is_qwen()
+                 ? "Qwen resident backbone; required PLE stays SSD-backed"
+                 : "disabled: DS4-only mode uses normal Metal mapped residency");
         return 0;
     }
     if (remote_model) {
@@ -2902,6 +2926,14 @@ static int engine_effective_ssd_streaming(const engine_cfg *cfg, int remote_mode
             return -1;
         }
         snprintf(reason, reasonsz, "auto disabled: Laguna S 2.1 requires full residency");
+        return 0;
+    }
+    if (model_is_qwen()) {
+        if (cfg->ssd_streaming == SSD_STREAMING_ON) {
+            snprintf(err, errsz, "Set SSD streaming to Off for Qwen: its main weights stay in RAM and its required PLE stays on SSD; expert streaming is not supported");
+            return -1;
+        }
+        snprintf(reason, reasonsz, "Qwen resident backbone; required PLE stays SSD-backed");
         return 0;
     }
 #ifdef _WIN32
@@ -3125,6 +3157,11 @@ static int chrome_available(void) {
  * So each model gets its OWN cache directory under ds4-kv/<model-key>, derived
  * from the GGUF file name. Switching back and forth keeps each model's cache. */
 static void kv_root(char *out, size_t outsz) {
+    const char *configured = getenv("DSTUDIO_KV_DIR");
+    if (configured && configured[0]) {
+        snprintf(out, outsz, "%s", configured);
+        return;
+    }
 #ifdef _WIN32
     const char *base = getenv("LOCALAPPDATA");
     if (!base || !base[0]) base = getenv("USERPROFILE");
@@ -3342,6 +3379,8 @@ static int ds4_catalog_matches_selected_model(const char *response) {
         return strstr(response, "\"id\":\"glm-5.3-flash\"") != NULL;
     if (model_is_laguna())
         return strstr(response, "\"id\":\"laguna-s-2.1\"") != NULL;
+    if (model_is_qwen())
+        return strstr(response, "\"id\":\"qwen3.8-flash-next\"") != NULL;
     return strstr(response, "\"id\":\"deepseek-v4-") != NULL;
 }
 
@@ -4001,7 +4040,7 @@ static int kill_external_server(int port) {
  * upstream residency path whenever the complete launch fits the measured Metal
  * budget; oversized models keep the lazy mapped path. */
 static void child_setenv_metal(const engine_cfg *cfg) {
-    if (!model_is_laguna()) {
+    if (!model_is_laguna() && !model_is_qwen()) {
         const int resident_flash = !g_ssd_streaming_effective &&
             model_is_flash() && flash_config_fits_metal(cfg, g_dspark_enabled, NULL, NULL);
         if (resident_flash) {
@@ -4311,6 +4350,13 @@ static int resolve_dspark_file(char *out, size_t outsz) {
 }
 
 static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
+    if (model_is_qwen() != selected_checkout_is_qwen()) {
+        snprintf(err, errsz, "Qwen requires its matching Qwen engine; choose the model and engine together from the model menu");
+        return 0;
+    }
+    if (model_is_qwen() && !file_present(MODEL_QWEN_PLE)) {
+        snprintf(err, errsz, "Qwen requires its matching PLE file; finish download-model.sh qwen38-q4k"); return 0;
+    }
 #ifndef _WIN32
     /* A plain upstream `make` can replace the managed server with a binary
      * that does not expose exact decode throughput. Repair that drift before
@@ -4380,6 +4426,12 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
     printf("engine: server pid %ld (port %d, windows cpu)\n", (long)pid, cfg->port);
     return 1;
 #else
+    int pld_runtime = run_build_server_pld();
+    if (pld_runtime == 0) {
+        snprintf(err, errsz, "could not build Chat prompt lookup patch; check upstream anchors/build output");
+        return 0;
+    }
+    const char *server_exe = pld_runtime > 0 ? "./ds4-server-pld" : "./ds4-server";
     int op[2], ep[2];
     if (pipe(op) != 0 || pipe(ep) != 0) { snprintf(err, errsz, "pipe failed"); return 0; }
 
@@ -4393,7 +4445,8 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
         close(op[0]); close(op[1]); close(ep[0]); close(ep[1]);
         if (g_srv_fd >= 0) close(g_srv_fd);
         char *argv[32]; int n = 0;
-        argv[n++] = "./ds4-server"; argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
+        argv[n++] = (char *)server_exe; argv[n++] = "-m"; argv[n++] = (char *)current_model_rel();
+        if (model_is_qwen()) { argv[n++] = "--ple"; argv[n++] = MODEL_QWEN_PLE; }
         argv[n++] = "--host"; argv[n++] = g_bind_host; argv[n++] = "--port"; argv[n++] = ports;
         argv[n++] = "--ctx"; argv[n++] = ctxs;
         if (!model_is_glm() && !model_is_laguna()) { argv[n++] = "--power"; argv[n++] = pows; }
@@ -4409,7 +4462,7 @@ static int spawn_server(const engine_cfg *cfg, char *err, size_t errsz) {
         argv[n++] = "--kv-cache-min-tokens"; argv[n++] = mins; argv[n++] = "--cors";
         if (dspark_on) { argv[n++] = "--dspark"; argv[n++] = "--mtp-model"; argv[n++] = dspark_path; }
         argv[n] = NULL;
-        execv("./ds4-server", argv);
+        execv(server_exe, argv);
         _exit(127);
     }
     close(op[1]); close(ep[1]);
@@ -4485,11 +4538,13 @@ static char *build_skill_sys(int mode) {
     if (cowork_mode) {
         snprintf(path, sizeof path, "%s/extension/cowork/COWORK.md", g_web_dir);
         n = 0;
-        sys_append(&buf, &len, &cap, jsonl_read_file(path, &n), n);
+        char *cowork_instructions = jsonl_read_file(path, &n);
+        sys_append(&buf, &len, &cap, cowork_instructions, n);
     }
     if (g_skill[0]) {
         n = 0;
-        sys_append(&buf, &len, &cap, read_selected_skill(&n), n);
+        char *selected_instructions = read_selected_skill(&n);
+        sys_append(&buf, &len, &cap, selected_instructions, n);
     }
 
     /* On-demand tools. User skills stay out of the startup prompt and are found
@@ -5095,6 +5150,7 @@ static int run_build_jsonl(const char *action) {
     char src[DSTUDIO_PATH_MAX + 64], bak[DSTUDIO_PATH_MAX + 64];
     char web_src[DSTUDIO_PATH_MAX + 64], web_tmp[DSTUDIO_PATH_MAX + 64], web_obj[DSTUDIO_PATH_MAX + 64];
     char bin[DSTUDIO_PATH_MAX + 64], cowork_bin[DSTUDIO_PATH_MAX + 64], ver[DSTUDIO_PATH_MAX + 64];
+    char core_src[DSTUDIO_PATH_MAX + 64], core_hdr[DSTUDIO_PATH_MAX + 64];
     snprintf(src, sizeof src, "%s/ds4_agent.c", ds4_abs);
     snprintf(bak, sizeof bak, "%s/ds4_agent.c.ds4ui.bak", ds4_abs);
     snprintf(web_src, sizeof web_src, "%s/ds4_web.c", ds4_abs);
@@ -5103,6 +5159,8 @@ static int run_build_jsonl(const char *action) {
     snprintf(bin, sizeof bin, "%s/ds4-agent-jsonl", ds4_abs);
     snprintf(cowork_bin, sizeof cowork_bin, "%s/ds4-cowork", ds4_abs);
     snprintf(ver, sizeof ver, "%s/ds4-agent-jsonl.ver", ds4_abs);
+    snprintf(core_src, sizeof core_src, "%s/ds4.c", ds4_abs);
+    snprintf(core_hdr, sizeof core_hdr, "%s/ds4.h", ds4_abs);
 
     jsonl_unlink_if_exists(web_tmp);
     jsonl_unlink_if_exists(web_obj);
@@ -5119,15 +5177,22 @@ static int run_build_jsonl(const char *action) {
     }
     if (strcmp(action, "restore") == 0) return 1;
 
+    /* Apply before checking core mtimes: Agent may be the first runtime built
+     * after upgrading DStudio, without a preceding Chat launch. */
+    if (!run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply")) return 0;
+
     int patch_version = jsonl_patch_version();
     if (patch_version <= 0) return 0;
 
     /* idempotence: skip if the binary is newer than the source and the external patch
      * version matches. */
-    struct stat sb, wb, bb, cb;
+    struct stat sb, wb, bb, cb, core_sb, core_hb;
     if (access(bin, X_OK) == 0 && access(cowork_bin, X_OK) == 0 &&
         stat(src, &sb) == 0 && stat(web_src, &wb) == 0 && stat(bin, &bb) == 0 &&
         stat(cowork_bin, &cb) == 0 &&
+        stat(core_src, &core_sb) == 0 && stat(core_hdr, &core_hb) == 0 &&
+        bb.st_mtime >= core_sb.st_mtime && bb.st_mtime >= core_hb.st_mtime &&
+        cb.st_mtime >= core_sb.st_mtime && cb.st_mtime >= core_hb.st_mtime &&
         bb.st_mtime >= sb.st_mtime && bb.st_mtime >= wb.st_mtime &&
         cb.st_mtime >= sb.st_mtime && cb.st_mtime >= wb.st_mtime &&
         !patch_dir_newer_than(JSONL_PATCH_DIR, bb.st_mtime) &&
@@ -5161,6 +5226,8 @@ static int run_build_jsonl(const char *action) {
     return ok;
 #endif
 }
+
+#include "dstudio_pld.c"
 
 /* Runs an extension script (build/restore of the derived binaries).
  * Our own scripts, fixed args → no shell-injection. Blocks until the end;
@@ -5328,6 +5395,10 @@ static int run_ext_script(const char *script, const char *action) {
  * tool parser and KV machinery with its own binary name, charter and cache. */
 static int spawn_agent(const engine_cfg *cfg, const char *workdir,
                        int cowork_mode, char *err, size_t errsz) {
+    if (!g_remote_base_url[0] && (model_is_qwen() || selected_checkout_is_qwen())) {
+        snprintf(err, errsz, "Qwen currently supports Chat/native inference; its structured Agent/Cowork adapter is not implemented");
+        return 0;
+    }
     const int runtime_mode = cowork_mode ? ENGINE_COWORK : ENGINE_AGENT;
     const char *runtime_label = cowork_mode ? "cowork" : "agent";
     int remote_model = g_remote_base_url[0] != '\0';
@@ -5653,6 +5724,9 @@ static int spawn_agent(const engine_cfg *cfg, const char *workdir,
  * THIS repo (extension/design/ds4_design.c, native \x1e events): the script
  * compiles it in the ds4 repo as an untracked output, without patch or .bak. */
 static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, size_t errsz) {
+    if (!g_remote_base_url[0] && (model_is_qwen() || selected_checkout_is_qwen())) {
+        snprintf(err, errsz, "Qwen currently supports Chat/native inference, not Design"); return 0;
+    }
     int remote_model = g_remote_base_url[0] != '\0';
     if (!remote_model && !file_present(current_model_rel())) {
         snprintf(err, errsz, "model %.16s not found in %.180s",
@@ -5673,7 +5747,8 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     }
     win_prepare_engine_runtime();
 #else
-    if (!run_ext_script("extension/design/build-design.sh", "build")) {
+    if (!run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") ||
+        !run_ext_script("extension/design/build-design.sh", "build")) {
         snprintf(err, errsz, "build of ds4-design failed (see the serve terminal)");
         return 0;
     }
@@ -5914,7 +5989,7 @@ static void api_model_download(int fd, const char *body) {
         "ds4f-vision-encoder", "ds4f-vision-dspark",
         "pro-q2-imatrix", "pro-q4-layers00-30", "pro-q4-layers31-output", "pro-q4-split",
         "glm53-q2", "glm53-vision",
-        "laguna-q4",
+        "laguna-q4", "qwen38-q4k",
     };
     int valid = 0;
     for (size_t i = 0; i < sizeof TARGETS / sizeof TARGETS[0]; i++)
@@ -5957,6 +6032,12 @@ static void api_model_download(int fd, const char *body) {
         if (log >= 0) { dup2(log, STDOUT_FILENO); dup2(log, STDERR_FILENO); close(log); }
         int dn = open("/dev/null", O_RDONLY); if (dn >= 0) { dup2(dn, STDIN_FILENO); close(dn); }
         if (abliterated) _exit(child_download_abliterated_resumable(ds4_abs));
+        if (!strcmp(target, "qwen38-q4k")) {
+            char helper[DSTUDIO_PATH_MAX + 64];
+            snprintf(helper, sizeof helper, "%s/scripts/download-qwen38.py", g_web_dir);
+            execlp("python3", "python3", helper, "--directory", "gguf", (char *)NULL);
+            _exit(127);
+        }
         if (!strcmp(target, "flash-dspark")) _exit(child_download_dspark_resumable(ds4_abs));
         if (!strcmp(target, "laguna-q4")) _exit(child_download_laguna_resumable(ds4_abs));
         else            execl("/bin/sh", "sh", "download_model.sh", target, (char *)NULL);
@@ -6009,7 +6090,7 @@ static void api_model_folder_open(int fd, const char *body) {
     char engine[24] = "";
     json_get_string(body, "engine", engine, sizeof engine);
     char checkout[DSTUDIO_PATH_MAX];
-    if (!engine[0] || !strcmp(engine, "main") || !strcmp(engine, "laguna")) {
+    if (!engine[0] || !strcmp(engine, "main") || !strcmp(engine, "laguna") || !strcmp(engine, "qwen")) {
         /* The native app's web directory is Application Support, while the
          * selected engine checkout can live anywhere. Every managed engine's
          * gguf entry points at the shared physical store, so resolve it from
@@ -6500,7 +6581,7 @@ static int collect_engine_checkouts(
      * be backed by a file provider, where opendir() can block the single local
      * HTTP loop indefinitely. Managed runtimes have fixed sibling names; an
      * arbitrary user-selected checkout is already included as `active`. */
-    const char *managed_names[] = { "ds4", DS4_LAGUNA_DIR_NAME };
+    const char *managed_names[] = { "ds4", DS4_LAGUNA_DIR_NAME, DS4_QWEN_DIR_NAME };
     for (size_t ni = 0; ni < sizeof managed_names / sizeof managed_names[0] && ndirs < cap; ni++) {
         char full[DSTUDIO_PATH_MAX + 64], abs[DSTUDIO_PATH_MAX];
         int n = snprintf(full, sizeof full, "%s/%s", parent, managed_names[ni]);
@@ -6522,6 +6603,8 @@ static void checkout_branch_label(const char *dir, char *out, size_t outsz) {
     name = name ? name + 1 : dir;
     if (!strcmp(name, DS4_LAGUNA_DIR_NAME))
         cstr_copy(out, outsz, "laguna-s2.1");
+    if (!strcmp(name, DS4_QWEN_DIR_NAME))
+        cstr_copy(out, outsz, "qwen3.8-flash-next");
 }
 
 #ifndef _WIN32
@@ -6540,7 +6623,7 @@ static DIR *opendir_bounded(const char *path) { return opendir(path); }
 #endif
 
 /* GET /api/ggufs — list .gguf files across every managed engine checkout.
- * GLM 5.3 is owned by primary main; only Laguna still needs a side checkout.
+ * GLM 5.3 is owned by primary main; Laguna and Qwen use side checkouts.
  * A once-persisted ds4-glm5.3 path may remain on disk, but is deliberately not
  * emitted so the UI repairs its saved modelEngineDir to ./ds4/main. */
 static char *gguf_catalog_build(void) {
@@ -6564,6 +6647,7 @@ static char *gguf_catalog_build(void) {
         int laguna_engine = !strcmp(engine_name, DS4_LAGUNA_DIR_NAME) ||
                             !strcmp(branch, "laguna-s2.1");
         if (legacy_glm_engine) continue;
+        int qwen_engine = !strcmp(engine_name, DS4_QWEN_DIR_NAME) || !strcmp(branch, "qwen3.8-flash-next");
         for (int di = 0; di < 2 && ok; di++) {
             char dir[DSTUDIO_PATH_MAX + 16];
             snprintf(dir, sizeof dir, "%s%s%s", dirs[ci],
@@ -6577,6 +6661,7 @@ static char *gguf_catalog_build(void) {
                 if (len < 6 || strcmp(nm + len - 5, ".gguf")) continue;
                 if (!model_file_is_supported(nm) && !model_file_is_auxiliary(nm)) continue;
                 int laguna_model = mem_contains_ci(nm, len, "laguna");
+                if (mem_contains_ci(nm, len, "qwen3.8") != qwen_engine) continue;
                 if (laguna_model != laguna_engine) continue;
                 if (laguna_engine && !laguna_model) continue;
                 char full[DSTUDIO_PATH_MAX + 400];
@@ -6628,6 +6713,7 @@ static char *gguf_catalog_build_known(void) {
         MODEL_DSPARK_ABLITERATED,
         MODEL_DSVISION_DSPARK,
         MODEL_LAGUNA,
+        MODEL_QWEN, MODEL_QWEN_PLE,
     };
     char dirs[ENGINE_CHECKOUT_CAP][DSTUDIO_PATH_MAX];
     char active[DSTUDIO_PATH_MAX];
@@ -6658,6 +6744,8 @@ static char *gguf_catalog_build_known(void) {
             if (duplicate) continue;
             int laguna_model = !strcmp(rel, MODEL_LAGUNA) ||
                                mem_contains_ci(rel, strlen(rel), "laguna");
+            int qwen_engine = !strcmp(engine_name, DS4_QWEN_DIR_NAME) || !strcmp(branch, "qwen3.8-flash-next");
+            if (mem_contains_ci(rel, strlen(rel), "qwen3.8") != qwen_engine) continue;
             if (laguna_model != laguna_engine) continue;
             char full[DSTUDIO_PATH_MAX + 512];
             struct stat st;
@@ -8159,6 +8247,7 @@ static void api_fs_mkdir(int fd, const char *body) {
 
 #include "dstudio_setup.c"
 #include "dstudio_laguna.c"
+#include "dstudio_engine_install.c"
 #include "dstudio_updates.c"
 
 /* Point the launcher at a different DStudio checkout (where extension/ lives:
@@ -10123,6 +10212,7 @@ static int read_request_body_alloc(int fd, const char *req, size_t got, size_t h
 }
 
 static int route_post_api(int fd, const char *path, const char *body) {
+    if (path_eq_clean(path, "/api/pdf/evidence")) { api_pdf_evidence(fd, body); return 200; }
     if (!strcmp(path, "/api/task-graph/create") || !strcmp(path, "/api/task-graphs/create")) return api_dtg_create(fd, body);
     if (!strcmp(path, "/api/task-graph/validate") || !strcmp(path, "/api/task-graphs/validate")) return api_dtg_validate(fd, body);
     if (!strcmp(path, "/api/task-graph/approve") || !strcmp(path, "/api/task-graphs/approve")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_approve_graph);
@@ -10159,6 +10249,7 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); return 200; }
     if (!strcmp(path, "/api/ds4/setup")) { api_setup_ds4(fd, body); return 200; }
     if (!strcmp(path, "/api/laguna/setup")) { api_setup_laguna(fd); return 200; }
+    if (!strcmp(path, "/api/qwen/setup")) { api_setup_qwen(fd); return 200; }
     if (!strcmp(path, "/api/image/generate")) { api_image_generate(fd, body); return 200; }
     if (!strcmp(path, "/api/image/stop")) { api_image_stop(fd, body); return 200; }
     if (!strcmp(path, "/api/video/setup")) { api_video_setup(fd, body); return 200; }
@@ -10614,6 +10705,17 @@ int main(int argc, char **argv)
         int ok = run_build_jsonl("build");
         printf("build-jsonl: %s\n", ok ? "ok" : "FAILED");
         return ok ? 0 : 1;
+    }
+    if (argc > 1 && strcmp(argv[1], "--install-engine") == 0)
+        return setup_engine_cli(argc, argv);
+    /* Compile only: no model loading, listeners or engine launch. */
+    if (argc > 1 && strcmp(argv[1], "--build-server-pld") == 0) {
+        resolve_web_dir();
+        if (argc > 2) { snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]); g_ds4_dir_explicit = 1; }
+        resolve_ds4_dir();
+        int rc = run_build_server_pld();
+        printf("build-server-pld: %s\n", rc > 0 ? "ok" : rc < 0 ? "unsupported ABI; native server retained" : "FAILED");
+        return rc == 0 ? 1 : 0;
     }
     /* CI/dev: check the patch anchors against a ds4 checkout WITHOUT building
      * anything (no model, no .o). Exit 0 if the patch would apply, 1 otherwise. */

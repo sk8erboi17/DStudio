@@ -1,0 +1,10 @@
+    server_generation_leave(s);
+    trace_event(s, trace_id,
+        "PLD mode=%s lookups=%llu hits=%llu proposed=%llu matches=%llu batches=%llu fallback=%llu",
+        pld_mode == DS4UI_PLD_OFF ? "off" :
+        pld_mode == DS4UI_PLD_BATCH ? "batch-experimental" : "strict",
+        (unsigned long long)pld.lookups, (unsigned long long)pld.hits,
+        (unsigned long long)pld.proposed, (unsigned long long)pld.accepted,
+        (unsigned long long)pld.batches, (unsigned long long)pld.fallbacks);
+
+    if (job_cancelled(j)) {

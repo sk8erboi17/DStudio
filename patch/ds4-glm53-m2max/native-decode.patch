@@ -1,0 +1,1553 @@
+diff --git a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -142,6 +142,13 @@
+ test-mxfp4-metal: check-mxfp4-half-lut tests/test_mxfp4_metal
+ 	./tests/test_mxfp4_metal
+ 
++tests/test_metal_stream_index: tests/test_metal_stream_index.m ds4_metal.m ds4_gpu.h ds4_image.o $(METAL_SRCS)
++	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ $< ds4_image.o $(METAL_LDLIBS)
++
++.PHONY: test-metal-stream-index
++test-metal-stream-index: tests/test_metal_stream_index
++	./tests/test_metal_stream_index
++
+ cpu: ds4_cli_cpu.o ds4_server_cpu.o ds4_bench_cpu.o ds4_eval_cpu.o ds4_agent_cpu.o ds4_help.o ds4_prompt_prefix.o ds4_web.o ds4_kvstore.o linenoise.o rax.o ds4_gpu_args_cpu.o $(CPU_CORE_OBJS)
+ 	$(CC) $(CFLAGS) -o ds4 ds4_cli_cpu.o ds4_help.o ds4_prompt_prefix.o linenoise.o ds4_gpu_args_cpu.o $(CPU_CORE_OBJS) $(LDLIBS)
+ 	$(CC) $(CFLAGS) -o ds4-server ds4_server_cpu.o ds4_help.o ds4_kvstore.o rax.o ds4_gpu_args_cpu.o $(CPU_CORE_OBJS) $(LDLIBS)
+@@ -365,10 +372,10 @@
+ 	$(CC) $(CFLAGS) -o $@ $^ -lm
+ 
+ ifeq ($(UNAME_S),Darwin)
+-$(GLM53_KDA_TEST): tests/test_glm53_kda.o ds4_metal.o
++$(GLM53_KDA_TEST): tests/test_glm53_kda.o ds4_metal.o ds4_image.o
+ 	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
+ else
+-$(GLM53_KDA_TEST): tests/test_glm53_kda.o ds4_cuda.o $(MMQ_OBJS)
++$(GLM53_KDA_TEST): tests/test_glm53_kda.o ds4_cuda.o ds4_image.o $(MMQ_OBJS)
+ 	$(NVCC) $(NVCCFLAGS) -o $@ $^ $(CUDA_LDLIBS)
+ endif
+ 
+@@ -611,4 +618,5 @@
+ 	./tests/test_mxfp4_dot
+ 
+ clean:
++	rm -f tests/test_metal_stream_index
+ 	rm -f ds4 ds4-server ds4-bench ds4-eval ds4-agent ds4_cpu ds4_native ds4_server_test ds4_test ds4_agent_test gguf-tools/quality-testing/score_official gguf-tools/quality-testing/score_official.o speed-bench/metal_decode_schedule_bench speed-bench/metal_prefill_variant_bench speed-bench/*.o tests/test_q4k_dot tests/test_mxfp4_dot tests/test_mxfp4_metal tests/test_mxfp4_rocm tests/test_mxfp4_cuda tests/test_metal_session_batch tests/test_glm53_kda tests/test_glm53_kda_rocm tests/test_glm53_vision_engine tests/test_glm53_vision_prompt tests/test_deepseek4_vision_image tests/test_prompt_prefix tests/test_gpu_xdev tests/test_gpu_model_cache tests/test_gpu_lookup_cache_strict tests/test_engine_mgpu_refusal tests/test_engine_mgpu_runtime tests/test_engine_correctness tests/test_sampling tests/test_cuda_session_batch tests/test_cuda_mixed_batch tests/*.o *.o tests/cuda_long_context_smoke tests/cuda_long_context_smoke.o
+diff --git a/ds4.c b/ds4.c
+--- a/ds4.c
++++ b/ds4.c
+@@ -490,8 +490,17 @@
+     DS4_MAX_KDA_HEAD         = 64,
+     DS4_MAX_KDA_HEAD_DIM     = 128,
+     DS4_MAX_KDA_CONV         = 4,
++    DS4_EXPERT_BIT_WORDS     = (DS4_MAX_EXPERT + 63) / 64,
+ };
+ 
++static inline bool ds4_expert_bit_test(const uint64_t *bits, uint32_t expert) {
++    return (bits[expert >> 6] & (1ull << (expert & 63u))) != 0;
++}
++
++static inline void ds4_expert_bit_set(uint64_t *bits, uint32_t expert) {
++    bits[expert >> 6] |= 1ull << (expert & 63u);
++}
++
+ typedef enum {
+     DS4_MODEL_FAMILY_DEEPSEEK4 = 0,
+     DS4_MODEL_FAMILY_GLM_DSA   = 1,
+@@ -6984,6 +6993,20 @@
+     return q2_addr || q4_addr;
+ }
+ 
++static DS4_MAYBE_UNUSED bool glm_stream_m2_glm53_top8_addr_enabled(void) {
++#if defined(__APPLE__) && !defined(DS4_NO_GPU)
++    return DS4_MODEL_VARIANT == DS4_VARIANT_GLM53 &&
++           DS4_N_EXPERT == 288 &&
++           DS4_N_EXPERT_USED == 8 &&
++           DS4_N_EMBD == 4096 &&
++           DS4_N_FF_EXP == 2048 &&
++           ds4_gpu_device_is_m2_max() &&
++           getenv("DS4_METAL_DISABLE_M2_GLM53_TOP8_STREAM_ADDR") == NULL;
++#else
++    return false;
++#endif
++}
++
+ static DS4_MAYBE_UNUSED bool glm_stream_expert_cache_addr_supported(
+         const ds4_weights       *w,
+         const ds4_layer_weights *l,
+@@ -7036,14 +7059,19 @@
+ 
+     if (l->ffn_down_exps->type == DS4_TENSOR_Q2_K) {
+ #ifdef __APPLE__
+-        /* Metal's IQ2/Q2 selected-slot down kernel sums six experts. The
+-         * separate IQ2/IQ2 address-table path below supports up to eight. */
+-        if (DS4_N_EXPERT_USED != 6) return false;
++        /* The generic Metal selected-slot down kernel is the top-6 path.
++         * GLM 5.3 top-8 is admitted only by the exact M2 Max address path. */
++        const bool m2_glm53_top8_addr =
++            glm_stream_m2_glm53_top8_addr_enabled();
++        if (DS4_N_EXPERT_USED != 6 && !m2_glm53_top8_addr) return false;
+ #endif
+         return !glm_graph_env_present("DS4_ROCM_DISABLE_IQ2_SELECTED_EXPERT_VIEWS",
+                                       "DS4_METAL_DISABLE_IQ2_SELECTED_EXPERT_VIEWS");
+     }
+     if (l->ffn_down_exps->type == DS4_TENSOR_IQ2_XXS) {
++#ifdef __APPLE__
++        if (DS4_N_EXPERT_USED != 6) return false;
++#endif
+         return !glm_graph_env_present("DS4_ROCM_DISABLE_IQ2_STREAM_ADDR_TABLE",
+                                       "DS4_METAL_DISABLE_IQ2_STREAM_ADDR_TABLE");
+     }
+@@ -19154,7 +19182,7 @@
+         return false;
+     }
+ 
+-    bool seen[DS4_MAX_EXPERT] = { false };
++    uint64_t seen[DS4_EXPERT_BIT_WORDS] = { 0 };
+     uint32_t unique = 0;
+     for (uint64_t i = 0; i < n_ids; i++) {
+         const int32_t expert = selected[i];
+@@ -19167,8 +19195,8 @@
+             free(selected);
+             return false;
+         }
+-        if (!seen[expert]) {
+-            seen[expert] = true;
++        if (!ds4_expert_bit_test(seen, (uint32_t)expert)) {
++            ds4_expert_bit_set(seen, (uint32_t)expert);
+             unique++;
+         }
+     }
+@@ -19583,7 +19611,7 @@
+         job->read_ms = (now_sec() - t_read0) * 1000.0;
+     }
+ 
+-    bool seen[DS4_MAX_EXPERT] = { false };
++    uint64_t seen[DS4_EXPERT_BIT_WORDS] = { 0 };
+     if (ok) {
+         for (uint64_t i = 0; i < n_ids; i++) {
+             const int32_t expert = selected[i];
+@@ -19596,8 +19624,8 @@
+                 ok = false;
+                 break;
+             }
+-            if (seen[expert]) continue;
+-            seen[expert] = true;
++            if (ds4_expert_bit_test(seen, (uint32_t)expert)) continue;
++            ds4_expert_bit_set(seen, (uint32_t)expert);
+             job->unique++;
+         }
+     }
+@@ -19611,14 +19639,14 @@
+             metal_graph_stream_prefill_selected_prepare_gap() : 0;
+         uint32_t e = 0;
+         while (e < DS4_N_EXPERT) {
+-            while (e < DS4_N_EXPERT && !seen[e]) e++;
++            while (e < DS4_N_EXPERT && !ds4_expert_bit_test(seen, e)) e++;
+             if (e >= DS4_N_EXPERT) break;
+             const uint32_t first = e;
+             uint32_t last = e;
+             uint32_t skipped = 0;
+             e++;
+             while (e < DS4_N_EXPERT) {
+-                if (seen[e]) {
++                if (ds4_expert_bit_test(seen, e)) {
+                     last = e;
+                     skipped = 0;
+                 } else if (skipped < gap) {
+@@ -20270,7 +20298,7 @@
+                                   0,
+                                   selected,
+                                   n_ids * sizeof(selected[0])) != 0;
+-    bool seen[DS4_MAX_EXPERT] = { false };
++    uint64_t seen[DS4_EXPERT_BIT_WORDS] = { 0 };
+     uint32_t unique = 0;
+     uint32_t ranges = 0;
+     uint64_t hint_bytes = 0;
+@@ -20287,8 +20315,8 @@
+                 ok = false;
+                 break;
+             }
+-            if (seen[expert]) continue;
+-            seen[expert] = true;
++            if (ds4_expert_bit_test(seen, (uint32_t)expert)) continue;
++            ds4_expert_bit_set(seen, (uint32_t)expert);
+             unique++;
+         }
+     }
+@@ -20296,14 +20324,14 @@
+     if (ok) {
+         uint32_t e = 0;
+         while (e < DS4_N_EXPERT) {
+-            while (e < DS4_N_EXPERT && !seen[e]) e++;
++            while (e < DS4_N_EXPERT && !ds4_expert_bit_test(seen, e)) e++;
+             if (e >= DS4_N_EXPERT) break;
+             const uint32_t first = e;
+             uint32_t last = e;
+             uint32_t skipped = 0;
+             e++;
+             while (e < DS4_N_EXPERT) {
+-                if (seen[e]) {
++                if (ds4_expert_bit_test(seen, e)) {
+                     last = e;
+                     skipped = 0;
+                 } else if (skipped < gap) {
+@@ -21352,6 +21380,22 @@
+     }
+     if (metal_graph_decode_iq2_selected_slots_expected(g, layer) ||
+         metal_graph_decode_mxfp4_selected_slots_expected(g, layer)) return true;
++    /* The explicit hotlist is also the diagnostic all-hit oracle for the
++     * exact M2 Max GLM-5.3 top-8 path.  Its runtime consumer is deliberately
++     * narrower than the historical top-6 selected-slots predicate above, so
++     * admit the same mixed IQ2_XXS/Q2_K layout here instead of silently
++     * ignoring --ssd-streaming-preload-experts. */
++    if (glm_stream_m2_glm53_top8_addr_enabled() &&
++        !g->quality &&
++        layer->ffn_gate_exps->type == DS4_TENSOR_IQ2_XXS &&
++        layer->ffn_up_exps->type == DS4_TENSOR_IQ2_XXS &&
++        layer->ffn_down_exps->type == DS4_TENSOR_Q2_K &&
++        !glm_graph_env_present("DS4_ROCM_GLM_DISABLE_STREAMING_EXPERT_CACHE",
++                               "DS4_METAL_GLM_DISABLE_STREAMING_EXPERT_CACHE") &&
++        !glm_graph_env_present("DS4_ROCM_DISABLE_IQ2_SELECTED_EXPERT_VIEWS",
++                               "DS4_METAL_DISABLE_IQ2_SELECTED_EXPERT_VIEWS")) {
++        return true;
++    }
+     if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_GLM_DSA &&
+         !g->quality &&
+         layer->ffn_gate_exps->type == DS4_TENSOR_IQ2_XXS &&
+@@ -21456,6 +21500,18 @@
+                                   "DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST");
+ }
+ 
++/* Cold startup scratch. Keeping this bounded workspace off the stack avoids a
++ * roughly 241 KiB frame while preserving layer-major expert order. */
++typedef struct {
++    int32_t experts[DS4_MAX_LAYER][DS4_MAX_EXPERT];
++    uint32_t priorities[DS4_MAX_LAYER][DS4_MAX_EXPERT];
++    uint32_t counts[DS4_MAX_LAYER];
++    uint64_t seen[DS4_MAX_LAYER][DS4_EXPERT_BIT_WORDS];
++} metal_graph_streaming_expert_hotlist_workspace;
++
++_Static_assert(sizeof(metal_graph_streaming_expert_hotlist_workspace) <= 256u * 1024u,
++               "streaming expert hotlist workspace must remain bounded");
++
+ static bool metal_graph_streaming_expert_hotlist_add(
+         uint32_t    layer,
+         uint32_t    expert,
+@@ -21463,13 +21519,13 @@
+         int32_t     experts[DS4_MAX_LAYER][DS4_MAX_EXPERT],
+         uint32_t    priorities[DS4_MAX_LAYER][DS4_MAX_EXPERT],
+         uint32_t    counts[DS4_MAX_LAYER],
+-        bool        seen[DS4_MAX_LAYER][DS4_MAX_EXPERT],
++        uint64_t    seen[DS4_MAX_LAYER][DS4_EXPERT_BIT_WORDS],
+         uint32_t   *loaded) {
+     if (layer >= DS4_N_LAYER || expert >= DS4_N_EXPERT) return true;
+     if (layer >= DS4_MAX_LAYER || expert >= DS4_MAX_EXPERT) return true;
+-    if (seen[layer][expert]) return true;
++    if (ds4_expert_bit_test(seen[layer], expert)) return true;
+     if (counts[layer] >= DS4_MAX_EXPERT) return false;
+-    seen[layer][expert] = true;
++    ds4_expert_bit_set(seen[layer], expert);
+     if (priority == 0) priority = 1;
+     priorities[layer][counts[layer]] = priority;
+     experts[layer][counts[layer]++] = (int32_t)expert;
+@@ -21483,7 +21539,7 @@
+         int32_t     experts[DS4_MAX_LAYER][DS4_MAX_EXPERT],
+         uint32_t    priorities[DS4_MAX_LAYER][DS4_MAX_EXPERT],
+         uint32_t    counts[DS4_MAX_LAYER],
+-        bool        seen[DS4_MAX_LAYER][DS4_MAX_EXPERT],
++        uint64_t    seen[DS4_MAX_LAYER][DS4_EXPERT_BIT_WORDS],
+         uint32_t   *loaded_out) {
+     if (!path || !path[0] || max_entries == 0 ||
+         !experts || !priorities || !counts || !seen || !loaded_out) {
+@@ -21569,7 +21625,7 @@
+         int32_t     experts[DS4_MAX_LAYER][DS4_MAX_EXPERT],
+         uint32_t    priorities[DS4_MAX_LAYER][DS4_MAX_EXPERT],
+         uint32_t    counts[DS4_MAX_LAYER],
+-        bool        seen[DS4_MAX_LAYER][DS4_MAX_EXPERT],
++        uint64_t    seen[DS4_MAX_LAYER][DS4_EXPERT_BIT_WORDS],
+         uint32_t   *loaded_out) {
+     if (max_entries == 0 || !experts || !priorities || !counts || !seen || !loaded_out) {
+         return false;
+@@ -21904,7 +21960,7 @@
+     }
+     const double t_read = profile ? now_sec() : 0.0;
+ 
+-    bool seen[DS4_MAX_EXPERT] = {0};
++    uint64_t seen[DS4_EXPERT_BIT_WORDS] = {0};
+     uint32_t unique = 0;
+     for (uint32_t i = 0; i < DS4_N_EXPERT_USED; i++) {
+         if (selected_ids[i] < 0 || (uint32_t)selected_ids[i] >= DS4_N_EXPERT) {
+@@ -21916,8 +21972,8 @@
+             return false;
+         }
+         const uint32_t expert = (uint32_t)selected_ids[i];
+-        if (seen[expert]) continue;
+-        seen[expert] = true;
++        if (ds4_expert_bit_test(seen, expert)) continue;
++        ds4_expert_bit_set(seen, expert);
+         unique++;
+ 
+         const uint64_t expert_id = (uint64_t)expert;
+@@ -32476,41 +32532,41 @@
+         return true;
+     }
+ 
+-    int32_t experts[DS4_MAX_LAYER][DS4_MAX_EXPERT];
+-    uint32_t priorities[DS4_MAX_LAYER][DS4_MAX_EXPERT];
+-    uint32_t counts[DS4_MAX_LAYER];
+-    bool seen[DS4_MAX_LAYER][DS4_MAX_EXPERT];
+-    memset(experts, 0, sizeof(experts));
+-    memset(priorities, 0, sizeof(priorities));
+-    memset(counts, 0, sizeof(counts));
+-    memset(seen, 0, sizeof(seen));
++    metal_graph_streaming_expert_hotlist_workspace *workspace =
++        xcalloc(1, sizeof(*workspace));
+ 
+     uint32_t loaded = 0;
+     if (from_file) {
+         if (!metal_graph_streaming_expert_hotlist_load_file(path,
+                                                            preload_count,
+-                                                           experts,
+-                                                           priorities,
+-                                                           counts,
+-                                                           seen,
++                                                           workspace->experts,
++                                                           workspace->priorities,
++                                                           workspace->counts,
++                                                           workspace->seen,
+                                                            &loaded)) {
++            free(workspace);
+             return false;
+         }
+     } else if (!metal_graph_streaming_expert_hotlist_load_default(preload_count,
+-                                                                  experts,
+-                                                                  priorities,
+-                                                                  counts,
+-                                                                  seen,
++                                                                  workspace->experts,
++                                                                  workspace->priorities,
++                                                                  workspace->counts,
++                                                                  workspace->seen,
+                                                                   &loaded)) {
++        free(workspace);
+         return false;
+     }
+-    if (loaded == 0) return true;
++    if (loaded == 0) {
++        free(workspace);
++        return true;
++    }
+ 
+     const double t0 = profile ? now_sec() : 0.0;
+     uint32_t seeded_layers = 0;
+     uint32_t seeded_experts = 0;
++    bool ok = true;
+     for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
+-        const uint32_t n = counts[il];
++        const uint32_t n = workspace->counts[il];
+         if (n == 0) continue;
+         const ds4_layer_weights *layer = &weights->layer[il];
+         if (!metal_graph_streaming_expert_cache_seed_layer_expected(g, layer)) {
+@@ -32522,7 +32578,8 @@
+         if (layer->ffn_gate_exps->dim[1] > UINT64_MAX / gate_row_bytes ||
+             layer->ffn_down_exps->dim[1] > UINT64_MAX / down_row_bytes) {
+             fprintf(stderr, "ds4: streaming expert hotlist seed byte size overflow at layer %u\n", il);
+-            return false;
++            ok = false;
++            break;
+         }
+         const uint64_t gate_expert_bytes = layer->ffn_gate_exps->dim[1] * gate_row_bytes;
+         const uint64_t down_expert_bytes = layer->ffn_down_exps->dim[1] * down_row_bytes;
+@@ -32534,15 +32591,16 @@
+                                            down_expert_bytes);
+         if (ds4_gpu_stream_expert_cache_seed_experts(
+                     &table,
+-                    experts[il],
+-                    priorities[il],
++                    workspace->experts[il],
++                    workspace->priorities[il],
+                     n) == 0) {
+-            return false;
++            ok = false;
++            break;
+         }
+         seeded_layers++;
+         seeded_experts += n;
+     }
+-    if (profile) {
++    if (ok && profile) {
+         const char *source_name = NULL;
+         if (from_file) {
+             source_name = path;
+@@ -32564,7 +32622,8 @@
+                 seeded_experts,
+                 (now_sec() - t0) * 1000.0);
+     }
+-    return true;
++    free(workspace);
++    return ok;
+ }
+ 
+ typedef struct {
+@@ -47361,6 +47420,16 @@
+         return false;
+     }
+ 
++    /* Streaming prefill may leave only the output-head spans installed.  The
++     * integrated nextn block consumes static layer weights before target
++     * decode gets a chance to install its normal static map.  Prepare that
++     * immutable view set here; routed experts remain cache-backed. */
++    if (g->ssd_streaming &&
++        !metal_graph_stream_map_decode_static_all(model, weights)) {
++        fprintf(stderr, "ds4: glm mtp: static decode map failed\n");
++        return false;
++    }
++
+     /* Draft attention window: absolute cache slots [min_pos..pos]. */
+     {
+         int32_t *sel = malloc((size_t)n_selected * sizeof(int32_t));
+@@ -66522,6 +66591,45 @@
+     return rc;
+ }
+ 
++/* The GLM-5.3 short-resume batch crossover of two tokens was measured on
++ * newer GPUs. On the exact M2 Max Q2 streaming layout, a tiny batch remaps the
++ * complete routed layer and does not populate the bounded decode cache. Keep
++ * up to seven appended tokens on the cache-backed one-token path instead; the
++ * eight-token differential exceeded the current 0.001 full-logit gate. */
++#ifndef DS4_NO_GPU
++static bool glm53_graph_m2max_q2_streaming_short_resume(
++        const ds4_glm_gpu_graph *g,
++        const ds4_weights       *weights) {
++#if defined(__APPLE__) && !defined(DS4_NO_GPU)
++    if (!g || !weights ||
++        !g->glm53 ||
++        !g->ssd_streaming ||
++        g->quality ||
++        g->placement ||
++        g->tp_world == 2 ||
++        g->ctx_size < 131072u ||
++        !glm_stream_m2_glm53_top8_addr_enabled() ||
++        getenv("DS4_METAL_DISABLE_M2_GLM53_SHORT_RESUME") != NULL) {
++        return false;
++    }
++    for (uint32_t il = DS4_N_LEADING_DENSE; il < DS4_N_LAYER; il++) {
++        const ds4_layer_weights *l = &weights->layer[il];
++        if (!glm_stream_selected_expert_cache_supported(l, il) ||
++            l->ffn_gate_exps->type != DS4_TENSOR_IQ2_XXS ||
++            l->ffn_up_exps->type != DS4_TENSOR_IQ2_XXS ||
++            l->ffn_down_exps->type != DS4_TENSOR_Q2_K) {
++            return false;
++        }
++    }
++    return true;
++#else
++    (void)g;
++    (void)weights;
++    return false;
++#endif
++}
++#endif
++
+ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, char *err, size_t errlen) {
+     if (!s || !prompt) {
+         snprintf(err, errlen, "missing session or prompt");
+@@ -66665,9 +66773,19 @@
+          * path; image embeddings still require the batch prefill path. */
+         if (s->glm_graph.glm53) {
+             const uint32_t suffix = (uint32_t)(prompt->len - start);
++            uint32_t resume_prefill_min =
++                glm53_graph_resume_prefill_min_tokens();
++            const char *resume_prefill_env =
++                getenv("DS4_GLM_RESUME_PREFILL_MIN");
++            if ((!resume_prefill_env || !resume_prefill_env[0]) &&
++                glm53_graph_m2max_q2_streaming_short_resume(
++                        &s->glm_graph,
++                        &e->weights)) {
++                resume_prefill_min = 8u;
++            }
+             const bool short_resume =
+                 resumed_checkpoint && suffix > 0 &&
+-                suffix < glm53_graph_resume_prefill_min_tokens() &&
++                suffix < resume_prefill_min &&
+                 !ds4_session_vision_range_overlaps(s, (uint32_t)start, suffix);
+             for (int i = start; i < prompt->len; ) {
+                 if (ds4_session_cancelled(s)) {
+diff --git a/ds4_gpu.h b/ds4_gpu.h
+--- a/ds4_gpu.h
++++ b/ds4_gpu.h
+@@ -240,6 +240,7 @@
+ #ifdef __APPLE__
+ int ds4_gpu_device_is_pre_m5_apple_silicon(void);
+ int ds4_gpu_device_is_m5_apple_silicon(void);
++int ds4_gpu_device_is_m2_max(void);
+ int ds4_gpu_set_decode_pipeline_fast_lookup(int enabled);
+ /* Strict test oracle for the fixed decode mul_mv pipeline lookup cache. */
+ int ds4_gpu_test_decode_pipeline_fast_lookup(void);
+@@ -262,6 +263,7 @@
+ #else
+ static inline int ds4_gpu_device_is_pre_m5_apple_silicon(void) { return 0; }
+ static inline int ds4_gpu_device_is_m5_apple_silicon(void) { return 0; }
++static inline int ds4_gpu_device_is_m2_max(void) { return 0; }
+ #endif
+ void ds4_gpu_set_streaming_expert_cache_budget(uint32_t experts);
+ void ds4_gpu_set_streaming_expert_cache_expert_bytes(uint64_t bytes);
+diff --git a/ds4_metal.m b/ds4_metal.m
+--- a/ds4_metal.m
++++ b/ds4_metal.m
+@@ -936,6 +936,8 @@
+     DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER = 80,
+     DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT = 384,
+     DS4_METAL_STREAM_EXPERT_CACHE_MAX_SELECTED = DS4_METAL_MAX_ROUTED_EXPERT_USED,
++    DS4_METAL_STREAM_EXPERT_CACHE_EXPERT_WORDS =
++        (DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT + 63) / 64,
+     DS4_METAL_STREAM_EXPERT_CACHE_MAX_ENTRIES =
+         DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER *
+         DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT,
+@@ -944,6 +946,18 @@
+     DS4_METAL_STREAM_EXPERT_VALIDATE_WORDS = 16,
+ };
+ 
++static inline bool ds4_gpu_stream_expert_bit_test(
++        const uint64_t *bits,
++        uint32_t expert) {
++    return (bits[expert >> 6] & (1ull << (expert & 63u))) != 0;
++}
++
++static inline void ds4_gpu_stream_expert_bit_set(
++        uint64_t *bits,
++        uint32_t expert) {
++    bits[expert >> 6] |= 1ull << (expert & 63u);
++}
++
+ typedef struct {
+     uint32_t layer;
+     uint32_t expert;
+@@ -990,6 +1004,106 @@
+ 
+ static ds4_gpu_stream_expert_cache_entry
+     g_stream_expert_cache[DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER][DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT];
++enum {
++    DS4_METAL_STREAM_EXPERT_ACTIVE_WORDS =
++        (DS4_METAL_STREAM_EXPERT_CACHE_MAX_ENTRIES + 63) / 64,
++};
++static uint64_t
++    g_stream_expert_cache_active_bits[DS4_METAL_STREAM_EXPERT_ACTIVE_WORDS];
++static int g_stream_expert_cache_active_index_enabled;
++
++typedef struct {
++    uint32_t word;
++    uint32_t key;
++    uint64_t pending;
++    bool indexed;
++} ds4_gpu_stream_expert_active_iter;
++
++static inline void ds4_gpu_stream_expert_active_set(
++        uint32_t layer,
++        uint32_t expert) {
++    const uint32_t key =
++        layer * DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT + expert;
++    g_stream_expert_cache_active_bits[key >> 6] |= 1ull << (key & 63u);
++}
++
++static inline void ds4_gpu_stream_expert_active_clear(
++        uint32_t layer,
++        uint32_t expert) {
++    const uint32_t key =
++        layer * DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT + expert;
++    g_stream_expert_cache_active_bits[key >> 6] &= ~(1ull << (key & 63u));
++}
++
++static inline void ds4_gpu_stream_expert_active_iter_init(
++        ds4_gpu_stream_expert_active_iter *it) {
++    it->word = 0;
++    it->key = 0;
++    it->indexed = g_stream_expert_cache_active_index_enabled != 0;
++    it->pending = it->indexed ? g_stream_expert_cache_active_bits[0] : 0;
++}
++
++/* Iterating set bits in numeric order preserves the old layer-major/expert-
++ * major victim order while skipping empty cache matrix cells. */
++static inline int ds4_gpu_stream_expert_active_iter_next(
++        ds4_gpu_stream_expert_active_iter *it,
++        uint32_t *layer,
++        uint32_t *expert) {
++    if (!it->indexed) {
++        if (it->key >= DS4_METAL_STREAM_EXPERT_CACHE_MAX_ENTRIES) return 0;
++        *layer = it->key / DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT;
++        *expert = it->key % DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT;
++        it->key++;
++        return 1;
++    }
++    while (it->pending == 0) {
++        if (++it->word >= DS4_METAL_STREAM_EXPERT_ACTIVE_WORDS) return 0;
++        it->pending = g_stream_expert_cache_active_bits[it->word];
++    }
++    const uint32_t bit = (uint32_t)__builtin_ctzll(it->pending);
++    it->pending &= it->pending - 1u;
++    const uint32_t key = it->word * 64u + bit;
++    if (key >= DS4_METAL_STREAM_EXPERT_CACHE_MAX_ENTRIES) return 0;
++    *layer = key / DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT;
++    *expert = key % DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT;
++    return 1;
++}
++
++static int ds4_gpu_stream_expert_active_index_valid(void) {
++    uint32_t indexed = 0;
++    for (uint32_t layer = 0;
++         layer < DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER;
++         layer++) {
++        for (uint32_t expert = 0;
++             expert < DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT;
++             expert++) {
++            const uint32_t key =
++                layer * DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT + expert;
++            const bool active =
++                (g_stream_expert_cache_active_bits[key >> 6] &
++                 (1ull << (key & 63u))) != 0;
++            if (active != (g_stream_expert_cache[layer][expert].valid != 0)) {
++                fprintf(stderr,
++                        "ds4: streaming expert active-index mismatch layer=%u expert=%u active=%d valid=%d\n",
++                        layer,
++                        expert,
++                        active ? 1 : 0,
++                        g_stream_expert_cache[layer][expert].valid ? 1 : 0);
++                return 0;
++            }
++            indexed += active ? 1u : 0u;
++        }
++    }
++    if (indexed != g_stream_expert_cache_entry_count) {
++        fprintf(stderr,
++                "ds4: streaming expert active-index count mismatch indexed=%u entries=%u\n",
++                indexed,
++                g_stream_expert_cache_entry_count);
++        return 0;
++    }
++    return 1;
++}
++
+ static ds4_gpu_stream_expert_cache_entry
+     g_stream_full_expert_addr_entry[DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER];
+ static uint32_t g_stream_expert_cache_layer_count[DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER];
+@@ -1928,12 +2042,14 @@
+ }
+ 
+ static int ds4_gpu_moe_selected_trace_record(
+-        const int32_t selected_ids[6],
++        const int32_t selected_ids[DS4_METAL_MAX_ROUTED_EXPERT_USED],
+         uint32_t      n_selected) {
+     const char *path = getenv("DS4_MOE_RECORD_SELECTED_IDS");
+     if (!path || !path[0]) return 1;
+-    if (n_selected != 6) {
+-        fprintf(stderr, "ds4: selected-id recording expects exactly 6 selected experts\n");
++    if (n_selected == 0 || n_selected > DS4_METAL_MAX_ROUTED_EXPERT_USED) {
++        fprintf(stderr,
++                "ds4: selected-id recording expects 1..%u selected experts\n",
++                DS4_METAL_MAX_ROUTED_EXPERT_USED);
+         return 0;
+     }
+ 
+@@ -1961,12 +2077,14 @@
+ }
+ 
+ static int ds4_gpu_moe_selected_trace_replay(
+-        int32_t  selected_ids[6],
++        int32_t  selected_ids[DS4_METAL_MAX_ROUTED_EXPERT_USED],
+         uint32_t n_selected) {
+     const char *path = getenv("DS4_MOE_REPLAY_SELECTED_IDS");
+     if (!path || !path[0]) return 0;
+-    if (n_selected != 6) {
+-        fprintf(stderr, "ds4: selected-id replay expects exactly 6 selected experts\n");
++    if (n_selected == 0 || n_selected > DS4_METAL_MAX_ROUTED_EXPERT_USED) {
++        fprintf(stderr,
++                "ds4: selected-id replay expects 1..%u selected experts\n",
++                DS4_METAL_MAX_ROUTED_EXPERT_USED);
+         return -1;
+     }
+ 
+@@ -2775,6 +2893,10 @@
+             g_metal_device_name[8] == ' ');
+ }
+ 
++int ds4_gpu_device_is_m2_max(void) {
++    return strcmp(g_metal_device_name, "Apple M2 Max") == 0;
++}
++
+ static bool ds4_gpu_ported_m5_decode_feature_enabled(
+         const char *pre_m5_disable_env,
+         const char *m5_disable_env) {
+@@ -4426,6 +4548,11 @@
+                 g_stream_expert_timing_last_report = total;
+             }
+         }
++        if (getenv("DS4_METAL_STREAMING_EXPERT_ACTIVE_INDEX_CHECK") != NULL) {
++            fprintf(stderr,
++                    "ds4:   streaming expert active-index check: %s\n",
++                    ds4_gpu_stream_expert_active_index_valid() ? "PASS" : "FAIL");
++        }
+         if (getenv("DS4_METAL_STREAMING_EXPERT_LAYER_STATS") != NULL) {
+             fprintf(stderr, "ds4:   streaming expert cache per-layer stats:\n");
+             for (uint32_t layer = 0;
+@@ -15086,6 +15213,7 @@
+     e->slab_slot = 0;
+     e->valid = 0;
+     e->slab_backed = 0;
++    ds4_gpu_stream_expert_active_clear(layer, expert);
+ 
+     if (g_stream_expert_cache_layer_count[layer] > 0) {
+         g_stream_expert_cache_layer_count[layer]--;
+@@ -15143,6 +15271,10 @@
+     }
+     g_stream_expert_cache_bytes = 0;
+     g_stream_expert_cache_entry_count = 0;
++    memset(g_stream_expert_cache_active_bits,
++           0,
++           sizeof(g_stream_expert_cache_active_bits));
++    g_stream_expert_cache_active_index_enabled = 0;
+     for (uint32_t i = 0; i < g_stream_expert_cache_slab_count; i++) {
+         g_stream_expert_cache_slabs[i] = nil;
+         g_stream_expert_cache_slab_start_slot[i] = 0;
+@@ -15358,41 +15490,41 @@
+     const int timing = ds4_gpu_stream_expert_timing_summary_enabled();
+     const double scan_t0 = timing ? ds4_gpu_now_ms() : 0.0;
+     uint64_t scan_entries = 0;
+-    for (uint32_t layer = 0;
+-         layer < DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER;
+-         layer++) {
+-        for (uint32_t expert = 0;
+-             expert < DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT;
+-             expert++) {
+-            scan_entries++;
+-            ds4_gpu_stream_expert_cache_entry *e =
+-                &g_stream_expert_cache[layer][expert];
+-            if (!ds4_gpu_stream_expert_cache_entry_reusable(e,
+-                                                            gate_expert_bytes,
+-                                                            down_expert_bytes)) {
+-                continue;
+-            }
+-            if (ds4_gpu_stream_expert_cache_entry_inflight(e)) {
+-                skipped_inflight = 1;
+-                continue;
+-            }
+-            if (ds4_gpu_stream_expert_cache_entry_protected(layer,
+-                                                            expert,
+-                                                            protect_layer,
+-                                                            protect_ids,
+-                                                            n_protect)) {
+-                continue;
+-            }
+-            const uint32_t hotness =
+-                g_stream_expert_cache_route_hotness[layer][expert];
+-            if (hotness < lowest_hotness ||
+-                (hotness == lowest_hotness && e->last_used < oldest)) {
+-                lowest_hotness = hotness;
+-                oldest = e->last_used;
+-                victim_layer = layer;
+-                victim_expert = expert;
+-            }
++    ds4_gpu_stream_expert_active_iter active_it;
++    ds4_gpu_stream_expert_active_iter_init(&active_it);
++    uint32_t layer = 0;
++    uint32_t expert = 0;
++    while (ds4_gpu_stream_expert_active_iter_next(&active_it,
++                                                   &layer,
++                                                   &expert)) {
++        scan_entries++;
++        ds4_gpu_stream_expert_cache_entry *e =
++            &g_stream_expert_cache[layer][expert];
++        if (!ds4_gpu_stream_expert_cache_entry_reusable(e,
++                                                        gate_expert_bytes,
++                                                        down_expert_bytes)) {
++            continue;
+         }
++        if (ds4_gpu_stream_expert_cache_entry_inflight(e)) {
++            skipped_inflight = 1;
++            continue;
++        }
++        if (ds4_gpu_stream_expert_cache_entry_protected(layer,
++                                                        expert,
++                                                        protect_layer,
++                                                        protect_ids,
++                                                        n_protect)) {
++            continue;
++        }
++        const uint32_t hotness =
++            g_stream_expert_cache_route_hotness[layer][expert];
++        if (hotness < lowest_hotness ||
++            (hotness == lowest_hotness && e->last_used < oldest)) {
++            lowest_hotness = hotness;
++            oldest = e->last_used;
++            victim_layer = layer;
++            victim_expert = expert;
++        }
+     }
+     if (timing) {
+         ds4_gpu_stream_expert_timing_note_reuse_scan(scan_entries,
+@@ -15482,61 +15614,61 @@
+         victim_last_used[i] = UINT64_MAX;
+     }
+ 
+-    for (uint32_t layer = 0;
+-         layer < DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER;
+-         layer++) {
+-        for (uint32_t expert = 0;
+-             expert < DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT;
+-             expert++) {
+-            scan_entries++;
+-            ds4_gpu_stream_expert_cache_entry *e =
+-                &g_stream_expert_cache[layer][expert];
+-            if (!ds4_gpu_stream_expert_cache_entry_reusable(e,
+-                                                            gate_expert_bytes,
+-                                                            down_expert_bytes)) {
+-                continue;
+-            }
+-            if (ds4_gpu_stream_expert_cache_entry_inflight(e)) {
+-                skipped_inflight = 1;
+-                continue;
+-            }
+-            if (ds4_gpu_stream_expert_cache_entry_protected(layer,
+-                                                            expert,
+-                                                            protect_layer,
+-                                                            protect_ids,
+-                                                            n_protect)) {
+-                continue;
+-            }
++    ds4_gpu_stream_expert_active_iter active_it;
++    ds4_gpu_stream_expert_active_iter_init(&active_it);
++    uint32_t layer = 0;
++    uint32_t expert = 0;
++    while (ds4_gpu_stream_expert_active_iter_next(&active_it,
++                                                   &layer,
++                                                   &expert)) {
++        scan_entries++;
++        ds4_gpu_stream_expert_cache_entry *e =
++            &g_stream_expert_cache[layer][expert];
++        if (!ds4_gpu_stream_expert_cache_entry_reusable(e,
++                                                        gate_expert_bytes,
++                                                        down_expert_bytes)) {
++            continue;
++        }
++        if (ds4_gpu_stream_expert_cache_entry_inflight(e)) {
++            skipped_inflight = 1;
++            continue;
++        }
++        if (ds4_gpu_stream_expert_cache_entry_protected(layer,
++                                                        expert,
++                                                        protect_layer,
++                                                        protect_ids,
++                                                        n_protect)) {
++            continue;
++        }
+ 
+-            const uint32_t hotness =
+-                g_stream_expert_cache_route_hotness[layer][expert];
+-            const uint64_t last_used = e->last_used;
+-            if (victim_count < n_needed) {
+-                victim_layers[victim_count] = layer;
+-                victim_experts[victim_count] = expert;
+-                victim_hotness[victim_count] = hotness;
+-                victim_last_used[victim_count] = last_used;
+-                victim_count++;
+-                continue;
+-            }
++        const uint32_t hotness =
++            g_stream_expert_cache_route_hotness[layer][expert];
++        const uint64_t last_used = e->last_used;
++        if (victim_count < n_needed) {
++            victim_layers[victim_count] = layer;
++            victim_experts[victim_count] = expert;
++            victim_hotness[victim_count] = hotness;
++            victim_last_used[victim_count] = last_used;
++            victim_count++;
++            continue;
++        }
+ 
+-            uint32_t worst = 0;
+-            for (uint32_t i = 1; i < victim_count; i++) {
+-                if (victim_hotness[i] > victim_hotness[worst] ||
+-                    (victim_hotness[i] == victim_hotness[worst] &&
+-                     victim_last_used[i] > victim_last_used[worst])) {
+-                    worst = i;
+-                }
++        uint32_t worst = 0;
++        for (uint32_t i = 1; i < victim_count; i++) {
++            if (victim_hotness[i] > victim_hotness[worst] ||
++                (victim_hotness[i] == victim_hotness[worst] &&
++                 victim_last_used[i] > victim_last_used[worst])) {
++                worst = i;
+             }
+-            if (hotness < victim_hotness[worst] ||
+-                (hotness == victim_hotness[worst] &&
+-                 last_used < victim_last_used[worst])) {
+-                victim_layers[worst] = layer;
+-                victim_experts[worst] = expert;
+-                victim_hotness[worst] = hotness;
+-                victim_last_used[worst] = last_used;
+-            }
+         }
++        if (hotness < victim_hotness[worst] ||
++            (hotness == victim_hotness[worst] &&
++             last_used < victim_last_used[worst])) {
++            victim_layers[worst] = layer;
++            victim_experts[worst] = expert;
++            victim_hotness[worst] = hotness;
++            victim_last_used[worst] = last_used;
++        }
+     }
+     if (timing) {
+         ds4_gpu_stream_expert_timing_note_reuse_scan(scan_entries,
+@@ -15630,37 +15762,37 @@
+         uint32_t lowest_hotness = UINT32_MAX;
+         uint64_t oldest = UINT64_MAX;
+ 
+-        for (uint32_t layer = 0;
+-             layer < DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER;
+-             layer++) {
+-            for (uint32_t expert = 0;
+-                 expert < DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT;
+-                 expert++) {
+-                ds4_gpu_stream_expert_cache_entry *e =
+-                    &g_stream_expert_cache[layer][expert];
+-                if (!e->valid ||
+-                    !e->slab_backed ||
+-                    e->slab_slot >= DS4_METAL_STREAM_EXPERT_CACHE_MAX_ENTRIES ||
+-                    !g_stream_expert_cache_slab_slot_locked[e->slab_slot] ||
+-                    ds4_gpu_stream_expert_cache_entry_inflight(e) ||
+-                    ds4_gpu_stream_expert_cache_entry_protected(layer,
+-                                                                expert,
+-                                                                protect_layer,
+-                                                                protect_ids,
+-                                                                n_protect)) {
+-                    continue;
+-                }
+-                const uint32_t hotness =
+-                    g_stream_expert_cache_route_hotness[layer][expert];
+-                if (hotness < lowest_hotness ||
+-                    (hotness == lowest_hotness && e->last_used < oldest)) {
+-                    lowest_hotness = hotness;
+-                    oldest = e->last_used;
+-                    victim_layer = layer;
+-                    victim_expert = expert;
+-                    victim_slot = e->slab_slot;
+-                }
++        ds4_gpu_stream_expert_active_iter active_it;
++        ds4_gpu_stream_expert_active_iter_init(&active_it);
++        uint32_t layer = 0;
++        uint32_t expert = 0;
++        while (ds4_gpu_stream_expert_active_iter_next(&active_it,
++                                                       &layer,
++                                                       &expert)) {
++            ds4_gpu_stream_expert_cache_entry *e =
++                &g_stream_expert_cache[layer][expert];
++            if (!e->valid ||
++                !e->slab_backed ||
++                e->slab_slot >= DS4_METAL_STREAM_EXPERT_CACHE_MAX_ENTRIES ||
++                !g_stream_expert_cache_slab_slot_locked[e->slab_slot] ||
++                ds4_gpu_stream_expert_cache_entry_inflight(e) ||
++                ds4_gpu_stream_expert_cache_entry_protected(layer,
++                                                            expert,
++                                                            protect_layer,
++                                                            protect_ids,
++                                                            n_protect)) {
++                continue;
+             }
++            const uint32_t hotness =
++                g_stream_expert_cache_route_hotness[layer][expert];
++            if (hotness < lowest_hotness ||
++                (hotness == lowest_hotness && e->last_used < oldest)) {
++                lowest_hotness = hotness;
++                oldest = e->last_used;
++                victim_layer = layer;
++                victim_expert = expert;
++                victim_slot = e->slab_slot;
++            }
+         }
+ 
+         if (victim_layer == UINT32_MAX ||
+@@ -15916,32 +16048,32 @@
+         uint32_t victim_expert = UINT32_MAX;
+         uint32_t lowest_hotness = UINT32_MAX;
+         uint64_t oldest = UINT64_MAX;
+-        for (uint32_t layer = 0;
+-             layer < DS4_METAL_STREAM_EXPERT_CACHE_MAX_LAYER;
+-             layer++) {
+-            for (uint32_t expert = 0;
+-                 expert < DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT;
+-                 expert++) {
+-                ds4_gpu_stream_expert_cache_entry *e =
+-                    &g_stream_expert_cache[layer][expert];
+-                if (!e->valid ||
+-                    ds4_gpu_stream_expert_cache_entry_protected(layer,
+-                                                                expert,
+-                                                                protect_layer,
+-                                                                protect_ids,
+-                                                                n_protect)) {
+-                    continue;
+-                }
+-                const uint32_t hotness =
+-                    g_stream_expert_cache_route_hotness[layer][expert];
+-                if (hotness < lowest_hotness ||
+-                    (hotness == lowest_hotness && e->last_used < oldest)) {
+-                    lowest_hotness = hotness;
+-                    oldest = e->last_used;
+-                    victim_layer = layer;
+-                    victim_expert = expert;
+-                }
++        ds4_gpu_stream_expert_active_iter active_it;
++        ds4_gpu_stream_expert_active_iter_init(&active_it);
++        uint32_t layer = 0;
++        uint32_t expert = 0;
++        while (ds4_gpu_stream_expert_active_iter_next(&active_it,
++                                                       &layer,
++                                                       &expert)) {
++            ds4_gpu_stream_expert_cache_entry *e =
++                &g_stream_expert_cache[layer][expert];
++            if (!e->valid ||
++                ds4_gpu_stream_expert_cache_entry_protected(layer,
++                                                            expert,
++                                                            protect_layer,
++                                                            protect_ids,
++                                                            n_protect)) {
++                continue;
+             }
++            const uint32_t hotness =
++                g_stream_expert_cache_route_hotness[layer][expert];
++            if (hotness < lowest_hotness ||
++                (hotness == lowest_hotness && e->last_used < oldest)) {
++                lowest_hotness = hotness;
++                oldest = e->last_used;
++                victim_layer = layer;
++                victim_expert = expert;
++            }
+         }
+         if (victim_layer == UINT32_MAX || victim_expert == UINT32_MAX) break;
+         ds4_gpu_stream_expert_cache_clear_entry(victim_layer, victim_expert, 1);
+@@ -16099,6 +16231,7 @@
+         e->slab_slot = 0;
+     }
+     e->valid = 1;
++    ds4_gpu_stream_expert_active_set(layer, expert);
+     g_stream_expert_cache_layer_count[layer]++;
+     if (g_stream_expert_cache_entry_count < UINT32_MAX) {
+         g_stream_expert_cache_entry_count++;
+@@ -17397,7 +17530,7 @@
+                                  n_ids * sizeof(ids[0]));
+     const double t_read = profile ? ds4_gpu_now_ms() : 0.0;
+ 
+-    bool seen[DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT] = { false };
++    uint64_t seen[DS4_METAL_STREAM_EXPERT_CACHE_EXPERT_WORDS] = { 0 };
+     uint32_t frequency[DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT] = { 0 };
+     int32_t unique_ids[DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT];
+     uint32_t unique_count = 0;
+@@ -17421,8 +17554,8 @@
+                 break;
+             }
+             frequency[(uint32_t)selected_id]++;
+-            if (!seen[(uint32_t)selected_id]) {
+-                seen[(uint32_t)selected_id] = true;
++            if (!ds4_gpu_stream_expert_bit_test(seen, (uint32_t)selected_id)) {
++                ds4_gpu_stream_expert_bit_set(seen, (uint32_t)selected_id);
+                 unique_ids[unique_count++] = selected_id;
+             }
+         }
+@@ -32457,8 +32590,11 @@
+         id<MTLBuffer>               overflow_down) {
+     if (!cb || !pipeline || !args || !entries ||
+         (n_entries == 0 && !overflow_down) ||
++        n_entries > DS4_METAL_MAX_ROUTED_EXPERT_USED ||
+         !addrs || !src1 || !dst || !ids ||
+-        args->ne00 <= 0 || args->ne01 <= 0 || args->nei0 != 6 || args->nei1 <= 0 ||
++        args->ne00 <= 0 || args->ne01 <= 0 ||
++        args->nei0 <= 0 || args->nei0 > DS4_METAL_MAX_ROUTED_EXPERT_USED ||
++        args->nei1 <= 0 ||
+         args->ne02 <= 0 || args->ne02 > 384) {
+         return 0;
+     }
+@@ -40250,6 +40386,25 @@
+             !write_clamped_moe &&
+             getenv("DS4_METAL_DISABLE_ROUTED_PAIR_SWIGLU_FUSION") == NULL &&
+             pair_swiglu_pipeline != nil;
++        const bool use_m2_glm53_iq2_q2_top8_stream_shape =
++            !force_resident &&
++            g_ssd_streaming_mode &&
++            ds4_gpu_device_is_m2_max() &&
++            gate_type == DS4_METAL_TENSOR_IQ2_XXS &&
++            down_type == DS4_METAL_TENSOR_Q2_K &&
++            n_total_expert == 288 &&
++            n_expert == 8 &&
++            n_tokens == 1 &&
++            expert_in_dim == 4096 &&
++            expert_mid_dim == 2048 &&
++            out_dim == 4096 &&
++            gate_row_bytes == 1056 &&
++            gate_expert_bytes == 2162688 &&
++            down_row_bytes == 672 &&
++            down_expert_bytes == 2752512 &&
++            g_tp_split_world == 1 &&
++            add_in == NULL &&
++            getenv("DS4_METAL_DISABLE_M2_GLM53_TOP8_STREAM_ADDR") == NULL;
+         id<MTLComputePipelineState> down_sum6_pipeline = nil;
+         if (down_type == DS4_METAL_TENSOR_Q2_K) {
+             down_sum6_pipeline = g_moe_mul_mv_id_q2_k_sum6_pipeline;
+@@ -40283,7 +40438,9 @@
+         }
+         const bool direct_down_sum =
+             !g_quality_mode &&
+-            (n_expert == 6 || (n_expert == 8 && g_tp_split_world == 2)) &&
++            (n_expert == 6 ||
++             (n_expert == 8 && g_tp_split_world == 2) ||
++             use_m2_glm53_iq2_q2_top8_stream_shape) &&
+             n_tokens == 1 &&
+             down_sum6_pipeline != nil;
+ 
+@@ -40616,9 +40773,21 @@
+             g_moe_mul_mv_addr_iq2_xxs_pair_swiglu_pipeline != nil &&
+             g_moe_mul_mv_addr_iq2_xxs_pipeline != nil &&
+             getenv("DS4_METAL_DISABLE_IQ2_STREAM_ADDR_TABLE") == NULL;
++        const bool use_m2_glm53_iq2_q2_top8_stream_addr =
++            use_m2_glm53_iq2_q2_top8_stream_shape &&
++            fuse_pair_swiglu &&
++            direct_down_sum &&
++            g_moe_mul_mv_addr_iq2_xxs_pair_swiglu_pipeline != nil &&
++            g_moe_mul_mv_addr_q2_k_sum6_pipeline != nil &&
++            getenv("DS4_METAL_DISABLE_IQ2_SELECTED_EXPERT_VIEWS") == NULL;
++        if (use_m2_glm53_iq2_q2_top8_stream_addr &&
++            getenv("DS4_METAL_DISABLE_STREAMING_EXPERT_ACTIVE_INDEX") == NULL) {
++            g_stream_expert_cache_active_index_enabled = 1;
++        }
+         const bool use_selected_slots =
+             use_q4_selected_slots || use_iq2_selected_slots ||
+-            use_mxfp4_selected_slots || use_iq2_stream_addr_table;
++            use_mxfp4_selected_slots || use_iq2_stream_addr_table ||
++            use_m2_glm53_iq2_q2_top8_stream_addr;
+         id<MTLComputePipelineState> slots_pair_swiglu_pipeline =
+             use_iq2_selected_slots ? g_moe_mul_mv_slots6_iq2_xxs_pair_swiglu_pipeline :
+             (use_mxfp4_selected_slots ? g_moe_mul_mv_slots6_mxfp4_pair_swiglu_pipeline :
+@@ -40964,14 +41133,17 @@
+             use_stream_expert_cache =
+                 !use_iq2_full_expert_addr_table &&
+                 (use_iq2_selected_slots || use_iq2_stream_addr_table ||
+-                 use_q4_selected_slots || use_mxfp4_selected_slots) &&
++                 use_q4_selected_slots || use_mxfp4_selected_slots ||
++                 use_m2_glm53_iq2_q2_top8_stream_addr) &&
+                 stream_expert_cache_size_known &&
+                 ds4_gpu_stream_expert_cache_effective_cap(layer_index,
+                                                           n_total_expert,
+                                                           n_expert) != 0;
+-            if (use_iq2_stream_addr_table && !use_stream_expert_cache) {
++            if ((use_iq2_stream_addr_table ||
++                 use_m2_glm53_iq2_q2_top8_stream_addr) &&
++                !use_stream_expert_cache) {
+                 fprintf(stderr,
+-                        "ds4: Metal IQ2/IQ2 streaming decode requires a non-empty expert cache\n");
++                        "ds4: Metal IQ2 address-table streaming decode requires a non-empty expert cache\n");
+                 if (getenv("DS4_GLM_TP_DEBUG")) fprintf(stderr, "ds4: routed_moe_one silent return at line %d\n", 32831);
+                 return 0;
+             }
+@@ -41266,14 +41438,17 @@
+                       ds4_gpu_stream_expert_addr_table_kernel_requested() &&
+                       g_moe_mul_mv_addr_iq2_xxs_pair_swiglu_pipeline != nil &&
+                       g_moe_mul_mv_addr_q2_k_sum6_pipeline != nil) ||
+-                     use_iq2_stream_addr_table) &&
++                     use_iq2_stream_addr_table ||
++                     use_m2_glm53_iq2_q2_top8_stream_addr) &&
+                     ds4_gpu_stream_expert_cache_addr_buffers(layer_index,
+                                                              &stream_gate_addr_buf,
+                                                              &stream_up_addr_buf,
+                                                              &stream_down_addr_buf);
+-                if (use_iq2_stream_addr_table && !use_stream_expert_addr_table) {
++                if ((use_iq2_stream_addr_table ||
++                     use_m2_glm53_iq2_q2_top8_stream_addr) &&
++                    !use_stream_expert_addr_table) {
+                     fprintf(stderr,
+-                            "ds4: Metal IQ2/IQ2 streaming decode could not prepare expert address buffers\n");
++                            "ds4: Metal IQ2 address-table streaming decode could not prepare expert address buffers\n");
+                     if (getenv("DS4_GLM_TP_DEBUG")) fprintf(stderr, "ds4: routed_moe_one silent return at line %d\n", 33123);
+                     return 0;
+                 }
+@@ -41343,7 +41518,9 @@
+                         down_slot_offsets[i] = entry->down_inner;
+                     }
+                 }
+-                if (use_iq2_stream_addr_table && use_stream_expert_addr_table) {
++                if ((use_iq2_stream_addr_table ||
++                     use_m2_glm53_iq2_q2_top8_stream_addr) &&
++                    use_stream_expert_addr_table) {
+                     for (uint32_t i = 0; i < n_expert; i++) {
+                         ds4_gpu_stream_expert_cache_entry *entry = stream_slot_entries[i];
+                         if (!entry) { if (getenv("DS4_GLM_TP_DEBUG")) fprintf(stderr, "ds4: routed_moe_one silent return at line %d\n", 33214); return 0; }
+@@ -41422,7 +41599,8 @@
+                     g_stream_expert_cache_evictions - selected_cache_evictions0;
+                 const char *selected_path =
+                     use_iq2_stream_addr_table ? "iq2/iq2" :
+-                    (use_iq2_selected_slots ? "iq2/q2" :
++                    ((use_iq2_selected_slots ||
++                      use_m2_glm53_iq2_q2_top8_stream_addr) ? "iq2/q2" :
+                     (use_mxfp4_selected_slots ? "mxfp4/mxfp4" : "q4/q4"));
+                 const char *selected_view_mode =
+                     use_stream_expert_split_deferred ? "stream-split" :
+@@ -41433,7 +41611,7 @@
+                     (use_iq2_selected_slots ? "exact-cache" : q4_selected_view_mode));
+                 fprintf(stderr,
+                         "ds4: Metal selected views layer=%u path=%s mode=%s ids=%s "
+-                        "experts=%d,%d,%d,%d,%d,%d expert_gate=%.2f MiB "
++                        "experts=%d,%d,%d,%d,%d,%d,%d,%d expert_gate=%.2f MiB "
+                         "expert_down=%.2f MiB read=%.3f ms bind=%.3f ms "
+                         "cache_hits=%llu cache_misses=%llu cache_wraps=%llu cache_evictions=%llu\n",
+                         layer_index,
+@@ -41446,6 +41624,8 @@
+                         selected_ids_available ? selected_ids[3] : -1,
+                         selected_ids_available ? selected_ids[4] : -1,
+                         selected_ids_available ? selected_ids[5] : -1,
++                        selected_ids_available && n_expert > 6 ? selected_ids[6] : -1,
++                        selected_ids_available && n_expert > 7 ? selected_ids[7] : -1,
+                         ds4_gpu_mib(gate_expert_bytes),
+                         ds4_gpu_mib(down_expert_bytes),
+                         selected_read_ms,
+diff --git a/metal/moe.metal b/metal/moe.metal
+--- a/metal/moe.metal
++++ b/metal/moe.metal
+@@ -6129,7 +6129,9 @@
+     const short ir = it % 4;
+     const short is = (8 * ir) / 16;
+ 
+-    for (int expert_slot = 0; expert_slot < 6; expert_slot++) {
++    /* The host validates nei0 against the eight-entry address-table bound.
++     * Six- and eight-expert paths retain the same slot accumulation order. */
++    for (int expert_slot = 0; expert_slot < args.nei0; expert_slot++) {
+         const int32_t expert = token_ids[expert_slot];
+         if (expert < 0 || expert >= args.ne02 || expert >= 384) {
+             continue;
+diff --git a/ds4_bench.c b/ds4_bench.c
+--- a/ds4_bench.c
++++ b/ds4_bench.c
+@@ -782,6 +782,39 @@
+     fprintf(out, "ctx_tokens,prefill_tokens,prefill_tps,gen_tokens,gen_tps,gen_first_ms,gen_steady_tokens,gen_steady_tps,kvcache_bytes\n");
+     fflush(out);
+ 
++    const char *token_timing_path = getenv("DS4_BENCH_TOKEN_TIMING_FILE");
++    FILE *token_timing_out = NULL;
++    double *token_timing_sec = NULL;
++    if (token_timing_path && token_timing_path[0] != '\0') {
++        token_timing_out = fopen(token_timing_path, "wb");
++        if (!token_timing_out) {
++            fprintf(stderr,
++                    "ds4-bench: failed to open token timing file %s: %s\n",
++                    token_timing_path,
++                    strerror(errno));
++            if (out != stdout) fclose(out);
++            ds4_session_free(session);
++            ds4_tokens_free(&prompt);
++            close_engine(engine, tp_leader);
++            return 1;
++        }
++        if (cfg.gen_tokens > 0) {
++            token_timing_sec = malloc((size_t)cfg.gen_tokens *
++                                      sizeof(token_timing_sec[0]));
++            if (!token_timing_sec) {
++                fprintf(stderr,
++                        "ds4-bench: failed to allocate token timing buffer\n");
++                fclose(token_timing_out);
++                if (out != stdout) fclose(out);
++                ds4_session_free(session);
++                ds4_tokens_free(&prompt);
++                close_engine(engine, tp_leader);
++                return 1;
++            }
++        }
++        fprintf(token_timing_out, "ctx_tokens,token_index,latency_ms\n");
++    }
++
+     const int eos = ds4_token_eos(engine);
+     const bool distributed =
+         cfg.dist.role == DS4_DISTRIBUTED_COORDINATOR ||
+@@ -964,6 +997,7 @@
+             }
+ #endif
+             const double token_t1 = bench_now_sec();
++            const int cycle_start = gen_done;
+             int cycle_tokens = 0;
+             for (int j = 0; j < ntok && gen_done < cfg.gen_tokens; j++) {
+                 if (toks[j] == eos) {
+@@ -974,6 +1008,15 @@
+                 gen_done++;
+                 cycle_tokens++;
+             }
++            if (token_timing_sec && cycle_tokens > 0) {
++                /* A speculative cycle publishes its accepted block together:
++                 * the first token observes the cycle wait and the rest are
++                 * immediately available. Native decode always has one token. */
++                token_timing_sec[cycle_start] = token_t1 - token_t0;
++                for (int j = 1; j < cycle_tokens; j++) {
++                    token_timing_sec[cycle_start + j] = 0.0;
++                }
++            }
+             if (gen_first_tokens == 0) {
+                 gen_first_sec = token_t1 - token_t0;
+                 gen_first_tokens = cycle_tokens;
+@@ -996,6 +1039,16 @@
+             fflush(stderr);
+         }
+         free(gen_token_buf);
++        if (token_timing_out) {
++            for (int i = 0; i < gen_done; i++) {
++                fprintf(token_timing_out,
++                        "%d,%d,%.6f\n",
++                        frontier,
++                        i,
++                        token_timing_sec[i] * 1000.0);
++            }
++            fflush(token_timing_out);
++        }
+         if (rc != 0) break;
+ 
+         if (!need_restore_after_generation) {
+@@ -1034,6 +1087,8 @@
+         if (frontier >= cfg.ctx_max) break;
+     }
+ 
++    free(token_timing_sec);
++    if (token_timing_out) fclose(token_timing_out);
+     if (out != stdout) fclose(out);
+     ds4_session_snapshot_free(&snap);
+     ds4_session_free(session);
+diff --git a/.gitignore b/.gitignore
+--- a/.gitignore
++++ b/.gitignore
+@@ -25,6 +25,7 @@
+ /tests/cuda_long_context_smoke
+ /tests/test_layer_pack
+ /tests/test_metal_session_batch
++/tests/test_metal_stream_index
+ /tests/test_mxfp4_cuda
+ /tests/test_mxfp4_dot
+ /tests/test_mxfp4_metal
+diff --git a/tests/test_metal_stream_index.m b/tests/test_metal_stream_index.m
+new file mode 100644
+index 0000000..9130f34
+--- /dev/null
++++ b/tests/test_metal_stream_index.m
+@@ -0,0 +1,220 @@
++/* Model-free oracle for the ported cache index and Q2 address consumer.
++ * Include the implementation to exercise private lifetime helpers without
++ * adding test-only entry points to the production backend API. */
++#include "../ds4_metal.m"
++
++bool ds4_log_is_tty(FILE *fp) { (void)fp; return false; }
++
++#define CHECK(x) do { if (!(x)) { \
++    fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #x); exit(1); \
++} } while (0)
++
++static void check_device_predicate(void) {
++    char saved[sizeof(g_metal_device_name)];
++    memcpy(saved, g_metal_device_name, sizeof(saved));
++    const char *names[] = {"Apple M2 Max", "Apple M2 Pro", "Apple M2 Ultra",
++        "Apple M3 Max", "Apple M4 Max", "Apple M5 Max", "Apple M2 Max Extra", ""};
++    for (unsigned i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
++        snprintf(g_metal_device_name, sizeof(g_metal_device_name), "%s", names[i]);
++        CHECK(ds4_gpu_device_is_m2_max() == (i == 0));
++    }
++    memcpy(g_metal_device_name, saved, sizeof(saved));
++}
++
++static void check_iteration(void) {
++    ds4_gpu_stream_expert_active_iter it;
++    uint32_t layer, expert, count = 0, previous = 0;
++    g_stream_expert_cache_active_index_enabled = 1;
++    ds4_gpu_stream_expert_active_iter_init(&it);
++    while (ds4_gpu_stream_expert_active_iter_next(&it, &layer, &expert)) {
++        uint32_t key = layer * DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT + expert;
++        CHECK(g_stream_expert_cache[layer][expert].valid);
++        CHECK(count == 0 || key > previous);
++        previous = key;
++        count++;
++    }
++    CHECK(count == g_stream_expert_cache_entry_count);
++    CHECK(ds4_gpu_stream_expert_active_index_valid());
++    /* The fallback still visits the configured matrix, including empty cells. */
++    g_stream_expert_cache_active_index_enabled = 0;
++    ds4_gpu_stream_expert_active_iter_init(&it);
++    uint32_t full_visits = 0, full_active = 0;
++    while (ds4_gpu_stream_expert_active_iter_next(&it, &layer, &expert)) {
++        full_visits++;
++        full_active += g_stream_expert_cache[layer][expert].valid != 0;
++    }
++    CHECK(full_visits == DS4_METAL_STREAM_EXPERT_CACHE_MAX_ENTRIES);
++    CHECK(full_active == count);
++    g_stream_expert_cache_active_index_enabled = 1;
++}
++
++static void install_small(uint32_t key) {
++    uint32_t layer = key / DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT;
++    uint32_t expert = key % DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT;
++    id<MTLBuffer> b = [g_device newBufferWithLength:256 options:MTLResourceStorageModeShared];
++    CHECK(b);
++    *(uint32_t *)b.contents = key;
++    /* No file mapping: clearing these entries must never advise user pages. */
++    CHECK(ds4_gpu_stream_expert_cache_install_loaded(
++        NULL, 0, layer, expert, 0, 64, 128, 64, 64, b, b, b, 0, 64, 128));
++}
++
++static void cache_sequence(int indexed, uint32_t victims[16]) {
++    ds4_gpu_set_streaming_expert_cache_budget(32);
++    for (uint32_t i = 0; i < 64; i++) {
++        install_small(i);
++        /* Deliberate exact ties exercise the old matrix traversal order. */
++        g_stream_expert_cache_route_hotness[0][i] = i % 4;
++        g_stream_expert_cache[0][i].last_used = i % 3;
++    }
++    const int32_t protected_ids[8] = {7, 6, 5, 4, 3, 2, 1, 0};
++    g_stream_expert_cache[0][8].inflight_seq = g_stream_expert_cache_done_seq + 1;
++    check_iteration();
++    g_stream_expert_cache_active_index_enabled = indexed;
++    ds4_gpu_stream_expert_reusable_buffers reuse[8] = {0};
++    CHECK(ds4_gpu_stream_expert_cache_take_reusable_batch(
++        8, 0, protected_ids, 8, 64, 64, reuse) == 8);
++    for (uint32_t i = 0; i < 8; i++) {
++        victims[i] = *(uint32_t *)reuse[i].gate_buffer.contents;
++        CHECK(victims[i] > 8);
++    }
++    for (uint32_t i = 8; i < 16; i++) {
++        CHECK(ds4_gpu_stream_expert_cache_take_reusable(
++            1, 0, protected_ids, 8, 64, 64, &reuse[0]));
++        victims[i] = *(uint32_t *)reuse[0].gate_buffer.contents;
++        CHECK(victims[i] > 8);
++    }
++    CHECK(g_stream_expert_cache_entry_count == 48);
++    CHECK(g_stream_expert_cache[0][8].valid);
++    ds4_gpu_stream_expert_cache_clear_entry(0, 8, 1);
++    CHECK(g_stream_expert_cache[0][8].valid); /* Still in flight. */
++    g_stream_expert_cache[0][8].inflight_seq = 0;
++    check_iteration();
++    ds4_gpu_stream_expert_cache_clear_all(1);
++    check_iteration();
++}
++
++static void check_cache(void) {
++    ds4_gpu_set_ssd_streaming(true); /* Synthetic buffers only; no GGUF or I/O. */
++    CHECK(setenv("DS4_METAL_ENABLE_STREAMING_EXPERT_ADDR_TABLE", "1", 1) == 0);
++    uint32_t matrix[16], indexed[16];
++    cache_sequence(0, matrix);
++    cache_sequence(1, indexed);
++    CHECK(memcmp(matrix, indexed, sizeof(matrix)) == 0);
++    /* Real install/replace/clear, including every 64-bit and layer boundary. */
++    const uint32_t keys[] = {0, 63, 64, 127, 128, 287, 383, 384, 30719};
++    for (uint32_t round = 0; round < 64; round++) {
++        for (unsigned i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
++            install_small(keys[i]);
++            check_iteration();
++        }
++        for (unsigned i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
++            install_small(keys[i]);
++            check_iteration();
++            ds4_gpu_stream_expert_cache_clear_entry(keys[i] / 384, keys[i] % 384, 1);
++            CHECK(((uint64_t *)g_stream_expert_cache_down_addr_buffers[keys[i] / 384].contents)[keys[i] % 384] == 0);
++            check_iteration();
++        }
++        CHECK(g_stream_expert_cache_bytes == 0);
++    }
++    printf("cache: ordered batch/single victims identical; 1152 installs/replaces; index %zu bytes\n",
++           sizeof(g_stream_expert_cache_active_bits));
++    ds4_gpu_stream_expert_cache_clear_all(1);
++    ds4_gpu_set_ssd_streaming(false);
++    CHECK(unsetenv("DS4_METAL_ENABLE_STREAMING_EXPERT_ADDR_TABLE") == 0);
++}
++
++typedef struct { uint8_t scales[16], qs[64]; uint16_t d, dmin; } test_q2_block;
++_Static_assert(sizeof(test_q2_block) == 84, "Q2_K layout");
++
++static void check_q2_address(void) {
++    enum { INPUT = 2048, OUTPUT = 4096, ROW_BYTES = INPUT / 256 * 84 };
++    const int32_t selected[8] = {287, 0, 191, 63, 127, 1, 64, 255};
++    const unsigned counts[] = {1, 2, 6, 7, 8};
++    id<MTLBuffer> weights[8];
++    id<MTLBuffer> addresses = [g_device newBufferWithLength:384 * 8 options:MTLResourceStorageModeShared];
++    id<MTLBuffer> ids = [g_device newBufferWithBytes:selected length:sizeof(selected) options:MTLResourceStorageModeShared];
++    id<MTLBuffer> input = [g_device newBufferWithLength:8 * INPUT * 4 options:MTLResourceStorageModeShared];
++    id<MTLBuffer> output = [g_device newBufferWithLength:OUTPUT * 4 options:MTLResourceStorageModeShared];
++    CHECK(addresses && ids && input && output);
++    memset(addresses.contents, 0, addresses.length);
++    ds4_gpu_stream_expert_cache_entry entries[8] = {0};
++    ds4_gpu_stream_expert_cache_entry *ptrs[8];
++    for (unsigned slot = 0; slot < 8; slot++) {
++        weights[slot] = [g_device newBufferWithLength:OUTPUT * ROW_BYTES options:MTLResourceStorageModeShared];
++        CHECK(weights[slot]);
++        test_q2_block *blocks = weights[slot].contents;
++        for (unsigned row = 0; row < OUTPUT; row++) {
++            for (unsigned b = 0; b < INPUT / 256; b++) {
++                test_q2_block *block = &blocks[row * (INPUT / 256) + b];
++                memset(block->scales, 1 + row % 4, sizeof(block->scales));
++                memset(block->qs, (1 + slot % 3) * 0x55, sizeof(block->qs));
++                block->d = 0x3c00; block->dmin = 0;
++            }
++        }
++        ((uint64_t *)addresses.contents)[selected[slot]] = weights[slot].gpuAddress;
++        for (unsigned i = 0; i < INPUT; i++)
++            ((float *)input.contents)[slot * INPUT + i] = (float)(slot + 1) / 16;
++        entries[slot].down_buffer = weights[slot];
++        entries[slot].valid = 1;
++        ptrs[slot] = &entries[slot];
++    }
++    for (unsigned c = 0; c < sizeof(counts) / sizeof(counts[0]) + 4; c++) {
++        const unsigned count = c < 5 ? counts[c] : 8;
++        int32_t route[8];
++        memcpy(route, selected, sizeof(route));
++        if (c == 5) route[7] = route[0]; /* Duplicate, still two logical slots. */
++        if (c == 6) route[7] = -1;
++        if (c == 7) route[7] = 288;
++        if (c == 8) ((uint64_t *)addresses.contents)[route[7]] = 0;
++        memcpy(ids.contents, route, sizeof(route));
++        ds4_gpu_mul_mv_id_args args = {
++            .nei0 = (int)count, .nei1 = 1, .nbi1 = count * 4,
++            .ne00 = INPUT, .ne01 = OUTPUT, .ne02 = 288,
++            .nb00 = 84, .nb01 = ROW_BYTES, .nb02 = OUTPUT * ROW_BYTES,
++            .ne10 = INPUT, .ne11 = (int)count, .ne12 = 1, .ne13 = 1,
++            .nb10 = 4, .nb11 = INPUT * 4, .nb12 = count * INPUT * 4,
++            .ne0 = OUTPUT, .ne1 = 1, .nb1 = OUTPUT * 4, .nr0 = 4,
++        };
++        int owned = 0;
++        id<MTLCommandBuffer> cb = ds4_gpu_command_buffer(&owned);
++        CHECK(cb);
++        ds4_gpu_mul_mv_id_args invalid = args;
++        invalid.nei0 = 9;
++        CHECK(!ds4_gpu_encode_mul_mv_addr_q2_sum6(cb,
++            g_moe_mul_mv_addr_q2_k_sum6_pipeline, &invalid, ptrs, count,
++            addresses, input, 0, output, 0, ids, 0, 0, 2, nil));
++        invalid.nei0 = 0;
++        CHECK(!ds4_gpu_encode_mul_mv_addr_q2_sum6(cb,
++            g_moe_mul_mv_addr_q2_k_sum6_pipeline, &invalid, ptrs, count,
++            addresses, input, 0, output, 0, ids, 0, 0, 2, nil));
++        CHECK(ds4_gpu_encode_mul_mv_addr_q2_sum6(cb,
++            g_moe_mul_mv_addr_q2_k_sum6_pipeline, &args, ptrs, count,
++            addresses, input, 0, output, 0, ids, 0, 0, 2, nil));
++        CHECK(ds4_gpu_finish_command_buffer(cb, owned, "Q2 address test"));
++        for (unsigned row = 0; row < OUTPUT; row++) {
++            float expected = 0;
++            for (unsigned slot = 0; slot < count; slot++) {
++                if (slot == 7 && c >= 6) continue;
++                unsigned weight_slot = slot == 7 && c == 5 ? 0 : slot;
++                expected += INPUT * (float)(slot + 1) / 16 * (1 + weight_slot % 3) * (1 + row % 4);
++            }
++            float actual = ((float *)output.contents)[row];
++            CHECK(isfinite(actual) && actual == expected);
++        }
++    }
++    puts("Q2 address: 1/2/6/7/8 experts, real 2048x4096 shape, nonuniform slot weights, exact CPU oracle: PASS");
++    puts("Q2 guards: host rejects 0/9 counts; kernel duplicate/invalid-ID/null-address guards: PASS (not session error atomicity)");
++}
++
++int main(void) {
++    @autoreleasepool {
++        CHECK(ds4_gpu_init());
++        check_device_predicate();
++        check_cache();
++        check_q2_address();
++        ds4_gpu_cleanup();
++    }
++    puts("Metal streaming port tests: PASS");
++    return 0;
++}

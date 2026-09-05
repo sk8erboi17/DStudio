@@ -1,0 +1,3 @@
+    dsml_decode_tracker_init(&dsml_tracker);
+
+    server_generation_enter(s);

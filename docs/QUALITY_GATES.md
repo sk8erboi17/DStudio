@@ -54,7 +54,7 @@ safety, visual, or persistence metric goes down.
 | Gate | Scope | Blocking evidence |
 | --- | --- | --- |
 | G0 — build | C/JS/Python compile and syntax | clean compiler; no malformed benchmark manifest |
-| G1 — deterministic runtime | Office bridge, path confinement, DSML, JSON, atomic writes, routed image transport | all unit/contract tests pass |
+| G1 — deterministic runtime | Office bridge, path confinement, DSML, JSON, atomic writes, routed image transport | executed behavioral unit/integration tests pass; source-pattern checks are not evidence |
 | G2 — deterministic scenarios | benchmark schemas and fixed fixtures | every case is reachable from every declared profile; strict floors validate |
 | G3 — SSD smoke | two representative real-model cases per runtime | 100% pass/tool compliance, SSD effective, KV present |
 | G4 — SSD standard | broad source/tool and artifact matrix | 100% pass/tool compliance, zero safety failures |
@@ -98,7 +98,7 @@ Target one real case while debugging without weakening the full profile:
 ```sh
 DSTUDIO_COWORK_PROFILE=long \
 DSTUDIO_COWORK_CASES=pdf-grounding,missing-evidence,ambiguous-edit \
-node tests/real_cowork_quality_test.mjs tests/.build/dstudio-server-test
+node tests/live/real_cowork_quality_test.mjs tests/.build/dstudio-server-test
 ```
 
 ## Design contract
@@ -146,7 +146,7 @@ Design is graded at source, artifact, rendered-pixel and multi-turn levels.
   evidence from the composed-page gate that the asset materially harms the final result.
   Technical inference failures (invalid file, non-finite output, incomplete schedule,
   worker overlap or wrong action) remain immediate blockers.
-- `make test-image-inference` compares the installed pinned runtimes against the
+- `make test-image-runtime` compares the installed pinned runtimes against the
   official image profiles before a real run. Ideogram must resolve to 48 Euler
   steps with the resolution-aware logit-normal schedule and exactly 45 CFG-7
   steps plus three CFG-3 polish steps at every supported aspect ratio.
@@ -166,7 +166,7 @@ Design is graded at source, artifact, rendered-pixel and multi-turn levels.
 Commands:
 
 ```sh
-make test-design-native-vision test-design-bench-validate
+make test-design-runtime test-design-bench-validate
 make test-real-design
 make test-real-design-long
 ```
@@ -181,7 +181,7 @@ changes image generation:
 DSTUDIO_DESIGN_PROFILE=standard \
 DSTUDIO_DESIGN_CASES=image-led-campaign \
 DSTUDIO_DESIGN_REAL_IMAGE=1 \
-node tests/real_design_quality_test.mjs tests/.build/dstudio-server-test
+node tests/live/real_design_quality_test.mjs tests/.build/dstudio-server-test
 ```
 
 Run the complete Lumen layout before all final media is present without weakening
@@ -193,7 +193,7 @@ rendered site:
 DSTUDIO_DESIGN_PROFILE=lumen-layout \
 DSTUDIO_DESIGN_SEED_DIR=tests/fixtures/lumen-site-seed \
 DSTUDIO_DESIGN_UNBOUNDED=1 \
-node tests/real_design_quality_test.mjs tests/.build/dstudio-server-test
+node tests/live/real_design_quality_test.mjs tests/.build/dstudio-server-test
 ```
 
 ## Evidence and triage

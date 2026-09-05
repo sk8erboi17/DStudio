@@ -1,0 +1,3 @@
+                text.len = stop_pos;
+                text.ptr[text.len] = '\0';
+                pthread_mutex_lock(&s->inference_mu);

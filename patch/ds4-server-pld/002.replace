@@ -1,0 +1,6 @@
+    dsml_decode_tracker_init(&dsml_tracker);
+    /* Request-local, also reset on model-visible tool-error recovery. */
+    ds4ui_pld_index pld = {0};
+    const ds4ui_pld_mode pld_mode = ds4ui_pld_mode_for("DS4UI_CHAT_PLD");
+
+    server_generation_enter(s);

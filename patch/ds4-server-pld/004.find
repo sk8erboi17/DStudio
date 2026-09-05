@@ -1,0 +1,10 @@
+        } else {
+            if (server_eval_token(s, slot, token, err, sizeof(err)) != 0) {
+                finish = "error";
+                break;
+            }
+            toks[0] = token;
+            ntok = 1;
+        }
+
+        bool stop_decode = false;

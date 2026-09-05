@@ -1,5 +1,7 @@
 #include "ds4_web.h"
 #include "dstudio_remote_llm.h" /*DS4UI_JSONL*/
+#include "pld_engine.h" /*DS4UI_AGENT_PLD*/
+#include "pld_benchmark_clock.h"
 #if defined(_WIN32) || defined(__MSYS__) || defined(__CYGWIN__)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN

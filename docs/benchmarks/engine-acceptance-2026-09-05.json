@@ -1,0 +1,2605 @@
+{
+  "schema": "dstudio.engine-verification.publication.v1",
+  "date": "2026-09-05",
+  "interpretation": "Observable acceptance checks, not numerical parity or a general model ranking. Native main/Laguna overlapped downloads/builds: their timings must not be used for a speed comparison. Qwen decode measured separately, with Minecraft running and no concurrent model/download/build owned by this session.",
+  "installation": {
+    "schema": "dstudio.engine-acceptance.v1",
+    "started": "2026-09-05T07:13:47.769Z",
+    "host": {
+      "platform": "darwin",
+      "arch": "arm64",
+      "memoryBytes": 103079215104,
+      "cpu": "Apple M2 Max"
+    },
+    "installationRoot": "<checkout>/tests/.artifacts/engine-acceptance/run-9LtlmD/fresh-install",
+    "scope": "Network setup and observable answer correctness, NOT full-logit numerical equivalence or a general capability benchmark.",
+    "results": [
+      {
+        "engine": "main",
+        "status": "pass",
+        "installation": {
+          "seconds": 126.28080370800001,
+          "receipt": {
+            "engine": "main",
+            "commit": "b0a147a7fba6d1a104d047d5a140e9bb4bfc13cd",
+            "url": "https://codeload.github.com/antirez/ds4/tar.gz/b0a147a7fba6d1a104d047d5a140e9bb4bfc13cd"
+          }
+        }
+      },
+      {
+        "engine": "laguna",
+        "status": "pass",
+        "installation": {
+          "seconds": 162.44886987500004,
+          "receipt": {
+            "engine": "laguna",
+            "commit": "448d5695d1c86401a4e9447c440feb983b73e6de",
+            "url": "https://codeload.github.com/antirez/ds4/tar.gz/448d5695d1c86401a4e9447c440feb983b73e6de"
+          }
+        }
+      },
+      {
+        "engine": "qwen",
+        "status": "pass",
+        "installation": {
+          "seconds": 42.504956375000006,
+          "receipt": {
+            "engine": "qwen",
+            "commit": "bd9cfbccc03a709a3f00b50e0ac1cc41c3fcf02d",
+            "url": "https://codeload.github.com/ivanfioravanti/ds4-metal/tar.gz/bd9cfbccc03a709a3f00b50e0ac1cc41c3fcf02d"
+          }
+        }
+      }
+    ],
+    "finished": "2026-09-05T07:19:23.483Z"
+  },
+  "nativeInference": {
+    "schema": "dstudio.engine-acceptance.v1",
+    "started": "2026-09-05T07:16:13.780Z",
+    "host": {
+      "platform": "darwin",
+      "arch": "arm64",
+      "memoryBytes": 103079215104,
+      "cpu": "Apple M2 Max"
+    },
+    "installationRoot": "<checkout>/tests/.artifacts/engine-acceptance/run-HdBXaf/fresh-install",
+    "scope": "Network setup and observable answer correctness, NOT full-logit numerical equivalence or a general capability benchmark.",
+    "results": [
+      {
+        "engine": "main",
+        "status": "fail",
+        "inference": {
+          "mode": "Metal resident, no SSD expert streaming",
+          "model": {
+            "path": "<checkout>/ds4/gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf",
+            "bytes": 86720111488,
+            "mtime": "2026-08-05T15:12:40.824Z"
+          },
+          "binarySha256": "8145aec05cefdc5780b27bfbeb4bb484ab76e5bdcff1e5d5e05c981bae018133",
+          "argv": [
+            "--metal",
+            "-m",
+            "<checkout>/ds4/gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "50336",
+            "--ctx",
+            "8192",
+            "--tokens",
+            "256",
+            "--prefill-chunk",
+            "512"
+          ],
+          "cases": [
+            {
+              "name": "integer arithmetic",
+              "request": {
+                "model": "deepseek-v4-flash",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "What is 17 multiplied by 19? Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-7bf79c12cebc3d48c90af93f",
+                "object": "chat.completion",
+                "created": 1788592576,
+                "model": "deepseek-v4-flash",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "323"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 19,
+                  "completion_tokens": 1,
+                  "total_tokens": 20,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 19
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 19.828,
+                    "decode_elapsed_seconds": 0.050435
+                  }
+                }
+              },
+              "seconds": 1.0119038340000002,
+              "status": "pass"
+            },
+            {
+              "name": "negative arithmetic",
+              "request": {
+                "model": "deepseek-v4-flash",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Compute 14 - 29. Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-64a130e5687c42890089bed3",
+                "object": "chat.completion",
+                "created": 1788592577,
+                "model": "deepseek-v4-flash",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": " -15"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 17,
+                  "completion_tokens": 2,
+                  "total_tokens": 19,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 17
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 21.823,
+                    "decode_elapsed_seconds": 0.091645
+                  }
+                }
+              },
+              "seconds": 0.46898783400000005,
+              "status": "pass"
+            },
+            {
+              "name": "structured extraction",
+              "request": {
+                "model": "deepseek-v4-flash",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Return ONLY a JSON object with keys city and count. Record: city=Torino; count=7. count must be a number."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-a814cba676ba5565e5b0a03e",
+                "object": "chat.completion",
+                "created": 1788592578,
+                "model": "deepseek-v4-flash",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "{\"city\": \"Torino\", \"count\": 7}"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 32,
+                  "completion_tokens": 13,
+                  "total_tokens": 45,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 32
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 20.493,
+                    "decode_elapsed_seconds": 0.634361
+                  }
+                }
+              },
+              "seconds": 1.3723567500000005,
+              "status": "pass"
+            },
+            {
+              "name": "ordering and duplicates",
+              "request": {
+                "model": "deepseek-v4-flash",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Sort [9, -2, 9, 4, 0] ascending, preserving duplicates. Return ONLY the JSON array."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-42c3f4d4ecf655fda75e0d2c",
+                "object": "chat.completion",
+                "created": 1788592580,
+                "model": "deepseek-v4-flash",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "[\n  -2, 0, 4, 9, 9\n]"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 31,
+                  "completion_tokens": 18,
+                  "total_tokens": 49,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 31
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 21.927,
+                    "decode_elapsed_seconds": 0.820899
+                  }
+                }
+              },
+              "seconds": 1.346823625,
+              "status": "pass"
+            },
+            {
+              "name": "instruction and Unicode",
+              "request": {
+                "model": "deepseek-v4-flash",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Return exactly this text, with no explanation: città già pronta"
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-d0f362a013f1d304c5ef81b8",
+                "object": "chat.completion",
+                "created": 1788592580,
+                "model": "deepseek-v4-flash",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "città già pronta"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 17,
+                  "completion_tokens": 6,
+                  "total_tokens": 23,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 17
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 22.127,
+                    "decode_elapsed_seconds": 0.271157
+                  }
+                }
+              },
+              "seconds": 0.6509785419999998,
+              "status": "pass"
+            },
+            {
+              "name": "multi-turn recall",
+              "request": {
+                "model": "deepseek-v4-flash",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Remember the project code 8f528e71ed."
+                  },
+                  {
+                    "role": "assistant",
+                    "content": "Understood."
+                  },
+                  {
+                    "role": "user",
+                    "content": "What is the project code? Return only the code."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-cb6ab1c71936601d93cfd67b",
+                "object": "chat.completion",
+                "created": 1788592581,
+                "model": "deepseek-v4-flash",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "8f528e71ed"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 34,
+                  "completion_tokens": 6,
+                  "total_tokens": 40,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 34
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 21.825,
+                    "decode_elapsed_seconds": 0.274915
+                  }
+                }
+              },
+              "seconds": 1.0305240829999993,
+              "status": "pass"
+            },
+            {
+              "name": "longer-context retrieval",
+              "request": {
+                "model": "deepseek-v4-flash",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Item 0: location aisle-3; units 2.\nItem 1: location aisle-4; units 5.\nItem 2: location aisle-5; units 8.\nItem 3: location aisle-6; units 11.\nItem 4: location aisle-7; units 14.\nItem 5: location aisle-8; units 17.\nItem 6: location aisle-9; units 20.\nItem 7: location aisle-10; units 23.\nItem 8: location aisle-11; units 26.\nItem 9: location aisle-12; units 29.\nItem 10: location aisle-13; units 32.\nItem 11: location aisle-14; units 35.\nItem 12: location aisle-15; units 38.\nItem 13: location aisle-16; units 41.\nItem 14: location aisle-17; units 44.\nItem 15: location aisle-18; units 47.\nItem 16: location aisle-19; units 50.\nItem 17: location aisle-20; units 53.\nItem 18: location aisle-21; units 56.\nItem 19: location aisle-22; units 59.\nItem 20: location aisle-23; units 62.\nItem 21: location aisle-24; units 65.\nItem 22: location aisle-25; units 68.\nItem 23: location aisle-26; units 71.\nItem 24: location aisle-27; units 74.\nItem 25: location aisle-28; units 77.\nItem 26: location aisle-29; units 80.\nItem 27: location aisle-30; units 83.\nItem 28: location aisle-31; units 86.\nItem 29: location aisle-32; units 89.\nItem 30: location aisle-33; units 92.\nItem 31: location aisle-34; units 95.\nItem 32: location aisle-35; units 98.\nItem 33: location aisle-36; units 101.\nItem 34: location aisle-37; units 104.\nItem 35: location aisle-38; units 107.\nItem 36: location aisle-39; units 110.\nItem 37: location aisle-40; units 113.\nItem 38: location aisle-41; units 116.\nItem 39: location aisle-42; units 119.\nItem 40: location aisle-43; units 122.\nItem 41: location aisle-44; units 125.\nItem 42: location aisle-45; units 128.\nItem 43: location aisle-46; units 131.\nItem 44: location aisle-47; units 134.\nItem 45: location aisle-48; units 137.\nItem 46: location aisle-49; units 140.\nItem 47: location aisle-50; units 143.\nItem 48: location aisle-51; units 146.\nItem 49: location aisle-52; units 149.\nItem 50: location aisle-53; units 152.\nItem 51: location aisle-54; units 155.\nItem 52: location aisle-55; units 158.\nItem 53: location aisle-56; units 161.\nItem 54: location aisle-57; units 164.\nItem 55: location aisle-58; units 167.\nItem 56: location aisle-59; units 170.\nItem 57: location aisle-60; units 173.\nItem 58: location aisle-61; units 176.\nItem 59: location aisle-62; units 179.\nItem 60: location aisle-63; units 182.\nItem 61: location aisle-64; units 185.\nItem 62: location aisle-65; units 188.\nItem 63: location aisle-66; units 191.\nItem 64: location aisle-67; units 194.\nItem 65: location aisle-68; units 197.\nItem 66: location aisle-69; units 200.\nItem 67: location aisle-70; units 203.\nItem 68: location aisle-71; units 206.\nItem 69: location aisle-72; units 209.\nItem 70: location aisle-73; units 212.\nItem 71: location aisle-74; units 215.\nItem 72: location aisle-75; units 218.\nItem 73: location aisle-76; units 221.\nItem 74: location aisle-77; units 224.\nItem 75: location aisle-78; units 227.\nItem 76: location aisle-79; units 230.\nItem 77: location aisle-80; units 233.\nItem 78: location aisle-81; units 236.\nItem 79: location aisle-82; units 239.\nItem 80: location aisle-83; units 242.\nItem 81: location aisle-84; units 245.\nItem 82: location aisle-85; units 248.\nItem 83: location aisle-86; units 251.\nItem 84: location aisle-87; units 254.\nItem 85: location aisle-88; units 257.\nItem 86: location aisle-89; units 260.\nItem 87: location aisle-90; units 263.\nItem 88: location aisle-91; units 266.\nItem 89: location aisle-92; units 269.\nWhat are the units for Item 67? Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-66fc9c2b4c1c2d1b2c74bc2d",
+                "object": "chat.completion",
+                "created": 1788592589,
+                "model": "deepseek-v4-flash",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "203"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 1189,
+                  "completion_tokens": 1,
+                  "total_tokens": 1190,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 1189
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 20.765,
+                    "decode_elapsed_seconds": 0.048157
+                  }
+                }
+              },
+              "seconds": 7.652240709000001,
+              "status": "pass"
+            },
+            {
+              "name": "code execution reasoning",
+              "request": {
+                "model": "deepseek-v4-flash",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "In Python: x = [3, 5, 8]; print(sum(v * 2 for v in x if v % 2 == 1)). What integer is printed? Reply only with that integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-75e79629861b377d4ba5f0de",
+                "object": "chat.completion",
+                "created": 1788592590,
+                "model": "deepseek-v4-flash",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": ":16"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 48,
+                  "completion_tokens": 2,
+                  "total_tokens": 50,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 48
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 18.269,
+                    "decode_elapsed_seconds": 0.109473
+                  }
+                }
+              },
+              "seconds": 1.0318176670000012,
+              "status": "fail",
+              "error": "Expected values to be strictly equal:\n\n':16' !== '16'\n"
+            },
+            {
+              "name": "invalid request rejected",
+              "status": "pass",
+              "httpStatus": 400,
+              "response": "{\"error\":{\"message\":\"invalid JSON request\",\"type\":\"invalid_request_error\"}}\n"
+            },
+            {
+              "name": "recovery after error",
+              "request": {
+                "model": "deepseek-v4-flash",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "What is 6 + 8? Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-32422f5fc29dbd0aabb6cc77",
+                "object": "chat.completion",
+                "created": 1788592590,
+                "model": "deepseek-v4-flash",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "14"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 18,
+                  "completion_tokens": 1,
+                  "total_tokens": 19,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 18
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 22.015,
+                    "decode_elapsed_seconds": 0.045423
+                  }
+                }
+              },
+              "seconds": 0.48261812499999723,
+              "status": "pass"
+            },
+            {
+              "name": "tool call and result round-trip",
+              "request": {
+                "model": "deepseek-v4-flash",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Use read_stock to look up test-item, then tell me the returned quantity."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false,
+                "tools": [
+                  {
+                    "type": "function",
+                    "function": {
+                      "name": "read_stock",
+                      "description": "Read actual item quantity from the local inventory.",
+                      "parameters": {
+                        "type": "object",
+                        "properties": {
+                          "item": {
+                            "type": "string",
+                            "enum": [
+                              "test-item"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "item"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  }
+                ],
+                "tool_choice": {
+                  "type": "function",
+                  "function": {
+                    "name": "read_stock"
+                  }
+                }
+              },
+              "response": {
+                "id": "chatcmpl-c9cb44d25ac740afa3a4f3d0",
+                "object": "chat.completion",
+                "created": 1788592595,
+                "model": "deepseek-v4-flash",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "",
+                      "tool_calls": [
+                        {
+                          "id": "call_85bc5584cffd36d23f2a7ec99e864c70",
+                          "type": "function",
+                          "function": {
+                            "name": "read_stock",
+                            "arguments": "{\"item\":\"test-item\"}"
+                          }
+                        }
+                      ]
+                    },
+                    "finish_reason": "tool_calls"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 354,
+                  "completion_tokens": 45,
+                  "total_tokens": 399,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 354
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 21.129,
+                    "decode_elapsed_seconds": 2.129767
+                  }
+                }
+              },
+              "followupRequest": {
+                "model": "deepseek-v4-flash",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Use read_stock to look up test-item, then tell me the returned quantity."
+                  },
+                  {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                      {
+                        "id": "call_85bc5584cffd36d23f2a7ec99e864c70",
+                        "type": "function",
+                        "function": {
+                          "name": "read_stock",
+                          "arguments": "{\"item\":\"test-item\"}"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "role": "tool",
+                    "tool_call_id": "call_85bc5584cffd36d23f2a7ec99e864c70",
+                    "content": "{\"quantity\":17}"
+                  },
+                  {
+                    "role": "user",
+                    "content": "Reply with only the integer quantity returned by the tool."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false,
+                "tools": [
+                  {
+                    "type": "function",
+                    "function": {
+                      "name": "read_stock",
+                      "description": "Read actual item quantity from the local inventory.",
+                      "parameters": {
+                        "type": "object",
+                        "properties": {
+                          "item": {
+                            "type": "string",
+                            "enum": [
+                              "test-item"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "item"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  }
+                ]
+              },
+              "followupResponse": {
+                "id": "chatcmpl-16e65714b441c27da54a9512",
+                "object": "chat.completion",
+                "created": 1788592596,
+                "model": "deepseek-v4-flash",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "17"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 427,
+                  "completion_tokens": 1,
+                  "total_tokens": 428,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 399,
+                    "cache_write_tokens": 28
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 21.666,
+                    "decode_elapsed_seconds": 0.046156
+                  }
+                }
+              },
+              "status": "pass"
+            },
+            {
+              "name": "real SSE streaming",
+              "request": {
+                "model": "deepseek-v4-flash",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "What is 12 + 9? Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": true
+              },
+              "raw": "data: {\"id\":\"chatcmpl-652c8041de0129fa5f9ed678\",\"object\":\"chat.completion.chunk\",\"created\":1788592596,\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-652c8041de0129fa5f9ed678\",\"object\":\"chat.completion.chunk\",\"created\":1788592596,\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"21\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-652c8041de0129fa5f9ed678\",\"object\":\"chat.completion.chunk\",\"created\":1788592596,\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+              "firstByteSeconds": 0.3941165000000001,
+              "seconds": 0.4409919169999994,
+              "status": "pass"
+            }
+          ],
+          "loadSeconds": 2.029611875,
+          "models": {
+            "object": "list",
+            "data": [
+              {
+                "id": "deepseek-v4-flash",
+                "object": "model",
+                "created": 1767225600,
+                "owned_by": "ds4.c",
+                "name": "DeepSeek V4 Flash",
+                "context_length": 8192,
+                "top_provider": {
+                  "context_length": 8192,
+                  "max_completion_tokens": 256,
+                  "is_moderated": false
+                },
+                "supported_parameters": [
+                  "tools",
+                  "tool_choice",
+                  "max_tokens",
+                  "temperature",
+                  "top_p",
+                  "top_k",
+                  "min_p",
+                  "ignore_eos",
+                  "stop",
+                  "seed",
+                  "stream",
+                  "reasoning_effort"
+                ]
+              },
+              {
+                "id": "deepseek-v4-pro",
+                "object": "model",
+                "created": 1767225600,
+                "owned_by": "ds4.c",
+                "name": "DeepSeek V4 Flash",
+                "context_length": 8192,
+                "top_provider": {
+                  "context_length": 8192,
+                  "max_completion_tokens": 256,
+                  "is_moderated": false
+                },
+                "supported_parameters": [
+                  "tools",
+                  "tool_choice",
+                  "max_tokens",
+                  "temperature",
+                  "top_p",
+                  "top_k",
+                  "min_p",
+                  "ignore_eos",
+                  "stop",
+                  "seed",
+                  "stream",
+                  "reasoning_effort"
+                ]
+              }
+            ]
+          }
+        },
+        "error": "AssertionError [ERR_ASSERTION]: one or more answer/protocol checks failed\n    at inference (file://<checkout>/tests/live/engine_acceptance.mjs:139:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file://<checkout>/tests/live/engine_acceptance.mjs:158:14"
+      },
+      {
+        "engine": "laguna",
+        "status": "fail",
+        "inference": {
+          "mode": "Metal resident, no SSD expert streaming",
+          "model": {
+            "path": "<checkout>/ds4/gguf/laguna-s-2.1-Q4_K_M.gguf",
+            "bytes": 68248759648,
+            "mtime": "2026-07-24T09:59:06.402Z"
+          },
+          "binarySha256": "d6e7d951c507eb8dedbb190db57f9f1a6a8edb43b3ee168cd5aef3205bfe5d58",
+          "argv": [
+            "--metal",
+            "-m",
+            "<checkout>/ds4/gguf/laguna-s-2.1-Q4_K_M.gguf",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "50471",
+            "--ctx",
+            "8192",
+            "--tokens",
+            "256"
+          ],
+          "cases": [
+            {
+              "name": "integer arithmetic",
+              "request": {
+                "model": "laguna-s-2.1",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "What is 17 multiplied by 19? Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-1",
+                "object": "chat.completion",
+                "created": 1788592620,
+                "model": "laguna-s-2.1",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "323"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 58,
+                  "completion_tokens": 3,
+                  "total_tokens": 61,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 58
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 24.691,
+                    "decode_elapsed_seconds": 0.121504
+                  }
+                }
+              },
+              "seconds": 0.7798164999999936,
+              "status": "pass"
+            },
+            {
+              "name": "negative arithmetic",
+              "request": {
+                "model": "laguna-s-2.1",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Compute 14 - 29. Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-2",
+                "object": "chat.completion",
+                "created": 1788592621,
+                "model": "laguna-s-2.1",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "-15"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 57,
+                  "completion_tokens": 3,
+                  "total_tokens": 60,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 57
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 31.722,
+                    "decode_elapsed_seconds": 0.094572
+                  }
+                }
+              },
+              "seconds": 0.5650484999999972,
+              "status": "pass"
+            },
+            {
+              "name": "structured extraction",
+              "request": {
+                "model": "laguna-s-2.1",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Return ONLY a JSON object with keys city and count. Record: city=Torino; count=7. count must be a number."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-3",
+                "object": "chat.completion",
+                "created": 1788592622,
+                "model": "laguna-s-2.1",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "{\"city\": \"Torino\", \"count\": 7}"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 70,
+                  "completion_tokens": 13,
+                  "total_tokens": 83,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 70
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 29.616,
+                    "decode_elapsed_seconds": 0.438957
+                  }
+                }
+              },
+              "seconds": 1.0188582499999974,
+              "status": "pass"
+            },
+            {
+              "name": "ordering and duplicates",
+              "request": {
+                "model": "laguna-s-2.1",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Sort [9, -2, 9, 4, 0] ascending, preserving duplicates. Return ONLY the JSON array."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-4",
+                "object": "chat.completion",
+                "created": 1788592623,
+                "model": "laguna-s-2.1",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "[-2, 0, 4, 9, 9]"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 69,
+                  "completion_tokens": 15,
+                  "total_tokens": 84,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 69
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 29.497,
+                    "decode_elapsed_seconds": 0.508528
+                  }
+                }
+              },
+              "seconds": 1.0768150830000014,
+              "status": "pass"
+            },
+            {
+              "name": "instruction and Unicode",
+              "request": {
+                "model": "laguna-s-2.1",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Return exactly this text, with no explanation: città già pronta"
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-5",
+                "object": "chat.completion",
+                "created": 1788592624,
+                "model": "laguna-s-2.1",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "città già pronta"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 60,
+                  "completion_tokens": 8,
+                  "total_tokens": 68,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 60
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 30.686,
+                    "decode_elapsed_seconds": 0.260706
+                  }
+                }
+              },
+              "seconds": 0.7742841670000052,
+              "status": "pass"
+            },
+            {
+              "name": "multi-turn recall",
+              "request": {
+                "model": "laguna-s-2.1",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Remember the project code 7b762c293d."
+                  },
+                  {
+                    "role": "assistant",
+                    "content": "Understood."
+                  },
+                  {
+                    "role": "user",
+                    "content": "What is the project code? Return only the code."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-6",
+                "object": "chat.completion",
+                "created": 1788592625,
+                "model": "laguna-s-2.1",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "7b762c293d"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 81,
+                  "completion_tokens": 10,
+                  "total_tokens": 91,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 81
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 28.588,
+                    "decode_elapsed_seconds": 0.349794
+                  }
+                }
+              },
+              "seconds": 0.9968787500000035,
+              "status": "pass"
+            },
+            {
+              "name": "longer-context retrieval",
+              "request": {
+                "model": "laguna-s-2.1",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Item 0: location aisle-3; units 2.\nItem 1: location aisle-4; units 5.\nItem 2: location aisle-5; units 8.\nItem 3: location aisle-6; units 11.\nItem 4: location aisle-7; units 14.\nItem 5: location aisle-8; units 17.\nItem 6: location aisle-9; units 20.\nItem 7: location aisle-10; units 23.\nItem 8: location aisle-11; units 26.\nItem 9: location aisle-12; units 29.\nItem 10: location aisle-13; units 32.\nItem 11: location aisle-14; units 35.\nItem 12: location aisle-15; units 38.\nItem 13: location aisle-16; units 41.\nItem 14: location aisle-17; units 44.\nItem 15: location aisle-18; units 47.\nItem 16: location aisle-19; units 50.\nItem 17: location aisle-20; units 53.\nItem 18: location aisle-21; units 56.\nItem 19: location aisle-22; units 59.\nItem 20: location aisle-23; units 62.\nItem 21: location aisle-24; units 65.\nItem 22: location aisle-25; units 68.\nItem 23: location aisle-26; units 71.\nItem 24: location aisle-27; units 74.\nItem 25: location aisle-28; units 77.\nItem 26: location aisle-29; units 80.\nItem 27: location aisle-30; units 83.\nItem 28: location aisle-31; units 86.\nItem 29: location aisle-32; units 89.\nItem 30: location aisle-33; units 92.\nItem 31: location aisle-34; units 95.\nItem 32: location aisle-35; units 98.\nItem 33: location aisle-36; units 101.\nItem 34: location aisle-37; units 104.\nItem 35: location aisle-38; units 107.\nItem 36: location aisle-39; units 110.\nItem 37: location aisle-40; units 113.\nItem 38: location aisle-41; units 116.\nItem 39: location aisle-42; units 119.\nItem 40: location aisle-43; units 122.\nItem 41: location aisle-44; units 125.\nItem 42: location aisle-45; units 128.\nItem 43: location aisle-46; units 131.\nItem 44: location aisle-47; units 134.\nItem 45: location aisle-48; units 137.\nItem 46: location aisle-49; units 140.\nItem 47: location aisle-50; units 143.\nItem 48: location aisle-51; units 146.\nItem 49: location aisle-52; units 149.\nItem 50: location aisle-53; units 152.\nItem 51: location aisle-54; units 155.\nItem 52: location aisle-55; units 158.\nItem 53: location aisle-56; units 161.\nItem 54: location aisle-57; units 164.\nItem 55: location aisle-58; units 167.\nItem 56: location aisle-59; units 170.\nItem 57: location aisle-60; units 173.\nItem 58: location aisle-61; units 176.\nItem 59: location aisle-62; units 179.\nItem 60: location aisle-63; units 182.\nItem 61: location aisle-64; units 185.\nItem 62: location aisle-65; units 188.\nItem 63: location aisle-66; units 191.\nItem 64: location aisle-67; units 194.\nItem 65: location aisle-68; units 197.\nItem 66: location aisle-69; units 200.\nItem 67: location aisle-70; units 203.\nItem 68: location aisle-71; units 206.\nItem 69: location aisle-72; units 209.\nItem 70: location aisle-73; units 212.\nItem 71: location aisle-74; units 215.\nItem 72: location aisle-75; units 218.\nItem 73: location aisle-76; units 221.\nItem 74: location aisle-77; units 224.\nItem 75: location aisle-78; units 227.\nItem 76: location aisle-79; units 230.\nItem 77: location aisle-80; units 233.\nItem 78: location aisle-81; units 236.\nItem 79: location aisle-82; units 239.\nItem 80: location aisle-83; units 242.\nItem 81: location aisle-84; units 245.\nItem 82: location aisle-85; units 248.\nItem 83: location aisle-86; units 251.\nItem 84: location aisle-87; units 254.\nItem 85: location aisle-88; units 257.\nItem 86: location aisle-89; units 260.\nItem 87: location aisle-90; units 263.\nItem 88: location aisle-91; units 266.\nItem 89: location aisle-92; units 269.\nWhat are the units for Item 67? Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-7",
+                "object": "chat.completion",
+                "created": 1788592631,
+                "model": "laguna-s-2.1",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "197"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 1714,
+                  "completion_tokens": 3,
+                  "total_tokens": 1717,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 1714
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 16.634,
+                    "decode_elapsed_seconds": 0.180354
+                  }
+                }
+              },
+              "seconds": 5.954830541000003,
+              "status": "fail",
+              "error": "Expected values to be strictly equal:\n\n'197' !== '203'\n"
+            },
+            {
+              "name": "code execution reasoning",
+              "request": {
+                "model": "laguna-s-2.1",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "In Python: x = [3, 5, 8]; print(sum(v * 2 for v in x if v % 2 == 1)). What integer is printed? Reply only with that integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-8",
+                "object": "chat.completion",
+                "created": 1788592636,
+                "model": "laguna-s-2.1",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "The code processes the list `x = [3, 5, 8]` by filtering odd numbers (3 and 5), doubling each (6 and 10), and summing them. \n\n**Step-by-Step Explanation:**\n1. **Filter odd numbers:** 3 and 5 are odd; 8 is even.\n2. **Double each filtered value:** 3*2=6, 5*2=10.\n3. **Sum the results:** 6 + 10 = 16.\n\n**Answer:** 16"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 85,
+                  "completion_tokens": 119,
+                  "total_tokens": 204,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 85
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 25.015,
+                    "decode_elapsed_seconds": 4.757157
+                  }
+                }
+              },
+              "seconds": 5.451146667000001,
+              "status": "fail",
+              "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ 'The code processes the list `x = [3, 5, 8]` by filtering odd numbers (3 and 5), doubling each (6 and 10), and summing them. \\n' +\n+   '\\n' +\n+   '**Step-by-Step Explanation:**\\n' +\n+   '1. **Filter odd numbers:** 3 and 5 are odd; 8 is even.\\n' +\n+   '2. **Double each filtered value:** 3*2=6, 5*2=10.\\n' +\n+   '3. **Sum the results:** 6 + 10 = 16.\\n' +\n+   '\\n' +\n+   '**Answer:** 16'\n- '16'\n"
+            },
+            {
+              "name": "invalid request rejected",
+              "status": "pass",
+              "httpStatus": 400,
+              "response": "{\"error\":{\"message\":\"invalid JSON request\",\"type\":\"invalid_request_error\"}}\n"
+            },
+            {
+              "name": "recovery after error",
+              "request": {
+                "model": "laguna-s-2.1",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "What is 6 + 8? Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-9",
+                "object": "chat.completion",
+                "created": 1788592637,
+                "model": "laguna-s-2.1",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "14"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 55,
+                  "completion_tokens": 2,
+                  "total_tokens": 57,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 55
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 29.413,
+                    "decode_elapsed_seconds": 0.067997
+                  }
+                }
+              },
+              "seconds": 0.5550107090000019,
+              "status": "pass"
+            },
+            {
+              "name": "tool call and result round-trip",
+              "request": {
+                "model": "laguna-s-2.1",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Use read_stock to look up test-item, then tell me the returned quantity."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false,
+                "tools": [
+                  {
+                    "type": "function",
+                    "function": {
+                      "name": "read_stock",
+                      "description": "Read actual item quantity from the local inventory.",
+                      "parameters": {
+                        "type": "object",
+                        "properties": {
+                          "item": {
+                            "type": "string",
+                            "enum": [
+                              "test-item"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "item"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  }
+                ],
+                "tool_choice": {
+                  "type": "function",
+                  "function": {
+                    "name": "read_stock"
+                  }
+                }
+              },
+              "response": {
+                "id": "chatcmpl-10",
+                "object": "chat.completion",
+                "created": 1788592638,
+                "model": "laguna-s-2.1",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "",
+                      "tool_calls": [
+                        {
+                          "id": "call_61f26152c49f48a4346433c0f23375da",
+                          "type": "function",
+                          "function": {
+                            "name": "read_stock",
+                            "arguments": "{\"item\":\"test-item\"}"
+                          }
+                        }
+                      ]
+                    },
+                    "finish_reason": "tool_calls"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 141,
+                  "completion_tokens": 21,
+                  "total_tokens": 162,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 141
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 24.76,
+                    "decode_elapsed_seconds": 0.848126
+                  }
+                }
+              },
+              "followupRequest": {
+                "model": "laguna-s-2.1",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Use read_stock to look up test-item, then tell me the returned quantity."
+                  },
+                  {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                      {
+                        "id": "call_61f26152c49f48a4346433c0f23375da",
+                        "type": "function",
+                        "function": {
+                          "name": "read_stock",
+                          "arguments": "{\"item\":\"test-item\"}"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "role": "tool",
+                    "tool_call_id": "call_61f26152c49f48a4346433c0f23375da",
+                    "content": "{\"quantity\":17}"
+                  },
+                  {
+                    "role": "user",
+                    "content": "Reply with only the integer quantity returned by the tool."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false,
+                "tools": [
+                  {
+                    "type": "function",
+                    "function": {
+                      "name": "read_stock",
+                      "description": "Read actual item quantity from the local inventory.",
+                      "parameters": {
+                        "type": "object",
+                        "properties": {
+                          "item": {
+                            "type": "string",
+                            "enum": [
+                              "test-item"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "item"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  }
+                ]
+              },
+              "followupResponse": {
+                "id": "chatcmpl-11",
+                "object": "chat.completion",
+                "created": 1788592639,
+                "model": "laguna-s-2.1",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "17"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 196,
+                  "completion_tokens": 2,
+                  "total_tokens": 198,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 162,
+                    "cache_write_tokens": 34
+                  },
+                  "ds4": {
+                    "decode_tokens_per_second": 22.524,
+                    "decode_elapsed_seconds": 0.088796
+                  }
+                }
+              },
+              "status": "pass"
+            },
+            {
+              "name": "real SSE streaming",
+              "request": {
+                "model": "laguna-s-2.1",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "What is 12 + 9? Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": true
+              },
+              "raw": "data: {\"id\":\"chatcmpl-12\",\"object\":\"chat.completion.chunk\",\"created\":1788592639,\"model\":\"laguna-s-2.1\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-12\",\"object\":\"chat.completion.chunk\",\"created\":1788592639,\"model\":\"laguna-s-2.1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"2\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-12\",\"object\":\"chat.completion.chunk\",\"created\":1788592639,\"model\":\"laguna-s-2.1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"1\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-12\",\"object\":\"chat.completion.chunk\",\"created\":1788592639,\"model\":\"laguna-s-2.1\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+              "firstByteSeconds": 0.4843553749999992,
+              "seconds": 0.5486560829999944,
+              "status": "pass"
+            }
+          ],
+          "loadSeconds": 23.035494583999995,
+          "models": {
+            "object": "list",
+            "data": [
+              {
+                "id": "laguna-s-2.1",
+                "object": "model",
+                "created": 1767225600,
+                "owned_by": "ds4.c",
+                "name": "Laguna S 2.1",
+                "context_length": 8192,
+                "top_provider": {
+                  "context_length": 8192,
+                  "max_completion_tokens": 256,
+                  "is_moderated": false
+                },
+                "supported_parameters": [
+                  "tools",
+                  "tool_choice",
+                  "max_tokens",
+                  "temperature",
+                  "top_p",
+                  "top_k",
+                  "min_p",
+                  "stop",
+                  "seed",
+                  "stream",
+                  "reasoning_effort"
+                ]
+              },
+              {
+                "id": "laguna-s-2.1-chat",
+                "object": "model",
+                "created": 1767225600,
+                "owned_by": "ds4.c",
+                "name": "Laguna S 2.1",
+                "context_length": 8192,
+                "top_provider": {
+                  "context_length": 8192,
+                  "max_completion_tokens": 256,
+                  "is_moderated": false
+                },
+                "supported_parameters": [
+                  "tools",
+                  "tool_choice",
+                  "max_tokens",
+                  "temperature",
+                  "top_p",
+                  "top_k",
+                  "min_p",
+                  "stop",
+                  "seed",
+                  "stream",
+                  "reasoning_effort"
+                ]
+              },
+              {
+                "id": "laguna-s-2.1-reasoner",
+                "object": "model",
+                "created": 1767225600,
+                "owned_by": "ds4.c",
+                "name": "Laguna S 2.1",
+                "context_length": 8192,
+                "top_provider": {
+                  "context_length": 8192,
+                  "max_completion_tokens": 256,
+                  "is_moderated": false
+                },
+                "supported_parameters": [
+                  "tools",
+                  "tool_choice",
+                  "max_tokens",
+                  "temperature",
+                  "top_p",
+                  "top_k",
+                  "min_p",
+                  "stop",
+                  "seed",
+                  "stream",
+                  "reasoning_effort"
+                ]
+              }
+            ]
+          }
+        },
+        "error": "AssertionError [ERR_ASSERTION]: one or more answer/protocol checks failed\n    at inference (file://<checkout>/tests/live/engine_acceptance.mjs:139:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file://<checkout>/tests/live/engine_acceptance.mjs:158:14"
+      }
+    ],
+    "finished": "2026-09-05T07:17:20.333Z"
+  },
+  "qwenChatInference": {
+    "schema": "dstudio.engine-acceptance.v1",
+    "started": "2026-09-05T07:51:06.192Z",
+    "host": {
+      "platform": "darwin",
+      "arch": "arm64",
+      "memoryBytes": 103079215104,
+      "cpu": "Apple M2 Max"
+    },
+    "installationRoot": "<checkout>",
+    "scope": "Network setup and observable answer correctness, NOT full-logit numerical equivalence or a general capability benchmark.",
+    "results": [
+      {
+        "engine": "qwen",
+        "status": "pass",
+        "inference": {
+          "mode": "resident backbone + native SSD PLE",
+          "transport": "DStudio launch API and Chat HTTP proxy",
+          "model": {
+            "path": "<checkout>/ds4/gguf/Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf",
+            "bytes": 73371680704,
+            "mtime": "2026-09-05T07:31:24.479Z"
+          },
+          "binarySha256": "48b511c55edd950d0ee688cd0529dd0d4ab331b4caf7546eb6541e9199b3a515",
+          "cases": [
+            {
+              "name": "integer arithmetic",
+              "request": {
+                "model": "qwen3.8-flash-next",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "What is 17 multiplied by 19? Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-ffdcff7ce0c3f35302cf370b",
+                "object": "chat.completion",
+                "created": 1788594693,
+                "model": "qwen3.8-flash-next",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "323"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 29,
+                  "completion_tokens": 3,
+                  "total_tokens": 32,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 29
+                  }
+                }
+              },
+              "seconds": 1.089243333999999,
+              "status": "pass"
+            },
+            {
+              "name": "negative arithmetic",
+              "request": {
+                "model": "qwen3.8-flash-next",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Compute 14 - 29. Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-670ed6cca8234f1fb71eec7a",
+                "object": "chat.completion",
+                "created": 1788594694,
+                "model": "qwen3.8-flash-next",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "-15"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 27,
+                  "completion_tokens": 3,
+                  "total_tokens": 30,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 27
+                  }
+                }
+              },
+              "seconds": 0.5674606669999994,
+              "status": "pass"
+            },
+            {
+              "name": "structured extraction",
+              "request": {
+                "model": "qwen3.8-flash-next",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Return ONLY a JSON object with keys city and count. Record: city=Torino; count=7. count must be a number."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-5c8160417f12685975f758b4",
+                "object": "chat.completion",
+                "created": 1788594695,
+                "model": "qwen3.8-flash-next",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "{\"city\": \"Torino\", \"count\": 7}"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 40,
+                  "completion_tokens": 13,
+                  "total_tokens": 53,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 40
+                  }
+                }
+              },
+              "seconds": 1.1154462500000009,
+              "status": "pass"
+            },
+            {
+              "name": "ordering and duplicates",
+              "request": {
+                "model": "qwen3.8-flash-next",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Sort [9, -2, 9, 4, 0] ascending, preserving duplicates. Return ONLY the JSON array."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-5ad413924ba31ea16fac351d",
+                "object": "chat.completion",
+                "created": 1788594696,
+                "model": "qwen3.8-flash-next",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "[-2, 0, 4, 9, 9]"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 39,
+                  "completion_tokens": 15,
+                  "total_tokens": 54,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 39
+                  }
+                }
+              },
+              "seconds": 1.1384202079999997,
+              "status": "pass"
+            },
+            {
+              "name": "instruction and Unicode",
+              "request": {
+                "model": "qwen3.8-flash-next",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Return exactly this text, with no explanation: città già pronta"
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-647d79345070bc1dea346ec5",
+                "object": "chat.completion",
+                "created": 1788594697,
+                "model": "qwen3.8-flash-next",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "città già pronta"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 24,
+                  "completion_tokens": 5,
+                  "total_tokens": 29,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 24
+                  }
+                }
+              },
+              "seconds": 0.6353422500000016,
+              "status": "pass"
+            },
+            {
+              "name": "multi-turn recall",
+              "request": {
+                "model": "qwen3.8-flash-next",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Remember the project code a4f9dc8795."
+                  },
+                  {
+                    "role": "assistant",
+                    "content": "Understood."
+                  },
+                  {
+                    "role": "user",
+                    "content": "What is the project code? Return only the code."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-bd865b7bb6c6a1c000b09bb4",
+                "object": "chat.completion",
+                "created": 1788594697,
+                "model": "qwen3.8-flash-next",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "a4f9dc8795"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 54,
+                  "completion_tokens": 9,
+                  "total_tokens": 63,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 54
+                  }
+                }
+              },
+              "seconds": 0.911195166999998,
+              "status": "pass"
+            },
+            {
+              "name": "longer-context retrieval",
+              "request": {
+                "model": "qwen3.8-flash-next",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Item 0: location aisle-3; units 2.\nItem 1: location aisle-4; units 5.\nItem 2: location aisle-5; units 8.\nItem 3: location aisle-6; units 11.\nItem 4: location aisle-7; units 14.\nItem 5: location aisle-8; units 17.\nItem 6: location aisle-9; units 20.\nItem 7: location aisle-10; units 23.\nItem 8: location aisle-11; units 26.\nItem 9: location aisle-12; units 29.\nItem 10: location aisle-13; units 32.\nItem 11: location aisle-14; units 35.\nItem 12: location aisle-15; units 38.\nItem 13: location aisle-16; units 41.\nItem 14: location aisle-17; units 44.\nItem 15: location aisle-18; units 47.\nItem 16: location aisle-19; units 50.\nItem 17: location aisle-20; units 53.\nItem 18: location aisle-21; units 56.\nItem 19: location aisle-22; units 59.\nItem 20: location aisle-23; units 62.\nItem 21: location aisle-24; units 65.\nItem 22: location aisle-25; units 68.\nItem 23: location aisle-26; units 71.\nItem 24: location aisle-27; units 74.\nItem 25: location aisle-28; units 77.\nItem 26: location aisle-29; units 80.\nItem 27: location aisle-30; units 83.\nItem 28: location aisle-31; units 86.\nItem 29: location aisle-32; units 89.\nItem 30: location aisle-33; units 92.\nItem 31: location aisle-34; units 95.\nItem 32: location aisle-35; units 98.\nItem 33: location aisle-36; units 101.\nItem 34: location aisle-37; units 104.\nItem 35: location aisle-38; units 107.\nItem 36: location aisle-39; units 110.\nItem 37: location aisle-40; units 113.\nItem 38: location aisle-41; units 116.\nItem 39: location aisle-42; units 119.\nItem 40: location aisle-43; units 122.\nItem 41: location aisle-44; units 125.\nItem 42: location aisle-45; units 128.\nItem 43: location aisle-46; units 131.\nItem 44: location aisle-47; units 134.\nItem 45: location aisle-48; units 137.\nItem 46: location aisle-49; units 140.\nItem 47: location aisle-50; units 143.\nItem 48: location aisle-51; units 146.\nItem 49: location aisle-52; units 149.\nItem 50: location aisle-53; units 152.\nItem 51: location aisle-54; units 155.\nItem 52: location aisle-55; units 158.\nItem 53: location aisle-56; units 161.\nItem 54: location aisle-57; units 164.\nItem 55: location aisle-58; units 167.\nItem 56: location aisle-59; units 170.\nItem 57: location aisle-60; units 173.\nItem 58: location aisle-61; units 176.\nItem 59: location aisle-62; units 179.\nItem 60: location aisle-63; units 182.\nItem 61: location aisle-64; units 185.\nItem 62: location aisle-65; units 188.\nItem 63: location aisle-66; units 191.\nItem 64: location aisle-67; units 194.\nItem 65: location aisle-68; units 197.\nItem 66: location aisle-69; units 200.\nItem 67: location aisle-70; units 203.\nItem 68: location aisle-71; units 206.\nItem 69: location aisle-72; units 209.\nItem 70: location aisle-73; units 212.\nItem 71: location aisle-74; units 215.\nItem 72: location aisle-75; units 218.\nItem 73: location aisle-76; units 221.\nItem 74: location aisle-77; units 224.\nItem 75: location aisle-78; units 227.\nItem 76: location aisle-79; units 230.\nItem 77: location aisle-80; units 233.\nItem 78: location aisle-81; units 236.\nItem 79: location aisle-82; units 239.\nItem 80: location aisle-83; units 242.\nItem 81: location aisle-84; units 245.\nItem 82: location aisle-85; units 248.\nItem 83: location aisle-86; units 251.\nItem 84: location aisle-87; units 254.\nItem 85: location aisle-88; units 257.\nItem 86: location aisle-89; units 260.\nItem 87: location aisle-90; units 263.\nItem 88: location aisle-91; units 266.\nItem 89: location aisle-92; units 269.\nWhat are the units for Item 67? Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-3f7e9f3ccc103dcdd242d110",
+                "object": "chat.completion",
+                "created": 1788594703,
+                "model": "qwen3.8-flash-next",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "203"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 1595,
+                  "completion_tokens": 3,
+                  "total_tokens": 1598,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 1595
+                  }
+                }
+              },
+              "seconds": 5.121314582999996,
+              "status": "pass"
+            },
+            {
+              "name": "code execution reasoning",
+              "request": {
+                "model": "qwen3.8-flash-next",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "In Python: x = [3, 5, 8]; print(sum(v * 2 for v in x if v % 2 == 1)). What integer is printed? Reply only with that integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-ac66d0ceedd36bbdf98931b3",
+                "object": "chat.completion",
+                "created": 1788594703,
+                "model": "qwen3.8-flash-next",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "16"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 56,
+                  "completion_tokens": 2,
+                  "total_tokens": 58,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 56
+                  }
+                }
+              },
+              "seconds": 0.8480748329999988,
+              "status": "pass"
+            },
+            {
+              "name": "invalid request rejected",
+              "status": "pass",
+              "httpStatus": 400,
+              "response": "{\"error\":{\"message\":\"invalid JSON request\",\"type\":\"invalid_request_error\"}}\n"
+            },
+            {
+              "name": "recovery after error",
+              "request": {
+                "model": "qwen3.8-flash-next",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "What is 6 + 8? Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false
+              },
+              "response": {
+                "id": "chatcmpl-284c6554ee8988ae36b7925e",
+                "object": "chat.completion",
+                "created": 1788594704,
+                "model": "qwen3.8-flash-next",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "14"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 26,
+                  "completion_tokens": 2,
+                  "total_tokens": 28,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 26
+                  }
+                }
+              },
+              "seconds": 0.4937184999999954,
+              "status": "pass"
+            },
+            {
+              "name": "tool call and result round-trip",
+              "request": {
+                "model": "qwen3.8-flash-next",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Use read_stock to look up test-item, then tell me the returned quantity."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false,
+                "tools": [
+                  {
+                    "type": "function",
+                    "function": {
+                      "name": "read_stock",
+                      "description": "Read actual item quantity from the local inventory.",
+                      "parameters": {
+                        "type": "object",
+                        "properties": {
+                          "item": {
+                            "type": "string",
+                            "enum": [
+                              "test-item"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "item"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  }
+                ],
+                "tool_choice": {
+                  "type": "function",
+                  "function": {
+                    "name": "read_stock"
+                  }
+                }
+              },
+              "response": {
+                "id": "chatcmpl-0cfa22b46084878696c0422a",
+                "object": "chat.completion",
+                "created": 1788594707,
+                "model": "qwen3.8-flash-next",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "",
+                      "tool_calls": [
+                        {
+                          "id": "call_a4c36907f221be83d4ea0132788fc924",
+                          "type": "function",
+                          "function": {
+                            "name": "read_stock",
+                            "arguments": "{\"item\":\"test-item\"}"
+                          }
+                        }
+                      ]
+                    },
+                    "finish_reason": "tool_calls"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 291,
+                  "completion_tokens": 25,
+                  "total_tokens": 316,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 291
+                  }
+                }
+              },
+              "followupRequest": {
+                "model": "qwen3.8-flash-next",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Use read_stock to look up test-item, then tell me the returned quantity."
+                  },
+                  {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                      {
+                        "id": "call_a4c36907f221be83d4ea0132788fc924",
+                        "type": "function",
+                        "function": {
+                          "name": "read_stock",
+                          "arguments": "{\"item\":\"test-item\"}"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "role": "tool",
+                    "tool_call_id": "call_a4c36907f221be83d4ea0132788fc924",
+                    "content": "{\"quantity\":17}"
+                  },
+                  {
+                    "role": "user",
+                    "content": "Reply with only the integer quantity returned by the tool."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": false,
+                "tools": [
+                  {
+                    "type": "function",
+                    "function": {
+                      "name": "read_stock",
+                      "description": "Read actual item quantity from the local inventory.",
+                      "parameters": {
+                        "type": "object",
+                        "properties": {
+                          "item": {
+                            "type": "string",
+                            "enum": [
+                              "test-item"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "item"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  }
+                ]
+              },
+              "followupResponse": {
+                "id": "chatcmpl-181b9acb9241027ba757db63",
+                "object": "chat.completion",
+                "created": 1788594707,
+                "model": "qwen3.8-flash-next",
+                "choices": [
+                  {
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "content": "17"
+                    },
+                    "finish_reason": "stop"
+                  }
+                ],
+                "usage": {
+                  "prompt_tokens": 356,
+                  "completion_tokens": 2,
+                  "total_tokens": 358,
+                  "prompt_tokens_details": {
+                    "cached_tokens": 316,
+                    "cache_write_tokens": 40
+                  }
+                }
+              },
+              "status": "pass"
+            },
+            {
+              "name": "real SSE streaming",
+              "request": {
+                "model": "qwen3.8-flash-next",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "What is 12 + 9? Reply with only the integer."
+                  }
+                ],
+                "temperature": 0,
+                "seed": 42,
+                "max_tokens": 256,
+                "think": false,
+                "thinking": {
+                  "type": "disabled"
+                },
+                "stream": true
+              },
+              "raw": "data: {\"id\":\"chatcmpl-c15d245bc03d29663c4da124\",\"object\":\"chat.completion.chunk\",\"created\":1788594708,\"model\":\"qwen3.8-flash-next\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-c15d245bc03d29663c4da124\",\"object\":\"chat.completion.chunk\",\"created\":1788594708,\"model\":\"qwen3.8-flash-next\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"2\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-c15d245bc03d29663c4da124\",\"object\":\"chat.completion.chunk\",\"created\":1788594708,\"model\":\"qwen3.8-flash-next\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"1\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-c15d245bc03d29663c4da124\",\"object\":\"chat.completion.chunk\",\"created\":1788594708,\"model\":\"qwen3.8-flash-next\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+              "firstByteSeconds": 0.47405662499999746,
+              "seconds": 0.5514637500000026,
+              "status": "pass"
+            }
+          ],
+          "ple": {
+            "path": "<checkout>/ds4/gguf/Qwen3.8-Flash-Next-PLE-Q4_1.gguf",
+            "bytes": 32000157440,
+            "mtime": "2026-09-05T07:43:26.177Z"
+          },
+          "launcher": {
+            "sha256": "09224a6688da716546df8bcf9707ec60d4385c2f142169163089f123321de2e9",
+            "argv": [
+              "55127",
+              "<checkout>/ds4-qwen38"
+            ],
+            "sourceSha256": {
+              "ds4.c": "792e4c4d20aeea32a4bbe62b79a6a085c414e2415f26836dc1c914c47edd3d4f",
+              "ds4.h": "ede4ed0f07a9d172e29c003cc9f9e45997e7744861b059367a9266e917608cb1",
+              "ds4_cuda.cu": "111bf9434dd689ccc63488bf2b9174d2cf99bfe3be724b998200956165e83833",
+              "ds4_gpu.h": "f5cbac92206d05ee3865e53e7712a66c84cf1a20bf3d0c29140e7aa08af4737e",
+              "ds4_metal.m": "cb1f146b85c1c00e2d2afbb7017621f4189d251a15d6ec478366bc11a1743761",
+              "ds4_server.c": "41484b920195483f66f70932920d8b22d708f48ade4487c93c5284ed43f534cf",
+              "ds4_agent.c": "e32ac2fd35a8a04b68affc1e731ceeea87e984df59c3645867caa8533de678b9",
+              "download_model.sh": "cc38894c22eacff5ebf5878f1e214a749c9cead5a6a93a49406f41f01561ab17"
+            },
+            "catalogMatch": {
+              "file": "Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf",
+              "path": "gguf/Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf",
+              "size": 73371680704,
+              "engineDir": "<checkout>/ds4-qwen38",
+              "engineName": "ds4-qwen38",
+              "branch": "qwen3.8-flash-next",
+              "activeEngine": true
+            },
+            "preflight": [
+              {
+                "mode": "agent",
+                "httpStatus": 409,
+                "response": {
+                  "ok": false,
+                  "taskId": 1,
+                  "error": "Qwen currently supports Chat/native inference; its structured Agent/Cowork adapter is not implemented"
+                },
+                "status": "pass"
+              },
+              {
+                "mode": "cowork",
+                "httpStatus": 409,
+                "response": {
+                  "ok": false,
+                  "taskId": 2,
+                  "error": "Qwen currently supports Chat/native inference; its structured Agent/Cowork adapter is not implemented"
+                },
+                "status": "pass"
+              },
+              {
+                "mode": "design",
+                "httpStatus": 409,
+                "response": {
+                  "ok": false,
+                  "taskId": 3,
+                  "error": "Qwen currently supports Chat/native inference, not Design"
+                },
+                "status": "pass"
+              }
+            ],
+            "request": {
+              "mode": "server",
+              "gguf": "gguf/Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf",
+              "port": 55143,
+              "ctx": 8192,
+              "power": 100,
+              "ssdStreaming": "off",
+              "dspark": false,
+              "think": "off"
+            },
+            "response": {
+              "ok": true,
+              "taskId": 4,
+              "mode": "server",
+              "ctx": 8192,
+              "dspark": false,
+              "adjusted": false,
+              "warning": ""
+            },
+            "readyStatus": {
+              "mode": "server",
+              "running": true,
+              "ready": true,
+              "config": {
+                "model": "standard",
+                "port": 55143,
+                "ctx": 8192,
+                "power": 100,
+                "think": "off",
+                "designThinkTokens": 0,
+                "ssdStreaming": "off",
+                "ssdStreamingEffective": false,
+                "ssdStreamingReason": "disabled: DS4-only mode uses normal Metal mapped residency",
+                "metalHotlistSeed": false,
+                "dspark": false
+              },
+              "ds4dir": "<checkout>/ds4-qwen38",
+              "modelFile": "gguf/Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf",
+              "engineError": ""
+            },
+            "sourcePreserved": true
+          },
+          "loadSeconds": 26.276888791,
+          "models": {
+            "object": "list",
+            "data": [
+              {
+                "id": "qwen3.8-flash-next",
+                "object": "model",
+                "created": 1767225600,
+                "owned_by": "ds4.c",
+                "name": "Qwen3.8 Flash Next",
+                "context_length": 8192,
+                "top_provider": {
+                  "context_length": 8192,
+                  "max_completion_tokens": 8192,
+                  "is_moderated": false
+                },
+                "supported_parameters": [
+                  "tools",
+                  "tool_choice",
+                  "max_tokens",
+                  "temperature",
+                  "top_p",
+                  "top_k",
+                  "min_p",
+                  "ignore_eos",
+                  "stop",
+                  "seed",
+                  "stream",
+                  "reasoning_effort"
+                ]
+              },
+              {
+                "id": "qwen3.8-flash-next-chat",
+                "object": "model",
+                "created": 1767225600,
+                "owned_by": "ds4.c",
+                "name": "Qwen3.8 Flash Next",
+                "context_length": 8192,
+                "top_provider": {
+                  "context_length": 8192,
+                  "max_completion_tokens": 8192,
+                  "is_moderated": false
+                },
+                "supported_parameters": [
+                  "tools",
+                  "tool_choice",
+                  "max_tokens",
+                  "temperature",
+                  "top_p",
+                  "top_k",
+                  "min_p",
+                  "ignore_eos",
+                  "stop",
+                  "seed",
+                  "stream",
+                  "reasoning_effort"
+                ]
+              },
+              {
+                "id": "qwen3.8-flash-next-reasoner",
+                "object": "model",
+                "created": 1767225600,
+                "owned_by": "ds4.c",
+                "name": "Qwen3.8 Flash Next",
+                "context_length": 8192,
+                "top_provider": {
+                  "context_length": 8192,
+                  "max_completion_tokens": 8192,
+                  "is_moderated": false
+                },
+                "supported_parameters": [
+                  "tools",
+                  "tool_choice",
+                  "max_tokens",
+                  "temperature",
+                  "top_p",
+                  "top_k",
+                  "min_p",
+                  "ignore_eos",
+                  "stop",
+                  "seed",
+                  "stream",
+                  "reasoning_effort"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "finished": "2026-09-05T07:51:48.622Z"
+  },
+  "qwenDecode": {
+    "schema": "dstudio.qwen-decode.v1",
+    "started": "2026-09-05T07:52:18.202Z",
+    "host": {
+      "cpu": "Apple M2 Max",
+      "memoryBytes": 103079215104,
+      "platform": "darwin",
+      "backgroundActivity": "Minecraft/Lunar Client running; no concurrent model, download or build started by this benchmark session"
+    },
+    "mode": "resident Metal backbone + native SSD PLE; no expert streaming, PLD or MTP",
+    "method": "Three sequential native CLI processes, identical 32-line copy task. Generation tok/s reported by the native engine excludes load and prompt prefill. This is one workload, not a general model ranking.",
+    "binarySha256": "6b8a851533d1db4353ed2dbd9c41205ce79c66d1cfb20c408000ca79a3e999f0",
+    "argv": [
+      "--metal",
+      "-m",
+      "<checkout>/ds4/gguf/Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf",
+      "--ple",
+      "<checkout>/ds4/gguf/Qwen3.8-Flash-Next-PLE-Q4_1.gguf",
+      "--ctx",
+      "8192",
+      "--prefill-chunk",
+      "512",
+      "--nothink",
+      "--temp",
+      "0",
+      "--seed",
+      "42",
+      "--tokens",
+      "1024",
+      "-p",
+      "Copy the CSV below exactly. Return only its 32 lines, without Markdown fences or commentary. Do not add a header.\n\nitem_01,7\nitem_02,14\nitem_03,21\nitem_04,28\nitem_05,35\nitem_06,42\nitem_07,49\nitem_08,56\nitem_09,63\nitem_10,70\nitem_11,77\nitem_12,84\nitem_13,91\nitem_14,98\nitem_15,105\nitem_16,112\nitem_17,119\nitem_18,126\nitem_19,133\nitem_20,140\nitem_21,147\nitem_22,154\nitem_23,161\nitem_24,168\nitem_25,175\nitem_26,182\nitem_27,189\nitem_28,196\nitem_29,203\nitem_30,210\nitem_31,217\nitem_32,224"
+    ],
+    "expected": "item_01,7\nitem_02,14\nitem_03,21\nitem_04,28\nitem_05,35\nitem_06,42\nitem_07,49\nitem_08,56\nitem_09,63\nitem_10,70\nitem_11,77\nitem_12,84\nitem_13,91\nitem_14,98\nitem_15,105\nitem_16,112\nitem_17,119\nitem_18,126\nitem_19,133\nitem_20,140\nitem_21,147\nitem_22,154\nitem_23,161\nitem_24,168\nitem_25,175\nitem_26,182\nitem_27,189\nitem_28,196\nitem_29,203\nitem_30,210\nitem_31,217\nitem_32,224",
+    "runs": [
+      {
+        "repeat": 1,
+        "code": 0,
+        "signal": null,
+        "wallSeconds": 35.100061208,
+        "answer": "item_01,7\nitem_02,14\nitem_03,21\nitem_04,28\nitem_05,35\nitem_06,42\nitem_07,49\nitem_08,56\nitem_09,63\nitem_10,70\nitem_11,77\nitem_12,84\nitem_13,91\nitem_14,98\nitem_15,105\nitem_16,112\nitem_17,119\nitem_18,126\nitem_19,133\nitem_20,140\nitem_21,147\nitem_22,154\nitem_23,161\nitem_24,168\nitem_25,175\nitem_26,182\nitem_27,189\nitem_28,196\nitem_29,203\nitem_30,210\nitem_31,217\nitem_32,224\n",
+        "correct": true,
+        "generationTokensPerSecond": 27.15,
+        "prefillTokensPerSecond": 163.6,
+        "error": null,
+        "timedOut": false,
+        "nativeTimingLine": "ds4: Qwen3.8 prefill: 163.60 t/s, generation: 27.15 t/s"
+      },
+      {
+        "repeat": 2,
+        "code": 0,
+        "signal": null,
+        "wallSeconds": 33.171573249999994,
+        "answer": "item_01,7\nitem_02,14\nitem_03,21\nitem_04,28\nitem_05,35\nitem_06,42\nitem_07,49\nitem_08,56\nitem_09,63\nitem_10,70\nitem_11,77\nitem_12,84\nitem_13,91\nitem_14,98\nitem_15,105\nitem_16,112\nitem_17,119\nitem_18,126\nitem_19,133\nitem_20,140\nitem_21,147\nitem_22,154\nitem_23,161\nitem_24,168\nitem_25,175\nitem_26,182\nitem_27,189\nitem_28,196\nitem_29,203\nitem_30,210\nitem_31,217\nitem_32,224\n",
+        "correct": true,
+        "generationTokensPerSecond": 26.44,
+        "prefillTokensPerSecond": 156.03,
+        "error": null,
+        "timedOut": false,
+        "nativeTimingLine": "ds4: Qwen3.8 prefill: 156.03 t/s, generation: 26.44 t/s"
+      },
+      {
+        "repeat": 3,
+        "code": 0,
+        "signal": null,
+        "wallSeconds": 32.487850417,
+        "answer": "item_01,7\nitem_02,14\nitem_03,21\nitem_04,28\nitem_05,35\nitem_06,42\nitem_07,49\nitem_08,56\nitem_09,63\nitem_10,70\nitem_11,77\nitem_12,84\nitem_13,91\nitem_14,98\nitem_15,105\nitem_16,112\nitem_17,119\nitem_18,126\nitem_19,133\nitem_20,140\nitem_21,147\nitem_22,154\nitem_23,161\nitem_24,168\nitem_25,175\nitem_26,182\nitem_27,189\nitem_28,196\nitem_29,203\nitem_30,210\nitem_31,217\nitem_32,224\n",
+        "correct": true,
+        "generationTokensPerSecond": 25.98,
+        "prefillTokensPerSecond": 157,
+        "error": null,
+        "timedOut": false,
+        "nativeTimingLine": "ds4: Qwen3.8 prefill: 157.00 t/s, generation: 25.98 t/s"
+      }
+    ],
+    "modelFiles": [
+      {
+        "file": "Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf",
+        "bytes": 73371680704
+      },
+      {
+        "file": "Qwen3.8-Flash-Next-PLE-Q4_1.gguf",
+        "bytes": 32000157440
+      }
+    ],
+    "finished": "2026-09-05T07:53:58.966Z",
+    "allCorrect": true,
+    "medianCorrectGenerationTokensPerSecond": 26.44,
+    "correctGenerationRange": [
+      25.98,
+      27.15
+    ]
+  },
+  "qwenDownload": {
+    "repository": "ivanfioravanti/Qwen3.8-Flash-Next-DS4-Q4",
+    "revision": "3e95a639e7f8ee791e43272b39d322a185b193c7",
+    "verification": "Both complete local files were SHA-256 verified after real Hugging Face download.",
+    "files": [
+      {
+        "file": "Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf",
+        "bytes": 73371680704,
+        "sha256": "a5834d7ba6f1165d0356cd73bd2fb9ee7f0b2d48df435d18ffbeb9b6f35b8aef"
+      },
+      {
+        "file": "Qwen3.8-Flash-Next-PLE-Q4_1.gguf",
+        "bytes": 32000157440,
+        "sha256": "66db3ab390f4dd5063ecc89cc180f4713898577682347001bf64ab8e328527a1"
+      }
+    ]
+  }
+}

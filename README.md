@@ -1,15 +1,15 @@
 <div align="center">
 
-<img src="assets/logo.png" width="80" alt="DStudio local AI studio for DeepSeek V4, GLM 5.3 Flash, Laguna S 2.1 and MiniMax H3">
+<img src="assets/logo.png" width="80" alt="DStudio local AI studio for DeepSeek V4, GLM 5.3 Flash, Laguna S 2.1, Qwen3.8 and MiniMax H3">
 
 # DStudio: Local AI Studio
 
-**An open-source, local-first workspace for DeepSeek V4, GLM 5.3 Flash and Laguna S 2.1: private chat, researched learning roadmaps, coding and knowledge-work agents, visual design, multimodal documents, Web Research, image generation/editing and MiniMax H3 video. A cloud account is optional.**
+**An open-source, local-first workspace for DeepSeek V4, GLM 5.3 Flash and Laguna S 2.1, with experimental Qwen3.8 Chat: private conversations, coding and knowledge-work agents, document research, visual design, images and MiniMax H3 video. A cloud account is optional.**
 
 ![license](https://img.shields.io/badge/license-BSD%203%20Clause-blue)
 ![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux_%7C_Windows-black)
 ![inference](https://img.shields.io/badge/inference-local_by_default-success)
-![models](https://img.shields.io/badge/models-DeepSeek_V4_%7C_GLM_5.3_%7C_Laguna-orange)
+![models](https://img.shields.io/badge/models-DeepSeek_V4_%7C_GLM_5.3_%7C_Laguna_%7C_Qwen3.8-orange)
 ![ui](https://img.shields.io/badge/UI-native_C_%7C_no_Electron-brightgreen)
 ![agents](https://img.shields.io/badge/workspaces-chat_%7C_agent_%7C_cowork_%7C_design-purple)
 
@@ -18,13 +18,18 @@
 ## Contents
 
 - [Install](#install-on-macos)
+- [Supported models and limitations](#supported-models-and-limitations)
 - [What DStudio can do](#what-you-can-do)
 - [Modes](#modes)
+- [Check PDF sources](#check-pdf-sources)
+- [Prompt lookup: real-engine results](#prompt-lookup-real-engine-results)
 - [Native Agent or Task Graph](#native-agent-or-task-graph)
 - [50 diverse tasks with Pi and OpenCode](#50-diverse-task-comparison-dstudio-pi-and-opencode)
 - [Why automatic checks help](#why-automatic-checks-help)
 - [Requirements](#requirements)
 - [Development](#development)
+- [Real installation and inference checks](#real-installation-and-inference-checks)
+- [Project layout](docs/PROJECT_LAYOUT.md)
 - [Network access](#network-lan)
 - [How it works](#how-it-works)
 - [Contributing](#contributing)
@@ -74,9 +79,50 @@ model, Chat and Agent/Cowork/Design runtimes, Cowork Office bridge, Web Search a
 network state. Missing pieces show a direct **Choose**, **Download**, **Install**,
 **Start** or **Settings** action.
 
+## Supported models and limitations
+
+**Listed here means integrated, not equally tested.** “All four modes” means
+Chat, Agent, Cowork and Design. This is the current source-tree support, not a
+promise that an older downloaded release includes every integration.
+
+| Local model | Available modes | Important limits |
+| --- | --- | --- |
+| DeepSeek V4 Flash | All four modes | Standard checkpoints are text-only; the optional abliterated variant is experimental. |
+| DeepSeek V4 Flash Vision-Exp | All four modes, with images | Experimental; requires its matching vision encoder. |
+| DeepSeek V4 Pro | Integrated in all four modes | About 430 GB of weights; not validated on the reference 96 GB Mac. |
+| GLM 5.3 Flash | All four modes; images with its encoder | Uses the main engine, not a separate GLM checkout. Full-model QA for the M2 optimization remains open. |
+| Laguna S 2.1 | All four modes, text only | Experimental, macOS Metal; requires resident weights and cannot force expert SSD streaming On. |
+| Qwen3.8-Flash-Next | **Chat only** | Experimental. Agent, Cowork, Design and vision are not integrated. Main weights stay in RAM; its required PLE file stays on SSD. |
+
+Qwen automatically uses expert SSD streaming **Off**, even if **On** was saved
+for DeepSeek. This does not disable Qwen's SSD-backed PLE or erase the preference
+used when switching back to DeepSeek.
+
+Separate media workers provide **Ideogram 4** image generation,
+**HunyuanImage 3** image editing and **MiniMax H3** video; they are not chat models.
+
+The latest real-model acceptance run covered Flash, Laguna and Qwen, with
+**11/12, 10/12 and 12/12** checks passed respectively. The failures remain
+published. These are small functional checks, **not evidence that DStudio
+matches or beats state-of-the-art cloud systems**. That requires a matched
+end-to-end comparison using the actual local weights, runtime and tools.
+See [results and limitations](docs/ENGINE_ACCEPTANCE.md).
+
+From the project root, use one download entry point:
+
+```sh
+./download-model.sh --help
+./download-model.sh ds4f-q2      # DeepSeek Flash
+./download-model.sh laguna-q4   # Laguna
+./download-model.sh qwen38-q4k  # Qwen base + required PLE, about 105.4 GB
+```
+
+Choose one target; these commands download real, large model files. Existing
+weights stay in the shared `ds4/gguf/` store.
+
 ## What You Can Do
 
-- Run **DeepSeek V4, GLM 5.3 Flash or Laguna S 2.1 locally** through the same native desktop interface and unified GGUF picker.
+- Run **DeepSeek V4, GLM 5.3 Flash or Laguna S 2.1 locally**, or use **Qwen3.8-Flash-Next in Chat**, through the same native desktop interface and unified GGUF picker.
 - Use a **private AI chat** with persistent KV cache, reasoning display, citations from optional Web Search and local history.
 - Use **Learn** to build an interactive learning path from a goal, PDFs and source links, with prerequisite ordering, exercises, checkpoints and locally saved progress.
 - Open a dedicated **Tutor** for any roadmap block, with that block's prerequisites, sources, exercises and conversation restored automatically.
@@ -101,7 +147,9 @@ Local DS4 launches default to explicit expert **SSD streaming Off** while DS4 is
 the sole heavyweight model. Metal uses full residency when the complete launch
 fits and the engine's normal lazy memory-mapped path otherwise; DStudio does
 not reduce the requested context to force residency. **On** remains available
-as an explicit restart-time setting. Ideogram, Hunyuan and H3 are one-shot
+as an explicit restart-time setting for compatible models. Qwen keeps this Off
+while its native PLE remains SSD-backed; Laguna also requires resident weights.
+Ideogram, Hunyuan and H3 are one-shot
 workers: DStudio evacuates DS4 before loading one and restores it only
 after that worker exits.
 
@@ -116,6 +164,21 @@ after that worker exits.
 Streaming chat backed by the selected local GGUF and ds4 server KV cache: context lives server-side (prefix reuse is shown as *cached* tokens) and every message is saved locally. You get live tokens/s, collapsible reasoning, native MathML for LaTeX, syntax-highlighted code, file artifacts, image/PDF attachments and optional Web Search sources through the local browser. A configured DeepSeek API key can replace local inference without moving DStudio's workspace tools into the cloud.
 
 With DeepSeek Vision-Exp or GLM 5.3 and the matching encoder installed, image attachments stay multimodal: DStudio sends PNG/JPEG pixels to `ds4-server`; Agent/Cowork use upstream `view_image`, and Design uses its native `see_image` implementation. There is no text-description detour or secondary visual model. Selected PDF pages can use that same active encoder; older DeepSeek checkpoints and Laguna expose no image tools and remain text-layer-only for PDFs.
+
+### Check PDF sources
+
+For newly read PDF attachments in local Chat, DStudio adds a source-checking workflow inspired by [NanoIndex](https://github.com/NanoNets/nanoindex):
+
+- **See where a quotation comes from.** Click a PDF citation in the answer to open the original physical page, with the exact words highlighted. Zoom in for small text or tables.
+- **Know when a source cannot be located.** Missing or repeated quotations are reported without selecting a misleading highlight. An image-only page can be opened, but this feature does not run OCR.
+- **Move around the document.** The attachment preview offers recognized numbered chapter/section headings, nested section hints and explicit “see section…” links. These are text-based hints, not a complete outline or a semantic knowledge graph.
+- **Check the arithmetic.** “Check passages and calculations” first locates the cited passages, then recalculates supported sums, differences, products, ratios and percentages using the quoted numbers. It shows the operands, sources, rounding and any difference from the answer. It does not verify units, whether the right numbers were chosen, or the answer’s interpretation.
+
+The existing hybrid PDF search remains in place. No extra model or cloud OCR service is added. Citations and calculations appear when the answering model supplies the structured source information; unsupported or malformed output is not silently marked as verified.
+
+Original PDFs are kept in a local cache, limited to **32 documents / 2 GiB**, alongside the existing PDF caches. Source identity is checked against the PDF bytes. If an original has been evicted or changed, DStudio asks you to attach it again. This first version is **host-local on macOS/Linux**, not exposed to LAN clients; Windows PDF support is unchanged. It needs Poppler and `shasum` or `sha256sum`.
+
+Implementation checks run with **no language or embedding model loaded**: `make test-pdf-evidence` exercises real Poppler extraction/rendering, citation matching, document identity, calculations and the browser viewer. It requires Node, Playwright and Chrome. These are implementation tests, **not an end-to-end model-quality benchmark**.
 
 ### Learn — interactive learning paths
 
@@ -199,11 +262,85 @@ Search runs through DStudio's local web helper, not a hosted browsing service. *
 
 Thinking defaults to **high**. Selecting **max** below its real 384k-token engine threshold explains the required context and estimated Metal residency cost before restarting; declining changes nothing, while leaving max restores the user's previous context. Existing video-quality choices and other saved Settings are preserved during that migration.
 
+**Prompt lookup (experimental, Chat / Agent / Cowork).** The managed runtimes can
+reuse text or code already in the conversation as candidate output, checked by
+the same local model. This can help when editing existing code or preserving
+passages from a document; it does not invent new answers faster. The default
+keeps normal generation unchanged; accelerated batching is not enabled by
+default. No extra model is needed.
+See [modes, limits and model-free tests](patch/ds4-agent-jsonl/PLD.md).
+An opt-in [real-engine benchmark](extension/prompt-lookup/bench/README.md)
+compares Chat, Agent and Cowork on matched tasks, checks the actual outputs
+and records executed batches. It does not run with the fast tests.
+
+#### Prompt lookup: real-engine results
+
+**The clearest benefit was in Chat; it was not a general Agent speedup.**
+We ran the actual DeepSeek V4 Flash engine on an M2 Max with 96 GB, with
+**Minecraft left running and SSD streaming off**. These are shared-desktop
+measurements, not a promise of the same speed on an idle Mac.
+
+The suite ran **78 tasks: 13 different cases × 3 modes × 2 repetitions**.
+The modes were PLD disabled, the current default, and experimental accelerated
+PLD. Correctness came first: faster but incorrect results did not count as
+speed wins.
+
+| Workspace | Checks passed in each mode | Experimental PLD vs disabled, in this run |
+|---|---:|---|
+| Chat | 14/14 | **2.84× observed speed**, comparing the same correct outputs |
+| Agent | 6/6 | **About the same overall**; long copies helped, new code did not |
+| Cowork | 2/6 | No useful overall conclusion: document-fidelity failures remained |
+
+<div align="center">
+  <img src="assets/README%20images/benchmarks/prompt-lookup-minecraft-real-engine.png" width="1100" alt="Real engine tests with Minecraft running: Chat passes 14 of 14 per mode with 2.84 times observed experimental speed; Agent passes 6 of 6 with essentially unchanged speed; Cowork passes 2 of 6 in every mode. Shared-host timings are not an isolated speed guarantee.">
+</div>
+
+In practical terms, median time for copying the Chat text fell from **30.0 to
+12.3 seconds**. An Agent file copy fell from **86.0 to 75.0 seconds**, but its
+small edit stayed around **36.7 seconds**, and creating a new function became
+slower: **21.8 to 28.3 seconds**. These are individual task examples, not a
+universal acceleration claim.
+
+**66/78 checks passed.** The 12 failures were the same Cowork copy/revision
+cases in every mode: the final newline was lost. No additional failed task
+or different output artifact was observed with PLD, but **correctness did not
+improve**, and a small suite cannot guarantee equivalence on other requests.
+Cowork's speed figure uses only two successful pairs, not its failed copies.
+Batch acceleration therefore remains experimental and opt-in.
+
+See the [full method and per-task results](extension/prompt-lookup/bench/README.md)
+and [measured data](extension/prompt-lookup/bench/results/2026-09-05-m2-max-minecraft-no-ssd.json).
+The speed chart shows the median of matched per-task time ratios; it is not
+the ratio of the overall median times. Variable game/desktop load can affect
+those ratios, including controls where no accelerated batch ran.
+
 ### Cowork
 
 Cowork turns the same local DS4 engine into a knowledge-work partner for a folder of real files. It can inventory and read PDF, DOCX, PPTX, ODT, RTF, Markdown and text sources; inspect/read/write XLSX, CSV and TSV data; create verified documents, paginated PDFs and 16:9 presentations; and reopen its outputs before reporting completion. Its attachment flow matches Chat: dropped files appear as clean preview tiles under the user message while tool-only paths stay out of the visible transcript. Uploaded names are sanitized, macro-enabled formats are rejected, writes are atomic and native read surfaces are confined to the selected workspace, including symlink and traversal checks.
 
 The Office bridge is a small standard-library Python helper invoked through `fork` + `exec` with a bounded JSON request—there is no command shell or arbitrary Python execution in Cowork. Its dedicated `write_pdf` operation creates a valid paginated PDF directly, so the model no longer needs to look for `bash`, LibreOffice or an external converter. Spreadsheet cell text and extracted document/PDF text are framed as untrusted source content, so embedded instructions are not treated as tasks. Cowork uses the context size selected in Settings (it no longer forces 393,216 tokens), keeps a separate SSD-friendly KV cache under `.ds4/cowork-kvcache`, and uses the same live conversation surface, streaming response, collapsed Thinking view, action timeline and session commands as Agent. Its **+** menu retains Cowork-specific actions for attaching Office/PDF files, adding or changing the source folder and selecting a local Skill.
+
+Cowork can also turn multiple documents into a **source-backed comparison table**.
+For example: “Compare these course programs by topic, duration and prerequisites”
+or “Compare these product specifications by size, capacity and supported formats.”
+The columns follow your request; this is general-purpose knowledge work, not a
+finance-specific mode. Use **Compare documents** in the Cowork welcome screen,
+or simply ask in the conversation.
+
+Each cell can show its original excerpt, source file and page/segment. Missing
+fields and conflicting values stay explicit. A source match confirms that the
+quote and value occur in the document — **it does not prove the interpretation
+is correct**. Sources are checked again when inspecting or exporting the table;
+changed or unavailable files are flagged. Exports include an expandable HTML
+table or an Excel workbook with separate data, status and evidence sheets.
+Adding documents preserves existing cells; replacing a correction must be
+explicit. This first version reads text-layer PDFs and Office/text sources,
+not scanned-page OCR, with up to 200 rows, 32 columns and 64 source files.
+
+The [document-table tests](tests/unit/document_table_test.py) exercise real PDF,
+DOCX and XLSX files, source matching, conflicting/missing data, decimal checks,
+revision conflicts and exports without loading a model. They test the extraction
+infrastructure; they are not an LLM extraction-accuracy benchmark.
 
 ## Skills: local task recipes
 
@@ -445,22 +582,24 @@ This is a serious local AI setup. DStudio removes product friction, not physics:
 
 - **OS.** One `make` builds the branded app per platform: **DStudio.app** on **macOS** (Apple Silicon is the primary tested target), a **`dstudio`** binary on **Linux** (WebKitGTK / GTK3 via `webkit2gtk-4.1`) and a portable **Windows x64** folder/zip via `make windows`. Linux and Windows are less exercised, and `ds4` itself must be built for your platform.
 - Apple Command Line Tools (`xcode-select --install`) or another C compiler (`cc` / `clang`). `curl`, `tar` and `make` are used by first-run setup to download and build the pinned upstream `ds4` source archive; `node` is optional, only for `make check`.
-- **[antirez's ds4](https://github.com/antirez/ds4)**: DStudio keeps the primary `./ds4` checkout pinned to upstream `main`; only Laguna currently needs a managed side-by-side engine directory. Every engine shares the single physical model store at `./ds4/gguf`. Source archives receive the relevant local patch set from `patch/`; users do not need Git installed.
+- **[antirez's ds4](https://github.com/antirez/ds4)**: DStudio keeps the primary `./ds4` checkout pinned to upstream `main`; Laguna and experimental Qwen use managed side-by-side engine directories. Every engine shares the single physical model store at `./ds4/gguf`. Source archives receive the relevant local patch set from `patch/`; macOS builds require Apple Command Line Tools (including Git for the atomic M2 patch).
 - **A supported GGUF model.** The managed menu currently offers DeepSeek V4 plus the optional model families documented below. DeepSeek variants include:
   - **Flash**: ~87 GB on disk, ~96-128 GB RAM
   - **Pro**: ~430 GB on disk, ~512 GB RAM
 
   Missing the weights? The first-run and Settings model menus show every
-  supported DeepSeek—including Vision-Exp—GLM and Laguna download with its quantization and exact size.
-  GLM runs on the primary `main` engine; selecting Laguna installs its managed
+  supported DeepSeek—including Vision-Exp—GLM, Laguna and Qwen download with its quantization and size.
+  GLM runs on the primary `main` engine; selecting Laguna or Qwen installs its managed
   side engine automatically. Every download—including optional model
-  families—is stored in `./ds4/gguf`. While a transfer is incomplete, its bytes
+  families—is stored in `./ds4/gguf`. For DeepSeek, GLM and Laguna, while a transfer is incomplete its bytes
   are visible there as `<model>.gguf.part`, in the same directory opened by
-  **Open folder**; DStudio no longer starts new model downloads in Hugging
-  Face's hidden `.cache` tree. Stop, app restart and Resume reuse that file.
+  **Open folder**. Stop, app restart and Resume reuse that file.
   This behavior is a reversible DStudio patch applied when an engine checkout
   is installed or selected, so the upstream `download_model.sh` stays unchanged
   in the source repository.
+  Qwen uses the pinned Hugging Face downloader instead: incomplete transfers
+  stay in `ds4/gguf/.cache/huggingface/download` until finalized, then both files
+  are verified in full. Its progress is currently indeterminate in the app.
 
 > The local models are intentionally large. If the selected GGUF does not fit your hardware, the screenshots show the native workflows and the optional DeepSeek API backend can provide inference while workspace tools stay local.
 
@@ -480,8 +619,8 @@ The local video pipeline is independent of the selected chat GGUF and currently 
 
 Upstream [`ds4/main`](https://github.com/antirez/ds4#deepseek-v4-flash-vision-experimental) now supports DeepSeek V4 Flash Vision-Exp directly. **Vision-Exp is a separate language checkpoint**, not an encoder upgrade for the older 0731 text GGUF shown in the original download menu.
 
-- **Recommended model**: select **DeepSeek V4 Flash Vision-Exp · IQ2_XXS** in the unified download menu, or run `./download_model.sh ds4f-vision-q2`. The target downloads the ~86.7 GB / 81 GiB language GGUF and its matching 932,857,760-byte encoder together. Mixed Q2/Q4 (~97.6 GB / 91 GiB) and MXFP4 (~156 GB / 145 GiB) variants are also listed.
-- **Existing language model**: if the matching Vision-Exp GGUF is already present, **Settings → Vision** can download only `DeepSeek-V4-Flash-Vision-Encoder.gguf` with `./download_model.sh ds4f-vision-encoder`.
+- **Recommended model**: select **DeepSeek V4 Flash Vision-Exp · IQ2_XXS** in the unified download menu, or run `./download-model.sh ds4f-vision-q2` from the project root. The target downloads the ~86.7 GB / 81 GiB language GGUF and its matching 932,857,760-byte encoder together. Mixed Q2/Q4 (~97.6 GB / 91 GiB) and MXFP4 (~156 GB / 145 GiB) variants are also listed.
+- **Existing language model**: if the matching Vision-Exp GGUF is already present, **Settings → Vision** can download only `DeepSeek-V4-Flash-Vision-Encoder.gguf` with `./download-model.sh ds4f-vision-encoder`.
 - **Native image path**: DStudio supplies `--vision gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf` automatically. Chat sends PNG/JPEG image blocks directly; Agent and Cowork use ds4's built-in `view_image` tool, and Design uses native multimodal inspection. No secondary visual model is inserted.
 - **DSpark**: Vision-Exp has its own `DeepSeek-V4-Flash-Vision-Exp-DSpark-support.gguf`, downloadable as `ds4f-vision-dspark`. It is not compatible with the older 0731 DSpark support file, and DStudio selects the matching file from the active language checkpoint. When the main model, DSpark support model and requested context exceed the estimated Metal memory budget, DStudio explains the memory-pressure risk and asks before launch; confirming starts the requested DSpark configuration instead of silently disabling it.
 
@@ -491,11 +630,11 @@ Upstream [`ds4/main`](https://github.com/antirez/ds4#deepseek-v4-flash-vision-ex
 
 - **Model**: the unified menu exposes GLM 5.3 Flash Q2 (~96.5 GB / 90 GiB).
   Its GGUF is stored at `./ds4/gguf/GLM-5.3-Flash-Q2.gguf`; the equivalent CLI
-  command is `./download_model.sh glm53-q2`.
+  command from the project root is `./download-model.sh glm53-q2`.
 - **Native vision**: **Settings → Vision → Download native encoder** installs
   `GLM-5.3-Flash-Vision-Encoder.gguf` (1,127,280,960 bytes, about 1.13 GB) in
   the same model store. The equivalent CLI command is
-  `./download_model.sh glm53-vision`. DStudio then starts Chat, Agent and Cowork
+  `./download-model.sh glm53-vision`. DStudio then starts Chat, Agent and Cowork
   with `--vision` automatically. Chat sends inline image blocks directly to
   GLM; Agent and Cowork use ds4's built-in `view_image` observation instead of
   DStudio's `see_image` text-description detour.
@@ -507,6 +646,13 @@ Upstream [`ds4/main`](https://github.com/antirez/ds4#deepseek-v4-flash-vision-ex
   context or force SSD streaming for GLM. The managed main patch removes the
   fixed pre-launch host-memory rejection and leaves real Metal allocation errors
   authoritative; users can enable SSD streaming explicitly if needed.
+- **M2 Max native decode port**: the macOS build includes the managed
+  [GLM Q2 optimization patch](patch/ds4-glm53-m2max/README.md). Its top-8
+  cache-backed fast path requires Apple M2 Max and SSD streaming; it does not
+  switch model modes, enable MTP or reduce context. DeepSeek's fixed top-6
+  kernels remain independent. The port's build/focused-test evidence and
+  outstanding full-model QA are documented separately from historical speed
+  measurements.
 
 ### Laguna S 2.1 (experimental, optional)
 
@@ -519,7 +665,7 @@ and installed beside the main engine:
   in `./ds4-laguna-s21`, links its model folder to `./ds4/gguf`, then starts the
   GGUF download automatically. The
   equivalent manual controls are the Doctor **Install** action,
-  `POST /api/laguna/setup`, and `./download_model.sh laguna-q4`. The official
+  `POST /api/laguna/setup`, and `./download-model.sh laguna-q4` from the project root. The official
   imatrix GGUF is about 68 GB. The download row shows percentage and transferred
   GB, supports **Stop/Resume** through one stable resumable partial, and offers
   **Delete partial** with confirmation while paused; completed GGUFs are never
@@ -559,7 +705,7 @@ make test-ui-live-vision DSTUDIO_LIVE_URL=http://127.0.0.1:5999
 make test-task-graph-unit test-task-graph-http test-task-graph-bench-validate
 make test-task-graph-real  # explicit real Agent + GGUF SSD-streaming smoke test
 make check      # check-fast plus explicitly configured real-model suites
-make test-image-inference  # Ideogram/Hunyuan pinned Max-profile conformance
+make test-image-runtime  # Ideogram/Hunyuan workflow, scheduler and runtime behavior; no image generation
 make test-video-open-weight  # H3 pinning, local-only contract and checkout repair
 make dist-macos VERSION=1.1.0  # signed .app smoke test + release zip/checksum
 ```
@@ -573,6 +719,70 @@ make run PORT=8080 DS4_DIR=/path/to/ds4
 ```
 
 Dev loop: `DS4UI_PAGE_FROM_DISK=1 ./dstudio` serves `web/index.html` from disk (hot editing) instead of the embedded copy. `DS4UI_NO_WINDOW=1` runs headless (server only).
+
+### Qwen3.8-Flash-Next (experimental Chat/native)
+
+DStudio includes the pinned [Qwen branch of ds4-metal](https://github.com/ivanfioravanti/ds4-metal/tree/qwen3.8-flash-next)
+in `ds4-qwen38`, separate from main and Laguna. Select **Qwen3.8-Flash-Next** in
+the model download menu, or run:
+
+```sh
+./download-model.sh qwen38-q4k
+```
+
+Requires the Hugging Face `hf` CLI (`huggingface_hub` with `hf_xet`).
+
+This downloads the 73.4 GB native base and its required 32.0 GB PLE file,
+verifying both SHA-256 checksums at a pinned model revision. The PLE is always
+read from SSD by the model architecture; the backbone uses resident Metal.
+The optional second full MTP checkpoint is not downloaded. Model files remain
+in `ds4/gguf`, shared with the other engines.
+
+Qwen currently works through **Chat/native inference only**. Its structured
+Agent, Cowork and Design integration is not implemented; those modes report
+this explicitly. Do not interpret the repository download or successful build
+as proof of model quality or support for every DStudio mode.
+
+If a previous version failed with “expert streaming is not validated”, rebuild
+and reopen DStudio. The loading screen and model picker now apply Qwen's
+compatible streaming configuration without changing the saved DeepSeek choice.
+
+### Real installation and inference checks
+
+The important distinction is simple: **can a clean installation download and
+build the engines, and can a real loaded model answer checked questions?**
+
+```sh
+make test-setup-live        # Downloads and builds main, Laguna and Qwen from scratch
+make test-inference-live    # Loads real DeepSeek/Laguna weights and checks answers
+make test-inference-live ENGINES=qwen
+make test-qwen-chat-live    # Starts Qwen through DStudio and checks the real Chat path
+make benchmark-qwen-decode  # Three real, checked native Qwen responses + generation tok/s
+```
+
+These tests retain actual requests, answers, failures and timings. Wrong answers,
+failed downloads, missing weights and interrupted output are not passes. They
+exercise arithmetic, JSON extraction, recall, ordering, Unicode and streaming;
+they are acceptance checks, not proof that every possible inference is correct.
+See [test scope and commands](tests/README.md). Browser tests with a simulated
+model are reported separately; source-string “contract tests” were removed.
+
+Measured on **5 September 2026, M2 Max / 96 GB**:
+
+| What was actually checked | DeepSeek Flash | Laguna S 2.1 | Qwen3.8-Flash-Next |
+| --- | --- | --- | --- |
+| Fresh source download, real build and executable startup | Passed | Passed | Passed |
+| Checked answers and protocol behavior | 11/12 | 10/12 | 12/12 |
+
+DeepSeek missed one strict output-format check; Laguna missed that check and
+returned one wrong value from context. Those runs remain failures, not hidden
+passes. Qwen's 12 checks went through DStudio's real launch API and Chat proxy;
+the other two used the native server directly. This is not a general model ranking.
+
+**Qwen generation: 26.44 tokens/s median** across three exact 32-line CSV copies
+(25.98–27.15 tokens/s), with Minecraft running. This native CLI measurement
+excludes model loading and prompt processing; it is not end-to-end Chat speed.
+All three copies were correct. [Plain-language results, limits and raw evidence](docs/ENGINE_ACCEPTANCE.md).
 
 ## Network (LAN)
 

@@ -4,7 +4,7 @@
 #                   Linux: builds ./dstudio (the same app, WebKitGTK window)
 #   make run        compiles and starts (opens the window on the interface)
 #   make check      full verification: fast tests + real model/web E2E tests
-#   make check-fast sanity: page/text/unit/UI/LAN tests without starting the model
+#   make check-fast local unit/UI/HTTP checks without starting a language model
 #   make check-real starts the real model and runs live Search/DeepResearch/remote tests
 #   make dist-macos builds, smoke-tests and zips the versioned Apple Silicon app
 #   make windows    Windows portable zip (run from Windows with PowerShell + toolchains)
@@ -50,7 +50,7 @@ SEARCH_RUNTIME := extension/search/runtime.js
 SEARCH_SYNC := scripts/sync-search-extension.mjs
 LOGO     := assets/logo.png
 LOGO_HDR := src/logo_data.h
-ICNS     := ds4.icns
+ICNS     := build/ds4.icns
 PLIST    := assets/Info.plist
 TEST_BUILD := tests/.build
 TEST_UNIT  := $(TEST_BUILD)/lan_unit
@@ -85,7 +85,7 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check check-fast check-real test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-task-graph-real test-task-graph-reliability-real test-task-graph-cli-competitors-real test-lan-unit test-remote-utf8 test-cowork test-cowork-unit test-cowork-contract test-cowork-http test-cowork-bench-validate test-design-build-freshness test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume test-design-native-vision test-design-bench-validate test-design-release test-image-pipeline test-image-inference test-ideogram-vae-mps test-hunyuan-sdpa-mps test-ui-contract test-ui-browser test-ui-live-vision test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-cowork test-real-cowork-long test-real-design test-real-design-long test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
+.PHONY: all run check check-fast check-real test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-task-graph-real test-task-graph-reliability-real test-task-graph-cli-competitors-real test-lan-unit test-remote-utf8 test-cowork test-cowork-unit test-cowork-browser test-cowork-http test-cowork-bench-validate test-design-build-freshness test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume test-design-runtime test-design-bench-validate test-design-release test-image-pipeline test-image-runtime test-ideogram-vae-mps test-hunyuan-sdpa-mps test-frontend-unit test-ui-browser test-ui-live-vision test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-cowork test-real-cowork-long test-real-design test-real-design-long test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
@@ -158,12 +158,12 @@ endif
 # Applied to the binary resource fork (xattr), NOT to the data fork → the linker
 # ad-hoc signature stays valid and the binary runs on arm64.
 $(ICNS): $(LOGO)
-	@rm -rf ds4.iconset && mkdir -p ds4.iconset
+	@rm -rf build/ds4.iconset && mkdir -p build/ds4.iconset
 	@for s in 16 32 128 256 512; do \
-	  sips -z $$s $$s $(LOGO) --out ds4.iconset/icon_$${s}x$${s}.png >/dev/null 2>&1; \
-	  d=$$((s*2)); sips -z $$d $$d $(LOGO) --out ds4.iconset/icon_$${s}x$${s}@2x.png >/dev/null 2>&1; \
+	  sips -z $$s $$s $(LOGO) --out build/ds4.iconset/icon_$${s}x$${s}.png >/dev/null 2>&1; \
+	  d=$$((s*2)); sips -z $$d $$d $(LOGO) --out build/ds4.iconset/icon_$${s}x$${s}@2x.png >/dev/null 2>&1; \
 	done
-	@iconutil -c icns ds4.iconset -o $(ICNS) && rm -rf ds4.iconset
+	@iconutil -c icns build/ds4.iconset -o $(ICNS) && rm -rf build/ds4.iconset
 	@echo "$(ICNS): icon generated from $(LOGO) (resized)"
 
 # Embeds index.html in the binary in base64 (generated header).
@@ -214,15 +214,17 @@ $(LOGO_HDR): $(LOGO)
 	@echo "$(LOGO_HDR): embedded $$(wc -c < $(LOGO) | tr -d ' ') bytes of $(LOGO)"
 
 # HTTP server (dstudio.c) as an object: its main becomes ds4_serve_main.
-dstudio.o: $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
-	$(CC) $(CFLAGS) -DDS4_WITH_WEBVIEW -c $(SRC) -o dstudio.o
+build/dstudio.o: $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p build
+	$(CC) $(CFLAGS) -DDS4_WITH_WEBVIEW -c $(SRC) -o $@
 
 # Entry point + native webview window. On Linux $(APP_DEPS) pulls in logo_data.h.
-app.o: $(APP) $(APP_DEPS)
-	$(APPCXX) $(APP_CXXFLAGS) -c $(APP) -o app.o
+build/app.o: $(APP) $(APP_DEPS)
+	@mkdir -p build
+	$(APPCXX) $(APP_CXXFLAGS) -c $(APP) -o $@
 
-$(BIN): dstudio.o app.o $(BIN_DEPS)
-	$(APPCXX) dstudio.o app.o $(APP_LDFLAGS) -o $@
+$(BIN): build/dstudio.o build/app.o $(BIN_DEPS)
+	$(APPCXX) build/dstudio.o build/app.o $(APP_LDFLAGS) -o $@
 ifeq ($(UNAME),Darwin)
 	@# custom icon in the resource fork; does not touch data fork or signature (see above)
 	@cp $(ICNS) .icontmp.icns 2>/dev/null && sips -i .icontmp.icns >/dev/null 2>&1 \
@@ -294,11 +296,10 @@ endif
 run: $(BIN)
 	./$(BIN) $(PORT) $(DS4_DIR)
 
-# Lightweight check without dependencies: the page must stay text (not binary)
-# and, if node is present, the pure modules (sse/holdback/markdown) must pass the tests.
-$(TEST_UNIT): tests/lan_unit.c $(SRC) $(SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+# Local checks execute production functions, subprocesses, HTTP and browser flows.
+$(TEST_UNIT): tests/unit/lan_unit.c $(SRC) $(SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
 	@mkdir -p $(TEST_BUILD)
-	$(CC) $(CFLAGS) tests/lan_unit.c -o $@
+	$(CC) $(CFLAGS) tests/unit/lan_unit.c -o $@
 
 $(TEST_SERVER): $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
 	@mkdir -p $(TEST_BUILD)
@@ -307,15 +308,47 @@ $(TEST_SERVER): $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR
 test-lan-unit: $(TEST_UNIT)
 	@$(TEST_UNIT)
 
-$(TEST_TASK_GRAPH): tests/task_graph_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+$(TEST_BUILD)/engine_setup_unit: tests/unit/engine_setup_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
 	@mkdir -p $(TEST_BUILD)
-	$(CC) $(CFLAGS) tests/task_graph_unit.c -o $@
+	$(CC) $(CFLAGS) tests/unit/engine_setup_unit.c -o $@
+
+.PHONY: test-engine-setup-unit
+test-engine-setup-unit: $(TEST_BUILD)/engine_setup_unit
+	@$(TEST_BUILD)/engine_setup_unit
+
+check-fast: test-engine-setup-unit
+
+.PHONY: test-glm53-m2max-patch
+test-glm53-m2max-patch:
+	@node tests/integration/glm53_m2max_patch_test.mjs
+
+check-fast: test-glm53-m2max-patch
+
+.PHONY: test-agent-pld test-pld test-pld-build
+test-pld: test-agent-pld test-pld-build
+test-pld-build: $(TEST_SERVER)
+	@node tests/integration/server_pld_build_test.mjs $(TEST_SERVER)
+	@node tests/unit/pld_benchmark_test.mjs
+
+.PHONY: test-pld-real
+test-pld-real:
+	RUN_HEAVY=1 node extension/prompt-lookup/bench/run-real.mjs
+test-agent-pld:
+	@mkdir -p $(TEST_BUILD)
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -pthread -Itests/fixtures/pld tests/unit/agent_pld_test.c -o $(TEST_BUILD)/agent_pld_test
+	@$(TEST_BUILD)/agent_pld_test
+
+check-fast: test-pld
+
+$(TEST_TASK_GRAPH): tests/unit/task_graph_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/unit/task_graph_unit.c -o $@
 
 test-task-graph-unit: $(TEST_TASK_GRAPH)
 	@$(TEST_TASK_GRAPH)
 
 test-task-graph-http: $(TEST_SERVER)
-	@bash tests/task_graph_http_test.sh $(TEST_SERVER)
+	@bash tests/integration/task_graph_http_test.sh $(TEST_SERVER)
 
 test-task-graph-bench-validate:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Task Graph benchmark validation requires node" && exit 1)
@@ -332,37 +365,38 @@ test-task-graph-cli-competitors-real: $(TEST_SERVER)
 	@command -v opencode >/dev/null 2>&1 || (echo "opencode missing" && exit 1)
 	@RUN_HEAVY=1 node extension/task-graph/bench/run-cli-competitors.mjs $(TEST_SERVER)
 
-$(TEST_REMOTE_UTF8): tests/remote_utf8_unit.c extension/remote/dstudio_remote_llm.c extension/remote/dstudio_remote_llm.h
+$(TEST_REMOTE_UTF8): tests/unit/remote_utf8_unit.c extension/remote/dstudio_remote_llm.c extension/remote/dstudio_remote_llm.h
 	@mkdir -p $(TEST_BUILD)
-	$(CC) $(CFLAGS) tests/remote_utf8_unit.c extension/remote/dstudio_remote_llm.c -o $@
+	$(CC) $(CFLAGS) tests/unit/remote_utf8_unit.c extension/remote/dstudio_remote_llm.c -o $@
 
 test-remote-utf8: $(TEST_REMOTE_UTF8)
 	@$(TEST_REMOTE_UTF8)
 
-$(TEST_COWORK_BRIDGE): tests/ds4_cowork_bridge_test.c extension/cowork/ds4_cowork.c extension/cowork/ds4_cowork.h
+$(TEST_COWORK_BRIDGE): tests/integration/ds4_cowork_bridge_test.c extension/cowork/ds4_cowork.c extension/cowork/ds4_cowork.h
 	@mkdir -p $(TEST_BUILD)
-	$(CC) $(CFLAGS) -Iextension/cowork tests/ds4_cowork_bridge_test.c extension/cowork/ds4_cowork.c -o $@
+	$(CC) $(CFLAGS) -Iextension/cowork tests/integration/ds4_cowork_bridge_test.c extension/cowork/ds4_cowork.c -o $@
 
 test-cowork-unit: $(TEST_COWORK_BRIDGE)
 	@command -v python3 >/dev/null 2>&1 || (echo "python3 missing: Cowork Office runtime requires Python 3" && exit 1)
-	@python3 -m unittest -v tests/ds4_cowork_office_test.py
+	@python3 -m unittest -v tests/unit/ds4_cowork_office_test.py
+	@python3 -m unittest -v tests/unit/document_table_test.py
 	@$(TEST_COWORK_BRIDGE) "$$(pwd)/extension/cowork/office_tool.py"
 
-test-cowork-contract:
-	@command -v node >/dev/null 2>&1 || (echo "node missing: Cowork contract test requires node" && exit 1)
-	@node tests/ds4_cowork_contract_test.mjs
+test-cowork-browser:
+	@command -v node >/dev/null 2>&1 || (echo "node missing: Cowork browser test requires node" && exit 1)
+	@node tests/browser/document_table_ui_test.mjs
 
 test-cowork-http: $(TEST_SERVER)
-	@bash tests/ds4_cowork_http_test.sh $(TEST_SERVER)
+	@bash tests/integration/ds4_cowork_http_test.sh $(TEST_SERVER)
 
-test-cowork: test-cowork-unit test-cowork-contract test-cowork-http
+test-cowork: test-cowork-unit test-cowork-browser test-cowork-http
 
 test-cowork-bench-validate:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Cowork benchmark validation requires node" && exit 1)
 	@node extension/cowork/bench/validate.mjs
 
 test-design-build-freshness:
-	@bash tests/design_build_freshness_test.sh
+	@bash tests/integration/design_build_freshness_test.sh
 
 test-design-self: test-design-build-freshness
 	@extension/design/build-design.sh build
@@ -370,25 +404,24 @@ test-design-self: test-design-build-freshness
 
 test-design-controls:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Design control probe requires node" && exit 1)
-	@node tests/design_control_probe_test.mjs
+	@node tests/unit/design_control_probe_test.mjs
 
 test-design-disclosure:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Lumen disclosure contract test requires node" && exit 1)
-	@node tests/lumen_disclosure_contract_test.mjs
+	@node tests/unit/lumen_disclosure_contract_test.mjs
 
 test-design-interrupt: test-design-self
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Design interrupt test requires node" && exit 1)
-	@node tests/design_interrupt_test.mjs
-	@node tests/design_chrome_termination_test.mjs
-	@node tests/design_image_interrupt_test.mjs
-	@node tests/design_video_interrupt_test.mjs
+	@node tests/integration/design_interrupt_test.mjs
+	@node tests/integration/design_chrome_termination_test.mjs
+	@node tests/integration/design_image_interrupt_test.mjs
+	@node tests/integration/design_video_interrupt_test.mjs
 
 test-design-resume:
-	@node tests/design_resume_checkpoint_test.mjs
+	@node tests/unit/design_resume_checkpoint_test.mjs
 
-test-design-native-vision: test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume
-	@command -v node >/dev/null 2>&1 || (echo "node missing: Design native-vision contract test requires node" && exit 1)
-	@node tests/ds4_design_native_vision_test.mjs
+test-design-runtime: test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume
+	@command -v node >/dev/null 2>&1 || (echo "node missing: Design runtime test requires node" && exit 1)
 
 test-design-bench-validate:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Design benchmark validation requires node" && exit 1)
@@ -396,122 +429,138 @@ test-design-bench-validate:
 
 test-design-release:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Design release gate requires node" && exit 1)
-	@node tests/design_release_native_contract_test.mjs
-	@node tests/design_pages_release_gate_test.mjs
+	@node tests/unit/design_pages_release_gate_test.mjs
 
 test-image-pipeline:
-	@python3 tests/image_pipeline_interrupt_test.py
+	@python3 tests/integration/image_pipeline_interrupt_test.py
 
-test-image-inference:
+test-image-runtime:
 	@if [ -x "$(HOME)/.dstudio/ideogram4/venv/bin/python" ] && \
 	    [ -f "$(HOME)/.dstudio/hunyuan-image/models/HunyuanImage-3-Instruct-NF4-v2/config.json" ]; then \
-	  "$(HOME)/.dstudio/ideogram4/venv/bin/python" tests/image_inference_conformance_test.py && \
-	  "$(HOME)/.dstudio/hunyuan-image/venv/bin/python" tests/hunyuan_native_source_conformance_test.py; \
+	  "$(HOME)/.dstudio/ideogram4/venv/bin/python" tests/integration/image_runtime_behavior_test.py && \
+	  "$(HOME)/.dstudio/hunyuan-image/venv/bin/python" tests/integration/hunyuan_patch_reproducibility_test.py; \
 	else \
-	  echo "local Ideogram/Hunyuan runtimes missing: skipping image inference conformance"; \
+	  echo "local Ideogram/Hunyuan runtimes missing: image runtime tests NOT RUN"; exit 1; \
 	fi
 
 test-ideogram-vae-mps:
 	@if [ -x "$(HOME)/.dstudio/ideogram4/venv/bin/python" ]; then \
-	  "$(HOME)/.dstudio/ideogram4/venv/bin/python" tests/ideogram_vae_mps_probe.py; \
+	  "$(HOME)/.dstudio/ideogram4/venv/bin/python" tests/live/ideogram_vae_mps_probe.py; \
 	else \
 	  echo "local Ideogram runtime missing: cannot run the real MPS VAE probe"; exit 1; \
 	fi
 
 test-hunyuan-sdpa-mps:
 	@if [ -x "$(HOME)/.dstudio/hunyuan-image/venv/bin/python" ]; then \
-	  "$(HOME)/.dstudio/hunyuan-image/venv/bin/python" tests/hunyuan_sdpa_mps_probe.py; \
+	  "$(HOME)/.dstudio/hunyuan-image/venv/bin/python" tests/live/hunyuan_sdpa_mps_probe.py; \
 	else \
 	  echo "local Hunyuan runtime missing: cannot run the real MPS SDPA probe"; exit 1; \
 	fi
 
-test-ui-contract:
-	@if command -v node >/dev/null 2>&1; then node tests/ui_contract_test.mjs; else echo "node missing: skipping UI contract tests"; fi
+test-frontend-unit:
+	@node tests/unit/frontend_behavior_test.mjs
+
+# Explicit live gates. Setup really downloads/builds in a new empty directory;
+# inference really loads installed weights, one model at a time.
+.PHONY: test-setup-live test-inference-live test-engine-acceptance test-qwen-chat-live benchmark-qwen-decode
+test-setup-live: $(TEST_SERVER)
+	@node tests/live/engine_acceptance.mjs --setup
+
+test-inference-live: $(TEST_SERVER)
+	@node tests/live/engine_acceptance.mjs --infer --engines "$(or $(ENGINES),main,laguna)"
+
+test-engine-acceptance: $(TEST_SERVER)
+	@node tests/live/engine_acceptance.mjs --setup --infer --engines "$(or $(ENGINES),main,laguna,qwen)"
+
+test-qwen-chat-live: $(TEST_SERVER)
+	@node tests/live/engine_acceptance.mjs --infer --engines qwen --via-app
+
+benchmark-qwen-decode:
+	@node tests/live/qwen_decode_benchmark.mjs
+
+# Real PDF extraction/rendering and browser checks; no model or embeddings.
+.PHONY: test-pdf-evidence
+test-pdf-evidence: $(TEST_SERVER)
+	@node tests/integration/pdf_evidence_test.mjs $(TEST_SERVER)
 
 test-ui-browser:
-	@if command -v node >/dev/null 2>&1; then node tests/ui_loading_playwright_test.mjs && node tests/ui_agent_design_playwright_test.mjs && node tests/ui_gear_popover_test.mjs && node tests/ui_think_max_context_test.mjs && node tests/ui_attachment_preview_playwright_test.mjs && node tests/ui_roadmap_playwright_test.mjs && node tests/ui_settings_redesign_playwright_test.mjs && node tests/ui_video_generation_playwright_test.mjs; else echo "node missing: skipping UI browser tests"; fi
+	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_loading_playwright_test.mjs && node tests/browser/ui_agent_design_playwright_test.mjs && node tests/browser/ui_gear_popover_test.mjs && node tests/browser/ui_think_max_context_test.mjs && node tests/browser/ui_attachment_preview_playwright_test.mjs && node tests/browser/ui_roadmap_playwright_test.mjs && node tests/browser/ui_settings_redesign_playwright_test.mjs && node tests/browser/ui_video_generation_playwright_test.mjs; else echo "node missing: NOT RUN UI browser tests"; exit 1; fi
 
 test-ui-live-vision:
-	@if command -v node >/dev/null 2>&1; then node tests/ui_live_vision_playwright_test.mjs; else echo "node missing: skipping live Vision UI test"; fi
+	@if command -v node >/dev/null 2>&1; then node tests/live/ui_live_vision_playwright_test.mjs; else echo "node missing: NOT RUN live Vision UI test"; exit 1; fi
 
 test-ui-plan:
-	@if command -v node >/dev/null 2>&1; then node tests/ui_plan_mode_playwright_test.mjs && node tests/ui_plan_mode_matrix_test.mjs; else echo "node missing: skipping Plan mode UI tests"; fi
+	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_plan_mode_playwright_test.mjs && node tests/browser/ui_plan_mode_matrix_test.mjs; else echo "node missing: NOT RUN Plan mode UI tests"; exit 1; fi
 
 test-ui-gsa:
-	@if command -v node >/dev/null 2>&1; then node tests/ui_gsa_playwright_test.mjs; else echo "node missing: skipping GSA UI tests"; fi
+	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_gsa_playwright_test.mjs; else echo "node missing: NOT RUN GSA UI tests"; exit 1; fi
 
 test-ui-rsa:
-	@if command -v node >/dev/null 2>&1; then node tests/ui_rsa_playwright_test.mjs; else echo "node missing: skipping RSA UI tests"; fi
+	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_rsa_playwright_test.mjs; else echo "node missing: NOT RUN RSA UI tests"; exit 1; fi
 
 test-rsa-collectors:
-	@if command -v node >/dev/null 2>&1; then node tests/rsa_collectors_matrix_test.mjs; else echo "node missing: skipping RSA collector tests"; fi
+	@if command -v node >/dev/null 2>&1; then node tests/integration/rsa_collectors_matrix_test.mjs; else echo "node missing: NOT RUN RSA collector tests"; exit 1; fi
 
 test-table-ascii:
-	@if command -v python3 >/dev/null 2>&1; then python3 tests/table_ascii_art_test.py; else echo "python3 missing: skipping table ASCII tests"; fi
+	@if command -v python3 >/dev/null 2>&1; then python3 tests/unit/table_ascii_art_test.py; else echo "python3 missing: NOT RUN table ASCII tests"; exit 1; fi
 
 test-markdown-math:
-	@if command -v node >/dev/null 2>&1; then node tests/markdown_math_test.mjs; else echo "node missing: skipping Markdown math tests"; fi
+	@if command -v node >/dev/null 2>&1; then node tests/unit/markdown_math_test.mjs; else echo "node missing: NOT RUN Markdown math tests"; exit 1; fi
 
-test-video-open-weight:
-	@if command -v node >/dev/null 2>&1; then node tests/video_open_weight_contract_test.mjs; else echo "node missing: skipping open-weight video contract test"; fi
-	@if command -v python3 >/dev/null 2>&1; then python3 tests/h3_checkout_test.py; else echo "python3 missing: skipping H3 checkout regression test"; fi
-	@tests/h3_sdpa_query_chunk_equivalence_test.sh
+test-video-checkout:
+	@if command -v python3 >/dev/null 2>&1; then python3 tests/integration/h3_checkout_test.py; else echo "python3 missing: NOT RUN H3 checkout regression test"; exit 1; fi
+
+.PHONY: test-video-checkout test-video-open-weight
+test-video-open-weight: test-video-checkout
+	@tests/live/h3_sdpa_query_chunk_equivalence_test.sh
 
 test-http-lan: $(TEST_SERVER)
-	@tests/http_lan_test.sh $(TEST_SERVER)
+	@tests/integration/http_lan_test.sh $(TEST_SERVER)
 
 test-gsa-bench-validate:
-	@if command -v node >/dev/null 2>&1; then node extension/gsa/bench/validate.mjs; else echo "node missing: skipping GSA benchmark validation"; fi
+	@if command -v node >/dev/null 2>&1; then node extension/gsa/bench/validate.mjs; else echo "node missing: NOT RUN GSA benchmark validation"; exit 1; fi
 
-check-fast: $(BIN) test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-lan-unit test-remote-utf8 test-cowork test-cowork-bench-validate test-design-native-vision test-design-bench-validate test-design-release test-image-pipeline test-image-inference test-ui-contract test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate
-	@file $(PAGE) | grep -q text && echo "$(PAGE): text OK" || (echo "$(PAGE) is not text!" && exit 1)
-	@file $(LOADING) | grep -q text && echo "$(LOADING): text OK" || (echo "$(LOADING) is not text!" && exit 1)
-	@command -v node >/dev/null 2>&1 && { \
-	  awk '/<script type="module">/{f=1;next} /<\/script>/{f=0} f' $(PAGE) > /tmp/ds4ui-js.mjs; \
-	  node --check /tmp/ds4ui-js.mjs && echo "JS: syntax OK"; \
-	  awk '/<script>/{f=1;next} /<\/script>/{f=0} f' $(LOADING) > /tmp/ds4loading-js.js; \
-	  node --check /tmp/ds4loading-js.js && echo "Loading JS: syntax OK"; \
-	} || echo "node missing: skipping the JS check"
+check-fast: $(BIN) test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-lan-unit test-remote-utf8 test-cowork test-cowork-bench-validate test-design-runtime test-design-bench-validate test-design-release test-image-pipeline test-frontend-unit test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-checkout test-http-lan test-gsa-bench-validate
 
 test-real-search-research: $(TEST_SERVER)
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real Search/DeepResearch tests require node" && exit 1)
-	@node tests/real_search_research_test.mjs $(TEST_SERVER)
+	@node tests/live/real_search_research_test.mjs $(TEST_SERVER)
 
 test-real-roadmap-quality: $(TEST_SERVER)
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real Roadmap quality tests require node" && exit 1)
-	@node tests/real_roadmap_quality_test.mjs $(TEST_SERVER)
+	@node tests/live/real_roadmap_quality_test.mjs $(TEST_SERVER)
 
 test-real-cowork: $(TEST_SERVER) test-cowork-bench-validate
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real Cowork quality tests require node" && exit 1)
-	@DSTUDIO_COWORK_PROFILE=standard node tests/real_cowork_quality_test.mjs $(TEST_SERVER)
+	@DSTUDIO_COWORK_PROFILE=standard node tests/live/real_cowork_quality_test.mjs $(TEST_SERVER)
 
 test-real-cowork-long: $(TEST_SERVER) test-cowork-bench-validate
 	@command -v node >/dev/null 2>&1 || (echo "node missing: long Cowork quality tests require node" && exit 1)
-	@DSTUDIO_COWORK_PROFILE=long node tests/real_cowork_quality_test.mjs $(TEST_SERVER)
+	@DSTUDIO_COWORK_PROFILE=long node tests/live/real_cowork_quality_test.mjs $(TEST_SERVER)
 
-test-real-design: $(TEST_SERVER) test-design-native-vision test-design-bench-validate
+test-real-design: $(TEST_SERVER) test-design-runtime test-design-bench-validate
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real Design quality tests require node" && exit 1)
-	@DSTUDIO_DESIGN_PROFILE=standard node tests/real_design_quality_test.mjs $(TEST_SERVER)
+	@DSTUDIO_DESIGN_PROFILE=standard node tests/live/real_design_quality_test.mjs $(TEST_SERVER)
 
-test-real-design-long: $(TEST_SERVER) test-design-native-vision test-design-bench-validate
+test-real-design-long: $(TEST_SERVER) test-design-runtime test-design-bench-validate
 	@command -v node >/dev/null 2>&1 || (echo "node missing: long Design quality tests require node" && exit 1)
-	@DSTUDIO_DESIGN_PROFILE=long node tests/real_design_quality_test.mjs $(TEST_SERVER)
+	@DSTUDIO_DESIGN_PROFILE=long node tests/live/real_design_quality_test.mjs $(TEST_SERVER)
 
 test-real-ascii-diagrams: $(TEST_SERVER)
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real ASCII diagram tests require node" && exit 1)
-	@node tests/real_ascii_diagram_test.mjs $(TEST_SERVER)
+	@node tests/live/real_ascii_diagram_test.mjs $(TEST_SERVER)
 
 test-real-math-explanations: $(TEST_SERVER)
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real math explanation tests require node" && exit 1)
-	@node tests/real_math_explanation_stress_test.mjs $(TEST_SERVER)
+	@node tests/live/real_math_explanation_stress_test.mjs $(TEST_SERVER)
 
 test-real-pdf-rag: $(TEST_SERVER)
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real PDF RAG tests require node" && exit 1)
-	@node tests/real_pdf_rag_test.mjs $(TEST_SERVER)
+	@node tests/live/real_pdf_rag_test.mjs $(TEST_SERVER)
 
 test-real-remote: $(TEST_SERVER)
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real remote tests require node" && exit 1)
-	@node tests/real_remote_test.mjs $(TEST_SERVER)
+	@node tests/live/real_remote_test.mjs $(TEST_SERVER)
 
 check-real: $(TEST_SERVER) test-real-ascii-diagrams test-real-search-research test-real-remote
 
@@ -521,6 +570,6 @@ windows:
 	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1
 
 clean:
-	rm -f $(BIN) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN) $(LOGO_HDR) $(ICNS) $(DESKTOP) dstudio.o app.o
+	rm -f $(BIN) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN) $(LOGO_HDR) $(ICNS) $(DESKTOP) build/dstudio.o build/app.o
 	rm -rf $(TEST_BUILD)
 	@rm -rf ds4.iconset .icontmp.icns .icontmp.rsrc

@@ -2,7 +2,8 @@
 static char *ds4ui_execute_cowork_tool(const agent_tool_call *call) {
     static const char *const arg_names[] = {
         "action", "path", "sheet", "range", "data_json", "sheets_json",
-        "header", "title", "content", "slides_json"
+        "header", "title", "content", "slides_json", "segment", "offset",
+        "columns_json", "rows_json", "checks_json", "revision", "replace_json", "output"
     };
     ds4_cowork_arg args[sizeof(arg_names) / sizeof(arg_names[0])];
     size_t nargs = 0;
