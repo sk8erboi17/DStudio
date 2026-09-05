@@ -17,7 +17,7 @@
 
 ## Contents
 
-- [Latest changes](docs/changes/2026-09-05.md)
+- [Latest changes](docs/changes/2026-09-06.md)
 - [Install](#install-on-macos)
 - [Supported models and limitations](#supported-models-and-limitations)
 - [What DStudio can do](#what-you-can-do)
@@ -26,6 +26,7 @@
 - [Prompt lookup: real-engine results](#prompt-lookup-real-engine-results)
 - [Native Agent or Task Graph](#native-agent-or-task-graph)
 - [50 diverse tasks with Pi and OpenCode](#50-diverse-task-comparison-dstudio-pi-and-opencode)
+- [Latest measured results: engine, PDFs and Design](#latest-measured-results)
 - [Why automatic checks help](#why-automatic-checks-help)
 - [Requirements](#requirements)
 - [Development](#development)
@@ -43,13 +44,13 @@ In plain terms: DStudio is a **multi-model ds4 GUI**, a **private coding and kno
 
 On macOS it ships as **DStudio.app**: double-click from Finder, no Terminal. On Windows it ships as a portable folder with `DStudio.exe` and the DS4 runtime binaries. The UI is a single vanilla `index.html` embedded in a small C launcher, so there is no Electron bundle, no framework build step, no CDN and no telemetry.
 
-**Latest source update — September 5:** experimental Qwen3.6 Chat and verified,
-resumable downloads; a searchable model picker that chooses the engine for you;
-clear model-loading feedback and working Settings controls; fixes for native
-vision and short prompt blocks with SSD streaming. The SSD fix does not require
-reducing the configured 128k context. See the [complete change and test notes](docs/changes/2026-09-05.md),
-including what has **not** been validated. A source push does not replace older
-downloaded app releases.
+**Latest source update — September 6:** five original offline Design systems,
+better recovery from incomplete generated tool calls, direct reading of PDFs
+that fit the attachment budget, and updated ds4 main compatibility. Published
+Matplotlib charts show measured results and remaining failures, not promised
+speedups. See the [change and verification notes](docs/changes/2026-09-06.md)
+and [previous model-picker, Qwen and SSD fixes](docs/changes/2026-09-05.md).
+A source push does not replace older downloaded app releases.
 
 ## Install on macOS
 
@@ -228,7 +229,11 @@ Learn generation and both verification roles are always locked to **Thinking: ma
 
 </div>
 
-Attach a PDF and ask naturally in any language. The active model decides whether to build a bounded whole-document overview, read an exact physical page or search semantically across every page. DStudio extracts text locally and uses the small pinned **Qwen3-Embedding-0.6B only as a text embedding index**, never as a visual router. With DeepSeek Vision-Exp or GLM 5.3 active, DStudio additionally renders up to four selected physical pages and sends those pixels to that same model's native encoder. Laguna and other text-only checkpoints receive only the extracted text and explicitly report any scanned/image-only pages they could not interpret. The cached text index keeps prompts bounded even for 1,000-page books.
+Attach a PDF and ask naturally in any language. **When all its text fits, DStudio reads it directly**: no extra model turn to choose pages and no embedding index to build. All physical pages, extracted text, numbers and citation links are retained. A short cover no longer causes a longer following page to be cut when the whole text fits. This applies to Chat, Learn attachments and Cowork attachment preparation.
+
+Long PDFs, scans and uncertain text layers keep the existing planner: the active model decides whether to build a bounded overview, read exact physical pages or search semantically. DStudio extracts text locally and uses the small pinned **Qwen3-Embedding-0.6B only as a text embedding index**, never as a visual router. With DeepSeek Vision-Exp or GLM 5.3 active, DStudio additionally renders up to four selected physical pages and sends those pixels to that same model's native encoder; the direct path requires every page to fit that visual limit too. Laguna and other text-only checkpoints receive only the extracted text and explicitly report any scanned/image-only pages they could not interpret. The cached text index keeps prompts bounded even for 1,000-page books.
+
+`make test-pdf-complete` checks complete text against Poppler byte for byte, fallback cases, real citation highlights and upload-to-Chat behavior. The browser's answering model is simulated: these checks prove extraction and routing, **not universal answer accuracy or an inference speed multiplier**. See [PDF reading acceleration](docs/PDF_READING.md) for limits.
 
 ## Local Image Generation
 
@@ -400,8 +405,11 @@ Design is not a chat skin. It is a separate local design agent that runs a desig
 
 The whole pipeline, from a one-line idea to laid-out screens:
 
-- **1 · Brief and questions.** Design starts with a structured interview instead of a blank prompt: what you're making, target platform, tone, brand direction, scale and constraints.
+- **1 · Brief and questions.** Design asks for missing product, audience and visual decisions. A complete brief can start the build directly; an explicit request to skip the interview also works.
 - **2 · Generating.** It loads the right skills/design systems, writes a short plan, builds the screens and shows live progress from real runtime events instead of raw tool noise.
+- **Original visual systems.** Five locally authored systems ship with DStudio: **Folio** (editorial), **Signal** (operational tools), **Forma** (spatial portfolios), **Grove** (guided services) and **Pulse** (expressive programmes). Each includes light/dark tokens, working components and composition recipes. No OpenDesign catalog, third-party design pack or first-run design download. Preview them in the Design gallery; [details and tests](docs/DESIGN_SYSTEMS.md).
+- **Measured layout checks.** Before registering HTML, the native agent renders at 1280, 768 and 390px, including on text-only models. Measured page overflow, overlapping controls and distorted media block registration. Linked CSS changes are re-measured; a missing renderer is reported, not counted as a pass. These checks do not replace visual judgement or task-specific interaction tests.
+- **More reliable delivery.** Incomplete writes are rejected, with recovery guidance to retry smaller, complete files; unfinished answers are no longer silently marked complete when they hit the output limit. The agent can flag squeezed paragraphs and missing page anchors without imposing one font or layout. [Real before/after experiment](docs/DESIGN_AGENT_EXPERIMENT.md): improvements in individual cases, but no overall quality win established by the initial three-brief comparison.
 - **Reasoning control.** Thinking effort and context capacity are independent. Design honors the context selected in Settings (with a 32k minimum) even at Thinking Max instead of silently allocating 393,216 tokens. Max keeps hidden reasoning unlimited across tool rounds; the optional 8k, 16k and 24k caps close only the model's native `</think>` block and leave the visible/tool response unrestricted.
 - **3 · Proposal.** It can offer distinct directions to compare side by side, each with a name and rationale; pick one to refine or use.
 - **4 · Native visual loop.** With DeepSeek Vision-Exp or GLM 5.3, Design can generate a project-local PNG directly with Ideogram 4 or edit supplied pixels directly with HunyuanImage, then inspect the result using the same selected model and its native encoder. The composed desktop/mobile page is graded in a native multimodal turn alongside deterministic 1280/390 px DOM evidence. Text-only engines, including Laguna, do not expose this visual loop.
@@ -575,6 +583,51 @@ it does not guarantee 100% on every future project. The publication gate rejects
 a result if the checked path scores below Native or loses any matched task that
 Native completes.
 
+## Latest measured results
+
+These are three different experiments, not one overall product score. All
+charts use Matplotlib; scripts and reviewed JSON are committed alongside the
+reports. Private documents and raw user data are not published.
+
+### Engine update: reading prompts and writing responses
+
+DeepSeek in RAM stays near **21 tokens/s** when writing these responses. GLM
+with SSD streaming varies around **5–9 tokens/s** by task. There is no clear
+speed gain in this shared-host run. All 36 measured answers pass, but four
+auxiliary checks fail: the complete suite is **44/48**, not 100%.
+
+![Real engine comparison: short-prompt reading and generation rates before and after the update, with observed ranges.](assets/README%20images/benchmarks/main-update-prefill-decode.png)
+
+[Model settings, limitations and public measurements](docs/DS4_MAIN_UPDATE_2026-09-05.md).
+
+### PDF library: can it find the right source?
+
+Across **78 PDFs and 84 questions**, the expected page and quote were found in
+**75/84** cases. Locating the citation with highlight coordinates worked in
+**50/75** attempts. This tests search and source matching, not the correctness
+of an AI-generated answer. The remaining gaps are included in the results.
+
+![PDF results: strict source recall and citation coordinates, plus separately measured reading, indexing and cached search times.](assets/README%20images/benchmarks/pdf-library-quality-latency.png)
+
+[Private-corpus method, anonymous aggregates and timing exclusions](docs/PDF_LIBRARY_BENCHMARK.md).
+
+### Design: does it deliver a working project?
+
+In the initial three-brief comparison, both versions delivered **2/3 projects**;
+**1/3** in each version also passed every independent browser check. There is
+no overall win yet. Later focused recovery checks are documented separately,
+and functional checks are not an aesthetic score.
+
+![Initial Design comparison: two of three delivered and one of three fully checked in both versions.](assets/README%20images/benchmarks/design-development-comparison.png)
+
+[Failures, visual review, public counts and later targeted checks](docs/DESIGN_AGENT_EXPERIMENT.md).
+
+Regenerate these three charts without running a model:
+
+```sh
+python3 tests/support/publish_benchmark_charts.py  # Requires Matplotlib
+```
+
 ## Highlights
 
 - **Local-first & private.** Core inference runs on your machine by default, with no telemetry and a strict CSP. Model downloads, Web Research and the optional DeepSeek API backend are the documented outbound paths and activate only when the user requests or configures them.
@@ -593,6 +646,9 @@ DStudio is for local-AI builders who want one inspectable desktop workflow for p
 ## Requirements
 
 This is a serious local AI setup. DStudio removes product friction, not physics:
+
+Main is pinned to `f4d03f6` (September 5, 2026):
+[update details, compatibility checks and prefill/decode comparison](docs/DS4_MAIN_UPDATE_2026-09-05.md).
 
 - **OS.** One `make` builds the branded app per platform: **DStudio.app** on **macOS** (Apple Silicon is the primary tested target), a **`dstudio`** binary on **Linux** (WebKitGTK / GTK3 via `webkit2gtk-4.1`) and a portable **Windows x64** folder/zip via `make windows`. Linux and Windows are less exercised, and `ds4` itself must be built for your platform.
 - Apple Command Line Tools (`xcode-select --install`) or another C compiler (`cc` / `clang`). `curl`, `tar` and `make` are used by first-run setup to download and build the pinned upstream `ds4` source archive; `node` is optional, only for `make check`.

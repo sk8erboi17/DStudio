@@ -36,7 +36,7 @@ SRC      := src/dstudio.c
 # Per-domain sub-files #included into dstudio.c (one translation unit, all
 # static — same pattern as the GSA/RSA .cfrag includes). Listed as build
 # prerequisites so editing a domain file triggers a rebuild.
-SUBSRC   := $(wildcard src/dstudio_*.c)
+SUBSRC   := $(wildcard src/dstudio_*.c) extension/design/design_system_catalog.h
 EXT_SUBSRC := $(wildcard extension/gsa/*.cfrag extension/rsa/*.cfrag)
 APP      := src/app.cc
 HDR      := src/webview.h
@@ -115,11 +115,11 @@ ifeq ($(UNAME),Darwin)
 	@cp -X $(BIN) $(APPDIR)/Contents/MacOS/$(APPNAME)
 	@cp $(ICNS) $(APPDIR)/Contents/Resources/ds4.icns
 	@cp $(PLIST) $(APPDIR)/Contents/Info.plist
-	@cp -R extension/design extension/cowork extension/remote extension/craft extension/search extension/task-graph $(APP_SUPPORT)/extension/
+	@cp -R extension/design extension/design-systems extension/cowork extension/remote extension/craft extension/search extension/task-graph $(APP_SUPPORT)/extension/
 	@mkdir -p $(APP_SUPPORT)/extension/gsa
 	@cp -R extension/gsa/templates $(APP_SUPPORT)/extension/gsa/
 	@cp extension/gsa/tools/catalog.json extension/gsa/tools/README.md $(APP_SUPPORT)/extension/gsa/tools/
-	@cp -R patch scripts third_party $(APP_SUPPORT)/
+	@cp -R patch scripts $(APP_SUPPORT)/
 	@cp LICENSE THIRD_PARTY_NOTICES.md $(APP_SUPPORT)/
 	@find $(APP_SUPPORT) -type f \( -name .DS_Store -o -name '*.pyc' -o -name '*.pyo' \) -delete
 	@find $(APP_SUPPORT) -type d -name __pycache__ -empty -delete
@@ -333,6 +333,12 @@ check-fast: test-qwen35-download
 test-glm53-m2max-patch:
 	@node tests/integration/glm53_m2max_patch_test.mjs
 
+.PHONY: test-main-decode-metrics
+test-main-decode-metrics:
+	@node tests/unit/main_decode_metrics_test.mjs
+
+check-fast: test-main-decode-metrics
+
 check-fast: test-glm53-m2max-patch
 
 .PHONY: test-agent-pld test-pld test-pld-build
@@ -409,6 +415,16 @@ test-cowork-bench-validate:
 test-design-build-freshness:
 	@bash tests/integration/design_build_freshness_test.sh
 
+.PHONY: test-design-archive-build test-design-tool-recovery test-design-comparison-report
+test-design-comparison-report:
+	node tests/unit/design_comparison_report_test.mjs
+
+test-design-archive-build:
+	@bash tests/integration/design_archive_build_test.sh
+
+test-design-tool-recovery: test-design-self
+	@node tests/integration/design_tool_recovery_test.mjs
+
 test-design-self: test-design-build-freshness
 	@extension/design/build-design.sh build
 	@./ds4/ds4-design --self-test
@@ -416,6 +432,10 @@ test-design-self: test-design-build-freshness
 test-design-controls:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Design control probe requires node" && exit 1)
 	@node tests/unit/design_control_probe_test.mjs
+
+.PHONY: test-design-originals
+test-design-originals: $(TEST_SERVER)
+	@node tests/browser/design_originals_test.mjs $(TEST_SERVER)
 
 test-design-disclosure:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Lumen disclosure contract test requires node" && exit 1)
@@ -431,7 +451,7 @@ test-design-interrupt: test-design-self
 test-design-resume:
 	@node tests/unit/design_resume_checkpoint_test.mjs
 
-test-design-runtime: test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume
+test-design-runtime: test-design-self test-design-tool-recovery test-design-comparison-report test-design-originals test-design-controls test-design-disclosure test-design-interrupt test-design-resume
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Design runtime test requires node" && exit 1)
 
 test-design-bench-validate:
@@ -509,6 +529,10 @@ test-ssd-prefill-batch-live:
 .PHONY: test-pdf-evidence
 test-pdf-evidence: $(TEST_SERVER)
 	@node tests/integration/pdf_evidence_test.mjs $(TEST_SERVER)
+
+.PHONY: test-pdf-complete
+test-pdf-complete: $(TEST_SERVER)
+	@node tests/integration/pdf_complete_read_test.mjs $(TEST_SERVER)
 
 test-ui-browser:
 	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_model_picker_playwright_test.mjs && node tests/browser/ui_loading_playwright_test.mjs && node tests/browser/ui_agent_design_playwright_test.mjs && node tests/browser/ui_gear_popover_test.mjs && node tests/browser/ui_think_max_context_test.mjs && node tests/browser/ui_attachment_preview_playwright_test.mjs && node tests/browser/ui_roadmap_playwright_test.mjs && node tests/browser/ui_settings_redesign_playwright_test.mjs && node tests/browser/ui_video_generation_playwright_test.mjs; else echo "node missing: NOT RUN UI browser tests"; exit 1; fi

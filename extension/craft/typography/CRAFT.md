@@ -1,6 +1,6 @@
 ---
 name: Typography
-description: A small type scale, three weights, a readable measure and real hierarchy. System-safe stacks (no web font you can't load). Type does most of the design work.
+description: Readable hierarchy, deliberate display type and responsive text. Use available fonts and derive the scale from the content, not a size quota.
 ---
 
 # CRAFT: typography
@@ -10,20 +10,24 @@ a comfortable measure, and real hierarchy carry the page before any color or lay
 
 ## Scale & weights
 
-- **One modular scale** (×1.2–1.25), **≤6 sizes** total, ≤3 above the fold. Don't free-style
-  font sizes.
-- **Three weights max**: ~400 body, ~500–550 labels/UI, ~600 headings. If everything is bold,
-  nothing is. (Note: variable weights like 590 only exist if that variable font is loaded —
-  on a system fallback they round to 600. Don't rely on fractional weights you can't load.)
-- Tighten tracking slightly on large headings (`-0.01em…-0.02em`); leave body at normal.
+- Define roles first: display, section heading, body, label and metadata. Reuse
+  each role consistently. A modular scale is a useful starting point, not a quota
+  that should flatten a poster or make a dense table enormous.
+- Use weights the actual font supplies; make emphasis selective. Fractional
+  variable weights only work when that variable font is available. Check the
+  rendered fallback instead of assuming it has identical metrics.
+- Adjust display tracking for the chosen face; leave prose at a readable default.
+  Do not force condensed, serif and humanist faces into the same treatment.
 
 ## Readability
 
 - **Measure 60–75 characters** per line for body text (~`max-width: 68ch`). Wider tires the
   eye; narrower is choppy.
 - **Body ≥ 16px**, line-height 1.5–1.7 for prose, ~1.1–1.2 for big headings.
-- **Left-align body** (don't justify — rivers; don't center long paragraphs). Fluid sizing
-  with `clamp()` for responsive headings.
+- **Left-align body** (don't justify — rivers; don't center long paragraphs).
+  Use rem/em for text and fluid headings with a relative minimum. Test 200% text
+  scaling independently of viewport width. Allow grid children to shrink and
+  long words to wrap without hiding overflow; labels and controls must still work.
 
 ## Fonts (system-safe)
 
@@ -43,7 +47,9 @@ a comfortable measure, and real hierarchy carry the page before any color or lay
 
 ## Self-check before artifact
 
-- ≤6 sizes on one scale, ≤3 weights, headings tracked tighter?
+- Consistent roles, intentional emphasis and display type appropriate to the task?
 - Body ≥16px, measure 60–75ch, left-aligned, good line-height?
 - No dependence on an unloadable web font / fractional weight?
 - Hierarchy from type+space (clear first-glance point), labels legible?
+- Enlarged text reflows at mobile width; no clipped words, overlapping controls
+  or fixed-height containers hiding content?

@@ -16,16 +16,17 @@ When the user asks to change a size, aspect ratio, or orientation (e.g. "make it
 "taller", "two columns"), **re-flow the whole region**, not just the target element:
 
 1. **Change the element's dimension AND its container's layout together.** Ask: "with the
-   new shape, where does everything else go?" If the answer leaves whitespace, the layout is
-   wrong.
+   new shape, where does everything else go?" Whitespace can create hierarchy;
+   a paragraph stranded in an accidental sliver of the grid cannot.
 2. **Match the layout to the new proportion:**
    - Wide media (16:9, 4:3) → media on **top**, content below (vertical card). `width: 100%`.
    - Tall/portrait media (9:16, 3:4) → media on the **left**, content to the **right**
      (horizontal card: `.card { display: flex }`, media `flex: 0 0 <fixed-width>`, content
      `flex: 1`). A full-width 9:16 in a wide card is ~2× taller than the card — almost never
      what's wanted.
-3. **No dead space.** If an element doesn't fill its track, either it should (`width: 100%`)
-   or the track should shrink to it — never a narrow box stranded in a wide cell.
+3. **Account for space.** A reading measure or deliberate offset can leave room
+   around content. Preserve that intention, but fix accidental narrow tracks,
+   cropped copy and containers stretched by an unrelated sibling.
 
 ## Aspect-ratio mechanics (the trap)
 
@@ -43,6 +44,13 @@ box (e.g. `aspect-ratio: 9/16; max-height: 220px` → width ≈ 124px, stranded 
 
 - **Containers own their children's flow.** A grid/flex parent decides placement; children
   don't float arbitrarily. Center, stretch, or pin deliberately.
+- **Keep source order meaningful.** Changing `order` also changes grid auto-placement.
+  For alternating compositions assign grid areas/columns deliberately, then reset
+  placement at the mobile breakpoint. Check the second and third rows too: the
+  first can look correct while a later paragraph lands in the number rail.
+- **Measure actual prose width.** No page overflow does not mean readable text.
+  Long prose squeezed into many very short lines calls for a container/placement
+  repair, not smaller type. Use inspect_layout's crampedProse selectors and boxes.
 - **No `height: 100vh`** for full-height (mobile address bar) → `min-height: 100dvh`.
 - **No fixed pixel heights on text containers** — content grows; use min-height + padding.
 - **Breakpoints are real layouts** (390 / 768 / 1280), not a shrunk desktop. Reasses column
@@ -52,6 +60,8 @@ box (e.g. `aspect-ratio: 9/16; max-height: 220px` → width ≈ 124px, stranded 
 ## Self-check after any size/layout edit
 
 - Did I restructure the **container**, or only the element? (If only the element → wrong.)
-- Is there any **dead/empty space** next to the resized element? (If yes → re-flow.)
+- Does surrounding space serve the composition, or expose a broken track?
+- Are later rows readable, and does the mobile visual sequence still match the
+  intended reading/action order?
 - Does the new proportion suit a vertical or horizontal arrangement — and did I pick it?
 - Re-checked 390 / 768 / 1280: no overflow, no stranded boxes, media uses `object-fit`?

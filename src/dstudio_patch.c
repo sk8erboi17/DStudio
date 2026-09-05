@@ -550,6 +550,7 @@ static void catalog_append(char *out, size_t cap, size_t *o, const char *dir,
     while ((de = readdir(d)) != NULL && *o < cap - 256) {
         const char *id = de->d_name;
         if (id[0] == '.' || !skill_id_ok(id)) continue;
+        if (!strcmp(file, "DESIGN.md") && !dstudio_design_system_supported(id)) continue;
         char md[2300];
         snprintf(md, sizeof md, "%s/%s/%s", dir, id, file);
         size_t len = 0;

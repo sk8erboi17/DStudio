@@ -56,7 +56,7 @@ async function step(name, fn) {
   finally { row.seconds = (performance.now()-t)/1000; save(); console.log(`${row.status}: ${name} (${row.seconds.toFixed(1)}s)`); }
 }
 const configs = {
-  main: { dir: 'ds4', endpoint: '/api/ds4/setup', commit: 'b0a147a7fba6d1a104d047d5a140e9bb4bfc13cd' },
+  main: { dir: 'ds4', endpoint: '/api/ds4/setup', commit: 'f4d03f6cf9f11c1e7b630bcb160853acfba7c52a' },
   laguna: { dir: 'ds4-laguna-s21', endpoint: '/api/laguna/setup', target: 'laguna-q4', commit: '448d5695d1c86401a4e9447c440feb983b73e6de' },
   qwen: { dir: 'ds4-qwen38', endpoint: '/api/qwen/setup', target: 'qwen38-q4k', commit: 'bd9cfbccc03a709a3f00b50e0ac1cc41c3fcf02d' },
   qwen35: { dir: 'ds4-qwen35', endpoint: '/api/qwen35/setup', target: 'qwen36-q6', commit: '60fca11f0c8b16ca50c757324dddd717ba043098' },

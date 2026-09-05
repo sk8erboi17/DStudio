@@ -3,6 +3,20 @@
 Correctness before performance. No test is accepted merely because a function
 name, comment, prompt phrase or CSS declaration occurs in application source.
 
+Main engine update and real DeepSeek/GLM prefill/decode comparison:
+[September 5 update](../docs/DS4_MAIN_UPDATE_2026-09-05.md).
+`make test-main-decode-metrics` checks timing-span parsing and refuses speed
+comparisons for failed workloads or changed model/prompt identities. The live
+runner is opt-in and starts one actual model at a time.
+
+Published benchmark charts use Matplotlib. Regenerate the engine, Design and
+anonymous PDF charts from committed aggregates with
+`python3 tests/support/publish_benchmark_charts.py`; run
+`python3 tests/unit/published_benchmark_charts_test.py` to exercise actual
+export validation, private-field exclusion, plotted values and PNG rendering.
+These tests do not add inference or quality measurements. See the
+[README results](../README.md#latest-measured-results) for their distinct scopes.
+
 | Directory | Executes | Does not prove |
 | --- | --- | --- |
 | `unit/` | Production functions with controlled inputs and checked outputs | A model answered correctly |
@@ -176,6 +190,21 @@ generic prefill failure is no longer mislabeled as an out-of-memory diagnosis.
 
 ### Model-free checks
 
+For an explicit real-embedding benchmark of every PDF in a supplied directory,
+see [PDF library benchmark](../docs/PDF_LIBRARY_BENCHMARK.md). It retains private
+source-grounded questions, per-file cold/warm times, retrieval/evidence failures
+and matplotlib charts in ignored artifacts. This tests retrieval, not answers
+from a generative model.
+
+For complete PDF reading, run `make test-pdf-complete` (Poppler and Playwright
+WebKit required). This executes the native reader on actual PDF fixtures and
+compares all text, page by page, to independent Poppler extraction. It covers
+uneven page lengths, warm/changed inputs, sparse/scanned/oversized fallbacks,
+native images, mixed attachment preparation and full Chat upload with actual
+source highlights. Only the browser's engine response is simulated; no model
+is loaded. Reports/screenshots are kept in ignored `tests/.artifacts/pdf-complete-*`.
+See [the reading design and limits](../docs/PDF_READING.md).
+
 For PDF evidence, run `make test-pdf-evidence`, also with
 `DSTUDIO_TEST_BROWSER=webkit`. This uses real synthetic PDFs, the native HTTP
 endpoint and Poppler to verify passage matching, render geometry and clickable
@@ -231,6 +260,29 @@ The old source-pattern contract files were removed. Their useful parser, LAN,
 Markdown and browser checks were retained as behavioral tests. Build-failure
 injection tests cover cleanup and source preservation, not compiler correctness;
 real first-run builds provide that separate evidence.
+
+Original Design packs and native agent quality have separate checks:
+`make test-design-originals` exercises the actual catalog and rendered components;
+`tests/live/design_originals_comparison.mjs` launches the real native agent.
+`tests/support/design_comparison_audit.mjs` operates completed generated pages;
+`tests/support/design_comparison_report.mjs` summarizes two full audits, retaining
+failures and rejecting mismatched models, prompts, settings or audit revisions.
+`make test-design-comparison-report` tests this accounting with synthetic
+receipts; it is not an inference or aesthetic-quality test.
+`node tests/live/design_generation_limit_test.mjs` explicitly loads real DS4
+weights and deliberately limits each round to one token. It checks three bounded
+continuations, an honest incomplete status, return to the input loop and prior
+file preservation. This is runtime fault injection, not a useful-answer or model
+quality test. Run it sequentially after other model tests. An optional captured
+comparison directory selects its frozen executable/source to reproduce the old
+failure; that failing receipt is retained rather than counted as passing.
+`make test-design-tool-recovery` executes the native loop with deliberately
+truncated simulated model frames and verifies exact file preservation/retry
+results. `make test-design-archive-build` compiles a real local source archive
+without engine Git metadata and checks rebuilds after source changes. Neither
+test loads a model; the archive test does not download its fixture.
+See [Design systems and regression coverage](../docs/DESIGN_SYSTEMS.md).
+Successful previews and prompt-string checks are not counted as model quality.
 
 See the [real-run report](../docs/ENGINE_ACCEPTANCE.md) for actual failures as well
 as successes. Qwen native generation throughput is reported separately from

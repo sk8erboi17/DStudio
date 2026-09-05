@@ -5,9 +5,10 @@ description: The floor every artifact must clear — WCAG 2.2 AA: real contrast,
 
 # CRAFT: accessibility baseline
 
-Target **WCAG 2.2 AA** as the working ceiling — it clears the legal floor (EAA / ADA / EN
-301 549). Below it is craft debt. These are the machine-checkable gates; clear them before
-shipping, and verify against the **rendered** result, not the CSS source.
+Use these checks as a practical accessibility baseline, not a certification of
+WCAG conformance or legal compliance. Automated gates cover only part of the work.
+Operate the controls, test keyboard order and enlarged text, and inspect the
+**rendered** result rather than inferring accessibility from CSS declarations.
 
 ## Color contrast (the one most often missed)
 

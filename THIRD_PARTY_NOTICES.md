@@ -1,8 +1,11 @@
 # Third-Party Notices
 
-This repository includes design-system content adapted from Open Design and
-integrations that download optional third-party runtimes or model weights on
-demand. Downloaded runtimes and weights are not committed to this repository.
+DStudio's locally authored design systems — Folio, Signal, Forma, Grove and Pulse —
+are included in [`extension/design-systems/`](extension/design-systems/) under the
+[repository license](LICENSE). No third-party design catalog is bundled or
+downloaded. The integrations below download optional runtimes or model weights
+on demand; their notices and licenses still apply. Downloaded runtimes and
+weights are not committed.
 
 ## Ideogram 4 FP8 (optional image-generation runtime)
 
@@ -58,21 +61,6 @@ DStudio runs the official checkpoint through the pinned native Metal engine,
 not a hosted API. Users must review the current model terms and confirm that
 their territory and intended use are authorized before download or generation.
 DStudio does not redistribute the downloaded weights or grant model-use rights.
-
-## Open Design
-
-- Source: https://github.com/nexu-io/open-design
-- Copyright: 2026 Open Design contributors
-- Imported from commit: `8123cc69808137ff765aad782e5eabf750249ca5`
-- License: Apache License 2.0
-- Local license copy: `third_party/open-design/LICENSE`
-- Imported locations:
-  - `extension/design-systems/*` entries with `ds4_upstream: open-design/...`
-
-The imported Markdown pack files were modified for DStudio/DS4 by adding
-`ds4_*` frontmatter metadata and local-first blueprint classification where
-provider-backed workflows cannot run directly inside DS4. Modified imported
-files carry a `ds4_modified_notice` frontmatter field.
 
 ## Optional GSA Recon Tools
 

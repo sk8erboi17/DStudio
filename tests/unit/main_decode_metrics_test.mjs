@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import {prefillMetrics,workloadSummary,compareWorkloads} from '../support/main_decode_metrics.mjs';
+
+assert.deepEqual(prefillMetrics('chat ctx=1024..1536:512 prompt done 2.000s'),{tokens:512,seconds:2,tokensPerSecond:256});
+assert.equal(prefillMetrics('chat ctx=0..10:9 prompt done 1.0s'),null);
+assert.equal(prefillMetrics('chat ctx=0..10:10 prompt done 0.0s'),null);
+assert.equal(prefillMetrics('no prefill evidence'),null);
+assert.equal(prefillMetrics('chat ctx=0..2:2 prompt done 1.0s\nchat ctx=0..2:2 prompt done 1.0s'),null);
+const rows=[20,10,30].map((tokensPerSecond,i)=>({id:'a',repeat:i+1,request:{temperature:0},status:'pass',tokensPerSecond,prefillTokensPerSecond:tokensPerSecond*4}));
+assert.deepEqual(workloadSummary(rows),{allCorrect:true,decode:{median:20,min:10,max:30},prefill:{median:80,min:40,max:120}});
+assert.equal(workloadSummary(rows.slice(1)).decode,null);
+assert.equal(workloadSummary(rows.map((r,i)=>({...r,status:i?'pass':'fail'}))).decode,null);
+assert.equal(workloadSummary([rows[0],rows[0],rows[0]]).decode,null);
+const before={mode:'ds4-ram',args:['--metal','--ctx','8192','--port','9991'],model:{path:'/same',bytes:123,mtimeMs:12},cases:[{id:'a',prompt:'exact'}],runs:rows};
+const after={...before,runs:rows.map(r=>({...r,tokensPerSecond:r.tokensPerSecond*1.2}))};
+assert.ok(Math.abs(compareWorkloads(before,after).a.decodeChangePercent-20)<1e-9);
+assert.throws(()=>compareWorkloads(before,{...after,model:{...after.model,mtimeMs:13}}));
+assert.throws(()=>compareWorkloads(before,{...after,cases:[{id:'a',prompt:'changed'}]}));
+assert.throws(()=>compareWorkloads(before,{...after,args:['--metal','--ctx','4096']}));
+assert.throws(()=>compareWorkloads(before,{...after,runs:rows.map(r=>({...r,request:{temperature:1}}))}));
+assert.doesNotThrow(()=>compareWorkloads(before,{...after,args:['--port','1234','--ctx','8192','--metal']}));
+assert.equal(compareWorkloads(before,{...after,runs:after.runs.map(r=>({...r,status:'fail'}))}).a.decodeChangePercent,null);
+console.log('main_decode_metrics_test: PASS (processed spans, medians, failed/partial runs, model and prompt identity)');

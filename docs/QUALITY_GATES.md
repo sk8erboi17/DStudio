@@ -30,10 +30,10 @@ safety, visual, or persistence metric goes down.
   release decision must remain reproducible from prompts, transcripts, tool
   events, generated files, screenshots, launch status and summary JSON.
 - Quality-first inference is part of the baseline, not a benchmark option.
-  Real-model Cowork benchmark profiles may explicitly request 393,216 context
-  tokens, but the interactive Cowork surface must preserve the context selected
-  by the user in Settings. Design and Learn own the temporary 393,216-token
-  true-Max launch override. Design and Cowork default to EOS/context-bound
+  Real-model Cowork/Design release profiles may explicitly request 393,216
+  context tokens, but interactive Cowork preserves the user's Settings context
+  and Design uses that selection with a 32k minimum, including Thinking Max.
+  Learn retains its separate true-Max launch policy. Design and Cowork default to EOS/context-bound
   hidden reasoning with no application token cap. Design exposes optional 8k,
   16k and 24k per-round caps only when the user explicitly selects one; such a
   cap closes the native `</think>` transition without capping the tool response
@@ -56,13 +56,18 @@ safety, visual, or persistence metric goes down.
 | G0 — build | C/JS/Python compile and syntax | clean compiler; no malformed benchmark manifest |
 | G1 — deterministic runtime | Office bridge, path confinement, DSML, JSON, atomic writes, routed image transport | executed behavioral unit/integration tests pass; source-pattern checks are not evidence |
 | G2 — deterministic scenarios | benchmark schemas and fixed fixtures | every case is reachable from every declared profile; strict floors validate |
-| G3 — SSD smoke | two representative real-model cases per runtime | 100% pass/tool compliance, SSD effective, KV present |
-| G4 — SSD standard | broad source/tool and artifact matrix | 100% pass/tool compliance, zero safety failures |
-| G5 — SSD long session | context retention plus several dependent revisions | facts/copy persist, targeted edits apply, final deliverable passes |
+| G3 — resident smoke | two representative real-model cases per runtime | 100% pass/tool compliance, SSD off as specified above, KV present |
+| G4 — resident standard | broad source/tool and artifact matrix | 100% pass/tool compliance, zero safety failures |
+| G5 — resident long session | context retention plus several dependent revisions | facts/copy persist, targeted edits apply, final deliverable passes |
 | G6 — native visual | generated-asset correspondence plus full desktop/mobile layout render | matching native encoder active, valid local PNG, generation precedes request-correspondence inspection, exact 390px mobile viewport, no skipped layout check, reported defect, overlap or stretched sparse panel |
 | G7 — release/platform | packaging and fast repository checks | packaged helpers/binaries present; no new failure in `check-fast` |
 
 Run gates in order. A later green gate does not excuse an earlier red one.
+
+These are release-profile requirements, not labels to attach to every development
+experiment. The [original-systems comparison](DESIGN_AGENT_EXPERIMENT.md) uses
+its own matched, disclosed 32k/8192-token development bounds and retains failures;
+it does not qualify the full release ladder or native-vision/media lanes.
 
 ## Cowork contract
 
@@ -112,16 +117,19 @@ Design is graded at source, artifact, rendered-pixel and multi-turn levels.
 - Brief lists introduced as `exact labels`, `exact strings` or `exact copy`,
   plus singular `exact text` requirements, accumulate for the current session
   and are checked byte-for-byte in visible authored text. Missing or hidden-only
-  copy is P0: comments, metadata, `sr-only`/visually-hidden text, CSS casing and
-  adjacent DOM nodes are not literal equivalents. An explicit old-to-new copy
+  copy is P0: comments, metadata, `sr-only`/visually-hidden text and CSS casing
+  are not literal equivalents. Ordinary inline emphasis/spans within one phrase
+  are allowed; stitching copy across separate blocks or controls is not. The
+  bounded source check does not replace a rendered visibility check. An explicit old-to-new copy
   revision also makes the old literal forbidden case-insensitively so stale
   secondary views cannot reintroduce it.
 - Every meaningful `<img>` needs specific alternative text. Decorative images
   require an explicit decorative treatment.
 - `verify_artifact` must report zero P0 findings. A successful
   `critique_write` uses `ds4-design-quality-v2` with a composite of at least
-  `8.5`, no must-fix items and `ship` as the decision.
-- Desktop (1280 px) and mobile (390 px) renders must reach the selected
+  `8.5`, no must-fix items and `ship` as the decision. This is a runtime gate,
+  not an independent aesthetic-quality score or proof that every control works.
+- In the native-vision release lane, desktop (1280 px) and mobile (390 px) renders must reach the selected
   DeepSeek/GLM native vision encoder. Chrome's macOS 500 px minimum is neutralized with exact-width framed
   viewports. The `visual_check` event records DOM `clientWidth`, `scrollWidth`,
   horizontal overflow, interactive-overlap pair counts and stretched sparse
@@ -131,7 +139,8 @@ Design is graded at source, artifact, rendered-pixel and multi-turn levels.
   working canvas must opt out explicitly with `data-allow-empty-space`. A
   missing probe, skipped visual check, incomplete/truncated five-criterion
   grading, or model-reported contrast, overlap, clipping, overflow or
-  completeness defect is red in the real suite.
+  completeness defect is red in the real suite. Text-only engines expose bounded
+  DOM geometry checks, not pixel inspection; passing them cannot qualify G6.
 - `generate_image` writes a sandboxed, atomic project-local PNG through the
   direct local image endpoint. The selected native-vision agent calls `see_image` after generation
   and before use only to confirm that the visible subject and explicit constraints

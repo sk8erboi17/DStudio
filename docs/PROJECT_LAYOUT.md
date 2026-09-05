@@ -9,7 +9,7 @@
 - `docs/`: contributor documentation and verification reports. Superseded
   snapshots live in `docs/history/`, clearly separated from current results.
 - `assets/`: shipped icons, images and bundle metadata.
-- `third_party/`: attributed vendored dependencies.
+- `extension/design-systems/`: original DStudio visual systems, included offline.
 - `build/`, `tests/.build/`, `tests/.artifacts/`, `dist/`: ignored generated outputs.
 
 `ds4/`, `ds4-laguna-s21/`, `ds4-qwen38/` and `ds4-qwen35/` are ignored managed engines. Their

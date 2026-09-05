@@ -1,5 +1,9 @@
 # Headless installation and real-model checks — September 5, 2026
 
+This report describes the earlier pinned revisions below. Main was subsequently
+updated; see [the main update and before/after comparison](DS4_MAIN_UPDATE_2026-09-05.md)
+for the new revision's separately executed checks.
+
 ## Result in plain language
 
 **All four engine checkouts install from scratch. All nine supported chat

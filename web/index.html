@@ -9815,7 +9815,7 @@
             <span class="design-gallery-count" id="design-preview-source"></span>
           </div>
           <div class="design-preview-frame-wrap">
-            <iframe id="design-preview-frame" class="design-preview-frame" title="Design preview" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+            <iframe id="design-preview-frame" class="design-preview-frame" title="Design preview" sandbox="allow-scripts allow-forms"></iframe>
           </div>
           <div class="design-preview-actions">
             <button type="button" id="design-preview-use" class="btn btn--primary">Use brief</button>
@@ -16607,7 +16607,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         ];
         files.forEach((a, i) => {
           const kind = a.kind === 'image' ? 'image'
-            : a.kind === 'pdf' ? 'PDF document (the semantic read planner chose an exact page range, a bounded whole-document overview, or evidence retrieved across every page; selected scans and figures were read by a local vision model; absence of a figure description does not prove the page has no figures)'
+            : a.kind === 'pdf' ? 'PDF document (small fitting documents include all extracted text and physical page labels; other documents use a planned page range, bounded overview or hybrid retrieval. Rendered pages, when attached, are available to the current model. Text extraction alone does not establish visual coverage; absence of a figure description does not prove there are no figures)'
             : a.kind === 'image-followup' ? 'image follow-up (a fresh look at the previously attached image, answering the current question)'
             : 'file';
           lines.push(
@@ -22856,9 +22856,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
       }
 
-      // Read a PDF at send. Interactive chat uses an adaptive fixed-size context:
-      // small PDFs keep every page; long books select front/back matter, pages
-      // relevant to the question and an even whole-document sample. Text is
+      // Read a PDF at send. Try a complete, bounded read first; otherwise the
+      // semantic planner selects exact pages, an overview or hybrid retrieval. Text is
       // capped near 20K characters locally (~5K tokens) or 48K on cloud,
       // regardless of page count.
       // Text layers are extracted locally; semantic retrieval uses the small
@@ -22868,7 +22867,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // Never throws.
       async function analyzePdfAttachment(att, question, readPlan = { mode: 'overview' }, opts = {}) {
         const entry = imageAttachData.get(att.id);
-        if (!entry || !entry.pdfBytes) return;
+        if (!entry || !entry.pdfBytes) return false;
+        const completeProbe = readPlan.mode === 'complete';
+        let completed = false;
         entry.status = 'analyzing';
         entry.progress = '';
         renderPendingAttachments();
@@ -22880,7 +22881,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const maxChars = cloudChat ? 48 * 1024 : (isLanClientMode() ? 24 * 1024 : 20 * 1024);
         const payload = {
           data_uri: entry.pdfBytes, job,
-          profile: readPlan.mode === 'search' ? 'semantic' : 'interactive',
+          profile: completeProbe ? 'complete' : (readPlan.mode === 'search' ? 'semantic' : 'interactive'),
           max_chars: maxChars,
           text_only: !opts.nativeVision,
           native_vision: !!opts.nativeVision,
@@ -22915,6 +22916,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           }
           const r = await res.json().catch(() => ({}));
           if (!res.ok || !r.ok) throw new Error(r.error || `HTTP ${res.status}`);
+          // Older hosts, scans and over-budget documents must not be mistaken
+          // for a complete read. Retain their bytes for the normal planner.
+          if (completeProbe && (r.readPlanRequired || r.completeText !== true ||
+              r.truncated || r.sampled || r.textPages !== r.total ||
+              (opts.nativeVision && r.vision?.length !== r.total))) return false;
           const t = String(r.text || '').trim();
           const txt = r.textPages | 0;
           const scans = r.scannedPages | 0;
@@ -22953,6 +22959,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           }
           const parts = [];
           if (txt > 0) parts.push('text layer extracted locally');
+          if (completeProbe) parts.push(`all ${r.total} physical pages included in full; no retrieval or page sampling`);
           if (r.semantic) {
             const passages = r.retrievalChunks ? ` from ${r.retrievalChunks} overlapping passages` : '';
             parts.push(`${r.selectedPages || r.pages} relevant pages retrieved with hybrid semantic/keyword search${passages} across all ${r.total || r.pages} pages`);
@@ -22973,18 +22980,42 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           att.pdfSections = Array.isArray(r.sections) ? r.sections : [];
           att.pdfSectionLinks = Array.isArray(r.sectionLinks) ? r.sectionLinks : [];
           entry.status = visualRefs.length ? 'native-model' : 'ok';
+          completed = true;
+          return true;
         } catch (e) {
+          if (completeProbe) return false;
           att.content = `[PDF "${att.name}" attached, but reading it failed: ${e?.message || e}.]`;
           entry.status = 'failed';
+          return false;
         } finally {
           clearInterval(poll);
           entry.progress = '';
           // The PDF bytes exist only to feed this read — a 1GB PDF is ~1.37GB
           // of data URI, which must not linger in the session LRU (the small
           // rendered-page preview in entry.dataUri is all later UI needs).
-          delete entry.pdfBytes;
+          if (!completeProbe || completed) delete entry.pdfBytes;
           renderPendingAttachments();
         }
+      }
+
+      // First try a lossless local read. No inference is needed to choose
+      // evidence when the entire document fits. Long/uncertain PDFs still use
+      // the semantic planner; its subsequent read reuses the extracted layer.
+      async function preparePdfAttachments(pdfs, question, opts = {}) {
+        const complete = await Promise.all(pdfs.map((attachment) =>
+          analyzePdfAttachment(attachment, question, { mode: 'complete' }, opts)));
+        const remaining = pdfs.filter((_attachment, i) => !complete[i]);
+        if (!remaining.length) return;
+        remaining.forEach((attachment) => {
+          const entry = imageAttachData.get(attachment.id);
+          if (entry) { entry.status = 'analyzing'; entry.progress = 'planning pages'; }
+        });
+        renderPendingAttachments();
+        const readPlan = opts.roadmapPdfPlan
+          ? { mode: 'search', query: `Learning path evidence: prerequisites, concept order, curriculum, outcomes, exercises and projects. Learner goal: ${question || 'infer the goal from this document'}`.slice(0, 900) }
+          : await routePdfReadPlan(question, Store.getSettings());
+        await Promise.all(remaining.map((attachment) =>
+          analyzePdfAttachment(attachment, question, readPlan, opts)));
       }
 
       function attachTileMeta(a) {
@@ -23014,7 +23045,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           toast('This model is text-only. Remove the image or select DeepSeek Vision-Exp / GLM 5.3 with its native encoder.', 'warn');
           return null;
         }
-        let pdfReadPlan = { mode: 'overview' };
         if (nativeModelVision && imgs.length) {
           imgs.forEach((attachment) => {
             const entry = imageAttachData.get(attachment.id);
@@ -23023,17 +23053,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           renderPendingAttachments();
         }
         if (pdfs.length) {
-          pdfs.forEach((a) => {
-            const entry = imageAttachData.get(a.id);
-            if (entry) { entry.status = 'analyzing'; entry.progress = 'planning pages'; }
-          });
-          renderPendingAttachments();
-          pdfReadPlan = roadmapPdfPlan
-            ? { mode: 'search', query: `Learning path evidence: prerequisites, concept order, curriculum, outcomes, exercises and projects. Learner goal: ${q || 'infer the goal from this document'}`.slice(0, 900) }
-            : await routePdfReadPlan(q, Store.getSettings());
-          await Promise.all(pdfs.map((a) => analyzePdfAttachment(a, q, pdfReadPlan, {
-            nativeVision: nativeModelVision,
-          })));
+          await preparePdfAttachments(pdfs, q, { nativeVision: nativeModelVision, roadmapPdfPlan });
         }
         return takePendingAttachments();
       }
@@ -23050,17 +23070,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           attachment.kind === 'pdf' && imageAttachData.get(attachment.id)?.pdfBytes);
         pdfs.forEach((attachment) => { attachment.coworkNativeVisionRequested = nativeVision; });
         if (pdfs.length) {
-          pdfs.forEach((attachment) => {
-            const entry = imageAttachData.get(attachment.id);
-            if (entry) { entry.status = 'analyzing'; entry.progress = 'planning pages'; }
-          });
-          renderPendingAttachments();
-          const readPlan = await routePdfReadPlan(q, Store.getSettings());
           const coworkDir = Store.getSettings().workdirs?.cowork || Store.getState().ui.agentWorkdir || '';
-          await Promise.all(pdfs.map((attachment) => analyzePdfAttachment(attachment, q, readPlan, {
-            nativeVision,
-            coworkDir,
-          })));
+          await preparePdfAttachments(pdfs, q, { nativeVision, coworkDir });
         }
         return takePendingAttachments();
       }
@@ -24210,7 +24221,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
 
       function designTemplateTags(s) {
-        const tags = [s?.sourceLabel || 'Open Design'];
+        const tags = [s?.sourceLabel || 'DStudio original'];
         const cat = String(s?.category || '').trim();
         const out = String(s?.outputKinds || '').trim();
         if (cat) tags.push(designTemplateName(cat, cat));
@@ -24226,11 +24237,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             const title = designTemplateName(s.name, s.id);
             return {
               source: 'design-system',
-              sourceLabel: 'Design system',
+              sourceLabel: 'DStudio original',
               id: `design-system:${s.id}`,
               designSystemId: s.id,
               title,
-              tags: designTemplateTags({ ...s, sourceLabel: 'Design system' }),
+              tags: designTemplateTags({ ...s, sourceLabel: 'DStudio original' }),
               desc: designTemplateDesc(s.description, s.id),
               previewUrl: s.hasComponents ? `/api/design-system-preview/${encodeURIComponent(s.id)}/components.html` : '',
               prompt: `Use the original bundled design system "${title}" (${s.id}) as the visual base. Apply design_system("${s.id}"), read its DESIGN.md and local component/tokens files if present, then design from my brief using that brand language. Keep the result self-contained, responsive, accessible, and ask 2 concise questions first only if the brief is missing critical product or audience details.`
@@ -24289,7 +24300,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             loading: 'eager',
             tabindex: '-1',
             title: `${preset.title} preview`,
-            sandbox: 'allow-scripts allow-same-origin',
+            sandbox: 'allow-scripts allow-forms',
           }),
         ]);
       }
@@ -25175,7 +25186,15 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         loadUserSkills();
       }
       async function loadDs() {
-        try { const r = await Engine.designSystems(); dsCache = (r && r.designSystems) || []; }
+        try {
+          const r = await Engine.designSystems();
+          dsCache = (r && r.designSystems) || [];
+          const previous = Store.getSettings().designSystem;
+          if (dsCache.length && previous && !dsCache.some((s) => s.id === previous)) {
+            Store.setSettings({ designSystem: '' });
+            toast('The previous style was retired. Choose a DStudio original in the Design gallery.', 'info');
+          }
+        }
         catch { dsCache = dsCache || []; }
         rebuildGearIfOpen();
       }
@@ -26524,7 +26543,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         'gsa-tools': 'Installing and verifying managed security tools, nuclei templates and runtime data.',
         'ds4-latest': 'Fetching upstream ds4, fast-forwarding, rebuilding and verifying DStudio patches.',
         'patch-verify': 'Checking patch anchors, rebuilding the structured agent patch and design runtime.',
-        'design-systems': 'Verifying the installed Open Design design systems.',
+        'design-systems': 'Verifying the bundled DStudio originals. No catalog download.',
       };
 
       const updateTaskLabel = (task) => UPDATE_TASK_LABELS[task] || task;
@@ -28498,7 +28517,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (!r.ok) return { ...data, ok: false, error: data.error || `Qwen3.6 setup HTTP ${r.status}` };
         return data;
       }
-      async function setupContent() {   // download optional design systems
+      async function setupContent() {   // verify bundled originals, no download
         const r = await apiFetch('/api/setup/content', { method: 'POST', headers: H });
         const data = await r.json().catch(() => ({ ok: false, error: `/api/setup/content returned HTTP ${r.status} with invalid JSON` }));
         if (!r.ok && data && data.ok !== false) data.ok = false;
@@ -29026,7 +29045,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return {
           'setup-ds4': 'Install',
           'setup-laguna': 'Install',
-          'setup-content': 'Download',
+          'setup-content': 'Verify',
           'download-model': 'Download',
           'start-engine': 'Start',
           'open-settings': 'Settings',
@@ -29052,18 +29071,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           return;
         }
         if (action === 'setup-content') {
-          toast('Downloading design systems…', 'info');
-          const r = await Engine.setupContent().catch(() => null);
-          if (!r || r.ok === false) { toast(r?.error || 'Could not start content download', 'error'); refresh(); return; }
-          if (r.already || r.contentOk) { toast('Design systems installed', 'info'); refresh(); return; }
-          // Background download: poll status until it lands (or stops running).
-          for (let i = 0; i < 200; i++) {
-            await new Promise((res) => setTimeout(res, 1500));
-            const st = await Engine.status().catch(() => null);
-            if (st?.contentOk) { toast('Design systems installed', 'info'); break; }
-            if (st && !st.contentDownloading) { toast('Content download failed — see logs', 'error'); break; }
-            refresh();
-          }
+          const r = await Engine.setupContent().catch((e) => ({ok:false,error:e?.message}));
+          toast(r?.ok ? 'DStudio originals are included and ready.'
+                      : (r?.error || 'Bundled originals are incomplete. Rebuild or reinstall DStudio.'),
+                r?.ok ? 'info' : 'error');
           refresh();
           return;
         }

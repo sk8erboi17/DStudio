@@ -112,9 +112,9 @@ static int design_system_preview_rel_ok(const char *rel) {
 
 /* GET /api/design-system-preview/<id>/<components.html|tokens.css|preview/...>
  * serves bundled design-system preview assets directly from extension/design-systems.
- * No generated fallback is produced here: the gallery either shows upstream local
- * files or a text-only card from DESIGN.md metadata. */
-static void api_design_system_preview(int fd, const char *path, int head_only) {
+ * Only the original local catalog is served, including on older installations. */
+static void api_design_system_preview(int fd, const char *path, int head_only,
+                                      const char *request, size_t request_len) {
     static const char prefix[] = "/api/design-system-preview/";
     const char *raw = path + strlen(prefix);
     const char *slash = strchr(raw, '/');
@@ -122,6 +122,33 @@ static void api_design_system_preview(int fd, const char *path, int head_only) {
     char id[64] = {0};
     url_decode_into(raw, (size_t)(slash - raw), id, sizeof id);
     if (!skill_id_ok(id)) { send_text(fd, "400 Bad Request", "bad id\n", head_only); return; }
+    if (!dstudio_design_system_supported(id)) { send_text(fd, "404 Not Found", "retired or unknown design system\n", head_only); return; }
+    /* WebKit resolves CSP 'self' against the opaque origin of a sandboxed
+     * frame. Name this pack's actual resource origin explicitly instead of
+     * removing the sandbox or permitting arbitrary HTTP scripts/CDNs. */
+    char host[320] = {0};
+    for (size_t pos = 0; request && pos < request_len;) {
+        const char *line = request + pos;
+        const char *end = memchr(line, '\n', request_len - pos);
+        size_t size = end ? (size_t)(end - line) : request_len - pos;
+        pos += size + (end != NULL);
+        if (size < 5 || strncasecmp(line, "Host:", 5)) continue;
+        const char *value = line + 5;
+        size_t n = size - 5;
+        while (n && (*value == ' ' || *value == '\t')) { value++; n--; }
+        while (n && (value[n - 1] == '\r' || value[n - 1] == ' ' || value[n - 1] == '\t')) n--;
+        if (!n || n >= sizeof(host) || host[0]) { host[0] = 0; break; }
+        int valid = 1;
+        for (size_t i = 0; i < n; i++) {
+            unsigned char c = (unsigned char)value[i];
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                  (c >= '0' && c <= '9') || c == '.' || c == '-' ||
+                  c == ':' || c == '[' || c == ']')) { valid = 0; break; }
+        }
+        if (!valid) { host[0] = 0; break; }
+        memcpy(host, value, n); host[n] = 0;
+    }
+    if (!host[0]) { send_text(fd, "400 Bad Request", "valid Host required\n", head_only); return; }
     char rel[1024] = {0};
     url_decode_into(slash + 1, strcspn(slash + 1, "?"), rel, sizeof rel);
     if (!design_system_preview_rel_ok(rel)) { send_text(fd, "400 Bad Request", "bad preview path\n", head_only); return; }
@@ -139,7 +166,17 @@ static void api_design_system_preview(int fd, const char *path, int head_only) {
     size_t len = 0;
     char *buf = read_html_disk(file, &len);
     if (!buf) { send_text(fd, "404 Not Found", "preview file not found\n", head_only); return; }
-    send_response_hdrs(fd, "200 OK", design_content_type(rel), buf, len, head_only, DESIGN_HEADERS);
+    char asset_sources[1024], headers[4096];
+    snprintf(asset_sources, sizeof asset_sources,
+             "http://%s/api/design-system-preview/%s/ https://%s/api/design-system-preview/%s/",
+             host, id, host, id);
+    snprintf(headers, sizeof headers,
+             "Connection: close\r\nCache-Control: no-store\r\n"
+             "X-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n"
+             "Content-Security-Policy: default-src 'none'; base-uri 'none'; form-action 'none'; "
+             "style-src 'unsafe-inline' %s; script-src %s; img-src data: %s;\r\n",
+             asset_sources, asset_sources, asset_sources);
+    send_response_hdrs(fd, "200 OK", design_content_type(rel), buf, len, head_only, headers);
     free(buf);
 }
 

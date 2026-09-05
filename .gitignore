@@ -87,7 +87,4 @@ extension/gsa/tools/install-gsa-tools.ps1
 extension/gsa/tools/install-gsa-tools.log
 extension/gsa/tools/.crates*
 
-# Optional design systems downloaded by the setup doctor at first run.
-# Skills are user-authored under the per-user data directory, and GSA/RSA use
-# tool catalogs only; neither has a downloaded content directory in this tree.
-/extension/design-systems/
+# Original design systems are versioned and bundled, never downloaded.
