@@ -1,0 +1,4 @@
+static void agent_worker_maybe_append_datetime_context(agent_worker *w) {
+    if (w->datetime_context_injected) return;
+
+    time_t now = ds4ui_benchmark_now(); /*DS4UI_BENCHMARK_CLOCK*/

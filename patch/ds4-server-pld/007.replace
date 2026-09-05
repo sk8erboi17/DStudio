@@ -1,0 +1,4 @@
+#include "pld_server_finish.inc"
+        if (stop_decode) break;
+    }
+    server_generation_leave(s);

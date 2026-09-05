@@ -1,0 +1,3 @@
+        int toks[17];
+        int ntok = 0;
+        if (!s->batched_mode &&

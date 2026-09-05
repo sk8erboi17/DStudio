@@ -4601,13 +4601,15 @@
     .cbar-model-btn {
       display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
       background: var(--surface); color: var(--text-2);
-      border: 1px solid var(--border-2); border-radius: 9px;
+      border: 1px solid var(--border-2); border-radius: 999px;
       height: 34px;
       padding: 4px 10px; font-size: 12px; cursor: pointer;
       max-width: min(42vw, 210px);
     }
-    .cbar-model-btn span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .cbar-model-btn .cbar-model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .cbar-model-btn:hover { border-color: var(--accent); color: var(--text); }
+    .cbar-model-btn[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+    .cbar-model-btn .cbar-model-quant { flex: none; color: var(--accent-2); font: 10px var(--font-mono); }
     .cbar-model-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); flex-shrink: 0; }
     .cbar-model-cv { color: var(--faint); font-size: 0.7rem; }
     .cbar-loop { position: relative; }
@@ -4641,24 +4643,57 @@
     }
     .cbar-loop-btn.on .cbar-loop-ck { border-color: var(--accent); background: var(--accent); color: white; }
     .cbar-model-menu {
-      position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 40; min-width: 240px; max-width: 360px;
-      max-height: 320px; overflow-y: auto;
-      background: var(--surface); border: 1px solid var(--border-2); border-radius: 13px;
-      box-shadow: 0 22px 56px rgba(0, 0, 0, 0.6); padding: 6px;
+      position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 40;
+      width: 552px; max-width: calc(100vw - 24px); max-height: 450px;
+      display: flex; flex-direction: column; overflow: hidden;
+      background: color-mix(in srgb, var(--surface) 96%, transparent);
+      backdrop-filter: blur(30px) saturate(150%); -webkit-backdrop-filter: blur(30px) saturate(150%);
+      border: 1px solid var(--border-2); border-radius: 14px;
+      box-shadow: 0 26px 60px -18px rgb(0 0 0 / .45), inset 0 1px 0 color-mix(in srgb, var(--text) 5%, transparent);
     }
-    body.composer-raised .cbar-model-menu { top: calc(100% + 6px); bottom: auto; }
-    .cbar-model-empty { padding: 9px 11px; font-size: 11.5px; color: var(--faint); line-height: 1.5; }
+    .cbar-model-search { display: flex; align-items: center; gap: 9px; flex: none; padding: 12px 14px; border-bottom: 1px solid var(--border); color: var(--muted); }
+    .cbar-model-search svg { flex: none; }
+    .cbar-model-search input { flex: 1; min-width: 0; width: 100%; padding: 0; border: 0; outline: none; background: transparent; color: var(--text); font: 13px var(--font); }
+    .cbar-model-search input::placeholder { color: var(--muted); }
+    .cbar-model-search:focus-within { box-shadow: inset 0 -1px 0 var(--accent-dim); }
+    .cbar-model-search kbd { flex: none; border: 1px solid var(--border-2); border-radius: 5px; padding: 2px 5px; color: var(--muted); font: 10px var(--font-mono); }
+    .cbar-model-results { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-2) transparent; padding-bottom: 6px; }
+    .cbar-model-group-title { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; margin: 0; padding: 12px 14px 7px; background: var(--surface); color: var(--muted); font: 9px var(--font-mono); text-transform: uppercase; letter-spacing: .16em; }
+    .cbar-model-group-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    .cbar-model-group-count { color: var(--faint); letter-spacing: 0; }
+    .cbar-model-rows { display: flex; flex-direction: column; gap: 2px; padding: 0 6px; }
+    .cbar-model-empty { padding: 26px 16px; font-size: 13px; color: var(--muted); line-height: 1.6; text-align: center; }
     .cbar-model-item {
-      display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 10px;
+      position: relative; display: flex; align-items: center; gap: 11px; width: 100%; padding: 10px 12px;
       border: none; background: none; border-radius: 9px; cursor: pointer; text-align: left; color: var(--text-2);
-      transition: .12s;
+      transition: background .14s ease; scroll-margin-top: 34px;
     }
-    .cbar-model-item:hover { background: var(--surface-2); color: var(--text); }
-    .mi-body { flex: 1; min-width: 0; }
-    .mi-name { font-size: 13px; color: var(--text); }
-    .mi-sub { font-size: 11px; color: var(--muted); }
-    .mi-badge { font-size: 10.5px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border-2); color: var(--faint); }
-    .mi-badge.dl { color: var(--accent-2); border-color: var(--accent); }
+    .cbar-model-item:hover, .cbar-model-item:focus-visible { background: var(--surface-2); color: var(--text); }
+    .cbar-model-item:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+    .cbar-model-item.is-active { background: var(--accent-soft); }
+    .cbar-model-item.is-active::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 2px; border-radius: 0 2px 2px 0; background: var(--accent); }
+    .mi-radio { flex: none; width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--border-2); display: grid; place-items: center; }
+    .is-active .mi-radio { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .is-active .mi-radio::after { content: ''; width: 5px; height: 5px; border-radius: 50%; background: #fff; }
+    .mi-body { flex: 1; min-width: 0; display: grid; gap: 3px; }
+    .mi-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; min-width: 0; }
+    .mi-name { font-size: 13px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mi-variant { color: var(--muted); font-size: 11.5px; }
+    .mi-quant { flex: none; padding: 2px 5px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-2); color: var(--muted); font: 10px var(--font-mono); }
+    .is-active .mi-quant { border-color: var(--accent-dim); background: var(--accent-soft); color: var(--accent-2); }
+    .mi-sub { font: 10.5px/1.5 var(--font-mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mi-badge { flex: none; font-size: 11px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border-2); color: var(--muted); white-space: nowrap; }
+    .is-active .mi-badge { color: var(--accent-2); border-color: var(--accent); background: var(--accent-soft); }
+    .cbar-model-item:not(.is-active):hover .mi-badge, .cbar-model-item:not(.is-active):focus-visible .mi-badge { color: #fff; border-color: var(--accent); background: var(--accent); }
+    @media (hover: hover) and (pointer: fine) {
+      .cbar-model-item:not(.is-active):not(.needs-setup) .mi-badge { opacity: 0; }
+      .cbar-model-item:hover .mi-badge, .cbar-model-item:focus-visible .mi-badge { opacity: 1 !important; }
+    }
+    @media (max-width: 480px) {
+      .cbar-model-item { gap: 8px; padding: 10px 9px; }
+      .mi-badge { padding: 4px 7px; font-size: 10px; }
+      .cbar-model-btn .cbar-model-quant { display: none; }
+    }
     .cbar-model-dot.h3 { background: #8b5cf6; box-shadow: 0 0 0 3px color-mix(in srgb, #8b5cf6 18%, transparent); }
     .h3-prompt-guide {
       display: grid; gap: 7px; margin: 4px 5px 7px; padding: 9px 10px;
@@ -6654,6 +6689,19 @@
     .loading-card .btn { margin-top: 1rem; }
 
     /* ==================== Stage (center row of the grid) ==================== */
+    .document-table-preview { min-width: 0; padding: 12px; font: 13px/1.5 var(--font-sans, system-ui); }
+    .document-table-preview h3 { font-size: 16px; margin: 0 0 8px; }
+    .document-table-scroll { overflow: auto; max-width: 100%; }
+    .document-table-preview table { border-collapse: collapse; min-width: 100%; }
+    .document-table-preview th, .document-table-preview td { border: 1px solid rgba(128,128,128,.3); padding: 10px; vertical-align: top; text-align: left; min-width: 140px; }
+    .document-table-preview .document-table-cell > summary,
+    .agent-workstream .toolfold .document-table-cell > summary { display: block; cursor: pointer; font: inherit; color: inherit; }
+    .document-table-cell > summary::before { content: '▸ '; }
+    .document-table-cell[open] > summary::before { content: '▾ '; }
+    .document-table-cell small { display: block; opacity: .75; overflow-wrap: anywhere; }
+    .document-table-cell blockquote { margin: 8px 0; padding-left: 8px; border-left: 2px solid currentColor; white-space: pre-wrap; }
+    .document-table-cell p, .document-table-cell blockquote { min-width: 160px; max-width: 360px; overflow-wrap: anywhere; }
+
     /* The transcript, full width — the canvas takeover is the artifact view. */
     .stage {
       display: flex;
@@ -8290,6 +8338,20 @@
       background: color-mix(in srgb, var(--danger) 8%, transparent);
       color: var(--danger);
     }
+    #settings-dialog .set-ssd-notice {
+      margin-top: 10px;
+      padding: 12px 14px;
+      border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border));
+      border-radius: 9px;
+      background: color-mix(in srgb, var(--warn) 8%, transparent);
+      color: var(--text-2);
+      font-size: 0.76rem;
+      line-height: 1.55;
+    }
+    #settings-dialog .set-ssd-notice strong { color: var(--warn); }
+    #settings-dialog .set-ssd-notice p { margin: 6px 0; }
+    #settings-dialog .set-ssd-notice ul { margin: 6px 0; padding-left: 20px; }
+    #settings-dialog .set-ssd-notice .btn { margin-top: 6px; }
     #settings-dialog .set-toggle-card {
       position: relative;
       padding-right: 68px !important;
@@ -8636,6 +8698,22 @@
       .task-graph-canvas { gap: 28px; }
       .task-graph-level { flex-basis: 210px; }
     }
+    .pdf-evidence { margin: 16px 0; padding: 14px; border: 1px solid var(--border); border-radius: 12px; font-size: 13px; }
+    .pdf-evidence p, .pdf-evidence-outline p { color: var(--text-2); line-height: 1.5; }
+    .pdf-evidence blockquote { margin: 8px 0 14px; padding-left: 12px; border-left: 2px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .pdf-evidence-source { max-width: 100%; white-space: normal; text-align: left; }
+    .pdf-evidence-inline { color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 5px; cursor: pointer; font: inherit; padding: 0 4px; }
+    .pdf-evidence-dialog { width: min(1100px, 95vw); max-height: 94vh; margin: auto; padding: 18px; overflow: auto; border: 1px solid var(--border); border-radius: 14px; color: var(--text); background: var(--bg); }
+    .pdf-evidence-dialog::backdrop { background: #0009; }
+    .pdf-evidence-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .pdf-evidence-dialog blockquote { white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0; }
+    .pdf-evidence-passages { display: block; width: 100%; margin: 12px 0; padding: 8px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+    .pdf-evidence-page { position: relative; width: 100%; line-height: 0; background: white; }
+    .pdf-evidence-viewport { overflow: auto; max-height: 70vh; }
+    .pdf-evidence-page img { display: block; width: 100%; height: auto; }
+    .pdf-evidence-highlight { position: absolute; background: #ffd00066; outline: 1px solid #bb880099; pointer-events: none; }
+    .pdf-evidence-outline { width: 100%; padding: 12px; }
+    .pdf-evidence-outline .btn { display: block; max-width: 100%; white-space: normal; margin: 8px 0; text-align: left; }
   </style>
 </head>
 <body>
@@ -9281,7 +9359,7 @@
           </label>
           <label class="field">
             <span>Engine power <small class="set-restart-badge">Needs restart</small></span>
-            <small class="field-note field-note--block"><code>ds4 --power</code> balances throughput and memory pressure.</small>
+            <small class="field-note field-note--block" id="set-power-note"><code>ds4 --power</code> balances throughput and memory pressure.</small>
             <select id="set-power" aria-label="Engine power">
               <option value="70">70</option>
               <option value="80">80</option>
@@ -9290,16 +9368,28 @@
             </select>
           </label>
           <label class="field" id="set-ssd-streaming-row">
-            <span>SSD streaming <small class="set-restart-badge">Needs restart</small></span>
-            <small class="field-note field-note--block">Metal-only. Keep Off unless the model cannot remain resident in memory.</small>
-            <select id="set-ssd-streaming" aria-label="SSD streaming">
+            <span>SSD streaming <small class="set-restart-badge" id="set-ssd-streaming-badge">Needs restart</small></span>
+            <small class="field-note field-note--block" id="set-ssd-streaming-note">Metal-only. Keep Off unless the model cannot remain resident in memory.</small>
+            <select id="set-ssd-streaming" aria-label="SSD streaming" aria-describedby="set-ssd-streaming-note set-ssd-streaming-notice">
               <option value="off">Off</option>
               <option value="auto">Auto</option>
               <option value="on">On</option>
             </select>
+            <div class="set-ssd-notice" id="set-ssd-streaming-notice" role="status" aria-live="polite" hidden>
+              <strong>SSD streaming is unavailable with Qwen.</strong>
+              <p>To use expert streaming, open Models and load one of these:</p>
+              <ul>
+                <li>DeepSeek V4 Flash</li>
+                <li>DeepSeek V4 Flash Vision-Exp</li>
+                <li>GLM 5.3 Flash</li>
+                <li>DeepSeek V4 Pro — about 430 GB to download</li>
+              </ul>
+              <p>Requires a local Metal engine and DSpark Off. Laguna also does not support expert streaming. Restarting Qwen will not unlock this option.</p>
+              <button type="button" class="btn btn--sm" id="set-ssd-streaming-models">Open Models</button>
+            </div>
             <details class="set-disclosure">
               <summary>How SSD streaming behaves</summary>
-              <p class="set-help">Default is Off while DS4 is the only heavyweight model. Metal uses full residency when it fits and its normal lazy memory-mapped path otherwise, without enabling expert SSD streaming or reducing context. On remains an explicit launch choice.</p>
+              <p class="set-help">Default is Off while DS4 is the only heavyweight model. Metal uses full residency when it fits and its normal lazy memory-mapped path otherwise, without enabling expert SSD streaming or reducing context. On remains an explicit launch choice for supported models. Qwen always keeps expert streaming Off; only Qwen3.8 uses a separate SSD-backed PLE file.</p>
             </details>
             <p class="set-inline-msg set-memory-readout" id="set-memory-msg"></p>
             <div class="field__row" style="margin-top:0.45rem">
@@ -9526,7 +9616,7 @@
       <footer class="set-foot">
         <span class="set-saved"><span class="set-saved__dot"></span>Saved automatically <span aria-hidden="true">·</span> this Mac only</span>
         <div class="set-foot__act">
-          <button class="btn btn--primary" value="close">Done</button>
+          <button type="button" id="set-done" class="btn btn--primary">Done</button>
         </div>
       </footer>
       </div>
@@ -10868,6 +10958,306 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       return new Blob(chunks, { type: 'application/pdf' });
     }
 
+    /* PDF evidence protocol: rendering never trusts model-authored coordinates
+       or arithmetic. Only the local extractor can confirm an exact passage. */
+    const PdfEvidence = (() => {
+      const validDoc = (id) => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id);
+      const normalize = (s) => String(s).replace(/[\s\u00a0]+/g, ' ').trim();
+      const statuses = {
+        matched: 'Exact passage found · not a check of the answer’s meaning',
+        ambiguous: 'Passage appears more than once · no highlight selected',
+        not_found: 'Exact passage not found · no highlight',
+        no_text_layer: 'This page has no searchable text · no OCR was run',
+        unsupported_coordinates: 'Passage found, but its position cannot be highlighted reliably',
+        page_only: 'Original page · no passage selected',
+      };
+
+      function extract(content) {
+        let evidence = null;
+        let invalid = false;
+        // This is internal metadata, including malformed or unfinished blocks.
+        // Keep raw message storage intact, but never render the protocol as prose.
+        const text = String(content || '').replace(/```dstudio-pdf-evidence\b[^\r\n]*(?:\r?\n|$)([\s\S]*?)(?:\r?\n[ \t]*```[ \t]*(?=\r?\n|$)|$)/g, (_block, raw) => {
+          if (evidence || raw.length > 24000) { invalid = true; return ''; }
+          try {
+            const value = JSON.parse(raw);
+            if (!value || !Array.isArray(value.citations) || !value.citations.length || value.citations.length > 20) { invalid = true; return ''; }
+            const seen = new Set(), citations = [];
+            for (const c of value.citations) {
+              if (!c || typeof c.id !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]{0,23}$/.test(c.id) || !validDoc(c.documentId) ||
+                  !Number.isInteger(c.page) || c.page < 1 || c.page > 2000 || typeof c.quote !== 'string' ||
+                  !normalize(c.quote) || new TextEncoder().encode(c.quote).length > 2000) { invalid = true; continue; }
+              const key = JSON.stringify([c.id, c.documentId, c.page, normalize(c.quote)]);
+              if (seen.has(key)) continue;
+              seen.add(key);
+              citations.push({ id: c.id, documentId: c.documentId, page: c.page, quote: c.quote });
+            }
+            let calculations = value.calculations === undefined ? [] : value.calculations;
+            if (!Array.isArray(calculations) || calculations.length > 8) { invalid = true; calculations = []; }
+            if (citations.length) evidence = { citations, calculations };
+            return '';
+          } catch { invalid = true; return ''; }
+        });
+        return { content: text.trim(), evidence, warning: invalid
+          ? 'Some PDF source details could not be read. Unavailable references have not been verified.' : '' };
+      }
+
+      function preview(content) {
+        const text = String(content || '');
+        const at = text.search(/^[ \t]*```dstudio-pdf-evidence\b/m);
+        return at < 0 ? text : `${text.slice(0, at).trimEnd()}\n\nPreparing PDF sources…`;
+      }
+
+      function documents(chat, message) {
+        const docs = new Map();
+        for (const m of chat?.messages || []) {
+          if (m.id === message?.id) break;
+          if (m.role !== 'user') continue;
+          for (const a of m.attachments || []) if (a.kind === 'pdf' && validDoc(a.documentId)) docs.set(a.documentId, a);
+        }
+        return docs;
+      }
+
+      function context(file) {
+        if (!validDoc(file.documentId)) return '';
+        return [
+          `PDF evidence documentId: ${file.documentId}. Page numbers are physical PDF pages (not printed labels).`,
+          'When citing this PDF, use [P1], [P2], etc. and append ONE ```dstudio-pdf-evidence JSON fence containing',
+          '{"citations":[{"id":"P1","documentId":"<exact documentId>","page":1,"quote":"an exact short passage copied from that page"}],"calculations":[]}.',
+          'Citation IDs identify passages, not page numbers. Give every different passage a unique ID (P1, P2, P3), even on the same page. Reuse an ID only for the exact same passage.',
+          'Copy original wording, punctuation and numbers, not a translation or paraphrase. Use enough context to identify one occurrence. Never invent a passage or claim it has been verified.',
+          'For numeric results you may add calculations: {"operation":"sum|difference|product|ratio|percentage","operands":[{"citation":"P1","literal":"1,234.50","decimal":"."}],"claimed":"1234.50","precision":2}.',
+          'Each literal must be copied exactly from its cited passage; decimal is "." or ",". Claimed uses a dot and no grouping. Difference, ratio and percentage take exactly two operands; percentage is first / second * 100. Precision is 0–12 decimal places. No implicit unit conversions.',
+          ...(file.pdfSections?.length ? ['Recognized heading hints (not a complete table of contents; bounded preview):', file.pdfSections.map((s) => `p. ${s.page}: ${s.title}`).join('\n').slice(0, 2400)] : []),
+          ...(file.pdfSectionLinks?.length ? ['Explicit cross-references (not semantic relationships; bounded preview):', file.pdfSectionLinks.map((s) => `p. ${s.page} says "${s.quote}" → p. ${s.targetPage}: ${s.targetTitle}`).join('\n').slice(0, 1200)] : []),
+        ].join('\n');
+      }
+
+      async function request(citation, render = false, signal) {
+        const response = await fetch('/api/pdf/evidence', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
+          body: JSON.stringify({ documentId: citation.documentId, page: citation.page, quote: citation.quote, render }), signal,
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || `PDF evidence: HTTP ${response.status}`);
+        return result;
+      }
+
+      // Exact rational arithmetic, with explicitly declared decimal separators.
+      // Decimal rounding is half away from zero, applied only to the result.
+      function decimal(raw, separator = '.') {
+        if (typeof raw !== 'string' || raw.length > 80 || !['.', ','].includes(separator)) throw new Error('Invalid numeric format');
+        const text = raw.trim();
+        const sign = text.startsWith('-') ? -1n : 1n;
+        const unsigned = text.replace(/^[+-]/, '');
+        const parts = unsigned.split(separator);
+        if (parts.length > 2 || (parts.length === 2 && !/^\d{1,18}$/.test(parts[1]))) throw new Error('Ambiguous decimal separator');
+        const grouping = separator === '.' ? ',' : '.';
+        let whole = parts[0];
+        if (!/^\d+$/.test(whole)) {
+          const escaped = grouping === '.' ? '\\.' : ',';
+          if (!new RegExp(`^\\d{1,3}(?:${escaped}\\d{3})+$`).test(whole) && !/^\d{1,3}(?: \d{3})+$/.test(whole) && !/^\d{1,3}(?:\u00a0\d{3})+$/.test(whole)) throw new Error('Invalid digit grouping');
+          whole = whole.split(grouping).join('').replace(/[ \u00a0]/g, '');
+        }
+        if (whole.length > 30) throw new Error('Number too large');
+        return { n: sign * BigInt(whole + (parts[1] || '')), d: 10n ** BigInt((parts[1] || '').length) };
+      }
+
+      function literalInQuote(quote, literal) {
+        const q = normalize(quote), s = normalize(literal);
+        if (!s) return false;
+        let found = 0;
+        for (let at = q.indexOf(s); at >= 0; at = q.indexOf(s, at + 1)) {
+          const left = q.slice(0, at), right = q.slice(at + s.length);
+          if (/[\p{L}\p{N}_.,+\-\u2212]$/u.test(left) || /^[\p{L}\p{N}_.,+\-\u2212]/u.test(right) || /\d $/.test(left) || /^ \d{3}(?:\D|$)/.test(right) || (/\($/.test(left) && /^\)/.test(right))) continue;
+          found++;
+        }
+        return found === 1;
+      }
+
+      function calculate(calc, verified) {
+        if (!calc || !['sum', 'difference', 'product', 'ratio', 'percentage'].includes(calc.operation) ||
+            !Array.isArray(calc.operands) || calc.operands.length < 2 || calc.operands.length > 12 ||
+            (!['sum', 'product'].includes(calc.operation) && calc.operands.length !== 2) ||
+            !Number.isInteger(calc.precision) || calc.precision < 0 || calc.precision > 12 ||
+            typeof calc.claimed !== 'string' || !/^[+-]?\d+(?:\.\d+)?$/.test(calc.claimed)) throw new Error('Unsupported calculation format');
+        const values = calc.operands.map((o) => {
+          const proof = verified.get(o?.citation);
+          if (proof?.status === 'ambiguous_reference') throw new Error(`Citation ${o.citation} refers to multiple passages; the numeric source is ambiguous`);
+          if (!proof || proof.status !== 'matched') throw new Error('Every operand needs a uniquely located source passage');
+          if (!['.', ','].includes(o.decimal)) throw new Error('Declare the decimal separator for every operand');
+          if (typeof o.literal !== 'string' || !literalInQuote(proof.quote, o.literal)) throw new Error('Operand is missing or ambiguous in the source passage');
+          return decimal(o.literal, o.decimal);
+        });
+        let r = values[0];
+        for (const b of values.slice(1)) {
+          if (calc.operation === 'sum') r = { n: r.n * b.d + b.n * r.d, d: r.d * b.d };
+          else if (calc.operation === 'difference') r = { n: r.n * b.d - b.n * r.d, d: r.d * b.d };
+          else if (calc.operation === 'product') r = { n: r.n * b.n, d: r.d * b.d };
+          else { if (!b.n) throw new Error('Division by zero'); r = { n: r.n * b.d * (calc.operation === 'percentage' ? 100n : 1n), d: r.d * b.n }; }
+        }
+        if (r.d < 0) r = { n: -r.n, d: -r.d };
+        const scale = 10n ** BigInt(calc.precision), abs = r.n < 0 ? -r.n : r.n;
+        const scaled = abs * scale;
+        const rounded = (scaled / r.d + (scaled % r.d * 2n >= r.d ? 1n : 0n)) * (r.n < 0 ? -1n : 1n);
+        const digits = (rounded < 0 ? -rounded : rounded).toString().padStart(calc.precision + 1, '0');
+        const value = (rounded < 0 ? '-' : '') + (calc.precision ? `${digits.slice(0, -calc.precision)}.${digits.slice(-calc.precision)}` : digits);
+        const claimed = decimal(calc.claimed);
+        return { value, agrees: claimed.n * scale === rounded * claimed.d };
+      }
+
+      async function open(citation, file, alternatives = null) {
+        const dialog = el('dialog', { class: 'pdf-evidence-dialog', 'aria-label': 'Original PDF evidence' });
+        const close = el('button', { class: 'btn', text: 'Close', type: 'button' });
+        const zoom = el('button', { class: 'btn', text: 'Zoom in', type: 'button' });
+        const status = el('p', { role: 'status', text: 'Opening original PDF…' });
+        const stage = el('div', { class: 'pdf-evidence-page' });
+        const heading = el('strong', { text: 'Original PDF evidence' });
+        const quote = el('blockquote');
+        let controller = null, sequence = 0;
+        dialog.append(el('header', {}, [heading, zoom, close]), status, quote,
+          el('div', { class: 'pdf-evidence-viewport' }, [stage]));
+        on(zoom, 'click', () => { const enlarged = stage.style.width === '200%'; stage.style.width = enlarged ? '100%' : '200%'; zoom.textContent = enlarged ? 'Zoom in' : 'Fit page'; });
+        on(close, 'click', () => dialog.close());
+        on(dialog, 'close', () => { sequence++; controller?.abort(); dialog.remove(); });
+        document.body.append(dialog); dialog.showModal();
+        async function show(item) {
+          controller?.abort(); controller = new AbortController();
+          const current = ++sequence, signal = controller.signal;
+          stage.replaceChildren(); stage.style.width = '100%';
+          zoom.disabled = true; zoom.textContent = 'Zoom in';
+          quote.textContent = item?.citation.quote || '';
+          heading.textContent = item ? `${item.file?.name || 'Unattached PDF'} · page ${item.citation.page}` : 'Original PDF evidence';
+          if (!item) { status.textContent = 'This reference names multiple passages. Choose one to open its original page and highlight the exact quotation.'; return; }
+          if (!item.file) { status.textContent = 'This source is not attached to this conversation.'; return; }
+          status.textContent = 'Opening original PDF…';
+          try {
+            const c = item.citation;
+            const r = await request(c, true, signal);
+            if (!dialog.isConnected || current !== sequence) return;
+            status.textContent = statuses[r.status] || 'Passage could not be checked';
+            const image = el('img', { src: r.image, alt: `Original PDF, physical page ${c.page}` });
+            await image.decode();
+            if (!dialog.isConnected || current !== sequence) return;
+            stage.append(image); zoom.disabled = false;
+            // Do not draw on a renderer/extractor geometry mismatch.
+            const ratio = image.naturalWidth / image.naturalHeight;
+            if (Math.abs(ratio - r.width / r.height) > 0.005) {
+              status.textContent = 'Page opened, but its geometry does not permit reliable highlighting'; return;
+            }
+            if (r.status === 'matched') for (const b of r.boxes || []) {
+              const mark = el('span', { class: 'pdf-evidence-highlight', 'aria-hidden': 'true' });
+              Object.assign(mark.style, { left: `${b.x * 100}%`, top: `${b.y * 100}%`, width: `${b.width * 100}%`, height: `${b.height * 100}%` });
+              stage.append(mark);
+            }
+          } catch (e) {
+            if (!signal.aborted && current === sequence) status.textContent = e.message || 'Original PDF unavailable';
+          }
+        }
+        if (alternatives?.length > 1) {
+          const picker = el('select', { class: 'pdf-evidence-passages', 'aria-label': 'Source passage' });
+          picker.append(el('option', { value: '', text: `[${alternatives[0].citation.id}] · ${alternatives.length} passages — choose one` }));
+          alternatives.forEach((item, i) => picker.append(el('option', { value: String(i),
+            text: `${item.file?.name || 'Unattached PDF'} · p. ${item.citation.page} · ${normalize(item.citation.quote).slice(0, 140)}` })));
+          dialog.insertBefore(picker, quote);
+          on(picker, 'change', () => show(picker.value === '' ? null : alternatives[Number(picker.value)]));
+          await show(null); picker.focus();
+        } else await show({ citation, file });
+      }
+
+      function build(message, chat, contentNode) {
+        const { evidence: payload, warning } = extract(message.content);
+        if ((!payload && !warning) || message.role !== 'assistant' || message.streaming) return null;
+        const docs = documents(chat, message);
+        const wrap = el('section', { class: 'pdf-evidence', 'aria-label': 'PDF sources and calculations' });
+        if (warning) wrap.append(el('p', { role: 'status', text: warning }));
+        if (!payload) return wrap;
+        wrap.append(el('strong', { text: 'PDF sources' }), el('p', { text: 'Check the original passages. Finding a quotation does not verify the answer’s interpretation.' }));
+        const verified = new Map(), buttons = new Map(), groups = new Map();
+        for (const c of payload.citations) {
+          if (!groups.has(c.id)) groups.set(c.id, []);
+          groups.get(c.id).push({ citation: c, file: docs.get(c.documentId) });
+        }
+        for (const [id, items] of groups) {
+          const { citation: c, file } = items[0];
+          const button = el('button', { class: 'btn pdf-evidence-source', type: 'button', text: items.length > 1
+            ? `[${id}] ${items.length} source passages — choose a passage`
+            : `[${id}] ${file?.name || 'Unattached PDF'} · p. ${c.page}` });
+          button.disabled = !items.some(item => item.file);
+          on(button, 'click', () => open(c, file, items));
+          buttons.set(id, button); wrap.append(button);
+          for (const item of items) {
+            wrap.append(el('blockquote', { text: item.citation.quote }));
+            if (!item.file) wrap.append(el('p', { text: 'This source is not attached to this conversation.' }));
+          }
+        }
+        // Convert only exact citation markers in prose, never code or existing links.
+        const walker = document.createTreeWalker(contentNode, NodeFilter.SHOW_TEXT);
+        const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
+        for (const node of nodes) {
+          if (node.parentElement?.closest('a, button, pre, code')) continue;
+          const re = /\[([A-Za-z][A-Za-z0-9_-]{0,23})\]/g;
+          let match, pos = 0; const fragment = document.createDocumentFragment();
+          while ((match = re.exec(node.textContent))) {
+            const source = buttons.get(match[1]); if (!source) continue;
+            fragment.append(node.textContent.slice(pos, match.index));
+            const button = el('button', { class: 'pdf-evidence-inline', type: 'button', text: match[0], 'aria-label': source.textContent });
+            button.disabled = source.disabled; on(button, 'click', () => source.click()); fragment.append(button);
+            pos = re.lastIndex;
+          }
+          if (pos) { fragment.append(node.textContent.slice(pos)); node.replaceWith(fragment); }
+        }
+        const check = el('button', { class: 'btn', type: 'button', text: 'Check passages and calculations' });
+        const result = el('div', { class: 'pdf-evidence-results', 'aria-live': 'polite' });
+        on(check, 'click', async () => {
+          check.disabled = true; result.replaceChildren(); verified.clear();
+          try {
+            for (const c of payload.citations) {
+              let label = 'Source is not attached';
+              if (docs.has(c.documentId)) {
+                try {
+                  const r = await request(c);
+                  verified.set(c.id, groups.get(c.id).length > 1 ? { status: 'ambiguous_reference' } : r);
+                  label = statuses[r.status] || 'Not checked';
+                }
+                catch (e) { label = e.message; }
+              }
+              result.append(el('p', { text: `[${c.id}] ${label}` }));
+            }
+            for (const calc of payload.calculations) {
+              try {
+                const r = calculate(calc, verified);
+                const operands = calc.operands.map((o) => `${o.literal} [${o.citation}]`).join(', ');
+                result.append(el('p', { text: `${calc.operation} (${operands}) → ${r.value}. ${r.agrees ? 'Arithmetic agrees with the answer' : `Differs from the answer (${calc.claimed})`}. Rounded to ${calc.precision} decimal places; units and choice of operands are not verified.` }));
+              } catch (e) { result.append(el('p', { text: `Calculation not verified: ${e.message}` })); }
+            }
+          } finally { check.disabled = false; }
+        });
+        wrap.append(check, result); return wrap;
+      }
+
+      function outline(file) {
+        if (!validDoc(file.documentId)) return null;
+        const details = el('details', { class: 'pdf-evidence-outline' }, [el('summary', { text: 'Open original PDF / recognized headings' })]);
+        const pages = file.pdfSections?.length ? file.pdfSections : [{ page: 1, title: 'Open first page' }];
+        details.append(el('p', { text: 'Heading hints come from the text layer; this is not a complete document outline.' }));
+        for (const section of pages) {
+          const b = el('button', { class: 'btn', type: 'button', text: `p. ${section.page} · ${section.title}` });
+          if (section.parentPage) b.style.marginLeft = `${Math.min(4, (section.level || 1) - 1) * 12}px`;
+          on(b, 'click', () => open({ documentId: file.documentId, page: section.page, quote: '' }, file)); details.append(b);
+        }
+        for (const link of file.pdfSectionLinks || []) {
+          const from = el('button', { class: 'btn', type: 'button', text: `p. ${link.page}: “${link.quote}”` });
+          const to = el('button', { class: 'btn', type: 'button', text: `→ p. ${link.targetPage}: ${link.targetTitle}` });
+          on(from, 'click', () => open({ documentId: file.documentId, page: link.page, quote: link.quote }, file));
+          on(to, 'click', () => open({ documentId: file.documentId, page: link.targetPage, quote: '' }, file));
+          details.append(from, to);
+        }
+        return details;
+      }
+      return { extract, preview, documents, context, decimal, literalInQuote, calculate, open, build, outline };
+    })();
+
     const AttachmentPreview = (() => {
       function open(file) {
         if (!file) return;
@@ -10905,6 +11295,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             ]);
             body.append(details);
           }
+          if (file.kind === 'pdf') { const outline = PdfEvidence.outline(file); if (outline) body.append(outline); }
           if (!uri && !file.content) body.append(el('p', { class: 'file-preview-empty', text: file.kind === 'pdf' ? 'PDF preview unavailable' : 'Image preview unavailable' }));
         } else {
           body.append(el('pre', { class: 'file-preview-text', text: file.content || '' }));
@@ -11549,6 +11940,16 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
     const isGlm53Gguf = (path) => /glm[-_. ]?5\.3/i.test(String(path || ''));
     const isLagunaGguf = (path) => /laguna[-_. ]?s(?:[-_. ]?2\.1)?/i.test(String(path || ''));
+    const localQwen35Selected = (settings = Store.getSettings()) =>
+      /qwen3\.6-35b-a3b/i.test(String(settings?.modelGguf || settings?.model || ''));
+    const localQwenSelected = (settings = Store.getSettings()) =>
+      localQwen35Selected(settings) || /qwen3\.8-flash-next/i.test(String(settings?.modelGguf || settings?.model || ''));
+    function localSsdStreaming(settings = Store.getSettings()) {
+      // Apply a compatible launch value, never overwrite the preference used
+      // when the user switches back to DeepSeek. Qwen's PLE stays SSD-backed.
+      return !localQwenSelected(settings) && ['off', 'on', 'auto'].includes(settings.ssdStreaming)
+        ? settings.ssdStreaming : 'off';
+    }
     const isDeepseekVisionGguf = (path) => /deepseek-v4-flash-vision-exp/i.test(String(path || ''));
     function localLagunaSelected(settings = Store.getSettings()) {
       const model = settings?.modelGguf || settings?.model || '';
@@ -11612,7 +12013,12 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
     // Derive {model, kind, quant} from a GGUF filename (shared by onboarding + settings).
     function parseGgufName(file) {
-      const model = /laguna[-_ ]?s/i.test(file) ? 'Laguna S 2.1'
+      if (/^Qwen3\.6-35B-A3B-UD-Q6_K_XL\.gguf$/i.test(file))
+        return { model: 'Qwen3.6-35B-A3B', kind: 'Chat/native', quant: 'Q6_K_XL' };
+      if (/qwen3\.8-flash-next-q4kimatrix/i.test(file))
+        return { model: 'Qwen3.8-Flash-Next', kind: 'Chat/native', quant: 'Q4K / MXFP4' };
+      const model = /qwen3\.8/i.test(file) ? 'Qwen3.8-Flash-Next'
+        : /laguna[-_ ]?s/i.test(file) ? 'Laguna S 2.1'
         : /\bglm[-_ ]?5\.3/i.test(file) ? 'GLM 5.3 Flash'
         : /deepseek-v4-flash-vision-exp/i.test(file) ? 'DeepSeek V4 Flash Vision-Exp'
         : /\bpro\b/i.test(file) ? 'DeepSeek V4 Pro'
@@ -11628,6 +12034,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     }
     function modelIdForEngineStatus(st) {
       const file = String(st?.modelFile || '');
+      if (/qwen3\.8/i.test(file)) return 'qwen3.8-flash-next';
+      if (/qwen3\.6-35b-a3b/i.test(file)) return 'qwen3.6-35b-a3b';
       if (/laguna[-_ ]?s/i.test(file)) return 'laguna-s-2.1';
       if (/\bglm[-_ ]?5\.3/i.test(file)) return 'glm-5.3-flash';
       if (/deepseek-v4-flash-vision-exp/i.test(file)) return 'deepseek-v4-flash-vision-exp';
@@ -11660,7 +12068,16 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         /(?:^|\/)DeepSeek-V4-Flash-Vision-Encoder\.gguf$/i.test(String(g?.path || ''));
     }
     function ggufIsEngineComponent(g) {
-      return ggufIsDsparkSupport(g) || ggufIsGlmVisionEncoder(g) || ggufIsDeepseekVisionEncoder(g);
+      const name = String(g?.file || g?.path || '');
+      return ggufIsDsparkSupport(g) || ggufIsGlmVisionEncoder(g) || ggufIsDeepseekVisionEncoder(g)
+        || (/qwen3\.8/i.test(name) && /-ple-|-mtp\.gguf$/i.test(name));
+    }
+    function ggufIsUsableModel(g, allGgufs) {
+      if (ggufIsEngineComponent(g)) return false;
+      if (!/qwen3\.8/i.test(String(g?.file || g?.path || ''))) return true;
+      return (allGgufs || []).some((part) =>
+        /^Qwen3\.8-Flash-Next-PLE-Q4_1\.gguf$/i.test(String(part?.file || '')) &&
+        String(part?.engineDir || '') === String(g?.engineDir || ''));
     }
     function ggufBranchLabel(g) {
       return String(g?.branch || g?.engineName || 'ds4');
@@ -11685,10 +12102,14 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       { id: 'glm53-q2', label: 'GLM 5.3 Flash · Q2 — ~96.5 GB / 90 GiB', body: { target: 'glm53-q2', engine: 'main' }, match: /^GLM-5\.3-Flash-Q2\.gguf$/i },
       { id: 'glm53-vision', role: 'vision-support', label: 'GLM 5.3 Flash · native vision encoder — ~1.13 GB', body: { target: 'glm53-vision', engine: 'main' }, match: /^GLM-5\.3-Flash-Vision-Encoder\.gguf$/i },
       { id: 'laguna-q4', label: 'Laguna S 2.1 · Q4_K_M — ~68 GB · Metal/full residency', body: { target: 'laguna-q4', engine: 'laguna' }, match: /^laguna-s-2\.1-Q4_K_M\.gguf$/i },
+      { id: 'qwen38-q4k', label: 'Qwen3.8-Flash-Next · Q4_K — 105.4 GB base + PLE · Chat/native', body: { target: 'qwen38-q4k', engine: 'qwen' }, match: /^Qwen3\.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out\.gguf$/i },
+      { id: 'qwen36-q6', label: 'Qwen3.6-35B-A3B · Q6_K_XL — 31.8 GB · Chat/native, Metal, no PLE', body: { target: 'qwen36-q6', engine: 'qwen35' }, match: /^Qwen3\.6-35B-A3B-UD-Q6_K_XL\.gguf$/i },
     ];
     function availableModelDownloads(ggufs) {
       const files = (ggufs || []).map((g) => String(g?.file || ''));
-      return MODEL_DOWNLOADS.filter((d) => !d.role && !files.some((file) => d.match.test(file)));
+      return MODEL_DOWNLOADS.filter((d) => !d.role &&
+        (!files.some((file) => d.match.test(file)) ||
+         (d.id === 'qwen38-q4k' && !files.some((file) => /^Qwen3\.8-Flash-Next-PLE-Q4_1\.gguf$/i.test(file)))));
     }
     function availableDsparkDownloads(ggufs) {
       const files = (ggufs || []).map((g) => String(g?.file || ''));
@@ -14005,8 +14426,11 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
       function readableEngineError(message) {
         const text = String(message || 'Server error.');
-        if (!deepseekMode() && /metal prefill failed|kIOGPUCommandBufferCallbackErrorOutOfMemory|Metal command batch failed:\s*Insufficient Memory/i.test(text)) {
-          return 'Metal ran out of memory while loading the prompt. DStudio released the vision and embedding models; press Retry. If it repeats, set Context size to 64k.';
+        if (!deepseekMode() && /kIOGPUCommandBufferCallbackErrorOutOfMemory|Metal command batch failed:\s*Insufficient Memory/i.test(text)) {
+          return `Metal reported insufficient memory while processing the prompt. Free memory or reduce Context size, then retry. Engine details: ${text}`;
+        }
+        if (!deepseekMode() && /metal prefill failed/i.test(text)) {
+          return `The local engine failed while processing the prompt. This error alone does not indicate insufficient memory. Engine details: ${text}`;
         }
         return text;
       }
@@ -14274,11 +14698,12 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
       function displayContentForMessage(m) {
         if (!m?.content) return '';
-        if (m.streaming) return stripGeneratedFilePayloadPreview(m.content);
+        if (m.streaming) return PdfEvidence.preview(stripGeneratedFilePayloadPreview(m.content));
         const withoutFiles = Array.isArray(m.generatedFiles) && m.generatedFiles.length
           ? m.content
           : extractGeneratedFilesFromAssistant(m.content).content;
-        return extractRoadmapFromAssistant(withoutFiles).content;
+        const withoutRoadmap = extractRoadmapFromAssistant(withoutFiles).content;
+        return m.role === 'assistant' ? PdfEvidence.extract(withoutRoadmap).content : withoutRoadmap;
       }
 
       function mount(rootEl, h) {
@@ -15345,6 +15770,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           content.innerHTML = '<p class="placeholder">(no response)</p>';
         }
         article.append(content);
+        const pdfEvidence = PdfEvidence.build(m, chat, content);
+        if (pdfEvidence) article.append(pdfEvidence);
         if (roadmap) article.append(buildRoadmapCard(roadmap, m, chat));
         if (m.sources?.length) article.append(buildSources(m.sources));
         decorateCitationTargets(article, m.sources || []);
@@ -15854,7 +16281,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           if (content) {
             const ph = content.querySelector('.placeholder');
             if (ph) ph.remove();
-            if (fullContent) setMarkdown(content, stripGeneratedFilePayloadPreview(fullContent));
+            if (fullContent) setMarkdown(content, PdfEvidence.preview(stripGeneratedFilePayloadPreview(fullContent)));
           }
           let activityEl = article.querySelector('.msg__activity');
           if (activity) {
@@ -16187,6 +16614,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             '',
             `--- ${kind} ${i + 1}: ${a.name || 'attachment'} (${fmtFileSize(a.size)}${a.truncated ? ', truncated' : ''}) ---`,
             String(a.content || ''),
+            ...(a.kind === 'pdf' ? [PdfEvidence.context(a)] : []),
             `--- end ${kind} ${i + 1} ---`,
           );
         });
@@ -21800,12 +22228,19 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         // filesystem scan until the picker is opened; boot only needs the
         // persisted model label and must never block the local API loop.
         Store.subscribe('models', () => {
-          if (modelMenuOpen) loadModelList();
+          // A launch refreshes the API model catalog too. Once the picker has
+          // been used, refresh its loaded model even while closed so its label
+          // does not retain the previously running model after a switch.
+          if (modelMenuOpen || ggufList !== null) loadModelList();
           else renderModelPill();
         });
+        let hadModelDownload = !!Store.getState().ui.modelDownload;
         Store.subscribe('modelDownload', () => {
-          if (modelMenuOpen) loadModelList();
-          else renderModelPill();
+          const downloading = !!Store.getState().ui.modelDownload;
+          // Refresh newly installed models, not every percentage update: typing
+          // in the picker must keep its focus and must not scan all checkouts.
+          if (hadModelDownload && !downloading && modelMenuOpen) loadModelList();
+          hadModelDownload = downloading;
         });
         renderModelPill();
 
@@ -22449,6 +22884,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           max_chars: maxChars,
           text_only: !opts.nativeVision,
           native_vision: !!opts.nativeVision,
+          evidence: !isLanClientMode(),
         };
         if (readPlan.mode === 'pages') payload.pages = readPlan.pages;
         if (readPlan.mode === 'search') payload.semantic_query = readPlan.query;
@@ -22533,6 +22969,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             ? `[PDF "${att.name}" — ${how}${limited}]\n${t}`
             : `[PDF "${att.name}" attached, but no readable content was found.]`;
           att.truncated = !!r.truncated;
+          att.documentId = typeof r.documentId === 'string' ? r.documentId : null;
+          att.pdfSections = Array.isArray(r.sections) ? r.sections : [];
+          att.pdfSectionLinks = Array.isArray(r.sectionLinks) ? r.sectionLinks : [];
           entry.status = visualRefs.length ? 'native-model' : 'ok';
         } catch (e) {
           att.content = `[PDF "${att.name}" attached, but reading it failed: ${e?.message || e}.]`;
@@ -24807,17 +25246,23 @@ Choose however many stages, branches, and topics the subject actually warrants; 
          another model's cache — it reloads cleanly, keeping the conversation.
          Downloading new models lives in onboarding and Settings, not here. */
       let modelMenuOpen = false;
+      let modelSearchQuery = '';
+      let modelListRequest = 0;
+      let modelListLoading = false;
+      let modelListError = '';
       let cloudModels = null;     // [{id}] from the DeepSeek API when the cloud backend is on
       const cloudBackendOn = () => Store.getSettings().chatBackend === 'deepseek' && !!(Store.getSettings().deepseekApiKey || '').trim();
       let ggufList = null;        // [{file,path,size,engineDir,branch}] across managed checkouts
-      let checkoutList = null;    // [{dir,name,branch,hasServer,active}] ds4 checkouts
       let runningModelFile = '';  // status.modelFile — the GGUF currently loaded
       let runningEngineDir = '';  // status.ds4dir — disambiguates equal relative paths
+      let runningModelReady = false;
       let h3PickerStatus = null;   // /api/video/status — H3 is a media target, not a GGUF
-      function closeModelMenu() {
+      function closeModelMenu(restoreFocus = false) {
         if (!modelMenuOpen) return;
         modelMenuOpen = false;
+        modelSearchQuery = '';
         renderModelPill();
+        if (restoreFocus) cbarModel?.querySelector('.cbar-model-btn')?.focus({ preventScroll: true });
       }
       async function loadH3PickerStatus() {
         try {
@@ -24828,32 +25273,39 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return h3PickerStatus;
       }
       async function loadModelList() {
+        const request = ++modelListRequest;
         if (isLanClientMode()) {
           ggufList = [];
-          checkoutList = [];
           runningModelFile = '';
           runningEngineDir = '';
+          runningModelReady = false;
           modelMenuOpen = false;
           renderModelPill();
           return;
         }
-        await loadH3PickerStatus();
-        if (cloudBackendOn()) {
-          try { cloudModels = await Api.getModels(); }
-          catch { cloudModels = cloudModels || []; }
-          renderModelPill();
-          return;
+        modelListLoading = true;
+        modelListError = '';
+        renderModelPill();
+        const cloud = cloudBackendOn();
+        const [catalog, status] = await Promise.allSettled([
+          cloud ? Api.getModels() : Engine.ggufs(),
+          cloud ? Promise.resolve(null) : Engine.status(),
+          loadH3PickerStatus(),
+        ]);
+        if (request !== modelListRequest) return;
+        modelListLoading = false;
+        if (catalog.status === 'fulfilled' && catalog.value?.ok !== false) {
+          if (cloud) cloudModels = catalog.value || [];
+          else ggufList = catalog.value?.ggufs || [];
+        } else {
+          modelListError = 'Could not refresh models. Close and reopen this menu to retry.';
         }
-        try { const r = await Engine.ggufs(); ggufList = (r && r.ggufs) || []; }
-        catch { ggufList = ggufList || []; }
-        try { const r = await Engine.engineCheckouts(); checkoutList = (r && r.checkouts) || []; }
-        catch { checkoutList = checkoutList || []; }
-        try {
-          const st = await Engine.status();
+        if (status.status === 'fulfilled' && status.value) {
+          const st = status.value;
           runningModelFile = st.modelFile || '';
           runningEngineDir = st.ds4dir || '';
-        }
-        catch { /* keep last known */ }
+          runningModelReady = !!(st.running && st.ready);
+        } else if (!cloud) runningModelReady = false;
         renderModelPill();
       }
       async function selectH3FromPicker() {
@@ -24876,25 +25328,38 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         renderModelPill();
         input?.focus();
       }
+      function modelPickerRow({ name, variant = '', quant = '', meta = '', active = false, action = 'Load', key = '', setup = false, pick }) {
+        const heading = el('span', { class: 'mi-heading' }, [el('span', { class: 'mi-name', text: name })]);
+        if (variant) heading.append(el('span', { class: 'mi-variant', text: variant }));
+        if (quant) heading.append(el('span', { class: 'mi-quant', text: quant }));
+        const item = el('button', {
+          class: `cbar-model-item${active ? ' is-active' : ''}${setup ? ' needs-setup' : ''}`,
+          type: 'button', 'aria-pressed': String(active), title: [name, variant, quant, meta].filter(Boolean).join(' · '),
+          dataset: { modelKey: key },
+        }, [
+          el('span', { class: 'mi-radio', 'aria-hidden': 'true' }),
+          el('span', { class: 'mi-body' }, [heading, el('span', { class: 'mi-sub', text: meta })]),
+          el('span', { class: 'mi-badge', text: action }),
+        ]);
+        on(item, 'click', (e) => { e.stopPropagation(); modelMenuOpen = false; modelSearchQuery = ''; pick(); });
+        return item;
+      }
       function appendH3PickerOption(menu) {
         const active = h3ComposerMode();
         const status = h3PickerStatus;
         const available = status?.supported !== false;
         const ready = status?.installed === true;
         const referencesReady = status?.referencesInstalled === true;
-        const item = el('button', { class: 'cbar-model-item', type: 'button' }, [
-          el('span', { class: 'cbar-model-dot h3', style: active ? '' : 'opacity:.62' }),
-          el('div', { class: 'mi-body' }, [
-            el('div', { class: 'mi-name', text: 'MiniMax H3' }),
-            el('div', { class: 'mi-sub', text: ready
+        const item = modelPickerRow({
+          name: 'MiniMax H3', variant: 'video + audio', key: 'h3', active, setup: !ready,
+          meta: ready
               ? referencesReady
                 ? 'Local video + audio · text, opening frame or 2 references'
                 : 'Local video + audio · 2 references need Ref2VA setup'
-              : available ? 'Local video · prepare in Settings → Video' : 'Requires Apple Silicon' }),
-          ]),
-          el('span', { class: 'mi-badge', text: active ? '✓ active' : ready ? 'use' : available ? 'setup' : 'unavailable' }),
-        ]);
-        on(item, 'click', (e) => { e.stopPropagation(); selectH3FromPicker(); });
+              : available ? 'Prepare in Settings → Video' : 'Requires Apple Silicon',
+          action: active ? '✓ Selected' : ready ? 'Use' : available ? 'Set up' : 'Unavailable',
+          pick: selectH3FromPicker,
+        });
         menu.append(item);
         if (active) {
           const template = el('button', { class: 'h3-prompt-template', type: 'button', text: 'Insert prompt template' });
@@ -24924,6 +25389,107 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (/deepseek[- ]v?4[- ]pro/i.test(id)) return 'Pro · chat';
         return id || 'Select model';
       }
+      function placeModelMenu() {
+        const menu = cbarModel?.querySelector('.cbar-model-menu');
+        if (!menu || !modelMenuOpen) return;
+        const host = cbarModel.getBoundingClientRect();
+        const anchor = cbarModel.closest('.composer__card')?.getBoundingClientRect() || host;
+        const gap = 8, margin = 12;
+        const above = Math.max(0, anchor.top - gap - margin);
+        const below = Math.max(0, innerHeight - anchor.bottom - gap - margin);
+        const down = below >= 450 || below > above;
+        menu.style.maxHeight = `${Math.min(450, down ? below : above)}px`;
+        menu.style.top = down ? `${anchor.bottom - host.top + gap}px` : 'auto';
+        menu.style.bottom = down ? 'auto' : `${host.bottom - anchor.top + gap}px`;
+        const width = menu.getBoundingClientRect().width;
+        const left = Math.max(margin, Math.min(anchor.left, innerWidth - margin - width));
+        menu.style.left = `${left - host.left}px`;
+        menu.style.right = 'auto';
+      }
+      on(window, 'resize', placeModelMenu);
+      on(window, 'scroll', placeModelMenu, true);
+
+      function renderModelResults(results, cloud) {
+        const query = modelSearchQuery.trim().toLowerCase();
+        const matches = (...values) => !query || values.join(' ').toLowerCase().includes(query);
+        const h3Active = h3ComposerMode();
+        const activeRows = [], chatRows = [];
+        if (cloud) {
+          const cur = Store.getSettings().deepseekModel || 'deepseek-v4-flash';
+          for (const mo of cloudModels || []) {
+            const id = mo.id || String(mo);
+            if (!matches(id, 'cloud')) continue;
+            const active = !h3Active && id === cur;
+            const row = modelPickerRow({ name: id, meta: 'DeepSeek API · cloud', active,
+              key: id, action: active ? '✓ Selected' : 'Use', pick: () => {
+                Store.setSettings({ composerTarget: 'chat', deepseekModel: id, model: id });
+                toast(`Cloud model: ${id} — chat immediately; agent/design from their next start.`, 'info');
+                renderModelPill();
+              } });
+            (active ? activeRows : chatRows).push(row);
+          }
+        } else {
+          for (const g of (ggufList || []).filter(g => ggufIsUsableModel(g, ggufList))) {
+            const p = parseGgufName(g.file);
+            if (!matches(p.model, p.kind, p.quant, g.file)) continue;
+            const running = runningModelReady && ggufIsRunning(g, runningModelFile, runningEngineDir);
+            const active = running && !h3Active;
+            const row = modelPickerRow({ name: p.model, variant: p.kind === 'standard' ? '' : p.kind,
+              quant: p.quant, meta: `${fmtGgufSize(g.size)} · ${g.file}`, key: ggufKey(g), active,
+              action: active ? '✓ In use' : running ? 'Use' : 'Load', pick: () => pickGguf(g, running) });
+            (active ? activeRows : chatRows).push(row);
+          }
+        }
+        const media = el('div');
+        if (matches('MiniMax H3', 'video audio')) appendH3PickerOption(media);
+        const mediaRows = [...media.children];
+        if (h3Active) activeRows.push(...mediaRows);
+        results.replaceChildren();
+        const group = (title, rows, count = rows.length) => {
+          if (!rows.length) return;
+          results.append(el('section', { class: 'cbar-model-group', 'aria-label': title }, [
+            el('h3', { class: 'cbar-model-group-title' }, [
+              el('span', { text: title }), el('span', { class: 'cbar-model-group-count', text: String(count) }),
+            ]),
+            el('div', { class: 'cbar-model-rows' }, rows),
+          ]));
+        };
+        group(cloud || h3Active ? 'Selected' : 'Loaded', activeRows, 1);
+        group(cloud ? 'Cloud models' : 'Chat models', chatRows);
+        if (!h3Active) group('Media', mediaRows, 1);
+        if (modelListLoading) results.append(el('div', { class: 'cbar-model-empty', role: 'status', text: 'Refreshing models…' }));
+        else if (modelListError) results.append(el('div', { class: 'cbar-model-empty', role: 'status', text: modelListError }));
+        else if (!activeRows.length && !chatRows.length && !mediaRows.length)
+          results.append(el('div', { class: 'cbar-model-empty', role: 'status', text: `No models match “${modelSearchQuery.trim()}”. Try a model name or quantization.` }));
+        else if (!query && !(cloud ? cloudModels : ggufList)?.some(g => cloud || ggufIsUsableModel(g, ggufList)))
+          results.append(el('div', { class: 'cbar-model-empty', text: cloud ? 'No chat models — check the API key in Settings.' : 'No chat model installed. Download one from Settings → Models.' }));
+        placeModelMenu();
+      }
+      function createModelMenu(cloud) {
+        const search = el('input', { type: 'text', 'aria-label': 'Search models', placeholder: 'Search model or quantization…', value: modelSearchQuery, autocomplete: 'off', spellcheck: 'false' });
+        const header = el('div', { class: 'cbar-model-search' });
+        header.innerHTML = iconSvg('search', 15);
+        header.append(search, el('kbd', { text: 'Esc', 'aria-hidden': 'true' }));
+        const results = el('div', { class: 'cbar-model-results' });
+        const menu = el('div', { class: 'cbar-model-menu', id: 'composer-model-menu', role: 'dialog', 'aria-label': 'Choose a model' }, [header, results]);
+        on(search, 'input', () => { modelSearchQuery = search.value; renderModelResults(results, cloud); results.scrollTop = 0; });
+        on(menu, 'keydown', e => {
+          if (e.isComposing) return;
+          if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeModelMenu(true); return; }
+          const rows = [...results.querySelectorAll('.cbar-model-item')];
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault(); e.stopPropagation();
+            const index = rows.indexOf(document.activeElement);
+            const next = e.key === 'ArrowDown' ? rows[Math.min(index + 1, rows.length - 1)] : rows[index - 1];
+            (next || search).focus({ preventScroll: true });
+            next?.scrollIntoView({ block: 'nearest' });
+          } else if (e.key === 'Enter' && e.target === search) {
+            e.preventDefault(); e.stopPropagation(); rows[0]?.click();
+          }
+        });
+        renderModelResults(results, cloud);
+        return menu;
+      }
       function renderModelPill() {
         if (!cbarModel) return;
         if (isLanClientMode()) {
@@ -24932,127 +25498,54 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           cbarModel.replaceChildren();
           return;
         }
-        if (cloudBackendOn()) {
-          const cur = Store.getSettings().deepseekModel || 'deepseek-v4-flash';
-          const h3Active = h3ComposerMode();
-          const btn = el('button', { class: 'cbar-model-btn', type: 'button' });
-          btn.append(
-            el('span', { class: `cbar-model-dot${h3Active ? ' h3' : ''}` }),
-            el('span', { text: h3Active ? 'MiniMax H3 · video' : `${cur} · cloud` }),
-            el('span', { class: 'cbar-model-cv', text: '▾' }),
-          );
-          on(btn, 'click', (e) => {
-            e.stopPropagation();
-            const next = !modelMenuOpen;
-            closeGear(); closeThinkMenu();
-            modelMenuOpen = next;
-            if (modelMenuOpen) loadModelList(); else renderModelPill();
-          });
-          cbarModel.hidden = false;
-          cbarModel.replaceChildren(btn);
-          if (!modelMenuOpen) return;
-          const menu = el('div', { class: 'cbar-model-menu' });
-          menu.append(el('div', { class: 'cbar-model-empty', text: 'Media model' }));
-          appendH3PickerOption(menu);
-          menu.append(el('div', { class: 'cbar-model-empty', text: 'DeepSeek API models' }));
-          const models = cloudModels || [];
-          if (!models.length) {
-            menu.append(el('div', { class: 'cbar-model-empty', text: cloudModels === null ? 'Loading models…' : 'No models — check the API key in Settings.' }));
-          }
-          models.forEach((mo) => {
-            const id = mo.id || String(mo);
-            const active = !h3Active && id === cur;
-            const item = el('button', { class: 'cbar-model-item', type: 'button' }, [
-              el('span', { class: 'cbar-model-dot', style: active ? '' : 'background:var(--faint)' }),
-              el('div', { class: 'mi-body' }, [el('div', { class: 'mi-name', text: id })]),
-              el('span', { class: 'mi-badge', text: active ? '✓ active' : 'use' }),
-            ]);
-            on(item, 'click', (e) => {
-              e.stopPropagation();
-              modelMenuOpen = false;
-              Store.setSettings({ composerTarget: 'chat', deepseekModel: id, model: id });
-              toast(`Cloud model: ${id} — chat immediately; agent/design from their next start.`, 'info');
-              renderModelPill();
-            });
-            menu.append(item);
-          });
-          cbarModel.append(menu);
-          orientComposerMenu(menu);
-          return;
-        }
-        const dl = Store.getState().ui.modelDownload;     // {variant, pct} | null
-        const ggufs = (ggufList || []).filter((g) => !ggufIsEngineComponent(g));
-        const running = ggufs.find((g) => ggufIsRunning(g, runningModelFile, runningEngineDir));
-        const activeCo = (checkoutList || []).find((c) => c.active);
-        const coTag = activeCo && activeCo.name !== 'ds4' ? ` · ${activeCo.branch || activeCo.name}` : '';
+        const oldMenu = cbarModel.querySelector('.cbar-model-menu');
+        const focused = oldMenu?.contains(document.activeElement) ? document.activeElement : null;
+        const wasSearch = focused?.matches('input');
+        const selection = wasSearch ? [focused.selectionStart, focused.selectionEnd] : null;
+        const focusedKey = focused?.dataset?.modelKey;
+        const scrollTop = oldMenu?.querySelector('.cbar-model-results')?.scrollTop || 0;
+        const cloud = cloudBackendOn();
+        const ggufs = (ggufList || []).filter((g) => ggufIsUsableModel(g, ggufList));
+        const running = runningModelReady && ggufs.find((g) => ggufIsRunning(g, runningModelFile, runningEngineDir));
         const h3Active = h3ComposerMode();
+        const selectedFile = running?.file || Store.getSettings().modelGguf || runningModelFile;
+        const quant = !cloud && !h3Active && selectedFile ? parseGgufName(selectedFile).quant : '';
+        // Background downloads belong in Settings, not in the model label.
         const label = h3Active ? 'MiniMax H3 · video'
-          : dl ? `Downloading ${dl.pct}%`
-          : running ? modelLabel(running.file, false) + coTag
+          : cloud ? `${Store.getSettings().deepseekModel || 'deepseek-v4-flash'} · cloud`
+          : selectedFile ? modelLabel(selectedFile, false)
           : ggufs.length ? 'Pick a model'
           // GGUF enumeration is intentionally deferred until this button is
           // opened, but the composer should still show the active saved model.
           : ggufList === null ? configuredModelLabel() : 'No model';
-        const btn = el('button', { class: 'cbar-model-btn', type: 'button' });
-        btn.append(
-          el('span', { class: `cbar-model-dot${h3Active ? ' h3' : ''}` }),
-          el('span', { text: label }),
-          el('span', { class: 'cbar-model-cv', text: '▾' }),
-        );
+        const btn = el('button', { class: 'cbar-model-btn', type: 'button', title: `${label}${quant ? ` · ${quant}` : ''}`,
+          'aria-haspopup': 'dialog', 'aria-expanded': String(modelMenuOpen), 'aria-controls': 'composer-model-menu' });
+        btn.append(el('span', { class: 'cbar-model-label', text: label }));
+        if (quant) btn.append(el('span', { class: 'cbar-model-quant', text: quant }));
+        btn.append(el('span', { class: 'cbar-model-cv', text: modelMenuOpen ? '▴' : '▾', 'aria-hidden': 'true' }));
         on(btn, 'click', (e) => {
           e.stopPropagation();
-          const next = !modelMenuOpen;
-          closeGear();
-          closeThinkMenu();
-          modelMenuOpen = next;
-          if (modelMenuOpen) loadModelList(); else renderModelPill();
+          if (modelMenuOpen) { closeModelMenu(true); return; }
+          closeGear(); closeThinkMenu();
+          modelSearchQuery = '';
+          modelMenuOpen = true;
+          loadModelList(); // Renders immediately, before any launcher I/O.
+          cbarModel.querySelector('.cbar-model-search input')?.focus({ preventScroll: true });
         });
+        cbarModel.hidden = false;
         cbarModel.replaceChildren(btn);
         if (!modelMenuOpen) return;
-        const menu = el('div', { class: 'cbar-model-menu' });
-        menu.append(el('div', { class: 'cbar-model-empty', text: 'Media model' }));
-        appendH3PickerOption(menu);
-        menu.append(el('div', { class: 'cbar-model-empty', text: 'Chat models' }));
-        /* Engine-branch section: only when there is more than one managed ds4
-           checkout next to DStudio (main plus an optional model branch). */
-        const cos = checkoutList || [];
-        if (cos.length > 1) {
-          menu.append(el('div', { class: 'cbar-model-empty', text: 'Engine branch' }));
-          cos.forEach((c) => {
-            const item = el('button', { class: 'cbar-model-item', type: 'button' }, [
-              el('span', { class: 'cbar-model-dot', style: c.active ? '' : 'background:var(--faint)' }),
-              el('div', { class: 'mi-body' }, [
-                el('div', { class: 'mi-name', text: c.branch || c.name }),
-                el('div', { class: 'mi-sub', text: c.name + (c.hasServer ? '' : ' — not built (run make)') }),
-              ]),
-              el('span', { class: 'mi-badge', text: c.active ? '✓ active' : 'switch' }),
-            ]);
-            on(item, 'click', (e) => { e.stopPropagation(); modelMenuOpen = false; pickCheckout(c); });
-            menu.append(item);
-          });
-          menu.append(el('div', { class: 'cbar-model-empty', text: 'Model' }));
-        }
-        if (!ggufs.length) {
-          menu.append(el('div', { class: 'cbar-model-empty',
-            text: 'No model in the engine folder — download one from Settings or the welcome screen.' }));
-        }
-        ggufs.forEach((g) => {
-          const p = parseGgufName(g.file);
-          const runningNow = ggufIsRunning(g, runningModelFile, runningEngineDir);
-          const active = runningNow && !h3Active;
-          const item = el('button', { class: 'cbar-model-item', type: 'button' }, [
-            el('span', { class: 'cbar-model-dot', style: active ? '' : 'background:var(--faint)' }),
-            el('div', { class: 'mi-body' }, [
-              el('div', { class: 'mi-name', text: modelLabel(g.file, true) }),
-              el('div', { class: 'mi-sub', text: `${p.quant ? p.quant + ' · ' : ''}${fmtGgufSize(g.size)} · ${ggufBranchLabel(g)}` }),
-            ]),
-              el('span', { class: 'mi-badge', text: active ? '✓ active' : runningNow ? 'use' : 'load' }),
-          ]);
-          on(item, 'click', (e) => { e.stopPropagation(); modelMenuOpen = false; pickGguf(g, runningNow); });
-          menu.append(item);
-        });
+        const menu = createModelMenu(cloud);
         cbarModel.append(menu);
-          orientComposerMenu(menu);
+        placeModelMenu();
+        menu.querySelector('.cbar-model-results').scrollTop = scrollTop;
+        if (wasSearch) {
+          const search = menu.querySelector('input');
+          search.focus({ preventScroll: true });
+          search.setSelectionRange(...selection);
+        } else if (focusedKey) {
+          [...menu.querySelectorAll('.cbar-model-item')].find(row => row.dataset.modelKey === focusedKey)?.focus({ preventScroll: true });
+        }
       }
       function pickGguf(g, active) {
         if (isLanClientMode()) return;
@@ -25063,15 +25556,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           if (wasH3) toast(`${modelLabel(g.file, true)} selected for Chat.`, 'info');
           return;                                 // already running this model
         }
-        Switcher.switchToGguf(g.path, modelLabel(g.file, true), g.engineDir, ggufBranchLabel(g));
-      }
-      function pickCheckout(c) {
-        if (isLanClientMode()) return;
-        Store.setSettings({ composerTarget: 'chat' });
-        renderModelPill();
-        if (c.active) return;                     // already on this checkout
-        if (!c.hasServer) { toast(`${c.name} is not built yet — run make in ${c.dir}.`, 'warn'); return; }
-        Switcher.switchEngineDir(c.dir, c.branch || c.name);
+        Switcher.switchToGguf(g.path, modelLabel(g.file, true), g.engineDir);
       }
       // close the model menu on an outside click
       on(document, 'click', (e) => {
@@ -25368,6 +25853,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           Switcher.applyEngineConfig();
         });
         on(f.ssdStreaming, 'change', () => {
+          if (localQwenSelected()) { syncSsdStreamingFields(); return; }
           const v = ['off', 'on', 'auto'].includes(f.ssdStreaming.value) ? f.ssdStreaming.value : 'off';
           if (v === Store.getSettings().ssdStreaming) return;
           Store.setSettings({ ssdStreaming: v });
@@ -25390,6 +25876,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         on(f.theme, 'click', applyThemeChoice);
         on(lf.theme, 'click', applyThemeChoice);
         on(qs('#set-close'), 'click', () => dialog.close());
+        // Settings autosave; closing must not submit/validate hidden panes.
+        on(qs('#set-done'), 'click', () => dialog.close());
         on(f.settingsSearch, 'input', filterSettingsNavigation);
         on(f.modelFilter, 'input', renderSetModels);
         // Network (LAN) toggle: rebinds the listener live (serve closes the
@@ -25461,6 +25949,14 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
         Store.subscribe('models', renderSetModels);
         Store.subscribe('modelDownload', renderSetModels);
+        Store.subscribe('settings', syncSsdStreamingFields);
+        on(qs('#set-ssd-streaming-models'), 'click', () => {
+          f.settingsSearch.value = '';
+          f.modelFilter.value = '';
+          filterSettingsNavigation();
+          setPane('models');
+          loadSetModels();
+        });
       }
 
       // Two-pane settings: the sidebar switches which .set-grp pane is shown.
@@ -25851,6 +26347,20 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
       }
 
+      function syncSsdStreamingFields() {
+        const s = Store.getSettings();
+        const qwen = localQwenSelected(s);
+        f.ssdStreaming.value = localSsdStreaming(s);
+        f.ssdStreaming.disabled = qwen;
+        qs('#set-ssd-streaming-notice').hidden = !qwen;
+        qs('#set-ssd-streaming-badge').textContent = qwen ? 'Unavailable for Qwen' : 'Needs restart';
+        qs('#set-ssd-streaming-note').textContent = qwen
+          ? localQwen35Selected(s)
+            ? 'Qwen3.6 keeps all weights in RAM and needs no PLE file. Expert streaming stays Off; your preference for other models is kept.'
+            : 'Qwen3.8 keeps the main weights in RAM and its PLE on SSD. Expert streaming stays Off; your preference for other models is kept.'
+          : 'Metal-only. Keep Off unless the model cannot remain resident in memory.';
+      }
+
       function syncFields() {
         const s = Store.getSettings();
         f.baseUrl.value = s.baseUrl;
@@ -25871,8 +26381,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         f.designThinkTokens.value = String([0, 8192, 16384, 24576].includes(+s.designThinkTokens) ? +s.designThinkTokens : 0);
         setThemeActive(s.theme || 'light');
         f.ctx.value = String(s.ctxSize ?? 65536);
-        f.power.value = String(s.enginePower ?? 90);
-        f.ssdStreaming.value = ['off', 'on', 'auto'].includes(s.ssdStreaming) ? s.ssdStreaming : 'off';
+        f.power.value = localQwen35Selected(s) ? '100' : String(s.enginePower ?? 90);
+        f.power.disabled = localQwen35Selected(s);
+        qs('#set-power-note').textContent = localQwen35Selected(s)
+          ? 'Qwen3.6 uses native full power. Your preference for other models is kept.'
+          : 'ds4 --power balances throughput and memory pressure.';
+        syncSsdStreamingFields();
         f.metalHotlist.checked = !!s.metalHotlistSeed;
         f.dspark.checked = !!s.dspark;
         f.system.value = s.systemPrompt ?? '';
@@ -25914,7 +26428,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           if (m.physicalBytes) notes.push(`RAM ${fmtGib(m.physicalBytes)}`);
           if (m.modelBytes > 0) notes.push(`model ${fmtGib(m.modelBytes)}`);
           if (m.iogpuWiredLimitMb >= 0) notes.push(`iogpu.wired_limit_mb ${m.iogpuWiredLimitMb}`);
-          const desiredSsd = Store.getSettings().ssdStreaming || 'off';
+          const desiredSsd = localSsdStreaming();
           const runningSsd = m.ssdStreaming || 'off';
           notes.push(`SSD streaming running ${runningSsd}${m.ssdStreamingEffective ? ' (active)' : ''}`);
           if (desiredSsd !== runningSsd) notes.push(`next restart ${desiredSsd}`);
@@ -26352,7 +26866,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           try {
             try {
               const st = await Engine.status();
-              runningModel = st.modelFile || '';
+              runningModel = st.running === true && st.ready === true ? st.modelFile || '' : '';
               modelEngineDir = st.ds4dir || '';
               const downloadState = modelDownloadStateFromStatus(st);
               if (downloadState) Store.setModelState({ download: downloadState });
@@ -26377,8 +26891,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       function renderSetModels() {
         const host = f.models;
         if (!host) return;
+        // Status/catalog/filter refreshes must not silently change which large
+        // model the user is about to download.
+        const selectedDownload = host.querySelector('.onboard__dl select')?.value;
         const allGgufs = ggufCache || [];
-        const ggufs = allGgufs.filter((g) => !ggufIsEngineComponent(g));
+        const ggufs = allGgufs.filter((g) => ggufIsUsableModel(g, allGgufs));
         const query = String(f.modelFilter?.value || '').trim().toLowerCase();
         const visibleGgufs = ggufs.filter((g) => {
           if (!query) return true;
@@ -26453,12 +26970,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           if (choices.length) {
             const sel = el('select', { class: 'onboard__ctx', 'aria-label': 'Model / quantization to download' });
             choices.forEach((t) => sel.append(el('option', { value: t.id, text: modelDownloadOptionLabel(t) })));
+            if (choices.some((t) => t.id === selectedDownload)) sel.value = selectedDownload;
             const btn = el('button', { class: 'btn btn--sm', type: 'button', text: 'Download' });
             on(btn, 'click', () => {
               const t = choices.find((x) => x.id === sel.value);
               if (!t) return;
               const branchNote = t.body.engine === 'main' ? ''
-                : ' DStudio will install and select the laguna-s2.1 engine if needed.';
+                : ' DStudio will install and select the matching optional engine if needed.';
               askConfirm({ title: 'Download this model?', body: `${t.label}.${branchNote} Large file — it downloads in the background.`, cta: 'Download' })
                 .then((yes) => { if (yes) Switcher.downloadModel(t.body); });
             });
@@ -26617,26 +27135,25 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
         if (switching || ggufIsRunning(g, runningModel, modelEngineDir)) return;
         const p = parseGgufName(g.file);
-        const yes = isGlm53Gguf(g.path) ? true : await askConfirm({
+        switching = true;
+        try {
+          const yes = isGlm53Gguf(g.path) ? true : await askConfirm({
             title: 'Load this model?',
             body: `Switch to ${ggufBranchLabel(g)} and restart the engine on ${p.model}${p.kind ? ' · ' + p.kind : ''}${p.quant ? ' (' + p.quant + ')' : ''}? The current conversation is kept.`,
             cta: 'Load model',
           });
-        if (!yes) return;
-        switching = true;
-        toast('Loading the selected model…', 'info');
-        try {
-          const changed = await Switcher.switchToGguf(g.path,
+          if (!yes) return;
+          await Switcher.switchToGguf(g.path,
             `${p.model}${p.kind ? ' · ' + p.kind : ''}`,
             g.engineDir, ggufBranchLabel(g));
-          if (changed === false) { switching = false; return; }
-          runningModel = g.path;
-          modelEngineDir = g.engineDir || modelEngineDir;
         } catch (e) {
           toast(e?.message || 'Could not start the model', 'error');
+        } finally {
+          switching = false;
+          // An accepted launch is not a ready model. Re-read actual status;
+          // reopening Settings also refreshes memory/SSD diagnostics.
+          if (dialog.open) loadSetModels();
         }
-        switching = false;
-        loadSetModels();
       }
 
       function openVision() {
@@ -27476,7 +27993,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (isLanClientMode()) { ggufCache = []; renderModels(); return; }
         try { const r = await Engine.ggufs(); ggufCache = (r && r.ggufs) || []; }
         catch { ggufCache = ggufCache || []; }
-        const ggufs = (ggufCache || []).filter((g) => !ggufIsEngineComponent(g));
+        const ggufs = (ggufCache || []).filter((g) => ggufIsUsableModel(g, ggufCache));
         const settings = Store.getSettings();
         const savedPath = String(settings.modelGguf || '');
         const savedEngine = String(settings.modelEngineDir || '');
@@ -27492,7 +28009,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
       // Derive {model, kind, quant} from a GGUF filename.
       function parseGguf(file) {
-        const model = /laguna[-_ ]?s/i.test(file) ? 'Laguna S 2.1'
+        if (/qwen3\.8/i.test(file)) return parseGgufName(file);
+        const model = /qwen3\.8/i.test(file) ? 'Qwen3.8-Flash-Next' : /laguna[-_ ]?s/i.test(file) ? 'Laguna S 2.1'
           : /\bglm[-_ ]?5\.3/i.test(file) ? 'GLM 5.3 Flash'
           : /\bpro\b/i.test(file) ? 'DeepSeek V4 Pro'
           : /\bflash\b/i.test(file) ? 'DeepSeek V4 Flash' : 'DeepSeek V4';
@@ -27512,7 +28030,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const host = qs('#onboard-models');
         const note = qs('#onboard-model-note');
         if (!host) return;
-        const ggufs = (ggufCache || []).filter((g) => !ggufIsEngineComponent(g));
+        const ggufs = (ggufCache || []).filter((g) => ggufIsUsableModel(g, ggufCache));
         const dl = Store.getState().ui.modelDownload;
         if (note) note.textContent = !lastDs4Ok
           ? 'Install ds4 above first — the weights live in it.'
@@ -27546,7 +28064,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (dl) {
           appendModelDownloadStatus(dlBox, dl);
         } else {
-          const choices = availableModelDownloads(ggufs);
+          const choices = availableModelDownloads(ggufCache);
           if (choices.length) {
             const sel = el('select', { class: 'onboard__ctx', 'aria-label': 'Model / quantization to download' });
             choices.forEach((t) => sel.append(el('option', { value: t.id, text: modelDownloadOptionLabel(t) })));
@@ -27556,7 +28074,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               const t = choices.find((x) => x.id === sel.value);
               if (!t) return;
               const branchNote = t.body.engine === 'main' ? ''
-                : ' DStudio will install and select the laguna-s2.1 engine if needed.';
+                : ' DStudio will install and select the matching optional engine if needed.';
               askConfirm({ title: 'Download this model?', body: `${t.label}.${branchNote} Large file — it downloads in the background.`, cta: 'Download' })
                 .then((yes) => { if (yes) Switcher.downloadModel(t.body); });
             });
@@ -27968,6 +28486,18 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (!r.ok && data && !data.error) data.error = `/api/laguna/setup returned HTTP ${r.status}`;
         return data;
       }
+      async function setupQwen() {
+        const r = await apiFetch('/api/qwen/setup', { method: 'POST', headers: H });
+        const data = await r.json();
+        if (!r.ok) return { ...data, ok: false, error: data.error || `Qwen setup HTTP ${r.status}` };
+        return data;
+      }
+      async function setupQwen35() {
+        const r = await apiFetch('/api/qwen35/setup', { method: 'POST', headers: H });
+        const data = await r.json();
+        if (!r.ok) return { ...data, ok: false, error: data.error || `Qwen3.6 setup HTTP ${r.status}` };
+        return data;
+      }
       async function setupContent() {   // download optional design systems
         const r = await apiFetch('/api/setup/content', { method: 'POST', headers: H });
         const data = await r.json().catch(() => ({ ok: false, error: `/api/setup/content returned HTTP ${r.status} with invalid JSON` }));
@@ -28231,7 +28761,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return r.json();
       }
 
-      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, stop, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupLaguna, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, stopModelDownload, openModelFolder, deleteModelPartials, engineCheckouts, setEngineCheckout, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, setHttpPort, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
+      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, stop, agentSend, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupLaguna, setupQwen, setupQwen35, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, stopModelDownload, openModelFolder, deleteModelPartials, engineCheckouts, setEngineCheckout, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, setHttpPort, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
     })();
 
     /* ==================== Remote LAN chat ==================== */
@@ -29531,7 +30061,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           starters: [
             ['table', 'Analyze a workbook', 'Inspect the spreadsheets in this folder, identify the important trends and create a verified summary workbook.'],
             ['document', 'Turn sources into a brief', 'Read the source documents in this folder and create a polished, source-grounded brief.'],
-            ['refine', 'Clean and reconcile data', 'Audit the tabular data in this folder, reconcile totals and produce a clean workbook with formulas.'],
+            ['refine', 'Compare documents', 'Compare the source documents in this folder in a source-backed table. Choose columns relevant to their subject and my goal, not preset financial fields. Use document_table, retain the exact evidence for each cell, mark missing or conflicting information and export an Excel workbook and an expandable HTML table.'],
             ['panel', 'Build a presentation', 'Study the source files and create a concise presentation with one clear claim per slide.'],
           ],
         });
@@ -31688,6 +32218,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         excel: '▦ spreadsheet', spreadsheet: '▦ spreadsheet', read_pdf: '▤ reads PDF',
         read_document: '▤ reads document', write_document: '✎ writes document',
         presentation: '▣ builds presentation', see_image: '◉ inspects image',
+        document_table: '▦ source-backed table',
         view_image: '◉ views image',
       };
 
@@ -31923,6 +32454,62 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return d;
       }
 
+      const documentTableOpenCells = new Set();
+      function buildDocumentTablePreview(output, scope = '') {
+        let data;
+        try { data = JSON.parse(output); } catch { return null; }
+        if (data?.format !== 'dstudio.document-table.v1' || !Array.isArray(data.columns) ||
+            !Array.isArray(data.rows) || data.columns.length > 32 || data.rows.length > 20) return null;
+        const labels = { sourced: 'Source matched', missing: 'Not extracted', needs_review: 'Review needed',
+          conflict: 'Conflicting candidates', stale_source: 'Source changed', unavailable: 'Source unavailable' };
+        const box = el('section', { class: 'document-table-preview', 'aria-label': 'Source-backed document table' });
+        box.append(el('h3', { text: String(data.title || 'Document comparison') }),
+          el('p', { text: `Revision ${data.revision} · ${data.totalRows} rows · Checked ${data.checkedAt || 'unknown'}` }),
+          el('p', { text: 'Source matched means the quoted text and value occur in the document, not that the interpretation is correct. This is a snapshot of the last check.' }));
+        const table = el('table');
+        const head = el('tr', {}, [el('th', { scope: 'col', text: 'Document / item' })]);
+        for (const col of data.columns) head.append(el('th', { scope: 'col', text: String(col.label || col.id) + (col.unit ? ` (${col.unit})` : '') }));
+        table.append(el('thead', {}, [head]));
+        const body = el('tbody');
+        for (const row of data.rows) {
+          const tr = el('tr', {}, [el('th', { scope: 'row', text: String(row.label || row.id || '') })]);
+          for (const col of data.columns) {
+            const cell = row.cells?.[col.id] || {};
+            const label = labels[cell.status] || 'Review needed';
+            const detail = el('details', { class: 'document-table-cell' });
+            detail.append(el('summary', {}, [el('span', { text: cell.value == null ? '—' : String(cell.value) }), el('small', { text: label })]));
+            const key = JSON.stringify([scope, data.path || data.title, data.revision, row.id, col.id]);
+            detail.open = documentTableOpenCells.has(key);
+            detail.querySelector('summary').addEventListener('click', () => {
+              if (detail.open) documentTableOpenCells.delete(key);
+              else {
+                if (documentTableOpenCells.size >= 4096) documentTableOpenCells.delete(documentTableOpenCells.values().next().value);
+                documentTableOpenCells.add(key);
+              }
+            });
+            if (cell.note) detail.append(el('p', { text: String(cell.note) }));
+            for (const candidate of (Array.isArray(cell.candidates) ? cell.candidates.slice(0, 8) : [])) {
+              detail.append(el('p', { text: `${candidate.value} · ${labels[candidate.status] || 'Review needed'}` }));
+              for (const ref of (Array.isArray(candidate.evidence) ? candidate.evidence.slice(0, 8) : [])) {
+                detail.append(el('p', { text: `${ref.path} · ${ref.segment}` }),
+                  el('blockquote', { text: String(ref.quote || '') }),
+                  el('small', { text: `SHA256 ${ref.sha256 || 'unknown'}` }));
+              }
+              for (const issue of (Array.isArray(candidate.issues) ? candidate.issues : [])) detail.append(el('p', { text: String(issue) }));
+            }
+            if (!cell.candidates?.length) detail.append(el('p', { text: 'Not extracted; this does not prove the information is absent.' }));
+            tr.append(el('td', {}, [detail]));
+          }
+          body.append(tr);
+        }
+        table.append(body);
+        box.append(el('div', { class: 'document-table-scroll', tabindex: '0', role: 'region', 'aria-label': 'Comparison cells' }, [table]));
+        if (data.nextOffset != null) box.append(el('p', { text: `More rows available. Ask Cowork to inspect from row offset ${data.nextOffset}. The exports contain all ${data.totalRows} rows.` }));
+        for (const check of (Array.isArray(data.checks) ? data.checks : [])) box.append(el('p', { text: `${check.kind} · ${check.column}: ${check.status} — supplied rows only` }));
+        if (data.exported) box.append(el('p', { text: `Saved in your workspace: ${data.exported}` }));
+        return box;
+      }
+
       function attachToolOutput(fold, ev) {
         const out = ev.output || '';
         const n = out.split('\n').filter((l) => l.trim()).length;
@@ -31936,6 +32523,14 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (status) status.textContent = '✓';
         fold.dataset.complete = 'true';
         if (!out.trim()) return;
+        if ((fold._toolEvent?.name || ev.name) === 'document_table') {
+          const table = buildDocumentTablePreview(out, Store.getActiveChat()?.id || '');
+          if (table) {
+            fold.append(table);
+            fold.open = true;
+            return;
+          }
+        }
         const summary = fold.querySelector('summary');
         if (summary) summary.append(el('span', {
           class: 'tool-step-preview',
@@ -33446,6 +34041,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       let chatUiTarget = 'server'; // 'server' (Chat) or 'roadmap'; both use the server engine
       let switching = false;
       let launchTarget = null;
+      let modelPickPending = false;
       let lastOverlayLog = '';
       let lastOverlayStage = '';
       let lastOverlayLine = '';
@@ -34191,13 +34787,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       const ctxSize = () => Store.getSettings().ctxSize || 65536;
       const enginePower = () => Math.max(1, Math.min(100, parseInt(Store.getSettings().enginePower ?? 90, 10) || 90));
-      const ssdStreaming = () => ['off', 'on', 'auto'].includes(Store.getSettings().ssdStreaming) ? Store.getSettings().ssdStreaming : 'off';
       const metalHotlistSeed = () => !!Store.getSettings().metalHotlistSeed;
       const dspark = () => !!Store.getSettings().dspark;
       const launchBase = (remote = false) => ({
         ctx: ctxSize(),
-        power: enginePower(),
-        ...(remote ? {} : { ssdStreaming: ssdStreaming(), metalHotlistSeed: metalHotlistSeed(), dspark: dspark() }),
+        power: !remote && localQwen35Selected() ? 100 : enginePower(),
+        ...(remote ? {} : { ssdStreaming: localSsdStreaming(), metalHotlistSeed: metalHotlistSeed(), dspark: dspark() }),
       });
       const variant = () => Store.getSettings().modelVariant || 'flash';
       const thinkLevel = () => Store.getSettings().thinkLevel || 'high';
@@ -34292,7 +34887,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         };
       };
 
-      async function selectSavedModelCheckout() {
+      async function selectSavedModelCheckout(onError = (message) => toast(message, 'error')) {
         let dir = modelCheckout();
         if (isLanClientMode()) return true;
         /* Resolve legacy missing checkout metadata and repair stale absolute
@@ -34314,13 +34909,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         let res = null;
         try { res = await Engine.setEngineCheckout(dir); } catch { /* handled below */ }
         if (!res || res.ok === false) {
-          toast(res?.error || 'Could not select the model engine checkout.', 'error');
+          onError(res?.error || 'Could not select the model engine checkout.');
           return false;
         }
         return true;
       }
 
-      async function startServer(requestedUiMode, launchSettings = null) {
+      async function startServer(requestedUiMode, launchSettings = null, checkoutReady = false) {
         if (requestedUiMode === 'server' || requestedUiMode === 'roadmap') chatUiTarget = requestedUiMode;
         else if (mode === 'roadmap') chatUiTarget = 'roadmap';
         else chatUiTarget = 'server';
@@ -34330,7 +34925,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           Statusbar.refresh();
           return;
         }
-        if (!await selectSavedModelCheckout()) return;
+        if (!checkoutReady && !await selectSavedModelCheckout()) return;
         const launch = launchBase();
         const requestedContext = Number(launchSettings?.ctxSize);
         if (Number.isFinite(requestedContext) && requestedContext > 0) {
@@ -34432,36 +35027,36 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return withAbort(chatReadyFlight, signal);
       }
 
-      async function startAgent(workdir) {
+      async function startAgent(workdir, checkoutReady = false) {
         if (isHostServedLanShell()) {
           toast('Agent cannot use a LAN host workspace. Run DStudio locally on this device.', 'warn');
           return;
         }
         const remote = remoteModelLaunch();
         if (!remote) return;
-        if (!isLanClientMode() && !await selectSavedModelCheckout()) return;
+        if (!checkoutReady && !isLanClientMode() && !await selectSavedModelCheckout()) return;
         runtimeThinkDirty = false;
         const picked = skillForMode('agent');
         // 'auto' is a UI routing mode, not a real pack: launch without a fixed
         // skill; the model routes per turn via its skills_search tool.
         const skill = picked === 'auto' ? '' : picked;
         runtimeSkillAtLaunch.agent = skill;
-        runSwitch('agent', { mode: 'agent', model: 'standard', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, ...remote }, 'Starting the agent…');
+        return runSwitch('agent', { mode: 'agent', model: 'standard', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, ...remote }, 'Starting the agent…');
       }
 
-      async function startCowork(workdir) {
+      async function startCowork(workdir, checkoutReady = false) {
         if (isHostServedLanShell()) {
           toast('Cowork cannot use a LAN host workspace. Run DStudio locally on this device.', 'warn');
           return;
         }
         const remote = remoteModelLaunch();
         if (!remote) return;
-        if (!isLanClientMode() && !await selectSavedModelCheckout()) return;
+        if (!checkoutReady && !isLanClientMode() && !await selectSavedModelCheckout()) return;
         runtimeThinkDirty = false;
         const picked = skillForMode('cowork');
         const skill = picked === 'auto' ? '' : picked;
         runtimeSkillAtLaunch.cowork = skill;
-        runSwitch('cowork', {
+        return runSwitch('cowork', {
           mode: 'cowork', model: 'standard', variant: variant(),
           gguf: isLanClientMode() ? '' : modelGguf(), skill,
           ...launchBase(remote.modelBackend === 'remote'),
@@ -34490,13 +35085,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const skill = (opts && 'skill' in opts) ? opts.skill : skillForMode('design');
         const remote = remoteModelLaunch();
         if (!remote) return;
-        if (!isLanClientMode() && !await selectSavedModelCheckout()) return;
+        if (!opts?.checkoutReady && !isLanClientMode() && !await selectSavedModelCheckout()) return;
         runtimeThinkDirty = false;
         runtimeSkillAtLaunch.design = skill || '';
         // Thinking effort and context capacity are independent settings.
         // Respect the saved context instead of silently inflating Max thinking
         // to 393216 tokens (and allocating about 4 GiB of context buffers).
-        runSwitch('design', { mode: 'design', model: 'standard', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, designSystem: designSystem(), ...launchBase(remote.modelBackend === 'remote'), ctx: ctxSize(), think: thinkLevel(), designThinkTokens: designThinkTokens(), workdir, ...remote }, 'Starting the design agent…');
+        return runSwitch('design', { mode: 'design', model: 'standard', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, designSystem: designSystem(), ...launchBase(remote.modelBackend === 'remote'), ctx: ctxSize(), think: thinkLevel(), designThinkTokens: designThinkTokens(), workdir, ...remote }, 'Starting the design agent…');
       }
 
       // Switch the active model variant (v4-flash / v4-pro): persist the choice
@@ -34517,31 +35112,41 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // conversation is kept. The pick persists across restarts via modelGguf().
       async function switchToGguf(path, label, engineDir = '', engineLabel = '') {
         if (isLanClientMode()) { toast('The LAN host controls the model', 'warn'); return; }
-        const samePick = modelGguf() === path && modelCheckout() === (engineDir || '');
-        let st = null;
-        try { st = await Engine.status(); } catch { /* restarting remains useful */ }
-        if (samePick && ggufIsRunning({ path, engineDir }, st?.modelFile, st?.ds4dir) && st?.ready) return;
-        if (!await confirmGlm53Load(path)) return false;
-        Store.setSettings({ composerTarget: 'chat', modelGguf: path, modelEngineDir: engineDir || '' });
-        toast(`Loading ${label || 'the model'}${engineLabel ? ` from ${engineLabel}` : ''}…`, 'info');
-        return restartCurrent();
-      }
-
-      // Switch the ds4 checkout (git branch) the engine runs from. Process-local
-      // and not persisted: the next DStudio launch resolves ./ds4 again. The
-      // explicit GGUF pick is cleared — the new checkout has its own gguf/ list.
-      async function switchEngineDir(dir, label) {
-        if (isLanClientMode()) { toast('The LAN host controls the engine', 'warn'); return; }
-        let res;
-        try { res = await Engine.setEngineCheckout(dir); }
-        catch { res = null; }
-        if (!res || res.ok === false) {
-          toast((res && res.error) || 'Could not switch the engine checkout.', 'error');
-          return;
+        if (modelPickPending || switching) return false;
+        modelPickPending = true;
+        let preparing = false;
+        try {
+          // Show the confirmation before any launcher I/O: a busy engine must
+          // not make a click look ignored. Cancel leaves preferences untouched.
+          if (!await confirmGlm53Load(path)) return false;
+          const samePick = modelGguf() === path && modelCheckout() === (engineDir || '');
+          qs('#settings-dialog')?.close(); // A modal would cover the loading overlay.
+          showOverlay(mode, { gguf: path, ...launchBase() },
+            `Loading ${label || 'the model'}${engineLabel ? ` from ${engineLabel}` : ''}…`);
+          preparing = true;
+          if (samePick) {
+            let st = null;
+            try { st = await Engine.status(); } catch { /* restarting remains useful */ }
+            if (ggufIsRunning({ path, engineDir }, st?.modelFile, st?.ds4dir) && st?.running && st?.ready) {
+              hideOverlay();
+              return false;
+            }
+          }
+          Store.setSettings({ composerTarget: 'chat', modelGguf: path, modelEngineDir: engineDir || '' });
+          updateOverlay(0, 'Preparing model engine', 'Checking the selected model and its engine folder');
+          if (!await selectSavedModelCheckout(failOverlay)) return false;
+          const result = await restartCurrent({ checkoutReady: true });
+          // A mode may need a folder or reject its configuration before launch.
+          // In that case leave its dialog visible, not an endless loading screen.
+          if (!result) hideOverlay();
+          return result;
+        } catch (e) {
+          if (preparing) failOverlay(e?.message || 'Could not start the model');
+          else toast(e?.message || 'Could not start the model', 'error');
+          return false;
+        } finally {
+          modelPickPending = false;
         }
-        Store.setSettings({ composerTarget: 'chat', modelGguf: '', modelEngineDir: '' });
-        toast(`Engine: ${label || res.branch || 'checkout'} — restarting…`, 'info');
-        restartCurrent();
       }
 
       // Switch the active skill for the CURRENT mode (agent/design). New turns get a
@@ -34740,6 +35345,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const branch = String(c?.branch || '').toLowerCase();
         const name = String(c?.name || '').toLowerCase();
         if (engine === 'laguna') return branch === 'laguna-s2.1' || name === 'ds4-laguna-s21';
+        if (engine === 'qwen') return branch === 'qwen3.8-flash-next' || name === 'ds4-qwen38';
+        if (engine === 'qwen35') return branch === 'qwen35moe-support' || name === 'ds4-qwen35';
         return branch === 'main' || name === 'ds4';
       }
       async function ensureModelDownloadEngine(engine) {
@@ -34748,9 +35355,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         catch { /* setup below can still recover optional engines */ }
         let checkout = list.find((c) => checkoutMatchesEngine(c, engine));
         if (!checkout && engine !== 'main') {
-          const label = 'Laguna S 2.1';
+          const label = engine === 'qwen35' ? 'Qwen3.6-35B-A3B' : engine === 'qwen' ? 'Qwen3.8-Flash-Next' : 'Laguna S 2.1';
           toast(`Installing the ${label} engine first…`, 'info');
-          const setup = await Engine.setupLaguna();
+          const setup = await (engine === 'qwen35' ? Engine.setupQwen35() : engine === 'qwen' ? Engine.setupQwen() : Engine.setupLaguna());
           if (!setup || setup.ok === false) throw new Error(setup?.error || `${label} engine setup failed`);
           list = (await Engine.engineCheckouts())?.checkouts || [];
           checkout = list.find((c) => checkoutMatchesEngine(c, engine));
@@ -34779,7 +35386,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           download: {
             variant: label,
             pct: 0,
-            stage: engine === 'main' ? 'Preparing download for' : 'Preparing Laguna S 2.1 engine for',
+            stage: engine === 'main' ? 'Preparing download for' : `Preparing ${engine} engine for`,
           },
         });
         try {
@@ -34870,12 +35477,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       // Restart the CURRENT mode's engine (reusing its saved working folder),
       // keeping the conversation. Used by the context-size change.
-      function restartCurrent() {
-        if (mode === 'server' || mode === 'roadmap') return startServer(mode);
+      function restartCurrent({ checkoutReady = false } = {}) {
+        if (mode === 'server' || mode === 'roadmap') return startServer(mode, null, checkoutReady);
         const wd = Store.getSettings().workdirs?.[mode] || Store.getState().ui.agentWorkdir || '';
-        if (mode === 'agent') return startAgent(wd);
-        if (mode === 'cowork') return startCowork(wd);
-        return startDesign(wd);
+        if (mode === 'agent') return startAgent(wd, checkoutReady);
+        if (mode === 'cowork') return startCowork(wd, checkoutReady);
+        return startDesign(wd, { checkoutReady });
       }
 
       function applyEngineConfig() {
@@ -35004,9 +35611,14 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           try { st = await Engine.status(); lastStatusError = ''; }
           catch (e) { lastStatusError = e?.message || 'status request failed'; }
           if (st) {
-            updateOverlay(st.loadPct, st.stage, st.engineLine || st.engineError || '');
+            // The asynchronous launch can still report the previous ready
+            // model for a poll. That is not completion of this model switch.
+            const previousModelReady = st.ready && st.running === true && st.mode === target &&
+              cfg.modelBackend !== 'remote' && cfg.gguf &&
+              !ggufIsRunning({ path: cfg.gguf }, st.modelFile);
+            if (!previousModelReady) updateOverlay(st.loadPct, st.stage, st.engineLine || st.engineError || '');
             Store.getState().ui.agentWorkdir = st.workdir || '';
-            if (st.ready && (st.mode !== target || st.running !== true)) {
+            if (st.ready && (st.mode !== target || st.running !== true || previousModelReady)) {
               // Another window or a newer launch request may intentionally
               // supersede this task. The task ring is authoritative: adopt the
               // newer ready mode instead of showing a false startup failure.
@@ -35020,13 +35632,15 @@ Choose however many stages, branches, and topics the subject actually warrants; 
                 }
                 return;
               }
-              failOverlay(`${target} did not start${launchTaskId ? ` (task #${launchTaskId})` : ''} — /api/status reports mode=${st.mode || 'unknown'}, running=${st.running === true}, ready=${st.ready === true}${st.engineError ? `, engineError=${st.engineError}` : ''}.`);
-              switching = false;
-              launchTarget = null;
-              Statusbar.render();
-              return;
+              if (!previousModelReady) {
+                failOverlay(`${target} did not start${launchTaskId ? ` (task #${launchTaskId})` : ''} — /api/status reports mode=${st.mode || 'unknown'}, running=${st.running === true}, ready=${st.ready === true}${st.engineError ? `, engineError=${st.engineError}` : ''}.`);
+                switching = false;
+                launchTarget = null;
+                Statusbar.render();
+                return;
+              }
             }
-            if (st.ready) {
+            if (st.ready && !previousModelReady) {
               hideOverlay();
               switching = false;
               launchTarget = null;
@@ -35268,7 +35882,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         openWorkdirDialog(target, true);
       }
 
-      return { mount, mode: () => mode, launching: () => launchTarget, restartCurrent, ensureChatReady, changeWorkdir, applyCtxSize, applyEngineConfig, applyThinkLevel, openImport, switchModel, switchToGguf, switchEngineDir, switchSkill, switchDesignSystem, switchPlan, switchGsa, switchRsa, downloadModel, newSession,
+      return { mount, mode: () => mode, launching: () => launchTarget, restartCurrent, ensureChatReady, changeWorkdir, applyCtxSize, applyEngineConfig, applyThinkLevel, openImport, switchModel, switchToGguf, switchSkill, switchDesignSystem, switchPlan, switchGsa, switchRsa, downloadModel, newSession,
                wirePromptForRuntime,
                planArmed: () => PlanDriver.armed(), planArm: (g) => PlanDriver.arm(g),
                planPending: () => PlanDriver.pending(), planAction: (a) => PlanDriver.action(a),

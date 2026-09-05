@@ -1,2 +1,4 @@
-# Unified diff context uses a single prefix space on blank context lines.
-patch/**/*.patch whitespace=-blank-at-eol
+# Unified diff context prefixes blank lines and Makefile tabs with one space.
+patch/**/*.patch whitespace=-blank-at-eol,-space-before-tab
+# Replacement fragments preserve literal insertion bytes, including separators.
+patch/**/*.replace whitespace=-blank-at-eof

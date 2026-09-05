@@ -14,7 +14,8 @@ action=${1:-apply}
 
 # The current main downloader contains these native DeepSeek Vision and GLM 5.3
 # targets. Optional/older engine checkouts keep their own downloader unchanged.
-if ! grep -q 'ds4f-vision-q2' "$ds4_dir/download_model.sh" ||
+if grep -q 'qwen38-q4k' "$ds4_dir/download_model.sh" ||
+   ! grep -q 'ds4f-vision-q2' "$ds4_dir/download_model.sh" ||
    ! grep -q 'glm53-q2' "$ds4_dir/download_model.sh"; then
     echo "DStudio visible downloads patch: non-main checkout skipped"
     exit 0

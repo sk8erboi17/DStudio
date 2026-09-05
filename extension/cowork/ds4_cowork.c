@@ -121,6 +121,7 @@ static bool cowork_write_all(int fd, const char *p, size_t n) {
 int ds4_cowork_tool_known(const char *name) {
     return name && (!strcmp(name, "excel") ||
                     !strcmp(name, "spreadsheet") ||
+                    !strcmp(name, "document_table") ||
                     !strcmp(name, "read_document") ||
                     !strcmp(name, "write_document") ||
                     !strcmp(name, "write_pdf") ||

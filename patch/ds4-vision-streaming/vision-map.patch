@@ -1,0 +1,37 @@
+diff --git a/ds4.c b/ds4.c
+index 91ab214..e14925e 100644
+--- a/ds4.c
++++ b/ds4.c
+@@ -64206,7 +64206,15 @@ static int ds4_engine_vision_encode_image(
+     if (!e->metal_ready) {
+         e->metal_ready = ds4_gpu_init() != 0;
+     }
+-    if (e->metal_ready && !e->vision_map_ready) {
++    /* DS4UI_VISION_STREAM_MAP: Metal SSD span replacement invalidates the
++     * shared view registry, not this engine-local readiness flag. Revalidate
++     * the encoder range on every image; the Metal mapper reuses covered views. */
++#if defined(__APPLE__)
++    const bool refresh_vision_map = true;
++#else
++    const bool refresh_vision_map = !e->vision_map_ready;
++#endif
++    if (e->metal_ready && refresh_vision_map) {
+ #if defined(__APPLE__)
+         e->vision_map_ready = ds4_gpu_set_model_map_range(
+                 e->vision_model.map,
+diff --git a/ds4_metal.m b/ds4_metal.m
+index 47bea08..c08e7eb 100644
+--- a/ds4_metal.m
++++ b/ds4_metal.m
+@@ -39866,7 +39866,10 @@ int ds4_gpu_router_select_batch_visual_tensor(
+             if (!hashbuf) return 0;
+             hash_set_offset = (NSUInteger)hash_inner;
+         }
+-        id<MTLBuffer> visual_biasbuf = ds4_gpu_wrap_model_range(
++        /* DS4UI_VISION_STREAM_MAP: language-layer SSD remaps discard encoder
++         * views. Keep this small auxiliary tensor independent of that registry;
++         * exact views retain their validated backing buffer through dispatch. */
++        id<MTLBuffer> visual_biasbuf = ds4_gpu_wrap_model_exact_range(
+                 vision_map, vision_size, visual_bias_offset,
+                 (uint64_t)n_expert * sizeof(float), &visual_inner);
+         if (!visual_biasbuf) return 0;

@@ -7,7 +7,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import {
   artifactDir, safeReadTail, startDStudio, startMode, writeArtifact,
-} from '../../../tests/real_harness.mjs';
+} from '../../../tests/support/real_harness.mjs';
 import {
   changeAllowed, changedFiles, createReliabilityFixture, RELIABILITY_SUITE_SIZE,
   workspaceSnapshot,

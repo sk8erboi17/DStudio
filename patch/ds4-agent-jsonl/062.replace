@@ -1,4 +1,8 @@
 static char *agent_default_cache_dir(void) {
+    /* Benchmarks/tests can isolate sessions without changing HOME or touching
+     * the user's saved Agent/Cowork conversations. */
+    const char *isolated = getenv("DS4UI_SESSION_CACHE_DIR");
+    if (isolated && isolated[0]) return xstrdup(isolated);
     const char *home = getenv("HOME");
     if (!home || !home[0]) home = ".";
     const char *runtime = getenv("DS4UI_RUNTIME_NAME");   /*DS4UI_JSONL*/

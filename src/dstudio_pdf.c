@@ -921,6 +921,8 @@ static void pdf_describe_need_embedding(int fd, int want_text) {
     }
 }
 
+#include "dstudio_pdf_evidence.c"
+
 /* POST /api/pdf/describe — text layer plus optional semantic retrieval. */
 static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     char fmt[16] = "";
@@ -1005,6 +1007,11 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     char *pdf = pdf_write_temp(body, allow_path, &forbidden, &docfnv);
     if (forbidden) { pdf_describe_fail(fd, want_text, "403 Forbidden", "path is host-local only; send data_uri"); return; }
     if (!pdf) { pdf_describe_fail(fd, want_text, "400 Bad Request", "a PDF (data_uri or host-local path) is required"); return; }
+    /* Retained originals are host-local, like chat history. LAN uploads keep
+     * their existing inline-only behavior and cannot inspect this cache. */
+    int evidence = !want_text && allow_path && json_get_bool(body, "evidence");
+    char document_id[65] = "";
+    if (evidence && !pdf_document_id(pdf, document_id)) evidence = 0;
     pdf_job_write(jobpath, "{\"phase\":\"start\",\"done\":false}");
 
     /* Cache lookup — overview/full reads are question-independent. Semantic
@@ -1015,8 +1022,9 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         /* Bump this salt on ANY pipeline-behavior change (thresholds, prompts,
          * classification): cached entries carry the OLD behavior and would
          * silently mask the fix for already-seen documents. */
-        static const char *salt = "|text-native-v1-document-caches|";
+        static const char *salt = "|text-native-v3-pdf-evidence-structure|";
         for (const char *s = salt; *s; s++)     { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
+        for (const char *s = document_id; *s; s++) { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
         if (interactive) {
             static const char *ip = "|interactive-adaptive|";
             for (const char *s = ip; *s; s++)       { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
@@ -1042,7 +1050,10 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     if (!native_vision) {
         size_t cn = 0;
         char *cached = jsonl_read_file(cpath, &cn);
-        if (cached && cn > 2 && cached[0] == '{') {
+        char cached_id[80] = "";
+        if (cached) (void)json_get_string(cached, "documentId", cached_id, sizeof cached_id);
+        if (cached && cn > 2 && cached[0] == '{' &&
+            (!evidence || (!strcmp(cached_id, document_id) && pdf_source_store(pdf, document_id)))) {
             (void)utimes(cpath, NULL);          /* LRU touch so pruning keeps hot docs */
             unlink(pdf); free(pdf);
             pdf_job_write(jobpath, "{\"phase\":\"done\",\"done\":true,\"cached\":true}");
@@ -1276,12 +1287,17 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     else if (ok && total > npages)
         ok = json_dyn_printf(&text, "\n[PDF troncato alle prime %d di %d pagine.]\n", npages, total);
 
+    json_dyn_buf sections = {0}, section_links = {0};
+    if (evidence) {
+        evidence = pdf_source_store(pdf, document_id);
+        if (evidence) ok = ok && pdf_section_hints(&sections, &section_links, pstart, plen, tpages);
+    }
     free(layer);
     unlink(pdf); free(pdf);
 
     if (!ok) {
         for (int i = 0; i < vision_pages; i++) free(vision_uris[i]);
-        free(text.ptr);
+        free(text.ptr); free(sections.ptr); free(section_links.ptr);
         pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
         pdf_describe_fail(fd, want_text, "500 Internal Server Error", "oom");
         return;
@@ -1311,7 +1327,12 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
                          json_dyn_put_escaped(&out, vision_uris[i]) &&
                          json_dyn_puts(&out, "}");
     }
-    if (good) good = json_dyn_puts(&out, "]}");
+    if (good) good = json_dyn_puts(&out, "],\"documentId\":") &&
+                     (evidence ? json_dyn_put_escaped(&out, document_id) : json_dyn_puts(&out, "null")) &&
+                     json_dyn_puts(&out, ",\"sections\":") && json_dyn_puts(&out, sections.ptr ? sections.ptr : "[]") &&
+                     json_dyn_puts(&out, ",\"sectionLinks\":") && json_dyn_puts(&out, section_links.ptr ? section_links.ptr : "[]") &&
+                     json_dyn_puts(&out, "}");
+    free(sections.ptr); free(section_links.ptr);
     if (!good) {
         for (int i = 0; i < vision_pages; i++) free(vision_uris[i]);
         free(text.ptr); free(out.ptr);
@@ -1332,7 +1353,12 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
 /* Fork a detached worker because Poppler extraction and embedding can be slow. */
 static void api_pdf_fork(int fd, const char *body, int is_describe, int allow_path) {
     pid_t pid = fork();
-    if (pid < 0) { if (is_describe) api_pdf_describe_run(fd, body, allow_path); else api_pdf_thumb_run(fd, body, allow_path); return; }
+    if (pid < 0) {
+        if (is_describe == 2) api_pdf_evidence_run(fd, body);
+        else if (is_describe) api_pdf_describe_run(fd, body, allow_path);
+        else api_pdf_thumb_run(fd, body, allow_path);
+        return;
+    }
     if (pid == 0) {
         if (fork() > 0) _exit(0);
         if (g_srv_fd >= 0) close(g_srv_fd);
@@ -1341,7 +1367,8 @@ static void api_pdf_fork(int fd, const char *body, int is_describe, int allow_pa
         if (g_in_fd  >= 0) close(g_in_fd);
         struct timeval tv = { 620, 0 };
         (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
-        if (is_describe) api_pdf_describe_run(fd, body, allow_path);
+        if (is_describe == 2) api_pdf_evidence_run(fd, body);
+        else if (is_describe) api_pdf_describe_run(fd, body, allow_path);
         else             api_pdf_thumb_run(fd, body, allow_path);
         close(fd);
         _exit(0);
@@ -1364,6 +1391,16 @@ static void api_pdf_describe(int fd, const char *body) {
     web_json_error(fd, "501 Not Implemented", "PDF is not available on the Windows build yet");
 #else
     api_pdf_fork(fd, body, 1, client_is_loopback(fd));
+#endif
+}
+
+static void api_pdf_evidence(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    web_json_error(fd, "501 Not Implemented", "PDF is not available on the Windows build yet");
+#else
+    if (!client_is_loopback(fd)) { web_json_error(fd, "403 Forbidden", "PDF evidence is host-local only"); return; }
+    api_pdf_fork(fd, body, 2, 0);
 #endif
 }
 

@@ -7,7 +7,7 @@ import { performance } from 'node:perf_hooks';
 import {
   artifactDir, csrfHeaders, jsonFetch, safeReadTail, sleep,
   startDStudio, startMode, writeArtifact,
-} from '../../../tests/real_harness.mjs';
+} from '../../../tests/support/real_harness.mjs';
 
 if (process.env.RUN_HEAVY !== '1') {
   console.error('Real Task Graph SSD-streaming test is disabled. Set RUN_HEAVY=1 explicitly.');

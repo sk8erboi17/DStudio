@@ -12,7 +12,7 @@ import {
   sleep,
   startDStudio,
   startMode,
-} from "../../../tests/real_harness.mjs";
+} from "../../../tests/support/real_harness.mjs";
 
 const root = repoRoot;
 const fixturesRoot = path.join(root, "extension", "gsa", "fixtures");

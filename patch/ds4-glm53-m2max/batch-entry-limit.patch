@@ -1,0 +1,12 @@
+diff --git a/ds4_metal.m b/ds4_metal.m
+--- a/ds4_metal.m
++++ b/ds4_metal.m
+@@ -32590,7 +32590,7 @@ static int ds4_gpu_encode_mul_mv_addr_q2_sum6(
+         id<MTLBuffer>               overflow_down) {
+     if (!cb || !pipeline || !args || !entries ||
+         (n_entries == 0 && !overflow_down) ||
+-        n_entries > DS4_METAL_MAX_ROUTED_EXPERT_USED ||
++        n_entries > DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT ||
+         !addrs || !src1 || !dst || !ids ||
+         args->ne00 <= 0 || args->ne01 <= 0 ||
+         args->nei0 <= 0 || args->nei0 > DS4_METAL_MAX_ROUTED_EXPERT_USED ||
