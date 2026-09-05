@@ -12,7 +12,7 @@
 - `third_party/`: attributed vendored dependencies.
 - `build/`, `tests/.build/`, `tests/.artifacts/`, `dist/`: ignored generated outputs.
 
-`ds4/`, `ds4-laguna-s21/` and `ds4-qwen38/` are ignored managed engines. Their
+`ds4/`, `ds4-laguna-s21/`, `ds4-qwen38/` and `ds4-qwen35/` are ignored managed engines. Their
 paths are intentionally stable for saved settings and existing workspaces.
 `ds4/gguf/` remains the single physical model store; optional engines link to it.
 Generated Design workspaces, exports, the private Discord archive and existing

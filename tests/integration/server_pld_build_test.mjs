@@ -43,6 +43,20 @@ fs.writeFileSync('ds4-server-pld','derived test binary',{mode:0o755});
   assert.equal(fs.readFileSync(path.join(checkout,'build-count'),'utf8'),'1');
   result=run();assert.equal(result.status,0,result.stderr+result.stdout);clean();
   assert.equal(fs.readFileSync(path.join(checkout,'build-count'),'utf8'),'1','unchanged build is cached');
+  if (process.platform === 'darwin') {
+    const metal=path.join(checkout,'ds4_metal.m');
+    fs.writeFileSync(metal,'updated Metal implementation\n');
+    // Only Metal is newer. All other builder inputs keep their original times.
+    const future=new Date(Date.now()+10000);
+    fs.utimesSync(metal,future,future);
+    result=run();assert.equal(result.status,0,result.stderr+result.stdout);clean();
+    assert.equal(fs.readFileSync(path.join(checkout,'build-count'),'utf8'),'11','Metal-only patch forces relink');
+    fs.utimesSync(metal,new Date(0),new Date(0));
+    result=run();assert.equal(result.status,0,result.stderr+result.stdout);clean();
+    assert.equal(fs.readFileSync(path.join(checkout,'build-count'),'utf8'),'11','rebuilt Metal is cached');
+    fs.unlinkSync(metal);
+    fs.writeFileSync(path.join(checkout,'build-count'),'1');
+  }
   const stale=()=>fs.utimesSync(path.join(checkout,'ds4-server-pld'),new Date(0),new Date(0));
   stale();result=run({PLD_TEST_MAKE_FAIL:'1'});assert.equal(result.status,1);clean();
   assert.ok(!fs.existsSync(path.join(checkout,'.ds4ui-server-pld-version')));

@@ -7,9 +7,36 @@ does not claim a new inference speedup or a DeepSeek speedup.
 ## Delivery and activation
 
 The maintained engine delta is [`native-decode.patch`](native-decode.patch),
-SHA-256 `497f378a4aecb1ccb427358e06eed0eaf0a75ef27fd32b93d482da1f0eef93fa`.
-It is byte-identical to the previously delivered patch. No new engine algorithm
-was added in this integration pass. The source worktree was not edited.
+SHA-256 `4e5f9580cbd64293566674219d4a58310d2a0bfb801406696e005fd162fd2767`.
+It includes the small-batch regression correction below. The earlier integration
+used SHA-256 `497f378a4aecb1ccb427358e06eed0eaf0a75ef27fd32b93d482da1f0eef93fa`;
+historical integration/port QA later in this document refers to that version.
+
+### Correction: shared DeepSeek SSD batch resource limit
+
+The port incorrectly bounded `n_entries` by the per-token top-k limit (8) in
+`ds4_gpu_encode_mul_mv_addr_q2_sum6`. This is the count of distinct resources
+across the entire batch, not the number selected by a token. A real 139-token
+batch selected 30 experts and was rejected before the down-path GPU dispatch.
+The correct resource bound is `DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT` (384).
+The independent `args->nei0` per-token limit stays at 8; DeepSeek stays top-6.
+
+[`batch-entry-limit.patch`](batch-entry-limit.patch) upgrades a complete installed
+legacy port. The hook recognizes the entire old patch before changing any file;
+check mode is read-only, restore supports either release, and drift/partial
+states still fail without mutation. Native Chat, derived Chat, Agent and Cowork
+now invalidate builds when `ds4_metal.m` is newer, including subsecond mtimes.
+Design already uses a full source-diff build signature. No context/SSD change is
+required. Generic prefill errors no longer claim that Metal ran out of memory.
+
+Executed regression: `make test-ssd-prefill-batch-live` on M2 Max, 96 GiB.
+The old port fails both the two-token synthetic batch and real 139-token layer;
+the upgraded port passes four exact CPU kernel oracles, the existing GLM
+top-8/cache tests, and six **bitwise-equal upstream layer comparisons** for
+1/2/139/760/761/1024 tokens. All layer cases allocate 128k context with SSD on,
+load real layer-0 weights only, and preserve the selected-address optimization.
+Evidence: `tests/.artifacts/ssd-prefill-J5wJNj/result.json` (ignored).
+This is not a full-model/PDF end-to-end test or a new throughput claim.
 
 The destination is `DStudio/ds4`, branch `main`, upstream commit
 `b0a147a7fba6d1a104d047d5a140e9bb4bfc13cd`, with its existing DStudio patches.

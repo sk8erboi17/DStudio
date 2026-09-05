@@ -13,9 +13,9 @@ const infer = process.argv.includes('--infer');
 const viaApp = process.argv.includes('--via-app');
 if (!install && !infer) throw Error('Specify --setup and/or --infer; real network/model execution is explicit.');
 const option = (name, fallback) => { const i=process.argv.indexOf(name); return i<0?fallback:process.argv[i+1]; };
-const engines = option('--engines', install ? 'main,laguna,qwen' : 'main,laguna').split(',');
-assert.ok(engines.every(x=>['main','laguna','qwen'].includes(x)));
-assert.ok(!viaApp || (infer && engines.every(x=>x==='qwen')), '--via-app currently qualifies Qwen Chat integration only');
+const engines = option('--engines', install ? 'main,laguna,qwen,qwen35' : 'main,laguna').split(',');
+assert.ok(engines.every(x=>['main','laguna','qwen','qwen35'].includes(x)));
+assert.ok(!viaApp || (infer && engines.every(x=>x==='qwen' || x==='qwen35')), '--via-app currently qualifies Qwen Chat integration only');
 const output = path.join(root,'tests/.artifacts/engine-acceptance');
 fs.mkdirSync(output,{recursive:true});
 const run = fs.mkdtempSync(path.join(output,'run-'));
@@ -27,6 +27,7 @@ const configs = {
   main: {dir:'ds4', file:'DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf'},
   laguna: {dir:'ds4-laguna-s21', file:'laguna-s-2.1-Q4_K_M.gguf'},
   qwen: {dir:'ds4-qwen38',file:'Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf'},
+  qwen35: {dir:'ds4-qwen35',file:'Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf'},
 };
 const report = {schema:'dstudio.engine-acceptance.v1',started:new Date().toISOString(),
   host:{platform:os.platform(),arch:os.arch(),memoryBytes:os.totalmem(),cpu:os.cpus()[0]?.model},
@@ -207,7 +208,7 @@ for(const id of engines){
       const before=performance.now();const child=launch(app,['--install-engine',id,installedRoot],path.join(run,id+'-install.log'),root);
       await bounded(child,1200000);
       entry.installation={seconds:(performance.now()-before)/1000,receipt:JSON.parse(fs.readFileSync(path.join(target,'.dstudio-source.json'),'utf8'))};
-      for(const exe of id==='qwen'?['ds4','ds4-server','ds4-agent']:['ds4-server','ds4-agent-jsonl','ds4-cowork','ds4-design']){
+      for(const exe of id==='qwen' || id==='qwen35'?['ds4','ds4-server','ds4-agent']:['ds4-server','ds4-agent-jsonl','ds4-cowork','ds4-design']){
         const help=execFileSync(path.join(target,exe),['--help'],{cwd:target,timeout:15000,encoding:'utf8',maxBuffer:1024*1024});
         assert.ok(help.length>20,`${exe} must actually execute`);
       }

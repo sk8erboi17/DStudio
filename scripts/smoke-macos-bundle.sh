@@ -78,6 +78,7 @@ test -f "$TMP_ROOT/support/extension/design/build-design.sh"
 test -f "$TMP_ROOT/support/extension/task-graph/bench/manifest.json"
 test -f "$TMP_ROOT/support/patch/ds4-agent-jsonl/manifest"
 test -f "$TMP_ROOT/support/scripts/apply-ds4-server-metrics.sh"
+python3 "$TMP_ROOT/support/scripts/download-qwen35.py" --help >/dev/null
 codesign --verify --deep --strict "$TMP_ROOT/DStudio.app"
 
 echo "macOS bundle smoke test: ok"

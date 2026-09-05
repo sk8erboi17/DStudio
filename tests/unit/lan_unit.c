@@ -193,6 +193,28 @@ int main(void) {
     fputs("\nDS4_METAL_DISABLE_M2_GLM53_TOP8_STREAM_ADDR", runtime_fp);
     fclose(runtime_fp);
     assert(setup_server_metrics_binary_ready());
+#ifdef __APPLE__
+    char metal_file[PATH_MAX];
+    snprintf(metal_file, sizeof metal_file, "%s/ds4_metal.m", runtime_dir);
+    runtime_fp = fopen(metal_file, "wb");
+    assert(runtime_fp);
+    fputs("updated Metal implementation", runtime_fp);
+    fclose(runtime_fp);
+    struct timespec binary_times[2] = {{100, 0}, {100, 0}};
+    struct timespec source_times[2] = {{200, 0}, {200, 0}};
+    assert(utimensat(AT_FDCWD, runtime_file, binary_times, 0) == 0);
+    assert(utimensat(AT_FDCWD, metal_file, source_times, 0) == 0);
+    assert(!setup_server_metrics_binary_ready()); /* Same capability, stale code. */
+    binary_times[0].tv_sec = binary_times[1].tv_sec = 200;
+    source_times[0].tv_nsec = source_times[1].tv_nsec = 500000000;
+    assert(utimensat(AT_FDCWD, runtime_file, binary_times, 0) == 0);
+    assert(utimensat(AT_FDCWD, metal_file, source_times, 0) == 0);
+    assert(!setup_server_metrics_binary_ready()); /* Same second still invalidates. */
+    binary_times[0].tv_sec = binary_times[1].tv_sec = 300;
+    assert(utimensat(AT_FDCWD, runtime_file, binary_times, 0) == 0);
+    assert(setup_server_metrics_binary_ready());
+    assert(unlink(metal_file) == 0);
+#endif
     assert(unlink(runtime_file) == 0);
     snprintf(runtime_file, sizeof runtime_file, "%s/ds4.c", runtime_dir);
     assert(unlink(runtime_file) == 0);

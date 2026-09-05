@@ -31,10 +31,13 @@ command -v git >/dev/null 2>&1 || {
 # git apply checks the entire eight-file patch before writing, unlike a series
 # of patch(1) edits that can leave a half-applied runtime. A source archive can
 # live under another Git checkout; never discover or write that parent index.
-apply_patch() (
+apply_file() (
+    input_patch=$1
+    shift
     unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
-    GIT_CEILING_DIRECTORIES="$(dirname -- "$ds4_dir")" git -C "$ds4_dir" apply "$@" "$patch_file"
+    GIT_CEILING_DIRECTORIES="$(dirname -- "$ds4_dir")" git -C "$ds4_dir" apply "$@" "$input_patch"
 )
+apply_patch() { apply_file "$patch_file" "$@"; }
 if apply_patch --reverse --check >/dev/null 2>&1; then
     if [ "$action" = restore ]; then
         apply_patch --reverse
@@ -50,6 +53,23 @@ elif apply_patch --check --whitespace=error >/dev/null 2>&1; then
            echo "DStudio M2 Max patch: applied" ;;
     esac
 else
+    # Recognize the COMPLETE previously shipped port before upgrading its one
+    # wrong batch-resource bound. Never partially repair a drifted port. Derive
+    # the old patch mechanically to avoid shipping a duplicate eight-file delta.
+    legacy_patch=$(mktemp "${TMPDIR:-/tmp}/dstudio-m2-legacy.XXXXXX")
+    trap 'rm -f "$legacy_patch"' EXIT HUP INT TERM
+    sed 's/^+        n_entries > DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT ||$/+        n_entries > DS4_METAL_MAX_ROUTED_EXPERT_USED ||/' \
+        "$patch_file" > "$legacy_patch"
+    if apply_file "$legacy_patch" --reverse --check >/dev/null 2>&1; then
+        case "$action" in
+            check) echo "DStudio M2 Max patch: batch-limit upgrade available (no changes)" ;;
+            restore) apply_file "$legacy_patch" --reverse
+                     echo "DStudio M2 Max patch: legacy port restored" ;;
+            *) apply_file "$script_dir/../patch/ds4-glm53-m2max/batch-entry-limit.patch" --whitespace=error
+               echo "DStudio M2 Max patch: upgraded batch resource limit" ;;
+        esac
+        exit 0
+    fi
     echo "DStudio M2 Max patch: source drift or partial patch; no files changed" >&2
     echo "Restore/rebase the complete managed patch before rebuilding. Local edits were preserved." >&2
     exit 1

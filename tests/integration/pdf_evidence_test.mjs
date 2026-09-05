@@ -16,11 +16,32 @@ const id = 'a'.repeat(64);
 const citation = { id: 'P1', documentId: id, page: 1, quote: 'Annual sales 100.10 EUR' };
 const protocol = (value) => `Sales increased [P1].\n\n\`\`\`dstudio-pdf-evidence\n${JSON.stringify(value)}\n\`\`\``;
 assert.equal(core.extract(protocol({ citations: [citation] })).evidence.citations[0].id, 'P1');
-assert.equal(core.extract(protocol({ citations: [citation, citation] })).evidence, null);
+assert.equal(core.extract(protocol({ citations: [citation, citation] })).evidence.citations.length, 1, 'identical entries are deduplicated');
+const repeated = core.extract(protocol({ citations: [citation, { ...citation, quote: 'Current sales 120.20 EUR' }] }));
+assert.equal(repeated.evidence.citations.length, 2, 'different passages sharing P1 remain available');
+assert.doesNotMatch(repeated.content, /documentId|dstudio-pdf-evidence/);
 assert.equal(core.extract(protocol({ citations: [{ ...citation, page: 1.5 }] })).evidence, null);
 assert.equal(core.extract(protocol({ citations: [{ ...citation, id: undefined }] })).evidence, null);
 assert.equal(core.extract(protocol({ citations: [{ ...citation, documentId: '../bad' }] })).evidence, null);
-assert.ok(core.extract('```dstudio-pdf-evidence\ninvalid\n```').content.includes('invalid'));
+for (const content of [
+  '```dstudio-pdf-evidence\ninvalid\n```',
+  '```dstudio-pdf-evidence\n{"citations":[',
+  '```dstudio-pdf-evidence',
+  '```dstudio-pdf-evidence\nnull\n```',
+  protocol({ citations: [{ ...citation, documentId: '../bad' }] }),
+  '```dstudio-pdf-evidence\n' + 'x'.repeat(24001) + '\n```',
+]) {
+  const rejected = core.extract(content);
+  assert.equal(rejected.content, content.split('```')[0].trim(), 'preserve prose, hide invalid/truncated internal metadata');
+  assert.equal(rejected.evidence, null);
+  assert.ok(rejected.warning, 'unreadable source metadata needs a visible explanation');
+}
+const mixed = core.extract(protocol({ citations: [citation, { ...citation, page: -1 }] }));
+assert.equal(mixed.evidence.citations.length, 1, 'a malformed entry does not remove valid links');
+assert.ok(mixed.warning);
+assert.equal(core.extract(protocol({ citations: [citation] }).replaceAll('\n', '\r\n')).evidence.citations.length, 1);
+assert.equal(core.extract(protocol({ citations: [citation] }).slice(0, -4)).evidence.citations.length, 1, 'recover complete metadata lacking its closing fence');
+  assert.equal(core.extract('A regular answer [P1].').content, 'A regular answer [P1].');
 assert.doesNotMatch(core.preview(protocol({ citations: [citation] })), /documentId|dstudio-pdf-evidence/);
 assert.equal(core.documents({ messages: [{ id: 'before', role: 'user', attachments: [{ kind: 'pdf', documentId: id }] }, { id: 'answer' }, { id: 'future', role: 'user', attachments: [{ kind: 'pdf', documentId: 'b'.repeat(64) }] }] }, { id: 'answer' }).size, 1);
 const verified = new Map([
@@ -31,6 +52,7 @@ const calc = { operation: 'difference', operands: [{ citation: 'P2', literal: '1
 assert.equal(core.calculate(calc, verified).agrees, true);
 assert.equal(core.calculate({ ...calc, claimed: '20.11' }, verified).agrees, false);
 assert.throws(() => core.calculate(calc, new Map()), /source passage/);
+assert.throws(() => core.calculate(calc, new Map([...verified, ['P1', { status: 'ambiguous_reference' }]])), /multiple passages/);
 assert.equal(core.literalInQuote('Revenue 12345', '123'), false);
 assert.equal(core.literalInQuote('Revenue -123', '123'), false);
 assert.equal(core.literalInQuote('Revenue 1 234', '234'), false);
@@ -173,8 +195,10 @@ try {
   assert.equal((await evidence(1, 'Annual sales 100.10 EUR')).status, 'matched');
   console.log('pdf_evidence: real PDF extraction, HTTP, cache restoration and error cases passed');
 
-  const { chromium } = await import('playwright');
-  browser = await chromium.launch({ headless: true, channel: 'chrome' });
+  const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
+  assert.ok(['chromium', 'webkit'].includes(browserName));
+  const playwright = await import('playwright');
+  browser = await playwright[browserName].launch({ headless: true, ...(browserName === 'chromium' ? { channel:'chrome' } : {}) });
   const page = await browser.newPage({ viewport: { width: 1100, height: 1000 } });
   const errors = []; page.on('pageerror', (e) => errors.push(e.message));
   // Minimal isolated UI: the application's boot code cannot start a model.
@@ -219,8 +243,82 @@ try {
   await page.getByText(/Passage appears more than once/).waitFor();
   assert.equal(await page.locator('.pdf-evidence-highlight').count(), 0);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
+  // Model-generated page-style labels can name multiple distinct quotations.
+  // Use the actual Poppler endpoint: no invented boxes or rendered PDF images.
+  const passages = [p1, { ...p2, id: 'P1' },
+    { ...p1, page: 3, quote: 'Rotated evidence works reliably.' },
+    { ...p1, documentId: 'b'.repeat(64) }];
+  const requests = [];
+  page.on('request', req => {
+    if (req.url() === `${base}/api/pdf/evidence` && req.method() === 'POST') requests.push(req.postDataJSON());
+  });
+  await page.evaluate(({ file, answer }) => {
+    const content = document.createElement('div'); content.textContent = 'Compare the passages [P1].';
+    const m = { id: 'repeated', role: 'assistant', content: answer };
+    const chat = { messages: [{ id: 'u', role: 'user', attachments: [file] }, m] };
+    document.body.replaceChildren(content, window.pdfEvidence.build(m, chat, content));
+  }, { file, answer: protocol({ citations: passages, calculations: [{ ...calc, operands: [calc.operands[1], calc.operands[1]] }] }) });
+  await page.locator('.pdf-evidence-inline').click();
+  const picker = page.getByRole('combobox', { name: 'Source passage' });
+  assert.equal(await picker.locator('option').count(), 5);
+  assert.equal(await page.locator('.pdf-evidence-page img').count(), 0);
+  assert.equal(requests.length, 0, 'a repeated ID must not arbitrarily choose a quotation/page');
+  await picker.selectOption('1');
+  await page.locator('.pdf-evidence-highlight').first().waitFor();
+  assert.equal(requests.at(-1).quote, 'Current sales 120.20 EUR');
+  assert.equal(requests.at(-1).page, 1);
+  const expected = await evidence(1, 'Current sales 120.20 EUR');
+  const boxes = await page.locator('.pdf-evidence-highlight').evaluateAll(nodes => nodes.map(n => ({
+    x:parseFloat(n.style.left)/100, y:parseFloat(n.style.top)/100,
+    width:parseFloat(n.style.width)/100, height:parseFloat(n.style.height)/100,
+  })));
+  assert.equal(boxes.length, expected.boxes.length);
+  for (let i=0;i<boxes.length;i++) for (const key of ['x','y','width','height'])
+    // CSSOM serializes percentage styles to fewer significant digits. One
+    // millionth of the page is under 0.002 px at this renderer's 1600 px size.
+    assert.ok(Math.abs(boxes[i][key]-expected.boxes[i][key])<1e-6,
+      `Poppler geometry mismatch: box=${i} ${key} actual=${boxes[i][key]} expected=${expected.boxes[i][key]}`);
+  // Delay a real Poppler response, then select another page. A canceled/late
+  // reply must not put the previous image or its boxes back into the modal.
+  let releaseOld, finishOld;
+  const gate = new Promise(resolve => { releaseOld=resolve; });
+  const oldDone = new Promise(resolve => { finishOld=resolve; });
+  const delayed = async route => {
+    if (route.request().postDataJSON().quote !== p1.quote) return route.continue();
+    try { const response=await route.fetch(); await gate; await route.fulfill({response}); }
+    catch { /* The user's newer selection aborts this request. */ }
+    finally { finishOld(); }
+  };
+  await page.route(`${base}/api/pdf/evidence`, delayed);
+  const oldRequest = page.waitForRequest(req => req.url() === `${base}/api/pdf/evidence` && req.postDataJSON().quote === p1.quote);
+  await picker.selectOption('0'); await oldRequest;
+  await picker.selectOption('2');
+  await page.getByRole('img', { name: 'Original PDF, physical page 3', exact: true }).waitFor();
+  await page.locator('.pdf-evidence-highlight').first().waitFor();
+  releaseOld(); await oldDone;
+  await page.unroute(`${base}/api/pdf/evidence`, delayed);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await page.locator('.pdf-evidence-page img').getAttribute('alt'), 'Original PDF, physical page 3');
+  assert.equal(requests.at(-1).page, 3);
+  await page.screenshot({ path:path.join(artifacts,'repeated-id-poppler.png') });
+  const fetched = requests.length;
+  await picker.selectOption('3');
+  await page.locator('.pdf-evidence-dialog').getByText('This source is not attached to this conversation.', { exact:true }).waitFor();
+  assert.equal(requests.length, fetched, 'unattached document IDs must not reach the evidence endpoint');
+  assert.equal(await page.locator('.pdf-evidence-highlight').count(), 0);
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: 'Check passages and calculations' }).click();
+  await page.getByText(/Calculation not verified: Citation P1 refers to multiple passages/).waitFor();
+  assert.equal(await page.getByText(/Arithmetic agrees/).count(), 0, 'never certify arithmetic using an arbitrary duplicate-ID source');
+  await page.evaluate(() => {
+    const m={id:'invalid',role:'assistant',content:'Answer.\n```dstudio-pdf-evidence\ninvalid\n```'};
+    const content=document.createElement('div'); content.textContent=window.pdfEvidence.extract(m.content).content;
+    document.body.replaceChildren(content,window.pdfEvidence.build(m,{messages:[m]},content));
+  });
+  await page.getByText(/Some PDF source details could not be read/).waitFor();
+  assert.doesNotMatch(await page.locator('body').innerText(),/dstudio-pdf-evidence|invalid/);
   assert.deepEqual(errors, []);
-  console.log('pdf_evidence: browser citation buttons, verified calculation and responsive viewer passed');
+  console.log('pdf_evidence: browser links, repeated-label selection, real Poppler highlights, provenance, arithmetic and invalid-metadata handling passed');
   assert.doesNotMatch(logs, /starting.*(?:ds4-server|model)|loading.*gguf/i);
   assert.doesNotMatch(logs, /AddressSanitizer|runtime error:/);
 } finally {

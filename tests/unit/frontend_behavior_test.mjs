@@ -28,6 +28,19 @@ function extractFunction(src, name) {
 }
 
 const js = scriptSource();
+const engineError = new Function('deepseekMode', `${extractFunction(js, 'readableEngineError')}; return readableEngineError;`);
+const localError = engineError(() => false);
+const genericPrefill = localError('metal prefill failed: failed to encode down path');
+assert.match(genericPrefill,/does not indicate insufficient memory/);
+assert.match(genericPrefill,/failed to encode down path/,'retain engine diagnostics');
+assert.doesNotMatch(genericPrefill,/64k|released|ran out of memory/);
+for (const error of ['kIOGPUCommandBufferCallbackErrorOutOfMemory', 'Metal command batch failed: Insufficient Memory']) {
+  assert.match(localError(error),/Metal reported insufficient memory/);
+  assert.ok(localError(error).endsWith(error));
+  assert.doesNotMatch(localError(error),/released/,'do not claim unverified model unloading');
+  assert.equal(engineError(() => true)(error),error,'cloud errors are not rewritten');
+}
+assert.equal(localError('Connection refused'),'Connection refused');
 const roadmapHelpers = new Function(`
 ${extractFunction(js, 'stripReasoningTagFragments')}
 ${extractFunction(js, 'roadmapText')}

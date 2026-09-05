@@ -166,7 +166,7 @@ try {
 
   // Simulated launcher, real loading-page requests: inherited expert streaming
   // must not prevent Qwen boot or overwrite the preference for other models.
-  for (const model of ['Qwen3.8-Flash-Next-test', 'DeepSeek-V4-Flash-test']) {
+  for (const model of ['Qwen3.8-Flash-Next-test', 'Qwen3.6-35B-A3B-UD-Q6_K_XL', 'DeepSeek-V4-Flash-test']) {
     for (const preference of ['on', 'auto', 'off']) {
       started = false;
       startBody = null;
@@ -185,6 +185,7 @@ try {
       await boot.waitForURL(`http://127.0.0.1:${port}/`, { timeout: 8000 });
       assert.equal(startBodies.length, before + 1, 'exactly one launch per boot');
       assert.equal(startBody.gguf, `gguf/${model}.gguf`);
+      if (model.startsWith('Qwen3.6')) assert.equal(startBody.power, 100);
       assert.equal(startBody.ssdStreaming, model.startsWith('Qwen') ? 'off' : preference,
         `${model} with saved SSD streaming ${preference}`);
       const persisted = await boot.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')));

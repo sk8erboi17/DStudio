@@ -313,10 +313,21 @@ $(TEST_BUILD)/engine_setup_unit: tests/unit/engine_setup_unit.c $(SRC) $(SUBSRC)
 	$(CC) $(CFLAGS) tests/unit/engine_setup_unit.c -o $@
 
 .PHONY: test-engine-setup-unit
-test-engine-setup-unit: $(TEST_BUILD)/engine_setup_unit
+test-engine-setup-unit: $(TEST_BUILD)/engine_setup_unit $(TEST_BUILD)/qwen35_runtime_unit
 	@$(TEST_BUILD)/engine_setup_unit
+	@$(TEST_BUILD)/qwen35_runtime_unit
+
+$(TEST_BUILD)/qwen35_runtime_unit: tests/unit/qwen35_runtime_unit.c tests/fixtures/qwen35-runtime-probe.sh $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/unit/qwen35_runtime_unit.c -o $@
 
 check-fast: test-engine-setup-unit
+
+.PHONY: test-qwen35-download
+test-qwen35-download:
+	@python3 tests/integration/qwen35_download_test.py
+
+check-fast: test-qwen35-download
 
 .PHONY: test-glm53-m2max-patch
 test-glm53-m2max-patch:
@@ -470,7 +481,7 @@ test-inference-live: $(TEST_SERVER)
 	@node tests/live/engine_acceptance.mjs --infer --engines "$(or $(ENGINES),main,laguna)"
 
 test-engine-acceptance: $(TEST_SERVER)
-	@node tests/live/engine_acceptance.mjs --setup --infer --engines "$(or $(ENGINES),main,laguna,qwen)"
+	@node tests/live/engine_acceptance.mjs --setup --infer --engines "$(or $(ENGINES),main,laguna,qwen,qwen35)"
 
 test-qwen-chat-live: $(TEST_SERVER)
 	@node tests/live/engine_acceptance.mjs --infer --engines qwen --via-app
@@ -478,13 +489,25 @@ test-qwen-chat-live: $(TEST_SERVER)
 benchmark-qwen-decode:
 	@node tests/live/qwen_decode_benchmark.mjs
 
+# Explicit Metal regression: existing vision encoder only, no LLM/server launch.
+VISION_DS4_DIR ?= ds4
+.PHONY: test-vision-streaming-live
+test-vision-streaming-live:
+	@node tests/live/vision_stream_mapping_test.mjs "$(VISION_DS4_DIR)" $(if $(VISION_ENCODER),"$(VISION_ENCODER)")
+
+# Explicit, sequential real-GPU regression; one transformer layer, not full LLM.
+SSD_TEST_DS4_DIR ?= ds4
+.PHONY: test-ssd-prefill-batch-live
+test-ssd-prefill-batch-live:
+	@node tests/live/ssd_prefill_batch_test.mjs "$(SSD_TEST_DS4_DIR)"
+
 # Real PDF extraction/rendering and browser checks; no model or embeddings.
 .PHONY: test-pdf-evidence
 test-pdf-evidence: $(TEST_SERVER)
 	@node tests/integration/pdf_evidence_test.mjs $(TEST_SERVER)
 
 test-ui-browser:
-	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_loading_playwright_test.mjs && node tests/browser/ui_agent_design_playwright_test.mjs && node tests/browser/ui_gear_popover_test.mjs && node tests/browser/ui_think_max_context_test.mjs && node tests/browser/ui_attachment_preview_playwright_test.mjs && node tests/browser/ui_roadmap_playwright_test.mjs && node tests/browser/ui_settings_redesign_playwright_test.mjs && node tests/browser/ui_video_generation_playwright_test.mjs; else echo "node missing: NOT RUN UI browser tests"; exit 1; fi
+	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_model_picker_playwright_test.mjs && node tests/browser/ui_loading_playwright_test.mjs && node tests/browser/ui_agent_design_playwright_test.mjs && node tests/browser/ui_gear_popover_test.mjs && node tests/browser/ui_think_max_context_test.mjs && node tests/browser/ui_attachment_preview_playwright_test.mjs && node tests/browser/ui_roadmap_playwright_test.mjs && node tests/browser/ui_settings_redesign_playwright_test.mjs && node tests/browser/ui_video_generation_playwright_test.mjs; else echo "node missing: NOT RUN UI browser tests"; exit 1; fi
 
 test-ui-live-vision:
 	@if command -v node >/dev/null 2>&1; then node tests/live/ui_live_vision_playwright_test.mjs; else echo "node missing: NOT RUN live Vision UI test"; exit 1; fi

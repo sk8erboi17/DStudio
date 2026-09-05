@@ -3,9 +3,12 @@ import http from 'node:http';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 
-let chromium;
+let browserType;
+const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
 try {
-  ({ chromium } = await import('playwright'));
+  const playwright = await import('playwright');
+  assert.ok(['chromium', 'webkit'].includes(browserName), 'use chromium or webkit');
+  browserType = playwright[browserName];
 } catch {
   console.log('ui_settings_redesign_playwright_test: playwright missing, NOT RUN');
   process.exit(1);
@@ -19,6 +22,15 @@ const startBodies = [];
 let activeModel = null;
 let activeEngine = '/tmp/dstudio-settings';
 let activeConfig = { ctx: 131072, ssdStreaming: 'off' };
+let engineStatus = { running: true, ready: true, loadPct: 100, stage: 'Ready' };
+let startHandler = null;
+let statusDelay = null;
+let catalogDelay = null;
+let checkoutDelay = null;
+let checkoutError = '';
+let qwen35Setups = 0;
+const modelDownloads = [];
+let downloadStatus = {};
 
 function json(res, value, status = 200) {
   const body = JSON.stringify(value);
@@ -107,7 +119,8 @@ const server = http.createServer(async (req, res) => {
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     startBodies.push(body);
-    if (body.gguf.includes('Qwen3.8') && body.ssdStreaming === 'on') {
+    if (startHandler) { await startHandler(body, res); return; }
+    if (/Qwen3\.[68]/.test(body.gguf) && body.ssdStreaming === 'on') {
       json(res, { ok: false, error: 'Qwen expert streaming is not validated', taskId: 2 }, 409);
       return;
     }
@@ -119,11 +132,14 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/engine/checkout' && req.method === 'POST') {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
+    if (checkoutDelay) await checkoutDelay();
+    if (checkoutError) { json(res, { ok: false, error: checkoutError }, 409); return; }
     activeEngine = JSON.parse(Buffer.concat(chunks).toString('utf8')).dir;
     json(res, { ok: true, dir: activeEngine });
     return;
   }
   if (url.pathname === '/api/status') {
+    if (statusDelay) await statusDelay();
     json(res, {
       ok: true,
       mode: 'server',
@@ -131,6 +147,8 @@ const server = http.createServer(async (req, res) => {
       ready: true,
       loadPct: 100,
       stage: 'Ready',
+      ...engineStatus,
+      ...downloadStatus,
       ds4dirOk: true,
       webdirOk: true,
       ds4dir: activeEngine,
@@ -142,7 +160,31 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/api/ggufs') {
+    if (catalogDelay) await catalogDelay();
     json(res, { ok: true, ggufs });
+    return;
+  }
+  if (url.pathname === '/api/engine/checkouts') {
+    const checkouts = [
+      { name: 'ds4', branch: 'main', dir: '/tmp/dstudio-settings' },
+      { name: 'ds4-qwen38', branch: 'qwen3.8-flash-next', dir: '/tmp/dstudio-settings/ds4-qwen38' },
+      ...(qwen35Setups ? [{ name: 'ds4-qwen35', branch: 'qwen35moe-support', dir: '/tmp/dstudio-settings/ds4-qwen35' }] : []),
+    ];
+    json(res, { ok: true, checkouts: checkouts.map(c => ({ ...c, hasServer: true, active: activeEngine === c.dir })) });
+    return;
+  }
+  if (url.pathname === '/api/qwen35/setup' && req.method === 'POST') {
+    qwen35Setups++;
+    json(res, { ok: true, downloaded: true, built: true, capability: 'chat-native' });
+    return;
+  }
+  if (url.pathname === '/api/model/download' && req.method === 'POST') {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    modelDownloads.push(body);
+    downloadStatus = { download: true, downloadVariant: body.target, downloadPct: 25 };
+    json(res, { ok: true, target: body.target });
     return;
   }
   if (url.pathname === '/api/diagnostics') {
@@ -219,7 +261,7 @@ const port = server.address().port;
 
 let browser;
 try {
-  browser = await chromium.launch();
+  browser = await browserType.launch();
 } catch {
   server.close();
   console.log('ui_settings_redesign_playwright_test: browser missing, NOT RUN');
@@ -246,7 +288,51 @@ try {
     }));
   });
 
+  // Simulated background transfer: progress and paused state stay in Settings;
+  // merely opening/closing Settings must not start/stop an engine or download.
+  const downloadUiWrites = [];
+  const captureDownloadUiWrites = req => {
+    if (req.method() === 'POST' && /\/api\/(?:start|stop|engine\/checkout|model\/download)/.test(req.url()))
+      downloadUiWrites.push(req.url());
+  };
+  page.on('request', captureDownloadUiWrites);
+  downloadStatus = { download: true, downloadVariant: 'qwen36-q6', downloadPct: 16, downloadBytes: 5_000_000_000 };
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
+  const composerModel = page.locator('.cbar-model-btn');
+  await composerModel.waitFor({ state: 'visible' });
+  const modelLabelBeforeProgress = await composerModel.innerText();
+  assert.match(modelLabelBeforeProgress, /glm.*5\.3.*flash/i, 'composer should identify the selected model during a background download');
+  await page.locator('#btn-settings').click();
+  await page.locator('#set-nav [data-pane="models"]').click();
+  const settingsDownload = page.locator('.set-models .onboard__dl');
+  await settingsDownload.locator('.onboard__dl-lbl').filter({ hasText: /Downloading qwen36-q6.*16%/ }).waitFor();
+  assert.equal(await settingsDownload.getByRole('button', { name: 'Stop', exact: true }).isEnabled(), true);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  assert.equal(await composerModel.innerText(), modelLabelBeforeProgress);
+
+  downloadStatus = { ...downloadStatus, downloadPct: 37, downloadBytes: 11_000_000_000 };
+  await page.locator('#btn-settings').click();
+  await settingsDownload.locator('.onboard__dl-lbl').filter({ hasText: /Downloading qwen36-q6.*37%/ }).waitFor({ timeout: 8000 });
+  assert.equal(await composerModel.innerText(), modelLabelBeforeProgress, 'progress updates must not replace the model name');
+  downloadStatus = { download: false, pausedDownload: true, pausedDownloadVariant: 'qwen36-q6',
+    pausedDownloadPct: 37, pausedDownloadBytes: 11_000_000_000 };
+  await settingsDownload.locator('.onboard__dl-lbl').filter({ hasText: /Paused: qwen36-q6.*37%/ }).waitFor({ timeout: 8000 });
+  assert.equal(await settingsDownload.getByRole('button', { name: 'Resume', exact: true }).isEnabled(), true);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  assert.equal(await composerModel.innerText(), modelLabelBeforeProgress, 'a paused download must not replace the model name either');
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('#btn-settings').click();
+  await page.locator('#set-nav [data-pane="models"]').click();
+  await settingsDownload.locator('.onboard__dl-lbl').filter({ hasText: /Paused: qwen36-q6.*37%/ }).waitFor();
+  assert.equal(await composerModel.innerText(), modelLabelBeforeProgress, 'restoring a paused transfer must keep the composer model label');
+  assert.equal(await settingsDownload.getByRole('button', { name: 'Resume', exact: true }).isEnabled(), true);
+  assert.deepEqual(downloadUiWrites, [], 'display-only interactions must not mutate the download or engine');
+  page.off('request', captureDownloadUiWrites);
+  downloadStatus = {};
+  await page.locator('#set-nav [data-pane="connection"]').click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('#btn-settings').click();
   await page.locator('#settings-dialog').waitFor({ state: 'visible' });
 
@@ -322,6 +408,19 @@ try {
   await page.locator('#set-nav [data-pane="models"]').click();
   await page.screenshot({ path: '/tmp/dstudio-settings-redesign.png' });
 
+  // Closing autosaved preferences must not submit hidden invalid fields. The
+  // real 96112 MB wired value is a step mismatch for this numeric input.
+  await wiredLimit.evaluate(input => { input.value = '96112'; });
+  assert.equal(await wiredLimit.evaluate(input => input.validity.stepMismatch), true);
+  assert.equal(await wiredLimit.isVisible(), false);
+  const startsBeforeDone = startBodies.length;
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.locator('#settings-dialog').waitFor({ state: 'hidden', timeout: 1000 });
+  assert.equal(startBodies.length, startsBeforeDone, 'Done only closes preferences');
+  await page.locator('#btn-settings').click();
+  await page.locator('#set-close').click();
+  await page.locator('#settings-dialog').waitFor({ state: 'hidden', timeout: 1000 });
+
   // Actual UI selection/restart with simulated HTTP engine responses, not an
   // inference test. Reproduce DeepSeek's saved On leaking into a Qwen launch.
   const switchPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -342,10 +441,41 @@ try {
   await switchPage.locator('.set-models .onboard__model.ready').filter({ hasText: qwenBase }).click();
   await switchPage.getByRole('button', { name: 'Load model', exact: true }).click();
   await assertLaunch(`gguf/${qwenBase}`, 'off', 1);
+  await switchPage.locator('#btn-settings').click();
   await switchPage.locator('#set-nav [data-pane="performance"]').click();
+  await switchPage.waitForFunction(() => /SSD streaming running off/.test(document.querySelector('#set-memory-msg').textContent));
   assert.equal(await switchPage.locator('#set-ssd-streaming').inputValue(), 'off');
   assert.equal(await switchPage.locator('#set-ssd-streaming').isDisabled(), true);
   assert.match(await switchPage.locator('#set-ssd-streaming-note').innerText(), /PLE.*SSD/);
+  const streamingNotice = switchPage.locator('#set-ssd-streaming-notice');
+  assert.equal(await streamingNotice.isVisible(), true, 'blocked streaming must have a visible explanation');
+  assert.equal(await switchPage.locator('#set-ssd-streaming-badge').innerText(), 'Unavailable for Qwen');
+  assert.deepEqual(await streamingNotice.locator('li').allTextContents(), [
+    'DeepSeek V4 Flash', 'DeepSeek V4 Flash Vision-Exp', 'GLM 5.3 Flash',
+    'DeepSeek V4 Pro — about 430 GB to download',
+  ]);
+  assert.match(await streamingNotice.innerText(), /local Metal engine and DSpark Off/);
+  assert.match(await streamingNotice.innerText(), /Restarting Qwen will not unlock/);
+  fs.mkdirSync('tests/.artifacts/ssd-streaming-notice', { recursive: true });
+  await switchPage.locator('#set-ssd-streaming-row').screenshot({ path: 'tests/.artifacts/ssd-streaming-notice/desktop.png' });
+  await switchPage.setViewportSize({ width: 390, height: 844 });
+  await streamingNotice.scrollIntoViewIfNeeded();
+  assert.equal(await streamingNotice.evaluate(el => el.scrollWidth <= el.clientWidth), true, 'notice must wrap on narrow screens');
+  await switchPage.screenshot({ path: 'tests/.artifacts/ssd-streaming-notice/mobile.png' });
+  // The notice action must navigate only: no automatic download/model restart.
+  const unexpectedWrites = [];
+  const captureWrites = req => { if (req.method() === 'POST' && /\/api\/(?:start|download|.*setup|engine\/checkout)/.test(req.url())) unexpectedWrites.push(req.url()); };
+  switchPage.on('request', captureWrites);
+  await switchPage.locator('#set-search').fill('SSD streaming');
+  await switchPage.locator('#set-ssd-streaming-models').click();
+  assert.equal(await switchPage.locator('#set-pane-title').innerText(), 'Models');
+  assert.equal(await switchPage.locator('#set-search').inputValue(), '');
+  await switchPage.locator('.set-model-family').first().waitFor({ state: 'visible' });
+  assert.deepEqual(unexpectedWrites, []);
+  assert.equal(startBodies.length, 1);
+  switchPage.off('request', captureWrites);
+  await switchPage.setViewportSize({ width: 1440, height: 900 });
+  await switchPage.locator('#set-nav [data-pane="performance"]').click();
   await switchPage.locator('#set-ctx').selectOption('16384');
   await switchPage.getByRole('button', { name: 'Restart now', exact: true }).click();
   await assertLaunch(`gguf/${qwenBase}`, 'off', 2);
@@ -355,9 +485,179 @@ try {
   await switchPage.locator('.set-models .onboard__model.ready').filter({ hasText: ggufs[2].file }).click();
   await switchPage.getByRole('button', { name: 'Load model', exact: true }).click();
   await assertLaunch(ggufs[2].path, 'on', 3);
+  await switchPage.locator('#btn-settings').click();
   await switchPage.locator('#set-nav [data-pane="performance"]').click();
   assert.equal(await switchPage.locator('#set-ssd-streaming').inputValue(), 'on');
   assert.equal(await switchPage.locator('#set-ssd-streaming').isDisabled(), false);
+  assert.equal(await streamingNotice.isVisible(), false, 'Qwen warning must disappear after loading a compatible model');
+  assert.equal(await switchPage.locator('#set-ssd-streaming-badge').innerText(), 'Needs restart');
+
+  // Regression: Qwen -> GLM, slow launcher I/O, cancellation and real DOM
+  // hit-testing. These are simulated launch states, not a model benchmark.
+  await switchPage.locator('#set-nav [data-pane="models"]').click();
+  const cardFor = file => switchPage.locator('.set-models .onboard__model.ready').filter({ hasText: file });
+  await cardFor(qwenBase).click();
+  await switchPage.getByRole('button', { name: 'Load model', exact: true }).click();
+  await assertLaunch(`gguf/${qwenBase}`, 'off', 4);
+  await switchPage.locator('#btn-settings').click();
+  await switchPage.locator('#set-nav [data-pane="models"]').click();
+  await cardFor(ggufs[0].file).waitFor();
+
+  function gate() {
+    let release;
+    const promise = new Promise(resolve => { release = resolve; });
+    return { promise, release };
+  }
+  const statusGate = gate();
+  statusDelay = () => statusGate.promise;
+  const beforeCancel = await switchPage.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).modelGguf);
+  // Dispatch two clicks in one event turn to catch duplicate confirmation
+  // handlers (an actual rapid double-click can race the modal opening).
+  await cardFor(ggufs[0].file).evaluate(card => { card.click(); card.click(); });
+  try {
+    await switchPage.getByRole('button', { name: 'Load GLM 5.3', exact: true }).waitFor({ timeout: 1500 });
+    await switchPage.locator('#confirm-cancel').click();
+    assert.equal(await switchPage.locator('#settings-dialog').isVisible(), true);
+    assert.equal(await switchPage.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).modelGguf), beforeCancel);
+    assert.equal(startBodies.length, 4, 'canceling GLM must not launch or change the model');
+  } finally {
+    statusGate.release();
+    statusDelay = null;
+  }
+  await switchPage.waitForFunction(() => document.querySelector('#set-model-count').textContent.includes('installed'));
+
+  const catalogGate = gate();
+  const checkoutGate = gate();
+  let catalogEntered = false;
+  let checkoutEntered = false;
+  catalogDelay = async () => {
+    catalogEntered = true;
+    await catalogGate.promise;
+  };
+  checkoutDelay = async () => {
+    checkoutEntered = true;
+    await checkoutGate.promise;
+  };
+  startHandler = (body, res) => {
+    activeConfig = body;
+    // Accepted/queued: status still describes the previous ready Qwen model.
+    json(res, { ok: true, mode: 'server', taskId: 51 });
+  };
+  async function waitUntil(check, message) {
+    const deadline = Date.now() + 5000;
+    while (!check() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+    assert.ok(check(), message);
+  }
+  async function assertLoadingInFront() {
+    await switchPage.locator('#loading-overlay').waitFor({ state: 'visible', timeout: 1500 });
+    assert.equal(await switchPage.locator('#settings-dialog').isVisible(), false);
+    assert.equal(await switchPage.locator('#loading-stage').evaluate(node => {
+      const box = node.getBoundingClientRect();
+      return node.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+    }), true, 'loading feedback must be visible above dialogs, not merely unhidden behind Settings');
+  }
+  try {
+    await cardFor(ggufs[0].file).click();
+    await switchPage.getByRole('button', { name: 'Load GLM 5.3', exact: true }).click();
+    await assertLoadingInFront();
+    await waitUntil(() => catalogEntered, 'model preparation should request the catalog');
+    assert.equal(startBodies.length, 4);
+    catalogGate.release();
+    await waitUntil(() => checkoutEntered, 'Qwen -> GLM should select the main engine');
+    await assertLoadingInFront();
+    assert.equal(startBodies.length, 4, 'loading must already be visible before the checkout responds');
+    checkoutGate.release();
+    await waitUntil(() => startBodies.length === 5, 'exactly one GLM launch should be submitted');
+    // Observe more than two 500 ms launch polls of the old ready model.
+    await switchPage.waitForTimeout(1100);
+    await assertLoadingInFront();
+    assert.equal(await switchPage.locator('#loading-pct').innerText(), '0', 'old Qwen readiness must not complete GLM loading');
+    activeModel = ggufs[0].path;
+    engineStatus = { running: true, ready: false, loadPct: 42, stage: 'Loading model weights' };
+    await switchPage.waitForFunction(() => document.querySelector('#loading-pct').textContent === '42');
+    await assertLoadingInFront();
+    fs.mkdirSync('tests/.artifacts/model-switch', { recursive: true });
+    await switchPage.screenshot({ path: `tests/.artifacts/model-switch/${browserName}-loading.png` });
+    engineStatus = { running: true, ready: true, loadPct: 100, stage: 'Ready' };
+    await switchPage.locator('#loading-overlay').waitFor({ state: 'hidden', timeout: 5000 });
+    assert.equal(startBodies.length, 5);
+    assert.equal(startBodies.at(-1).gguf, ggufs[0].path);
+    assert.equal(startBodies.at(-1).ssdStreaming, 'on');
+  } finally {
+    catalogGate.release();
+    checkoutGate.release();
+    catalogDelay = null;
+    checkoutDelay = null;
+    startHandler = null;
+  }
+  await switchPage.locator('#btn-settings').click();
+  await cardFor(ggufs[0].file).locator('.onboard__model-state').filter({ hasText: 'Running' }).waitFor();
+  assert.equal(await cardFor(qwenBase).locator('.onboard__model-state').innerText(), '');
+  await switchPage.getByRole('button', { name: 'Done', exact: true }).click();
+  engineStatus = { running: true, ready: false, loadPct: 42, stage: 'Loading model weights' };
+  await switchPage.locator('#btn-settings').click();
+  await switchPage.locator('#settings-dialog').waitFor({ state: 'visible' });
+  await switchPage.waitForFunction(() => document.querySelectorAll('.set-models .is-running').length === 0, null, { timeout: 2000 });
+  await switchPage.waitForFunction(() => document.querySelector('#set-model-count').textContent.includes('installed'));
+  assert.equal(await switchPage.locator('.set-models .is-running').count(), 0, 'a loading model must not be labeled Running');
+  engineStatus = { running: true, ready: true, loadPct: 100, stage: 'Ready' };
+
+  // Failed checkout must surface the actual error and submit no launch.
+  checkoutError = 'Selected engine folder is unavailable';
+  await cardFor(qwenBase).click();
+  await switchPage.getByRole('button', { name: 'Load model', exact: true }).click();
+  await switchPage.locator('#loading-stage').filter({ hasText: 'Selected engine folder is unavailable' }).waitFor();
+  await assertLoadingInFront();
+  assert.equal(startBodies.length, 5, 'failed checkout must not start a model');
+  await switchPage.locator('#loading-overlay').waitFor({ state: 'hidden', timeout: 6000 });
+  checkoutError = '';
+
+  // Retrying after an error must work; a rejected /api/start also stays visible.
+  startHandler = (_body, res) => json(res, { ok: false, error: 'Metal could not allocate the model', taskId: 52 }, 409);
+  await switchPage.locator('#btn-settings').click();
+  await cardFor(qwenBase).click();
+  await switchPage.getByRole('button', { name: 'Load model', exact: true }).click();
+  await switchPage.locator('#loading-stage').filter({ hasText: 'Metal could not allocate the model' }).waitFor();
+  await assertLoadingInFront();
+  assert.equal(startBodies.length, 6);
+  await switchPage.locator('#loading-overlay').waitFor({ state: 'hidden', timeout: 6000 });
+  startHandler = null;
+  // A new Qwen family gets its own setup/download path and does not inherit
+  // Qwen3.8's PLE requirement or DeepSeek's saved expert streaming preference.
+  await switchPage.locator('#btn-settings').click();
+  const downloader = switchPage.locator('.set-models .onboard__dl');
+  await downloader.getByRole('combobox').selectOption('qwen36-q6');
+  // A catalog/status refresh reconstructs the model pane. Force the same
+  // production render through filtering so a lost selection is deterministic.
+  await switchPage.getByPlaceholder('Filter by name, quantization or file').fill('Qwen');
+  assert.equal(await downloader.getByRole('combobox').inputValue(), 'qwen36-q6',
+    'model list refresh must preserve the intended download, not select the first option');
+  await switchPage.getByPlaceholder('Filter by name, quantization or file').fill('');
+  await downloader.getByRole('button', { name: 'Download', exact: true }).click();
+  await switchPage.locator('#confirm-go').click();
+  await waitUntil(() => modelDownloads.length === 1, 'Qwen3.6 download should start after installing its engine');
+  assert.equal(qwen35Setups, 1);
+  assert.deepEqual(modelDownloads[0], { target: 'qwen36-q6' });
+  assert.equal(activeEngine, '/tmp/dstudio-settings/ds4-qwen35');
+  assert.equal(startBodies.length, 6, 'downloading must not start inference');
+  const qwen35File = 'Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf';
+  ggufs.push({ file: qwen35File, path: `gguf/${qwen35File}`, size: 31843777504,
+    engineDir: activeEngine, branch: 'qwen35moe-support' });
+  downloadStatus = { download: false, downloadVariant: 'qwen36-q6', downloadPct: 100 };
+  await cardFor(qwen35File).waitFor({ timeout: 8000 });
+  await cardFor(qwen35File).click();
+  await switchPage.getByRole('button', { name: 'Load model', exact: true }).click();
+  await assertLaunch(`gguf/${qwen35File}`, 'off', 7);
+  assert.equal(startBodies.at(-1).power, 100);
+  assert.equal(await switchPage.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).enginePower), 90);
+  await switchPage.locator('#btn-settings').click();
+  await switchPage.locator('#set-nav [data-pane="performance"]').click();
+  assert.equal(await switchPage.locator('#set-ssd-streaming').isDisabled(), true);
+  assert.match(await switchPage.locator('#set-ssd-streaming-note').innerText(), /Qwen3\.6.*all weights in RAM.*no PLE/);
+  assert.equal(await switchPage.locator('#set-power').isDisabled(), true);
+  assert.equal(await switchPage.locator('#set-power').inputValue(), '100');
+  assert.equal(await streamingNotice.isVisible(), true);
+  await switchPage.getByRole('button', { name: 'Done', exact: true }).click();
   await switchPage.close();
 
   async function assertLaunch(gguf, streaming, count) {
@@ -396,7 +696,7 @@ try {
   await page.screenshot({ path: '/tmp/dstudio-settings-mobile.png' });
 
   assert.deepEqual(pageErrors, [], `settings redesign should not raise page errors: ${JSON.stringify(pageErrors, null, 2)}`);
-  console.log('ui_settings_redesign_playwright_test: ok');
+  console.log(`ui_settings_redesign_playwright_test: ok (${browserName}; simulated engine, no inference)`);
 } finally {
   await browser.close().catch(() => {});
   server.close();

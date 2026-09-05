@@ -603,10 +603,11 @@
       }
 
       const ctx = Math.max(1024, Math.min(1048576, parseInt(saved.ctxSize, 10) || 65536));
-      const power = Math.max(1, Math.min(100, parseInt(saved.enginePower, 10) || 90));
-      // This preference belongs to models that support expert streaming. Qwen's
+      const qwen35 = /qwen3\.6-35b-a3b/i.test(gguf || saved.model || st.modelFile || '');
+      const power = qwen35 ? 100 : Math.max(1, Math.min(100, parseInt(saved.enginePower, 10) || 90));
+      // This preference belongs to models that support expert streaming. Qwen3.8's
       // required SSD-backed PLE is separate; do not erase the saved preference.
-      const qwen = /qwen3\.8-flash-next/i.test(gguf || saved.model || st.modelFile || '');
+      const qwen = /qwen3\.8-flash-next|qwen3\.6-35b-a3b/i.test(gguf || saved.model || st.modelFile || '');
       const ssdStreaming = !qwen && ['off', 'on', 'auto'].includes(saved.ssdStreaming) ? saved.ssdStreaming : 'off';
       const metalHotlistSeed = !!saved.metalHotlistSeed;
       const dspark = !!saved.dspark;

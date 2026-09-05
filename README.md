@@ -1,15 +1,15 @@
 <div align="center">
 
-<img src="assets/logo.png" width="80" alt="DStudio local AI studio for DeepSeek V4, GLM 5.3 Flash, Laguna S 2.1, Qwen3.8 and MiniMax H3">
+<img src="assets/logo.png" width="80" alt="DStudio local AI studio for DeepSeek V4, GLM 5.3 Flash, Laguna S 2.1, Qwen3.6/3.8 and MiniMax H3">
 
 # DStudio: Local AI Studio
 
-**An open-source, local-first workspace for DeepSeek V4, GLM 5.3 Flash and Laguna S 2.1, with experimental Qwen3.8 Chat: private conversations, coding and knowledge-work agents, document research, visual design, images and MiniMax H3 video. A cloud account is optional.**
+**An open-source, local-first workspace for DeepSeek V4, GLM 5.3 Flash and Laguna S 2.1, with experimental Qwen3.6/3.8 Chat: private conversations, coding and knowledge-work agents, document research, visual design, images and MiniMax H3 video. A cloud account is optional.**
 
 ![license](https://img.shields.io/badge/license-BSD%203%20Clause-blue)
 ![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux_%7C_Windows-black)
 ![inference](https://img.shields.io/badge/inference-local_by_default-success)
-![models](https://img.shields.io/badge/models-DeepSeek_V4_%7C_GLM_5.3_%7C_Laguna_%7C_Qwen3.8-orange)
+![models](https://img.shields.io/badge/models-DeepSeek_V4_%7C_GLM_5.3_%7C_Laguna_%7C_Qwen3.6%2F3.8-orange)
 ![ui](https://img.shields.io/badge/UI-native_C_%7C_no_Electron-brightgreen)
 ![agents](https://img.shields.io/badge/workspaces-chat_%7C_agent_%7C_cowork_%7C_design-purple)
 
@@ -17,6 +17,7 @@
 
 ## Contents
 
+- [Latest changes](docs/changes/2026-09-05.md)
 - [Install](#install-on-macos)
 - [Supported models and limitations](#supported-models-and-limitations)
 - [What DStudio can do](#what-you-can-do)
@@ -41,6 +42,14 @@ Network access is still explicit and documented. Installation and model setup do
 In plain terms: DStudio is a **multi-model ds4 GUI**, a **private coding and knowledge-work environment**, and a **local research, media and design studio** packaged as one open-source project.
 
 On macOS it ships as **DStudio.app**: double-click from Finder, no Terminal. On Windows it ships as a portable folder with `DStudio.exe` and the DS4 runtime binaries. The UI is a single vanilla `index.html` embedded in a small C launcher, so there is no Electron bundle, no framework build step, no CDN and no telemetry.
+
+**Latest source update — September 5:** experimental Qwen3.6 Chat and verified,
+resumable downloads; a searchable model picker that chooses the engine for you;
+clear model-loading feedback and working Settings controls; fixes for native
+vision and short prompt blocks with SSD streaming. The SSD fix does not require
+reducing the configured 128k context. See the [complete change and test notes](docs/changes/2026-09-05.md),
+including what has **not** been validated. A source push does not replace older
+downloaded app releases.
 
 ## Install on macOS
 
@@ -93,15 +102,16 @@ promise that an older downloaded release includes every integration.
 | GLM 5.3 Flash | All four modes; images with its encoder | Uses the main engine, not a separate GLM checkout. Full-model QA for the M2 optimization remains open. |
 | Laguna S 2.1 | All four modes, text only | Experimental, macOS Metal; requires resident weights and cannot force expert SSD streaming On. |
 | Qwen3.8-Flash-Next | **Chat only** | Experimental. Agent, Cowork, Design and vision are not integrated. Main weights stay in RAM; its required PLE file stays on SSD. |
+| Qwen3.6-35B-A3B | **Chat only** | Experimental, macOS Metal. The supported Q6_K_XL file is 31.8 GB, all in RAM; no PLE is needed. Build/integration tested, real inference not yet validated in DStudio. |
 
 Qwen automatically uses expert SSD streaming **Off**, even if **On** was saved
-for DeepSeek. This does not disable Qwen's SSD-backed PLE or erase the preference
+for DeepSeek. This does not disable Qwen3.8's SSD-backed PLE or erase the preference
 used when switching back to DeepSeek.
 
 Separate media workers provide **Ideogram 4** image generation,
 **HunyuanImage 3** image editing and **MiniMax H3** video; they are not chat models.
 
-The latest real-model acceptance run covered Flash, Laguna and Qwen, with
+The latest real-model acceptance run covered Flash, Laguna and Qwen3.8, with
 **11/12, 10/12 and 12/12** checks passed respectively. The failures remain
 published. These are small functional checks, **not evidence that DStudio
 matches or beats state-of-the-art cloud systems**. That requires a matched
@@ -115,6 +125,7 @@ From the project root, use one download entry point:
 ./download-model.sh ds4f-q2      # DeepSeek Flash
 ./download-model.sh laguna-q4   # Laguna
 ./download-model.sh qwen38-q4k  # Qwen base + required PLE, about 105.4 GB
+./download-model.sh qwen36-q6   # Qwen3.6 Q6_K_XL, about 31.8 GB, no PLE
 ```
 
 Choose one target; these commands download real, large model files. Existing
@@ -122,7 +133,7 @@ weights stay in the shared `ds4/gguf/` store.
 
 ## What You Can Do
 
-- Run **DeepSeek V4, GLM 5.3 Flash or Laguna S 2.1 locally**, or use **Qwen3.8-Flash-Next in Chat**, through the same native desktop interface and unified GGUF picker.
+- Run **DeepSeek V4, GLM 5.3 Flash or Laguna S 2.1 locally**, or use **Qwen3.6-35B-A3B / Qwen3.8-Flash-Next in Chat**, through the same native desktop interface and unified GGUF picker.
 - Use a **private AI chat** with persistent KV cache, reasoning display, citations from optional Web Search and local history.
 - Use **Learn** to build an interactive learning path from a goal, PDFs and source links, with prerequisite ordering, exercises, checkpoints and locally saved progress.
 - Open a dedicated **Tutor** for any roadmap block, with that block's prerequisites, sources, exercises and conversation restored automatically.
@@ -148,7 +159,7 @@ the sole heavyweight model. Metal uses full residency when the complete launch
 fits and the engine's normal lazy memory-mapped path otherwise; DStudio does
 not reduce the requested context to force residency. **On** remains available
 as an explicit restart-time setting for compatible models. Qwen keeps this Off
-while its native PLE remains SSD-backed; Laguna also requires resident weights.
+with resident weights; only Qwen3.8 has a separate SSD-backed PLE. Laguna also requires resident weights.
 Ideogram, Hunyuan and H3 are one-shot
 workers: DStudio evacuates DS4 before loading one and restores it only
 after that worker exits.
@@ -163,6 +174,8 @@ after that worker exits.
 
 Streaming chat backed by the selected local GGUF and ds4 server KV cache: context lives server-side (prefix reuse is shown as *cached* tokens) and every message is saved locally. You get live tokens/s, collapsible reasoning, native MathML for LaTeX, syntax-highlighted code, file artifacts, image/PDF attachments and optional Web Search sources through the local browser. A configured DeepSeek API key can replace local inference without moving DStudio's workspace tools into the cloud.
 
+The composer model picker has search, quantization/size details and a highlighted current model. Choose a model and DStudio selects its matching engine automatically — no separate engine-branch selector. Model download progress stays in Settings → Models.
+
 With DeepSeek Vision-Exp or GLM 5.3 and the matching encoder installed, image attachments stay multimodal: DStudio sends PNG/JPEG pixels to `ds4-server`; Agent/Cowork use upstream `view_image`, and Design uses its native `see_image` implementation. There is no text-description detour or secondary visual model. Selected PDF pages can use that same active encoder; older DeepSeek checkpoints and Laguna expose no image tools and remain text-layer-only for PDFs.
 
 ### Check PDF sources
@@ -170,6 +183,7 @@ With DeepSeek Vision-Exp or GLM 5.3 and the matching encoder installed, image at
 For newly read PDF attachments in local Chat, DStudio adds a source-checking workflow inspired by [NanoIndex](https://github.com/NanoNets/nanoindex):
 
 - **See where a quotation comes from.** Click a PDF citation in the answer to open the original physical page, with the exact words highlighted. Zoom in for small text or tables.
+- **Handle repeated references.** If the model uses `[P1]` for several passages, the modal lets you choose the intended passage instead of guessing. Identical entries are merged. Internal evidence JSON is hidden, including malformed output; unreadable source details show an explanation, not a verification badge. Saved replies are reparsed too.
 - **Know when a source cannot be located.** Missing or repeated quotations are reported without selecting a misleading highlight. An image-only page can be opened, but this feature does not run OCR.
 - **Move around the document.** The attachment preview offers recognized numbered chapter/section headings, nested section hints and explicit “see section…” links. These are text-based hints, not a complete outline or a semantic knowledge graph.
 - **Check the arithmetic.** “Check passages and calculations” first locates the cited passages, then recalculates supported sums, differences, products, ratios and percentages using the quoted numbers. It shows the operands, sources, rounding and any difference from the answer. It does not verify units, whether the right numbers were chosen, or the answer’s interpretation.
@@ -178,7 +192,7 @@ The existing hybrid PDF search remains in place. No extra model or cloud OCR ser
 
 Original PDFs are kept in a local cache, limited to **32 documents / 2 GiB**, alongside the existing PDF caches. Source identity is checked against the PDF bytes. If an original has been evicted or changed, DStudio asks you to attach it again. This first version is **host-local on macOS/Linux**, not exposed to LAN clients; Windows PDF support is unchanged. It needs Poppler and `shasum` or `sha256sum`.
 
-Implementation checks run with **no language or embedding model loaded**: `make test-pdf-evidence` exercises real Poppler extraction/rendering, citation matching, document identity, calculations and the browser viewer. It requires Node, Playwright and Chrome. These are implementation tests, **not an end-to-end model-quality benchmark**.
+Implementation checks run with **no language or embedding model loaded**: `make test-pdf-evidence` exercises real Poppler extraction/rendering, citation matching, document identity, calculations and the browser viewer. It requires Node, Playwright and Chrome (or `DSTUDIO_TEST_BROWSER=webkit` with WebKit installed). Repeated citation IDs never silently select a numeric source for arithmetic checks. These are implementation tests, **not an end-to-end model-quality benchmark**.
 
 ### Learn — interactive learning paths
 
@@ -597,7 +611,8 @@ This is a serious local AI setup. DStudio removes product friction, not physics:
   This behavior is a reversible DStudio patch applied when an engine checkout
   is installed or selected, so the upstream `download_model.sh` stays unchanged
   in the source repository.
-  Qwen uses the pinned Hugging Face downloader instead: incomplete transfers
+  Qwen3.6 also uses a visible `.gguf.part`, with size and SHA-256 verification
+  before it becomes selectable. Qwen3.8 uses the pinned Hugging Face downloader instead: incomplete transfers
   stay in `ds4/gguf/.cache/huggingface/download` until finalized, then both files
   are verified in full. Its progress is currently indeterminate in the app.
 
@@ -747,13 +762,35 @@ If a previous version failed with “expert streaming is not validated”, rebui
 and reopen DStudio. The loading screen and model picker now apply Qwen's
 compatible streaming configuration without changing the saved DeepSeek choice.
 
+### Qwen3.6-35B-A3B (experimental Chat/native)
+
+The separate [vagrillo Qwen branch](https://github.com/vagrillo/ds4/tree/qwen35moe-support)
+is pinned at `60fca11f0c8b16ca50c757324dddd717ba043098` in `ds4-qwen35`.
+Select **Qwen3.6-35B-A3B** under Settings → Models → Download, or run
+`./download-model.sh qwen36-q6`. Python 3 and curl are required.
+
+This downloads the exact **Unsloth Q6_K_XL** file (31.8 GB), checks its size and
+SHA-256, and shares `ds4/gguf` with the existing engines. Interrupted transfers
+can resume. It does not download Qwen3.8, a PLE, or a vision encoder.
+
+Chat is text-only and uses native full power; the other models' power preference
+is kept. Expert SSD streaming, DSpark, prompt lookup and the structured
+Agent/Cowork/Design adapter are not enabled. The native expert count is unchanged;
+experimental expert pruning is not enabled. Disk context checkpoints are disabled
+because this fork does not serialize Qwen's complete recurrent state. Chat history
+is still saved, and the running model can reuse its live context.
+
+Verified: fresh source download, native compilation, executable startup, model
+selection, launch parameters and resumable-download integrity with small test files.
+**No real Qwen3.6 answer-quality or tokens/s result is claimed yet.**
+
 ### Real installation and inference checks
 
 The important distinction is simple: **can a clean installation download and
 build the engines, and can a real loaded model answer checked questions?**
 
 ```sh
-make test-setup-live        # Downloads and builds main, Laguna and Qwen from scratch
+make test-setup-live        # Downloads and builds main, Laguna, Qwen3.8 and Qwen3.6 from scratch
 make test-inference-live    # Loads real DeepSeek/Laguna weights and checks answers
 make test-inference-live ENGINES=qwen
 make test-qwen-chat-live    # Starts Qwen through DStudio and checks the real Chat path

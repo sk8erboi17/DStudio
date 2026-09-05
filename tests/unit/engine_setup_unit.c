@@ -15,6 +15,24 @@ int main(void) {
     assert(model_is_qwen() && !model_is_flash() && !model_is_laguna());
     engine_cfg cfg = ENGINE_DEFAULTS;
     char err[8600] = "", reason[256] = "";
+    // Execute the native preflight for every model named by the UI notice.
+    const char *streaming_models[] = { MODEL_FLASH, MODEL_DSVISION_Q2, MODEL_GLM53_Q2, MODEL_PRO };
+    cfg.ssd_streaming = SSD_STREAMING_ON;
+    for (size_t i = 0; i < sizeof streaming_models / sizeof streaming_models[0]; i++) {
+        cstr_copy(g_model_override, sizeof g_model_override, streaming_models[i]);
+        int expected = 1;
+#ifdef _WIN32
+        expected = -1;
+#endif
+        assert(engine_effective_ssd_streaming(&cfg, 0, reason, sizeof reason, err, sizeof err) == expected);
+        assert(engine_effective_ssd_streaming(&cfg, 1, reason, sizeof reason, err, sizeof err) == -1);
+        g_dspark_enabled = 1;
+        assert(engine_effective_ssd_streaming(&cfg, 0, reason, sizeof reason, err, sizeof err) == -1);
+        g_dspark_enabled = 0;
+    }
+    cstr_copy(g_model_override, sizeof g_model_override, MODEL_LAGUNA);
+    assert(engine_effective_ssd_streaming(&cfg, 0, reason, sizeof reason, err, sizeof err) == -1);
+    cstr_copy(g_model_override, sizeof g_model_override, MODEL_QWEN);
     cfg.ssd_streaming = SSD_STREAMING_ON;
     assert(engine_effective_ssd_streaming(&cfg, 0, reason, sizeof reason, err, sizeof err) == -1);
     cfg.ssd_streaming = SSD_STREAMING_AUTO;

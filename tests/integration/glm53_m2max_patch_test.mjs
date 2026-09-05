@@ -54,6 +54,37 @@ try {
   pass('restore'); assert.deepEqual(snapshot(),initial);
   assert.ok(!fs.existsSync(path.join(root,'.git/index')), 'parent Git index untouched');
 
+  // Install the previously shipped release using its reversible migration
+  // delta. Exercise the actual hook; compare every output file, not anchors.
+  const installLegacy = () => {
+    pass('apply');
+    const r = spawnSync('git', ['-C', checkout, 'apply', '--reverse',
+      path.resolve('patch/ds4-glm53-m2max/batch-entry-limit.patch')], {
+      encoding:'utf8', env:{...process.env, GIT_CEILING_DIRECTORIES:root}
+    });
+    assert.equal(r.status,0,r.stderr+r.stdout);
+  };
+  installLegacy(); const legacy = snapshot();
+  assert.notDeepEqual(legacy,applied);
+  assert.match(pass('check').stdout,/upgrade available/); assert.deepEqual(snapshot(),legacy);
+  assert.match(pass('apply').stdout,/upgraded batch resource limit/);
+  assert.deepEqual(snapshot(),applied);
+  pass('apply'); assert.deepEqual(snapshot(),applied);
+  installLegacy(); pass('restore'); assert.deepEqual(snapshot(),initial);
+  installLegacy();
+  fs.writeFileSync(path.join(checkout,'ds4_bench.c'),before.get('ds4_bench.c'));
+  const partialLegacy=snapshot();
+  for (const action of ['check','apply','restore']) {
+    assert.equal(run(action).status,1); assert.deepEqual(snapshot(),partialLegacy);
+  }
+  fs.writeFileSync(path.join(checkout,'ds4_bench.c'),applied.get('ds4_bench.c'));
+  const legacyCore=path.join(checkout,'ds4.c');
+  fs.writeFileSync(legacyCore,Buffer.concat([Buffer.from('// preserved user edit\n'),legacy.get('ds4.c')]));
+  pass('apply');
+  assert.deepEqual(fs.readFileSync(legacyCore),Buffer.concat([Buffer.from('// preserved user edit\n'),applied.get('ds4.c')]));
+  pass('restore'); fs.writeFileSync(legacyCore,before.get('ds4.c'));
+  assert.deepEqual(snapshot(),initial);
+
   // Fail before applying any other hunk when the final file has drifted.
   const metal = path.join(checkout,'metal/moe.metal');
   fs.writeFileSync(metal, 'user changed this file\n');
@@ -79,7 +110,7 @@ try {
   assert.deepEqual(snapshot(),saved);
   fs.writeFileSync(core,'// non-GLM engine\n'); saved=snapshot();
   assert.match(pass('apply').stdout,/non-GLM checkout skipped/); assert.deepEqual(snapshot(),saved);
-  console.log('GLM M2 Max patch: all anchors, check/apply/restore, idempotence, drift, partial state, unrelated edits, spaces, parent Git and platform gates PASS');
+  console.log('GLM M2 Max patch: lifecycle, legacy migration/restore, idempotence, drift, partial state, preserved edits and platform gates PASS');
 } finally {
   fs.rmSync(root,{recursive:true,force:true});
 }
@@ -97,12 +128,13 @@ if (process.argv[2]) {
   };
   try {
     run('git',['clone','-q','--shared',path.resolve(process.argv[2]),engine]);
-    const hooks=['visible-downloads','media-memory','server-metrics','glm53-runtime','glm53-m2max'];
+    const hooks=['visible-downloads','media-memory','server-metrics','glm53-runtime','glm53-m2max','vision-streaming'];
     const hook = (name,action) => run('sh',[`scripts/apply-ds4-${name}.sh`,action],{
       env:{...process.env,DS4_DIR:engine}
     });
     for (const name of hooks) hook(name,'apply');
     hook('glm53-m2max','check');
+    hook('vision-streaming','check');
     for (const name of [...hooks].reverse()) hook(name,'restore');
     run('git',['-C',engine,'diff','--exit-code']);
     run('git',['-C',engine,'status','--short']);

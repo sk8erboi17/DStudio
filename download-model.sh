@@ -7,12 +7,14 @@ case "${1:---help}" in
     echo '  ds4f-q2, ds4f-vision-q2, glm53-q2, glm53-vision -> ds4/main'
     echo '  laguna-q4                                  -> Laguna S 2.1'
     echo '  qwen38-q4k                                 -> Qwen3.8-Flash-Next'
+    echo '  qwen36-q6                                  -> Qwen3.6-35B-A3B (31.8 GB, no PLE)'
     echo 'Downloads are real and resumable. Models share ds4/gguf.'
-    echo 'Qwen downloads and verifies base + PLE (~105.4 GB); no redundant MTP base.'
+    echo 'Qwen3.8 downloads and verifies base + PLE (~105.4 GB); no redundant MTP base.'
     echo 'DStudio currently supports Qwen Chat/native only.'
     exit 0 ;;
   laguna-q4) engine=laguna; directory=ds4-laguna-s21 ;;
   qwen38-q4k) engine=qwen; directory=ds4-qwen38 ;;
+  qwen36-q6) engine=qwen35; directory=ds4-qwen35 ;;
   ds4f-*|glm53-*|pro-*) engine=main; directory=ds4 ;;
   *) echo "Unknown target: $1 (see --help)" >&2; exit 2 ;;
 esac
@@ -28,5 +30,9 @@ cd "$project_root/$directory"
 if [ "$engine" = qwen ]; then
   shift
   exec python3 "$project_root/scripts/download-qwen38.py" --directory "$project_root/ds4/gguf" "$@"
+fi
+if [ "$engine" = qwen35 ]; then
+  shift
+  exec python3 "$project_root/scripts/download-qwen35.py" --directory "$project_root/ds4/gguf" "$@"
 fi
 exec sh ./download_model.sh "$@"

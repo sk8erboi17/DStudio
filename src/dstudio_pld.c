@@ -31,7 +31,8 @@ static int run_build_server_pld(void) {
     free(hdr); free(impl);
     if (!supported) return -1;
 
-    if (!run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply")) return 0;
+    if (!run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") ||
+        !run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply")) return 0;
 
     const char *patch_dir = "patch/ds4-server-pld";
     ds4ui_patch_set patch;
@@ -42,7 +43,8 @@ static int run_build_server_pld(void) {
     int fresh = version > 0 && access(bin, X_OK) == 0 && stat(bin, &bs) == 0;
     for (size_t i = 0; fresh && i < sizeof inputs / sizeof inputs[0]; i++)
         fresh = stat(inputs[i], &dep) == 0 && bs.st_mtime >= dep.st_mtime;
-    if (fresh && !patch_dir_newer_than(patch_dir, bs.st_mtime) &&
+    if (fresh && !engine_metal_source_newer_than(root, &bs) &&
+        !patch_dir_newer_than(patch_dir, bs.st_mtime) &&
         !patch_dir_newer_than(JSONL_PATCH_DIR, bs.st_mtime) &&
         jsonl_sentinel_ok(sentinel, version)) {
         patch_free_set(&patch);

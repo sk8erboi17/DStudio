@@ -15,7 +15,10 @@ const repoRoot = process.cwd();
 const webRoot = path.join(repoRoot, 'web');
 const requestOrder = [];
 const pdfDocumentId = 'b'.repeat(64);
-const pdfReply = `OK [P1]\n\n\`\`\`dstudio-pdf-evidence\n${JSON.stringify({ citations: [{ id: 'P1', documentId: pdfDocumentId, page: 1, quote: 'A precise passage from the original PDF.' }] })}\n\`\`\``;
+const pdfReply = `OK [P1]\n\n\`\`\`dstudio-pdf-evidence\n${JSON.stringify({ citations: [
+  { id: 'P1', documentId: pdfDocumentId, page: 1, quote: 'A precise passage from the original PDF.' },
+  { id: 'P1', documentId: pdfDocumentId, page: 1, quote: 'A second passage on the same page.' },
+] })}\n\`\`\``;
 const missingRequests = [];
 const longName = "Fluent Python_ Clear, Concise, and Effective Programming, -- Luciano Ramalho -- 2nd, 2022 -- Beijing _ O'Reilly Media, Inc -- isbn13 9781492056355 -- 6b8f1e751c6d6b82a49cc155099f9949 -- Anna's Archive.pdf";
 const coverSvg = `
@@ -222,6 +225,11 @@ try {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('.pdf-evidence-inline').waitFor({ state: 'visible' });
   assert.equal(await page.locator('.pdf-evidence-source').count(), 1, 'PDF provenance must survive a chat reload');
+  assert.doesNotMatch(await page.locator('.msg--assistant .md').textContent(), /dstudio-pdf-evidence|documentId/);
+  await page.locator('.pdf-evidence-inline').click();
+  assert.equal(await page.getByRole('combobox', { name: 'Source passage' }).locator('option').count(), 3,
+    'reloaded repeated labels must open the passage chooser, not raw JSON');
+  await page.locator('.pdf-evidence-dialog').getByRole('button', { name: 'Close', exact:true }).click();
   assert.deepEqual(pageErrors, [], `page errors: ${JSON.stringify({ pageErrors, missingRequests }, null, 2)}`);
   console.log('ui_attachment_preview_playwright_test: ok');
 } finally {

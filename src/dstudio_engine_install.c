@@ -4,7 +4,7 @@ static int setup_install_engine(const char *engine, const char *root,
                                 char *target, size_t targetsz, int *downloaded,
                                 char *err, size_t errsz) {
     const char *name, *url, *commit;
-    int qwen = !strcmp(engine, "qwen");
+    int qwen = !strcmp(engine, "qwen") || !strcmp(engine, "qwen35");
     struct stat root_st;
     if (!root || strlen(root) >= sizeof g_web_dir ||
         stat(root, &root_st) != 0 || !S_ISDIR(root_st.st_mode)) {
@@ -14,6 +14,8 @@ static int setup_install_engine(const char *engine, const char *root,
         name = "ds4"; url = DS4_ARCHIVE_URL; commit = DS4_UPSTREAM_COMMIT;
     } else if (!strcmp(engine, "laguna")) {
         name = DS4_LAGUNA_DIR_NAME; url = DS4_LAGUNA_ARCHIVE_URL; commit = DS4_LAGUNA_UPSTREAM_COMMIT;
+    } else if (!strcmp(engine, "qwen35")) {
+        name = DS4_QWEN35_DIR_NAME; url = DS4_QWEN35_ARCHIVE_URL; commit = DS4_QWEN35_UPSTREAM_COMMIT;
     } else if (qwen) {
         name = DS4_QWEN_DIR_NAME; url = DS4_QWEN_ARCHIVE_URL; commit = DS4_QWEN_UPSTREAM_COMMIT;
     } else { snprintf(err, errsz, "unknown engine: %s", engine); return 0; }
@@ -73,7 +75,7 @@ static int setup_install_engine(const char *engine, const char *root,
 
 static int setup_engine_cli(int argc, char **argv) {
     if (argc < 3 || argc > 4) {
-        fprintf(stderr, "usage: %s --install-engine main|laguna|qwen [existing-install-root]\n", argv[0]); return 2;
+        fprintf(stderr, "usage: %s --install-engine main|laguna|qwen|qwen35 [existing-install-root]\n", argv[0]); return 2;
     }
     resolve_web_dir();
     char root[DSTUDIO_PATH_MAX], target[DSTUDIO_PATH_MAX], err[8600] = "";
@@ -91,6 +93,27 @@ static void api_setup_qwen(int fd) {
     resolve_web_dir();
     char target[DSTUDIO_PATH_MAX], err[8600] = ""; int downloaded = 0;
     int ok = setup_install_engine("qwen", g_web_dir, target, sizeof target, &downloaded, err, sizeof err);
+    json_dyn_buf b = {0};
+    json_dyn_printf(&b, "{\"ok\":%s,\"downloaded\":%s,\"built\":%s,\"capability\":\"chat-native\",\"error\":",
+                    ok ? "true" : "false", downloaded ? "true" : "false", ok ? "true" : "false");
+    json_dyn_put_escaped(&b, err); json_dyn_puts(&b, "}");
+    send_json(fd, ok ? "200 OK" : "409 Conflict", b.ptr ? b.ptr : "{\"ok\":false}");
+    free(b.ptr);
+}
+
+static void api_setup_qwen35(int fd) {
+    resolve_web_dir();
+    char root[DSTUDIO_PATH_MAX], target[DSTUDIO_PATH_MAX], err[8600] = "";
+    int downloaded = 0;
+    /* Sources must be siblings of the user's active checkout, not hidden in
+     * Application Support while its GGUF store lives in a source workspace. */
+    if (!realpath(g_ds4_dir, root)) cstr_copy(root, sizeof root, g_web_dir);
+    else {
+        char *slash = strrchr(root, '/');
+        if (slash && slash != root) *slash = '\0';
+        else cstr_copy(root, sizeof root, g_web_dir);
+    }
+    int ok = setup_install_engine("qwen35", root, target, sizeof target, &downloaded, err, sizeof err);
     json_dyn_buf b = {0};
     json_dyn_printf(&b, "{\"ok\":%s,\"downloaded\":%s,\"built\":%s,\"capability\":\"chat-native\",\"error\":",
                     ok ? "true" : "false", downloaded ? "true" : "false", ok ? "true" : "false");

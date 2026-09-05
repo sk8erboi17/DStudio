@@ -700,7 +700,8 @@ static int setup_apply_ds4_runtime_patches(void) {
            run_ext_script("scripts/apply-ds4-media-memory.sh", "apply") &&
            run_ext_script("scripts/apply-ds4-server-metrics.sh", "apply") &&
            run_ext_script("scripts/apply-ds4-glm53-runtime.sh", "apply") &&
-           run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply");
+           run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") &&
+           run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply");
 }
 
 #ifndef _WIN32
@@ -750,6 +751,9 @@ static int setup_server_metrics_binary_ready(void) {
     if (setup_binary_contains_ascii(source, "static bool ds4_model_is_glm53") &&
         !setup_binary_contains_ascii(server, "DS4_METAL_DISABLE_M2_GLM53_TOP8_STREAM_ADDR"))
         return 0;
+    struct stat binary;
+    if (stat(server, &binary) != 0 || engine_metal_source_newer_than(g_ds4_dir, &binary))
+        return 0;
 #endif
     return n > 0 && (size_t)n < sizeof server && access(server, X_OK) == 0 &&
            setup_binary_contains_ascii(server, "decode_tokens_per_second") &&
@@ -760,7 +764,7 @@ static int setup_server_metrics_binary_ready(void) {
 /* `ds4-server` is an upstream build output, so running `make` directly in the
  * managed checkout can replace the patched executable while leaving DStudio
  * itself completely current. Check the executable at every Chat launch and
- * rebuild only when that capability is absent. This keeps exact tok/s
+ * rebuild when that capability is absent or the Metal source is newer. This keeps exact tok/s
  * reporting self-healing without adding work to normal launches. */
 static int setup_ensure_server_metrics_runtime(char *err, size_t errsz) {
     if (selected_checkout_is_qwen()) return 1; /* Qwen runs its pinned native server. */
@@ -769,13 +773,19 @@ static int setup_ensure_server_metrics_runtime(char *err, size_t errsz) {
     (void)errsz;
     return 1; /* The portable build prepares its patched server as one unit. */
 #else
+    /* An installed port may predate a Metal-only correction, even when its
+     * server already has metrics. Upgrade before inspecting build freshness. */
+    if (!run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply")) {
+        snprintf(err, errsz, "could not upgrade the managed Metal runtime patch");
+        return 0;
+    }
     if (setup_server_metrics_binary_ready()) return 1;
     if (!ds4_dir_valid()) {
         snprintf(err, errsz, "ds4 checkout is invalid; cannot prepare Chat metrics");
         return 0;
     }
 
-    printf("engine: ds4-server lacks managed metrics or GLM support; rebuilding runtime\n");
+    printf("engine: ds4-server is stale or lacks managed metrics/GLM support; rebuilding runtime\n");
     set_stage("Repairing Chat runtime…", 2);
     if (!setup_apply_ds4_runtime_patches()) {
         snprintf(err, errsz,
@@ -803,7 +813,8 @@ static int setup_ensure_server_metrics_runtime(char *err, size_t errsz) {
 }
 
 static int setup_restore_ds4_runtime_patches(void) {
-    return run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "restore") &&
+    return run_ext_script("scripts/apply-ds4-vision-streaming.sh", "restore") &&
+           run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "restore") &&
            run_ext_script("scripts/apply-ds4-glm53-runtime.sh", "restore") &&
            run_ext_script("scripts/apply-ds4-server-metrics.sh", "restore") &&
            run_ext_script("scripts/apply-ds4-media-memory.sh", "restore") &&
