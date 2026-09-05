@@ -477,6 +477,10 @@ test-frontend-unit:
 test-setup-live: $(TEST_SERVER)
 	@node tests/live/engine_acceptance.mjs --setup
 
+.PHONY: test-first-launch-e2e
+test-first-launch-e2e: app
+	@node tests/live/first_launch_e2e.mjs
+
 test-inference-live: $(TEST_SERVER)
 	@node tests/live/engine_acceptance.mjs --infer --engines "$(or $(ENGINES),main,laguna)"
 

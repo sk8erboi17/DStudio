@@ -8852,7 +8852,7 @@ static long content_length(const char *req, size_t hlen) {
 static volatile sig_atomic_t g_stop = 0;
 /* Set the flag and nudge the child: the main loop exits on its own and runs
  * the real cleanup (sse_close_all + stop_child) instead of dying via _exit. */
-static void on_term(int sig) { (void)sig; g_stop = 1; if (g_child > 0) kill(g_child, SIGTERM); }
+static void on_term(int sig) { (void)sig; g_stop = 1; if (g_child > 0 && !g_external_server) kill(g_child, SIGTERM); }
 
 #ifdef _WIN32
 /* Called by the windowed launcher's parent-death watcher (app.cc): the GUI
@@ -8868,6 +8868,13 @@ void ds4ui_parent_died(void) {
 /* ==================== shared chat store ==================== */
 
 static void store_file_path(char *out, size_t n) {
+    /* Explicit profiles (including isolated setup tests) must not import or
+     * overwrite the host's legacy chat store. Keep its default path unchanged. */
+    const char *configured = getenv("DS4UI_DATA_DIR");
+    if (configured && configured[0]) {
+        snprintf(out, n, "%s/ds4web-store.json", configured);
+        return;
+    }
 #ifdef _WIN32
     const char *base = getenv("LOCALAPPDATA");
     if (!base || !base[0]) base = getenv("USERPROFILE");

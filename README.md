@@ -791,6 +791,7 @@ build the engines, and can a real loaded model answer checked questions?**
 
 ```sh
 make test-setup-live        # Downloads and builds main, Laguna, Qwen3.8 and Qwen3.6 from scratch
+make test-first-launch-e2e  # Fresh headless .app + real UI clicks, engine downloads and patch/build checks
 make test-inference-live    # Loads real DeepSeek/Laguna weights and checks answers
 make test-inference-live ENGINES=qwen
 make test-qwen-chat-live    # Starts Qwen through DStudio and checks the real Chat path
@@ -820,6 +821,17 @@ the other two used the native server directly. This is not a general model ranki
 (25.98–27.15 tokens/s), with Minecraft running. This native CLI measurement
 excludes model loading and prompt processing; it is not end-to-end Chat speed.
 All three copies were correct. [Plain-language results, limits and raw evidence](docs/ENGINE_ACCEPTANCE.md).
+
+The headless first-launch check now also passes for **all four engine checkouts**:
+it uses the real application interface and network downloads, verifies automatic
+engine selection, and checks that the complete main patch stack can be removed
+and reapplied without losing source changes. Model weights are excluded from
+that installation test; real model-loading checks are a separate gate.
+The follow-up loaded **all nine supported chat models installed on the test
+Mac**, checked two exact HTTP answers and a real streamed/rendered Chat answer
+per model. Qwen3.8's screen check passed on a targeted rerun after fixing the test's
+render wait. Tested at **8k context**, with SSD expert streaming for DeepSeek/GLM;
+not a 128k or general-quality claim. [Results, model list and limits](docs/HEADLESS_E2E.md).
 
 ## Network (LAN)
 

@@ -15,6 +15,7 @@ name, comment, prompt phrase or CSS declaration occurs in application source.
 
 ```sh
 make test-setup-live                  # Real GitHub downloads + builds: main, Laguna, Qwen3.8, Qwen3.6
+make test-first-launch-e2e            # Headless .app + real WebKit UI + fresh network engine installation
 make test-inference-live              # Real resident Metal: installed DeepSeek + Laguna
 make test-inference-live ENGINES=qwen  # Requires downloaded Qwen base + PLE
 make test-engine-acceptance           # Fresh builds AND real inference for all four engines
@@ -28,6 +29,41 @@ directory, downloads pinned source archives over HTTPS, builds the executables,
 executes their help command, and checks that optional engines share the model
 store. It does **not** simulate a browser onboarding click. Existing user
 checkouts, models, preferences and running processes are not replaced or stopped.
+
+`test-first-launch-e2e` instead relocates the signed `.app`, starts its real
+binary from `/` with an empty `DS4UI_DATA_DIR`, and uses headless WebKit to
+operate the first-run installation controls. `DS4UI_TEST_MODE` is **not** set.
+It clicks Install, chooses the optional models, and checks real setup responses,
+pinned revisions, compiled executable startup, automatic checkout selection,
+shared model storage and discovery after reload. It also reverses/reapplies the
+complete six-patch main runtime stack on a private source copy and requires exact
+file preservation. An existing engine-port listener (or a test-owned sentinel)
+must survive installation and test shutdown.
+
+Only `/api/model/download` is intentionally refused at the browser boundary,
+**after** actual optional-engine setup; weights are not downloaded and inference
+is not counted as tested by this gate. Model-start attempts are also blocked.
+No setup/build/catalog response is simulated. This is headless application/UI
+coverage, not Finder double-click, native title-bar, or native file-picker QA.
+Evidence and screenshots are retained in `tests/.artifacts/first-launch-*/`.
+
+To follow a successful setup with real loading of every supported installed GGUF:
+
+```sh
+node tests/live/installed_models_e2e.mjs tests/.artifacts/first-launch-<successful-run> ds4/gguf
+```
+
+This heavyweight gate requires the existing inference engine to be stopped
+explicitly. It uses the freshly built runtimes and links their empty task-owned
+GGUF directory to existing weights, without copying or moving them. Models are
+loaded **one at a time**, with 8k context, DSpark off, resident Qwen/Laguna and
+SSD expert streaming for main DeepSeek/GLM models. Qwen3.8 keeps its native SSD
+PLE. Each model must become ready, return exact arithmetic and JSON extraction
+answers through DStudio, then answer a checked prompt through the real Chat UI,
+including completed SSE and visible rendered text. No response is mocked.
+Auxiliary GGUFs and unsupported models are listed separately; missing weights,
+timeouts, truncated answers and failed checks are not passes. This does not
+qualify all quantizations, maximum context, vision, Agent or Cowork behavior.
 
 The inference gate starts a real `ds4-server`, waits for its live model catalog,
 and checks arithmetic, structured extraction, ordering, Unicode, multi-turn

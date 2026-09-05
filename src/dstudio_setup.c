@@ -1021,9 +1021,11 @@ static void api_setup_ds4(int fd, const char *body) {
     engine_cfg prev_cfg  = g_cfg;
     char       prev_wd[1024];
     snprintf(prev_wd, sizeof prev_wd, "%s", g_workdir);
-    int was_running = (g_child > 0) || (prev_mode != ENGINE_NONE);
-    if (g_child > 0) stop_child();
-    kill_external_server(ENGINE_DEFAULTS.port);
+    /* Source installation does not need an inference port. Only restart an
+     * engine owned by this launcher; never stop an unrelated listener (or an
+     * externally shared engine) while preparing a fresh checkout. */
+    int was_running = g_child > 0 && !g_external_server;
+    if (was_running) stop_child();
 
 #ifdef _WIN32
     char build_err[8600];

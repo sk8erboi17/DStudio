@@ -48,6 +48,47 @@ int main(void) {
 #ifndef _WIN32
     char temp[] = "/tmp/dstudio-engine-setup-unit.XXXXXX";
     assert(mkdtemp(temp));
+    /* Exercise actual persistence, not just a path-string contract: an empty
+     * explicit profile must not hydrate the user's legacy conversations. */
+    char legacy_store[2048], profile_store[2048], restored_store[2048];
+    const char *prior_data = getenv("DS4UI_DATA_DIR");
+    char *saved_data = prior_data ? strdup(prior_data) : NULL;
+    unsetenv("DS4UI_DATA_DIR");
+    store_file_path(legacy_store, sizeof legacy_store);
+    assert(setenv("DS4UI_DATA_DIR", temp, 1) == 0);
+    store_file_path(profile_store, sizeof profile_store);
+    assert(strcmp(profile_store, legacy_store));
+    assert(g_store == NULL);
+    store_load();
+    assert(g_store == NULL && g_store_rev == 0);
+    g_store = strdup("{\"profile\":\"isolated-first-launch\"}");
+    assert(g_store);
+    g_store_len = strlen(g_store);
+    store_save();
+    free(g_store); g_store = NULL; g_store_len = 0;
+    store_load();
+    assert(g_store && !strcmp(g_store, "{\"profile\":\"isolated-first-launch\"}"));
+    assert(g_store_rev == 1);
+    free(g_store); g_store = NULL; g_store_len = 0; g_store_rev = 0;
+    assert(unlink(profile_store) == 0);
+    unsetenv("DS4UI_DATA_DIR");
+    store_file_path(restored_store, sizeof restored_store);
+    assert(!strcmp(restored_store, legacy_store));
+    if (saved_data) { setenv("DS4UI_DATA_DIR", saved_data, 1); free(saved_data); }
+    /* Signal shutdown may nudge an owned child, never a shared process. */
+    pid_t supervised = fork();
+    assert(supervised >= 0);
+    if (supervised == 0) { for (;;) pause(); }
+    g_child = supervised; g_external_server = 1;
+    on_term(SIGTERM);
+    usleep(20000);
+    assert(kill(supervised, 0) == 0);
+    g_external_server = 0;
+    on_term(SIGTERM);
+    int stopped_status = 0;
+    assert(waitpid(supervised, &stopped_status, 0) == supervised);
+    assert(WIFSIGNALED(stopped_status) && WTERMSIG(stopped_status) == SIGTERM);
+    g_child = -1; g_stop = 0;
     char primary[512], shared[512], side[512], link[512], other[512], marker[512];
     snprintf(primary, sizeof primary, "%s/ds4", temp);
     snprintf(shared, sizeof shared, "%s/ds4/gguf", temp);
