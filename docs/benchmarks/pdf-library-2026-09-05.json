@@ -1,0 +1,71 @@
+{
+  "schema": "dstudio.pdf-library.public.v1",
+  "inventory": {
+    "files": 78,
+    "pages": 42572,
+    "bytes": 1588473982,
+    "sparsePages": 1167
+  },
+  "retrieval": {
+    "total": 84,
+    "found": 75,
+    "textTotal": 83,
+    "textFound": 75,
+    "visualTotal": 1,
+    "visualFound": 0
+  },
+  "evidence": {
+    "total": 75,
+    "matched": 50,
+    "ambiguous": 0
+  },
+  "readFirst": {
+    "n": 78,
+    "totalMs": 117575.36095400005,
+    "medianMs": 1136.8077295000062,
+    "p95Ms": 4249.741625000001,
+    "maxMs": 7935.161999000004
+  },
+  "readWarm": {
+    "n": 234,
+    "totalMs": 41107.511043000006,
+    "medianMs": 107.04210400000011,
+    "p95Ms": 598.543417000008,
+    "maxMs": 959.2696670000005
+  },
+  "indexFirst": {
+    "n": 75,
+    "totalMs": 7268190.4559120005,
+    "medianMs": 82889.0267500002,
+    "p95Ms": 242034.5845000001,
+    "maxMs": 339285.5035000001
+  },
+  "queryIndexReuse": {
+    "n": 70,
+    "totalMs": 19841.498841000095,
+    "medianMs": 196.48114599994733,
+    "p95Ms": 817.354958999902,
+    "maxMs": 1086.471332999994
+  },
+  "queryIdentical": {
+    "n": 82,
+    "totalMs": 17157.86416100145,
+    "medianMs": 126.22208350012079,
+    "p95Ms": 732.7302079999354,
+    "maxMs": 1010.0324580000015
+  },
+  "fullTextEligible": 0,
+  "originalsVerifiedSha256": 78,
+  "totalRetrievalBatchWallMs": 7814755.330124999,
+  "manuallyReviewedAlternatePassages": 4,
+  "coldTimingExclusions": 2,
+  "queryTimingExclusions": 1,
+  "readerBinarySha256": [
+    "f39fe824a850694dfe91f23b0c2f6e241568304ecfac70ca358acedd9217ef47"
+  ],
+  "embeddingBinarySha256": [
+    "af7f9fbdfc9b2187188b646e8b51db121bb90e574c08e510ce4ad0b4ac21c648"
+  ],
+  "privateReceiptSha256": "766684341831292529ec2aa34c49aff1159a9793c1a01667222751ece84d67c8",
+  "evidenceAvailability": "Aggregate data only. Original local receipts are not published; see the linked report for scope and limitations."
+}

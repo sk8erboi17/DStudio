@@ -67,11 +67,15 @@ fi
 # A binary newer than the DStudio extension is still stale when its linked DS4
 # checkout advanced (or a tracked runtime patch was applied/restored). Record
 # both the immutable commit and the linked tracked diff. ds4_server.c is not a
-# Design link input and may independently carry the metrics patch. Managed
-# checkouts are Git repositories; fail closed and rebuild otherwise.
+# Design link input and may independently carry the metrics patch. First-run
+# installs may be source archives, so also support content fingerprints without
+# .git. Never use a surrounding DStudio checkout as the engine's Git identity.
 ds4_signature() {
-  if command -v git >/dev/null 2>&1 &&
-     git -C "$DS4_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  local ds4_top ds4_head ds4_diff ds4_manifest ds4_hash
+  local -a ds4_digest
+  ds4_top="$(git -C "$DS4_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -n "$ds4_top" ] &&
+     [ "$(cd "$ds4_top" && pwd -P)" = "$(cd "$DS4_DIR" && pwd -P)" ]; then
     ds4_head="$(git -C "$DS4_DIR" rev-parse HEAD)" || return 1
     ds4_diff="$(git -C "$DS4_DIR" diff --binary --no-ext-diff HEAD -- . \
       ':(exclude)ds4_server.c' |
@@ -79,7 +83,22 @@ ds4_signature() {
     printf '%s:%s' "$ds4_head" "$ds4_diff"
     return 0
   fi
-  return 1
+  if command -v shasum >/dev/null 2>&1; then ds4_digest=(shasum -a 256)
+  elif command -v sha256sum >/dev/null 2>&1; then ds4_digest=(sha256sum)
+  else return 1
+  fi
+  ds4_manifest="$(cd "$DS4_DIR" &&
+    find . -type d \( -name .git -o -name gguf \) -prune -o \
+      \( -type f -o -type l \) \( -name '*.c' -o -name '*.h' -o -name '*.m' -o -name '*.metal' \
+      -o -name '*.inc' -o -name '*.mk' -o -name Makefile -o -name .dstudio-source.json \) \
+      ! -name ds4_server.c -print | LC_ALL=C sort |
+    while IFS= read -r ds4_input; do
+      "${ds4_digest[@]}" "$ds4_input" || exit 1
+    done)" || return 1
+  [ -n "$ds4_manifest" ] || return 1
+  ds4_hash="$(printf '%s\n' "$ds4_manifest" | "${ds4_digest[@]}" | awk '{print $1}')" || return 1
+  [ -n "$ds4_hash" ] || return 1
+  printf 'archive-sha256:%s' "$ds4_hash"
 }
 
 DS4_SIGNATURE="$(ds4_signature 2>/dev/null || true)"
@@ -89,6 +108,7 @@ binary_is_fresh() {
   [ -f "$BIN" ] && [ -f "$STAMP" ] || return 1
   [ "$BIN" -nt "$SRC" ] && [ "$BIN" -nt "$MK" ] &&
     [ "$BIN" -nt "$SCRIPT" ] &&
+    [ "$BIN" -nt "$EXT/design_system_catalog.h" ] &&
     [ "$BIN" -nt "$PATCH_FILE" ] &&
     [ "$BIN" -nt "$REMOTE_DIR/dstudio_remote_llm.c" ] &&
     [ "$BIN" -nt "$REMOTE_DIR/dstudio_remote_llm.h" ] || return 1

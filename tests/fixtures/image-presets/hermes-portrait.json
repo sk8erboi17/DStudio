@@ -1,0 +1,13 @@
+{
+  "aspect_ratio": "3:4",
+  "high_level_description": "An original editorial portrait in the electric cobalt blue and ivory engraving style of the Hermes Agent website's headphone portrait. Close-up three-quarter profile of a woman wearing modern over-ear headphones. Her whole head, both headphone earcups where visible and upper shoulders fit inside the portrait frame. Natural calm facial anatomy and delicately engraved hair are rendered entirely with clean ivory and cobalt copperplate cross-hatching on a solid cobalt blue background. Dense but readable fine linework, confident high-contrast silhouette and generous uncluttered margins. Two-colour antique print, no photographic colours, no gradients, no text, no logos, no UI and no watermark.",
+  "compositional_deconstruction": {
+    "background": "Uniform electric cobalt blue, open clean margins and no background objects. A crisp two-colour editorial engraving, with all highlights in ivory.",
+    "elements": [
+      {
+        "type": "obj",
+        "desc": "A woman in three-quarter profile wearing modern over-ear headphones, whole head and upper shoulders visible, calm natural facial proportions, finely engraved flowing hair and ivory copperplate cross-hatching. Clear headphone shape, no cropped crown, text, logos or watermark."
+      }
+    ]
+  }
+}

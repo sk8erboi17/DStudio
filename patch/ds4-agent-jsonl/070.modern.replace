@@ -1,0 +1,4 @@
+/* Upstream main invalidates compact/recurrent state on rewind. Preserve its
+ * resync before accepting another token, including when no PLD tx is active. */
+#include "pld_agent_rewind.h"
+#include "pld_agent.inc" /*DS4UI_AGENT_PLD*/

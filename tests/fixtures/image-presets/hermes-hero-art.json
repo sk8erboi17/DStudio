@@ -1,0 +1,13 @@
+{
+  "aspect_ratio": "16:9",
+  "high_level_description": "A standalone copperplate illustration filling the entire canvas. One classical Greek messenger bust wears a small winged helmet, with carved curly hair and a calm expressive face. The bust is centred against a solid intense electric cobalt blue field with generous open blue margins. Fine ivory cross-hatching, crisp engraved contours and delicate radial celestial lines create an intricate antique print rendered strictly in cobalt blue and ivory ink. The only depicted object is the messenger bust. This is the artwork itself, unframed and full bleed. Lettering, logos, watermarks, borders and interface controls are absent.",
+  "compositional_deconstruction": {
+    "background": "An uninterrupted flat electric cobalt blue field with sparse fine ivory radial celestial lines and clean open margins. All drawn marks are either cobalt blue or ivory ink.",
+    "elements": [
+      {
+        "type": "obj",
+        "desc": "One centrally framed ivory classical Greek messenger bust wearing a small winged helmet. Clear sculptural facial anatomy, carved curls, crisp silhouette, fine copperplate cross-hatching and intricate engraved shading. Calm expressive face, generous blue space around the shoulders."
+      }
+    ]
+  }
+}

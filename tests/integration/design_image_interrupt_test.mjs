@@ -54,6 +54,7 @@ const server = http.createServer(async (req, res) => {
       generatedJob = body.job;
       assert.match(generatedJob, /^design-image-\d+-\d+$/);
       assert.equal(body.action, 'generate');
+      assert.equal(body.preset, 'medium', 'Design preserves the session image preset in its native HTTP request');
       assert.equal(Object.hasOwn(body, 'reasoning_effort'), false,
         'the direct image worker must not receive a retired router reasoning field');
       if (!interruptSent) {
@@ -142,7 +143,7 @@ try {
     '--jsonl', '--nothink', '-c', '4096', '-n', '1024',
   ], {
     cwd: root,
-    env: { ...process.env, HOME: home, DS4UI_DSTUDIO_URL: baseUrl },
+    env: { ...process.env, HOME: home, DS4UI_DSTUDIO_URL: baseUrl, DS4UI_IMAGE_PRESET: 'medium' },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   child.stdout.setEncoding('utf8');

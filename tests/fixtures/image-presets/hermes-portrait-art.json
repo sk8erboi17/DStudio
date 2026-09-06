@@ -1,0 +1,13 @@
+{
+  "aspect_ratio": "3:4",
+  "high_level_description": "A standalone copperplate portrait illustration filling the entire canvas. Close-up three-quarter profile of a woman wearing modern over-ear headphones. Her whole head, the visible headphone earcups and upper shoulders fit inside the portrait frame. Calm natural facial anatomy and delicately engraved flowing hair are rendered entirely with ivory and cobalt cross-hatching on an uninterrupted solid electric cobalt blue field. Dense readable fine linework, confident high-contrast silhouette and generous open blue margins. The only depicted subject is the woman wearing headphones. This is the two-colour artwork itself, unframed and full bleed. Lettering, logos, watermarks, borders and interface controls are absent.",
+  "compositional_deconstruction": {
+    "background": "An uninterrupted flat electric cobalt blue field with clean open margins. All drawn marks are cobalt blue or ivory ink, with no background objects.",
+    "elements": [
+      {
+        "type": "obj",
+        "desc": "One woman in three-quarter profile wearing modern over-ear headphones, her whole head and upper shoulders visible. Calm natural facial proportions, finely engraved flowing hair, ivory copperplate cross-hatching, clear headphone shapes and an uncropped crown."
+      }
+    ]
+  }
+}

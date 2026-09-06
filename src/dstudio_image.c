@@ -281,6 +281,22 @@ static int image_write_source(const char *body, const char *field, const char *s
 }
 
 static void api_image_generate_run(int fd, const char *body) {
+    /* Parse the request field, not a matching word inside the art direction.
+     * Reject misspelled/non-string presets before admitting a heavyweight job. */
+    dtg_json_token tokens[96];
+    char parse_error[160] = "";
+    int count = dtg_json_tokenize(body, strlen(body), tokens, 96);
+    char preset[8] = "max";
+    if (count <= 0 || tokens[0].type != DTG_JSON_OBJECT ||
+        !dtg_json_validate_complete(body, '{', parse_error, sizeof parse_error) ||
+        !dtg_json_unique_object_keys(body, tokens, count, parse_error, sizeof parse_error) ||
+        !dtg_json_object_string(body, tokens, count, 0, "preset", preset, sizeof preset,
+                                0, parse_error, sizeof parse_error) ||
+        (strcmp(preset, "low") && strcmp(preset, "medium") &&
+         strcmp(preset, "high") && strcmp(preset, "max"))) {
+        web_json_error(fd, "400 Bad Request", "preset must be low, medium, high or max in a valid JSON object");
+        return;
+    }
     char *prompt = json_get_string_alloc_rpc(body, "prompt");
     if (!prompt || !prompt[0] || strlen(prompt) > 12000) {
         free(prompt);
@@ -367,8 +383,9 @@ static void api_image_generate_run(int fd, const char *body) {
     char *argv[30] = { "/bin/sh", script, "--prompt-file", prompt_path,
                        "--outdir", dir, "--status-file", status_path,
                        "--aspect", aspect, "--action", action,
-                       "--preserve", preserve, "--cancel-file", cancel_path, NULL };
-    int ai = 16;
+                       "--preserve", preserve, "--cancel-file", cancel_path,
+                       "--preset", preset, NULL };
+    int ai = 18;
     if (input_path[0]) { argv[ai++] = "--input"; argv[ai++] = input_path; }
     if (reference_path[0]) { argv[ai++] = "--input"; argv[ai++] = reference_path; }
     if (reference2_path[0]) { argv[ai++] = "--input"; argv[ai++] = reference2_path; }

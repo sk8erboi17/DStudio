@@ -14,17 +14,19 @@ this without taste." Your job is to remove every one and make it *specific*.
   markers. Use **inline SVG** (a real icon) or text. Emoji as an accessible name is also an
   a11y failure.
 - **Placeholder copy.** No `lorem ipsum`, `[REPLACE]`, "Feature One / Feature Two", "Your
-  text here", "Item 1 / Item 2". Write real, specific copy with real numbers.
+  text here", "Item 1 / Item 2". Use specific domain copy. Source factual claims;
+  label invented prototype records as examples, never as actual customers or results.
 - **Fake logos / fake brands / clip-art.** No grey rectangles labelled "LOGO", no invented
   company marks in a "trusted by" row. If you'd be faking trust, omit the section.
-- **Repeated / inconsistent data.** Don't reuse the same number for different things (e.g.
-  "12.4k watching" and "12.4k downloads"). Don't pair an icon with the wrong meaning (an eye
-  "views" icon next to a duration). Vary names, sizes, and values plausibly.
+- **Inconsistent data.** Totals, units and labels must agree. Repeated real values
+  are legitimate; do not invent different numbers merely to look varied. Don't
+  pair an icon with the wrong meaning (an eye labelled "views" next to a duration).
 
 ## Earn every effect
 
-- **One accent, used sparingly** (5–10% of the surface). If everything is colored/bold,
-  nothing stands out.
+- Use the chosen system's contrast and emphasis roles. A colored event canvas
+  is legitimate; distinguish the primary action through contrast, shape and space.
+  Do not force every design into the same neutral-background percentage.
 - **Effects must be earned:** aggressive gradients, drop shadows on every card,
   glassmorphism-by-default, and rainbow borders are tells. Default to flat + space + a single
   considered detail.
@@ -33,14 +35,15 @@ this without taste." Your job is to remove every one and make it *specific*.
 
 ## Beat the "default template" look
 
-- Vary layout: across a page use **≥4 distinct layout families** (full-bleed, split, grid,
-  bento, centered prose) — not eight identical stacked cards.
+- Let content determine the composition. A focused form may need one panel; an
+  editorial issue can alternate a reading column and index. Vary hierarchy where
+  useful, not to meet a quota. Avoid repeating a generic marketing skeleton.
 - Specificity over decoration: name real things, use real proportions, write copy a human in
   that domain would write. A page that could belong to any product belongs to none.
 
 ## Self-check before artifact
 
 - Zero emoji used as icons/content? Zero placeholders? Zero fake logos?
-- No reused/contradictory data, no mismatched icon meanings?
+- Internally coherent, sourced or clearly illustrative data; no mismatched icon meanings?
 - One accent, effects earned, real visuals (not emoji-on-gradient)?
 - Would a designer with taste recognize this as deliberate, not generated?

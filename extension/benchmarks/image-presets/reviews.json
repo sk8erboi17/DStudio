@@ -1,0 +1,75 @@
+{
+  "method": "Codex visual inspection of original PNGs against the public caption; not a blinded human panel or a universal aesthetic score.",
+  "reviews": [
+    {
+      "case": "hermes-hero",
+      "preset": "low",
+      "outputSha256": "601a2ef80d79d1e8e53aecd891b155ac60de269f6c0ab1d4d29f4044b35884b9",
+      "promptAdherencePass": false,
+      "notes": "Recognizable centred classical bust and ivory-on-blue engraving. Unrequested navigation bar, brand-like logos and both readable and garbled text violate the no-UI/no-text instruction. Helmet wings are awkwardly upright. This is an unretouched failure, not a recommended final asset."
+    },
+    {
+      "case": "hermes-hero",
+      "preset": "medium",
+      "outputSha256": "d90f7e76166386d8f0d2283fc1cd30094e95da1812641b05a93c989ee35c9ce8",
+      "promptAdherencePass": false,
+      "notes": "Recognizable classical bust, finer celestial lines and copperplate shading. Like Low, it adds a navigation header, brand-like logos and garbled text below the bust. The no-UI/no-text requirement fails despite the extra steps. No pixels were retouched."
+    },
+    {
+      "case": "hermes-hero-art",
+      "preset": "low",
+      "outputSha256": "07e35d428e2792706e99ffa0dc6ef1f4f70fb217adcab411e992ffd489e531a7",
+      "promptAdherencePass": false,
+      "notes": "Standalone blue/ivory engraved illustration; no navigation, lettering or logos. Recognizable winged classical head and celestial marks. The head is small and floats without the shoulders implied by a bust, and the background is heavily textured rather than flat. The website-UI defect is gone, but complete caption adherence still fails."
+    },
+    {
+      "case": "hermes-hero-art",
+      "preset": "medium",
+      "outputSha256": "d3a32a4406301f9d46cad538201f7d7541133638a3cce45dd9a49b585f66e610",
+      "promptAdherencePass": false,
+      "notes": "Standalone blue/ivory engraving with no web interface. Small classical head rather than the full bust, textured blue field and celestial lines. A short line of spurious lettering appears above the head despite the instruction to omit lettering. Extra sampling did not remove this defect. No retouching."
+    },
+    {
+      "case": "hermes-hero-art",
+      "preset": "high",
+      "outputSha256": "56d5db6365c4634cc1f2f5b4453070860b2375d4e20b50aa6ec381fce64dfc01",
+      "promptAdherencePass": false,
+      "notes": "Standalone blue/ivory engraving without visible lettering, logos or UI. Sharper celestial lines and a recognizable classical winged head. Composition remains close to Low: a small floating head without the shoulders implied by a bust, on a textured rather than flat field. The full written caption still fails, and the extra time does not establish a broad quality gain."
+    },
+    {
+      "case": "hermes-hero-art",
+      "preset": "max",
+      "outputSha256": "a76147d0fd9676b14485668b85187f3b05a8c33b170fcaf61de08c85dfff3507",
+      "promptAdherencePass": false,
+      "notes": "Unusable output: a blue field with the ivory words 'Image blocked by safety filter', without the requested messenger illustration. The PNG is valid and all 48 diffusion steps completed, so the pixel sanity check is not evidence of semantic correctness. The executed graph has no moderation node, the inspected save path writes decoded pixels directly, and the runtime log reports successful execution. Official Ideogram prompting documentation and the Comfy-Org workflow identify this refusal image as a model-trained behavior, with known false positives. This benign JSON-caption run is consistent with that behavior, not a DStudio error banner. Original pixels retained without retry or retouching."
+    },
+    {
+      "case": "hermes-portrait-art",
+      "preset": "low",
+      "outputSha256": "99f2d38940ab0eddff9f1bf3636cc5c042dc0965bf3bd84ef8c986f9c6139341",
+      "promptAdherencePass": false,
+      "notes": "Unusable output: a flat gray field saying 'Image blocked by safety filter'. No woman, headphones, engraving or cobalt palette. All 12 steps completed and a valid 768 x 1024 PNG was written, but the requested illustration was not produced. This matches the refusal-image behavior documented by Ideogram and Comfy-Org, despite the benign structured JSON caption. No retry or pixel retouching."
+    },
+    {
+      "case": "hermes-portrait-art",
+      "preset": "medium",
+      "outputSha256": "7b2c36019b6840d53f6cd94771486a6c02fb4ba0dcb745d3cacdc1bc9f7d445d",
+      "promptAdherencePass": false,
+      "notes": "Unusable output: the same gray refusal-message composition as Low, with the words 'Image blocked by safety filter'. No portrait, headphones or engraving. All 20 diffusion steps completed; extra sampling did not restore the requested subject. Original PNG retained without retry or retouching."
+    },
+    {
+      "case": "hermes-portrait-art",
+      "preset": "high",
+      "outputSha256": "5234c9a0290b801c940b61147f9d80cd59bd8d3e7e1c7149b8a54e7e37406531",
+      "promptAdherencePass": false,
+      "notes": "Unusable output: a gray field with the same 'Image blocked by safety filter' text instead of the headphone portrait. No subject or requested engraving/palette. All 48 steps completed at 768 x 1024; increasing sampling from Low and Medium still did not recover the requested image. Original PNG retained without retry or retouching."
+    },
+    {
+      "case": "hermes-portrait-art",
+      "preset": "max",
+      "outputSha256": "f5570e946cbc0ece09b7c103e54574769f5fa3d18f584d4edf82523fcbe188ab",
+      "promptAdherencePass": false,
+      "notes": "An actual standalone engraved portrait, not a refusal image. The woman, headphone earcups and band, complete crown and upper shoulders are visible; facial anatomy is recognizable, with dense coherent cross-hatching and no lettering, logo or interface. The palette is muted teal/petrol and warm beige rather than the requested electric cobalt and ivory, and the hair is swept into a bun rather than flowing. Main subject/style/framing are substantially achieved, but the strict complete-caption check still fails. This is a usable illustration with deviations, not evidence that MAX always improves quality. No pixels were retouched."
+    }
+  ]
+}

@@ -936,7 +936,10 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     (void)json_get_string(body, "profile", profile, sizeof profile);
     (void)json_get_string(body, "semantic_query", semantic_query, sizeof semantic_query);
     int semantic = !strcmp(profile, "semantic");
-    int interactive = semantic || !strcmp(profile, "interactive");
+    /* A question-independent, lossless probe: return all text only when it
+     * fits. Otherwise ask the caller to use its existing read planner. */
+    int complete = !strcmp(profile, "complete");
+    int interactive = complete || semantic || !strcmp(profile, "interactive");
     if (semantic && !semantic_query[0]) {
         pdf_describe_fail(fd, want_text, "400 Bad Request", "semantic_query is required");
         return;
@@ -994,6 +997,11 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     }
 
     char texttool[256];
+    if (complete && (has_range || want_text)) {
+        pdf_describe_fail(fd, want_text, "400 Bad Request",
+                          "complete profile requires a whole-document JSON request");
+        return;
+    }
     if (!pdf_find_tool("pdftotext", texttool, sizeof texttool)) {
         pdf_describe_fail(fd, want_text, "503 Service Unavailable", pdf_poppler_hint());
         return;
@@ -1022,7 +1030,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         /* Bump this salt on ANY pipeline-behavior change (thresholds, prompts,
          * classification): cached entries carry the OLD behavior and would
          * silently mask the fix for already-seen documents. */
-        static const char *salt = "|text-native-v3-pdf-evidence-structure|";
+        static const char *salt = "|text-native-v4-complete-budget|";
         for (const char *s = salt; *s; s++)     { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
         for (const char *s = document_id; *s; s++) { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
         if (interactive) {
@@ -1034,6 +1042,10 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
             static const char *sp = "|hybrid-rag|";
             for (const char *s = sp; *s; s++)             { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
             for (const char *s = semantic_query; *s; s++) { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
+        }
+        if (complete) {
+            const char *tag = "|complete-only|";
+            for (const char *s = tag; *s; s++) { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
         }
         /* Range requests get their own cache slot; the no-range key stays as
          * before, so existing full-read entries remain valid. Keyed on the
@@ -1123,6 +1135,32 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     }
     int npages = total > PDF_MAX_TOTAL_PAGES ? PDF_MAX_TOTAL_PAGES : total;
 
+    if (complete) {
+        size_t full_bytes = 0;
+        int readable = total == tpages && total <= PDF_INTERACTIVE_MAX_TEXT_PAGES;
+        for (int i = 0; i < tpages; i++) {
+            if (pvis[i] < PDF_TEXT_MIN_CHARS) readable = 0;
+            /* Include the physical-page delimiters in the prompt budget. */
+            full_bytes += (size_t)plen[i] + 48;
+        }
+        /* Never skip a visual page to make this fast path fit. Ambiguous,
+         * scanned and oversized documents retain the established planner. */
+        if (!readable || full_bytes > interactive_cap ||
+            (native_vision && total > PDF_NATIVE_VISION_MAX_PAGES)) {
+            free(layer); unlink(pdf); free(pdf);
+            pdf_job_write(jobpath, "{\"phase\":\"plan\",\"done\":true}");
+            json_dyn_buf reply = {0};
+            if (json_dyn_printf(&reply,
+                "{\"ok\":true,\"readPlanRequired\":true,\"completeText\":false,"
+                "\"total\":%d,\"textLayerCached\":%s}",
+                total, text_layer_cached ? "true" : "false"))
+                send_json(fd, "200 OK", reply.ptr);
+            else pdf_describe_fail(fd, want_text, "500 Internal Server Error", "oom");
+            free(reply.ptr);
+            return;
+        }
+    }
+
     /* Resolve the requested range against the real page count. A start past
      * the end is an error that TELLS the caller the document's size, so the
      * model can immediately retry with a valid range. */
@@ -1152,7 +1190,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     static unsigned char page_selected[PDF_MAX_TOTAL_PAGES];
     memset(pscore, 0, sizeof pscore);
     for (int i = 0; i < PDF_MAX_TOTAL_PAGES; i++) pmatch[i] = -1;
-    memset(page_selected, interactive ? 0 : 1, sizeof page_selected);
+    memset(page_selected, interactive && !complete ? 0 : 1, sizeof page_selected);
     int selected_pages = plast - pfirst + 1, rag_chunks = 0;
     int embedding_index_cached = 0;
     if (semantic) {
@@ -1168,7 +1206,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         selected_pages = pdf_select_semantic_pages(page_selected, pscore,
                                                     pfirst - 1, plast - 1,
                                                     PDF_SEMANTIC_MAX_PAGES);
-    } else if (interactive) {
+    } else if (interactive && !complete) {
         int page_limit = (int)(interactive_cap / 512);
         if (page_limit > PDF_INTERACTIVE_MAX_TEXT_PAGES) page_limit = PDF_INTERACTIVE_MAX_TEXT_PAGES;
         selected_pages = pdf_select_interactive_pages(page_selected,
@@ -1200,6 +1238,13 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     size_t text_bytes = 0;
     size_t content_cap = interactive ? interactive_cap : PDF_TEXT_TOTAL_CAP;
     size_t text_cap = content_cap;
+    size_t selected_text_bytes = 0;
+    for (int i = pfirst - 1; i < plast; i++)
+        if (page_selected[i] && i < tpages && pvis[i] >= PDF_TEXT_MIN_CHARS)
+            selected_text_bytes += (size_t)plen[i];
+    /* Do not divide a fitting document into per-page quotas. A short cover
+     * used to waste its quota while a longer following page lost evidence. */
+    int selected_text_fits = selected_text_bytes <= text_cap;
     int total_weight = 0, semantic_min = INT_MAX, semantic_max = INT_MIN;
     if (semantic) {
         for (int i = pfirst - 1; i < plast; i++) {
@@ -1227,7 +1272,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         int is_text = (i < tpages && pvis[i] >= PDF_TEXT_MIN_CHARS);
         if (!is_text) continue;
         size_t take = (size_t)plen[i];
-        if (interactive && total_weight > 0) {
+        if (interactive && !selected_text_fits && total_weight > 0) {
             int weight = 1;
             if (semantic && pscore[i] != INT_MIN) {
                 weight += 2;
@@ -1310,7 +1355,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
                                      "\"selectedPages\":%d,\"retrievalChunks\":%d,"
                                      "\"textLayerCached\":%s,\"embeddingIndexCached\":%s,"
                                      "\"textChars\":%zu,\"visionChars\":%zu,\"contentChars\":%zu,"
-                                     "\"semantic\":%s,\"hybrid\":%s,\"sampled\":%s,\"truncated\":%s,\"text\":",
+                                     "\"semantic\":%s,\"hybrid\":%s,\"sampled\":%s,\"truncated\":%s,\"completeText\":%s,\"text\":",
                                pages_read, total, pfirst, plast, text_used, scanned_pages,
                                vision_pages, vision_scanned_pages,
                                selected_pages, rag_chunks,
@@ -1318,7 +1363,8 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
                                embedding_index_cached ? "true" : "false",
                                text_bytes, vision_chars, text_bytes + vision_chars,
                                semantic ? "true" : "false", semantic ? "true" : "false", sampled ? "true" : "false",
-                               truncated ? "true" : "false") &&
+                               truncated ? "true" : "false",
+                               !truncated && !text_partial && text_used == total ? "true" : "false") &&
                json_dyn_put_escaped(&out, text.ptr ? text.ptr : "") &&
                json_dyn_puts(&out, ",\"vision\":[");
     for (int i = 0; good && i < vision_pages; i++) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-shot local Ideogram 4 FP8 Quality-48 worker for Apple Silicon."""
+"""One-shot local Ideogram 4 FP8 worker with explicit presets for Apple Silicon."""
 
 from __future__ import annotations
 
@@ -42,13 +42,23 @@ VAE_DECODE_POLICY = "overlapped-three-pass-tiled"
 VAE_TILE_SIZE = 1024
 VAE_TILE_OVERLAP = 256
 
-# Official highest-quality sampler profile. No Turbo/preview fallback exists.
-QUALITY_STEPS = 48
+# The legacy/default path remains Quality-48 at 2K (MAX). These are explicit
+# user choices, never an automatic lower-quality fallback under memory pressure.
 QUALITY_CFG = 7.0
 QUALITY_POLISH_CFG = 3.0
-QUALITY_POLISH_STEPS = 3
-QUALITY_MU = 0.0
-QUALITY_STD = 1.5
+
+# Match the pinned official sampler registry, including its final CFG-3 steps.
+# MAX adds native pixels, not an invented fourth sampler or an upscaler.
+PRESETS = {
+    "low": {"profile": "V4_TURBO_12", "steps": 12, "polishSteps": 1,
+            "mu": 0.5, "std": 1.75, "scale": 2, "quality": "turbo-12"},
+    "medium": {"profile": "V4_DEFAULT_20", "steps": 20, "polishSteps": 2,
+               "mu": 0.0, "std": 1.75, "scale": 2, "quality": "default-20"},
+    "high": {"profile": "V4_QUALITY_48", "steps": 48, "polishSteps": 3,
+             "mu": 0.0, "std": 1.5, "scale": 2, "quality": "quality-48"},
+    "max": {"profile": "V4_QUALITY_48", "steps": 48, "polishSteps": 3,
+            "mu": 0.0, "std": 1.5, "scale": 1, "quality": "quality-48"},
+}
 
 # Maximum supported edge (2048), preserving common aspect ratios exactly.
 ASPECT_SIZES = {
@@ -72,7 +82,12 @@ TEST_ASPECT_SIZES = {
     "3:4": (480, 640),
     "1:1": (512, 512),
 }
-PROGRESS_RE = re.compile(r"(?<!\d)(\d{1,3})\s*/\s*(48)(?!\d)")
+PROGRESS_RE = re.compile(r"(?<!\d)(\d{1,3})\s*/\s*(12|20|48)(?!\d)")
+
+
+def preset_size(aspect: str, preset: str = "max") -> tuple[int, int]:
+    scale = PRESETS[preset]["scale"]
+    return tuple(edge // scale for edge in ASPECT_SIZES[aspect])
 
 
 def build_test_png(width: int = 640, height: int = 360) -> bytes:
@@ -114,6 +129,12 @@ class IdeogramError(RuntimeError):
     pass
 
 
+def handle_termination(_signum: int, _frame: object) -> None:
+    # Unwind through the server's finally block; Comfy has its own session and
+    # must not outlive a cancelled worker or keep GPU weights resident.
+    raise KeyboardInterrupt
+
+
 def status_write(path: Path | None, state: str, stage: str, label: str,
                  progress: int, **extra: object) -> None:
     if path is None:
@@ -135,28 +156,31 @@ def status_write(path: Path | None, state: str, stage: str, label: str,
 
 def publish_inference_progress(path: Path | None, step: int, width: int,
                                height: int, started: float,
-                               heartbeat: bool = False) -> None:
+                               heartbeat: bool = False, preset: str = "max") -> None:
+    profile = PRESETS[preset]
+    steps = profile["steps"]
     common = {
-        "quality": "quality-48",
+        "quality": profile["quality"],
+        "preset": preset,
         "width": width,
         "height": height,
         "elapsedSeconds": round(max(0.0, time.monotonic() - started), 3),
         "heartbeat": heartbeat,
     }
-    if step >= QUALITY_STEPS:
+    if step >= steps:
         status_write(path, "running", "decoding",
                      "Diffusion complete; decoding the full-resolution image…", 92,
-                     step=step, steps=QUALITY_STEPS,
+                     step=step, steps=steps,
                      vaeDecode=VAE_DECODE_POLICY, **common)
     elif step >= 0:
         status_write(path, "running", "sampling",
-                     f"Ideogram 4 Quality: diffusion step {step}/{QUALITY_STEPS}…",
-                     22 + round(68 * step / QUALITY_STEPS),
-                     step=step, steps=QUALITY_STEPS, **common)
+                     f"Ideogram 4 {preset.upper() if preset == 'max' else preset.title()}: diffusion step {step}/{steps}…",
+                     22 + round(68 * step / steps),
+                     step=step, steps=steps, **common)
     else:
         status_write(path, "running", "encoding",
                      "Encoding the verified structured caption…", 18,
-                     steps=QUALITY_STEPS, **common)
+                     steps=steps, **common)
 
 
 def runtime_root() -> Path:
@@ -224,8 +248,8 @@ def wait_for_server(base_url: str, process: subprocess.Popen[bytes]) -> None:
             time.sleep(1)
 
 
-def quality_polish_start(width: int, height: int) -> float:
-    """Return a sigma-percent boundary that selects exactly three final steps.
+def quality_polish_start(width: int, height: int, preset: str = "max") -> float:
+    """Select exactly the official preset's final CFG-3 steps at this size.
 
     Ideogram's official V4_QUALITY_48 registry specifies 45 sampling steps at
     CFG 7 followed by three polish steps at CFG 3.  Comfy's reference graph
@@ -235,23 +259,26 @@ def quality_polish_start(width: int, height: int) -> float:
     step and the first polish step instead.  Ideogram's pinned FLOW sampling
     config has shift=1, so Comfy maps percent to sigma as 1-percent.
     """
-    first_polish_index = QUALITY_STEPS - QUALITY_POLISH_STEPS
+    profile = PRESETS[preset]
+    steps = profile["steps"]
+    first_polish_index = steps - profile["polishSteps"]
     preceding_index = first_polish_index - 1
-    mean = QUALITY_MU + 0.5 * math.log((width * height) / (512 * 512))
+    mean = profile["mu"] + 0.5 * math.log((width * height) / (512 * 512))
     normal = NormalDist()
 
     def sigma_at(index: int) -> float:
         # ideogram4_sigmas reverses an inclusive 0..1 probit schedule.
-        quantile = (QUALITY_STEPS - index) / QUALITY_STEPS
-        logit = mean + QUALITY_STD * normal.inv_cdf(quantile)
+        quantile = (steps - index) / steps
+        logit = mean + profile["std"] * normal.inv_cdf(quantile)
         return 1.0 / (1.0 + math.exp(-logit))
 
     boundary_sigma = (sigma_at(preceding_index) + sigma_at(first_polish_index)) / 2.0
     return 1.0 - boundary_sigma
 
 
-def workflow(caption: str, width: int, height: int, seed: int) -> dict:
-    polish_start = quality_polish_start(width, height)
+def workflow(caption: str, width: int, height: int, seed: int, preset: str = "max") -> dict:
+    profile = PRESETS[preset]
+    polish_start = quality_polish_start(width, height, preset)
     return {
         "1": {"class_type": "UNETLoader", "inputs": {
             "unet_name": CONDITIONAL_MODEL, "weight_dtype": "default"}},
@@ -272,8 +299,8 @@ def workflow(caption: str, width: int, height: int, seed: int) -> dict:
         "8": {"class_type": "RandomNoise", "inputs": {"noise_seed": seed}},
         "9": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler"}},
         "10": {"class_type": "Ideogram4Scheduler", "inputs": {
-            "steps": QUALITY_STEPS, "width": width, "height": height,
-            "mu": QUALITY_MU, "std": QUALITY_STD}},
+            "steps": profile["steps"], "width": width, "height": height,
+            "mu": profile["mu"], "std": profile["std"]}},
         "11": {"class_type": "EmptyFlux2LatentImage", "inputs": {
             "width": width, "height": height, "batch_size": 1}},
         "12": {"class_type": "SamplerCustomAdvanced", "inputs": {
@@ -391,7 +418,10 @@ def main() -> int:
     parser.add_argument("--status-file")
     parser.add_argument("--aspect", choices=tuple(ASPECT_SIZES), default="16:9")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--preset", choices=tuple(PRESETS), default="max")
     args = parser.parse_args()
+    profile = PRESETS[args.preset]
+    width, height = preset_size(args.aspect, args.preset)
 
     prompt_path = Path(args.prompt_file).resolve()
     outdir = Path(args.outdir).resolve()
@@ -403,14 +433,15 @@ def main() -> int:
         destination = outdir / "ideogram4-test.png"
         destination.write_bytes(build_test_png(*TEST_ASPECT_SIZES[args.aspect]))
         status_write(status_path, "complete", "complete", "Image ready.", 100,
-                     provider="ideogram4-fp8", quality="quality-48")
+                     provider="ideogram4-fp8", quality=profile["quality"],
+                     preset=args.preset, steps=profile["steps"], simulated=True,
+                     requestedWidth=width, requestedHeight=height)
         print(destination)
         return 0
 
     try:
         raw_caption = prompt_path.read_text(encoding="utf-8").strip()
         caption = verify_caption(raw_caption)
-        width, height = ASPECT_SIZES[args.aspect]
         root = runtime_root()
         comfy = root / "comfyui"
         python = root / "venv" / "bin" / "python"
@@ -419,7 +450,7 @@ def main() -> int:
 
         status_write(status_path, "running", "runtime",
                      "Starting the pinned Ideogram 4 FP8 Metal runtime…", 4,
-                     quality="quality-48", width=width, height=height)
+                     quality=profile["quality"], preset=args.preset, width=width, height=height)
         port = free_port()
         server_log = outdir / "ideogram4-comfy.log"
         log_handle = server_log.open("wb")
@@ -439,10 +470,10 @@ def main() -> int:
             wait_for_server(base_url, process)
             status_write(status_path, "running", "loading_model",
                          "Loading Ideogram 4 FP8 and its internal text encoder into Metal…", 10,
-                         quality="quality-48", width=width, height=height)
+                         quality=profile["quality"], preset=args.preset, width=width, height=height)
             client_id = f"dstudio-{os.getpid()}-{int(time.time())}"
             queued = http_json(base_url + "/prompt", {
-                "prompt": workflow(caption, width, height, args.seed),
+                "prompt": workflow(caption, width, height, args.seed, args.preset),
                 "client_id": client_id,
             })
             prompt_id = queued.get("prompt_id")
@@ -472,19 +503,20 @@ def main() -> int:
                         destination = outdir / f"ideogram4-{int(time.time())}-{args.seed}.png"
                         shutil.copy2(source, destination)
                         output_validation = inspect_output(destination, (width, height))
-                        polish_start = quality_polish_start(width, height)
+                        polish_start = quality_polish_start(width, height, args.preset)
                         provenance = {
                             "provider": "ideogram4-fp8",
                             "model": MODEL_REPOSITORY,
                             "revision": MODEL_REVISION,
                             "runtime": {"comfy": COMFY_COMMIT, "fp8Plugin": FP8_PLUGIN_COMMIT,
                                         "ideogramNode": IDEOGRAM_NODE_COMMIT},
-                            "quality": {"profile": "V4_QUALITY_48", "steps": QUALITY_STEPS,
+                            "preset": args.preset,
+                            "quality": {"profile": profile["profile"], "steps": profile["steps"],
                                         "sampler": "euler", "cfg": QUALITY_CFG,
                                         "polishCfg": QUALITY_POLISH_CFG,
-                                        "polishSteps": QUALITY_POLISH_STEPS,
+                                        "polishSteps": profile["polishSteps"],
                                         "polishStart": polish_start,
-                                        "mu": QUALITY_MU, "std": QUALITY_STD,
+                                        "mu": profile["mu"], "std": profile["std"],
                                         "vaeDecode": VAE_DECODE_POLICY,
                                         "vaeTileSize": VAE_TILE_SIZE,
                                         "vaeTileOverlap": VAE_TILE_OVERLAP},
@@ -499,7 +531,8 @@ def main() -> int:
                             encoding="utf-8",
                         )
                         status_write(status_path, "complete", "complete", "Image ready.", 100,
-                                     provider="ideogram4-fp8", quality="quality-48",
+                                     provider="ideogram4-fp8", quality=profile["quality"],
+                                     preset=args.preset, steps=profile["steps"],
                                      width=width, height=height)
                         print(destination)
                         return 0
@@ -509,8 +542,11 @@ def main() -> int:
 
                 try:
                     log_handle.flush()
-                    tail = server_log.read_bytes()[-200000:].decode("utf-8", "replace")
-                    matches = list(PROGRESS_RE.finditer(tail))
+                    with server_log.open("rb") as log_reader:
+                        log_reader.seek(max(0, server_log.stat().st_size - 200000))
+                        tail = log_reader.read(200000).decode("utf-8", "replace")
+                    matches = [match for match in PROGRESS_RE.finditer(tail)
+                               if int(match.group(2)) == profile["steps"]]
                     step = int(matches[-1].group(1)) if matches else -1
                 except OSError:
                     step = -1
@@ -518,25 +554,31 @@ def main() -> int:
                 if step > last_step:
                     last_step = step
                     publish_inference_progress(
-                        status_path, last_step, width, height, started
+                        status_path, last_step, width, height, started, preset=args.preset
                     )
                     last_status_at = now
                 elif last_status_at == 0.0 or now - last_status_at >= 30.0:
                     publish_inference_progress(
                         status_path, last_step, width, height, started,
-                        heartbeat=True,
+                        heartbeat=True, preset=args.preset,
                     )
                     last_status_at = now
                 time.sleep(2)
         finally:
             stop_server(process)
             log_handle.close()
+    except KeyboardInterrupt:
+        status_write(status_path, "error", "cancelled", "Image generation cancelled.", 100,
+                     quality=profile["quality"], preset=args.preset)
+        return 130
     except (IdeogramError, OSError, ValueError) as exc:
         status_write(status_path, "error", "error", str(exc), 100,
-                     quality="quality-48")
+                     quality=profile["quality"], preset=args.preset)
         print(f"Ideogram 4 failed: {exc}", file=sys.stderr)
         return 3
 
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, handle_termination)
+    signal.signal(signal.SIGINT, handle_termination)
     raise SystemExit(main())

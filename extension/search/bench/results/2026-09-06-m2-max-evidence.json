@@ -1,0 +1,1190 @@
+{
+  "schema": "dstudio.search-evidence.comparison.v1",
+  "limitations": [
+    "Eight development cases, one paired run each: page reading and fact extraction, not full Search/Deep Research or general model quality.",
+    "Before and after runtime source snapshots share the updated native host/engine. This isolates extraction/vision behavior, not an old-vs-new binary benchmark.",
+    "Shared host: dependency/setup work overlapped part of collection. Timings include every case but do not establish a causal speedup; cold model load is excluded.",
+    "Original fixture v1 repeated identical paragraphs that the browser deduplicated; its late-text passes are not evidence of long-page retrieval.",
+    "Original visual-color grading falsely matched right inside bright. Corrected word-boundary and direction/value grading is tested and applied to both variants; original results retained.",
+    "Only one native vision model was run. Two simple graphics do not qualify arbitrary screenshots or chart accuracy."
+  ],
+  "original": {
+    "schema": "dstudio.search-evidence.public.v1",
+    "fixtureVersion": 1,
+    "scope": "Development acceptance: page read + production evidence extraction, not a complete search-engine/Deep Research or competitor benchmark.",
+    "started": "2026-09-05T23:26:06.470Z",
+    "host": {
+      "cpu": "Apple M2 Max",
+      "memoryBytes": 103079215104
+    },
+    "model": {
+      "file": "DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf",
+      "bytes": 86720111776
+    },
+    "engineRevision": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
+    "runtimeSources": {
+      "before": {
+        "revision": "c3329de",
+        "sha256": "63d8ce1e7b341a7d2db021b3c7d4d09e60edfc86020c143fc73353bcc5bb219f"
+      },
+      "after": {
+        "sha256": "ea0712a556e91d4c05c042261feb64e0681ec94ff4161e8ed3c60e177da7dcdb"
+      }
+    },
+    "settings": {
+      "context": 8192,
+      "ssdStreaming": "off",
+      "nativeVisionActive": true,
+      "temperature": 0,
+      "think": "off"
+    },
+    "prompts": [
+      {
+        "id": "early-setting",
+        "question": "What retry interval does Orchid use? Give the exact number and unit.",
+        "visual": false
+      },
+      {
+        "id": "late-setting",
+        "question": "What retry interval does Marigold use? Give the exact number and unit.",
+        "visual": false
+      },
+      {
+        "id": "italian-late",
+        "question": "Quanto costa la prenotazione del laboratorio Aster? Riporta numero e valuta.",
+        "visual": false
+      },
+      {
+        "id": "version-conflict",
+        "question": "What is the current Cedar v2 upload limit? Distinguish it from the old v1 limit.",
+        "visual": false
+      },
+      {
+        "id": "table-row",
+        "question": "How long is the Birch Pro retention period? Do not confuse it with the Free tier.",
+        "visual": false
+      },
+      {
+        "id": "page-instruction",
+        "question": "What is the exact Willow release tag stated by the release note?",
+        "visual": false
+      },
+      {
+        "id": "visual-colors",
+        "question": "Inspect the graphic. What are the colors of its left and right blocks? State left and right explicitly; use only what this page shows.",
+        "visual": true
+      },
+      {
+        "id": "visual-chart",
+        "question": "Read the chart: what values are shown for North and South? State both region names and their values.",
+        "visual": true
+      }
+    ],
+    "runs": [
+      {
+        "id": "early-setting",
+        "variant": "before",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11586.693207999997,
+          "extractMs": 6201.484250000001,
+          "totalMs": 17788.893417
+        },
+        "facts": [
+          {
+            "fact": "Orchid retry interval is 47 seconds"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "early-setting",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11297.223875000003,
+          "extractMs": 8817.543625000006,
+          "totalMs": 20118.152416999998
+        },
+        "facts": [
+          {
+            "fact": "The Orchid retry interval is 47 seconds.",
+            "basis": "page text"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "late-setting",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11278.011041000005,
+          "extractMs": 8941.768375,
+          "totalMs": 20222.281457999998
+        },
+        "facts": [
+          {
+            "fact": "The Marigold retry interval is 83 seconds.",
+            "basis": "page text"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "late-setting",
+        "variant": "before",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11240.491374999998,
+          "extractMs": 3781.3294999999925,
+          "totalMs": 15022.01612500001
+        },
+        "facts": [
+          {
+            "fact": "Marigold retry interval is 83 seconds"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "italian-late",
+        "variant": "before",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11206.621625,
+          "extractMs": 4426.317750000002,
+          "totalMs": 15634.038874999998
+        },
+        "facts": [
+          {
+            "fact": "La prenotazione del laboratorio Aster costa esattamente 29 euro."
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "italian-late",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11356.593042000008,
+          "extractMs": 10248.821916999994,
+          "totalMs": 21609.443541999994
+        },
+        "facts": [
+          {
+            "fact": "La prenotazione del laboratorio Aster costa esattamente 29 euro.",
+            "basis": "page text"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "version-conflict",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11260.144666000007,
+          "extractMs": 16142.853999999992,
+          "totalMs": 27405.960833999998
+        },
+        "facts": [
+          {
+            "fact": "Cedar v2 accepts up to 62 MB per upload.",
+            "basis": "page text"
+          },
+          {
+            "fact": "Archived v1 uploads were limited to 18 MB and this rule is obsolete.",
+            "basis": "page text"
+          },
+          {
+            "fact": "The v2 limit of 62 MB replaces the v1 limit of 18 MB.",
+            "basis": "page text"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "version-conflict",
+        "variant": "before",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11256.045584000007,
+          "extractMs": 8104.195166999998,
+          "totalMs": 19360.509416999994
+        },
+        "facts": [
+          {
+            "fact": "Cedar v2 accepts up to 62 MB per upload"
+          },
+          {
+            "fact": "The old v1 upload limit was 18 MB and is obsolete"
+          },
+          {
+            "fact": "Cedar v2's 62 MB limit replaces the v1 limit of 18 MB"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "table-row",
+        "variant": "before",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11196.154499999975,
+          "extractMs": 3214.9122919999936,
+          "totalMs": 14411.239375000005
+        },
+        "facts": [
+          {
+            "fact": "Birch Pro retention period is 45 days"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "table-row",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11272.25779199999,
+          "extractMs": 11511.172791999998,
+          "totalMs": 22785.05037499999
+        },
+        "facts": [
+          {
+            "fact": "Birch Pro retention period is 45 days.",
+            "basis": "page text"
+          },
+          {
+            "fact": "Birch Free tier retention period is 7 days.",
+            "basis": "page text"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "page-instruction",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11267.414499999984,
+          "extractMs": 9157.10370800001,
+          "totalMs": 20426.338000000018
+        },
+        "facts": [
+          {
+            "fact": "The Willow release tag stated by the release note is v4.7.2.",
+            "basis": "page text"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "page-instruction",
+        "variant": "before",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11219.359916999994,
+          "extractMs": 3837.1368750000256,
+          "totalMs": 15057.106750000035
+        },
+        "facts": [
+          {
+            "fact": "The Willow release tag is v4.7.2"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "visual-colors",
+        "variant": "before",
+        "originalStatus": "fail",
+        "originalGrade": {
+          "pass": false,
+          "missing": [
+            "left.{0,45}(magenta|pink)",
+            "right.{0,45}green"
+          ],
+          "contradicted": []
+        },
+        "reviewedPass": false,
+        "reviewedGrade": {
+          "pass": false,
+          "missing": [
+            "left.{0,45}(magenta|pink)",
+            "right.{0,45}green"
+          ],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11294.799541999993,
+          "extractMs": 4166.39724999998,
+          "totalMs": 15461.518207999994
+        },
+        "facts": [
+          {
+            "fact": "The page does not describe the colors of the graphic's left and right blocks in text"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "visual-colors",
+        "variant": "after",
+        "originalStatus": "fail",
+        "originalGrade": {
+          "pass": false,
+          "missing": [],
+          "contradicted": [
+            "right.{0,25}(magenta|pink)"
+          ]
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11228.07012499997,
+          "extractMs": 10372.219209000003,
+          "totalMs": 21602.007125000004
+        },
+        "facts": [
+          {
+            "fact": "The left block is magenta/pink (bright pink).",
+            "basis": "visual observation of limited viewport"
+          },
+          {
+            "fact": "The right block is green (bright green).",
+            "basis": "visual observation of limited viewport"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "visual-chart",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11273.112000000023,
+          "extractMs": 10405.714041999949,
+          "totalMs": 21680.079750000034
+        },
+        "facts": [
+          {
+            "fact": "North has a value of 36",
+            "basis": "visual observation of limited viewport"
+          },
+          {
+            "fact": "South has a value of 84",
+            "basis": "visual observation of limited viewport"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "visual-chart",
+        "variant": "before",
+        "originalStatus": "fail",
+        "originalGrade": {
+          "pass": false,
+          "missing": [
+            "North.{0,40}36",
+            "South.{0,40}84"
+          ],
+          "contradicted": []
+        },
+        "reviewedPass": false,
+        "reviewedGrade": {
+          "pass": false,
+          "missing": [
+            "North(?:(?!\\bSouth\\b)[^\\n]){0,40}36",
+            "South(?:(?!\\bNorth\\b)[^\\n]){0,40}84"
+          ],
+          "contradicted": []
+        },
+        "readChars": null,
+        "captureStatus": null,
+        "timings": {
+          "readMs": 11240.501667000004,
+          "extractMs": 4165.887125000008,
+          "totalMs": 15406.935832999996
+        },
+        "facts": [
+          {
+            "fact": "The chart displays regional values, but the page text does not contain the specific values for North and South."
+          }
+        ],
+        "executionFailed": false
+      }
+    ],
+    "privateReceiptSha256": "47749df0d4559acd5c30be98dbaa13352c196ad2b96ebf4888ac4052f48b36bf"
+  },
+  "current": {
+    "schema": "dstudio.search-evidence.public.v1",
+    "fixtureVersion": 2,
+    "scope": "Development acceptance: page read + production evidence extraction, not a complete search-engine/Deep Research or competitor benchmark.",
+    "started": "2026-09-05T23:43:30.950Z",
+    "host": {
+      "cpu": "Apple M2 Max",
+      "memoryBytes": 103079215104
+    },
+    "model": {
+      "file": "DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf",
+      "bytes": 86720111776
+    },
+    "engineRevision": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
+    "runtimeSources": {
+      "before": {
+        "revision": "c3329de",
+        "sha256": "63d8ce1e7b341a7d2db021b3c7d4d09e60edfc86020c143fc73353bcc5bb219f"
+      },
+      "after": {
+        "sha256": "143149a9250bab60bc67f73f746add29d4b863eefb070a1916be854f28e4b5ec"
+      }
+    },
+    "settings": {
+      "context": 8192,
+      "ssdStreaming": "off",
+      "nativeVisionActive": true,
+      "temperature": 0,
+      "think": "off"
+    },
+    "prompts": [
+      {
+        "id": "early-setting",
+        "question": "What retry interval does Orchid use? Give the exact number and unit.",
+        "visual": false
+      },
+      {
+        "id": "late-setting",
+        "question": "What retry interval does Marigold use? Give the exact number and unit.",
+        "visual": false
+      },
+      {
+        "id": "italian-late",
+        "question": "Quanto costa la prenotazione del laboratorio Aster? Riporta numero e valuta.",
+        "visual": false
+      },
+      {
+        "id": "version-conflict",
+        "question": "What is the current Cedar v2 upload limit? Distinguish it from the old v1 limit.",
+        "visual": false
+      },
+      {
+        "id": "table-row",
+        "question": "How long is the Birch Pro retention period? Do not confuse it with the Free tier.",
+        "visual": false
+      },
+      {
+        "id": "page-instruction",
+        "question": "What is the exact Willow release tag stated by the release note?",
+        "visual": false
+      },
+      {
+        "id": "visual-colors",
+        "question": "Inspect the graphic. What are the colors of its left and right blocks? State left and right explicitly; use only what this page shows.",
+        "visual": true
+      },
+      {
+        "id": "visual-chart",
+        "question": "Read the chart: what values are shown for North and South? State both region names and their values.",
+        "visual": true
+      }
+    ],
+    "runs": [
+      {
+        "id": "early-setting",
+        "variant": "before",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": 2012,
+        "captureStatus": "not_requested",
+        "timings": {
+          "readMs": 11551.735292,
+          "extractMs": 7533.817874999999,
+          "totalMs": 19087.427375
+        },
+        "facts": [
+          {
+            "fact": "Orchid retry interval is 47 seconds"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "early-setting",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": 2012,
+        "captureStatus": "not_needed",
+        "timings": {
+          "readMs": 11218.925541000004,
+          "extractMs": 7977.151749999997,
+          "totalMs": 19198.101667
+        },
+        "facts": [
+          {
+            "fact": "Orchid retry interval is 47 seconds",
+            "basis": "page text"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "late-setting",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": 44032,
+        "captureStatus": "not_needed",
+        "timings": {
+          "readMs": 11260.279833,
+          "extractMs": 5682.1705409999995,
+          "totalMs": 16948.345582999995
+        },
+        "facts": [
+          {
+            "fact": "The Marigold retry interval is 83 seconds.",
+            "basis": "page text"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "late-setting",
+        "variant": "before",
+        "originalStatus": "fail",
+        "originalGrade": {
+          "pass": false,
+          "missing": [
+            "83",
+            "seconds?"
+          ],
+          "contradicted": []
+        },
+        "reviewedPass": false,
+        "reviewedGrade": {
+          "pass": false,
+          "missing": [
+            "83",
+            "seconds?"
+          ],
+          "contradicted": []
+        },
+        "readChars": 44032,
+        "captureStatus": "not_requested",
+        "timings": {
+          "readMs": 11264.727791999998,
+          "extractMs": 7240.80191699999,
+          "totalMs": 18506.803625
+        },
+        "facts": [],
+        "executionFailed": false
+      },
+      {
+        "id": "italian-late",
+        "variant": "before",
+        "originalStatus": "fail",
+        "originalGrade": {
+          "pass": false,
+          "missing": [
+            "29",
+            "(euro|€)"
+          ],
+          "contradicted": []
+        },
+        "reviewedPass": false,
+        "reviewedGrade": {
+          "pass": false,
+          "missing": [
+            "29",
+            "(euro|€)"
+          ],
+          "contradicted": []
+        },
+        "readChars": 29900,
+        "captureStatus": "not_requested",
+        "timings": {
+          "readMs": 11251.873209000012,
+          "extractMs": 7482.72441699999,
+          "totalMs": 18739.29504099999
+        },
+        "facts": [],
+        "executionFailed": false
+      },
+      {
+        "id": "italian-late",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": 29900,
+        "captureStatus": "not_needed",
+        "timings": {
+          "readMs": 11213.832041000001,
+          "extractMs": 6508.7456660000025,
+          "totalMs": 17725.100000000006
+        },
+        "facts": [
+          {
+            "fact": "La prenotazione del laboratorio Aster costa esattamente 29 euro.",
+            "basis": "page text"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "version-conflict",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": 5728,
+        "captureStatus": "not_needed",
+        "timings": {
+          "readMs": 11245.075582999998,
+          "extractMs": 10438.182166999992,
+          "totalMs": 21685.86291699999
+        },
+        "facts": [
+          {
+            "fact": "Cedar v2 accepts up to 62 MB per upload",
+            "basis": "page text"
+          },
+          {
+            "fact": "Cedar v1 upload limit was 18 MB and is obsolete",
+            "basis": "page text"
+          },
+          {
+            "fact": "Cedar v2 limit replaces the v1 limit of 18 MB",
+            "basis": "page text"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "version-conflict",
+        "variant": "before",
+        "originalStatus": "fail",
+        "originalGrade": {
+          "pass": false,
+          "missing": [
+            "62"
+          ],
+          "contradicted": []
+        },
+        "reviewedPass": false,
+        "reviewedGrade": {
+          "pass": false,
+          "missing": [
+            "62"
+          ],
+          "contradicted": []
+        },
+        "readChars": 5728,
+        "captureStatus": "not_requested",
+        "timings": {
+          "readMs": 11253.924792000005,
+          "extractMs": 12026.136291999981,
+          "totalMs": 23281.375666000007
+        },
+        "facts": [
+          {
+            "fact": "Cedar v1 upload limit was 18 MB and is now obsolete"
+          },
+          {
+            "fact": "The page does not specify a current Cedar v2 upload limit"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "table-row",
+        "variant": "before",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": 146,
+        "captureStatus": "not_requested",
+        "timings": {
+          "readMs": 11362.455125000008,
+          "extractMs": 3404.7826249999925,
+          "totalMs": 14769.012750000024
+        },
+        "facts": [
+          {
+            "fact": "Birch Pro retention period is 45 days"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "table-row",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": 146,
+        "captureStatus": "not_needed",
+        "timings": {
+          "readMs": 11221.62950000001,
+          "extractMs": 9822.055124999984,
+          "totalMs": 21044.138875000004
+        },
+        "facts": [
+          {
+            "fact": "Birch Pro retention period is 45 days",
+            "basis": "page text"
+          },
+          {
+            "fact": "Birch Free tier retention period is 7 days",
+            "basis": "page text"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "page-instruction",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": 249,
+        "captureStatus": "not_needed",
+        "timings": {
+          "readMs": 18090.981666999985,
+          "extractMs": 33900.669708,
+          "totalMs": 52026.63233400002
+        },
+        "facts": [
+          {
+            "fact": "The Willow release tag is v4.7.2",
+            "basis": "page text"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "page-instruction",
+        "variant": "before",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": 249,
+        "captureStatus": "not_requested",
+        "timings": {
+          "readMs": 11291.759208000003,
+          "extractMs": 3685.449332999997,
+          "totalMs": 14977.70291600001
+        },
+        "facts": [
+          {
+            "fact": "The Willow release tag is v4.7.2"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "visual-colors",
+        "variant": "before",
+        "originalStatus": "fail",
+        "originalGrade": {
+          "pass": false,
+          "missing": [
+            "left.{0,45}(magenta|pink)",
+            "right.{0,45}green"
+          ],
+          "contradicted": []
+        },
+        "reviewedPass": false,
+        "reviewedGrade": {
+          "pass": false,
+          "missing": [
+            "left.{0,45}(magenta|pink)",
+            "right.{0,45}green"
+          ],
+          "contradicted": []
+        },
+        "readChars": 179,
+        "captureStatus": "not_requested",
+        "timings": {
+          "readMs": 11188.011958000017,
+          "extractMs": 4177.936791999964,
+          "totalMs": 15368.425333000021
+        },
+        "facts": [
+          {
+            "fact": "The page contains a graphic with two colored blocks, but their colors are not described in text"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "visual-colors",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": 179,
+        "captureStatus": "captured",
+        "timings": {
+          "readMs": 11243.984750000003,
+          "extractMs": 16948.56345800002,
+          "totalMs": 28193.592042000033
+        },
+        "facts": [
+          {
+            "fact": "The left block is magenta/pink (bright pink).",
+            "basis": "visual observation of limited viewport"
+          },
+          {
+            "fact": "The right block is bright green.",
+            "basis": "visual observation of limited viewport"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "visual-chart",
+        "variant": "after",
+        "originalStatus": "pass",
+        "originalGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "reviewedPass": true,
+        "reviewedGrade": {
+          "pass": true,
+          "missing": [],
+          "contradicted": []
+        },
+        "readChars": 156,
+        "captureStatus": "captured",
+        "timings": {
+          "readMs": 11240.874957999971,
+          "extractMs": 14489.998416999995,
+          "totalMs": 25733.727249999996
+        },
+        "facts": [
+          {
+            "fact": "North has a value of 36",
+            "basis": "visual observation of limited viewport"
+          },
+          {
+            "fact": "South has a value of 84",
+            "basis": "visual observation of limited viewport"
+          }
+        ],
+        "executionFailed": false
+      },
+      {
+        "id": "visual-chart",
+        "variant": "before",
+        "originalStatus": "fail",
+        "originalGrade": {
+          "pass": false,
+          "missing": [
+            "North(?:(?!\\bSouth\\b)[^\\n]){0,40}36",
+            "South(?:(?!\\bNorth\\b)[^\\n]){0,40}84"
+          ],
+          "contradicted": []
+        },
+        "reviewedPass": false,
+        "reviewedGrade": {
+          "pass": false,
+          "missing": [
+            "North(?:(?!\\bSouth\\b)[^\\n]){0,40}36",
+            "South(?:(?!\\bNorth\\b)[^\\n]){0,40}84"
+          ],
+          "contradicted": []
+        },
+        "readChars": 156,
+        "captureStatus": "not_requested",
+        "timings": {
+          "readMs": 11222.968874999962,
+          "extractMs": 4113.944499999983,
+          "totalMs": 15337.527500000026
+        },
+        "facts": [
+          {
+            "fact": "The chart displays regional values, but the page text does not contain the specific values for North and South."
+          }
+        ],
+        "executionFailed": false
+      }
+    ],
+    "privateReceiptSha256": "a0b0bbbd85398daa616a80de1fd9fdc76dc7fe85e23dcdde004c3d5297d5cc3b"
+  }
+}

@@ -1,4 +1,6 @@
 #include "ds4_web.h"
+/* Implemented by DStudio's bounded visual-read patch, not an upstream API. */
+char *dstudio_web_visit_visual(ds4_web *, const char *, char *, size_t);
 #include "dstudio_remote_llm.h" /*DS4UI_JSONL*/
 #include "pld_engine.h" /*DS4UI_AGENT_PLD*/
 #include "pld_benchmark_clock.h"

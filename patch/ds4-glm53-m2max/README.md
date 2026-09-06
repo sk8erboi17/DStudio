@@ -38,12 +38,18 @@ load real layer-0 weights only, and preserve the selected-address optimization.
 Evidence: `tests/.artifacts/ssd-prefill-J5wJNj/result.json` (ignored).
 This is not a full-model/PDF end-to-end test or a new throughput claim.
 
-The destination is `DStudio/ds4`, branch `main`, upstream commit
+The original port destination was `DStudio/ds4`, branch `main`, upstream commit
 `b0a147a7fba6d1a104d047d5a140e9bb4bfc13cd`, with its existing DStudio patches.
 The DStudio baseline was `a8ba8af78b5b1256356b765a6ca748b147dfabf4`, already dirty.
-No commit, checkout, fetch or pull was performed on either real checkout.
+No commit, checkout, fetch or pull was performed during that original port.
 Unrelated ongoing Cowork/PDF/UI/PLD changes were preserved, not incorporated as
 new GLM optimizations.
+
+Current main support: `f4d03f6cf9f11c1e7b630bcb160853acfba7c52a`.
+The hook mechanically combines the unchanged runtime delta with
+`build-main.patch` on current main, since upstream now includes the image
+linkage fix and new Metal test targets. Legacy layouts remain supported.
+See [the update report](../../docs/DS4_MAIN_UPDATE_2026-09-05.md).
 
 The macOS hook `scripts/apply-ds4-glm53-m2max.sh` applies the complete patch
 after the existing GLM runtime patch and restores it before that patch during

@@ -39,12 +39,16 @@ static int ds4ui_run_web_tool(const agent_config *cfg) {
     } else if (!strcmp(cfg->web_tool, "visit_page")) {
         if (!cfg->web_url || !cfg->web_url[0]) { ds4ui_web_print_json(cfg->web_tool, false, "error", "--url is required"); ds4_web_free(web); return 2; }
         out = ds4_web_visit_page(web, cfg->web_url, err, sizeof err);
+    } else if (!strcmp(cfg->web_tool, "visit_page_visual")) {
+        if (!cfg->web_url || !cfg->web_url[0]) { ds4ui_web_print_json(cfg->web_tool, false, "error", "--url is required"); ds4_web_free(web); return 2; }
+        out = dstudio_web_visit_visual(web, cfg->web_url, err, sizeof err);
     } else {
         ds4ui_web_print_json(cfg->web_tool, false, "error", "unknown web tool"); ds4_web_free(web); return 2;
     }
     ds4_web_free(web);
     if (!out) { ds4ui_web_print_json(cfg->web_tool, false, "error", err[0] ? err : "web tool failed"); return 1; }
-    ds4ui_web_print_json(cfg->web_tool, true, "markdown", out);
+    if (!strcmp(cfg->web_tool, "visit_page_visual")) puts(out);
+    else ds4ui_web_print_json(cfg->web_tool, true, "markdown", out);
     free(out);
     return 0;
 }

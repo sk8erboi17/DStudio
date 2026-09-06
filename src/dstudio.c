@@ -348,7 +348,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 /* The primary managed checkout always follows the pinned upstream main. GLM
  * 5.3 and DeepSeek Vision-Exp (including native image input) live there, so
  * neither model needs a side checkout. */
-#define DS4_UPSTREAM_COMMIT "b0a147a7fba6d1a104d047d5a140e9bb4bfc13cd"
+#define DS4_UPSTREAM_COMMIT "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a"
 #define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
 
 /* Optional Laguna S 2.1 engine checkout. Laguna lives on its own upstream
@@ -369,12 +369,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define MODEL_QWEN35 "gguf/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf"
 #define MODEL_QWEN35_BYTES 31843777504LL
 
-/* Downloadable content is limited to design systems. Skills are user-authored
- * and live in the writable user-skills directory; DStudio never downloads a
- * skill catalog. */
-#define DS4_CONTENT_REPO "sk8erboi17/DStudio"
-#define DS4_CONTENT_COMMIT "66401282c5c5e3922a5f555a009de24cde149749"
-#define DS4_CONTENT_ARCHIVE_URL "https://codeload.github.com/" DS4_CONTENT_REPO "/tar.gz/" DS4_CONTENT_COMMIT
+#include "../extension/design/design_system_catalog.h"
 
 #define MODEL_STD "gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"
 #define MODEL_UNC "gguf/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128.gguf"
@@ -434,10 +429,11 @@ typedef struct {
     int think;        /* agent/design: 0 nothink, 1 think (high), 2 think-max. default 1 */
     int design_think_tokens; /* design reasoning cap per tool round; 0 = unlimited */
     int ssd_streaming;/* 0 off, 1 force on, 2 auto. */
+    char image_preset[8]; /* cold launch config only; inherited by a Design session */
 } engine_cfg;
 
 static const engine_cfg ENGINE_DEFAULTS = {
-    0, 28000, 65536, 90, 24576, 128, 1, 0, SSD_STREAMING_OFF
+    0, 28000, 65536, 90, 24576, 128, 1, 0, SSD_STREAMING_OFF, "max"
 };
 
 /* ---- global engine state ---- */
@@ -3032,31 +3028,31 @@ static int web_dir_valid(void) {
     return stat(marker, &st) == 0 && S_ISREG(st.st_mode);
 }
 
-/* Background download of the bundled design-system content,
- * forked so the single-threaded server stays responsive; reaped in reap_child. */
-static pid_t g_content_dl_pid = -1;
-static unsigned long long g_content_dl_task = 0;
-
-/* True if a single bundled-content dir under extension/ exists and is non-empty. */
-static int content_subdir_present(const char *sub) {
-    if (!g_web_dir[0]) return 1;   /* base unknown: never trigger a bogus download */
-    char p[DSTUDIO_PATH_MAX];
-    int n = snprintf(p, sizeof p, "%s/extension/%s", g_web_dir, sub);
-    if (n < 0 || (size_t)n >= sizeof p) return 1;
-    DIR *d = opendir(p);
-    if (!d) return 0;
-    int has = 0;
-    struct dirent *e;
-    while ((e = readdir(d))) {
-        if (strcmp(e->d_name, ".") && strcmp(e->d_name, "..")) { has = 1; break; }
+/* Originals ship with the app; incomplete assets never trigger a download. */
+static int design_systems_installed_count(void) {
+    if (!g_web_dir[0]) return 0;
+    const char *files[] = { "DESIGN.md", "tokens.css", "components.html",
+                           "assets/preview.js", "references/recipes.md", NULL };
+    int count = 0;
+    for (int i = 0; dstudio_design_system_ids[i]; i++) {
+        int complete = 1;
+        for (int j = 0; files[j]; j++) {
+            char p[DSTUDIO_PATH_MAX];
+            int n = snprintf(p, sizeof p, "%s/extension/design-systems/%s/%s",
+                             g_web_dir, dstudio_design_system_ids[i], files[j]);
+            struct stat st;
+            if (n < 0 || (size_t)n >= sizeof p || stat(p, &st) != 0 ||
+                !S_ISREG(st.st_mode) || st.st_size <= 0 || access(p, R_OK) != 0) {
+                complete = 0; break;
+            }
+        }
+        count += complete;
     }
-    closedir(d);
-    return has;
+    return count;
 }
-
-/* True once the downloadable design systems are installed under extension/. */
 static int content_present(void) {
-    return content_subdir_present("design-systems");
+    return design_systems_installed_count() ==
+        (int)(sizeof dstudio_design_system_ids / sizeof dstudio_design_system_ids[0]) - 1;
 }
 
 static int rel_exists(const char *rel) {
@@ -3918,21 +3914,6 @@ static void reap_child(void) {
             }
             g_dl_result = code == 0 ? 1 : -1;
             g_dl_pid = -1;   /* keep g_dl_variant so status can report 100 / completion once */
-        }
-    }
-    if (g_content_dl_pid > 0) {
-        int cst;
-        if (waitpid(g_content_dl_pid, &cst, WNOHANG) == g_content_dl_pid) {
-            int code = WIFEXITED(cst) ? WEXITSTATUS(cst) : -1;
-            printf("content: download child (pid %d) finished (exit %d)\n", (int)g_content_dl_pid, code);
-            if (g_content_dl_task) {
-                if (code == 0) task_mark_completed(g_content_dl_task, "bundled content installed");
-                else task_mark_failed(g_content_dl_task, "content download failed", "see /tmp/ds4-content-dl.log");
-                g_content_dl_task = 0;
-            }
-            dstudio_log_event(code == 0 ? "info" : "error", "setup", 0,
-                              "bundled content download %s", code == 0 ? "completed" : "failed");
-            g_content_dl_pid = -1;
         }
     }
     if (g_child <= 0) return;
@@ -4904,6 +4885,14 @@ static int web_cdp_write_temp(const char *src_path, const char *tmp_path) {
     jsonl_normalize_newlines(buf, &n);
     int ok = web_cdp_apply(&buf, &n) &&
              web_direct_nav_apply(&buf, &n);
+    if (ok) {
+        ds4ui_patch_set patch;
+        ok = patch_load_set(WEB_VISION_PATCH_DIR, &patch);
+        if (ok) {
+            ok = patch_apply_edits(&patch, &buf, &n, "ds4_web.c");
+            patch_free_set(&patch);
+        }
+    }
     if (ok && !jsonl_write_file(tmp_path, buf, n))
         ok = patch_fail("cannot write patched web helper: %s", tmp_path);
     free(buf);
@@ -5000,8 +4989,12 @@ static int web_cdp_check_anchors(const char *src_path) {
         fails += patch_check_anchors(&patch, &buf, &n, "web nav");
         patch_free_set(&patch);
     }
+    ds4ui_patch_set visual_patch;
+    if (!patch_load_set(WEB_VISION_PATCH_DIR, &visual_patch)) { free(buf); return -1; }
+    fails += patch_check_anchors(&visual_patch, &buf, &n, "web pixels");
+    patch_free_set(&visual_patch);
     free(buf);
-    printf("check-anchors: web direct navigation %s\n", fails ? "would fail" : "ok");
+    printf("check-anchors: web navigation and pixels %s\n", fails ? "would fail" : "ok");
     return fails;
 }
 
@@ -5282,6 +5275,7 @@ static int run_build_jsonl(const char *action) {
         !patch_dir_newer_than(JSONL_PATCH_DIR, bb.st_mtime) &&
         !patch_dir_newer_than(WEB_CDP_PATCH_DIR, bb.st_mtime) &&
         !patch_dir_newer_than(WEB_DIRECT_NAV_PATCH_DIR, bb.st_mtime) &&
+        !patch_dir_newer_than(WEB_VISION_PATCH_DIR, bb.st_mtime) &&
         jsonl_sentinel_ok(ver, patch_version)) {
         return 1;
     }
@@ -5883,6 +5877,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
     win_join_path(exe, sizeof exe, g_ds4_dir, "ds4-design.exe");
     child_setenv_skills();
     setenv("DS4UI_RUNTIME_NAME", "design", 1);
+    setenv("DS4UI_IMAGE_PRESET", cfg->image_preset[0] ? cfg->image_preset : "max", 1);
     setenv("DS4UI_SSD_STREAMING_EFFECTIVE", g_ssd_streaming_effective ? "1" : "0", 1);
     char *think_flag = cfg->think == 0 ? "--nothink"
                      : cfg->think == 2 ? "--think-max"
@@ -5954,6 +5949,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
         if (!remote_model) child_setenv_metal(cfg);
         child_setenv_skills();                   /* on-demand skill()/design_system() packs */
         setenv("DS4UI_RUNTIME_NAME", "design", 1);
+        setenv("DS4UI_IMAGE_PRESET", cfg->image_preset[0] ? cfg->image_preset : "max", 1);
         setenv("DS4UI_SSD_STREAMING_EFFECTIVE", g_ssd_streaming_effective ? "1" : "0", 1);
         dup2(ip[0], STDIN_FILENO);
         dup2(op[1], STDOUT_FILENO);
@@ -6448,7 +6444,7 @@ static void api_status(int fd) {
         native_vision_active ? "true" : "false",
         (native_vision_active && model_is_glm()) ? "true" : "false",
         (native_vision_active && model_is_deepseek_vision()) ? "true" : "false",
-        content_present() ? "true" : "false", g_content_dl_pid > 0 ? "true" : "false");
+        content_present() ? "true" : "false", "false");
     send_json(fd, "200 OK", body);
 }
 
@@ -6525,14 +6521,12 @@ static void api_doctor(int fd) {
         ds4_ok ? "ok" : "error", ds4_msg, ds4_ok ? NULL : "setup-ds4");
 
     int content_ok = content_present();
-    int content_dl = g_content_dl_pid > 0;
-    if (!content_ok && !content_dl) warn++;
-    ok = ok && doctor_add_check(&b, &first, "content", "Design systems",
-        content_ok ? "ok" : (content_dl ? "warn" : "warn"),
-        content_ok ? "Design systems are installed. Skills are created by users."
-                   : (content_dl ? "Downloading design systems…"
-                                  : "Download the optional design systems."),
-        (content_ok || content_dl) ? NULL : "setup-content");
+    if (!content_ok) warn++;
+    ok = ok && doctor_add_check(&b, &first, "content", "DStudio original systems",
+        content_ok ? "ok" : "warn",
+        content_ok ? "Five original design systems included offline. No catalog download."
+                   : "The bundled design catalog is incomplete. Rebuild or reinstall DStudio; no external catalog will be downloaded.",
+        content_ok ? NULL : "setup-content");
 
     if (!model_ok) fatal++;
     else if (!current_model_ok) warn++;
@@ -7216,6 +7210,7 @@ static void md_catalog(int fd, const char *subdir, const char *file, const char 
             while ((de = readdir(d)) != NULL) {
                 const char *id = de->d_name;
                 if (id[0] == '.' || !skill_id_ok(id)) continue;
+                if (!strcmp(subdir, "design-systems") && !dstudio_design_system_supported(id)) continue;
                 size_t mdlen = strlen(dir) + 1 + strlen(id) + 1 + strlen(file) + 1;
                 char *md = malloc(mdlen);
                 if (!md) continue;
@@ -7310,6 +7305,9 @@ static void parse_cfg(const char *body, engine_cfg *cfg, int *bad) {
     r = json_get_int(body, "kvMinTokens", 1, 100000, &v);if (r < 0) *bad = 1; else if (r) cfg->kv_min_tok = (int)v;
     r = json_get_int(body, "designThinkTokens", 0, 262144, &v);
     if (r < 0) *bad = 1; else if (r) cfg->design_think_tokens = (int)v;
+    if (json_get_string(body, "imagePreset", cfg->image_preset, sizeof cfg->image_preset) &&
+        strcmp(cfg->image_preset, "low") && strcmp(cfg->image_preset, "medium") &&
+        strcmp(cfg->image_preset, "high") && strcmp(cfg->image_preset, "max")) *bad = 1;
     char ssd[16];
     if (json_get_string(body, "ssdStreaming", ssd, sizeof ssd) && ssd[0]) {
         if (!strcmp(ssd, "off")) cfg->ssd_streaming = SSD_STREAMING_OFF;
@@ -7515,7 +7513,11 @@ static void api_start(int fd, const char *body) {
     char ds[64] = {0};
     if (json_get_string(body, "designSystem", ds, sizeof ds)) {
         if (!ds[0] || !strcmp(ds, "none")) g_design_system[0] = '\0';
-        else if (skill_id_ok(ds)) snprintf(g_design_system, sizeof g_design_system, "%s", ds);
+        else if (dstudio_design_system_supported(ds)) snprintf(g_design_system, sizeof g_design_system, "%s", ds);
+        else {
+            send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"That design system was retired. Choose Folio, Signal, Forma, Grove or Pulse.\"}");
+            return;
+        }
     }
 
     if (g_child > 0) stop_child();
@@ -10017,9 +10019,10 @@ static void api_web_read_run(int fd, const char *body) {
     return;
 #else
     int cdp_only = json_get_bool(body, "cdpOnly");
+    int include_image = json_get_bool(body, "includeImage");
     int st = 0;
     int fallback_used = 0;
-    char *visit_json = web_helper_capture("visit_page", "--url", url, WEB_HELPER_VISIT_TIMEOUT_MS, &st);
+    char *visit_json = web_helper_capture(include_image ? "visit_page_visual" : "visit_page", "--url", url, WEB_HELPER_VISIT_TIMEOUT_MS, &st);
     char *visit_err = visit_json ? json_get_string_alloc(visit_json, "error") : NULL;
     char *visit_md = visit_json ? json_get_string_alloc(visit_json, "markdown") : NULL;
     if (!visit_md && !cdp_only) {
@@ -10073,6 +10076,7 @@ static void api_web_read_run(int fd, const char *body) {
              json_dyn_put_escaped(&out, visit_md) &&
              json_dyn_puts(&out, ",\"excerpt\":") &&
              json_dyn_put_escaped(&out, excerpt ? excerpt : "") &&
+             web_append_visual_result(&out, visit_json, include_image, fallback_used, canonical ? canonical : url) &&
              json_dyn_puts(&out, ",\"metadata\":{") &&
              json_dyn_puts(&out, "\"markdownChars\":") &&
              json_dyn_printf(&out, "%zu", strlen(visit_md)) &&
@@ -10417,7 +10421,9 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
     if (is_get && !strcmp(path, "/api/ggufs")) { api_ggufs(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/engine/checkouts")) { api_engine_checkouts(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/skills/search")) { api_skills_search(fd, path); return 200; }
-    if (is_get && !strncmp(path, "/api/design-system-preview/", 27)) { api_design_system_preview(fd, path, head_only); return 200; }
+    if (is_get && !strncmp(path, "/api/design-system-preview/", 27)) {
+        api_design_system_preview(fd, path, head_only, g_route_request_headers, g_route_request_header_len); return 200;
+    }
     if (is_get && path_eq_clean(path, "/api/gsa/tools")) { api_gsa_tools(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/rsa/tools")) { api_rsa_tools(fd); return 200; }
     if (is_get && !strcmp(path, "/api/design-systems")) { api_design_systems(fd); return 200; }
@@ -10899,13 +10905,9 @@ int main(int argc, char **argv)
      * still patched, restore it from the .bak before anything else. */
     if (!test_mode) run_build_jsonl("restore");
 
-    /* First-run / fresh-clone: optional design systems are downloaded in the
-     * background. Skills remain user-authored and are never fetched. */
-    if (!test_mode && !content_present()) {
-        set_stage("Downloading design systems…", 3);
-        printf("content: design systems not found — downloading in background\n");
-        start_content_download();
-    }
+    /* Startup is network-free for visual content. */
+    if (!content_present())
+        printf("design: bundled originals incomplete; rebuild or reinstall DStudio\n");
 
     int lan = strcmp(g_bind_host, "127.0.0.1") != 0;
     printf("DStudio: http://%s:%d  (page %s, ds4 %s)\n", g_bind_host, port, PAGE_PATH, g_ds4_dir);

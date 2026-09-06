@@ -376,13 +376,13 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname.startsWith('/api/design-system-preview/')) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end('<!doctype html><html><body style="margin:0;font:20px system-ui;background:#0b1020;color:#f8fafc"><main style="padding:32px"><h1>Airbnb Components</h1><p>Original local design-system fixture</p></main></body></html>');
+    res.end('<!doctype html><html><body style="margin:0;font:20px system-ui;background:#0b1020;color:#f8fafc"><main style="padding:32px"><h1>Folio Components</h1><p>Original local design-system fixture</p></main></body></html>');
     return;
   }
   if (url.pathname === '/api/design-systems') {
     json(res, 200, { ok: true, designSystems: [
-      { id: 'airbnb', name: 'Airbnb', description: 'Travel marketplace. Warm coral accent, photography-driven, rounded UI.', modes: '', category: 'general', outputKinds: 'html', upstream: 'open-design/airbnb', hasComponents: true },
-      { id: 'apple', name: 'Apple', description: 'Refined, spacious, deferential. Premium through restraint and clarity.', modes: '', category: 'web-ui-prototype', outputKinds: 'image-brief', upstream: 'dstudio/apple', hasComponents: false },
+      { id: 'folio', name: 'Folio', description: 'Reading-led editorial system with warm paper and expressive serif.', modes: '', category: 'general', outputKinds: 'html', upstream: 'dstudio-original/folio', hasComponents: true },
+      { id: 'signal', name: 'Signal', description: 'Precise operational system with clear signals and tabular readings.', modes: '', category: 'web-ui-prototype', outputKinds: 'image-brief', upstream: 'dstudio-original/signal', hasComponents: false },
     ] });
     return;
   }
@@ -478,6 +478,7 @@ try {
       thinkLevel: 'high',
       ctxSize: 65536,
       webMode: 'off',
+      designSystem: 'retired-import',
       workdirs: { agent: '/tmp/dstudio-missing-agent', cowork: '/tmp/dstudio-ui-cowork', design: '/tmp/dstudio-ui-design' },
     }));
     localStorage.setItem('ds4web.chats.v2', JSON.stringify({
@@ -803,6 +804,8 @@ try {
   );
 
   await page.locator('#tab-design').click();
+  const retirementNotice = page.getByText('The previous style was retired. Choose a DStudio original in the Design gallery.')
+    .waitFor({timeout:10000}).then(() => true, () => false);
   await page.locator('#loading-overlay').waitFor({ state: 'visible', timeout: 5000 });
   await page.locator('#loading-stage').filter({ hasText: 'Prefilling the context' }).waitFor({ timeout: 5000 });
   await delay(700);
@@ -911,8 +914,10 @@ try {
   assert.equal(await page.locator('.design-brief-composer-slot > .composer').count(), 1,
     'Design should place the real shared chat directly below its intro');
   assert.equal(await page.getByRole('button', { name: /Open gallery/i }).count(), 0, 'Design brief should not require an Open gallery button');
-  await page.locator('.design-gallery-card__title').filter({ hasText: 'Airbnb' }).waitFor({ timeout: 5000 });
-  await page.locator('.design-gallery-card__title').filter({ hasText: 'Apple' }).waitFor({ timeout: 5000 });
+  await page.locator('.design-gallery-card__title').filter({ hasText: 'Folio' }).waitFor({ timeout: 5000 });
+  await page.locator('.design-gallery-card__title').filter({ hasText: 'Signal' }).waitFor({ timeout: 5000 });
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).designSystem === '');
+  assert.equal(await retirementNotice, true, 'retiring a saved style must show a visible notice');
   await page.locator('.brief-gallery-panel__title', { hasText: 'Visual starting points' }).waitFor({ timeout: 5000 });
   const designOrder = await page.evaluate(() => ({
     composerBottom: document.querySelector('.design-brief-composer-slot > .composer')?.getBoundingClientRect().bottom || 0,
@@ -921,19 +926,19 @@ try {
   assert.ok(designOrder.composerBottom <= designOrder.galleryTop,
     `Design chat must precede Visual starting points: ${JSON.stringify(designOrder)}`);
   const designSearch = page.getByLabel('Search design gallery');
-  await designSearch.fill('Apple');
-  await page.locator('.design-gallery-card__title').filter({ hasText: 'Apple' }).first().waitFor({ timeout: 5000 });
-  assert.equal(await page.locator('.design-gallery-card__title').filter({ hasText: 'Airbnb' }).count(), 0, 'Design gallery search should filter cards in place');
+  await designSearch.fill('Signal');
+  await page.locator('.design-gallery-card__title').filter({ hasText: 'Signal' }).first().waitFor({ timeout: 5000 });
+  assert.equal(await page.locator('.design-gallery-card__title').filter({ hasText: 'Folio' }).count(), 0, 'Design gallery search should filter cards in place');
   await designSearch.fill('');
-  await page.locator('.design-gallery-card__title').filter({ hasText: 'Airbnb' }).first().waitFor({ timeout: 5000 });
+  await page.locator('.design-gallery-card__title').filter({ hasText: 'Folio' }).first().waitFor({ timeout: 5000 });
   assert.ok(await page.getByText(/2 items/).count(), 'Design gallery should include design systems without downloadable skill templates');
   const designGalleryDialogOpen = await page.locator('#design-gallery-dialog').evaluate((dialog) => !!dialog.open);
   assert.equal(designGalleryDialogOpen, false, 'Design gallery should render inline rather than opening a modal');
-  const airbnbCard = page.locator('.design-gallery-card').filter({ hasText: 'Airbnb' }).first();
-  await airbnbCard.click();
+  const folioCard = page.locator('.design-gallery-card').filter({ hasText: 'Folio' }).first();
+  await folioCard.click();
   await page.waitForFunction(() => document.querySelector('#design-preview-dialog')?.open === true, null, { timeout: 5000 });
-  assert.equal(await airbnbCard.evaluate((el) => el.classList.contains('is-selected')), true, 'clicked design-system card should stay highlighted');
-  await page.frameLocator('#design-preview-frame').getByRole('heading', { name: 'Airbnb Components' }).waitFor({ timeout: 5000 });
+  assert.equal(await folioCard.evaluate((el) => el.classList.contains('is-selected')), true, 'clicked design-system card should stay highlighted');
+  await page.frameLocator('#design-preview-frame').getByRole('heading', { name: 'Folio Components' }).waitFor({ timeout: 5000 });
   await page.locator('#design-preview-close').click();
 
   const queuedPrompt = 'Design prompt queued behind fresh context';

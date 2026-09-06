@@ -272,6 +272,9 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
   page.on('pageerror', (error) => pageErrors.push(error?.stack || error?.message || String(error)));
   await page.addInitScript(() => {
+    // Fixture preferences belong to the app origin, never its isolated preview frames.
+    if (window !== window.top || location.hostname !== '127.0.0.1') return;
+    if (localStorage.getItem('ds4web.settings.v2')) return;
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
       v: 2,
       onboarded: true,
@@ -395,6 +398,13 @@ try {
 
   await page.locator('#set-nav [data-pane="vision"]').click();
   assert.equal(await page.locator('#set-pane-title').innerText(), 'Vision');
+  assert.equal(await page.getByRole('combobox', { name: 'Image preset', exact: true }).inputValue(), 'max');
+  for (const preset of ['low', 'medium', 'high', 'max']) {
+    await page.getByRole('combobox', { name: 'Image preset', exact: true }).selectOption(preset);
+    await page.waitForFunction(expected =>
+      JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}').imagePreset === expected, preset);
+  }
+  assert.equal(startBodies.length, 0, 'changing the image preset must not restart a model');
   await page.waitForFunction(() => /Installed/.test(document.querySelector('#set-native-vision-support')?.textContent || ''));
   assert.match(await page.locator('#set-native-vision-support').innerText(), /GLM 5\.3 encoder.*1\.1 GB.*Installed.*DeepSeek Vision-Exp encoder.*933 MB.*Installed/s);
   assert.match(await page.locator('.set-grp[data-pane="vision"] .set-help').first().innerText(), /DeepSeek Vision-Exp or GLM 5\.3 reads source pixels.*dispatches that explicit decision directly/s);
@@ -428,6 +438,7 @@ try {
   activeModel = ggufs[2].path;
   activeConfig = { ctx: 8192, ssdStreaming: 'on' };
   await switchPage.addInitScript(({ gguf, engineDir }) => {
+    if (window !== window.top || location.hostname !== '127.0.0.1') return;
     if (localStorage.getItem('ds4web.settings.v2')) return;
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
       v: 2, onboarded: true, chatBackend: 'local', baseUrl: '',

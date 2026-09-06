@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -46,12 +49,10 @@ def ideogram_gate():
 
     runner = load_module("dstudio_ideogram4_runner", ROOT / "scripts" / "ideogram4-run.py")
     preset = PRESETS["V4_QUALITY_48"]
-    assert runner.QUALITY_STEPS == preset.num_steps == 48
+    assert preset.num_steps == 48
     assert runner.QUALITY_CFG == 7.0
     assert runner.QUALITY_POLISH_CFG == 3.0
-    assert runner.QUALITY_POLISH_STEPS == 3
-    assert runner.QUALITY_MU == preset.mu == 0.0
-    assert runner.QUALITY_STD == preset.std == 1.5
+    assert preset.mu == 0.0 and preset.std == 1.5
     assert tuple(preset.guidance_schedule) == (3.0,) * 3 + (7.0,) * 45
 
     sampling = ModelSamplingDiscreteFlow()
@@ -97,6 +98,43 @@ def ideogram_gate():
             if 0.0 <= sigma <= threshold
         ]
         assert selected == [45, 46, 47], (aspect, threshold, selected)
+
+    # Compare every DStudio choice and output aspect to the installed official
+    # oracle. Different mu/std and cleanup counts matter, not only step count.
+    for name, config in runner.PRESETS.items():
+        official = PRESETS[config["profile"]]
+        assert config["steps"] == official.num_steps
+        assert config["mu"] == official.mu and config["std"] == official.std
+        for aspect in runner.ASPECT_SIZES:
+            width, height = runner.preset_size(aspect, name)
+            assert width % 16 == height % 16 == 0
+            assert 256 <= min(width, height) <= max(width, height) <= 2048
+            a, b = map(int, aspect.split(":"))
+            assert width * b == height * a
+            graph = runner.workflow("{}", width, height, 123, name)
+            schedule = graph["10"]["inputs"]
+            assert schedule == dict(steps=official.num_steps, width=width,
+                                   height=height, mu=official.mu, std=official.std)
+            assert graph["8"]["inputs"]["noise_seed"] == 123
+            assert graph["11"]["inputs"] == dict(width=width, height=height, batch_size=1)
+            override = graph["2"]["inputs"]
+            threshold = sampling.percent_to_sigma(override["start_percent"])
+            sigmas = ideogram4_sigmas(official.num_steps, width, height,
+                                     official.mu, official.std).tolist()
+            actual = tuple(override["cfg"] if sigma <= threshold else graph["7"]["inputs"]["cfg"]
+                           for sigma in sigmas[:-1])
+            assert actual == tuple(reversed(official.guidance_schedule)), (name, aspect, actual)
+            with tempfile.TemporaryDirectory() as temporary:
+                status_path = Path(temporary) / "status.json"
+                for step, stage in [(-1, "encoding"), (2, "sampling"), (official.num_steps, "decoding")]:
+                    runner.publish_inference_progress(status_path, step, width, height,
+                                                       time.monotonic(), preset=name)
+                    status = json.loads(status_path.read_text())
+                    assert status["stage"] == stage and status["preset"] == name
+                    assert status["steps"] == official.num_steps
+                    assert status["quality"] == config["quality"]
+    assert runner.preset_size("16:9") == (2048, 1152), "legacy default must not downgrade"
+    assert runner.preset_size("16:9", "medium") == (1024, 576)
 
     with tempfile.TemporaryDirectory(prefix="dstudio-ideogram-progress-") as temporary:
         progress_status = Path(temporary) / "status.json"
@@ -413,9 +451,58 @@ def fixture_geometry_gate(ideogram, hunyuan) -> None:
         assert hunyuan.test_fixture_size(str(path)) == (640, 480)
 
 
+def ideogram_cancellation_gate() -> None:
+    """The actual worker must reap its separately-sessioned Comfy child on TERM."""
+    with tempfile.TemporaryDirectory(prefix="dstudio-ideogram-cancel-") as temporary:
+        root = Path(temporary)
+        (root / "comfyui").mkdir()
+        (root / "venv/bin").mkdir(parents=True)
+        (root / "venv/bin/python").symlink_to(sys.executable)
+        shutil.copyfile(ROOT / "tests/fixtures/image-presets/comfy_waiting_fixture.py", root / "comfyui/main.py")
+        status_path = root / "out/status.json"
+        env = dict(os.environ, DSTUDIO_IDEOGRAM4_HOME=str(root), DSTUDIO_IDEOGRAM4_TEST_MODE="0")
+        command = [sys.executable, str(ROOT / "scripts/ideogram4-run.py"),
+                   "--prompt-file", str(ROOT / "tests/fixtures/image-presets/hermes-hero-art.json"),
+                   "--outdir", str(root / "out"), "--status-file", str(status_path), "--preset", "medium"]
+        process = subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        child_pid = None
+        try:
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                if (root / "comfyui/fixture.pid").exists():
+                    child_pid = int((root / "comfyui/fixture.pid").read_text())
+                if status_path.exists() and json.loads(status_path.read_text()).get("stage") == "encoding":
+                    break
+                if process.poll() is not None:
+                    raise AssertionError(process.communicate())
+                time.sleep(.05)
+            assert child_pid and process.poll() is None, "fixture workflow did not reach its wait"
+            process.send_signal(signal.SIGTERM)
+            stdout, stderr = process.communicate(timeout=10)
+            assert process.returncode == 130, (stdout, stderr)
+            status = json.loads(status_path.read_text())
+            assert status["stage"] == "cancelled" and status["preset"] == "medium"
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                child_pid = None
+            else:
+                raise AssertionError("Comfy child survived worker cancellation")
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+            if child_pid:
+                try:
+                    os.kill(child_pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+
+
 if __name__ == "__main__":
     ideogram = ideogram_gate()
     hunyuan = hunyuan_gate()
     output_sanity_gate(ideogram, hunyuan)
     fixture_geometry_gate(ideogram, hunyuan)
+    ideogram_cancellation_gate()
     print("image runtime behavior: workflow, scheduler, progress and artifacts passed (no model generation)")

@@ -1,3 +1,6 @@
+#ifndef DS4UI_AGENT_PLD_REWIND
+#define DS4UI_AGENT_PLD_REWIND ds4ui_pld_rewind
+#endif
         bool status_greedy_sampling = false;
         ds4ui_pld_index pld = {0};
         const ds4ui_pld_mode pld_mode = ds4ui_pld_mode_for(
@@ -94,7 +97,7 @@
             bool restart_sampling = false;
             for (int ti = 0; ti < ntok && generated < max_tokens; ti++) {
                 if (worker_should_interrupt(w)) {
-                    if (ds4ui_pld_rewind(w->session, &pld_tx, block_start + ti,
+                    if (DS4UI_AGENT_PLD_REWIND(w->session, &pld_tx, block_start + ti,
                                          err, sizeof(err)) != 0)
                         goto ds4ui_pld_failed;
                     stop_block = true;
@@ -104,7 +107,7 @@
                 if (ds4_token_is_stop_for_think_mode(w->engine,
                                                      token,
                                                      think_mode)) {
-                    if (ds4ui_pld_rewind(w->session, &pld_tx, block_start + ti,
+                    if (DS4UI_AGENT_PLD_REWIND(w->session, &pld_tx, block_start + ti,
                                           err, sizeof(err)) != 0)
                         goto ds4ui_pld_failed;
                     stop_block = true;
@@ -125,7 +128,7 @@
                                 (int)(text_len > 80 ? 80 : text_len),
                                 text);
                     free(text);
-                    if (ds4ui_pld_rewind(w->session, &pld_tx, block_start + ti,
+                    if (DS4UI_AGENT_PLD_REWIND(w->session, &pld_tx, block_start + ti,
                                           err, sizeof(err)) != 0)
                         goto ds4ui_pld_failed;
                     if (worker_force_generated_text(w, "[upto]\n", max_tokens,
@@ -163,7 +166,7 @@
                 }
                 if (stop_block) {
                     if (ti + 1 < ntok) {
-                        if (ds4ui_pld_rewind(w->session, &pld_tx, block_start + ti + 1,
+                        if (DS4UI_AGENT_PLD_REWIND(w->session, &pld_tx, block_start + ti + 1,
                                           err, sizeof(err)) != 0)
                         goto ds4ui_pld_failed;
                     }
@@ -174,7 +177,7 @@
                     /* Later tokens were proposed under the old parser mode.
                      * Re-evaluate this boundary token to restore its logits,
                      * then sample the suffix under the new mode. */
-                    if (ds4ui_pld_rewind(w->session, &pld_tx, block_start + ti,
+                    if (DS4UI_AGENT_PLD_REWIND(w->session, &pld_tx, block_start + ti,
                                           err, sizeof(err)) != 0)
                         goto ds4ui_pld_failed;
                     if (ds4_session_eval(w->session, token,
@@ -192,7 +195,7 @@
 
 ds4ui_pld_failed:
             if ((pld_tx.active || ds4_session_pos(w->session) > w->transcript.len) &&
-                ds4ui_pld_rewind(w->session, &pld_tx, w->transcript.len,
+                DS4UI_AGENT_PLD_REWIND(w->session, &pld_tx, w->transcript.len,
                                  err, sizeof(err)) != 0)
                 ds4_session_invalidate(w->session);
             ds4ui_pld_release(&pld_tx);
@@ -204,3 +207,4 @@ ds4ui_pld_failed:
                     (unsigned long long)pld.lookups, (unsigned long long)pld.hits,
                     (unsigned long long)pld.proposed, (unsigned long long)pld.accepted,
                     (unsigned long long)pld.batches, (unsigned long long)pld.fallbacks);
+#undef DS4UI_AGENT_PLD_REWIND

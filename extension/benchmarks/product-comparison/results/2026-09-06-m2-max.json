@@ -1,0 +1,348 @@
+{
+  "schema": "dstudio.product-comparison.public.v1",
+  "date": "2026-09-06",
+  "scope": "Development pilot: one paired coding task, one document task and one website brief; not a general product ranking.",
+  "hardware": {
+    "cpu": "Apple M2 Max",
+    "memoryBytes": 103079215104
+  },
+  "model": "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf",
+  "settings": {
+    "model": "ds4",
+    "temperature": 0.2,
+    "seed": 20260906,
+    "max_tokens": 8192,
+    "think": false
+  },
+  "context": 32768,
+  "ssdStreaming": "off",
+  "pins": {
+    "openwork": "6c5dfca66a239b65a113fc7c787e5e17de43d59b",
+    "opendesign": "3d0d15fc55031e8e6cead709491e7b82565c4dee"
+  },
+  "opencodeVersion": "1.18.18",
+  "dStudioReplayRevision": "7b9a00a545db6f5e00cc4faa86ac4079fc106f2d",
+  "dStudioReplaySourceHashes": {
+    "extension/cowork/ds4_cowork.c": "58ea83280e4e98448c0606c50995940acb83e276cb288db4398748f7802c881f",
+    "extension/design/ds4_design.c": "87acb241eb2f7ca4aecf2a7eb407a6ed6c37930475801081c315d1813e4e2bd9",
+    "patch/ds4-agent-jsonl/remote-agent.cfrag": "2339528feddf4eb49d07c12eef89dbabd616d34b0fffb74ed7c119b32186f4a0",
+    "patch/ds4-agent-jsonl/028.replace": "02761efbb191e725f1960420f1cb36fa0faa692f7df1ac9f0d5d73c17be58672"
+  },
+  "provenance": {
+    "pilotReceiptSha256": "b33ecda5ad8cb9f60e3bff57e937bbcdf7f9c24d8f706ebf9aafe5edfecc9dbf",
+    "replayReceiptSha256": "1d14eb73af0d81033b184107b24d428528f8026ca0cc8d83de5805d40af4b53f",
+    "browserReceiptSha256": "a0dbf4e207016783fe65bd8b8b9de9a55b124832f572d7e2824cf215c2f05493"
+  },
+  "limitations": [
+    "Shared M2 Max; development/setup activity overlapped parts of collection. Timings are end-to-end observations, not native decode rates or isolated causal speedups.",
+    "Products use their actual local tools and system prompts. The shared proxy fixes temperature, reasoning and an 8192-token ceiling; smaller requested caps are preserved in the replay.",
+    "OpenDesign advertises 128k context/16k output to its adapter; the actual shared engine uses 32k context and an 8192 output ceiling. The original pilot did not record every binary hash.",
+    "OpenWork original attempts failed before inference because the harness did not wait for its managed proxy. Corrected runs are reported separately, not as product failures.",
+    "OpenDesign hit the common 15-minute task deadline. Its partial saved website was still audited and is shown unchanged.",
+    "Grader corrections: case-insensitive brand, disclosure at the requested final step, and correct routing of the second product. All original failed receipts are retained privately; corrections apply equally to both outputs.",
+    "Browser checks cover the named workflow at desktop/tablet/mobile, not visual excellence, keyboard accessibility, every input path, or WebKit compatibility."
+  ],
+  "prompts": [
+    {
+      "id": "agent-utc-summary",
+      "mode": "agent",
+      "prompt": "Fix summary.mjs so summarize(rows) groups event amounts by UTC calendar date, sums numeric amounts, ignores rows with invalid dates or non-finite amounts, and returns ascending dates as objects with date and total. Keep the exported API. Add and run a permanent Node regression test covering offsets that cross midnight, repeated dates, invalid records and empty input. Do not modify input.json. Use only local files, no network. Finish the actual file edit and tests, not just an explanation."
+    },
+    {
+      "id": "cowork-current-plan",
+      "mode": "cowork",
+      "prompt": "Read all three local source files. Write plan.md as a concise, usable plan for the community workshop, not a finance report. Include a Markdown table with activity, current owner, current date and source filename; use the update over the older brief and retain unchanged activities. Compute the total registered participants from attendance.csv excluding canceled rows and explain the rule. Mark the room assignment as unresolved if it is not in the sources. Do not invent confirmations. Preserve all source files. Use only local tools; no network."
+    },
+    {
+      "id": "design-workshop-journey",
+      "mode": "design",
+      "prompt": "Build directly, without discovery questions. Create workshop.html for NEIGHBOURHOOD LAB, a welcoming general-purpose community workshop planner for first-time participants, primarily on a phone. Exact heading: Make room to learn. Implement a three-step journey: Choose a workshop, Choose a day, Review. Workshops: Bookbinding, Bicycle care, Urban sketching. Days: Tuesday, Thursday. Continue must be unavailable until the current step has a selection. Back preserves the choice. Review displays both choices. Final confirmation explicitly says No booking was made: this is a local demo, with clearly labelled sample data. Use readable typography, calm green, strong keyboard focus and clear field labels. On desktop place a human introduction beside one focused step panel; on mobile put the current action below the heading. No horizontal page scrolling, gradients, network dependencies or external assets. Use your available local design resources where appropriate. Save a finished offline HTML prototype with real controls, inspect its rendering and exercise the controls before claiming completion."
+    }
+  ],
+  "runs": [
+    {
+      "id": "agent-utc-summary",
+      "product": "dstudio",
+      "completed": true,
+      "artifactChecksPass": true,
+      "pass": true,
+      "elapsedSeconds": 110.315260292,
+      "deadlineSeconds": null,
+      "modelRequests": 10,
+      "checks": [
+        {
+          "name": "requested file exists",
+          "pass": true
+        },
+        {
+          "name": "input input.json unchanged",
+          "pass": true
+        },
+        {
+          "name": "independent UTC/sum case 1",
+          "pass": true
+        },
+        {
+          "name": "independent UTC/sum case 2",
+          "pass": true
+        },
+        {
+          "name": "independent UTC/sum case 3",
+          "pass": true
+        },
+        {
+          "name": "independent UTC/sum case 4",
+          "pass": true
+        },
+        {
+          "name": "permanent regression tests saved and executable",
+          "pass": true
+        }
+      ],
+      "entrySha256": "63f89a1682bd50676beba9e8810acee10cd339a71b74cae73ccecd36b42abc30"
+    },
+    {
+      "id": "agent-utc-summary",
+      "product": "openwork",
+      "completed": true,
+      "artifactChecksPass": true,
+      "pass": true,
+      "elapsedSeconds": 212.30572612499998,
+      "deadlineSeconds": null,
+      "modelRequests": 7,
+      "checks": [
+        {
+          "name": "requested file exists",
+          "pass": true
+        },
+        {
+          "name": "input input.json unchanged",
+          "pass": true
+        },
+        {
+          "name": "independent UTC/sum case 1",
+          "pass": true
+        },
+        {
+          "name": "independent UTC/sum case 2",
+          "pass": true
+        },
+        {
+          "name": "independent UTC/sum case 3",
+          "pass": true
+        },
+        {
+          "name": "independent UTC/sum case 4",
+          "pass": true
+        },
+        {
+          "name": "permanent regression tests saved and executable",
+          "pass": true
+        }
+      ],
+      "entrySha256": "a37e8b70e46bd623902240ef1343bf7f6b405a2fefd379d2a960eedcb02a6d20"
+    },
+    {
+      "id": "cowork-current-plan",
+      "product": "dstudio",
+      "completed": true,
+      "artifactChecksPass": true,
+      "pass": true,
+      "elapsedSeconds": 109.31392220800004,
+      "deadlineSeconds": null,
+      "modelRequests": 6,
+      "checks": [
+        {
+          "name": "requested file exists",
+          "pass": true
+        },
+        {
+          "name": "input brief.md unchanged",
+          "pass": true
+        },
+        {
+          "name": "input update.md unchanged",
+          "pass": true
+        },
+        {
+          "name": "input attendance.csv unchanged",
+          "pass": true
+        },
+        {
+          "name": "Bookbinding uses the approved owner/date and cites update",
+          "pass": true
+        },
+        {
+          "name": "unchanged Bicycle care remains with its source",
+          "pass": true
+        },
+        {
+          "name": "correct participant total and exclusion rule",
+          "pass": true
+        },
+        {
+          "name": "unresolved room is not invented",
+          "pass": true
+        }
+      ],
+      "entrySha256": "68771e84f65848823d6d4037cf863c7dbd5fdea102980d904561df82dcc254e2"
+    },
+    {
+      "id": "cowork-current-plan",
+      "product": "openwork",
+      "completed": true,
+      "artifactChecksPass": true,
+      "pass": true,
+      "elapsedSeconds": 170.294219875,
+      "deadlineSeconds": null,
+      "modelRequests": 5,
+      "checks": [
+        {
+          "name": "requested file exists",
+          "pass": true
+        },
+        {
+          "name": "input brief.md unchanged",
+          "pass": true
+        },
+        {
+          "name": "input update.md unchanged",
+          "pass": true
+        },
+        {
+          "name": "input attendance.csv unchanged",
+          "pass": true
+        },
+        {
+          "name": "Bookbinding uses the approved owner/date and cites update",
+          "pass": true
+        },
+        {
+          "name": "unchanged Bicycle care remains with its source",
+          "pass": true
+        },
+        {
+          "name": "correct participant total and exclusion rule",
+          "pass": true
+        },
+        {
+          "name": "unresolved room is not invented",
+          "pass": true
+        }
+      ],
+      "entrySha256": "16a14de4327f4b3a5a967e5f8ca864076fcac97a8291d64a3747bc833e369cef"
+    },
+    {
+      "id": "design-workshop-journey",
+      "product": "dstudio",
+      "completed": true,
+      "artifactChecksPass": true,
+      "pass": true,
+      "elapsedSeconds": 725.0974815420001,
+      "deadlineSeconds": null,
+      "modelRequests": 17,
+      "checks": [
+        {
+          "name": "requested HTML exists",
+          "pass": true
+        },
+        {
+          "name": "readable fitted page at 1440px",
+          "pass": true
+        },
+        {
+          "name": "readable fitted page at 768px",
+          "pass": true
+        },
+        {
+          "name": "readable fitted page at 390px",
+          "pass": true
+        },
+        {
+          "name": "choices, gating, Back, Review and real completion feedback",
+          "pass": true
+        },
+        {
+          "name": "offline artifact has no script errors or missing dependencies",
+          "pass": true
+        },
+        {
+          "name": "audit did not alter original file",
+          "pass": true
+        }
+      ],
+      "htmlSha256": "df0d6dfe4140cc2e5f3c9da01c73b8bc6600fb7792a17599351b13a99141a4e3"
+    },
+    {
+      "id": "design-workshop-journey",
+      "product": "opendesign",
+      "completed": false,
+      "artifactChecksPass": false,
+      "pass": false,
+      "elapsedSeconds": null,
+      "deadlineSeconds": 900,
+      "modelRequests": 12,
+      "checks": [
+        {
+          "name": "requested HTML exists",
+          "pass": true
+        },
+        {
+          "name": "readable fitted page at 1440px",
+          "pass": true
+        },
+        {
+          "name": "readable fitted page at 768px",
+          "pass": true
+        },
+        {
+          "name": "readable fitted page at 390px",
+          "pass": true
+        },
+        {
+          "name": "choices, gating, Back, Review and real completion feedback",
+          "pass": false
+        },
+        {
+          "name": "offline artifact has no script errors or missing dependencies",
+          "pass": false
+        },
+        {
+          "name": "audit did not alter original file",
+          "pass": true
+        }
+      ],
+      "htmlSha256": "c40665ff6f30c24646bea8c878579e03403d423975e43d28458df9541aea2b2d"
+    }
+  ],
+  "originalAttempts": [
+    {
+      "id": "agent-utc-summary",
+      "product": "dstudio",
+      "pass": false,
+      "modelRequests": 11,
+      "cause": "DStudio remote workspace regression: tools did not act in the requested project; fixed before replay."
+    },
+    {
+      "id": "agent-utc-summary",
+      "product": "openwork",
+      "pass": false,
+      "modelRequests": 0,
+      "cause": "Harness setup error: managed OpenCode proxy was not ready; corrected before replay."
+    },
+    {
+      "id": "cowork-current-plan",
+      "product": "openwork",
+      "pass": false,
+      "modelRequests": 0,
+      "cause": "Harness setup error: managed OpenCode proxy was not ready; corrected before replay."
+    },
+    {
+      "id": "cowork-current-plan",
+      "product": "dstudio",
+      "pass": false,
+      "modelRequests": 6,
+      "cause": "DStudio remote workspace regression: tools did not act in the requested project; fixed before replay."
+    }
+  ]
+}

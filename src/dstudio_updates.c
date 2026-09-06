@@ -9,32 +9,6 @@
  * static; same pattern as the GSA/RSA .cfrag includes).
  * ==========================================================================*/
 
-static int update_count_marker_dirs(const char *rel, const char *marker, const char *contains) {
-    char base[DSTUDIO_PATH_MAX + 256];
-    if (g_web_dir[0]) snprintf(base, sizeof base, "%s/%s", g_web_dir, rel);
-    else snprintf(base, sizeof base, "%s", rel);
-    DIR *d = opendir(base);
-    if (!d) return -1;
-    int count = 0;
-    struct dirent *e;
-    while ((e = readdir(d))) {
-        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
-        char path[DSTUDIO_PATH_MAX + 512];
-        snprintf(path, sizeof path, "%s/%s/%s", base, e->d_name, marker);
-        struct stat st;
-        if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) continue;
-        if (contains && contains[0]) {
-            size_t n = 0;
-            char *content = jsonl_read_file(path, &n);
-            int hit = content && strstr(content, contains);
-            free(content);
-            if (!hit) continue;
-        }
-        count++;
-    }
-    closedir(d);
-    return count;
-}
 
 static int update_count_user_skills(void) {
     char base[DSTUDIO_PATH_MAX];
@@ -271,13 +245,13 @@ static int updates_sections_json(json_dyn_buf *b) {
     if (!updates_add_section(b, &first, "user-skills", "User skills",
                              "ok", skills_detail, NULL)) return 0;
 
-    int design_systems = update_count_marker_dirs("extension/design-systems", "DESIGN.md", "open-design/");
+    int design_systems = design_systems_installed_count();
     char design_detail[512];
     snprintf(design_detail, sizeof design_detail,
-             "%d Open Design design system%s detected.",
+             "%d original DStudio design system%s included offline.",
              design_systems < 0 ? 0 : design_systems, design_systems == 1 ? "" : "s");
     if (!updates_add_section(b, &first, "design-systems", "Design systems",
-                             design_systems > 0 ? "ok" : "warn",
+                             content_present() ? "ok" : "warn",
                              design_detail, "design-systems")) return 0;
 
     return json_dyn_puts(b, "]");
@@ -401,15 +375,8 @@ static int updates_run_ds4_latest(unsigned long long task_id, char *log_tail, si
 
 static int updates_verify_design_systems(unsigned long long task_id, char *err, size_t errsz) {
     task_mark_working(task_id, "verifying design systems");
-    char opencode[DSTUDIO_PATH_MAX];
-    int n = snprintf(opencode, sizeof opencode, "%s/extension/design-systems/opencode-ai", g_web_dir);
-    if (n < 0 || (size_t)n >= sizeof opencode || !setup_remove_tree(opencode)) {
-        snprintf(err, errsz, "could not remove the unsupported OpenCode design system");
-        return 0;
-    }
-    int design_systems = update_count_marker_dirs("extension/design-systems", "DESIGN.md", "open-design/");
-    if (design_systems <= 0) {
-        snprintf(err, errsz, "Open Design design systems are missing");
+    if (!content_present()) {
+        snprintf(err, errsz, "Bundled original design systems are incomplete; rebuild or reinstall DStudio.");
         return 0;
     }
     return 1;

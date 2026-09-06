@@ -1,0 +1,2 @@
+static char *web_run_page_js(ds4_web *web, const char *url, const char *js,
+                             bool dynamic_scroll,

@@ -132,6 +132,37 @@ curl -fsS --max-time 10 -X POST "${base}/api/image/generate" \
   -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
   -d '{"prompt":"test image","job":"image-http-test"}' >"${tmp}/image-generate.json"
 curl -fsS --max-time 2 "${base}/api/image/progress?id=image-http-test" >"${tmp}/image-progress.json"
+node - "${base}" <<'NODE'
+const assert = require('node:assert/strict');
+const base = process.argv[2];
+const headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' };
+(async () => {
+  const legacy = await (await fetch(`${base}/api/image/progress?id=image-http-test`)).json();
+  assert.equal(legacy.preset, 'max');
+  for (const [preset, steps, width] of [['low', 12, 1024], ['medium', 20, 1024], ['high', 48, 1024], ['max', 48, 2048]]) {
+    const job = `image-preset-${preset}`;
+    const response = await fetch(`${base}/api/image/generate`, { method: 'POST', headers,
+      body: JSON.stringify({ prompt: 'The word "preset" belongs to the art brief.', preset, job }) });
+    assert.equal(response.status, 200, await response.clone().text());
+    const generated = await response.json();
+    assert.ok(generated.ok);
+    const status = await (await fetch(`${base}/api/image/progress?id=${job}`)).json();
+    assert.equal(status.preset, preset);
+    assert.equal(status.steps, steps);
+    assert.equal(status.requestedWidth, width);
+    assert.equal(status.simulated, true, 'HTTP fixture is not an inference benchmark');
+  }
+  for (const preset of ['invalid', 'maxxxxxxxxx', '', 20, null, {}, ['low']]) {
+    const response = await fetch(`${base}/api/image/generate`, { method: 'POST', headers,
+      body: JSON.stringify({ prompt: 'must not generate', preset }) });
+    assert.equal(response.status, 400, JSON.stringify(preset));
+  }
+  const duplicate = await fetch(`${base}/api/image/generate`, { method: 'POST', headers,
+    body: '{"prompt":"test","preset":"low","preset":"max"}' });
+  assert.equal(duplicate.status, 400);
+  console.log('image preset HTTP validation and dispatch: passed (simulated inference)');
+})().catch(error => { console.error(error); process.exitCode = 1; });
+NODE
 curl -fsS --max-time 10 -X POST "${base}/api/image/generate" \
   -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
   -d '{"action":"edit","prompt":"make it blue","preserve":"face","image":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=","referenceImage":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=","job":"image-edit-http-test"}' >"${tmp}/image-edit.json"

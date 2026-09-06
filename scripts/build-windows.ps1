@@ -155,8 +155,8 @@ New-Item -ItemType Directory -Force -Path "build\windows" | Out-Null
 if (Test-Path $OutDir) { Remove-Item $OutDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
-Write-Host "windows: copying support tree (web/extension/patch/scripts/third_party)"
-foreach ($Item in @("web", "extension", "patch", "scripts", "third_party", "LICENSE", "THIRD_PARTY_NOTICES.md")) {
+Write-Host "windows: copying support tree (web/extension/patch/scripts)"
+foreach ($Item in @("web", "extension", "patch", "scripts", "LICENSE", "THIRD_PARTY_NOTICES.md")) {
   $Src = Join-Path $Root $Item
   if (Test-Path $Src) {
     Copy-Item $Src (Join-Path $OutDir $Item) -Recurse -Force

@@ -3,6 +3,68 @@
 Correctness before performance. No test is accepted merely because a function
 name, comment, prompt phrase or CSS declaration occurs in application source.
 
+Image presets: `make test-image-pipeline` executes the production coordinator
+and shell with explicitly simulated pixels. `make test-image-runtime` compares
+all four presets, seven aspect ratios and every CFG step to the installed
+official Ideogram/Comfy scheduler, including progress and the unchanged MAX
+default; it does not generate images. `make test-http-lan` checks native HTTP
+dispatch and rejects invalid presets. The Settings browser test runs in Chromium
+and WebKit; the video browser and native Design interrupt tests check that the
+saved preset reaches image requests without changing editing or video profiles.
+
+The opt-in [Hermes-inspired live benchmark](live/image_preset_benchmark.py)
+starts the actual installed Ideogram worker sequentially, with real weights.
+It retains per-image captions, hashes, parameters, progress, failures and
+wall time including model startup/shutdown. PNG sanity checks are separate from
+visual prompt-adherence review. Public charts use Matplotlib; see
+[image preset results](../extension/benchmarks/image-presets/README.md).
+
+Main engine update and real DeepSeek/GLM prefill/decode comparison:
+[September 5 update](../docs/DS4_MAIN_UPDATE_2026-09-05.md).
+`make test-main-decode-metrics` checks timing-span parsing and refuses speed
+comparisons for failed workloads or changed model/prompt identities. The live
+runner is opt-in and starts one actual model at a time.
+
+`make test-search-evidence` executes query-aware page excerpt selection and
+the actual evidence-extraction request path with simulated model replies. It
+checks late-page/Unicode evidence, fixed input bounds and cancellation without
+publishing stale facts or issuing another call. Its loopback HTTP test verifies
+real request closure and independent deadlines. It is not an LLM quality test;
+live research and competitor work is tracked in
+[the quality plan](../docs/SEARCH_AGENT_QUALITY_PLAN.md).
+
+The [real page-evidence comparison](../extension/search/bench/README.md) runs
+eight public fictional questions through actual Chrome and a resident native
+vision model. The complete version-2 run is 3/8 before and 8/8 after, with all
+latencies and original failed/grader receipts retained. It is not a full research
+pipeline or competitor benchmark. `make test-search-publication` checks public
+export bounds/denominators and the actual Matplotlib chart values.
+
+`make test-remote-agent-workspace` executes the real Agent binary with simulated
+model frames and actual read/write/bash tools. Absolute and relative `--chdir`
+paths must affect all tools exactly once; missing directories fail before an
+inference request. This catches the remote-mode regression caused by upstream
+moving the local engine's `chdir` later. No weights are loaded by this gate.
+
+`make test-web-visual-unit` executes the native same-page screenshot response
+adapter. `make test-web-visual-browser` additionally requires Chrome and Python
+Pillow: it compiles the browser helper against all four installed engine source
+trees, reads a public fixture in isolated headless Chrome, decodes the JPEG and
+checks its actual colors, retained text, exact page-tab cleanup and aggregate
+fragmented-response limit. It preserves each run in a fresh ignored directory.
+Neither target loads weights or establishes that a model interpreted the image
+correctly. Search's simulated-model gate separately checks multimodal request
+content, capability/model-switch validation, three-capture bounds, cancellation
+and exclusion of image blobs from serialized chats.
+
+Published benchmark charts use Matplotlib. Regenerate the engine, Design and
+anonymous PDF charts from committed aggregates with
+`python3 tests/support/publish_benchmark_charts.py`; run
+`python3 tests/unit/published_benchmark_charts_test.py` to exercise actual
+export validation, private-field exclusion, plotted values and PNG rendering.
+These tests do not add inference or quality measurements. See the
+[README results](../README.md#latest-measured-results) for their distinct scopes.
+
 | Directory | Executes | Does not prove |
 | --- | --- | --- |
 | `unit/` | Production functions with controlled inputs and checked outputs | A model answered correctly |
@@ -176,6 +238,21 @@ generic prefill failure is no longer mislabeled as an out-of-memory diagnosis.
 
 ### Model-free checks
 
+For an explicit real-embedding benchmark of every PDF in a supplied directory,
+see [PDF library benchmark](../docs/PDF_LIBRARY_BENCHMARK.md). It retains private
+source-grounded questions, per-file cold/warm times, retrieval/evidence failures
+and matplotlib charts in ignored artifacts. This tests retrieval, not answers
+from a generative model.
+
+For complete PDF reading, run `make test-pdf-complete` (Poppler and Playwright
+WebKit required). This executes the native reader on actual PDF fixtures and
+compares all text, page by page, to independent Poppler extraction. It covers
+uneven page lengths, warm/changed inputs, sparse/scanned/oversized fallbacks,
+native images, mixed attachment preparation and full Chat upload with actual
+source highlights. Only the browser's engine response is simulated; no model
+is loaded. Reports/screenshots are kept in ignored `tests/.artifacts/pdf-complete-*`.
+See [the reading design and limits](../docs/PDF_READING.md).
+
 For PDF evidence, run `make test-pdf-evidence`, also with
 `DSTUDIO_TEST_BROWSER=webkit`. This uses real synthetic PDFs, the native HTTP
 endpoint and Poppler to verify passage matching, render geometry and clickable
@@ -231,6 +308,85 @@ The old source-pattern contract files were removed. Their useful parser, LAN,
 Markdown and browser checks were retained as behavioral tests. Build-failure
 injection tests cover cleanup and source preservation, not compiler correctness;
 real first-run builds provide that separate evidence.
+
+Original Design packs and native agent quality have separate checks:
+`make test-design-originals` exercises the actual catalog and rendered components;
+`tests/live/design_originals_comparison.mjs` launches the real native agent.
+`tests/support/design_comparison_audit.mjs` operates completed generated pages;
+`tests/support/design_comparison_report.mjs` summarizes two full audits, retaining
+failures and rejecting mismatched models, prompts, settings or audit revisions.
+`make test-design-comparison-report` tests this accounting with synthetic
+receipts; it is not an inference or aesthetic-quality test.
+`node tests/live/design_generation_limit_test.mjs` explicitly loads real DS4
+weights and deliberately limits each round to one token. It checks three bounded
+continuations, an honest incomplete status, return to the input loop and prior
+file preservation. This is runtime fault injection, not a useful-answer or model
+quality test. Run it sequentially after other model tests. An optional captured
+comparison directory selects its frozen executable/source to reproduce the old
+failure; that failing receipt is retained rather than counted as passing.
+`make test-design-tool-recovery` executes the native loop with deliberately
+truncated simulated model frames and verifies exact file preservation/retry
+results. `make test-design-archive-build` compiles a real local source archive
+without engine Git metadata and checks rebuilds after source changes. Neither
+test loads a model; the archive test does not download its fixture.
+See [Design systems and regression coverage](../docs/DESIGN_SYSTEMS.md).
+Successful previews and prompt-string checks are not counted as model quality.
+
+Actual-product comparison helpers live under `tests/support/product_*`;
+`tests/live/product_quality_pilot.mjs --run` requires the pinned OpenWork and
+OpenDesign checkouts and their installed runtime tools. It starts the actual
+servers, not a generic standalone OpenCode task, and routes their inference to
+one shared local model. Run it sequentially. Independent code/document and
+Chromium workflow audits reopen the saved outputs. The artifact-serving and
+semantic grader regressions are model-free:
+
+```sh
+node tests/unit/product_artifact_server_test.mjs
+node tests/unit/product_design_grader_test.mjs
+```
+
+`make test-search-evidence` also covers whole-loop work budgets and actual HTTP
+stream cancellation. Its model/page responses are simulated. In contrast,
+`node tests/live/research_pipeline_benchmark.mjs --run` loads real weights and
+executes full Search/Research against public websites, including the final
+answer. Each invocation creates a fresh ignored receipt directory and preserves
+failures. Review every answer against the fixed primary-source expectations
+before publishing a quality score; completion and citations alone are not a pass.
+
+Focused regressions exercise URL-heavy page excerpts, overlapping windows,
+Unicode offsets, preserved original language/length constraints, evidence-ID
+selection and cancellation during synthesis. They run production functions
+with synthetic source/model data, not real-model quality measurements.
+`research_answer_review_test.mjs` exercises omitted counter-evidence, bounded
+writer/reviewer corrections, actual word counts (including exclusive bounds),
+malformed/unknown review IDs, transport failure and cancellation. Additional
+regressions preserve valid multi-envelope JSON comparisons and correct an
+invented evidence gap without deleting the general rule that answers it.
+The distinct
+`research_reply_delivery_test.mjs` executes the production assistant-reply
+lifecycle: exact reviewed text reaches the rendered and persisted message,
+failed review stays incomplete, and ordinary Chat/Search still stream normally.
+These are simulated model/UI dependencies, not a desktop WebKit E2E run.
+
+For a new measured replay, `--before COMMIT` records the intended historical
+runtime; `--variants after` keeps all four questions without re-running that
+historical version. The live runner follows each runtime's actual final-answer
+handoff, including direct delivery of reviewed reports in the new version.
+Independent answer review remains mandatory; the model review is not the grader.
+
+The complete [pipeline report](../extension/search/bench/PIPELINE.md) separates
+live answer reviews from those deterministic checks. Its publisher requires
+every question and a review bound to each unchanged raw row. After review,
+`node tests/support/check_research_quality.mjs REFERENCE_JSON CURRENT_JSON`
+rejects any lost previously demonstrated requirement, even if the aggregate
+score or latency improves. The current receipt must contain all four after
+cases; a partial retry cannot satisfy this gate.
+
+`make test-product-comparison-publication` also runs a real headless Chromium
+layout regression on the untouched published website. It detects wrapped radio
+labels entering the indicator column at 390/1440 px, tests an independent good
+layout, and verifies the original artifact hash. A passing regression detector
+does not mean the archived design passed: its visual defects remain visible.
 
 See the [real-run report](../docs/ENGINE_ACCEPTANCE.md) for actual failures as well
 as successes. Qwen native generation throughput is reported separately from

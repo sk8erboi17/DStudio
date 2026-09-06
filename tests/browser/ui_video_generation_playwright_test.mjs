@@ -326,6 +326,7 @@ try {
     if (target.hostname !== '127.0.0.1') externalRequests.push(request.url());
   });
   await page.addInitScript(() => {
+    if (window !== window.top || location.hostname !== '127.0.0.1') return;
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
       v: 2, onboarded: true, theme: 'dark', baseUrl: '', chatBackend: 'local',
       model: 'deepseek-v4-flash', modelVariant: 'flash', thinkLevel: 'off',
@@ -333,6 +334,7 @@ try {
       ctxSize: 65536, enginePower: 90, ssdStreaming: 'auto', webMode: 'off',
       videoLicenseAccepted: true, videoEncoder: 'official',
       videoProfile: 'preview', videoDuration: 8, videoAspect: '9:16',
+      imagePreset: 'medium',
     }));
   });
 
@@ -412,6 +414,7 @@ try {
 
   assert.ok(imageGenerationBody, 'the direct Ideogram pipeline must receive the generated-first-frame request');
   assert.equal(imageGenerationBody.action, 'generate');
+  assert.equal(imageGenerationBody.preset, 'medium', 'opening frames use the saved image preset');
   assert.match(imageGenerationBody.prompt, /paper boat.*rain puddle/i);
   assert.ok(pipelineGenerationBody, 'H3 must receive the chained video request');
   assert.match(pipelineGenerationBody.image || '', /^data:image\/png;base64,/, 'the Ideogram PNG must become H3 first-frame data');

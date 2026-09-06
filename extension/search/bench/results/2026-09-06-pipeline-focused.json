@@ -1,0 +1,196 @@
+{
+  "started": "2026-09-06T01:16:45.047Z",
+  "scope": "Development comparison, complete pipeline and final answer on real public websites; independent semantic answer review required.",
+  "variants": [
+    "after"
+  ],
+  "hardware": {
+    "cpu": "Apple M2 Max",
+    "memoryBytes": 103079215104
+  },
+  "model": "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf",
+  "modelBytes": 86720111488,
+  "engineRevision": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
+  "settings": {
+    "model": "ds4",
+    "temperature": 0,
+    "thinkLevel": "off",
+    "context": 32768,
+    "ssdStreaming": "off",
+    "finalMaxTokens": 2800,
+    "caseDeadlineMs": 1200000
+  },
+  "before": {
+    "revision": "c3329de",
+    "sha256": "63d8ce1e7b341a7d2db021b3c7d4d09e60edfc86020c143fc73353bcc5bb219f"
+  },
+  "after": {
+    "sha256": "e74695bdda77436e9ca29cbb7a1819f5eaacbdb91d28e780d9a62c639e2bd171"
+  },
+  "runs": [
+    {
+      "id": "http-retry-header",
+      "variant": "after",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": true,
+      "review": {
+        "requestedFactsCorrect": true,
+        "sourceSupportChecked": true,
+        "noUndisclosedConflict": true,
+        "requestedFormatFollowed": true,
+        "summary": "Correct optional header and rate-limit meaning, with actual IETF evidence. Short cited answer."
+      },
+      "rawRowSha256": "810a392364abafa6c04304d18f5a1424add2bcfa19442e19ffecde058465ab3d",
+      "answerSha256": "2134c6131ca12a4fb095dda1e3d341c73a0f6037fdc493ce2e710ee8a462a814",
+      "answerWords": 39,
+      "totalSeconds": 100.128274833,
+      "pipelineSeconds": 93.44337904099999,
+      "finalAnswerSeconds": 6.6848957920000105,
+      "modelRequests": 5,
+      "searchQueries": 2,
+      "pageReads": 1,
+      "extractedFacts": 4,
+      "selectedAnswerFacts": [
+        "F1",
+        "F2"
+      ],
+      "readSources": [
+        {
+          "id": "S1",
+          "url": "https://datatracker.ietf.org/doc/html/rfc6585"
+        }
+      ],
+      "executionFailed": false
+    },
+    {
+      "id": "python-versioned-suffix",
+      "variant": "after",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": false,
+      "review": {
+        "requestedFactsCorrect": false,
+        "sourceSupportChecked": true,
+        "noUndisclosedConflict": true,
+        "requestedFormatFollowed": true,
+        "summary": "Finds Python 3.14 but does not answer the requested suffix. The judge selected only the change note and assumed the writer would apply it; the writer instead declined to derive a result absent a verbatim example. A regression despite the lower duration."
+      },
+      "rawRowSha256": "06b1a7284cf3473b49bb05ad8400cbbf9d441e6be4e90ebb9150be1b78b6f48a",
+      "answerSha256": "984a237d68662db9a0dae4b3e0a5571c55a917b5780990b484f8a530e1a53243",
+      "answerWords": 53,
+      "totalSeconds": 65.163914084,
+      "pipelineSeconds": 57.46637545899999,
+      "finalAnswerSeconds": 7.697538625000016,
+      "modelRequests": 4,
+      "searchQueries": 0,
+      "pageReads": 1,
+      "extractedFacts": 5,
+      "selectedAnswerFacts": [
+        "F1"
+      ],
+      "readSources": [
+        {
+          "id": "S1",
+          "url": "https://docs.python.org/3.14/library/pathlib.html"
+        }
+      ],
+      "executionFailed": false
+    },
+    {
+      "id": "venus-rotation-orbit",
+      "variant": "after",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": false,
+      "review": {
+        "requestedFactsCorrect": false,
+        "sourceSupportChecked": true,
+        "noUndisclosedConflict": false,
+        "requestedFormatFollowed": false,
+        "summary": "Correct main periods, but repeats the incompatible NASA definitions of 117 days without flagging the disagreement. The 301-word response also loses the original length requirement. Rejected, not a speed improvement."
+      },
+      "rawRowSha256": "fb461d80774f9bfe181ed1a65de20307165a1d0a2c66e62c4c5426aa676151f2",
+      "answerSha256": "fad30f23e7a7f3424d5cbefacebe376d7ae29f3b89b42352af00cca2424fa87a",
+      "answerWords": 301,
+      "totalSeconds": 279.683006041,
+      "pipelineSeconds": 238.049797583,
+      "finalAnswerSeconds": 41.633208458000034,
+      "modelRequests": 8,
+      "searchQueries": 3,
+      "pageReads": 3,
+      "extractedFacts": 12,
+      "selectedAnswerFacts": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F6",
+        "F7",
+        "F8",
+        "F9",
+        "F10"
+      ],
+      "readSources": [
+        {
+          "id": "S2",
+          "url": "https://spaceplace.nasa.gov/all-about-venus/en/"
+        },
+        {
+          "id": "S3",
+          "url": "https://science.nasa.gov/venus/venus-facts/"
+        },
+        {
+          "id": "S20",
+          "url": "https://nssdc.gsfc.nasa.gov/planetary/factsheet/venusfact.html"
+        }
+      ],
+      "executionFailed": false
+    },
+    {
+      "id": "accessible-target-comparison",
+      "variant": "after",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": false,
+      "review": {
+        "requestedFactsCorrect": false,
+        "sourceSupportChecked": false,
+        "noUndisclosedConflict": true,
+        "requestedFormatFollowed": false,
+        "summary": "Correct dimensions, but omits AA/AAA and incorrectly denies the enhanced inline exception. The excerpt omitted those rules; the model misread advisory guidance as their absence. At 254 words it also exceeds the requested limit."
+      },
+      "rawRowSha256": "32db408bd1c5f61f149261158c753f52ddd8390faf5947c9ea6b6f757cf9c5ce",
+      "answerSha256": "5e059c6a626c58a0492caeaa345b6af91ca3fc352175fcdb4afb4d4a05d3c5d1",
+      "answerWords": 254,
+      "totalSeconds": 228.07790466599994,
+      "pipelineSeconds": 180.715061,
+      "finalAnswerSeconds": 47.36284366599994,
+      "modelRequests": 6,
+      "searchQueries": 0,
+      "pageReads": 2,
+      "extractedFacts": 11,
+      "selectedAnswerFacts": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6",
+        "F7",
+        "F9",
+        "F10",
+        "F11"
+      ],
+      "readSources": [
+        {
+          "id": "S1",
+          "url": "https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html"
+        },
+        {
+          "id": "S2",
+          "url": "https://www.w3.org/WAI/WCAG22/Understanding/target-size-enhanced.html"
+        }
+      ],
+      "executionFailed": false
+    }
+  ],
+  "privateReceiptSha256": "4e933b7518c3e0b99237367873fbbd4f8a1e2e01021474c7ebf0b56305612b9c",
+  "reviewSha256": "6a609b5e1588255c18cea1750952ef2b37c19a63df582dcdce4d20228b4a1887"
+}

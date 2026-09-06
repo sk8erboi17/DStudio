@@ -1,0 +1,240 @@
+{
+  "schemaVersion": 1,
+  "realInference": true,
+  "scope": "production Ideogram shell/worker; excludes native chat prompt authoring",
+  "reference": "https://hermes-agent.nousresearch.com/",
+  "referenceUse": "textual art direction, not image-to-image or pixel reconstruction",
+  "seed": 271828,
+  "perImageDeadlineSeconds": 10800,
+  "startedAt": "2026-09-06T10:28:10.647944+00:00",
+  "hardware": "Apple M2 Max",
+  "memoryBytes": 103079215104,
+  "operatingSystem": "26.5.2",
+  "sharedHost": true,
+  "plan": [
+    {
+      "case": "hermes-hero",
+      "preset": "low"
+    },
+    {
+      "case": "hermes-hero",
+      "preset": "medium"
+    },
+    {
+      "case": "hermes-hero",
+      "preset": "high"
+    },
+    {
+      "case": "hermes-hero",
+      "preset": "max"
+    },
+    {
+      "case": "hermes-portrait",
+      "preset": "low"
+    },
+    {
+      "case": "hermes-portrait",
+      "preset": "medium"
+    },
+    {
+      "case": "hermes-portrait",
+      "preset": "high"
+    },
+    {
+      "case": "hermes-portrait",
+      "preset": "max"
+    }
+  ],
+  "runs": [
+    {
+      "case": "hermes-hero",
+      "preset": "low",
+      "state": "generated",
+      "elapsedSeconds": 274.532,
+      "exitCode": 0,
+      "expectedSize": [
+        1024,
+        576
+      ],
+      "captionSha256": "69f6ea5242572e49740bbaeeb9be5a9b2aa466806ecb214c0c1e5e8a46f9a77f",
+      "outputSha256": "601a2ef80d79d1e8e53aecd891b155ac60de269f6c0ab1d4d29f4044b35884b9",
+      "outputValidation": {
+        "format": "PNG",
+        "mode": "RGB",
+        "width": 1024,
+        "height": 576,
+        "lumaMin": 48,
+        "lumaMax": 246,
+        "lumaMean": 73.9629,
+        "lumaEntropy": 2.8274,
+        "occupiedLumaBins": 188,
+        "significantLumaFraction": 1.0
+      },
+      "provenance": {
+        "provider": "ideogram4-fp8",
+        "model": "Comfy-Org/Ideogram-4",
+        "revision": "bbee2ab2b14b2b5223448d12d6e31e5f9cec0546",
+        "runtime": {
+          "comfy": "b78cec879b9460d5cb25228a83a942fb78d2cd24",
+          "fp8Plugin": "911294ca35093eef56f7f2695414ff8810e88e50",
+          "ideogramNode": "c05545d71e61b7ce47534a972eaeefd958a3719f"
+        },
+        "preset": "low",
+        "quality": {
+          "profile": "V4_TURBO_12",
+          "steps": 12,
+          "sampler": "euler",
+          "cfg": 7.0,
+          "polishCfg": 3.0,
+          "polishSteps": 1,
+          "polishStart": 0.753533435585256,
+          "mu": 0.5,
+          "std": 1.75,
+          "vaeDecode": "overlapped-three-pass-tiled",
+          "vaeTileSize": 1024,
+          "vaeTileOverlap": 256
+        },
+        "size": {
+          "width": 1024,
+          "height": 576,
+          "aspect": "16:9"
+        },
+        "outputValidation": {
+          "format": "PNG",
+          "mode": "RGB",
+          "width": 1024,
+          "height": 576,
+          "lumaMin": 48,
+          "lumaMax": 246,
+          "lumaMean": 73.9629,
+          "lumaEntropy": 2.8274,
+          "occupiedLumaBins": 188,
+          "significantLumaFraction": 1.0
+        },
+        "seed": 271828,
+        "elapsedSeconds": 271.241,
+        "caption": {
+          "high_level_description": "An original wide editorial hero illustration inspired by the electric cobalt blue and ivory engraved visual language of the Hermes Agent website. A single classical Greek messenger bust with a small winged helmet, carved curly hair and a calm expressive face stands against an intense flat cobalt blue background. Fine ivory copperplate hatching, crisp engraved contours and delicate radial celestial lines create an intricate antique print with a contemporary two-colour graphic treatment. The bust is centrally framed with generous blue breathing room. Monochrome ivory and cobalt only, no photographic colour, no gradients, no lettering, no UI, no logos and no watermark.",
+          "compositional_deconstruction": {
+            "background": "Flat vivid electric cobalt blue with sparse fine ivory radial celestial lines, clean open margins, strictly two-colour antique engraving style.",
+            "elements": [
+              {
+                "type": "obj",
+                "desc": "One centrally framed ivory classical Greek messenger bust wearing a small winged helmet. Clear sculptural facial anatomy, carved curls, crisp silhouette, fine copperplate cross-hatching and intricate engraved shading. Calm expressive face, generous blue space around the shoulders. No text or watermark."
+              }
+            ]
+          }
+        }
+      },
+      "image": "images/hermes-hero-low.png",
+      "review": {
+        "case": "hermes-hero",
+        "preset": "low",
+        "outputSha256": "601a2ef80d79d1e8e53aecd891b155ac60de269f6c0ab1d4d29f4044b35884b9",
+        "promptAdherencePass": false,
+        "notes": "Recognizable centred classical bust and ivory-on-blue engraving. Unrequested navigation bar, brand-like logos and both readable and garbled text violate the no-UI/no-text instruction. Helmet wings are awkwardly upright. This is an unretouched failure, not a recommended final asset."
+      }
+    },
+    {
+      "case": "hermes-hero",
+      "preset": "medium",
+      "state": "generated",
+      "elapsedSeconds": 410.74,
+      "exitCode": 0,
+      "expectedSize": [
+        1024,
+        576
+      ],
+      "captionSha256": "69f6ea5242572e49740bbaeeb9be5a9b2aa466806ecb214c0c1e5e8a46f9a77f",
+      "outputSha256": "d90f7e76166386d8f0d2283fc1cd30094e95da1812641b05a93c989ee35c9ce8",
+      "outputValidation": {
+        "format": "PNG",
+        "mode": "RGB",
+        "width": 1024,
+        "height": 576,
+        "lumaMin": 47,
+        "lumaMax": 231,
+        "lumaMean": 68.9977,
+        "lumaEntropy": 2.6294,
+        "occupiedLumaBins": 183,
+        "significantLumaFraction": 1.0
+      },
+      "provenance": {
+        "provider": "ideogram4-fp8",
+        "model": "Comfy-Org/Ideogram-4",
+        "revision": "bbee2ab2b14b2b5223448d12d6e31e5f9cec0546",
+        "runtime": {
+          "comfy": "b78cec879b9460d5cb25228a83a942fb78d2cd24",
+          "fp8Plugin": "911294ca35093eef56f7f2695414ff8810e88e50",
+          "ideogramNode": "c05545d71e61b7ce47534a972eaeefd958a3719f"
+        },
+        "preset": "medium",
+        "quality": {
+          "profile": "V4_DEFAULT_20",
+          "steps": 20,
+          "sampler": "euler",
+          "cfg": 7.0,
+          "polishCfg": 3.0,
+          "polishSteps": 2,
+          "polishStart": 0.8330598885077383,
+          "mu": 0.0,
+          "std": 1.75,
+          "vaeDecode": "overlapped-three-pass-tiled",
+          "vaeTileSize": 1024,
+          "vaeTileOverlap": 256
+        },
+        "size": {
+          "width": 1024,
+          "height": 576,
+          "aspect": "16:9"
+        },
+        "outputValidation": {
+          "format": "PNG",
+          "mode": "RGB",
+          "width": 1024,
+          "height": 576,
+          "lumaMin": 47,
+          "lumaMax": 231,
+          "lumaMean": 68.9977,
+          "lumaEntropy": 2.6294,
+          "occupiedLumaBins": 183,
+          "significantLumaFraction": 1.0
+        },
+        "seed": 271828,
+        "elapsedSeconds": 408.737,
+        "caption": {
+          "high_level_description": "An original wide editorial hero illustration inspired by the electric cobalt blue and ivory engraved visual language of the Hermes Agent website. A single classical Greek messenger bust with a small winged helmet, carved curly hair and a calm expressive face stands against an intense flat cobalt blue background. Fine ivory copperplate hatching, crisp engraved contours and delicate radial celestial lines create an intricate antique print with a contemporary two-colour graphic treatment. The bust is centrally framed with generous blue breathing room. Monochrome ivory and cobalt only, no photographic colour, no gradients, no lettering, no UI, no logos and no watermark.",
+          "compositional_deconstruction": {
+            "background": "Flat vivid electric cobalt blue with sparse fine ivory radial celestial lines, clean open margins, strictly two-colour antique engraving style.",
+            "elements": [
+              {
+                "type": "obj",
+                "desc": "One centrally framed ivory classical Greek messenger bust wearing a small winged helmet. Clear sculptural facial anatomy, carved curls, crisp silhouette, fine copperplate cross-hatching and intricate engraved shading. Calm expressive face, generous blue space around the shoulders. No text or watermark."
+              }
+            ]
+          }
+        }
+      },
+      "image": "images/hermes-hero-medium.png",
+      "review": {
+        "case": "hermes-hero",
+        "preset": "medium",
+        "outputSha256": "d90f7e76166386d8f0d2283fc1cd30094e95da1812641b05a93c989ee35c9ce8",
+        "promptAdherencePass": false,
+        "notes": "Recognizable classical bust, finer celestial lines and copperplate shading. Like Low, it adds a navigation header, brand-like logos and garbled text below the bust. The no-UI/no-text requirement fails despite the extra steps. No pixels were retouched."
+      }
+    },
+    {
+      "case": "hermes-hero",
+      "preset": "high",
+      "state": "cancelled",
+      "elapsedSeconds": 89.125,
+      "expectedSize": [
+        1024,
+        576
+      ],
+      "captionSha256": "69f6ea5242572e49740bbaeeb9be5a9b2aa466806ecb214c0c1e5e8a46f9a77f"
+    }
+  ],
+  "visualReviewMethod": "Codex visual inspection of original PNGs against the public caption; not a blinded human panel or a universal aesthetic score."
+}

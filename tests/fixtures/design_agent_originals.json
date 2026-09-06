@@ -1,0 +1,26 @@
+{
+  "scope": "Held-out task requirements for real before/after native Design runs. Demo content is intentional; no media generation or service bookings.",
+  "cases": [
+    {
+      "id": "archive",
+      "entry": "archive.html",
+      "prompt": "Do not ask questions; build it directly. Create archive.html, a reading-first public archive for BRIDGE NOTES, about the history of ordinary bridges. Audience: curious readers on mobile and desktop. Exact headings: BRIDGE NOTES, Small crossings, large stories, Read the field note. Include three entries: Footbridge 12, Canal crossing, Railway span. Build an asymmetric editorial index, not a marketing hero with three feature cards. The main action opens the full field note in a native keyboard-dismissible dialog with a visible close button; its text explains how a footbridge connects two neighbourhoods. Add a working search that filters these entries and an honest empty state. Use a warm quiet reading palette, serif display, clear rules, no gradients, no external fonts or dependencies. All material is labelled as illustrative archive content. Choose a suitable local design_system and use its actual files where useful, make a todo plan, implement real controls, inspect the rendered layout, verify_artifact and artifact. Save any supporting assets inside the project and keep mobile free of horizontal page scrolling. This is a finished local prototype, not a screenshot.",
+      "requiredText": ["BRIDGE NOTES","Small crossings, large stories","Footbridge 12","Canal crossing","Railway span"],
+      "interaction": "archive-search-dialog"
+    },
+    {
+      "id": "repair",
+      "entry": "repair.html",
+      "prompt": "Do not ask questions; build it directly. Create repair.html for FIXROOM, a repair-workshop operations screen. Audience: staff working through a queue on a desktop, with usable mobile access. Exact headings: FIXROOM, Repair queue, Waiting for parts. Show a real table with these example items: Desk lamp, Portable radio, Kitchen scale; columns Item, Owner, Status. A labelled search must filter the queue and show an explicit empty state. A state control switches between Populated, Loading, Empty and Error, and Error has a Retry that visibly restores Populated. Give the screen a narrow navigation rail, a dominant work table and a subordinate detail region; do not use a giant landing-page headline or a row of statistic cards. Use tabular numerals, precise restrained dark surfaces, one clear accent and textual status labels. All data is marked Sample data, not live. No external assets or dependencies. Choose a suitable local design_system and read its relevant files, create a todo plan, build real interactions, inspect the rendered layout, verify_artifact and artifact. Horizontal scrolling may occur only inside a labelled table region, never on the whole page.",
+      "requiredText": ["FIXROOM","Repair queue","Waiting for parts","Desk lamp","Portable radio","Kitchen scale"],
+      "interaction": "repair-search-states"
+    },
+    {
+      "id": "workshop",
+      "entry": "workshop.html",
+      "prompt": "Do not ask questions; build it directly. Create workshop.html for NEIGHBOURHOOD LAB, a welcoming general-purpose community workshop planner. Audience: first-time participants, primarily on a phone. Exact heading: Make room to learn. Build a genuinely interactive three-step journey: Choose a workshop, Choose a day, Review. Workshops: Bookbinding, Bicycle care, Urban sketching. Days: Tuesday, Thursday. Only allow Continue after the current step has a selection, provide Back preserving the choice, show chosen workshop and day on Review. The final action completes a local demo and explicitly states No booking was made. No finance framing, medical claims or fake availability. Compose a human introduction beside one focused step panel on desktop; on mobile the current action must follow the heading naturally, not three equal cards of all steps. Use humane readable typography, calm green, strong focus and clear field labels. No gradients or external dependencies. Choose a suitable local design_system and load its relevant files, use todo_write, build and exercise controls, inspect the rendered layout, verify_artifact and artifact. All sample data must be labelled and the result must work offline.",
+      "requiredText": ["NEIGHBOURHOOD LAB","Make room to learn","Bookbinding","Bicycle care","Urban sketching"],
+      "interaction": "workshop-journey"
+    }
+  ]
+}

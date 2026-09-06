@@ -1,0 +1,28 @@
+diff --git a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -149,6 +149,13 @@
+ test-mxfp4-metal: check-mxfp4-half-lut tests/test_mxfp4_metal
+ 	./tests/test_mxfp4_metal
+ 
++tests/test_metal_stream_index: tests/test_metal_stream_index.m ds4_metal.m ds4_gpu.h ds4_image.o $(METAL_SRCS)
++	$(CC) $(OBJCFLAGS) -fno-finite-math-only -I. -o $@ $< ds4_image.o $(METAL_LDLIBS)
++
++.PHONY: test-metal-stream-index
++test-metal-stream-index: tests/test_metal_stream_index
++	./tests/test_metal_stream_index
++
+ tests/test_metal_moe_prefill.o: tests/test_metal_moe_prefill.c ds4_gpu.h
+ 	$(CC) $(CFLAGS) -fno-fast-math -I. -c -o $@ $<
+ 
+@@ -700,2 +707,3 @@
+ clean:
++	rm -f tests/test_metal_stream_index
+ 	rm -f tests/test_linux_memory tests/test_rocm_memory
+diff --git a/.gitignore b/.gitignore
+--- a/.gitignore
++++ b/.gitignore
+@@ -27,2 +27,3 @@
+ /tests/test_metal_session_batch
++/tests/test_metal_stream_index
+ /tests/test_metal_tp_spec

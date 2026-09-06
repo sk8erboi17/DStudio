@@ -28,6 +28,24 @@ command -v git >/dev/null 2>&1 || {
     exit 1
 }
 
+# September 2026 main already fixes ds4_image linkage and adds Metal tests.
+# Keep one copy of the runtime delta; replace only its obsolete build hunks.
+# Both generations are still checked/applied as a single atomic git patch.
+main_patch=
+legacy_patch=
+cleanup() {
+    [ -z "$main_patch" ] || rm -f "$main_patch"
+    [ -z "$legacy_patch" ] || rm -f "$legacy_patch"
+}
+trap cleanup EXIT HUP INT TERM
+if grep -q '^test-glm-attention:' "$ds4_dir/Makefile"; then
+    main_patch=$(mktemp "${TMPDIR:-/tmp}/dstudio-m2-main.XXXXXX")
+    awk '/^diff --git / { skip = ($3 == "a/Makefile" || $3 == "a/.gitignore") }
+         !skip { print }' "$patch_file" > "$main_patch"
+    cat "$script_dir/../patch/ds4-glm53-m2max/build-main.patch" >> "$main_patch"
+    patch_file=$main_patch
+fi
+
 # git apply checks the entire eight-file patch before writing, unlike a series
 # of patch(1) edits that can leave a half-applied runtime. A source archive can
 # live under another Git checkout; never discover or write that parent index.
@@ -57,7 +75,6 @@ else
     # wrong batch-resource bound. Never partially repair a drifted port. Derive
     # the old patch mechanically to avoid shipping a duplicate eight-file delta.
     legacy_patch=$(mktemp "${TMPDIR:-/tmp}/dstudio-m2-legacy.XXXXXX")
-    trap 'rm -f "$legacy_patch"' EXIT HUP INT TERM
     sed 's/^+        n_entries > DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT ||$/+        n_entries > DS4_METAL_MAX_ROUTED_EXPERT_USED ||/' \
         "$patch_file" > "$legacy_patch"
     if apply_file "$legacy_patch" --reverse --check >/dev/null 2>&1; then

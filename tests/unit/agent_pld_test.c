@@ -5,6 +5,16 @@
 #include "../../patch/ds4-agent-jsonl/pld_core.c"
 
 static unsigned checks;
+static int resync_calls, resync_failure, resync_position;
+/* Stateful double for upstream Agent's sync helper. The production macro
+ * under test must invoke this after both ordinary and snapshot rewinds. */
+static int agent_worker_rewind(ds4_session *w, int pos, char *err, size_t len) {
+    (void)w; (void)err; (void)len;
+    resync_calls++;
+    resync_position=pos;
+    return resync_failure;
+}
+#include "../../patch/ds4-agent-jsonl/pld_agent_rewind.h"
 #define CHECK(x) do { checks++; if (!(x)) { \
     fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); abort(); \
 } } while (0)
@@ -65,6 +75,27 @@ static void lookup_tests(void) {
 
 static void transaction_tests(void) {
     ds4_session s, ref; ds4_engine e, er; char err[160];
+    {
+        reset(&s,&e);
+        ds4_session *w=&s;
+        ds4ui_pld_transaction tx={0};
+        resync_calls=resync_failure=0;
+        CHECK(DS4UI_AGENT_PLD_REWIND(w,&tx,0,err,sizeof(err))==0);
+        CHECK(resync_calls==1 && resync_position==0);
+        resync_failure=-7;
+        CHECK(DS4UI_AGENT_PLD_REWIND(w,&tx,0,err,sizeof(err))==-7);
+        CHECK(resync_calls==2); /* cannot swallow upstream replay failure */
+        resync_failure=0;tx.active=1;tx.start=2;tx.count=1;
+        CHECK(DS4UI_AGENT_PLD_REWIND(w,&tx,0,err,sizeof(err))==-1);
+        CHECK(resync_calls==2); /* do not resync a failed snapshot transaction */
+        reset(&s,&e);memset(&tx,0,sizeof(tx));resync_calls=0;
+        int proposal[]={0,1,2};
+        CHECK(ds4ui_pld_verify(w,proposal,3,&tx,err,sizeof(err))==3);
+        CHECK(DS4UI_AGENT_PLD_REWIND(w,&tx,1,err,sizeof(err))==0);
+        CHECK(resync_calls==1 && resync_position==1);
+        CHECK(s.checkpoint.len==1 && s.checkpoint_valid);
+        ds4ui_pld_release(&tx);free(s.graph.spec_logits);
+    }
     /* Every possible rejection position and every parser/interrupt boundary,
      * both before and after a raw-ring wrap. */
     for(int prefix=0;prefix<20;prefix++) for(int bad=1;bad<=5;bad++) {
@@ -123,6 +154,7 @@ static void transaction_tests(void) {
     CHECK(!s.checkpoint_valid);
     ds4ui_pld_release(&tx); free(s.graph.spec_logits);
 }
+#undef DS4UI_AGENT_PLD_REWIND
 #include "../support/pld_agent_harness.h"
 #include "../support/pld_server_harness.h"
 #include "../../patch/ds4-agent-jsonl/pld_benchmark_clock.h"

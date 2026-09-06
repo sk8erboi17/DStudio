@@ -1,0 +1,10 @@
+    char *snapshot_url = visual ? web_cdp_eval_string(&ws, "location.href", err, err_len) : NULL;
+    char *out = web_cdp_eval_string(&ws, js, err, err_len);
+    if (visual && out) {
+        char *result = dstudio_web_visual_result(&ws, out, snapshot_url);
+        free(out);
+        out = result;
+    }
+    free(snapshot_url);
+    if (web_set_cancel_err(web, err, err_len)) { free(out); out = NULL; }
+    web_ws_close(&ws);

@@ -78,6 +78,24 @@ test -f "$TMP_ROOT/support/extension/design/build-design.sh"
 test -f "$TMP_ROOT/support/extension/task-graph/bench/manifest.json"
 test -f "$TMP_ROOT/support/patch/ds4-agent-jsonl/manifest"
 test -f "$TMP_ROOT/support/scripts/apply-ds4-server-metrics.sh"
+curl -fsS "http://127.0.0.1:$PORT/api/design-systems" -o "$TMP_ROOT/catalog.json"
+python3 - "$TMP_ROOT/catalog.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    catalog = json.load(handle)["designSystems"]
+assert sorted(item["id"] for item in catalog) == ["folio", "forma", "grove", "pulse", "signal"]
+assert all(item["hasComponents"] and item["hasAssets"] and item["hasReferences"] for item in catalog)
+PY
+curl -fsS -X POST -H 'X-Requested-With: ds4web' \
+  "http://127.0.0.1:$PORT/api/setup/content" -o "$TMP_ROOT/content.json"
+python3 - "$TMP_ROOT/content.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    result = json.load(handle)
+assert result["ok"] and result["bundled"] and result["contentOk"]
+PY
 python3 "$TMP_ROOT/support/scripts/download-qwen35.py" --help >/dev/null
 codesign --verify --deep --strict "$TMP_ROOT/DStudio.app"
 

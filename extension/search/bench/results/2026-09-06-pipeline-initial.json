@@ -1,0 +1,319 @@
+{
+  "started": "2026-09-06T00:34:56.964Z",
+  "scope": "Development comparison, complete pipeline and final answer on real public websites; independent semantic answer review required.",
+  "variants": [
+    "before",
+    "after"
+  ],
+  "hardware": {
+    "cpu": "Apple M2 Max",
+    "memoryBytes": 103079215104
+  },
+  "model": "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf",
+  "modelBytes": 86720111488,
+  "engineRevision": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
+  "settings": {
+    "model": "ds4",
+    "temperature": 0,
+    "thinkLevel": "off",
+    "context": 32768,
+    "ssdStreaming": "off",
+    "finalMaxTokens": 2800,
+    "caseDeadlineMs": 1200000
+  },
+  "before": {
+    "revision": "c3329de",
+    "sha256": "63d8ce1e7b341a7d2db021b3c7d4d09e60edfc86020c143fc73353bcc5bb219f"
+  },
+  "after": {
+    "sha256": "a1c2dae46dcd2a228044b5e3f02963bfb8aaa42ad043e8dbc9aed3cdda1c32ca"
+  },
+  "runs": [
+    {
+      "id": "http-retry-header",
+      "variant": "before",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": true,
+      "review": {
+        "requestedFactsCorrect": true,
+        "sourceSupportChecked": true,
+        "noUndisclosedConflict": true,
+        "requestedFormatFollowed": true,
+        "summary": "Correct optional Retry-After and rate-limit meaning, supported by the actual IETF RFC read. Short cited answer. The initial RFC-editor-only primaryRead metadata misses this legitimate mirror; that is not an answer failure."
+      },
+      "rawRowSha256": "fc81d61fc88bb8d08dacda5a5ddce922b60d7aeda1ff430df67efceee9abfc83",
+      "answerSha256": "78e2195177148b96963e3ed811d767ac7862d3ada52b7e40a548a37704ef3834",
+      "answerWords": 38,
+      "totalSeconds": 137.39631624999998,
+      "pipelineSeconds": 126.48279145800001,
+      "finalAnswerSeconds": 10.913524791999967,
+      "modelRequests": 5,
+      "searchQueries": 2,
+      "pageReads": 1,
+      "extractedFacts": 12,
+      "selectedAnswerFacts": [],
+      "readSources": [
+        {
+          "id": "S1",
+          "url": "https://datatracker.ietf.org/doc/html/rfc6585"
+        }
+      ],
+      "executionFailed": false
+    },
+    {
+      "id": "http-retry-header",
+      "variant": "after",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": true,
+      "review": {
+        "requestedFactsCorrect": true,
+        "sourceSupportChecked": true,
+        "noUndisclosedConflict": true,
+        "requestedFormatFollowed": true,
+        "summary": "Correct optional Retry-After and rate-limit meaning, supported by the actual IETF RFC read. Short cited answer. Same authoritative-mirror metadata caveat as before."
+      },
+      "rawRowSha256": "a5d318afb70c95d1d36d8f1e014e006553718b4ebc5a9f152539527ef84990ec",
+      "answerSha256": "805cddf944d863179326f0c8aed72bca85b758b127cf18815a2234ca9ed8838b",
+      "answerWords": 42,
+      "totalSeconds": 129.30978900000002,
+      "pipelineSeconds": 117.370086167,
+      "finalAnswerSeconds": 11.939702833000018,
+      "modelRequests": 5,
+      "searchQueries": 2,
+      "pageReads": 1,
+      "extractedFacts": 12,
+      "selectedAnswerFacts": [],
+      "readSources": [
+        {
+          "id": "S1",
+          "url": "https://datatracker.ietf.org/doc/html/rfc6585"
+        }
+      ],
+      "executionFailed": false
+    },
+    {
+      "id": "python-versioned-suffix",
+      "variant": "after",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": true,
+      "review": {
+        "requestedFactsCorrect": true,
+        "sourceSupportChecked": true,
+        "noUndisclosedConflict": true,
+        "requestedFormatFollowed": true,
+        "summary": "Correct Python 3.14 change and single-dot suffix, grounded in the read versioned documentation. Both requested details answered briefly."
+      },
+      "rawRowSha256": "323f7265e3e7fb21a3e56ce5f2838f67b60d15826aed811f3a28698edd272159",
+      "answerSha256": "2af3cecf22cee2c778c686e9f1a6297267f949f77d927fcf4b296a09af6db41b",
+      "answerWords": 19,
+      "totalSeconds": 87.76875658300001,
+      "pipelineSeconds": 77.424576375,
+      "finalAnswerSeconds": 10.344180208000004,
+      "modelRequests": 4,
+      "searchQueries": 0,
+      "pageReads": 1,
+      "extractedFacts": 11,
+      "selectedAnswerFacts": [],
+      "readSources": [
+        {
+          "id": "S1",
+          "url": "https://docs.python.org/3.14/library/pathlib.html"
+        }
+      ],
+      "executionFailed": false
+    },
+    {
+      "id": "python-versioned-suffix",
+      "variant": "before",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": false,
+      "review": {
+        "requestedFactsCorrect": false,
+        "sourceSupportChecked": false,
+        "noUndisclosedConflict": true,
+        "requestedFormatFollowed": true,
+        "summary": "Does not answer the version or suffix. Extraction retained general pathlib facts and missed the late-page rule; the final claim that the documentation lacks suffix details incorrectly generalizes from incomplete extraction."
+      },
+      "rawRowSha256": "5c731bfc7f5776ad42f91a1facdbf55c086f44259db662459cbb9b38d2ccc34c",
+      "answerSha256": "9d8fbb9d22d76e2f35f05f1fc196fd8334c3e7e85c32d729152c4853ad910491",
+      "answerWords": 55,
+      "totalSeconds": 191.86057925,
+      "pipelineSeconds": 178.68602299999998,
+      "finalAnswerSeconds": 13.174556250000023,
+      "modelRequests": 7,
+      "searchQueries": 2,
+      "pageReads": 2,
+      "extractedFacts": 13,
+      "selectedAnswerFacts": [],
+      "readSources": [
+        {
+          "id": "S1",
+          "url": "https://docs.python.org/3.14/library/pathlib.html"
+        },
+        {
+          "id": "S2",
+          "url": "https://docs.python.org/3/library/pathlib.html"
+        }
+      ],
+      "executionFailed": false
+    },
+    {
+      "id": "venus-rotation-orbit",
+      "variant": "before",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": false,
+      "review": {
+        "requestedFactsCorrect": false,
+        "sourceSupportChecked": true,
+        "noUndisclosedConflict": false,
+        "requestedFormatFollowed": false,
+        "summary": "Correct 243-day rotation and 225-day orbit, but does not clearly distinguish daylight from the 117-day interval between sunrises. Misses conflicting wording on the two NASA pages and asserts no contradiction. At 519 words it also exceeds the requested 250."
+      },
+      "rawRowSha256": "f5aa9e0dc76dc1fc306fdbfd8cd5d1a6bf37dab7db2f458cd24e4a72be4badaa",
+      "answerSha256": "cdef3bdbf75eadffd45e86f9abc7688d4942adb89ce54ed5c94cbd3462141ac3",
+      "answerWords": 519,
+      "totalSeconds": 469.02604666700006,
+      "pipelineSeconds": 383.9008295,
+      "finalAnswerSeconds": 85.12521716700006,
+      "modelRequests": 9,
+      "searchQueries": 3,
+      "pageReads": 4,
+      "extractedFacts": 37,
+      "selectedAnswerFacts": [],
+      "readSources": [
+        {
+          "id": "S2",
+          "url": "https://spaceplace.nasa.gov/all-about-venus/en/"
+        },
+        {
+          "id": "S3",
+          "url": "https://science.nasa.gov/venus/venus-facts/"
+        },
+        {
+          "id": "S14",
+          "url": "https://spaceplace.nasa.gov/days/en/"
+        },
+        {
+          "id": "S20",
+          "url": "https://nssdc.gsfc.nasa.gov/planetary/factsheet/venusfact.html"
+        }
+      ],
+      "executionFailed": false
+    },
+    {
+      "id": "venus-rotation-orbit",
+      "variant": "after",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": false,
+      "review": {
+        "requestedFactsCorrect": false,
+        "sourceSupportChecked": true,
+        "noUndisclosedConflict": false,
+        "requestedFormatFollowed": true,
+        "summary": "Correct rotation/orbit values and 229 words, but repeats NASA Facts' sunrise-to-sunset wording for 117 days without disclosing that NASA Space Place assigns 117 days to successive sunrises. Citations do not resolve this conflicting definition."
+      },
+      "rawRowSha256": "62b231b07a9329ba39020501a9e6a0701f7aed60586643cb7fb9c45a0946a1ae",
+      "answerSha256": "37910375bbc47faaaeba939aea8331e34149e441691250d847a381a084099181",
+      "answerWords": 229,
+      "totalSeconds": 447.2010388330001,
+      "pipelineSeconds": 383.94837554200006,
+      "finalAnswerSeconds": 63.25266329100006,
+      "modelRequests": 9,
+      "searchQueries": 3,
+      "pageReads": 4,
+      "extractedFacts": 38,
+      "selectedAnswerFacts": [],
+      "readSources": [
+        {
+          "id": "S2",
+          "url": "https://spaceplace.nasa.gov/all-about-venus/en/"
+        },
+        {
+          "id": "S3",
+          "url": "https://science.nasa.gov/venus/venus-facts/"
+        },
+        {
+          "id": "S14",
+          "url": "https://spaceplace.nasa.gov/days/en/"
+        },
+        {
+          "id": "S20",
+          "url": "https://nssdc.gsfc.nasa.gov/planetary/factsheet/venusfact.html"
+        }
+      ],
+      "executionFailed": false
+    },
+    {
+      "id": "accessible-target-comparison",
+      "variant": "after",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": false,
+      "review": {
+        "requestedFactsCorrect": false,
+        "sourceSupportChecked": false,
+        "noUndisclosedConflict": true,
+        "requestedFormatFollowed": false,
+        "summary": "Dimensions and levels are correct, but it wrongly denies the enhanced criterion's inline exception. The selected excerpt missed the rule, and level citations do not contain the claimed levels. At 263 words it exceeds the requested limit. This is a content regression relative to the verbose baseline."
+      },
+      "rawRowSha256": "3af2a0be1d7d5e38fa3a565711379d74aabf7fda0d12017e2c55ccfd0b0e8896",
+      "answerSha256": "80f76bb669e94bed39b14d25fc1ee197907feef5d4676f21182fa70026acb545",
+      "answerWords": 263,
+      "totalSeconds": 296.6336483749999,
+      "pipelineSeconds": 240.61823383299983,
+      "finalAnswerSeconds": 56.015414542000045,
+      "modelRequests": 6,
+      "searchQueries": 0,
+      "pageReads": 2,
+      "extractedFacts": 19,
+      "selectedAnswerFacts": [],
+      "readSources": [
+        {
+          "id": "S1",
+          "url": "https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html"
+        },
+        {
+          "id": "S2",
+          "url": "https://www.w3.org/WAI/WCAG22/Understanding/target-size-enhanced.html"
+        }
+      ],
+      "executionFailed": false
+    },
+    {
+      "id": "accessible-target-comparison",
+      "variant": "before",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": false,
+      "review": {
+        "requestedFactsCorrect": true,
+        "sourceSupportChecked": true,
+        "noUndisclosedConflict": true,
+        "requestedFormatFollowed": false,
+        "summary": "Correct 24-by-24 AA versus 44-by-44 AAA and both inline exceptions, grounded in the W3C pages. The long evidence dump contains 784 words instead of fewer than 250, so it is not a fully passing answer."
+      },
+      "rawRowSha256": "87f089d3c60970f60dd50a88228d3ad09a0bbacd1066e767dcb1f8f72ac20381",
+      "answerSha256": "0f169d566e5aaf498fa3837966b234444991c094b14a0ff16f01f5f0ada4b358",
+      "answerWords": 784,
+      "totalSeconds": 364.06310333299984,
+      "pipelineSeconds": 265.06124512500014,
+      "finalAnswerSeconds": 99.00185820799973,
+      "modelRequests": 6,
+      "searchQueries": 0,
+      "pageReads": 2,
+      "extractedFacts": 21,
+      "selectedAnswerFacts": [],
+      "readSources": [
+        {
+          "id": "S1",
+          "url": "https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html"
+        },
+        {
+          "id": "S2",
+          "url": "https://www.w3.org/WAI/WCAG22/Understanding/target-size-enhanced.html"
+        }
+      ],
+      "executionFailed": false
+    }
+  ],
+  "privateReceiptSha256": "90a007a75cc7086c8cfa18f312a12cdd9ffda2407343e6ba86e4ad571a0d0c52",
+  "reviewSha256": "39137c191d478aabc63782daa687021ed56480d9081ebf8a487f43e3e327a019"
+}

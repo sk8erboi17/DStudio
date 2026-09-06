@@ -1,0 +1,57 @@
+{
+  "schema": "dstudio.design-development.public.v1",
+  "caseCount": 3,
+  "auditorSha256": "1d40f8cb5ab2f43985efa149988edc8ba40ccd24c4a1dd00b7dbac9cf0aace8d",
+  "results": [
+    {
+      "label": "before-main",
+      "delivered": 2,
+      "satisfyAuditedRequirements": 1,
+      "binarySha256": "a32debedefcbe739a67a3d7b7feae250977fffff3b18fc26e93e19b170a4f846",
+      "designSourceSha256": "d5579001f5c27915aef07254e30911938da5b4637b7d8b5eeba5440125dce64a",
+      "cases": [
+        {
+          "id": "archive",
+          "delivered": true,
+          "satisfiesAuditedRequirements": true
+        },
+        {
+          "id": "repair",
+          "delivered": false,
+          "satisfiesAuditedRequirements": false
+        },
+        {
+          "id": "workshop",
+          "delivered": true,
+          "satisfiesAuditedRequirements": false
+        }
+      ]
+    },
+    {
+      "label": "after-main",
+      "delivered": 2,
+      "satisfyAuditedRequirements": 1,
+      "binarySha256": "3a9280f04e79d9ab083a4b7a507abfae68cc579ae741b3e116d829778aca2437",
+      "designSourceSha256": "5c8d2dcb935a4d70372b067d1029ac990e1da2a7f6667d16d74b1edc77591314",
+      "cases": [
+        {
+          "id": "archive",
+          "delivered": true,
+          "satisfiesAuditedRequirements": false
+        },
+        {
+          "id": "repair",
+          "delivered": true,
+          "satisfiesAuditedRequirements": true
+        },
+        {
+          "id": "workshop",
+          "delivered": false,
+          "satisfiesAuditedRequirements": false
+        }
+      ]
+    }
+  ],
+  "privateReceiptSha256": "aaf901e68f074cae7337f2c0f38023a36d9e5c4e14da5a870f91f47a39393bde",
+  "evidenceAvailability": "Aggregate data only. Original local receipts are not published; see the linked report for scope and limitations."
+}

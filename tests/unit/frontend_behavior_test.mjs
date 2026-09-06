@@ -28,6 +28,11 @@ function extractFunction(src, name) {
 }
 
 const js = scriptSource();
+const imagePreset = new Function('Store', `${extractFunction(js, 'selectedImagePreset')}; return selectedImagePreset;`);
+for (const value of ['low', 'medium', 'high', 'max', undefined, null, 'unknown']) {
+  const actual = imagePreset({ getSettings: () => ({ imagePreset: value }) })();
+  assert.equal(actual, ['low', 'medium', 'high', 'max'].includes(value) ? value : 'max');
+}
 const engineError = new Function('deepseekMode', `${extractFunction(js, 'readableEngineError')}; return readableEngineError;`);
 const localError = engineError(() => false);
 const genericPrefill = localError('metal prefill failed: failed to encode down path');

@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neighbourhood Lab — Make room to learn</title>
+  <meta name="description" content="A welcoming community workshop planner. Choose a workshop, choose a day, and review your plan. Local demo only.">
+  <style>
+    :root{
+      /* Calm green palette */
+      --bg:        #f4f7f2;   /* soft warm paper */
+      --surface:   #ffffff;
+      --surface-2: #e9f0e6;   /* pale green wash */
+      --border:    #d4e0d0;
+      --fg:        #1f2b22;   /* deep green-black text */
+      --muted:     #4a5a4e;   /* readable secondary green-gray */
+      --accent:    #2f6b3a;   /* calm forest green */
+      --accent-soft:#dce9d8;
+      --accent-hover:#24552e;
+      --focus:     #1f6f3a;
+
+      /* Typography */
+      --font-body:  -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, system-ui, sans-serif;
+      --font-display: Georgia, "Times New Roman", serif;
+
+      --radius: 14px;
+      --space: 1rem;
+    }
+
+    *{ box-sizing: border-box; }
+
+    html, body{
+      margin: 0;
+      padding: 0;
+    }
+
+    body{
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: 17px;
+      line-height: 1.6;
+      min-height: 100dvh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Layout: desktop two-column, mobile single */
+    .page{
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: clamp(1.25rem, 4vw, 3rem) clamp(1rem, 5vw, 2.5rem);
+    }
+
+    .grid{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: clamp(1.5rem, 4vw, 3rem);
+      align-items: start;
+    }
+
+    /* Header */
+    .brand{
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: clamp(1.5rem, 4vw, 2.5rem);
+    }
+    .brand-mark{
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    .brand-name{
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--fg);
+    }
+
+    /* Intro column (desktop) */
+    .intro{
+      padding-top: 0.5rem;
+    }
+    .eyebrow{
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0 0 0.75rem;
+    }
+    h1{
+      font-family: var(--font-display);
+      font-size: clamp(2rem, 4.5vw, 3.1rem);
+      line-height: 1.12;
+      margin: 0 0 1.1rem;
+      letter-spacing: -0.01em;
+      color: var(--fg);
+    }
+    .intro p{
+      margin: 0 0 1.1rem;
+      max-width: 60ch;
+      color: var(--fg);
+    }
+    .intro .muted{
+      color: var(--muted);
+    }
+    .how{
+      margin-top: 1.6rem;
+      padding: 1.1rem 1.2rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    .how h2{
+      font-size: 15px;
+      margin: 0 0 0.6rem;
+      color: var(--fg);
+    }
+    .how ol{
+      margin: 0;
+      padding-left: 1.25rem;
+      color: var(--fg);
+    }
+    .how li{ margin: 0.35rem 0; }
+
+    /* Step panel */
+    .panel{
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: clamp(1.25rem, 3vw, 1.75rem);
+      box-shadow: 0 1px 2px rgba(31,43,34,0.06);
+    }
+
+    .step-head{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 1.1rem;
+    }
+    .step-label{
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .step-count{
+      font-size: 13px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .panel h2{
+      font-family: var(--font-display);
+      font-size: 1.5rem;
+      line-height: 1.2;
+      margin: 0 0 0.35rem;
+      color: var(--fg);
+    }
+    .panel .hint{
+      margin: 0 0 1.25rem;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    /* Choice groups */
+    fieldset{
+      border: none;
+      margin: 0;
+      padding: 0;
+    }
+    .choice-group{
+      display: grid;
+      gap: 0.75rem;
+    }
+    .choice{
+      position: relative;
+      display: block;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.9rem 1rem;
+      background: var(--surface);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .choice:hover{
+      border-color: var(--accent);
+      background: var(--surface-2);
+    }
+    .choice input{
+      position: absolute;
+      opacity: 0;
+      width: 1px; height: 1px;
+      margin: 0;
+    }
+    .choice .radio{
+      position: absolute;
+      left: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 20px; height: 20px;
+      border: 2px solid var(--border);
+      border-radius: 50%;
+      background: var(--surface);
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .choice input:checked + .radio{
+      border-color: var(--accent);
+      background: var(--accent);
+      box-shadow: inset 0 0 0 4px var(--surface);
+    }
+    .choice input:focus-visible + .radio{
+      outline: 3px solid var(--focus);
+      outline-offset: 2px;
+    }
+    .choice .choice-body{
+      padding-left: 2.1rem;
+    }
+    .choice .choice-title{
+      font-weight: 600;
+      font-size: 16px;
+      color: var(--fg);
+      margin: 0;
+    }
+    .choice .choice-desc{
+      font-size: 14px;
+      color: var(--muted);
+      margin: 0.2rem 0 0;
+    }
+
+    /* Buttons */
+    .actions{
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1.4rem;
+    }
+    .btn{
+      appearance: none;
+      border: none;
+      border-radius: 10px;
+      padding: 0.8rem 1.3rem;
+      font-size: 16px;
+      font-weight: 600;
+      font-family: var(--font-body);
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+      min-height: 44px;
+    }
+    .btn-primary{
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover{ background: var(--accent-hover); }
+    .btn-primary:disabled{
+      background: var(--accent-soft);
+      color: #6b7a6e;
+      cursor: not-allowed;
+      opacity: 0.9;
+    }
+    .btn-secondary{
+      background: var(--surface-2);
+      color: var(--fg);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover{ background: #dfe9db; }
+    .btn:focus-visible{
+      outline: 3px solid var(--focus);
+      outline-offset: 2px;
+    }
+
+    /* Review */
+    .review-list{
+      display: grid;
+      gap: 0.9rem;
+      margin: 0.25rem 0 0;
+    }
+    .review-item{
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.9rem 1rem;
+      background: var(--surface-2);
+    }
+    .review-item .rv-label{
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0 0 0.25rem;
+    }
+    .review-item .rv-value{
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--fg);
+      margin: 0;
+    }
+    .review-item .rv-sub{
+      font-size: 14px;
+      color: var(--muted);
+      margin: 0.15rem 0 0;
+    }
+
+    /* Confirmation */
+    .confirm{
+      margin-top: 1.4rem;
+      padding: 1.1rem 1.2rem;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
+    }
+    .confirm h3{
+      font-size: 16px;
+      margin: 0 0 0.4rem;
+      color: var(--fg);
+    }
+    .confirm p{
+      margin: 0;
+      font-size: 15px;
+      color: var(--fg);
+    }
+    .confirm .demo-note{
+      margin-top: 0.6rem;
+      padding-top: 0.6rem;
+      border-top: 1px dashed var(--border);
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .sr-only{
+      position: absolute;
+      width: 1px; height: 1px;
+      clip: rect(0 0 0 0);
+      clip-path: inset(50%);
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    /* Mobile: single column, action below heading */
+    @media (max-width: 860px){
+      .grid{
+        grid-template-columns: 1fr;
+      }
+      .intro{
+        order: 1;
+      }
+      .panel{
+        order: 2;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce){
+      .choice, .btn{ transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="brand">
+      <span class="brand-mark" aria-hidden="true">NL</span>
+      <span class="brand-name">Neighbourhood Lab</span>
+    </header>
+
+    <main class="grid">
+      <!-- Intro column -->
+      <section class="intro" aria-label="About Neighbourhood Lab">
+        <p class="eyebrow">Community workshop planner</p>
+        <h1>Make room to learn.</h1>
+        <p>
+          Neighbourhood Lab is a friendly, low-pressure space where neighbours
+          gather to learn practical things together. No experience needed, no
+          judgement, just a table, some tools, and a patient teacher.
+        </p>
+        <p class="muted">
+          Plan your visit in three easy steps: pick a workshop, pick a day, and
+          review your choice. Your plan is saved on this page as you go.
+        </p>
+        <div class="how">
+          <h2>How it works</h2>
+          <ol>
+            <li>Choose a workshop that interests you.</li>
+            <li>Choose a day that suits you.</li>
+            <li>Review and confirm your plan.</li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- Step panel -->
+      <section class="panel" aria-label="Planner">
+        <div class="step-head">
+          <span class="step-label" id="stepLabel">Step 1 of 3</span>
+          <span class="step-count" id="stepCount">Choose a workshop</span>
+        </div>
+
+        <div id="step1" class="step" role="group" aria-labelledby="step1Title">
+          <h2 id="step1Title">Choose a workshop</h2>
+          <p class="hint">Tap one to select it. You can change it later.</p>
+          <fieldset>
+            <legend class="sr-only">Choose a workshop</legend>
+            <div class="choice-group">
+              <label class="choice">
+                <input type="radio" name="workshop" value="Bookbinding">
+                <span class="radio" aria-hidden="true"></span>
+                <span class="choice-body">
+                  <span class="choice-title">Bookbinding</span>
+                  <span class="choice-desc">Stitch and bind your own notebook. Beginner friendly.</span>
+                </span>
+              </label>
+              <label class="choice">
+                <input type="radio" name="workshop" value="Bicycle care">
+                <span class="radio" aria-hidden="true"></span>
+                <span class="choice-body">
+                  <span class="choice-title">Bicycle care</span>
+                  <span class="choice-desc">Fix a flat, adjust brakes, and keep your bike rolling.</span>
+                </span>
+              </label>
+              <label class="choice">
+                <input type="radio" name="workshop" value="Urban sketching">
+                <span class="radio" aria-hidden="true"></span>
+                <span class="choice-body">
+                  <span class="choice-title">Urban sketching</span>
+                  <span class="choice-desc">Draw the street with a patient guide. All levels welcome.</span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+          <div class="actions">
+            <button class="btn btn-primary" id="continue1" disabled>Continue</button>
+          </div>
+        </div>
+
+        <div id="step2" class="step" role="group" aria-labelledby="step2Title" hidden>
+          <h2 id="step2Title">Choose a day</h2>
+          <p class="hint">Pick the day that suits you. Your workshop choice is kept.</p>
+          <fieldset>
+            <legend class="sr-only">Choose a day</legend>
+            <div class="choice-group">
+              <label class="choice">
+                <input type="radio" name="day" value="Tuesday">
+                <span class="radio" aria-hidden="true"></span>
+                <span class="choice-body">
+                  <span class="choice-title">Tuesday</span>
+                  <span class="choice-desc">Evening session, 6:30&nbsp;pm.</span>
+                </span>
+              </label>
+              <label class="choice">
+                <input type="radio" name="day" value="Thursday">
+                <span class="radio" aria-hidden="true"></span>
+                <span class="choice-body">
+                  <span class="choice-title">Thursday</span>
+                  <span class="choice-desc">Morning session, 10:00&nbsp;am.</span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+          <div class="actions">
+            <button class="btn btn-secondary" id="back2">Back</button>
+            <button class="btn btn-primary" id="continue2" disabled>Continue</button>
+          </div>
+        </div>
+
+        <div id="step3" class="step" role="group" aria-labelledby="step3Title" hidden>
+          <h2 id="step3Title">Review your plan</h2>
+          <p class="hint">Here is what you have chosen. You can go back to change it.</p>
+          <div class="review-list">
+            <div class="review-item">
+              <p class="rv-label">Workshop</p>
+              <p class="rv-value" id="rvWorkshop">—</p>
+              <p class="rv-sub" id="rvWorkshopSub">—</p>
+            </div>
+            <div class="review-item">
+              <p class="rv-label">Day</p>
+              <p class="rv-value" id="rvDay">—</p>
+              <p class="rv-sub" id="rvDaySub">—</p>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-secondary" id="back3">Back</button>
+            <button class="btn btn-primary" id="confirm">Confirm plan</button>
+          </div>
+        </div>
+
+        <div id="confirmation" class="confirm" hidden>
+          <h3>Your plan is ready</h3>
+          <p id="confirmSummary">—</p>
+          <p class="demo-note">
+            <strong>No booking was made:</strong> this is a local demo. The
+            workshop and day shown are sample data, and nothing has been sent
+            anywhere. To start over, reload the page.
+          </p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (function(){
+      "use strict";
+
+      var steps = {
+        s1: document.getElementById("step1"),
+        s2: document.getElementById("step2"),
+        s3: document.getElementById("step3")
+      };
+      var confirmBox = document.getElementById("confirmation");
+      var stepLabel = document.getElementById("stepLabel");
+      var stepCount = document.getElementById("stepCount");
+
+      var workshopRadios = document.querySelectorAll('input[name="workshop"]');
+      var dayRadios = document.querySelectorAll('input[name="day"]');
+
+      var continue1 = document.getElementById("continue1");
+      var continue2 = document.getElementById("continue2");
+      var back2 = document.getElementById("back2");
+      var back3 = document.getElementById("back3");
+      var confirmBtn = document.getElementById("confirm");
+
+      var rvWorkshop = document.getElementById("rvWorkshop");
+      var rvWorkshopSub = document.getElementById("rvWorkshopSub");
+      var rvDay = document.getElementById("rvDay");
+      var rvDaySub = document.getElementById("rvDaySub");
+      var confirmSummary = document.getElementById("confirmSummary");
+
+      var workshopMeta = {
+        "Bookbinding": "Stitch and bind your own notebook. Beginner friendly.",
+        "Bicycle care": "Fix a flat, adjust brakes, and keep your bike rolling.",
+        "Urban sketching": "Draw the street with a patient guide. All levels welcome."
+      };
+      var dayMeta = {
+        "Tuesday": "Evening session, 6:30 pm.",
+        "Thursday": "Morning session, 10:00 am."
+      };
+
+      function selectedValue(name){
+        var el = document.querySelector('input[name="' + name + '"]:checked');
+        return el ? el.value : null;
+      }
+
+      function showStep(id){
+        Object.keys(steps).forEach(function(k){
+          steps[k].hidden = (k !== id);
+        });
+        confirmBox.hidden = true;
+        if(id === "s1"){
+          stepLabel.textContent = "Step 1 of 3";
+          stepCount.textContent = "Choose a workshop";
+        } else if(id === "s2"){
+          stepLabel.textContent = "Step 2 of 3";
+          stepCount.textContent = "Choose a day";
+        } else {
+          stepLabel.textContent = "Step 3 of 3";
+          stepCount.textContent = "Review";
+        }
+      }
+
+      function refreshGates(){
+        continue1.disabled = !selectedValue("workshop");
+        continue2.disabled = !selectedValue("day");
+      }
+
+      function fillReview(){
+        var w = selectedValue("workshop");
+        var d = selectedValue("day");
+        rvWorkshop.textContent = w || "—";
+        rvWorkshopSub.textContent = w ? workshopMeta[w] : "—";
+        rvDay.textContent = d || "—";
+        rvDaySub.textContent = d ? dayMeta[d] : "—";
+      }
+
+      function fillConfirm(){
+        var w = selectedValue("workshop");
+        var d = selectedValue("day");
+        confirmSummary.textContent =
+          "You chose " + w + " on " + d + ".";
+      }
+
+      // Gate Continue buttons live
+      workshopRadios.forEach(function(r){
+        r.addEventListener("change", refreshGates);
+      });
+      dayRadios.forEach(function(r){
+        r.addEventListener("change", refreshGates);
+      });
+
+      continue1.addEventListener("click", function(){
+        if(!selectedValue("workshop")) return;
+        showStep("s2");
+      });
+
+      back2.addEventListener("click", function(){
+        showStep("s1");
+      });
+
+      continue2.addEventListener("click", function(){
+        if(!selectedValue("day")) return;
+        fillReview();
+        showStep("s3");
+      });
+
+      back3.addEventListener("click", function(){
+        showStep("s2");
+      });
+
+      confirmBtn.addEventListener("click", function(){
+        fillConfirm();
+        confirmBox.hidden = false;
+        // Keep review visible above the confirmation
+      });
+
+      refreshGates();
+    })();
+  </script>
+</body>
+</html>

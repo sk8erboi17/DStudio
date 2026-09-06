@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { hasWorkshopIdentity, hasHonestWorkshopConfirmation } from '../fixtures/product_design_expectations.mjs';
+assert.equal(hasWorkshopIdentity('Neighbourhood Lab\nMake room to\nlearn.'), true);
+assert.equal(hasWorkshopIdentity('NEIGHBOURHOOD LAB Make room to learn'), true);
+assert.equal(hasWorkshopIdentity('Neighbourhood Lab'), false);
+assert.equal(hasWorkshopIdentity('Make room to learn at another company'), false);
+assert.equal(hasWorkshopIdentity('Neighbourhood Labs Make room to learn'), false);
+assert.equal(hasHonestWorkshopConfirmation('No booking was made: this is a local demo. Choices are sample data.'), true);
+assert.equal(hasHonestWorkshopConfirmation('No booking was made:\nLocal demo, with sample\ndata.'), true);
+assert.equal(hasHonestWorkshopConfirmation('Booking confirmed. Sample data, local demo.'), false);
+assert.equal(hasHonestWorkshopConfirmation('No booking was made. A local demo.'), false);
+assert.equal(hasHonestWorkshopConfirmation('No booking was made. Sample data.'), false);
+console.log('product_design_grader: case-insensitive brand, whitespace, required heading and missing-brand rejection passed');

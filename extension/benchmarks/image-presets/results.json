@@ -1,0 +1,764 @@
+{
+  "schemaVersion": 1,
+  "realInference": true,
+  "scope": "production Ideogram shell/worker; excludes native chat prompt authoring",
+  "reference": "https://hermes-agent.nousresearch.com/",
+  "referenceUse": "textual art direction, not image-to-image or pixel reconstruction",
+  "seed": 271828,
+  "perImageDeadlineSeconds": 10800,
+  "startedAt": "2026-09-06T10:41:26.492473+00:00",
+  "finishedAt": "2026-09-06T15:11:36.172609+00:00",
+  "hardware": "Apple M2 Max",
+  "memoryBytes": 103079215104,
+  "operatingSystem": "26.5.2",
+  "sharedHost": true,
+  "plan": [
+    {
+      "case": "hermes-hero-art",
+      "preset": "low"
+    },
+    {
+      "case": "hermes-hero-art",
+      "preset": "medium"
+    },
+    {
+      "case": "hermes-hero-art",
+      "preset": "high"
+    },
+    {
+      "case": "hermes-hero-art",
+      "preset": "max"
+    },
+    {
+      "case": "hermes-portrait-art",
+      "preset": "low"
+    },
+    {
+      "case": "hermes-portrait-art",
+      "preset": "medium"
+    },
+    {
+      "case": "hermes-portrait-art",
+      "preset": "high"
+    },
+    {
+      "case": "hermes-portrait-art",
+      "preset": "max"
+    }
+  ],
+  "runs": [
+    {
+      "case": "hermes-hero-art",
+      "preset": "low",
+      "state": "generated",
+      "elapsedSeconds": 270.511,
+      "exitCode": 0,
+      "expectedSize": [
+        1024,
+        576
+      ],
+      "captionSha256": "fd53419c83d93395ed8cb225f25753ed3a01b3444aadce548eacc810138365ed",
+      "outputSha256": "07e35d428e2792706e99ffa0dc6ef1f4f70fb217adcab411e992ffd489e531a7",
+      "outputValidation": {
+        "format": "PNG",
+        "mode": "RGB",
+        "width": 1024,
+        "height": 576,
+        "lumaMin": 48,
+        "lumaMax": 230,
+        "lumaMean": 64.0612,
+        "lumaEntropy": 4.4782,
+        "occupiedLumaBins": 178,
+        "significantLumaFraction": 1.0
+      },
+      "provenance": {
+        "provider": "ideogram4-fp8",
+        "model": "Comfy-Org/Ideogram-4",
+        "revision": "bbee2ab2b14b2b5223448d12d6e31e5f9cec0546",
+        "runtime": {
+          "comfy": "b78cec879b9460d5cb25228a83a942fb78d2cd24",
+          "fp8Plugin": "911294ca35093eef56f7f2695414ff8810e88e50",
+          "ideogramNode": "c05545d71e61b7ce47534a972eaeefd958a3719f"
+        },
+        "preset": "low",
+        "quality": {
+          "profile": "V4_TURBO_12",
+          "steps": 12,
+          "sampler": "euler",
+          "cfg": 7.0,
+          "polishCfg": 3.0,
+          "polishSteps": 1,
+          "polishStart": 0.753533435585256,
+          "mu": 0.5,
+          "std": 1.75,
+          "vaeDecode": "overlapped-three-pass-tiled",
+          "vaeTileSize": 1024,
+          "vaeTileOverlap": 256
+        },
+        "size": {
+          "width": 1024,
+          "height": 576,
+          "aspect": "16:9"
+        },
+        "outputValidation": {
+          "format": "PNG",
+          "mode": "RGB",
+          "width": 1024,
+          "height": 576,
+          "lumaMin": 48,
+          "lumaMax": 230,
+          "lumaMean": 64.0612,
+          "lumaEntropy": 4.4782,
+          "occupiedLumaBins": 178,
+          "significantLumaFraction": 1.0
+        },
+        "seed": 271828,
+        "elapsedSeconds": 268.212,
+        "caption": {
+          "high_level_description": "A standalone copperplate illustration filling the entire canvas. One classical Greek messenger bust wears a small winged helmet, with carved curly hair and a calm expressive face. The bust is centred against a solid intense electric cobalt blue field with generous open blue margins. Fine ivory cross-hatching, crisp engraved contours and delicate radial celestial lines create an intricate antique print rendered strictly in cobalt blue and ivory ink. The only depicted object is the messenger bust. This is the artwork itself, unframed and full bleed. Lettering, logos, watermarks, borders and interface controls are absent.",
+          "compositional_deconstruction": {
+            "background": "An uninterrupted flat electric cobalt blue field with sparse fine ivory radial celestial lines and clean open margins. All drawn marks are either cobalt blue or ivory ink.",
+            "elements": [
+              {
+                "type": "obj",
+                "desc": "One centrally framed ivory classical Greek messenger bust wearing a small winged helmet. Clear sculptural facial anatomy, carved curls, crisp silhouette, fine copperplate cross-hatching and intricate engraved shading. Calm expressive face, generous blue space around the shoulders."
+              }
+            ]
+          }
+        }
+      },
+      "image": "images/hermes-hero-art-low.png",
+      "review": {
+        "case": "hermes-hero-art",
+        "preset": "low",
+        "outputSha256": "07e35d428e2792706e99ffa0dc6ef1f4f70fb217adcab411e992ffd489e531a7",
+        "promptAdherencePass": false,
+        "notes": "Standalone blue/ivory engraved illustration; no navigation, lettering or logos. Recognizable winged classical head and celestial marks. The head is small and floats without the shoulders implied by a bust, and the background is heavily textured rather than flat. The website-UI defect is gone, but complete caption adherence still fails."
+      }
+    },
+    {
+      "case": "hermes-hero-art",
+      "preset": "medium",
+      "state": "generated",
+      "elapsedSeconds": 410.693,
+      "exitCode": 0,
+      "expectedSize": [
+        1024,
+        576
+      ],
+      "captionSha256": "fd53419c83d93395ed8cb225f25753ed3a01b3444aadce548eacc810138365ed",
+      "outputSha256": "d3a32a4406301f9d46cad538201f7d7541133638a3cce45dd9a49b585f66e610",
+      "outputValidation": {
+        "format": "PNG",
+        "mode": "RGB",
+        "width": 1024,
+        "height": 576,
+        "lumaMin": 43,
+        "lumaMax": 230,
+        "lumaMean": 62.2749,
+        "lumaEntropy": 4.4907,
+        "occupiedLumaBins": 181,
+        "significantLumaFraction": 1.0
+      },
+      "provenance": {
+        "provider": "ideogram4-fp8",
+        "model": "Comfy-Org/Ideogram-4",
+        "revision": "bbee2ab2b14b2b5223448d12d6e31e5f9cec0546",
+        "runtime": {
+          "comfy": "b78cec879b9460d5cb25228a83a942fb78d2cd24",
+          "fp8Plugin": "911294ca35093eef56f7f2695414ff8810e88e50",
+          "ideogramNode": "c05545d71e61b7ce47534a972eaeefd958a3719f"
+        },
+        "preset": "medium",
+        "quality": {
+          "profile": "V4_DEFAULT_20",
+          "steps": 20,
+          "sampler": "euler",
+          "cfg": 7.0,
+          "polishCfg": 3.0,
+          "polishSteps": 2,
+          "polishStart": 0.8330598885077383,
+          "mu": 0.0,
+          "std": 1.75,
+          "vaeDecode": "overlapped-three-pass-tiled",
+          "vaeTileSize": 1024,
+          "vaeTileOverlap": 256
+        },
+        "size": {
+          "width": 1024,
+          "height": 576,
+          "aspect": "16:9"
+        },
+        "outputValidation": {
+          "format": "PNG",
+          "mode": "RGB",
+          "width": 1024,
+          "height": 576,
+          "lumaMin": 43,
+          "lumaMax": 230,
+          "lumaMean": 62.2749,
+          "lumaEntropy": 4.4907,
+          "occupiedLumaBins": 181,
+          "significantLumaFraction": 1.0
+        },
+        "seed": 271828,
+        "elapsedSeconds": 408.747,
+        "caption": {
+          "high_level_description": "A standalone copperplate illustration filling the entire canvas. One classical Greek messenger bust wears a small winged helmet, with carved curly hair and a calm expressive face. The bust is centred against a solid intense electric cobalt blue field with generous open blue margins. Fine ivory cross-hatching, crisp engraved contours and delicate radial celestial lines create an intricate antique print rendered strictly in cobalt blue and ivory ink. The only depicted object is the messenger bust. This is the artwork itself, unframed and full bleed. Lettering, logos, watermarks, borders and interface controls are absent.",
+          "compositional_deconstruction": {
+            "background": "An uninterrupted flat electric cobalt blue field with sparse fine ivory radial celestial lines and clean open margins. All drawn marks are either cobalt blue or ivory ink.",
+            "elements": [
+              {
+                "type": "obj",
+                "desc": "One centrally framed ivory classical Greek messenger bust wearing a small winged helmet. Clear sculptural facial anatomy, carved curls, crisp silhouette, fine copperplate cross-hatching and intricate engraved shading. Calm expressive face, generous blue space around the shoulders."
+              }
+            ]
+          }
+        }
+      },
+      "image": "images/hermes-hero-art-medium.png",
+      "review": {
+        "case": "hermes-hero-art",
+        "preset": "medium",
+        "outputSha256": "d3a32a4406301f9d46cad538201f7d7541133638a3cce45dd9a49b585f66e610",
+        "promptAdherencePass": false,
+        "notes": "Standalone blue/ivory engraving with no web interface. Small classical head rather than the full bust, textured blue field and celestial lines. A short line of spurious lettering appears above the head despite the instruction to omit lettering. Extra sampling did not remove this defect. No retouching."
+      }
+    },
+    {
+      "case": "hermes-hero-art",
+      "preset": "high",
+      "state": "generated",
+      "elapsedSeconds": 946.435,
+      "exitCode": 0,
+      "expectedSize": [
+        1024,
+        576
+      ],
+      "captionSha256": "fd53419c83d93395ed8cb225f25753ed3a01b3444aadce548eacc810138365ed",
+      "outputSha256": "56d5db6365c4634cc1f2f5b4453070860b2375d4e20b50aa6ec381fce64dfc01",
+      "outputValidation": {
+        "format": "PNG",
+        "mode": "RGB",
+        "width": 1024,
+        "height": 576,
+        "lumaMin": 51,
+        "lumaMax": 237,
+        "lumaMean": 71.2953,
+        "lumaEntropy": 4.8695,
+        "occupiedLumaBins": 181,
+        "significantLumaFraction": 1.0
+      },
+      "provenance": {
+        "provider": "ideogram4-fp8",
+        "model": "Comfy-Org/Ideogram-4",
+        "revision": "bbee2ab2b14b2b5223448d12d6e31e5f9cec0546",
+        "runtime": {
+          "comfy": "b78cec879b9460d5cb25228a83a942fb78d2cd24",
+          "fp8Plugin": "911294ca35093eef56f7f2695414ff8810e88e50",
+          "ideogramNode": "c05545d71e61b7ce47534a972eaeefd958a3719f"
+        },
+        "preset": "high",
+        "quality": {
+          "profile": "V4_QUALITY_48",
+          "steps": 48,
+          "sampler": "euler",
+          "cfg": 7.0,
+          "polishCfg": 3.0,
+          "polishSteps": 3,
+          "polishStart": 0.8554258944890492,
+          "mu": 0.0,
+          "std": 1.5,
+          "vaeDecode": "overlapped-three-pass-tiled",
+          "vaeTileSize": 1024,
+          "vaeTileOverlap": 256
+        },
+        "size": {
+          "width": 1024,
+          "height": 576,
+          "aspect": "16:9"
+        },
+        "outputValidation": {
+          "format": "PNG",
+          "mode": "RGB",
+          "width": 1024,
+          "height": 576,
+          "lumaMin": 51,
+          "lumaMax": 237,
+          "lumaMean": 71.2953,
+          "lumaEntropy": 4.8695,
+          "occupiedLumaBins": 181,
+          "significantLumaFraction": 1.0
+        },
+        "seed": 271828,
+        "elapsedSeconds": 944.757,
+        "caption": {
+          "high_level_description": "A standalone copperplate illustration filling the entire canvas. One classical Greek messenger bust wears a small winged helmet, with carved curly hair and a calm expressive face. The bust is centred against a solid intense electric cobalt blue field with generous open blue margins. Fine ivory cross-hatching, crisp engraved contours and delicate radial celestial lines create an intricate antique print rendered strictly in cobalt blue and ivory ink. The only depicted object is the messenger bust. This is the artwork itself, unframed and full bleed. Lettering, logos, watermarks, borders and interface controls are absent.",
+          "compositional_deconstruction": {
+            "background": "An uninterrupted flat electric cobalt blue field with sparse fine ivory radial celestial lines and clean open margins. All drawn marks are either cobalt blue or ivory ink.",
+            "elements": [
+              {
+                "type": "obj",
+                "desc": "One centrally framed ivory classical Greek messenger bust wearing a small winged helmet. Clear sculptural facial anatomy, carved curls, crisp silhouette, fine copperplate cross-hatching and intricate engraved shading. Calm expressive face, generous blue space around the shoulders."
+              }
+            ]
+          }
+        }
+      },
+      "image": "images/hermes-hero-art-high.png",
+      "review": {
+        "case": "hermes-hero-art",
+        "preset": "high",
+        "outputSha256": "56d5db6365c4634cc1f2f5b4453070860b2375d4e20b50aa6ec381fce64dfc01",
+        "promptAdherencePass": false,
+        "notes": "Standalone blue/ivory engraving without visible lettering, logos or UI. Sharper celestial lines and a recognizable classical winged head. Composition remains close to Low: a small floating head without the shoulders implied by a bust, on a textured rather than flat field. The full written caption still fails, and the extra time does not establish a broad quality gain."
+      }
+    },
+    {
+      "case": "hermes-hero-art",
+      "preset": "max",
+      "state": "generated",
+      "elapsedSeconds": 4681.319,
+      "exitCode": 0,
+      "expectedSize": [
+        2048,
+        1152
+      ],
+      "captionSha256": "fd53419c83d93395ed8cb225f25753ed3a01b3444aadce548eacc810138365ed",
+      "outputSha256": "a76147d0fd9676b14485668b85187f3b05a8c33b170fcaf61de08c85dfff3507",
+      "outputValidation": {
+        "format": "PNG",
+        "mode": "RGB",
+        "width": 2048,
+        "height": 1152,
+        "lumaMin": 19,
+        "lumaMax": 254,
+        "lumaMean": 44.5246,
+        "lumaEntropy": 1.9366,
+        "occupiedLumaBins": 224,
+        "significantLumaFraction": 1.0
+      },
+      "provenance": {
+        "provider": "ideogram4-fp8",
+        "model": "Comfy-Org/Ideogram-4",
+        "revision": "bbee2ab2b14b2b5223448d12d6e31e5f9cec0546",
+        "runtime": {
+          "comfy": "b78cec879b9460d5cb25228a83a942fb78d2cd24",
+          "fp8Plugin": "911294ca35093eef56f7f2695414ff8810e88e50",
+          "ideogramNode": "c05545d71e61b7ce47534a972eaeefd958a3719f"
+        },
+        "preset": "max",
+        "quality": {
+          "profile": "V4_QUALITY_48",
+          "steps": 48,
+          "sampler": "euler",
+          "cfg": 7.0,
+          "polishCfg": 3.0,
+          "polishSteps": 3,
+          "polishStart": 0.7476355653362634,
+          "mu": 0.0,
+          "std": 1.5,
+          "vaeDecode": "overlapped-three-pass-tiled",
+          "vaeTileSize": 1024,
+          "vaeTileOverlap": 256
+        },
+        "size": {
+          "width": 2048,
+          "height": 1152,
+          "aspect": "16:9"
+        },
+        "outputValidation": {
+          "format": "PNG",
+          "mode": "RGB",
+          "width": 2048,
+          "height": 1152,
+          "lumaMin": 19,
+          "lumaMax": 254,
+          "lumaMean": 44.5246,
+          "lumaEntropy": 1.9366,
+          "occupiedLumaBins": 224,
+          "significantLumaFraction": 1.0
+        },
+        "seed": 271828,
+        "elapsedSeconds": 4679.255,
+        "caption": {
+          "high_level_description": "A standalone copperplate illustration filling the entire canvas. One classical Greek messenger bust wears a small winged helmet, with carved curly hair and a calm expressive face. The bust is centred against a solid intense electric cobalt blue field with generous open blue margins. Fine ivory cross-hatching, crisp engraved contours and delicate radial celestial lines create an intricate antique print rendered strictly in cobalt blue and ivory ink. The only depicted object is the messenger bust. This is the artwork itself, unframed and full bleed. Lettering, logos, watermarks, borders and interface controls are absent.",
+          "compositional_deconstruction": {
+            "background": "An uninterrupted flat electric cobalt blue field with sparse fine ivory radial celestial lines and clean open margins. All drawn marks are either cobalt blue or ivory ink.",
+            "elements": [
+              {
+                "type": "obj",
+                "desc": "One centrally framed ivory classical Greek messenger bust wearing a small winged helmet. Clear sculptural facial anatomy, carved curls, crisp silhouette, fine copperplate cross-hatching and intricate engraved shading. Calm expressive face, generous blue space around the shoulders."
+              }
+            ]
+          }
+        }
+      },
+      "image": "images/hermes-hero-art-max.png",
+      "review": {
+        "case": "hermes-hero-art",
+        "preset": "max",
+        "outputSha256": "a76147d0fd9676b14485668b85187f3b05a8c33b170fcaf61de08c85dfff3507",
+        "promptAdherencePass": false,
+        "notes": "Unusable output: a blue field with the ivory words 'Image blocked by safety filter', without the requested messenger illustration. The PNG is valid and all 48 diffusion steps completed, so the pixel sanity check is not evidence of semantic correctness. The executed graph has no moderation node, the inspected save path writes decoded pixels directly, and the runtime log reports successful execution. Official Ideogram prompting documentation and the Comfy-Org workflow identify this refusal image as a model-trained behavior, with known false positives. This benign JSON-caption run is consistent with that behavior, not a DStudio error banner. Original pixels retained without retry or retouching."
+      }
+    },
+    {
+      "case": "hermes-portrait-art",
+      "preset": "low",
+      "state": "generated",
+      "elapsedSeconds": 396.739,
+      "exitCode": 0,
+      "expectedSize": [
+        768,
+        1024
+      ],
+      "captionSha256": "de520ccc50db1da56ad4396137c54e5504e5099cf97a7fb574681496bf4059f2",
+      "outputSha256": "99f2d38940ab0eddff9f1bf3636cc5c042dc0965bf3bd84ef8c986f9c6139341",
+      "outputValidation": {
+        "format": "PNG",
+        "mode": "RGB",
+        "width": 768,
+        "height": 1024,
+        "lumaMin": 87,
+        "lumaMax": 240,
+        "lumaMean": 112.1246,
+        "lumaEntropy": 0.9072,
+        "occupiedLumaBins": 149,
+        "significantLumaFraction": 1.0
+      },
+      "provenance": {
+        "provider": "ideogram4-fp8",
+        "model": "Comfy-Org/Ideogram-4",
+        "revision": "bbee2ab2b14b2b5223448d12d6e31e5f9cec0546",
+        "runtime": {
+          "comfy": "b78cec879b9460d5cb25228a83a942fb78d2cd24",
+          "fp8Plugin": "911294ca35093eef56f7f2695414ff8810e88e50",
+          "ideogramNode": "c05545d71e61b7ce47534a972eaeefd958a3719f"
+        },
+        "preset": "low",
+        "quality": {
+          "profile": "V4_TURBO_12",
+          "steps": 12,
+          "sampler": "euler",
+          "cfg": 7.0,
+          "polishCfg": 3.0,
+          "polishSteps": 1,
+          "polishStart": 0.7265580804734169,
+          "mu": 0.5,
+          "std": 1.75,
+          "vaeDecode": "overlapped-three-pass-tiled",
+          "vaeTileSize": 1024,
+          "vaeTileOverlap": 256
+        },
+        "size": {
+          "width": 768,
+          "height": 1024,
+          "aspect": "3:4"
+        },
+        "outputValidation": {
+          "format": "PNG",
+          "mode": "RGB",
+          "width": 768,
+          "height": 1024,
+          "lumaMin": 87,
+          "lumaMax": 240,
+          "lumaMean": 112.1246,
+          "lumaEntropy": 0.9072,
+          "occupiedLumaBins": 149,
+          "significantLumaFraction": 1.0
+        },
+        "seed": 271828,
+        "elapsedSeconds": 395.043,
+        "caption": {
+          "high_level_description": "A standalone copperplate portrait illustration filling the entire canvas. Close-up three-quarter profile of a woman wearing modern over-ear headphones. Her whole head, the visible headphone earcups and upper shoulders fit inside the portrait frame. Calm natural facial anatomy and delicately engraved flowing hair are rendered entirely with ivory and cobalt cross-hatching on an uninterrupted solid electric cobalt blue field. Dense readable fine linework, confident high-contrast silhouette and generous open blue margins. The only depicted subject is the woman wearing headphones. This is the two-colour artwork itself, unframed and full bleed. Lettering, logos, watermarks, borders and interface controls are absent.",
+          "compositional_deconstruction": {
+            "background": "An uninterrupted flat electric cobalt blue field with clean open margins. All drawn marks are cobalt blue or ivory ink, with no background objects.",
+            "elements": [
+              {
+                "type": "obj",
+                "desc": "One woman in three-quarter profile wearing modern over-ear headphones, her whole head and upper shoulders visible. Calm natural facial proportions, finely engraved flowing hair, ivory copperplate cross-hatching, clear headphone shapes and an uncropped crown."
+              }
+            ]
+          }
+        }
+      },
+      "image": "images/hermes-portrait-art-low.png",
+      "review": {
+        "case": "hermes-portrait-art",
+        "preset": "low",
+        "outputSha256": "99f2d38940ab0eddff9f1bf3636cc5c042dc0965bf3bd84ef8c986f9c6139341",
+        "promptAdherencePass": false,
+        "notes": "Unusable output: a flat gray field saying 'Image blocked by safety filter'. No woman, headphones, engraving or cobalt palette. All 12 steps completed and a valid 768 x 1024 PNG was written, but the requested illustration was not produced. This matches the refusal-image behavior documented by Ideogram and Comfy-Org, despite the benign structured JSON caption. No retry or pixel retouching."
+      }
+    },
+    {
+      "case": "hermes-portrait-art",
+      "preset": "medium",
+      "state": "generated",
+      "elapsedSeconds": 613.179,
+      "exitCode": 0,
+      "expectedSize": [
+        768,
+        1024
+      ],
+      "captionSha256": "de520ccc50db1da56ad4396137c54e5504e5099cf97a7fb574681496bf4059f2",
+      "outputSha256": "7b2c36019b6840d53f6cd94771486a6c02fb4ba0dcb745d3cacdc1bc9f7d445d",
+      "outputValidation": {
+        "format": "PNG",
+        "mode": "RGB",
+        "width": 768,
+        "height": 1024,
+        "lumaMin": 86,
+        "lumaMax": 240,
+        "lumaMean": 110.8435,
+        "lumaEntropy": 1.1136,
+        "occupiedLumaBins": 151,
+        "significantLumaFraction": 1.0
+      },
+      "provenance": {
+        "provider": "ideogram4-fp8",
+        "model": "Comfy-Org/Ideogram-4",
+        "revision": "bbee2ab2b14b2b5223448d12d6e31e5f9cec0546",
+        "runtime": {
+          "comfy": "b78cec879b9460d5cb25228a83a942fb78d2cd24",
+          "fp8Plugin": "911294ca35093eef56f7f2695414ff8810e88e50",
+          "ideogramNode": "c05545d71e61b7ce47534a972eaeefd958a3719f"
+        },
+        "preset": "medium",
+        "quality": {
+          "profile": "V4_DEFAULT_20",
+          "steps": 20,
+          "sampler": "euler",
+          "cfg": 7.0,
+          "polishCfg": 3.0,
+          "polishSteps": 2,
+          "polishStart": 0.8122317775822888,
+          "mu": 0.0,
+          "std": 1.75,
+          "vaeDecode": "overlapped-three-pass-tiled",
+          "vaeTileSize": 1024,
+          "vaeTileOverlap": 256
+        },
+        "size": {
+          "width": 768,
+          "height": 1024,
+          "aspect": "3:4"
+        },
+        "outputValidation": {
+          "format": "PNG",
+          "mode": "RGB",
+          "width": 768,
+          "height": 1024,
+          "lumaMin": 86,
+          "lumaMax": 240,
+          "lumaMean": 110.8435,
+          "lumaEntropy": 1.1136,
+          "occupiedLumaBins": 151,
+          "significantLumaFraction": 1.0
+        },
+        "seed": 271828,
+        "elapsedSeconds": 611.769,
+        "caption": {
+          "high_level_description": "A standalone copperplate portrait illustration filling the entire canvas. Close-up three-quarter profile of a woman wearing modern over-ear headphones. Her whole head, the visible headphone earcups and upper shoulders fit inside the portrait frame. Calm natural facial anatomy and delicately engraved flowing hair are rendered entirely with ivory and cobalt cross-hatching on an uninterrupted solid electric cobalt blue field. Dense readable fine linework, confident high-contrast silhouette and generous open blue margins. The only depicted subject is the woman wearing headphones. This is the two-colour artwork itself, unframed and full bleed. Lettering, logos, watermarks, borders and interface controls are absent.",
+          "compositional_deconstruction": {
+            "background": "An uninterrupted flat electric cobalt blue field with clean open margins. All drawn marks are cobalt blue or ivory ink, with no background objects.",
+            "elements": [
+              {
+                "type": "obj",
+                "desc": "One woman in three-quarter profile wearing modern over-ear headphones, her whole head and upper shoulders visible. Calm natural facial proportions, finely engraved flowing hair, ivory copperplate cross-hatching, clear headphone shapes and an uncropped crown."
+              }
+            ]
+          }
+        }
+      },
+      "image": "images/hermes-portrait-art-medium.png",
+      "review": {
+        "case": "hermes-portrait-art",
+        "preset": "medium",
+        "outputSha256": "7b2c36019b6840d53f6cd94771486a6c02fb4ba0dcb745d3cacdc1bc9f7d445d",
+        "promptAdherencePass": false,
+        "notes": "Unusable output: the same gray refusal-message composition as Low, with the words 'Image blocked by safety filter'. No portrait, headphones or engraving. All 20 diffusion steps completed; extra sampling did not restore the requested subject. Original PNG retained without retry or retouching."
+      }
+    },
+    {
+      "case": "hermes-portrait-art",
+      "preset": "high",
+      "state": "generated",
+      "elapsedSeconds": 1475.231,
+      "exitCode": 0,
+      "expectedSize": [
+        768,
+        1024
+      ],
+      "captionSha256": "de520ccc50db1da56ad4396137c54e5504e5099cf97a7fb574681496bf4059f2",
+      "outputSha256": "5234c9a0290b801c940b61147f9d80cd59bd8d3e7e1c7149b8a54e7e37406531",
+      "outputValidation": {
+        "format": "PNG",
+        "mode": "RGB",
+        "width": 768,
+        "height": 1024,
+        "lumaMin": 87,
+        "lumaMax": 242,
+        "lumaMean": 110.9048,
+        "lumaEntropy": 1.0073,
+        "occupiedLumaBins": 150,
+        "significantLumaFraction": 1.0
+      },
+      "provenance": {
+        "provider": "ideogram4-fp8",
+        "model": "Comfy-Org/Ideogram-4",
+        "revision": "bbee2ab2b14b2b5223448d12d6e31e5f9cec0546",
+        "runtime": {
+          "comfy": "b78cec879b9460d5cb25228a83a942fb78d2cd24",
+          "fp8Plugin": "911294ca35093eef56f7f2695414ff8810e88e50",
+          "ideogramNode": "c05545d71e61b7ce47534a972eaeefd958a3719f"
+        },
+        "preset": "high",
+        "quality": {
+          "profile": "V4_QUALITY_48",
+          "steps": 48,
+          "sampler": "euler",
+          "cfg": 7.0,
+          "polishCfg": 3.0,
+          "polishSteps": 3,
+          "polishStart": 0.8367449166887158,
+          "mu": 0.0,
+          "std": 1.5,
+          "vaeDecode": "overlapped-three-pass-tiled",
+          "vaeTileSize": 1024,
+          "vaeTileOverlap": 256
+        },
+        "size": {
+          "width": 768,
+          "height": 1024,
+          "aspect": "3:4"
+        },
+        "outputValidation": {
+          "format": "PNG",
+          "mode": "RGB",
+          "width": 768,
+          "height": 1024,
+          "lumaMin": 87,
+          "lumaMax": 242,
+          "lumaMean": 110.9048,
+          "lumaEntropy": 1.0073,
+          "occupiedLumaBins": 150,
+          "significantLumaFraction": 1.0
+        },
+        "seed": 271828,
+        "elapsedSeconds": 1472.952,
+        "caption": {
+          "high_level_description": "A standalone copperplate portrait illustration filling the entire canvas. Close-up three-quarter profile of a woman wearing modern over-ear headphones. Her whole head, the visible headphone earcups and upper shoulders fit inside the portrait frame. Calm natural facial anatomy and delicately engraved flowing hair are rendered entirely with ivory and cobalt cross-hatching on an uninterrupted solid electric cobalt blue field. Dense readable fine linework, confident high-contrast silhouette and generous open blue margins. The only depicted subject is the woman wearing headphones. This is the two-colour artwork itself, unframed and full bleed. Lettering, logos, watermarks, borders and interface controls are absent.",
+          "compositional_deconstruction": {
+            "background": "An uninterrupted flat electric cobalt blue field with clean open margins. All drawn marks are cobalt blue or ivory ink, with no background objects.",
+            "elements": [
+              {
+                "type": "obj",
+                "desc": "One woman in three-quarter profile wearing modern over-ear headphones, her whole head and upper shoulders visible. Calm natural facial proportions, finely engraved flowing hair, ivory copperplate cross-hatching, clear headphone shapes and an uncropped crown."
+              }
+            ]
+          }
+        }
+      },
+      "image": "images/hermes-portrait-art-high.png",
+      "review": {
+        "case": "hermes-portrait-art",
+        "preset": "high",
+        "outputSha256": "5234c9a0290b801c940b61147f9d80cd59bd8d3e7e1c7149b8a54e7e37406531",
+        "promptAdherencePass": false,
+        "notes": "Unusable output: a gray field with the same 'Image blocked by safety filter' text instead of the headphone portrait. No subject or requested engraving/palette. All 48 steps completed at 768 x 1024; increasing sampling from Low and Medium still did not recover the requested image. Original PNG retained without retry or retouching."
+      }
+    },
+    {
+      "case": "hermes-portrait-art",
+      "preset": "max",
+      "state": "generated",
+      "elapsedSeconds": 7412.564,
+      "exitCode": 0,
+      "expectedSize": [
+        1536,
+        2048
+      ],
+      "captionSha256": "de520ccc50db1da56ad4396137c54e5504e5099cf97a7fb574681496bf4059f2",
+      "outputSha256": "f5570e946cbc0ece09b7c103e54574769f5fa3d18f584d4edf82523fcbe188ab",
+      "outputValidation": {
+        "format": "PNG",
+        "mode": "RGB",
+        "width": 1536,
+        "height": 2048,
+        "lumaMin": 40,
+        "lumaMax": 186,
+        "lumaMean": 76.1856,
+        "lumaEntropy": 5.5488,
+        "occupiedLumaBins": 146,
+        "significantLumaFraction": 1.0
+      },
+      "provenance": {
+        "provider": "ideogram4-fp8",
+        "model": "Comfy-Org/Ideogram-4",
+        "revision": "bbee2ab2b14b2b5223448d12d6e31e5f9cec0546",
+        "runtime": {
+          "comfy": "b78cec879b9460d5cb25228a83a942fb78d2cd24",
+          "fp8Plugin": "911294ca35093eef56f7f2695414ff8810e88e50",
+          "ideogramNode": "c05545d71e61b7ce47534a972eaeefd958a3719f"
+        },
+        "preset": "max",
+        "quality": {
+          "profile": "V4_QUALITY_48",
+          "steps": 48,
+          "sampler": "euler",
+          "cfg": 7.0,
+          "polishCfg": 3.0,
+          "polishSteps": 3,
+          "polishStart": 0.7196164727660102,
+          "mu": 0.0,
+          "std": 1.5,
+          "vaeDecode": "overlapped-three-pass-tiled",
+          "vaeTileSize": 1024,
+          "vaeTileOverlap": 256
+        },
+        "size": {
+          "width": 1536,
+          "height": 2048,
+          "aspect": "3:4"
+        },
+        "outputValidation": {
+          "format": "PNG",
+          "mode": "RGB",
+          "width": 1536,
+          "height": 2048,
+          "lumaMin": 40,
+          "lumaMax": 186,
+          "lumaMean": 76.1856,
+          "lumaEntropy": 5.5488,
+          "occupiedLumaBins": 146,
+          "significantLumaFraction": 1.0
+        },
+        "seed": 271828,
+        "elapsedSeconds": 7409.92,
+        "caption": {
+          "high_level_description": "A standalone copperplate portrait illustration filling the entire canvas. Close-up three-quarter profile of a woman wearing modern over-ear headphones. Her whole head, the visible headphone earcups and upper shoulders fit inside the portrait frame. Calm natural facial anatomy and delicately engraved flowing hair are rendered entirely with ivory and cobalt cross-hatching on an uninterrupted solid electric cobalt blue field. Dense readable fine linework, confident high-contrast silhouette and generous open blue margins. The only depicted subject is the woman wearing headphones. This is the two-colour artwork itself, unframed and full bleed. Lettering, logos, watermarks, borders and interface controls are absent.",
+          "compositional_deconstruction": {
+            "background": "An uninterrupted flat electric cobalt blue field with clean open margins. All drawn marks are cobalt blue or ivory ink, with no background objects.",
+            "elements": [
+              {
+                "type": "obj",
+                "desc": "One woman in three-quarter profile wearing modern over-ear headphones, her whole head and upper shoulders visible. Calm natural facial proportions, finely engraved flowing hair, ivory copperplate cross-hatching, clear headphone shapes and an uncropped crown."
+              }
+            ]
+          }
+        }
+      },
+      "image": "images/hermes-portrait-art-max.png",
+      "review": {
+        "case": "hermes-portrait-art",
+        "preset": "max",
+        "outputSha256": "f5570e946cbc0ece09b7c103e54574769f5fa3d18f584d4edf82523fcbe188ab",
+        "promptAdherencePass": false,
+        "notes": "An actual standalone engraved portrait, not a refusal image. The woman, headphone earcups and band, complete crown and upper shoulders are visible; facial anatomy is recognizable, with dense coherent cross-hatching and no lettering, logo or interface. The palette is muted teal/petrol and warm beige rather than the requested electric cobalt and ivory, and the hair is swept into a bun rather than flowing. Main subject/style/framing are substantially achieved, but the strict complete-caption check still fails. This is a usable illustration with deviations, not evidence that MAX always improves quality. No pixels were retouched."
+      }
+    }
+  ],
+  "visualReviewMethod": "Codex visual inspection of original PNGs against the public caption; not a blinded human panel or a universal aesthetic score."
+}

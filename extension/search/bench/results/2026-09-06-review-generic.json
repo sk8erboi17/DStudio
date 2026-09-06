@@ -1,0 +1,209 @@
+{
+  "started": "2026-09-06T05:13:04.984Z",
+  "scope": "Development comparison, complete pipeline and final answer on real public websites; independent semantic answer review required.",
+  "variants": [
+    "after"
+  ],
+  "hardware": {
+    "cpu": "Apple M2 Max",
+    "memoryBytes": 103079215104
+  },
+  "model": "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf",
+  "modelBytes": 86720111488,
+  "engineRevision": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
+  "settings": {
+    "model": "ds4",
+    "temperature": 0,
+    "thinkLevel": "off",
+    "context": 32768,
+    "ssdStreaming": "off",
+    "finalMaxTokens": 2800,
+    "caseDeadlineMs": 1200000
+  },
+  "before": {
+    "revision": "b2206b8",
+    "sha256": "9e5f04cead8a0e3b89be08507cd81a4aa2f40aced3bbca20061595328457ae52"
+  },
+  "after": {
+    "sha256": "990d4b3e9563aa6a2c6e004d3afe8dc7b2efcdaa45f0a3062d2c6f25c89b22d5"
+  },
+  "runs": [
+    {
+      "id": "http-retry-header",
+      "variant": "after",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": true,
+      "review": {
+        "requestedFactsCorrect": true,
+        "sourceSupportChecked": true,
+        "noUndisclosedConflict": true,
+        "requestedFormatFollowed": true,
+        "summary": "Correct optional Retry-After header and HTTP 429 rate-limiting meaning; concise and supported by the actually read IETF RFC 6585 mirror."
+      },
+      "rawRowSha256": "ab0c6a096882fe3c1626e68e18d633dc7876338d78d1eb3b87ff7892a6e5b02f",
+      "answerSha256": "b6a3f64ba3462a366af47dcbe9d7535de89901eb2732fda92b504822f04d4ded",
+      "answerWords": 49,
+      "totalSeconds": 126.857820541,
+      "pipelineSeconds": 116.30100125,
+      "finalAnswerSeconds": 10.556819290999993,
+      "modelRequests": 5,
+      "searchQueries": 2,
+      "pageReads": 1,
+      "extractedFacts": 4,
+      "selectedAnswerFacts": [
+        "F1",
+        "F2"
+      ],
+      "automaticAnswerReview": null,
+      "readSources": [
+        {
+          "id": "S1",
+          "url": "https://datatracker.ietf.org/doc/html/rfc6585"
+        }
+      ],
+      "executionFailed": false
+    },
+    {
+      "id": "python-versioned-suffix",
+      "variant": "after",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": true,
+      "review": {
+        "requestedFactsCorrect": true,
+        "sourceSupportChecked": true,
+        "noUndisclosedConflict": true,
+        "requestedFormatFollowed": true,
+        "summary": "Correct Python 3.14 change and single-dot suffix, supported by the versioned official documentation. The supplied example follows the documented rule, not an invented executed test."
+      },
+      "rawRowSha256": "6739237b8be920a91c35ee1e3fc1bd0da15a9892e1f79763cebb91b8155b3ae9",
+      "answerSha256": "c33949bd1d90b76931eb05dc90803b6d3893642a596a62aa9747c99604c111e0",
+      "answerWords": 22,
+      "totalSeconds": 75.98661137500001,
+      "pipelineSeconds": 65.52533908400001,
+      "finalAnswerSeconds": 10.461272291000002,
+      "modelRequests": 4,
+      "searchQueries": 0,
+      "pageReads": 1,
+      "extractedFacts": 2,
+      "selectedAnswerFacts": [
+        "F1",
+        "F2"
+      ],
+      "automaticAnswerReview": null,
+      "readSources": [
+        {
+          "id": "S1",
+          "url": "https://docs.python.org/3.14/library/pathlib.html"
+        }
+      ],
+      "executionFailed": false
+    },
+    {
+      "id": "venus-rotation-orbit",
+      "variant": "after",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": false,
+      "review": {
+        "requestedFactsCorrect": false,
+        "sourceSupportChecked": false,
+        "noUndisclosedConflict": false,
+        "requestedFormatFollowed": true,
+        "summary": "Rotation and orbit values are correct and the answer is short, but the draft still treats a disputed daylight interval as settled and invents an equivalence between successive sunrises and sunrise-to-sunset. The local reviewer approved it; independent source review rejects it. An explanatory gap is not disclosure of the conflicting definitions."
+      },
+      "rawRowSha256": "ec6833f106fb7887e3017a3d4dca47a01d51ce5d3c89f77e99dfe235718ba67a",
+      "answerSha256": "0f9e42ed666131a8bdfa4b71e27dcc5e0274a5967ae30848480490e51ddbfbc4",
+      "answerWords": 156,
+      "totalSeconds": 310.991486208,
+      "pipelineSeconds": 310.989134917,
+      "finalAnswerSeconds": 0.002351291000028141,
+      "modelRequests": 10,
+      "searchQueries": 3,
+      "pageReads": 3,
+      "extractedFacts": 10,
+      "selectedAnswerFacts": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F6",
+        "F7"
+      ],
+      "automaticAnswerReview": {
+        "accepted": true,
+        "writerAttempts": 2,
+        "comparedNumberGroups": 0,
+        "differingDefinitionGroups": 0,
+        "deliveredWithoutSecondWriter": true
+      },
+      "readSources": [
+        {
+          "id": "S2",
+          "url": "https://spaceplace.nasa.gov/all-about-venus/en/"
+        },
+        {
+          "id": "S3",
+          "url": "https://science.nasa.gov/venus/venus-facts/"
+        },
+        {
+          "id": "S20",
+          "url": "https://nssdc.gsfc.nasa.gov/planetary/factsheet/venusfact.html"
+        }
+      ],
+      "executionFailed": false
+    },
+    {
+      "id": "accessible-target-comparison",
+      "variant": "after",
+      "originalStatus": "completed-pending-independent-review",
+      "pass": true,
+      "review": {
+        "requestedFactsCorrect": true,
+        "sourceSupportChecked": true,
+        "noUndisclosedConflict": true,
+        "requestedFormatFollowed": true,
+        "summary": "Correct minimum/enhanced dimensions, AA/AAA levels and both inline exceptions, supported by the W3C pages. Includes the enhanced full-sentence nuance and distinguishes its unverified minimum-criterion counterpart. The complete answer is 199 words, below 250."
+      },
+      "rawRowSha256": "1eb8f64c15373e1ee2b053f6a00ea54d36cd39c5da6552da0de7bcedb2f97602",
+      "answerSha256": "d322ec2feab1d773f4278f9fe8acf8573247c57469588346c07d2bd4c97797b5",
+      "answerWords": 199,
+      "totalSeconds": 255.28064070899995,
+      "pipelineSeconds": 255.27670050000003,
+      "finalAnswerSeconds": 0.003940208999905735,
+      "modelRequests": 6,
+      "searchQueries": 0,
+      "pageReads": 2,
+      "extractedFacts": 21,
+      "selectedAnswerFacts": [
+        "F1",
+        "F5",
+        "F7",
+        "F8",
+        "F11",
+        "F12",
+        "F14",
+        "F15",
+        "F16"
+      ],
+      "automaticAnswerReview": {
+        "accepted": true,
+        "writerAttempts": 1,
+        "comparedNumberGroups": 0,
+        "differingDefinitionGroups": 0,
+        "deliveredWithoutSecondWriter": true
+      },
+      "readSources": [
+        {
+          "id": "S1",
+          "url": "https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html"
+        },
+        {
+          "id": "S2",
+          "url": "https://www.w3.org/WAI/WCAG22/Understanding/target-size-enhanced.html"
+        }
+      ],
+      "executionFailed": false
+    }
+  ],
+  "privateReceiptSha256": "f77a32aeb9e02264da3997db566133853269d12a150456a0bb8dffac8436aabe",
+  "reviewSha256": "31890acfc283cd8c53c35a2e3e87c5616ae3083b7782108940a2409c75454015"
+}

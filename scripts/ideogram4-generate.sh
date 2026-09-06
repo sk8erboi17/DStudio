@@ -4,8 +4,8 @@
 # server that loads and releases the model.
 set -eu
 
-if [ "$#" -lt 3 ] || [ "$#" -gt 5 ]; then
-    echo "usage: $0 PROMPT_FILE OUTDIR STATUS_FILE [ASPECT] [SEED]" >&2
+if [ "$#" -lt 3 ] || [ "$#" -gt 6 ]; then
+    echo "usage: $0 PROMPT_FILE OUTDIR STATUS_FILE [ASPECT] [SEED] [PRESET: low|medium|high|max]" >&2
     exit 2
 fi
 
@@ -14,6 +14,11 @@ outdir=$2
 status_file=$3
 aspect=${4:-16:9}
 seed=${5:-0}
+preset=${6-max}
+case "$preset" in
+    low|medium|high|max) ;;
+    *) echo "Unsupported image preset: $preset" >&2; exit 2 ;;
+esac
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 runtime_root=${DSTUDIO_IDEOGRAM4_HOME:-${HOME}/.dstudio/ideogram4}
@@ -25,7 +30,7 @@ if [ "${DSTUDIO_IDEOGRAM4_TEST_MODE:-0}" = 1 ]; then
     exec /usr/bin/python3 "$script_dir/heavy-model-lock.py" --kind ideogram4-fp8 -- \
         /usr/bin/python3 "$script_dir/ideogram4-run.py" \
         --prompt-file "$prompt_file" --outdir "$outdir" --status-file "$status_file" \
-        --aspect "$aspect" --seed "$seed"
+        --aspect "$aspect" --seed "$seed" --preset "$preset"
 fi
 
 comfy_repo=https://github.com/comfyanonymous/ComfyUI.git
@@ -125,4 +130,4 @@ fi
 exec /usr/bin/python3 "$script_dir/heavy-model-lock.py" --kind ideogram4-fp8 -- \
     "$python_bin" "$script_dir/ideogram4-run.py" \
     --prompt-file "$prompt_file" --outdir "$outdir" --status-file "$status_file" \
-    --aspect "$aspect" --seed "$seed"
+    --aspect "$aspect" --seed "$seed" --preset "$preset"

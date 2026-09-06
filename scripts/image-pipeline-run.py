@@ -90,6 +90,8 @@ def main() -> int:
     parser.add_argument("--aspect", default="16:9")
     parser.add_argument("--action", choices=("generate", "edit"), required=True)
     parser.add_argument("--preserve", choices=("none", "face"), default="none")
+    parser.add_argument("--preset", choices=("low", "medium", "high", "max"), default="max")
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--input", action="append", default=[])
     args = parser.parse_args()
 
@@ -142,7 +144,7 @@ def main() -> int:
                 return 130
             run([
                 str(script_dir / "ideogram4-generate.sh"), str(caption_path),
-                str(outdir), str(status_path), args.aspect, "0",
+                str(outdir), str(status_path), args.aspect, str(args.seed), args.preset,
             ])
             provider = "ideogram4-fp8"
         else:
@@ -175,6 +177,7 @@ def main() -> int:
                 "secondaryVisionRouter": None,
             },
             "provider": provider,
+            "preset": args.preset if mode == "generate" else None,
             "serialized": True,
             "preserveRequest": args.preserve,
             "elapsedSeconds": round(time.monotonic() - started, 3),

@@ -6,7 +6,11 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 
 const script = path.resolve('scripts/apply-ds4-glm53-m2max.sh');
-const patch = fs.readFileSync('patch/ds4-glm53-m2max/native-decode.patch', 'utf8');
+const originalPatch = fs.readFileSync('patch/ds4-glm53-m2max/native-decode.patch', 'utf8');
+const currentPatch = originalPatch.split(/(?=^diff --git )/m)
+  .filter(s=>!/^diff --git a\/(?:Makefile|\.gitignore) /m.test(s)).join('')
+  + fs.readFileSync('patch/ds4-glm53-m2max/build-main.patch','utf8');
+for (const [generation,patch] of [['legacy',originalPatch],['current',currentPatch]]) {
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dstudio-glm-port-'));
 const checkout = path.join(root, 'engine with spaces');
 const bin = path.join(root, 'bin');
@@ -33,6 +37,7 @@ try {
       } else if (inHunk && (line[0] === ' ' || line[0] === '-')) out.push(line.slice(1));
     }
     if (name === 'ds4.c') out.push('// static bool ds4_model_is_glm53');
+    if (generation==='current' && name==='Makefile') out.push('test-glm-attention:');
     const bytes = Buffer.from(out.join('\n') + '\n');
     fs.mkdirSync(path.dirname(path.join(checkout, name)), {recursive:true});
     fs.writeFileSync(path.join(checkout, name), bytes);
@@ -110,9 +115,10 @@ try {
   assert.deepEqual(snapshot(),saved);
   fs.writeFileSync(core,'// non-GLM engine\n'); saved=snapshot();
   assert.match(pass('apply').stdout,/non-GLM checkout skipped/); assert.deepEqual(snapshot(),saved);
-  console.log('GLM M2 Max patch: lifecycle, legacy migration/restore, idempotence, drift, partial state, preserved edits and platform gates PASS');
+  console.log(`GLM M2 Max patch (${generation} upstream): lifecycle, legacy migration/restore, idempotence, drift, partial state, preserved edits and platform gates PASS`);
 } finally {
   fs.rmSync(root,{recursive:true,force:true});
+}
 }
 
 // Optional pinned-source stack check; --shared uses only local Git objects and

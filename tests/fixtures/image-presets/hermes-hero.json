@@ -1,0 +1,13 @@
+{
+  "aspect_ratio": "16:9",
+  "high_level_description": "An original wide editorial hero illustration inspired by the electric cobalt blue and ivory engraved visual language of the Hermes Agent website. A single classical Greek messenger bust with a small winged helmet, carved curly hair and a calm expressive face stands against an intense flat cobalt blue background. Fine ivory copperplate hatching, crisp engraved contours and delicate radial celestial lines create an intricate antique print with a contemporary two-colour graphic treatment. The bust is centrally framed with generous blue breathing room. Monochrome ivory and cobalt only, no photographic colour, no gradients, no lettering, no UI, no logos and no watermark.",
+  "compositional_deconstruction": {
+    "background": "Flat vivid electric cobalt blue with sparse fine ivory radial celestial lines, clean open margins, strictly two-colour antique engraving style.",
+    "elements": [
+      {
+        "type": "obj",
+        "desc": "One centrally framed ivory classical Greek messenger bust wearing a small winged helmet. Clear sculptural facial anatomy, carved curls, crisp silhouette, fine copperplate cross-hatching and intricate engraved shading. Calm expressive face, generous blue space around the shoulders. No text or watermark."
+      }
+    ]
+  }
+}

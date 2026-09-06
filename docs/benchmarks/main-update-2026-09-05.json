@@ -1,0 +1,308 @@
+{
+  "schema": "dstudio.main-update-summary.v1",
+  "date": "2026-09-05",
+  "status": "36 of 36 measured answers pass; the auxiliary code instruction check fails identically in all four conditions. Not a fully passing capability suite.",
+  "scope": "M2 Max 96 GiB; 8192 context; native Metal, greedy, three short workloads repeated three times; DS4 resident and GLM SSD 32 GiB. No PLD, MTP, DSpark or disk KV. Preliminary before runs overlap CPU compilation; no controlled speedup or regression attribution.",
+  "results": [
+    {
+      "name": "DeepSeek V4 in RAM",
+      "beforeCommit": "b0a147a7fba6d1a104d047d5a140e9bb4bfc13cd",
+      "afterCommit": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
+      "model": {
+        "file": "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf",
+        "bytes": 86720111488
+      },
+      "comparison": {
+        "csv-copy": {
+          "before": {
+            "allCorrect": true,
+            "decode": {
+              "median": 21.503,
+              "min": 20.74,
+              "max": 21.64
+            },
+            "prefill": {
+              "median": 126.523505513639,
+              "min": 120.17640573318633,
+              "max": 127.48538011695906
+            }
+          },
+          "after": {
+            "allCorrect": true,
+            "decode": {
+              "median": 21.147,
+              "min": 21.086,
+              "max": 21.284
+            },
+            "prefill": {
+              "median": 123.72304199772985,
+              "min": 121.65178571428571,
+              "max": 123.93405343945425
+            }
+          },
+          "decodeChangePercent": -1.6555829419150903,
+          "prefillChangePercent": -2.2133938706015877
+        },
+        "numeric-sort": {
+          "before": {
+            "allCorrect": true,
+            "decode": {
+              "median": 20.897,
+              "min": 20.656,
+              "max": 21.795
+            },
+            "prefill": {
+              "median": 69.78967495219885,
+              "min": 65.64748201438849,
+              "max": 72.70916334661355
+            }
+          },
+          "after": {
+            "allCorrect": true,
+            "decode": {
+              "median": 21.359,
+              "min": 21.172,
+              "max": 21.379
+            },
+            "prefill": {
+              "median": 71.15009746588694,
+              "min": 71.01167315175097,
+              "max": 72.06317867719645
+            }
+          },
+          "decodeChangePercent": 2.210843661769646,
+          "prefillChangePercent": 1.949317738791434
+        },
+        "record-extraction": {
+          "before": {
+            "allCorrect": true,
+            "decode": {
+              "median": 20.955,
+              "min": 19.498,
+              "max": 21.345
+            },
+            "prefill": {
+              "median": 113.20754716981132,
+              "min": 103.01768990634756,
+              "max": 115.65420560747664
+            }
+          },
+          "after": {
+            "allCorrect": true,
+            "decode": {
+              "median": 21.176,
+              "min": 20.85,
+              "max": 21.234
+            },
+            "prefill": {
+              "median": 112.62798634812286,
+              "min": 112.43611584327087,
+              "max": 112.82051282051283
+            }
+          },
+          "decodeChangePercent": 1.0546408971605858,
+          "prefillChangePercent": -0.5119453924914752
+        }
+      },
+      "correctness": {
+        "before": {
+          "gates": [
+            {
+              "id": "warmup-arithmetic",
+              "status": "pass",
+              "answer": "323"
+            },
+            {
+              "id": "code-reasoning",
+              "status": "fail",
+              "answer": ":16"
+            },
+            {
+              "id": "unicode",
+              "status": "pass",
+              "answer": "città già pronta"
+            }
+          ],
+          "measuredPasses": 9,
+          "measuredTotal": 9
+        },
+        "after": {
+          "gates": [
+            {
+              "id": "warmup-arithmetic",
+              "status": "pass",
+              "answer": "323"
+            },
+            {
+              "id": "code-reasoning",
+              "status": "fail",
+              "answer": ":16"
+            },
+            {
+              "id": "unicode",
+              "status": "pass",
+              "answer": "città già pronta"
+            }
+          ],
+          "measuredPasses": 9,
+          "measuredTotal": 9
+        }
+      },
+      "identicalMeasuredAnswers": true,
+      "evidenceHashes": {
+        "before": "f4e5e11b0d79d6caf621acc5491c091bc1edee0d71a30be8264d13dcd2d4e4b8",
+        "after": "93ff927d9d96e366bd7a5ff217850b2d5e13b67b67e849dbeeaec321a612af0c"
+      }
+    },
+    {
+      "name": "GLM 5.3 SSD 32 GiB",
+      "beforeCommit": "b0a147a7fba6d1a104d047d5a140e9bb4bfc13cd",
+      "afterCommit": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
+      "model": {
+        "file": "GLM-5.3-Flash-Q2.gguf",
+        "bytes": 96505816384
+      },
+      "comparison": {
+        "csv-copy": {
+          "before": {
+            "allCorrect": true,
+            "decode": {
+              "median": 8.705,
+              "min": 7.349,
+              "max": 9.019
+            },
+            "prefill": {
+              "median": 7.602197726251771,
+              "min": 7.59222831901163,
+              "max": 7.726889575723518
+            }
+          },
+          "after": {
+            "allCorrect": true,
+            "decode": {
+              "median": 8.567,
+              "min": 7.793,
+              "max": 8.84
+            },
+            "prefill": {
+              "median": 7.238985225889244,
+              "min": 7.074864934396707,
+              "max": 7.441986333806914
+            }
+          },
+          "decodeChangePercent": -1.5852958070074696,
+          "prefillChangePercent": -4.777730249086898
+        },
+        "numeric-sort": {
+          "before": {
+            "allCorrect": true,
+            "decode": {
+              "median": 5.288,
+              "min": 5.216,
+              "max": 5.316
+            },
+            "prefill": {
+              "median": 2.675150025305473,
+              "min": 2.6129020867907204,
+              "max": 2.7077463500311025
+            }
+          },
+          "after": {
+            "allCorrect": true,
+            "decode": {
+              "median": 5.072,
+              "min": 5.055,
+              "max": 5.175
+            },
+            "prefill": {
+              "median": 2.5604650358119097,
+              "min": 2.539813289401428,
+              "max": 2.651474434770146
+            }
+          },
+          "decodeChangePercent": -4.0847201210287505,
+          "prefillChangePercent": -4.287048891041834
+        },
+        "record-extraction": {
+          "before": {
+            "allCorrect": true,
+            "decode": {
+              "median": 8.165,
+              "min": 7.776,
+              "max": 8.187
+            },
+            "prefill": {
+              "median": 6.697334596130429,
+              "min": 6.594284953040698,
+              "max": 6.973549818617265
+            }
+          },
+          "after": {
+            "allCorrect": true,
+            "decode": {
+              "median": 8.074,
+              "min": 7.399,
+              "max": 8.106
+            },
+            "prefill": {
+              "median": 6.506950606329489,
+              "min": 6.462773770277769,
+              "max": 6.549568323905924
+            }
+          },
+          "decodeChangePercent": -1.1145131659522245,
+          "prefillChangePercent": -2.8426829669065734
+        }
+      },
+      "correctness": {
+        "before": {
+          "gates": [
+            {
+              "id": "warmup-arithmetic",
+              "status": "pass",
+              "answer": "323"
+            },
+            {
+              "id": "code-reasoning",
+              "status": "fail",
+              "answer": "**32**\n\nThe odd values in `[3, 5, 8]` are 3 and 5. Doubling them gives 6 and 10, and their sum is 16... wait, let me recompute: 3×2 = 6, 5×2 = 10, 6 + 10 = 16.\n\n**16**"
+            },
+            {
+              "id": "unicode",
+              "status": "pass",
+              "answer": "città già pronta"
+            }
+          ],
+          "measuredPasses": 9,
+          "measuredTotal": 9
+        },
+        "after": {
+          "gates": [
+            {
+              "id": "warmup-arithmetic",
+              "status": "pass",
+              "answer": "323"
+            },
+            {
+              "id": "code-reasoning",
+              "status": "fail",
+              "answer": "**32**\n\nThe odd values in `[3, 5, 8]` are 3 and 5. Doubling them gives 6 and 10, and their sum is 16... wait, let me recompute: 3×2 = 6, 5×2 = 10, 6 + 10 = 16.\n\n**16**"
+            },
+            {
+              "id": "unicode",
+              "status": "pass",
+              "answer": "città già pronta"
+            }
+          ],
+          "measuredPasses": 9,
+          "measuredTotal": 9
+        }
+      },
+      "identicalMeasuredAnswers": true,
+      "evidenceHashes": {
+        "before": "58bf256edc8645a06ef7e7195bbf9c20acf77f8dc1fabca5c4a0c05cfed91378",
+        "after": "4080de43890bf3dd43768718619c9b9db4ca5cfc62ab156e1b01848316859fb5"
+      }
+    }
+  ]
+}

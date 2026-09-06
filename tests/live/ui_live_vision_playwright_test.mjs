@@ -118,7 +118,7 @@ try {
       ssdStreaming: status.config?.ssdStreaming || 'off',
       metalHotlistSeed: status.config?.metalHotlistSeed === true,
       dspark: status.config?.dspark === true,
-      designSystem: 'framer',
+      designSystem: 'forma',
       webMode: 'off',
       workdirs: {
         agent: selectedWorkspace,

@@ -1,0 +1,2 @@
+    char *out = web_cdp_eval_string(&ws, js, err, err_len);
+    web_ws_close(&ws);

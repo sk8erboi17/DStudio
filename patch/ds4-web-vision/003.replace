@@ -1,0 +1,16 @@
+static char *web_run_page_js(ds4_web *web, const char *url, const char *js,
+                             bool dynamic_scroll, char *err, size_t err_len) {
+    return web_run_page_js_mode(web, url, js, dynamic_scroll, false, err, err_len);
+}
+
+/* DStudio helper API, intentionally separate from upstream's text-only API. */
+char *dstudio_web_visit_visual(ds4_web *web, const char *url,
+                               char *err, size_t err_len) {
+    if (!web || !url || (strncmp(url, "http://", 7) && strncmp(url, "https://", 8))) {
+        web_set_err(err, err_len, "http or https URL required");
+        return NULL;
+    }
+    return web_run_page_js_mode(web, url, web_extract_page_js, true, true, err, err_len);
+}
+
+ds4_web *ds4_web_create(const ds4_web_config *cfg) {
