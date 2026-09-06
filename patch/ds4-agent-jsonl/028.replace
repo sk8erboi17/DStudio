@@ -1,2 +1,13 @@
-    if (cfg.remote_base_url && cfg.remote_base_url[0]) return ds4ui_run_remote_agent(&cfg);   /*DS4UI_JSONL*/
-    ds4_engine *engine = NULL;
+    if (cfg.web_tool_mode) return ds4ui_run_web_tool(&cfg);   /*DS4UI_JSONL*/
+    if (cfg.remote_base_url && cfg.remote_base_url[0]) {   /*DS4UI_JSONL*/
+        /* Remote mode opens no local engine. Enter the selected workspace
+         * here, before either upstream layout's local-engine chdir path;
+         * otherwise newer main runs tools in the engine checkout, while
+         * older branches could apply a relative --chdir twice. */
+        if (cfg.chdir_path && chdir(cfg.chdir_path) != 0) {
+            fprintf(stderr, "ds4-agent: failed to chdir to %s: %s\n",
+                    cfg.chdir_path, strerror(errno));
+            return 1;
+        }
+        return ds4ui_run_remote_agent(&cfg);
+    }

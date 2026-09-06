@@ -9,6 +9,7 @@
 #define JSONL_PATCH_DIR "patch/ds4-agent-jsonl"
 #define WEB_CDP_PATCH_DIR "patch/ds4-web-cdp"
 #define WEB_DIRECT_NAV_PATCH_DIR "patch/ds4-web-direct-nav"
+#define WEB_VISION_PATCH_DIR "patch/ds4-web-vision"
 
 typedef struct {
     char id[32];

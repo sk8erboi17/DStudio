@@ -269,6 +269,13 @@ Three render profiles expose h3.c's native controls. **Quality is the default**:
 
 Search runs through DStudio's local web helper, not a hosted browsing service. **Web Search** is the fast mode: it plans targeted queries, reads the best pages, extracts facts and answers with clickable citations. **Deep Research** uses the same tools with a longer evidence loop: classify the request, search, read primary sources, extract facts, judge sufficiency, synthesize a grounded report and keep the source cards attached to the answer.
 
+Relevant details can now be selected from later page sections instead of only
+the beginning. With an active native vision model, research can also inspect
+real pixels from an image/chart on the page, not just its caption or URL.
+This is bounded to one viewport per page and three capture attempts per run;
+it is not inspection of every image. Text-only models keep the text path and
+do not claim to have seen pixels. [Measured scope and limitations](extension/search/bench/README.md).
+
 ### Agent
 
 <div align="center">
@@ -585,9 +592,22 @@ Native completes.
 
 ## Latest measured results
 
-These are three different experiments, not one overall product score. All
+These are separate experiments, not one overall product score. All
 charts use Matplotlib; scripts and reviewed JSON are committed alongside the
 reports. Private documents and raw user data are not published.
+
+### Web evidence: can it find the detail and read the chart?
+
+In eight small, controlled questions with a real local model, correct evidence
+increased from **3/8 to 8/8**. The new version found details near the end of long
+pages, separated current from obsolete information, and read two simple graphics.
+It was **not consistently faster**: one after case took 52 seconds, and image
+inspection costs extra time. These are development checks of page reading and
+fact extraction, not a complete Search/Deep Research or general-quality ranking.
+
+![Real local-model evidence comparison: 3 of 8 correct before, 8 of 8 after; all per-case times and failed answers shown.](assets/README%20images/benchmarks/search-evidence-quality-latency.png)
+
+[Exact questions, reviewed answers, settings and original failed receipts](extension/search/bench/README.md).
 
 ### Engine update: reading prompts and writing responses
 
@@ -622,10 +642,11 @@ and functional checks are not an aesthetic score.
 
 [Failures, visual review, public counts and later targeted checks](docs/DESIGN_AGENT_EXPERIMENT.md).
 
-Regenerate these three charts without running a model:
+Regenerate these charts without running a model:
 
 ```sh
 python3 tests/support/publish_benchmark_charts.py  # Requires Matplotlib
+python3 extension/search/bench/plot-results.py
 ```
 
 ## Highlights

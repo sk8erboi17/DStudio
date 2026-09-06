@@ -4884,6 +4884,14 @@ static int web_cdp_write_temp(const char *src_path, const char *tmp_path) {
     jsonl_normalize_newlines(buf, &n);
     int ok = web_cdp_apply(&buf, &n) &&
              web_direct_nav_apply(&buf, &n);
+    if (ok) {
+        ds4ui_patch_set patch;
+        ok = patch_load_set(WEB_VISION_PATCH_DIR, &patch);
+        if (ok) {
+            ok = patch_apply_edits(&patch, &buf, &n, "ds4_web.c");
+            patch_free_set(&patch);
+        }
+    }
     if (ok && !jsonl_write_file(tmp_path, buf, n))
         ok = patch_fail("cannot write patched web helper: %s", tmp_path);
     free(buf);
@@ -4980,8 +4988,12 @@ static int web_cdp_check_anchors(const char *src_path) {
         fails += patch_check_anchors(&patch, &buf, &n, "web nav");
         patch_free_set(&patch);
     }
+    ds4ui_patch_set visual_patch;
+    if (!patch_load_set(WEB_VISION_PATCH_DIR, &visual_patch)) { free(buf); return -1; }
+    fails += patch_check_anchors(&visual_patch, &buf, &n, "web pixels");
+    patch_free_set(&visual_patch);
     free(buf);
-    printf("check-anchors: web direct navigation %s\n", fails ? "would fail" : "ok");
+    printf("check-anchors: web navigation and pixels %s\n", fails ? "would fail" : "ok");
     return fails;
 }
 
@@ -5262,6 +5274,7 @@ static int run_build_jsonl(const char *action) {
         !patch_dir_newer_than(JSONL_PATCH_DIR, bb.st_mtime) &&
         !patch_dir_newer_than(WEB_CDP_PATCH_DIR, bb.st_mtime) &&
         !patch_dir_newer_than(WEB_DIRECT_NAV_PATCH_DIR, bb.st_mtime) &&
+        !patch_dir_newer_than(WEB_VISION_PATCH_DIR, bb.st_mtime) &&
         jsonl_sentinel_ok(ver, patch_version)) {
         return 1;
     }
@@ -10000,9 +10013,10 @@ static void api_web_read_run(int fd, const char *body) {
     return;
 #else
     int cdp_only = json_get_bool(body, "cdpOnly");
+    int include_image = json_get_bool(body, "includeImage");
     int st = 0;
     int fallback_used = 0;
-    char *visit_json = web_helper_capture("visit_page", "--url", url, WEB_HELPER_VISIT_TIMEOUT_MS, &st);
+    char *visit_json = web_helper_capture(include_image ? "visit_page_visual" : "visit_page", "--url", url, WEB_HELPER_VISIT_TIMEOUT_MS, &st);
     char *visit_err = visit_json ? json_get_string_alloc(visit_json, "error") : NULL;
     char *visit_md = visit_json ? json_get_string_alloc(visit_json, "markdown") : NULL;
     if (!visit_md && !cdp_only) {
@@ -10056,6 +10070,7 @@ static void api_web_read_run(int fd, const char *body) {
              json_dyn_put_escaped(&out, visit_md) &&
              json_dyn_puts(&out, ",\"excerpt\":") &&
              json_dyn_put_escaped(&out, excerpt ? excerpt : "") &&
+             web_append_visual_result(&out, visit_json, include_image, fallback_used, canonical ? canonical : url) &&
              json_dyn_puts(&out, ",\"metadata\":{") &&
              json_dyn_puts(&out, "\"markdownChars\":") &&
              json_dyn_printf(&out, "%zu", strlen(visit_md)) &&

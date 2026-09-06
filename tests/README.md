@@ -9,6 +9,38 @@ Main engine update and real DeepSeek/GLM prefill/decode comparison:
 comparisons for failed workloads or changed model/prompt identities. The live
 runner is opt-in and starts one actual model at a time.
 
+`make test-search-evidence` executes query-aware page excerpt selection and
+the actual evidence-extraction request path with simulated model replies. It
+checks late-page/Unicode evidence, fixed input bounds and cancellation without
+publishing stale facts or issuing another call. Its loopback HTTP test verifies
+real request closure and independent deadlines. It is not an LLM quality test;
+live research and competitor work is tracked in
+[the quality plan](../docs/SEARCH_AGENT_QUALITY_PLAN.md).
+
+The [real page-evidence comparison](../extension/search/bench/README.md) runs
+eight public fictional questions through actual Chrome and a resident native
+vision model. The complete version-2 run is 3/8 before and 8/8 after, with all
+latencies and original failed/grader receipts retained. It is not a full research
+pipeline or competitor benchmark. `make test-search-publication` checks public
+export bounds/denominators and the actual Matplotlib chart values.
+
+`make test-remote-agent-workspace` executes the real Agent binary with simulated
+model frames and actual read/write/bash tools. Absolute and relative `--chdir`
+paths must affect all tools exactly once; missing directories fail before an
+inference request. This catches the remote-mode regression caused by upstream
+moving the local engine's `chdir` later. No weights are loaded by this gate.
+
+`make test-web-visual-unit` executes the native same-page screenshot response
+adapter. `make test-web-visual-browser` additionally requires Chrome and Python
+Pillow: it compiles the browser helper against all four installed engine source
+trees, reads a public fixture in isolated headless Chrome, decodes the JPEG and
+checks its actual colors, retained text, exact page-tab cleanup and aggregate
+fragmented-response limit. It preserves each run in a fresh ignored directory.
+Neither target loads weights or establishes that a model interpreted the image
+correctly. Search's simulated-model gate separately checks multimodal request
+content, capability/model-switch validation, three-capture bounds, cancellation
+and exclusion of image blobs from serialized chats.
+
 Published benchmark charts use Matplotlib. Regenerate the engine, Design and
 anonymous PDF charts from committed aggregates with
 `python3 tests/support/publish_benchmark_charts.py`; run

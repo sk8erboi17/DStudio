@@ -882,6 +882,41 @@ static long long web_now_ms(void) {
 #endif
 }
 
+/* Pixels stay in this request's response, not the document/cache store. Preserve
+ * text when capture fails; a URL or alt text is never a successful visual read. */
+static int web_append_visual_result(json_dyn_buf *out, const char *helper_json,
+                                   int requested, int fallback, const char *canonical) {
+    if (!requested) return 1;
+    char *data = helper_json ? json_get_string_alloc(helper_json, "imageDataUrl") : NULL;
+    char *url = helper_json ? json_get_string_alloc(helper_json, "imageUrl") : NULL;
+    char *reason = helper_json ? json_get_string_alloc(helper_json, "imageError") : NULL;
+    char *capture_status = helper_json ? json_get_string_alloc(helper_json, "imageStatus") : NULL;
+    long offset_y = 0;
+    if (helper_json && json_get_int(helper_json, "imageOffsetY", 0, 500000, &offset_y) < 0) offset_y = -1;
+    const char *prefix = "data:image/jpeg;base64,";
+    size_t prefix_len = strlen(prefix), len = data ? strlen(data) : 0;
+    int valid = !fallback && url && canonical && !strcmp(url, canonical) && offset_y >= 0 && offset_y <= 500000 &&
+                len > prefix_len + 4 && len <= prefix_len + 768 * 1024 &&
+                !strncmp(data, prefix, prefix_len) && !strncmp(data + prefix_len, "/9j/", 4) &&
+                (len - prefix_len) % 4 == 0 &&
+                strspn(data + prefix_len, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") == len - prefix_len;
+    int ok = json_dyn_puts(out, ",\"visual\":{\"status\":") &&
+             json_dyn_put_escaped(out, valid ? "captured" : !fallback && capture_status && !strcmp(capture_status, "not_needed") ? "not_needed" : "unavailable");
+    if (valid) {
+        ok = ok && json_dyn_puts(out, ",\"sourceUrl\":") && json_dyn_put_escaped(out, url) &&
+             json_dyn_printf(out, ",\"offsetY\":%ld", offset_y) &&
+             json_dyn_puts(out, ",\"width\":1024,\"height\":768,\"scope\":\"one image/chart viewport only; other page regions not inspected\",\"dataUrl\":") &&
+             json_dyn_put_escaped(out, data);
+    } else {
+        ok = ok && json_dyn_puts(out, ",\"reason\":") && json_dyn_put_escaped(out,
+            fallback ? "browser capture unavailable; curl supplied text only" :
+            reason && reason[0] ? reason : "no valid same-page screenshot was returned");
+    }
+    ok = ok && json_dyn_puts(out, "}");
+    free(data); free(url); free(reason); free(capture_status);
+    return ok;
+}
+
 static char *web_helper_capture(const char *tool, const char *arg_kind, const char *arg_value,
                                 int timeout_ms, int *exit_status) {
 #ifdef _WIN32

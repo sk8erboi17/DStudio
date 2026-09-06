@@ -337,6 +337,36 @@ test-glm53-m2max-patch:
 test-main-decode-metrics:
 	@node tests/unit/main_decode_metrics_test.mjs
 
+.PHONY: test-search-evidence
+test-search-evidence:
+	@node tests/unit/search_evidence_test.mjs
+	@node tests/unit/research_http_cancel_test.mjs
+	@node tests/unit/search_quality_grader_test.mjs
+
+.PHONY: test-search-publication test-remote-agent-workspace
+test-search-publication:
+	@node tests/unit/search_publication_test.mjs
+	@python3 tests/unit/search_chart_test.py
+
+test-remote-agent-workspace: $(TEST_SERVER)
+	@$(TEST_SERVER) --build-jsonl $(DS4_DIR)
+	@node tests/integration/remote_agent_workspace_test.mjs $(DS4_DIR)/ds4-agent-jsonl
+
+$(TEST_BUILD)/web_visual_patch_unit: tests/unit/web_visual_patch_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/unit/web_visual_patch_unit.c -o $@
+
+.PHONY: test-web-visual-unit test-web-visual-browser
+test-web-visual-unit: $(TEST_BUILD)/web_visual_patch_unit
+	@$(TEST_BUILD)/web_visual_patch_unit
+
+# Real isolated Chrome + compiled browser helper; does not load weights.
+test-web-visual-browser: $(TEST_BUILD)/web_visual_patch_unit
+	@node tests/integration/web_visual_browser_test.mjs $(TEST_BUILD)/web_visual_patch_unit
+
+check-fast: test-search-evidence
+check-fast: test-web-visual-unit
+
 check-fast: test-main-decode-metrics
 
 check-fast: test-glm53-m2max-patch

@@ -142,7 +142,9 @@ function httpJsonRequest(url, options = {}) {
 
 export async function jsonFetch(baseUrl, urlPath, options = {}) {
   const timeoutMs = options.timeoutMs === undefined ? 30_000 : Number(options.timeoutMs);
-  const signal = options.signal || (timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined);
+  const timeoutSignal = timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
+  const signal = options.signal && timeoutSignal ? AbortSignal.any([options.signal, timeoutSignal])
+    : options.signal || timeoutSignal;
   const res = await httpJsonRequest(`${baseUrl}${urlPath}`, { ...options, signal });
   const text = await res.text();
   let json = null;
@@ -169,6 +171,7 @@ export async function completeText(baseUrl, messages, opts = {}) {
   const json = await jsonFetch(baseUrl, '/v1/chat/completions', {
     method: 'POST',
     timeoutMs: opts.timeoutMs ?? Number(process.env.DSTUDIO_REAL_CALL_TIMEOUT_MS || 0),
+    signal: opts.signal,
     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -502,6 +505,7 @@ export function createWebPipeline(baseUrl) {
   const names = [
     'compactText',
     'balancedEvidenceText',
+    'selectResearchEvidence',
     'researchReportWantsTechnical',
     'buildWebContext',
     'stripJsonFence',
@@ -627,8 +631,10 @@ export function createWebPipeline(baseUrl) {
     }),
   };
   const Engine = {
-    webSearch: async (query, _signal, options = {}) => jsonFetch(baseUrl, '/api/web-search', {
+    status: async () => jsonFetch(baseUrl, '/api/status', { timeoutMs: 3000 }),
+    webSearch: async (query, signal, options = {}) => jsonFetch(baseUrl, '/api/web-search', {
       method: 'POST',
+      signal,
       headers: csrfHeaders,
       body: JSON.stringify({
         query,
@@ -637,10 +643,11 @@ export function createWebPipeline(baseUrl) {
       }),
       timeoutMs: 240_000,
     }),
-    webRead: async (url, _signal, options = {}) => jsonFetch(baseUrl, '/api/web-read', {
+    webRead: async (url, signal, options = {}) => jsonFetch(baseUrl, '/api/web-read', {
       method: 'POST',
+      signal,
       headers: csrfHeaders,
-      body: JSON.stringify({ url, cdpOnly: !!options.cdpOnly }),
+      body: JSON.stringify({ url, cdpOnly: !!options.cdpOnly, includeImage: options.includeImage === true }),
       timeoutMs: 120_000,
     }),
     httpProbe: async (url, method = 'HEAD') => jsonFetch(baseUrl, '/api/http-probe', {
