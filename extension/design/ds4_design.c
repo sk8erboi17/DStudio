@@ -5373,6 +5373,31 @@ static int design_mobile_wrapper(const char *abs_html, int width, int height,
              "const cssPath=e=>{if(e.id)return '#'+CSS.escape(e.id);const a=[];for(let n=e;n&&n.nodeType===1&&n.tagName!=='HTML';n=n.parentElement){"
              "let q=n.tagName.toLowerCase();if(n.parentElement){const c=Array.from(n.parentElement.children);q+=':nth-child('+(c.indexOf(n)+1)+')'}"
              "a.unshift(q);if(n.tagName==='BODY')break}return a.join('>')};"
+             /* Measure text fragments, not only the hidden native input box.
+              * Inline padding indents the first line, not subsequent lines. */
+             "const choiceLabelFindings=[];let choiceLabelFailures=0,choiceLabelUnverified=0,choiceCount=0,choiceNodes=0,choiceRects=0;"
+             "for(const input of d.querySelectorAll('input[type=radio],input[type=checkbox]')){"
+             "if(++choiceCount>128){choiceLabelUnverified=1;break}"
+             "const marker=visible(input)?input:input.nextElementSibling;"
+             "if(!marker||!visible(marker)||(marker!==input&&!marker.matches('[aria-hidden=\"true\"]')))continue;"
+             "const mr=rect(marker);if(mr.width>64||mr.height>64)continue;"
+             "const labels=Array.from(input.labels||[]);if(labels.length>8){choiceLabelUnverified=1;break}"
+             "for(const label of labels){if(!visible(label))continue;"
+             "const card=boundedPanel(label)&&d.defaultView.getComputedStyle(label).display!=='inline',"
+             "rtl=d.defaultView.getComputedStyle(label).direction==='rtl',walker=d.createTreeWalker(label,d.defaultView.NodeFilter.SHOW_TEXT);"
+             "let node,finding=null;while((node=walker.nextNode())){if(++choiceNodes>4096){choiceLabelUnverified=1;break}"
+             "if(!node.textContent.trim()||marker.contains(node)||!node.parentElement||!visible(node.parentElement))continue;"
+             "const range=d.createRange();range.selectNodeContents(node);let first=null;"
+             "for(const z of range.getClientRects()){if(++choiceRects>8192){choiceLabelUnverified=1;break}"
+             "if(z.width<=1||z.height<=1)continue;if(!first)first=z;"
+             "const overlap=Math.min(z.right,mr.right)-Math.max(z.left,mr.x)>2&&Math.min(z.bottom,mr.bottom)-Math.max(z.top,mr.y)>2,"
+             "wrapped=card&&z.top>first.top+2&&(rtl?first.right<=mr.x&&z.right>mr.x+2:first.left>=mr.right&&z.left<mr.right-2);"
+             "if(overlap||wrapped){finding={selector:cssPath(label),control:cssPath(input),marker:mr,"
+             "textRect:{x:round(z.x),y:round(z.y),width:round(z.width),height:round(z.height)},"
+             "reason:overlap?'text-overlaps-indicator':'wrapped-text-enters-indicator-column'};break}}"
+             "if(finding||choiceLabelUnverified)break}"
+             "if(finding){choiceLabelFailures++;if(choiceLabelFindings.length<12)choiceLabelFindings.push(finding)}"
+             "if(choiceLabelUnverified)break}if(choiceLabelUnverified)break}"
              "const unresolvedLinks=[];for(const a of d.querySelectorAll('a[href]')){if(unresolvedLinks.length>=12)break;"
              "if(!visible(a)||a.hasAttribute('download'))continue;let u,here,id;"
              "try{u=new URL(a.href,d.baseURI);here=new URL(d.URL)}catch{continue}"
@@ -5448,12 +5473,13 @@ static int design_mobile_wrapper(const char *abs_html, int width, int height,
              "groups.push({selector:cssPath(parent),display:ps.display,gridTemplateColumns:ps.gridTemplateColumns,"
              "computedRowGap:gapNum(ps.rowGap),computedColumnGap:gapNum(ps.columnGap),verticalGaps,"
              "allowAsymmetry:allowed,misaligned:groupMis,rows:rowMetrics,items})}"
-             "const report={viewport:{clientWidth:f.clientWidth,scrollWidth:sw},targets,overflowingElements,crampedProse,unresolvedLinks,repeatedMediaGroups:groups};"
+             "const report={viewport:{clientWidth:f.clientWidth,scrollWidth:sw},targets,overflowingElements,crampedProse,unresolvedLinks,choiceLabelFindings,choiceLabelUnverified,repeatedMediaGroups:groups};"
              "const reportText=JSON.stringify(report),bytes=new TextEncoder().encode(reportText);let hex='';"
              "for(const byte of bytes)hex+=byte.toString(16).padStart(2,'0');m.dataset.layoutHex=hex;"
              "m.dataset.overflowingElements=String(overflowingElements.length);"
              "m.dataset.crampedProse=String(crampedProse.length);"
              "m.dataset.unresolvedLinks=String(unresolvedLinks.length);"
+             "m.dataset.choiceLabelFailures=String(choiceLabelFailures);m.dataset.choiceLabelUnverified=String(choiceLabelUnverified);"
              "m.dataset.repeatedGroups=String(groups.length);m.dataset.misalignedGroups=String(misaligned);"
              "m.dataset.distortedMedia=String(distorted);m.dataset.maxTopDelta=String(Math.round(maxTopDelta));"
              "m.dataset.maxBottomDelta=String(Math.round(maxBottomDelta));m.dataset.maxMediaHeightDelta=String(Math.round(maxMediaHeightDelta));"
@@ -5462,6 +5488,7 @@ static int design_mobile_wrapper(const char *abs_html, int width, int height,
              "m.dataset.overlaps=String(ov);m.dataset.stretched=String(stretched);m.dataset.maxTail=String(maxTail);const faults=[];"
              "if(sw>f.clientWidth+policy.overflowTolerance)faults.push('P0 HORIZONTAL OVERFLOW: '+sw+'px > '+f.clientWidth+'px');"
              "if(ov)faults.push('P0 INTERACTIVE OVERLAP: '+ov+' pair(s)');"
+             "if(choiceLabelFailures)faults.push('P0 CHOICE LABEL LAYOUT: '+choiceLabelFailures+' label(s)');"
              "if(faults.length){m.textContent=faults.join(' · ');"
              "m.style.display='block'}}catch(e){m.textContent='P0 VIEWPORT PROBE FAILED';"
              "m.dataset.probe='failed';m.style.display='block'}});</script>");
@@ -5615,6 +5642,8 @@ typedef struct {
     int overflowing_elements;
     int cramped_prose;
     int unresolved_links;
+    int choice_label_failures;
+    int choice_label_unverified;
     int interactive_overlaps;
     int stretched_panels;
     int max_panel_tail;
@@ -5733,6 +5762,11 @@ static void design_probe_parse(const design_buf *dump, design_viewport_probe *pr
         return;
     }
     if (!design_probe_int_attr(dump, "data-unresolved-links", &probe->unresolved_links)) {
+        probe->available = false;
+        return;
+    }
+    if (!design_probe_int_attr(dump, "data-choice-label-failures", &probe->choice_label_failures) ||
+        !design_probe_int_attr(dump, "data-choice-label-unverified", &probe->choice_label_unverified)) {
         probe->available = false;
         return;
     }
@@ -6577,6 +6611,13 @@ static void design_geometry_gate(design_project *pr, const char *entry_rel,
             pr->layout_evidence_required = true;
             snprintf(pr->layout_evidence_entry, sizeof pr->layout_evidence_entry, "%s", entry_rel);
         }
+        if (ok && probe.available && (probe.choice_label_failures || probe.choice_label_unverified)) {
+            design_check_add(report, "P0",
+                "rendered choice labels %dpx: %d radio/checkbox label(s) overlap their indicator or wrap into its column; incomplete scan=%d. Call inspect_layout and use choiceLabelFindings before editing. Keep the indicator and multiline text in separate layout columns, then verify again",
+                widths[i], probe.choice_label_failures, probe.choice_label_unverified);
+            pr->layout_evidence_required = true;
+            snprintf(pr->layout_evidence_entry, sizeof pr->layout_evidence_entry, "%s", entry_rel);
+        }
         if (ok && probe.available && probe.unresolved_links) {
             design_check_add(report, "P1",
                 "rendered navigation %dpx: %d visible in-page link(s) have no DOM destination (up to 12 shown); inspect_layout lists unresolvedLinks with selectors and hrefs. Fix ordinary anchor destinations, or exercise and verify intentional scripted routing. This check does not prove JavaScript navigation is broken or working",
@@ -6785,10 +6826,11 @@ static char *design_tool_inspect_layout(design_project *pr,
     for (int i = 0; i < 3; i++) {
         char line[640];
         snprintf(line, sizeof(line),
-                 "%s %dpx: client/scroll=%d/%d, overflowingElements=%d, crampedProse=%d, unresolvedLinks=%d, repeatedMediaGroups=%d, misaligned=%d, distorted=%d, max deltas top/bottom/media-height/media-bottom=%d/%d/%d/%dpx\n",
+                 "%s %dpx: client/scroll=%d/%d, overflowingElements=%d, crampedProse=%d, unresolvedLinks=%d, choiceLabelFailures=%d, choiceLabelUnverified=%d, repeatedMediaGroups=%d, misaligned=%d, distorted=%d, max deltas top/bottom/media-height/media-bottom=%d/%d/%d/%dpx\n",
                  specs[i].name, specs[i].width, probes[i].client_width,
                  probes[i].scroll_width, probes[i].overflowing_elements, probes[i].cramped_prose,
                  probes[i].unresolved_links,
+                 probes[i].choice_label_failures, probes[i].choice_label_unverified,
                  probes[i].repeated_media_groups,
                  probes[i].misaligned_media_groups, probes[i].distorted_media,
                  probes[i].max_top_delta, probes[i].max_bottom_delta,
@@ -7286,7 +7328,7 @@ static char *design_tool_pack(const design_tool_call *call, const char *subdir,
     const char *name = tool_arg_value(call, "name");
     if (!design_pack_name_ok(name)) return tool_error("name must be a simple id (a-z, 0-9, -)");
     if (!strcmp(subdir, "design-systems") && !dstudio_design_system_supported(name))
-        return tool_error("retired or unknown system; available originals: folio, signal, forma, grove, pulse");
+        return tool_error("retired or unknown system; available originals: folio, signal, forma, grove, pulse, market, commons, atlas, canvas");
     char path[2300];
     char pack_root[2300] = "";
     char *body = NULL;
@@ -9230,7 +9272,7 @@ static const char design_system_prompt[] =
     "{\"type\":\"function\",\"function\":{\"name\":\"design_system\","
     "\"description\":\"Load a DESIGN-SYSTEM (brand) pack — color tokens, typography, components, motion, voice, anti-patterns. Call it BEFORE building to lock the look, then bind its tokens. The available design-system ids are listed in the system context.\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{"
-    "\"name\":{\"type\":\"string\",\"description\":\"The original design-system id: folio, signal, forma, grove or pulse.\"}},"
+    "\"name\":{\"type\":\"string\",\"description\":\"The original design-system id: folio, signal, forma, grove, pulse, market, commons, atlas or canvas.\"}},"
     "\"required\":[\"name\"]}}}\n\n"
     "{\"type\":\"function\",\"function\":{\"name\":\"craft\","
     "\"description\":\"Load a CRAFT rules pack — universal, brand-agnostic standards (accessibility, anti-slop, color, typography, state-coverage, motion, and layout-responsive). Load the relevant ones for the task; ALWAYS load layout-responsive before resizing/restructuring and accessibility before shipping. The available craft ids are in the system context.\","
@@ -9457,6 +9499,11 @@ static const char design_system_prompt[] =
     "body text >= 16px, tap targets >= 44px, body contrast >= 4.5:1, and no "
     "horizontal scroll at 390 / 768 / 1280px, and no substantially overlapping "
     "interactive controls at desktop or mobile.\n\n"
+    "Radio/checkbox cards need a real indicator column and a shrinkable text column. "
+    "Use block title/description text so every wrapped line keeps its alignment. "
+    "Padding on an inline span only indents its first line; it does not reserve "
+    "space for an absolutely positioned indicator. Inspect the actual wrapped "
+    "labels, including keyboard focus and the selected state.\n\n"
     "For every surface that genuinely loads remote or delayed data, make "
     "loading, empty, error, populated and edge states machine-verifiable on "
     "the first build: use explicit data-state values, aria-busy during real "
@@ -11010,7 +11057,13 @@ static bool design_compact_if_needed(design_agent *a, const char *reason,
 /* One user turn: any number of assistant/tool rounds until the model answers
  * without a tool call.  The transcript is the single source of truth, exactly
  * like ds4-agent's worker_run_turn, minus the worker thread. */
+static void design_steer_append(void *owner, const char *text) {
+    design_agent *a = owner;
+    ds4_chat_append_message(a->engine, &a->transcript, "user", text);
+}
+
 static int run_turn(design_agent *a, const char *user_text) {
+    dstudio_steer steering = dstudio_steer_begin();
     ds4_think_mode think_mode = agent_think_mode(a);
     char compact_err[160] = {0};
     if (!design_compact_if_needed(a, "soft limit before user turn",
@@ -11042,6 +11095,7 @@ static int run_turn(design_agent *a, const char *user_text) {
     int generation_continues = 0;
 
     for (int tool_round = 0; ; tool_round++) {
+        dstudio_steer_drain(&steering, 0, design_steer_append, a);
         if (tool_round > 0 &&
             !design_compact_if_needed(a, "soft limit before tool continuation",
                                       compact_err, sizeof(compact_err)))
@@ -11301,6 +11355,7 @@ static int run_turn(design_agent *a, const char *user_text) {
             }
             out_text("\n", 1);
             dsml_parser_free(&dsml);
+            if (dstudio_steer_drain(&steering, 1, design_steer_append, a)) continue;
             design_project_finish_run(&a->project, "ok");
             return 0;
         }
@@ -11970,12 +12025,16 @@ static int design_run_self_test(void) {
 
     /* Regression: brand previews and tokens used to be listed by the UI but
      * rejected by the native pack_file tool. Exercise the actual dispatcher. */
-    char original_root[PATH_MAX], original_file[PATH_MAX];
-    snprintf(original_root, sizeof original_root, "%s/design-systems/folio", pack_dir);
+    for (int pack_index = 0; dstudio_design_system_ids[pack_index]; pack_index++) {
+    const char *pack_id = dstudio_design_system_ids[pack_index];
+    char original_root[PATH_MAX], original_file[PATH_MAX], original_markdown[300];
+    snprintf(original_root, sizeof original_root, "%s/design-systems/%s", pack_dir, pack_id);
+    snprintf(original_markdown, sizeof original_markdown,
+             "---\nname: %s\n---\nA reading-led fixture for %s.\n", pack_id, pack_id);
     fails += selftest_expect(design_mkdir_p(original_root), "original pack fixture directory");
     const char *original_files[] = {"DESIGN.md", "tokens.css", "components.html", NULL};
     const char *original_bodies[] = {
-        "---\nname: Folio\n---\nA reading-led composition.\n",
+        original_markdown,
         ":root { --accent: #99432c; }\n",
         "<!doctype html><html><body><h1>Reading-led fixture</h1></body></html>\n"
     };
@@ -11986,7 +12045,7 @@ static int design_run_self_test(void) {
     }
     memset(&pf_call, 0, sizeof pf_call);
     pf_call.name = xstrdup("design_system");
-    tool_call_add_arg(&pf_call, "name", "folio", 5, true);
+    tool_call_add_arg(&pf_call, "name", pack_id, strlen(pack_id), true);
     pf_res = execute_tool_call(&pr, &pf_call);
     fails += selftest_expect(strstr(pf_res, "tokens.css") && strstr(pf_res, "components.html") &&
                             strstr(pf_res, "reading-led"), "original pack exposes executable files");
@@ -11995,13 +12054,14 @@ static int design_run_self_test(void) {
         memset(&pf_call, 0, sizeof pf_call);
         pf_call.name = xstrdup("pack_file");
         tool_call_add_arg(&pf_call, "type", "design_system", 13, true);
-        tool_call_add_arg(&pf_call, "name", "folio", 5, true);
+        tool_call_add_arg(&pf_call, "name", pack_id, strlen(pack_id), true);
         tool_call_add_arg(&pf_call, "path", original_files[i], strlen(original_files[i]), true);
         pf_res = execute_tool_call(&pr, &pf_call);
         const char *payload = strchr(pf_res, '\n');
         fails += selftest_expect(payload && !strcmp(payload + 1, original_bodies[i]),
                                 "pack_file returns original CSS/HTML bytes unchanged");
         free(pf_res); tool_call_free(&pf_call);
+    }
     }
     memset(&pf_call, 0, sizeof pf_call);
     pf_call.name = xstrdup("design_system");
@@ -12124,6 +12184,48 @@ static int design_run_self_test(void) {
     design_check_report_free(&geometry_report);
     pr.layout_evidence_required = false;
     pr.layout_evidence_entry[0] = '\0';
+
+    /* Same defect as the published workshop: the circle is absolute and an
+     * inline span only indents its first line. Exercise the production gate
+     * and a CSS-only repair, not a separate benchmark-only detector. */
+    const char choice_html[] =
+        "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        "<link rel=\"stylesheet\" href=\"geometry.css\"></head><body>"
+        "<label class=\"choice\" id=\"wrapped-choice\"><input type=\"radio\" name=\"choice\">"
+        "<span class=\"marker\" aria-hidden=\"true\"></span><span class=\"copy\">"
+        "<strong class=\"title\">Bookbinding</strong> <span class=\"desc\">Stitch and bind your own notebook. Beginner friendly.</span></span></label>"
+        "<label style=\"display:block;width:180px\"><input type=\"checkbox\">A plain inline label may wrap without a separate card column.</label>"
+        "<div hidden><label class=\"choice\"><input type=\"radio\"><span class=\"marker\" aria-hidden=\"true\"></span>Hidden draft</label></div>"
+        "</body></html>";
+    const char choice_bad[] =
+        "body{margin:20px;font:16px/1.6 Arial}.choice{box-sizing:border-box;position:relative;display:block;"
+        "width:280px;padding:16px;border:1px solid #777}.choice input{position:absolute;opacity:0;width:1px;height:1px}"
+        ".marker{position:absolute;left:16px;top:50%;transform:translateY(-50%);width:20px;height:20px;border:1px solid;border-radius:50%}"
+        ".copy{padding-left:34px}";
+    const char choice_good[] =
+        "body{margin:20px;font:16px/1.6 Arial}.choice{box-sizing:border-box;position:relative;display:grid;"
+        "grid-template-columns:20px minmax(0,1fr);gap:14px;width:280px;padding:16px;border:1px solid #777}"
+        ".choice input{position:absolute;opacity:0;width:1px;height:1px}.marker{width:20px;height:20px;border:1px solid;border-radius:50%;margin-top:.2em}"
+        ".copy{min-width:0}.title,.desc{display:block}";
+    fails += selftest_expect(write_file_bytes(geometry_entry, choice_html, strlen(choice_html), pack_err, sizeof pack_err) &&
+        write_file_bytes(geometry_css, choice_bad, strlen(choice_bad), pack_err, sizeof pack_err), "choice-label reproduction writes");
+    design_geometry_gate(&pr, "geometry.html", geometry_entry, &geometry_report);
+    fails += selftest_expect(geometry_report.p0 == 3 && pr.layout_evidence_required,
+        "native artifact gate rejects wrapped radio labels at all three widths without a vision model");
+    design_check_report_free(&geometry_report);
+    design_tool_call choice_call = {0}; choice_call.name = xstrdup("inspect_layout");
+    tool_call_add_arg(&choice_call, "entry", "geometry.html", strlen("geometry.html"), true);
+    char *choice_result = execute_tool_call(&pr, &choice_call);
+    fails += selftest_expect(choice_result && strstr(choice_result, "#wrapped-choice") &&
+        strstr(choice_result, "choiceLabelFailures=1") && !pr.layout_evidence_required,
+        "inspect_layout returns the actual radio text finding and permits measured repair");
+    free(choice_result); tool_call_free(&choice_call);
+    fails += selftest_expect(write_file_bytes(geometry_css, choice_good, strlen(choice_good), pack_err, sizeof pack_err),
+        "radio text-column CSS repair writes");
+    design_geometry_gate(&pr, "geometry.html", geometry_entry, &geometry_report);
+    fails += selftest_expect(geometry_report.p0 == 0 && geometry_report.p1 == 0,
+        "native gate accepts repaired multiline columns, ordinary inline labels and hidden content");
+    design_check_report_free(&geometry_report);
 
     /* Reproduction of a real generated-page failure: a grid-column swap left
      * long prose only 100px wide, despite a perfectly passing overflow check. */
@@ -13051,7 +13153,18 @@ static void design_remote_reset_messages(design_agent *a) {
     free(sys);
 }
 
+static void design_remote_steer_append(void *owner, const char *text) {
+    design_agent *a = owner;
+    dstudio_remote_messages_append(&a->remote_messages, &a->remote_message_count, "user", text);
+}
+
+static int design_remote_model_cancel(void *owner) {
+    (void)owner;
+    return design_interrupt_requested();
+}
+
 static int design_remote_run_turn(design_agent *a, const char *user_text) {
+    dstudio_steer steering = dstudio_steer_begin();
     if (!a->session_title) {
         a->session_title = design_session_title_from_prompt(user_text, 0);
         a->session_created_at = (uint64_t)time(NULL);
@@ -13078,6 +13191,7 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
     int incomplete_todo_continues = 0;
     for (int tool_round = 0; ; tool_round++) {
         (void)tool_round;
+        dstudio_steer_drain(&steering, 0, design_remote_steer_append, a);
         dsml_parser dsml;
         memset(&dsml, 0, sizeof(dsml));
         dsml.state = DSML_SEARCH;
@@ -13099,6 +13213,7 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
             a->cfg->n_predict,
             design_remote_cb,
             &ctx,
+            design_remote_model_cancel,
             err,
             sizeof(err));
         free(messages);
@@ -13215,6 +13330,7 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
             out_text("\n", 1);
             free(assistant);
             dsml_parser_free(&dsml);
+            if (dstudio_steer_drain(&steering, 1, design_remote_steer_append, a)) continue;
             design_project_finish_run(&a->project, "ok");
             return 0;
         }

@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { spawn, execFileSync, spawnSync } from 'node:child_process';
 import { webkit } from 'playwright';
 import { freePort, sleep } from '../support/real_harness.mjs';
+import { nativePatchRoundtrip } from '../support/native_patch_roundtrip.mjs';
 
 assert.equal(process.platform, 'darwin', 'this gate requires macOS, not a skipped pass');
 const repo = process.cwd();
@@ -32,6 +33,7 @@ for (const key of ['DS4UI_TEST_MODE', 'DS4UI_NO_WINDOW', 'DS4UI_SKIP_LOADING',
 env.DS4UI_NO_WINDOW = '1';
 env.DS4UI_DEFER_ENGINE_START = '1';
 let child, browser, page, sentinel;
+let childFinished;
 let serverPid;
 const external = () => {
   const r = spawnSync('lsof', ['-nP', '-iTCP:28000', '-sTCP:LISTEN', '-t'], { encoding: 'utf8' });
@@ -56,10 +58,10 @@ async function step(name, fn) {
   finally { row.seconds = (performance.now()-t)/1000; save(); console.log(`${row.status}: ${name} (${row.seconds.toFixed(1)}s)`); }
 }
 const configs = {
-  main: { dir: 'ds4', endpoint: '/api/ds4/setup', commit: 'f4d03f6cf9f11c1e7b630bcb160853acfba7c52a' },
+  main: { dir: 'ds4', endpoint: '/api/ds4/setup', commit: 'bd66c402070042bf0a79ad6ece8242de4c93680c' },
   laguna: { dir: 'ds4-laguna-s21', endpoint: '/api/laguna/setup', target: 'laguna-q4', commit: '448d5695d1c86401a4e9447c440feb983b73e6de' },
-  qwen: { dir: 'ds4-qwen38', endpoint: '/api/qwen/setup', target: 'qwen38-q4k', commit: 'bd9cfbccc03a709a3f00b50e0ac1cc41c3fcf02d' },
-  qwen35: { dir: 'ds4-qwen35', endpoint: '/api/qwen35/setup', target: 'qwen36-q6', commit: '60fca11f0c8b16ca50c757324dddd717ba043098' },
+  qwen: { dir: 'ds4-qwen38', endpoint: '/api/qwen/setup', target: 'qwen38-q4k', commit: 'ff4f0ff4fdff70d6b7c3941ef437b91dde960e14' },
+  qwen35: { dir: 'ds4-qwen35', endpoint: '/api/qwen35/setup', target: 'qwen36-q6', commit: '73434c4bb9d8bb18425a2577edada69d25d44c47' },
 };
 function verifyRuntime(id, response) {
   const cfg = configs[id], dir = path.join(data, cfg.dir);
@@ -106,6 +108,10 @@ try {
   const fd = fs.openSync(path.join(run,'app.log'),'wx');
   child = spawn(path.join(app,'Contents/MacOS/DStudio'), [String(port)], {
     cwd: '/', env, detached: true, stdio: ['ignore',fd,fd],
+  });
+  childFinished = new Promise(resolve => {
+    child.once('exit', (code, signal) => resolve({code, signal}));
+    child.once('error', error => resolve({error: error.message}));
   });
   fs.closeSync(fd);
   child.on('error', e => { report.launchError = e.message; save(); });
@@ -206,26 +212,9 @@ try {
     assert.equal(sha(path.join(app,'Contents/MacOS/DStudio')),report.appSha256);
     return catalog;
   });
-  await step('complete main patch stack reverses and reapplies without source loss', async () => {
-    const patches = ['ds4-visible-downloads/visible-partials.patch', 'ds4-media-memory/residency-lease.patch',
-      'ds4-server-metrics/usage-metrics.patch', 'ds4-glm53-runtime/streaming-memory.patch',
-      'ds4-glm53-m2max/native-decode.patch', 'ds4-vision-streaming/vision-map.patch'];
-    const scratch = path.join(run,'patch-roundtrip'); fs.mkdirSync(scratch);
-    const files = new Set();
-    // Patch headers only route fixture copies; assertions execute git apply and
-    // compare the resulting files, not source names/wording/regex contracts.
-    for (const p of patches) for (const m of fs.readFileSync(path.join(data,'patch',p),'utf8').matchAll(/^\+\+\+ b\/(.+)$/gm)) files.add(m[1]);
-    const before = {};
-    for (const f of files) {
-      const src = path.join(data,'ds4',f), dest = path.join(scratch,f);
-      fs.mkdirSync(path.dirname(dest),{recursive:true}); fs.copyFileSync(src,dest); before[f]=sha(src);
-    }
-    const applyEnv = {...env,GIT_CEILING_DIRECTORIES:run};
-    for(const key of ['GIT_DIR','GIT_WORK_TREE','GIT_INDEX_FILE']) delete applyEnv[key];
-    for (const p of [...patches].reverse()) execFileSync('git',['-C',scratch,'apply','--unidiff-zero','--reverse',path.join(data,'patch',p)],{env:applyEnv});
-    for (const p of patches) execFileSync('git',['-C',scratch,'apply','--unidiff-zero',path.join(data,'patch',p)],{env:applyEnv});
-    for (const f of files) {assert.equal(sha(path.join(scratch,f)),before[f]);assert.equal(sha(path.join(data,'ds4',f)),before[f]);}
-    return {patches:patches.map(p=>({file:p,sha256:sha(path.join(data,'patch',p))})),filesChecked:files.size};
+  await step('six native main adaptations reverse and reapply without source loss', async () => {
+    return nativePatchRoundtrip({ support: data, source: path.join(data, 'ds4'),
+      scratch: path.join(run, 'patch-roundtrip'), environment: env });
   });
   report.status='pass';
 } catch(e) {
@@ -237,10 +226,19 @@ try {
   console.error(e); process.exitCode=1;
 } finally {
   await browser?.close();
-  // Only the headless app and its descendants belong to this test.
-  for(const pid of new Set([serverPid, child?.pid])) if(pid) {try{process.kill(-pid,'SIGTERM');}catch{}}
-  await sleep(1000);
-  for(const pid of new Set([serverPid, child?.pid])) if(pid) {try{process.kill(-pid,'SIGKILL');}catch{}}
+  // Signal only the process group created by this spawn, while the child is
+  // still alive. A port lookup or a PID saved after exit is not ownership.
+  const appRunning = () => child?.pid && child.exitCode === null && child.signalCode === null;
+  if (appRunning()) {
+    try { process.kill(-child.pid, 'SIGTERM'); } catch {}
+    let timer;
+    await Promise.race([childFinished, new Promise(resolve => { timer = setTimeout(resolve, 3000); })]);
+    clearTimeout(timer);
+    if (appRunning()) {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+      await childFinished;
+    }
+  }
   try { checkExternal(); report.externalListenerPreserved=true; } catch(e) {report.status='fail';report.cleanupError=e.message;process.exitCode=1;}
   if(sentinel && sentinel.exitCode === null && sentinel.signalCode === null) {
     const exited = new Promise(resolve=>sentinel.once('exit',resolve));

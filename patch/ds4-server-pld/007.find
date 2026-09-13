@@ -1,3 +1,0 @@
-        if (stop_decode) break;
-    }
-    server_generation_leave(s);

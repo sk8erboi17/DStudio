@@ -107,17 +107,20 @@ PDFs need the existing Poppler tools, not an embedding/model launch. This first
 version handles text layers, not OCR. Limits: 200 rows, 32 columns, 64 sources,
 400 pages per PDF and bounded extracted text. Split larger comparisons visibly.
 
-## Excel schema
+## Excel workflow
 
-```json
-{"type":"function","function":{"name":"excel","description":"Inspect, read, create, update or append a local XLSX/CSV/TSV spreadsheet.","parameters":{"type":"object","properties":{"action":{"type":"string","enum":["inspect","read","create","write","append"]},"path":{"type":"string","description":"Workspace-relative .xlsx/.csv/.tsv path."},"sheet":{"type":"string","description":"Worksheet name; defaults to the first sheet for reads and Sheet1 for creation."},"range":{"type":"string","description":"A1 range for reads or top-left A1 cell for writes."},"data_json":{"type":"string","description":"JSON array of rows. A string beginning with = is stored as an Excel formula."},"sheets_json":{"type":"string","description":"For create: JSON array of {name,rows} objects."},"header":{"type":"boolean","description":"Style/freeze/filter the first row on creation; default true."}},"required":["action","path"]}}}
-```
-
-Excel rules:
+Use the function signatures supplied by the runtime. For `create`, `data_json`
+is a JSON array of rows; `sheets_json` is an array of `{name,rows}` for multiple
+sheets. `sheet` defaults to the first sheet for reads and `Sheet1` for creation.
+`header` defaults to true: style, freeze and filter the first row.
 
 - Call `inspect` first when sheet names or dimensions are unknown.
 - Use a bounded `read` range; request another range instead of loading a huge
-  workbook into context.
+  workbook into context. With no range, only A1:T50 is requested. `Read scope`
+  reports the nonempty-data extent, omitted directions and text truncation.
+  `complete` applies only to the selected sheet's nonempty cells/formulas, not
+  the whole workbook, formatting or semantic correctness; check `otherSheets`.
+  Read the remaining relevant ranges before drawing whole-file conclusions.
 - `create` replaces/creates the requested file. `write` updates from the
   top-left cell in `range`; `append` writes after the last used row.
 - Put literal values and formulas in `data_json`. OOXML formulas use English
@@ -127,15 +130,10 @@ Excel rules:
   units and distinguish percentages represented as `0.12` from `12`.
 - After every write/create/append, call `read` on the affected cells. Check that
   headers, formulas, Unicode text and totals survived the round trip.
-
-## Document schemas
-
-```json
-{"type":"function","function":{"name":"read_document","description":"Read local DOCX, PPTX, ODT, RTF, HTML, Markdown, text, JSON or delimited content.","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}
-{"type":"function","function":{"name":"write_document","description":"Create a polished local DOCX, Markdown, text or HTML document.","parameters":{"type":"object","properties":{"path":{"type":"string"},"title":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}}}
-{"type":"function","function":{"name":"write_pdf","description":"Create a polished, paginated local PDF directly in the workspace.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Workspace-relative .pdf path."},"title":{"type":"string"},"content":{"type":"string","description":"Complete Markdown-like content for the PDF."}},"required":["path","content"]}}}
-{"type":"function","function":{"name":"presentation","description":"Create a local 16:9 PPTX presentation.","parameters":{"type":"object","properties":{"path":{"type":"string"},"title":{"type":"string"},"slides_json":{"type":"string","description":"JSON array of {title,bullets|body} slide objects."}},"required":["path","slides_json"]}}}
-```
+  A creation receipt's `Write scope` gives the actual saved sheet names and
+  ranges, including normalized names. Use these for the readback; another
+  `inspect` is unnecessary when this receipt already identifies the range.
+  `readBack:false` is not a verification result. Never skip the actual read.
 
 ## Quality floor
 

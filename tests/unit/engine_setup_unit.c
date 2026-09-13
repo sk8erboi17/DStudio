@@ -6,15 +6,81 @@
 #include "../../src/dstudio.c"
 #undef main
 
+/* Parse the prompt actually produced for the runtime, not the C source. The
+ * legacy path still needs every inline function; the structured path sends
+ * those definitions in request.tools (exercised by q36_agent_host_test). */
+static void check_prompt_catalog(int mode, int structured) {
+    const char *names[] = {"skill", "design_system", "pack_file", "skills_search",
+                          "read_pdf", "question", "gsa_submit_phase"};
+    char *prompt = build_piped_skill_sys(mode, structured), *save = NULL;
+    assert(prompt);
+    unsigned seen = 0;
+    for (char *line = strtok_r(prompt, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+        if (*line != '{') continue;
+        dtg_json_token tokens[128]; char error[128], name[64];
+        assert(dtg_json_validate_complete(line, '{', error, sizeof error));
+        int count = dtg_json_tokenize(line, strlen(line), tokens, 128);
+        assert(count > 0);
+        int type = dtg_json_object_field(line, tokens, count, 0, "type");
+        assert(type >= 0 && dtg_json_token_eq(line, &tokens[type], "function"));
+        int fn = dtg_json_object_field(line, tokens, count, 0, "function");
+        int id = dtg_json_object_field(line, tokens, count, fn, "name");
+        int parameters = dtg_json_object_field(line, tokens, count, fn, "parameters");
+        assert(id >= 0 && dtg_json_token_string(line, &tokens[id], name, sizeof name));
+        assert(parameters >= 0 && tokens[parameters].type == DTG_JSON_OBJECT);
+        size_t i;
+        for (i = 0; i < sizeof names / sizeof names[0] && strcmp(name, names[i]); i++) {}
+        assert(i < sizeof names / sizeof names[0] && !(seen & (1u << i)));
+        seen |= 1u << i;
+    }
+    unsigned expected = structured || mode == ENGINE_DESIGN ? 0 : mode == ENGINE_AGENT ? 127 : 63;
+    assert(seen == expected);
+    free(prompt);
+}
+
 int main(void) {
+    assert(model_file_is_auxiliary("DeepSeek-V4.1-Flash-Vision.gguf"));
+    assert(!model_file_is_supported(MODEL_DS41_VISION));
+#ifdef __APPLE__
+    assert(model_file_is_supported(MODEL_DS41_Q2));
+    assert(model_file_is_supported(MODEL_DS41_Q4));
+    assert(!strcmp(native_vision_encoder_rel_for_model(MODEL_DS41_Q2), MODEL_DS41_VISION));
+#else
+    assert(!model_file_is_supported(MODEL_DS41_Q2));
+    assert(!model_file_is_supported(MODEL_DS41_Q4));
+#endif
+    assert(!model_file_is_supported("DeepSeek-V4.1-Flash-Unknown.gguf"));
+    assert(!model_file_is_deepseek41(MODEL_FLASH));
+    cstr_copy(g_model_override, sizeof g_model_override, MODEL_DS41_Q2);
+    assert(!model_is_flash()); /* Never reuse V4's memory or DSpark estimates. */
     assert(model_file_is_auxiliary("Qwen3.8-Flash-Next-PLE-Q4_1.gguf"));
     assert(model_file_is_auxiliary("Qwen3.8-Flash-Next-Q4KImatrix-MTP.gguf"));
     assert(!model_file_is_supported(MODEL_QWEN_PLE));
     assert(model_file_is_supported(MODEL_QWEN));
+    /* The dense checkpoint has its own route; the projector is never a Chat
+     * model. Other quantizations still require their own qualification. */
+    assert(model_file_is_auxiliary("Qwen3.8-27B-mmproj-F16.gguf"));
+    assert(!model_file_is_supported("Qwen3.8-27B-mmproj-F16.gguf"));
+    assert(model_file_is_supported("Qwen3.8-27B-UD-Q6_K_XL.gguf"));
+    assert(!model_file_is_supported("Qwen3.8-27B-UD-Q4_K_XL.gguf"));
+    assert(!model_file_is_qwen38("Qwen3.8-27B-UD-Q6_K_XL.gguf"));
     cstr_copy(g_model_override, sizeof g_model_override, MODEL_QWEN);
     assert(model_is_qwen() && !model_is_flash() && !model_is_laguna());
     engine_cfg cfg = ENGINE_DEFAULTS;
     char err[8600] = "", reason[256] = "";
+#ifdef __APPLE__
+    cfg.power = 50;
+    assert(!strcmp(native_launch_preflight(&cfg, ENGINE_SERVER, MODEL_DS41_Q2, 0, 0, err, sizeof err), "unsupported_power"));
+    assert(cfg.power == 50 && g_child <= 0);
+    cfg.power = 100;
+    assert(!strcmp(native_launch_preflight(&cfg, ENGINE_SERVER, MODEL_DS41_Q2, 0, 1, err, sizeof err), "unsupported_speculation"));
+    cfg.ssd_streaming = SSD_STREAMING_ON;
+    assert(model_ssd_streaming(&cfg, 0, MODEL_DS41_Q2, 0, reason, sizeof reason, err, sizeof err) == 1);
+    assert(strstr(reason, "Engram") && strstr(reason, "separately"));
+    cfg.ssd_streaming = SSD_STREAMING_OFF;
+    assert(model_ssd_streaming(&cfg, 0, MODEL_DS41_Q2, 0, reason, sizeof reason, err, sizeof err) == 0);
+    assert(strstr(reason, "Engram") && strstr(reason, "disk-backed"));
+#endif
     // Execute the native preflight for every model named by the UI notice.
     const char *streaming_models[] = { MODEL_FLASH, MODEL_DSVISION_Q2, MODEL_GLM53_Q2, MODEL_PRO };
     cfg.ssd_streaming = SSD_STREAMING_ON;
@@ -43,8 +109,10 @@ int main(void) {
     assert(!g_ssd_streaming_effective && !err[0]);
     assert(strstr(g_ssd_streaming_reason, "PLE stays SSD-backed"));
     g_dspark_enabled = 1;
-    assert(normalize_flash_memory_config(&cfg, 0, 0, reason, sizeof reason, NULL, NULL));
-    assert(!g_dspark_enabled);
+    int requested_dspark = 1;
+    assert(normalize_flash_memory_request(&cfg, 0, MODEL_QWEN, &requested_dspark, 0, reason, sizeof reason, NULL, NULL));
+    assert(!requested_dspark && g_dspark_enabled == 1);
+    g_dspark_enabled = 0;
 #ifndef _WIN32
     char temp[] = "/tmp/dstudio-engine-setup-unit.XXXXXX";
     assert(mkdtemp(temp));
@@ -122,6 +190,28 @@ int main(void) {
     assert(!setup_install_engine("main", marker, target, sizeof target, &downloaded, err, sizeof err));
 
     cstr_copy(g_web_dir, sizeof g_web_dir, temp);
+    const char *prompt_models[] = {MODEL_FLASH, MODEL_GLM53_Q2, MODEL_LAGUNA,
+                                  MODEL_QWEN, MODEL_QWEN35, MODEL_QWEN27};
+    for (size_t i = 0; i < sizeof prompt_models / sizeof prompt_models[0]; i++) {
+        cstr_copy(g_model_override, sizeof g_model_override, prompt_models[i]);
+        /* Both native legacy and actual remote/DSML retain their catalogs. */
+        for (int remote = 0; remote < 2; remote++) {
+            cstr_copy(g_remote_base_url, sizeof g_remote_base_url, remote ? "prepare-only" : "");
+            check_prompt_catalog(ENGINE_AGENT, 0);
+            check_prompt_catalog(ENGINE_COWORK, 0);
+            check_prompt_catalog(ENGINE_DESIGN, 0);
+        }
+    }
+    /* q36's private builder uses remote compilation without changing the
+     * admitted structured protocol. The explicit selection must survive it. */
+    for (int remote_build = 0; remote_build < 2; remote_build++) {
+        cstr_copy(g_remote_base_url, sizeof g_remote_base_url, remote_build ? "prepare-only" : "");
+        check_prompt_catalog(ENGINE_AGENT, 1);
+        check_prompt_catalog(ENGINE_COWORK, 1);
+        check_prompt_catalog(ENGINE_DESIGN, 1);
+    }
+    g_remote_base_url[0] = '\0';
+    cstr_copy(g_model_override, sizeof g_model_override, MODEL_FLASH);
     assert(jsonl_write_file(shared, "not a directory", 15));
     assert(!setup_link_shared_gguf(side, err, sizeof err));
     assert(access(link, F_OK) != 0);
@@ -146,6 +236,6 @@ int main(void) {
     assert(rmdir(shared) == 0 && rmdir(primary) == 0 && rmdir(side) == 0 && rmdir(other) == 0);
     assert(rmdir(temp) == 0);
 #endif
-    puts("engine_setup_unit: model/component selection, residency, existing-data preservation and shared-store identity passed (no model)");
+    puts("engine_setup_unit: model/component selection, prompt catalogs, residency, existing-data preservation and shared-store identity passed (no model)");
     return 0;
 }

@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "sourceFile": "ds4_server.c",
+  "migration": {
+    "description": "Exact pre-migration native output; no runtime behavior changes",
+    "legacyVersion": 2
+  },
+  "bases": [
+    {
+      "name": "main-current",
+      "repository": "https://github.com/antirez/ds4",
+      "revision": "c0a6119f363ef82125877142f13fb3fe491cba14",
+      "equivalentSourceRevisions": ["f62ca29a308724cde5bc99134ede19104b2a3260"],
+      "sourceSHA256": "c2a06bb52185cb74a3f21d183760975cc0efd5d1b8ce969a094f5fbd93944c49",
+      "rawSourceSHA256": "c2a06bb52185cb74a3f21d183760975cc0efd5d1b8ce969a094f5fbd93944c49",
+      "prerequisites": [],
+      "patch": "main-current.patch",
+      "patchSHA256": "8ea89124191f2ee3dcd3193eec326c8fe393e2680abc4e5280954e14bc9c39bf",
+      "derivedSHA256": "1c19972ecf6598ed8e8f4044bdce29be80ec1df67266296829675848872d960e",
+      "legacyExpandedSHA256": "1c19972ecf6598ed8e8f4044bdce29be80ec1df67266296829675848872d960e"
+    },
+    {
+      "name": "main-current-metrics",
+      "repository": "https://github.com/antirez/ds4",
+      "revision": "c0a6119f363ef82125877142f13fb3fe491cba14",
+      "equivalentSourceRevisions": ["f62ca29a308724cde5bc99134ede19104b2a3260"],
+      "sourceSHA256": "fa486b1371653feded8ba2ae29ed46eb88956bfbcca4737ef70c95f1006c5647",
+      "rawSourceSHA256": "c2a06bb52185cb74a3f21d183760975cc0efd5d1b8ce969a094f5fbd93944c49",
+      "prerequisites": [
+        "patch/ds4-server-metrics/usage-metrics.patch"
+      ],
+      "patch": "main-current.patch",
+      "patchSHA256": "8ea89124191f2ee3dcd3193eec326c8fe393e2680abc4e5280954e14bc9c39bf",
+      "derivedSHA256": "2a8467f7dc7e63dcdd15a22abd26fa325fb332d832aecb80ebeacd955aaa58bc",
+      "legacyExpandedSHA256": "2a8467f7dc7e63dcdd15a22abd26fa325fb332d832aecb80ebeacd955aaa58bc"
+    },
+    {
+      "name": "main-previous",
+      "repository": "https://github.com/antirez/ds4",
+      "revision": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
+      "sourceSHA256": "2886bb615d340a6a1ccf7525bdceda7d68dcd4ad80bd9057f4f8febde4367375",
+      "rawSourceSHA256": "2886bb615d340a6a1ccf7525bdceda7d68dcd4ad80bd9057f4f8febde4367375",
+      "prerequisites": [],
+      "patch": "main-previous.patch",
+      "patchSHA256": "409d0f712d65cfd5f6f11ee3469f0dba29d750c88d2e6eb6605104d41d17a7dc",
+      "derivedSHA256": "c4a31f0448ba431bd85d144eddf19faa863b4f3f2100c6823cdc5ac4c6aca1ba",
+      "legacyExpandedSHA256": "c4a31f0448ba431bd85d144eddf19faa863b4f3f2100c6823cdc5ac4c6aca1ba"
+    },
+    {
+      "name": "main-previous-metrics",
+      "repository": "https://github.com/antirez/ds4",
+      "revision": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
+      "sourceSHA256": "1f66499001942033bab5c74e367f4eadbf7e720b2ff087a2aa0ece94497843fe",
+      "rawSourceSHA256": "2886bb615d340a6a1ccf7525bdceda7d68dcd4ad80bd9057f4f8febde4367375",
+      "prerequisites": [
+        "patch/ds4-server-metrics/usage-metrics.patch"
+      ],
+      "patch": "main-previous.patch",
+      "patchSHA256": "409d0f712d65cfd5f6f11ee3469f0dba29d750c88d2e6eb6605104d41d17a7dc",
+      "derivedSHA256": "8f85cd00ddafc58a42af0a7801d2b383f286b49c13a91c8da42190767e674ff4",
+      "legacyExpandedSHA256": "8f85cd00ddafc58a42af0a7801d2b383f286b49c13a91c8da42190767e674ff4"
+    }
+  ]
+}

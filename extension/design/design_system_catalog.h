@@ -5,7 +5,8 @@
 /* One catalog for the app, native pack loader and build-time bundle checks.
  * Legacy downloaded folders are never exposed, even on an older install. */
 static const char *const dstudio_design_system_ids[] = {
-    "folio", "signal", "forma", "grove", "pulse", NULL
+    "folio", "signal", "forma", "grove", "pulse",
+    "market", "commons", "atlas", "canvas", NULL
 };
 static int dstudio_design_system_supported(const char *id) {
     if (!id) return 0;

@@ -62,6 +62,7 @@ static int updates_ds4_managed_dirty_path(const char *path) {
            !strcmp(path, "ds4-design") ||
            !strcmp(path, "ds4-design.exe") ||
            !strcmp(path, "ds4_agent.c.ds4ui.bak") ||
+           !strcmp(path, ".ds4ui-native-build.lock") ||
            !strcmp(path, ".gitignore") ||
            !strcmp(path, "Makefile") ||
            !strcmp(path, "ds4_bench.c") ||

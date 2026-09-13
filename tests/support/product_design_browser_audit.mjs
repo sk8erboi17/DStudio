@@ -4,23 +4,26 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 import { hasWorkshopIdentity, hasHonestWorkshopConfirmation } from '../fixtures/product_design_expectations.mjs';
 import { createProductArtifactServer } from './product_artifact_server.mjs';
 import { measureWorkshopRadioLayout } from './workshop_radio_layout.mjs';
 const file = path.resolve(process.argv[2] || '');
 assert.ok(process.argv[2], 'Pass pilot results.json');
+const browserOption = process.argv.indexOf('--browser');
+const browserName = browserOption < 0 ? 'chromium' : process.argv[browserOption + 1];
+assert.ok(['chromium', 'webkit'].includes(browserName), 'Use --browser chromium or webkit');
 const receipt = JSON.parse(fs.readFileSync(file));
 const candidates = receipt.runs.filter(r => r.id === 'design-workshop-journey' && r.status !== 'running');
 assert.ok(candidates.length, 'No completed Design task yet');
 const output = fs.mkdtempSync(path.join(path.dirname(file), 'browser-audit-'));
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
-const report = { scope: 'Real Chromium desktop/tablet/mobile and interactive workflow, not an aesthetic score',
+const report = { scope: `Real ${browserName} desktop/tablet/mobile and interactive workflow, not an aesthetic score`, browser: browserName,
   inputReceiptSha256: sha(fs.readFileSync(file)), receiptStatus: receipt.status, rows: [] };
 const server = createProductArtifactServer(candidates);
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
-const browser = await chromium.launch({ headless: true });
+const browser = await ({ chromium, webkit })[browserName].launch({ headless: true });
 const save = () => fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify(report, null, 2));
 try {
   for (const candidate of candidates) {
@@ -67,7 +70,16 @@ try {
         const next = () => page.getByRole('button', { name: /^Continue\b/i }).first();
         const choose = async label => {
           const radio = page.getByRole('radio', { name: new RegExp(label, 'i') });
-          if (await radio.count()) return radio.first().check();
+          if (await radio.count()) {
+            // Click the visible, associated label as a user would. A native
+            // input can intentionally be 1px/pointer-events:none while its
+            // label remains the working pointer target. Never force-check it.
+            const card = page.locator('label').filter({ has: radio.first() });
+            if (await card.count()) await card.first().click();
+            else await radio.first().check();
+            assert.ok(await radio.first().isChecked(), 'Visible choice did not select its native radio');
+            return;
+          }
           const button = page.getByRole('button', { name: new RegExp(label, 'i') });
           if (await button.count()) return button.first().click();
           return page.getByText(label, { exact: true }).first().click();
@@ -75,6 +87,10 @@ try {
         assert.ok(await next().isDisabled(), 'Workshop choice must be required');
         await choose('Bicycle care'); await next().click();
         assert.ok(await next().isDisabled(), 'Day choice must be required');
+        const dayLayout = await measureWorkshopRadioLayout(page);
+        row.dayRadioLayout = { applicable: dayLayout.length > 0, measurements: dayLayout };
+        if (dayLayout.length) assert.ok(dayLayout.every(item => item.textClearsIndicatorColumn),
+          'Day label text falls into the radio indicator column');
         await choose('Thursday'); await next().click();
         const visible = pattern => page.getByText(pattern).filter({ visible: true }).first();
         assert.ok(await visible(/Bicycle care/).isVisible()); assert.ok(await visible(/Thursday/).isVisible());
@@ -90,6 +106,37 @@ try {
         assert.ok(hasHonestWorkshopConfirmation(await page.locator('body').innerText()),
           'Final confirmation must disclose no booking, local demo and sample data');
       });
+      await check('native radio keyboard selection, when used', async () => {
+        await page.reload();
+        const radios = page.getByRole('radio');
+        const count = await radios.count();
+        row.nativeRadioKeyboardApplicable = count > 0;
+        if (!count) return;
+        assert.ok(count >= 3, 'Missing workshop radio choices');
+        await radios.first().focus();
+        await page.keyboard.press('Space');
+        assert.ok(await radios.first().isChecked(), 'Space did not select the focused choice');
+        await page.keyboard.press('ArrowDown');
+        assert.ok(await radios.nth(1).isChecked(), 'Arrow key did not move radio selection');
+        assert.ok(await page.getByRole('button', { name: /^Continue\b/i }).first().isEnabled());
+      });
+      await check('small phone and doubled text preserve choice-label layout', async () => {
+        for (const [width, textScale] of [[320, 1], [390, 2]]) {
+          await page.reload(); await page.setViewportSize({ width, height: 1000 });
+          if (textScale === 2) await page.evaluate(() => {
+            // Freeze each element's original computed size before applying the
+            // multiplier: inherited font sizes must not compound recursively.
+            const sizes = [...document.body.querySelectorAll('*')].map(e => [e, parseFloat(getComputedStyle(e).fontSize)]);
+            for (const [e, size] of sizes) e.style.setProperty('font-size', `${size * 2}px`, 'important');
+          });
+          const layout = await measureWorkshopRadioLayout(page);
+          const dimensions = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+          assert.ok(dimensions[0] <= dimensions[1] + 1, `Overflow at ${width}px / ${textScale}x text`);
+          if (layout.length) assert.ok(layout.every(item => item.textClearsIndicatorColumn),
+            `Radio label overlap at ${width}px / ${textScale}x text`);
+          (row.textResizeChecks ||= []).push({ width, textScale, radioApplicable: layout.length > 0, measurements: layout });
+        }
+      });
       await check('offline artifact has no script errors or missing dependencies', async () => {
         assert.deepEqual(errors, []); assert.deepEqual(external, []); assert.deepEqual(missing, []);
       });
@@ -100,3 +147,4 @@ try {
 } finally { await browser.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); save(); }
 console.log(`Actual browser audit: ${output}`);
 for (const row of report.rows) console.log(`${row.product}: ${row.pass ? 'pass' : 'fail'}`);
+if (report.rows.some(row => !row.pass)) process.exitCode = 1;

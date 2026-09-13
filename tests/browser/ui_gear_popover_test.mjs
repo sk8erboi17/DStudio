@@ -3,9 +3,11 @@ import http from 'node:http';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 
-let chromium;
+const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
+assert.ok(['chromium', 'webkit'].includes(browserName), 'unknown browser');
+let browserType;
 try {
-  ({ chromium } = await import('playwright'));
+  browserType = (await import('playwright'))[browserName];
 } catch {
   console.log('ui_gear_popover_test: playwright missing, NOT RUN');
   process.exit(1);
@@ -139,7 +141,7 @@ const port = server.address().port;
 
 let browser;
 try {
-  browser = await chromium.launch();
+  browser = await browserType.launch();
 } catch {
   server.close();
   console.log('ui_gear_popover_test: browser missing, NOT RUN');
@@ -151,7 +153,9 @@ try {
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e?.stack || e?.message || String(e)));
   page.on('console', (msg) => { if (msg.type() === 'error') pageErrors.push(msg.text()); });
-  await page.addInitScript(() => {
+  await page.addInitScript(({ origin }) => {
+    // Preview frames keep their opaque origin; only the app owns these fixtures.
+    if (window.top !== window || location.origin !== origin) return;
     const now = Date.now();
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
       v: 2,
@@ -172,7 +176,7 @@ try {
       chats: [{ id: 'agent-gear', mode: 'agent', title: 'Gear', createdAt: now, updatedAt: now, messages: [], transcript: '' }],
     }));
     localStorage.setItem('ds4web.active.v2', JSON.stringify({ v: 2, ids: { chat: null, agent: 'agent-gear', design: null } }));
-  });
+  }, { origin: `http://127.0.0.1:${port}` });
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
   await page.locator('#tab-agent').click();
@@ -223,7 +227,7 @@ try {
     'running Flash status should replace a stale Pro model label',
   );
   assert.deepEqual(pageErrors, [], `page errors: ${JSON.stringify({ pageErrors, missingRequests }, null, 2)}`);
-  console.log('ui_gear_popover_test: ok');
+  console.log(`ui_gear_popover_test: ok (${browserName}; simulated engine; app-only storage fixtures)`);
 } finally {
   await browser.close().catch(() => {});
   server.close();

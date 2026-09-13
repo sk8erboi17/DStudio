@@ -113,9 +113,7 @@ diff --git a/ds4_cuda.cu b/ds4_cuda.cu
 diff --git a/ds4_gpu.h b/ds4_gpu.h
 --- a/ds4_gpu.h
 +++ b/ds4_gpu.h
-@@ -161,4 +161,8 @@ int ds4_gpu_should_use_managed_kv_cache(uint64_t kv_cache_bytes, uint64_t contex
- void ds4_gpu_set_quality(bool quality);
- void ds4_gpu_set_glm_model(bool enabled);
+@@ -163,2 +163,6 @@ int ds4_gpu_should_use_managed_kv_cache(uint64_t kv_cache_bytes, uint64_t contex
  void ds4_gpu_set_ssd_streaming(bool enabled);
 +/* Hot residency suspension used while another local model needs the device.
 + * It deliberately leaves the inference-mode flag unchanged. */

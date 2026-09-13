@@ -1,41 +1,17 @@
-/* ============================================================================
- * --jsonl extension patcher.
- * Reversible and additive patch of upstream ds4 sources. Patch bodies live under
- * patch/ as ordered anchor files so missing files and anchor drift fail loudly.
- * ============================================================================ */
+/* Explicit, complete upstream adaptations under patch/. The native reader
+ * rejects missing, ambiguous or drifted deltas before publishing a candidate. */
 #define JSONL_MARK "/*DS4UI_JSONL*/"
-#define WEB_CDP_MARK "/*DS4UI_WEB_CDP*/"
-#define WEB_DIRECT_NAV_MARK "/*DS4UI_WEB_DIRECT_NAV*/"
 #define JSONL_PATCH_DIR "patch/ds4-agent-jsonl"
-#define WEB_CDP_PATCH_DIR "patch/ds4-web-cdp"
-#define WEB_DIRECT_NAV_PATCH_DIR "patch/ds4-web-direct-nav"
-#define WEB_VISION_PATCH_DIR "patch/ds4-web-vision"
-
-typedef struct {
-    char id[32];
-    char find_path[DSTUDIO_PATH_MAX + 512];
-    char replace_path[DSTUDIO_PATH_MAX + 512];
-    char modern_find_path[DSTUDIO_PATH_MAX + 512];
-    char modern_replace_path[DSTUDIO_PATH_MAX + 512];
-    char laguna_find_path[DSTUDIO_PATH_MAX + 512];
-    char laguna_replace_path[DSTUDIO_PATH_MAX + 512];
-    char *find;
-    char *replace;
-    char *modern_find;
-    char *modern_replace;
-    char *laguna_find;
-    char *laguna_replace;
-} ds4ui_patch_edit;
+#define WEB_RUNTIME_PATCH_DIR "patch/ds4-web-runtime"
 
 typedef struct {
     char rel_dir[160];
     char name[80];
     char dir_path[DSTUDIO_PATH_MAX + 512];
-    char fragment_path[DSTUDIO_PATH_MAX + 512];
     char makefile_path[DSTUDIO_PATH_MAX + 512];
     int version;
-    ds4ui_patch_edit *edits;
-    int count;
+    char **unified_paths;
+    int unified_count;
 } ds4ui_patch_set;
 
 static char *jsonl_read_file(const char *path, size_t *len) {
@@ -58,11 +34,9 @@ static int jsonl_write_file(const char *path, const char *data, size_t len) {
     FILE *f = fopen(path, "wb");
     if (!f) return 0;
     int ok = fwrite(data, 1, len, f) == len;
-    fclose(f);
+    if (fclose(f)) ok = 0;
     return ok;
 }
-
-static int jsonl_insert_remote_agent_fragment(char **buf, size_t *n);
 
 static void jsonl_normalize_newlines(char *b, size_t *len) {
     size_t r = 0, w = 0, n = len ? *len : strlen(b);
@@ -166,40 +140,17 @@ static int patch_join_leaf(const ds4ui_patch_set *set, const char *leaf, char *o
 
 static void patch_free_set(ds4ui_patch_set *set) {
     if (!set) return;
-    for (int i = 0; i < set->count; i++) {
-        free(set->edits[i].find);
-        free(set->edits[i].replace);
-        free(set->edits[i].modern_find);
-        free(set->edits[i].modern_replace);
-        free(set->edits[i].laguna_find);
-        free(set->edits[i].laguna_replace);
-    }
-    free(set->edits);
+    for (int i = 0; i < set->unified_count; i++) free(set->unified_paths[i]);
+    free(set->unified_paths);
     memset(set, 0, sizeof *set);
 }
 
-static int patch_add_edit(ds4ui_patch_set *set, const char *id) {
-    if (!patch_leaf_ok(id))
-        return patch_fail("invalid edit id '%s' in %s", id ? id : "", set->rel_dir);
-    if (set->count >= 512)
-        return patch_fail("too many patch edits in %s", set->rel_dir);
-    ds4ui_patch_edit *next = realloc(set->edits, (size_t)(set->count + 1) * sizeof *set->edits);
-    if (!next) return patch_fail("out of memory loading patch manifest %s", set->rel_dir);
-    set->edits = next;
-    ds4ui_patch_edit *edit = &set->edits[set->count++];
-    memset(edit, 0, sizeof *edit);
-    cstr_copy(edit->id, sizeof edit->id, id);
-    return 1;
-}
+static char *unified_read(const char *path, size_t *size);
 
 static char *patch_read_text(const char *path, size_t *len) {
     size_t n = 0;
-    char *body = jsonl_read_file(path, &n);
-    if (!body) {
-        patch_fail("cannot read patch file %s: %s", path, strerror(errno));
-        return NULL;
-    }
-    jsonl_normalize_newlines(body, &n);
+    char *body = unified_read(path, &n);
+    if (!body) return NULL;
     if (len) *len = n;
     return body;
 }
@@ -222,9 +173,10 @@ static int patch_load_set(const char *rel_dir, ds4ui_patch_set *set) {
         if (!trimmed[0] || trimmed[0] == '#') { line = next; continue; }
         char *eq = strchr(trimmed, '=');
         if (!eq) {
+            patch_fail("invalid manifest line in %s: %s", manifest_path, trimmed);
             free(manifest);
             patch_free_set(set);
-            return patch_fail("invalid manifest line in %s: %s", manifest_path, trimmed);
+            return 0;
         }
         *eq = '\0';
         char *key = patch_trim(trimmed);
@@ -235,135 +187,44 @@ static int patch_load_set(const char *rel_dir, ds4ui_patch_set *set) {
             char *end = NULL;
             long v = strtol(val, &end, 10);
             if (end == val || *end != '\0' || v <= 0 || v > 1000000) {
+                patch_fail("invalid patch version in %s: %s", manifest_path, val);
                 free(manifest);
                 patch_free_set(set);
-                return patch_fail("invalid patch version in %s: %s", manifest_path, val);
+                return 0;
             }
             set->version = (int)v;
-        } else if (!strcmp(key, "edit")) {
-            if (!patch_add_edit(set, val)) { free(manifest); patch_free_set(set); return 0; }
-        } else if (!strcmp(key, "fragment")) {
-            if (!patch_join_leaf(set, val, set->fragment_path, sizeof set->fragment_path)) {
-                free(manifest); patch_free_set(set); return 0;
+        } else if (!strcmp(key, "patch")) {
+            char full[DSTUDIO_PATH_MAX + 512];
+            size_t len = strlen(val);
+            if (set->unified_count >= 8 || len < 7 || strcmp(val + len - 6, ".patch") ||
+                !patch_join_leaf(set, val, full, sizeof full)) {
+                free(manifest); patch_free_set(set);
+                return patch_fail("invalid unified patch entry in %s", manifest_path);
             }
+            char **paths = realloc(set->unified_paths,
+                                   (size_t)(set->unified_count + 1) * sizeof *paths);
+            if (!paths) { free(manifest); patch_free_set(set); return 0; }
+            set->unified_paths = paths;
+            char *copy = ds4_strdup_local(full);
+            if (!copy) { free(manifest); patch_free_set(set); return 0; }
+            set->unified_paths[set->unified_count++] = copy;
         } else if (!strcmp(key, "makefile")) {
             if (!patch_join_leaf(set, val, set->makefile_path, sizeof set->makefile_path)) {
                 free(manifest); patch_free_set(set); return 0;
             }
         } else {
+            patch_fail("unknown manifest key '%s' in %s", key, manifest_path);
             free(manifest);
             patch_free_set(set);
-            return patch_fail("unknown manifest key '%s' in %s", key, manifest_path);
+            return 0;
         }
         line = next;
     }
     free(manifest);
     if (!set->name[0]) cstr_copy(set->name, sizeof set->name, rel_dir);
-    if (set->count <= 0) {
+    if (!set->unified_count) {
         patch_free_set(set);
-        return patch_fail("patch manifest has no edits: %s", manifest_path);
-    }
-
-    for (int i = 0; i < set->count; i++) {
-        char leaf[80];
-        int n = snprintf(leaf, sizeof leaf, "%s.find", set->edits[i].id);
-        if (n < 0 || (size_t)n >= sizeof leaf ||
-            !patch_join_leaf(set, leaf, set->edits[i].find_path, sizeof set->edits[i].find_path)) {
-            patch_free_set(set);
-            return 0;
-        }
-        n = snprintf(leaf, sizeof leaf, "%s.replace", set->edits[i].id);
-        if (n < 0 || (size_t)n >= sizeof leaf ||
-            !patch_join_leaf(set, leaf, set->edits[i].replace_path, sizeof set->edits[i].replace_path)) {
-            patch_free_set(set);
-            return 0;
-        }
-        set->edits[i].find = patch_read_text(set->edits[i].find_path, NULL);
-        set->edits[i].replace = patch_read_text(set->edits[i].replace_path, NULL);
-        if (!set->edits[i].find || !set->edits[i].replace) {
-            patch_free_set(set);
-            return 0;
-        }
-        if (!set->edits[i].find[0]) {
-            patch_fail("empty patch anchor: %s", set->edits[i].find_path);
-            patch_free_set(set);
-            return 0;
-        }
-
-        /* Upstream and Laguna may intentionally keep different function
-         * shapes. Optional <id>.modern and <id>.laguna pairs retain the same
-         * strict exactly-once contract without duplicating the manifest. */
-        n = snprintf(leaf, sizeof leaf, "%s.modern.find", set->edits[i].id);
-        if (n < 0 || (size_t)n >= sizeof leaf ||
-            !patch_join_leaf(set, leaf, set->edits[i].modern_find_path,
-                             sizeof set->edits[i].modern_find_path)) {
-            patch_free_set(set);
-            return 0;
-        }
-        n = snprintf(leaf, sizeof leaf, "%s.modern.replace", set->edits[i].id);
-        if (n < 0 || (size_t)n >= sizeof leaf ||
-            !patch_join_leaf(set, leaf, set->edits[i].modern_replace_path,
-                             sizeof set->edits[i].modern_replace_path)) {
-            patch_free_set(set);
-            return 0;
-        }
-        int has_modern_find = access(set->edits[i].modern_find_path, R_OK) == 0;
-        int has_modern_replace = access(set->edits[i].modern_replace_path, R_OK) == 0;
-        if (has_modern_find != has_modern_replace) {
-            patch_fail("incomplete modern alternative for edit %s in %s",
-                       set->edits[i].id, set->rel_dir);
-            patch_free_set(set);
-            return 0;
-        }
-        if (has_modern_find) {
-            set->edits[i].modern_find =
-                patch_read_text(set->edits[i].modern_find_path, NULL);
-            set->edits[i].modern_replace =
-                patch_read_text(set->edits[i].modern_replace_path, NULL);
-            if (!set->edits[i].modern_find || !set->edits[i].modern_replace ||
-                !set->edits[i].modern_find[0]) {
-                patch_fail("invalid modern alternative for edit %s in %s",
-                           set->edits[i].id, set->rel_dir);
-                patch_free_set(set);
-                return 0;
-            }
-        }
-
-        n = snprintf(leaf, sizeof leaf, "%s.laguna.find", set->edits[i].id);
-        if (n < 0 || (size_t)n >= sizeof leaf ||
-            !patch_join_leaf(set, leaf, set->edits[i].laguna_find_path,
-                             sizeof set->edits[i].laguna_find_path)) {
-            patch_free_set(set);
-            return 0;
-        }
-        n = snprintf(leaf, sizeof leaf, "%s.laguna.replace", set->edits[i].id);
-        if (n < 0 || (size_t)n >= sizeof leaf ||
-            !patch_join_leaf(set, leaf, set->edits[i].laguna_replace_path,
-                             sizeof set->edits[i].laguna_replace_path)) {
-            patch_free_set(set);
-            return 0;
-        }
-        int has_laguna_find = access(set->edits[i].laguna_find_path, R_OK) == 0;
-        int has_laguna_replace = access(set->edits[i].laguna_replace_path, R_OK) == 0;
-        if (has_laguna_find != has_laguna_replace) {
-            patch_fail("incomplete Laguna alternative for edit %s in %s",
-                       set->edits[i].id, set->rel_dir);
-            patch_free_set(set);
-            return 0;
-        }
-        if (has_laguna_find) {
-            set->edits[i].laguna_find =
-                patch_read_text(set->edits[i].laguna_find_path, NULL);
-            set->edits[i].laguna_replace =
-                patch_read_text(set->edits[i].laguna_replace_path, NULL);
-            if (!set->edits[i].laguna_find || !set->edits[i].laguna_replace ||
-                !set->edits[i].laguna_find[0]) {
-                patch_fail("invalid Laguna alternative for edit %s in %s",
-                           set->edits[i].id, set->rel_dir);
-                patch_free_set(set);
-                return 0;
-            }
-        }
+        return patch_fail("manifest requires complete unified patches: %s", manifest_path);
     }
     return 1;
 }

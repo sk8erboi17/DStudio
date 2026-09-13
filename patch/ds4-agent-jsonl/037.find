@@ -1,2 +1,0 @@
-static void agent_tool_viz_param_raw_byte(agent_stream_renderer *sr, char c) {
-    agent_tool_visualizer *v = &sr->viz;

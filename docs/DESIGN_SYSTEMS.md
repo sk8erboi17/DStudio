@@ -1,6 +1,6 @@
 # DStudio originals
 
-Five original visual systems replace the downloaded design catalog. They ship
+Nine original visual systems replace the downloaded design catalog. They ship
 with the repository and macOS/Windows support bundle, without a first-run
 design download. Runtime/model dependencies retain their required notices.
 
@@ -11,9 +11,43 @@ design download. Runtime/model dependencies retain their required notices.
 | Forma | Large sans statement, unequal project areas, structural whitespace | Portfolios, showcases |
 | Grove | Humanist type, welcome beside one focused action | Services, learning, onboarding |
 | Pulse | Condensed poster type, hard rules, practical timetable | Cultural programmes, events |
+| Market | Product shelves, filter rail, side-by-side comparison and itemized basket | Catalogs, configurators |
+| Commons | Community rail, discussion stream, profiles and reversible review queue | Communities, collaboration |
+| Atlas | Synchronized schematic map and place list, editable itinerary | Place directories, guides |
+| Canvas | Central artboard, object tools, inspector and bounded undo/redo | Editors, creative workspaces |
 
 These are visual vocabularies, not universal page templates. Task and audience
 determine hierarchy, typography and interaction. Explicit user choices win.
+
+Market, Commons, Atlas and Canvas include working offline examples, not four
+recolors of one page. Their cart, replies, route and object edits are local to the
+preview and disappear on reload. They do not make purchases, publish content,
+provide live directions or save a project. Canvas supports pointer dragging,
+keyboard movement and inspector edits with 30 undo states and a 12-object limit.
+
+The nine-pack browser gate passes in Chromium and WebKit, including light/dark,
+320/390/768/1440px, 200% text, form validation, dialog focus return, choice-label
+geometry and actual domain controls. Direct local-file exports also work without
+DStudio APIs. These are authored component tests, **not model-generated output
+quality**. The planned 18 generated projects and final desktop qualification are
+still pending. A visual review caught split tool-label words in Canvas; a rendered
+regression reproduced the problem before the toolbar correction. Another
+regression caught keyboard focus leaving the inspector on a different object;
+Canvas now selects the focused object before arrow-key edits. Removing the final
+Market basket row also retains focus inside its dialog.
+
+The eighteen original briefs are now in
+[`tests/fixtures/design_pack_projects.json`](../tests/fixtures/design_pack_projects.json),
+with two distinct interaction scenarios for every system. The native generator
+can select this corpus via `DESIGN_COMPARE_SUITE`; it freezes the complete
+briefs, executable, packs and full selected-weight hash, and records whether the
+requested pack's actual bytes were returned by the native tool. A tool name or
+the model saying it used a system is insufficient. No generated project from this
+corpus is yet qualified: the dedicated eighteen-scenario browser audit is being
+implemented; full oracle qualification, real generation and screenshot review
+remain outstanding. The historical three-brief
+auditor explicitly rejects this new corpus instead of silently skipping its
+interactions and returning a misleading pass.
 
 ## What the agent receives
 
@@ -92,6 +126,16 @@ text-only models. Page overflow, control overlap and media distortion are P0
 failures; missing rendering evidence is also a failure. Geometry is refreshed
 even after CSS-only changes. The existing vision assessment remains separate.
 
+Radio/checkbox label geometry is part of that native gate too: actual text
+overlapping a visible indicator, or wrapped card text entering its column,
+blocks delivery as P0. `inspect_layout` returns the label/control selectors and
+the offending rendered text rectangle. The check covers visible native inputs
+and an immediate `aria-hidden` indicator sibling; it does not infer arbitrary
+pseudo-element controls. Plain inline labels and hidden content are excluded
+from the card-column rule. Work is capped at 128 inputs, eight labels per input,
+4,096 text nodes and 8,192 text rectangles; an exceeded scan is unverified, not
+a pass. At most 12 detailed findings are returned.
+
 Geometry is not an aesthetic score. A model's own critique is not an independent
 quality benchmark. Real comparisons must operate the resulting interfaces.
 See the [real-agent development experiment](DESIGN_AGENT_EXPERIMENT.md) for
@@ -130,6 +174,11 @@ a historical catalog or overwrites user files.
   200% text-only resizing. The same packs also run inside the app's opaque
   `allow-scripts allow-forms` iframe sandbox in both browser engines. No external
   requests. **No inference and not a comprehensive accessibility certification.**
+  Also exercises catalog filters, variant basket quantities/totals, comparison
+  limits, replies treated as literal text, membership/review changes, map/list
+  selection, route ordering, object edits, cancelled drags, undo/redo and resource
+  limits. The same domain controls run inside the opaque iframe. Independent
+  `file:` exports load their own CSS/JS with HTTP requests blocked.
 - `make test-design-self`: real pack dispatcher, returned CSS/HTML bytes,
   retired-id rejection, real Chrome overflow/CSS-only repair without a vision
   model, valid sans typography, cramped-prose measurements, truncated-batch file
@@ -138,6 +187,9 @@ a historical catalog or overwrites user files.
   contain example URLs, symlink escapes, oversized files and non-file inputs.
   A real-browser navigation regression covers missing fragment destinations and
   a JavaScript-only repair, while preserving valid fragment forms.
+  The radio regression reproduces inline-padding/absolute-indicator wrapping,
+  proves the native delivery gate rejects it at all three widths, and checks
+  that measured CSS-only repair clears the error without a vision model.
 - `make test-design-tool-recovery`: the actual native agent loop receives
   deliberately truncated **simulated model frames**, preserves earlier writes
   and completes smaller retries with exact expected file bytes. No inference.
@@ -145,6 +197,10 @@ a historical catalog or overwrites user files.
   local source archive without engine Git metadata, including isolation from a
   surrounding project's Git identity and invalidation after source edits. No
   model or network; this is not the fresh-network installation test.
+- `make test-design-build-freshness`: the native owner and build script with a
+  simulated compiler, testing private snapshots, failed links, stale sources,
+  byte/configuration freshness, shared build leases and interrupted publication.
+  Original engine sources, objects and unrelated files must remain intact.
 - `node tests/browser/ui_agent_design_playwright_test.mjs`: app gallery,
   retired selection migration and existing workflows. Engine/catalog responses
   are **simulated**, separately from the original-pack tests.
@@ -173,6 +229,65 @@ DStudio Git checkout. An earlier Qwen attempt was interrupted without a delivere
 artifact and is not quality evidence; the supported native Design path uses DS4.
 Raw errors, timeouts, generated files and binary/model identity are retained.
 A missing artifact is not a pass, even if partial HTML looks attractive.
+
+For the new corpus, select it explicitly before the same native generation
+command; `DESIGN_COMPARE_MODEL` can name an already-present model supported by
+the chosen native Design engine. The runtime remains resident and never chooses
+a different model or memory mode automatically. Keep heavyweight runs sequential
+and verify that the selected configuration fits the shared host before launch.
+
+```sh
+DESIGN_COMPARE_SUITE=tests/fixtures/design_pack_projects.json \
+DESIGN_COMPARE_MODEL=/path/to/already-present-model.gguf \
+node tests/live/design_originals_comparison.mjs LABEL BINARY ENGINE_DIR EXTENSION_DIR NEW_OUTPUT_DIR
+```
+
+`DESIGN_COMPARE_CASES` is an explicitly recorded diagnostic subset, not completion
+of the eighteen-project requirement. Generation receipts carry `qualityStatus:
+not_reviewed`; idle state, a saved file and successful pack loading do not establish
+functional or visual quality. Do not use the legacy three-brief auditor or report
+as the missing new audit.
+
+Native capture now drains both output pipes and closes the owned process/logs
+before validating the exact registered file. A malformed JSON event, failed
+write, incomplete log or cleanup failure cannot pass just because HTML exists.
+Raw prefixes and byte counts are retained if an explicit resource limit is hit;
+capture has bounded lines/events and one filesystem write in flight per pipe.
+The process gate uses simulated native events and real subprocess/file errors,
+not model inference. Generation time and teardown time are separate, and a
+comparison rejects mismatched capture settings or harness revisions.
+
+The new independent auditor is
+[`design_project_audit.mjs`](../tests/support/design_project_audit.mjs). It keeps
+original exports immutable, rejects symlinks and out-of-project requests, and
+separates functional checks from pending screenshot review. Its matrix includes
+Chromium/WebKit, both themes, four widths, 200% text, local-file exports and an
+opaque preview harness (not native desktop qualification). **It is still in
+development**: `make test-design-project-auditor` qualifies the shared pipeline,
+editorial search/dialog, per-essay reading states/notes, repair-queue states,
+incident assignment/resolution and
+deliberate broken-control/layout fixtures. It checks distinct essay bodies,
+literal independent notes, real empty/error recovery, item-specific details,
+unapplied drafts, independent assignees, live counts and complete ordered history;
+the other fourteen scenarios still require positive/negative oracle tests and
+review before their generated-project results can be accepted.
+
+The auditor also preserves errors reported while a page is closing. A view
+cannot pass merely because its last interaction finished before a late script
+error arrived. `make test-design-project-resources` verifies this and bounded
+error floods in real Chromium/WebKit: retained evidence has count/byte limits,
+overload fails the view, and unrelated browser contexts remain open. Native
+dialog closure is awaited within the original action deadline, not inferred
+from completion of the Escape key dispatch. These checks validate the tester,
+not generated design quality; original failed receipts remain available.
+
+```sh
+node tests/support/design_project_audit.mjs COMPLETED_GENERATION_DIR
+```
+
+An incomplete run requires `--completed-only` and retains all eighteen cases in
+its denominator. It cannot become a full passing quality receipt. Test-fixture
+screenshots are not generated project examples or published benchmark evidence.
 
 ## Defects found by the original-pack tests
 

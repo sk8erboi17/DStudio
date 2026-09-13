@@ -1,1 +1,0 @@
-static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {

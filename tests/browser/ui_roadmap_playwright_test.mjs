@@ -2,10 +2,23 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import {createHash} from 'node:crypto';
+import {artifactRunDir, writeArtifact} from '../support/real_harness.mjs';
 
-let chromium;
+const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
+assert(['chromium', 'webkit'].includes(browserName), 'Unknown browser');
+const modelFamily = process.env.DSTUDIO_TEST_MODEL || 'deepseek';
+const repairCheckout = process.env.DSTUDIO_TEST_STALE_CHECKOUT === '1';
+const modelFixture = {
+  deepseek: { id: 'deepseek-v4-flash', file: 'gguf/DeepSeek-V4-Flash-test.gguf', engine: '/fixture/ds4', effort: 'max', normalEffort: 'high', maximum: 'max', minimum: 393216 },
+  qwen38: { id: 'qwen3.8-flash-next', file: 'gguf/Qwen3.8-Flash-Next-test.gguf', engine: '/fixture/ds4-qwen38', effort: 'xhigh', normalEffort: 'xhigh', maximum: 'xhigh', minimum: 0 },
+  qwen35: { id: 'qwen3.6-35b-a3b', file: 'gguf/Qwen3.6-35B-A3B-test.gguf', engine: '/fixture/ds4-qwen35', effort: undefined, normalEffort: undefined, maximum: 'on', minimum: 0 },
+  qwen27: { id: 'qwen3.8-27b', file: 'gguf/Qwen3.8-27B-UD-Q6_K_XL.gguf', engine: '/fixture/q36', effort: 'max', normalEffort: 'high', maximum: 'max', minimum: 98304 },
+}[modelFamily];
+assert(modelFixture, 'Unknown model fixture');
+let browserType;
 try {
-  ({ chromium } = await import('playwright'));
+  browserType = (await import('playwright'))[browserName];
 } catch {
   console.log('ui_roadmap_playwright_test: playwright missing, NOT RUN');
   process.exit(1);
@@ -13,6 +26,13 @@ try {
 
 const repoRoot = process.cwd();
 const webRoot = path.join(repoRoot, 'web');
+const appHtml = fs.readFileSync(path.join(webRoot, 'index.html'));
+const artifacts = artifactRunDir('roadmap-browser');
+const receipt = {scope: 'Production Learn/Tutor UI with simulated engine replies',
+  modelFamily, browserName, repairCheckout, htmlSHA256: createHash('sha256').update(appHtml).digest('hex'),
+  harnessSHA256: createHash('sha256').update(fs.readFileSync('tests/browser/ui_roadmap_playwright_test.mjs')).digest('hex'), status: 'RUNNING'};
+writeArtifact(artifacts, 'results.json', receipt);
+console.log(`Learn browser evidence: ${artifacts}`);
 const chatRequests = [];
 const webSearchRequests = [];
 const webReadRequests = [];
@@ -21,7 +41,10 @@ const startRequests = [];
 let blockAttempts = 0;
 let roadmapAttempts = 0;
 let activeContext = 65536;
+let activeEngineDir = modelFixture.engine;
 let factFindingIssued = false;
+let tutorResponses = 0, releaseTutorFinish;
+const tutorFinishGate = new Promise(resolve => {releaseTutorFinish = resolve;});
 
 const roadmapSources = [
   'https://developer.mozilla.org/en-US/docs/Learn_web_development',
@@ -127,7 +150,7 @@ const server = http.createServer(async (req, res) => {
       agentWorking: false, workdir: '', ds4dirOk: true, webdirOk: true, lan: false,
       config: { ctx: activeContext, power: 90, think: 'off', ssdStreaming: 'auto' },
       variants: { flash: true, pro: false }, variant: 'flash',
-      modelFile: 'gguf/DeepSeek-V4-Flash-test.gguf', engineLine: 'ready',
+      modelFile: modelFixture.file, ds4dir: activeEngineDir, engineLine: 'ready',
     });
     return;
   }
@@ -144,7 +167,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/api/storerev') { json(res, 200, { rev: 0 }); return; }
-  if (url.pathname === '/api/ggufs') { json(res, 200, { ok: true, files: [] }); return; }
+  if (url.pathname === '/api/ggufs') {
+    json(res, 200, {ok: true, ggufs: repairCheckout ? [{path: modelFixture.file, engineDir: activeEngineDir}] : []});
+    return;
+  }
   if (url.pathname === '/api/engine/checkouts') { json(res, 200, { ok: true, checkouts: [] }); return; }
   if (url.pathname === '/api/doctor') { json(res, 200, { ok: true, issues: [], checks: [] }); return; }
   if (url.pathname === '/api/diagnostics') { json(res, 200, { ok: true, tasks: [], recentLogs: [] }); return; }
@@ -208,7 +234,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/v1/models') {
-    json(res, 200, { data: [{ id: 'deepseek-v4-flash', context_length: 65536 }] });
+    json(res, 200, { data: [{ id: modelFixture.id, context_length: activeContext }] });
     return;
   }
   if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
@@ -216,6 +242,12 @@ const server = http.createServer(async (req, res) => {
     chatRequests.push(payload);
     const system = payload.messages?.find((message) => message.role === 'system')?.content || '';
     const isStudy = system.includes('dedicated long-term tutor for exactly one block');
+    const lastUser = payload.messages?.findLast(message => message.role === 'user')?.content || '';
+    if (isStudy && lastUser === 'Tutor steering fixture') {
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Partial tutor explanation retained before the new context.\n\n' } }] })}\n\n`);
+      return; // Withheld completion: the actual browser must yield this stream.
+    }
     const isBlock = system.includes('DStudio roadmap-block expansion protocol');
     const isClassifier = system.includes('DStudio search classifier');
     const isPicker = system.includes('DStudio source picker');
@@ -335,7 +367,10 @@ const server = http.createServer(async (req, res) => {
     if (isStudy) {
       const finalEvent = events.lastIndexOf('data: ');
       res.write(events.slice(0, finalEvent));
-      await new Promise((resolve) => setTimeout(resolve, 550));
+      if (++tutorResponses === 1) {
+        await tutorFinishGate;
+        res.write(`data: ${JSON.stringify({choices: [{delta: {content: '\n\nEsercizio aggiunto mentre stai leggendo: verifica la struttura semantica.'}}]})}\n\n`);
+      } else await new Promise((resolve) => setTimeout(resolve, 550));
       res.end(events.slice(finalEvent));
     } else {
       res.end(events);
@@ -352,6 +387,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   res.writeHead(200, { 'content-type': file.endsWith('.html') ? 'text/html' : 'application/octet-stream' });
+  if (file === path.join(webRoot, 'index.html')) {res.end(appHtml); return;}
   fs.createReadStream(file).pipe(res);
 });
 
@@ -360,26 +396,31 @@ const port = server.address().port;
 
 let browser;
 try {
-  browser = await chromium.launch();
-} catch {
+  browser = await browserType.launch();
+} catch (error) {
   server.close();
+  writeArtifact(artifacts, 'results.json', {...receipt, status: 'BLOCKED', error: String(error)});
   console.log('ui_roadmap_playwright_test: browser missing, NOT RUN');
   process.exit(1);
 }
 
+let page;
 try {
-  const page = await browser.newPage({ viewport: { width: 1360, height: 960 } });
+  page = await browser.newPage({ viewport: { width: 1360, height: 960 } });
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error?.stack || error?.message || String(error)));
   page.on('console', (msg) => { if (msg.type() === 'error') pageErrors.push(msg.text()); });
-  await page.addInitScript(() => {
+  await page.addInitScript((fixture) => {
+    // This fixture owns the app document, never opaque artifact preview frames.
+    if (window !== window.top || location.origin !== fixture.origin) return;
     // Preserve deliberately injected state across the reload used to verify
     // recovery from an interrupted roadmap stream below.
     if (localStorage.getItem('ds4web.chats.v2')) return;
     const now = Date.now();
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
       v: 2, onboarded: true, theme: 'dark', baseUrl: '', chatBackend: 'local',
-      model: 'deepseek-v4-flash', modelVariant: 'flash', thinkLevel: 'off',
+      model: fixture.id, modelGguf: fixture.file, modelEngineDir: fixture.engine,
+      modelVariant: 'flash', thinkLevel: 'off',
       qualityDefaultsVersion: 1,
       ctxSize: 65536, enginePower: 90, ssdStreaming: 'auto', webMode: 'off',
       webSearchBrowserAllowed: true,
@@ -392,7 +433,8 @@ try {
     localStorage.setItem('ds4web.active.v2', JSON.stringify({
       v: 2, ids: { chat: 'chat-existing', agent: null, design: null, roadmap: null },
     }));
-  });
+  }, {...modelFixture, engine: repairCheckout ? `/old location${modelFixture.engine}` : modelFixture.engine,
+    origin: `http://127.0.0.1:${port}`});
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => document.querySelector('#tab-server')?.classList.contains('tab--active'));
@@ -407,7 +449,9 @@ try {
 
   const think = page.locator('.cbar-think-btn--locked');
   await think.waitFor({ state: 'visible' });
-  assert.match(await think.textContent() || '', /Thinking: max · 384k\+\s*locked/);
+  assert.match(await think.textContent() || '', modelFixture.minimum
+    ? new RegExp(`Thinking: max · ${modelFixture.minimum / 1024}k\\+\\s*locked`)
+    : new RegExp(`Thinking: ${modelFixture.maximum}\\s*locked`));
   await think.click();
   assert.equal(await page.locator('.cbar-think-menu').count(), 0, 'locked Roadmap thinking must not open a selector');
 
@@ -483,15 +527,17 @@ try {
     'a high-confidence factual finding should trigger one complete-roadmap repair');
   assert.equal(curriculumJudgeRequests.length, 1,
     'curriculum quality must be judged in a separate pass after factual verification');
-  assert.ok(factualAuditRequests.every((entry) => entry.reasoning_effort === 'max' && entry.max_tokens === undefined),
+  assert.ok(factualAuditRequests.every((entry) => entry.reasoning_effort === modelFixture.effort && entry.max_tokens === undefined),
     'factual auditors must use uncapped Thinking max');
-  assert.ok(curriculumJudgeRequests.every((entry) => entry.reasoning_effort === 'max' && entry.max_tokens === undefined),
+  assert.ok(curriculumJudgeRequests.every((entry) => entry.reasoning_effort === modelFixture.effort && entry.max_tokens === undefined),
     'the separate curriculum judge must use uncapped Thinking max');
   assert.ok(factualAuditRequests.every((entry) =>
     !(entry.messages?.find((message) => message.role === 'system')?.content || '').includes('curriculum judge')),
   'the factual auditor must not inherit curriculum-judging responsibilities');
-  assert.ok(startRequests.some((entry) => entry.ctx === 393216),
-    'Roadmap generation must temporarily restart local ds4 at the true-Max context threshold');
+  if (modelFixture.minimum) assert.ok(startRequests.some((entry) => entry.ctx === modelFixture.minimum),
+    'Roadmap must temporarily restart at this model\'s native Max threshold');
+  else assert.ok(startRequests.every((entry) => entry.ctx === 65536),
+    'Qwen must never inherit the DeepSeek Max context requirement');
   assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('ds4web.settings.v2'))).ctxSize, 65536,
     'the temporary Roadmap context must not overwrite the learner\'s normal Chat setting');
   assert.ok(webSearchRequests.length >= 4,
@@ -518,7 +564,7 @@ try {
   const request = finalRoadmapRequests.at(-1);
   assert.equal(request.stream, true);
   assert.equal(request.think, true, 'Roadmap must enable local model thinking even when global thinking is off');
-  assert.equal(request.reasoning_effort, 'max', 'Roadmap must always request maximum reasoning effort');
+  assert.equal(request.reasoning_effort, modelFixture.effort, 'Roadmap must use the selected engine\'s native maximum');
   assert.equal(request.max_tokens, undefined,
     'Roadmap must not impose an arbitrary output cap below the model physical context window');
   const system = request.messages.find((message) => message.role === 'system')?.content || '';
@@ -660,6 +706,8 @@ try {
     'the saved Roadmap should expose a completed factual and curriculum verification state');
   assert.equal(savedReply?.roadmapVerification?.repairRounds, 1,
     'the verification record should retain the factual repair round');
+  assert.equal(savedReply?.roadmapVerification?.effectiveThinking, modelFixture.maximum);
+  assert.equal(savedReply?.roadmapVerification?.requiredContextTokens, modelFixture.minimum);
   assert.doesNotMatch(savedReply?.content || '', /HTML permits any number of simultaneous main landmarks/,
     'the persisted Roadmap should contain the repaired claim rather than the rejected draft');
 
@@ -670,6 +718,7 @@ try {
   const addForm = firstTopic.locator('.roadmap-add');
   await addForm.locator('input.roadmap-add__input').fill('Accessibilità HTML');
   await addForm.locator('.roadmap-add__description').fill('Struttura, nomi accessibili e navigazione da tastiera.');
+  if (repairCheckout) activeEngineDir = `/expansion location${modelFixture.engine}`;
   await addForm.locator('button[type="submit"]').click();
   try {
     await addForm.locator('.roadmap-add__status').waitFor({ state: 'visible' });
@@ -717,7 +766,7 @@ try {
   assert.equal(blockRequests.length, 2, 'adding a block should keep retrying after a truncated model response');
   const blockRequest = blockRequests[0];
   assert.equal(blockRequest.think, true, 'block expansion must enable model thinking');
-  assert.equal(blockRequest.reasoning_effort, 'max', 'block expansion must always use maximum reasoning');
+  assert.equal(blockRequest.reasoning_effort, modelFixture.effort, 'block expansion must use the native maximum');
   assert.equal(blockRequest.max_tokens, 8192, 'block expansion should reserve a large output budget for max reasoning');
   const blockSystem = blockRequest.messages.find((entry) => entry.role === 'system')?.content || '';
   assert.match(blockSystem, /DStudio roadmap-block expansion protocol/);
@@ -732,7 +781,7 @@ try {
   assert.equal(blockPayload.roadmap.stages, undefined, 'block generation should not resend the entire roadmap graph');
   const retryRequest = blockRequests[1];
   assert.equal(retryRequest.max_tokens, 8192);
-  assert.equal(retryRequest.reasoning_effort, 'max');
+  assert.equal(retryRequest.reasoning_effort, modelFixture.effort);
   const retryPayload = JSON.parse(retryRequest.messages.find((entry) => entry.role === 'user')?.content || '{}');
   assert.equal(retryPayload.retry.attempt, 2);
   assert.match(retryPayload.retry.failure, /token limit.*truncated/);
@@ -765,7 +814,8 @@ try {
   await study.waitFor({ state: 'visible' });
   assert.match(await study.locator('.roadmap-study__title').textContent() || '', /HTML semantico/);
   const tutorThinking = study.locator('.roadmap-study__think');
-  assert.equal(await tutorThinking.inputValue(), 'max', 'new Tutor rooms should start at max');
+  assert.equal(await tutorThinking.inputValue(), modelFixture.minimum ? 'max' : 'normal',
+    'new Tutor rooms should use the native maximum without duplicate equivalent choices');
   await tutorThinking.selectOption('normal');
   assert.equal(await tutorThinking.inputValue(), 'normal', 'Tutor thinking should be selectable');
   assert.equal(await study.locator('.roadmap-study__head .roadmap-study__think').count(), 0,
@@ -804,18 +854,40 @@ try {
   });
   await study.locator('.roadmap-study__files .roadmap-study__file').waitFor({ state: 'visible' });
   assert.match(await study.locator('.roadmap-study__files').textContent() || '', /appunti\.txt/);
+  if (repairCheckout) activeEngineDir = `/tutor location${modelFixture.engine}`;
   await study.locator('.roadmap-study__input').fill('Fammi studiare questo argomento con un esercizio.');
   await study.locator('.roadmap-study__send').click();
   const tutorAnswer = study.locator('.roadmap-study-msg--assistant > .md');
   await tutorAnswer.waitFor({ state: 'visible' });
+  if (modelFamily !== 'deepseek') assert.match(await study.locator('.cbar-model-label').textContent(),
+    modelFamily === 'qwen27' ? /Qwen3\.8-27B/ : modelFamily === 'qwen35' ? /Qwen3\.6-35B-A3B/ : /Qwen3\.8-Flash-Next/,
+    'The Tutor model label must describe the model used by its requests');
 
   // A streaming repaint must neither destroy an active text selection nor
   // force the learner back to the bottom after they scroll up.
-  const tutorReadingPosition = await study.evaluate((node) => {
+  // Use real wheel input and finish its animation before measuring. WebKit
+  // also scrolls for the old synthetic WheelEvent, unlike Chromium; measuring
+  // before that animation falsely attributed its 110 -> 0 motion to the app.
+  await study.locator('.roadmap-study__scroll').hover();
+  await page.mouse.wheel(0, -2000);
+  await page.waitForFunction(() => document.querySelector('.roadmap-study__scroll').scrollTop === 0);
+  const tutorReadingPosition = await study.evaluate((node, traceEnabled) => {
     const scroller = node.querySelector('.roadmap-study__scroll');
     const answer = node.querySelector('.roadmap-study-msg--assistant > .md');
+    if (traceEnabled) {
+      const trace = window.__roadmapScrollTrace = [];
+      const record = (kind, details = {}) => {if (trace.length < 256) trace.push({kind,
+        at: performance.now(), top: scroller.scrollTop, height: scroller.scrollHeight,
+        viewport: scroller.clientHeight, selected: String(getSelection()), ...details});};
+      const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+      Object.defineProperty(scroller, 'scrollTop', {get() {return descriptor.get.call(this);},
+        set(value) {record('write', {value, stack: new Error().stack}); descriptor.set.call(this, value);}});
+      scroller.addEventListener('scroll', () => record('scroll'));
+      document.addEventListener('selectionchange', () => record('selection'));
+      new MutationObserver(() => record('mutation')).observe(scroller, {subtree: true, childList: true});
+      record('initial');
+    }
     scroller.scrollTop = Math.min(110, Math.max(0, scroller.scrollHeight - scroller.clientHeight));
-    scroller.dispatchEvent(new WheelEvent('wheel', { deltaY: -320, bubbles: true }));
     const walker = document.createTreeWalker(answer, NodeFilter.SHOW_TEXT);
     const textNode = walker.nextNode();
     const range = document.createRange();
@@ -825,8 +897,10 @@ try {
     selection.removeAllRanges();
     selection.addRange(range);
     return { top: scroller.scrollTop, selected: String(selection) };
-  });
+  }, process.env.DSTUDIO_TRACE_SCROLL === '1');
   assert.match(tutorReadingPosition.selected, /Partiamo/);
+  await study.locator('.msg__logo--loading').waitFor({state: 'visible'});
+  releaseTutorFinish();
   await page.waitForTimeout(700);
   const tutorDuringSelection = await study.evaluate((node) => ({
     top: node.querySelector('.roadmap-study__scroll').scrollTop,
@@ -835,17 +909,20 @@ try {
   assert.equal(tutorDuringSelection.selected, tutorReadingPosition.selected,
     'Tutor streaming should not replace DOM nodes while the learner is selecting text');
   assert.ok(Math.abs(tutorDuringSelection.top - tutorReadingPosition.top) <= 2,
-    'Tutor streaming should not pull a learner back to the bottom after scrolling up');
+    `Tutor streaming should preserve reading position: ${JSON.stringify({before: tutorReadingPosition, after: tutorDuringSelection})}`);
   await study.evaluate(() => getSelection()?.removeAllRanges());
   await study.locator('.roadmap-study__send:not([disabled])').waitFor({ state: 'visible' });
   await page.waitForTimeout(120);
   const tutorAfterSelection = await study.locator('.roadmap-study__scroll').evaluate((node) => node.scrollTop);
   assert.ok(Math.abs(tutorAfterSelection - tutorReadingPosition.top) <= 2,
     'the deferred final Tutor repaint should preserve the learner’s reading position');
-  assert.match(await study.locator('.roadmap-study-msg--assistant .msg__start').textContent() || '', /DStudio Tutor.*Thinking: normal/);
+  assert.match(await study.locator('.roadmap-study-msg--assistant .msg__start').textContent() || '',
+    new RegExp(`DStudio Tutor.*Thinking: ${modelFixture.minimum ? 'normal' : modelFixture.maximum}`));
   assert.match(await study.locator('.roadmap-study-msg--assistant .thinking').textContent() || '', /Valuto prerequisiti/,
     'the tutor should show and retain its Thinking, unlike the roadmap canvas');
   assert.match(await study.locator('.roadmap-study-msg--assistant').last().textContent() || '', /intuizione|esercizio guidato/);
+  assert.match(await study.locator('.roadmap-study-msg--assistant').last().textContent() || '', /Esercizio aggiunto mentre stai leggendo/,
+    'Text arriving during the selection must be rendered after it is released');
   await study.locator('.roadmap-study-msg--assistant .md-details').waitFor({ state: 'visible' });
   assert.equal(await study.locator('.roadmap-study-msg--assistant').last().textContent().then((text) => text.includes('<details>')), false,
     'Tutor hints should render as collapsible controls instead of raw HTML tags');
@@ -855,7 +932,7 @@ try {
   assert.equal(studyRequests.length, 1, 'the study room should issue its own tutor request');
   const studyRequest = studyRequests[0];
   assert.equal(studyRequest.think, true);
-  assert.equal(studyRequest.reasoning_effort, 'high');
+  assert.equal(studyRequest.reasoning_effort, modelFixture.normalEffort);
   const studySystem = studyRequest.messages.find((message) => message.role === 'system')?.content || '';
   assert.match(studySystem, /dedicated long-term tutor for exactly one block/);
   assert.match(studySystem, /guided exercises, then independent exercises/);
@@ -866,6 +943,24 @@ try {
   const studyUser = studyRequest.messages.findLast((message) => message.role === 'user')?.content || '';
   assert.match(studyUser, /\[Attached study material\]/);
   assert.match(studyUser, /Appunti tutor: usa header, main e footer/);
+  await study.locator('.roadmap-study__input').fill('Tutor steering fixture');
+  await study.locator('.roadmap-study__send').click();
+  await study.getByText('Partial tutor explanation retained before the new context.', { exact: true }).waitFor();
+  assert.equal(await study.locator('.roadmap-study__input').isEnabled(), true);
+  assert.equal(await study.locator('.roadmap-study__send').isEnabled(), true);
+  await study.locator('.roadmap-study__input').fill('Aggiungi un esempio accessibile da tastiera.');
+  await study.locator('.roadmap-study__send').click();
+  await page.waitForFunction(() => document.querySelectorAll('.roadmap-study-msg--assistant .md-details').length === 2);
+  await page.waitForFunction(() => {
+    const chats = JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}').chats || [];
+    const messages = chats.find(chat => chat.mode === 'roadmap')?.messages?.find(message => message.role === 'assistant')?.roadmapStudyThreads?.['topic:html-semantics']?.messages;
+    return messages?.length === 6 && messages.every(message => !message.streaming);
+  });
+  const continuedStudy = chatRequests.findLast(entry => entry.messages?.at(-1)?.content === 'Aggiungi un esempio accessibile da tastiera.');
+  assert.ok(continuedStudy, 'new context must reach the next Tutor request');
+  assert.equal(continuedStudy.messages.filter(message => message.role === 'user' && message.content === 'Tutor steering fixture').length, 1);
+  assert.ok(continuedStudy.messages.some(message => message.role === 'assistant' && message.content.includes('Partial tutor explanation retained')));
+  assert.ok(continuedStudy.messages.some(message => message.role === 'user' && message.content.includes('Appunti tutor: usa header, main e footer')));
   await study.locator('.roadmap-study__back').click();
   await study.waitFor({ state: 'hidden' });
   assert.equal(await page.locator('#cbar-right > #cbar-model').count(), 1,
@@ -874,8 +969,8 @@ try {
   await page.waitForTimeout(900);
   saved = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}'));
   savedReply = saved.chats?.find((chat) => chat.mode === 'roadmap')?.messages?.find((message) => message.role === 'assistant');
-  assert.equal(savedReply?.roadmapStudyThreads?.['topic:html-semantics']?.messages?.length, 2,
-    'the block tutor transcript should persist with the roadmap');
+  assert.equal(savedReply?.roadmapStudyThreads?.['topic:html-semantics']?.messages?.length, 6,
+    'the original and steered tutor transcript must persist with the roadmap');
   assert.equal(savedReply?.roadmapStudyThreads?.['topic:html-semantics']?.thinkLevel, 'normal',
     'the selected Tutor thinking level should persist with its block chat');
   assert.equal(savedReply?.roadmapStudyThreads?.['topic:html-semantics']?.messages?.[0]?.attachments?.[0]?.name, 'appunti.txt',
@@ -1007,8 +1102,25 @@ try {
   assert.match(await orphanedState.locator('[data-act="retry"]').textContent() || '', /Riprova la roadmap/);
 
   assert.deepEqual(pageErrors, [], `page errors: ${JSON.stringify({ pageErrors, missingRequests }, null, 2)}`);
-  console.log('ui_roadmap_playwright_test: ok');
+  assert.ok(chatRequests.length > 20 && chatRequests.every(entry => entry.model === modelFixture.id),
+    'Research, retries, factual audits, curriculum judge, expansion and Tutor must use the selected model');
+  if (modelFamily !== 'deepseek') assert.ok(startRequests.every(entry => entry.ctx === 65536 || entry.ctx === modelFixture.minimum),
+    'Tutor and expansion must also retain the configured Qwen context');
+  if (repairCheckout) {
+    assert.ok(startRequests.length >= 3, 'Generation, expansion and Tutor must each exercise a moved checkout');
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).modelEngineDir),
+      activeEngineDir, 'The validated checkout repair must persist without invalidating the pending question');
+  }
+  console.log(`ui_roadmap_playwright_test: ok (${modelFamily}, ${browserName}; simulated engine)`);
+  receipt.status = 'PASS';
+} catch (error) {
+  receipt.status = 'FAIL'; receipt.error = String(error.stack || error);
+  if (page) writeArtifact(artifacts, 'scroll-trace.json', await page.evaluate(() => window.__roadmapScrollTrace || []).catch(() => []));
+  await page?.screenshot({path: path.join(artifacts, 'failure.png')}).catch(() => {});
+  throw error;
 } finally {
+  releaseTutorFinish();
+  writeArtifact(artifacts, 'results.json', {...receipt, chatRequests, startRequests, missingRequests});
   await browser.close().catch(() => {});
   server.close();
 }

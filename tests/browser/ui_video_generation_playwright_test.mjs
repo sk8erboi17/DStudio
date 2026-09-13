@@ -549,8 +549,13 @@ try {
   assert.equal(await page.locator('#btn-send').isEnabled(), true,
     'the text-only attachment guard must be reachable');
   await page.locator('#btn-send').click();
-  await page.locator('.toast').filter({ hasText: 'This model is text-only' })
+  await page.locator('.toast').filter({ hasText: 'Images are unavailable with this model.' })
     .waitFor({ state: 'visible', timeout: 10000 });
+  assert.equal(await page.locator('#composer-input').inputValue(),
+    'Edit this image and make the background blue.',
+    'the rejected image request must preserve the user\'s prompt');
+  assert.equal(await page.locator('.composer__file').filter({ hasText: 'edit-source.png' }).isVisible(), true,
+    'the rejected image request must preserve its attachment for another model');
   assert.equal(await page.locator('.msg--user').count(), userCountBeforeImageGuard,
     'a text-only model must retain the unsent image request');
   assert.equal(chatRequests, chatsBeforeImageGuard,

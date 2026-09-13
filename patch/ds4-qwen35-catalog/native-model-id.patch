@@ -1,0 +1,12 @@
+diff --git a/ds4_server.c b/ds4_server.c
+--- a/ds4_server.c
++++ b/ds4_server.c
+@@ -13207,6 +13207,8 @@ static bool send_models(server *s, int fd) {
+         append_model_json(&b, s, "glm-5.2-chat");
+         buf_putc(&b, ',');
+         append_model_json(&b, s, "glm-5.2-reasoner");
++    } else if (ds4_engine_is_qwen35moe(s->engine)) {
++        append_model_json(&b, s, server_model_id_from_engine(s->engine));
+     } else {
+         append_model_json(&b, s, "deepseek-v4-flash");
+         buf_putc(&b, ',');

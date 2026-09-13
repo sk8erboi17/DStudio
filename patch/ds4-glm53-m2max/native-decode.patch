@@ -1189,24 +1189,6 @@ diff --git a/ds4_metal.m b/ds4_metal.m
                      (use_mxfp4_selected_slots ? "mxfp4/mxfp4" : "q4/q4"));
                  const char *selected_view_mode =
                      use_stream_expert_split_deferred ? "stream-split" :
-@@ -41433,7 +41611,7 @@
-                     (use_iq2_selected_slots ? "exact-cache" : q4_selected_view_mode));
-                 fprintf(stderr,
-                         "ds4: Metal selected views layer=%u path=%s mode=%s ids=%s "
--                        "experts=%d,%d,%d,%d,%d,%d expert_gate=%.2f MiB "
-+                        "experts=%d,%d,%d,%d,%d,%d,%d,%d expert_gate=%.2f MiB "
-                         "expert_down=%.2f MiB read=%.3f ms bind=%.3f ms "
-                         "cache_hits=%llu cache_misses=%llu cache_wraps=%llu cache_evictions=%llu\n",
-                         layer_index,
-@@ -41446,6 +41624,8 @@
-                         selected_ids_available ? selected_ids[3] : -1,
-                         selected_ids_available ? selected_ids[4] : -1,
-                         selected_ids_available ? selected_ids[5] : -1,
-+                        selected_ids_available && n_expert > 6 ? selected_ids[6] : -1,
-+                        selected_ids_available && n_expert > 7 ? selected_ids[7] : -1,
-                         ds4_gpu_mib(gate_expert_bytes),
-                         ds4_gpu_mib(down_expert_bytes),
-                         selected_read_ms,
 diff --git a/metal/moe.metal b/metal/moe.metal
 --- a/metal/moe.metal
 +++ b/metal/moe.metal

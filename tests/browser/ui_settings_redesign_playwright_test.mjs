@@ -462,7 +462,9 @@ try {
   assert.equal(await streamingNotice.isVisible(), true, 'blocked streaming must have a visible explanation');
   assert.equal(await switchPage.locator('#set-ssd-streaming-badge').innerText(), 'Unavailable for Qwen');
   assert.deepEqual(await streamingNotice.locator('li').allTextContents(), [
-    'DeepSeek V4 Flash', 'DeepSeek V4 Flash Vision-Exp', 'GLM 5.3 Flash',
+    'DeepSeek V4 Flash',
+    'DeepSeek V4.1 Flash — Metal; Engram stays on SSD separately',
+    'DeepSeek V4 Flash Vision-Exp', 'GLM 5.3 Flash',
     'DeepSeek V4 Pro — about 430 GB to download',
   ]);
   assert.match(await streamingNotice.innerText(), /local Metal engine and DSpark Off/);

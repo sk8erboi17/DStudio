@@ -1,3 +1,0 @@
-    ds4_chat_append_message(w->engine, &compacted, "system", summary_msg.ptr);
-    free(summary_msg.ptr);
-    free(summary.ptr);

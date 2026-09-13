@@ -33,6 +33,9 @@ core.*
 /ds4-laguna-s21/
 /ds4-qwen38/
 /ds4-qwen35/
+/q36/
+/.dstudio-q36-install.lock
+/.dstudio-q36-stage-*/
 /build/
 
 # Runtime diagnostic dump

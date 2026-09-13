@@ -1,0 +1,212 @@
+--- a/download_model.sh
++++ b/download_model.sh
+@@ -202,138 +202,120 @@
+ 
+ Then the default commands work:
+   ./ds4 -p "Hello"
+   ./ds4-server --ctx 100000
+ 
+ After downloading DSpark support, enable it explicitly:
+   ./ds4 --dspark --mtp-model <download directory>/$DS4F_DSPARK_FILE
+ 
+-PRO, V4.1 and GLM files use the official Hugging Face downloader
+-because they are too large, sharded, or nested for the curl path used by the
+-smaller DeepSeek Flash GGUF files.
++DStudio writes legacy-model transfers as visible <filename>.part files.
++V4.1 retains the official Hugging Face downloader, resumable cache and mandatory
++size/SHA-256 verification. Its download revision is pinned, not a moving main.
+ EOF
+ }
+ 
+ if [ $# -eq 0 ]; then
+     usage
+     exit 1
+ fi
+ 
+ MODEL=$1
+ shift
+ MODEL_FILES=
+ LINK_MODEL=1
+-FORCE_HF_DOWNLOAD=0
+ FLATTEN_DOWNLOADS=0
+ 
+ case "$MODEL" in
+     ds4f-q2) MODEL_FILE=$DS4F_Q2_FILE ;;
+     ds4f-q2-q4) MODEL_FILE=$DS4F_Q2_Q4_FILE ;;
+     ds4f-q4) MODEL_FILE=$DS4F_Q4_FILE ;;
+-    ds4f-mxfp4) MODEL_FILE=$DS4F_MXFP4_FILE; FORCE_HF_DOWNLOAD=1 ;;
++    ds4f-mxfp4) MODEL_FILE=$DS4F_MXFP4_FILE ;;
+     ds4f-dspark) MODEL_FILE=$DS4F_DSPARK_FILE; LINK_MODEL=0 ;;
+     ds4f-vision-q2)
+         MODEL_FILE=$DS4F_VISION_Q2_FILE
+         MODEL_FILES="$MODEL_FILE $DS4F_VISION_ENCODER_FILE"
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     ds4f-vision-q2-q4)
+         MODEL_FILE=$DS4F_VISION_Q2_Q4_FILE
+         MODEL_FILES="$MODEL_FILE $DS4F_VISION_ENCODER_FILE"
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     ds4f-vision-mxfp4)
+         MODEL_FILE=$DS4F_VISION_MXFP4_FILE
+         MODEL_FILES="$MODEL_FILE $DS4F_VISION_ENCODER_FILE"
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     ds4f-vision-encoder)
+         MODEL_FILE=$DS4F_VISION_ENCODER_FILE
+-        FORCE_HF_DOWNLOAD=1
+         LINK_MODEL=0
+         ;;
+     ds4f-vision-dspark)
+         MODEL_FILE=$DS4F_VISION_DSPARK_FILE
+-        FORCE_HF_DOWNLOAD=1
+         LINK_MODEL=0
+         ;;
+     ds41f-q2)
+         REPO=$DS41_REPO
+         MODEL_FILE=$DS41_Q2_FILE
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     ds41f-q4)
+         REPO=$DS41_REPO
+         MODEL_FILE=$DS41_Q4_FILE
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     ds41f-vision)
+         REPO=$DS41_REPO
+         MODEL_FILE=$DS41_VISION_FILE
+-        FORCE_HF_DOWNLOAD=1
+         LINK_MODEL=0
+         ;;
+     pro-q2-imatrix) MODEL_FILE=$PRO_Q2_IMATRIX_FILE ;;
+     pro-q4-layers00-30) MODEL_FILE=$PRO_Q4_LAYERS00_30_FILE; LINK_MODEL=0 ;;
+     pro-q4-layers31-output) MODEL_FILE=$PRO_Q4_LAYERS31_OUTPUT_FILE; LINK_MODEL=0 ;;
+     pro-q4-split)
+         MODEL_FILES="$PRO_Q4_LAYERS00_30_FILE $PRO_Q4_LAYERS31_OUTPUT_FILE"
+         LINK_MODEL=0
+         ;;
+     glm-unsloth-q4)
+         REPO=$GLM_UNSLOTH_REPO
+         MODEL_FILE=$GLM_UNSLOTH_Q4_FIRST_FILE
+         MODEL_FILES=
+         for part in 00001 00002 00003 00004 00005 00006 00007 00008 00009 00010 00011; do
+             MODEL_FILES="$MODEL_FILES $GLM_UNSLOTH_Q4_REMOTE_BASE-${part}-of-00011.gguf"
+         done
+-        FORCE_HF_DOWNLOAD=1
+         FLATTEN_DOWNLOADS=1
+         ;;
+     glm-antirez-q2)
+         REPO=$GLM_ANTIREZ_REPO
+         MODEL_FILE=$GLM_ANTIREZ_Q2_FILE
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     glm-antirez-iq2xxs)
+         REPO=$GLM_ANTIREZ_REPO
+         MODEL_FILE=$GLM_ANTIREZ_IQ2XXS_FILE
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     glm-antirez-q4)
+         REPO=$GLM_ANTIREZ_REPO
+         MODEL_FILE=$GLM_ANTIREZ_Q4_FILE
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     glm53-full-q2)
+         REPO=$GLM53_FULL_REPO
+         MODEL_FILE=$GLM53_FULL_Q2_FILE
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     glm53-q2)
+         REPO=$GLM53_REPO
+         MODEL_FILE=$GLM53_Q2_FILE
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     glm53-q4)
+         REPO=$GLM53_REPO
+         MODEL_FILE=$GLM53_Q4_FILE
+-        FORCE_HF_DOWNLOAD=1
+         ;;
+     glm53-fp8)
+         REPO=$GLM53_REPO
+         MODEL_FILE=$GLM53_FP8_FILE
+-        FORCE_HF_DOWNLOAD=1
+         LINK_MODEL=0
+         ;;
+     glm53-vision)
+         REPO=$GLM53_REPO
+         MODEL_FILE=$GLM53_VISION_FILE
+-        FORCE_HF_DOWNLOAD=1
+         LINK_MODEL=0
+         ;;
+     -h|--help|help)
+         usage
+         exit 0
+         ;;
+     *)
+         echo "Unknown model: $MODEL" >&2
+@@ -361,21 +343,18 @@
+     shift
+ done
+ 
+ if [ -z "$TOKEN" ] && [ -s "$HOME/.cache/huggingface/token" ]; then
+     TOKEN=$(cat "$HOME/.cache/huggingface/token")
+ fi
+ 
+ needs_hf_download() {
+-    if [ "${FORCE_HF_DOWNLOAD:-0}" -eq 1 ]; then
+-        return 0
+-    fi
+     case "$1" in
+-        "$PRO_Q2_IMATRIX_FILE"|"$PRO_Q4_LAYERS00_30_FILE"|"$PRO_Q4_LAYERS31_OUTPUT_FILE")
++        "$DS41_Q2_FILE"|"$DS41_Q4_FILE"|"$DS41_Q4_FILE.part1"|"$DS41_Q4_FILE.part2"|"$DS41_VISION_FILE")
+             return 0
+             ;;
+         *)
+             return 1
+             ;;
+     esac
+ }
+ 
+@@ -477,19 +456,19 @@
+     fi
+ 
+     echo "Downloading $file"
+     echo "from https://huggingface.co/$REPO"
+     echo "using $HF_CMD download"
+     echo "If the download stops, run the same command again to resume it."
+ 
+     if [ -n "$TOKEN" ]; then
+-        "$HF_CMD" download "$REPO" "$file" --repo-type model --local-dir "$OUT_DIR" --token "$TOKEN"
++        "$HF_CMD" download "$REPO" "$file" --repo-type model --revision dd8a266f7145edc19e2334b46e19b6821f221dc7 --local-dir "$OUT_DIR" --max-workers 1 --token "$TOKEN"
+     else
+-        "$HF_CMD" download "$REPO" "$file" --repo-type model --local-dir "$OUT_DIR"
++        "$HF_CMD" download "$REPO" "$file" --repo-type model --revision dd8a266f7145edc19e2334b46e19b6821f221dc7 --local-dir "$OUT_DIR" --max-workers 1
+     fi
+ 
+     if [ "$hf_out" != "$out" ] && [ -s "$hf_out" ]; then
+         mv "$hf_out" "$out"
+         rmdir "$(dirname "$hf_out")" 2>/dev/null || true
+     fi
+ 
+     if [ ! -s "$out" ]; then
+@@ -525,19 +504,19 @@
+         return
+     fi
+ 
+     echo "Downloading $file"
+     echo "from https://huggingface.co/$REPO"
+     echo "If the download stops, run the same command again to resume it."
+ 
+     if [ -n "$TOKEN" ]; then
+-        curl -fL --progress-meter -C - -H "Authorization: Bearer $TOKEN" -o "$part" "$url"
++        curl -fL --show-error --retry 5 --retry-all-errors --progress-meter -C - -H "Authorization: Bearer $TOKEN" -o "$part" "$url"
+     else
+-        curl -fL --progress-meter -C - -o "$part" "$url"
++        curl -fL --show-error --retry 5 --retry-all-errors --progress-meter -C - -o "$part" "$url"
+     fi
+ 
+     mv "$part" "$out"
+ }
+ 
+ download_ds41_q4() {
+     q4_out="$OUT_DIR/$DS41_Q4_FILE"
+     if [ -e "$q4_out" ]; then

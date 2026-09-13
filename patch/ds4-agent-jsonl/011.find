@@ -1,3 +1,0 @@
-            char *prompt = agent_input_buf_take(&input);
-            if (worker_is_idle(&worker) && queue.len == 0) {
-                if (!worker_submit(&worker, prompt)) {

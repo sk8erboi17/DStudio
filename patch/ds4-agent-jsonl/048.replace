@@ -1,2 +1,0 @@
-    if (!strcmp(call->name, "pack_file")) return ds4ui_tool_pack_file(call);   /*DS4UI_JSONL*/
-    if (!strcmp(call->name, "read_pdf")) return ds4ui_tool_read_pdf(call);   /*DS4UI_JSONL*/

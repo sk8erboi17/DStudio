@@ -1,0 +1,23 @@
+{
+  "schema": "dstudio.upstream-source-review.v1",
+  "repository": "https://github.com/Ninnix/q36",
+  "ref": "refs/heads/main",
+  "base": "d67687ed15ad9f52b755a9b5fdfc0214ea937555",
+  "tip": "d02b6a20a7662300003c859e186ceb5bec7aa849",
+  "reviewedAt": "2026-09-09",
+  "decision": "candidate-with-macos-terminal-adaptation; installer promotion pending",
+  "reason": "The only commit adds private terminal password handling to the upstream CLI Agent and its tests. It changes neither native inference source nor Metal/Vulkan kernels. DStudio's desktop Agent uses its own tool loop and resident-engine adapter, not this terminal UI.",
+  "changedFiles": ["Makefile", "README.md", "q36_agent.c", "tests/q36_agent_test.c", "tests/test_agent_password.py"],
+  "aggregateDiffSHA256": "b512b87aaae30e2362a71512c95b329bdff097650c4bc454f81dd9d7fa3a068c",
+  "method": "Read all five changed files/diffs; compare git ls-tree -r --full-tree at base and tip excluding exactly those five paths. Hash the remaining newline-terminated listings; they are identical.",
+  "unchangedTreeEntries": 204,
+  "unchangedTreeSHA256": "f11c05b2f922e3de55071b69761a136ee810dc1faa18b3c856a63465b53955e7",
+  "adaptation": {
+    "path": "patch/q36-agent-tty/runtime.patch",
+    "sha256": "a45090e364018d5b684881bf163dff0594b71708a79bf7ccd4be3e530583cce7",
+    "behavior": "Keep one close-on-exec slave descriptor until job cleanup on macOS; use a stable master descriptor for the test's restoration oracle; stop the test reader at actual EOF.",
+    "validation": "Same corrected oracle on baseline/candidate: baseline NO_TERMINAL, candidate seven fictional-password scenarios PASS. Actual EOF regression and 32 native normal/cancelled jobs without descriptor leaks; original failures retained.",
+    "layout": {"platform": "macOS arm64", "baselineJobBytes": 1128, "candidateJobBytes": 1128, "baselineWorkerBytes": 2680, "candidateWorkerBytes": 2680}
+  },
+  "limitations": "Not a Metal long-context fix, LLM quality result, Linux/Vulkan/CUDA qualification, managed install upgrade or final app promotion. The current 27B common-100 replay remains on the old frozen engine and still has real failures. Earlier main-to-engine source comparisons remain separate required work."
+}

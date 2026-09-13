@@ -1,0 +1,132 @@
+diff --git a/q36_agent.c b/q36_agent.c
+index 5cf46fa01472ff1c48775e43ab8acc1db0b457ec..7a5eedee900f3d7e44f40622728e84af11e5df99 100644
+--- a/q36_agent.c
++++ b/q36_agent.c
+@@ -7816,6 +7816,7 @@ struct agent_bash_job {
+     pid_t pid;
+     int pipe_fd;
+     int tty_fd;
++    int tty_hold_fd;
+     int tmp_fd;
+     char path[PATH_MAX];
+     double start_time;
+@@ -7874,6 +7875,7 @@ static void agent_bash_job_free(agent_bash_job *job) {
+         while (waitpid(job->pid, NULL, 0) < 0 && errno == EINTR) {}
+     if (job->pipe_fd >= 0) close(job->pipe_fd);
+     if (job->tty_fd >= 0) close(job->tty_fd);
++    if (job->tty_hold_fd >= 0) close(job->tty_hold_fd);
+     if (job->tmp_fd >= 0) close(job->tmp_fd);
+     pthread_mutex_destroy(&job->mu);
+     free(job);
+@@ -8074,6 +8076,14 @@ static void *agent_bash_monitor(void *arg) {
+         if (rc > 0 && (pfd.revents & POLLHUP) && !(pfd.revents & POLLIN))
+             usleep(50000);
+     }
++    /* The monitor alone retires the retained slave after the job stops.
++     * Do not close it while holding job->mu. The owner joins this thread
++     * before reading/freeing the field; failed thread creation is handled
++     * by agent_bash_job_free instead. Completed history retains no slave. */
++    if (job->tty_hold_fd >= 0) {
++        close(job->tty_hold_fd);
++        job->tty_hold_fd = -1;
++    }
+     return NULL;
+ }
+ 
+@@ -8154,7 +8164,9 @@ static agent_bash_job *agent_bash_start(agent_worker *w, const char *cmd,
+     }
+ 
+     close(pipefd[1]);
+-    if (slavefd >= 0) close(slavefd);
++    /* macOS hangs up a private tty when its last slave descriptor closes,
++     * before the child can reopen /dev/tty. Retain one CLOEXEC slave until
++     * the monitor finishes; command stdin remains /dev/null. */
+     int old_flags;
+     set_nonblock(pipefd[0], true, &old_flags);
+     if (ttyfd >= 0) set_nonblock(ttyfd, true, NULL);
+@@ -8166,6 +8178,7 @@ static agent_bash_job *agent_bash_start(agent_worker *w, const char *cmd,
+     job->pid = pid;
+     job->pipe_fd = pipefd[0];
+     job->tty_fd = ttyfd;
++    job->tty_hold_fd = slavefd;
+     job->tmp_fd = tmpfd;
+     snprintf(job->path, sizeof(job->path), "%s", tmp_path);
+     pthread_mutex_init(&job->mu, NULL);
+@@ -11624,8 +11637,9 @@ static bool agent_prompt_password(agent_worker *w,
+     char password[1024] = {0};
+     size_t len = 0;
+     bool ok = false;
+-    while (now_sec() < request->deadline && !worker_should_interrupt(w) &&
+-           !agent_sigint) {
++    bool timed_out = false;
++    while (!worker_should_interrupt(w) && !agent_sigint) {
++        if (now_sec() >= request->deadline) { timed_out = true; break; }
+         struct pollfd pfd[2] = {
+             {.fd = STDIN_FILENO, .events = POLLIN},
+             {.fd = request->fd, .events = 0},
+@@ -11633,8 +11647,15 @@ static bool agent_prompt_password(agent_worker *w,
+         int rc = poll(pfd, 2, 100);
+         if (rc < 0 && errno == EINTR) continue;
+         if (rc < 0 || (pfd[0].revents & (POLLHUP | POLLERR | POLLNVAL)) ||
+-            (pfd[1].revents & (POLLHUP | POLLERR | POLLNVAL))) break;
+-        if (tcgetattr(request->fd, &child) != 0 || (child.c_lflag & ECHO)) break;
++            (pfd[1].revents & (POLLHUP | POLLERR | POLLNVAL)) ||
++            tcgetattr(request->fd, &child) != 0 || (child.c_lflag & ECHO)) {
++            /* The independent deadline monitor may reap the command first.
++             * Terminal closure at that deadline is a timeout, not a user
++             * cancellation. Keep explicit Ctrl+C/Esc and Stop distinct. */
++            timed_out = !worker_should_interrupt(w) && !agent_sigint &&
++                        now_sec() >= request->deadline;
++            break;
++        }
+         if (!(pfd[0].revents & POLLIN)) continue;
+         unsigned char c;
+         if (read(STDIN_FILENO, &c, 1) != 1) break;
+@@ -11665,7 +11686,8 @@ static bool agent_prompt_password(agent_worker *w,
+     /* Discard input following Enter/cancellation so a pasted secret suffix
+      * cannot become a chat message when the editor resumes. */
+     tcsetattr(STDIN_FILENO, TCSAFLUSH, &saved);
+-    printf("\n%s", ok ? "" : "Password entry cancelled.\n");
++    printf("\n%s", ok ? "" : timed_out ? "Password entry timed out.\n" :
++                                        "Password entry cancelled.\n");
+     fflush(stdout);
+     return ok;
+ }
+diff --git a/tests/test_agent_password.py b/tests/test_agent_password.py
+index b4a72f0b34dfa908255bc0f6e3be6813eb4999e6..db398dd9c8d5f8e167b9e27135443034bb71d47e 100644
+--- a/tests/test_agent_password.py
++++ b/tests/test_agent_password.py
+@@ -17,7 +17,9 @@ import time
+ def check(binary, answers, expected, timeout=5, command=None, noninteractive=False):
+     master, slave = pty.openpty()
+     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+-    saved = termios.tcgetattr(slave)
++    # The master exposes the same terminal settings and remains valid after
++    # the session leader exits. macOS revokes old slave descriptors at exit.
++    saved = termios.tcgetattr(master)
+     command = command or f"exec {shlex.quote(binary)} --password-child"
+     process = subprocess.Popen(
+         [binary, "--noninteractive-driver" if noninteractive else "--password-driver",
+@@ -34,7 +36,12 @@ def check(binary, answers, expected, timeout=5, command=None, noninteractive=Fal
+         while time.monotonic() < deadline:
+             ready, _, _ = select.select([master], [], [], 0.1)
+             if ready:
+-                transcript.extend(os.read(master, 65536))
++                chunk = os.read(master, 65536)
++                # EOF stays readable on macOS. Stop after draining the final
++                # bytes instead of busy-spinning until the scenario deadline.
++                if not chunk:
++                    break
++                transcript.extend(chunk)
+                 if transcript.count(marker) > answered and answered < len(answers):
+                     os.write(master, answers[answered])
+                     answered += 1
+@@ -43,7 +50,7 @@ def check(binary, answers, expected, timeout=5, command=None, noninteractive=Fal
+         assert process.wait(timeout=1) == 0, transcript.decode(errors="replace")
+         assert expected in transcript, transcript.decode(errors="replace")
+         assert b"DRAFT_OK=1" in transcript, transcript.decode(errors="replace")
+-        assert termios.tcgetattr(slave) == saved, "terminal mode was not restored"
++        assert termios.tcgetattr(master) == saved, "terminal mode was not restored"
+         for secret in (b"q36-test-secret", b"wrong-secret", b"secret-suffix"):
+             assert secret not in transcript, "password leaked into terminal/tool output"
+         return transcript

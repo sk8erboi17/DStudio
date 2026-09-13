@@ -1,0 +1,1457 @@
+{
+  "schema": "dstudio.design-regeneration.public.v1",
+  "date": "2026-09-06",
+  "scope": "One from-scratch Design development replay of the original brief. No human edits to generated HTML. Not a new paired comparison or a general quality score.",
+  "prompt": "Build directly, without discovery questions. Create workshop.html for NEIGHBOURHOOD LAB, a welcoming general-purpose community workshop planner for first-time participants, primarily on a phone. Exact heading: Make room to learn. Implement a three-step journey: Choose a workshop, Choose a day, Review. Workshops: Bookbinding, Bicycle care, Urban sketching. Days: Tuesday, Thursday. Continue must be unavailable until the current step has a selection. Back preserves the choice. Review displays both choices. Final confirmation explicitly says No booking was made: this is a local demo, with clearly labelled sample data. Use readable typography, calm green, strong keyboard focus and clear field labels. On desktop place a human introduction beside one focused step panel; on mobile put the current action below the heading. No horizontal page scrolling, gradients, network dependencies or external assets. Use your available local design resources where appropriate. Save a finished offline HTML prototype with real controls, inspect its rendering and exercise the controls before claiming completion.",
+  "hardware": {
+    "cpu": "Apple M2 Max",
+    "memoryBytes": 103079215104
+  },
+  "model": "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf",
+  "settings": {
+    "model": "ds4",
+    "temperature": 0.2,
+    "seed": 20260906,
+    "max_tokens": 8192,
+    "think": false
+  },
+  "context": 32768,
+  "ssdStreaming": "off",
+  "runtime": {
+    "revision": "7fd88cd874f7584c5e49d8514211bc71afb00358",
+    "dirty": true,
+    "engineRevision": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
+    "sourceHashes": {
+      "extension/cowork/ds4_cowork.c": "58ea83280e4e98448c0606c50995940acb83e276cb288db4398748f7802c881f",
+      "extension/design/ds4_design.c": "edd3268e32a4dd3c8a2144f767e49f4fc567d2306b2d5a5e26dfbbe3611863d2",
+      "patch/ds4-agent-jsonl/remote-agent.cfrag": "2339528feddf4eb49d07c12eef89dbabd616d34b0fffb74ed7c119b32186f4a0",
+      "patch/ds4-agent-jsonl/028.replace": "02761efbb191e725f1960420f1cb36fa0faa692f7df1ac9f0d5d73c17be58672"
+    }
+  },
+  "completed": false,
+  "elapsedSeconds": null,
+  "deadlineSeconds": 900,
+  "attemptSeconds": 902.1574067079999,
+  "modelRequests": 13,
+  "artifactChecksPass": true,
+  "pass": false,
+  "completionIssue": "Agent hit the deadline while iterating on static/fake-DOM checks. Those checks are not end-to-end evidence.",
+  "htmlSha256": "60ad5a10fe32fa4279080792c4f59c847c670645442a1a679c23f79e8075a3e2",
+  "provenance": {
+    "originalPublicReceiptSha256": "31ca19efe8da63114f341c0be1ade9b6043948b88508b7ff719f2bfb20acbd84",
+    "liveReceiptSha256": "a69b6df6a5476889e9e9da8431312effa4797eb1ab2a4e622283808f5c8661cc",
+    "artifactDigestCapture": "post-deadline independent browser audits; no completion digest was captured by the pilot",
+    "harnessSha256": "a9a59af7f4a77dc013504398f1b352322ea0b327ae6043edd3e7a72abf6a2d31",
+    "audits": [
+      {
+        "browser": "chromium",
+        "sha256": "e4db382a53c0efab316f8a7ad2c4c7f094187a1e1f2d4d757d69217bebd3cab9"
+      },
+      {
+        "browser": "webkit",
+        "sha256": "4e418dbb01d62928d1561683809b0f73279979fed0fe05bf38909ee6ea283a76"
+      }
+    ]
+  },
+  "browsers": [
+    {
+      "browser": "chromium",
+      "pass": true,
+      "checks": [
+        {
+          "name": "requested HTML exists",
+          "pass": true
+        },
+        {
+          "name": "required identity and no horizontal overflow at 1440px",
+          "pass": true
+        },
+        {
+          "name": "radio label text clears indicator column at 1440px",
+          "pass": true
+        },
+        {
+          "name": "required identity and no horizontal overflow at 768px",
+          "pass": true
+        },
+        {
+          "name": "radio label text clears indicator column at 768px",
+          "pass": true
+        },
+        {
+          "name": "required identity and no horizontal overflow at 390px",
+          "pass": true
+        },
+        {
+          "name": "radio label text clears indicator column at 390px",
+          "pass": true
+        },
+        {
+          "name": "choices, gating, Back, Review and real completion feedback",
+          "pass": true
+        },
+        {
+          "name": "native radio keyboard selection, when used",
+          "pass": true
+        },
+        {
+          "name": "small phone and doubled text preserve choice-label layout",
+          "pass": true
+        },
+        {
+          "name": "offline artifact has no script errors or missing dependencies",
+          "pass": true
+        },
+        {
+          "name": "audit did not alter original file",
+          "pass": true
+        }
+      ],
+      "radioLayout": [
+        {
+          "width": 1440,
+          "applicable": true,
+          "measurements": [
+            {
+              "choice": "Bookbinding",
+              "indicator": {
+                "left": 794,
+                "right": 814,
+                "top": 238.09375,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 827.59375,
+                  "top": 238.09375,
+                  "width": 93.296875,
+                  "height": 19
+                },
+                {
+                  "left": 924.75,
+                  "top": 240.09375,
+                  "width": 227.421875,
+                  "height": 16
+                },
+                {
+                  "left": 827.59375,
+                  "top": 266.1875,
+                  "width": 36.296875,
+                  "height": 16
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Bicycle care",
+              "indicator": {
+                "left": 794,
+                "right": 814,
+                "top": 332.5625,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 827.59375,
+                  "top": 332.5625,
+                  "width": 92.515625,
+                  "height": 19
+                },
+                {
+                  "left": 923.96875,
+                  "top": 334.5625,
+                  "width": 226.921875,
+                  "height": 16
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Urban sketching",
+              "indicator": {
+                "left": 794,
+                "right": 814,
+                "top": 401.4375,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 827.59375,
+                  "top": 401.4375,
+                  "width": 123.3125,
+                  "height": 19
+                },
+                {
+                  "left": 954.765625,
+                  "top": 403.4375,
+                  "width": 182.375,
+                  "height": 16
+                },
+                {
+                  "left": 827.59375,
+                  "top": 429.53125,
+                  "width": 72.609375,
+                  "height": 16
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            }
+          ]
+        },
+        {
+          "width": 768,
+          "applicable": true,
+          "measurements": [
+            {
+              "choice": "Bookbinding",
+              "indicator": {
+                "left": 440.390625,
+                "right": 460.390625,
+                "top": 211.84375,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 473.984375,
+                  "top": 211.84375,
+                  "width": 93.296875,
+                  "height": 19
+                },
+                {
+                  "left": 571.140625,
+                  "top": 213.84375,
+                  "width": 107.9375,
+                  "height": 16
+                },
+                {
+                  "left": 473.984375,
+                  "top": 239.9375,
+                  "width": 155.78125,
+                  "height": 16
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Bicycle care",
+              "indicator": {
+                "left": 440.390625,
+                "right": 460.390625,
+                "top": 306.3125,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 473.984375,
+                  "top": 306.3125,
+                  "width": 92.515625,
+                  "height": 19
+                },
+                {
+                  "left": 570.359375,
+                  "top": 308.3125,
+                  "width": 87.0625,
+                  "height": 16
+                },
+                {
+                  "left": 473.984375,
+                  "top": 334.40625,
+                  "width": 136.390625,
+                  "height": 16
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Urban sketching",
+              "indicator": {
+                "left": 440.390625,
+                "right": 460.390625,
+                "top": 400.78125,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 473.984375,
+                  "top": 400.78125,
+                  "width": 123.3125,
+                  "height": 19
+                },
+                {
+                  "left": 601.15625,
+                  "top": 402.78125,
+                  "width": 58.359375,
+                  "height": 16
+                },
+                {
+                  "left": 473.984375,
+                  "top": 428.875,
+                  "width": 196.625,
+                  "height": 16
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            }
+          ]
+        },
+        {
+          "width": 390,
+          "applicable": true,
+          "measurements": [
+            {
+              "choice": "Bookbinding",
+              "indicator": {
+                "left": 57.5,
+                "right": 77.5,
+                "top": 711,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 91.09375,
+                  "top": 711,
+                  "width": 93.296875,
+                  "height": 19
+                },
+                {
+                  "left": 188.25,
+                  "top": 713,
+                  "width": 107.9375,
+                  "height": 16
+                },
+                {
+                  "left": 91.09375,
+                  "top": 739.09375,
+                  "width": 155.78125,
+                  "height": 16
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Bicycle care",
+              "indicator": {
+                "left": 57.5,
+                "right": 77.5,
+                "top": 805.46875,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 91.09375,
+                  "top": 805.46875,
+                  "width": 92.515625,
+                  "height": 19
+                },
+                {
+                  "left": 187.46875,
+                  "top": 807.46875,
+                  "width": 129.734375,
+                  "height": 16
+                },
+                {
+                  "left": 91.09375,
+                  "top": 833.5625,
+                  "width": 93.71875,
+                  "height": 16
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Urban sketching",
+              "indicator": {
+                "left": 57.5,
+                "right": 77.5,
+                "top": 899.9375,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 91.09375,
+                  "top": 899.9375,
+                  "width": 123.3125,
+                  "height": 19
+                },
+                {
+                  "left": 218.265625,
+                  "top": 901.9375,
+                  "width": 97.8125,
+                  "height": 16
+                },
+                {
+                  "left": 91.09375,
+                  "top": 928.03125,
+                  "width": 157.15625,
+                  "height": 16
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            }
+          ]
+        }
+      ],
+      "dayRadioLayout": {
+        "applicable": true,
+        "measurements": [
+          {
+            "choice": "Tuesday",
+            "indicator": {
+              "left": 57.5,
+              "right": 77.5,
+              "top": 685.90625,
+              "height": 20
+            },
+            "textRects": [
+              {
+                "left": 91.09375,
+                "top": 685.90625,
+                "width": 61.453125,
+                "height": 19
+              },
+              {
+                "left": 156.40625,
+                "top": 687.90625,
+                "width": 163.265625,
+                "height": 16
+              }
+            ],
+            "textClearsIndicatorColumn": true
+          },
+          {
+            "choice": "Thursday",
+            "indicator": {
+              "left": 57.5,
+              "right": 77.5,
+              "top": 754.78125,
+              "height": 20
+            },
+            "textRects": [
+              {
+                "left": 91.09375,
+                "top": 754.78125,
+                "width": 70.1875,
+                "height": 19
+              },
+              {
+                "left": 165.140625,
+                "top": 756.78125,
+                "width": 109.0625,
+                "height": 16
+              },
+              {
+                "left": 91.09375,
+                "top": 782.875,
+                "width": 61.03125,
+                "height": 16
+              }
+            ],
+            "textClearsIndicatorColumn": true
+          }
+        ]
+      },
+      "nativeRadioKeyboardApplicable": true,
+      "textResizeChecks": [
+        {
+          "width": 320,
+          "textScale": 1,
+          "radioApplicable": true,
+          "measurements": [
+            {
+              "choice": "Bookbinding",
+              "indicator": {
+                "left": 54,
+                "right": 74,
+                "top": 761.125,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 87.59375,
+                  "top": 761.125,
+                  "width": 93.296875,
+                  "height": 19
+                },
+                {
+                  "left": 184.75,
+                  "top": 763.125,
+                  "width": 64.671875,
+                  "height": 16
+                },
+                {
+                  "left": 87.59375,
+                  "top": 789.21875,
+                  "width": 159.28125,
+                  "height": 16
+                },
+                {
+                  "left": 87.59375,
+                  "top": 814.8125,
+                  "width": 36.296875,
+                  "height": 16
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Bicycle care",
+              "indicator": {
+                "left": 54,
+                "right": 74,
+                "top": 881.1875,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 87.59375,
+                  "top": 881.1875,
+                  "width": 92.515625,
+                  "height": 19
+                },
+                {
+                  "left": 183.96875,
+                  "top": 883.1875,
+                  "width": 59.5625,
+                  "height": 16
+                },
+                {
+                  "left": 87.59375,
+                  "top": 909.28125,
+                  "width": 163.90625,
+                  "height": 16
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Urban sketching",
+              "indicator": {
+                "left": 54,
+                "right": 74,
+                "top": 975.65625,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 87.59375,
+                  "top": 975.65625,
+                  "width": 123.3125,
+                  "height": 19
+                },
+                {
+                  "left": 214.765625,
+                  "top": 977.65625,
+                  "width": 34.5625,
+                  "height": 16
+                },
+                {
+                  "left": 87.59375,
+                  "top": 1003.75,
+                  "width": 144.34375,
+                  "height": 16
+                },
+                {
+                  "left": 87.59375,
+                  "top": 1029.34375,
+                  "width": 72.609375,
+                  "height": 16
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            }
+          ]
+        },
+        {
+          "width": 390,
+          "textScale": 2,
+          "radioApplicable": true,
+          "measurements": [
+            {
+              "choice": "Bookbinding",
+              "indicator": {
+                "left": 57.5,
+                "right": 77.5,
+                "top": 1875.171875,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 91.09375,
+                  "top": 1879.171875,
+                  "width": 186.59375,
+                  "height": 38
+                },
+                {
+                  "left": 91.09375,
+                  "top": 1935.359375,
+                  "width": 215.859375,
+                  "height": 32
+                },
+                {
+                  "left": 91.09375,
+                  "top": 1986.546875,
+                  "width": 232.03125,
+                  "height": 32
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2037.734375,
+                  "width": 72.59375,
+                  "height": 32
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Bicycle care",
+              "indicator": {
+                "left": 57.5,
+                "right": 77.5,
+                "top": 2124.703125,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 91.09375,
+                  "top": 2128.703125,
+                  "width": 185.015625,
+                  "height": 38
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2184.890625,
+                  "width": 174.109375,
+                  "height": 32
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2236.078125,
+                  "width": 204.15625,
+                  "height": 32
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2287.265625,
+                  "width": 61.6875,
+                  "height": 32
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Urban sketching",
+              "indicator": {
+                "left": 57.5,
+                "right": 77.5,
+                "top": 2374.234375,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 91.09375,
+                  "top": 2378.234375,
+                  "width": 91.71875,
+                  "height": 38
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2431.421875,
+                  "width": 145.09375,
+                  "height": 38
+                },
+                {
+                  "left": 243.90625,
+                  "top": 2436.421875,
+                  "width": 69.125,
+                  "height": 32
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2487.609375,
+                  "width": 204.328125,
+                  "height": 32
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2538.796875,
+                  "width": 229.53125,
+                  "height": 32
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "browser": "webkit",
+      "pass": true,
+      "checks": [
+        {
+          "name": "requested HTML exists",
+          "pass": true
+        },
+        {
+          "name": "required identity and no horizontal overflow at 1440px",
+          "pass": true
+        },
+        {
+          "name": "radio label text clears indicator column at 1440px",
+          "pass": true
+        },
+        {
+          "name": "required identity and no horizontal overflow at 768px",
+          "pass": true
+        },
+        {
+          "name": "radio label text clears indicator column at 768px",
+          "pass": true
+        },
+        {
+          "name": "required identity and no horizontal overflow at 390px",
+          "pass": true
+        },
+        {
+          "name": "radio label text clears indicator column at 390px",
+          "pass": true
+        },
+        {
+          "name": "choices, gating, Back, Review and real completion feedback",
+          "pass": true
+        },
+        {
+          "name": "native radio keyboard selection, when used",
+          "pass": true
+        },
+        {
+          "name": "small phone and doubled text preserve choice-label layout",
+          "pass": true
+        },
+        {
+          "name": "offline artifact has no script errors or missing dependencies",
+          "pass": true
+        },
+        {
+          "name": "audit did not alter original file",
+          "pass": true
+        }
+      ],
+      "radioLayout": [
+        {
+          "width": 1440,
+          "applicable": true,
+          "measurements": [
+            {
+              "choice": "Bookbinding",
+              "indicator": {
+                "left": 794,
+                "right": 814,
+                "top": 238.03125,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 827.59375,
+                  "top": 238.60328674316406,
+                  "width": 93.2901611328125,
+                  "height": 18.949691772460938
+                },
+                {
+                  "left": 924.7432861328125,
+                  "top": 240.72250366210938,
+                  "width": 227.4117431640625,
+                  "height": 16.361724853515625
+                },
+                {
+                  "left": 827.59375,
+                  "top": 266.3162536621094,
+                  "width": 36.2952880859375,
+                  "height": 16.361724853515625
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Bicycle care",
+              "indicator": {
+                "left": 794,
+                "right": 814,
+                "top": 332.515625,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 827.59375,
+                  "top": 333.087646484375,
+                  "width": 92.501220703125,
+                  "height": 18.94970703125
+                },
+                {
+                  "left": 923.954345703125,
+                  "top": 335.2068786621094,
+                  "width": 226.9124755859375,
+                  "height": 16.361724853515625
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Urban sketching",
+              "indicator": {
+                "left": 794,
+                "right": 814,
+                "top": 401.40625,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 827.59375,
+                  "top": 401.978271484375,
+                  "width": 123.30841064453125,
+                  "height": 18.94970703125
+                },
+                {
+                  "left": 954.7615356445312,
+                  "top": 404.0975036621094,
+                  "width": 182.36248779296875,
+                  "height": 16.361724853515625
+                },
+                {
+                  "left": 827.59375,
+                  "top": 429.6912536621094,
+                  "width": 72.59765625,
+                  "height": 16.361724853515625
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            }
+          ]
+        },
+        {
+          "width": 768,
+          "applicable": true,
+          "measurements": [
+            {
+              "choice": "Bookbinding",
+              "indicator": {
+                "left": 440.390625,
+                "right": 460.390625,
+                "top": 211.78125,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 473.984375,
+                  "top": 212.35328674316406,
+                  "width": 93.2901611328125,
+                  "height": 18.949676513671875
+                },
+                {
+                  "left": 571.1339111328125,
+                  "top": 214.47250366210938,
+                  "width": 107.9296875,
+                  "height": 16.361709594726562
+                },
+                {
+                  "left": 473.984375,
+                  "top": 240.06625366210938,
+                  "width": 155.77734375,
+                  "height": 16.361724853515625
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Bicycle care",
+              "indicator": {
+                "left": 440.390625,
+                "right": 460.390625,
+                "top": 306.265625,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 473.984375,
+                  "top": 306.837646484375,
+                  "width": 92.501220703125,
+                  "height": 18.94970703125
+                },
+                {
+                  "left": 570.344970703125,
+                  "top": 308.9568786621094,
+                  "width": 87.053955078125,
+                  "height": 16.361724853515625
+                },
+                {
+                  "left": 473.984375,
+                  "top": 334.5506286621094,
+                  "width": 136.3851318359375,
+                  "height": 16.361724853515625
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Urban sketching",
+              "indicator": {
+                "left": 440.390625,
+                "right": 460.390625,
+                "top": 400.75,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 473.984375,
+                  "top": 401.322021484375,
+                  "width": 123.30841064453125,
+                  "height": 18.94970703125
+                },
+                {
+                  "left": 601.1521606445312,
+                  "top": 403.4412536621094,
+                  "width": 58.3453369140625,
+                  "height": 16.361724853515625
+                },
+                {
+                  "left": 473.984375,
+                  "top": 429.0350036621094,
+                  "width": 196.6148681640625,
+                  "height": 16.361724853515625
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            }
+          ]
+        },
+        {
+          "width": 390,
+          "applicable": true,
+          "measurements": [
+            {
+              "choice": "Bookbinding",
+              "indicator": {
+                "left": 57.5,
+                "right": 77.5,
+                "top": 710.875,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 91.09375,
+                  "top": 711.447021484375,
+                  "width": 93.29014587402344,
+                  "height": 18.94970703125
+                },
+                {
+                  "left": 188.24327087402344,
+                  "top": 713.5662231445312,
+                  "width": 107.92967224121094,
+                  "height": 16.36175537109375
+                },
+                {
+                  "left": 91.09375,
+                  "top": 739.1599731445312,
+                  "width": 155.77734375,
+                  "height": 16.36175537109375
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Bicycle care",
+              "indicator": {
+                "left": 57.5,
+                "right": 77.5,
+                "top": 805.359375,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 91.09375,
+                  "top": 805.931396484375,
+                  "width": 92.50125122070312,
+                  "height": 18.94970703125
+                },
+                {
+                  "left": 187.45437622070312,
+                  "top": 808.0505981445312,
+                  "width": 129.73358154296875,
+                  "height": 16.36175537109375
+                },
+                {
+                  "left": 91.09375,
+                  "top": 833.6443481445312,
+                  "width": 93.70547485351562,
+                  "height": 16.36175537109375
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Urban sketching",
+              "indicator": {
+                "left": 57.5,
+                "right": 77.5,
+                "top": 899.84375,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 91.09375,
+                  "top": 900.415771484375,
+                  "width": 123.30842590332031,
+                  "height": 18.94970703125
+                },
+                {
+                  "left": 218.2615509033203,
+                  "top": 902.5349731445312,
+                  "width": 97.80467224121094,
+                  "height": 16.36175537109375
+                },
+                {
+                  "left": 91.09375,
+                  "top": 928.1287231445312,
+                  "width": 157.15545654296875,
+                  "height": 16.36175537109375
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            }
+          ]
+        }
+      ],
+      "dayRadioLayout": {
+        "applicable": true,
+        "measurements": [
+          {
+            "choice": "Tuesday",
+            "indicator": {
+              "left": 57.5,
+              "right": 77.5,
+              "top": 685.8125,
+              "height": 20
+            },
+            "textRects": [
+              {
+                "left": 91.09375,
+                "top": 686.384521484375,
+                "width": 61.439056396484375,
+                "height": 18.94970703125
+              },
+              {
+                "left": 156.39218139648438,
+                "top": 688.5037231445312,
+                "width": 163.25860595703125,
+                "height": 16.36175537109375
+              }
+            ],
+            "textClearsIndicatorColumn": true
+          },
+          {
+            "choice": "Thursday",
+            "indicator": {
+              "left": 57.5,
+              "right": 77.5,
+              "top": 754.703125,
+              "height": 20
+            },
+            "textRects": [
+              {
+                "left": 91.09375,
+                "top": 755.275146484375,
+                "width": 70.1807861328125,
+                "height": 18.94970703125
+              },
+              {
+                "left": 165.1339111328125,
+                "top": 757.3943481445312,
+                "width": 109.0546875,
+                "height": 16.36175537109375
+              },
+              {
+                "left": 91.09375,
+                "top": 782.9880981445312,
+                "width": 61.02421569824219,
+                "height": 16.36175537109375
+              }
+            ],
+            "textClearsIndicatorColumn": true
+          }
+        ]
+      },
+      "nativeRadioKeyboardApplicable": true,
+      "textResizeChecks": [
+        {
+          "width": 320,
+          "textScale": 1,
+          "radioApplicable": true,
+          "measurements": [
+            {
+              "choice": "Bookbinding",
+              "indicator": {
+                "left": 54,
+                "right": 74,
+                "top": 835,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 87.59375,
+                  "top": 835.572021484375,
+                  "width": 93.29014587402344,
+                  "height": 18.94970703125
+                },
+                {
+                  "left": 184.74327087402344,
+                  "top": 837.6912231445312,
+                  "width": 64.66641235351562,
+                  "height": 16.36175537109375
+                },
+                {
+                  "left": 87.59375,
+                  "top": 863.2849731445312,
+                  "width": 159.27186584472656,
+                  "height": 16.36175537109375
+                },
+                {
+                  "left": 87.59375,
+                  "top": 888.8787231445312,
+                  "width": 36.295310974121094,
+                  "height": 16.36175537109375
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Bicycle care",
+              "indicator": {
+                "left": 54,
+                "right": 74,
+                "top": 955.078125,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 87.59375,
+                  "top": 955.650146484375,
+                  "width": 92.50125122070312,
+                  "height": 18.94970703125
+                },
+                {
+                  "left": 183.95437622070312,
+                  "top": 957.7693481445312,
+                  "width": 59.54765319824219,
+                  "height": 16.36175537109375
+                },
+                {
+                  "left": 87.59375,
+                  "top": 983.3630981445312,
+                  "width": 163.89138793945312,
+                  "height": 16.36175537109375
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Urban sketching",
+              "indicator": {
+                "left": 54,
+                "right": 74,
+                "top": 1049.5625,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 87.59375,
+                  "top": 1050.134521484375,
+                  "width": 123.30842590332031,
+                  "height": 18.94970703125
+                },
+                {
+                  "left": 214.7615509033203,
+                  "top": 1052.2537841796875,
+                  "width": 34.55859375,
+                  "height": 16.3616943359375
+                },
+                {
+                  "left": 87.59375,
+                  "top": 1077.8475341796875,
+                  "width": 144.33045959472656,
+                  "height": 16.3616943359375
+                },
+                {
+                  "left": 87.59375,
+                  "top": 1103.4412841796875,
+                  "width": 72.59765625,
+                  "height": 16.3616943359375
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            }
+          ]
+        },
+        {
+          "width": 390,
+          "textScale": 2,
+          "radioApplicable": true,
+          "measurements": [
+            {
+              "choice": "Bookbinding",
+              "indicator": {
+                "left": 57.5,
+                "right": 77.5,
+                "top": 1949,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 91.09375,
+                  "top": 1953.14404296875,
+                  "width": 186.58029174804688,
+                  "height": 37.8994140625
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2008.5699462890625,
+                  "width": 215.859375,
+                  "height": 32.7235107421875
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2059.757568359375,
+                  "width": 232.01718139648438,
+                  "height": 32.723388671875
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2110.945068359375,
+                  "width": 72.59062194824219,
+                  "height": 32.723388671875
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Bicycle care",
+              "indicator": {
+                "left": 57.5,
+                "right": 77.5,
+                "top": 2197.5625,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 91.09375,
+                  "top": 2201.70654296875,
+                  "width": 185.00250244140625,
+                  "height": 37.8994140625
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2257.132568359375,
+                  "width": 174.10781860351562,
+                  "height": 32.723388671875
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2308.320068359375,
+                  "width": 204.14529418945312,
+                  "height": 32.723388671875
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2359.507568359375,
+                  "width": 61.678131103515625,
+                  "height": 32.723388671875
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            },
+            {
+              "choice": "Urban sketching",
+              "indicator": {
+                "left": 57.5,
+                "right": 77.5,
+                "top": 2446.125,
+                "height": 20
+              },
+              "textRects": [
+                {
+                  "left": 91.09375,
+                  "top": 2450.26904296875,
+                  "width": 91.70437622070312,
+                  "height": 37.8994140625
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2502.49072265625,
+                  "width": 145.07904052734375,
+                  "height": 37.899169921875
+                },
+                {
+                  "left": 243.89154052734375,
+                  "top": 2506.72900390625,
+                  "width": 69.1171875,
+                  "height": 32.723388671875
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2557.91650390625,
+                  "width": 204.328125,
+                  "height": 32.723388671875
+                },
+                {
+                  "left": 91.09375,
+                  "top": 2609.10400390625,
+                  "width": 229.52813720703125,
+                  "height": 32.723388671875
+                }
+              ],
+              "textClearsIndicatorColumn": true
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Known development brief, not a held-out task. Original failed HTML, screenshots and paired timings remain unchanged.",
+    "One regeneration only; no claim that every future page will be correct. Browser geometry and named controls are not a comprehensive accessibility or aesthetic review.",
+    "A 900-second deadline is not a completion time. The unfinished agent run remains failed even if its generated file passes independent browser checks. Model loading and independent audits are outside the task timer.",
+    "Raw tool/model transcripts remain private. No human edits were made to the generated HTML. The published file matches both independent browser audits by SHA-256.",
+    "Initial browser audits targeted the hidden 1px native radio input and timed out. The corrected grader clicks its visible associated label and asserts actual native selection, without force or programmatic checking."
+  ],
+  "initialBrowserAudits": [
+    {
+      "browser": "chromium",
+      "sha256": "35381a857164219550a3636390aec21c4e5e00734b7f7af1b59508f161b808cc",
+      "rows": [
+        {
+          "pass": false,
+          "checks": [
+            {
+              "name": "requested HTML exists",
+              "pass": true
+            },
+            {
+              "name": "required identity and no horizontal overflow at 1440px",
+              "pass": true
+            },
+            {
+              "name": "radio label text clears indicator column at 1440px",
+              "pass": true
+            },
+            {
+              "name": "required identity and no horizontal overflow at 768px",
+              "pass": true
+            },
+            {
+              "name": "radio label text clears indicator column at 768px",
+              "pass": true
+            },
+            {
+              "name": "required identity and no horizontal overflow at 390px",
+              "pass": true
+            },
+            {
+              "name": "radio label text clears indicator column at 390px",
+              "pass": true
+            },
+            {
+              "name": "choices, gating, Back, Review and real completion feedback",
+              "pass": false
+            },
+            {
+              "name": "native radio keyboard selection, when used",
+              "pass": true
+            },
+            {
+              "name": "small phone and doubled text preserve choice-label layout",
+              "pass": true
+            },
+            {
+              "name": "offline artifact has no script errors or missing dependencies",
+              "pass": true
+            },
+            {
+              "name": "audit did not alter original file",
+              "pass": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "browser": "webkit",
+      "sha256": "801def1aaedeeee472a1ccdaec63e2db52fe2e75f2713b3eb81361ed2863cb73",
+      "rows": [
+        {
+          "pass": false,
+          "checks": [
+            {
+              "name": "requested HTML exists",
+              "pass": true
+            },
+            {
+              "name": "required identity and no horizontal overflow at 1440px",
+              "pass": true
+            },
+            {
+              "name": "radio label text clears indicator column at 1440px",
+              "pass": true
+            },
+            {
+              "name": "required identity and no horizontal overflow at 768px",
+              "pass": true
+            },
+            {
+              "name": "radio label text clears indicator column at 768px",
+              "pass": true
+            },
+            {
+              "name": "required identity and no horizontal overflow at 390px",
+              "pass": true
+            },
+            {
+              "name": "radio label text clears indicator column at 390px",
+              "pass": true
+            },
+            {
+              "name": "choices, gating, Back, Review and real completion feedback",
+              "pass": false
+            },
+            {
+              "name": "native radio keyboard selection, when used",
+              "pass": true
+            },
+            {
+              "name": "small phone and doubled text preserve choice-label layout",
+              "pass": true
+            },
+            {
+              "name": "offline artifact has no script errors or missing dependencies",
+              "pass": true
+            },
+            {
+              "name": "audit did not alter original file",
+              "pass": true
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "width": 1440,
+      "file": "examples/dstudio-regenerated-1440.png",
+      "sha256": "9f9437daba7134643d0b16034469f52f7fa0e43fa87e1b0023024ab9155ad60e"
+    },
+    {
+      "width": 390,
+      "file": "examples/dstudio-regenerated-390.png",
+      "sha256": "8be4fade72a04166ebb4deebd3180626ef4a36a6c3d0a51504e287a16573587c"
+    }
+  ]
+}

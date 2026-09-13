@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "../../extension/remote/dstudio_remote_llm.h"
+#include "../../extension/remote/dstudio_wire_string.h"
 
 static void expect_json_string(const char *input, const char *expected) {
     dstudio_remote_buf out = {0};
@@ -17,6 +18,31 @@ static void expect_json_string(const char *input, const char *expected) {
 }
 
 int main(void) {
+    /* Caller-owned bounded output uses the same Unicode decoder as allocating
+     * readers. Check exact capacity and guards, including a 4-byte scalar. */
+    const char *bounded[] = {"\"x\"", "\"\"", "\"\\ud83e\\udd8a\""};
+    const size_t lengths[] = {1, 0, 4};
+    for (size_t i = 0; i < sizeof lengths / sizeof *lengths; i++) {
+        unsigned char buffer[10]; memset(buffer, 0xa5, sizeof buffer); size_t decoded = 99;
+        assert(dstudio_wire_string_decode(bounded[i], bounded[i] + strlen(bounded[i]),
+                                          (char *)buffer + 1, lengths[i] + 1, &decoded));
+        assert(decoded == lengths[i] && buffer[0] == 0xa5 && buffer[1 + lengths[i]] == 0 &&
+               buffer[2 + lengths[i]] == 0xa5);
+        memset(buffer, 0xa5, sizeof buffer);
+        assert(!dstudio_wire_string_decode(bounded[i], bounded[i] + strlen(bounded[i]),
+                                           (char *)buffer + 1, lengths[i], NULL));
+        assert(buffer[0] == 0xa5 && buffer[1 + lengths[i]] == 0xa5);
+    }
+    const char *wire[] = {"\"世界 🦊\"", "\"\\u4e16\\u754c \\ud83e\\udd8a\""};
+    for (unsigned i = 0; i < sizeof wire / sizeof *wire; i++) {
+        char *decoded = dstudio_wire_string(wire[i], wire[i] + strlen(wire[i]));
+        assert(decoded && !strcmp(decoded, "世界 🦊")); free(decoded);
+    }
+    const char *invalid[] = {"\"\\u0000\"", "\"\\ud800\"", "\"\\udc00\"", "\"\\ud800\\u1234\"",
+        "\"\\u12xz\"", "\"\\u\"", "\"\\z\"", "\"\xed\xa0\x80\"", "\"\xf4\x90\x80\x80\"",
+        "\"\xc0\xaf\"", "\"\xf0\x9f\"", "\"a\nb\"", "\"trailing\" data\""};
+    for (unsigned i = 0; i < sizeof invalid / sizeof *invalid; i++)
+        assert(!dstudio_wire_string(invalid[i], invalid[i] + strlen(invalid[i])));
     expect_json_string("plain \"text\"\n", "\"plain \\\"text\\\"\\n\"");
     expect_json_string("valid \xf0\x9f\x90\xb6", "\"valid \xf0\x9f\x90\xb6\"");
 

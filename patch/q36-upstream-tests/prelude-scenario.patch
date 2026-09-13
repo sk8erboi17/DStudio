@@ -1,0 +1,21 @@
+diff --git a/q36_server.c b/q36_server.c
+index 54d94dd9a3225ae5f24af5061406a987a91a3f90..eac31b38a036a34939fd029c1b8c862b3b47f245 100644
+--- a/q36_server.c
++++ b/q36_server.c
+@@ -12322,9 +12322,15 @@ static void test_tool_memory_preserves_empty_think_per_id(void) {
+                           .arguments = xstrdup("{\"command\":\"pwd\"}")};
+         tool_calls_push(&assistant.calls, call);
+         chat_msgs_push(&msgs, assistant);
++        /* Make this an explicitly discarded historical reasoning block. With
++         * preserve_thinking=true the embedded model template retains an empty
++         * prelude independently of exact sampled-call metadata. */
++        chat_msgs_push(&msgs, (chat_msg){.role = xstrdup("user"),
++            .content = xstrdup("Next question.")});
+         tool_memory_attach_to_messages(&s, &msgs, NULL);
+         TEST_ASSERT(msgs.v[0].calls.replay_empty_think == (i == 0));
+-        char *prompt = render_chat_prompt_text(&msgs, NULL, NULL, Q36_THINK_HIGH);
++        char *prompt = render_chat_prompt_text_profile(&msgs, NULL, NULL,
++            Q36_THINK_HIGH, false, false);
+         const char *start = strstr(prompt, "<|im_start|>assistant\n");
+         TEST_ASSERT(start != NULL);
+         if (start) {

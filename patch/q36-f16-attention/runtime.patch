@@ -1,0 +1,251 @@
+diff --git a/q36_metal.m b/q36_metal.m
+index 876ba70..0b1be0d 100644
+--- a/q36_metal.m
++++ b/q36_metal.m
+@@ -3744,6 +3744,83 @@ static int q36_attention_quant_host(
+     return 1;
+ }
+ 
++// Private per-call reduction state: two FP32 values per query/head, <=64 KiB.
++// The inference owner retains inputs/output throughout both ordered passes.
++// Partial output is never a committed session; errors stop, not replay, work.
++static int q36_attention_f16_bounded(
++        q36_gpu_tensor *out, const q36_gpu_tensor *q,
++        const q36_gpu_tensor *qg, const q36_gpu_tensor *kcache,
++        const q36_gpu_tensor *vcache, q36_gpu_tensor *scores,
++        id<MTLBuffer> sinks, uint64_t sink_offset, bool has_sinks,
++        uint32_t pos0, uint32_t tokens, uint32_t heads,
++        uint32_t kv_heads, uint32_t dim, uint32_t score_stride) {
++    const uint32_t key_span = 1024u, max_query_heads = 8192u;
++    if (heads > max_query_heads) return 0;
++    uint32_t tile = max_query_heads / heads;
++    if (tile > tokens) tile = tokens;
++    q36_gpu_tensor *stats = q36_gpu_tensor_alloc((uint64_t)tile * heads * 2u * sizeof(float));
++    if (!stats) return 0;
++    int ok = 0;
++    // Drain preceding Q/K/V writes before reusing scratch. No driver wait or
++    // tensor allocation/free occurs while the publication mutex is held.
++    if (!q36_metal_wait()) goto done;
++    for (uint32_t first = 0; first < tokens;) {
++        uint32_t count = tokens - first < tile ? tokens - first : tile;
++        uint32_t end = pos0 + first + count;
++        uint64_t offset = (uint64_t)first * heads * dim * sizeof(float);
++        struct {
++            uint32_t pos0, heads, kv_heads, dim;
++            uint32_t qg_stride, has_sinks, score_stride, start, span;
++        } args = {pos0 + first, heads, kv_heads, dim, heads * dim * 2u,
++                  has_sinks ? 1u : 0u, score_stride, 0, 0};
++        // Pass 0 produces scores and the ordered maximum. Pass 1 produces
++        // weights, the ordered denominator and the ordered value FMA chain.
++        // Every command visits at most 1024 keys and 8192 query/head pairs.
++        for (unsigned phase = 0; phase < 2; phase++) {
++            for (uint32_t start = 0; start < end;) {
++                args.start = start;
++                args.span = end - start < key_span ? end - start : key_span;
++                for (unsigned stage = 0; stage < 2; stage++) {
++                    NSString *kernel = phase == 0 ?
++                        (stage == 0 ? @"q36_attention_f16_scores_segment" : @"q36_attention_f16_max_segment") :
++                        (stage == 0 ? @"q36_attention_f16_weights_segment" : @"q36_attention_f16_values_segment");
++                    id<MTLComputeCommandEncoder> enc = q36_encoder(kernel);
++                    if (!enc) goto done;
++                    [enc setBuffer:out->buffer offset:out->offset + offset atIndex:0];
++                    [enc setBuffer:stats->buffer offset:stats->offset atIndex:1];
++                    [enc setBuffer:scores->buffer offset:scores->offset atIndex:2];
++                    [enc setBuffer:q->buffer offset:q->offset + offset atIndex:3];
++                    [enc setBuffer:qg->buffer offset:qg->offset + offset * 2u atIndex:4];
++                    [enc setBuffer:kcache->buffer offset:kcache->offset atIndex:5];
++                    [enc setBuffer:vcache->buffer offset:vcache->offset atIndex:6];
++                    [enc setBuffer:sinks offset:(NSUInteger)sink_offset atIndex:7];
++                    [enc setBytes:&args length:sizeof(args) atIndex:8];
++                    uint32_t threads = (phase == 0 ? stage == 0 : stage == 1) ? 256u : 1u;
++                    [enc dispatchThreadgroups:MTLSizeMake(heads, count, 1)
++                        threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
++                    [enc endEncoding];
++                }
++                if (!q36_metal_wait()) goto done;
++                start += args.span;
++            }
++        }
++        first += count;
++    }
++    ok = 1;
++done:
++    if (!ok) {
++        // If encoder creation failed mid-command, discard only this owner's
++        // unsubmitted preparation. A failed submitted buffer is already reaped.
++        __attribute__((objc_precise_lifetime)) id<MTLCommandBuffer> discard;
++        pthread_mutex_lock(&q36_mu);
++        discard = q36_batch; q36_batch = nil;
++        pthread_mutex_unlock(&q36_mu);
++        discard = nil;
++    }
++    q36_gpu_tensor_free(stats);
++    return ok;
++}
++
+ int q36_gpu_attn_decode_tensor(
+         q36_gpu_tensor *out, const q36_gpu_tensor *q,
+         const q36_gpu_tensor *qg, const q36_gpu_tensor *kcache,
+@@ -3788,6 +3865,10 @@ int q36_gpu_attn_decode_tensor(
+                          (uint64_t)heads * sizeof(float), &sink_inner)
+         : qg->buffer;
+     if (!sink_buffer) return 0;
++    if (!quant && end > 1024u)
++        return q36_attention_f16_bounded(out, q, qg, kcache, vcache, scores,
++            sink_buffer, has_sinks ? sink_inner : qg->offset, has_sinks,
++            pos0, tokens, heads, kv_heads, dim, (uint32_t)score_stride);
+     struct {
+         uint32_t pos0, heads, kv_heads, dim;
+         uint32_t qg_stride, has_sinks, score_stride;
+diff --git a/metal/attention.metal b/metal/attention.metal
+index aa53925..5ed1d81 100644
+--- a/metal/attention.metal
++++ b/metal/attention.metal
+@@ -463,6 +463,147 @@ kernel void q36_attention_split_combine(
+         acc * (l > 0.0f ? 1.0f / l : 1.0f) * sigmoid;
+ }
+ 
++// Bounded F16 attention phases. The original kernel below is retained for
++// short contexts and as an independent single-query differential oracle.
++struct q36_f16_work_args {
++    uint pos0, heads, kv_heads, dim;
++    uint qg_stride, has_sinks, score_stride, start, span;
++};
++
++#define Q36_F16_WORK_BUFFERS \
++        device float *out [[buffer(0)]], \
++        device float *stats [[buffer(1)]], \
++        device float *scores [[buffer(2)]], \
++        device const float *q [[buffer(3)]], \
++        device const float *qg [[buffer(4)]], \
++        device const half *kcache [[buffer(5)]], \
++        device const half *vcache [[buffer(6)]], \
++        device const float *sinks [[buffer(7)]], \
++        constant q36_f16_work_args &args [[buffer(8)]]
++
++kernel void q36_attention_f16_scores_segment(
++        Q36_F16_WORK_BUFFERS,
++        uint2 group_id [[threadgroup_position_in_grid]],
++        uint lane [[thread_index_in_simdgroup]],
++        uint simdgroup [[simdgroup_index_in_threadgroup]]) {
++    uint head = group_id.x, tok = group_id.y;
++    uint count = args.pos0 + tok + 1u;
++    uint last = min(count, args.start + args.span);
++    uint kvh = head / (args.heads / args.kv_heads);
++    device const float *qh = q + ((ulong)tok * args.heads + head) * args.dim;
++    device float *sh = scores + (ulong)tok * args.score_stride +
++        (ulong)head * (args.score_stride / args.heads);
++    float scale = rsqrt(float(args.dim));
++    // Each lane reuses the same query for all keys in this segment. Keep its
++    // at-most-eight elements in registers; retain the original lane/FMA order.
++    float query[8];
++    #pragma unroll
++    for (uint i = 0; i < 8u; i++)
++        query[i] = lane + i * 32u < args.dim ? qh[lane + i * 32u] : 0.0f;
++    for (uint pos = args.start + simdgroup; pos < last; pos += 8u) {
++        device const half *kh = kcache + ((ulong)pos * args.kv_heads + kvh) * args.dim;
++        float key[8];
++        #pragma unroll
++        for (uint i = 0; i < 8u; i++)
++            key[i] = lane + i * 32u < args.dim ? float(kh[lane + i * 32u]) : 0.0f;
++        float dotv = 0.0f;
++        #pragma unroll
++        for (uint i = 0; i < 8u; i++) {
++            if (lane + i * 32u < args.dim) dotv = fma(query[i], key[i], dotv);
++        }
++        dotv = simd_sum(dotv) * scale;
++        if (lane == 0u) sh[pos] = dotv;
++    }
++}
++
++kernel void q36_attention_f16_max_segment(
++        Q36_F16_WORK_BUFFERS,
++        uint2 group_id [[threadgroup_position_in_grid]]) {
++    uint head = group_id.x, tok = group_id.y, count = args.pos0 + tok + 1u;
++    if (args.start >= count) return;
++    ulong slot = ((ulong)tok * args.heads + head) * 2u;
++    device const float *sh = scores + (ulong)tok * args.score_stride +
++        (ulong)head * (args.score_stride / args.heads);
++    float value = args.start ? stats[slot] : (args.has_sinks ? sinks[head] : -INFINITY);
++    for (uint pos = args.start; pos < min(count, args.start + args.span); pos++)
++        value = max(value, sh[pos]);
++    stats[slot] = value;
++}
++
++kernel void q36_attention_f16_weights_segment(
++        Q36_F16_WORK_BUFFERS,
++        uint2 group_id [[threadgroup_position_in_grid]]) {
++    uint head = group_id.x, tok = group_id.y, count = args.pos0 + tok + 1u;
++    if (args.start >= count) return;
++    ulong slot = ((ulong)tok * args.heads + head) * 2u;
++    device float *sh = scores + (ulong)tok * args.score_stride +
++        (ulong)head * (args.score_stride / args.heads);
++    float maxv = stats[slot];
++    float denom = args.start ? stats[slot + 1u] :
++        (args.has_sinks ? exp(sinks[head] - maxv) : 0.0f);
++    uint last = min(count, args.start + args.span);
++    // Keep the original left-to-right FP32 sum, including sink initialization.
++    for (uint pos = args.start; pos < last; pos++) {
++        sh[pos] = exp(sh[pos] - maxv);
++        denom += sh[pos];
++    }
++    stats[slot + 1u] = last == count ? (denom > 0.0f ? 1.0f / denom : 1.0f) : denom;
++}
++
++kernel void q36_attention_f16_values_segment(
++        Q36_F16_WORK_BUFFERS,
++        uint2 group_id [[threadgroup_position_in_grid]],
++        uint tid [[thread_index_in_threadgroup]]) {
++    uint head = group_id.x, tok = group_id.y, count = args.pos0 + tok + 1u;
++    if (args.start >= count) return;
++    uint kvh = head / (args.heads / args.kv_heads);
++    device const float *sh = scores + (ulong)tok * args.score_stride +
++        (ulong)head * (args.score_stride / args.heads);
++    uint last = min(count, args.start + args.span);
++    threadgroup float weights[1024];
++    for (uint i = tid; i < last - args.start; i += 256u)
++        weights[i] = sh[args.start + i];
++    threadgroup_barrier(mem_flags::mem_threadgroup);
++    if (tid >= args.dim) return;
++    ulong index = ((ulong)tok * args.heads + head) * args.dim + tid;
++    float value = args.start ? out[index] : 0.0f;
++    uint pos = args.start;
++    // Independent reads may overlap, but the FMA chain remains left-to-right.
++    // The scalar tail preserves the exact causal frontier on partial segments.
++    for (; last - pos >= 8u; pos += 8u) {
++        ulong base = ((ulong)pos * args.kv_heads + kvh) * args.dim + tid;
++        ulong stride = (ulong)args.kv_heads * args.dim;
++        float v0 = float(vcache[base]);
++        float v1 = float(vcache[base + stride]);
++        float v2 = float(vcache[base + 2u * stride]);
++        float v3 = float(vcache[base + 3u * stride]);
++        float v4 = float(vcache[base + 4u * stride]);
++        float v5 = float(vcache[base + 5u * stride]);
++        float v6 = float(vcache[base + 6u * stride]);
++        float v7 = float(vcache[base + 7u * stride]);
++        uint w = pos - args.start;
++        value = fma(weights[w], v0, value);
++        value = fma(weights[w + 1u], v1, value);
++        value = fma(weights[w + 2u], v2, value);
++        value = fma(weights[w + 3u], v3, value);
++        value = fma(weights[w + 4u], v4, value);
++        value = fma(weights[w + 5u], v5, value);
++        value = fma(weights[w + 6u], v6, value);
++        value = fma(weights[w + 7u], v7, value);
++    }
++    for (; pos < last; pos++) {
++        device const half *vh = vcache + ((ulong)pos * args.kv_heads + kvh) * args.dim;
++        value = fma(weights[pos - args.start], float(vh[tid]), value);
++    }
++    if (last == count) {
++        float g = qg[(ulong)tok * args.qg_stride + (ulong)head * args.dim * 2u + args.dim + tid];
++        float sigmoid = g >= 0.0f ? 1.0f / (1.0f + exp(-g)) : exp(g) / (1.0f + exp(g));
++        value = value * stats[((ulong)tok * args.heads + head) * 2u + 1u] * sigmoid;
++    }
++    out[index] = value;
++}
++#undef Q36_F16_WORK_BUFFERS
++
+ kernel void q36_attention_f16_parallel(
+         device float *out [[buffer(0)]],
+         device float *scores [[buffer(1)]],

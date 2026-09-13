@@ -6,15 +6,25 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import {spawn, execFileSync} from 'node:child_process';
 import {freePort, sleep} from '../support/real_harness.mjs';
+import {createCommonQuality, runCommonQuality, finishCommonQuality} from '../support/common_quality_runner.mjs';
 
 const root = process.cwd();
 const install = process.argv.includes('--setup');
 const infer = process.argv.includes('--infer');
 const viaApp = process.argv.includes('--via-app');
+const stateReplay = process.argv.includes('--state-replay');
+const commonQuality = process.argv.includes('--common-quality');
+const restartFailedEngine = process.argv.includes('--restart-failed-engine');
 if (!install && !infer) throw Error('Specify --setup and/or --infer; real network/model execution is explicit.');
 const option = (name, fallback) => { const i=process.argv.indexOf(name); return i<0?fallback:process.argv[i+1]; };
 const engines = option('--engines', install ? 'main,laguna,qwen,qwen35' : 'main,laguna').split(',');
-assert.ok(engines.every(x=>['main','laguna','qwen','qwen35'].includes(x)));
+const qualityUse = option('--quality-use','development-replay');
+assert.ok(['first-exposure','development-replay'].includes(qualityUse),'--quality-use must distinguish first exposure from development replay');
+assert.ok(!commonQuality || (infer && !install && !stateReplay && !viaApp && engines.length === 1 && process.argv.includes('--engines')),
+  '--common-quality requires --infer and one explicit --engines selection; installation/protocol replays remain separate');
+assert.ok(!restartFailedEngine || commonQuality,
+  '--restart-failed-engine is explicit, native common-100 supervision only');
+assert.ok(engines.every(x=>['main','laguna','qwen','qwen35','q36'].includes(x)));
 assert.ok(!viaApp || (infer && engines.every(x=>x==='qwen' || x==='qwen35')), '--via-app currently qualifies Qwen Chat integration only');
 const output = path.join(root,'tests/.artifacts/engine-acceptance');
 fs.mkdirSync(output,{recursive:true});
@@ -28,13 +38,28 @@ const configs = {
   laguna: {dir:'ds4-laguna-s21', file:'laguna-s-2.1-Q4_K_M.gguf'},
   qwen: {dir:'ds4-qwen38',file:'Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf'},
   qwen35: {dir:'ds4-qwen35',file:'Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf'},
+  q36: {dir:'q36',server:'q36-server',file:'Qwen3.8-27B-UD-Q6_K_XL.gguf'},
 };
+const selectedFile = option('--model-file', '');
+if(selectedFile){
+  assert.equal(engines.length,1,'--model-file requires one engine');
+  assert.equal(path.basename(selectedFile),selectedFile,'--model-file is a basename inside --model-root');
+  assert.ok(selectedFile.endsWith('.gguf'));
+  configs[engines[0]].file=selectedFile;
+}
 const report = {schema:'dstudio.engine-acceptance.v1',started:new Date().toISOString(),
   host:{platform:os.platform(),arch:os.arch(),memoryBytes:os.totalmem(),cpu:os.cpus()[0]?.model},
   installationRoot:installedRoot, scope:'Network setup and observable answer correctness, NOT full-logit numerical equivalence or a general capability benchmark.',results:[]};
 const save = () => fs.writeFileSync(path.join(run,'results.json'),JSON.stringify(report,null,2)+'\n');
 const hashFile = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+async function hashLargeFile(file) {
+  const digest=crypto.createHash('sha256');
+  for await(const chunk of fs.createReadStream(file,{highWaterMark:1024*1024}))digest.update(chunk);
+  return digest.digest('hex');
+}
+report.harnessSha256 = hashFile(new URL(import.meta.url));
 const owned = new Set();
+let interrupted = false;
 function launch(exe,args,log,cwd,env={}) {
   const fd=fs.openSync(log,'wx');
   const child=spawn(exe,args,{cwd,detached:true,stdio:['ignore',fd,fd],env:{...process.env,DS4UI_NO_WINDOW:'1',...env}});
@@ -50,7 +75,12 @@ async function stop(child) {
   clearTimeout(timer);
   if(!done){try{process.kill(-child.pid,'SIGKILL');}catch{} await child.finished;}
 }
-for(const signal of ['SIGINT','SIGTERM'])process.once(signal,async()=>{for(const c of owned)await stop(c);report.interrupted=true;save();process.exit(130);});
+for(const signal of ['SIGINT','SIGTERM'])process.once(signal,async()=>{
+  interrupted=true;
+  for(const c of owned)await stop(c);
+  for(const entry of report.results)if(entry.quality && ['pending','running'].includes(entry.quality.report.status))finishCommonQuality(entry.quality.report,signal);
+  report.interrupted=true;save();process.exit(130);
+});
 async function bounded(child,ms) {
   let timer;
   const r=await Promise.race([child.finished,new Promise(resolve=>{timer=setTimeout(()=>resolve(null),ms);})]);
@@ -66,12 +96,32 @@ async function inference(id, entry) {
   const cfg=configs[id], cwd=path.join(installedRoot,cfg.dir), file=path.join(modelRoot,cfg.file);
   if(!fs.existsSync(file))throw Error(`weights unavailable: ${file}`);
   const st=fs.statSync(file); assert.ok(st.size>1024**3,'real model must be present');
-  const bin=path.join(cwd,'ds4-server'), port=await freePort(), base=`http://127.0.0.1:${port}`;
-  const args=['--metal','-m',file,'--host','127.0.0.1','--port',String(port),'--ctx','8192','--tokens','256'];
-  if(id!=='laguna')args.push('--prefill-chunk','512'); // Laguna rejects a custom chunk.
+  const bin=path.join(cwd,cfg.server||'ds4-server'), port=await freePort(), base=`http://127.0.0.1:${port}`;
+  const context=commonQuality?entry.quality.manifest.settings.context:8192;
+  const tokenLimit=commonQuality?entry.quality.manifest.settings.max_tokens:256;
+  const args=['--metal','-m',file,'--host','127.0.0.1','--port',String(port),'--ctx',String(context),'--tokens',String(tokenLimit)];
+  if(id!=='laguna')args.push('--prefill-chunk',id==='q36' && commonQuality?'128':'512'); // Laguna rejects a custom chunk.
   // Explicit resident run: PLE for Qwen remains SSD-backed by model design.
   if(id==='qwen')args.push('--ple',path.join(modelRoot,'Qwen3.8-Flash-Next-PLE-Q4_1.gguf'));
+  if(id==='q36')args.push('--quality','--cache-type-k','f16','--cache-type-v','f16');
   entry.inference={mode:id==='qwen'?'resident backbone + native SSD PLE':'Metal resident, no SSD expert streaming',transport:viaApp?'DStudio launch API and Chat HTTP proxy':'native engine HTTP',model:{path:file,bytes:st.size,mtime:st.mtime.toISOString()},binarySha256:hashFile(bin),argv:viaApp?undefined:args,cases:[]};
+  let q36Sources;
+  if(id==='q36') {
+    assert.equal(process.platform,'darwin','This live q36 gate requires Metal; Vulkan is not inferred');
+    const pins=JSON.parse(execFileSync('python3',[path.join(root,'scripts/download-qwen27.py'),'--manifest'],{encoding:'utf8',timeout:5000}));
+    assert.equal(cfg.file,pins.files.model.file);
+    assert.equal(st.size,pins.files.model.bytes);
+    entry.inference.model.sha256=await hashLargeFile(file);
+    assert.equal(entry.inference.model.sha256,pins.files.model.sha256,'Verify full pinned weights before loading');
+    entry.inference.model.repository=pins.repository;entry.inference.model.revision=pins.revision;
+    entry.inference.installer=JSON.parse(fs.readFileSync(path.join(cwd,'.dstudio-source.json'),'utf8'));
+    assert.equal(entry.inference.installer.commit,'8362010a301b3360296e435703f58ffc230a024a');
+    q36Sources=entry.inference.installer.sources;
+    for(const [name,hash] of Object.entries(q36Sources))assert.equal(hashFile(path.join(cwd,name)),hash,`Installed source drift: ${name}`);
+    assert.equal(entry.inference.binarySha256,entry.inference.installer.binaries['q36-server']);
+    entry.inference.mode+=`; exact quality kernels; F16 K/V; ${context} context capacity`;
+    save();
+  }
   if(id==='qwen') {
     const ple=path.join(modelRoot,'Qwen3.8-Flash-Next-PLE-Q4_1.gguf'), pst=fs.statSync(ple);
     assert.equal(pst.size,32000157440,'the complete required PLE must be present');
@@ -101,12 +151,21 @@ async function inference(id, entry) {
       assert.equal(fs.realpathSync(matches[0].engineDir),fs.realpathSync(cwd));
       entry.inference.launcher.catalogMatch=matches[0];
       entry.inference.launcher.preflight=[];
-      for(const mode of ['agent','cowork','design']){
-        const res=await fetch(base+'/api/start',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'ds4web'},body:JSON.stringify({mode,gguf:`gguf/${cfg.file}`,workdir:run}),signal:AbortSignal.timeout(15000)});
+      // Both Qwen tool workflows have a separate real host runner. Keep this
+      // Chat gate's preflight coverage without accidentally launching another
+      // supported heavyweight mode. Forced expert streaming remains invalid.
+      for(const [mode,ssdStreaming,code] of [
+        ['design','off','unsupported_model_mode'],
+        ['agent','on','unsupported_memory_mode'],
+        ['cowork','on','unsupported_memory_mode'],
+      ]){
+        const request={mode,ssdStreaming,gguf:`gguf/${cfg.file}`,workdir:run};
+        const res=await fetch(base+'/api/start',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'ds4web'},body:JSON.stringify(request),signal:AbortSignal.timeout(15000)});
         const body=await res.json();
         assert.equal(res.status,409,JSON.stringify(body)); assert.equal(body.ok,false);
-        assert.equal((await http(base+'/api/status')).running,false,'unsupported modes must not start a heavyweight process');
-        entry.inference.launcher.preflight.push({mode,httpStatus:res.status,response:body,status:'pass'});
+        assert.equal(body.code,code);
+        assert.equal((await http(base+'/api/status')).running,false,'unsupported configurations must not start a heavyweight process');
+        entry.inference.launcher.preflight.push({mode,request,httpStatus:res.status,response:body,status:'pass'});
       }
       const launchRequest={mode:'server',gguf:`gguf/${cfg.file}`,port:await freePort(),ctx:8192,power:100,ssdStreaming:'off',dspark:false,think:'off'};
       entry.inference.launcher.request=launchRequest;
@@ -126,6 +185,13 @@ async function inference(id, entry) {
     assert.ok(models?.data?.length,'engine did not become ready');
     entry.inference.loadSeconds=(performance.now()-begin)/1000;
     entry.inference.models=models;
+    if (id === 'qwen35' || id === 'q36') {
+      const expected = id==='q36'?'qwen3.8-27b':'qwen3.6-35b-a3b';
+      const ids = models.data.map(row => row.id);
+      entry.inference.catalogIdentity = { expected, received: ids,
+        status: ids.length === 1 && ids[0] === expected ? 'pass' : 'fail' };
+      save();
+    }
     if(viaApp){
       const status=await http(base+'/api/status');
       assert.equal(status.modelFile,`gguf/${cfg.file}`);
@@ -133,6 +199,51 @@ async function inference(id, entry) {
       assert.equal(hashFile(bin),entry.inference.binarySha256,'Qwen Chat must execute the verified native binary');
     }
     const model=models.data[0].id;
+    if(commonQuality){
+      assert.notEqual(entry.inference.catalogIdentity?.status,'fail','native catalog misidentifies the selected model');
+      entry.quality.report.runtime={engine:id,binarySha256:entry.inference.binarySha256,
+        model:entry.inference.model,installer:entry.inference.installer,argv:args,
+        memoryMode:entry.inference.mode,hardware:report.host};
+      const qualityResult=await runCommonQuality(entry.quality,{base,model,
+        assertAlive:()=>assert.ok(!interrupted && owned.has(child),'owned native engine exited or benchmark interrupted'),onProgress:save,
+        maxEngineRestarts:restartFailedEngine?8:0,
+        restartFailedEngine:restartFailedEngine?async ({afterCaseId})=>{
+          assert.ok(!interrupted,'benchmark interrupted; no engine restart');
+          const restarts=entry.inference.restarts??=[];
+          const row={afterCaseId,previousPid:child.pid,started:new Date().toISOString()};
+          restarts.push(row);save();
+          await stop(child);row.previousExit=await child.finished;
+          assert.ok(!interrupted,'benchmark interrupted during engine teardown');
+          assert.ok(!owned.has(child),'previous inference must be reaped before replacement');
+          row.reaped=new Date().toISOString();save();
+          assert.equal(hashFile(bin),entry.inference.binarySha256,'engine changed during evaluation');
+          for(const [name,hash] of Object.entries(q36Sources||{}))assert.equal(hashFile(path.join(cwd,name)),hash,`Source changed before restart: ${name}`);
+          const current=fs.statSync(file);
+          for(const key of ['dev','ino','size','mtimeMs','ctimeMs'])assert.equal(current[key],st[key],`Model changed before restart: ${key}`);
+          const nextPort=await freePort(),nextBase=`http://127.0.0.1:${nextPort}`;
+          assert.ok(!interrupted,'benchmark interrupted before new engine admission');
+          const nextArgs=[...args];nextArgs[nextArgs.indexOf('--port')+1]=String(nextPort);
+          row.argv=nextArgs;row.log=`${id}-common-restart-${String(restarts.length).padStart(2,'0')}.log`;
+          child=launch(bin,nextArgs,path.join(run,row.log),cwd);
+          row.pid=child.pid;row.spawned=new Date().toISOString();save();
+          const deadline=Date.now()+900000;
+          while(Date.now()<deadline){
+            assert.ok(owned.has(child),'replacement native engine exited');
+            let replacement;
+            try{replacement=await http(nextBase+'/v1/models',undefined,2000);}catch{}
+            if(replacement){
+              assert.deepEqual(replacement.data.map(x=>x.id),models.data.map(x=>x.id),'replacement model catalog changed');
+              assert.ok(owned.has(child),'replacement engine exited during readiness');
+              row.ready=new Date().toISOString();save();
+              return {base:nextBase,model};
+            }
+            await sleep(1000);
+          }
+          throw Error('replacement native engine failed to become ready within 900 seconds');
+        }:undefined});
+      assert.equal(qualityResult.status,'pass','common-100 contains failed or unexecuted cases');
+      return;
+    }
     const request=(messages,extra={})=>({model,messages,temperature:0,seed:42,max_tokens:256,think:false,thinking:{type:'disabled'},stream:false,...extra});
     const ask=async(name,messages,verify,extra={})=>{
       const row={name,request:request(messages,extra)};const t=performance.now();
@@ -142,6 +253,10 @@ async function inference(id, entry) {
       entry.inference.cases.push(row);save();console.log(`${id}: ${name}: ${row.status}`);return row;
     };
     const user=text=>[{role:'user',content:text}];
+    const codePrompt='In Python: x = [3, 5, 8]; print(sum(v * 2 for v in x if v % 2 == 1)). What integer is printed? Reply only with that integer.';
+    // Development diagnosis only: identical deterministic request before and
+    // after other contexts, without replacing the original failed baseline.
+    const coldCode = stateReplay ? await ask('cold code-state reference',user(codePrompt),s=>assert.equal(s.trim(),'16')) : null;
     await ask('integer arithmetic',user('What is 17 multiplied by 19? Reply with only the integer.'),s=>assert.equal(s.trim(),'323'));
     await ask('negative arithmetic',user('Compute 14 - 29. Reply with only the integer.'),s=>assert.equal(s.trim(),'-15'));
     await ask('structured extraction',user('Return ONLY a JSON object with keys city and count. Record: city=Torino; count=7. count must be a number.'),s=>assert.deepEqual(JSON.parse(s),{city:'Torino',count:7}));
@@ -151,7 +266,15 @@ async function inference(id, entry) {
     await ask('multi-turn recall',[{role:'user',content:`Remember the project code ${nonce}.`},{role:'assistant',content:'Understood.'},{role:'user',content:'What is the project code? Return only the code.'}],s=>assert.equal(s.trim(),nonce));
     const rows=Array.from({length:90},(_,i)=>`Item ${i}: location aisle-${i+3}; units ${i*3+2}.`).join('\n');
     await ask('longer-context retrieval',user(rows+'\nWhat are the units for Item 67? Reply with only the integer.'),s=>assert.equal(s.trim(),'203'));
-    await ask('code execution reasoning',user('In Python: x = [3, 5, 8]; print(sum(v * 2 for v in x if v % 2 == 1)). What integer is printed? Reply only with that integer.'),s=>assert.equal(s.trim(),'16'));
+    const afterCode = await ask('code execution reasoning',user(codePrompt),s=>assert.equal(s.trim(),'16'));
+    if (stateReplay) {
+      const cold = coldCode.response?.choices?.[0]?.message?.content;
+      const after = afterCode.response?.choices?.[0]?.message?.content;
+      entry.inference.stateReplay = { scope: 'Development replay, not held-out quality or numerical equivalence',
+        cold, after, expected: '16',
+        status: cold !== undefined && cold === after ? 'pass' : 'fail' };
+      save();
+    }
     // A malformed real request must fail, and must not poison the next turn.
     const invalid=await fetch(base+'/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'ds4web'},body:'{invalid',signal:AbortSignal.timeout(10000)});
     entry.inference.cases.push({name:'invalid request rejected',status:invalid.status>=400&&invalid.status<500?'pass':'fail',httpStatus:invalid.status,response:await invalid.text()});
@@ -189,9 +312,18 @@ async function inference(id, entry) {
       assert.ok(parsed.some(e=>e.choices?.[0]?.finish_reason==='stop'));streamRow.status='pass';
     }catch(e){streamRow.status='fail';streamRow.error=e.message;}
     entry.inference.cases.push(streamRow);save();
+    assert.notEqual(entry.inference.catalogIdentity?.status,'fail','native catalog misidentifies the loaded Qwen model');
+    assert.notEqual(entry.inference.stateReplay?.status,'fail','the same deterministic prompt changed after unrelated requests');
     assert.ok(entry.inference.cases.every(c=>c.status==='pass'),'one or more answer/protocol checks failed');
   } finally {
     await stop(child);
+    if(q36Sources){
+      for(const [name,hash] of Object.entries(q36Sources))assert.equal(hashFile(path.join(cwd,name)),hash,`Inference mutated native source: ${name}`);
+      assert.equal(hashFile(bin),entry.inference.binarySha256,'Inference changed its executable');
+      const after=fs.statSync(file);
+      assert.equal(after.ino,st.ino);assert.equal(after.size,st.size);assert.equal(after.mtimeMs,st.mtimeMs);
+      entry.inference.sourceAndModelPreserved=true;
+    }
     if(viaApp){
       for(const [name,hash] of Object.entries(entry.inference.launcher.sourceSha256))
         assert.equal(hashFile(path.join(cwd,name)),hash,`Chat launch must not mutate native Qwen source: ${name}`);
@@ -203,21 +335,40 @@ console.log(`Evidence: ${run}`); save();
 for(const id of engines){
   const entry={engine:id,status:'running'};report.results.push(entry);save();
   try {
+    if(commonQuality){
+      entry.quality=createCommonQuality(path.join(run,id+'-common-100'));
+      entry.quality.report.evaluationUse=qualityUse;
+      save();
+      const rows=execFileSync('/bin/ps',['-axo','pid=,comm='],{encoding:'utf8',timeout:5000}).split('\n');
+      assert.deepEqual(rows.filter(row=>/\/(?:ds4|ds4-server|ds4-server-pld|ds4-agent|ds4-agent-jsonl|ds4-cowork|ds4-design|q36|q36-server|q27|DStudio|dstudio)$/.test(row.trim())),[],
+        'Another engine/app is present; do not launch a competing heavyweight model');
+    }
     if(install){
       const target=path.join(installedRoot,configs[id].dir);assert.ok(!fs.existsSync(target),'fresh install starts without checkout');
       const before=performance.now();const child=launch(app,['--install-engine',id,installedRoot],path.join(run,id+'-install.log'),root);
       await bounded(child,1200000);
       entry.installation={seconds:(performance.now()-before)/1000,receipt:JSON.parse(fs.readFileSync(path.join(target,'.dstudio-source.json'),'utf8'))};
-      for(const exe of id==='qwen' || id==='qwen35'?['ds4','ds4-server','ds4-agent']:['ds4-server','ds4-agent-jsonl','ds4-cowork','ds4-design']){
+      const executables = id==='q36' ? ['q36','q36-server'] : ['qwen','qwen35'].includes(id)
+        ? ['ds4','ds4-server','ds4-agent','ds4-agent-jsonl','ds4-cowork']
+        : ['ds4-server','ds4-agent-jsonl','ds4-cowork','ds4-design'];
+      entry.installation.executables=[];
+      for(const exe of executables){
         const help=execFileSync(path.join(target,exe),['--help'],{cwd:target,timeout:15000,encoding:'utf8',maxBuffer:1024*1024});
         assert.ok(help.length>20,`${exe} must actually execute`);
+        const evidence=path.join(run,`${id}-${exe}-help.txt`);
+        fs.writeFileSync(evidence,help,{flag:'wx'});
+        entry.installation.executables.push({name:exe,sha256:hashFile(path.join(target,exe)),
+          helpFile:path.basename(evidence),helpSHA256:hashFile(evidence)});
+        save();
       }
-      if(id!=='main')assert.equal(fs.realpathSync(path.join(target,'gguf')),fs.realpathSync(path.join(installedRoot,'ds4/gguf')));
+      if(id!=='main' && id!=='q36')assert.equal(fs.realpathSync(path.join(target,'gguf')),fs.realpathSync(path.join(installedRoot,'ds4/gguf')));
       console.log(`${id}: network download, build and executable startup passed`);
     }
     if(infer)await inference(id,entry);
     entry.status='pass';
-  }catch(e){entry.status='fail';entry.error=e.stack;console.error(`${id}: FAILED: ${e.message}`);}
+  }catch(e){entry.status='fail';entry.error=e.stack;
+    if(entry.quality && entry.quality.report.status!=='pass' && entry.quality.report.status!=='fail')finishCommonQuality(entry.quality.report,e.message);
+    console.error(`${id}: FAILED: ${e.message}`);}
   save();
 }
 report.finished=new Date().toISOString();save();

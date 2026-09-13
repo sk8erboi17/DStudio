@@ -1,0 +1,137 @@
+--- a/ds4_server.c
++++ b/ds4_server.c
+@@ -1,9 +1,10 @@
+ #include "ds4.h"
++#include "pld_engine.h" /*DS4UI_SERVER_PLD*/
+ #include "ds4_tool_text.h"
+ #include "ds4_distributed.h"
+ #include "ds4_gpu_args.h"
+ #include "ds4_help.h"
+ #include "ds4_kvstore.h"
+ #include "ds4_tp.h"
+ #include "rax.h"
+ 
+@@ -12497,16 +12498,19 @@
+     thinking_state thinking = thinking_state_from_prompt(&j->req);
+     const bool thinking_gates_tool_markers = ds4_think_mode_enabled(j->req.think_mode);
+     bool tool_scan_waiting_for_think_close =
+         thinking_gates_tool_markers && thinking.inside;
+     size_t think_recovery_scan_from = 0;
+     dsml_decode_tracker dsml_tracker;
+     dsml_decode_tracker_init(&dsml_tracker);
+     dsml_tracker.model_syntax = j->req.model_syntax;
++    /* Keep the native GLM/DSML tracker; PLD owns only its request-local index. */
++    ds4ui_pld_index pld = {0};
++    const ds4ui_pld_mode pld_mode = ds4ui_pld_mode_for("DS4UI_CHAT_PLD");
+ 
+     server_generation_enter(s);
+     while (!g_stop_requested && !job_cancelled(j) && completion < max_tokens &&
+            ds4_session_pos(slot->session) < ds4_session_ctx(slot->session)) {
+         dsml_decode_state dsml_state = j->req.kind == REQ_CHAT && j->req.has_tools ?
+             dsml_tracker.decode : DSML_DECODE_OUTSIDE;
+         const bool in_tool_call = dsml_decode_state_is_tool(dsml_state);
+         if (!(j->req.kind == REQ_CHAT && j->req.has_tools && (saw_tool_start || in_tool_call))) {
+@@ -12547,16 +12551,19 @@
+                                              token,
+                                              j->req.think_mode)) {
+             finish = "stop";
+             stop_detail = "stop token";
+             stop_token = token;
+             break;
+         }
+ 
++        ds4ui_pld_transaction pld_tx = {0};
++        const int pld_completion_start = completion;
++        bool pld_discard = false;
+         int toks[17];
+         int ntok = 0;
+         const int block_start = ds4_session_pos(slot->session);
+         if (!s->batched_mode &&
+             ds4_engine_mtp_draft_tokens(s->engine) > 1 &&
+             getenv("DS4_MTP_SPEC_DISABLE") == NULL)
+         {
+             if (j->req.ignore_eos) {
+@@ -12572,35 +12579,30 @@
+                     toks, (int)(sizeof(toks) / sizeof(toks[0])),
+                     err, sizeof(err));
+             }
+             if (ntok < 0) {
+                 finish = "error";
+                 break;
+             }
+         } else {
+-            if (server_eval_token(s, slot, token, err, sizeof(err)) != 0) {
+-                finish = "error";
+-                break;
+-            }
+-            toks[0] = token;
+-            ntok = 1;
++#include "pld_server_eval.inc"
+         }
+ 
+         if (ntok == 0) {
+             finish = "error";
+             snprintf(err, sizeof(err), "decode returned no tokens");
+             break;
+         }
+         bool stop_decode = false;
+         bool resample = false;
+         bool text_stop = false;
+         int kept = 0;
+         for (int ti = 0; ti < ntok && completion < max_tokens; ti++) {
+-            if (job_cancelled(j)) {
++            if (g_stop_requested || job_cancelled(j)) {
+                 stop_decode = true;
+                 break;
+             }
+             token = toks[ti];
+             if (ds4_token_is_stop_for_think_mode(s->engine,
+                                                  token,
+                                                  j->req.think_mode)) {
+                 finish = "stop";
+@@ -12781,16 +12783,17 @@
+ 
+             if (hit_stop) {
+                 (void)stop_len;
+                 finish = "stop";
+                 stop_detail = "client stop sequence";
+                 client_stop = true;
+                 text.len = stop_pos;
+                 text.ptr[text.len] = '\0';
++                pld_discard = true;
+                 pthread_mutex_lock(&s->inference_mu);
+                 ds4_session_invalidate(slot->session);
+                 pthread_mutex_unlock(&s->inference_mu);
+                 text_stop = true;
+                 stop_decode = true;
+                 break;
+             }
+ 
+@@ -12819,19 +12822,27 @@
+                 (resample && server_eval_token(s, slot, toks[kept - 1], err, sizeof(err)) != 0)) {
+                 finish = "error";
+                 stop_decode = true;
+             } else {
+                 trace_event(s, trace_id, "speculative boundary: kept=%d discarded=%d resample=%d",
+                             kept, ntok - kept, resample);
+             }
+         }
++#include "pld_server_finish.inc"
+         if (stop_decode) break;
+     }
+     server_generation_leave(s);
++    trace_event(s, trace_id,
++        "PLD mode=%s lookups=%llu hits=%llu proposed=%llu matches=%llu batches=%llu fallback=%llu",
++        pld_mode == DS4UI_PLD_OFF ? "off" :
++        pld_mode == DS4UI_PLD_BATCH ? "batch-experimental" : "strict",
++        (unsigned long long)pld.lookups, (unsigned long long)pld.hits,
++        (unsigned long long)pld.proposed, (unsigned long long)pld.accepted,
++        (unsigned long long)pld.batches, (unsigned long long)pld.fallbacks);
+ 
+     if (job_cancelled(j)) {
+         request_live_state_clear(s, slot);
+         trace_event(s, trace_id, "cancelled during generation after %d tokens", completion);
+         anthropic_stream_free(&anthropic_live);
+         openai_stream_free(&openai_live);
+         responses_stream_free(&responses_live);
+         buf_free(&text);

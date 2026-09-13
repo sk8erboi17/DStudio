@@ -1,0 +1,129 @@
+{
+  "schema": "dstudio.common-quality-public.v1",
+  "corpus": "b98a8980d1f8141ed0b1adcc99c7f54ff218f6f0eaf02aa71b86cb3674762d4d",
+  "sourceReceiptSha256": "a7f1afac56784076e53b6ab6823064155ffa11cfec234477aa6f636a3cad2cb1",
+  "evaluationUse": "development-replay",
+  "summary": {
+    "denominator": 100,
+    "passed": 61,
+    "failed": 39,
+    "notRun": 0,
+    "pending": 0
+  },
+  "categories": [
+    {
+      "area": "arithmetic",
+      "label": "Calcolo e unità",
+      "cases": 12,
+      "passed": 2,
+      "failed": 10,
+      "notRun": 0
+    },
+    {
+      "area": "reasoning",
+      "label": "Ragionamento",
+      "cases": 12,
+      "passed": 6,
+      "failed": 6,
+      "notRun": 0
+    },
+    {
+      "area": "code",
+      "label": "Codice prodotto",
+      "cases": 15,
+      "passed": 12,
+      "failed": 3,
+      "notRun": 0
+    },
+    {
+      "area": "debugging",
+      "label": "Correzione di bug",
+      "cases": 10,
+      "passed": 0,
+      "failed": 10,
+      "notRun": 0
+    },
+    {
+      "area": "json",
+      "label": "JSON e struttura",
+      "cases": 10,
+      "passed": 9,
+      "failed": 1,
+      "notRun": 0
+    },
+    {
+      "area": "extraction",
+      "label": "Estrazione di dati",
+      "cases": 10,
+      "passed": 9,
+      "failed": 1,
+      "notRun": 0
+    },
+    {
+      "area": "instructions",
+      "label": "Istruzioni e formato",
+      "cases": 10,
+      "passed": 10,
+      "failed": 0,
+      "notRun": 0
+    },
+    {
+      "area": "language",
+      "label": "Italiano e inglese",
+      "cases": 8,
+      "passed": 8,
+      "failed": 0,
+      "notRun": 0
+    },
+    {
+      "area": "long_context",
+      "label": "Contesto lungo",
+      "cases": 8,
+      "passed": 0,
+      "failed": 8,
+      "notRun": 0
+    },
+    {
+      "area": "insufficient",
+      "label": "Dati insufficienti",
+      "cases": 5,
+      "passed": 5,
+      "failed": 0,
+      "notRun": 0
+    }
+  ],
+  "failures": {
+    "right_value_wrong_container": 9,
+    "wrong_answer_or_structure": 9,
+    "code_or_patch_failure": 13,
+    "transport_or_engine_error": 8
+  },
+  "engineRestarts": {
+    "limit": 8,
+    "requested": 8,
+    "ready": 8,
+    "failed": 0,
+    "failedCasesRetried": false
+  },
+  "model": {
+    "engine": "q36",
+    "weightSha256": "701d8fa9ed214ab21bfc130cd2a7df19ca89bbef7713e2dfb19f3c63696aa917",
+    "weightBytes": 25299061664,
+    "binarySha256": "e94a2c75529c1e3acb2efbe2ea5c8266c21807979d0738edb5f6a70e4939f6bf",
+    "upstreamCommit": "d67687ed15ad9f52b755a9b5fdfc0214ea937555"
+  },
+  "settings": {
+    "context": 65536,
+    "temperature": 0,
+    "thinking": "off",
+    "seed": 20260909,
+    "maxOutputTokens": 2048
+  },
+  "limitations": [
+    "Controlled common-100 tasks, not general intelligence or numerical parity.",
+    "Code tasks evaluate returned programs and patches, not an Agent tool loop.",
+    "Every format failure remains failed, even when a nested value is correct.",
+    "When enabled, an owned engine restart precedes the next case; failed cases are never retried or replaced.",
+    "No raw requests, responses, personal paths or source documents are published by this aggregate."
+  ]
+}

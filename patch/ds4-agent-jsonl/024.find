@@ -1,1 +1,0 @@
-    if (!strcmp(call->name, "read")) return agent_tool_read(w, call);

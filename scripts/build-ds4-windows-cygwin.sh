@@ -45,12 +45,11 @@ echo "windows-cygwin: building DStudio jsonl patch helper"
   cd "$ROOT"
   /usr/bin/gcc -O2 -Wall -Wextra -std=gnu11 -D_GNU_SOURCE -o dstudio-jsonl-builder src/dstudio.c
   ./dstudio-jsonl-builder --check-anchors "$DS4_DIR"
-  rm -f "$DS4_DIR/ds4-agent-jsonl" "$DS4_DIR/ds4-agent-jsonl.exe" \
-        "$DS4_DIR/ds4-cowork" "$DS4_DIR/ds4-cowork.exe" \
-        "$DS4_DIR/ds4_agent_jsonl.o" "$DS4_DIR/dstudio_remote_llm.o"
+  # Force the CPU build without deleting the last working Agent/Cowork pair.
+  # The native builder publishes private outputs only after successful links.
+  rm -f "$DS4_DIR/ds4-agent-jsonl.ver"
   DS4UI_JSONL_CC="$CC_BIN" \
   DS4UI_JSONL_CFLAGS="$CPU_CFLAGS" \
-  DS4UI_JSONL_CORE_OBJS="ds4_cpu.o ds4_distributed.o ds4_ssd.o" \
   DS4UI_JSONL_LDLIBS="-lm -pthread" \
     ./dstudio-jsonl-builder --build-jsonl "$DS4_DIR"
 )
@@ -61,8 +60,7 @@ echo "windows-cygwin: building ds4-design"
   DESIGN_SRC="$ROOT/extension/design/ds4_design.c" \
   REMOTE_DIR="$ROOT/extension/remote" \
   CFLAGS="$CPU_CFLAGS" \
-  CORE_OBJS="ds4_cpu.o ds4_distributed.o ds4_ssd.o" \
-  METAL_LDLIBS="-lm -pthread" \
+  LDLIBS="-lm -pthread" \
   ds4-design
 
 for exe in ds4-server ds4-agent-jsonl ds4-cowork ds4-design; do

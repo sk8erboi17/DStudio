@@ -42,7 +42,10 @@ static int dtg_native_action_policy(const dtg_graph *graph, const dtg_node *node
         snprintf(err, errsz, "native node '%s' has no bounded action",
                  node ? node->id : "missing"); return 0;
     }
-    if (!strcmp(action, "agent.prompt")) {
+    if (dtg_is_agent_action(action)) {
+        if (!strcmp(action, "agent.goal") && (!node->action_require_tool_result || node->automatic_retry)) {
+            snprintf(err, errsz, "agent.goal requires tool evidence and cannot enable automatic action replay"); return 0;
+        }
         if (node->kind != DTG_NODE_AGENT_TURN || !node->action_text || !node->action_text[0]) {
             snprintf(err, errsz, "action agent.prompt requires an agent_turn and non-empty text"); return 0;
         }
@@ -88,7 +91,7 @@ static int dtg_native_action_policy(const dtg_graph *graph, const dtg_node *node
             return 0;
         }
         const dtg_node *source = dtg_find_node_const(graph, node->dependencies[0].node_id);
-        if (!source || strcmp(source->action_name, "agent.prompt") ||
+        if (!source || !dtg_is_agent_action(source->action_name) ||
             !source->action_expect || !source->action_expect[0]) {
             snprintf(err, errsz,
                      "agent.receipt.verify dependency must be an agent.prompt with a completion marker");

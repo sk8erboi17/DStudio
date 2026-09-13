@@ -1,6 +1,15 @@
 #ifndef DS4UI_AGENT_PLD_REWIND
 #define DS4UI_AGENT_PLD_REWIND ds4ui_pld_rewind
 #endif
+#ifndef DS4UI_AGENT_PLD_RESAMPLE
+#define DS4UI_AGENT_PLD_RESAMPLE 1
+#endif
+#ifndef DS4UI_AGENT_PLD_MODEL_STOPPED
+#define DS4UI_AGENT_PLD_MODEL_STOPPED() ((void)0)
+#endif
+#ifndef DS4UI_AGENT_PLD_COMPACTION_LOOKAHEAD
+#define DS4UI_AGENT_PLD_COMPACTION_LOOKAHEAD() ((void)0)
+#endif
         bool status_greedy_sampling = false;
         ds4ui_pld_index pld = {0};
         const ds4ui_pld_mode pld_mode = ds4ui_pld_mode_for(
@@ -18,6 +27,7 @@
             }
             int token = worker_sample_with_mode(w, cfg, greedy_sampling, &rng);
             if (ds4_token_is_stop_for_think_mode(w->engine, token, think_mode)) {
+                DS4UI_AGENT_PLD_MODEL_STOPPED();
                 if (tool_syntax == AGENT_TOOL_SYNTAX_GLM &&
                     token != ds4_token_eos(w->engine)) {
                     agent_trace(w, "glm assistant generation stopped before control token id=%d", token);
@@ -107,6 +117,7 @@
                 if (ds4_token_is_stop_for_think_mode(w->engine,
                                                      token,
                                                      think_mode)) {
+                    DS4UI_AGENT_PLD_MODEL_STOPPED();
                     if (DS4UI_AGENT_PLD_REWIND(w->session, &pld_tx, block_start + ti,
                                           err, sizeof(err)) != 0)
                         goto ds4ui_pld_failed;
@@ -173,7 +184,7 @@
                     break;
                 }
 
-                if (ti + 1 < ntok && next_greedy != greedy_sampling) {
+                if (ti + 1 < ntok && DS4UI_AGENT_PLD_RESAMPLE && next_greedy != greedy_sampling) {
                     /* Later tokens were proposed under the old parser mode.
                      * Re-evaluate this boundary token to restore its logits,
                      * then sample the suffix under the new mode. */
@@ -191,6 +202,7 @@
             ds4ui_pld_release(&pld_tx);
             if (stop_block) break;
             if (restart_sampling) continue;
+            DS4UI_AGENT_PLD_COMPACTION_LOOKAHEAD();
             continue;
 
 ds4ui_pld_failed:
@@ -208,3 +220,6 @@ ds4ui_pld_failed:
                     (unsigned long long)pld.proposed, (unsigned long long)pld.accepted,
                     (unsigned long long)pld.batches, (unsigned long long)pld.fallbacks);
 #undef DS4UI_AGENT_PLD_REWIND
+#undef DS4UI_AGENT_PLD_RESAMPLE
+#undef DS4UI_AGENT_PLD_MODEL_STOPPED
+#undef DS4UI_AGENT_PLD_COMPACTION_LOOKAHEAD

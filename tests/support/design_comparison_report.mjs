@@ -15,7 +15,25 @@ const byId=rows=>{
   return new Map(rows.map(r=>[r.id,r]));
 };
 
+// Legacy receipts keep their historical meaning. New captures must additionally
+// prove drained logs, owned-process cleanup and the exact registered entry; an
+// HTML file left by a failed generation never upgrades delivery to success.
+export function isDesignDeliveryComplete(row) {
+  if(!(row.status==='idle' && row.artifact && row.entryExists===true && row.exitCode===0
+    && !row.signal && !row.generationLimitReached))return false;
+  if(!row.capture)return row.generationPassed!==false;
+  const c=row.capture;
+  return row.generationPassed===true && row.artifact.entry===row.entry && row.entryIsRegular===true
+    && typeof row.entrySha256==='string' && /^[a-f0-9]{64}$/.test(row.entrySha256) && !row.entryError
+    && c.status==='idle' && c.cleanupComplete===true && c.promptSubmitted===true && c.errorCount===0
+    && c.exitCode===row.exitCode && c.signal===row.signal && Array.isArray(c.errors) && c.errors.length===0
+    && ['stdout','stderr'].every(name=>c.output?.[name]?.complete===true
+      && Number.isSafeInteger(c.output[name].receivedBytes) && c.output[name].receivedBytes>=0
+      && c.output[name].receivedBytes===c.output[name].persistedBytes);
+}
+
 export function compareDesignRuns(before,after,suite) {
+  assert.ok(!suite.schema, 'Legacy comparison cannot qualify the eighteen-pack suite without its dedicated interaction audit');
   assert.ok(suite.cases.length>0,'Frozen briefs required');
   const frozen=byId(suite.cases),ids=[...frozen.keys()].sort();
   for(const key of ['host','model','memory','engineIdentity','engineSourceSha256',
@@ -23,6 +41,9 @@ export function compareDesignRuns(before,after,suite) {
     assert.ok(before.run[key]!==undefined,'Missing comparison identity: '+key);
     assert.deepEqual(before.run[key],after.run[key],'Different '+key);
   }
+  assert.deepEqual(before.run.captureLimits,after.run.captureLimits,'Different capture limits/revisions');
+  const harnessHashes=run=>run.harness&&Object.fromEntries(Object.entries(run.harness).map(([name,value])=>[name,value.sha256]));
+  assert.deepEqual(harnessHashes(before.run),harnessHashes(after.run),'Different generation harness revisions');
   assert.ok(before.run.model.path && before.run.model.bytes>0 && Number.isFinite(before.run.model.mtimeMs));
   for(const key of ['context','thinkTokens','maxTokensPerRound','seed','temperature'])
     assert.ok(Number.isFinite(before.run.inference[key]),'Missing inference setting: '+key);
@@ -44,7 +65,8 @@ export function compareDesignRuns(before,after,suite) {
       const row=rows.get(id),review=checks.get(id),brief=frozen.get(id);
       assert.equal(row.prompt,brief.prompt,'Changed prompt: '+id);
       assert.equal(row.entry,brief.entry,'Changed entry: '+id);
-      assert.ok(['idle','turn-timeout','startup-timeout','process-error','exited'].includes(row.status),
+      assert.ok(['idle','turn-timeout','startup-timeout','process-error','exited','capture-error','not-run'].includes(row.status)
+        || row.capture?.cleanupComplete===true && row.capture.status===row.status && /(?:-error|-limit|-timeout|-escalated|-incomplete-event)$/.test(row.status),
         'Nonterminal or unknown native status: '+id);
       assert.ok(Number.isFinite(row.ms) && row.ms>=0,'Missing elapsed time: '+id);
       assert.ok(review.checks.length>0 && review.checks.every(c=>typeof c.pass==='boolean'));
@@ -57,8 +79,7 @@ export function compareDesignRuns(before,after,suite) {
         assert.ok(names.length>=8,'Incomplete browser audit');
         checkNames??=names;assert.deepEqual(names,checkNames,'Different browser checks');
       } else assert.deepEqual(names,[deliveryCheck]);
-      const delivered=row.status==='idle' && Boolean(row.artifact) && row.entryExists===true &&
-        row.exitCode===0 && !row.signal && !row.generationLimitReached;
+      const delivered=isDesignDeliveryComplete(row);
       assert.equal(review.checks.find(c=>c.name===deliveryCheck).pass,delivered,'Inconsistent delivery receipt');
       const behavioral=review.checks.filter(c=>c.name!==deliveryCheck);
       return {id,status:row.status,delivered,elapsedSeconds:row.ms/1000,

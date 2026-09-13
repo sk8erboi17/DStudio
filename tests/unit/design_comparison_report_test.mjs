@@ -1,6 +1,6 @@
 // Synthetic receipts test report accounting, not design/model quality.
 import assert from 'node:assert/strict';
-import {compareDesignRuns} from '../support/design_comparison_report.mjs';
+import {compareDesignRuns,isDesignDeliveryComplete} from '../support/design_comparison_report.mjs';
 
 const sha='a'.repeat(64),suite={cases:[{id:'one',prompt:'Frozen brief',entry:'one.html'}]};
 const names=['agent completed and registered its artifact',...Array.from({length:7},(_,i)=>'browser group '+i)];
@@ -57,4 +57,22 @@ for(const mutate of [
 }
 const missingSettings=copy();delete missingSettings.run.inference.seed;
 assert.throws(()=>compareDesignRuns(missingSettings,missingSettings,suite));
+assert.throws(()=>compareDesignRuns(input,copy(),{...suite,schema:'dstudio.design-projects.v1'}),/Legacy comparison/);
+const captured=copy();Object.assign(captured.run.cases[0],{entryIsRegular:true,entrySha256:sha,generationPassed:true,
+  capture:{status:'idle',cleanupComplete:true,promptSubmitted:true,errorCount:0,errors:[],exitCode:0,signal:null,output:{
+    stdout:{complete:true,receivedBytes:100,persistedBytes:100},stderr:{complete:true,receivedBytes:20,persistedBytes:20}}}});
+captured.run.captureLimits={stdoutBytes:128*1024*1024};captured.run.harness={runner:{sha256:sha}};
+assert.equal(isDesignDeliveryComplete(captured.run.cases[0]),true);
+assert.equal(compareDesignRuns(captured,structuredClone(captured),suite).results[0].delivered,1);
+assert.throws(()=>compareDesignRuns(input,captured,suite),/Different capture/);
+for(const mutate of [r=>r.generationPassed=false,r=>r.artifact.entry='other.html',r=>r.entryIsRegular=false,
+  r=>r.entrySha256='',r=>r.entryError='unstable file',r=>r.capture.cleanupComplete=false,
+  r=>r.capture.output.stdout.complete=false,r=>r.capture.output.stdout.persistedBytes=99,
+  r=>r.capture.errorCount=1,r=>r.capture.status='stdout-protocol-error',r=>r.capture.promptSubmitted=false,
+  r=>{delete r.capture.output.stdout.receivedBytes;delete r.capture.output.stdout.persistedBytes;},
+  r=>r.capture.exitCode=17,r=>r.capture.errors.push('error')]){
+  const variant=structuredClone(captured);mutate(variant.run.cases[0]);variant.audit.cases[0].checks[0].pass=false;
+  assert.equal(isDesignDeliveryComplete(variant.run.cases[0]),false);
+  assert.equal(compareDesignRuns(captured,variant,suite).results[1].delivered,0);
+}
 console.log('design_comparison_report_test: PASS (synthetic receipts; failed, incomplete and mismatched comparisons are not promoted to quality passes)');

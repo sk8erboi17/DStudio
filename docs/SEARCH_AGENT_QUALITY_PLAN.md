@@ -62,7 +62,7 @@ running an unrelated generic OpenCode command does not count as either product.
 
 ## Bounded page pixels
 
-- `patch/ds4-web-vision/` adds a reversible, build-time-only adaptation of the
+- [`patch/ds4-web-runtime/`](../patch/ds4-web-runtime/README.md) adds a reversible, build-time-only adaptation of the
   native web helper. Upstream files are not edited by this adaptation. Text and
   one 1024×768 JPEG viewport come from the same owned page target. A bounded
   DOM scan selects the first substantive image/chart and scrolls to its position;

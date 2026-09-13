@@ -1,0 +1,20 @@
+{
+  "schema": "dstudio.upstream-source-review.v1",
+  "repository": "https://github.com/vagrillo/ds4",
+  "ref": "refs/heads/qwen35moe-support",
+  "base": "60fca11f0c8b16ca50c757324dddd717ba043098",
+  "tip": "73434c4bb9d8bb18425a2577edada69d25d44c47",
+  "reviewedAt": "2026-09-08",
+  "decision": "not-applicable",
+  "reason": "Both commits only add links and benchmark references to dynamicmoeinference.md. They do not change executable code, kernels, tokenizer, templates, build rules or test inputs. DStudio does not import or run the linked external implementation.",
+  "method": "Inspect both full commit diffs; compare git ls-tree -r --full-tree at base and tip excluding only the reviewed dynamicmoeinference.md entry. Hash the remaining newline-terminated tree listing with SHA-256.",
+  "unchangedTreeEntries": 1525,
+  "nonDocumentTreeSHA256": "d802249327eb871dbcab82a4c9c0a3660240601667aea5b6c2f6a1858e53f386",
+  "excludedPath": "dynamicmoeinference.md",
+  "commits": [
+    {"commit": "62e72517c646930c2310a624578b1cfd11fd7cc1", "changedFiles": ["dynamicmoeinference.md"], "diffSHA256": "7a6d66b52d43be923bbf0ba983220439524a7431308df2d25ea277970179e782"},
+    {"commit": "73434c4bb9d8bb18425a2577edada69d25d44c47", "changedFiles": ["dynamicmoeinference.md"], "diffSHA256": "a079286c71207c4b3297258d5b51d3a53f6965996d0fe13df90b6b90b3bf1b3d"}
+  ],
+  "aggregateDiffSHA256": "d9d9dab8ce6fa6c56b2ddf5ededef83183431a5bc970251143d411c5d911aa89",
+  "limitations": "This is source-delta evidence, not an inference run, new quality score, build qualification or promotion of the installer pin. Earlier main changes still require model/backend-specific equivalence review."
+}

@@ -1,2 +1,0 @@
-/* Current ds4 uses one unified tool prompt. Laguna retains its dedicated variant. */
-static const char agent_cowork_unified_tools_rules[] =

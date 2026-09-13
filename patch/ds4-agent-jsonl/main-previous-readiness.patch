@@ -1,0 +1,167 @@
+--- a/ds4_agent.c
++++ b/ds4_agent.c
+@@ -154,6 +154,7 @@
+     bool stop;
+     bool interrupt;
+     bool initialized;
++    bool active; /* Owner retains the session through deferred work and cleanup. */
+     bool save_requested;
+     bool compact_requested;
+     bool power_requested;
+@@ -5137,6 +5138,17 @@
+ }
+ 
+ static void agent_publish_system_status(agent_worker *w, const char *msg) {
++    if (w->cfg->jsonl) {
++        /* Service feedback is not model prose. Bound this infrequent record
++         * before escaping it, and keep ordinary non-interactive stdout clean. */
++        char escaped[6152], line[6240];
++        if (strnlen(msg, 1025) > 1024) msg = "Runtime notice exceeds its display limit";
++        ds4ui_json_escape(msg, escaped, sizeof escaped);
++        int n = snprintf(line, sizeof line,
++                         "\x1e{\"type\":\"runtime_notice\",\"text\":\"%s\"}\n", escaped);
++        if (n > 0 && (size_t)n < sizeof line) agent_publish(w, line, (size_t)n);
++        return;
++    }
+     if (w->cfg->non_interactive) return;
+     if (isatty(STDOUT_FILENO)) {
+         static const char marker[] = "\x1b[33m✦ \x1b[38;5;218m";
+@@ -10350,7 +10362,6 @@
+     agent_config *cfg = w->cfg;
+     ds4_think_mode think_mode = effective_think_mode(cfg);
+     pthread_mutex_lock(&w->mu);
+-    w->interrupt = false;
+     w->status.error[0] = '\0';
+     agent_wake_locked(w);
+     pthread_mutex_unlock(&w->mu);
+@@ -10654,7 +10665,6 @@
+ static int worker_run_raw_prompt(agent_worker *w, const char *user_text) {
+     agent_config *cfg = w->cfg;
+     pthread_mutex_lock(&w->mu);
+-    w->interrupt = false;
+     w->status.error[0] = '\0';
+     agent_wake_locked(w);
+     pthread_mutex_unlock(&w->mu);
+@@ -10786,6 +10796,13 @@
+     return 0;
+ }
+ 
++/* Caller holds mu. Display status alone does not transfer session ownership. */
++static bool worker_idle_locked(agent_worker *w) {
++    return w->initialized && !w->active && !w->stop && !w->cmd_text &&
++        !w->save_requested && !w->compact_requested && !w->power_requested &&
++        (w->status.state == AGENT_WORKER_IDLE || w->status.state == AGENT_WORKER_ERROR);
++}
++
+ static void worker_request_save(agent_worker *w) {
+     pthread_mutex_lock(&w->mu);
+     w->save_requested = true;
+@@ -10897,8 +10914,27 @@
+ 
+ /* Worker thread entry point.  The UI thread submits plain user text; this
+  * thread owns all DS4 session mutation, tool execution, and compaction. */
++/* Publish readiness only after every accepted/deferred operation has ended.
++ * The condition wait releases mu; no model work runs under synchronization. */
++static bool worker_wait_for_work(agent_worker *w) {
++    pthread_mutex_lock(&w->mu);
++    w->active = false;
++    pthread_cond_broadcast(&w->cond);
++    agent_wake_locked(w);
++    while (!w->stop && !w->cmd_text &&
++           !w->save_requested && !w->compact_requested && !w->power_requested)
++        pthread_cond_wait(&w->cond, &w->mu);
++    bool run = !w->stop;
++    w->active = run;
++    pthread_mutex_unlock(&w->mu);
++    return run;
++}
++
+ static void *worker_main(void *arg) {
+     agent_worker *w = arg;
++    pthread_mutex_lock(&w->mu);
++    w->active = true;
++    pthread_mutex_unlock(&w->mu);
+     agent_trace(w, "agent worker start ctx=%d backend=%s model=%s trace=%s",
+                 agent_worker_effective_ctx_size(w),
+                 ds4_backend_name(w->cfg->engine.backend),
+@@ -10920,11 +10956,8 @@
+     agent_wake_locked(w);
+     pthread_mutex_unlock(&w->mu);
+ 
+-    while (true) {
++    while (worker_wait_for_work(w)) {
+         pthread_mutex_lock(&w->mu);
+-        while (!w->stop && !w->cmd_text && !w->save_requested &&
+-               !w->compact_requested && !w->power_requested)
+-            pthread_cond_wait(&w->cond, &w->mu);
+         if (w->stop) {
+             pthread_mutex_unlock(&w->mu);
+             break;
+@@ -11001,10 +11034,13 @@
+ /* Submit one user turn if the worker is idle.  Busy submissions are rejected so
+  * the UI can keep the typed text editable instead of silently queueing it. */
+ static bool worker_submit(agent_worker *w, const char *text) {
++    char *candidate = xstrdup(text); /* Prepare variable-sized input outside mu. */
+     pthread_mutex_lock(&w->mu);
+-    bool ok = w->initialized && w->status.state == AGENT_WORKER_IDLE && !w->cmd_text;
++    bool ok = worker_idle_locked(w) && w->status.state == AGENT_WORKER_IDLE;
+     if (ok) {
+-        w->cmd_text = xstrdup(text);
++        w->interrupt = false;
++        w->cmd_text = candidate;
++        candidate = NULL;
+         /* A submitted turn is no longer idle, even if the worker thread has
+          * not yet reached its real prefill accounting.  Non-interactive mode
+          * depends on this to avoid exiting in the small handoff window between
+@@ -11021,6 +11057,7 @@
+         pthread_cond_signal(&w->cond);
+     }
+     pthread_mutex_unlock(&w->mu);
++    free(candidate);
+     return ok;
+ }
+ 
+@@ -11034,6 +11071,8 @@
+ static void worker_interrupt(agent_worker *w) {
+     pthread_mutex_lock(&w->mu);
+     w->interrupt = true;
++    pthread_cond_broadcast(&w->cond);
++    agent_wake_locked(w);
+     if (w->cfg &&
+         w->cfg->engine.distributed.role == DS4_DISTRIBUTED_COORDINATOR &&
+         (w->status.state == AGENT_WORKER_PREFILL ||
+@@ -11052,7 +11091,7 @@
+ static void worker_stop(agent_worker *w) {
+     pthread_mutex_lock(&w->mu);
+     w->stop = true;
+-    pthread_cond_signal(&w->cond);
++    pthread_cond_broadcast(&w->cond);
+     pthread_mutex_unlock(&w->mu);
+ }
+ 
+@@ -11086,9 +11125,7 @@
+ 
+ static bool worker_is_idle(agent_worker *w) {
+     pthread_mutex_lock(&w->mu);
+-    bool idle = w->initialized &&
+-        (w->status.state == AGENT_WORKER_IDLE ||
+-         w->status.state == AGENT_WORKER_ERROR);
++    bool idle = worker_idle_locked(w);
+     pthread_mutex_unlock(&w->mu);
+     return idle;
+ }
+@@ -12730,6 +12767,14 @@
+                     printf("save failed: %s\n", ds4ui_err);
+                 fflush(stdout);
+             }
++            /* Ownership is quiescent, but its final output may have arrived
++             * after the previous poll consumed the stream. Drain it first. */
++            char *ready_output = NULL;
++            size_t ready_length = 0;
++            worker_consume(&worker, &ready_output, &ready_length, NULL);
++            if (ready_length) write_all(STDOUT_FILENO, ready_output, ready_length);
++            free(ready_output);
++            fflush(stdout);
+             agent_noninteractive_marker("+DWARFSTAR_WAITING");
+             waiting_announced = true;
+         }

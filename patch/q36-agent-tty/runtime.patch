@@ -1,0 +1,100 @@
+diff --git a/q36_agent.c b/q36_agent.c
+index 9391ef7..d8c603a 100644
+--- a/q36_agent.c
++++ b/q36_agent.c
+@@ -7219,6 +7219,7 @@ struct agent_bash_job {
+     pid_t pid;
+     int pipe_fd;
+     int tty_fd;
++    int tty_hold_fd;
+     int tmp_fd;
+     char path[PATH_MAX];
+     char *cmd;
+@@ -7259,6 +7260,7 @@ static void agent_bash_job_free(agent_bash_job *job) {
+     }
+     if (job->pipe_fd >= 0) close(job->pipe_fd);
+     if (job->tty_fd >= 0) close(job->tty_fd);
++    if (job->tty_hold_fd >= 0) close(job->tty_hold_fd);
+     if (job->tmp_fd >= 0) close(job->tmp_fd);
+     free(job->cmd);
+     free(job);
+@@ -7331,6 +7333,10 @@ static void agent_bash_finalize(agent_bash_job *job, int status) {
+         close(job->tty_fd);
+         job->tty_fd = -1;
+     }
++    if (job->tty_hold_fd >= 0) {
++        close(job->tty_hold_fd);
++        job->tty_hold_fd = -1;
++    }
+     if (WIFEXITED(status)) job->exit_status = WEXITSTATUS(status);
+     else if (WIFSIGNALED(status)) job->exit_status = 128 + WTERMSIG(status);
+     else job->exit_status = -1;
+@@ -7406,6 +7412,10 @@ static void agent_bash_poll(agent_bash_job *job) {
+             close(job->tty_fd);
+             job->tty_fd = -1;
+         }
++        if (job->tty_hold_fd >= 0) {
++            close(job->tty_hold_fd);
++            job->tty_hold_fd = -1;
++        }
+         agent_worker_note_terminal_mode_may_have_changed(job->worker);
+         return;
+     }
+@@ -7497,7 +7507,10 @@ static agent_bash_job *agent_bash_start(agent_worker *w, const char *cmd,
+     }
+ 
+     close(pipefd[1]);
+-    if (slavefd >= 0) close(slavefd);
++    /* On macOS closing the last slave descriptor hangs up this private tty
++     * before a command can open /dev/tty. The job owner retains one CLOEXEC
++     * slave until reaping/cleanup; ordinary command stdin still receives EOF,
++     * and the command does not inherit this retained descriptor. */
+     int old_flags;
+     set_nonblock(pipefd[0], true, &old_flags);
+     if (ttyfd >= 0) set_nonblock(ttyfd, true, NULL);
+@@ -7509,6 +7522,7 @@ static agent_bash_job *agent_bash_start(agent_worker *w, const char *cmd,
+     job->pid = pid;
+     job->pipe_fd = pipefd[0];
+     job->tty_fd = ttyfd;
++    job->tty_hold_fd = slavefd;
+     job->tmp_fd = tmpfd;
+     snprintf(job->path, sizeof(job->path), "%s", tmp_path);
+     job->cmd = xstrdup(cmd);
+diff --git a/tests/test_agent_password.py b/tests/test_agent_password.py
+index b4a72f0..db398dd 100644
+--- a/tests/test_agent_password.py
++++ b/tests/test_agent_password.py
+@@ -17,7 +17,9 @@ import time
+ def check(binary, answers, expected, timeout=5, command=None, noninteractive=False):
+     master, slave = pty.openpty()
+     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+-    saved = termios.tcgetattr(slave)
++    # The master exposes the same terminal settings and remains valid after
++    # the session leader exits. macOS revokes old slave descriptors at exit.
++    saved = termios.tcgetattr(master)
+     command = command or f"exec {shlex.quote(binary)} --password-child"
+     process = subprocess.Popen(
+         [binary, "--noninteractive-driver" if noninteractive else "--password-driver",
+@@ -34,7 +36,12 @@ def check(binary, answers, expected, timeout=5, command=None, noninteractive=Fal
+         while time.monotonic() < deadline:
+             ready, _, _ = select.select([master], [], [], 0.1)
+             if ready:
+-                transcript.extend(os.read(master, 65536))
++                chunk = os.read(master, 65536)
++                # EOF stays readable on macOS. Stop after draining the final
++                # bytes instead of busy-spinning until the scenario deadline.
++                if not chunk:
++                    break
++                transcript.extend(chunk)
+                 if transcript.count(marker) > answered and answered < len(answers):
+                     os.write(master, answers[answered])
+                     answered += 1
+@@ -43,7 +50,7 @@ def check(binary, answers, expected, timeout=5, command=None, noninteractive=Fal
+         assert process.wait(timeout=1) == 0, transcript.decode(errors="replace")
+         assert expected in transcript, transcript.decode(errors="replace")
+         assert b"DRAFT_OK=1" in transcript, transcript.decode(errors="replace")
+-        assert termios.tcgetattr(slave) == saved, "terminal mode was not restored"
++        assert termios.tcgetattr(master) == saved, "terminal mode was not restored"
+         for secret in (b"q36-test-secret", b"wrong-secret", b"secret-suffix"):
+             assert secret not in transcript, "password leaked into terminal/tool output"
+         return transcript

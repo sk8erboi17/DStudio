@@ -1,0 +1,34 @@
+diff --git a/ds4.c b/ds4.c
+--- a/ds4.c
++++ b/ds4.c
+@@ -55967,14 +55967,26 @@ static bool qwen4_graph_ensure_snap2(ds4_qwen4_gpu_graph *g) {
+     const uint64_t v_dim = (uint64_t)DS4_N_LIN_V_HEAD * DS4_N_LIN_HEAD_DIM;
+     const uint64_t state_n = v_dim * DS4_N_LIN_HEAD_DIM;
+     const uint64_t hist_n = (uint64_t)(DS4_N_LIN_CONV - 1u) * conv_dim;
+-    g->snap2_ple_hist = qwen4_graph_alloc_f32((uint64_t)(DS4_N_PLE_CONV - 1u) * DS4_N_PLE_NGRAM *
+-                                              (uint64_t)DS4_N_EMBD * DS4_N_HC);
+-    if (!g->snap2_ple_hist) return false;
++    /* PLE is the readiness sentinel: publish it only after every recurrent
++     * buffer exists. A failed attempt must not become a usable partial set. */
++    ds4_gpu_tensor *ple = qwen4_graph_alloc_f32((uint64_t)(DS4_N_PLE_CONV - 1u) * DS4_N_PLE_NGRAM *
++                                               (uint64_t)DS4_N_EMBD * DS4_N_HC);
++    if (!ple) return false;
+     for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
+         if (!g->snap_lin_state[il]) continue;
+         g->snap2_lin_state[il] = qwen4_graph_alloc_f32(state_n);
++        if (!g->snap2_lin_state[il]) goto fail;
+         g->snap2_lin_hist[il] = qwen4_graph_alloc_f32(hist_n);
+-        if (!g->snap2_lin_state[il] || !g->snap2_lin_hist[il]) return false;
++        if (!g->snap2_lin_hist[il]) goto fail;
+     }
++    g->snap2_ple_hist = ple;
+     return true;
++fail:
++    ds4_gpu_tensor_free(ple);
++    for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
++        ds4_gpu_tensor_free(g->snap2_lin_state[il]);
++        ds4_gpu_tensor_free(g->snap2_lin_hist[il]);
++        g->snap2_lin_state[il] = g->snap2_lin_hist[il] = NULL;
++    }
++    return false;
+ }

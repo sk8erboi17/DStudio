@@ -17,22 +17,31 @@ import { auditProductWorkspace } from '../support/product_quality_audit.mjs';
 assert.ok(process.argv.includes('--run'), 'Pass --run to launch actual weights and task executors.');
 const option = (name, fallback) => { const i = process.argv.indexOf(name); return i < 0 ? fallback : process.argv[i + 1]; };
 const root = process.cwd();
-const config = Object.fromEntries(['openwork', 'opendesign', 'tools'].map(k => {
+const cases = productQualityCases.filter(c => option('--cases', productQualityCases.map(t => t.id).join(',')).split(',').includes(c.id));
+assert.ok(cases.length);
+const products = option('--products', 'dstudio,openwork,opendesign').split(',');
+assert.ok(products.length && products.every(p => ['dstudio', 'openwork', 'opendesign'].includes(p)), 'Unknown --products selection');
+assert.ok(cases.some(c => products.includes('dstudio') || products.includes(c.competitor)), 'No selected product handles the selected cases');
+const requiredProducts = [...new Set(cases.map(c => c.competitor).filter(p => products.includes(p)))];
+const config = Object.fromEntries([...requiredProducts, ...(requiredProducts.length ? ['tools'] : [])].map(k => {
   assert.ok(option('--' + k), `Missing --${k}`); return [k, path.resolve(option('--' + k))];
 }));
 const output = fs.mkdtempSync(path.join(root, 'tests/.artifacts/product-quality-'));
-const cases = productQualityCases.filter(c => option('--cases', productQualityCases.map(t => t.id).join(',')).split(',').includes(c.id));
-assert.ok(cases.length);
 const fixedSampling = { model: 'ds4', temperature: 0.2, seed: 20260906, max_tokens: 8192, think: false };
 const report = { schema: 'dstudio.product-quality-pilot.v1', started: new Date().toISOString(),
   scope: 'Development pilot, actual product APIs and file effects. Browser/independent artifact audit required separately; product success is not quality success.',
   pins: PRODUCT_PINS, fixedSampling, context: 32768, ssdStreaming: 'off',
   host: { cpu: os.cpus()[0].model, memoryBytes: os.totalmem() }, cases, runs: [], status: 'running' };
+report.selectedProducts = products;
 report.dstudioRevision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-report.opencodeVersion = execFileSync('/opt/homebrew/bin/opencode', ['--version'], { encoding: 'utf8' }).trim();
+report.dstudioDirty = Boolean(execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim());
+report.engineRevision = execFileSync('git', ['-C', process.env.DSTUDIO_REAL_DS4_DIR || 'ds4', 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+if (requiredProducts.length) report.opencodeVersion = execFileSync('/opt/homebrew/bin/opencode', ['--version'], { encoding: 'utf8' }).trim();
 report.harnessSha256 = createHash('sha256').update(fs.readFileSync(new URL(import.meta.url))).digest('hex');
 report.sourceHashes = Object.fromEntries(['extension/cowork/ds4_cowork.c', 'extension/design/ds4_design.c',
-  'patch/ds4-agent-jsonl/remote-agent.cfrag', 'patch/ds4-agent-jsonl/028.replace'].map(file => [file,
+  'patch/ds4-agent-jsonl/remote-agent.cfrag', 'patch/ds4-agent-jsonl/manifest',
+  'patch/ds4-agent-jsonl/main-current.patch', 'patch/ds4-agent-jsonl/main-previous.patch',
+  'patch/ds4-agent-jsonl/laguna.patch'].map(file => [file,
   createHash('sha256').update(fs.readFileSync(file)).digest('hex')]));
 const save = () => fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify(report, null, 2));
 let engine, client, product, active, serial = 0;
@@ -194,7 +203,7 @@ try {
   console.log(`Actual product pilot: ${path.relative(root, output)}`);
   for (const [i, task] of cases.entries()) {
     if (interrupted) break;
-    for (const name of i % 2 ? [task.competitor, 'dstudio'] : ['dstudio', task.competitor]) {
+    for (const name of (i % 2 ? [task.competitor, 'dstudio'] : ['dstudio', task.competitor]).filter(p => products.includes(p))) {
       if (interrupted) break;
       const row = { id: task.id, product: name, status: 'running', requests: [] }; active = row; report.runs.push(row); save();
       const attemptStart = performance.now();

@@ -359,7 +359,9 @@ int main(int argc, char **argv) {
 #endif
     if (getenv("DS4UI_NO_WINDOW") || getenv("DS4UI_TEST_MODE") ||
         (argc > 1 && (!strcmp(argv[1], "--build-jsonl") || !strcmp(argv[1], "--build-server-pld") ||
-                      !strcmp(argv[1], "--install-engine") || !strcmp(argv[1], "--check-anchors"))))
+                      !strcmp(argv[1], "--build-design") ||
+                      !strcmp(argv[1], "--install-engine") || !strcmp(argv[1], "--engine-pins") || !strcmp(argv[1], "--check-anchors") ||
+                      !strcmp(argv[1], "--prepare-launch") || !strcmp(argv[1], "--model-rpc-worker"))))
         return ds4_serve_main(argc, argv);
 
 #ifdef _WIN32

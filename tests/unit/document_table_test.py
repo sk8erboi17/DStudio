@@ -94,6 +94,23 @@ class DocumentTableTests(unittest.TestCase):
         result = self.simple("Weight: 12 kg", "12", {"id": "field", "type": "number", "unit": "hours"})
         self.assertEqual(result["summary"], {"needs_review": 1})
 
+    def test_spreadsheet_source_rejects_dimension_that_omits_real_cells(self):
+        target = self.root / "stale-dimension.xlsx"
+        office.create_xlsx(target, [("Data", [["Header"], ["Must not disappear"]])], header=True)
+        with zipfile.ZipFile(target) as archive:
+            entries = [(item, archive.read(item.filename)) for item in archive.infolist()]
+        with zipfile.ZipFile(target, "w") as archive:
+            for item, payload in entries:
+                if item.filename == "xl/worksheets/sheet1.xml":
+                    root = office.ET.fromstring(payload)
+                    root.find(f"{{{office.NS_MAIN}}}dimension").set("ref", "A1")
+                    payload = office.xml_bytes(root)
+                archive.writestr(item, payload)
+        before = target.read_bytes()
+        with self.assertRaisesRegex(office.ToolError, "dimension.*omit"):
+            self.call("read_source", target.name)
+        self.assertEqual(target.read_bytes(), before)
+
     def test_partial_numeric_quotes_cannot_fabricate_source_match(self):
         for i, (text, quote) in enumerate([("312 hours", "12 hours"), ("-12 hours", "12 hours"), ("12.5 hours", "12")]):
             name = f"a{i}.txt"

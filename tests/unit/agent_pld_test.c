@@ -172,7 +172,7 @@ static void benchmark_clock_tests(void) {
 }
 int main(void) {
     benchmark_clock_tests();
-    mode_tests(); lookup_tests(); transaction_tests(); agent_loop_tests(); server_loop_tests();
+    mode_tests(); lookup_tests(); transaction_tests(); agent_loop_tests(); compaction_loop_tests(); server_loop_tests();
     printf("Agent/Cowork/Chat PLD: %u checks passed (stateful test double; no model/Metal run)\n", checks);
     return 0;
 }

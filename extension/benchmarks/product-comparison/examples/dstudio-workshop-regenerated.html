@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neighbourhood Lab — Make room to learn</title>
+<style>
+  :root{
+    --bg: #f4f7f2;            /* calm paper green */
+    --surface: #ffffff;
+    --fg: #1f2b22;            /* deep green-black text */
+    --muted: #4a5a4e;         /* readable secondary text */
+    --border: #d3ddd2;
+    --accent: #2f6b3a;        /* calm leaf green */
+    --accent-soft: #e3efe0;
+    --accent-strong: #24552e;
+    --focus: #1a6b2f;
+    --radius: 14px;
+    --space: 1rem;
+  }
+  *{ box-sizing: border-box; margin:0; padding:0; }
+  html{ scroll-behavior:smooth; }
+  body{
+    background: var(--bg);
+    color: var(--fg);
+    font-family: Georgia, "Times New Roman", serif;
+    line-height: 1.6;
+    min-height: 100dvh;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* ---------- layout ---------- */
+  .page{
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: clamp(1.25rem, 4vw, 3rem) clamp(1rem, 5vw, 2.5rem);
+  }
+  .grid{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: clamp(1.5rem, 4vw, 3rem);
+    align-items: start;
+  }
+  /* ---------- intro column ---------- */
+  .intro{
+    padding: clamp(0.5rem, 2vw, 1.5rem) 0;
+  }
+  .eyebrow{
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    font-size: 0.8rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent-strong);
+    margin-bottom: 0.9rem;
+  }
+  h1{
+    font-size: clamp(2rem, 5vw, 3.1rem);
+    line-height: 1.12;
+    letter-spacing: -0.01em;
+    margin-bottom: 1.1rem;
+    color: var(--fg);
+  }
+  .intro p{
+    font-size: 1.05rem;
+    color: var(--muted);
+    max-width: 46ch;
+    margin-bottom: 1.2rem;
+  }
+  .intro .note{
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.2rem;
+    font-size: 0.95rem;
+    color: var(--muted);
+  }
+  .intro .note strong{ color: var(--fg); }
+  /* ---------- step panel ---------- */
+  .panel{
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: clamp(1.25rem, 3vw, 2rem);
+    box-shadow: 0 1px 2px rgba(31,43,34,0.06);
+  }
+  .step-head{
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    margin-bottom: 0.4rem;
+  }
+  .step-num{
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    font-size: 0.85rem;
+    font-weight: bold;
+    color: var(--accent-strong);
+  }
+  .step-title{
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--fg);
+  }
+  .step-desc{
+    font-size: 0.98rem;
+    color: var(--muted);
+    margin-bottom: 1.2rem;
+  }
+  /* ---------- radio cards ---------- */
+  fieldset{
+    border: none;
+    margin: 0;
+    padding: 0;
+  }
+  .options{
+    display: grid;
+    gap: 0.75rem;
+  }
+  .option{
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.9rem 1rem;
+    background: var(--surface);
+    cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .option:hover{ border-color: var(--accent); background: var(--accent-soft); }
+  .option input{
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    pointer-events: none;
+  }
+  .option .indicator{
+    flex: 0 0 20px;
+    width: 20px;
+    height: 20px;
+    margin-top: 3px;
+    border: 2px solid var(--muted);
+    border-radius: 50%;
+    background: var(--surface);
+    position: relative;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .option input:checked + .indicator{
+    border-color: var(--accent);
+    background: var(--accent);
+  }
+  .option input:checked + .indicator::after{
+    content: "";
+    position: absolute;
+    inset: 5px;
+    border-radius: 50%;
+    background: var(--surface);
+  }
+  .option input:focus-visible + .indicator{
+    outline: 3px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .option .text{ flex: 1; min-width: 0; }
+  .option .name{
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    font-size: 1.02rem;
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .option .meta{
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin-top: 0.15rem;
+  }
+  .option input:checked ~ .text .name{ color: var(--accent-strong); }
+  /* ---------- controls ---------- */
+  .controls{
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1.4rem;
+    flex-wrap: wrap;
+  }
+  button{
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 10px;
+    padding: 0.8rem 1.4rem;
+    min-height: 44px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background .15s ease, border-color .15s ease, transform .1s ease;
+  }
+  .btn-primary{
+    background: var(--accent);
+    color: #fff;
+  }
+  .btn-primary:hover{ background: var(--accent-strong); }
+  .btn-primary:active{ transform: translateY(1px); }
+  .btn-primary:disabled{
+    background: #c9d3c7;
+    color: #6b756b;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .btn-secondary{
+    background: var(--surface);
+    color: var(--accent-strong);
+    border-color: var(--border);
+  }
+  .btn-secondary:hover{ border-color: var(--accent); }
+  button:focus-visible{
+    outline: 3px solid var(--focus);
+    outline-offset: 2px;
+  }
+  /* ---------- review ---------- */
+  .review-list{
+    display: grid;
+    gap: 0.9rem;
+    margin: 0.4rem 0 1.2rem;
+  }
+  .review-row{
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.9rem 1rem;
+    background: var(--accent-soft);
+  }
+  .review-row .label{
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-strong);
+    margin-bottom: 0.2rem;
+  }
+  .review-row .value{
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--fg);
+  }
+  .confirm{
+    border: 1px dashed var(--accent);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    background: var(--accent-soft);
+    font-size: 0.98rem;
+    color: var(--fg);
+  }
+  .confirm strong{ color: var(--accent-strong); }
+  .confirm .sample{
+    margin-top: 0.6rem;
+    font-size: 0.9rem;
+    color: var(--muted);
+  }
+  /* ---------- progress ---------- */
+  .progress{
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.4rem;
+  }
+  .progress .dot{
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border);
+  }
+  .progress .dot.done{ background: var(--accent); }
+  .progress .dot.active{ background: var(--accent-soft); border: 1px solid var(--accent); }
+  .sr-only{
+    position: absolute;
+    width: 1px; height: 1px;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  /* ---------- mobile ---------- */
+  @media (max-width: 760px){
+    .grid{ grid-template-columns: 1fr; }
+    .intro{ order: 1; }
+    .panel{ order: 2; }
+    .intro p{ max-width: none; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    html{ scroll-behavior: auto; }
+    .option, button{ transition: none; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+  <div class="grid">
+    <!-- Intro column -->
+    <section class="intro" aria-label="About Neighbourhood Lab">
+      <div class="eyebrow">Neighbourhood Lab</div>
+      <h1>Make room to learn.</h1>
+      <p>Neighbourhood Lab is a friendly, general-purpose workshop space for first-time participants. Pick a workshop, choose a day, and review your plan — no account, no payment, no fuss.</p>
+      <p>This page is a local demo. The workshops and days below are sample data, and nothing is booked or sent anywhere.</p>
+      <div class="note">
+        <strong>How it works</strong> — three short steps: choose a workshop, choose a day, then review. Your choices stay put while you move between steps.
+      </div>
+    </section>
+
+    <!-- Step panel -->
+    <section class="panel" aria-label="Planner">
+      <div class="progress" aria-hidden="true">
+        <span class="dot done" id="p1"></span>
+        <span class="dot" id="p2"></span>
+        <span class="dot" id="p3"></span>
+      </div>
+
+      <!-- STEP 1 -->
+      <div id="step1" class="step">
+        <div class="step-head">
+          <span class="step-num">Step 1</span>
+          <h2 class="step-title">Choose a workshop</h2>
+        </div>
+        <p class="step-desc">Tap the workshop that sounds good. You can change it later.</p>
+        <fieldset>
+          <legend class="sr-only">Choose a workshop</legend>
+          <div class="options">
+            <label class="option">
+              <input type="radio" name="workshop" value="Bookbinding">
+              <span class="indicator" aria-hidden="true"></span>
+              <span class="text">
+                <span class="name">Bookbinding</span>
+                <span class="meta">Stitch and bind a small notebook by hand.</span>
+              </span>
+            </label>
+            <label class="option">
+              <input type="radio" name="workshop" value="Bicycle care">
+              <span class="indicator" aria-hidden="true"></span>
+              <span class="text">
+                <span class="name">Bicycle care</span>
+                <span class="meta">Clean, oil and adjust your own bike.</span>
+              </span>
+            </label>
+            <label class="option">
+              <input type="radio" name="workshop" value="Urban sketching">
+              <span class="indicator" aria-hidden="true"></span>
+              <span class="text">
+                <span class="name">Urban sketching</span>
+                <span class="meta">Draw the street with a quick, loose hand.</span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+        <div class="controls">
+          <button class="btn-primary" id="next1" disabled>Continue</button>
+        </div>
+      </div>
+
+      <!-- STEP 2 -->
+      <div id="step2" class="step" hidden>
+        <div class="step-head">
+          <span class="step-num">Step 2</span>
+          <h2 class="step-title">Choose a day</h2>
+        </div>
+        <p class="step-desc">Pick a day that works for you.</p>
+        <fieldset>
+          <legend class="sr-only">Choose a day</legend>
+          <div class="options">
+            <label class="option">
+              <input type="radio" name="day" value="Tuesday">
+              <span class="indicator" aria-hidden="true"></span>
+              <span class="text">
+                <span class="name">Tuesday</span>
+                <span class="meta">Evening session, 6:30pm.</span>
+              </span>
+            </label>
+            <label class="option">
+              <input type="radio" name="day" value="Thursday">
+              <span class="indicator" aria-hidden="true"></span>
+              <span class="text">
+                <span class="name">Thursday</span>
+                <span class="meta">Morning session, 10:00am.</span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+        <div class="controls">
+          <button class="btn-secondary" id="back2">Back</button>
+          <button class="btn-primary" id="next2" disabled>Continue</button>
+        </div>
+      </div>
+
+      <!-- STEP 3 -->
+      <div id="step3" class="step" hidden>
+        <div class="step-head">
+          <span class="step-num">Step 3</span>
+          <h2 class="step-title">Review</h2>
+        </div>
+        <p class="step-desc">Here is your plan. Check it, then confirm.</p>
+        <div class="review-list">
+          <div class="review-row">
+            <div class="label">Workshop</div>
+            <div class="value" id="rv-workshop">—</div>
+          </div>
+          <div class="review-row">
+            <div class="label">Day</div>
+            <div class="value" id="rv-day">—</div>
+          </div>
+        </div>
+        <div class="confirm">
+          <strong>No booking was made.</strong> This is a local demo — your choices stay on this page and are not sent anywhere.
+          <div class="sample">Sample data: workshops and days are examples for trying out the flow.</div>
+        </div>
+        <div class="controls">
+          <button class="btn-secondary" id="back3">Back</button>
+          <button class="btn-primary" id="confirm">Confirm plan</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const steps = {1: $('step1'), 2: $('step2'), 3: $('step3')};
+  const dots = {1: $('p1'), 2: $('p2'), 3: $('p3')};
+  const workshopInputs = document.querySelectorAll('input[name="workshop"]');
+  const dayInputs = document.querySelectorAll('input[name="day"]');
+  const next1 = $('next1'), next2 = $('next2'), back2 = $('back2'), back3 = $('back3'), confirm = $('confirm');
+
+  function selected(inputs){
+    for (let i = 0; i < inputs.length; i++){
+      if (inputs[i].checked) return inputs[i].value;
+    }
+    return null;
+  }
+
+  function showStep(n){
+    for (const k in steps) steps[k].hidden = (Number(k) !== n);
+    for (const k in dots){
+      dots[k].className = 'dot' + (Number(k) < n ? ' done' : (Number(k) === n ? ' active' : ''));
+    }
+  }
+
+  function syncButtons(){
+    next1.disabled = !selected(workshopInputs);
+    next2.disabled = !selected(dayInputs);
+  }
+
+  // Step 1 -> 2
+  next1.addEventListener('click', () => {
+    if (!selected(workshopInputs)) return;
+    showStep(2);
+    syncButtons();
+    $('step2').querySelector('input').focus();
+  });
+
+  // Step 2 -> 3
+  next2.addEventListener('click', () => {
+    if (!selected(dayInputs)) return;
+    $('rv-workshop').textContent = selected(workshopInputs);
+    $('rv-day').textContent = selected(dayInputs);
+    showStep(3);
+  });
+
+  // Back preserves choices
+  back2.addEventListener('click', () => {
+    showStep(1);
+    syncButtons();
+    $('step1').querySelector('input').focus();
+  });
+  back3.addEventListener('click', () => {
+    showStep(2);
+    syncButtons();
+    $('step2').querySelector('input').focus();
+  });
+
+  // Final confirmation (local demo)
+  confirm.addEventListener('click', () => {
+    const w = selected(workshopInputs), d = selected(dayInputs);
+    const msg = 'Your plan is set: ' + w + ' on ' + d + '. No booking was made — this is a local demo.';
+    $('confirm').textContent = 'Plan noted';
+    $('confirm').disabled = true;
+    $('confirm').setAttribute('aria-live', 'polite');
+    $('confirm').textContent = msg;
+  });
+
+  // Live gating
+  workshopInputs.forEach(i => i.addEventListener('change', syncButtons));
+  dayInputs.forEach(i => i.addEventListener('change', syncButtons));
+
+  syncButtons();
+  showStep(1);
+})();
+</script>
+</body>
+</html>

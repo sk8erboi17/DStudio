@@ -151,6 +151,24 @@ static int dtg_scheduler_finish_node(dtg_runtime *rt, dtg_node *node,
     const int proven_no_effect_agent_attempt =
         !strcmp(node->action_name, "agent.prompt") &&
         node->action_require_tool_result && node->watchdog_tool_calls == 0;
+    /* A Goal continuation is a fresh planning turn over current state, never
+     * automatic replay of a failed action. Only the live executor may request
+     * it after a healthy WAITING boundary; recovered/crashed attempts cannot. */
+    if (!strcmp(node->action_name, "agent.goal") &&
+        !strcmp(node->native_message, "Goal continuation required: completion evidence is not yet available") &&
+        !node->native_cancel_requested && !node->watchdog_tripped && g_child > 0 && g_ready &&
+        node->attempts_started < node->max_attempts) {
+        return dtg_store_node_event(rt, node, "goal.continuation_scheduled", DTG_NODE_PENDING,
+                                    node->attempts_started, "", 0, 0,
+                                    "Continue unfinished goal from current state; do not replay prior effects",
+                                    err, errsz);
+    }
+    if (!strcmp(node->action_name, "agent.goal") && rt->graph.state == DTG_GRAPH_RUNNING) {
+        return dtg_store_graph_event(rt, "goal.needs_input", DTG_GRAPH_NEEDS_INPUT,
+            rt->graph.approved, node->attempts_started >= node->max_attempts
+                ? "Goal turn budget exhausted; completion has not been verified"
+                : node->native_message, err, errsz);
+    }
     if (node->automatic_retry && (node->idempotent || proven_no_effect_agent_attempt) &&
         node->attempts_started < node->max_attempts) {
         return dtg_store_node_event(rt, node, "node.retry_scheduled", DTG_NODE_PENDING,
@@ -292,6 +310,7 @@ static int dtg_scheduler_start(dtg_runtime *rt, char *err, size_t errsz) {
         snprintf(err, errsz, "graph is not ready"); return 0;
     }
     if (!dtg_executor_graph_available(&rt->graph, err, errsz)) return 0;
+    if (!dtg_agent_context_preflight(&rt->graph, err, errsz)) return 0;
     if (!dtg_store_graph_event(rt, "graph.started", DTG_GRAPH_RUNNING,
                                rt->graph.approved, "Graph execution started", err, errsz)) return 0;
     for (size_t i = 0; i < rt->graph.node_count; i++) {
@@ -313,8 +332,31 @@ static int dtg_scheduler_pause(dtg_runtime *rt, char *err, size_t errsz) {
 }
 
 static int dtg_scheduler_resume(dtg_runtime *rt, char *err, size_t errsz) {
-    if (!rt || rt->graph.state != DTG_GRAPH_PAUSED) {
+    dtg_node *goal = rt ? dtg_find_node(&rt->graph, "goal") : NULL;
+    int goal_waiting = goal && !strcmp(goal->action_name, "agent.goal") && rt->graph.state == DTG_GRAPH_NEEDS_INPUT;
+    if (!rt || (rt->graph.state != DTG_GRAPH_PAUSED && !goal_waiting)) {
         snprintf(err, errsz, "only a paused graph can be resumed"); return 0;
+    }
+    if (!dtg_agent_context_preflight(&rt->graph, err, errsz)) return 0;
+    if (goal && !strcmp(goal->action_name, "agent.goal") && goal->state == DTG_NODE_FAILED) {
+        if (goal->attempts_started >= goal->max_attempts) {
+            snprintf(err,errsz,"Goal budget exhausted; clear it and set a new goal with the remaining work"); return 0;
+        }
+        /* An explicit resume authorizes fresh planning from current state, not
+         * replay. Persist it while scheduling is still paused. Recovery cannot
+         * dispatch until the graph.resumed record also exists. */
+        if (!dtg_store_node_event(rt,goal,"goal.resume_requested",DTG_NODE_PENDING,
+            goal->attempts_started,"",0,0,"User requested goal continuation; revalidate current workspace",err,errsz)) return 0;
+    }
+    /* A crash may leave resume_requested durable before its dependent gates
+     * are reset. Finish that preparation idempotently before graph.resumed. */
+    if (goal && !strcmp(goal->action_name, "agent.goal") && goal->state == DTG_NODE_PENDING) {
+        for (size_t i=0;i<rt->graph.node_count;i++) {
+            dtg_node *gate=&rt->graph.nodes[i];
+            if (gate->state == DTG_NODE_BLOCKED && gate->dependency_count == 1 &&
+                !strcmp(gate->dependencies[0].node_id,goal->id) &&
+                !dtg_scheduler_set_node(rt,gate,"node.pending",DTG_NODE_PENDING,"Goal continuation awaits new evidence",err,errsz)) return 0;
+        }
     }
     if (!dtg_store_graph_event(rt, "graph.resumed", DTG_GRAPH_RUNNING,
                                rt->graph.approved, "Graph resumed", err, errsz)) return 0;

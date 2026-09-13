@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import csv
 import json
+import random
 import sys
 import tempfile
 import unittest
@@ -125,6 +127,149 @@ class CoworkOfficeTests(unittest.TestCase):
         result = self.call("spreadsheet", action="read", path="people.csv", range="A1:B10")
         self.assertIn("Ada\t10", result)
         self.assertIn("Lin\t8", result)
+
+    def scope(self, result, prefix="Read scope: "):
+        rows = [line[len(prefix):] for line in result.splitlines() if line.startswith(prefix)]
+        self.assertEqual(len(rows), 1, "The tool must report the actual read/write extent")
+        return json.loads(rows[0])
+
+    def test_partial_csv_read_reports_omitted_rows_and_columns(self):
+        data = [[f"r{row}c{col}" for col in range(1, 22)] for row in range(1, 61)]
+        with (self.root / "matrix.csv").open("w", newline="") as handle:
+            csv.writer(handle).writerows(data)
+        original = (self.root / "matrix.csv").read_bytes()
+        result = self.call("excel", action="read", path="matrix.csv")
+        scope = self.scope(result)
+        self.assertFalse(scope["complete"])
+        self.assertEqual(scope["dataRange"], "A1:U60")
+        self.assertEqual(scope["range"], "A1:T50")
+        self.assertEqual(set(scope["omitted"]), {"below", "right"})
+        self.assertNotIn("r60c21", result)
+        tail = self.call("excel", action="read", path="matrix.csv", range="U51:U60")
+        self.assertIn("r60c21", tail)
+        self.assertEqual(set(self.scope(tail)["omitted"]), {"above", "left"})
+        whole = self.call("excel", action="read", path="matrix.csv", range="A1:U60")
+        self.assertTrue(self.scope(whole)["complete"])
+        self.assertIn("r60c21", whole)
+        self.assertEqual((self.root / "matrix.csv").read_bytes(), original)
+
+    def test_small_csv_read_keeps_blanks_zeroes_and_literal_identifiers(self):
+        (self.root / "small.csv").write_text("ID,Note,Count\n0007,,0\n0012,Zoë,2\n", encoding="utf-8")
+        result = self.call("excel", action="read", path="small.csv")
+        scope = self.scope(result)
+        self.assertTrue(scope["complete"])
+        self.assertEqual(scope["dataRange"], "A1:C3")
+        self.assertIn("0007\t\t0\n0012\tZoë\t2\n", result)
+        # No padding to twenty columns for a three-column file.
+        self.assertNotIn("\t\t\t", result)
+
+    def test_xlsx_extent_comes_from_cells_not_stale_dimension_metadata(self):
+        rows = [[None] * 21 for _ in range(60)]
+        rows[-1][-1] = "PIXEL_FREE_LAST_CELL"
+        self.call("excel", action="create", path="sparse.xlsx", data_json=json.dumps(rows))
+        target = self.root / "sparse.xlsx"
+        with zipfile.ZipFile(target) as archive:
+            entries = [(item, archive.read(item.filename)) for item in archive.infolist()]
+        with zipfile.ZipFile(target, "w") as archive:
+            for item, payload in entries:
+                if item.filename == "xl/worksheets/sheet1.xml":
+                    root = office.ET.fromstring(payload)
+                    root.find(f"{{{office.NS_MAIN}}}dimension").set("ref", "A1")
+                    payload = office.xml_bytes(root)
+                archive.writestr(item, payload)
+        first = self.call("excel", action="read", path="sparse.xlsx")
+        self.assertFalse(self.scope(first)["complete"])
+        self.assertEqual(self.scope(first)["dataRange"], "U60:U60")
+        self.assertNotIn("PIXEL_FREE_LAST_CELL", first)
+        inspected = self.call("excel", action="inspect", path="sparse.xlsx")
+        self.assertIn("U60:U60", inspected)
+        last = self.call("excel", action="read", path="sparse.xlsx", range="U60")
+        self.assertTrue(self.scope(last)["complete"])
+        self.assertIn("PIXEL_FREE_LAST_CELL", last)
+
+    def test_read_scope_never_claims_complete_after_text_truncation(self):
+        rows = [["z" * 100_000] for _ in range(8)]
+        self.call("excel", action="create", path="long.xlsx", data_json=json.dumps(rows))
+        result = self.call("excel", action="read", path="long.xlsx", range="A1:A8")
+        scope = self.scope(result)
+        self.assertFalse(scope["complete"])
+        self.assertTrue(scope["textTruncated"])
+        self.assertLessEqual(len(result), office.MAX_RETURN_CHARS)
+        self.assertIn("truncated", result.lower())
+        narrower = self.call("excel", action="read", path="long.xlsx", range="A1:A1")
+        self.assertFalse(self.scope(narrower)["textTruncated"])
+        self.assertEqual(self.scope(narrower)["omitted"], ["below"])
+
+    def test_created_receipt_names_actual_saved_sheets_and_requires_readback(self):
+        result = self.call("excel", action="create", path="named.xlsx", sheets_json=json.dumps([
+            {"name": "Plan/9", "rows": [["ID", "Count"], ["0007", 0]]},
+            {"name": "Plan/9", "rows": [["Other"]]},
+        ]))
+        scope = self.scope(result, "Write scope: ")
+        self.assertFalse(scope["readBack"])
+        self.assertEqual(scope["sheets"], [{"sheet": "Plan 9", "range": "A1:B2"},
+                                            {"sheet": "Plan 9 2", "range": "A1:A1"}])
+        with zipfile.ZipFile(self.root / "named.xlsx") as archive:
+            root = office.ET.fromstring(archive.read("xl/workbook.xml"))
+            names = [node.get("name") for node in root.find(f"{{{office.NS_MAIN}}}sheets")]
+            self.assertEqual(names, [item["sheet"] for item in scope["sheets"]])
+        read = self.call("excel", action="read", path="named.xlsx", **scope["sheets"][0])
+        self.assertIn("0007\t0", read)
+        self.assertEqual(self.scope(read)["otherSheets"], 1)
+
+    def test_unicode_read_reports_truncation_before_the_native_bridge_byte_limit(self):
+        self.call("excel", action="create", path="unicode.xlsx", data_json=json.dumps([["🙂" * 270_000]]))
+        result = self.call("excel", action="read", path="unicode.xlsx", range="A1")
+        self.assertFalse(self.scope(result)["complete"])
+        self.assertTrue(self.scope(result)["textTruncated"])
+        self.assertLessEqual(len(result.encode("utf-8")), 1_000_000)
+        self.assertNotIn("\ufffd", result)
+
+    def test_non_utf8_csv_is_rejected_without_changing_the_source(self):
+        source = b"name,value\nZo\xeb,12\n"
+        (self.root / "legacy.csv").write_bytes(source)
+        with self.assertRaisesRegex(office.ToolError, "UTF-8"):
+            self.call("excel", action="read", path="legacy.csv")
+        self.assertEqual((self.root / "legacy.csv").read_bytes(), source)
+
+    def test_read_serialization_stops_at_budget_before_expanding_repeated_cells(self):
+        # An OOXML shared string can occur in thousands of selected cells.
+        # Count actual serialization visits; do not allocate its 800 MB expansion
+        # merely to demonstrate that a final string slice is too late.
+        class CountedCell(str):
+            visits = 0
+
+            def __str__(self):
+                CountedCell.visits += 1
+                if CountedCell.visits > 16:
+                    raise AssertionError("serialized past the bounded response budget")
+                return super().__str__()
+
+        value = CountedCell("x" * 100_000)
+        matrix = [[value] * 20 for _ in range(400)]
+        extent = office.SheetExtent((1, 1, 400, 20))
+        result = office.spreadsheet_read_result(self.root / "repeated.xlsx", "Shared", matrix,
+                                                (1, 1, 400, 20), extent)
+        self.assertFalse(self.scope(result)["complete"])
+        self.assertTrue(self.scope(result)["textTruncated"])
+        self.assertLessEqual(CountedCell.visits, 16)
+        self.assertLessEqual(len(result), office.MAX_RETURN_CHARS)
+
+    def test_bounded_tsv_matches_full_reference_until_its_explicit_cut(self):
+        rng = random.Random(209)
+        for _ in range(150):
+            matrix = [["".join(rng.choices("ab0\t\r\nè🙂", k=rng.randrange(30)))
+                       for _ in range(rng.randrange(5))] for _ in range(rng.randrange(8))]
+            expected = office.tsv(matrix) + "\n"
+            complete, cut = office.bounded_tsv(matrix, 10000, 10000)
+            self.assertFalse(cut)
+            self.assertEqual(complete, expected)
+            chars, byte_limit = rng.randrange(180), rng.randrange(180)
+            partial, cut = office.bounded_tsv(matrix, chars, byte_limit)
+            self.assertTrue(expected.startswith(partial))
+            self.assertLessEqual(len(partial), chars)
+            self.assertLessEqual(len(partial.encode("utf-8")), byte_limit)
+            self.assertEqual(cut, partial != expected)
 
     def test_docx_round_trip_with_unicode_and_structure(self):
         content = "# Quarterly brief\n\n## Decisions\n- Ship the local path\n- Verify qualità e accessibilità\n\nOwner: Zoë"

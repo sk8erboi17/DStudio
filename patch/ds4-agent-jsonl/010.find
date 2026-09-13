@@ -1,2 +1,0 @@
-            agent_noninteractive_marker("+DWARFSTAR_WAITING");
-            waiting_announced = true;

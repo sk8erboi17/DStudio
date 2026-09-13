@@ -1,0 +1,28 @@
+diff --git a/q36_server.c b/q36_server.c
+--- a/q36_server.c
++++ b/q36_server.c
+@@ -5732,9 +5732,12 @@ static void append_responses_object(buf *b, const request *r, const char *id,
+     } else {
+         buf_puts(b, ",\"incomplete_details\":null");
+     }
++    /* response.created is a zero-usage placeholder, not the final receipt.
++     * It must not inherit cached tokens from the completed request. */
++    int cached_tokens = !strcmp(status, "in_progress") ? 0 : r->cached_tokens;
+     buf_printf(b,
+         ",\"usage\":{\"input_tokens\":%d,\"output_tokens\":%d,\"total_tokens\":%d,\"input_tokens_details\":{\"cached_tokens\":%d}}}",
+-        prompt_tokens, completion_tokens, prompt_tokens + completion_tokens, r->cached_tokens);
++        prompt_tokens, completion_tokens, prompt_tokens + completion_tokens, cached_tokens);
+ }
+ 
+ static bool responses_final_response(int fd, const request *r, const char *id,
+@@ -10609,6 +10609,10 @@ static void generate_job(server *s, server_slot *slot, job *j) {
+         } else kv_pending_discard(&pending); /* Optional cache, not a lost request. */
+     }
+     free(disk_cache_path); disk_cache_path = NULL;
++    /* Publish usage only after the private text candidate commits. Visual
++     * preparation owns its separate image-conditioned reuse count. */
++    if (private_text) j->req.cached_tokens = cached;
++
+     char id[96];
+     if (j->req.api == API_RESPONSES) {
+         responses_random_id(id, sizeof(id), "resp_");

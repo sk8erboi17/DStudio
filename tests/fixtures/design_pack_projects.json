@@ -1,0 +1,115 @@
+{
+  "schema": "dstudio.design-projects.v1",
+  "scope": "Eighteen authored briefs, not generated examples or passing evidence. Require actual native Design generation and independent browser/visual review. All content and service actions are fictional local demos.",
+  "commonPrompt": "Do not ask questions; build the requested working prototype directly in index.html. Use only local HTML, CSS, JavaScript and original SVG; no network, external fonts, media-generation models or service calls. Use the selected design system, load its real files and bind its tokens. Label content as Sample data. Support light and dark appearance and usable layouts at 320, 390, 768 and 1440 pixels, with visible keyboard focus, proper labels and no horizontal page scrolling. Respect the system colour preference on initial load. Name distinct collections and panels with visible headings and matching accessible region names. Use semantic rows, list items or articles for collections. Repeated item actions must be named with the action and item title, or belong to that item's semantic container. Keep radio/checkbox indicators in their own column, separate from all wrapped text. Use a todo plan, exercise the real controls, inspect the rendered result, verify_artifact and artifact. Any final confirmation must say it is a local demo; never claim a real booking, purchase or publication. Keep all dependencies in the project so it works without DStudio. The requested system is mandatory, not a suggestion.",
+  "cases": [
+    {
+      "id": "folio-field-index", "designSystemId": "folio", "entry": "index.html",
+      "requiredText": ["BRIDGE NOTES", "Small crossings, large stories", "Footbridge 12", "Canal crossing", "Railway span"],
+      "interaction": "editorial-search-dialog",
+      "prompt": "Build BRIDGE NOTES, a reading-first public archive about ordinary bridges, with the heading Small crossings, large stories. Show three entries: Footbridge 12, Canal crossing, Railway span. A labelled Search field filters titles immediately; unmatched text shows No entries found and Clear restores all three. Each entry has a Read field note button opening a native dialog with that entry's title and distinct illustrative text. Close and Escape return focus to the invoking button. Compose an asymmetric editorial index with a clear reading column, not a marketing hero or a three-card feature grid."
+    },
+    {
+      "id": "folio-reading-desk", "designSystemId": "folio", "entry": "index.html",
+      "requiredText": ["MARGIN", "A small reading desk", "Morning walk", "Borrowed tools", "Open windows"],
+      "interaction": "reading-list-notes",
+      "prompt": "Build MARGIN, an editorial reading desk headed A small reading desk. A contents rail selects Morning walk, Borrowed tools or Open windows and displays the selected essay. Each essay has independent Mark as read/Mark unread state and a Reading progress counter from 0 of 3 to 3 of 3. Provide a labelled Note textarea and Save note button; each essay retains its own literal-text note when switching essays. Empty notes cannot be saved. Explain that notes last only for this open page. Include a Read saved note button opening a closable native dialog. Keep the essay typography dominant, with compact controls beside the text."
+    },
+    {
+      "id": "signal-repair-queue", "designSystemId": "signal", "entry": "index.html",
+      "requiredText": ["FIXROOM", "Repair queue", "Desk lamp", "Portable radio", "Kitchen scale"],
+      "interaction": "repair-search-states",
+      "prompt": "Build FIXROOM, a repair-workshop operations screen headed Repair queue. Use a real table with Item, Owner and Status columns for Desk lamp, Portable radio and Kitchen scale. Search filters the table with an honest empty state. A labelled View state selector has Populated, Loading, Empty and Error; Error exposes Retry, which restores Populated. Each item has a Details button opening a keyboard-dismissible native dialog with its own owner/status. Use a narrow navigation rail, dense work table and subordinate details area, without a giant landing-page heading or a statistics-card row."
+    },
+    {
+      "id": "signal-incident-triage", "designSystemId": "signal", "entry": "index.html",
+      "requiredText": ["RELAY", "Local incident board", "Sensor offline", "Door reader", "Display cable"],
+      "interaction": "incident-assignment-resolution",
+      "prompt": "Build RELAY, a Local incident board for a fictional makerspace. Show Sensor offline (Unassigned), Door reader (Mira), Display cable (Ivo), all initially Open. Selecting an incident opens its detail panel. A labelled Assignee select offers Unassigned, Mira and Ivo; Apply assignment changes only that incident. Resolve/ Reopen changes its state. Open and Resolved filters display the correct records and counts, without losing assignments. Resolving the final open incident must show a useful empty state, not hide the controls. Add a History dialog showing the local actions in order. Use table/list hierarchy and precise textual statuses, not decorative dashboards."
+    },
+    {
+      "id": "forma-project-settings", "designSystemId": "forma", "entry": "index.html",
+      "requiredText": ["FORMROOM", "Project settings", "Basics", "Notifications", "Review changes"],
+      "interaction": "settings-draft-commit",
+      "prompt": "Build FORMROOM, Project settings with Basics and Notifications tabs and a Review changes dialog. The saved project name starts as Studio notes, daily digest starts enabled, comment alerts disabled. Changes remain a draft until Save changes; Cancel changes restores the last saved values across both tabs. Project name is required and limited to 40 characters; show field-level errors and focus the invalid field. Review changes shows exact before/after values. Saving updates the visible saved summary and disables Save changes until another edit. Use a tidy, restrained two-column settings layout that becomes one column on a phone. No network or persistence beyond the current page."
+    },
+    {
+      "id": "forma-room-reservation", "designSystemId": "forma", "entry": "index.html",
+      "requiredText": ["ROOMDAY", "Plan a room session", "Room", "Time", "Review"],
+      "interaction": "room-wizard-validation",
+      "prompt": "Build ROOMDAY, Plan a room session, a three-step Room, Time, Review journey. Rooms are Cedar (4 people) and Birch (8); time choices are 09:00 and 14:00. A participant-count field must be a whole number from 1 to the selected room's capacity. Continue is disabled until the current step is valid. Back preserves valid choices; switching from Birch with 7 people to Cedar makes that count invalid, never silently changes it. Review shows the exact room/time/count. Confirm opens a completion panel saying No room was booked; Start over resets the demo. Use one focused panel and a clear step indicator."
+    },
+    {
+      "id": "grove-workshop-journey", "designSystemId": "grove", "entry": "index.html",
+      "requiredText": ["NEIGHBOURHOOD LAB", "Make room to learn", "Bookbinding", "Bicycle care", "Urban sketching"],
+      "interaction": "workshop-journey",
+      "prompt": "Build NEIGHBOURHOOD LAB with heading Make room to learn and a three-step Choose a workshop, Choose a day, Review journey. Workshops are Bookbinding, Bicycle care and Urban sketching, with full readable descriptions beside real radio buttons. Days are Tuesday and Thursday. Continue requires a choice; Back preserves workshop and day. Review shows the exact selections; final confirmation says No booking was made. Start again resets both choices. Put a human introduction beside a focused step panel on desktop; on mobile, the current step follows the heading naturally. Never wrap description text underneath a radio indicator."
+    },
+    {
+      "id": "grove-tool-library", "designSystemId": "grove", "entry": "index.html",
+      "requiredText": ["SHARED SHED", "Useful things, shared locally", "Hand drill", "Sewing kit", "Garden fork"],
+      "interaction": "tool-shortlist-limits",
+      "prompt": "Build SHARED SHED, a friendly fictional tool library headed Useful things, shared locally. List Hand drill (Repair), Sewing kit (Repair), Garden fork (Garden). Category filters All, Repair, Garden and a labelled Search work together and show an empty state when appropriate. Add to shortlist/Remove actions keep a maximum of two distinct tools; show why a third cannot be added. A Review shortlist native dialog shows chosen tools and permits removal; changes reflect in the list and count. A demo request action says No borrowing request was sent. Prioritize readable guidance and calm space, not a shop checkout."
+    },
+    {
+      "id": "pulse-listening-queue", "designSystemId": "pulse", "entry": "index.html",
+      "requiredText": ["SIDE A", "Build a listening queue", "Night lines", "Paper satellites", "Second sunrise"],
+      "interaction": "queue-order-and-active-item",
+      "prompt": "Build SIDE A, Build a listening queue, an expressive but readable local music-interface demo. The library contains Night lines, Paper satellites and Second sunrise. Add to queue keeps unique tracks; queued items have Move up, Move down and Remove controls with meaningful accessible labels. Selecting a queued track marks it Current; reordering retains that identity, and removing it clears Current. Clear queue leaves an explicit empty state. A Queue details native dialog lists the exact current order. Do not pretend to play audio: display No audio playback in this demo. Use strong typographic rhythm and a bold active accent, without gradients or blinking motion."
+    },
+    {
+      "id": "pulse-session-board", "designSystemId": "pulse", "entry": "index.html",
+      "requiredText": ["FREQUENCY", "Your session board", "Sound walks", "Poster room", "Light studies"],
+      "interaction": "schedule-conflicts",
+      "prompt": "Build FREQUENCY, Your session board, a fictional creative-festival planner. Sessions are Sound walks (10:00), Poster room (10:00), Light studies (14:00). Add to my day rejects a conflicting 10:00 choice with an explicit explanation and leaves the original selection unchanged. Remove frees the slot. All/Morning/Afternoon filters preserve saved choices. A Review my day native dialog shows the chosen sessions in chronological order and an empty message when none are selected. A Finish demo action states No tickets were reserved. Use an expressive programme layout with clear times and independent action columns."
+    },
+    {
+      "id": "market-camera-compare", "designSystemId": "market", "entry": "index.html",
+      "requiredText": ["FIELD SHOP", "Find a camera companion", "Pocket strap", "Canvas wrap", "Lens pouch"],
+      "interaction": "catalog-compare-price-order",
+      "prompt": "Build FIELD SHOP, Find a camera companion, an illustrative accessories catalogue. Products: Pocket strap (€18, Small), Canvas wrap (€32, Large), Lens pouch (€24, Small). A Size filter All/Small/Large combines with Search; a Sort by price control offers Low to high and High to low. Compare toggles allow at most two products; a third is explicitly rejected without losing either selection. The Compare selected dialog lists exact names, prices and sizes side by side and permits removing one. Counts and toggles stay in sync after filtering. Use original simple SVG product illustrations, an editorial shelf layout and clear price hierarchy. No purchases."
+    },
+    {
+      "id": "market-lamp-configurator", "designSystemId": "market", "entry": "index.html",
+      "requiredText": ["SOFT LIGHT", "Make a desk lamp yours", "Chalk", "Ink", "Basket"],
+      "interaction": "variant-basket-totals",
+      "prompt": "Build SOFT LIGHT, Make a desk lamp yours. Configure a fictional lamp in Chalk (€60) or Ink (€65), with an optional Long cable adding €8, and quantity from 1 to 4. The visible unit price and total must update from selected values. Add to basket merges only identical colour/cable variants, capped at 4 units per variant; different variants remain separate itemized rows. Basket has quantity +/- and Remove, with exact subtotals and a grand total. Clear basket restores a clear empty state. Review order is a native dialog; completion explicitly says No order was placed. Keep the product/configuration primary rather than a wall of cards."
+    },
+    {
+      "id": "commons-reading-circle", "designSystemId": "commons", "entry": "index.html",
+      "requiredText": ["BOOK CORNER", "A small reading circle", "What are you reading?", "Weekend swap", "Quiet recommendations"],
+      "interaction": "thread-replies-literal-text",
+      "prompt": "Build BOOK CORNER, A small reading circle, with threads What are you reading?, Weekend swap, Quiet recommendations. Search filters thread titles. Open a thread, post a required Reply of at most 200 characters, and return to the feed with its updated reply count. Replies are literal text, never executable HTML, and belong only to their thread. Switching threads preserves replies for this open page. Follow/Unfollow changes a thread-specific indicator and the Following filter. The author name opens a native profile dialog. Give discussions a readable column and understated context rail, not a generic social-media clone. Label everything as a local community demo."
+    },
+    {
+      "id": "commons-community-review", "designSystemId": "commons", "entry": "index.html",
+      "requiredText": ["COMMON GROUND", "Community review desk", "Missing event details", "Duplicate introduction", "Broken resource link"],
+      "interaction": "review-reason-and-undo",
+      "prompt": "Build COMMON GROUND, Community review desk, with three sample reports: Missing event details, Duplicate introduction, Broken resource link. Each starts Pending. Opening a report shows its original sample message and a required Reason textarea. Resolve is disabled for an empty reason, records the literal reason on that report, and moves it to Resolved. Pending/Resolved filters and counts stay correct; Undo resolution restores that report to Pending without changing others. A Details native dialog shows original message and last reason. Explain that no real member or post is affected. Use calm conversation-oriented context and clear reversible actions, not alarming enforcement imagery."
+    },
+    {
+      "id": "atlas-pocket-guide", "designSystemId": "atlas", "entry": "index.html",
+      "requiredText": ["AROUND HERE", "A pocket guide to small places", "North garden", "Paper house", "River steps"],
+      "interaction": "map-list-selection-filter",
+      "prompt": "Build AROUND HERE, A pocket guide to small places. Show a clearly schematic offline SVG map and matching list of North garden (Outdoors), Paper house (Indoors), River steps (Outdoors). Numbered map buttons and list actions select the same place and open its detail area; keyboard users must reach every place through the list. All/Indoors/Outdoors filters update both map and list. If filtering hides the selected place, explicitly clear the details instead of showing stale selection. Search combines with category; unmatched text shows No places found and Clear filters restores all. A Place notes native dialog shows the selected name. No geolocation or real navigation."
+    },
+    {
+      "id": "atlas-afternoon-route", "designSystemId": "atlas", "entry": "index.html",
+      "requiredText": ["SMALL DETOUR", "Plan a gentle afternoon", "Old kiosk", "Glass hall", "Willow court", "East steps"],
+      "interaction": "itinerary-order-map-path",
+      "prompt": "Build SMALL DETOUR, Plan a gentle afternoon, a fictional offline itinerary builder. Places: Old kiosk, Glass hall, Willow court, East steps, each at distinct positions on a schematic SVG map. Add stop appends a unique place, maximum four; route rows have Move up, Move down, Remove and numbered order. Map stop numbers and connecting path must follow the current itinerary, including after reorder and removal. A Search filter changes available places without losing saved stops. Review route opens a native dialog showing the exact ordered stops; Reset route clears only the itinerary. State Schematic map — not navigation. Make map, available places and route visually distinct but coordinated."
+    },
+    {
+      "id": "canvas-word-board", "designSystemId": "canvas", "entry": "index.html",
+      "requiredText": ["WORDROOM", "Arrange a small idea", "Add note", "Undo", "Redo", "Inspector"],
+      "interaction": "object-selection-edit-history",
+      "prompt": "Build WORDROOM, Arrange a small idea, a small original word-board editor with a central artboard, tools and Inspector. Add note creates a uniquely numbered note, maximum six. Selecting or focusing a note updates Inspector; a labelled Text field edits only that note, maximum 32 characters, as literal text. Delete selected removes only the selection. Arrow keys move a focused note within the artboard without changing other notes. Undo/Redo restores add, edit, move and delete operations, including selection, with at least 20 retained actions. New edits after Undo clear Redo. An Export preview native dialog lists each note's text and coordinates; no upload. Keep toolbar words unbroken on narrow screens."
+    },
+    {
+      "id": "canvas-poster-layers", "designSystemId": "canvas", "entry": "index.html",
+      "requiredText": ["PAPERPLAY", "Build a tiny poster", "Add shape", "Layers", "Inspector", "Undo", "Redo"],
+      "interaction": "layer-order-visibility-history",
+      "prompt": "Build PAPERPLAY, Build a tiny poster, an editor with a central poster, Layers list and Inspector. Start with a Title text object and one Circle shape. Add shape adds distinct named shapes, maximum six total objects. Selecting an object in the artboard or Layers synchronizes Inspector. A labelled Object name field renames only it. Move layer up/down changes actual visual stacking and list order; Hide/Show toggles only that object without deleting it. Delete, rename, reorder and visibility changes are undoable/redoable, with at least 20 actions. A new action after Undo clears Redo. A Review layers native dialog reports the exact order, names and visibility. Use original HTML/SVG objects, not generated raster images; keep controls operable on a phone."
+    }
+  ]
+}

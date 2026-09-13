@@ -1,0 +1,11 @@
+diff --git a/ds4_agent.c b/ds4_agent.c
+--- a/ds4_agent.c
++++ b/ds4_agent.c
+@@ -4172,6 +4172,6 @@
+ static bool worker_should_interrupt(agent_worker *w) {
+     pthread_mutex_lock(&w->mu);
+     bool interrupt = w->interrupt || w->stop;
+     pthread_mutex_unlock(&w->mu);
+-    return interrupt;
++    return interrupt || (w->cfg && w->cfg->remote_base_url && agent_sigint);
+ }

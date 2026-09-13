@@ -380,7 +380,8 @@ async function runCase(context, c, index) {
   page.on('console', (msg) => {
     if (msg.type() === 'error' && !/Failed to load resource/i.test(msg.text())) pageErrors.push(msg.text());
   });
-  await page.addInitScript(({ caseId }) => {
+  await page.addInitScript(({ caseId, origin }) => {
+    if (window.top !== window || location.origin !== origin) return;
     const now = Date.now();
     window.ds4PickDirectory = async () => '/tmp/dstudio-plan-mode-matrix';
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
@@ -401,7 +402,7 @@ async function runCase(context, c, index) {
       chats: [{ id: `agent-plan-${caseId}`, mode: 'agent', title: `Plan ${caseId}`, createdAt: now, updatedAt: now, messages: [], transcript: '' }],
     }));
     localStorage.setItem('ds4web.active.v2', JSON.stringify({ v: 2, ids: { chat: null, agent: `agent-plan-${caseId}`, design: null } }));
-  }, { caseId: c.id });
+  }, { caseId: c.id, origin: `http://127.0.0.1:${port}` });
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
   await page.locator('#composer-input').waitFor({ timeout: 5000 });

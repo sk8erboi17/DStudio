@@ -5,8 +5,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 import assert from 'node:assert/strict';
 
 let chromium;
+const browserKind = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
 try {
-  ({ chromium } = await import('playwright'));
+  chromium = (await import('playwright'))[browserKind];
 } catch (e) {
   console.log('ui_agent_design_playwright_test: playwright missing, NOT RUN');
   process.exit(1);
@@ -16,6 +17,12 @@ const repoRoot = process.cwd();
 const webRoot = path.join(repoRoot, 'web');
 const starts = [];
 const sends = [];
+const steering = [];
+let interrupts = 0;
+let steerTurn = 0;
+let steerApplied = false;
+let goalGraph = null;
+const goalControls = [];
 const sessions = [];
 const chatRequests = [];
 const coworkAttachments = [];
@@ -30,8 +37,11 @@ let agentPollDeliveredLen = 0;
 let agentPollCaughtUp = 0;
 let holdNextNewSession = false;
 let releaseHeldNewSession = null;
+let failNextNativeNewSession = false;
 let designStartupAt = 0;
 let designAnnotationFixture = false;
+let holdDesignCatalog = false;
+let releaseDesignCatalog = null;
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -50,6 +60,39 @@ async function readBody(req) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
+  if (url.pathname === '/api/task-graph' && goalGraph) {
+    json(res, 200, { ok: true, graph: goalGraph }); return;
+  }
+  if (/^\/api\/task-graph\/(pause|resume|cancel)$/.test(url.pathname) && goalGraph) {
+    const body = JSON.parse(await readBody(req));
+    assert.equal(body.graphId, goalGraph.graphId);
+    assert.equal(body.expectedLastEventSeq, goalGraph.lastEventSeq);
+    const action = url.pathname.split('/').at(-1); goalControls.push(action);
+    goalGraph = { ...goalGraph, state: ({ pause: 'paused', resume: 'running', cancel: 'cancelled' })[action], lastEventSeq: goalGraph.lastEventSeq + 1 };
+    json(res, 200, { ok: true, graph: goalGraph }); return;
+  }
+  if (url.pathname === '/api/agent/steer/status') {
+    json(res, 200, { ok: true, turnId: String(steerTurn), open: agentPollWorking,
+      inputs: steering.filter(x => x.expectedTurnId === String(steerTurn)).map(x => ({ id: x.inputId, state: steerApplied ? 'applied' : 'pending' })) });
+    return;
+  }
+  if (url.pathname === '/api/agent/steer') {
+    const body = JSON.parse(await readBody(req));
+    assert.equal(body.expectedTurnId, String(steerTurn));
+    assert.equal(agentPollWorking, true);
+    steering.push(body);
+    const admittedTurn = String(steerTurn);
+    setTimeout(() => json(res, 200, { ok: true, turnId: admittedTurn, inputs: [{ id: body.inputId, state: 'pending' }] }), 400);
+    setTimeout(() => {
+      agentPollText += `\x01USER\x02${body.text}\x01ENDUSER\x02\n` +
+        '\x1e' + JSON.stringify({ type: 'steering_applied', turnId: admittedTurn, inputId: body.inputId }) +
+        '\nContext received in the same turn.\n';
+      steerApplied = true;
+      agentPollWorking = false;
+      steerTurn++; // Volatile receipts already belong to the next phase when UI polls.
+    }, 250);
+    return;
+  }
   if (url.pathname === '/api/status') {
     const designStartupMs = designStartupAt ? Date.now() - designStartupAt : Number.POSITIVE_INFINITY;
     const designStarting = currentMode === 'design' && designStartupMs < 2200;
@@ -82,6 +125,10 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/start' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req) || '{}');
     starts.push(body);
+    if (body.mode === 'design' && body.designSystem && !['folio', 'signal'].includes(body.designSystem)) {
+      json(res, 400, { ok: false, code: 'invalid_design_system', error: 'Invalid design system fixture' });
+      return;
+    }
     if (body.workdir === staleAgentWorkdir) {
       json(res, 400, {
         ok: false,
@@ -101,6 +148,19 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/agent/send' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req) || '{}');
     sends.push({ mode: currentMode, body });
+    if (body.orchestration === 'goal') {
+      goalGraph = { graphId: 'ui-goal-fixture', goal: body.goalObjective, workspace: currentWorkdir,
+        revision: 1, lastEventSeq: 1, state: 'running', nodes: [{ id: 'goal', action: 'agent.goal', attemptsStarted: 1, maxAttempts: 8 }] };
+      json(res, 200, { ok: true, orchestration: 'goal', graphId: goalGraph.graphId, from: Buffer.byteLength(agentPollText) }); return;
+    }
+    if (body.displayPrompt === 'Native steering fixture') {
+      steerTurn++; steerApplied = false;
+      agentPollWorking = true; agentPollSessionWorking = false;
+      const from = Buffer.byteLength(agentPollText);
+      agentPollText += `\x01USER\x02${body.displayPrompt}\x01ENDUSER\x02\nWorking before the next tool boundary.\n`;
+      json(res, 200, { ok: true, taskId: steerTurn, from, at: Buffer.byteLength(agentPollText) });
+      return;
+    }
     if (failNextAgentSend) {
       failNextAgentSend = false;
       json(res, 409, {
@@ -256,6 +316,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/api/agent/interrupt' && req.method === 'POST') {
+    interrupts++;
     json(res, 200, { ok: true });
     return;
   }
@@ -304,10 +365,15 @@ const server = http.createServer(async (req, res) => {
       releaseHeldNewSession = release;
       setTimeout(release, 15000);
     } else if (body.action === 'new') {
+      const failed = failNextNativeNewSession;
+      failNextNativeNewSession = false;
       agentPollSessionWorking = true;
       agentPollWorking = true;
       setTimeout(() => {
-        agentPollText += currentMode === 'design'
+        agentPollText += failed
+          ? '\x1e' + JSON.stringify({ type: 'session_status', level: 'error',
+            message: 'new session failed: interrupted; previous session retained' }) + '\n'
+          : currentMode === 'design'
           ? '\x1e' + JSON.stringify({ type: 'session_status', level: 'info', message: 'started a new session' }) + '\n'
           : 'new session started\n';
         agentPollWorking = false;
@@ -380,6 +446,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/api/design-systems') {
+    if (holdDesignCatalog) await new Promise(resolve => { releaseDesignCatalog = resolve; });
     json(res, 200, { ok: true, designSystems: [
       { id: 'folio', name: 'Folio', description: 'Reading-led editorial system with warm paper and expressive serif.', modes: '', category: 'general', outputKinds: 'html', upstream: 'dstudio-original/folio', hasComponents: true },
       { id: 'signal', name: 'Signal', description: 'Precise operational system with clear signals and tabular readings.', modes: '', category: 'web-ui-prototype', outputKinds: 'image-brief', upstream: 'dstudio-original/signal', hasComponents: false },
@@ -406,6 +473,16 @@ const server = http.createServer(async (req, res) => {
       'cache-control': 'no-store',
     });
     const lastText = chatRequest.messages?.at(-1)?.content || '';
+    if (lastText === 'Chat steering fixture') {
+      res.write('data: {"choices":[{"delta":{"content":"Existing partial response."},"finish_reason":null}]}\n\n');
+      const timeout = setTimeout(() => res.end('data: [DONE]\n\n'), 10000);
+      res.on('close', () => clearTimeout(timeout));
+      return;
+    }
+    if (lastText === 'Now focus on accessibility.') {
+      res.write('data: {"choices":[{"delta":{"content":"Updated with the additional context."},"finish_reason":"stop"}]}\n\n');
+      res.end('data: [DONE]\n\n'); return;
+    }
     if (lastText.includes('Test exact chat speed')) {
       res.write('data: {"choices":[{"delta":{"content":"measured answer"},"finish_reason":null}]}\n\n');
       res.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
@@ -437,6 +514,7 @@ try {
   browser = await chromium.launch();
 } catch (e) {
   try {
+    if (browserKind !== 'chromium') throw e;
     browser = await chromium.launch({ channel: 'chrome' });
   } catch (chromeError) {
     server.close();
@@ -461,7 +539,8 @@ try {
   page.on('console', (msg) => {
     if (msg.type() === 'error') pageErrors.push(msg.text());
   });
-  await page.addInitScript(() => {
+  await page.addInitScript(({ origin }) => {
+    if (window.top !== window || location.origin !== origin) return;
     const now = Date.now();
     window.ds4PickDirectory = async ({ mode }) => (
       mode === 'design' ? '/tmp/dstudio-ui-design'
@@ -485,13 +564,15 @@ try {
       v: 2,
       deleted: [],
       chats: [
+        { id: 'chat-seed', mode: 'chat', title: 'Chat seed', createdAt: now, updatedAt: now, messages: [],
+          pendingContext: [{ id: 'old-unsent', role: 'user', content: 'Recovered context from an interrupted turn.', steeringTurnId: 'old-turn' }] },
         { id: 'agent-seed', mode: 'agent', title: 'Agent seed', createdAt: now - 2, updatedAt: now - 2, messages: [], transcript: 'seed' },
         { id: 'cowork-seed', mode: 'cowork', title: 'Cowork seed', createdAt: now - 1, updatedAt: now - 1, messages: [], transcript: '' },
         { id: 'design-seed', mode: 'design', title: 'Design seed', createdAt: now - 1, updatedAt: now - 1, messages: [], transcript: 'seed' },
       ],
     }));
-    localStorage.setItem('ds4web.active.v2', JSON.stringify({ v: 2, ids: { chat: null, agent: 'agent-seed', cowork: 'cowork-seed', design: 'design-seed' } }));
-  });
+    localStorage.setItem('ds4web.active.v2', JSON.stringify({ v: 2, ids: { chat: 'chat-seed', agent: 'agent-seed', cowork: 'cowork-seed', design: 'design-seed' } }));
+  }, { origin: `http://127.0.0.1:${port}` });
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
   await page.locator('#composer-input').fill('Test exact chat speed');
@@ -507,6 +588,29 @@ try {
   await page.getByText(/Response incomplete: stream ended before data: \[DONE\]/).waitFor({ timeout: 5000 });
   await page.getByRole('button', { name: 'Continue' }).waitFor({ timeout: 5000 });
   assert.equal(chatRequests.length, 2, 'both complete and incomplete Chat requests should reach /v1/chat/completions');
+
+  await page.locator('#composer-input').fill('Chat steering fixture');
+  await page.locator('#btn-send').click();
+  await page.getByText('Existing partial response.', { exact: true }).waitFor();
+  assert.equal(await page.locator('#composer-input').isEnabled(), true);
+  assert.equal(await page.locator('#btn-send').isVisible(), true);
+  assert.equal(await page.locator('#btn-stop').isVisible(), true);
+  await page.locator('#composer-input').fill('Now focus on accessibility.');
+  await page.locator('#btn-send').click();
+  await page.getByText('Updated with the additional context.', { exact: true }).waitFor();
+  const continued = chatRequests.at(-1).messages;
+  assert(continued.some(x => x.role === 'assistant' && x.content === 'Existing partial response.'));
+  assert.equal(continued.filter(x => x.role === 'user' && x.content === 'Chat steering fixture').length, 1);
+  assert.equal(continued.at(-1).content, 'Now focus on accessibility.');
+  assert.equal(continued.some(message => message.content.includes('Recovered context from an interrupted turn.')), false,
+    'unconfirmed recovered context must not be silently replayed into a new turn');
+  const oldContext = page.locator('#followup-queue .followup-queue__item').filter({ hasText: 'Recovered context from an interrupted turn.' });
+  await oldContext.waitFor();
+  const pendingAfter = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')).chats.find(chat => chat.id === 'chat-seed').pendingContext);
+  assert.deepEqual(pendingAfter.map(message => message.id), ['old-unsent'], 'a successful new append must not erase unrelated recovered context');
+  await page.locator('#btn-stop').waitFor({ state: 'hidden' });
+  await oldContext.getByRole('button', { name: 'Dismiss' }).click();
+  await oldContext.waitFor({ state: 'hidden' });
 
   await page.locator('#tab-agent').click();
   await page.waitForFunction(() => !document.querySelector('#agent-view')?.hidden);
@@ -627,7 +731,15 @@ try {
   // Getting your own prompt back out must not depend on dragging a selection
   // across a transcript that is still streaming: every user turn carries a
   // copy button that yields the exact text the model was sent.
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  // WebKit does not expose Playwright's clipboard permission override. Exercise
+  // the same copy interaction with an explicitly simulated clipboard there.
+  if (browserKind === 'chromium') await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  else await page.evaluate(() => {
+    let copied = '';
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      writeText: async text => { copied = text; }, readText: async () => copied,
+    } });
+  });
   const lastUserTurn = page.locator('.agent-user-turn').last();
   const copyButton = lastUserTurn.locator('.agent-user-copy');
   assert.equal(await copyButton.count(), 1, 'each Agent user turn should expose a copy button');
@@ -663,6 +775,25 @@ try {
   assert.match(await katanaToolLabel.locator('xpath=../..').locator('.tool-out').textContent() || '', /api_key=secret-query.*Authorization: Bearer secret-header/s,
     'the expanded GSA command should also preserve the exact parameter values');
 
+  // Simulated native service feedback is visible but never model Markdown.
+  async function serviceNoticeVisible() {
+    // A newly displayed conversation does not own the engine until /new and
+    // the frontend's offset binding complete. Inject only into that admitted
+    // session, not into bytes deliberately discarded from the previous one.
+    await waitFor(() => !agentPollWorking && !agentPollSessionWorking, 'notice fixture requires an idle engine');
+    await page.waitForFunction(({ mode, end }) => {
+      const active = JSON.parse(localStorage.getItem('ds4web.active.v2') || '{}');
+      const chats = JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}');
+      return (chats.chats || []).some(chat => chat.id === active.ids?.[mode] && chat.engineLen === end);
+    }, { mode: currentMode, end: Buffer.byteLength(agentPollText) }, { timeout: 5000 });
+    agentPollText += '\x1e' + JSON.stringify({ type: 'runtime_notice', text: 'Stopped by user' }) + '\n';
+    await page.locator('.seg--sys').filter({ hasText: /^Stopped by user$/ }).waitFor({ timeout: 5000 });
+    assert.equal(await page.locator('.seg--text').filter({ hasText: 'Stopped by user' }).count(), 0);
+    assert.equal(await page.getByText(/runtime_notice/).count(), 0, 'Native JSON must not leak into the transcript');
+    assert.equal(await page.locator('#composer-input').isEnabled(), true);
+  }
+  await serviceNoticeVisible();
+
   // A fresh pipe conversation must start at the current engine tail. It must
   // never adopt a previous run's circular buffer (which can begin halfway
   // through a status JSON frame) or render the internal /new acknowledgement.
@@ -685,8 +816,21 @@ try {
   const freshAgentSurface = await page.locator('#agent-view').innerText();
   assert.doesNotMatch(freshAgentSurface, /prefillDone|deleted session|new session started|Selection persistence fixture|\/new/,
     'fresh Agent UI must not inherit model output or engine-maintenance chatter');
+  await serviceNoticeVisible(); // No answer or user turn exists in this new session.
   assert.equal(await page.locator('#btn-stop').isHidden(), true,
     'fresh Agent conversation must be idle after its internal /new settles');
+  // A real browser must consume the same native reset receipt in Agent,
+  // not only in Design. Merely exercising the event parser misses that route.
+  failNextNativeNewSession = true;
+  const beforeFailedAgentNew = sessions.length;
+  await page.locator('#btn-new-chat').click();
+  await waitFor(() => sessions.length > beforeFailedAgentNew, 'Agent reset request');
+  await page.getByText('new session failed: interrupted; previous session retained', { exact: true })
+    .first().waitFor({ timeout: 5000 });
+  assert.equal(sessions.slice(beforeFailedAgentNew).filter(s => s.action === 'list').length, 0,
+    'Native reset receipts must not trigger a Design-only session refresh');
+  await page.locator('#btn-new-chat').click();
+  await page.getByRole('heading', { name: /What should we build\?/ }).waitFor({ timeout: 5000 });
   const freshAgentPrompt = 'Fresh Agent prompt after the previous run was closed';
   await page.locator('#composer-input').fill(freshAgentPrompt);
   await page.locator('#btn-send').click();
@@ -695,6 +839,40 @@ try {
     'first prompt in the fresh Agent conversation should start normally',
     debugDetails,
   );
+
+  await page.waitForFunction(() => document.querySelector('#btn-stop')?.hidden === true);
+  await page.locator('#composer-input').fill('Native steering fixture');
+  await page.locator('#btn-send').click();
+  await waitFor(() => agentPollWorking && steerTurn > 0, 'native fixture must be active');
+  await page.locator('#btn-stop').waitFor({ state: 'visible' });
+  const sendsBeforeSteer = sends.length, interruptsBeforeSteer = interrupts;
+  assert.equal(await page.locator('#composer-input').isEnabled(), true);
+  await page.locator('#composer-input').fill('Keep the existing files; add keyboard navigation.');
+  await page.locator('#btn-send').click();
+  await waitFor(() => steering.length === 1, 'additional input must use the steering API');
+  await page.locator('#composer-input').fill('A new draft typed while admission is in flight.');
+  assert.equal(sends.length, sendsBeforeSteer, 'steering must not create another native turn');
+  assert.equal(interrupts, interruptsBeforeSteer, 'steering must not interrupt the tool or model');
+  await page.getByText('Context received in the same turn.', { exact: true }).waitFor();
+  await page.locator('#followup-queue').waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('#composer-input').inputValue(), 'A new draft typed while admission is in flight.');
+  assert.equal(await page.getByText(/steering_applied/).count(), 0, 'receipt frames must not leak into the answer');
+
+  await page.locator('#composer-input').fill('/goal Fix the parser and verify the output');
+  await page.locator('#btn-send').click();
+  await page.locator('#goal-status').getByText(/Goal: Fix the parser/).waitFor();
+  assert.equal(sends.at(-1).body.orchestration, 'goal');
+  assert.equal(sends.at(-1).body.goalObjective, 'Fix the parser and verify the output');
+  const beforeGoalControl = sends.length;
+  await page.locator('#goal-status').getByRole('button', { name: 'Pause', exact: true }).click();
+  await page.locator('#goal-status').getByRole('button', { name: 'Resume', exact: true }).waitFor();
+  await page.locator('#composer-input').fill('/goal resume');
+  await page.locator('#btn-send').click();
+  await page.locator('#goal-status').getByRole('button', { name: 'Pause', exact: true }).waitFor();
+  await page.locator('#goal-status').getByRole('button', { name: 'Clear', exact: true }).click();
+  await page.locator('#goal-status').waitFor({ state: 'hidden' });
+  assert.deepEqual(goalControls, ['pause', 'resume', 'cancel']);
+  assert.equal(sends.length, beforeGoalControl, 'Goal control commands must not become model prompts');
 
   // Cowork deliberately shares the Agent conversation surface, but keeps its
   // document-specific actions and workspace behavior.
@@ -713,6 +891,7 @@ try {
   await page.waitForFunction(() => document.querySelector('#pipe-head-mode')?.textContent === 'Cowork');
   assert.equal(await page.locator('#pipe-head-mode').textContent(), 'Cowork', 'Cowork should identify itself in the shared session header');
   assert.match(await page.locator('#pipe-head-path').textContent(), /dstudio-ui-cowork/, 'Cowork should show its active working folder');
+  await serviceNoticeVisible(); // Cowork shares the native stream consumer.
   await page.locator('#pipe-command-hints').waitFor({ state: 'visible' });
   for (const command of ['/help', '/list', '/save', '/new', '/compact']) {
     await page.getByRole('button', { name: command, exact: true }).waitFor({ state: 'visible' });
@@ -757,7 +936,9 @@ try {
     'Cowork send should preserve the selected skill and document instruction',
     debugDetails,
   );
-  await page.locator('.agent-response-name').filter({ hasText: 'Cowork' }).waitFor({ timeout: 5000 });
+  const coworkResponseNames = page.locator('.agent-response-name').filter({ hasText: 'Cowork' });
+  await coworkResponseNames.last().waitFor({ timeout: 5000 });
+  assert.equal(await coworkResponseNames.count(), 2, 'The service notice and actual reply have distinct Cowork headers');
   await page.locator('.agent-user-meta').filter({ hasText: 'YOU' }).last().waitFor({ timeout: 5000 });
   assert.equal(await page.locator('.agent-user-turn').last().textContent().then((value) => /DSTUDIO_COWORK_ATTACHMENT/.test(value)), false,
     'Cowork attachment metadata must render as a tile rather than raw prompt text');
@@ -803,9 +984,23 @@ try {
     debugDetails,
   );
 
+  failNextNativeNewSession = true;
+  const beforeFailedCoworkNew = sessions.length;
+  await page.locator('#btn-new-chat').click();
+  await waitFor(() => sessions.length > beforeFailedCoworkNew, 'Cowork reset request');
+  await page.getByText('new session failed: interrupted; previous session retained', { exact: true })
+    .first().waitFor({ timeout: 5000 });
+  assert.equal(sessions.slice(beforeFailedCoworkNew).filter(s => s.action === 'list').length, 0);
+
+  holdDesignCatalog = true;
   await page.locator('#tab-design').click();
   const retirementNotice = page.getByText('The previous style was retired. Choose a DStudio original in the Design gallery.')
     .waitFor({timeout:10000}).then(() => true, () => false);
+  await waitFor(() => releaseDesignCatalog !== null, 'first Design launch must request the catalog', debugDetails);
+  assert.equal(starts.filter(entry => entry.mode === 'design').length, 0,
+    'no Design launch may be sent while its catalog is unresolved');
+  holdDesignCatalog = false;
+  releaseDesignCatalog();
   await page.locator('#loading-overlay').waitFor({ state: 'visible', timeout: 5000 });
   await page.locator('#loading-stage').filter({ hasText: 'Prefilling the context' }).waitFor({ timeout: 5000 });
   await delay(700);
@@ -826,6 +1021,8 @@ try {
   await page.waitForFunction(() => !document.querySelector('#agent-view')?.hidden);
   await page.locator('#loading-overlay').waitFor({ state: 'hidden', timeout: 5000 });
   const designStart = starts.findLast((entry) => entry.mode === 'design');
+  assert.equal(starts.find(entry => entry.mode === 'design')?.designSystem, '',
+    'the FIRST Design request must use the migrated style, before the gallery is opened');
   assert.equal(designStart?.ctx, 65536,
     'Design must pass the saved context to the launcher instead of forcing true Max context');
   await page.evaluate(() => {
@@ -1060,6 +1257,69 @@ try {
     const saved = JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}');
     return saved.chats?.find((chat) => chat.id === 'legacy-design-canvas')?.designArtifactEntry === 'landing.html';
   }, null, { timeout: 5000 });
+
+  // A saved notice is conversation-owned even when no KV session can be
+  // reattached. Exercise actual reopen rendering, in both application themes,
+  // without inventing a live binding for the earlier stale Design seed.
+  designAnnotationFixture = false;
+  fs.mkdirSync('tests/.artifacts/agent-notice-visibility', {recursive: true});
+  const noticeArtifacts = fs.mkdtempSync(`tests/.artifacts/agent-notice-visibility/${browserKind}-`);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => {
+      const settings = JSON.parse(localStorage.getItem('ds4web.settings.v2'));
+      settings.theme = theme;
+      localStorage.setItem('ds4web.settings.v2', JSON.stringify(settings));
+      const now = Date.now();
+      localStorage.setItem('ds4web.chats.v2', JSON.stringify({ v: 2, deleted: [], chats: [{
+        id: 'notice-only-design', mode: 'design', title: 'Interrupted Design',
+        createdAt: now, updatedAt: now, messages: [],
+        transcript: '\x1e' + JSON.stringify({type: 'runtime_notice', text: 'Stopped by user'}) + '\n',
+      }] }));
+      localStorage.setItem('ds4web.active.v2', JSON.stringify({v: 2, ids: {design: 'notice-only-design'}}));
+    }, theme);
+    await page.reload({waitUntil: 'domcontentloaded'});
+    await page.locator('#agent-view .seg--sys').filter({hasText: /^Stopped by user$/}).waitFor({timeout: 5000});
+    assert.equal(await page.locator('.seg--text').filter({hasText: 'Stopped by user'}).count(), 0);
+    assert.equal(await page.getByText(/runtime_notice/).count(), 0);
+    assert.equal(await page.getByRole('heading', {name: /What should we design\?/}).count(), 0,
+      'A notice-only conversation is not an empty Design gallery');
+    assert.equal(await page.locator('#composer-input').isEnabled(), true);
+    // Playwright's visibility check accepts zero opacity. Wait for the real
+    // entrance animation to finish before treating a screenshot as evidence.
+    await page.waitForFunction(() => {
+      const nodes = [document.querySelector('#agent-view'), document.querySelector('#composer-form')];
+      return nodes.every(node => node && Number(getComputedStyle(node).opacity) === 1 &&
+        node.getAnimations().every(animation => animation.playState !== 'running' && animation.playState !== 'pending'));
+    }, null, {timeout: 5000});
+    const layout = await page.evaluate(() => {
+      const box = selector => {
+        const node = document.querySelector(selector), r = node?.getBoundingClientRect();
+        return r ? {top: r.top, bottom: r.bottom, width: r.width, height: r.height,
+          display: getComputedStyle(node).display, scrollTop: node.scrollTop,
+          color: getComputedStyle(node).color, background: getComputedStyle(node).backgroundColor} : null;
+      };
+      return {viewport: {height: innerHeight, width: innerWidth}, bodyClass: document.body.className,
+        notice: box('#agent-view .seg--sys'), view: box('#agent-view'), composer: box('.composer')};
+    });
+    fs.writeFileSync(`${noticeArtifacts}/${theme}.json`, JSON.stringify(layout, null, 2) + '\n');
+    await page.screenshot({path: `${noticeArtifacts}/${theme}.png`, fullPage: true});
+    assert(layout.notice.top >= Math.max(0, layout.view.top) &&
+      layout.notice.bottom <= Math.min(layout.viewport.height, layout.view.bottom),
+      `The ${theme} service notice is clipped or outside its visible pane: ${JSON.stringify(layout)}`);
+    const luminance = color => {
+      const channels = color.match(/[\d.]+/g)?.map(Number);
+      assert(channels && channels.length >= 3 && (channels.length < 4 || channels[3] === 1), 'Use the actual opaque painted background');
+      const linear = channels.slice(0, 3).map(value => value / 255).map(value =>
+        value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+      return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+    };
+    const fg = luminance(layout.notice.color), bg = luminance(layout.notice.background);
+    const contrast = (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+    assert(contrast >= 4.5, `Unreadable ${theme} service feedback: ${contrast.toFixed(2)}:1`);
+  }
+  fs.writeFileSync(`${noticeArtifacts}/result.json`, JSON.stringify({passed: true, browser: browserKind,
+    scope: 'Simulated engine; real notice-only Design reopen, viewport visibility and settled screenshots',
+    themes: ['light', 'dark']}, null, 2) + '\n');
 
   assert.ok(starts.some((s) => s.mode === 'agent'), 'agent tab should start the agent runtime');
   assert.ok(starts.some((s) => s.mode === 'cowork'), 'cowork tab should start the cowork runtime');

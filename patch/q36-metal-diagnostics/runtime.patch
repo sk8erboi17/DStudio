@@ -1,0 +1,101 @@
+diff --git a/q36_metal.m b/q36_metal.m
+index 749c6b6..876ba70 100644
+--- a/q36_metal.m
++++ b/q36_metal.m
+@@ -236,6 +236,33 @@ static int q36_metal_moe_mpp_mask(void) {
+ static double q36_last_gpu_seconds;
+ static uint64_t q36_prof_command_buffers;
+ 
++// Explicit diagnostic mode only. The single inference owner owns this count;
++// no per-token logging, new worker or mutable tensor state is introduced.
++static bool q36_error_details_enabled;
++static unsigned q36_error_details_reports;
++
++static void q36_metal_error_details(id<MTLCommandBuffer> cb) {
++    if (!q36_error_details_enabled || q36_error_details_reports >= 4) return;
++    q36_error_details_reports++;
++    NSError *error = cb.error;
++    id raw = error.userInfo[MTLCommandBufferEncoderInfoErrorKey];
++    NSArray<id<MTLCommandBufferEncoderInfo>> *infos =
++        [raw isKindOfClass:[NSArray class]] ? raw : nil;
++    NSUInteger count = infos.count, shown = count < 64 ? count : 64;
++    fprintf(stderr, "q36: Metal diagnostic phase=%.160s domain=%.128s code=%ld encoders=%lu shown=%lu\n",
++            cb.label ? cb.label.UTF8String : "unlabelled",
++            error.domain ? error.domain.UTF8String : "unavailable", (long)error.code,
++            (unsigned long)count, (unsigned long)shown);
++    // Affected is not Faulted: report the driver's exact state, never infer
++    // that a label proves the root cause. Missing driver details stay missing.
++    for (NSUInteger i = 0; i < shown; i++) {
++        id<MTLCommandBufferEncoderInfo> info = infos[i];
++        fprintf(stderr, "q36: Metal encoder index=%lu state=%ld label=%.128s\n",
++                (unsigned long)i, (long)info.errorState,
++                info.label ? info.label.UTF8String : "unlabelled");
++    }
++}
++
+ static void q36_streaming_cache_clear(bool clear_full_layers);
+ 
+ static void q36_model_residency_clear(void) {
+@@ -265,6 +292,7 @@ static int q36_metal_wait(void) {
+     if (cb.status == MTLCommandBufferStatusError) {
+         fprintf(stderr, "q36: Metal command buffer failed: %s\n",
+                 cb.error.localizedDescription.UTF8String);
++        q36_metal_error_details(cb);
+         return 0;
+     }
+     {
+@@ -1042,6 +1070,9 @@ int q36_gpu_init(void) {
+         q36_gpu_print_device_summary();
+         q36_decode_profile_enabled =
+             getenv("Q36_METAL_DECODE_PROFILE") != NULL;
++        const char *details = getenv("Q36_METAL_ERROR_DETAILS");
++        q36_error_details_enabled = details && !strcmp(details, "1");
++        q36_error_details_reports = 0;
+         q36_metal_mpp_enabled = q36_metal_detect_mpp();
+         if (q36_metal_mpp_enabled)
+             fprintf(stderr, "q36: Metal TensorOps routed-MoE prefill enabled\n");
+@@ -1104,6 +1135,7 @@ void q36_gpu_cleanup(void) {
+         q36_moe_mid_f16_scratch_bytes = 0;
+         q36_metal_mpp_enabled = false;
+         q36_decode_profile_enabled = false;
++        q36_error_details_enabled = false;
+         q36_shared_gate_scratch = nil;
+         q36_shared_up_scratch = nil;
+         q36_shared_down_scratch = nil;
+@@ -1325,7 +1357,15 @@ int q36_gpu_begin_commands(void) {
+     if (existing) return 1;
+     // Driver allocation may block. Prepare outside the accounting/publication
+     // mutex and retain the queue identity until the candidate is admitted.
+-    id<MTLCommandBuffer> candidate = [queue commandBuffer];
++    id<MTLCommandBuffer> candidate;
++    if (q36_error_details_enabled) {
++        MTLCommandBufferDescriptor *descriptor = [MTLCommandBufferDescriptor new];
++        descriptor.retainedReferences = YES;
++        descriptor.errorOptions = MTLCommandBufferErrorOptionEncoderExecutionStatus;
++        candidate = [queue commandBufferWithDescriptor:descriptor];
++    } else {
++        candidate = [queue commandBuffer];
++    }
+     if (!candidate) return 0;
+     pthread_mutex_lock(&q36_mu);
+     if (queue != q36_queue) {
+@@ -3851,6 +3891,9 @@ int q36_gpu_attn_decode_tensor(
+         if (cap < tile) tile = (uint32_t)cap;
+     }
+     const bool tiled = tile < tokens;
++    if (tiled && q36_error_details_enabled && q36_batch)
++        q36_batch.label = [NSString stringWithFormat:@"attention-input pos=%u queries=%u heads=%u",
++                          pos0, tokens, heads];
+     if (tiled && !q36_metal_wait()) return 0;
+     for (uint32_t first = 0; first < tokens;) {
+         uint32_t count = tokens - first < tile ? tokens - first : tile;
+@@ -3876,6 +3919,9 @@ int q36_gpu_attn_decode_tensor(
+         [enc endEncoding];
+         // Driver submission/wait is outside q36_mu. The single inference
+         // owner retains all tensors; a failed command is never retried here.
++        if (tiled && q36_error_details_enabled && q36_batch)
++            q36_batch.label = [NSString stringWithFormat:@"attention-tile pos=%u queries=%u heads=%u",
++                              pos0 + first, count, heads];
+         if (tiled && !q36_metal_wait()) return 0;
+         first += count;
+     }

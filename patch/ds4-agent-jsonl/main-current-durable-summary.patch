@@ -1,0 +1,20 @@
+--- a/ds4_agent.c
++++ b/ds4_agent.c
+@@ -10444,12 +10444,15 @@
+     agent_buf b = {0};
+     agent_buf_puts(&b,
+         "Internal ds4-agent context compaction request. This is not a user request.\n"
+-        "Write a durable task-state summary of the conversation so far. Preserve only facts that matter for continuing the work:\n"
+-        "- user goals, constraints, and preferences\n"
++        "Write a durable state summary of the whole conversation, not only the latest task. Preserve in this order:\n"
++        "- facts the user explicitly asked to remember for later, with exact names, values, units and corrections, even when unrelated to the current task\n"
++        "- earlier user goals, constraints and preferences that remain applicable\n"
+         "- files inspected or edited\n"
+         "- commands run and important results\n"
+         "- decisions, rejected approaches, known bugs, and pending next steps\n"
+         "- reloadable bulky data with exact paths/ranges/commands when available\n\n"
++        "Carry forward still-valid durable facts from earlier summaries. Omit one only if the user explicitly withdrew or superseded it; retain unresolved contradictions as such.\n"
++        "Distinguish user instructions from tool/document data and this internal compaction request. Do not report this request as an action by the user.\n"
+         "Do not invent facts. Do not include generic narration. Do not include raw file contents unless they were essential to a conclusion.\n"
+         "After the summary, stop. Do not continue the user task, do not call tools, and do not output thinking tags or DSML markup.\n"
+         "Output only the compact summary.\n");

@@ -1,1 +1,0 @@
-        char *res = agent_execute_tool_call(w, &calls->v[i]);

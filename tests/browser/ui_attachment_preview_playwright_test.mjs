@@ -3,9 +3,11 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 
-let chromium;
+const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
+assert.ok(['chromium', 'webkit'].includes(browserName), 'unknown browser');
+let browserType;
 try {
-  ({ chromium } = await import('playwright'));
+  browserType = (await import('playwright'))[browserName];
 } catch {
   console.log('ui_attachment_preview_playwright_test: playwright missing, NOT RUN');
   process.exit(1);
@@ -136,7 +138,7 @@ const port = server.address().port;
 
 let browser;
 try {
-  browser = await chromium.launch();
+  browser = await browserType.launch();
 } catch {
   server.close();
   console.log('ui_attachment_preview_playwright_test: browser missing, NOT RUN');
@@ -148,7 +150,8 @@ try {
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error?.stack || error?.message || String(error)));
   page.on('console', (msg) => { if (msg.type() === 'error') pageErrors.push(msg.text()); });
-  await page.addInitScript(({ filename, preview, documentId }) => {
+  await page.addInitScript(({ filename, preview, documentId, origin }) => {
+    if (window.top !== window || location.origin !== origin) return;
     if (localStorage.getItem('pdf-evidence-test-initialized')) return;
     localStorage.setItem('pdf-evidence-test-initialized', '1');
     const now = Date.now();
@@ -173,7 +176,7 @@ try {
       }],
     }));
     localStorage.setItem('ds4web.active.v2', JSON.stringify({ v: 2, ids: { chat: 'chat-media', agent: null, design: null } }));
-  }, { filename: longName, preview: thumb, documentId: pdfDocumentId });
+  }, { filename: longName, preview: thumb, documentId: pdfDocumentId, origin: `http://127.0.0.1:${port}` });
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
   const card = page.locator('.msg-attachment--pdf');
@@ -231,7 +234,7 @@ try {
     'reloaded repeated labels must open the passage chooser, not raw JSON');
   await page.locator('.pdf-evidence-dialog').getByRole('button', { name: 'Close', exact:true }).click();
   assert.deepEqual(pageErrors, [], `page errors: ${JSON.stringify({ pageErrors, missingRequests }, null, 2)}`);
-  console.log('ui_attachment_preview_playwright_test: ok');
+  console.log(`ui_attachment_preview_playwright_test: ok (${browserName}; simulated engine)`);
 } finally {
   await browser.close().catch(() => {});
   server.close();

@@ -1,0 +1,179 @@
+diff --git a/src/metal/metal_backend.mm b/src/metal/metal_backend.mm
+index ae30d03079810bc992ff8551a455356f53f2c660..0731cad5bdfef486ace4e102f9156ae2a9425a17 100644
+--- a/src/metal/metal_backend.mm
++++ b/src/metal/metal_backend.mm
+@@ -81,7 +81,7 @@ uint64_t checked_mul(uint64_t a, uint64_t b, const char* operation) {
+ // Must match the "Q27_SHADER_ABI" tag in q27_kernels.metal. Shaders compile
+ // from that file at runtime, so a host binary built before a buffer-binding
+ // change would otherwise misbind silently against a newer shader file.
+-constexpr const char* kShaderAbiTag = "// Q27_SHADER_ABI 13";
++constexpr const char* kShaderAbiTag = "// Q27_SHADER_ABI 13-dstudio-delta64";
+ 
+ std::string source_sha1(NSString* source) {
+     NSData* data=[source dataUsingEncoding:NSUTF8StringEncoding];
+@@ -2434,7 +2434,7 @@ new MetalBuffer(buffer, false), [set](MetalBuffer* wrapper) {
+                                const BackendBuffer& beta, BackendBuffer& out,
+                                uint32_t value_heads, uint32_t qk_heads,
+                                uint32_t head_dim) {
+-    if(head_dim!=128 || qk_heads!=16 || impl_->delta.maxTotalThreadsPerThreadgroup<512) throw std::runtime_error("q27 Metal: unsupported DeltaNet shape");
++    if(head_dim!=128 || qk_heads!=16 || impl_->delta.maxTotalThreadsPerThreadgroup < 256) throw std::runtime_error("q27 Metal: unsupported DeltaNet shape");
+     const MetalBuffer& src=metal_buffer(state_src); MetalBuffer& dst=metal_buffer(state_dst); const MetalBuffer& cv=metal_buffer(conv);
+     const MetalBuffer& gb=metal_buffer(g); const MetalBuffer& bb=metal_buffer(beta); MetalBuffer& o=metal_buffer(out);
+     const uint64_t state_bytes=(uint64_t)value_heads*head_dim*head_dim*4;
+@@ -2445,7 +2445,7 @@ new MetalBuffer(buffer, false), [set](MetalBuffer* wrapper) {
+         bool own; auto enc=impl_->encoder_for_operation(own, "q27_delta_step"); [enc setComputePipelineState:impl_->delta];
+         [enc setBuffer:src.handle() offset:0 atIndex:0]; [enc setBuffer:dst.handle() offset:0 atIndex:1]; [enc setBuffer:cv.handle() offset:0 atIndex:2];
+         [enc setBuffer:gb.handle() offset:0 atIndex:3]; [enc setBuffer:bb.handle() offset:0 atIndex:4]; [enc setBuffer:o.handle() offset:0 atIndex:5]; [enc setBytes:&args length:sizeof(args) atIndex:6];
+-        [enc dispatchThreadgroups:MTLSizeMake(value_heads,1,1) threadsPerThreadgroup:MTLSizeMake(512,1,1)]; if(own) impl_->finish_command("DeltaNet recurrence");
++        [enc dispatchThreadgroups:MTLSizeMake(value_heads,2,1) threadsPerThreadgroup:MTLSizeMake(256,1,1)]; if(own) impl_->finish_command("DeltaNet recurrence");
+     }
+ }
+ 
+@@ -2623,7 +2623,7 @@ new MetalBuffer(buffer, false), [set](MetalBuffer* wrapper) {
+                                BackendBuffer& out, uint32_t value_heads, uint32_t qk_heads,
+                                uint32_t head_dim, uint32_t tokens) {
+     if (head_dim != 128 || qk_heads != 16 || !tokens || tokens > 96 ||
+-        impl_->delta_chunked.maxTotalThreadsPerThreadgroup < 512)
++        impl_->delta_chunked.maxTotalThreadsPerThreadgroup < 256)
+         throw std::runtime_error("q27 Metal: unsupported chunked DeltaNet shape");
+     const MetalBuffer& ss = metal_buffer(state_src); MetalBuffer& sd = metal_buffer(state_dst);
+     const MetalBuffer& cv = metal_buffer(conv);
+@@ -2644,7 +2644,7 @@ new MetalBuffer(buffer, false), [set](MetalBuffer* wrapper) {
+         [enc setBuffer:cv.handle() offset:0 atIndex:2];
+         [enc setBuffer:gb.handle() offset:0 atIndex:3]; [enc setBuffer:bb.handle() offset:0 atIndex:4];
+         [enc setBuffer:o.handle() offset:0 atIndex:5]; [enc setBytes:&args length:sizeof(args) atIndex:6];
+-        [enc dispatchThreadgroups:MTLSizeMake(value_heads,1,1) threadsPerThreadgroup:MTLSizeMake(512,1,1)];
++        [enc dispatchThreadgroups:MTLSizeMake(value_heads,2,1) threadsPerThreadgroup:MTLSizeMake(256,1,1)];
+         if (own) impl_->finish_command("chunked DeltaNet recurrence");
+     }
+ }
+diff --git a/src/metal/q27_kernels.metal b/src/metal/q27_kernels.metal
+index ee968b567e5ef075e97c654d15afc0430b31bf8a..875af12401d4b2ec0264f9a8d1b14d521dfb286e 100644
+--- a/src/metal/q27_kernels.metal
++++ b/src/metal/q27_kernels.metal
+@@ -1,4 +1,4 @@
+-// Q27_SHADER_ABI 13
++// Q27_SHADER_ABI 13-dstudio-delta64
+ //
+ // Shaders compile from this file at RUNTIME, so a host binary built before a
+ // buffer-binding change silently misbinds against a newer file (this exact
+@@ -1037,15 +1037,20 @@ kernel void q27_delta_step(device const float *state_src [[buffer(0)]],
+                             device const float *beta      [[buffer(4)]],
+                             device float *out             [[buffer(5)]],
+                             constant DeltaArgs &args      [[buffer(6)]],
+-                            uint head [[threadgroup_position_in_grid]],
++                            uint2 group [[threadgroup_position_in_grid]],
+                             uint tid [[thread_index_in_threadgroup]]) {
++    const uint head = group.x;
+     if (head >= args.value_heads || args.head_dim != 128 || args.qk_heads != 16) return;
+-    const uint j = tid & 127;
+-    const uint tile = tid >> 7;
++    // Columns have independent recurrence state, including in-place updates.
++    // Two 64-column groups retain the four 32-row sums and their order while
++    // fitting pipelines limited to 256 threads on pre-M5 Apple GPUs.
++    const uint col = tid & 63;
++    const uint j = group.y * 64 + col;
++    const uint tile = tid >> 6;
+     const uint i0 = tile * 32;
+     const uint qk = head % args.qk_heads;
+-    threadgroup float q[128], k[128], part[4][128], delta[128];
+-    if (tile == 0) { q[j] = conv[(ulong)qk * 128 + j] * rsqrt(128.0f); k[j] = conv[2048 + (ulong)qk * 128 + j]; }
++    threadgroup float q[128], k[128], part[4][64], delta[64];
++    if (tid < 128) { q[tid] = conv[(ulong)qk * 128 + tid] * rsqrt(128.0f); k[tid] = conv[2048 + (ulong)qk * 128 + tid]; }
+     threadgroup_barrier(mem_flags::mem_threadgroup);
+     const float decay = exp(g[head]);
+     device const float *source = state_src + (ulong)head * 128 * 128;
+@@ -1058,23 +1063,23 @@ kernel void q27_delta_step(device const float *state_src [[buffer(0)]],
+         saved[n] = value;
+         prediction += k[i] * value;
+     }
+-    part[tile][j] = prediction;
++    part[tile][col] = prediction;
+     threadgroup_barrier(mem_flags::mem_threadgroup);
+     if (tile == 0) {
+-        const float predicted = part[0][j] + part[1][j] + part[2][j] + part[3][j];
+-        delta[j] = beta[head] * (conv[4096 + (ulong)head * 128 + j] - predicted);
++        const float predicted = part[0][col] + part[1][col] + part[2][col] + part[3][col];
++        delta[col] = beta[head] * (conv[4096 + (ulong)head * 128 + j] - predicted);
+     }
+     threadgroup_barrier(mem_flags::mem_threadgroup);
+     float result = 0.0f;
+     for (uint n = 0; n < 32; n++) {
+         const uint i = i0 + n;
+-        const float value = saved[n] + k[i] * delta[j];
++        const float value = saved[n] + k[i] * delta[col];
+         dest[(ulong)i * 128 + j] = value;
+         result += q[i] * value;
+     }
+-    part[tile][j] = result;
++    part[tile][col] = result;
+     threadgroup_barrier(mem_flags::mem_threadgroup);
+-    if (tile == 0) out[(ulong)head * 128 + j] = part[0][j] + part[1][j] + part[2][j] + part[3][j];
++    if (tile == 0) out[(ulong)head * 128 + j] = part[0][col] + part[1][col] + part[2][col] + part[3][col];
+ }
+ 
+ kernel void q27_gated_norm_gdn(device const float *x [[buffer(0)]],
+@@ -3935,16 +3940,21 @@ kernel void q27_delta_chunk(device const float *state_src [[buffer(0)]],
+                              device const float *beta [[buffer(4)]],
+                              device float *out [[buffer(5)]],
+                              constant DeltaChunkArgs &args [[buffer(6)]],
+-                             uint head [[threadgroup_position_in_grid]],
++                             uint2 group [[threadgroup_position_in_grid]],
+                              uint tid [[thread_index_in_threadgroup]]) {
++    const uint head = group.x;
+     if (head >= args.value_heads || args.head_dim != 128 || args.qk_heads != 16) return;
+-    const uint j = tid & 127;
+-    const uint tile = tid >> 7;
++    // Columns have independent recurrence state, including in-place updates.
++    // Two 64-column groups retain the four 32-row sums and their order while
++    // fitting pipelines limited to 256 threads on pre-M5 Apple GPUs.
++    const uint col = tid & 63;
++    const uint j = group.y * 64 + col;
++    const uint tile = tid >> 6;
+     const uint i0 = tile * 32;
+     const uint qk = head % args.qk_heads;
+     const ulong conv_row = (ulong)(2 * args.qk_heads + args.value_heads) * 128;
+     const ulong out_row = (ulong)args.value_heads * 128;
+-    threadgroup float q[128], k[128], part[4][128], delta[128];
++    threadgroup float q[128], k[128], part[4][64], delta[64];
+     device const float *sh = state_src + (ulong)head * 128 * 128;
+     device float *sd = state_dst + (ulong)head * 128 * 128;
+     // The chunk's whole state slice lives in registers; it is written back
+@@ -3955,7 +3965,7 @@ kernel void q27_delta_chunk(device const float *state_src [[buffer(0)]],
+     for (uint t = 0; t < args.tokens; t++) {
+         threadgroup_barrier(mem_flags::mem_threadgroup);
+         device const float *cv = conv + (ulong)t * conv_row;
+-        if (tile == 0) { q[j] = cv[(ulong)qk * 128 + j] * rsqrt(128.0f); k[j] = cv[2048 + (ulong)qk * 128 + j]; }
++        if (tid < 128) { q[tid] = cv[(ulong)qk * 128 + tid] * rsqrt(128.0f); k[tid] = cv[2048 + (ulong)qk * 128 + tid]; }
+         threadgroup_barrier(mem_flags::mem_threadgroup);
+         const float decay = exp(g[(ulong)t * args.value_heads + head]);
+         float prediction = 0.0f;
+@@ -3963,22 +3973,22 @@ kernel void q27_delta_chunk(device const float *state_src [[buffer(0)]],
+             saved[n] *= decay;
+             prediction += k[i0 + n] * saved[n];
+         }
+-        part[tile][j] = prediction;
++        part[tile][col] = prediction;
+         threadgroup_barrier(mem_flags::mem_threadgroup);
+         if (tile == 0) {
+-            const float predicted = part[0][j] + part[1][j] + part[2][j] + part[3][j];
+-            delta[j] = beta[(ulong)t * args.value_heads + head] * (cv[4096 + (ulong)head * 128 + j] - predicted);
++            const float predicted = part[0][col] + part[1][col] + part[2][col] + part[3][col];
++            delta[col] = beta[(ulong)t * args.value_heads + head] * (cv[4096 + (ulong)head * 128 + j] - predicted);
+         }
+         threadgroup_barrier(mem_flags::mem_threadgroup);
+         float result = 0.0f;
+         for (uint n = 0; n < 32; n++) {
+-            saved[n] += k[i0 + n] * delta[j];
++            saved[n] += k[i0 + n] * delta[col];
+             result += q[i0 + n] * saved[n];
+         }
+-        part[tile][j] = result;
++        part[tile][col] = result;
+         threadgroup_barrier(mem_flags::mem_threadgroup);
+         if (tile == 0) out[(ulong)t * out_row + (ulong)head * 128 + j] =
+-            part[0][j] + part[1][j] + part[2][j] + part[3][j];
++            part[0][col] + part[1][col] + part[2][col] + part[3][col];
+     }
+     for (uint n = 0; n < 32; n++) sd[(ulong)(i0 + n) * 128 + j] = saved[n];
+ }

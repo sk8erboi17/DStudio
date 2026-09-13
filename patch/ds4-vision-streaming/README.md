@@ -1,6 +1,6 @@
 # DeepSeek Vision-Exp: Metal SSD mapping recovery
 
-Current pinned main: `f4d03f6cf9f11c1e7b630bcb160853acfba7c52a`.
+Current pinned main: `f62ca29a308724cde5bc99134ede19104b2a3260`.
 The original validation below used `b0a147a7fba6d1a104d047d5a140e9bb4bfc13cd`;
 the complete patch also applies/restores on current main.
 

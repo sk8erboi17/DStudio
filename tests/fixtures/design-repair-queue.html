@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- Authored audit fixture, never a model-generated project or benchmark. -->
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authored repair-queue oracle fixture</title>
+<style>
+*{box-sizing:border-box}body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:white}
+button,input,select{font:inherit;padding:6px;color:inherit;background:inherit;border:1px solid #8c96a2;max-width:100%}
+table{width:100%;table-layout:fixed;border-collapse:collapse}td,th{padding:6px;overflow-wrap:anywhere;text-align:left}
+dialog{max-width:85vw;color:inherit;background:inherit}label{display:block;margin:10px 0}
+@media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
+</style>
+<h1>FIXROOM</h1><p>Repair queue</p><p>Sample data</p>
+<label>Search<input type="search" oninput="render()"></label>
+<label>View state<select onchange="render()"><option>Populated</option><option>Loading</option><option>Empty</option><option>Error</option></select></label>
+<table><thead><tr><th>Item</th><th>Owner</th><th>Status</th><th>Actions</th></tr></thead><tbody></tbody></table>
+<p role="status" hidden></p><button id="retry" onclick="retry()" hidden>Retry</button>
+<dialog><h2></h2><p id="owner"></p><p id="status"></p><button onclick="document.querySelector('dialog').close()">Close</button></dialog>
+<script>
+window.fault='';const entries=[['Desk lamp','Mira','New'],['Portable radio','Ivo','In progress'],['Kitchen scale','Tess','Ready']];
+function render(){
+  const state=document.querySelector('select').value,query=document.querySelector('input').value.toLowerCase();
+  const rows=entries.map((entry,i)=>({entry,i})).filter(({entry})=>entry[0].toLowerCase().includes(query));
+  const shown=window.fault==='stale-state'||state==='Populated'?rows:[];
+  document.querySelector('tbody').innerHTML=shown.map(({entry,i})=>'<tr><td>'+entry[0]+'</td><td>'+entry[1]+'</td><td>'+entry[2]+'</td><td><button onclick="details(this,'+i+')">Details</button></td></tr>').join('');
+  const message=document.querySelector('[role=status]');message.hidden=state==='Populated'&&rows.length>0;
+  message.textContent=state==='Loading'?'Loading repairs':state==='Error'?'Could not load repairs':window.fault==='missing-empty'?'':'No matching repairs';
+  document.querySelector('#retry').hidden=state!=='Error';
+}
+function retry(){if(window.fault==='broken-retry')return;document.querySelector('select').value='Populated';render();}
+function details(button,index){button.focus();const d=document.querySelector('dialog');d.querySelector('h2').textContent=entries[index][0];
+  const entry=entries[window.fault==='wrong-detail'?0:index];d.querySelector('#owner').textContent='Owner: '+entry[1];d.querySelector('#status').textContent='Status: '+entry[2];d.showModal();}
+render();
+</script></html>

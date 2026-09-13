@@ -1,0 +1,73 @@
+--- a/ds4.c
++++ b/ds4.c
+@@ -43751,17 +43751,21 @@
+         const uint64_t bytes = model_map_span_vec_total_bytes(&spans);
+         if (bytes > max_bytes) {
+             max_bytes = bytes;
+             max_group = "output";
+         }
+         free(spans.v);
+     }
+     for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
+-        if (!weights_model_map_spans(weights, il, il, false, &spans)) {
++        memset(&spans, 0, sizeof(spans));
++        model_map_span_vec_include_layer_decode_static(&spans,
++                                                       &weights->layer[il]);
++        if (!model_map_span_vec_finish(&spans)) {
++            free(spans.v);
+             continue;
+         }
+         const uint64_t bytes = model_map_span_vec_total_bytes(&spans);
+         if (bytes > max_bytes) {
+             max_bytes = bytes;
+             max_group = "layer";
+             max_layer = il;
+         }
+@@ -43929,17 +43933,21 @@
+         uint32_t           layer_end,
+         bool               include_token,
+         bool               include_output,
+         uint32_t           ctx_size,
+         uint32_t           compact_cap,
+         uint64_t           transient_extra_bytes,
+         const char        *phase) {
+     if (!model) return true;
+-    if (glm_graph_memory_guard_disabled()) return true;
++    /*DS4UI_GLM53_STREAMING: GLM already has exact graph planning and backend
++     * allocation errors. A second host-memory gate rejects valid mapped or
++     * SSD-streamed launches, so DStudio leaves capacity advice to its UI. */
++    if (ds4_model_is_glm53() ||
++        glm_graph_memory_guard_disabled()) return true;
+ 
+     const uint32_t work_ctx =
+         glm_graph_full_attention_cap(ctx_size, ssd_streaming);
+     const ds4_context_memory mem = load_slice ?
+         glm_graph_context_memory_estimate_for_compact_cap_slice(
+                 ctx_size,
+                 work_ctx,
+                 compact_cap,
+--- a/ds4_server.c
++++ b/ds4_server.c
+@@ -14214,16 +14214,22 @@
+     return ok;
+ }
+ 
+ static bool send_models(server *s, int fd) {
+     buf b = {0};
+     buf_puts(&b, "{\"object\":\"list\",\"data\":[");
+     if (ds4_engine_is_deepseek41(s->engine)) {
+         append_model_json(&b, s, server_model_id_from_engine(s->engine));
++    } else if (ds4_engine_is_glm53(s->engine)) {
++        append_model_json(&b, s, "glm-5.3-flash");
++        buf_putc(&b, ',');
++        append_model_json(&b, s, "glm-5.3-flash-chat");
++        buf_putc(&b, ',');
++        append_model_json(&b, s, "glm-5.3-flash-reasoner");
+     } else if (ds4_engine_is_glm_dsa(s->engine)) {
+         append_model_json(&b, s, "glm-5.2");
+         buf_putc(&b, ',');
+         append_model_json(&b, s, "glm-5.2-chat");
+         buf_putc(&b, ',');
+         append_model_json(&b, s, "glm-5.2-reasoner");
+     } else {
+         append_model_json(&b, s, "deepseek-v4-flash");

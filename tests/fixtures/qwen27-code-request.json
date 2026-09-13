@@ -1,0 +1,15 @@
+{
+  "model": "qwen3.8-27b",
+  "messages": [
+    {
+      "role": "user",
+      "content": "In Python: x = [3, 5, 8]; print(sum(v * 2 for v in x if v % 2 == 1)). What integer is printed? Reply only with that integer."
+    }
+  ],
+  "temperature": 0,
+  "seed": 42,
+  "max_tokens": 256,
+  "think": false,
+  "thinking": { "type": "disabled" },
+  "stream": false
+}

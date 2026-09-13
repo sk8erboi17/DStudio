@@ -3,9 +3,10 @@
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 builder="$root/extension/design/build-design.sh"
-temporary=$(mktemp -d "${TMPDIR:-/tmp}/dstudio-design-archive.XXXXXX")
-fixture="$temporary/engine"
-trap 'rm -rf "$temporary"' EXIT HUP INT TERM
+mkdir -p "$root/tests/.artifacts/design-archive-build"
+temporary=$(mktemp -d "$root/tests/.artifacts/design-archive-build/run-XXXXXX")
+fixture="$temporary/engine with spaces"
+trap 'printf "Preserved Design archive evidence: %s\n" "$temporary"' EXIT
 mkdir "$fixture"
 git -C "$root/ds4" archive HEAD | tar -xf - -C "$fixture"
 
@@ -25,7 +26,7 @@ status_is() {
 # This source tree has no Git metadata anywhere above it.
 build
 initial=$(<"$fixture/ds4-design.ver")
-[[ "$initial" == archive-sha256:* ]]
+[[ "$initial" == design-v2:archive:* ]]
 status_is 'up to date'
 
 # A surrounding project must not become the engine identity. Its tracked diff
@@ -43,7 +44,7 @@ touch -t 203001010000 "$fixture/ds4-design"
 status_is 'needs rebuild'
 build
 updated=$(<"$fixture/ds4-design.ver")
-[[ "$updated" == archive-sha256:* && "$updated" != "$initial" ]]
+[[ "$updated" == design-v2:archive:* && "$updated" != "$initial" ]]
 status_is 'up to date'
 git -C "$temporary" diff --quiet --exit-code
 printf 'design_archive_build_test: ok (real build, startup, ancestor Git isolation, source invalidation)\n'

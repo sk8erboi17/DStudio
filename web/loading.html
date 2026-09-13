@@ -625,7 +625,9 @@
         }
         const startBody = {
           mode: 'server',
-          force: true,
+          // Startup cannot authorize stopping a server owned by another process.
+          // The main UI can ask explicitly if the engine port is occupied.
+          force: false,
           model: 'standard',
           variant,
           gguf,

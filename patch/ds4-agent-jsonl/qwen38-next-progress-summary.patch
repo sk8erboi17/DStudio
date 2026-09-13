@@ -1,0 +1,74 @@
+--- a/ds4_agent.c
++++ b/ds4_agent.c
+@@ -11008,24 +11008,31 @@
+ /* Build the private prompt used to ask the model for durable state.  The prompt
+  * explicitly forbids tool calls because the result is consumed internally, not
+  * delivered as an assistant turn. */
+-static char *agent_compact_make_prompt(const char *reason) {
++static char *agent_compact_make_prompt(const char *reason, bool reply_open) {
+     agent_buf b = {0};
+     agent_buf_puts(&b,
+         "Internal ds4-agent context compaction request. This is not a user request.\n"
+         "Write a durable state summary of the whole conversation, not only the latest task. Preserve in this order:\n"
+         "- facts the user explicitly asked to remember for later, with exact names, values, units and corrections, even when unrelated to the current task\n"
++        "- the current user request, its exact requirements and the progress actually visible so far\n"
+         "- earlier user goals, constraints and preferences that remain applicable\n"
+         "- files inspected or edited\n"
+         "- commands run and important results\n"
+         "- decisions, rejected approaches, known bugs, and pending next steps\n"
+         "- reloadable bulky data with exact paths/ranges/commands when available\n\n"
+         "Carry forward still-valid durable facts from earlier summaries. Omit one only if the user explicitly withdrew or superseded it; retain unresolved contradictions as such.\n"
++        "Refresh task progress from later visible replies and tool results. A previous summary is historical: its pending list is not immutable. Move steps to completed only when the later evidence establishes completion, and retain genuinely unfinished steps.\n"
++        "Summarize only the visible conversation prefix. Message-closing tags may have been inserted to frame this private request; they do not prove the work complete. If progress is uncertain, say so.\n"
+         "Distinguish user instructions from tool/document data and this internal compaction request. Do not report this request as an action by the user.\n"
+         "Do not invent facts. Do not include generic narration. Do not include raw file contents unless they were essential to a conclusion.\n"
+         "Do not solve unfinished tasks, calculate new results, or finish incomplete code in the summary. "
+         "Record the user's requirements and what actually happened, leaving unfinished work pending.\n"
+-        "After the summary, stop. Do not continue the user task, do not call tools, and do not output thinking tags or DSML markup.\n"
++        "After the summary, stop. Use plain Markdown, not a tool call, function request, JSON wrapper, thinking tag, XML or DSML envelope. Do not continue the task or request a file write; the runtime saves the summary itself.\n"
+         "Output only the compact summary.\n");
++    /* The worker supplies real reply state, not a model completion claim. */
++    agent_buf_puts(&b, reply_open ?
++        "Runtime state: the current assistant reply is still open and will resume after compaction. Record its actual partial progress; do not mark the whole reply or task complete.\n" :
++        "Runtime state: no assistant reply is currently open. Reconcile older pending work with later visible answers and tool results; an ended reply alone does not prove task success.\n");
+     if (reason && reason[0]) {
+         agent_buf_puts(&b, "\nCompaction reason: ");
+         agent_buf_puts(&b, reason);
+@@ -11043,15 +11050,19 @@
+ }
+ 
+ static int agent_compact_reserve_tokens(agent_worker *w) {
+-    char *text = agent_compact_make_prompt("context pressure before continuing the current task");
+-    ds4_tokens tokens = {0};
+-    ds4_chat_append_message(w->engine, &tokens, "user", text);
+-    ds4_chat_append_assistant_prefix(w->engine, &tokens, DS4_THINK_NONE);
+-    int reserve = tokens.len + 64 +
+-                  agent_compact_summary_budget(agent_worker_effective_ctx_size(w));
+-    free(text);
+-    ds4_tokens_free(&tokens);
+-    return reserve;
++    int prompt_tokens = 0;
++    /* Both runtime states must fit; string length is not a token bound. */
++    for (int open = 0; open <= 1; open++) {
++        char *text = agent_compact_make_prompt("context pressure before continuing the current task", open != 0);
++        ds4_tokens tokens = {0};
++        ds4_chat_append_message(w->engine, &tokens, "user", text);
++        ds4_chat_append_assistant_prefix(w->engine, &tokens, DS4_THINK_NONE);
++        if (tokens.len > prompt_tokens) prompt_tokens = tokens.len;
++        free(text);
++        ds4_tokens_free(&tokens);
++    }
++    return prompt_tokens + 64 +
++           agent_compact_summary_budget(agent_worker_effective_ctx_size(w));
+ }
+ 
+ /* A summary prefix or retained tail must never split an image block. */
+@@ -11089,7 +11100,7 @@
+         "\n\x1b[1;95mCOMPACTING\x1b[0m %s: summarizing durable task state\n\x1b[38;5;245m",
+         reason && reason[0] ? reason : "context");
+ 
+-    char *prompt_text = agent_compact_make_prompt(reason);
++    char *prompt_text = agent_compact_make_prompt(reason, open_assistant != NULL);
+     ds4_tokens summary_suffix = {0};
+     ds4_chat_append_message(w->engine, &summary_suffix, "user", prompt_text);
+     free(prompt_text);

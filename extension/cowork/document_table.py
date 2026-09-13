@@ -111,7 +111,10 @@ def source(ws, relative, office):
                     dim = root.find(f"{{{office.NS_MAIN}}}dimension")
                     require(dim is not None and dim.get("ref"), "sheet dimensions missing; export to text first", office)
                     bounds = office.parse_range(dim.get("ref"))
-                    matrix = office.xlsx_matrix(zf, target, shared, bounds)
+                    extent = office.SheetExtent()
+                    matrix = office.xlsx_matrix(zf, target, shared, bounds, extent=extent)
+                    require(not extent.omitted(bounds),
+                            "sheet dimension metadata omits stored cells; repair dimensions or export to text first", office)
                     for index, row in enumerate(matrix, bounds[0]):
                         segments.append({"id": f"sheet:{name}:row:{index}", "text": office.tsv([row])})
         else:

@@ -409,8 +409,44 @@ static int dtg_visible_transcript_contains(const char *text, const char *needle)
  * nodes, success additionally requires structured evidence that a tool
  * completed and a completion marker emitted afterwards.  The user prompt is
  * explicitly excluded so it cannot satisfy its own contract. */
+static int dtg_goal_successful_check(char *evidence, char *result) {
+    if (!result) return 0;
+    char *line = result;
+    /* RS starts a native event independently of the preceding text. Bash
+     * can emit an ANSI reset (or output without LF) immediately before it,
+     * just as handled by drain_child_stdout_data; neither is JSON payload. */
+    while (line > evidence && line[-1] != '\n' && (unsigned char)*line != 0x1e) line--;
+    char *end = strchr(line, '\n');
+    if (!end || (unsigned char)*line != 0x1e || end - line > 32768) return 0;
+    char saved = *end; *end = 0;
+    dtg_json_token tokens[32]; char err[160], type[32], name[64], output[16384], outcome[32];
+    int n = dtg_json_validate_complete(line+1,'{',err,sizeof err)
+        ? dtg_json_tokenize(line+1,strlen(line+1),tokens,32) : -1;
+    int ok = n > 0 &&
+        dtg_json_object_string(line+1,tokens,n,0,"type",type,sizeof type,1,err,sizeof err) &&
+        !strcmp(type,"tool_result") &&
+        dtg_json_object_string(line+1,tokens,n,0,"name",name,sizeof name,1,err,sizeof err) &&
+        (!strcmp(name,"bash") || !strcmp(name,"bash_status")) &&
+        dtg_json_object_string(line+1,tokens,n,0,"output",output,sizeof output,1,err,sizeof err);
+    /* Legacy native receipts omit outcome. Structured adapters explicitly
+     * distinguish returned, not-executed and interrupted/unknown effects. */
+    if (ok && dtg_json_object_field(line+1,tokens,n,0,"outcome") >= 0)
+        ok = dtg_json_object_string(line+1,tokens,n,0,"outcome",outcome,sizeof outcome,1,err,sizeof err) &&
+             !strcmp(outcome,"returned");
+    *end = saved;
+    if (!ok) return 0;
+    /* These two header lines are produced by the native bash owner on both
+     * supported Agent branches, BEFORE untrusted command stdout. A printed
+     * 'exit_status=0' in stdout cannot turn a failed/running job into success. */
+    int job, timed_out, consumed = 0; long pid; double elapsed;
+    if (sscanf(output,"bash job=%d pid=%ld status=done elapsed_sec=%lf timed_out=%d%n",
+               &job,&pid,&elapsed,&timed_out,&consumed) != 4 || timed_out || output[consumed] != '\n') return 0;
+    return !strncmp(output+consumed+1,"exit_status=0\n",14);
+}
+
 static int dtg_agent_completion_contract(const dtg_node *node,
-                                         char *err, size_t errsz) {
+                                         char *err, size_t errsz, int *needs_input) {
+    if (needs_input) *needs_input = 0;
     if (!node || (!node->action_require_tool_result &&
                   (!node->action_expect || !node->action_expect[0]))) return 1;
     size_t from = node->transcript_from < g_abase ? g_abase : node->transcript_from;
@@ -429,6 +465,11 @@ static int dtg_agent_completion_contract(const dtg_node *node,
     char *evidence = copy;
     for (char *p = strstr(evidence, user_close); p; p = strstr(p + 1, user_close))
         evidence = p + sizeof user_close - 1;
+    /* The transcript buffer is length-delimited and may retain bytes from
+     * a previous turn after its current end. Use this bounded private copy
+     * for blocked/completed decisions alike, excluding user and event text. */
+    if (needs_input && !strcmp(node->action_name, "agent.goal"))
+        *needs_input = dtg_visible_transcript_contains(evidence, "[[DSTUDIO_GOAL_BLOCKED]]");
 
     char *last_result = NULL;
     for (char *p = strstr(evidence, "\"type\":\"tool_result\""); p;
@@ -436,6 +477,11 @@ static int dtg_agent_completion_contract(const dtg_node *node,
     if (node->action_require_tool_result && (!node->watchdog_tool_calls || !last_result)) {
         free(copy);
         snprintf(err, errsz, "Agent stopped without completing a structured tool action");
+        return 0;
+    }
+    if (!strcmp(node->action_name, "agent.goal") && !dtg_goal_successful_check(evidence, last_result)) {
+        free(copy);
+        snprintf(err,errsz,"Goal requires a final completed, non-timed-out bash verification with exit status zero");
         return 0;
     }
 
@@ -472,7 +518,7 @@ static int dtg_native_verify_agent_receipt(dtg_runtime *rt, dtg_node *gate,
     if (!source || source->state != DTG_NODE_SUCCEEDED) {
         snprintf(err, errsz, "Agent receipt source did not succeed"); return 0;
     }
-    if (!dtg_agent_completion_contract(source, err, errsz)) return 0;
+    if (!dtg_agent_completion_contract(source, err, errsz, NULL)) return 0;
     snprintf(gate->native_message, sizeof gate->native_message,
              "Verified Agent tool evidence and completion receipt");
     return 1;
@@ -527,6 +573,21 @@ static int dtg_executor_graph_available(const dtg_graph *graph,
              "executor for policy '%s' is not registered; graph remains a validated proposal",
              graph && graph->policy[0] ? graph->policy : "unknown");
     return 0;
+}
+
+/* Start/resume admission must not spend an attempt for a configuration that
+ * cannot execute it. Dispatch revalidates again if the runtime changes later. */
+static int dtg_agent_context_preflight(const dtg_graph *graph, char *err, size_t errsz) {
+    if (strcmp(graph->executor_mode, "native")) return 1;
+    for (size_t i = 0; i < graph->node_count; i++) {
+        const dtg_node *node = &graph->nodes[i];
+        if (!dtg_is_agent_action(node->action_name)) continue;
+        if (dtg_node_terminal(node->state) &&
+            (strcmp(node->action_name, "agent.goal") || node->state != DTG_NODE_FAILED)) continue;
+        if (agent_turn_think_preflight(display_prompt_is_guided_analysis(node->action_display), err, errsz))
+            return 0;
+    }
+    return 1;
 }
 
 static int dtg_attempt_identity(dtg_node *node, char *attempt_id, size_t attempt_sz,
@@ -589,7 +650,7 @@ static int dtg_executor_begin_native(dtg_runtime *rt, dtg_node *node,
         return 1;
     }
 
-    if (!strcmp(node->action_name, "agent.prompt")) {
+    if (dtg_is_agent_action(node->action_name)) {
         char active_workspace[DSTUDIO_PATH_MAX] = "";
         if (!g_workdir[0] || !realpath(g_workdir, active_workspace) ||
             strcmp(active_workspace, rt->workspace_real)) {
@@ -609,11 +670,20 @@ static int dtg_executor_begin_native(dtg_runtime *rt, dtg_node *node,
             json_dyn_puts(&prompt,
                 "Avoid repeated identical tool calls; stop and explain if no progress is possible.\n\n") &&
             json_dyn_puts(&prompt, node->action_text);
+        if (ok && !strcmp(node->action_name, "agent.goal") && node->attempts_started > 0)
+            ok = json_dyn_puts(&prompt,
+                "\n\nGoal continuation, not a replay. Preserve all previous effects and user additions in this session. "
+                "Inspect current state and continue ONLY unfinished work; never rerun a write, command or external "
+                "action merely because an earlier reply was incomplete. Verify the stopping criteria. "
+                "If user input or authority is required, finish with [[DSTUDIO_GOAL_BLOCKED]] and explain it.");
         if (!ok) { free(prompt.ptr); snprintf(err, errsz, "cannot build bounded agent prompt"); return 0; }
         const char *display_prompt = node->action_display
             ? (node->attempts_started == 0 ? node->action_display : NULL)
             : prompt.ptr;
-        if (!dtg_agent_submit_for_graph(node->title, prompt.ptr, display_prompt,
+        /* Transcript echo is first-attempt-only; execution settings belong to
+         * the durable action and must also survive retry/resume. */
+        int force_think_max = display_prompt_is_guided_analysis(node->action_display);
+        if (!dtg_agent_submit_for_graph(node->title, prompt.ptr, display_prompt, force_think_max,
                                         operation_task_id,
                                         &node->transcript_from, err, errsz)) {
             free(prompt.ptr);
@@ -688,7 +758,7 @@ static void dtg_watchdog_trip(dtg_node *node, const char *reason) {
     node->native_success = 0;
     cstr_copy(node->native_message, sizeof node->native_message, reason);
     if (g_child > 0 && g_agent_working) {
-        kill(g_child, SIGINT);
+        interrupt_piped_runtime();
         g_interrupt_pending = 1;
     }
     if (node->operation_task_id)
@@ -701,8 +771,8 @@ static void dtg_watchdog_observe_event_line(const char *line) {
     dtg_node *node = g_dtg_agent_owner_node;
     if (!node || !line || node->watchdog_tripped) return;
     const char *event = (unsigned char)line[0] == 0x1e ? line + 1 : line;
-    int is_call = strstr(event, "\"type\":\"tool_call\"") != NULL;
-    int is_result = strstr(event, "\"type\":\"tool_result\"") != NULL;
+    int is_call = !strncmp(event, "{\"type\":\"tool_call\",", 20);
+    int is_result = !strncmp(event, "{\"type\":\"tool_result\",", 22);
     if (!is_call && !is_result) return;
     /* Transport ids may change even when the semantic call is identical.
      * Hash from the stable payload field so retries cannot evade the bound. */
@@ -752,7 +822,7 @@ static int dtg_executor_cancel(dtg_runtime *rt, dtg_node *node,
     }
 #endif
     if (node == g_dtg_agent_owner_node && g_child > 0 && g_agent_working) {
-        (void)kill(g_child, SIGINT);
+        interrupt_piped_runtime();
         g_interrupt_pending = 1;
     }
     cstr_copy(node->native_message, sizeof node->native_message,
@@ -775,22 +845,42 @@ static int dtg_executor_poll(dtg_runtime *rt, dtg_node *node, long long now,
     if (node == g_dtg_agent_owner_node) {
         if (g_agent_working) return 1;
         if (!dtg_write_agent_transcript(rt, node, err, errsz)) return 0;
+        /* WAITING means idle, not success. Consult this attempt's existing
+         * task receipt; stderr failure/Stop must survive the readiness marker.
+         * A missing receipt cannot authorize success or a Goal continuation. */
+        const dstudio_task *operation = task_find(node->operation_task_id);
+        int turn_completed = operation && !strcmp(operation->status, "completed");
         node->native_done = 1;
         node->native_success = !node->watchdog_tripped && !node->native_cancel_requested &&
-                               g_child > 0 && g_ready;
+                               g_child > 0 && g_ready && turn_completed;
         char contract_err[256] = "";
+        int needs_input = 0;
         if (node->native_success &&
-            !dtg_agent_completion_contract(node, contract_err, sizeof contract_err)) {
+            !dtg_agent_completion_contract(node, contract_err, sizeof contract_err, &needs_input)) {
             node->native_success = 0;
             cstr_copy(node->native_message, sizeof node->native_message, contract_err);
+            if (!strcmp(node->action_name, "agent.goal")) {
+                /* Only a healthy, drained model turn can continue. Crash,
+                 * cancellation and watchdog failure never use this path. */
+                cstr_copy(node->native_message, sizeof node->native_message,
+                    needs_input
+                      ? "Goal needs user input; previous effects are preserved"
+                      : "Goal continuation required: completion evidence is not yet available");
+            }
         } else if (node->native_success)
             cstr_copy(node->native_message, sizeof node->native_message,
                       node->action_require_tool_result
                         ? "Agent turn completed with verified tool evidence and receipt"
                         : "Agent turn completed at WAITING boundary");
-        else if (!node->watchdog_tripped && !node->native_cancel_requested)
-            cstr_copy(node->native_message, sizeof node->native_message,
-                      "Agent runtime exited before a healthy completion boundary");
+        else if (!node->watchdog_tripped && !node->native_cancel_requested) {
+            if (!turn_completed)
+                snprintf(node->native_message, sizeof node->native_message,
+                         "Agent turn has no successful receipt (%s): %.380s",
+                         operation ? operation->status : "missing",
+                         operation ? operation->error : "operation task unavailable");
+            else cstr_copy(node->native_message, sizeof node->native_message,
+                           "Agent runtime exited before a healthy completion boundary");
+        }
         g_dtg_agent_owner_node = NULL;
         g_dtg_agent_owner_rt = NULL;
     }

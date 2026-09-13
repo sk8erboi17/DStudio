@@ -30,3 +30,19 @@ for (const product of ['dstudio', 'opendesign']) for (const width of [1440, 390]
   assert.ok(png.readUInt32BE(20) >= 1000);
 }
 console.log('product_publication: six outcomes, original failures, artifact hashes/execution, private-data exclusion and real PNG dimensions passed');
+const regenerationBytes = fs.readFileSync(path.join(root, 'results/2026-09-06-design-regeneration.json'));
+const regeneration = JSON.parse(regenerationBytes);
+assert.ok(!/\/Users\/|\/var\/folders\/|remoteApiKey/.test(regenerationBytes.toString()));
+assert.equal(regeneration.completed, false, 'The 15-minute agent timeout remains an unfinished run');
+assert.equal(regeneration.elapsedSeconds, null); assert.equal(regeneration.deadlineSeconds, 900);
+assert.equal(regeneration.pass, false, 'Passing saved output must not erase the runtime deadline');
+assert.equal(regeneration.artifactChecksPass, true);
+assert.deepEqual(regeneration.browsers.map(b => b.browser).sort(), ['chromium', 'webkit']);
+assert.ok(regeneration.browsers.every(b => b.pass && b.checks.every(c => c.pass)));
+assert.equal(regeneration.initialBrowserAudits.length, 2, 'Keep both original hidden-input grader failures');
+for (const shot of regeneration.screenshots) {
+  const png = fs.readFileSync(path.join(root, shot.file));
+  assert.equal(createHash('sha256').update(png).digest('hex'), shot.sha256);
+  assert.equal(png.readUInt32BE(16), shot.width);
+}
+console.log('design_regeneration_publication: unfinished agent, independent browser passes, unchanged screenshot digests and first grader failures retained');

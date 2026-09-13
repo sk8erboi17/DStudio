@@ -1,3 +1,0 @@
-    server_generation_leave(s);
-
-    if (job_cancelled(j)) {

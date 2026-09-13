@@ -310,6 +310,70 @@ try {
   await page.getByRole('button', { name: 'Check passages and calculations' }).click();
   await page.getByText(/Calculation not verified: Citation P1 refers to multiple passages/).waitFor();
   assert.equal(await page.getByText(/Arithmetic agrees/).count(), 0, 'never certify arithmetic using an arbitrary duplicate-ID source');
+  // Exercise the compact source panel with production styles and real Poppler
+  // matching. The PDF and answer are deterministic fixtures, not model output.
+  const spacedQuote = 'Annual sales                         100.10 EUR';
+  const panelPassages = [{ ...p1, quote: spacedQuote }, { ...p2, id: 'P1' },
+    { ...p1, page: 3, quote: 'Rotated evidence works reliably.' },
+    { ...p2, page: 7, quote: '98.75' }, { ...p2, page: 7, quote: '87.65' }];
+  const panelFile = { ...file, name: 'Quarterly project review — sources and supporting tables.pdf' };
+  await page.evaluate(({ file, answer }) => {
+    const shell = document.createElement('main');
+    // Only supply a conversation-width parent. All component styling is native.
+    shell.style.cssText = 'width:min(820px,calc(100% - 32px));margin:40px auto;';
+    const content = document.createElement('p');
+    content.textContent = 'The review includes annual and current results [P1], with supporting figures in the original table [P2].';
+    const m = { id: 'panel', role: 'assistant', content: answer };
+    const chat = { messages: [{ id: 'u', role: 'user', attachments: [file] }, m] };
+    shell.append(content, window.pdfEvidence.build(m, chat, content));
+    document.body.replaceChildren(shell);
+  }, { file: panelFile, answer: protocol({ citations: panelPassages, calculations: [] }) });
+  const panel = page.getByRole('region', { name: 'PDF sources and calculations' });
+  assert.equal(await panel.getByRole('heading', { name: 'PDF sources' }).count(), 1);
+  await panel.getByText('1 document · 5 passages', { exact: true }).waitFor();
+  await panel.getByText('Pages 1, 3', { exact: true }).waitFor();
+  await panel.getByText('Page 7', { exact: true }).waitFor();
+  assert.equal(await panel.locator('details[open]').count(), 0);
+  assert.equal(await panel.getByRole('button', { name: /^Open \[P1\] passage/ }).count(), 0,
+    'full quotations remain collapsed until requested');
+  const colors = [];
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    for (const width of [1100, 390]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true,
+        `source panel must not overflow in ${theme} at ${width}px`);
+      await page.screenshot({ path: path.join(artifacts, `sources-${browserName}-${theme}-${width}.png`) });
+    }
+    colors.push(await panel.evaluate(node => getComputedStyle(node).backgroundColor));
+    const summary = panel.locator('summary').first();
+    await summary.focus();
+    await summary.press('Enter');
+    assert.equal(await panel.locator('details[open]').count(), 1);
+    assert.equal(await panel.getByRole('button', { name: /^Open \[P1\] passage/ }).count(), 3);
+    assert.equal(await panel.locator('.pdf-evidence__quote').first().textContent(), spacedQuote,
+      'display wrapping must not rewrite the original quotation');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: path.join(artifacts, `sources-${browserName}-${theme}-expanded.png`) });
+    await summary.press('Enter');
+  }
+  assert.notEqual(colors[0], colors[1], 'light and dark must use their respective palettes');
+  await panel.locator('summary').first().click();
+  const quotedPassage = panel.getByRole('button', { name: /^Open \[P1\] passage 1/ });
+  await quotedPassage.click();
+  await page.locator('.pdf-evidence-highlight').first().waitFor();
+  assert.equal(requests.at(-1).quote, spacedQuote, 'send original whitespace to the evidence endpoint');
+  assert.equal(requests.at(-1).page, 1);
+  assert.equal(await page.getByRole('combobox', { name: 'Source passage' }).count(), 0,
+    'an explicitly chosen quotation must open directly');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await panel.getByRole('button', { name: /^Open \[P1\] passage 3/ }).click();
+  await page.getByRole('img', { name: 'Original PDF, physical page 3', exact: true }).waitFor();
+  await page.locator('.pdf-evidence-highlight').first().waitFor();
+  assert.equal(requests.at(-1).quote, panelPassages[2].quote);
+  assert.equal(requests.at(-1).documentId, doc);
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.evaluate(() => {
     const m={id:'invalid',role:'assistant',content:'Answer.\n```dstudio-pdf-evidence\ninvalid\n```'};
     const content=document.createElement('div'); content.textContent=window.pdfEvidence.extract(m.content).content;
@@ -318,7 +382,7 @@ try {
   await page.getByText(/Some PDF source details could not be read/).waitFor();
   assert.doesNotMatch(await page.locator('body').innerText(),/dstudio-pdf-evidence|invalid/);
   assert.deepEqual(errors, []);
-  console.log('pdf_evidence: browser links, repeated-label selection, real Poppler highlights, provenance, arithmetic and invalid-metadata handling passed');
+  console.log(`pdf_evidence: ${browserName} light/dark source panels, keyboard expansion, direct quotations, repeated-label selection, real Poppler highlights, provenance, arithmetic and invalid metadata passed`);
   assert.doesNotMatch(logs, /starting.*(?:ds4-server|model)|loading.*gguf/i);
   assert.doesNotMatch(logs, /AddressSanitizer|runtime error:/);
 } finally {

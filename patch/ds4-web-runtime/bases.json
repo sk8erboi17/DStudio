@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "sourceFile": "ds4_web.c",
+  "migration": {
+    "description": "Exact pre-migration native output; no runtime behavior changes",
+    "legacyVersion": null
+  },
+  "bases": [
+    {
+      "name": "main-current",
+      "repository": "https://github.com/antirez/ds4",
+      "revision": "c0a6119f363ef82125877142f13fb3fe491cba14",
+      "equivalentSourceRevisions": ["f62ca29a308724cde5bc99134ede19104b2a3260"],
+      "sourceSHA256": "c6baf247c8063b80bac793ee6a031a352299be6632eaceac81f3bc5f302367c4",
+      "rawSourceSHA256": "c6baf247c8063b80bac793ee6a031a352299be6632eaceac81f3bc5f302367c4",
+      "prerequisites": [],
+      "patch": "browser.patch",
+      "patchSHA256": "8ba71a3f13663ebf944eef0d702a45a5824741e7476c50b45a38e1046171ef48",
+      "derivedSHA256": "8958d7d39c0d594a7d8a5df3154158378f1c78d3c368de35e35ea53f63ad7fd2",
+      "legacyExpandedSHA256": "8958d7d39c0d594a7d8a5df3154158378f1c78d3c368de35e35ea53f63ad7fd2"
+    },
+    {
+      "name": "main-previous",
+      "repository": "https://github.com/antirez/ds4",
+      "revision": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
+      "sourceSHA256": "c6baf247c8063b80bac793ee6a031a352299be6632eaceac81f3bc5f302367c4",
+      "rawSourceSHA256": "c6baf247c8063b80bac793ee6a031a352299be6632eaceac81f3bc5f302367c4",
+      "prerequisites": [],
+      "patch": "browser.patch",
+      "patchSHA256": "8ba71a3f13663ebf944eef0d702a45a5824741e7476c50b45a38e1046171ef48",
+      "derivedSHA256": "8958d7d39c0d594a7d8a5df3154158378f1c78d3c368de35e35ea53f63ad7fd2",
+      "legacyExpandedSHA256": "8958d7d39c0d594a7d8a5df3154158378f1c78d3c368de35e35ea53f63ad7fd2"
+    },
+    {
+      "name": "laguna",
+      "repository": "https://github.com/antirez/ds4",
+      "revision": "448d5695d1c86401a4e9447c440feb983b73e6de",
+      "sourceSHA256": "c6baf247c8063b80bac793ee6a031a352299be6632eaceac81f3bc5f302367c4",
+      "rawSourceSHA256": "c6baf247c8063b80bac793ee6a031a352299be6632eaceac81f3bc5f302367c4",
+      "prerequisites": [],
+      "patch": "browser.patch",
+      "patchSHA256": "8ba71a3f13663ebf944eef0d702a45a5824741e7476c50b45a38e1046171ef48",
+      "derivedSHA256": "8958d7d39c0d594a7d8a5df3154158378f1c78d3c368de35e35ea53f63ad7fd2",
+      "legacyExpandedSHA256": "8958d7d39c0d594a7d8a5df3154158378f1c78d3c368de35e35ea53f63ad7fd2"
+    },
+    {
+      "name": "qwen38",
+      "repository": "https://github.com/ivanfioravanti/ds4-metal",
+      "revision": "bd9cfbccc03a709a3f00b50e0ac1cc41c3fcf02d",
+      "sourceSHA256": "c6baf247c8063b80bac793ee6a031a352299be6632eaceac81f3bc5f302367c4",
+      "rawSourceSHA256": "c6baf247c8063b80bac793ee6a031a352299be6632eaceac81f3bc5f302367c4",
+      "prerequisites": [],
+      "patch": "browser.patch",
+      "patchSHA256": "8ba71a3f13663ebf944eef0d702a45a5824741e7476c50b45a38e1046171ef48",
+      "derivedSHA256": "8958d7d39c0d594a7d8a5df3154158378f1c78d3c368de35e35ea53f63ad7fd2",
+      "legacyExpandedSHA256": "8958d7d39c0d594a7d8a5df3154158378f1c78d3c368de35e35ea53f63ad7fd2"
+    },
+    {
+      "name": "qwen35",
+      "repository": "https://github.com/vagrillo/ds4",
+      "revision": "60fca11f0c8b16ca50c757324dddd717ba043098",
+      "sourceSHA256": "c6baf247c8063b80bac793ee6a031a352299be6632eaceac81f3bc5f302367c4",
+      "rawSourceSHA256": "c6baf247c8063b80bac793ee6a031a352299be6632eaceac81f3bc5f302367c4",
+      "prerequisites": [],
+      "patch": "browser.patch",
+      "patchSHA256": "8ba71a3f13663ebf944eef0d702a45a5824741e7476c50b45a38e1046171ef48",
+      "derivedSHA256": "8958d7d39c0d594a7d8a5df3154158378f1c78d3c368de35e35ea53f63ad7fd2",
+      "legacyExpandedSHA256": "8958d7d39c0d594a7d8a5df3154158378f1c78d3c368de35e35ea53f63ad7fd2"
+    }
+  ]
+}

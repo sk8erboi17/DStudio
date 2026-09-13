@@ -253,24 +253,26 @@ int main(void) {
     assert(!lan_client_id_ok("client/slash"));
 
     char err[256] = {0};
+    remote_start_cfg remote_start = {0};
     assert(parse_remote_start(
         "{\"modelBackend\":\"remote\",\"remoteBaseUrl\":\"http://25.17.235.135:5500\",\"remoteModel\":\"ds4\"}",
-        1, err, sizeof err));
-    assert(strcmp(g_remote_base_url, "http://25.17.235.135:5500") == 0);
-    assert(strcmp(g_remote_model, "ds4") == 0);
+        1, &remote_start, err, sizeof err));
+    assert(strcmp(remote_start.base_url, "http://25.17.235.135:5500") == 0);
+    assert(strcmp(remote_start.model, "ds4") == 0);
+    assert(g_remote_base_url[0] == '\0' && g_remote_model[0] == '\0');
     assert(parse_remote_start(
         "{\"modelBackend\":\"remote\",\"remoteBaseUrl\":\"https://25.17.235.135:5500\"}",
-        1, err, sizeof err));
-    assert(strcmp(g_remote_base_url, "https://25.17.235.135:5500") == 0);
+        1, &remote_start, err, sizeof err));
+    assert(strcmp(remote_start.base_url, "https://25.17.235.135:5500") == 0);
     assert(!parse_remote_start(
         "{\"modelBackend\":\"remote\",\"remoteBaseUrl\":\"http://25.17.235.135:5500\"}",
-        0, err, sizeof err));
+        0, &remote_start, err, sizeof err));
     assert(strstr(err, "only valid for agent/design") != NULL);
-    assert(!parse_remote_start("{\"lanClient\":true}", 1, err, sizeof err));
+    assert(!parse_remote_start("{\"lanClient\":true}", 1, &remote_start, err, sizeof err));
     assert(strstr(err, "remote model host") != NULL);
-    assert(parse_remote_start("{}", 1, err, sizeof err));
-    assert(g_remote_base_url[0] == '\0');
-    assert(g_remote_model[0] == '\0');
+    assert(parse_remote_start("{}", 1, &remote_start, err, sizeof err));
+    assert(remote_start.base_url[0] == '\0');
+    assert(remote_start.model[0] == '\0');
 
     engine_cfg remote_cfg = ENGINE_DEFAULTS;
     assert(ENGINE_DEFAULTS.uncensored == 0);
@@ -299,7 +301,8 @@ int main(void) {
         g_dspark_enabled = 1;
         char adjustment[384] = "";
         unsigned long long required = 0, budget = 0;
-        assert(!normalize_flash_memory_config(&oversized, 0, 0,
+        int requested_dspark = 1;
+        assert(!normalize_flash_memory_request(&oversized, 0, current_model_rel(), &requested_dspark, 0,
                                               adjustment, sizeof adjustment,
                                               &required, &budget));
         assert(g_dspark_enabled);
@@ -307,7 +310,7 @@ int main(void) {
         assert(required > budget && budget > 0);
         assert(strstr(adjustment, "exceeds this Mac's") != NULL);
         assert(strstr(adjustment, "terminate the engine") != NULL);
-        assert(normalize_flash_memory_config(&oversized, 0, 1,
+        assert(normalize_flash_memory_request(&oversized, 0, current_model_rel(), &requested_dspark, 1,
                                              adjustment, sizeof adjustment,
                                              &required, &budget));
         assert(g_dspark_enabled);

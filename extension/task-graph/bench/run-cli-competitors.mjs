@@ -6,8 +6,9 @@ import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import {
-  artifactDir, safeReadTail, startDStudio, startMode, writeArtifact,
+  artifactRunDir, safeReadTail, startDStudio, startMode, writeArtifact,
 } from '../../../tests/support/real_harness.mjs';
+import { ownGitRevision } from '../../../tests/support/quality_baseline.mjs';
 import {
   changeAllowed, changedFiles, createReliabilityFixture, RELIABILITY_SUITE_SIZE,
   workspaceSnapshot,
@@ -18,9 +19,8 @@ if (process.env.RUN_HEAVY !== '1') {
   process.exit(2);
 }
 
-const artifacts = artifactDir('task-graph-cli-competitors-real');
-for (const name of fs.readdirSync(artifacts))
-  fs.rmSync(path.join(artifacts, name), { recursive: true, force: true });
+const artifacts = artifactRunDir('task-graph-cli-competitors-real');
+console.log(`Immutable benchmark run: ${artifacts}`);
 const workspace = path.join(artifacts, 'workspace');
 const configRoot = path.join(artifacts, 'isolated-cli-config');
 fs.mkdirSync(configRoot, { recursive: true });
@@ -68,9 +68,17 @@ function commandOutput(command, args, cwd = process.cwd()) {
 }
 
 function revisionInfo(cwd) {
+  const own = ownGitRevision(cwd);
+  if (!own) {
+    const file = path.join(cwd, '.dstudio-source.json');
+    const receipt = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+    return { commit: receipt?.commit || 'unknown', dirty: null,
+      provenance: receipt ? 'download-receipt-unverified-content' : 'unknown-archive' };
+  }
   return {
-    commit: commandOutput('git', ['rev-parse', '--short=12', 'HEAD'], cwd) || 'unknown',
-    dirty: Boolean(commandOutput('git', ['status', '--porcelain'], cwd)),
+    commit: own.head,
+    dirty: Boolean(own.status),
+    provenance: 'own-git',
   };
 }
 

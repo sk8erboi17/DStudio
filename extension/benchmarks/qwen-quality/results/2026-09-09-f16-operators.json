@@ -1,0 +1,189 @@
+{
+  "schema": 1,
+  "date": "2026-09-09",
+  "scope": "real-metal-operators-synthetic",
+  "hardware": {
+    "chip": "Apple M2 Max",
+    "ramGiB": 96,
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "workload": {
+    "position": 50741,
+    "queries": 128,
+    "heads": 24,
+    "kvHeads": 4,
+    "dimension": 256,
+    "kvPrecision": "F16",
+    "accumulation": "FP32"
+  },
+  "casesPerRun": 18,
+  "order": "AB BA AB BA AB",
+  "failedRuns": 0,
+  "notRun": 0,
+  "variants": {
+    "before": {
+      "patchSHA256": "f4ff02bb4255ac9190750a6f92a351f10b619667dbda2e865b5b3ef1c988964a",
+      "runs": [
+        {
+          "sample": 1,
+          "receipt": "run-GkKqSd",
+          "receiptSHA256": "9f7b6cb8e3cbea08e98bca4f715883c2b1602cd2f1f46fa1134ca9617b36210b",
+          "passed": true,
+          "wallMs": 423.343,
+          "gpuMs": 344.952792,
+          "scoreMaximumGpuMs": 126.872375,
+          "weightsValuesGpuMs": 218.080417,
+          "commandBuffers": 100,
+          "maxCommandGpuMs": 5.11625,
+          "scratchBytes": 24576,
+          "maxStaticThreadgroupBytes": 0
+        },
+        {
+          "sample": 2,
+          "receipt": "run-fc8Elv",
+          "receiptSHA256": "dcbd2a6f42bbb42f0e7002a74451eaa997e3f33c9b11f0ac135fed7be61db751",
+          "passed": true,
+          "wallMs": 415.573,
+          "gpuMs": 350.402667,
+          "scoreMaximumGpuMs": 131.2185,
+          "weightsValuesGpuMs": 219.184167,
+          "commandBuffers": 100,
+          "maxCommandGpuMs": 5.236125,
+          "scratchBytes": 24576,
+          "maxStaticThreadgroupBytes": 0
+        },
+        {
+          "sample": 3,
+          "receipt": "run-AM1AFX",
+          "receiptSHA256": "ae81089120e2619313db456d48aa1c906cf981b68f1b93f6ae8ec2624d68de71",
+          "passed": true,
+          "wallMs": 413.639,
+          "gpuMs": 351.617917,
+          "scoreMaximumGpuMs": 129.136292,
+          "weightsValuesGpuMs": 222.481625,
+          "commandBuffers": 100,
+          "maxCommandGpuMs": 5.351333,
+          "scratchBytes": 24576,
+          "maxStaticThreadgroupBytes": 0
+        },
+        {
+          "sample": 4,
+          "receipt": "run-dKNgqF",
+          "receiptSHA256": "4388a905cfbf31f7c26c474ed5c234b98eb5f4a7ad1b6c0cc30035f8a390bd4a",
+          "passed": true,
+          "wallMs": 446.609,
+          "gpuMs": 372.015917,
+          "scoreMaximumGpuMs": 138.036542,
+          "weightsValuesGpuMs": 233.979375,
+          "commandBuffers": 100,
+          "maxCommandGpuMs": 5.68175,
+          "scratchBytes": 24576,
+          "maxStaticThreadgroupBytes": 0
+        },
+        {
+          "sample": 5,
+          "receipt": "run-zrIhPr",
+          "receiptSHA256": "f0710d0fde1002e013230be2498c06d1416c911d11daf1715a747501f18f72a3",
+          "passed": true,
+          "wallMs": 439.16,
+          "gpuMs": 368.161417,
+          "scoreMaximumGpuMs": 138.557125,
+          "weightsValuesGpuMs": 229.604292,
+          "commandBuffers": 100,
+          "maxCommandGpuMs": 5.310417,
+          "scratchBytes": 24576,
+          "maxStaticThreadgroupBytes": 0
+        }
+      ],
+      "shaderSHA256": "a0fb7e39df01abe9ead0f2d82a30b52dd3db2f705f6461b75cdca4300d62d364",
+      "probeSHA256": "37a1f67d9d1df7af508df0c8e8414246e9a3eb0dea50ed8ff6f93788f6cd73ec",
+      "harnessSHA256": "ef1bd641fe07eb23735fad32b8a82c335f73a1511632d09ec25b96312f120ac2"
+    },
+    "after": {
+      "patchSHA256": "893f7f07b5b6f6e5fe2d4e8fbd1f6851a8fcec068e95193b3e8a096e98990364",
+      "runs": [
+        {
+          "sample": 1,
+          "receipt": "run-gYtHri",
+          "receiptSHA256": "daf11522021d182fc0edca0f08c170a47928fa41ea56e60497671d00684f3bf1",
+          "passed": true,
+          "wallMs": 291.51,
+          "gpuMs": 218.8335,
+          "scoreMaximumGpuMs": 99.829833,
+          "weightsValuesGpuMs": 119.003667,
+          "commandBuffers": 100,
+          "maxCommandGpuMs": 2.983875,
+          "scratchBytes": 24576,
+          "maxStaticThreadgroupBytes": 4096
+        },
+        {
+          "sample": 2,
+          "receipt": "run-a9E9tI",
+          "receiptSHA256": "cd61721f2423f96776e4b51dcc4e45f6100078a86884414995b9bfced3250f49",
+          "passed": true,
+          "wallMs": 281.188,
+          "gpuMs": 219.669458,
+          "scoreMaximumGpuMs": 101.045333,
+          "weightsValuesGpuMs": 118.624125,
+          "commandBuffers": 100,
+          "maxCommandGpuMs": 3.114458,
+          "scratchBytes": 24576,
+          "maxStaticThreadgroupBytes": 4096
+        },
+        {
+          "sample": 3,
+          "receipt": "run-6z095Q",
+          "receiptSHA256": "a1e8dd26808c169504d794b7937beb8695aaa37e6dca2082f3a0fd8b84cadf84",
+          "passed": true,
+          "wallMs": 304.653,
+          "gpuMs": 239.446917,
+          "scoreMaximumGpuMs": 108.485375,
+          "weightsValuesGpuMs": 130.961542,
+          "commandBuffers": 100,
+          "maxCommandGpuMs": 3.297125,
+          "scratchBytes": 24576,
+          "maxStaticThreadgroupBytes": 4096
+        },
+        {
+          "sample": 4,
+          "receipt": "run-8GrrxD",
+          "receiptSHA256": "537c8612afe6250c666066d4c9a7c0044f12b8c9b5de48f829e9b9012b8e3612",
+          "passed": true,
+          "wallMs": 301.241,
+          "gpuMs": 232.675125,
+          "scoreMaximumGpuMs": 105.978292,
+          "weightsValuesGpuMs": 126.696833,
+          "commandBuffers": 100,
+          "maxCommandGpuMs": 3.272625,
+          "scratchBytes": 24576,
+          "maxStaticThreadgroupBytes": 4096
+        },
+        {
+          "sample": 5,
+          "receipt": "run-FSpVYw",
+          "receiptSHA256": "d8c928f4d7b14f25cb2481824fb7470aec6073c6b8b8a0c22661c58606966da4",
+          "passed": true,
+          "wallMs": 309.269,
+          "gpuMs": 234.355167,
+          "scoreMaximumGpuMs": 110.378292,
+          "weightsValuesGpuMs": 123.976875,
+          "commandBuffers": 100,
+          "maxCommandGpuMs": 3.128458,
+          "scratchBytes": 24576,
+          "maxStaticThreadgroupBytes": 4096
+        }
+      ],
+      "shaderSHA256": "afd803dfbedefa5b62eed53b59ee1edc31b9182e4c1f290988630f36fc66420d",
+      "probeSHA256": "37a1f67d9d1df7af508df0c8e8414246e9a3eb0dea50ed8ff6f93788f6cd73ec",
+      "harnessSHA256": "ef1bd641fe07eb23735fad32b8a82c335f73a1511632d09ec25b96312f120ac2"
+    }
+  },
+  "limitations": [
+    "Synthetic deterministic operands; no language model loaded.",
+    "Shared host with unrelated applications left running.",
+    "Five observations per variant; ranges and medians, not p95/p99.",
+    "Every one of the eighteen cases ran in each invocation. Failures remain failures.",
+    "The earlier actual-model 900-second timeout is not replaced by this operator result."
+  ]
+}

@@ -16,6 +16,18 @@ ds4_dir=$(CDPATH= cd -- "$ds4_dir" && pwd)
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 patch_file="$script_dir/../patch/ds4-glm53-m2max/native-decode.patch"
 
+# DStudio routes only Qwen checkpoints to this fork. Its rebased source also
+# contains GLM code, but that does not make the GLM-specific M2 adaptation a
+# Qwen dependency (its native layer/expert bounds and kernels are different).
+if grep -q 'DS4_MODEL_FAMILY_QWEN4_EXP' "$ds4_dir/ds4.c"; then
+    if grep -q 'glm_stream_m2_glm53_top8_addr_enabled' "$ds4_dir/ds4.c"; then
+        echo "DStudio M2 Max patch: unsupported GLM adaptation present in Qwen source; no files changed" >&2
+        exit 1
+    fi
+    echo "DStudio M2 Max patch: Qwen engine uses native kernels; GLM adaptation skipped"
+    exit 0
+fi
+
 # Only macOS builds consume this port. The compiled runtime still checks the
 # exact Apple M2 Max / GLM53 Q2 / top-8 / token-one / SSD shape at dispatch.
 if [ "$(uname -s)" != Darwin ] ||
@@ -38,13 +50,24 @@ cleanup() {
     [ -z "$legacy_patch" ] || rm -f "$legacy_patch"
 }
 trap cleanup EXIT HUP INT TERM
+main_patch=$(mktemp "${TMPDIR:-/tmp}/dstudio-m2-main.XXXXXX")
 if grep -q '^test-glm-attention:' "$ds4_dir/Makefile"; then
-    main_patch=$(mktemp "${TMPDIR:-/tmp}/dstudio-m2-main.XXXXXX")
     awk '/^diff --git / { skip = ($3 == "a/Makefile" || $3 == "a/.gitignore") }
          !skip { print }' "$patch_file" > "$main_patch"
-    cat "$script_dir/../patch/ds4-glm53-m2max/build-main.patch" >> "$main_patch"
-    patch_file=$main_patch
+    if grep -q '^test-frontends:' "$ds4_dir/Makefile"; then
+        cat "$script_dir/../patch/ds4-glm53-m2max/build-main-current.patch" >> "$main_patch"
+    else
+        cat "$script_dir/../patch/ds4-glm53-m2max/build-main.patch" >> "$main_patch"
+    fi
+else
+    cat "$patch_file" > "$main_patch"
 fi
+# September 6 main prints all selected experts itself. Keep that upstream loop;
+# earlier source layouts still need the old six-to-eight diagnostic correction.
+if ! grep -Fq '"experts=",' "$ds4_dir/ds4_metal.m"; then
+    cat "$script_dir/../patch/ds4-glm53-m2max/legacy-selected-logging.patch" >> "$main_patch"
+fi
+patch_file=$main_patch
 
 # git apply checks the entire eight-file patch before writing, unlike a series
 # of patch(1) edits that can leave a half-applied runtime. A source archive can

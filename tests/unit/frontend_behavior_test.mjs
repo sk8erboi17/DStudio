@@ -28,6 +28,13 @@ function extractFunction(src, name) {
 }
 
 const js = scriptSource();
+const parseModelName = new Function(`${extractFunction(js, 'parseGgufName')}; return parseGgufName;`)();
+for (const prefix of ['', 'gguf/', '/fixture/models/', 'C:\\models\\']) {
+  assert.deepEqual(parseModelName(`${prefix}Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf`),
+    {model: 'Qwen3.6-35B-A3B', kind: 'text', quant: 'Q6_K_XL'});
+  assert.equal(parseModelName(`${prefix}Qwen3.6-35B-A3B-test.gguf`).model, 'Qwen3.6-35B-A3B');
+  assert.equal(parseModelName(`${prefix}Qwen3.8-Flash-Next-test.gguf`).model, 'Qwen3.8-Flash-Next');
+}
 const imagePreset = new Function('Store', `${extractFunction(js, 'selectedImagePreset')}; return selectedImagePreset;`);
 for (const value of ['low', 'medium', 'high', 'max', undefined, null, 'unknown']) {
   const actual = imagePreset({ getSettings: () => ({ imagePreset: value }) })();

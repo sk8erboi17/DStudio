@@ -1,0 +1,1886 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Release-admission requirements, not an installation catalog or completed qualification. Missing receipts and source decisions deliberately block promotion.",
+  "capturedAt": "2026-09-12",
+  "requireInstallerPins": true,
+  "limitations": [
+    "This is the initial declared engine/backend/checkpoint matrix; the full test census and final source/build freeze remain separate acceptance requirements.",
+    "Each row has one explicit operating system. CPU rows describe native Linux/Windows builds; scalar CPU reference tests also remain part of Metal numerical verification.",
+    "Optional non-Metal launch/install integrations, Qwen27B adapters and Qwen vision remain required work, not working capabilities.",
+    "The Qwen27B Q6_K_XL and F16 projector are pinned installation candidates, not qualified formats; app integration, complete numerical/answer gates and non-Metal representations remain pending.",
+    "The main track covers the complete f4d03f6..bd66c40 campaign delta. Main and Qwen Next managed upgrades have scoped receipts; full mode, numerical and earlier cross-fork qualification remains open.",
+    "A recorded tip only freezes the observed revision. The per-target source review must classify every commit; empty arrays are not equivalence claims.",
+    "The macOS release command checks all macOS targets. Other-platform rows are explicitly outside that run, never counted as passing.",
+    "V4.1 adds Metal-only Q2/Q4 candidates. Its weights, native disk Engram and expert streaming require distinct real-load and correctness evidence; new rows do not imply qualification.",
+    "q36's installer candidate now targets 8362010 with the ordered runtime/monitor/monitor-owner patch stack. Empty-directory network setup and 14 real DStudio Chat/Agent/Cowork/vision/Stop checks pass on Metal; existing-install upgrades, Learn, desktop and complete release qualification remain required. The Linux Vulkan candidate is not runtime-tested on this Mac. q27's newer observed tip remains unpromoted."
+  ],
+  "tracks": [
+    {
+      "id": "main",
+      "repository": "https://github.com/antirez/ds4",
+      "ref": "refs/heads/main",
+      "base": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
+      "recordedTip": "bd66c402070042bf0a79ad6ece8242de4c93680c"
+    },
+    {
+      "id": "laguna",
+      "repository": "https://github.com/antirez/ds4",
+      "ref": "refs/heads/laguna-s2.1",
+      "base": "448d5695d1c86401a4e9447c440feb983b73e6de",
+      "recordedTip": "448d5695d1c86401a4e9447c440feb983b73e6de"
+    },
+    {
+      "id": "qwen38",
+      "repository": "https://github.com/ivanfioravanti/ds4-metal",
+      "ref": "refs/heads/qwen3.8-flash-next",
+      "base": "82d031408c50419957fd44b7e9c2d423890b24bd",
+      "recordedTip": "ff4f0ff4fdff70d6b7c3941ef437b91dde960e14"
+    },
+    {
+      "id": "qwen35",
+      "repository": "https://github.com/vagrillo/ds4",
+      "ref": "refs/heads/qwen35moe-support",
+      "base": "60fca11f0c8b16ca50c757324dddd717ba043098",
+      "recordedTip": "73434c4bb9d8bb18425a2577edada69d25d44c47"
+    },
+    {
+      "id": "q36",
+      "repository": "https://github.com/Ninnix/q36",
+      "ref": "refs/heads/main",
+      "base": "d67687ed15ad9f52b755a9b5fdfc0214ea937555",
+      "recordedTip": "8362010a301b3360296e435703f58ffc230a024a"
+    },
+    {
+      "id": "q27",
+      "repository": "https://github.com/signalnine/q27",
+      "ref": "refs/heads/master",
+      "base": "bd8d8caf0941ff66eb6997c9cbb4780215899792",
+      "recordedTip": "8cd708389f8b5a2c5a7c481237b00c8d7f570e7f"
+    }
+  ],
+  "patchSets": {
+    "main": [
+      {
+        "path": "patch/ds4-agent-jsonl/manifest",
+        "sha256": "643b201a0c81887eef2342b094c4e0cb0e723bf806b213711edf074329e23868"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/bases.json",
+        "sha256": "b96cc4f02bd9b93debbac9156c44f8924173260517152d123328040ff3ac6552"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/build.mk",
+        "sha256": "9bec378229ee15798748db1b0db1ce292f7bfc54cb3400623904842074bf43cd"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld.h",
+        "sha256": "600417240a989e7b778fc304733ac4378837b6360f1c569a35d68febbcd2e329"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_agent.inc",
+        "sha256": "e6c4bc22e47f2808ec0442b42a691876c12e7031d91ce8c6f5db9cd29ff6f14e"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_agent_rewind.h",
+        "sha256": "01dee48ead564adbefb4c28cbf06f7293b00d7b93b6f3697c53c07b72f395057"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_benchmark_clock.h",
+        "sha256": "187df546f5a25b52d11efcac038af431337256d644c73b919dcd5d9401c6eaba"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_core.c",
+        "sha256": "8788013b8c16a6224ec4c13d9837f52c4ea8e55ca8c649afabd1a93534533678"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_engine.h",
+        "sha256": "6ff0753a02883c2a8518dc2c354ff7d9667b49f9cb12ca437eeb0199428dd618"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_server_eval.inc",
+        "sha256": "e45836cd6bb4afabb62c67f800f02bb722899a66d1eb947440ed88b68a2a8ae5"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_server_finish.inc",
+        "sha256": "d0728b6f3df990637121f4594c967998a5e7ae1206d56267bafbab4a7ad4dc64"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/remote-agent.cfrag",
+        "sha256": "a24864131a02198b48866b3cf7af3e824dbf7e9d890e3b37a8544e7fb32ae558"
+      },
+      {
+        "path": "patch/ds4-web-runtime/browser.patch",
+        "sha256": "8ba71a3f13663ebf944eef0d702a45a5824741e7476c50b45a38e1046171ef48"
+      },
+      {
+        "path": "patch/ds4-web-runtime/manifest",
+        "sha256": "c8ad28691f82b274ce1afdf54532d5c1055952fa94a6ea630c9cdca80c9d417e"
+      },
+      {
+        "path": "patch/ds4-web-runtime/bases.json",
+        "sha256": "e97e00e6e392a3a7b666430e1b9195044e3b242f06d056e3efe149028d57f382"
+      },
+      {
+        "path": "extension/remote/dstudio_remote_llm.c",
+        "sha256": "cfa634a84dc6bf222b35d9ecbd37b2836eec97033058711b813f675703e761d0"
+      },
+      {
+        "path": "extension/remote/dstudio_remote_llm.h",
+        "sha256": "4f6a03700de4cf761bf2b2d552d2544230ef774852919ba7acebe95aec4b7f7a"
+      },
+      {
+        "path": "extension/cowork/ds4_cowork.c",
+        "sha256": "58ea83280e4e98448c0606c50995940acb83e276cb288db4398748f7802c881f"
+      },
+      {
+        "path": "extension/cowork/ds4_cowork.h",
+        "sha256": "e8fe97f24e214f0e6b0f0873e70f1a541f6eb8d40fe364e034a30221d06d4dd2"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/main-v41.patch",
+        "sha256": "b77a0db5fa4ee3fdcaf0ad8c2aaedfa5d58b4ca9f42e34d5a422a172df5508dd",
+        "check": "apply"
+      },
+      {
+        "path": "patch/ds4-glm53-m2max/native-decode.patch",
+        "sha256": "9c316a62119242a19b4a3ceda8b196ea824b446749584fe871d0d7d539bf7755"
+      },
+      {
+        "path": "patch/ds4-glm53-m2max/batch-entry-limit.patch",
+        "sha256": "24ee698f9c20d0cc8f9511bf5a0d27b84299f0a00dde5913ace175d8e0803c92"
+      },
+      {
+        "path": "patch/ds4-glm53-m2max/build-main-current.patch",
+        "sha256": "a2bebd6d74b3f59c5e88e2b2a4c4ec8dc28628023b2bc7eaad793647296bbade"
+      },
+      {
+        "path": "patch/ds4-glm53-m2max/build-main.patch",
+        "sha256": "47a261905470a2d3545c2871fdae96a5aafe05194abf1441a5973202d0364ae0"
+      },
+      {
+        "path": "patch/ds4-glm53-m2max/legacy-selected-logging.patch",
+        "sha256": "b06dd3f60e33e64b3b77234c89a7d8522e6fb4d33b252d1287498a904eb19d94"
+      },
+      {
+        "path": "patch/ds4-vision-streaming/vision-map.patch",
+        "sha256": "6210182b70f9494e6442aa5663abd1ea45d898b047890cdcfc2e8eec2155a510"
+      },
+      {
+        "path": "patch/ds4-server-metrics/usage-metrics.patch",
+        "sha256": "1ffca39b23338f7946a9dd729023f340986dee64578aec1ae99c7e9105e1065e"
+      },
+      {
+        "path": "scripts/apply-ds4-glm53-m2max.sh",
+        "sha256": "8d1e81bfccb665fd59ec32a24868d5b9607000e7002310611291a5bbbd869e6f"
+      },
+      {
+        "path": "scripts/apply-ds4-vision-streaming.sh",
+        "sha256": "f0e11d5411dd35af8fa49a86e071629446bf9603bf2bc8cb45f5a9357372a355"
+      },
+      {
+        "path": "scripts/apply-ds4-server-metrics.sh",
+        "sha256": "0ab97627604cde6f815fdfaf879f4d734787c04e0293c120d6d105576bee0da0"
+      },
+      {
+        "path": "patch/ds4-server-pld/main-current.patch",
+        "sha256": "8ea89124191f2ee3dcd3193eec326c8fe393e2680abc4e5280954e14bc9c39bf"
+      },
+      {
+        "path": "patch/ds4-server-pld/manifest",
+        "sha256": "414d2b63e49b7e01058ad3e274245794c641793422afe9dbd1e246520a0fe704"
+      },
+      {
+        "path": "patch/ds4-server-pld/bases.json",
+        "sha256": "6b232c3f53b323b6bc3cc8df6921a26602cc8baeeaa28eeba86f47b583a807e8"
+      },
+      {
+        "path": "extension/design/ds4_design.c",
+        "sha256": "9aee345bee7d5468c79398d18112345fd0f24bb05cb20a40d0baebaee1abdf80"
+      },
+      {
+        "path": "extension/design/build-design.sh",
+        "sha256": "25deb793596032740c797da8259eaf89055364a12b2f13146e69d939cf149dd9"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_agent_compaction.h",
+        "sha256": "509a6f82157b2386075c7cfb99d47315e77fe22d19ab811eaafb107e9e88df90"
+      },
+      {
+        "path": "patch/ds4-glm53-runtime/main-v41.patch",
+        "sha256": "7f6853822b75cd7cb5990713e4aa1634657c68eed4a54898e18f9dc82d3d037c"
+      },
+      {
+        "path": "patch/ds4-visible-downloads/main-v41.patch",
+        "sha256": "37d7c0785623d3e4040fa88a8d5f09eaa247b3cf96172399853379f52b2f29e6"
+      },
+      {
+        "path": "scripts/apply-ds4-glm53-runtime.sh",
+        "sha256": "844ff268fd5696cffc85ab370d19e74aeb9bc25df48713ae2e8b7de7ed42579a"
+      },
+      {
+        "path": "scripts/apply-ds4-visible-downloads.sh",
+        "sha256": "03b2093779252c85cab0766b3aef1c6e7595535cf3b9a8a002a2b5d4d9cf69b8"
+      }
+    ],
+    "laguna": [
+      {
+        "path": "patch/ds4-agent-jsonl/manifest",
+        "sha256": "643b201a0c81887eef2342b094c4e0cb0e723bf806b213711edf074329e23868"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/bases.json",
+        "sha256": "b96cc4f02bd9b93debbac9156c44f8924173260517152d123328040ff3ac6552"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/compaction_text.h",
+        "sha256": "f1595874318f58c59fea122bdc71d9176724947288b217d5a12ec928e86634ed"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/build.mk",
+        "sha256": "9bec378229ee15798748db1b0db1ce292f7bfc54cb3400623904842074bf43cd"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld.h",
+        "sha256": "600417240a989e7b778fc304733ac4378837b6360f1c569a35d68febbcd2e329"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_agent.inc",
+        "sha256": "e6c4bc22e47f2808ec0442b42a691876c12e7031d91ce8c6f5db9cd29ff6f14e"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_agent_rewind.h",
+        "sha256": "01dee48ead564adbefb4c28cbf06f7293b00d7b93b6f3697c53c07b72f395057"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_benchmark_clock.h",
+        "sha256": "187df546f5a25b52d11efcac038af431337256d644c73b919dcd5d9401c6eaba"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_core.c",
+        "sha256": "8788013b8c16a6224ec4c13d9837f52c4ea8e55ca8c649afabd1a93534533678"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_engine.h",
+        "sha256": "6ff0753a02883c2a8518dc2c354ff7d9667b49f9cb12ca437eeb0199428dd618"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_server_eval.inc",
+        "sha256": "e45836cd6bb4afabb62c67f800f02bb722899a66d1eb947440ed88b68a2a8ae5"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_server_finish.inc",
+        "sha256": "d0728b6f3df990637121f4594c967998a5e7ae1206d56267bafbab4a7ad4dc64"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/remote-agent.cfrag",
+        "sha256": "a24864131a02198b48866b3cf7af3e824dbf7e9d890e3b37a8544e7fb32ae558"
+      },
+      {
+        "path": "patch/ds4-web-runtime/browser.patch",
+        "sha256": "8ba71a3f13663ebf944eef0d702a45a5824741e7476c50b45a38e1046171ef48"
+      },
+      {
+        "path": "patch/ds4-web-runtime/manifest",
+        "sha256": "c8ad28691f82b274ce1afdf54532d5c1055952fa94a6ea630c9cdca80c9d417e"
+      },
+      {
+        "path": "patch/ds4-web-runtime/bases.json",
+        "sha256": "e97e00e6e392a3a7b666430e1b9195044e3b242f06d056e3efe149028d57f382"
+      },
+      {
+        "path": "extension/remote/dstudio_remote_llm.c",
+        "sha256": "cfa634a84dc6bf222b35d9ecbd37b2836eec97033058711b813f675703e761d0"
+      },
+      {
+        "path": "extension/remote/dstudio_remote_llm.h",
+        "sha256": "4f6a03700de4cf761bf2b2d552d2544230ef774852919ba7acebe95aec4b7f7a"
+      },
+      {
+        "path": "extension/cowork/ds4_cowork.c",
+        "sha256": "58ea83280e4e98448c0606c50995940acb83e276cb288db4398748f7802c881f"
+      },
+      {
+        "path": "extension/cowork/ds4_cowork.h",
+        "sha256": "e8fe97f24e214f0e6b0f0873e70f1a541f6eb8d40fe364e034a30221d06d4dd2"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/laguna.patch",
+        "sha256": "dca0239e29286cce6d90092d5ee74fad8f9342cd518d1b5ee3d6bd5f20161930",
+        "check": "apply"
+      },
+      {
+        "path": "patch/ds4-glm53-m2max/native-decode.patch",
+        "sha256": "9c316a62119242a19b4a3ceda8b196ea824b446749584fe871d0d7d539bf7755"
+      },
+      {
+        "path": "patch/ds4-glm53-m2max/batch-entry-limit.patch",
+        "sha256": "24ee698f9c20d0cc8f9511bf5a0d27b84299f0a00dde5913ace175d8e0803c92"
+      },
+      {
+        "path": "patch/ds4-glm53-m2max/build-main-current.patch",
+        "sha256": "a2bebd6d74b3f59c5e88e2b2a4c4ec8dc28628023b2bc7eaad793647296bbade"
+      },
+      {
+        "path": "patch/ds4-glm53-m2max/build-main.patch",
+        "sha256": "47a261905470a2d3545c2871fdae96a5aafe05194abf1441a5973202d0364ae0"
+      },
+      {
+        "path": "patch/ds4-glm53-m2max/legacy-selected-logging.patch",
+        "sha256": "b06dd3f60e33e64b3b77234c89a7d8522e6fb4d33b252d1287498a904eb19d94"
+      },
+      {
+        "path": "patch/ds4-vision-streaming/vision-map.patch",
+        "sha256": "6210182b70f9494e6442aa5663abd1ea45d898b047890cdcfc2e8eec2155a510"
+      },
+      {
+        "path": "patch/ds4-server-metrics/usage-metrics.patch",
+        "sha256": "1ffca39b23338f7946a9dd729023f340986dee64578aec1ae99c7e9105e1065e"
+      },
+      {
+        "path": "scripts/apply-ds4-glm53-m2max.sh",
+        "sha256": "8d1e81bfccb665fd59ec32a24868d5b9607000e7002310611291a5bbbd869e6f"
+      },
+      {
+        "path": "scripts/apply-ds4-vision-streaming.sh",
+        "sha256": "f0e11d5411dd35af8fa49a86e071629446bf9603bf2bc8cb45f5a9357372a355"
+      },
+      {
+        "path": "scripts/apply-ds4-server-metrics.sh",
+        "sha256": "0ab97627604cde6f815fdfaf879f4d734787c04e0293c120d6d105576bee0da0"
+      },
+      {
+        "path": "extension/design/ds4_design.c",
+        "sha256": "9aee345bee7d5468c79398d18112345fd0f24bb05cb20a40d0baebaee1abdf80"
+      },
+      {
+        "path": "extension/design/build-design.sh",
+        "sha256": "25deb793596032740c797da8259eaf89055364a12b2f13146e69d939cf149dd9"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_agent_compaction.h",
+        "sha256": "509a6f82157b2386075c7cfb99d47315e77fe22d19ab811eaafb107e9e88df90"
+      }
+    ],
+    "qwen38": [
+      {
+        "path": "patch/ds4-agent-jsonl/manifest",
+        "sha256": "643b201a0c81887eef2342b094c4e0cb0e723bf806b213711edf074329e23868"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/bases.json",
+        "sha256": "b96cc4f02bd9b93debbac9156c44f8924173260517152d123328040ff3ac6552"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/build.mk",
+        "sha256": "9bec378229ee15798748db1b0db1ce292f7bfc54cb3400623904842074bf43cd"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld.h",
+        "sha256": "600417240a989e7b778fc304733ac4378837b6360f1c569a35d68febbcd2e329"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_agent.inc",
+        "sha256": "e6c4bc22e47f2808ec0442b42a691876c12e7031d91ce8c6f5db9cd29ff6f14e"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_agent_rewind.h",
+        "sha256": "01dee48ead564adbefb4c28cbf06f7293b00d7b93b6f3697c53c07b72f395057"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_benchmark_clock.h",
+        "sha256": "187df546f5a25b52d11efcac038af431337256d644c73b919dcd5d9401c6eaba"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_core.c",
+        "sha256": "8788013b8c16a6224ec4c13d9837f52c4ea8e55ca8c649afabd1a93534533678"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_engine.h",
+        "sha256": "6ff0753a02883c2a8518dc2c354ff7d9667b49f9cb12ca437eeb0199428dd618"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_server_eval.inc",
+        "sha256": "e45836cd6bb4afabb62c67f800f02bb722899a66d1eb947440ed88b68a2a8ae5"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_server_finish.inc",
+        "sha256": "d0728b6f3df990637121f4594c967998a5e7ae1206d56267bafbab4a7ad4dc64"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/remote-agent.cfrag",
+        "sha256": "a24864131a02198b48866b3cf7af3e824dbf7e9d890e3b37a8544e7fb32ae558"
+      },
+      {
+        "path": "patch/ds4-web-runtime/browser.patch",
+        "sha256": "8ba71a3f13663ebf944eef0d702a45a5824741e7476c50b45a38e1046171ef48"
+      },
+      {
+        "path": "patch/ds4-web-runtime/manifest",
+        "sha256": "c8ad28691f82b274ce1afdf54532d5c1055952fa94a6ea630c9cdca80c9d417e"
+      },
+      {
+        "path": "patch/ds4-web-runtime/bases.json",
+        "sha256": "e97e00e6e392a3a7b666430e1b9195044e3b242f06d056e3efe149028d57f382"
+      },
+      {
+        "path": "extension/remote/dstudio_remote_llm.c",
+        "sha256": "cfa634a84dc6bf222b35d9ecbd37b2836eec97033058711b813f675703e761d0"
+      },
+      {
+        "path": "extension/remote/dstudio_remote_llm.h",
+        "sha256": "4f6a03700de4cf761bf2b2d552d2544230ef774852919ba7acebe95aec4b7f7a"
+      },
+      {
+        "path": "extension/cowork/ds4_cowork.c",
+        "sha256": "58ea83280e4e98448c0606c50995940acb83e276cb288db4398748f7802c881f"
+      },
+      {
+        "path": "extension/cowork/ds4_cowork.h",
+        "sha256": "e8fe97f24e214f0e6b0f0873e70f1a541f6eb8d40fe364e034a30221d06d4dd2"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/qwen38-next.patch",
+        "sha256": "35a978b74a7bba5c61cf6d48d0dde7bd3d856ab48b44920811710e2544b0e997",
+        "check": "apply"
+      },
+      {
+        "path": "patch/ds4-qwen38-prepare/prepare-current.patch",
+        "sha256": "5931454a1e9a7d0b95e10431cc5e4d8c12f5cd1b9616006d09be7b0059370ef1"
+      },
+      {
+        "path": "patch/ds4-qwen38-inspect/metadata-current.patch",
+        "sha256": "34472d3301ab9d8a29f3eddeb80425ec5225cb79ab9b91cc1add4f23c79aa18b"
+      },
+      {
+        "path": "scripts/apply-ds4-qwen38-prepare.sh",
+        "sha256": "7966f4347bd8b191c0b1a818f485808c6f7271fe085bc872af87f4012bab1c32"
+      },
+      {
+        "path": "scripts/apply-ds4-qwen38-inspect.sh",
+        "sha256": "70c45da4857ea57111fcd366a9ab32846263bce8ea67c1b374f43e333036aa9c"
+      },
+      {
+        "path": "patch/ds4-vision-streaming/vision-map.patch",
+        "sha256": "6210182b70f9494e6442aa5663abd1ea45d898b047890cdcfc2e8eec2155a510"
+      },
+      {
+        "path": "scripts/apply-ds4-vision-streaming.sh",
+        "sha256": "f0e11d5411dd35af8fa49a86e071629446bf9603bf2bc8cb45f5a9357372a355"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_agent_compaction.h",
+        "sha256": "509a6f82157b2386075c7cfb99d47315e77fe22d19ab811eaafb107e9e88df90"
+      },
+      {
+        "path": "patch/ds4-qwen38-snapshot/snapshot-allocation.patch",
+        "sha256": "b0f007f37141feadd85a4d8bbf7aed5d4b4e092994857a771651497fbac14926"
+      },
+      {
+        "path": "scripts/apply-ds4-qwen38-snapshot.sh",
+        "sha256": "23d395706769c00238c0f134969da35d93ba99c5cdf9dc3c64bfef0bd3743be9"
+      }
+    ],
+    "qwen35": [
+      {
+        "path": "patch/ds4-agent-jsonl/manifest",
+        "sha256": "643b201a0c81887eef2342b094c4e0cb0e723bf806b213711edf074329e23868"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/bases.json",
+        "sha256": "b96cc4f02bd9b93debbac9156c44f8924173260517152d123328040ff3ac6552"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/compaction_text.h",
+        "sha256": "f1595874318f58c59fea122bdc71d9176724947288b217d5a12ec928e86634ed"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/build.mk",
+        "sha256": "9bec378229ee15798748db1b0db1ce292f7bfc54cb3400623904842074bf43cd"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld.h",
+        "sha256": "600417240a989e7b778fc304733ac4378837b6360f1c569a35d68febbcd2e329"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_agent.inc",
+        "sha256": "e6c4bc22e47f2808ec0442b42a691876c12e7031d91ce8c6f5db9cd29ff6f14e"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_agent_rewind.h",
+        "sha256": "01dee48ead564adbefb4c28cbf06f7293b00d7b93b6f3697c53c07b72f395057"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_benchmark_clock.h",
+        "sha256": "187df546f5a25b52d11efcac038af431337256d644c73b919dcd5d9401c6eaba"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_core.c",
+        "sha256": "8788013b8c16a6224ec4c13d9837f52c4ea8e55ca8c649afabd1a93534533678"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_engine.h",
+        "sha256": "6ff0753a02883c2a8518dc2c354ff7d9667b49f9cb12ca437eeb0199428dd618"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_server_eval.inc",
+        "sha256": "e45836cd6bb4afabb62c67f800f02bb722899a66d1eb947440ed88b68a2a8ae5"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_server_finish.inc",
+        "sha256": "d0728b6f3df990637121f4594c967998a5e7ae1206d56267bafbab4a7ad4dc64"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/remote-agent.cfrag",
+        "sha256": "a24864131a02198b48866b3cf7af3e824dbf7e9d890e3b37a8544e7fb32ae558"
+      },
+      {
+        "path": "patch/ds4-web-runtime/browser.patch",
+        "sha256": "8ba71a3f13663ebf944eef0d702a45a5824741e7476c50b45a38e1046171ef48"
+      },
+      {
+        "path": "patch/ds4-web-runtime/manifest",
+        "sha256": "c8ad28691f82b274ce1afdf54532d5c1055952fa94a6ea630c9cdca80c9d417e"
+      },
+      {
+        "path": "patch/ds4-web-runtime/bases.json",
+        "sha256": "e97e00e6e392a3a7b666430e1b9195044e3b242f06d056e3efe149028d57f382"
+      },
+      {
+        "path": "extension/remote/dstudio_remote_llm.c",
+        "sha256": "cfa634a84dc6bf222b35d9ecbd37b2836eec97033058711b813f675703e761d0"
+      },
+      {
+        "path": "extension/remote/dstudio_remote_llm.h",
+        "sha256": "4f6a03700de4cf761bf2b2d552d2544230ef774852919ba7acebe95aec4b7f7a"
+      },
+      {
+        "path": "extension/cowork/ds4_cowork.c",
+        "sha256": "58ea83280e4e98448c0606c50995940acb83e276cb288db4398748f7802c881f"
+      },
+      {
+        "path": "extension/cowork/ds4_cowork.h",
+        "sha256": "e8fe97f24e214f0e6b0f0873e70f1a541f6eb8d40fe364e034a30221d06d4dd2"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/qwen35.patch",
+        "sha256": "5199195367dd2db6d88d66fca21e8d8344c3e408608ee8b5571a98ddbf2da1ae",
+        "check": "apply"
+      },
+      {
+        "path": "patch/ds4-qwen35-catalog/native-model-id.patch",
+        "sha256": "2854793806e9207a658bf240d113838bf17b8d28a8e34961724d9cc3566f6ad0"
+      },
+      {
+        "path": "scripts/apply-ds4-qwen35-catalog.sh",
+        "sha256": "0b996cfafe1505a69ae8757891921349e2e0b5278aafaaf78501d2e75abec692"
+      },
+      {
+        "path": "patch/ds4-agent-jsonl/pld_agent_compaction.h",
+        "sha256": "509a6f82157b2386075c7cfb99d47315e77fe22d19ab811eaafb107e9e88df90"
+      }
+    ],
+    "q36": [
+      {
+        "path": "patch/q36-metal-runtime/next-review.patch",
+        "sha256": "5d3ccc8ad93f10965e6c93f83ee0c132d396c9b68890beb15138a502d9dcbef6",
+        "check": "apply"
+      },
+      {
+        "path": "scripts/apply-q36-metal-runtime.sh",
+        "sha256": "af3b592e1dd8c2a8f2ff6e24c68df01e1b7fd1a704a09889ee43b5f03b56783b"
+      },
+      {
+        "path": "scripts/apply-q36-agent-tty.sh",
+        "sha256": "5a7372f214dd11b0e3189fea993eb81fdaffe831545c334367ea6dfe7fd3c916"
+      },
+      {
+        "path": "patch/q36-agent-tty/monitor.patch",
+        "sha256": "82b788cec48a8e49f53def1f69f2f9c5884bb7a25f4584e389a80cc54945df66"
+      },
+      {
+        "path": "patch/q36-agent-tty/monitor-owner.patch",
+        "sha256": "3b5efcc739f61e1e6be506dea9d6cdab2713a67227791e02dd1d4b5c93e4d948"
+      },
+      {
+        "path": "scripts/install-q36.py",
+        "sha256": "86af11a8127fca2ea94ccfe80870a17906f2f2e935c3b85e85d3a82a457af4bf"
+      },
+      {
+        "path": "scripts/download-qwen27.py",
+        "sha256": "7c1173ba061bb46c3367f61f0e86769be2a16daf76e2df2778f9ca93b7e0f7c2"
+      }
+    ],
+    "q27": []
+  },
+  "targets": [
+    {
+      "id": "main/macos/metal/flash-iq2",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "metal",
+      "checkpoint": "flash-iq2",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "macos"
+    },
+    {
+      "id": "main/macos/metal/flash-abliterated",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "metal",
+      "checkpoint": "flash-abliterated",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "macos"
+    },
+    {
+      "id": "main/macos/metal/flash-mixed",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "metal",
+      "checkpoint": "flash-mixed",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "macos"
+    },
+    {
+      "id": "main/macos/metal/flash-mxfp4",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "metal",
+      "checkpoint": "flash-mxfp4",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "macos"
+    },
+    {
+      "id": "main/macos/metal/flash-vision",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "metal",
+      "checkpoint": "flash-vision",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "macos"
+    },
+    {
+      "id": "main/macos/metal/glm53",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "metal",
+      "checkpoint": "glm53",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50",
+        "glm-continuations-100",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "macos"
+    },
+    {
+      "id": "main/linux/cpu/flash-iq2",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cpu",
+      "checkpoint": "flash-iq2",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/windows/cpu/flash-iq2",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cpu",
+      "checkpoint": "flash-iq2",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "windows"
+    },
+    {
+      "id": "main/linux/cpu/flash-abliterated",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cpu",
+      "checkpoint": "flash-abliterated",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/windows/cpu/flash-abliterated",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cpu",
+      "checkpoint": "flash-abliterated",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "windows"
+    },
+    {
+      "id": "main/linux/cpu/flash-mixed",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cpu",
+      "checkpoint": "flash-mixed",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/windows/cpu/flash-mixed",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cpu",
+      "checkpoint": "flash-mixed",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "windows"
+    },
+    {
+      "id": "main/linux/cpu/flash-mxfp4",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cpu",
+      "checkpoint": "flash-mxfp4",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/windows/cpu/flash-mxfp4",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cpu",
+      "checkpoint": "flash-mxfp4",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "windows"
+    },
+    {
+      "id": "main/linux/cpu/flash-vision",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cpu",
+      "checkpoint": "flash-vision",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/windows/cpu/flash-vision",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cpu",
+      "checkpoint": "flash-vision",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "windows"
+    },
+    {
+      "id": "main/linux/cpu/glm53",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cpu",
+      "checkpoint": "glm53",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50",
+        "glm-continuations-100",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/windows/cpu/glm53",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cpu",
+      "checkpoint": "glm53",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50",
+        "glm-continuations-100",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "windows"
+    },
+    {
+      "id": "main/linux/cuda/flash-iq2",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cuda",
+      "checkpoint": "flash-iq2",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/linux/cuda/flash-abliterated",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cuda",
+      "checkpoint": "flash-abliterated",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/linux/cuda/flash-mixed",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cuda",
+      "checkpoint": "flash-mixed",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/linux/cuda/flash-mxfp4",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cuda",
+      "checkpoint": "flash-mxfp4",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/linux/cuda/flash-vision",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cuda",
+      "checkpoint": "flash-vision",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/linux/cuda/glm53",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "cuda",
+      "checkpoint": "glm53",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50",
+        "glm-continuations-100",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/linux/rocm/flash-iq2",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "rocm",
+      "checkpoint": "flash-iq2",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/linux/rocm/flash-abliterated",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "rocm",
+      "checkpoint": "flash-abliterated",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/linux/rocm/flash-mixed",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "rocm",
+      "checkpoint": "flash-mixed",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/linux/rocm/flash-mxfp4",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "rocm",
+      "checkpoint": "flash-mxfp4",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/linux/rocm/flash-vision",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "rocm",
+      "checkpoint": "flash-vision",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/linux/rocm/glm53",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "rocm",
+      "checkpoint": "glm53",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50",
+        "glm-continuations-100",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "laguna/macos/metal/laguna",
+      "sourceTrack": "laguna",
+      "installerId": "laguna",
+      "revision": "448d5695d1c86401a4e9447c440feb983b73e6de",
+      "backend": "metal",
+      "checkpoint": "laguna",
+      "tracks": [
+        "main",
+        "laguna"
+      ],
+      "patchSet": "laguna",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "macos"
+    },
+    {
+      "id": "laguna/linux/cpu/laguna",
+      "sourceTrack": "laguna",
+      "installerId": "laguna",
+      "revision": "448d5695d1c86401a4e9447c440feb983b73e6de",
+      "backend": "cpu",
+      "checkpoint": "laguna",
+      "tracks": [
+        "main",
+        "laguna"
+      ],
+      "patchSet": "laguna",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "laguna/linux/cuda/laguna",
+      "sourceTrack": "laguna",
+      "installerId": "laguna",
+      "revision": "448d5695d1c86401a4e9447c440feb983b73e6de",
+      "backend": "cuda",
+      "checkpoint": "laguna",
+      "tracks": [
+        "main",
+        "laguna"
+      ],
+      "patchSet": "laguna",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "laguna/linux/rocm/laguna",
+      "sourceTrack": "laguna",
+      "installerId": "laguna",
+      "revision": "448d5695d1c86401a4e9447c440feb983b73e6de",
+      "backend": "rocm",
+      "checkpoint": "laguna",
+      "tracks": [
+        "main",
+        "laguna"
+      ],
+      "patchSet": "laguna",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "qwen38/macos/metal/qwen38-next",
+      "sourceTrack": "qwen38",
+      "installerId": "qwen",
+      "revision": "ff4f0ff4fdff70d6b7c3941ef437b91dde960e14",
+      "backend": "metal",
+      "checkpoint": "qwen38-next",
+      "tracks": [
+        "main",
+        "qwen38"
+      ],
+      "patchSet": "qwen38",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "macos"
+    },
+    {
+      "id": "qwen35/macos/metal/qwen36",
+      "sourceTrack": "qwen35",
+      "installerId": "qwen35",
+      "revision": "73434c4bb9d8bb18425a2577edada69d25d44c47",
+      "backend": "metal",
+      "checkpoint": "qwen36",
+      "tracks": [
+        "main",
+        "qwen35"
+      ],
+      "patchSet": "qwen35",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50"
+      ],
+      "receipts": [],
+      "reviews": [
+        {
+          "track": "qwen35",
+          "commit": "62e72517c646930c2310a624578b1cfd11fd7cc1",
+          "decision": "not-applicable",
+          "reason": "Only dynamicmoeinference.md changes; all other 1,525 Git tree entries are identical. No linked runtime is imported or executed.",
+          "evidence": [
+            {
+              "path": "docs/upstream/qwen35-2026-09-08.json",
+              "sha256": "506add42b2e26e2a3a67c69fa48d362117938d907a82e0a1ac85ef875f1eb03b"
+            }
+          ]
+        },
+        {
+          "track": "qwen35",
+          "commit": "73434c4bb9d8bb18425a2577edada69d25d44c47",
+          "decision": "not-applicable",
+          "reason": "Only dynamicmoeinference.md changes; all other 1,525 Git tree entries are identical. No linked runtime is imported or executed.",
+          "evidence": [
+            {
+              "path": "docs/upstream/qwen35-2026-09-08.json",
+              "sha256": "506add42b2e26e2a3a67c69fa48d362117938d907a82e0a1ac85ef875f1eb03b"
+            }
+          ]
+        }
+      ],
+      "platform": "macos"
+    },
+    {
+      "id": "q36/macos/metal/qwen38-27b-gguf",
+      "sourceTrack": "q36",
+      "installerId": "q36",
+      "revision": "8362010a301b3360296e435703f58ffc230a024a",
+      "backend": "metal",
+      "checkpoint": "qwen38-27b-gguf",
+      "tracks": [
+        "main",
+        "q36"
+      ],
+      "patchSet": "q36",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50",
+        "weight-and-encoder-selection"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "macos"
+    },
+    {
+      "id": "q36/linux/vulkan/qwen38-27b-gguf",
+      "sourceTrack": "q36",
+      "installerId": "q36",
+      "revision": "8362010a301b3360296e435703f58ffc230a024a",
+      "backend": "vulkan",
+      "checkpoint": "qwen38-27b-gguf",
+      "tracks": [
+        "main",
+        "q36"
+      ],
+      "patchSet": "q36",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50",
+        "weight-and-encoder-selection"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "q27/linux/cuda/qwen38-27b-q27",
+      "sourceTrack": "q27",
+      "installerId": "q27",
+      "revision": "44c6e56a6096a9ad77b84bed4a2a2c7332e48872",
+      "backend": "cuda",
+      "checkpoint": "qwen38-27b-q27",
+      "tracks": [
+        "main",
+        "q27"
+      ],
+      "patchSet": "q27",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "vision-pdf-50",
+        "weight-and-encoder-selection"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "linux"
+    },
+    {
+      "id": "main/macos/metal/flash41-q2",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "metal",
+      "checkpoint": "flash41-q2",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime",
+        "engram-and-ssd-streaming"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "macos"
+    },
+    {
+      "id": "main/macos/metal/flash41-q4",
+      "sourceTrack": "main",
+      "installerId": "main",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "backend": "metal",
+      "checkpoint": "flash41-q4",
+      "tracks": [
+        "main"
+      ],
+      "patchSet": "main",
+      "requiredGates": [
+        "patch-lifecycle",
+        "native-build",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "textual-isolation",
+        "design-runtime",
+        "engram-and-ssd-streaming"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "macos"
+    }
+  ]
+}

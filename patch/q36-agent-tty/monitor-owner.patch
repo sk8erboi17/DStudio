@@ -1,0 +1,319 @@
+diff --git a/q36_agent.c b/q36_agent.c
+index 7a5eede..b18bbe4 100644
+--- a/q36_agent.c
++++ b/q36_agent.c
+@@ -7831,7 +7831,9 @@ struct agent_bash_job {
+     bool running;
+     bool timed_out;
+     bool reaped, pipe_eof;
+-    int child_status;
++    bool child_exited, child_lost, retiring, terminal_failed;
++    unsigned signal_users;
++    int terminal_notice; /* One terminal failure: 1 cancelled, 2 timed out. */
+     int output_error;
+     struct agent_bash_job *next;
+     agent_worker *worker;  /* back-pointer for terminal state restoration */
+@@ -7843,11 +7845,15 @@ static int agent_bash_display_lines(const agent_bash_job *job) {
+ }
+ 
+ static void agent_bash_note_output(agent_bash_job *job, const char *s, size_t n) {
+-    for (size_t i = 0; i < n; i++) {
+-        if (s[i] == '\n' && job->newline_count < INT_MAX - 1) job->newline_count++;
+-    }
++    int lines = 0;
++    for (size_t i = 0; i < n; i++) if (s[i] == '\n') lines++;
++    /* Count privately; publish only bytes the sole output writer saved. */
++    pthread_mutex_lock(&job->mu);
++    int room = INT_MAX - 1 - job->newline_count;
++    job->newline_count += lines < room ? lines : room;
+     if (n) job->last_byte = s[n - 1];
+     job->bytes += n;
++    pthread_mutex_unlock(&job->mu);
+ }
+ 
+ static bool agent_bash_is_running(agent_bash_job *job) {
+@@ -7858,20 +7864,31 @@ static bool agent_bash_is_running(agent_bash_job *job) {
+ }
+ 
+ static void agent_bash_signal(agent_bash_job *job, int sig) {
++    double deadline = sig == SIGKILL ? now_sec() + 1 : 0;
+     pthread_mutex_lock(&job->mu);
+-    if (job->running) {
+-        if (sig == SIGKILL && !job->stop_deadline) job->stop_deadline = now_sec() + 1;
+-        kill(-job->pid, sig);
+-        if (!job->reaped) kill(job->pid, sig);
++    bool admitted = job->running && !job->retiring && !job->reaped && !job->child_lost;
++    if (admitted) {
++        if (deadline && !job->stop_deadline) job->stop_deadline = deadline;
++        job->signal_users++;
+     }
+     pthread_mutex_unlock(&job->mu);
++    if (!admitted) return;
++    /* The monitor retains the unreaped child, including an exited leader,
++     * until every admitted signal returns. Its PID/PGID cannot be recycled
++     * between this lock-free signal and owner-side reaping. Only the Agent
++     * control owner and this job's monitor signal: at most two leases. */
++    kill(-job->pid, sig);
++    kill(job->pid, sig);
++    pthread_mutex_lock(&job->mu);
++    job->signal_users--;
++    pthread_mutex_unlock(&job->mu);
+ }
+ 
+ static void agent_bash_job_free(agent_bash_job *job) {
+     if (!job) return;
+     agent_bash_signal(job, SIGKILL);
+     if (job->thread_started) pthread_join(job->thread, NULL);
+-    else if (job->pid > 0)
++    else if (job->pid > 0 && !job->reaped && !job->child_lost)
+         while (waitpid(job->pid, NULL, 0) < 0 && errno == EINTR) {}
+     if (job->pipe_fd >= 0) close(job->pipe_fd);
+     if (job->tty_fd >= 0) close(job->tty_fd);
+@@ -7912,31 +7929,44 @@ static void agent_bash_remove_job(agent_worker *w, agent_bash_job *target) {
+     }
+ }
+ 
++static void agent_bash_output_error(agent_bash_job *job, int error) {
++    pthread_mutex_lock(&job->mu);
++    if (!job->output_error) job->output_error = error;
++    pthread_mutex_unlock(&job->mu);
++}
++
++/* The monitor exclusively owns pipe/tmp descriptors and writes. Terminal UI
++ * code submits a bounded notice instead of becoming a concurrent disk writer. */
++static void agent_bash_write_output(agent_bash_job *job, const char *s, size_t n) {
++    for (size_t pos = 0; pos < n;) {
++        ssize_t wr = write(job->tmp_fd, s + pos, n - pos);
++        if (wr < 0 && errno == EINTR) continue;
++        if (wr <= 0) {
++            agent_bash_output_error(job, wr < 0 ? errno : EIO);
++            return;
++        }
++        agent_bash_note_output(job, s + pos, (size_t)wr);
++        pos += (size_t)wr;
++    }
++}
++
+ static void agent_bash_drain(agent_bash_job *job) {
+     if (!job || job->pipe_fd < 0) return;
++    if (job->output_error) return;
+     char tmp[4096];
+     /* Yield even for an endless writer, so its deadline is still checked. */
+     for (size_t drained = 0; drained < 256 * 1024;) {
+         ssize_t n = read(job->pipe_fd, tmp, sizeof(tmp));
+         if (n > 0) {
+             drained += (size_t)n;
+-            size_t pos = 0;
+-            while (pos < (size_t)n) {
+-                ssize_t wr = write(job->tmp_fd, tmp + pos, (size_t)n - pos);
+-                if (wr < 0 && errno == EINTR) continue;
+-                if (wr <= 0) {
+-                    job->output_error = wr < 0 ? errno : EIO;
+-                    return;
+-                }
+-                agent_bash_note_output(job, tmp + pos, (size_t)wr);
+-                pos += (size_t)wr;
+-            }
++            agent_bash_write_output(job, tmp, (size_t)n);
++            if (job->output_error) return;
+             continue;
+         }
+         if (!n) job->pipe_eof = true;
+         if (n < 0 && errno == EINTR) continue;
+         if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
+-            job->output_error = errno;
++            agent_bash_output_error(job, errno);
+         break;
+     }
+ }
+@@ -7948,8 +7978,22 @@ static void agent_worker_note_terminal_mode_may_have_changed(agent_worker *w) {
+     pthread_mutex_unlock(&w->mu);
+ }
+ 
+-static void agent_bash_finalize(agent_bash_job *job, int status) {
+-    agent_bash_drain(job);
++static void agent_bash_finalize(agent_bash_job *job) {
++    pthread_mutex_lock(&job->mu);
++    if (job->signal_users || job->terminal_notice) {
++        pthread_mutex_unlock(&job->mu);
++        return;
++    }
++    job->retiring = true; /* No new signals or terminal writes after this point. */
++    pthread_mutex_unlock(&job->mu);
++    int status = 0;
++    pid_t rc = job->child_lost ? -1 : waitpid(job->pid, &status, WNOHANG);
++    if (!rc || (rc < 0 && errno == EINTR && !job->child_lost)) {
++        pthread_mutex_lock(&job->mu);
++        job->retiring = false;
++        pthread_mutex_unlock(&job->mu);
++        return;
++    }
+     if (job->pipe_fd >= 0) {
+         close(job->pipe_fd);
+         job->pipe_fd = -1;
+@@ -7958,17 +8002,32 @@ static void agent_bash_finalize(agent_bash_job *job, int status) {
+         close(job->tmp_fd);
+         job->tmp_fd = -1;
+     }
+-    if (WIFEXITED(status)) job->exit_status = WEXITSTATUS(status);
++    double ended = now_sec();
++    pthread_mutex_lock(&job->mu);
++    job->reaped = rc == job->pid;
++    if (rc != job->pid) job->exit_status = -1;
++    else if (WIFEXITED(status)) job->exit_status = WEXITSTATUS(status);
+     else if (WIFSIGNALED(status)) job->exit_status = 128 + WTERMSIG(status);
+     else job->exit_status = -1;
+     job->running = false;
+-    job->end_time = now_sec();
++    job->end_time = ended;
++    pthread_mutex_unlock(&job->mu);
+     /* A child can still open /dev/tty directly and alter terminal state even
+      * though its stdin is /dev/null.  Ask the UI thread to verify raw mode at
+      * a safe point instead of touching linenoise from the worker path. */
+     agent_worker_note_terminal_mode_may_have_changed(job->worker);
+ }
+ 
++static void agent_bash_terminal_failure(agent_bash_job *job, bool timed_out) {
++    pthread_mutex_lock(&job->mu);
++    if (job->running && !job->retiring && !job->terminal_failed) {
++        job->terminal_failed = true;
++        job->terminal_notice = timed_out ? 2 : 1;
++    }
++    pthread_mutex_unlock(&job->mu);
++    agent_bash_signal(job, SIGKILL);
++}
++
+ static void agent_bash_drain_terminal(agent_bash_job *job) {
+     if (job->tty_fd < 0) return;
+     agent_password_request request = {
+@@ -7979,7 +8038,10 @@ static void agent_bash_drain_terminal(agent_bash_job *job) {
+     size_t used = 0;
+     char buf[512];
+     ssize_t n;
+-    while ((n = read(job->tty_fd, buf, sizeof(buf))) > 0) {
++    /* A terminal writer cannot monopolize the control owner. Leave remaining
++     * bytes in the native PTY for the next pass; never discard queued input. */
++    for (size_t drained = 0; drained < 16 * 1024 &&
++         (n = read(job->tty_fd, buf, sizeof(buf))) > 0; drained += (size_t)n) {
+         /* Terminal prompts are UI-only. Do not copy them to the model's
+          * output file; some password readers enable masked terminal echo. */
+         for (ssize_t i = 0; i < n; i++) {
+@@ -7997,78 +8059,68 @@ static void agent_bash_drain_terminal(agent_bash_job *job) {
+         return;
+     }
+     if (!agent_request_password(job->worker, &request)) {
+-        pthread_mutex_lock(&job->mu);
+-        job->timed_out = now_sec() >= request.deadline;
+-        const char *msg = job->timed_out ? "Password entry timed out.\n" :
+-            "Password entry cancelled or unavailable.\n";
+-        if (job->running && job->tmp_fd >= 0) {
+-            agent_bash_note_output(job, msg, strlen(msg));
+-            if (write(job->tmp_fd, msg, strlen(msg)) < 0) job->output_error = errno;
+-        }
+-        pthread_mutex_unlock(&job->mu);
+-        agent_bash_signal(job, SIGKILL);
++        agent_bash_terminal_failure(job, now_sec() >= request.deadline);
+     }
+ }
+ 
+-/* Drain available output, notice process exit, and enforce timeout.  This is
+- * called opportunistically by status/wait/compaction instead of a background
+- * reaper thread, keeping all bash job state owned by the agent worker. */
++/* Monitor-only I/O/process progress, with bounded publication to control
++ * observers. No shared lock encloses a read/write, signal, wait or close. */
+ static void agent_bash_poll(agent_bash_job *job) {
+     if (!job || !job->running) return;
++    pthread_mutex_lock(&job->mu);
++    int notice = job->terminal_notice;
++    job->terminal_notice = 0;
++    if (notice == 2) job->timed_out = true;
++    pthread_mutex_unlock(&job->mu);
++    if (notice && !job->output_error) {
++        const char *msg = notice == 2 ? "Password entry timed out.\n" :
++            "Password entry cancelled or unavailable.\n";
++        agent_bash_write_output(job, msg, strlen(msg));
++    }
+     agent_bash_drain(job);
+ 
+-    int status = 0;
+-    pid_t rc = job->reaped ? 0 : waitpid(job->pid, &status, WNOHANG);
+-    if (rc == job->pid) {
+-        job->reaped = true;
+-        job->child_status = status;
+-    }
+-    if (rc < 0 && errno != EINTR) {
+-        job->exit_status = -1;
+-        job->running = false;
+-        job->end_time = now_sec();
+-        if (job->pipe_fd >= 0) {
+-            close(job->pipe_fd);
+-            job->pipe_fd = -1;
+-        }
+-        if (job->tmp_fd >= 0) {
+-            close(job->tmp_fd);
+-            job->tmp_fd = -1;
+-        }
+-        agent_worker_note_terminal_mode_may_have_changed(job->worker);
+-        return;
++    if (!job->child_exited && !job->child_lost) {
++        siginfo_t info = {0};
++        int rc = waitid(P_PID, job->pid, &info, WEXITED | WNOHANG | WNOWAIT);
++        if (!rc && info.si_pid == job->pid) job->child_exited = true;
++        if (rc < 0 && errno != EINTR) {
++            pthread_mutex_lock(&job->mu);
++            job->child_lost = true;
++            pthread_mutex_unlock(&job->mu);
++        }
+     }
+-    if (job->reaped && job->pipe_eof) {
+-        agent_bash_finalize(job, job->child_status);
++    if (job->child_lost || (job->child_exited && job->pipe_eof)) {
++        agent_bash_finalize(job);
+         return;
+     }
+-    if (!job->timed_out && (job->output_error || now_sec() - job->start_time >= job->timeout_sec)) {
++    double now = now_sec();
++    pthread_mutex_lock(&job->mu);
++    double stop_deadline = job->stop_deadline;
++    bool terminate = !stop_deadline && (job->output_error || now - job->start_time >= job->timeout_sec);
++    if (terminate)
+         job->timed_out = !job->output_error;
+-        kill(-job->pid, SIGKILL);
+-        if (!job->reaped) {
+-            kill(job->pid, SIGKILL);
+-            while (waitpid(job->pid, &status, 0) < 0 && errno == EINTR) {}
+-            job->reaped = true;
+-            job->child_status = status;
+-        }
++    pthread_mutex_unlock(&job->mu);
++    if (terminate) {
++        agent_bash_signal(job, SIGKILL);
++        return; /* Re-observe the child's actual exit on the next pass. */
+     }
+-    if (job->output_error || (job->timed_out && now_sec() - job->start_time > job->timeout_sec + 1) ||
+-        (job->stop_deadline && now_sec() >= job->stop_deadline)) {
++    if (job->child_exited && (job->output_error || (stop_deadline && now >= stop_deadline))) {
+         /* A descendant can deliberately escape the shell process group. Do
+          * not let its inherited stdout prevent bounded job cleanup. */
+-        if (!job->output_error && !job->pipe_eof) job->output_error = EIO;
+-        agent_bash_finalize(job, job->child_status);
++        if (!job->pipe_eof) agent_bash_output_error(job, EIO);
++        agent_bash_finalize(job);
+     }
+ }
+ 
+ static void *agent_bash_monitor(void *arg) {
+     agent_bash_job *job = arg;
+     for (;;) {
+-        pthread_mutex_lock(&job->mu);
+         agent_bash_poll(job);
+         bool running = job->running;
+-        int fd = job->pipe_fd;
+-        pthread_mutex_unlock(&job->mu);
++        /* EOF/error stays readable on some poll implementations. While a
++         * signal lease defers retirement, wait for the next monitor tick
++         * instead of spinning on an output source we can no longer drain. */
++        int fd = job->pipe_eof || job->output_error ? -1 : job->pipe_fd;
+         if (!running) break;
+         struct pollfd pfd = {.fd = fd, .events = POLLIN};
+         int rc = poll(&pfd, 1, 50);

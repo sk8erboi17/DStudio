@@ -1,0 +1,82 @@
+<!doctype html>
+<!-- Authored grader fixture, never a generated Design project or benchmark. -->
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authored incident-board oracle fixture</title>
+<style>
+*{box-sizing:border-box}body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff}
+button,select{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;padding:8px;max-width:100%}
+button:focus-visible,select:focus-visible{outline:3px solid #3874e6;outline-offset:2px}
+table{width:100%;table-layout:fixed;border-collapse:collapse}th,td{padding:6px;text-align:left;overflow-wrap:anywhere}
+nav{display:flex;gap:12px;align-items:center;flex-wrap:wrap}nav p{margin:0}section{margin:20px 0;border:1px solid #8c96a2;padding:12px}
+label{display:block;margin:10px 0}dialog{width:min(34rem,90vw);max-height:80vh;overflow:auto;color:inherit;background:inherit}
+@media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
+</style>
+<h1>RELAY</h1><p>Local incident board</p><p>Sample data</p>
+<nav aria-label="Incident status">
+  <button onclick="filterBy('Open')" id="open-filter">Open</button><p id="open-count">Open: 3</p>
+  <button onclick="filterBy('Resolved')" id="resolved-filter">Resolved</button><p id="resolved-count">Resolved: 0</p>
+  <button onclick="showHistory(this)">History</button>
+</nav>
+<table aria-label="Incidents"><thead><tr><th>Incident</th><th>Assignee</th><th>Status</th></tr></thead><tbody></tbody></table>
+<p id="empty" role="status" hidden></p>
+<section aria-labelledby="detail-title" id="detail" hidden>
+  <h2 id="detail-title"></h2><p id="detail-status"></p>
+  <label>Assignee<select id="assignee" onchange="draftChanged()"><option>Unassigned</option><option>Mira</option><option>Ivo</option></select></label>
+  <button onclick="assign()">Apply assignment</button><button id="transition" onclick="transition()">Resolve</button>
+</section>
+<dialog aria-labelledby="history-title"><h2 id="history-title">Local history</h2><ol></ol>
+  <button onclick="document.querySelector('dialog').close()">Close</button></dialog>
+<script>
+window.fault='';
+const initial=['Unassigned','Mira','Ivo'];
+const incidents=['Sensor offline','Door reader','Display cable'].map((title,i)=>({title,assignee:initial[i],state:'Open'}));
+let selected=null,filter='Open';const history=[];
+const el=id=>document.getElementById(id);
+function render(){
+  const shown=incidents.map((entry,i)=>({entry,i})).filter(({entry})=>entry.state===filter);
+  const open=incidents.filter(entry=>entry.state==='Open').length;
+  el('open-count').textContent='Open: '+(window.fault==='stale-counts'?3:open);
+  el('resolved-count').textContent='Resolved: '+(window.fault==='stale-counts'?0:3-open);
+  el('open-filter').setAttribute('aria-pressed',String(filter==='Open'));
+  el('resolved-filter').setAttribute('aria-pressed',String(filter==='Resolved'));
+  const body=document.querySelector('tbody');body.replaceChildren();
+  for(const {entry,i} of shown){
+    const row=document.createElement('tr'),name=document.createElement('td'),button=document.createElement('button');
+    button.textContent=entry.title;button.onclick=()=>{selected=i;render();};name.append(button);row.append(name);
+    for(const value of [entry.assignee,entry.state]){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}
+    body.append(row);
+  }
+  el('empty').hidden=shown.length>0;el('empty').textContent=window.fault==='missing-empty'?'':`No ${filter.toLowerCase()} incidents. Choose another status to continue.`;
+  if(!shown.some(({i})=>i===selected))selected=null;
+  el('detail').hidden=selected===null;
+  if(selected!==null){const entry=incidents[selected];el('detail-title').textContent=entry.title;
+    el('detail-status').textContent='Status: '+entry.state;el('assignee').value=entry.assignee;
+    el('transition').textContent=entry.state==='Open'?'Resolve':'Reopen';}
+}
+function filterBy(value){
+  filter=value;
+  if(window.fault==='filter-reset-assignment')incidents.forEach((entry,i)=>entry.assignee=initial[i]);
+  render();
+}
+function draftChanged(){if(window.fault==='auto-apply-draft'&&selected!==null)incidents[selected].assignee=el('assignee').value;}
+function assign(){
+  if(selected===null)return;const entry=incidents[selected],value=el('assignee').value;
+  entry.assignee=value;if(window.fault==='shared-assignment')incidents.forEach(item=>item.assignee=value);
+  history.push({title:entry.title,action:'assignment',text:`${entry.title}: assigned to ${value}`});render();
+}
+function transition(){
+  if(selected===null)return;
+  const entry=incidents[window.fault==='wrong-row-state'?(selected+1)%3:selected],reopen=entry.state==='Resolved';
+  entry.state=reopen?'Open':'Resolved';
+  history.push({title:entry.title,action:reopen?'reopen':'resolve',text:`${entry.title}: ${reopen?'reopened':'resolved'}`});render();
+}
+function showHistory(button){
+  button.focus();const list=document.querySelector('dialog ol');list.replaceChildren();
+  let rows=history.slice();
+  if(window.fault==='history-out-of-order')rows.reverse();
+  if(window.fault==='history-drop-earlier'){const index=rows.findIndex(row=>row.action==='resolve');if(index>=0)rows.splice(index,1);}
+  for(const row of rows){const item=document.createElement('li');item.textContent=row.text;list.append(item);}
+  document.querySelector('dialog').showModal();
+}
+render();
+</script></html>

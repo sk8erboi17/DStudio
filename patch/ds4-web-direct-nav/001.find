@@ -1,2 +1,0 @@
-    web_tab tab = {0};
-    if (!web_open_tab(web, "about:blank", &tab, err, err_len)) return NULL;

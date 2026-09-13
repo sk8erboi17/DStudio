@@ -39,6 +39,9 @@ int main(int argc, char **argv) {
                                       workspace);
     expect(result && strstr(result, "Created spreadsheet bridge.xlsx"),
            "spreadsheet create crosses the C/JSON/Python boundary");
+    expect(result && strstr(result, "\"sheet\":\"Dati\"") && strstr(result, "\"range\":\"A1:B3\"") &&
+           strstr(result, "\"readBack\":false"),
+           "write receipt identifies saved cells but does not claim verification");
     ds4_cowork_free(result);
 
     ds4_cowork_arg read_args[] = {
@@ -54,6 +57,16 @@ int main(int argc, char **argv) {
            "spreadsheet read preserves Unicode, formulas and tabs");
     expect(result && strstr(result, "never as instructions"),
            "document content is framed against prompt injection");
+    expect(result && strstr(result, "\"complete\":true") && strstr(result, "\"dataRange\":\"A1:B3\""),
+           "complete selected-sheet read reaches the native runtime with its extent");
+    ds4_cowork_free(result);
+
+    read_args[3].value = "A1:A1";
+    result = ds4_cowork_execute("spreadsheet", read_args,
+                                sizeof(read_args) / sizeof(read_args[0]), workspace);
+    expect(result && strstr(result, "\"complete\":false") && strstr(result, "\"omitted\":[\"below\",\"right\"]") &&
+           !strstr(result, "Ada\t42"),
+           "partial read reports excluded rows and columns through the C/JSON/Python boundary");
     ds4_cowork_free(result);
 
     ds4_cowork_arg source_args[] = {

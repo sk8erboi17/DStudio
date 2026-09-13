@@ -1,0 +1,108 @@
+--- a/ds4_agent.c
++++ b/ds4_agent.c
+@@ -4922,8 +4922,8 @@
+     fclose(fp);
+     return agent_buf_take(&b);
+ }
+-static void ds4ui_memory_write_md(const char *summary, const char *reason) {
+-    if (!summary || !summary[0]) return;
++static bool ds4ui_memory_write_md(const char *summary, const char *reason) {
++    if (!summary || !summary[0]) return false;
+     time_t t = time(NULL);
+     struct tm tmv;
+     gmtime_r(&t, &tmv);
+@@ -4943,11 +4943,13 @@
+     char tmp_path[64];
+     snprintf(tmp_path, sizeof(tmp_path), "MEMORY.MD.tmp.%ld", (long)getpid());
+     FILE *fp = fopen(tmp_path, "wb");
+-    if (!fp) { free(b.ptr); return; }
++    if (!fp) { free(b.ptr); return false; }
+     bool ok = fwrite(b.ptr ? b.ptr : "", 1, b.len, fp) == b.len;
+     ok = fclose(fp) == 0 && ok;
+-    if (ok) rename(tmp_path, "MEMORY.MD"); else unlink(tmp_path);
++    if (ok) ok = rename(tmp_path, "MEMORY.MD") == 0;
++    if (!ok) unlink(tmp_path);
+     free(b.ptr);
++    return ok;
+ }
+ static void agent_worker_build_system_tokens(agent_worker *w, ds4_tokens *out) {
+     ds4_chat_begin(w->engine, out);
+@@ -9532,6 +9534,15 @@
+     const int bottom = w->transcript.len;
+     if (bottom <= 0) return true;
+ 
++    /* Only this worker may change the session, model or transcript. Control
++     * threads can request cancellation while preparation is running. Keep the
++     * original identity until owner-side publication, not just until summary
++     * generation finishes. KV is derived and may be invalidated on failure. */
++    ds4_session *const original_session = w->session;
++    ds4_engine *const original_engine = w->engine;
++    agent_config *const original_cfg = w->cfg;
++    int *const original_tokens = w->transcript.v;
++
+     ds4_tokens sys = {0};
+     agent_worker_build_system_tokens(w, &sys);
+     if (bottom <= sys.len) {
+@@ -9680,8 +9691,6 @@
+     agent_buf_puts(&summary_msg, "[End compacted summary. Recent conversation continues verbatim below.]\n\n");
+     ds4_chat_append_message(w->engine, &compacted, "system", summary_msg.ptr);
+     free(summary_msg.ptr);
+-    if (w->cfg->jsonl) ds4ui_memory_write_md(summary.ptr, reason);   /*DS4UI_JSONL*/
+-    free(summary.ptr);
+ 
+     agent_tokens_append_range(&compacted, &w->transcript, tail_start, bottom);
+ 
+@@ -9689,20 +9698,45 @@
+         "\x1b[1;95mCOMPACTING\x1b[0m rebuilding context: old=%d summary+tail=%d tail=%d\n",
+         bottom, compacted.len, bottom - tail_start);
+ 
+-    ds4_tokens old_transcript = {0};
+-    ds4_tokens_copy(&old_transcript, &w->transcript);
+-    ds4_tokens_free(&w->transcript);
+-    w->transcript = compacted;
+-    if (agent_worker_sync_tokens(w, &w->transcript, true, err, err_len) != 0) {
+-        ds4_session_invalidate(w->session);
+-        ds4_tokens_free(&w->transcript);
+-        w->transcript = old_transcript;
++    /* Rebuild privately. Progress, Stop and reads of the authoritative
++     * conversation must not see the candidate before its prefill succeeds. */
++    if (agent_worker_sync_tokens(w, &compacted, true, err, err_len) != 0) {
++        ds4_session_invalidate(original_session);
++        ds4_tokens_free(&compacted);
++        ds4_tokens_free(&sys);
++        free(summary.ptr);
++        return false;
++    }
++    pthread_mutex_lock(&w->mu);
++    bool cancelled = w->interrupt || w->stop || agent_sigint;
++    bool stale = w->session != original_session || w->engine != original_engine ||
++                 w->cfg != original_cfg || w->transcript.v != original_tokens ||
++                 w->transcript.len != bottom;
++    ds4_tokens old_transcript = w->transcript;
++    if (!cancelled && !stale) {
++        w->transcript = compacted;
++        w->session_dirty = true;
++    }
++    pthread_mutex_unlock(&w->mu);
++    if (cancelled || stale) {
++        ds4_session_invalidate(original_session);
++        ds4_tokens_free(&compacted);
+         ds4_tokens_free(&sys);
++        free(summary.ptr);
++        snprintf(err, err_len, "%s", cancelled ? "interrupted" :
++                 "compaction candidate no longer matches the current conversation");
+         return false;
+     }
+     agent_worker_note_system_prompt_seen(w);
+     ds4_tokens_free(&old_transcript);
+     ds4_tokens_free(&sys);
++    /* MEMORY.MD is a best-effort derived summary, not the session journal.
++     * Failed/cancelled preparation must never overwrite the prior file. I/O
++     * stays outside the publication lock; report a failed export honestly. */
++    if (w->cfg->jsonl && !ds4ui_memory_write_md(summary.ptr, reason))
++        agent_publishf(w,
++            "\nConversation compacted; MEMORY.MD could not be updated.\n");
++    free(summary.ptr);
+     char *bash_update = agent_bash_jobs_compaction_observation(w);
+     if (bash_update) {
+         ds4_chat_append_message(w->engine, &w->transcript, "tool", bash_update);

@@ -1,0 +1,16 @@
+--- a/ds4_agent.c
++++ b/ds4_agent.c
+@@ -4510,5 +4510,5 @@
+             sr->in_think = true;
+             sr->renderer->in_think = true;
+-            if (sr->renderer->worker->cfg->jsonl) ds4ui_emit_event(sr->renderer->worker, "reasoning_start");   /*DS4UI_JSONL*/
++            if (sr->renderer->worker && sr->renderer->worker->cfg && sr->renderer->worker->cfg->jsonl) ds4ui_emit_event(sr->renderer->worker, "reasoning_start");   /*DS4UI_JSONL*/
+             i += strlen(think_open);
+             continue;
+@@ -4518,5 +4518,5 @@
+             sr->in_think = false;
+             sr->renderer->in_think = false;
+-            if (sr->renderer->worker->cfg->jsonl) ds4ui_emit_event(sr->renderer->worker, "reasoning_end");   /*DS4UI_JSONL*/
++            if (sr->renderer->worker && sr->renderer->worker->cfg && sr->renderer->worker->cfg->jsonl) ds4ui_emit_event(sr->renderer->worker, "reasoning_end");   /*DS4UI_JSONL*/
+             renderer_reset_color(sr->renderer);
+             if (!sr->renderer->last_output_newline)

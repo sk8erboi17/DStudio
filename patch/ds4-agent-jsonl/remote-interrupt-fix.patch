@@ -1,0 +1,31 @@
+diff --git a/remote-agent.cfrag b/remote-agent.cfrag
+--- a/remote-agent.cfrag
++++ b/remote-agent.cfrag
+@@ -558,9 +558,19 @@ static void ds4ui_remote_steer_append(void *owner, const char *text) {
+     ds4ui_msg_list_add(owner, "user", text);
+ }
+ 
++static int ds4ui_remote_model_cancel(void *owner) {
++    (void)owner;
++    /* The same owner is inside model I/O, so its outer loop cannot consume
++     * the signal latch until this wait returns. Do not require another token. */
++    return agent_sigint != 0;
++}
++
+ static int ds4ui_remote_run_turn(agent_worker *w,
+                                  ds4ui_msg_list *msgs,
+                                  const char *user_text) {
++    /* The previous turn reached WAITING before this one was admitted. Its
++     * consumed cancellation must not abort this turn's local tool waits. */
++    worker_clear_interrupt(w);
+     dstudio_steer steering = dstudio_steer_begin();
+     agent_config *cfg = w->cfg;
+     ds4ui_msg_list_add(msgs, "user", user_text ? user_text : "");
+@@ -627,6 +637,7 @@ static int ds4ui_remote_run_turn(agent_worker *w,
+             cfg->gen.n_predict,
+             ds4ui_remote_chunk,
+             &sctx,
++            ds4ui_remote_model_cancel,
+             err,
+             sizeof(err));
+         free(snapshot);

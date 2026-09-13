@@ -30,7 +30,7 @@ diff --git a/ds4_server.c b/ds4_server.c
  }
  
  static bool sse_usage_chunk(int fd, const request *r, const char *id,
-@@ -11841,6 +11851,10 @@ decode_again:
+@@ -11841,4 +11851,8 @@ decode_again:
      }
      log_tool_calls_summary(ctx_span, &parsed_calls,
                             responses_protocol);
@@ -39,8 +39,6 @@ diff --git a/ds4_server.c b/ds4_server.c
 +        completion > 0 && j->req.ds4_decode_elapsed_seconds > 0.0
 +            ? (double)completion / j->req.ds4_decode_elapsed_seconds : 0.0;
  
-     trace_finish(s, trace_id, &j->req, final_finish, completion,
-                  saw_tool_start, saw_tool_end,
 @@ -13928,6 +13942,8 @@ static void test_openai_stream_usage_reports_cache_details(void) {
      r.stream_include_usage = true;
      r.cache_read_tokens = 7;

@@ -3,10 +3,12 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {spawn} from 'node:child_process';
 import {chromium, webkit} from 'playwright';
 import {freePort, sleep, csrfHeaders} from '../support/real_harness.mjs';
 import {renderedContrast, doubleRenderedText, renderedReflow} from '../support/design_preview_accessibility.mjs';
+import {checkChoiceColumns, exerciseDesignDomain} from '../support/design_domain_interactions.mjs';
 
 const root = process.cwd();
 fs.mkdirSync('tests/.artifacts', {recursive:true});
@@ -43,9 +45,9 @@ try {
   for(let i=0;i<120;i++){try{if((await fetch(base+'/api/status')).ok){ready=true;break;}}catch{}await sleep(100);}
   assert.ok(ready,'native server did not start');
   let catalog;
-  await check('native catalog contains exactly five complete originals, excludes retired folders',async()=>{
+  await check('native catalog contains exactly nine complete originals, excludes retired folders',async()=>{
     catalog=(await (await fetch(base+'/api/design-systems')).json()).designSystems;
-    assert.deepEqual(catalog.map(s=>s.id).sort(),['folio','forma','grove','pulse','signal']);
+    assert.deepEqual(catalog.map(s=>s.id).sort(),['atlas','canvas','commons','folio','forma','grove','market','pulse','signal']);
     assert.ok(catalog.every(s=>s.hasComponents && s.hasAssets && s.hasReferences));
     const legacy=await fetch(base+'/api/design-system-preview/retired/components.html');
     assert.equal(legacy.status,404);
@@ -53,16 +55,21 @@ try {
     assert.equal(ready.status,200);assert.equal((await ready.json()).bundled,true);
   });
   await check('missing bundled asset reports incomplete without fetching or overwriting content',async()=>{
-    const css=path.join(install,'extension/design-systems/folio/tokens.css');
+    for(const system of catalog) {
+    const css=path.join(install,'extension/design-systems',system.id,'tokens.css');
     const bytes=fs.readFileSync(css);fs.renameSync(css,css+'.saved');
     try {
       const r=await fetch(base+'/api/setup/content',{method:'POST',headers:csrfHeaders});
       assert.equal(r.status,409);assert.equal((await r.json()).contentOk,false);
+      const current=(await (await fetch(base+'/api/design-systems')).json());
+      assert.ok(current.catalogIds.includes(system.id),'missing pack is still a supported identity');
+      assert.equal(current.designSystems.find(item=>item.id===system.id)?.available,false);
       assert.equal(fs.existsSync(css),false);
       const status=await (await fetch(base+'/api/status')).json();
       assert.equal(status.contentDownloading ?? status.config?.contentDownloading,false);
       assert.deepEqual(fs.readFileSync(css+'.saved'),bytes);
     } finally {fs.renameSync(css+'.saved',css);}
+    }
   });
   for (const [engine,type] of [['chromium',chromium],['webkit',webkit]]) {
     browser=await type.launch({headless:true});
@@ -150,6 +157,7 @@ try {
           for (const width of [1440,390]) {
             await page.setViewportSize({width,height:1000});
             assert.deepEqual(await renderedReflow(page),[], '200% text '+appearance+' '+view+' '+width);
+            await checkChoiceColumns(page);
           }
           if(engine==='chromium') {
             const name=system.id+'-'+appearance+'-'+view.toLowerCase()+'-text200.png';
@@ -187,6 +195,51 @@ try {
         assert.equal(await preview.locator(':focus').textContent(),'Try primary action');
         assert.deepEqual(external,[]);assert.deepEqual(errors,[]);
       });
+      if(['market','commons','atlas','canvas'].includes(system.id)) {
+        for(const appearance of ['light','dark']) for(const width of [1440,390]) {
+          await check(engine+' / '+system.name+' / '+appearance+' '+width+' / actual domain controls',async()=>{
+            await page.setViewportSize({width,height:1000});
+            await page.goto(base+'/api/design-system-preview/'+system.id+'/components.html');
+            if(appearance==='dark')await page.locator('[data-theme-toggle]').click();
+            await exerciseDesignDomain(system.id,page,page,{limits:appearance==='light'&&width===1440});
+            assert.deepEqual(external,[]);assert.deepEqual(errors,[]);
+          });
+        }
+        await check(engine+' / '+system.name+' / domain controls in opaque app sandbox',async()=>{
+          await page.goto(base+'/__design_test_host');
+          await page.setViewportSize({width:1440,height:1000});
+          await page.setContent('<iframe title="Design preview" sandbox="allow-scripts allow-forms" style="width:100%;height:900px;border:0" src="'+base+'/api/design-system-preview/'+system.id+'/components.html"></iframe>');
+          await exerciseDesignDomain(system.id,page.frameLocator('iframe'),page);
+          assert.deepEqual(external,[]);assert.deepEqual(errors,[]);
+        });
+      }
+      await check(engine+' / '+system.name+' / standalone local-file export without DStudio APIs',async()=>{
+        const folder=path.join(run,'exports',engine,system.id);
+        fs.cpSync(path.join(install,'extension/design-systems',system.id),folder,{recursive:true});
+        const localPrefix=pathToFileURL(folder+'/').href;
+        const exported=await browser.newContext({viewport:{width:390,height:1000},reducedMotion:'reduce'});
+        try {
+          const independent=await exported.newPage(),requests=[],faults=[];
+          independent.on('request',request=>requests.push(request.url()));
+          independent.on('pageerror',error=>faults.push(error.message));
+          independent.on('console',message=>{if(message.type()==='error')faults.push(message.text());});
+          await exported.route(/^https?:/,route=>route.abort());
+          await independent.goto(localPrefix+'components.html');
+          await independent.getByRole('button',{name:'Components',exact:true}).click();
+          await independent.getByRole('button',{name:'Try primary action',exact:true}).click();
+          await independent.getByLabel('Name',{exact:true}).fill('Ada');
+          await independent.getByLabel('Email',{exact:true}).fill('ada@example.test');
+          await independent.getByRole('button',{name:'Complete preview',exact:true}).click();
+          await independent.getByRole('status').filter({hasText:'Nothing was sent or booked.'}).waitFor();
+          await independent.keyboard.press('Escape');
+          assert.equal(await independent.locator(':focus').textContent(),'Try primary action');
+          assert.deepEqual(await renderedReflow(independent),[]);
+          assert.ok(requests.length>=3,'HTML, CSS and JavaScript must actually load');
+          assert.deepEqual(requests.filter(url=>!url.startsWith(localPrefix)),[],'standalone pack cannot depend on DStudio or the network');
+          assert.deepEqual(faults,[]);
+        } finally {await exported.close();}
+      });
+      assert.deepEqual(consoleErrors,[],'browser console errors must remain visible');
     }
     await browser.close();browser=null;
   }

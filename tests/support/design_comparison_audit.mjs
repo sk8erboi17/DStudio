@@ -5,10 +5,14 @@ import path from 'node:path';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import {chromium} from 'playwright';
+import {isDesignDeliveryComplete} from './design_comparison_report.mjs';
 
 const run=path.resolve(process.argv[2]||'');
 assert.ok(process.argv[2],'Pass a completed comparison output directory');
 const source=JSON.parse(fs.readFileSync(path.join(run,'report.json'),'utf8'));
+const suite=JSON.parse(fs.readFileSync(path.join(run,'frozen-cases.json'),'utf8'));
+assert.ok(!suite.schema && suite.cases.every(c=>['archive','repair','workshop'].includes(c.id)),
+  'This legacy auditor implements only archive, repair and workshop. The eighteen-pack interaction audit is still required; do not count untested scenarios as passing.');
 const partial=process.argv[3]==='--completed-only';
 assert.ok(!process.argv[3] || partial,'Unknown audit option');
 const auditPath=path.join(run,partial?'audit.partial.json':'audit.json');
@@ -22,7 +26,6 @@ const pending=source.cases.filter(c=>c.status==='running').map(c=>c.id);
 assert.ok(partial || pending.length===0,'Run is still active; use --completed-only for a clearly labelled partial audit');
 const completed=source.cases.filter(c=>c.status!=='running');
 assert.ok(completed.length,'No completed cases to audit yet');
-const suite=JSON.parse(fs.readFileSync(path.join(run,'frozen-cases.json'),'utf8'));
 assert.equal(new Set(source.cases.map(c=>c.id)).size,source.cases.length,'Duplicate case receipts');
 assert.ok(source.cases.every(c=>suite.cases.some(frozen=>frozen.id===c.id)),'Unknown case receipt');
 assert.ok(partial || completed.length===(source.caseCount ?? suite.cases.length),
@@ -40,7 +43,8 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base='http://127.0.0.1:'+server.address().port;
 const browser=await chromium.launch({headless:true});
 const audit={label:source.label,partial,scope:'Independent rendered task requirements and working interactions; aesthetics are reviewed separately.',
-  auditorSha256:crypto.createHash('sha256').update(fs.readFileSync(new URL(import.meta.url))).digest('hex'),
+  auditorSha256:crypto.createHash('sha256').update(JSON.stringify([import.meta.url,new URL('./design_comparison_report.mjs',import.meta.url).href]
+    .map(file=>crypto.createHash('sha256').update(fs.readFileSync(new URL(file))).digest('hex')))).digest('hex'),
   notYetAudited:suite.cases.filter(c=>!completed.some(r=>r.id===c.id)).map(c=>c.id),cases:[]};
 const save=()=>fs.writeFileSync(auditPath,JSON.stringify(audit,null,2));
 async function chooseState(page,label){
@@ -83,7 +87,7 @@ try {
     }
     try {
       await check('agent completed and registered its artifact',async()=>{
-        assert.equal(result.status,'idle');assert.ok(result.artifact);assert.ok(result.entryExists);
+        assert.ok(isDesignDeliveryComplete(result),'Native delivery or complete output capture failed');
         assert.ok(!result.generationLimitReached,'Native turn ended at its generation recovery limit');
       });
       if(!result.entryExists)continue;

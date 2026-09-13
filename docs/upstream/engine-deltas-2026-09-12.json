@@ -1,0 +1,2631 @@
+{
+  "schema": "dstudio.upstream-delta-inventory.v1",
+  "capturedAt": "2026-09-12T13:51:14.273Z",
+  "scope": "Complete commit inventory for the displayed baseline-to-tip ranges, not per-platform release qualification or acceptance of commit-message performance claims.",
+  "limitations": [
+    "Upstream commit titles are provenance, not independently verified benchmark results.",
+    "No extrapolation from Metal builds to CUDA, ROCm, Vulkan or M5.",
+    "Current Qwen Next installed checkout was older than the September 8 reviewed baseline; its divergent old branch is retained separately.",
+    "Main-to-other-architecture portability requires semantic review, not copying tensors/tokenizers/Engram across models."
+  ],
+  "tracks": [
+    {
+      "id": "main",
+      "repository": "https://github.com/antirez/ds4",
+      "ref": "main",
+      "base": "f62ca29a308724cde5bc99134ede19104b2a3260",
+      "tip": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "status": "Integrated source and native Metal fixtures pass. Actual V4.1 Q2 SSD run completed: 13/14 instruction-conforming requests; original format failure retained. Not full model qualification.",
+      "commits": [
+        {
+          "id": "6546ae5473f755aad6ae454fb41cd8ad94c0faef",
+          "date": "2026-09-07T18:16:55+02:00",
+          "title": "agent: add opt-in programming hints",
+          "url": "https://github.com/antirez/ds4/commit/6546ae5473f755aad6ae454fb41cd8ad94c0faef",
+          "firstParentDiffSha256": "fd3764933e0d20873d53f34d066dc3742950aff70edd26a8418064918fe30563",
+          "files": [
+            "README.md",
+            "ds4_agent.c",
+            "ds4_help.c",
+            "tests/ds4_agent_test.c"
+          ]
+        },
+        {
+          "id": "81a76585ff44e0494053fca9101130e2535648b9",
+          "date": "2026-09-08T13:57:09+02:00",
+          "title": "Preserve live vision context across server tool calls",
+          "url": "https://github.com/antirez/ds4/commit/81a76585ff44e0494053fca9101130e2535648b9",
+          "firstParentDiffSha256": "3e1c698fadf5c6f1c3a1de6a42722821f50a6771477a44b2601b3fc7a70fb640",
+          "files": [
+            "ds4.c",
+            "ds4.h",
+            "ds4_server.c",
+            "tests/test_server_vision_agent.py",
+            "tests/test_server_vision_cache.py",
+            "tests/test_session_state.c"
+          ]
+        },
+        {
+          "id": "e33a5b25389de7f83a60cdb4d254054372f68e16",
+          "date": "2026-09-08T14:12:35+02:00",
+          "title": "Keep agent tasks running across context compaction",
+          "url": "https://github.com/antirez/ds4/commit/e33a5b25389de7f83a60cdb4d254054372f68e16",
+          "firstParentDiffSha256": "97a623e36a4953338f8fd03abb51f9998bf10b9da460034c47c9f99fc514a87a",
+          "files": [
+            "ds4_agent.c",
+            "tests/ds4_agent_test.c",
+            "tests/test_agent_compaction.py"
+          ]
+        },
+        {
+          "id": "74fbe546ffd8865a013a6dc3be8528723c58f5e3",
+          "date": "2026-09-08T14:12:56+02:00",
+          "title": "Add vision client and compaction recovery release checks",
+          "url": "https://github.com/antirez/ds4/commit/74fbe546ffd8865a013a6dc3be8528723c58f5e3",
+          "firstParentDiffSha256": "a5d976b583e1ad41c9d26360f63ae8ad52a58ded4d5cb6ea049b9c71c1834ad5",
+          "files": [
+            "QA_BEFORE_RELEASES.md"
+          ]
+        },
+        {
+          "id": "6289c516273979173abbc062209a81dd3706b804",
+          "date": "2026-09-08T17:26:35+02:00",
+          "title": "Give agent hints a distinct terminal label",
+          "url": "https://github.com/antirez/ds4/commit/6289c516273979173abbc062209a81dd3706b804",
+          "firstParentDiffSha256": "bfb4e47745d56b5e38ede51f53237b0eeb542ec5dae067e17762e4ae7ea5408b",
+          "files": [
+            "ds4_agent.c",
+            "tests/ds4_agent_terminal_test.py",
+            "tests/ds4_agent_test.c"
+          ]
+        },
+        {
+          "id": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+          "date": "2026-09-12T11:47:54+02:00",
+          "title": "DeepSeek v4.1 Flash support for Metal",
+          "url": "https://github.com/antirez/ds4/commit/bd66c402070042bf0a79ad6ece8242de4c93680c",
+          "firstParentDiffSha256": "5b2e2ffc3da871b811907fd3bb879b6fd23e44dc78fcc45abf79606425602e73",
+          "files": [
+            ".gitignore",
+            "LICENSE",
+            "Makefile",
+            "QA_BEFORE_RELEASES.md",
+            "README.md",
+            "docs/DISTRIBUTED.md",
+            "docs/METAL.md",
+            "docs/MODELS.md",
+            "docs/SERVER.md",
+            "download_model.sh",
+            "ds4.c",
+            "ds4.h",
+            "ds4_agent.c",
+            "ds4_cli.c",
+            "ds4_engram.c",
+            "ds4_engram.h",
+            "ds4_gpu.h",
+            "ds4_help.c",
+            "ds4_image.c",
+            "ds4_image.h",
+            "ds4_metal.m",
+            "ds4_server.c",
+            "ds4_tp.c",
+            "ds4_tp.h",
+            "gguf-tools/Makefile",
+            "gguf-tools/README.md",
+            "gguf-tools/deepseek41_metadata.py",
+            "gguf-tools/deepseek41_quantize.py",
+            "gguf-tools/deepseek41_validate_gguf.py",
+            "gguf-tools/deepseek41_vision.py",
+            "gguf-tools/glm53_quantize.py",
+            "gguf-tools/quality-testing/README.md",
+            "gguf-tools/quality-testing/collect_official.py",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/README.md",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/collection.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/continuations/case_000.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/continuations/case_001.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/continuations/case_002.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/continuations/case_003.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/continuations/case_004.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/continuations/case_005.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/continuations/case_006.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/continuations/case_007.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/continuations/case_008.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/continuations/case_009.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/continuations/case_010.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/continuations/case_011.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/manifest.tsv",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/prompts/case_000.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/prompts/case_001.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/prompts/case_002.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/prompts/case_003.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/prompts/case_004.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/prompts/case_005.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/prompts/case_006.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/prompts/case_007.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/prompts/case_008.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/prompts/case_009.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/prompts/case_010.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/prompts/case_011.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/responses/case_000.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/responses/case_001.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/responses/case_002.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/responses/case_003.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/responses/case_004.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/responses/case_005.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/responses/case_006.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/responses/case_007.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/responses/case_008.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/responses/case_009.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/responses/case_010.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch/responses/case_011.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/README.md",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/collection.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_000.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_001.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_002.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_003.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_004.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_005.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_006.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_007.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_008.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_009.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_010.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_011.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_012.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_013.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_014.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_015.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_016.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_017.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_018.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_019.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_020.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_021.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_022.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_023.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_024.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_025.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_026.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_027.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_028.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_029.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_030.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_031.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_032.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_033.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_034.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_035.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_036.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_037.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_038.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_039.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_040.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_041.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_042.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_043.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_044.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_045.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_046.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_047.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_048.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_049.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_050.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_051.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_052.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_053.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_054.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_055.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_056.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_057.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_058.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_059.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_060.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_061.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_062.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_063.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_064.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_065.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_066.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_067.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_068.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_069.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_070.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_071.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_072.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_073.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_074.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_075.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_076.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_077.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_078.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_079.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_080.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_081.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_082.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_083.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_084.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_085.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_086.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_087.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_088.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_089.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_090.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_091.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_092.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_093.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_094.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_095.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_096.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_097.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_098.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/continuations/case_099.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/manifest.tsv",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_000.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_001.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_002.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_003.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_004.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_005.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_006.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_007.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_008.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_009.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_010.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_011.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_012.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_013.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_014.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_015.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_016.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_017.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_018.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_019.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_020.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_021.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_022.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_023.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_024.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_025.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_026.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_027.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_028.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_029.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_030.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_031.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_032.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_033.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_034.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_035.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_036.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_037.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_038.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_039.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_040.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_041.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_042.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_043.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_044.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_045.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_046.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_047.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_048.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_049.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_050.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_051.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_052.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_053.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_054.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_055.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_056.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_057.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_058.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_059.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_060.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_061.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_062.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_063.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_064.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_065.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_066.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_067.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_068.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_069.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_070.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_071.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_072.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_073.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_074.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_075.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_076.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_077.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_078.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_079.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_080.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_081.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_082.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_083.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_084.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_085.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_086.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_087.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_088.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_089.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_090.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_091.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_092.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_093.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_094.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_095.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_096.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_097.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_098.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/prompts/case_099.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_000.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_001.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_002.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_003.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_004.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_005.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_006.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_007.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_008.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_009.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_010.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_011.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_012.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_013.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_014.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_015.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_016.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_017.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_018.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_019.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_020.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_021.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_022.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_023.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_024.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_025.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_026.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_027.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_028.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_029.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_030.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_031.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_032.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_033.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_034.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_035.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_036.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_037.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_038.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_039.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_040.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_041.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_042.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_043.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_044.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_045.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_046.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_047.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_048.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_049.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_050.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_051.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_052.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_053.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_054.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_055.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_056.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_057.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_058.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_059.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_060.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_061.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_062.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_063.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_064.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_065.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_066.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_067.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_068.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_069.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_070.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_071.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_072.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_073.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_074.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_075.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_076.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_077.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_078.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_079.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_080.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_081.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_082.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_083.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_084.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_085.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_086.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_087.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_088.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_089.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_090.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_091.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_092.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_093.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_094.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_095.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_096.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_097.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_098.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-general/responses/case_099.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/README.md",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/collection.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_000.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_001.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_002.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_003.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_004.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_005.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_006.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_007.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_008.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_009.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_010.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_011.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_012.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_013.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_014.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_015.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/continuations/case_016.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/manifest.tsv",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_000.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_001.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_002.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_003.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_004.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_005.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_006.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_007.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_008.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_009.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_010.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_011.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_012.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_013.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_014.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_015.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/prompts/case_016.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_000.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_001.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_002.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_003.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_004.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_005.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_006.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_007.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_008.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_009.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_010.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_011.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_012.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_013.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_014.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_015.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260910/responses/case_016.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/README.md",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/collection.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/continuations/case_000.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/continuations/case_001.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/continuations/case_002.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/continuations/case_003.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/continuations/case_004.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/continuations/case_005.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/manifest.tsv",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/prompts/case_000.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/prompts/case_001.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/prompts/case_002.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/prompts/case_003.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/prompts/case_004.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/prompts/case_005.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/responses/case_000.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/responses/case_001.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/responses/case_002.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/responses/case_003.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/responses/case_004.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-extended/responses/case_005.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/README.md",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/collection.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/continuations/case_000.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/continuations/case_001.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/continuations/case_002.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/continuations/case_003.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/continuations/case_004.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/continuations/case_005.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/continuations/case_006.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/continuations/case_007.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/continuations/case_008.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/manifest.tsv",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/prompts/case_000.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/prompts/case_001.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/prompts/case_002.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/prompts/case_003.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/prompts/case_004.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/prompts/case_005.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/prompts/case_006.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/prompts/case_007.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/prompts/case_008.txt",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/responses/case_000.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/responses/case_001.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/responses/case_002.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/responses/case_003.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/responses/case_004.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/responses/case_005.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/responses/case_006.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/responses/case_007.json",
+            "gguf-tools/quality-testing/deepseek-v4.1-flash-20260911-long/responses/case_008.json",
+            "gguf-tools/quality-testing/generate_deepseek4_vision_reference.py",
+            "gguf-tools/quality-testing/score_official.c",
+            "metal/argsort.metal",
+            "metal/cpy.metal",
+            "metal/deepseek4_vision.metal",
+            "metal/dense.metal",
+            "metal/dsv41.metal",
+            "metal/moe.metal",
+            "tests/ds4_agent_test.c",
+            "tests/ds4_test.c",
+            "tests/test_agent_compaction.py",
+            "tests/test_agent_vision.py",
+            "tests/test_collect_official.py",
+            "tests/test_deepseek41_cli.c",
+            "tests/test_deepseek41_conversion.py",
+            "tests/test_deepseek41_gguf.c",
+            "tests/test_deepseek41_graph.c",
+            "tests/test_deepseek41_http.py",
+            "tests/test_deepseek41_manifest.py",
+            "tests/test_deepseek41_metal.c",
+            "tests/test_deepseek41_prefill.c",
+            "tests/test_deepseek41_prompt.py",
+            "tests/test_deepseek41_rope.py",
+            "tests/test_deepseek41_vision_conversion.py",
+            "tests/test_deepseek41_vision_image.py",
+            "tests/test_engram.c",
+            "tests/test_glm53_vision_engine.c",
+            "tests/test_glm53_vision_prompt.c",
+            "tests/test_metal_command_memory.c",
+            "tests/test_metal_dense_mpp.c",
+            "tests/test_metal_moe_prefill.c",
+            "tests/test_metal_session_batch.c",
+            "tests/test_metal_ssd_experts.c",
+            "tests/test_metal_tp_bulk.c",
+            "tests/test_metal_tp_cancel.c",
+            "tests/test_model_download.py",
+            "tests/test_quality_api.c",
+            "tests/test_server_vision_agent.py",
+            "tests/test_session_state.c",
+            "tests/test_tp_commands.c",
+            "tests/test_tp_rdma.c"
+          ]
+        }
+      ],
+      "commitCount": 6
+    },
+    {
+      "id": "laguna",
+      "repository": "https://github.com/antirez/ds4",
+      "ref": "laguna-s2.1",
+      "base": "448d5695d1c86401a4e9447c440feb983b73e6de",
+      "tip": "448d5695d1c86401a4e9447c440feb983b73e6de",
+      "status": "No newer branch tip; selective main-port review remains distinct from branch freshness.",
+      "commits": [],
+      "commitCount": 0
+    },
+    {
+      "id": "qwen38",
+      "repository": "https://github.com/ivanfioravanti/ds4-metal",
+      "ref": "qwen3.8-flash-next",
+      "base": "82d031408c50419957fd44b7e9c2d423890b24bd",
+      "tip": "ff4f0ff4fdff70d6b7c3941ef437b91dde960e14",
+      "status": "Reviewed native source installed with explicit snapshot-allocation correction; new real-model/M5 qualification not claimed.",
+      "commits": [
+        {
+          "id": "b85a6174da6d0ea3139b48194a2ca108097657b1",
+          "date": "2026-09-08T00:06:23+02:00",
+          "title": "Speed up Qwen prefill with reusable weights and block convolution",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/b85a6174da6d0ea3139b48194a2ca108097657b1",
+          "firstParentDiffSha256": "eabae9c2d8d3c82653792b3448d94c1b83dfa911c4568a88a2208203ecb3b2e2",
+          "files": [
+            "Makefile",
+            "README.md",
+            "ds4.c",
+            "ds4_gpu.h",
+            "ds4_metal.m",
+            "metal/dense.metal",
+            "metal/qwen4.metal",
+            "speed-bench/metal_prefill_variant_bench.c",
+            "speed-bench/qwen38-prefill-structural-results.json",
+            "speed-bench/qwen38-prefill-structural.md",
+            "speed-bench/qwen38-q8-prefill-enabled-results.json",
+            "speed-bench/qwen38-q8-prefill-results.json",
+            "speed-bench/qwen38-q8-prefill.md",
+            "tests/test_q8_prefill_variants.c",
+            "tests/test_qwen4_conv_parallel.c",
+            "tests/test_qwen4_moe_mm_specialize.c"
+          ]
+        },
+        {
+          "id": "858b524b61e893724056db3f5c1ec7c12fb99883",
+          "date": "2026-09-08T01:24:56+02:00",
+          "title": "Add a Qwen Metal optimization lab for same-machine A/B work",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/858b524b61e893724056db3f5c1ec7c12fb99883",
+          "firstParentDiffSha256": "384cdfa6cbf2f14b2f43b2c6c5fb82017ac07b784836accbbb9c71b71f777b71",
+          "files": [
+            "Makefile",
+            "ds4_metal.m",
+            "speed-bench/.gitignore",
+            "speed-bench/metal_prefill_variant_bench.c",
+            "speed-bench/qwen38_decode_variant_bench.c",
+            "speed-bench/qwen38_m5_lab.py",
+            "speed-bench/qwen38_timeline_report.py"
+          ]
+        },
+        {
+          "id": "44133c0a2fb79fcf49121b6759f75fb525badfa6",
+          "date": "2026-09-08T01:24:56+02:00",
+          "title": "Tune Qwen single-token decode expert rows on M5",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/44133c0a2fb79fcf49121b6759f75fb525badfa6",
+          "firstParentDiffSha256": "97bdd434aa84a61391451d2bde045797cbcf38017ba249f057610c7a6fcfe712",
+          "files": [
+            "ds4_metal.m",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "360882e0a6c694e4439a331c2bf609c003e9197e",
+          "date": "2026-09-08T01:24:56+02:00",
+          "title": "Interleave the lab sweep per frontier",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/360882e0a6c694e4439a331c2bf609c003e9197e",
+          "firstParentDiffSha256": "68c792afc31d78e12647174b66e692a9bc96532339040c6ccd8182046adb9171",
+          "files": [
+            "speed-bench/qwen38_m5_lab.py"
+          ]
+        },
+        {
+          "id": "4d60b5b85b136991ae490f135ba584d4fe186a8e",
+          "date": "2026-09-08T01:24:56+02:00",
+          "title": "Tune Qwen prefill MoE tiles and mixer normalization on M5",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/4d60b5b85b136991ae490f135ba584d4fe186a8e",
+          "firstParentDiffSha256": "366a132a6addd7b1cb5f5dcdf70d444a52ed8c3e28409e28ef5b39e6d69bcbea",
+          "files": [
+            "docs/QWEN38_FLASH_NEXT.md",
+            "ds4_metal.m",
+            "speed-bench/qwen38-m5-round1-results.json",
+            "speed-bench/qwen38-m5-round1.md"
+          ]
+        },
+        {
+          "id": "0be6ea9dab4f8b0648180e43029b20493182abcd",
+          "date": "2026-09-08T01:24:56+02:00",
+          "title": "Launch narrow single-token F16/F32 matvecs one row per SIMD group on M5",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/0be6ea9dab4f8b0648180e43029b20493182abcd",
+          "firstParentDiffSha256": "43f025b1c895fc48aae20d66079dfc39ff7475418aa4ae93dd44989bad77de2d",
+          "files": [
+            "ds4_metal.m",
+            "metal/dense.metal"
+          ]
+        },
+        {
+          "id": "b960d0bbf61ce3227769fe0d119cebb1ffcfd9b4",
+          "date": "2026-09-08T01:24:56+02:00",
+          "title": "Swap Qwen MTP state buffers on rejection instead of copying them back",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/b960d0bbf61ce3227769fe0d119cebb1ffcfd9b4",
+          "firstParentDiffSha256": "14216612dd9c0736c16874766bf11e458e0ea1d1eabfc24a26c96cf66ebd0ed7",
+          "files": [
+            "ds4.c"
+          ]
+        },
+        {
+          "id": "2be7ecc4f2ef2abfe3a212fcf32551db73623aa3",
+          "date": "2026-09-08T01:24:56+02:00",
+          "title": "Order Qwen prefill expert tiles expert-major on M5",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/2be7ecc4f2ef2abfe3a212fcf32551db73623aa3",
+          "firstParentDiffSha256": "279f1ed0c634b3070a59bbb2459d7c04eb05f45a8c3ecfc874fa4506577a3699",
+          "files": [
+            "ds4_metal.m",
+            "metal/qwen4.metal"
+          ]
+        },
+        {
+          "id": "bc61011801c4bc298cadcd44a3719726b6a9a37e",
+          "date": "2026-09-08T01:24:56+02:00",
+          "title": "Widen the Qwen GDN front threadgroup on M5",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/bc61011801c4bc298cadcd44a3719726b6a9a37e",
+          "firstParentDiffSha256": "5b28dbfea47093431b43d6d57a80935ffb5a4d8561c0799873251b85f6509be4",
+          "files": [
+            "ds4_metal.m"
+          ]
+        },
+        {
+          "id": "f27d9b04cc68ea5fae469f1e647d1023d03971d5",
+          "date": "2026-09-08T01:24:56+02:00",
+          "title": "Stage indexer queries and widen the split-attention merge for Qwen decode on M5",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/f27d9b04cc68ea5fae469f1e647d1023d03971d5",
+          "firstParentDiffSha256": "17d292fa1107e27a616d1b3ce82c2722d411e2ce250e0f73ab6e9f07cbfa4d8c",
+          "files": [
+            "ds4_metal.m",
+            "metal/qwen4.metal"
+          ]
+        },
+        {
+          "id": "17e46ec1ae70fff3a19940f9ff778c3419c43d25",
+          "date": "2026-09-08T01:24:56+02:00",
+          "title": "Add a chunk-interleaved mode to the prefill A/B harness",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/17e46ec1ae70fff3a19940f9ff778c3419c43d25",
+          "firstParentDiffSha256": "e320ac0440d16fa7e5b19cf64e622aad78be4f2a487c5bce630757e53e98d60b",
+          "files": [
+            "speed-bench/metal_prefill_variant_bench.c"
+          ]
+        },
+        {
+          "id": "44fb98556be510857577488703d29c35d2eec188",
+          "date": "2026-09-08T01:24:56+02:00",
+          "title": "Prefilter the Qwen decode top-k by tile maxima and prefetch the split merge",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/44fb98556be510857577488703d29c35d2eec188",
+          "firstParentDiffSha256": "eba3c18f9885cc25ee6dc56391ca57a8a619a857d0f14d77658664e72273fd7e",
+          "files": [
+            "ds4.c",
+            "ds4_gpu.h",
+            "ds4_metal.m",
+            "metal/qwen4.metal",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "315cdfaf11af1d622439b90b8251bc79b6a1282b",
+          "date": "2026-09-08T01:24:56+02:00",
+          "title": "Record the second Qwen M5 optimization round",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/315cdfaf11af1d622439b90b8251bc79b6a1282b",
+          "firstParentDiffSha256": "94b3f748743425ba9c90f5180ceba70331d79693d4e4c0c9c72cff95012be7ec",
+          "files": [
+            "docs/QWEN38_FLASH_NEXT.md",
+            "speed-bench/qwen38-m5-round2.md"
+          ]
+        },
+        {
+          "id": "a30ed072fc9dc77eeba65a4c4d1a6984cc44be74",
+          "date": "2026-09-08T14:24:33+08:00",
+          "title": "Route Q4_K routed experts through double-buffered TensorOps kernels",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/a30ed072fc9dc77eeba65a4c4d1a6984cc44be74",
+          "firstParentDiffSha256": "a3d842632f4fd18a72c2a648c669b17aa005b3f6b66c725d90fb6f9bce2d330d",
+          "files": [
+            "ds4_metal.m",
+            "metal/moe.metal",
+            "speed-bench/qwen38-m5-q4k-mpp-results.json",
+            "speed-bench/qwen38-m5-q4k-mpp.md"
+          ]
+        },
+        {
+          "id": "c73d32a9cf13dabf93e0845e92443b3b4f7c7234",
+          "date": "2026-09-08T15:33:29+02:00",
+          "title": "Fix Qwen tool-call parsing for literal markers in arguments",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/c73d32a9cf13dabf93e0845e92443b3b4f7c7234",
+          "firstParentDiffSha256": "59dbda98d73a626343ca937a9d868c2b000b65d49c1a57b7aa5c7df02d85bae6",
+          "files": [
+            "ds4_server.c"
+          ]
+        },
+        {
+          "id": "ef44acdce93362829d21d8bcdac354decbb759d9",
+          "date": "2026-09-08T15:46:38+02:00",
+          "title": "Speed up Qwen Q4_K decode with MXFP4 specialization",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/ef44acdce93362829d21d8bcdac354decbb759d9",
+          "firstParentDiffSha256": "47eff1f010e86077bea2fa76e379ecdce5ed62c53987bb33461162e61f09b191",
+          "files": [
+            "ds4_metal.m",
+            "speed-bench/qwen38-q4k-decode-specialization-results.json",
+            "speed-bench/qwen38-q4k-decode-specialization.md",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "fc6b023545926a4b00c329c6364799fdcc770f9f",
+          "date": "2026-09-08T22:13:17+08:00",
+          "title": "Explain stale Metal sources when a Qwen kernel is missing",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/fc6b023545926a4b00c329c6364799fdcc770f9f",
+          "firstParentDiffSha256": "2aedb4d750878dd67eaac617c0e13b3b402691958fa27f4bc62ece5f8565740b",
+          "files": [
+            "ds4_metal.m"
+          ]
+        },
+        {
+          "id": "bd7061b7b3f4c0509dda356cc19a8a35d4c036a0",
+          "date": "2026-09-08T22:13:17+08:00",
+          "title": "Demand-page the PLE sidecar with an optional residency sweep",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/bd7061b7b3f4c0509dda356cc19a8a35d4c036a0",
+          "firstParentDiffSha256": "2f281fbd6040b1c919995ddb49d40c77554e0410dbd3e6e933704a2656899aaf",
+          "files": [
+            "ds4.c"
+          ]
+        },
+        {
+          "id": "881c678d1afd581b3668b199321c5195a538cca2",
+          "date": "2026-09-08T22:43:46+08:00",
+          "title": "Prefault the PLE sidecar only with RAM headroom",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/881c678d1afd581b3668b199321c5195a538cca2",
+          "firstParentDiffSha256": "c6cc04b4b82c54b7083c4370de0f609f493ce7637fecabc203fca77df6049450",
+          "files": [
+            "ds4.c"
+          ]
+        },
+        {
+          "id": "18ca8ecdb5732a5c77c053e554e57daadf5ca32e",
+          "date": "2026-09-08T17:06:23+02:00",
+          "title": "Merge PR #5: M5 optimizations with M3 parity and integration fixes",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/18ca8ecdb5732a5c77c053e554e57daadf5ca32e",
+          "firstParentDiffSha256": "b02b8ff32de3063201bdc85072c79fa265e831823bd030ca60073e2f45f7c768",
+          "files": [
+            "ds4.c",
+            "ds4_metal.m",
+            "ds4_server.c",
+            "metal/moe.metal",
+            "speed-bench/qwen38-m5-q4k-mpp-results.json",
+            "speed-bench/qwen38-m5-q4k-mpp.md",
+            "speed-bench/qwen38-pr5-m3-validation-results.json",
+            "speed-bench/qwen38-pr5-m3-validation.md",
+            "speed-bench/qwen38-q4k-decode-specialization-results.json",
+            "speed-bench/qwen38-q4k-decode-specialization.md",
+            "tests/test_qwen4_host.c",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "6d5011c15eb86082184972586d6fc3476b42ab0c",
+          "date": "2026-09-08T19:15:08+02:00",
+          "title": "Prefetch Qwen F16 hyper-connection gate/mix rows on M5",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/6d5011c15eb86082184972586d6fc3476b42ab0c",
+          "firstParentDiffSha256": "794325605a4e54c60e3f4a338847628adfe15316e0f8e840d37cb0b133a89b17",
+          "files": [
+            "ds4_metal.m",
+            "metal/qwen4.metal",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "10cd72532208651625c3d07baa1cfe39b2032559",
+          "date": "2026-09-08T19:31:17+02:00",
+          "title": "Add a baseline-env option to the Qwen MTP compare harness",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/10cd72532208651625c3d07baa1cfe39b2032559",
+          "firstParentDiffSha256": "76346d3e89a929fb6777ef1badf206114941f68c3888ccde1c58a53a7fc063d6",
+          "files": [
+            "speed-bench/qwen38_mtp_compare.py"
+          ]
+        },
+        {
+          "id": "d2c000e74567b7e92b0576d8a829849cc97cff19",
+          "date": "2026-09-08T19:31:18+02:00",
+          "title": "Prefetch the paired Qwen F16 gate/mix rows on M5",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/d2c000e74567b7e92b0576d8a829849cc97cff19",
+          "firstParentDiffSha256": "38945b35c7309a9774fbb533e3f705c3deabf1b9337c208057908e153e3a71bf",
+          "files": [
+            "ds4_metal.m",
+            "metal/qwen4.metal",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "bcaa8040eab495dc33ef0d61363a094c7f56967f",
+          "date": "2026-09-08T19:40:08+02:00",
+          "title": "Prefetch Qwen MXFP4 routed down rows on M5",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/bcaa8040eab495dc33ef0d61363a094c7f56967f",
+          "firstParentDiffSha256": "4db666faf3fb018daebc6278805277c986c457293f24fa6eb63e99520777cf5e",
+          "files": [
+            "ds4_metal.m",
+            "metal/qwen4.metal",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "d295fb8270cfc09196c12cb92cbdbd3a4ce31776",
+          "date": "2026-09-08T19:40:08+02:00",
+          "title": "Use the one-row Qwen Q4_K geometry for the two-row MTP passes on M5",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/d295fb8270cfc09196c12cb92cbdbd3a4ce31776",
+          "firstParentDiffSha256": "73ed2534b817c67d7adcae375a54f4600497cfad659817859d3ba0666da62da3",
+          "files": [
+            "ds4_metal.m"
+          ]
+        },
+        {
+          "id": "4df6fcdfb59aec8cf7d9ecd0fb86432d7568d7e2",
+          "date": "2026-09-08T19:59:34+02:00",
+          "title": "Add an MTP mode to the Qwen decode A/B harness and a verify-row simdgroup knob",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/4df6fcdfb59aec8cf7d9ecd0fb86432d7568d7e2",
+          "firstParentDiffSha256": "397f4ba5c49eea1f8c490eb53cedd84f833116ae1f24dc9b2649f096c614b3d8",
+          "files": [
+            "ds4_metal.m",
+            "speed-bench/qwen38_decode_variant_bench.c",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "7401e73ad762cf81320a7c1358fceff988fcb47b",
+          "date": "2026-09-08T20:20:59+02:00",
+          "title": "Let the Qwen MTP draft head score a vocabulary subset (opt-in)",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/7401e73ad762cf81320a7c1358fceff988fcb47b",
+          "firstParentDiffSha256": "ec74b4ecdf52dadab84907ca88c54b5f0ce71a16d03d9b0362385fcb64088234",
+          "files": [
+            "ds4.c",
+            "ds4_gpu.h",
+            "ds4_metal.m"
+          ]
+        },
+        {
+          "id": "185ba1dca42cc7a96c65eda532178a59dc0f4e2e",
+          "date": "2026-09-08T20:25:19+02:00",
+          "title": "Record the third Qwen M5 optimization round",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/185ba1dca42cc7a96c65eda532178a59dc0f4e2e",
+          "firstParentDiffSha256": "6ae55d5621bd9b70bf63f6b208156d63592771a1e8b38589b84d91ad09017f93",
+          "files": [
+            "docs/QWEN38_FLASH_NEXT.md",
+            "speed-bench/qwen38-m5-round3.md"
+          ]
+        },
+        {
+          "id": "807979039283234c65b340239d2c6b43b5a98546",
+          "date": "2026-09-08T21:13:01+02:00",
+          "title": "Use 64-token routed expert tiles for Qwen prefill on M5",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/807979039283234c65b340239d2c6b43b5a98546",
+          "firstParentDiffSha256": "a1c0b7da1a71848ad362fc882ea312b34434eaa4f6798730051351a33fd4590e",
+          "files": [
+            "ds4_metal.m",
+            "metal/qwen4.metal",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "9614c77ab4bfcbbbb7c04e1158e7d35dc4673416",
+          "date": "2026-09-08T21:29:56+02:00",
+          "title": "Record the fourth Qwen M5 round (prefill)",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/9614c77ab4bfcbbbb7c04e1158e7d35dc4673416",
+          "firstParentDiffSha256": "4d5445d208d4fdd4374516f0a200533e2fb1884fde8a209e596e05f9b5d7471b",
+          "files": [
+            "docs/QWEN38_FLASH_NEXT.md",
+            "speed-bench/qwen38-m5-round4.md"
+          ]
+        },
+        {
+          "id": "1b8aba90685bcb6bd3db20fcaa3faffb84eee805",
+          "date": "2026-09-08T22:37:59+02:00",
+          "title": "Add the post-round prefill checks to the round-four record",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/1b8aba90685bcb6bd3db20fcaa3faffb84eee805",
+          "firstParentDiffSha256": "9f4e19ec3aed29cc8b4e210bba689eb47c9e1eff32477a11d6f000bf5c985540",
+          "files": [
+            "speed-bench/qwen38-m5-round4.md"
+          ]
+        },
+        {
+          "id": "5912cc27bd53f3b45e81624b6b33d0794ce9dbff",
+          "date": "2026-09-09T21:09:14+08:00",
+          "title": "Merge pull request #6 from polymorf/qwen3.8-flash-next-m5",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/5912cc27bd53f3b45e81624b6b33d0794ce9dbff",
+          "firstParentDiffSha256": "4be2d631d823d3e5e6137cdd444e84187ca74d8ba7f08349e8de8c4e1e1bf9a1",
+          "files": [
+            "docs/QWEN38_FLASH_NEXT.md",
+            "ds4.c",
+            "ds4_gpu.h",
+            "ds4_metal.m",
+            "metal/qwen4.metal",
+            "speed-bench/qwen38-m5-round3.md",
+            "speed-bench/qwen38-m5-round4.md",
+            "speed-bench/qwen38_decode_variant_bench.c",
+            "speed-bench/qwen38_mtp_compare.py",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "f62ca29a308724cde5bc99134ede19104b2a3260",
+          "date": "2026-09-07T13:23:08+02:00",
+          "title": "README: intro section updated.",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/f62ca29a308724cde5bc99134ede19104b2a3260",
+          "firstParentDiffSha256": "26d9dbc333a54543edf975c3de43b49368165113e74d7d5d6c2886a8ccc77725",
+          "files": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "6546ae5473f755aad6ae454fb41cd8ad94c0faef",
+          "date": "2026-09-07T18:16:55+02:00",
+          "title": "agent: add opt-in programming hints",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/6546ae5473f755aad6ae454fb41cd8ad94c0faef",
+          "firstParentDiffSha256": "fd3764933e0d20873d53f34d066dc3742950aff70edd26a8418064918fe30563",
+          "files": [
+            "README.md",
+            "ds4_agent.c",
+            "ds4_help.c",
+            "tests/ds4_agent_test.c"
+          ]
+        },
+        {
+          "id": "81a76585ff44e0494053fca9101130e2535648b9",
+          "date": "2026-09-08T13:57:09+02:00",
+          "title": "Preserve live vision context across server tool calls",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/81a76585ff44e0494053fca9101130e2535648b9",
+          "firstParentDiffSha256": "3e1c698fadf5c6f1c3a1de6a42722821f50a6771477a44b2601b3fc7a70fb640",
+          "files": [
+            "ds4.c",
+            "ds4.h",
+            "ds4_server.c",
+            "tests/test_server_vision_agent.py",
+            "tests/test_server_vision_cache.py",
+            "tests/test_session_state.c"
+          ]
+        },
+        {
+          "id": "e33a5b25389de7f83a60cdb4d254054372f68e16",
+          "date": "2026-09-08T14:12:35+02:00",
+          "title": "Keep agent tasks running across context compaction",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/e33a5b25389de7f83a60cdb4d254054372f68e16",
+          "firstParentDiffSha256": "97a623e36a4953338f8fd03abb51f9998bf10b9da460034c47c9f99fc514a87a",
+          "files": [
+            "ds4_agent.c",
+            "tests/ds4_agent_test.c",
+            "tests/test_agent_compaction.py"
+          ]
+        },
+        {
+          "id": "74fbe546ffd8865a013a6dc3be8528723c58f5e3",
+          "date": "2026-09-08T14:12:56+02:00",
+          "title": "Add vision client and compaction recovery release checks",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/74fbe546ffd8865a013a6dc3be8528723c58f5e3",
+          "firstParentDiffSha256": "a5d976b583e1ad41c9d26360f63ae8ad52a58ded4d5cb6ea049b9c71c1834ad5",
+          "files": [
+            "QA_BEFORE_RELEASES.md"
+          ]
+        },
+        {
+          "id": "6289c516273979173abbc062209a81dd3706b804",
+          "date": "2026-09-08T17:26:35+02:00",
+          "title": "Give agent hints a distinct terminal label",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/6289c516273979173abbc062209a81dd3706b804",
+          "firstParentDiffSha256": "bfb4e47745d56b5e38ede51f53237b0eeb542ec5dae067e17762e4ae7ea5408b",
+          "files": [
+            "ds4_agent.c",
+            "tests/ds4_agent_terminal_test.py",
+            "tests/ds4_agent_test.c"
+          ]
+        },
+        {
+          "id": "468a92325143be1b6b840f6b0d85f8d75fc772e7",
+          "date": "2026-09-09T21:19:55+08:00",
+          "title": "Merge branch 'main' into qwen3.8-flash-next",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/468a92325143be1b6b840f6b0d85f8d75fc772e7",
+          "firstParentDiffSha256": "b843910f316ec273ff8a5d5030cf4de506235e8e27b4bd878742638f76803c5a",
+          "files": [
+            "QA_BEFORE_RELEASES.md",
+            "README.md",
+            "ds4.c",
+            "ds4.h",
+            "ds4_agent.c",
+            "ds4_help.c",
+            "ds4_server.c",
+            "tests/ds4_agent_terminal_test.py",
+            "tests/ds4_agent_test.c",
+            "tests/test_agent_compaction.py",
+            "tests/test_server_vision_agent.py",
+            "tests/test_server_vision_cache.py",
+            "tests/test_session_state.c"
+          ]
+        },
+        {
+          "id": "6c1e83672650e1bae9fe460a05c7f131d93f055e",
+          "date": "2026-09-09T21:22:55+08:00",
+          "title": "Document 64 GB fit data, PLE residency knobs, and thinking aliases",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/6c1e83672650e1bae9fe460a05c7f131d93f055e",
+          "firstParentDiffSha256": "ed0d862c3f1a85ae5d5b0df397edbc506b741407c7fb1762c027082a9cb07a43",
+          "files": [
+            "docs/QWEN38_FLASH_NEXT.md"
+          ]
+        },
+        {
+          "id": "a8c8191a81b740b5d0f30d9ba6e2c4953ef77433",
+          "date": "2026-09-09T21:47:38+02:00",
+          "title": "Add a drift-tolerant mode to the Qwen prefill A/B harness",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/a8c8191a81b740b5d0f30d9ba6e2c4953ef77433",
+          "firstParentDiffSha256": "c97eec1b3f0448a4223784fdc8d9e0250902809ffb954b48494c3b38da489a92",
+          "files": [
+            "speed-bench/metal_prefill_variant_bench.c"
+          ]
+        },
+        {
+          "id": "8585bfec4032c688914960c5ce8e824fc41d9f79",
+          "date": "2026-09-09T21:47:38+02:00",
+          "title": "Run the Qwen routed expert tiles on the Metal 4 tensor ops (opt-in)",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/8585bfec4032c688914960c5ce8e824fc41d9f79",
+          "firstParentDiffSha256": "fa043cd05b7d5e8fda318c0b8178052536b8a5f2c1b5232a2330fe65db5e6a5f",
+          "files": [
+            "ds4_metal.m",
+            "metal/qwen4.metal",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "7af6ca40e07b9ee482bf15501b862f98db495f6f",
+          "date": "2026-09-09T22:01:29+02:00",
+          "title": "Record the fifth Qwen M5 round (routed tiles on the tensor ops)",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/7af6ca40e07b9ee482bf15501b862f98db495f6f",
+          "firstParentDiffSha256": "e86cfdacb1cc237130c949ac6104d35d084253492596082d0ac427fd5fe2b0d8",
+          "files": [
+            "docs/QWEN38_FLASH_NEXT.md",
+            "speed-bench/qwen38-m5-round5.md"
+          ]
+        },
+        {
+          "id": "6857a522e4780895d28068d37e911db3d3d2ef1a",
+          "date": "2026-09-09T22:14:21+02:00",
+          "title": "Feed the Qwen tensor-op tiles a pre-rounded half activation operand",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/6857a522e4780895d28068d37e911db3d3d2ef1a",
+          "firstParentDiffSha256": "7a94da530e0e47c98cdc8a361967dae0e98e70513a2fce24a390caad6c473da9",
+          "files": [
+            "ds4_metal.m",
+            "metal/qwen4.metal",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "63bdbc26eed05e8120f1baeea81ace84de4c82dc",
+          "date": "2026-09-09T22:20:38+02:00",
+          "title": "Prefetch the next K step's weight words in the Qwen tensor-op tiles",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/63bdbc26eed05e8120f1baeea81ace84de4c82dc",
+          "firstParentDiffSha256": "cc801dfcd0f61200422ec22de51035df38a7cd22f6eb199dba7c29f8162c5d1b",
+          "files": [
+            "metal/qwen4.metal"
+          ]
+        },
+        {
+          "id": "3c274fac4083b821e1e39407321d5b2939aae867",
+          "date": "2026-09-09T22:26:49+02:00",
+          "title": "Release the Qwen tensor-tile half operand scratch at Metal cleanup",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/3c274fac4083b821e1e39407321d5b2939aae867",
+          "firstParentDiffSha256": "da2978ec7e1dca843694f8f1d28cc33d5ec81e2a42318c249087ae07b6496213",
+          "files": [
+            "ds4_metal.m"
+          ]
+        },
+        {
+          "id": "04a6bc486fe340262498be5cbade09ff32380767",
+          "date": "2026-09-09T22:30:11+02:00",
+          "title": "Give the 64-token Qwen tensor-op tiles a 32-token tail tile",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/04a6bc486fe340262498be5cbade09ff32380767",
+          "firstParentDiffSha256": "c614029530385ada037915242fa32c4753219cd667a2dbe82f57121531f455f9",
+          "files": [
+            "ds4_metal.m",
+            "metal/qwen4.metal"
+          ]
+        },
+        {
+          "id": "f58d0a5bffbf77c8b33d522ae5cadfd9a89eb1a2",
+          "date": "2026-09-09T22:42:22+02:00",
+          "title": "Write the half copy of mid from the Qwen tensor mid tiles",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/f58d0a5bffbf77c8b33d522ae5cadfd9a89eb1a2",
+          "firstParentDiffSha256": "30c6c065ab824e285d92720f06aae1a71e8a3199210995ab8ba81064677bfccc",
+          "files": [
+            "ds4_metal.m",
+            "metal/qwen4.metal"
+          ]
+        },
+        {
+          "id": "4e9acd6bb00b1f43743a8248dd2e20303b347ff2",
+          "date": "2026-09-09T22:42:22+02:00",
+          "title": "Record the tensor-tile staging follow-up in the round-five report",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/4e9acd6bb00b1f43743a8248dd2e20303b347ff2",
+          "firstParentDiffSha256": "85d30e69d432c818732284bd622d27fbfbdb5524b5a9cbaea224f74af23bbdb0",
+          "files": [
+            "docs/QWEN38_FLASH_NEXT.md",
+            "speed-bench/qwen38-m5-round5.md"
+          ]
+        },
+        {
+          "id": "3de860c7c475e571250995e88e6657b61b7f79bd",
+          "date": "2026-09-09T22:49:06+02:00",
+          "title": "Add the final 128K pair to the round-five report",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/3de860c7c475e571250995e88e6657b61b7f79bd",
+          "firstParentDiffSha256": "8654b6b25cdcfacdb670045445d3b2d903d789242fd421817358f23893be2659",
+          "files": [
+            "speed-bench/qwen38-m5-round5.md"
+          ]
+        },
+        {
+          "id": "a4e8e49ada9ffaa009d02f1610c838d5184bfb24",
+          "date": "2026-09-09T23:12:34+02:00",
+          "title": "Record why the Qwen tensor tiles cannot be bit-exact",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/a4e8e49ada9ffaa009d02f1610c838d5184bfb24",
+          "firstParentDiffSha256": "eef4041cb2c18ff1c99e980c73f34428d89193e10a96260d5142020f041d3307",
+          "files": [
+            "speed-bench/qwen38-m5-round5.md"
+          ]
+        },
+        {
+          "id": "7ac777a85f1afd305d34bded4c5bb114688158d8",
+          "date": "2026-09-09T23:19:57+02:00",
+          "title": "Print output hashes for the simdgroup routed tiles in the tile test",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/7ac777a85f1afd305d34bded4c5bb114688158d8",
+          "firstParentDiffSha256": "6fdd5ec10e81f792d4456f14094d96b3adb22938016ba87deb5947853374b6b3",
+          "files": [
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "3f2113b06af945ab2f124ccc1358d214379c79ca",
+          "date": "2026-09-09T23:19:57+02:00",
+          "title": "Record the rejected default-path prefetches in the round-five report",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/3f2113b06af945ab2f124ccc1358d214379c79ca",
+          "firstParentDiffSha256": "466deb97835991457a41c8116b9819f8e13671ad3843b40c1b7a730bcdee958a",
+          "files": [
+            "speed-bench/qwen38-m5-round5.md"
+          ]
+        },
+        {
+          "id": "9662fffb8d23980372e471cd2703ab88af87d668",
+          "date": "2026-09-09T23:56:55+02:00",
+          "title": "Record the exact-path candidates rejected after the tensor-tile round",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/9662fffb8d23980372e471cd2703ab88af87d668",
+          "firstParentDiffSha256": "a1b436e04a3894d9e1307e311ab15c649071f37cccde709c6fab9b497369a249",
+          "files": [
+            "speed-bench/qwen38-m5-round5.md"
+          ]
+        },
+        {
+          "id": "a12f4af46ceb3dc946f149250aabfc5b71ae5840",
+          "date": "2026-09-11T22:03:14+08:00",
+          "title": "Merge pull request #10 from polymorf/m5-round5-nax",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/a12f4af46ceb3dc946f149250aabfc5b71ae5840",
+          "firstParentDiffSha256": "71f89299f6e88846dbe85a345232efc15369c1c6c4681fced09b85cd18a302c0",
+          "files": [
+            "docs/QWEN38_FLASH_NEXT.md",
+            "ds4_metal.m",
+            "metal/qwen4.metal",
+            "speed-bench/metal_prefill_variant_bench.c",
+            "speed-bench/qwen38-m5-round5.md",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "3fbaeab61dcc3de93772ae8330d58fe1a25251c2",
+          "date": "2026-09-11T00:44:13+08:00",
+          "title": "Add compensated tensor-tile levels for the routed experts",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/3fbaeab61dcc3de93772ae8330d58fe1a25251c2",
+          "firstParentDiffSha256": "316eff02c5c83ce4a73a7ba5ab128b25da916964111bf4e669873ba3f5547665",
+          "files": [
+            "docs/QWEN38_FLASH_NEXT.md",
+            "ds4_metal.m",
+            "metal/qwen4.metal",
+            "speed-bench/qwen38-m5-round5-accuracy.md",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "6cfab58c0d0d81d3aa079011dd51bd1af0b9bd97",
+          "date": "2026-09-11T08:00:07+08:00",
+          "title": "Decompose the routed-tile error on a dyadic fixture",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/6cfab58c0d0d81d3aa079011dd51bd1af0b9bd97",
+          "firstParentDiffSha256": "5d33c71cacd428a70f9d79403bc72e2cd76226022c2d6862cf184e46f1c415cd",
+          "files": [
+            "speed-bench/qwen38-m5-round5-accuracy.md",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "43bd707fdbf6ab48241c2ba3b9bc70cb1e2a23bd",
+          "date": "2026-09-11T22:02:29+08:00",
+          "title": "Promote the compensated tensor tiles to the default and fix the mid-tail dispatch",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/43bd707fdbf6ab48241c2ba3b9bc70cb1e2a23bd",
+          "firstParentDiffSha256": "79598f41cc88acd651ae6b64c6019054e84a4c2a9fce5deba57a5dba184b051a",
+          "files": [
+            "QA_BEFORE_RELEASES.md",
+            "docs/QWEN38_FLASH_NEXT.md",
+            "ds4_metal.m",
+            "speed-bench/qwen38-m5-round5-accuracy.md",
+            "tests/test_qwen4_kernels.c",
+            "tests/test_qwen4_moe_mm_specialize.c"
+          ]
+        },
+        {
+          "id": "10830f4d6919a9820382f6934362683379f26d7b",
+          "date": "2026-09-11T22:03:30+08:00",
+          "title": "Merge compensated tensor tiles, error decomposition, and default promotion",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/10830f4d6919a9820382f6934362683379f26d7b",
+          "firstParentDiffSha256": "f02774806ba9e124030ae7e90bc0dd9d040c2d96f67fcf057bdd2e17a61fcbb0",
+          "files": [
+            "QA_BEFORE_RELEASES.md",
+            "docs/QWEN38_FLASH_NEXT.md",
+            "ds4_metal.m",
+            "metal/qwen4.metal",
+            "speed-bench/qwen38-m5-round5-accuracy.md",
+            "tests/test_qwen4_kernels.c",
+            "tests/test_qwen4_moe_mm_specialize.c"
+          ]
+        },
+        {
+          "id": "9f0c99a8bb8eb1751ed603e1daaf6f24aa553670",
+          "date": "2026-09-12T07:58:23+08:00",
+          "title": "Run the Q2 routed tiers on the Metal tensor tiles (opt-in)",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/9f0c99a8bb8eb1751ed603e1daaf6f24aa553670",
+          "firstParentDiffSha256": "61619e74f0b2e50531b3be86a7de1a03d000df62c6ebdb95d7ea546bf8c9bd76",
+          "files": [
+            "ds4_metal.m",
+            "metal/qwen4.metal",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "22d046153566c520d1f076c952474a60b191acfe",
+          "date": "2026-09-12T09:05:24+08:00",
+          "title": "Promote the Q2 tensor tiles to the level-2 default",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/22d046153566c520d1f076c952474a60b191acfe",
+          "firstParentDiffSha256": "354b9eb609589a662b614b5003920a15b312352512384dee3b136e97831f4e41",
+          "files": [
+            "QA_BEFORE_RELEASES.md",
+            "docs/QWEN38_FLASH_NEXT.md",
+            "ds4_metal.m"
+          ]
+        },
+        {
+          "id": "dddb1ba678230ad5033186c894d1d271874af81c",
+          "date": "2026-09-12T09:14:33+08:00",
+          "title": "Promote the level-2 tensor tiles to the default on every tier",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/dddb1ba678230ad5033186c894d1d271874af81c",
+          "firstParentDiffSha256": "00950a6cd6403cf17d227d33b3ae4ce77e2d068990595d5a0baa4b6e66b9e99d",
+          "files": [
+            "QA_BEFORE_RELEASES.md",
+            "docs/QWEN38_FLASH_NEXT.md",
+            "ds4_metal.m"
+          ]
+        },
+        {
+          "id": "fbb2299a2f46db6ff9aa8dea4f9c51e483c6eff5",
+          "date": "2026-09-12T16:49:43+08:00",
+          "title": "Chain a second MTP draft and verify three rows on M5",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/fbb2299a2f46db6ff9aa8dea4f9c51e483c6eff5",
+          "firstParentDiffSha256": "a9fbe99b11524362d21ce38db76ac63c627dc346e8f5c928ff62cea29cbe1501",
+          "files": [
+            "docs/SPECULATIVE_DECODING.md",
+            "ds4.c",
+            "ds4_gpu.h",
+            "ds4_metal.m",
+            "metal/qwen4.metal",
+            "speed-bench/qwen38-m5-round6.md",
+            "speed-bench/qwen38_decode_variant_bench.c",
+            "tests/test_qwen4_kernels.c"
+          ]
+        },
+        {
+          "id": "2dda88ed7bc596087f5282a6020d7409ca713ff3",
+          "date": "2026-09-12T16:52:21+08:00",
+          "title": "Note the Q2 pack's depth-3 MTP measurements in the round-6 report",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/2dda88ed7bc596087f5282a6020d7409ca713ff3",
+          "firstParentDiffSha256": "1256d25554665475fb38e5006d499c9068e6cfb16643b4c0dbeeb17cd27504e6",
+          "files": [
+            "speed-bench/qwen38-m5-round6.md"
+          ]
+        },
+        {
+          "id": "628dc8e1e6d795559748a2ec34eb43545aedcaba",
+          "date": "2026-09-12T20:21:56+08:00",
+          "title": "Size server vision cache rows by the engine embedding dim",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/628dc8e1e6d795559748a2ec34eb43545aedcaba",
+          "firstParentDiffSha256": "828654d74d24b43e98977ba88ec4dd3d9151c0d040da500e7c46315c91284a23",
+          "files": [
+            "ds4_server.c"
+          ]
+        },
+        {
+          "id": "ff4f0ff4fdff70d6b7c3941ef437b91dde960e14",
+          "date": "2026-09-12T20:32:38+08:00",
+          "title": "Restore the pre-verify state for exact-sampling boundary rewinds",
+          "url": "https://github.com/ivanfioravanti/ds4-metal/commit/ff4f0ff4fdff70d6b7c3941ef437b91dde960e14",
+          "firstParentDiffSha256": "98e14863829fcf3352fc60be2b2340168d33feeb8bbe2e004981fabf177a0805",
+          "files": [
+            "docs/SPECULATIVE_DECODING.md",
+            "ds4.c",
+            "tests/ds4_test.c"
+          ]
+        }
+      ],
+      "commitCount": 66
+    },
+    {
+      "id": "qwen35",
+      "repository": "https://github.com/vagrillo/ds4",
+      "ref": "qwen35moe-support",
+      "base": "60fca11f0c8b16ca50c757324dddd717ba043098",
+      "tip": "73434c4bb9d8bb18425a2577edada69d25d44c47",
+      "status": "Two documentation-only commits integrated; no inference-code delta.",
+      "commits": [
+        {
+          "id": "62e72517c646930c2310a624578b1cfd11fd7cc1",
+          "date": "2026-09-07T22:39:16+02:00",
+          "title": "Document Llama.cpp Dynamic MoE inference implementation",
+          "url": "https://github.com/vagrillo/ds4/commit/62e72517c646930c2310a624578b1cfd11fd7cc1",
+          "firstParentDiffSha256": "7a6d66b52d43be923bbf0ba983220439524a7431308df2d25ea277970179e782",
+          "files": [
+            "dynamicmoeinference.md"
+          ]
+        },
+        {
+          "id": "73434c4bb9d8bb18425a2577edada69d25d44c47",
+          "date": "2026-09-07T22:39:53+02:00",
+          "title": "Update testing details for MOE Expansion",
+          "url": "https://github.com/vagrillo/ds4/commit/73434c4bb9d8bb18425a2577edada69d25d44c47",
+          "firstParentDiffSha256": "a079286c71207c4b3297258d5b51d3a53f6965996d0fe13df90b6b90b3bf1b3d",
+          "files": [
+            "dynamicmoeinference.md"
+          ]
+        }
+      ],
+      "commitCount": 2
+    },
+    {
+      "id": "q36",
+      "repository": "https://github.com/Ninnix/q36",
+      "ref": "main",
+      "base": "d67687ed15ad9f52b755a9b5fdfc0214ea937555",
+      "tip": "8362010a301b3360296e435703f58ffc230a024a",
+      "status": "Isolated review: 8ce8924 owner/vision runtime patch passes scoped native and real-model checks. New 8362010 changes Agent exit ownership and web links, not inference core/kernels. Terminal monitor adaptation tested separately; full qualification and installer promotion remain open.",
+      "commits": [
+        {
+          "id": "d02b6a20a7662300003c859e186ceb5bec7aa849",
+          "date": "2026-09-08T21:24:41+02:00",
+          "title": "Fix sudo password entry in interactive agent shell jobs Thanks to @kDn",
+          "url": "https://github.com/Ninnix/q36/commit/d02b6a20a7662300003c859e186ceb5bec7aa849",
+          "firstParentDiffSha256": "b512b87aaae30e2362a71512c95b329bdff097650c4bc454f81dd9d7fa3a068c",
+          "files": [
+            "Makefile",
+            "README.md",
+            "q36_agent.c",
+            "tests/q36_agent_test.c",
+            "tests/test_agent_password.py"
+          ]
+        },
+        {
+          "id": "8ce8924fde5797ece13df16d87246cbe4fffbea6",
+          "date": "2026-09-09T21:42:26+02:00",
+          "title": " Add agent hints and improved vision support, context-aware SSD budgets port from ds4",
+          "url": "https://github.com/Ninnix/q36/commit/8ce8924fde5797ece13df16d87246cbe4fffbea6",
+          "firstParentDiffSha256": "0707d68b4d96021bf4bb45f251813650d6bafb4b5758e356f0ecd146d9ba75ec",
+          "files": [
+            ".gitignore",
+            "EVAL_DATA.md",
+            "Makefile",
+            "README.md",
+            "gguf-tools/quality-testing/README.md",
+            "gguf-tools/quality-testing/compare_frontier_logits.py",
+            "gguf-tools/quality-testing/score_openrouter.c",
+            "gguf-tools/quality-testing/tests/test_compare_frontier_logits.py",
+            "gguf-tools/quality-testing/tests/test_validate_scores.py",
+            "gguf-tools/quality-testing/validate_scores.py",
+            "gguf-tools/quants.c",
+            "linenoise.c",
+            "linenoise.h",
+            "q36.c",
+            "q36.h",
+            "q36_agent.c",
+            "q36_bench.c",
+            "q36_cli.c",
+            "q36_eval.c",
+            "q36_eval_cases.c",
+            "q36_eval_cases.h",
+            "q36_help.c",
+            "q36_prompt_prefix.c",
+            "q36_prompt_prefix.h",
+            "q36_server.c",
+            "q36_ssd.c",
+            "q36_ssd.h",
+            "q36_tool_text.h",
+            "tests/REGRESSIONS.md",
+            "tests/q36_agent_test.c",
+            "tests/q36_test.c",
+            "tests/test_agent_compaction.py",
+            "tests/test_agent_terminal.py",
+            "tests/test_prompt_prefix.c",
+            "tests/test_quality_api.c",
+            "tests/test_server_vision.py",
+            "tests/test_server_vision_agent.py",
+            "tests/vision-fixtures/spatial.png",
+            "tests/vision-fixtures/text.png"
+          ]
+        },
+        {
+          "id": "8362010a301b3360296e435703f58ffc230a024a",
+          "date": "2026-09-12T18:17:12+02:00",
+          "title": "Fix agent exit saves and Google search result links",
+          "url": "https://github.com/Ninnix/q36/commit/8362010a301b3360296e435703f58ffc230a024a",
+          "firstParentDiffSha256": "2b6f02d794dcd39ecfe8ea13d6863b953fb6b23171e6fc12f9768d0d79606da3",
+          "files": [
+            "README.md",
+            "q36_agent.c",
+            "q36_web.c",
+            "tests/REGRESSIONS.md",
+            "tests/q36_agent_test.c",
+            "tests/test_agent_sessions.py"
+          ]
+        }
+      ],
+      "commitCount": 3
+    },
+    {
+      "id": "q27",
+      "repository": "https://github.com/signalnine/q27",
+      "ref": "master",
+      "base": "44c6e56a6096a9ad77b84bed4a2a2c7332e48872",
+      "tip": "8cd708389f8b5a2c5a7c481237b00c8d7f570e7f",
+      "status": "Isolated source review candidate; no native CUDA host available and no new DStudio runtime promotion.",
+      "commits": [
+        {
+          "id": "8dfd519a2e3c637f9333cba3352e7f056bbe0cba",
+          "date": "2026-09-07T15:47:42-07:00",
+          "title": "docs: decode round-wall attribution 2026-09-07 (gemv NO-GO, host sync + attn slope are the gap)",
+          "url": "https://github.com/signalnine/q27/commit/8dfd519a2e3c637f9333cba3352e7f056bbe0cba",
+          "firstParentDiffSha256": "64f87b35a9d486089e902d4f9e6cdc6a99d15b8d606d8e3def4fc12283a8d909",
+          "files": [
+            "docs/perf-attribution-decode-2026-09-07.md"
+          ]
+        },
+        {
+          "id": "156cbe274f9a5821e9f2c5cf8b6822e06383950f",
+          "date": "2026-09-07T16:27:49-07:00",
+          "title": "attribution part 2: host-sync + fd2-slope levers retired (instrument artifacts), ninfer decoded directly -- round walls equal, gap = sampled-ladder depth-4 cap",
+          "url": "https://github.com/signalnine/q27/commit/156cbe274f9a5821e9f2c5cf8b6822e06383950f",
+          "firstParentDiffSha256": "f90adf878f9950cda64ce0a31c20341cf0aba7d545bf76c14fa167139235833a",
+          "files": [
+            "bench/crossengine/rebench-2026-09-06/xe_q27lad_0907.jsonl",
+            "docs/perf-attribution-decode-2026-09-07b.md",
+            "docs/reviews/2026-09-07-gpt6astra-hostsync-remeasure.md"
+          ]
+        },
+        {
+          "id": "e533baf0b96d3a45ac68081067b14e84b7618581",
+          "date": "2026-09-07T17:03:09-07:00",
+          "title": "sampled ladder: widen past the depth-4/width-5 cap onto the shared P13 adaptive ceiling",
+          "url": "https://github.com/signalnine/q27/commit/e533baf0b96d3a45ac68081067b14e84b7618581",
+          "firstParentDiffSha256": "b6241d254d7694e70d2671bbb1e07eebd291dd71c66e76c322c083c3dbfe6c2e",
+          "files": [
+            "docs/plans/2026-09-07-sampled-ladder-depth.md",
+            "docs/reviews/2026-09-07-gpt6astra-sampled-ladder-review.md",
+            "src/blocks.cu",
+            "src/blocks.cuh",
+            "src/engine.cuh",
+            "src/kernels.cuh",
+            "src/spec3.cuh",
+            "src/test_kernels.cu"
+          ]
+        },
+        {
+          "id": "2b5f1338eca33ecab87233dd6d6de06e8d80d589",
+          "date": "2026-09-07T17:11:34-07:00",
+          "title": "sampled ladder: paired-seed serving A/B -- regression-free (11/12 pairs equal-or-better); sweep deltas were acceptance noise",
+          "url": "https://github.com/signalnine/q27/commit/2b5f1338eca33ecab87233dd6d6de06e8d80d589",
+          "firstParentDiffSha256": "7989ceea5cfc60a341fdad022b1b79c4bb5611738fa41d4a2aa69b3ada3d687e",
+          "files": [
+            "bench/ladder/drive_seeded.py",
+            "docs/plans/2026-09-07-sampled-ladder-depth.md"
+          ]
+        },
+        {
+          "id": "dcbab9b73c5d12298c717fc0c829a117f2679d70",
+          "date": "2026-09-07T17:31:48-07:00",
+          "title": "dflash2: sampled verify (rejection tail twin) -- DFlash2 serves temperature>0; two pre-existing state-sync bugs fixed",
+          "url": "https://github.com/signalnine/q27/commit/dcbab9b73c5d12298c717fc0c829a117f2679d70",
+          "firstParentDiffSha256": "9a23f491b5bcd973586b8595409ecbb600f96a88e30275d5e84a4d1dd41a1ddb",
+          "files": [
+            "bench/ladder/drive_seeded.py",
+            "docs/plans/2026-09-07-sampled-ladder-depth.md",
+            "src/dflash2.h",
+            "src/engine.cuh"
+          ]
+        },
+        {
+          "id": "fcd3850964ecd7a721223ebf64fe50511397b152",
+          "date": "2026-09-07T17:40:01-07:00",
+          "title": "lever 3: depthctl bar retune measured flat -- defaults stand; serving GEMM width-dependence makes greedy bar A/Bs diverge (instrument finding)",
+          "url": "https://github.com/signalnine/q27/commit/fcd3850964ecd7a721223ebf64fe50511397b152",
+          "firstParentDiffSha256": "427b99727b906abc51c2fbd04c74427781c423416440098cc80737ef120e31c4",
+          "files": [
+            "docs/plans/2026-09-07-sampled-ladder-depth.md"
+          ]
+        },
+        {
+          "id": "a646c53039bf87ace594dddc2075b8c2cc6453d8",
+          "date": "2026-09-07T18:04:48-07:00",
+          "title": "crossengine rebench 09-07 evening: q27 engine now FASTER than ninfer at equal acceptance (+13% over their MTP3); their whole lead is the DFlash2 arm (3.65 tok/rnd at zero wall premium)",
+          "url": "https://github.com/signalnine/q27/commit/a646c53039bf87ace594dddc2075b8c2cc6453d8",
+          "firstParentDiffSha256": "64ad068cf6d48f4b3d6ac5a31edd7dcaf95c00b19cdb05d29fd911966e0c885c",
+          "files": [
+            "bench/crossengine/rebench-2026-09-07/README.md",
+            "bench/crossengine/rebench-2026-09-07/rb_d2_echo.txt",
+            "bench/crossengine/rebench-2026-09-07/rb_d2_think.txt",
+            "bench/crossengine/rebench-2026-09-07/rb_lad_echo.txt",
+            "bench/crossengine/rebench-2026-09-07/rb_lad_think.txt",
+            "bench/crossengine/rebench-2026-09-07/rb_ninf_echo.txt",
+            "bench/crossengine/rebench-2026-09-07/rb_ninf_think.txt",
+            "bench/crossengine/rebench-2026-09-07/rb_ninfer_mtp_reqlog.jsonl",
+            "bench/crossengine/rebench-2026-09-07/rb_ninfer_reqlog.jsonl",
+            "bench/crossengine/rebench-2026-09-07/rb_ninfmtp_think.txt"
+          ]
+        },
+        {
+          "id": "3ec524ddf00de82489106d08be8372e6c6b0d1ff",
+          "date": "2026-09-07T18:12:08-07:00",
+          "title": "dflash2: fix ctx-guard reserve (d2 width, P1 KV overrun at ceiling) + refresh device ring count each draft (P2 stale rollback) -- gpt-6-astra completion review",
+          "url": "https://github.com/signalnine/q27/commit/3ec524ddf00de82489106d08be8372e6c6b0d1ff",
+          "firstParentDiffSha256": "f36dafb705996cc1de24541f30ff92fad1fd01d24d837765b9f8559108fc5712",
+          "files": [
+            "docs/reviews/2026-09-07-gpt6astra-sampled-dflash2-review.md",
+            "src/dflash2.cu",
+            "src/engine.cuh"
+          ]
+        },
+        {
+          "id": "cb21286cf2b0182561f33f3d8399b83429fcfd0c",
+          "date": "2026-09-07T18:17:09-07:00",
+          "title": "queue next session: close the dflash2 arm gap (round premium + acceptance delta); commit canonical prompt token files + greedy echo driver",
+          "url": "https://github.com/signalnine/q27/commit/cb21286cf2b0182561f33f3d8399b83429fcfd0c",
+          "firstParentDiffSha256": "85934fd7316e1f9cb10d4853b5b299fd24dc78508757949e94712cc4dfe5a2f4",
+          "files": [
+            "bench/dflash2/toks/toks_code-edit.txt",
+            "bench/dflash2/toks/toks_code-write.txt",
+            "bench/dflash2/toks/toks_echo.txt",
+            "bench/dflash2/toks/toks_prose.txt",
+            "bench/dflash2/toks/toks_tiny.txt",
+            "bench/ladder/drive_greedy_echo.py",
+            "docs/plans/2026-09-08-dflash2-close-the-arm-gap.md"
+          ]
+        },
+        {
+          "id": "62384c7ef8a731131430c1f4694eacab43599a98",
+          "date": "2026-09-07T19:01:52-07:00",
+          "title": "dflash2: sampled selector walk + sparse-q rejection -- the sampled acceptance gap vs ninfer was the proposal law",
+          "url": "https://github.com/signalnine/q27/commit/62384c7ef8a731131430c1f4694eacab43599a98",
+          "firstParentDiffSha256": "64a893f4adee258252768a7f803c3c2aee6e3da31c4dabb81c56db3d53a45af2",
+          "files": [
+            "Makefile",
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-dflash2-close-the-arm-gap.md",
+            "docs/reviews/2026-09-07-gpt6astra-d2-sampled-walk-design.md",
+            "docs/reviews/2026-09-07-gpt6astra-d2-sampled-walk-impl.md",
+            "src/blocks.cu",
+            "src/blocks.cuh",
+            "src/dflash2.cu",
+            "src/dflash2.h",
+            "src/engine.cuh",
+            "src/test_kernels.cu"
+          ]
+        },
+        {
+          "id": "2f46c98d2619c13359678329196ced758f43f2d8",
+          "date": "2026-09-07T20:14:32-07:00",
+          "title": "dflash2: keep the drafter ring across turns + seed the last prompt token (a one-row hole every turn)",
+          "url": "https://github.com/signalnine/q27/commit/2f46c98d2619c13359678329196ced758f43f2d8",
+          "firstParentDiffSha256": "e809479a751519cee0ff95c58688c4b1ae8b1d71f5edc480e5aabab0b3beac1e",
+          "files": [
+            "bench/ladder/drive_warm_turn.py",
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-dflash2-close-the-arm-gap.md",
+            "docs/reviews/2026-09-07-gpt6astra-d2-ring-retention.md",
+            "src/dflash2.cu",
+            "src/dflash2.h",
+            "src/engine.cuh",
+            "src/server.cu"
+          ]
+        },
+        {
+          "id": "0cc47207a4e3214189a2bc0fa4732b731e4573e9",
+          "date": "2026-09-07T20:43:52-07:00",
+          "title": "dflash2: bitonic top-16 + windowed attention loop (bitwise-neutral, -0.2 ms draft); round premium measured",
+          "url": "https://github.com/signalnine/q27/commit/0cc47207a4e3214189a2bc0fa4732b731e4573e9",
+          "firstParentDiffSha256": "856367790043215f21c8b21535bdaa01e88b6374d9c068412c3decde9bfe77ff",
+          "files": [
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-dflash2-close-the-arm-gap.md",
+            "src/dflash2.cu",
+            "src/dflash2.h",
+            "src/test_kernels.cu"
+          ]
+        },
+        {
+          "id": "342c379f414d09f2b7152618e29653547e1c1290",
+          "date": "2026-09-07T21:23:15-07:00",
+          "title": "bench: agentic cross-engine campaign harness (ninfer telemetry branch, effort pin, campaign driver)",
+          "url": "https://github.com/signalnine/q27/commit/342c379f414d09f2b7152618e29653547e1c1290",
+          "firstParentDiffSha256": "c881399474a3a5240bb541b637df9512b97e34e3cae8c1ed151ae5bb75009c49",
+          "files": [
+            "bench/crossengine/agentic-2026-09-07/README.md",
+            "bench/crossengine/agentic-2026-09-07/campaign.sh",
+            "bench/crossengine/agentic-2026-09-07/ninfer-undeclared-tools.patch",
+            "bench/crossengine/agentic-2026-09-07/summarize.py",
+            "bench/swebench/run.sh"
+          ]
+        },
+        {
+          "id": "50eee601f952aef6097bd737dfddc980d7fc097a",
+          "date": "2026-09-07T22:41:44-07:00",
+          "title": "bench: agentic cross-engine campaign results 2026-09-07 -- DFlash2 +9% on q27 (was -7%), ninfer's arm +30% on the round wall",
+          "url": "https://github.com/signalnine/q27/commit/50eee601f952aef6097bd737dfddc980d7fc097a",
+          "firstParentDiffSha256": "324074250b24deda523aa7be8880c58d9b5c67448cb37269cdee44c2f42a3a2a",
+          "files": [
+            "bench/crossengine/agentic-2026-09-07/README.md",
+            "bench/crossengine/agentic-2026-09-07/campaign.log",
+            "bench/crossengine/agentic-2026-09-07/ninferd2.log",
+            "bench/crossengine/agentic-2026-09-07/ninfermtp.log",
+            "bench/crossengine/agentic-2026-09-07/q27d2q4.log",
+            "bench/crossengine/agentic-2026-09-07/q27d2q8.log",
+            "bench/crossengine/agentic-2026-09-07/q27lad.log",
+            "bench/crossengine/agentic-2026-09-07/results.ninferd2.jsonl",
+            "bench/crossengine/agentic-2026-09-07/results.ninfermtp.jsonl",
+            "bench/crossengine/agentic-2026-09-07/results.q27d2q4.jsonl",
+            "bench/crossengine/agentic-2026-09-07/results.q27d2q8.jsonl",
+            "bench/crossengine/agentic-2026-09-07/results.q27lad.jsonl",
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-dflash2-close-the-arm-gap.md"
+          ]
+        },
+        {
+          "id": "1c7e99b74d1e646d09ea7cfa130e0f0c8d8bda30",
+          "date": "2026-09-07T23:10:32-07:00",
+          "title": "dflash2: flash-decoding drafter attention -- draft 3.57 -> 1.95 ms/round, +12% t/s",
+          "url": "https://github.com/signalnine/q27/commit/1c7e99b74d1e646d09ea7cfa130e0f0c8d8bda30",
+          "firstParentDiffSha256": "5d377822be06cb7e2da9a521643e54e37037e19b2b8c06b3d4c949c8a5369ba6",
+          "files": [
+            "bench/ladder/drive_seeded.py",
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-dflash2-close-the-arm-gap.md",
+            "src/dflash2.cu",
+            "src/dflash2.h",
+            "src/test_kernels.cu"
+          ]
+        },
+        {
+          "id": "937f5c13dd8ea63c51d3acafe7226dc7c946e1b0",
+          "date": "2026-09-07T23:18:14-07:00",
+          "title": "dflash2: run the commit-fold on a side stream under the next draft graph (bitwise, -0.3 ms/round)",
+          "url": "https://github.com/signalnine/q27/commit/937f5c13dd8ea63c51d3acafe7226dc7c946e1b0",
+          "firstParentDiffSha256": "49a6dc7c6d71fc06cdbe071eba7f08f646caea36fd74f7cece3db55085a070ee",
+          "files": [
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-dflash2-close-the-arm-gap.md",
+            "src/engine.cuh"
+          ]
+        },
+        {
+          "id": "8e6a46506b32d9383613ff7eace73c552c7f6aee",
+          "date": "2026-09-08T07:03:09-07:00",
+          "title": "verify: lane-packed head norms, fused alpha+beta gemv, gdn_delta_all column-tile split -- bitwise, verify 17.6 -> 16.8 ms",
+          "url": "https://github.com/signalnine/q27/commit/8e6a46506b32d9383613ff7eace73c552c7f6aee",
+          "firstParentDiffSha256": "7262535b952db4d9d8db4e6fcd564dd9510a3b6f20c7c8c87358112bb52c833c",
+          "files": [
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-dflash2-close-the-arm-gap.md",
+            "src/blocks.cu",
+            "src/blocks.cuh",
+            "src/engine.cuh",
+            "src/spec3.cu",
+            "src/spec3.cuh"
+          ]
+        },
+        {
+          "id": "0c6f0117bc4cbdbfa31b177ae2ef1809d8989282",
+          "date": "2026-09-08T07:16:42-07:00",
+          "title": "verify: fused rmsnorm3 + quantize (bitwise, -129 graph nodes); Q27_D2_VGEMM opt-in routes the d2 verify to the MMA path",
+          "url": "https://github.com/signalnine/q27/commit/0c6f0117bc4cbdbfa31b177ae2ef1809d8989282",
+          "firstParentDiffSha256": "5407073dfb025a420f87a0d77b3a5fa2398c8aecd49ba7d842f8b985a9ba7a58",
+          "files": [
+            "src/engine.cuh",
+            "src/kernels.cu",
+            "src/kernels.cuh",
+            "src/test_kernels.cu"
+          ]
+        },
+        {
+          "id": "d4947fd3d1c7cb5ada5e607c0dbfc9af44c3ad51",
+          "date": "2026-09-08T07:20:10-07:00",
+          "title": "dflash2 serving: verify on the deterministic MMA path by default -- verify 16.8 -> 15.1 ms, round 17.35 ms, +11% t/s",
+          "url": "https://github.com/signalnine/q27/commit/d4947fd3d1c7cb5ada5e607c0dbfc9af44c3ad51",
+          "firstParentDiffSha256": "8f49abc44a9c50af6f0e80fa2346cff3e0d2c48d84f1a5929d5314a73a9a788a",
+          "files": [
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-dflash2-close-the-arm-gap.md",
+            "src/engine.cuh"
+          ]
+        },
+        {
+          "id": "aeaf96ff767e55b1eebc87a92d8548ec91f48994",
+          "date": "2026-09-08T09:32:37-07:00",
+          "title": "bench: agentic campaign rerun on d4947fd -- q27 DFlash2 at parity with ninfer's arm on Claude Code traffic",
+          "url": "https://github.com/signalnine/q27/commit/aeaf96ff767e55b1eebc87a92d8548ec91f48994",
+          "firstParentDiffSha256": "6bf2b705125f6ed888534861e432a4b531cdb1fba1391829838d41cac073861c",
+          "files": [
+            "bench/crossengine/agentic-2026-09-07/campaign.sh",
+            "bench/crossengine/agentic-2026-09-08/BUILD.txt",
+            "bench/crossengine/agentic-2026-09-08/README.md",
+            "bench/crossengine/agentic-2026-09-08/campaign.log",
+            "bench/crossengine/agentic-2026-09-08/ninferd2.log",
+            "bench/crossengine/agentic-2026-09-08/ninfermtp.log",
+            "bench/crossengine/agentic-2026-09-08/q27d2q4.log",
+            "bench/crossengine/agentic-2026-09-08/q27d2q8.log",
+            "bench/crossengine/agentic-2026-09-08/q27lad.log",
+            "bench/crossengine/agentic-2026-09-08/results.ninferd2.jsonl",
+            "bench/crossengine/agentic-2026-09-08/results.ninfermtp.jsonl",
+            "bench/crossengine/agentic-2026-09-08/results.q27d2q4.jsonl",
+            "bench/crossengine/agentic-2026-09-08/results.q27d2q8.jsonl",
+            "bench/crossengine/agentic-2026-09-08/results.q27lad.jsonl",
+            "bench/crossengine/agentic-2026-09-08/summarize.py",
+            "docs/BUILDLOG.md"
+          ]
+        },
+        {
+          "id": "2305b4798c6b98a9c5fae9636cbe1b989681d821",
+          "date": "2026-09-08T12:15:36-07:00",
+          "title": "bench: production DFlash2 vs ladder on Claude Code traffic at xhigh -- +22% t/s, same instances",
+          "url": "https://github.com/signalnine/q27/commit/2305b4798c6b98a9c5fae9636cbe1b989681d821",
+          "firstParentDiffSha256": "353374ca7a1e730996df3d8c0270c0170e8a8a1efea5c86c23c3171c53d1a1e0",
+          "files": [
+            "bench/crossengine/agentic-2026-09-08/README.md",
+            "bench/crossengine/agentic-2026-09-08/lanes_agg.py",
+            "bench/crossengine/agentic-2026-09-08/prodd2-xhigh.req.txt",
+            "bench/crossengine/agentic-2026-09-08/prodlad-xhigh.req.txt",
+            "bench/crossengine/agentic-2026-09-08/results.prodd2-xhigh.jsonl",
+            "bench/crossengine/agentic-2026-09-08/results.prodlad-xhigh.jsonl",
+            "docs/BUILDLOG.md"
+          ]
+        },
+        {
+          "id": "59489a9b7f09dd15c136a17883bbeeea9180f708",
+          "date": "2026-09-08T12:18:21-07:00",
+          "title": "bench: campaign.sh relaunches production with the DFlash2 config",
+          "url": "https://github.com/signalnine/q27/commit/59489a9b7f09dd15c136a17883bbeeea9180f708",
+          "firstParentDiffSha256": "9708a3eab0fcfb1e4958e55527a27f67dd8b8606014de4cb587e1d325a72d928",
+          "files": [
+            "bench/crossengine/agentic-2026-09-07/campaign.sh"
+          ]
+        },
+        {
+          "id": "3a67fc5feb3da23feee36277b2d58485e7d03106",
+          "date": "2026-09-08T12:33:26-07:00",
+          "title": "docs: prefill recon -- miss anatomy on Claude Code traffic, ninfer comparison, cuBLASLt int8 ceiling",
+          "url": "https://github.com/signalnine/q27/commit/3a67fc5feb3da23feee36277b2d58485e7d03106",
+          "firstParentDiffSha256": "2f70b33531a1ce2a5dadedce92c3112e57a93e01ea26a78d125de4953ad1c3e6",
+          "files": [
+            "Makefile",
+            "bench/crossengine/agentic-2026-09-08/pf_agg.py",
+            "docs/perf-attribution-prefill-2026-09-08.md",
+            "tools/cublaslt_peak.cu"
+          ]
+        },
+        {
+          "id": "f4bc8d076e92f7d13e8ab295a32f92da7b7056bd",
+          "date": "2026-09-08T13:31:11-07:00",
+          "title": "plan: prefill attack -- executable hand-off (cache tiers on, GEMM to vendor shape, trims)",
+          "url": "https://github.com/signalnine/q27/commit/f4bc8d076e92f7d13e8ab295a32f92da7b7056bd",
+          "firstParentDiffSha256": "7d13e11421dd8f4787a8ff37ef85d3276037259d9c7d98b1ce92eac24bbc6e19",
+          "files": [
+            "bench/crossengine/agentic-2026-09-08/pf_misses.py",
+            "docs/plans/2026-09-08-prefill-attack.md",
+            "tools/launch_q27_38.sh"
+          ]
+        },
+        {
+          "id": "2c0119e7d6bfc8c751403dd59006abeb8cfda548",
+          "date": "2026-09-08T13:40:38-07:00",
+          "title": "plan: fold the gpt-6-astra review into the prefill plan; RAM tier off by default; BUILDLOG (f)",
+          "url": "https://github.com/signalnine/q27/commit/2c0119e7d6bfc8c751403dd59006abeb8cfda548",
+          "firstParentDiffSha256": "ed4a938276ab3468be0ea64431aa03bb4459654f4e3893b8c492c6eec7bc9e2d",
+          "files": [
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-prefill-attack.md",
+            "docs/reviews/2026-09-08-gpt6astra-prefill-plan.md",
+            "tools/launch_q27_38.sh"
+          ]
+        },
+        {
+          "id": "b01543ab1f11f8f430d7be458c0d201d66bc15d6",
+          "date": "2026-09-08T14:44:17-07:00",
+          "title": "prefix cache: tiers ON in production + P16b shared cut -- prefill wall 255 -> 110 s on Claude Code traffic",
+          "url": "https://github.com/signalnine/q27/commit/b01543ab1f11f8f430d7be458c0d201d66bc15d6",
+          "firstParentDiffSha256": "ac6fb9132d2d732c47caa0f65e328df3068bc3d6e0675126b410a6f5f71f5b2c",
+          "files": [
+            "bench/crossengine/agentic-2026-09-07/campaign.sh",
+            "bench/crossengine/agentic-2026-09-08/README.md",
+            "bench/crossengine/agentic-2026-09-08/pf_restore_agg.py",
+            "bench/crossengine/agentic-2026-09-08/prodpfx-xhigh.req.txt",
+            "bench/crossengine/agentic-2026-09-08/prodpfx.invocation",
+            "bench/crossengine/agentic-2026-09-08/prodpfx.log",
+            "bench/crossengine/agentic-2026-09-08/prodpfx2-xhigh.req.txt",
+            "bench/crossengine/agentic-2026-09-08/prodpfx2.invocation",
+            "bench/crossengine/agentic-2026-09-08/prodpfx2.log",
+            "bench/ladder/pfx_evict_probe.py",
+            "bench/ladder/pfx_shared_probe.py",
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-prefill-attack.md",
+            "src/engine.cuh",
+            "src/prefix_cache.h",
+            "tools/launch_q27_38.sh",
+            "tools/test_prefix_cache.cpp"
+          ]
+        },
+        {
+          "id": "19d4178c3ba5c7092983f135f44d9f32ddde7685",
+          "date": "2026-09-08T14:49:42-07:00",
+          "title": "prefix cache: two-stage read in shared_prefix -- 1 KB per unrelated entry, I/O outside the index lock",
+          "url": "https://github.com/signalnine/q27/commit/19d4178c3ba5c7092983f135f44d9f32ddde7685",
+          "firstParentDiffSha256": "ce374a9d4876f307f28450fec5e10b1777749e43dc6ef6713e1e3b9466b77508",
+          "files": [
+            "docs/BUILDLOG.md",
+            "src/prefix_cache.h",
+            "tools/test_prefix_cache.cpp"
+          ]
+        },
+        {
+          "id": "53ab3653689b846e86d6e7a17bff033613e9bafb",
+          "date": "2026-09-08T16:18:44-07:00",
+          "title": "prefill GEMM: W4A8 spike -- bitwise vs gemm_q4_T at 1.30x/1.41x, ceilings measured, 1.6x bar not met",
+          "url": "https://github.com/signalnine/q27/commit/53ab3653689b846e86d6e7a17bff033613e9bafb",
+          "firstParentDiffSha256": "0ec048694da4130d01195c790617391c1041b540c58e988e23a369d3da8511ce",
+          "files": [
+            "Makefile",
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-prefill-attack.md",
+            "tools/gemm_w4a8_spike.cu",
+            "tools/probes/README.md",
+            "tools/probes/imma_chain.cu",
+            "tools/probes/imma_fold.cu",
+            "tools/probes/stage_bw.cu"
+          ]
+        },
+        {
+          "id": "d92bc1207a0d8816b8a893ed0899e5404710ec7c",
+          "date": "2026-09-08T17:18:46-07:00",
+          "title": "prefix cache + W4A8 spike: gpt-6-astra reviews folded in -- writer race closed, spike gates both references with red zones",
+          "url": "https://github.com/signalnine/q27/commit/d92bc1207a0d8816b8a893ed0899e5404710ec7c",
+          "firstParentDiffSha256": "4e6975e7088ce1849baf0a29519370e2da134374781c04b5476ebf7d2c6c3294",
+          "files": [
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-prefill-attack.md",
+            "docs/reviews/2026-09-08-gpt6astra-shared-cut.md",
+            "docs/reviews/2026-09-08-gpt6astra-w4a8-spike.md",
+            "src/engine.cuh",
+            "src/prefix_cache.h",
+            "tools/gemm_w4a8_spike.cu",
+            "tools/test_prefix_cache.cpp"
+          ]
+        },
+        {
+          "id": "4bcbdf40fdaed50896dec25de08492797e4aeb84",
+          "date": "2026-09-08T17:55:30-07:00",
+          "title": "prefill trims: fp16 GEMM warp-per-token register tree (212 -> 61 us), skip the unread g32 quantize, skip the MTP warm under DFlash2 -- bitwise, 1024-chunk 285 -> 261 ms",
+          "url": "https://github.com/signalnine/q27/commit/4bcbdf40fdaed50896dec25de08492797e4aeb84",
+          "firstParentDiffSha256": "16b69166cd3d7879bf33aa125c6b361958ca630738939681aa86eac6bb042808",
+          "files": [
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-prefill-attack.md",
+            "src/engine.cuh",
+            "src/prefill.cu",
+            "src/prefill.cuh",
+            "tools/launch_q27_38.sh"
+          ]
+        },
+        {
+          "id": "2c03f08870d8709faedf5209b5fc72245e3c0ba9",
+          "date": "2026-09-08T18:27:26-07:00",
+          "title": "docs: gpt-6-astra advisory on the small-turn levers -- order C, B, A, with a bitwise first step (graph-capture the DFlash2 last-token forward)",
+          "url": "https://github.com/signalnine/q27/commit/2c03f08870d8709faedf5209b5fc72245e3c0ba9",
+          "firstParentDiffSha256": "69e2c7faf6ddf0e6a9f16787acbdb7f6756603766a996d9a985b47291f6c5819",
+          "files": [
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-prefill-attack.md",
+            "docs/reviews/2026-09-08-gpt6astra-small-turn-levers.md"
+          ]
+        },
+        {
+          "id": "f5b1c67a0d41dbf7b629f97b0d121f68582b2848",
+          "date": "2026-09-08T18:34:07-07:00",
+          "title": "dflash2: graph the last prompt token's tapped forward -- bitwise, -2 ms per turn",
+          "url": "https://github.com/signalnine/q27/commit/f5b1c67a0d41dbf7b629f97b0d121f68582b2848",
+          "firstParentDiffSha256": "ad40f3e65bbf3c17adad32502c3e5f1bbc9131d888c39eb7fab710aa81d5afe8",
+          "files": [
+            "docs/BUILDLOG.md",
+            "src/engine.cuh"
+          ]
+        },
+        {
+          "id": "7129ed6aaf56c488b268513ed53598f51651ec30",
+          "date": "2026-09-08T18:39:00-07:00",
+          "title": "prefill: lever C measured, not built -- the attention split is at its cap at production depths (BUILDLOG (n))",
+          "url": "https://github.com/signalnine/q27/commit/7129ed6aaf56c488b268513ed53598f51651ec30",
+          "firstParentDiffSha256": "7a4b1a49439f23a5d1c7380b7d0f766e9200393a9a1a1408222ae0a601e7c9b3",
+          "files": [
+            "bench/ladder/pf_split_probe.py",
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-prefill-attack.md"
+          ]
+        },
+        {
+          "id": "e77c35ca9c1d49efb68cac6077b1660ad1ed29fd",
+          "date": "2026-09-08T19:09:48-07:00",
+          "title": "prefill: lever B (last prompt token in the batched chunk) -- built, gated, shipped OPT-IN: -12 ms per warm turn, +1.37% first-token NLL",
+          "url": "https://github.com/signalnine/q27/commit/e77c35ca9c1d49efb68cac6077b1660ad1ed29fd",
+          "firstParentDiffSha256": "ab723c32d447e8735715c1e47ac2d4b067c119636cfa1a02464615a909748f0b",
+          "files": [
+            "bench/ladder/pf_logits_ab.py",
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-prefill-attack.md",
+            "src/engine.cu",
+            "src/engine.cuh"
+          ]
+        },
+        {
+          "id": "de9dfd08d1f9268abcc5eacc40190871935c8c71",
+          "date": "2026-09-08T19:35:14-07:00",
+          "title": "advisory: gpt-6-astra on what comes next -- ranked agenda filed; pfx_persist reservation leak + launch-helper readiness fixed",
+          "url": "https://github.com/signalnine/q27/commit/de9dfd08d1f9268abcc5eacc40190871935c8c71",
+          "firstParentDiffSha256": "5592dffdc11cc434c3c4bcf9361afe670b96a9d3f4452266835b34acb2e396d6",
+          "files": [
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-prefill-attack.md",
+            "docs/reviews/2026-09-08-gpt6astra-what-next.md",
+            "src/engine.cuh",
+            "src/prefix_cache.h",
+            "tools/launch_q27_38.sh",
+            "tools/test_prefix_cache.cpp"
+          ]
+        },
+        {
+          "id": "32741d81626d4a27c5ffb226792cb3a6183d7a3e",
+          "date": "2026-09-08T20:39:56-07:00",
+          "title": "width>8: the wall was the gemm_min=9 dispatch switch, not an engine bug; wider K measured in serving and parked (K=7 stays)",
+          "url": "https://github.com/signalnine/q27/commit/32741d81626d4a27c5ffb226792cb3a6183d7a3e",
+          "firstParentDiffSha256": "66f73f681fb493deec33e9c74e4e633d425d05833ec59c8042a82f1b88e3e775",
+          "files": [
+            "bench/dflash2/width/README.md",
+            "bench/dflash2/width/seeded_hash.py",
+            "bench/dflash2/width/width_depth_probe.py",
+            "bench/dflash2/width/width_gate.sh",
+            "bench/dflash2/width/width_gate_cmp.py",
+            "bench/dflash2/width/width_repeat.sh",
+            "bench/dflash2/width/width_serve.sh",
+            "bench/dflash2/width/width_serve_cmp.py",
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-prefill-attack.md"
+          ]
+        },
+        {
+          "id": "809cf8af731d80043396fada12958dd5e7dac033",
+          "date": "2026-09-08T21:14:43-07:00",
+          "title": "prefix cache: shared-cut promotion + access-LRU -- a client's system entry can move forward; restores re-stamp the entry",
+          "url": "https://github.com/signalnine/q27/commit/809cf8af731d80043396fada12958dd5e7dac033",
+          "firstParentDiffSha256": "7a182754f8a80786727ab046e87f719f3a5c6af6e45596fd3db5f74f5d129772",
+          "files": [
+            "bench/ladder/pfx_promote_probe.py",
+            "bench/ladder/pfx_promote_run.sh",
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-prefill-attack.md",
+            "src/engine.cuh",
+            "src/prefix_cache.h",
+            "tools/test_prefix_cache.cpp"
+          ]
+        },
+        {
+          "id": "ad02e2bd4637ac96be8893b7f6fd3aa608528d03",
+          "date": "2026-09-08T21:53:27-07:00",
+          "title": "parser: first-turn deaths -- undeclared-name pass-through, the <parameter=function=NAME> opener, the unnamed <invoke> wrapper family; tools/stream_probe replays a turn through the streaming path",
+          "url": "https://github.com/signalnine/q27/commit/ad02e2bd4637ac96be8893b7f6fd3aa608528d03",
+          "firstParentDiffSha256": "5eb2dfc38212850703457fea871388a60e25e63de849e1007ac419902f92a9ed",
+          "files": [
+            "Makefile",
+            "bench/crossengine/agentic-2026-09-08/firstturn-deaths/README.md",
+            "bench/crossengine/agentic-2026-09-08/firstturn-deaths/prodd2_pydata__xarray-4075.txt",
+            "bench/crossengine/agentic-2026-09-08/firstturn-deaths/prodlad_pydata__xarray-4094.txt",
+            "bench/crossengine/agentic-2026-09-08/firstturn-deaths/prodpfx2_psf__requests-1142.txt",
+            "bench/crossengine/agentic-2026-09-08/firstturn-deaths/prodpfx2_pydata__xarray-4075.txt",
+            "bench/crossengine/agentic-2026-09-08/firstturn-deaths/prodpfx2_pylint-dev__pylint-6903.txt",
+            "bench/crossengine/agentic-2026-09-08/firstturn-deaths/q27d2q8_pytest-dev__pytest-5262.txt",
+            "bench/crossengine/agentic-2026-09-08/firstturn-deaths/q27lad_psf__requests-1921.txt",
+            "bench/crossengine/agentic-2026-09-08/firstturn-deaths/tools_cc.json",
+            "bench/crossengine/agentic-2026-09-08/queue_attr.py",
+            "bench/swebench/quality_table.py",
+            "docs/BUILDLOG.md",
+            "src/api_common.h",
+            "tools/corpus_check.cpp",
+            "tools/drift_corpus/corpus.jsonl",
+            "tools/drift_corpus/folded.json",
+            "tools/drift_corpus/seeds/11c721fd02db7499",
+            "tools/drift_corpus/seeds/40f63692befd6a4e",
+            "tools/drift_corpus/seeds/57a5bcf98e507660",
+            "tools/drift_corpus/seeds/c010544c75ac7843",
+            "tools/drift_corpus/seeds/c0f734061cab487d",
+            "tools/drift_corpus/seeds/ea3bfcb543de5aa4",
+            "tools/stream_probe.cpp",
+            "tools/test_drift_hook.cpp",
+            "tools/test_openai_bridge.cpp",
+            "tools/test_tool_drift.cpp"
+          ]
+        },
+        {
+          "id": "47dc913fe1847befa6476e1cab544466801ed6f4",
+          "date": "2026-09-08T22:23:34-07:00",
+          "title": "parser: issue #41 -- the undeclared trained-form batch and the unnamed <tool_calls><invoke> call, plus three closer-side holes behind them",
+          "url": "https://github.com/signalnine/q27/commit/47dc913fe1847befa6476e1cab544466801ed6f4",
+          "firstParentDiffSha256": "40047c2f458ec085f9dc0e72a4ecd890e9f5d4df55fb9821c755e25eac3f75eb",
+          "files": [
+            "docs/BUILDLOG.md",
+            "src/api_common.h",
+            "src/markdown_lex.h",
+            "tools/drift_corpus/corpus.jsonl",
+            "tools/test_tool_drift.cpp"
+          ]
+        },
+        {
+          "id": "cbb3ff65f479b25bb526b6e3edcae2a9a19d9855",
+          "date": "2026-09-08T22:32:27-07:00",
+          "title": "item 5: drafter ring context at decode start, measured -- the empty-ring restore class is 1% of decode and drafts as well as a full ring; reseeding is a NO-GO (BUILDLOG (t), ring_attr.py)",
+          "url": "https://github.com/signalnine/q27/commit/cbb3ff65f479b25bb526b6e3edcae2a9a19d9855",
+          "firstParentDiffSha256": "af141398d6f97f613eb89c966e47a5c3154151c6d25509010cd74c23e985716d",
+          "files": [
+            "bench/crossengine/agentic-2026-09-08/ring_attr.py",
+            "docs/BUILDLOG.md"
+          ]
+        },
+        {
+          "id": "3ab232b41e6b162035297a8d8bccb13f99414395",
+          "date": "2026-09-08T22:41:01-07:00",
+          "title": "item 4: the TMA W/X-only spike -- bitwise (TMA 64B/128B swizzles match swz<4>/swz<8>), 1.33x/1.39x against the 1.6x bar; the W4A8 port stops (BUILDLOG (u), phase 2 CLOSED)",
+          "url": "https://github.com/signalnine/q27/commit/3ab232b41e6b162035297a8d8bccb13f99414395",
+          "firstParentDiffSha256": "3255fb37848eef3ac7866db94f0a4f92da85c0d06b193fbf58a50688505a9d49",
+          "files": [
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-08-prefill-attack.md",
+            "tools/gemm_w4a8_spike.cu"
+          ]
+        },
+        {
+          "id": "c010961d21ba9a0be14575cadd053af2b05c9545",
+          "date": "2026-09-08T22:53:07-07:00",
+          "title": "replay: request-body recording (Q27_REQ_LOG) + sequential replayer -- two fresh boots agree on 15/15 outputs; item 2 of the (p) agenda complete",
+          "url": "https://github.com/signalnine/q27/commit/c010961d21ba9a0be14575cadd053af2b05c9545",
+          "firstParentDiffSha256": "95aaf246907bbbc7eb61415d867f356e2f8870f5ff9b1bef20014c462f1a4d99",
+          "files": [
+            "bench/crossengine/agentic-2026-09-07/campaign.sh",
+            "bench/replay/README.md",
+            "bench/replay/replay.py",
+            "bench/replay/replay_diff.py",
+            "docs/BUILDLOG.md",
+            "src/server.cu",
+            "tools/launch_q27_38.sh"
+          ]
+        },
+        {
+          "id": "501b83fc95a69fdc9bb98a579626502e2f8b58d3",
+          "date": "2026-09-08T23:25:28-07:00",
+          "title": "v0.11.0 standing: release campaign (production recipe vs ninfer DFlash2) + README/FINDINGS/BENCHMARKING refresh",
+          "url": "https://github.com/signalnine/q27/commit/501b83fc95a69fdc9bb98a579626502e2f8b58d3",
+          "firstParentDiffSha256": "cb772b73adb3b7b5f171b8fa261ed9bdd42340a29a09e9cecfabf7fa1d11e2b5",
+          "files": [
+            "README.md",
+            "bench/crossengine/FINDINGS.md",
+            "bench/crossengine/agentic-2026-09-07/campaign.sh",
+            "bench/crossengine/agentic-2026-09-09/README.md",
+            "bench/crossengine/agentic-2026-09-09/lanes_agg.py",
+            "bench/crossengine/agentic-2026-09-09/ninferd2.log",
+            "bench/crossengine/agentic-2026-09-09/q27prod.log",
+            "bench/crossengine/agentic-2026-09-09/q27prod.req.txt",
+            "bench/crossengine/agentic-2026-09-09/results.ninferd2.jsonl",
+            "bench/crossengine/agentic-2026-09-09/results.q27prod.jsonl",
+            "bench/crossengine/agentic-2026-09-09/summarize.py",
+            "docs/BENCHMARKING.md",
+            "docs/BUILDLOG.md"
+          ]
+        },
+        {
+          "id": "35a5e2fbc21b0ee5d7d43dc9a849f25d05065f42",
+          "date": "2026-09-09T07:20:26-07:00",
+          "title": "README: where the DFlash2 drafter pack comes from (z-lab checkpoint, dflash2_pack.py --q8, the serving env) -- asked on issue #41",
+          "url": "https://github.com/signalnine/q27/commit/35a5e2fbc21b0ee5d7d43dc9a849f25d05065f42",
+          "firstParentDiffSha256": "df5956cf2311f0ff7a99a5bb55b43ca18387bce6e64c62e16d50a3bddbcd2e3b",
+          "files": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "e6ed69f4620d6c7b06a1737bad6da8cd450c7a30",
+          "date": "2026-09-09T08:09:32-07:00",
+          "title": "README: the DFlash2 serving packs are on the model repo (signalnine/Qwen3.8-27B-MTP-q27) next to the tiers",
+          "url": "https://github.com/signalnine/q27/commit/e6ed69f4620d6c7b06a1737bad6da8cd450c7a30",
+          "firstParentDiffSha256": "2f0b3344cf1d9c8358421b960dea96132faeef6552d96a3876c1e05fc02522cf",
+          "files": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "0217e36827d553a36a2c50cccff72db9d8835d71",
+          "date": "2026-09-09T09:57:28-07:00",
+          "title": "turn-count attribution: ninfer reasons 1.5x shorter than the model at 8 bits; echo the requested model; fix the compact tools block",
+          "url": "https://github.com/signalnine/q27/commit/0217e36827d553a36a2c50cccff72db9d8835d71",
+          "firstParentDiffSha256": "5d62415c54207048c63141f243352fe0887a212d71985893cf946e7cf4f4d801",
+          "files": [
+            "README.md",
+            "bench/crossengine/FINDINGS.md",
+            "bench/crossengine/agentic-2026-09-07/campaign.sh",
+            "bench/crossengine/agentic-2026-09-09-echo/README.md",
+            "bench/crossengine/agentic-2026-09-09-echo/probe_llamaq5.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/probe_llamaq8.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/probe_ninferd2.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/probe_q27fixed.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/probe_q27fp16.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/probe_q27lad.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/probe_q27prod.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/probe_q27q6.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/probe_think.py",
+            "bench/crossengine/agentic-2026-09-09-echo/probe_think_oai.py",
+            "bench/crossengine/agentic-2026-09-09-echo/q27echo.log",
+            "bench/crossengine/agentic-2026-09-09-echo/q27noecho.log",
+            "bench/crossengine/agentic-2026-09-09-echo/render_bisect.py",
+            "bench/crossengine/agentic-2026-09-09-echo/results.q27echo.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/results.q27noecho.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/swebench_q27echo.journal",
+            "bench/crossengine/agentic-2026-09-09-echo/swebench_q27noecho.journal",
+            "bench/crossengine/agentic-2026-09-09-echo/turns_cmp.py",
+            "bench/crossengine/agentic-2026-09-09/README.md",
+            "docs/BUILDLOG.md",
+            "src/server.cu",
+            "tools/test_chat_completions_integration.cpp"
+          ]
+        },
+        {
+          "id": "5c1b80c97f8c89a17e503cd1f46fbf4520325f1f",
+          "date": "2026-09-09T10:31:28-07:00",
+          "title": "v0.11.1: README release pointer; BUILDLOG (x) notes the tag",
+          "url": "https://github.com/signalnine/q27/commit/5c1b80c97f8c89a17e503cd1f46fbf4520325f1f",
+          "firstParentDiffSha256": "3a09589d9dc0a7094942d3884820daf9127fdeafdb133e10215b3bbe39d5c532",
+          "files": [
+            "README.md",
+            "docs/BUILDLOG.md"
+          ]
+        },
+        {
+          "id": "e81ea6f33f77fe9276cb6e0ba833ae51e58fd1bb",
+          "date": "2026-09-09T13:06:09-07:00",
+          "title": "BUILDLOG (y): v0.11.1 on thunderdome T14/T12, and the ninfer pair at medium -- engines within 3%, same Claude Code output volume",
+          "url": "https://github.com/signalnine/q27/commit/e81ea6f33f77fe9276cb6e0ba833ae51e58fd1bb",
+          "firstParentDiffSha256": "ddb89bdbbe0fa6b8c4e5c343e3c8e08df56ea04a6e1ef0f9fae590cb77054e03",
+          "files": [
+            "docs/BUILDLOG.md"
+          ]
+        },
+        {
+          "id": "f12cafd18fba46193c6d156c656dfcb4156e3ada",
+          "date": "2026-09-10T08:57:01-07:00",
+          "title": "elastic multi-slot windows (issue #42 step 1): every slot may hold the whole KV pool",
+          "url": "https://github.com/signalnine/q27/commit/f12cafd18fba46193c6d156c656dfcb4156e3ada",
+          "firstParentDiffSha256": "7fb3f410c5265c2679103bf56be3e1f4dda093121c6f53076d3a739413ba7cea",
+          "files": [
+            "README.md",
+            "bench/pool/elastic_admission.py",
+            "bench/pool/elastic_boot.sh",
+            "docs/BUILDLOG.md",
+            "src/server.cu"
+          ]
+        },
+        {
+          "id": "86a822cb3f49ec1b3feca358a2c91662be5926ee",
+          "date": "2026-09-10T10:01:49-07:00",
+          "title": "v0.11.2: README release pointer; BUILDLOG (z) notes the tag",
+          "url": "https://github.com/signalnine/q27/commit/86a822cb3f49ec1b3feca358a2c91662be5926ee",
+          "firstParentDiffSha256": "01d9f60ed3d663e38aa4d369918fe4a42fad7fa0442d61eb452a5dc0dd06abcd",
+          "files": [
+            "README.md",
+            "docs/BUILDLOG.md"
+          ]
+        },
+        {
+          "id": "bd81f73c6f228b10401d569103c1e672e57978be",
+          "date": "2026-09-10T10:57:24-07:00",
+          "title": "incremental KV entitlements (issue #42 step 2): reserve as tokens are written, under a banker's safety check",
+          "url": "https://github.com/signalnine/q27/commit/bd81f73c6f228b10401d569103c1e672e57978be",
+          "firstParentDiffSha256": "d34c47c5ac988e5192f4611e124b0c4e5430c228a09e1e3bfd77e7b1a6556dde",
+          "files": [
+            "Makefile",
+            "README.md",
+            "bench/pool/incremental_admission.py",
+            "bench/pool/multisession.py",
+            "docs/BUILDLOG.md",
+            "docs/plans/2026-09-10-incremental-kv.md",
+            "src/conductor.h",
+            "src/engine.cuh",
+            "src/kv_bank.h",
+            "src/server.cu",
+            "tools/test_conductor.cpp",
+            "tools/test_kv_bank.cpp"
+          ]
+        },
+        {
+          "id": "99c02375c4e7f95f35d50d069e4f17f3a38d80d9",
+          "date": "2026-09-10T12:15:02-07:00",
+          "title": "Fix CUDA sampler filter order and accelerate small top-k nuclei",
+          "url": "https://github.com/signalnine/q27/commit/99c02375c4e7f95f35d50d069e4f17f3a38d80d9",
+          "firstParentDiffSha256": "0a1dcb966601a92fcd441109bd7e625840368ac36abfb4c3fb4d64fa05a4021f",
+          "files": [
+            "docs/perf-sampler-2026-09-10.md",
+            "src/blocks.cu",
+            "src/blocks.cuh",
+            "src/test_kernels.cu"
+          ]
+        },
+        {
+          "id": "13d41025448ccf01226795c743cde436a458ff62",
+          "date": "2026-09-10T12:15:40-07:00",
+          "title": "Clarify sampler PR base and integration test provenance",
+          "url": "https://github.com/signalnine/q27/commit/13d41025448ccf01226795c743cde436a458ff62",
+          "firstParentDiffSha256": "fdbdf42629f4dea1263b3d3f510f5399b5c41ee0eeb33c2626a4a3b33a20bef0",
+          "files": [
+            "docs/perf-sampler-2026-09-10.md"
+          ]
+        },
+        {
+          "id": "818990a58d139b0a831752fc429f375b8acaf88e",
+          "date": "2026-09-10T12:32:01-07:00",
+          "title": "Merge PR #43: fix CUDA sampler filter order and speed up small top-k sampling",
+          "url": "https://github.com/signalnine/q27/commit/818990a58d139b0a831752fc429f375b8acaf88e",
+          "firstParentDiffSha256": "b6cc98fcb2917522246f4016daa310b6f94c3cd261c3eaeb73bd3bdf0615e1cf",
+          "files": [
+            "docs/perf-sampler-2026-09-10.md",
+            "src/blocks.cu",
+            "src/blocks.cuh",
+            "src/test_kernels.cu"
+          ]
+        },
+        {
+          "id": "90a6069e7216fb44bfce231f122c63875c3d48a1",
+          "date": "2026-09-10T12:37:10-07:00",
+          "title": "v0.11.3: README release pointer; BUILDLOG (ab) -- PR #43 merged, release cut and deployed",
+          "url": "https://github.com/signalnine/q27/commit/90a6069e7216fb44bfce231f122c63875c3d48a1",
+          "firstParentDiffSha256": "5bfa73b6a43b3be696bd091dff55187f2d148db747786f82a77c26c872792595",
+          "files": [
+            "README.md",
+            "docs/BUILDLOG.md"
+          ]
+        },
+        {
+          "id": "63409dd8b335d2aadfa771401fa288d2f17636a6",
+          "date": "2026-09-10T16:14:33-07:00",
+          "title": "v0.11.3 re-bench on Claude Code traffic: decode parity with ninfer; PR #43 +4-6% vs a same-day control; reuse 95.7%",
+          "url": "https://github.com/signalnine/q27/commit/63409dd8b335d2aadfa771401fa288d2f17636a6",
+          "firstParentDiffSha256": "75611dfb9e6bb1e0e7237558be64502749860fe380aeab8e995ef8f324229956",
+          "files": [
+            "README.md",
+            "bench/crossengine/agentic-2026-09-07/campaign.sh",
+            "bench/crossengine/agentic-2026-09-10/README.md",
+            "bench/crossengine/agentic-2026-09-10/ninferd2b.log",
+            "bench/crossengine/agentic-2026-09-10/q27pre0113.log",
+            "bench/crossengine/agentic-2026-09-10/q27pre0113.req.txt",
+            "bench/crossengine/agentic-2026-09-10/q27v0113.log",
+            "bench/crossengine/agentic-2026-09-10/q27v0113.req.txt",
+            "bench/crossengine/agentic-2026-09-10/q27v0113b.log",
+            "bench/crossengine/agentic-2026-09-10/q27v0113b.req.txt",
+            "bench/crossengine/agentic-2026-09-10/results.ninferd2b.jsonl",
+            "bench/crossengine/agentic-2026-09-10/results.q27pre0113.jsonl",
+            "bench/crossengine/agentic-2026-09-10/results.q27v0113.jsonl",
+            "bench/crossengine/agentic-2026-09-10/results.q27v0113b.jsonl",
+            "bench/crossengine/agentic-2026-09-10/summarize.py",
+            "docs/BUILDLOG.md"
+          ]
+        },
+        {
+          "id": "5c28eaff8599e71d95f127ce61c43ce493a8a0ac",
+          "date": "2026-09-10T18:02:02-07:00",
+          "title": "prompt: render assistant history per the Qwen3.8 template (trim, separators, arg order)",
+          "url": "https://github.com/signalnine/q27/commit/5c28eaff8599e71d95f127ce61c43ce493a8a0ac",
+          "firstParentDiffSha256": "0122d00bc9a7c46df69f69aa98e4435ce61086aa556ade4d61eaf416184ae130",
+          "files": [
+            "src/api_common.h",
+            "src/server.cu",
+            "tools/capture_template_golden.sh",
+            "tools/golden/qwen38_history_request.anthropic.json",
+            "tools/golden/qwen38_history_request.prompt",
+            "tools/render_request.cpp",
+            "tools/test_chat_completions_integration.cpp",
+            "tools/test_template_golden.cpp"
+          ]
+        },
+        {
+          "id": "6084562c21af760f0851552e56f284854e435795",
+          "date": "2026-09-10T18:13:05-07:00",
+          "title": "tokenizer: match every added token (tool tags) and fix \\s*[\\r\\n]+ -- 0/34 -> 34/34 HF-identical",
+          "url": "https://github.com/signalnine/q27/commit/6084562c21af760f0851552e56f284854e435795",
+          "firstParentDiffSha256": "629c6f7bb4456de90f17856d0ed3bab2984e0c3dc7a1828df0b936cf9d64ca41",
+          "files": [
+            "src/test_tokenizer.cpp",
+            "src/tokenizer.cpp"
+          ]
+        },
+        {
+          "id": "85412b7f78f9e85f45a53eac1478de5b37d4f0e5",
+          "date": "2026-09-10T19:53:42-07:00",
+          "title": "reasoning-length gap readout: the tokenizer fix cuts per-turn thinking 40-43% on Claude Code; effort low is not a lever; turn count remains",
+          "url": "https://github.com/signalnine/q27/commit/85412b7f78f9e85f45a53eac1478de5b37d4f0e5",
+          "firstParentDiffSha256": "6843cd30fba273e93e857890342470dccc94b4c70fbf41aacfe430e69b4a3f0b",
+          "files": [
+            "README.md",
+            "bench/crossengine/agentic-2026-09-07/campaign.sh",
+            "bench/crossengine/agentic-2026-09-09-echo/gap_ninfer-int-int8kv.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/gap_ninfer-nvfp4-bf16kv.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/gap_ninfer-nvfp4-int8kv.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/gap_q27-low.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/gap_q27-medium.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/gap_q27tok-low.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/gap_q27tok-medium.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/raw_llama_t.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/raw_q27_p.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/raw_q27_t.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/raw_q27tok_t.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/raw_think.py",
+            "bench/crossengine/agentic-2026-09-09-echo/replay_cmp.py",
+            "bench/crossengine/agentic-2026-09-09-echo/replay_ninfer.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/replay_q27.jsonl",
+            "bench/crossengine/agentic-2026-09-09-echo/replay_think.py",
+            "bench/crossengine/agentic-2026-09-09-echo/turns_cmp.py",
+            "bench/crossengine/agentic-2026-09-10-effort/README.md",
+            "bench/crossengine/agentic-2026-09-10-effort/cmp_arms.py",
+            "bench/crossengine/agentic-2026-09-10-effort/edit_phase.py",
+            "bench/crossengine/agentic-2026-09-10-effort/q27low.log",
+            "bench/crossengine/agentic-2026-09-10-effort/q27low.req.txt",
+            "bench/crossengine/agentic-2026-09-10-effort/q27tok.log",
+            "bench/crossengine/agentic-2026-09-10-effort/q27tok.req.txt",
+            "bench/crossengine/agentic-2026-09-10-effort/q27tokb.log",
+            "bench/crossengine/agentic-2026-09-10-effort/q27tokb.req.txt",
+            "bench/crossengine/agentic-2026-09-10-effort/q27toklow.log",
+            "bench/crossengine/agentic-2026-09-10-effort/q27toklow.req.txt",
+            "bench/crossengine/agentic-2026-09-10-effort/q27v0113c.log",
+            "bench/crossengine/agentic-2026-09-10-effort/q27v0113c.req.txt",
+            "bench/crossengine/agentic-2026-09-10-effort/render_tpl.py",
+            "bench/crossengine/agentic-2026-09-10-effort/results.q27low.jsonl",
+            "bench/crossengine/agentic-2026-09-10-effort/results.q27tok.jsonl",
+            "bench/crossengine/agentic-2026-09-10-effort/results.q27tokb.jsonl",
+            "bench/crossengine/agentic-2026-09-10-effort/results.q27toklow.jsonl",
+            "bench/crossengine/agentic-2026-09-10-effort/results.q27v0113c.jsonl",
+            "bench/crossengine/agentic-2026-09-10-effort/run_gap.sh",
+            "bench/crossengine/agentic-2026-09-10-effort/run_raw.sh",
+            "bench/crossengine/agentic-2026-09-10-effort/run_replay.sh",
+            "bench/crossengine/agentic-2026-09-10-effort/run_tok.sh",
+            "bench/crossengine/agentic-2026-09-10-effort/run_tok2.sh",
+            "bench/crossengine/agentic-2026-09-10-effort/select.txt",
+            "bench/crossengine/agentic-2026-09-10-effort/select_turns.py",
+            "bench/crossengine/agentic-2026-09-10-effort/summarize.py",
+            "bench/crossengine/agentic-2026-09-10-effort/toolseq.py",
+            "bench/crossengine/agentic-2026-09-10-effort/turns_from_bodies.py",
+            "bench/crossengine/agentic-2026-09-10-effort/verify_cmp.py",
+            "docs/BUILDLOG.md"
+          ]
+        },
+        {
+          "id": "89771329d9d63fdf49a75822db6cd0c073da69f4",
+          "date": "2026-09-10T21:13:56-07:00",
+          "title": "v0.11.4: README release pointer and corrected attribution; BUILDLOG (ae) -- release cut, not deployed",
+          "url": "https://github.com/signalnine/q27/commit/89771329d9d63fdf49a75822db6cd0c073da69f4",
+          "firstParentDiffSha256": "ac8c83abbef0a657f5709ab124c50456e34f48283b7325f2a518c756fa233462",
+          "files": [
+            "README.md",
+            "docs/BUILDLOG.md"
+          ]
+        },
+        {
+          "id": "e6c59b5983ea52907a8117a754ae247c0a3b7869",
+          "date": "2026-09-10T21:17:59-07:00",
+          "title": "v0.11.4 deployed to production: README open item, BUILDLOG (ae)",
+          "url": "https://github.com/signalnine/q27/commit/e6c59b5983ea52907a8117a754ae247c0a3b7869",
+          "firstParentDiffSha256": "39dc8180bfbdc2839e09e0f3ab5ba690c7dfadc27c1dfce36493a7c525016b83",
+          "files": [
+            "README.md",
+            "docs/BUILDLOG.md"
+          ]
+        },
+        {
+          "id": "981ce42bb3b2c6b56f404dcf3c1f1dc0e632bbfe",
+          "date": "2026-09-10T18:19:36-04:00",
+          "title": "Update Makefile",
+          "url": "https://github.com/signalnine/q27/commit/981ce42bb3b2c6b56f404dcf3c1f1dc0e632bbfe",
+          "firstParentDiffSha256": "456dde99b969696ce5f999e15eb198b797c95fe34cf6ec26b745b0e4240d53c4",
+          "files": [
+            "Makefile"
+          ]
+        },
+        {
+          "id": "7e3efe821e182c36480d22499d8fa38636b925bd",
+          "date": "2026-09-10T21:40:33-07:00",
+          "title": "Merge PR #44: fix build/q27-server-w8 build (add the missing src/dflash2.cu)",
+          "url": "https://github.com/signalnine/q27/commit/7e3efe821e182c36480d22499d8fa38636b925bd",
+          "firstParentDiffSha256": "456dde99b969696ce5f999e15eb198b797c95fe34cf6ec26b745b0e4240d53c4",
+          "files": [
+            "Makefile"
+          ]
+        },
+        {
+          "id": "2029a383a3be3aa539837556554ecaae2e5e771a",
+          "date": "2026-09-10T21:42:08-07:00",
+          "title": "Makefile: build/q27-server-w16 compiles src/dflash2.cu too; both narrow variants depend on src/dflash2.h",
+          "url": "https://github.com/signalnine/q27/commit/2029a383a3be3aa539837556554ecaae2e5e771a",
+          "firstParentDiffSha256": "539966c5be0743274f9958ac9d7f38119c22a4e10d2ed8d3cbe66ddadb2a8234",
+          "files": [
+            "Makefile"
+          ]
+        },
+        {
+          "id": "bc67b083e2a6354e272fa177ef63b1a0bbd50b4d",
+          "date": "2026-09-10T21:50:52-07:00",
+          "title": "parser: a dangling {\"name\": opener no longer makes the calls after it inert; test_tokenizer passes end to end again",
+          "url": "https://github.com/signalnine/q27/commit/bc67b083e2a6354e272fa177ef63b1a0bbd50b4d",
+          "firstParentDiffSha256": "de671fefbd31a2968d5120f55b16484d2b2f91e058fa2ab0de8344adea22b30b",
+          "files": [
+            "README.md",
+            "src/api_common.h",
+            "src/test_tokenizer.cpp"
+          ]
+        },
+        {
+          "id": "5fc654f2071a043467ea118d259b83b059b3f02b",
+          "date": "2026-09-10T22:06:36-07:00",
+          "title": "tokenizer: Unicode classes and NFC from the reference, template trim on Python's strip set -- HF-exact on every scalar value",
+          "url": "https://github.com/signalnine/q27/commit/5fc654f2071a043467ea118d259b83b059b3f02b",
+          "firstParentDiffSha256": "5955683de317c05f55a75d12bd0a6e0983d179ad303272125aa01fc7117affa6",
+          "files": [
+            "Makefile",
+            "src/api_common.h",
+            "src/test_tokenizer.cpp",
+            "src/tokenizer.cpp",
+            "src/tokenizer.h",
+            "src/unicode_tables.h",
+            "tools/gen_unicode_tables.py",
+            "tools/test_template_golden.cpp",
+            "tools/tok_encode.cpp",
+            "tools/tok_parity.py"
+          ]
+        },
+        {
+          "id": "bf0a40d903b5f1e5854eb4aa436e13b8ed9f8a8f",
+          "date": "2026-09-10T22:06:58-07:00",
+          "title": "BUILDLOG (af): PR #44 + w16, the mode-8 parser regression, HF-exact Unicode tokenization",
+          "url": "https://github.com/signalnine/q27/commit/bf0a40d903b5f1e5854eb4aa436e13b8ed9f8a8f",
+          "firstParentDiffSha256": "066c2f127360204496d6cec870bb0af623dc980930a66d8a8ffcb3afec907517",
+          "files": [
+            "docs/BUILDLOG.md"
+          ]
+        },
+        {
+          "id": "08382b666bb68f6845d815b2a4a696a067769d7b",
+          "date": "2026-09-10T22:12:46-07:00",
+          "title": "v0.11.5: README release pointer; BUILDLOG (ag) -- release cut, not deployed",
+          "url": "https://github.com/signalnine/q27/commit/08382b666bb68f6845d815b2a4a696a067769d7b",
+          "firstParentDiffSha256": "f949092d640070c8ac4778ae5aef90e880512333e0843358867a1f1d0c89d9cd",
+          "files": [
+            "README.md",
+            "docs/BUILDLOG.md"
+          ]
+        },
+        {
+          "id": "8cd708389f8b5a2c5a7c481237b00c8d7f570e7f",
+          "date": "2026-09-11T09:00:05-07:00",
+          "title": "server: wait diagnostics -- [wait] lines say why a request is waiting; boot warns when fewer slots came up than --slots",
+          "url": "https://github.com/signalnine/q27/commit/8cd708389f8b5a2c5a7c481237b00c8d7f570e7f",
+          "firstParentDiffSha256": "35212be2d3624460d3bc31da98aa523547493e2fc351939d644fb9dba61ccd3b",
+          "files": [
+            "README.md",
+            "docs/BUILDLOG.md",
+            "src/server.cu",
+            "tools/test_chat_completions_integration.cpp"
+          ]
+        }
+      ],
+      "commitCount": 69
+    }
+  ],
+  "updatedAt": "2026-09-12T19:01:14Z",
+  "diffRepresentation": "git show --format= --first-parent; binary changes are recorded as Git notices, not embedded binary patch payloads"
+}

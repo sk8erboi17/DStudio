@@ -109,6 +109,16 @@ Use deterministic barriers/failpoints and a reference execution, not timing alon
   budgets. Bound their overlap through the existing ownership/lease path; do not
   increase workers or OS wired-memory limits to hide an allocation defect.
   Do not stop unrelated applications or change system limits without authority.
+- For the `PLAN.MD` completion campaign, the project owner explicitly authorizes
+  stopping FlashStudy's running ds4 inference engine when needed for DStudio
+  fixes or verification. Resolve and revalidate the exact executable, process
+  owner, start time and listening endpoint before signaling it. Prefer graceful
+  termination; escalate only that verified engine process if necessary. This
+  permission does not cover closing the FlashStudy app, stopping other programs,
+  deleting chats/models/KV files or changing settings/system limits. Report the
+  interruption, then continue the remaining implementation and verification
+  until the plan's actual acceptance criteria are met; do not substitute a
+  smaller passing test set or claim completion while required work remains.
 - Every new pool/cache must document owner, lifetime, identity/key, invalidation,
   entry and byte limits, eviction, cancellation and failure/fallback behavior.
   Include the exact model/tokenizer/source/configuration revisions that affect
@@ -142,6 +152,14 @@ Before implementation, identify the behavioral oracle and affected surfaces:
   including every affected supported branch. A familiar model name, branch label
   or shared protocol does not establish compatibility. Record revision and patch
   state; archive installs must not inherit a surrounding repository's Git identity.
+- Changes to other projects' repositories MUST be delivered as versioned `.patch`
+  files under `patch/`, including changes to inference engines, forks and vendored
+  dependencies. Never leave an adaptation only as an untracked edit in an external
+  checkout. Record the upstream repository, exact base revision and application
+  order, and make the installer/build apply the patches reproducibly. Scripts may
+  orchestrate application but must not hide the source changes in ad hoc rewrites.
+  Preserve unrelated checkout changes; when upstream incorporates a fix, retire
+  its patch explicitly and verify the replacement behavior against the new pin.
 - Keep patches versioned and reproducible. Exercise apply, repeat apply, restore,
   partial/drift rejection and preservation of unrelated source changes. Source,
   shader, adapter and patch changes must invalidate the appropriate build outputs.
@@ -299,7 +317,11 @@ Correctness comes first; retain failures even when throughput looks better.
   a contributor's personal filesystem. Explain user-visible outcomes and limits
   before internals; never claim the Agent always beats Native or every supported
   model was validated because one branch worked.
-- DStudio's five original design systems live in `extension/design-systems/` and
+- Write project Markdown documentation in English. Explain work in progress
+  explicitly: distinguish implemented features, scoped passing checks, retained
+  failures and remaining acceptance work. Publishing a checkpoint is not release
+  qualification or authorization to resume a paused implementation campaign.
+- DStudio's nine original design systems live in `extension/design-systems/` and
   work offline. Preserve provenance and applicable notices for dependencies that
   remain; removing an optional catalog does not remove other license obligations.
 - Before an authorized push, review the staged diff for secrets/private artifacts,

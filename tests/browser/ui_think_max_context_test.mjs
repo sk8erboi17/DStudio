@@ -12,9 +12,11 @@ import http from 'node:http';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 
-let chromium;
+const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
+assert.ok(['chromium', 'webkit'].includes(browserName), 'unknown browser');
+let browserType;
 try {
-  ({ chromium } = await import('playwright'));
+  browserType = (await import('playwright'))[browserName];
 } catch {
   console.log('ui_think_max_context_test: playwright missing, NOT RUN');
   process.exit(1);
@@ -92,7 +94,7 @@ const port = server.address().port;
 
 let browser;
 try {
-  browser = await chromium.launch();
+  browser = await browserType.launch();
 } catch {
   server.close();
   console.log('ui_think_max_context_test: browser missing, NOT RUN');
@@ -105,7 +107,8 @@ try {
   const page = await browser.newPage({ viewport: { width: 1320, height: 800 } });
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e?.stack || e?.message || String(e)));
-  await page.addInitScript(() => {
+  await page.addInitScript(({ origin }) => {
+    if (window.top !== window || location.origin !== origin) return;
     const now = Date.now();
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
       v: 2, onboarded: true, model: 'deepseek-v4-flash', modelVariant: 'flash',
@@ -117,7 +120,7 @@ try {
       chats: [{ id: 'agent-think', mode: 'agent', title: 'Think', createdAt: now, updatedAt: now, messages: [], transcript: '' }],
     }));
     localStorage.setItem('ds4web.active.v2', JSON.stringify({ v: 2, ids: { chat: null, agent: 'agent-think' } }));
-  });
+  }, { origin: `http://127.0.0.1:${port}` });
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
   await page.locator('#tab-agent').click();
@@ -186,7 +189,8 @@ try {
   // rather than claim a level the engine is not running.
   const legacy = await browser.newPage({ viewport: { width: 1320, height: 800 } });
   legacy.on('pageerror', (e) => pageErrors.push(e?.stack || e?.message || String(e)));
-  await legacy.addInitScript(() => {
+  await legacy.addInitScript(({ origin }) => {
+    if (window.top !== window || location.origin !== origin) return;
     const now = Date.now();
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
       v: 2, onboarded: true, model: 'deepseek-v4-flash', modelVariant: 'flash',
@@ -198,7 +202,7 @@ try {
       chats: [{ id: 'agent-legacy', mode: 'agent', title: 'Legacy', createdAt: now, updatedAt: now, messages: [], transcript: '' }],
     }));
     localStorage.setItem('ds4web.active.v2', JSON.stringify({ v: 2, ids: { chat: null, agent: 'agent-legacy' } }));
-  });
+  }, { origin: `http://127.0.0.1:${port}` });
   await legacy.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
   await legacy.locator('#tab-agent').click();
   await legacy.waitForFunction(() => !document.querySelector('#agent-view')?.hidden);
@@ -211,7 +215,7 @@ try {
     'the quality-defaults migration should advance past the version that imposed max');
 
   assert.deepEqual(pageErrors, [], 'no page errors');
-  console.log('ui_think_max_context_test: ok');
+  console.log(`ui_think_max_context_test: ok (${browserName}; simulated engine)`);
 } finally {
   await browser.close();
   server.close();

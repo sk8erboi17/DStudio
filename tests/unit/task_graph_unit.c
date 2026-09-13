@@ -333,6 +333,9 @@ static void test_native_policy_checkpoint_undo_and_watchdog(const char *workspac
     writer->watchdog_tool_calls = 0;
     g_dtg_watchdog_last_call = 0;
     g_dtg_watchdog_same_call = 0;
+    const char *nested = "\x1e{\"type\":\"artifact\",\"data\":{\"type\":\"tool_call\",\"name\":\"read\"}}\n";
+    for (int i = 0; i < 5; i++) dtg_watchdog_observe_event_line(nested);
+    CHECK(!writer->watchdog_tripped && writer->watchdog_tool_calls == 0);
     const char *event = "\x1e{\"type\":\"tool_call\",\"name\":\"read\",\"input\":{\"path\":\"same\"}}\n";
     for (int i = 0; i < 3; i++) dtg_watchdog_observe_event_line(event);
     CHECK(!writer->watchdog_tripped);
@@ -442,7 +445,7 @@ static void test_automatic_correctness_route_and_receipt(const char *workspace) 
     g_abuf = strdup(valid); CHECK(g_abuf != NULL);
     g_abase = 0; g_alen = strlen(valid); g_acap = g_alen + 1;
     node.transcript_from = 0; node.transcript_to = g_alen;
-    CHECK(dtg_agent_completion_contract(&node, err, sizeof err));
+    CHECK(dtg_agent_completion_contract(&node, err, sizeof err, NULL));
     free(g_abuf);
 
     const char premature[] =
@@ -452,7 +455,7 @@ static void test_automatic_correctness_route_and_receipt(const char *workspace) 
     g_abuf = strdup(premature); CHECK(g_abuf != NULL);
     g_alen = strlen(premature); g_acap = g_alen + 1;
     node.transcript_to = g_alen;
-    err[0] = '\0'; CHECK(!dtg_agent_completion_contract(&node, err, sizeof err));
+    err[0] = '\0'; CHECK(!dtg_agent_completion_contract(&node, err, sizeof err, NULL));
     CHECK(strstr(err, "did not follow") != NULL);
     free(g_abuf);
 
@@ -462,7 +465,7 @@ static void test_automatic_correctness_route_and_receipt(const char *workspace) 
     g_abuf = strdup(prose_only); CHECK(g_abuf != NULL);
     g_alen = strlen(prose_only); g_acap = g_alen + 1;
     node.transcript_to = g_alen; node.watchdog_tool_calls = 0;
-    err[0] = '\0'; CHECK(!dtg_agent_completion_contract(&node, err, sizeof err));
+    err[0] = '\0'; CHECK(!dtg_agent_completion_contract(&node, err, sizeof err, NULL));
     CHECK(strstr(err, "tool action") != NULL);
     free(g_abuf);
 

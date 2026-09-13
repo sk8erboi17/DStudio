@@ -1,0 +1,12 @@
+diff --git a/ds4.c b/ds4.c
+--- a/ds4.c
++++ b/ds4.c
+@@ -66344,7 +66344,7 @@ int ds4_engine_open(ds4_engine **out, const ds4_engine_options *opt) {
+         }
+         /* CPU-only private mapping: the PLE gather runs on the host, so the
+          * sidecar never joins a Metal view or the main residency map. */
+-        model_open(&e->ple_model, opt->ple_path, false, true);
++        model_open(&e->ple_model, opt->ple_path, false, !opt->inspect_only);
+         const ds4_tensor *ple_t = model_find_tensor(&e->ple_model, "ple.weight");
+         if (!ple_t) {
+             fprintf(stderr, "ds4: --ple sidecar %s has no ple.weight tensor\n",

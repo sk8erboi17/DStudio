@@ -1,0 +1,13 @@
+diff --git a/tests/q36_agent_test.c b/tests/q36_agent_test.c
+--- a/tests/q36_agent_test.c
++++ b/tests/q36_agent_test.c
+@@ -2,6 +2,9 @@
+ #define Q36_AGENT_TEST_NO_MAIN
+ #include "../q36_agent.c"
+ #include <sys/resource.h>
++#ifdef __APPLE__
++#include <sys/xattr.h>
++#endif
+ 
+ static void test_tool_arg(agent_tool_call *call, const char *name, const char *value) {
+     agent_tool_call_add_arg(call, name, value, strlen(value));

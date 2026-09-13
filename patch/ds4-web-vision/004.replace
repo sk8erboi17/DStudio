@@ -1,3 +1,0 @@
-        /* Bound the complete message as well as individual fragmented frames. */
-        if (len > DS4_WEB_MAX_RESULT_BYTES * 4ULL ||
-            len > DS4_WEB_MAX_RESULT_BYTES * 4ULL - msg.len) {

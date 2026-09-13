@@ -318,7 +318,8 @@ try {
   page.on('console', (msg) => {
     if (msg.type() === 'error') pageErrors.push(msg.text());
   });
-  await page.addInitScript(() => {
+  await page.addInitScript(({ origin }) => {
+    if (window.top !== window || location.origin !== origin) return;
     const now = Date.now();
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({
       v: 2,
@@ -337,7 +338,7 @@ try {
       chats: [{ id: 'agent-rsa', mode: 'agent', title: 'RSA seed', createdAt: now, updatedAt: now, messages: [], transcript: '' }],
     }));
     localStorage.setItem('ds4web.active.v2', JSON.stringify({ v: 2, ids: { chat: null, agent: 'agent-rsa', design: null } }));
-  });
+  }, { origin: `http://127.0.0.1:${port}` });
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
   await page.locator('#tab-agent').click();

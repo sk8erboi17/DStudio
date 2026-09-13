@@ -1,3 +1,0 @@
-}
-
-static void agent_publish_system_status(agent_worker *w, const char *msg) {

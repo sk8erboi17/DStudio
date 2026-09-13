@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- Authored audit fixture, never a model-generated project or benchmark. -->
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authored reading-list oracle fixture</title>
+<style>
+*{box-sizing:border-box}body{margin:20px;font:17px/1.5 system-ui;color:#161b22;background:white}
+button,textarea{font:inherit;padding:8px;color:inherit;background:inherit;border:1px solid #8c96a2;border-radius:3px;max-width:100%}
+button{margin:4px 0}textarea{display:block;width:100%}dialog{max-width:85vw;color:inherit;background:inherit}
+@media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
+</style>
+<h1>MARGIN</h1><p>A small reading desk</p><p>Sample data</p>
+<nav aria-label="Contents"><button onclick="selectEssay(0)">Morning walk</button>
+<button onclick="selectEssay(1)">Borrowed tools</button><button onclick="selectEssay(2)">Open windows</button></nav>
+<p>Reading progress: <output id="progress">0 of 3</output></p>
+<main><article><h2 id="essay-title"></h2><p id="essay-text"></p></article>
+<button id="mark" onclick="markRead()">Mark as read</button>
+<label>Note<textarea id="note" oninput="updateSave()"></textarea></label>
+<button id="save" onclick="saveNote()" disabled>Save note</button>
+<button id="read" onclick="openNote(this)" disabled>Read saved note</button>
+<p>Notes last only for this open page.</p></main>
+<dialog><h2>Saved note</h2><p id="saved"></p><button onclick="document.querySelector('dialog').close()">Close</button></dialog>
+<script>
+window.fault='';
+const essays=[['Morning walk','The morning path passes a quiet courtyard and a small garden tended by neighbours.'],
+['Borrowed tools','A shared toolbox makes room for repairs, practical advice and informal conversations.'],
+['Open windows','Open windows let in the evening breeze and connect the sounds of separate rooms.']];
+const reads=[false,false,false],notes=['','',''];let selected=0;
+const el=id=>document.getElementById(id);
+function selectEssay(index){selected=index;render();}
+function render(){
+  el('essay-title').textContent=essays[selected][0];el('essay-text').textContent=essays[window.fault==='same-essay'?0:selected][1];
+  el('mark').textContent=reads[window.fault==='shared-read'?0:selected]?'Mark unread':'Mark as read';
+  el('progress').textContent=reads.filter(Boolean).length+' of 3';
+  el('note').value=notes[window.fault==='shared-note'?0:selected];
+  el('read').disabled=!el('note').value;updateSave();
+}
+function markRead(){const index=window.fault==='shared-read'?0:selected;reads[index]=!reads[index];render();}
+function updateSave(){el('save').disabled=window.fault!=='empty-note'&&!el('note').value.trim();}
+function saveNote(){const value=el('note').value;if(!value.trim()&&window.fault!=='empty-note')return;
+  notes[window.fault==='shared-note'?0:selected]=value;render();if(window.fault==='empty-note')el('read').disabled=false;}
+function openNote(button){button.focus();const value=notes[window.fault==='shared-note'?0:selected];
+  if(window.fault==='markup-note')el('saved').innerHTML=value;else el('saved').textContent=value;document.querySelector('dialog').showModal();}
+render();
+</script></html>

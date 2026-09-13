@@ -2,7 +2,7 @@
  * No shell/tool execution, model, GPU or network is involved. */
 #include <stdarg.h>
 typedef struct {
-    struct { float temperature, top_p, min_p; } gen;
+    struct { float temperature, top_p, min_p; int n_predict; } gen;
     struct { bool quality; } engine;
     bool edit_upto;
 } agent_config;
@@ -14,10 +14,13 @@ enum { AGENT_TOOL_SYNTAX_GLM=2, AGENT_DSML_DONE=3, AGENT_DSML_ERROR=4 };
 typedef struct { int state; } agent_dsml_parser;
 typedef struct {
     bool tool_preflight_error, dsml_in_think, greedy;
+    int emitted;
     agent_dsml_parser *parser;
 } agent_stream_renderer;
 static int h_stop, h_cancel, h_error, h_switch, h_force, h_cowork, h_mtp;
 static int h_forced;
+static int h_no_eos, h_delimiter_until;
+static int h_legacy_sampling = 1, h_exact_sampling, h_spec_calls;
 static bool agent_is_cowork_runtime(void) { return h_cowork!=0; }
 static void agent_trace(agent_worker *w,const char *fmt,...) {(void)w;(void)fmt;}
 static void worker_apply_pending_power(agent_worker *w) {(void)w;}
@@ -31,14 +34,22 @@ static int worker_sample_with_mode(agent_worker *w,agent_config *c,bool g,uint64
 }
 static int ds4_token_eos(ds4_engine *e) {(void)e;return 7;}
 static bool ds4_token_is_stop_for_think_mode(ds4_engine *e,int t,int m) {
-    (void)e;(void)m;return t==7;
+    (void)e;(void)m;return !h_no_eos && t==7;
 }
 static int ds4_engine_mtp_draft_tokens(ds4_engine *e) {(void)e;return h_mtp?2:0;}
+static bool ds4_engine_mtp_exact_sampling(ds4_engine *e) {(void)e;return h_exact_sampling!=0;}
 static int ds4_session_eval_speculative(ds4_session *s,int t,int max,int eos,
         float temp,int k,float top,float min,uint64_t *rng,int *out,int cap,
         char *err,size_t n) {
-    (void)max;(void)eos;(void)temp;(void)k;(void)top;(void)min;(void)rng;(void)cap;
-    out[0]=t; return ds4_session_eval(s,t,err,n)==0?1:-1;
+    (void)eos;(void)temp;(void)k;(void)top;(void)min;(void)rng;
+    h_spec_calls++;
+    int count = h_mtp < max ? h_mtp : max;
+    if (count > cap) count = cap;
+    for (int i=0; i<count; i++) {
+        out[i]=i ? ds4_session_argmax(s) : t;
+        if (ds4_session_eval(s,out[i],err,n)) return -1;
+    }
+    return count;
 }
 static char *ds4_token_text(ds4_engine *e,int t,size_t *len) {
     (void)e; char *p=malloc(2); assert(p);p[0]=(char)('a'+t);p[1]=0;*len=1;return p;
@@ -55,6 +66,7 @@ static int worker_finish_generated_token(agent_worker *w,int token,int *gen,
         snprintf(err,n,"injected renderer failure");return 1;
     }
     token_vec_push(&w->transcript,token); w->emitted++;(*gen)++;
+    sr->emitted = w->emitted;
     if(h_stop>0&&w->emitted==h_stop) sr->parser->state=AGENT_DSML_DONE;
     if(h_switch>0&&w->emitted==h_switch) sr->greedy=!sr->greedy;
     return 0;
@@ -72,9 +84,74 @@ static int harness_round(agent_worker *w,agent_config *cfg,int max_tokens) {
     uint64_t rng=123; char err[160]={0}; double t0=0;
     bool got_tool=false,malformed_tool=false,early_tool_error=false;
     agent_dsml_parser dsml={0}; agent_stream_renderer stream={.parser=&dsml};
+    // The old ABI always resampled. The current ABI preserves greedy drafts
+    // and resamples only an exact, nonzero-temperature distribution.
+#define DS4UI_AGENT_PLD_RESAMPLE (h_legacy_sampling || (ds4_engine_mtp_exact_sampling(w->engine) && cfg->gen.temperature > 0.0f))
 #include "../../patch/ds4-agent-jsonl/pld_agent.inc"
     (void)got_tool;(void)malformed_tool;(void)early_tool_error;
     return 0;
+}
+
+typedef struct { int generated, lookahead, limit; bool stopped, limited, tool; } compaction_result;
+static bool agent_stream_compaction_needs_lookahead(agent_stream_renderer *stream) {
+    return stream->emitted < h_delimiter_until;
+}
+static int harness_compaction_round(agent_worker *w, agent_config *cfg,
+                                    int max_tokens, int carried_generation,
+                                    compaction_result *result) {
+    int tool_syntax=0,think_mode=0,generated=0,upto_forcer=0;
+    uint64_t rng=123; char err[160]={0}; double t0=0;
+    bool got_tool=false,malformed_tool=false,early_tool_error=false;
+    bool model_stopped=false,context_limited=max_tokens < cfg->gen.n_predict-carried_generation;
+    int compaction_lookahead=0;
+    agent_dsml_parser dsml={0}; agent_stream_renderer stream={.parser=&dsml};
+#include "../../patch/ds4-agent-jsonl/pld_agent_compaction.h"
+#include "../../patch/ds4-agent-jsonl/pld_agent.inc"
+    (void)malformed_tool;(void)early_tool_error;
+    *result=(compaction_result){generated,compaction_lookahead,max_tokens,model_stopped,context_limited,got_tool};
+    return 0;
+}
+static void compaction_loop_tests(void) {
+    for(int mode=0;mode<3;mode++) for(int scenario=0;scenario<7;scenario++) {
+        ds4_session s,ref; ds4_engine e,er; char err[160];
+        reset(&s,&e);reset(&ref,&er);
+        int history[512]={0};
+        agent_worker w={.engine=&e,.session=&s,.transcript={history,0,512}};
+        agent_config cfg={.gen={.temperature=0,.top_p=1,.n_predict=5}};
+        h_stop=h_cancel=h_error=h_switch=h_force=h_forced=h_cowork=h_mtp=0;
+        h_no_eos=0;h_delimiter_until=100;
+        setenv("DS4UI_AGENT_PLD",mode==0?"off":mode==1?"strict":"batch",1);
+        int initial=2, carried=0, prefix=0, expected=5, extra=3;
+        bool stopped=false,limited=false,tool=false;
+        if(scenario==1) {cfg.gen.n_predict=20;h_delimiter_until=4;expected=4;extra=2;limited=true;}
+        if(scenario==2) {cfg.gen.n_predict=100;h_no_eos=1;expected=34;extra=32;limited=true;}
+        if(scenario==3) {cfg.gen.n_predict=40;carried=39;initial=1;expected=1;extra=0;}
+        if(scenario==4) {prefix=7;expected=0;extra=0;stopped=true;limited=true;}
+        if(scenario==5) {prefix=5;initial=4;cfg.gen.n_predict=20;h_mtp=3;expected=2;extra=0;stopped=true;limited=true;}
+        if(scenario==6) {h_stop=2;expected=2;extra=0;limited=true;tool=true;}
+        for(int i=0;i<prefix;i++) {
+            CHECK(ds4_session_eval(&s,i,err,sizeof err)==0);
+            CHECK(ds4_session_eval(&ref,i,err,sizeof err)==0);
+            history[i]=i;
+        }
+        w.transcript.len=prefix;
+        compaction_result result={0};
+        CHECK(harness_compaction_round(&w,&cfg,initial,carried,&result)==0);
+        CHECK(!w.failed && result.generated==expected && w.emitted==expected);
+        CHECK(result.lookahead==extra && result.limit==initial+extra);
+        CHECK(result.stopped==stopped && result.limited==limited && result.tool==tool);
+        CHECK(result.generated+carried<=cfg.gen.n_predict);
+        CHECK(w.transcript.len==prefix+expected);
+        for(int i=0;i<expected;i++) {
+            int token=(prefix+i)%8;
+            CHECK(history[prefix+i]==token);
+            CHECK(ds4_session_eval(&ref,token,err,sizeof err)==0);
+        }
+        same_state(&s,&ref); /* Includes speculative EOS rewind and raw ring. */
+        free(s.graph.spec_logits);
+    }
+    h_no_eos=h_mtp=h_stop=h_delimiter_until=0;
+    unsetenv("DS4UI_AGENT_PLD");
 }
 static void agent_loop_tests(void) {
     ds4_session s,ref; ds4_engine e,er; char err[160];
@@ -123,4 +200,23 @@ static void agent_loop_tests(void) {
     }
     unsetenv("DS4UI_AGENT_PLD");
     unsetenv("DS4UI_COWORK_PLD");
+    h_legacy_sampling=0;
+    for (int exact=0; exact<2; exact++) for (int sampled=0; sampled<2; sampled++) {
+        reset(&s,&e);reset(&ref,&er);
+        h_stop=h_cancel=h_error=h_force=h_forced=h_cowork=h_spec_calls=0;
+        h_switch=1;h_mtp=3;h_exact_sampling=exact;
+        int history[512]={0};
+        agent_worker w={.engine=&e,.session=&s,.transcript={history,0,512}};
+        agent_config cfg={.gen={.temperature=sampled ? 0.7f : 0,.top_p=1}};
+        CHECK(harness_round(&w,&cfg,5)==0);
+        CHECK(w.emitted==5 && w.transcript.len==5 && !w.failed);
+        for (int i=0;i<5;i++) {
+            CHECK(history[i]==i);
+            CHECK(ds4_session_eval(&ref,i,err,sizeof(err))==0);
+        }
+        same_state(&s,&ref);
+        CHECK(h_spec_calls==(exact && sampled ? 3 : 2));
+        free(s.graph.spec_logits);
+    }
+    h_legacy_sampling=1;h_exact_sampling=h_spec_calls=h_mtp=h_switch=0;
 }

@@ -45,7 +45,64 @@ the viewports but throws errors when binding/using missing DOM elements.
 Build directly, without discovery questions. Create workshop.html for NEIGHBOURHOOD LAB, a welcoming general-purpose community workshop planner for first-time participants, primarily on a phone. Exact heading: Make room to learn. Implement a three-step journey: Choose a workshop, Choose a day, Review. Workshops: Bookbinding, Bicycle care, Urban sketching. Days: Tuesday, Thursday. Continue must be unavailable until the current step has a selection. Back preserves the choice. Review displays both choices. Final confirmation explicitly says No booking was made: this is a local demo, with clearly labelled sample data. Use readable typography, calm green, strong keyboard focus and clear field labels. On desktop place a human introduction beside one focused step panel; on mobile put the current action below the heading. No horizontal page scrolling, gradients, network dependencies or external assets. Use your available local design resources where appropriate. Save a finished offline HTML prototype with real controls, inspect its rendering and exercise the controls before claiming completion.
 ```
 
-Actual outputs, not redesigned benchmark illustrations:
+## From-scratch regeneration: no human HTML repairs
+
+After adding native radio-label geometry checks, the actual DS4 Design runtime
+generated a new page from an **empty workspace and the exact same brief**.
+No human corrected its HTML/CSS or retouched its screenshots. The manual draft
+was deleted and was never used as the generated result.
+
+The saved page passes independent Chromium and WebKit checks: **3/3 workshop
+labels keep their text outside the indicator column** at 390/768/1440 px.
+Permanent browser regressions also exercise all five workshop/day radios,
+visible-label clicks, keyboard selection, disabled Continue, Back preserving
+choices, review and honest confirmation at 320/390/768/1440 px in both engines.
+The independent audit additionally checks 200% text sizing at 390 px. These
+checks do not certify accessibility or prove the whole design is excellent.
+
+**The agent run did not finish within the 900-second limit.** It saved the page,
+passed native rendered layout verification, then spent remaining time iterating
+on self-authored static/fake-DOM tests. Those are not real browser interaction
+evidence. Thirteen model requests were made; the deadline remains a failed
+runtime outcome even though the saved page passes the later independent tests.
+It is not a new successful timing, speedup or head-to-head win.
+
+![Matplotlib: all three regenerated workshop labels stay outside the radio indicator column in both browsers; the agent time-limit failure remains disclosed.](design-regeneration.png)
+
+| Regenerated desktop | Regenerated phone |
+| --- | --- |
+| ![Untouched DS4-regenerated desktop page](examples/dstudio-regenerated-1440.png) | ![Untouched DS4-regenerated phone page](examples/dstudio-regenerated-390.png) |
+
+[Unchanged generated HTML](examples/dstudio-workshop-regenerated.html) ·
+[Reviewed results, source digests, audit hashes and failed-attempt records](results/2026-09-06-design-regeneration.json).
+The HTML digest was captured by the independent audits after the deadline,
+not by a successful completion event. Raw model/tool transcripts remain in
+ignored test artifacts.
+
+The first independent browser attempts also exposed a grader error: clicking
+the hidden 1px native input timed out even though its visible label worked.
+The corrected grader clicks the associated label and asserts native selection,
+without forced clicks or setting `checked` in JavaScript. Both failed audits
+remain recorded; the corrected interaction was also applied to the unchanged
+original product outputs.
+
+Reproduce generation (loads actual weights), audit without editing, then export:
+
+```sh
+node tests/live/product_quality_pilot.mjs --run --products dstudio --cases design-workshop-journey
+node tests/support/product_design_browser_audit.mjs RUN/results.json --browser chromium
+node tests/support/product_design_browser_audit.mjs RUN/results.json --browser webkit
+node tests/support/publish_design_replay.mjs RUN/results.json CHROMIUM/results.json WEBKIT/results.json
+python3 extension/benchmarks/product-comparison/plot-results.py
+```
+
+This is one development replay with the same model/settings listed below, not
+a held-out quality evaluation. The phone still places substantial introduction
+before the action; fixing radio wrapping does not erase that usability issue.
+
+## Original paired outputs (unchanged)
+
+Actual original outputs, not redesigned benchmark illustrations:
 
 | DStudio | OpenDesign — partial output at deadline |
 | --- | --- |

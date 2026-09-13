@@ -1,96 +1,99 @@
-# Prove reali di installazione e inferenza — 5 settembre 2026
+# Real installation and inference checks — September 5, 2026
 
-**Qwen: 26,44 token/s durante la generazione e 12 controlli su 12 superati attraverso DStudio.**
-Misurato su Apple M2 Max con 96 GB di memoria e Minecraft/Lunar Client acceso.
-Non è una promessa di velocità per ogni conversazione.
+**Qwen: 26.44 tokens/s during generation and 12 of 12 checks passed through DStudio.**
+Measured on an Apple M2 Max with 96 GB of memory while Minecraft/Lunar Client
+was running. This is not a speed promise for every conversation.
 
-## Cosa funziona, in parole semplici
+This is a historical run, not the current support matrix. See the
+[current models and limitations](../README.md#supported-models-and-limitations)
+and [work-in-progress status](WORK_IN_PROGRESS.md) for later integrations.
 
-| Prova | DS4 / DeepSeek Flash | Laguna S 2.1 | Qwen3.8-Flash-Next |
+## What worked, in plain language
+
+| Check | DS4 / DeepSeek Flash | Laguna S 2.1 | Qwen3.8-Flash-Next |
 | --- | --- | --- | --- |
-| Scaricare davvero i sorgenti in una cartella vuota, compilarli e avviare gli eseguibili | Passata | Passata | Passata |
-| Rispondere a domande con risposta attesa e rispettare il protocollo | 11/12 | 10/12 | 12/12 |
-| Percorso della prova con modello | Motore nativo | Motore nativo | Avvio da DStudio e proxy Chat |
+| Download sources into an empty directory, build them and start the executables | Passed | Passed | Passed |
+| Answer questions with independently specified answers and follow the protocol | 11/12 | 10/12 | 12/12 |
+| Real-model test path | Native engine | Native engine | DStudio startup and Chat proxy |
 
-I pesi DeepSeek e Laguna erano già installati: sono stati caricati realmente,
-non riscaricati inutilmente. Per Qwen sono stati scaricati **entrambi i file**:
-73,4 GB di modello principale e 32,0 GB di PLE, verificati integralmente con SHA-256.
+The DeepSeek and Laguna weights were already installed: the tests actually
+loaded them without downloading them again. For Qwen, **both files** were
+downloaded: 73.4 GB of main weights and 32.0 GB of PLE, fully verified with SHA-256.
 
-I 12 controlli comprendono calcoli, numeri negativi, estrazione JSON, ordinamento
-con duplicati, testo Unicode, memoria fra turni, ricerca in 90 righe, ragionamento
-su codice Python, rifiuto di una richiesta malformata, recupero dopo l'errore,
-chiamata a un tool con uso del risultato e risposta in streaming completa.
+The 12 checks cover arithmetic, negative numbers, JSON extraction, sorting with
+duplicates, Unicode text, memory across turns, retrieval from 90 lines, reasoning
+about Python code, rejection of a malformed request, recovery after that error,
+a tool call followed by use of its result, and a complete streaming answer.
 
-Il test del tool usa una risposta controllata di inventario: verifica una
-chiamata generata dal modello e il successivo utilizzo del risultato, non
-l'esecuzione autonoma di un intero Agent. Qwen è integrato in **Chat/native**;
-Agent, Cowork e Design vengono rifiutati esplicitamente finché manca l'adattatore.
+The tool test supplies a controlled inventory response: it checks a model-generated
+call and subsequent use of the result, not an autonomous end-to-end Agent task.
+At the time of this run, Qwen was integrated in **Chat/native**; Agent, Cowork
+and Design were explicitly rejected because their adapter was not yet available.
 
-### Correzione successiva: Qwen e l'impostazione SSD salvata
+### Later fix: Qwen and the saved SSD setting
 
-Il test con il modello richiedeva esplicitamente SSD streaming **Off**: non
-copriva l'avvio dall'interfaccia con **On** rimasto salvato per DeepSeek.
-Quel caso poteva bloccare Qwen prima del caricamento. Ora l'interfaccia applica
-Off a Qwen, lasciando il PLE su SSD e conservando la preferenza per gli altri
-modelli. I test browser verificano avvio iniziale con On/Auto/Off, cambio
-DeepSeek → Qwen → DeepSeek e riavvio dopo una modifica del contesto.
-Queste regressioni usano risposte del motore simulate: verificano le richieste
-dell'interfaccia, **non aggiungono risultati di inferenza** al 12/12 sopra.
+The real-model test explicitly requested SSD streaming **Off**. It did not cover
+starting from the UI with **On** still saved for DeepSeek. That case could block
+Qwen before loading. The UI now applies Off to Qwen, keeps PLE on SSD and preserves
+the preference for other models. Browser regressions check initial startup with
+On/Auto/Off, DeepSeek → Qwen → DeepSeek switching, and restarting after a context
+setting change. These regressions use simulated engine responses: they verify
+UI requests and **do not add inference results** to the 12/12 above.
 
-## Errori rimasti visibili
+## Failures remain visible
 
-- DeepSeek restituisce `:16` invece di `16` nel caso Python: risultato numerico
-  corretto, ma formato richiesto non rispettato.
-- Laguna recupera `197` invece di `203` dalla lista: risposta sbagliata.
-- Laguna calcola `16` nel caso Python, ma aggiunge una spiegazione quando era
-  richiesto soltanto il numero: errore di formato.
+- DeepSeek returns `:16` instead of `16` in the Python case: the numeric result
+  is correct, but the requested format is not respected.
+- Laguna retrieves `197` instead of `203` from the list: an incorrect answer.
+- Laguna calculates `16` in the Python case but adds an explanation when only
+  the number was requested: a format failure.
 
-Le due run terminano quindi con esito complessivo negativo. I controlli non
-sono stati allentati per nascondere questi errori. Non abbiamo isolato se
-dipendano dal modello, dalla quantizzazione o dal motore: servirebbe un confronto
-numerico con un'implementazione di riferimento. Qwen passa questa piccola batteria;
-**non significa che sia infallibile o migliore in ogni attività**.
+Those two runs therefore fail overall. Assertions were not weakened to hide
+the failures. Their cause has not been isolated to the model, quantization or
+engine; that requires numerical comparison with a reference implementation.
+Qwen passes this small suite; **that does not make it infallible or better at
+every task**.
 
-## Quanto va veloce Qwen
+## How fast Qwen generated text
 
-Tre processi nativi consecutivi hanno ricopiato lo stesso CSV di 32 righe.
-Il testo prodotto è stato confrontato integralmente con l'originale: **3/3 esatti**.
+Three consecutive native processes copied the same 32-row CSV. Each complete
+output was compared with the original: **3/3 exact matches**.
 
-| Esecuzione | Generazione riportata dal motore | Tempo totale del processo |
+| Run | Engine-reported generation speed | Total process time |
 | --- | --- | --- |
-| 1 | 27,15 token/s | 35,10 s |
-| 2 | 26,44 token/s | 33,17 s |
-| 3 | 25,98 token/s | 32,49 s |
+| 1 | 27.15 tokens/s | 35.10 s |
+| 2 | 26.44 tokens/s | 33.17 s |
+| 3 | 25.98 tokens/s | 32.49 s |
 
-Il valore centrale è **26,44 token/s**. I token sono frammenti di testo, non
-necessariamente parole. Questa misura esclude caricamento e lettura iniziale
-del prompt; il tempo totale include anche queste fasi. È la misura del CLI
-nativo su un compito di copia, **non una misura della velocità dell'Agent o della
-Chat completa**, né un confronto equo con le altre due run.
+The median is **26.44 tokens/s**. Tokens are text fragments, not necessarily
+words. This generation metric excludes loading and initial prompt processing;
+total process time includes those phases. It measures the native CLI on a copy
+task, **not Agent speed or complete Chat latency**, and is not a matched comparison
+with the other two models' runs.
 
-Configurazione: Metal, contesto 8.192, prompt elaborato in blocchi da 512,
-ragionamento disattivato, generazione deterministica, senza PLD/MTP né streaming
-degli esperti. Il modello principale è residente; il PLE viene letto da SSD per
-architettura. Durante queste tre misure non giravano altri modelli, download o
-compilazioni avviati dalla sessione di benchmark; Minecraft rimaneva acceso.
-Non è stata misurata la variabilità su altre macchine o carichi.
+Settings: Metal, 8,192-token context, prompt processing in blocks of 512,
+reasoning off, deterministic generation, no PLD/MTP or expert streaming.
+Main weights are resident; PLE is read from SSD as part of the architecture.
+During these three measurements, the benchmark session ran no other models,
+downloads or builds; Minecraft remained open. Variability across other machines
+or workloads was not measured.
 
-## Difetti trovati e corretti grazie alle prove
+## Bugs found and fixed by these tests
 
-- La revisione DS4 usata dal download iniziale non era compatibile con le patch
-  correnti: aggiornato il riferimento alla revisione verificata.
-- La compilazione Design su Laguna richiedeva API di visione assenti: ora le
-  capacità vengono verificate compilando un piccolo programma, e le opzioni
-  non supportate producono un errore esplicito.
-- Un collegamento della cartella modelli poteva puntare al posto sbagliato:
-  ora viene verificata l'identità della cartella condivisa, preservando i dati.
-- L'avvio headless poteva applicare patch DeepSeek al checkout Qwen: ora un
-  modello e un motore incompatibili vengono fermati prima delle modifiche.
-  La prova Chat finale verifica anche che i sorgenti Qwen rimangano invariati.
-- Il menu poteva trattare il PLE come un modello indipendente o offrire Qwen
-  senza il PLE: ora distingue i componenti e consente di completare il download.
+- The DS4 revision used for first-run download was incompatible with the current
+  patches: its pin was updated to the verified revision.
+- The Design build on Laguna required unavailable vision APIs: capabilities are
+  now checked by compiling a small program, and unsupported options return an
+  explicit error.
+- A shared model-directory link could point to the wrong location: directory
+  identity is now checked while preserving user data.
+- Headless startup could apply DeepSeek patches to a Qwen checkout: incompatible
+  model/engine combinations are now rejected before mutation. The final Chat run
+  also checks that Qwen sources remain unchanged.
+- The picker could treat PLE as a separate model or offer Qwen without PLE:
+  it now distinguishes the components and lets the user complete the download.
 
-## Riprodurre e verificare
+## Reproduce and verify
 
 ```sh
 ./download-model.sh qwen38-q4k
@@ -100,12 +103,12 @@ make test-qwen-chat-live
 make benchmark-qwen-decode
 ```
 
-Eseguire le prove pesanti una alla volta. Le risposte sbagliate, i pesi mancanti,
-i timeout e le dipendenze assenti non diventano successi. `make check-fast`
-verifica separatamente funzioni, HTTP e browser senza caricare un grande modello.
+Run heavy tests one at a time. Incorrect answers, missing weights, timeouts and
+missing dependencies do not count as successes. `make check-fast` separately
+checks functions, HTTP and browser behavior without loading a large model.
 
-[Dati pubblicati: richieste, risposte, errori, revisioni, hash e misure](benchmarks/engine-acceptance-2026-09-05.json).
-I log completi restano in `tests/.artifacts/engine-acceptance/` e
-`tests/.artifacts/qwen-decode/`, ignorati da Git. Questi sono controlli osservabili
-di funzionamento: non dimostrano equivalenza dei logits, correttezza su ogni
-input, supporto multimodale Qwen o parità fra Metal, CPU e CUDA.
+[Published data: requests, answers, failures, revisions, hashes and measurements](benchmarks/engine-acceptance-2026-09-05.json).
+Full logs remain in the Git-ignored `tests/.artifacts/engine-acceptance/` and
+`tests/.artifacts/qwen-decode/` directories. These are observable workflow checks,
+not proof of logit equivalence, correctness on every input, Qwen multimodal
+support or parity across Metal, CPU and CUDA.

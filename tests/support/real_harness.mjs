@@ -22,6 +22,11 @@ export function artifactDir(name) {
   return dir;
 }
 
+// A retry owns a new directory. Never erase a failed run to prepare the next one.
+export function artifactRunDir(name) {
+  return fs.mkdtempSync(path.join(artifactDir(name), 'run-'));
+}
+
 export function writeArtifact(dir, name, data) {
   mkdirp(dir);
   const body = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
@@ -108,9 +113,12 @@ export function listGgufs(dir) {
 /* Native HTTP request: unlike global fetch (undici), it has no 300s
  * headers-timeout, so long stream:false model generations on slow local
  * engines keep waiting for the first byte up to the explicit abort signal. */
-function httpJsonRequest(url, options = {}) {
+export function httpJsonRequest(url, options = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
+    if(u.protocol!=='http:') { reject(new Error('Local test HTTP transport requires http:')); return; }
+    const limit=options.maxResponseBytes ?? 16 * 1024 * 1024;
+    if(!Number.isSafeInteger(limit)||limit<1) { reject(new Error('Invalid response byte limit')); return; }
     const headers = { ...(options.headers || {}) };
     if (options.body && !('Content-Length' in headers)) {
       headers['Content-Length'] = String(Buffer.byteLength(options.body));
@@ -120,11 +128,22 @@ function httpJsonRequest(url, options = {}) {
       port: u.port || 80,
       path: `${u.pathname}${u.search}`,
       method: options.method || 'GET',
+      agent: false,
       headers,
       signal: options.signal,
     }, (res) => {
       const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
+      let received=0;
+      res.on('error',reject);
+      res.on('aborted',()=>{const error=new Error('HTTP response interrupted');error.code='DSTUDIO_HTTP_INTERRUPTED';reject(error);});
+      res.on('data', (chunk) => {
+        received+=chunk.length;
+        if(received>limit) {
+          const error=new Error(`HTTP response exceeds ${limit} bytes`);error.code='DSTUDIO_HTTP_RESPONSE_LIMIT';
+          reject(error);res.destroy();req.destroy(error);return;
+        }
+        chunks.push(chunk);
+      });
       res.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8');
         resolve({

@@ -45,11 +45,19 @@ No commit, checkout, fetch or pull was performed during that original port.
 Unrelated ongoing Cowork/PDF/UI/PLD changes were preserved, not incorporated as
 new GLM optimizations.
 
-Current main support: `f4d03f6cf9f11c1e7b630bcb160853acfba7c52a`.
-The hook mechanically combines the unchanged runtime delta with
-`build-main.patch` on current main, since upstream now includes the image
-linkage fix and new Metal test targets. Legacy layouts remain supported.
-See [the update report](../../docs/DS4_MAIN_UPDATE_2026-09-05.md).
+Current main support: `f62ca29a308724cde5bc99134ede19104b2a3260`;
+the preceding `c0a6119f363ef82125877142f13fb3fe491cba14` remains compatible.
+The hook combines the runtime delta with `build-main-current.patch` on new
+main and retains `build-main.patch` for the September 5 layout. The old
+six-to-eight-expert logging correction is applied only to older layouts;
+current upstream already prints every selected expert. Both generations and
+the legacy layout retain atomic apply/restore and drift rejection.
+Qwen forks retain their native kernels: the presence of rebased GLM code does
+not make this adaptation applicable to their different layer/expert bounds.
+The hook skips a clean Qwen source and rejects one containing an unsupported
+GLM adaptation without modifying it. The private `b4c3550` build exposed this
+distinction; increasing the scratch-memory bound was not an accepted fix.
+See [the update report](../../docs/DS4_MAIN_UPDATE_2026-09-07.md).
 
 The macOS hook `scripts/apply-ds4-glm53-m2max.sh` applies the complete patch
 after the existing GLM runtime patch and restores it before that patch during

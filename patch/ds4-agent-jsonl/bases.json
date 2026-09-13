@@ -1,0 +1,231 @@
+{
+  "schemaVersion": 1,
+  "currentManifestVersion": 102,
+  "repository": "https://github.com/antirez/ds4",
+  "sourceFile": "ds4_agent.c",
+  "application": "Choose a complete exact-context variant, apply once to a private source copy, then compile with build.mk. Do not edit the upstream Agent file.",
+  "migration": {
+    "fromManifestVersion": 86,
+    "toManifestVersion": 87,
+    "oracle": "Output captured from the version-86 native transformer before its replacement. Expand the one remote-agent.cfrag include to compare bytes; this is a patch migration oracle, not an inference-quality claim.",
+    "sharedInclude": "remote-agent.cfrag",
+    "sharedIncludeSHA256": "a43c7e3e3a1751c24c7bf39190dd741a501cca5f4e6e2ca047b83df2238a00ba",
+    "postMigrationFix": {
+      "patch": "renderer-events-fix.patch",
+      "sha256": "43f533c0e52933bd8eac71410ea46393eac597f4eb9b04022fa2f6edd8b32dc3",
+      "purpose": "The shipped full variants already contain this null-worker fix. Reverse it only in migration tests to compare unchanged frozen version-86 output; never apply it twice in production."
+    }
+  },
+  "bases": [
+    {
+      "name": "main-v41",
+      "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
+      "patch": "main-v41.patch",
+      "sourceSHA256": "1a8652519081f947e1ac0faae388ee4d553fb606f20f3fca42d7d8584d41a049",
+      "patchSHA256": "b77a0db5fa4ee3fdcaf0ad8c2aaedfa5d58b4ca9f42e34d5a422a172df5508dd",
+      "derivedSHA256": "1b5fe433143b2b077534daad9d0386326647829fe9ace768770ee085c0a7d432",
+      "oracle": "DeepSeek V4.1 native DSML parser and context-compaction continuation with DStudio JSONL, steering and PLD hooks; not a legacy migration or an inference-quality claim.",
+      "postV99Fix": {
+        "patch": "main-v41-readiness.patch",
+        "sha256": "065768fc556f503cae2a9146280b041b323a6f6b483c10fe05a0a4bfe36ece40",
+        "previousDerivedSHA256": "5972fd7fb74ce082318bf31e0b03b2ba4441772144f7cf3bc55236780a669ade"
+      },
+      "postV100Fix": {
+        "patch": "main-v41-durable-summary.patch",
+        "sha256": "af0e72abb1419d79a1c282f23d8bae1ee92dc53b362411fe7f301dac38d78224",
+        "previousDerivedSHA256": "e503eb5b9c4926691ce9a2138503d2f66600e44da16c357e7109e8897f5b4db4"
+      },
+      "postV101Fix": {
+        "patch": "main-v41-progress-summary.patch",
+        "sha256": "ac4ba98a5a0d6b77d09aef994f1705be3b74f7d5b11ca85dc6b6199e970e1ca5",
+        "previousDerivedSHA256": "3f554681490d26025e4f48f7c9ceb54e4e13d57ca48e7177f5cbfb95069993cc"
+      }
+    },
+    {
+      "name": "main-current",
+      "revision": "c0a6119f363ef82125877142f13fb3fe491cba14",
+      "equivalentSourceRevisions": [
+        "f62ca29a308724cde5bc99134ede19104b2a3260"
+      ],
+      "patch": "main-current.patch",
+      "sourceSHA256": "4402fce6573ffb43332fc9075248f1fc812acb8a503de9ee8a32770b755591cc",
+      "patchSHA256": "318639be7d730941ab27b700f3eecc048acc8cafe462fb2073233a4fe6541af5",
+      "derivedSHA256": "6b5d34df93e8b4885e083555d1e9b2525a2b03b92458e8758aa4ddf5d2ae55ca",
+      "legacyExpandedSHA256": "d9b10bf76da8a201d4a0ccc17a4b0aaf7badc77797da5bcca255be37841197c8",
+      "migrationDerivedSHA256": "4cabac4210f3ae910ff99b6a15462b204099670390e081c4a08ec3ab5f519ae0",
+      "postV99Fix": {
+        "patch": "main-current-readiness.patch",
+        "sha256": "c9522942a85e9801728462b7542fd484e5d08e67f958843725fba0c041b983e2",
+        "previousDerivedSHA256": "5be563d123e2eab5e54c7a9f4659d2a6a55d9e9f2f92eddf18bdf084b02df080"
+      },
+      "postV100Fix": {
+        "patch": "main-current-durable-summary.patch",
+        "sha256": "8911a8db9b30b265f817c77fd906fcf49d37ad103921672704cff8e578dfb81b",
+        "previousDerivedSHA256": "0bcd187f4d1225ea6daf2f34d74a23e2838c32f5ce01577a5e1a39adfa4fcdd1"
+      },
+      "postV101Fix": {
+        "patch": "main-current-progress-summary.patch",
+        "sha256": "dc9a2c7d0b68cb7aed4f189c8ad03da22486116f31e563a690435232b9b1a0b1",
+        "previousDerivedSHA256": "8023f93113095093020066bc911a129665a89326e7edd9904c1a24d8ee2f5af6"
+      }
+    },
+    {
+      "name": "main-previous",
+      "revision": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
+      "patch": "main-previous.patch",
+      "sourceSHA256": "95fd4230e1093e1727e468d646c24d3236813ececba10c1e8297827562f174f3",
+      "patchSHA256": "8c0059bfc489c336cd6c065f6b099d2a784225b831c10f61958262125e29df9a",
+      "derivedSHA256": "2b47c6ed5773a83005f5aa5672b704d197eb4b1a8bfd92f095ced542d82b8225",
+      "legacyExpandedSHA256": "11836beb9f12231fe2278ba673ebcf6783f9a319f7111cfaa19414ac91d86403",
+      "migrationDerivedSHA256": "cae42f298c82d2fe4e0cc9bec7368dce8ef5460c7dc59ba1c1557ce74834831e",
+      "postV99Fix": {
+        "patch": "main-previous-readiness.patch",
+        "sha256": "6669246971b31b18ca6f2e83fbfe07d037dd535b00eeda5bdb0fd07993c53ded",
+        "previousDerivedSHA256": "e3b2bf6812c6c08b9dd431e054e6ecafaba677d72b769fd21ba0c82494b8686f"
+      },
+      "postV100Fix": {
+        "patch": "main-previous-durable-summary.patch",
+        "sha256": "d491d3b63d71038cbf67bfe1c016042aed55b51a103d2ec656229f4865246f4e",
+        "previousDerivedSHA256": "547fadb1a9b0b8b62e6be2f7e388936eabfab962650df75514213772a32f3d31"
+      },
+      "postV101Fix": {
+        "patch": "main-previous-progress-summary.patch",
+        "sha256": "175f05ec5f66c00403bf682037f422805736e8692fde1e96b03910491bd67f44",
+        "previousDerivedSHA256": "61c8d9aa7ccc6443be0f5b7ea07d5e7112e3d80651d91b89692613273a57d0fc"
+      }
+    },
+    {
+      "name": "laguna",
+      "revision": "448d5695d1c86401a4e9447c440feb983b73e6de",
+      "patch": "laguna.patch",
+      "sourceSHA256": "44a5b1d149bb3d846c553e42b9f924dd488bf7ec1163c2a82aec1134ddb6bac2",
+      "patchSHA256": "dca0239e29286cce6d90092d5ee74fad8f9342cd518d1b5ee3d6bd5f20161930",
+      "derivedSHA256": "53dca347367335e24596f324dc639eb624eeb8cb845677052722dfedf7dad9ed",
+      "postV97Fix": {
+        "patch": "compaction-publish.patch",
+        "sha256": "16202998886f9d4bd46467b0e0749d41a81fda3f3209bcb711b0bcfb67a34ace",
+        "previousDerivedSHA256": "c072a19dcd68ed7faac7204df97c55f1ddcfc5fb3dba3614cb2d359a20d1ee42"
+      },
+      "legacyExpandedSHA256": "492eb0d4bbff42d6f4fdbbea0dbe7ea1ca2e85d66333ba649b8368d8d3c0bcb6",
+      "migrationDerivedSHA256": "d9ca7b48dbb35b072cc9136ff1d97fc5f0320ba367e46eddf11310dda60c3431",
+      "postV98Fix": {
+        "patch": "laguna-continuation.patch",
+        "sha256": "ecefb29f01aeb7e4cd44a58412b2009e01fa06b05053632546e6791021588525",
+        "previousDerivedSHA256": "28cbb07f5857afd39a1287d864d2f46b3b799ac159255f8d1c1eb617a63f5827"
+      },
+      "postV99Fix": {
+        "patch": "laguna-readiness.patch",
+        "sha256": "98ef490804ef7d3646232fb24193cdc2e6eb17f0a7932d9bd2da00639ba21416",
+        "previousDerivedSHA256": "d1b22e7f95534650fa240121230b120e3c6b70fa9ebceac7a4c8a1286ee91d2e"
+      },
+      "postV100Fix": {
+        "patch": "laguna-durable-summary.patch",
+        "sha256": "ec10a3cf971c70b67de408c00563255e6fec60aadcf3558d988db4ed78775bd8",
+        "previousDerivedSHA256": "9e7c6534d380ad507d42ea825350b1e2478c8e51edd8678238f015a68c900aa5"
+      },
+      "postV101Fix": {
+        "patch": "laguna-progress-summary.patch",
+        "sha256": "363e0f0331b13055ee73b557bea1554fcedae6bbcb9d503f89b18a90f36f931a",
+        "previousDerivedSHA256": "a1763d73f33291a6e7cce30075236ca436cc5c9acad01c9e398d512397f5b793"
+      }
+    },
+    {
+      "name": "qwen38",
+      "repository": "https://github.com/ivanfioravanti/ds4-metal",
+      "revision": "b4c355079d375d20821ece732e99195c71b32c06",
+      "equivalentSourceRevisions": [
+        "0bb323aa63cf7ed6167ae91a7606e1d875d404a3",
+        "66b0e3fc3bf0f548db1ec0c0dd19f4e43567a7f8",
+        "82d031408c50419957fd44b7e9c2d423890b24bd",
+        "b85a6174da6d0ea3139b48194a2ca108097657b1"
+      ],
+      "patch": "qwen38.patch",
+      "sourceSHA256": "aecf46bf84387ea1f77ee2cabec366d0b0dcb5873ce6bb995726e06482e6bff6",
+      "patchSHA256": "a7deb55d30220c5c2c183eca3a328a96042134880324e27f7bc84ec45bcc7eaf",
+      "derivedSHA256": "1046a25f9c4fcdaaec8d73e8f0734d398d90e240a5c87ad118d38ab0bd183c27",
+      "requiredCorePatch": "../ds4-qwen38-prepare/prepare-empty.patch",
+      "oracle": "Native Qwen protocol/parser tests and DStudio runtime behavior; not a legacy version-86 migration or a model-quality claim.",
+      "postV99Fix": {
+        "patch": "qwen38-readiness.patch",
+        "sha256": "c0dbbd9c3d31afde7f7784b7856c73b3b17b5c2a00a8f7f9a764188e56bd1577",
+        "previousDerivedSHA256": "84f72983e0d00c9792c54a10d30934c62fa07082047b870473f305a4c0bddeba"
+      },
+      "postV100Fix": {
+        "patch": "qwen38-durable-summary.patch",
+        "sha256": "e7ce5167618649afe894d14cea37acfe8271aeb71c5408fae7aa0c2cd9c195fb",
+        "previousDerivedSHA256": "9d981e3d21c8e1d1a34f1b73a9407c1d47df7acf075911b865fe499c01139fa9"
+      },
+      "postV101Fix": {
+        "patch": "qwen38-progress-summary.patch",
+        "sha256": "25c7272b276f6a154fae5b6765e6a73b26404ceecebfb2ffa6d6c07f80cf712a",
+        "previousDerivedSHA256": "6702a33d351f99387c8ac3de53cba0227298c2f1907bf7de4b9ee5906db818a8"
+      }
+    },
+    {
+      "name": "qwen35",
+      "repository": "https://github.com/vagrillo/ds4",
+      "revision": "60fca11f0c8b16ca50c757324dddd717ba043098",
+      "patch": "qwen35.patch",
+      "sourceSHA256": "73cb34e1001e86fa172b69e77a21c0d4e4a9418b751ec0d5b9f08eb0632e52cb",
+      "patchSHA256": "5199195367dd2db6d88d66fca21e8d8344c3e408608ee8b5571a98ddbf2da1ae",
+      "derivedSHA256": "3593c24f33c8eddb9509f037210a6fed4d380860daeb3fe0f59bc5c96997ae92",
+      "postV97Fix": {
+        "patch": "compaction-publish.patch",
+        "sha256": "16202998886f9d4bd46467b0e0749d41a81fda3f3209bcb711b0bcfb67a34ace",
+        "previousDerivedSHA256": "8177b6c9bf8906c9c4c1fd8ab88938cce5fa7ff3b42943d13044d7ba0121793f"
+      },
+      "oracle": "Pinned Qwen3.6 server ChatML/tool grammar and Qwen3.8 native XML parser; explicit native parser/local-tool regressions. Not a version-86 migration, inference-quality result or host capability enablement.",
+      "postV98Fix": {
+        "patch": "qwen35-continuation.patch",
+        "sha256": "e3bf65ee8a40fdcac87b9cd436fbd9450a5728e171e0e55250eee8c37fc56860",
+        "previousDerivedSHA256": "02655465c0ebd17e40e353fe1998397769cb303fcabbffe0a71668c17dfcd693"
+      },
+      "postV99Fix": {
+        "patch": "qwen35-readiness.patch",
+        "sha256": "c0d7d9f14dc8a9f8a65ba2288cc70de7b8896dc977e5b783947f12aa60ad71ed",
+        "previousDerivedSHA256": "eacd3a72617800c8e343efbc1fb705587c0e144932f0b887597461f7b43006c4"
+      },
+      "postV100Fix": {
+        "patch": "qwen35-durable-summary.patch",
+        "sha256": "bb099f2ffcaa67d71d4ebd6a195ec0678f140d8609356833b3fc4ce9dfd82e3d",
+        "previousDerivedSHA256": "a7a240b20bf54cd9758e8e8538099ac948a4cda5be79677861701cbe7b8d2453"
+      },
+      "postV101Fix": {
+        "patch": "qwen35-progress-summary.patch",
+        "sha256": "a8f52058e37ea7123ca01a973f19799ffe2dda0fce7e750f52ebf88f57bf16eb",
+        "previousDerivedSHA256": "1b5942a42c206668c861b9b9abef67d60fe8b089ee41f8941d8383fa004d9d35"
+      }
+    },
+    {
+      "name": "qwen38-next",
+      "repository": "https://github.com/ivanfioravanti/ds4-metal",
+      "requiredCorePatch": "../ds4-qwen38-prepare/prepare-current.patch",
+      "oracle": "Native Qwen XML tool parser, preserved assistant compaction continuation and candidate cancellation; not a legacy migration or new model-quality qualification.",
+      "revision": "ff4f0ff4fdff70d6b7c3941ef437b91dde960e14",
+      "patch": "qwen38-next.patch",
+      "sourceSHA256": "773cfa9ab127ec87ac1b39a7c5b7d2414300522fab94b6c34f9869f95c3d556a",
+      "patchSHA256": "35a978b74a7bba5c61cf6d48d0dde7bd3d856ab48b44920811710e2544b0e997",
+      "derivedSHA256": "23a12bbe1d4912e8e6a0f9c99ba22e758fc776cba6fd135b019aa9de01277b73",
+      "postV99Fix": {
+        "patch": "qwen38-next-readiness.patch",
+        "sha256": "81bf6320596ee9a1c96c537ac6d5a0b5370dc50a14124aad074b1d7b3cb3a36b",
+        "previousDerivedSHA256": "73abc200a4c93a45e15504021b45c839f8f6607abfd3e14a181f6bd5b0fe4bac"
+      },
+      "postV100Fix": {
+        "patch": "qwen38-next-durable-summary.patch",
+        "sha256": "7e38b64e3fda2f605ea3b9b89fb7209439202b549dfe081e57ae91d8a754a3a1",
+        "previousDerivedSHA256": "f5037e4111d635247da854acd6cc7e4b702212c51d8563b8848834b43c1be62f"
+      },
+      "postV101Fix": {
+        "patch": "qwen38-next-progress-summary.patch",
+        "sha256": "bfaffe65910e2c2eeafcc67119e08d2e643d4f5182cb03cea9181491a4f501f7",
+        "previousDerivedSHA256": "fc0168172bd3439c32ba48c77e77f113dc30100ca034b664b0200262ea6eab16"
+      }
+    }
+  ],
+  "compactionHelper": {
+    "file": "compaction_text.h",
+    "sha256": "f1595874318f58c59fea122bdc71d9176724947288b217d5a12ec928e86634ed",
+    "scope": "Native text-only framing for Laguna and older Qwen MoE; no inference or KV implementation."
+  }
+}

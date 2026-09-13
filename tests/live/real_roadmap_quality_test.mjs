@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  artifactDir,
+  artifactRunDir,
   completeTextStream,
   createWebPipeline,
   roadmapJudge,
@@ -12,7 +12,8 @@ import {
   writeArtifact,
 } from '../support/real_harness.mjs';
 
-const artifacts = artifactDir('roadmap-quality-real');
+const artifacts = artifactRunDir('roadmap-quality-real');
+console.log(`Immutable Learn quality run: ${artifacts}`);
 
 const cases = [
   {
@@ -179,16 +180,23 @@ const selectedCases = requestedIds.length
   ? requestedIds.map((id) => cases.find((entry) => entry.id === id)).filter(Boolean)
   : cases;
 assert.ok(selectedCases.length, 'No matching roadmap evaluation cases selected');
-const selectedPrefixes = selectedCases.map((entry) => `${entry.id}-`);
 const reuseResearch = process.env.DSTUDIO_REAL_ROADMAP_REUSE_RESEARCH === '1';
+const replayFrom = process.env.DSTUDIO_REAL_ROADMAP_RESEARCH_FROM;
+if (reuseResearch && !replayFrom) throw Error('Research replay requires DSTUDIO_REAL_ROADMAP_RESEARCH_FROM pointing to an explicit previous run. Original evidence is never overwritten.');
 const reusableResearchSuffixes = [
   '-research-result.json', '-research-trace.json', '-research-sources.json', '-research-context.md',
 ];
-for (const name of fs.readdirSync(artifacts)) {
-  if (name === 'summary.json' || selectedPrefixes.some((prefix) => name.startsWith(prefix))) {
-    if (reuseResearch && reusableResearchSuffixes.some((suffix) => name.endsWith(suffix))) continue;
-    fs.rmSync(path.join(artifacts, name), { recursive: true, force: true });
+if (reuseResearch) {
+  const from = fs.realpathSync(replayFrom);
+  for (const entry of selectedCases) {
+    assert.equal(fs.readFileSync(path.join(from, `${entry.id}-request.txt`), 'utf8'), entry.prompt,
+      'research replay must match the exact original question');
+    for (const suffix of reusableResearchSuffixes) {
+      const name = entry.id + suffix;
+      fs.copyFileSync(path.join(from, name), path.join(artifacts, name), fs.constants.COPYFILE_EXCL);
+    }
   }
+  writeArtifact(artifacts, 'replay-provenance.json', { from, scope: 'Development replay: research is reused, not a new end-to-end research run.' });
 }
 
 const server = await startDStudio({
@@ -210,6 +218,8 @@ try {
   const summary = [];
 
   for (const testCase of selectedCases) {
+    // Save the input before expensive work, so a failed run remains attributable.
+    writeArtifact(artifacts, `${testCase.id}-request.txt`, testCase.prompt);
     let trace = [];
     const researchCheckpoint = path.join(artifacts, `${testCase.id}-research-result.json`);
     let research = null;
