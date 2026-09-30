@@ -4,11 +4,17 @@ set -eu
 action=${1:-apply}
 case "$action" in apply|check|restore) ;; *) echo 'Expected apply, check, or restore' >&2; exit 2 ;; esac
 variant=${2:-pinned}
+# Each runtime variant targets one reviewed upstream GPU ABI. 1305843 adds only
+# q36_gpu_gdn_front_tensor, which q36.c calls outside Metal builds (#ifndef
+# Q36_METAL); the Metal adaptation is otherwise the 8362010 runtime rebased.
+previous_abi=27e0000128e353d82d4ba730ac64435919f48e93
+current_abi=bcfa9e3d5bccc911d48b14c77ee08f76a8642f45
 case "$variant" in
-    pinned) patch_name=runtime.patch ;;
-    next-review) patch_name=next-review.patch ;;
-    cache-usage) patch_name=cache-usage.patch ;;
-    *) echo 'Expected pinned, next-review or cache-usage patch variant' >&2; exit 2 ;;
+    pinned) patch_name=runtime.patch; abis=$previous_abi ;;
+    next-review) patch_name=next-review.patch; abis=$previous_abi ;;
+    current) patch_name=runtime-1305843.patch; abis=$current_abi ;;
+    cache-usage) patch_name=cache-usage.patch; abis="$previous_abi $current_abi" ;;
+    *) echo 'Expected pinned, next-review, current or cache-usage patch variant' >&2; exit 2 ;;
 esac
 [ "$#" -le 2 ] || { echo 'Unexpected patch arguments' >&2; exit 2; }
 engine_dir=${Q36_DIR:-}
@@ -36,9 +42,10 @@ source_git() {
 }
 # Freeze the GPU ABI, not every byte of the editable implementation. Unrelated
 # contributor edits survive apply/restore; new upstream ABIs require review.
-if [ "$(source_git hash-object q36_gpu.h)" != 27e0000128e353d82d4ba730ac64435919f48e93 ]; then
-    echo 'Unsupported q36 GPU ABI; no files changed' >&2; exit 1
-fi
+abi=$(source_git hash-object q36_gpu.h)
+case " $abis " in *" $abi "*) ;; *)
+    echo 'Unsupported q36 GPU ABI; no files changed' >&2; exit 1 ;;
+esac
 if source_git apply --reverse --check "$input_patch" >/dev/null 2>&1; then
     if [ "$action" = restore ]; then source_git apply --reverse "$input_patch"; fi
 elif source_git apply --check --whitespace=error "$input_patch" >/dev/null 2>&1; then

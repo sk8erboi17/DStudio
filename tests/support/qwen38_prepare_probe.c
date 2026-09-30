@@ -72,9 +72,11 @@ static int equal_logits(ds4_session *a, ds4_session *b, int vocab, float *x, flo
     return top;
 }
 int main(int argc, char **argv) {
-    REQUIRE(argc == 3);
+    REQUIRE(argc == 2);
     setvbuf(stdout, NULL, _IOLBF, 0);
-    ds4_engine_options options = {.model_path = argv[1], .ple_path = argv[2],
+    /* Main reads the original BF16 n-gram table from the single model GGUF;
+     * its engine options have no separate PLE path. */
+    ds4_engine_options options = {.model_path = argv[1],
         .backend = DS4_BACKEND_METAL, .n_threads = 8, .context_size = 16384,
         .power_percent = 100, .placement_ctx_hint = 16384, .placement_session_count_hint = 2};
     ds4_engine *engine = NULL;

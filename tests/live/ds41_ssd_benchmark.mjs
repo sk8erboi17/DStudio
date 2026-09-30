@@ -63,7 +63,12 @@ try {
   assert.equal(fs.realpathSync(command('git', ['-C', engine, 'rev-parse', '--show-toplevel']).trim()), engine,
     'engine checkout cannot inherit a surrounding repository identity');
   report.commit = command('git', ['-C', engine, 'rev-parse', 'HEAD']).trim();
-  assert.equal(report.commit, 'bd66c402070042bf0a79ad6ece8242de4c93680c', 'unexpected engine revision');
+  const reviewedRevisions = new Set([
+    'bd66c402070042bf0a79ad6ece8242de4c93680c',
+    '0aaea5a238fb41a35106a551e73c8409dfb751ac',
+  ]);
+  assert.ok(reviewedRevisions.has(report.commit), `unexpected engine revision: ${report.commit}`);
+  report.reviewedRevision = report.commit;
   report.sourceDiffSha256 = crypto.createHash('sha256').update(command('git', ['-C', engine, 'diff', '--binary'])).digest('hex');
   report.binary = {path: binary, sha256: digest(binary)};
   report.harness = Object.fromEntries([import.meta.filename,

@@ -11,14 +11,14 @@ weights are not committed.
 ## ds4 (managed local inference engine)
 
 - Source: https://github.com/antirez/ds4
-- Pinned main commit: `bd66c402070042bf0a79ad6ece8242de4c93680c`
-- Source license: [MIT](https://github.com/antirez/ds4/blob/bd66c402070042bf0a79ad6ece8242de4c93680c/LICENSE)
+- Pinned main commit: `0aaea5a238fb41a35106a551e73c8409dfb751ac`
+- Source license: [MIT](https://github.com/antirez/ds4/blob/0aaea5a238fb41a35106a551e73c8409dfb751ac/LICENSE)
 - Copyright: 2026 The ds4.c authors; 2023–2026 The ggml authors.
 - DStudio adaptations: [`patch/`](patch/README.md).
 
 Managed installs retain the upstream license. Model weights have their own
-terms; the engine's license does not replace them. Optional Laguna and Qwen
-engines remain separate checkouts with independently reviewed pins.
+terms; the engine's license does not replace them. Main now includes
+Qwen3.8-Flash-Next. Laguna, Qwen3.6 MoE and Qwen27B retain separate engine pins.
 
 DeepSeek V4.1 GGUFs are downloaded separately from
 [`antirez/deepseek-v4.1-flash-gguf`](https://huggingface.co/antirez/deepseek-v4.1-flash-gguf/tree/dd8a266f7145edc19e2334b46e19b6821f221dc7),
@@ -40,18 +40,24 @@ vision weights are model components, not DStudio-authored assets.
   this fork's native ChatML/server format; inference kernels are not replaced.
 - Model weights are downloaded separately and retain their own terms.
 
-### Qwen3.8-Flash-Next native engine fork
+### Qwen3.8-Flash-Next in main and historical fork attribution
 
 - Source: [`ivanfioravanti/ds4-metal`](https://github.com/ivanfioravanti/ds4-metal/tree/ff4f0ff4fdff70d6b7c3941ef437b91dde960e14).
-- Pinned source: `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14`.
+- Historical separate-engine source: `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14`.
+- Active source: antirez/ds4 main at `0aaea5a238fb41a35106a551e73c8409dfb751ac`,
+  which includes the Qwen merge. The original contributors' attribution remains.
 - Source license: MIT, retaining upstream ds4.c and ggml notices.
-- DStudio's metadata-only PLE prefetch correction is supplied as a reversible
-  [patch](patch/ds4-qwen38-inspect/README.md). It does not change inference.
+- The older metadata-only PLE prefetch correction remains as a historical
+  [regression patch](patch/ds4-qwen38-inspect/README.md), not a main install step.
 - The structured Agent/Cowork adaptation is an explicit
   [patch](patch/ds4-agent-jsonl/README.md), applied to private build sources.
-- The native [snapshot-allocation correction](patch/ds4-qwen38-snapshot/README.md)
-  retains upstream math and prevents partial speculative state after an allocation failure.
-- Main weights and the separate native PLE retain their own model terms.
+- Main already performs correct native snapshot-allocation cleanup; the older
+  [correction](patch/ds4-qwen38-snapshot/README.md) is retained for historical tests.
+- Current single-file Q2/Q4 weights, including original BF16 n-grams, come from
+  [`antirez/qwen3.8-flash-next-gguf`](https://huggingface.co/antirez/qwen3.8-flash-next-gguf/tree/d600fe1a43d2e1cdcadb85144ce3142f66f9eefe),
+  revision `d600fe1a43d2e1cdcadb85144ce3142f66f9eefe`. They retain their own model
+  terms and provenance; DStudio's or the engine's license does not replace them.
+- [Migration, exact hashes and compatibility limits](docs/QWEN_NEXT_MAIN_MIGRATION.md).
 
 ### q27 (separate Qwen27B engine candidate)
 

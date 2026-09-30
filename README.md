@@ -133,15 +133,22 @@ promise that an older downloaded release includes every integration.
 | DeepSeek V4.1 Flash | Experimental native integration; real-model qualification in progress | macOS Metal only, full native power. Q2 is 365.7 GB on SSD, including its disk-backed Engram tables. Expert streaming is a separate option. Requires the new main pin; no DSpark or non-Metal qualification. |
 | GLM 5.3 Flash | All four modes; images with its encoder | Uses the main engine, not a separate GLM checkout. Full-model QA for the M2 optimization remains open. |
 | Laguna S 2.1 | All four modes, text only | Experimental, macOS Metal; requires resident weights and cannot force expert SSD streaming On. |
-| Qwen3.8-Flash-Next | Chat, Agent and Cowork | Experimental, macOS Metal. Requires the new pinned engine; Design and vision are not integrated. Main weights stay in RAM; its required PLE file stays on SSD. |
+| Qwen3.8-Flash-Next | Experimental Chat, Agent and Cowork | Now uses **ds4 main** on macOS Metal. Requires the new single-file Q2/Q4 download; old base + PLE files are incompatible. Backbone in RAM, embedded BF16 n-grams on SSD. New-weight quality, Design and vision remain unqualified. |
 | Qwen3.6-35B-A3B | Chat, experimental Agent and Cowork | macOS Metal, 31.8 GB Q6_K_XL in RAM; no PLE. Real file/tool workflows pass. New-session preparation runs on a worker and retains the old context on cancellation/failure. Full quality and desktop validation remain open. |
 | Qwen3.8-27B | Experimental Chat, Agent and Cowork | macOS Metal; 25.3 GB Q6_K_XL plus its matching 0.93 GB projector. Download from Settings → Models. Initial real text, image and file/tool workflows pass; Learn, PDF workflows, broad quality and full desktop validation remain open. |
 
 Qwen automatically uses expert SSD streaming **Off**, even if **On** was saved
-for DeepSeek. This does not disable Qwen3.8-Flash-Next's SSD-backed PLE or erase the preference
+for DeepSeek. This does not disable Qwen3.8-Flash-Next's native SSD n-grams or erase the preference
 used when switching back to DeepSeek.
 
 ### Qwen update: what changes for you
+
+**Flash Next now shares the main engine** (merged upstream on September 14,
+pinned at `0aaea5a`). There is no separate
+Qwen Next engine to install or select. Upstream also changed the model format:
+download the new **Q2 (147.2 GB)** or **Q4 (177.3 GB)** in Settings → Models.
+Old weights stay on disk, but cannot be used by this integration. Qwen3.6 MoE
+and Qwen27B are separate and unchanged. [Migration and test scope](docs/QWEN_NEXT_MAIN_MIGRATION.md).
 
 Both **Qwen3.6-35B-A3B and Qwen3.8-Flash-Next can now use Agent and Cowork**
 on Apple Silicon: read your files, make changes and check the saved result.
@@ -196,10 +203,11 @@ Resume. It does not launch the downloaded model automatically. The CLI target
 Separate media workers provide **Ideogram 4** image generation,
 **HunyuanImage 3** image editing and **MiniMax H3** video; they are not chat models.
 
-The latest real-model acceptance run covered Flash, Laguna and Qwen3.8, with
+The earlier real-model acceptance run covered Flash, Laguna and the former Qwen3.8 fork, with
 **11/12, 10/12 and 12/12** checks passed respectively. The failures remain
 published. These are small functional checks, **not evidence that DStudio
-matches or beats state-of-the-art cloud systems**. That requires a matched
+matches or beats state-of-the-art cloud systems**, or qualifies the new Qwen
+main/Q2/Q4 combination. That requires a matched
 end-to-end comparison using the actual local weights, runtime and tools.
 See [results and limitations](docs/ENGINE_ACCEPTANCE.md).
 
@@ -209,7 +217,8 @@ From the project root, use one download entry point:
 ./download-model.sh --help
 ./download-model.sh ds4f-q2      # DeepSeek Flash
 ./download-model.sh laguna-q4   # Laguna
-./download-model.sh qwen38-q4k  # Qwen base + required PLE, about 105.4 GB
+./download-model.sh qwen38-q2   # Qwen Next on main, 147.2 GB single file
+./download-model.sh qwen38-q4k  # Alternative larger Qwen Q4, 177.3 GB single file
 ./download-model.sh qwen36-q6   # Qwen3.6 Q6_K_XL, about 31.8 GB, no PLE
 ```
 
@@ -1079,8 +1088,9 @@ does not download weights, upgrade installed engines or start a model.
 
 ### Qwen3.8-Flash-Next (experimental Chat, Agent and Cowork)
 
-DStudio includes the pinned [Qwen branch of ds4-metal](https://github.com/ivanfioravanti/ds4-metal/tree/qwen3.8-flash-next)
-in `ds4-qwen38`, separate from main and Laguna. Select **Qwen3.8-Flash-Next** in
+DStudio uses [antirez/ds4 main at 0aaea5a](https://github.com/antirez/ds4/commit/0aaea5a238fb41a35106a551e73c8409dfb751ac)
+for Flash Next, DeepSeek and GLM. There is no separate managed `ds4-qwen38`
+engine. Select **Qwen3.8-Flash-Next Q2 or Q4** in
 the model download menu, or run:
 
 ```sh
@@ -1089,30 +1099,30 @@ the model download menu, or run:
 
 Requires the Hugging Face `hf` CLI (`huggingface_hub` with `hf_xet`).
 
-This downloads the 73.4 GB native base and its required 32.0 GB PLE file,
-verifying both SHA-256 checksums at a pinned model revision. The PLE is always
-read from SSD by the model architecture; the backbone uses resident Metal.
-The optional second full MTP checkpoint is not downloaded. Model files remain
-in `ds4/gguf`, shared with the other engines.
+This command downloads the 177.3 GB Q4 file; `qwen38-q2` downloads the smaller
+147.2 GB Q2. Each includes original BF16 n-grams read from SSD, with resident
+Metal backbone weights. Native size/SHA-256 checks use a pinned model revision.
+The previous base + PLE format is preserved but not compatible. Model files
+remain in `ds4/gguf`; nothing is downloaded or converted automatically.
 
-Qwen3.8 supports **Chat, Agent and Cowork** using its native tool format, with
-engine pin `ff4f0ff`. Real headless DStudio tests on the earlier `66b0e3f` pin
+Qwen3.8 exposes experimental **Chat, Agent and Cowork** using its native tool
+format. Real headless DStudio tests on the earlier fork's `66b0e3f` pin
 on M2 Max cover reading data,
 creating the correct file/document, reading it back and continuing after a
 rejected mode switch. Agent also runs through its automatic Task Graph.
 These are two development workflows, not full quality or desktop qualification.
 Design and vision remain unavailable for this integration.
-The September 12 update adds upstream's newer MTP/state-rewind and vision-cache
-corrections, plus DStudio's tested fix for incomplete snapshot allocations.
-Fresh installation, native builds, tool/parser and metadata-prefetch checks are
-separate from those earlier real-weight results; they do not establish new
-quality or M5/CUDA/ROCm performance.
+Main now includes the newer checkpoint, speculative decoding, tool and native
+BF16 n-gram corrections. DStudio's rebased adapters have native compilation,
+sanitized protocol/reset and browser-fixture checks. These do not qualify the
+new weights or establish M5/CUDA/ROCm performance. See the
+[migration report](docs/QWEN_NEXT_MAIN_MIGRATION.md) for exact versions and limits.
 
 New-session preparation now runs on the native worker so progress and Stop can
 remain responsive. A failed or canceled reset keeps the previous conversation;
 the UI switches conversations only after the native success receipt. See the
 [Qwen checkpoint](docs/QWEN_CHECKPOINT.md) for verification and remaining work.
-The final reset-specific real-model replay passes in both Agent and Cowork.
+The earlier fork's reset-specific real-model replay passes in both Agent and Cowork.
 Progress follows native completed chunks; it is not a per-token animation or
 a promise to interrupt a GPU kernel midway.
 

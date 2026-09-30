@@ -122,6 +122,15 @@ class CommonQualityTest(unittest.TestCase):
             result = quality.grade(case, bad, self.directory("patch"))
             self.assertFalse(result["passed"], result)
         self.assertTrue(quality.patch_envelope("diff --git a/app.py b/app.py\nindex abc123..def456 100644\n" + valid))
+        # A chat answer's last diff line may lack its terminator. That is text
+        # framing, not diff content: restore exactly one final newline, while
+        # prose, fences, wrong paths and broken hunks stay rejected.
+        self.assertTrue(valid.endswith("\n"))
+        unterminated = valid[:-1]
+        self.assertTrue(quality.grade(case, unterminated, self.directory("unterminated"))["passed"])
+        for bad in (unterminated + "\nDone.", "```diff\n" + unterminated + "\n```", unterminated.replace("app.py", "tests.json"),
+                    unterminated.replace("return True", "return False"), unterminated[:unterminated.rindex("\n")]):
+            self.assertFalse(quality.grade(case, bad, self.directory("unterminated-bad"))["passed"], bad)
         # An actual protected-file edit must fail without applying either hunk.
         bad = valid + "--- a/KEEP.txt\n+++ b/KEEP.txt\n@@ -1 +1 @@\n-Original fixture: do not modify or remove.\n+changed\n"
         where = self.directory("protected")

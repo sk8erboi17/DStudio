@@ -317,6 +317,33 @@ $(TEST_BUILD)/launch_preflight_unit: tests/unit/launch_preflight_unit.c $(SRC) $
 test-launch-preflight: $(TEST_BUILD)/launch_preflight_unit
 	@$(TEST_BUILD)/launch_preflight_unit
 
+# Production launch-dependency capture on real fixture trees; no inference.
+.PHONY: test-launch-dependencies
+$(TEST_BUILD)/launch_dependencies_unit: tests/unit/launch_dependencies_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/unit/launch_dependencies_unit.c -o $@
+test-launch-dependencies: $(TEST_BUILD)/launch_dependencies_unit
+	@$(TEST_BUILD)/launch_dependencies_unit
+check-fast: test-launch-dependencies
+
+.PHONY: test-v1-relay
+$(TEST_BUILD)/v1_relay_unit: tests/unit/v1_relay_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/unit/v1_relay_unit.c -pthread -o $@
+test-v1-relay: $(TEST_BUILD)/v1_relay_unit
+	@$(TEST_BUILD)/v1_relay_unit
+check-fast: test-v1-relay
+
+.PHONY: test-v1-proxy-exchange
+test-v1-proxy-exchange: $(TEST_SERVER)
+	@node tests/integration/v1_proxy_exchange_test.mjs $(TEST_SERVER)
+check-fast: test-v1-proxy-exchange
+
+.PHONY: test-roadmap-request
+test-roadmap-request:
+	@node tests/unit/roadmap_request_test.mjs
+check-fast: test-roadmap-request
+
 $(TEST_BUILD)/agent_spawn_unit: tests/unit/agent_spawn_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
 	@mkdir -p $(TEST_BUILD)
 	$(CC) $(CFLAGS) tests/unit/agent_spawn_unit.c -o $@
@@ -357,7 +384,7 @@ check-fast: test-qwen-quality-chart
 
 .PHONY: test-q36-retained-diagnostic-inputs
 test-q36-retained-diagnostic-inputs:
-	@node tests/integration/q36_retained_diagnostic_inputs_test.mjs
+	@node tests/integration/q36_retained_diagnostic_inputs_test.mjs $(Q36_SOURCE)
 
 ifeq ($(UNAME),Darwin)
 check-fast: test-common-quality-oracle test-q36-retained-diagnostic-inputs
@@ -427,7 +454,7 @@ test-agent-native-build: $(TEST_BUILD)/agent-build-probe $(TEST_BUILD)/remote-tu
 
 # Requires the already built Qwen candidate with the matching native Agent;
 # b4c3550 and 0bb323a have identical Agent source. No automatic download.
-QWEN38_AGENT_TREE ?= ds4-qwen38
+QWEN38_AGENT_TREE ?= ds4
 QWEN35_AGENT_TREE ?= ds4-qwen35
 QWEN38_AGENT_FLAGS ?= --sanitize
 
@@ -485,7 +512,7 @@ test-qwen38-tool-oracle:
 	@node tests/unit/qwen38_tool_oracle_test.mjs
 
 # Existing native objects only; no engine mutation, build or weights download.
-METAL_WORKSPACE_TREES ?= ds4 ds4-laguna-s21 ds4-qwen38 ds4-qwen35
+METAL_WORKSPACE_TREES ?= ds4 ds4-laguna-s21 ds4-qwen35
 test-metal-workspace: $(TEST_BUILD)/agent-build-probe
 	@node tests/integration/metal_workspace_test.mjs $(TEST_BUILD)/agent-build-probe $(METAL_WORKSPACE_TREES)
 
@@ -590,6 +617,17 @@ check-fast: test-q36-install
 test-qwen35-catalog:
 	@node tests/integration/qwen35_catalog_patch_test.mjs "$(or $(QWEN35_DIR),ds4-qwen35)"
 
+# Real Metal MoE kernels vs an independent Q6_K oracle, patch lifecycle and
+# launch-preparation wiring. Needs the Qwen3.6 fork source; no weights.
+.PHONY: test-qwen35-q6k-moe
+test-qwen35-q6k-moe: $(TEST_SERVER)
+	@node tests/integration/qwen35_moe_q6_test.mjs "$(or $(QWEN35_DIR),ds4-qwen35)" "$(TEST_SERVER)"
+
+# Actual Metal sessions with synthetic weights, compared with original decode.
+.PHONY: test-qwen35-prefill
+test-qwen35-prefill:
+	@node tests/integration/qwen35_prefill_test.mjs "$(or $(QWEN35_DIR),ds4-qwen35)"
+
 .PHONY: test-qwen38-inspect
 test-qwen38-inspect:
 	@node tests/integration/qwen38_inspect_patch_test.mjs "$(or $(QWEN38_DIR),ds4-qwen38)"
@@ -597,7 +635,7 @@ test-qwen38-inspect:
 # Explicit real Metal operators; optional verified projector, never LLM weights.
 .PHONY: test-q36-metal-runtime
 test-q36-metal-runtime:
-	@node tests/integration/q36_metal_runtime_test.mjs "$(Q36_SOURCE)" $(if $(QWEN27_PROJECTOR),"$(QWEN27_PROJECTOR)") $(if $(filter 1,$(Q36_NEXT_REVIEW)),--next)
+	@node tests/integration/q36_metal_runtime_test.mjs "$(Q36_SOURCE)" $(if $(QWEN27_PROJECTOR),"$(QWEN27_PROJECTOR)") $(if $(filter 1,$(Q36_NEXT_REVIEW)),--next) $(if $(filter 1,$(Q36_CURRENT)),--current)
 
 .PHONY: test-q36-attention-work
 test-q36-attention-work:
@@ -608,6 +646,12 @@ test-q36-attention-work:
 test-q36-f16-attention:
 	@node tests/integration/q36_f16_attention_patch_test.mjs "$(Q36_SOURCE)"
 	@node tests/integration/q36_attention_work_test.mjs "$(Q36_SOURCE)" --segmented
+
+# Installed 1305843 online attention. No weights or model-quality evaluation.
+.PHONY: test-q36-f16-online
+test-q36-f16-online:
+	@node tests/integration/q36_f16_attention_patch_test.mjs "$(Q36_SOURCE)" --online
+	@node tests/integration/q36_attention_work_test.mjs "$(Q36_SOURCE)" --online
 
 .PHONY: test-q36-dense-quant test-q36-catalog
 test-q36-dense-quant:
@@ -747,6 +791,9 @@ test-q36-http-vision:
 	@node tests/integration/q36_http_vision_test.mjs "$(Q36_SOURCE)"
 
 .PHONY: test-q36-http-control
+.PHONY: test-q36-request-lifetime-patch
+test-q36-request-lifetime-patch:
+	@node tests/integration/q36_request_lifetime_patch_test.mjs
 .PHONY: test-q36-http-text-prepare
 test-q36-http-text-prepare:
 	@node tests/integration/q36_http_text_prepare_test.mjs "$(Q36_SOURCE)" $(if $(Q36_DIRECT_BASELINE),--direct-baseline)
@@ -794,7 +841,7 @@ test-qwen38-prepare-patch:
 # Explicit real Metal run; supply existing weights and an already-built,
 # patched candidate. No downloads or changes to the user's installation.
 test-qwen38-prepare-live:
-	@node tests/live/qwen38_prepare_test.mjs "$(QWEN38_AGENT_TREE)" "$(QWEN38_MODEL)" "$(QWEN38_PLE)" $(if $(QWEN38_WEIGHT_RECEIPTS),--weight-receipts "$(QWEN38_WEIGHT_RECEIPTS)")
+	@node tests/live/qwen38_prepare_test.mjs "$(QWEN38_AGENT_TREE)" "$(QWEN38_MODEL)" $(if $(QWEN38_WEIGHT_RECEIPTS),--weight-receipts "$(QWEN38_WEIGHT_RECEIPTS)")
 
 check-fast: test-qwen35-download
 
@@ -808,8 +855,12 @@ test-main-decode-metrics:
 	@node tests/unit/ds41_benchmark_test.mjs
 
 .PHONY: test-qwen38-snapshot-patch
+.PHONY: test-main-qwen-download
+test-main-qwen-download:
+	@node tests/integration/main_qwen_download_test.mjs "$(QWEN38_AGENT_TREE)"
+
 test-qwen38-snapshot-patch:
-	@node tests/integration/qwen38_snapshot_patch_test.mjs "$(QWEN38_AGENT_TREE)"
+	@node tests/integration/qwen38_snapshot_patch_test.mjs "$(QWEN38_AGENT_TREE)" --upstream-fixed
 
 .PHONY: test-q27-metal-delta
 test-q27-metal-delta:
@@ -829,9 +880,18 @@ test-search-evidence:
 	@node tests/unit/research_budget_test.mjs
 	@node tests/unit/research_answer_selection_test.mjs
 	@node tests/unit/research_answer_review_test.mjs
+	@node tests/unit/research_synthesis_runtime_test.mjs
+	@node tests/unit/research_entrypoints_test.mjs
 	@node tests/unit/research_reply_delivery_test.mjs
 	@node tests/unit/research_http_cancel_test.mjs
 	@node tests/unit/search_quality_grader_test.mjs
+
+.PHONY: test-ui-research-progress
+test-ui-research-progress:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_research_progress_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_research_progress_playwright_test.mjs
+
+check-fast: test-ui-research-progress
 
 .PHONY: test-search-publication test-remote-agent-workspace
 test-search-publication:
@@ -948,6 +1008,17 @@ test-model-rpc-lifecycle: $(TEST_BUILD)/model-rpc-lifecycle-test
 check-fast: test-model-rpc-stream test-model-rpc-interrupt test-model-rpc-lifecycle
 
 .PHONY: test-model-rpc-input
+.PHONY: test-slow-runtime
+$(TEST_BUILD)/slow-runtime-unit: tests/unit/slow_runtime_unit.c $(SRC) $(SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) $< -o $@
+
+test-slow-runtime: $(TEST_BUILD)/slow-runtime-unit
+	@$(TEST_BUILD)/slow-runtime-unit
+	@node tests/unit/pdf_planning_runtime_test.mjs
+
+check-fast: test-slow-runtime
+
 $(TEST_BUILD)/model-rpc-input-test: tests/integration/model_rpc_input_test.c $(SRC) $(SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN) extension/remote/dstudio_remote_llm.c extension/remote/dstudio_remote_llm.h
 	@mkdir -p $(TEST_BUILD)
 	$(CC) $(CFLAGS) $< extension/remote/dstudio_remote_llm.c -o $@

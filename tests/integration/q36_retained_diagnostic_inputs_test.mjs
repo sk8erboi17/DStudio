@@ -5,7 +5,8 @@ import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {artifactRunDir,writeArtifact} from '../support/real_harness.mjs';
 import {selectRetainedDiagnosticCase,validateRetainedDiagnosticRequest,
-  verifyDiagnosticPatchStack,diagnosticSourceNames,retainedDiagnosticOptions} from '../support/q36_retained_diagnostic_inputs.mjs';
+  verifyDiagnosticPatchStack,diagnosticSourceNames,retainedDiagnosticOptions,
+  diagnosticRevision,retainedDiagnosticPatchFiles} from '../support/q36_retained_diagnostic_inputs.mjs';
 
 const run=artifactRunDir('q36-retained-diagnostic-inputs'), report={scope:'Simulated receipts, real private patch round-trip; no inference',tests:[]};
 function test(name,body){body();report.tests.push({name,status:'pass'});}
@@ -19,6 +20,27 @@ const before={finished:'fixture-finished',results:[{engine:'q36',status:'fail'}]
 const payload={model:'fixture-model',messages:[{role:'user',content:'Fictional prompt'}],
   temperature:0,seed:20260909,max_tokens:2048,think:false,thinking:{type:'disabled'},stream:false};
 try{
+  test('current revision selects the installed online stack and diagnostic overlay',()=>{
+    const current='1305843c735380f912619548b121cba8601f2f85';
+    const stack=retainedDiagnosticPatchFiles(current,true);
+    assert.equal(stack.length,6);
+    assert.equal(stack[0].patch,'patch/q36-metal-runtime/runtime-1305843.patch');
+    assert.equal(stack[4].patch,'patch/q36-f16-attention/online-1305843.patch');
+    assert.equal(stack[5].patch,'patch/q36-metal-diagnostics/runtime.patch');
+    assert.equal(retainedDiagnosticPatchFiles(current,false).length,5);
+    assert.equal(retainedDiagnosticPatchFiles('d02b6a20a7662300003c859e186ceb5bec7aa849',true).length,4);
+    assert.throws(()=>retainedDiagnosticPatchFiles('0'.repeat(40),true));
+  });
+  test('archive provenance and source inventory never inherit the surrounding repository',()=>{
+    const archive=path.join(run,'archive');fs.mkdirSync(archive);
+    fs.writeFileSync(path.join(archive,'q36.c'),'/* compiler input */\n');
+    const receipt={engine:'q36',backend:'metal',commit:'1305843c735380f912619548b121cba8601f2f85'};
+    fs.writeFileSync(path.join(archive,'.dstudio-source.json'),JSON.stringify(receipt));
+    assert.equal(diagnosticRevision(archive).commit,receipt.commit);assert.equal(diagnosticRevision(archive).git,null);
+    assert.deepEqual(diagnosticSourceNames(archive),['q36.c']);
+    fs.writeFileSync(path.join(archive,'.dstudio-source.json'),JSON.stringify({...receipt,engine:'other'}));
+    assert.throws(()=>diagnosticRevision(archive));
+  });
   test('explicit F16 candidate records the fourth patch without changing request inputs',()=>{
     const cli=['engine','model','prior',caseId,'hash'];
     const baseline=retainedDiagnosticOptions(cli);
@@ -70,6 +92,8 @@ try{
   const engine=path.join(run,'candidate');fs.mkdirSync(engine);
   const input=path.join(engine,'unit.txt'),text='alpha\nmiddle2\nomega\nunrelated\n';fs.writeFileSync(input,text);
   execFileSync('git',['-C',engine,'init','-q']);execFileSync('git',['-C',engine,'add','unit.txt']);
+  execFileSync('git',['-C',engine,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid',
+    'commit','-qm','Private diagnostic fixture']);
   fs.mkdirSync(path.join(engine,'shaders'));fs.writeFileSync(path.join(engine,'shaders/new.txt'),'added by patch\n');
   test('snapshot includes untracked source added by a patch',()=>{
     assert.deepEqual(diagnosticSourceNames(engine).sort(),['shaders/new.txt','unit.txt']);
@@ -101,6 +125,21 @@ try{
       assert.throws(()=>verifyDiagnosticPatchStack(engine,path.join(run,'confined'),[name],patches));
     assert.throws(()=>verifyDiagnosticPatchStack(engine,path.join(run,'roundtrip'),['unit.txt'],patches));
   });
+  if(process.argv[2])test('actual current online/diagnostic stack round-trips before a retained replay',()=>{
+    const source=fs.realpathSync(process.argv[2]),candidate=path.join(run,'current-source');
+    const root=path.resolve(import.meta.dirname,'../..');
+    const stack=retainedDiagnosticPatchFiles('1305843c735380f912619548b121cba8601f2f85',true);
+    const names=diagnosticSourceNames(source,stack.map(p=>path.join(root,p.patch)));
+    for(const name of names){
+      const dest=path.join(candidate,name);fs.mkdirSync(path.dirname(dest),{recursive:true});
+      fs.copyFileSync(path.join(source,name),dest,fs.constants.COPYFILE_EXCL);
+    }
+    execFileSync('/bin/sh',[path.join(root,'scripts/apply-q36-metal-diagnostics.sh'),'apply'],
+      {env:{...process.env,Q36_DIR:candidate},timeout:10000});
+    const result=verifyDiagnosticPatchStack(candidate,path.join(run,'current-roundtrip'),names,
+      stack.map(p=>path.join(root,p.patch)));
+    assert.equal(result.roundTripIdentical,true);report.currentSourceRoundtrip='PASS';
+  });else report.currentSourceRoundtrip='NOT_RUN: supply a current adapted q36 source directory';
   report.passed=true;
 }catch(e){report.passed=false;report.error=e.stack;process.exitCode=1;}
 finally{report.finished=new Date().toISOString();writeArtifact(run,'results.json',report);console.log(JSON.stringify({run,...report}));}

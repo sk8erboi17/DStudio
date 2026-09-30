@@ -186,16 +186,8 @@ return {
 };
 `)();
 const webResearchHelpers = new Function(`
-${extractFunction(js, 'sourceKey')}
-${extractFunction(js, 'webSourceHost')}
-${extractFunction(js, 'explicitUserUrls')}
-${extractFunction(js, 'sourcePathParts')}
-${extractFunction(js, 'seedExplicitUrlSources')}
-${extractFunction(js, 'sourcePathIdentity')}
-${extractFunction(js, 'userAskedExternalComparison')}
-${extractFunction(js, 'sameExplicitSourceFamily')}
-${extractFunction(js, 'selectableSourcesAfterExplicitRead')}
-return { explicitUserUrls, seedExplicitUrlSources, selectableSourcesAfterExplicitRead };
+${fs.readFileSync('extension/search/runtime.js', 'utf8')}
+return { explicitUserUrls, normalizeResearchClassification, normalizeSourcePick, addSourceToState, sourceKey };
 `)();
 const sourceAdapterHelpers = new Function(`
 ${extractFunction(js, 'compactText')}
@@ -336,23 +328,30 @@ assert.equal(artifactHelpers.generatedFileLanguage({ filename: 'notes.txt', mime
 
 assert.deepEqual(webResearchHelpers.explicitUserUrls('read https://github.com/sk8erboi17/DStudio, please'), ['https://github.com/sk8erboi17/DStudio']);
 {
-  const byUrl = new Map();
-  const seeded = webResearchHelpers.seedExplicitUrlSources('read https://github.com/sk8erboi17/DStudio', byUrl);
-  assert.equal(seeded.length, 1);
-  assert.equal(seeded[0].explicit, true);
-  assert.match(seeded[0].title, /Explicit URL/);
+  const question = 'Analizza tecnicamente https://github.com/sk8erboi17/DStudio';
+  const plan = webResearchHelpers.normalizeResearchClassification({ explicitUrls: [], queries: [] }, question, 'search');
+  assert.deepEqual(plan.explicitUrls, ['https://github.com/sk8erboi17/DStudio'], 'A classifier cannot omit the supplied repository');
+  const state = { byUrl: new Map(), question };
+  const url = plan.explicitUrls[0];
+  const seeded = webResearchHelpers.addSourceToState(state, { url, explicit: true });
+  assert.equal(seeded.explicit, true);
+  assert.equal(seeded.sourceId, 'S1');
+  assert.equal(webResearchHelpers.addSourceToState(state, { url, explicit: true }), seeded, 'Repeated evidence retains its identity');
+  assert.equal(state.byUrl.size, 1);
   const sources = [
-    seeded[0],
+    seeded,
     { title: 'DStudio docs', url: 'https://dstudioproject.github.io/', content: 'Unrelated homonym' },
   ];
-  const readUrls = new Set(['https://github.com/sk8erboi17/dstudio']);
+  const readUrls = new Set([webResearchHelpers.sourceKey(url)]);
   assert.deepEqual(
-    webResearchHelpers.selectableSourcesAfterExplicitRead('Analizza tecnicamente questa repo', {}, sources, readUrls),
-    [seeded[0]]
+    webResearchHelpers.normalizeSourcePick({ urls: [url, 'https://invented.test/'] }, sources, readUrls).urls,
+    [],
+    'Source selection cannot reread the repository or invent evidence'
   );
-  assert.equal(
-    webResearchHelpers.selectableSourcesAfterExplicitRead('Analizza competitors di questa repo', {}, sources, readUrls).length,
-    2
+  assert.deepEqual(
+    webResearchHelpers.normalizeSourcePick({ urls: [sources[1].url, sources[1].url] }, sources, readUrls).urls,
+    [sources[1].url],
+    'Additional selected evidence is deduplicated'
   );
 }
 

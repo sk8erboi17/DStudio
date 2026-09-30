@@ -78,9 +78,14 @@ export function resolveDs4Dir() {
     path.join(os.homedir(), 'Documents', 'ds4'),
     path.resolve(repoRoot, '..', 'ds4'),
   ].filter(Boolean);
+  // An explicitly selected managed q36 tree has no ds4_server.c: DStudio routes
+  // it by directory name and revalidates its receipt in launch preparation.
+  const managedQ36 = dir => path.basename(dir) === 'q36' &&
+    fs.existsSync(path.join(dir, 'q36-server')) && fs.existsSync(path.join(dir, '.dstudio-source.json'));
   for (const c of candidates) {
     const dir = path.resolve(c);
-    if (!fs.existsSync(path.join(dir, 'ds4_server.c'))) continue;
+    if (!fs.existsSync(path.join(dir, 'ds4_server.c')) &&
+        !(c === process.env.DSTUDIO_REAL_DS4_DIR && managedQ36(dir))) continue;
     const ggufs = listGgufs(dir);
     if (ggufs.length) return { dir, ggufs };
   }
@@ -520,128 +525,12 @@ export function searchRuntimeSource() {
 
 export function createWebPipeline(baseUrl) {
   const js = searchRuntimeSource();
-  const roadmapProtocolMatch = js.match(/const ROADMAP_OUTPUT_PROTOCOL = String\.raw`([\s\S]*?)`;/);
-  if (!roadmapProtocolMatch) throw new Error('ROADMAP_OUTPUT_PROTOCOL not found in search runtime');
-  const names = [
-    'compactText',
-    'balancedEvidenceText',
-    'selectResearchEvidence',
-    'researchReportWantsTechnical',
-    'buildWebContext',
-    'stripJsonFence',
-    'uniqueStrings',
-    'validSourceKinds',
-    'normalizeSourceKind',
-    'technicalQuestionLikely',
-    'classifySourceKind',
-    'sourceKindGuidance',
-    'sourceAdapterProfile',
-    'sourceMetadataSummary',
-    'applyReadResultToSource',
-    'readSourceUnusable',
-    'urlOriginAndParts',
-    'adapterCandidateUrls',
-    'seedAdapterCandidateSources',
-    'isAbortLikeError',
-    'webPipelineError',
-    'completeWebPipelineText',
-    'researchRunLimits',
-    'researchAdmissionOpen',
-    'parseWebPipelineJson',
-    'completeWebPipelineObject',
-    'researchPurposeValue',
-    'roadmapResearchQueries',
-    'normalizeResearchClassification',
-    'classifyResearchRequest',
-    'summarizeSourcesForPicker',
-    'normalizeSourcePick',
-    'roadmapSourceSelectionScore',
-    'roadmapPdfSource',
-    'likelyUnauthorizedRoadmapMirror',
-    'lowValueRoadmapDiscoveryPage',
-    'roadmapDiscoveryCandidateEligible',
-    'roadmapDiscoveryCandidatePool',
-    'diversifyRoadmapSourcePick',
-    'pickSourcesToRead',
-    'normalizeResearchAction',
-    'summarizeFactsForModel',
-    'summarizeResearchState',
-    'planNextResearchAction',
-    'roadmapResearchActionWithFallback',
-    'normalizeExtractedFacts',
-    'extractFactsFromPage',
-    'normalizeRoadmapBatchFacts',
-    'extractFactsFromRoadmapBatch',
-    'extractFactsFromReadSources',
-    'judgeResearchSufficiency',
-    'researchAnswerFacts',
-    'researchAnswerSources',
-    'buildFactsContext',
-    'sourceIdForFact',
-    'buildResearchReportDraft',
-    'factIdsFromFacts',
-    'uncitedEvidenceLines',
-    'researchReportQuality',
-    'synthesizeResearchReport',
-    'buildFinalResearchContext',
-    'buildRoadmapEvidenceContext',
-    'writeFinalFromFacts',
-    'addSourceToState',
-    'executeWebSearchQueries',
-    'readUrlsIntoState',
-    'runResearchPipeline',
-    'normalizeSearchPlan',
-    'completeSearchPlan',
-    'planWebSearch',
-    'webSourceHost',
-    'explicitUserUrls',
-    'sourcePathParts',
-    'seedExplicitUrlSources',
-    'sourcePathIdentity',
-    'userAskedExternalComparison',
-    'sameExplicitSourceFamily',
-    'selectableSourcesAfterExplicitRead',
-    'sourceTextBlob',
-    'isLikelyPrimarySource',
-    'sourcePrimaryReadScore',
-    'mandatoryPrimaryReadSources',
-    'mergeSourceSelections',
-    'scoreWebSource',
-    'rankWebSources',
-    'selectedWebSources',
-    'normalizeSearchReadPlan',
-    'selectSearchReads',
-    'readableWebSearchError',
-    'planTraceDetail',
-    'emitSearchTrace',
-    'searchWithPlan',
-    'normalizeResearchPlan',
-    'completeResearchPlan',
-    'planDeepResearch',
-    'sourceKey',
-    'summarizeSourcesForJudge',
-    'summarizeProbesForJudge',
-    'normalizeResearchJudge',
-    'normalizeResearchReadPlan',
-    'summarizeSourcesForReadSelection',
-    'selectResearchReads',
-    'judgeDeepResearch',
-    'readResearchSources',
-    'probeResearchSources',
-    'buildResearchContext',
-    'runDeepResearch',
-  ];
-  const functions = names.map((n) => extractFunction(js, n)).join('\n\n');
   const factory = new Function('Api', 'Engine', 'performance', 'AbortSignal', 'URL', `
     const WEB_CONTEXT_CHARS = 1800;
     const WEB_SEARCH_PLAN_TIMEOUT_MS = Number.POSITIVE_INFINITY;
-    const WEB_SEARCH_REQUEST_TIMEOUT_MS = Number.POSITIVE_INFINITY;
-    const WEB_RESEARCH_PLAN_TIMEOUT_MS = Number.POSITIVE_INFINITY;
     const WEB_RESEARCH_JUDGE_TIMEOUT_MS = Number.POSITIVE_INFINITY;
-    const WEB_RESEARCH_TOTAL_TIMEOUT_MS = Number.POSITIVE_INFINITY;
-    const ROADMAP_OUTPUT_PROTOCOL = String.raw\`${roadmapProtocolMatch[1]}\`;
     function isLanClientMode() { return false; }
-    ${functions}
+    ${js}
     return { searchWithPlan, runDeepResearch, buildWebContext, roadmapOutputProtocol: ROADMAP_OUTPUT_PROTOCOL };
   `);
   const Api = {

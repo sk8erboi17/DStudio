@@ -46,6 +46,7 @@ try{
  report.derivedSHA256=hash(fs.readFileSync(path.join(run,'ds4_agent.c')));
  const objects=['ds4','ds4_image','ds4_distributed','ds4_tp','ds4_ssd','ds4_metal',
   'ds4_layer_pack','ds4_help','ds4_prompt_prefix','ds4_kvstore','linenoise'].map(name=>path.join(engine,`${name}.o`));
+ if(fs.existsSync(path.join(engine,'ds4_engram.o')))objects.push(path.join(engine,'ds4_engram.o'));
  report.engineObjects=objects.map(file=>({file:path.basename(file),sha256:hash(fs.readFileSync(file))}));
  const gpuArgs=path.join(run,'gpu-args.o');
  command('cc',[...flags,'-c',path.join(engine,'ds4_gpu_args.c'),'-o',gpuArgs]);objects.push(gpuArgs);

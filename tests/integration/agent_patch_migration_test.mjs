@@ -170,7 +170,7 @@ try {
       assert.equal(hash(parts.join(fragment + '\n')), base.legacyExpandedSHA256, 'Native output must match the pre-migration oracle');
       row.checks.push('frozen-legacy-byte-parity');
     } else {
-      assert(['main-v41','qwen38','qwen38-next','qwen35'].includes(base.name),
+      assert(['main-qwen','main-v41','qwen38','qwen38-next','qwen35'].includes(base.name),
         'Only explicitly new upstream variants lack a legacy runtime oracle');
       assert(base.oracle, 'New variants require an explicit behavioral oracle');
       row.oracle = base.oracle;

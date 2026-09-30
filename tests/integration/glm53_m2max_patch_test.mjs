@@ -156,12 +156,22 @@ if (process.argv[2]) {
   try {
     run('git',['clone','-q','--shared',path.resolve(process.argv[2]),engine]);
     const hooks=['visible-downloads','media-memory','server-metrics','glm53-runtime','glm53-m2max','vision-streaming'];
+    if (process.argv.includes('--unified-qwen')) hooks.push('qwen38-prepare');
     const hook = (name,action) => run('sh',[`scripts/apply-ds4-${name}.sh`,action],{
       env:{...process.env,DS4_DIR:engine}
     });
     for (const name of hooks) hook(name,'apply');
     hook('glm53-m2max','check');
     hook('vision-streaming','check');
+    if (process.argv.includes('--unified-qwen')) {
+      hook('qwen38-prepare','check');
+      hook('qwen38-prepare','apply');
+      const probe=path.join(stack,'hotlist-layout');
+      run('cc',['-O1','-g','-fsanitize=address,undefined','-fno-omit-frame-pointer',
+        '-ffunction-sections','-fdata-sections','-Wno-unused-function','-I',engine,
+        'tests/support/main_hotlist_layout_probe.c','-Wl,-dead_strip','-lm','-pthread','-o',probe]);
+      run(probe,[]);
+    }
     for (const name of [...hooks].reverse()) hook(name,'restore');
     run('git',['-C',engine,'diff','--exit-code']);
     run('git',['-C',engine,'status','--short']);

@@ -1,10 +1,21 @@
 # Cancellable Qwen3.8 reset preparation
 
+Current base: antirez/ds4 main
+`0aaea5a238fb41a35106a551e73c8409dfb751ac`, using
+[prepare-main.patch](prepare-main.patch). This retains native BF16 n-gram
+batch reads, checkpoint frontiers and per-chunk logits while adding control
+only to an unpublished session candidate. Normal live sync keeps the upstream
+path. The managed setup/update apply and restore this patch as part of the
+complete native stack. Main already fixes snapshot allocations, so do not
+apply the historical snapshot patch to it. [Migration and limits](../../docs/QWEN_NEXT_MAIN_MIGRATION.md).
+
+## Historical fork variants and original regression
+
 Base: [ivanfioravanti/ds4-metal at b85a617](https://github.com/ivanfioravanti/ds4-metal/commit/b85a6174da6d0ea3139b48194a2ca108097657b1),
 branch `qwen3.8-flash-next`. MIT upstream notices remain applicable.
 The [current variant](prepare-current.patch) rebases the same bounded candidate
 preparation onto `2dda88ed7bc596087f5282a6020d7409ca713ff3` and applies unchanged
-to the current `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14`. It retains upstream's
+to the historical `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14`. It retains upstream's
 new valid-checkpoint vision identity check. The installer selects a complete
 exact-context variant; it never overlays both. New-revision behavioral and
 real-weight qualification is recorded separately from the older results below.
@@ -37,14 +48,14 @@ completed layers and must not be interpreted as durable token checkpoints.
 
 Apply this native core/header patch before building the matching Agent/Cowork
 adapter. It is separate from metadata-only PLE inspection and vision mapping.
-The complete variants are [prepare-empty.patch](prepare-empty.patch) and
-[prepare-current.patch](prepare-current.patch). The separate
+The complete historical variants are [prepare-empty.patch](prepare-empty.patch)
+and [prepare-current.patch](prepare-current.patch). On those old fork sources only, the separate
 [snapshot-allocation correction](../ds4-qwen38-snapshot/README.md) follows it;
 that fix does not change this candidate API or its inference arithmetic.
 
-    DS4_DIR=/path/to/ds4-qwen38 sh scripts/apply-ds4-qwen38-prepare.sh check
-    DS4_DIR=/path/to/ds4-qwen38 sh scripts/apply-ds4-qwen38-prepare.sh apply
-    DS4_DIR=/path/to/ds4-qwen38 sh scripts/apply-ds4-qwen38-prepare.sh restore
+    DS4_DIR=/path/to/ds4 sh scripts/apply-ds4-qwen38-prepare.sh check
+    DS4_DIR=/path/to/ds4 sh scripts/apply-ds4-qwen38-prepare.sh apply
+    DS4_DIR=/path/to/ds4 sh scripts/apply-ds4-qwen38-prepare.sh restore
 
 Apply/restore are idempotent. Git checks the complete multi-file patch before
 changing files; partial patches and drift fail without replacing contributor
@@ -53,7 +64,7 @@ changes. A parent repository is not accepted as source provenance.
 ## Verification
 
     make test-qwen38-prepare-patch QWEN38_AGENT_TREE=/path/to/exact/source
-    make test-qwen38-prepare-live QWEN38_AGENT_TREE=/path/to/built/candidate QWEN38_MODEL=/path/to/model.gguf QWEN38_PLE=/path/to/ple.gguf
+    make test-qwen38-prepare-live QWEN38_AGENT_TREE=/path/to/built/candidate QWEN38_MODEL=/path/to/single-file-model.gguf
 
 The first gate tests apply/repeat/read-only check/restore, unrelated edits,
 each partial-file state, drift in either file, symlinks and wrong ABI. It writes

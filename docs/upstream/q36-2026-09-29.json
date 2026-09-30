@@ -1,0 +1,104 @@
+{
+ "schema": "dstudio.upstream-source-review.v1",
+ "repository": "https://github.com/Ninnix/q36",
+ "ref": "refs/heads/main",
+ "base": "8362010a301b3360296e435703f58ffc230a024a",
+ "tip": "1305843c735380f912619548b121cba8601f2f85",
+ "reviewedAt": "2026-09-29",
+ "decision": "promoted-to-installer: DStudio runtime rebased (three resolved conflicts); monitor, monitor-owner and cache-usage patches unchanged in content",
+ "aggregateDiffSHA256": "8d85b87252370437e5b4bb964a41aefaedaf181dc38ea7c4f503d90efe28aad3",
+ "changedFiles": 18,
+ "commits": [
+  {
+   "commit": "f54901d",
+   "date": "2026-09-09",
+   "subject": "gguf-tools: --strip-nextn",
+   "classification": "not-applicable",
+   "reason": "Offline quantization tool; DStudio installs pinned GGUFs and does not run it."
+  },
+  {
+   "commit": "1be49e3",
+   "date": "2026-09-09",
+   "subject": "cli: optional prompt and quoted paths in /read",
+   "classification": "not-applicable",
+   "reason": "Upstream terminal CLI only; DStudio drives q36-server and its own tool runtime."
+  },
+  {
+   "commit": "10c6965",
+   "date": "2026-09-09",
+   "subject": "README /read and --strip-nextn",
+   "classification": "documentation",
+   "reason": "No source behavior."
+  },
+  {
+   "commit": "d0e823b",
+   "date": "2026-09-14",
+   "subject": "Vulkan dense decode GDN fusion and IQ3_S dots",
+   "classification": "not-applicable-on-macOS",
+   "reason": "Adds q36_gpu_gdn_front_tensor (q36_gpu.h ABI change) called only under #ifndef Q36_METAL; Vulkan is outside the macOS-only campaign. The apply script admits the new ABI hash only for the rebased runtime variant."
+  },
+  {
+   "commit": "9fb537a",
+   "date": "2026-09-15",
+   "subject": "remove IQ3_S dots, keep GDN fusion",
+   "classification": "not-applicable-on-macOS",
+   "reason": "Vulkan shaders and host only."
+  },
+  {
+   "commit": "96e3608",
+   "date": "2026-09-23",
+   "subject": "empty compaction recovery; adaptive thinking closure; remove committed binary",
+   "classification": "integrated",
+   "reason": "q36_agent.c is the upstream terminal Agent (DStudio uses its own loop); removal of the committed q36_agent_test_metal binary is hygiene."
+  },
+  {
+   "commit": "8cb0905",
+   "date": "2026-09-23",
+   "subject": "reasoning controls and multimodal serving",
+   "classification": "integrated-behavior-change",
+   "reason": "For Qwen3.8-27B with thinking on, q36 now maps the thinking budget to low/medium/high/xhigh and inserts an effort instruction for low and xhigh, and may force </think> by token rank near the budget. Thinking-off requests (the frozen quality corpus) are unaffected. Multimodal serving and the bundled JPEG decoder also change. DStudio's batched-logits materialization is kept before the rank check (conflict resolution); earlier 8362010 real receipts do not qualify this behavior."
+  },
+  {
+   "commit": "bdcd85c",
+   "date": "2026-09-24",
+   "subject": "merge main into PR #6",
+   "classification": "merge",
+   "reason": "Merge commit; content reviewed through its parents."
+  },
+  {
+   "commit": "840769d",
+   "date": "2026-09-24",
+   "subject": "embedded MTP and sharded GGUF conversion",
+   "classification": "integrated-inactive",
+   "reason": "Loads an embedded MTP block when present and adds conversion fixes; DStudio does not enable MTP for the 27B (draft count 1 = off)."
+  },
+  {
+   "commit": "1305843",
+   "date": "2026-09-24",
+   "subject": "merge PR #6",
+   "classification": "merge",
+   "reason": "Merge commit."
+  }
+ ],
+ "adaptation": {
+  "runtimePatch": {
+   "path": "patch/q36-metal-runtime/runtime-1305843.patch",
+   "sha256": "99c3dfe2504f18fef54d19302fc563147d22199fe5521239206a957549c93aed",
+   "conflicts": [
+    "q36.h: keep upstream q36_engine_is_qwen38 and DStudio launch-info API",
+    "q36.c: same, both functions retained",
+    "q36_server.c: DStudio batched logits materialization before upstream rank-based thinking closure and sampling (both read host logits)"
+   ]
+  },
+  "unchangedContent": [
+   "patch/q36-agent-tty/monitor.patch",
+   "patch/q36-agent-tty/monitor-owner.patch",
+   "patch/q36-metal-runtime/cache-usage.patch"
+  ],
+  "gpuAbi": {
+   "previous": "27e0000128e353d82d4ba730ac64435919f48e93",
+   "current": "bcfa9e3d5bccc911d48b14c77ee08f76a8642f45"
+  }
+ },
+ "limitations": "Source review and model-free patch/installer checks only at the time of writing. Real Qwen3.8-27B inference, quality, vision and upgrade receipts for 1305843 are recorded separately; 8362010 results are not transferred. Vulkan/Linux is outside the campaign scope."
+}

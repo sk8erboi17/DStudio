@@ -14,10 +14,12 @@ import termios
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-assert sys.argv[1:] in ([], ['--next-review'], ['--monitor-owner']), 'Select the pinned, next-review or monitor-owner candidate'
+assert sys.argv[1:] in ([], ['--next-review'], ['--monitor-owner'], ['--current']), 'Select the pinned, next-review, monitor-owner or current candidate'
 MONITOR_OWNER = '--monitor-owner' in sys.argv
-NEXT_REVIEW = '--next-review' in sys.argv or MONITOR_OWNER
-PIN = '8362010a301b3360296e435703f58ffc230a024a' if NEXT_REVIEW else 'd02b6a20a7662300003c859e186ceb5bec7aa849'
+CURRENT = '--current' in sys.argv
+NEXT_REVIEW = '--next-review' in sys.argv or MONITOR_OWNER or CURRENT
+# The monitor patch content is identical on 8362010 and 1305843.
+PIN = '1305843c735380f912619548b121cba8601f2f85' if CURRENT else '8362010a301b3360296e435703f58ffc230a024a' if NEXT_REVIEW else 'd02b6a20a7662300003c859e186ceb5bec7aa849'
 VARIANT = 'monitor' if NEXT_REVIEW else 'pinned'
 SOURCE = Path(os.environ['Q36_SOURCE']).resolve()
 ARTIFACTS = ROOT / 'tests/.artifacts/q36-agent-tty'

@@ -1,6 +1,15 @@
 # Agent/Cowork: reproducible native patches
 
-Version 102 contains seven explicit unified patch variants. Version 87 migrated
+Version 103 contains eight explicit unified patch variants. The new
+[main-qwen.patch](main-qwen.patch) targets antirez/ds4
+`0aaea5a238fb41a35106a551e73c8409dfb751ac`, including Qwen Next and DeepSeek V4.1.
+It was rebased on the Qwen merge `9139e2a`; `ds4_agent.c` is identical at both.
+It retains worker-owned cancellable preparation, native tool grammars, durable
+save, live input and v102 compaction semantics. Main already fixes native
+snapshot-allocation cleanup. See the [migration](../../docs/QWEN_NEXT_MAIN_MIGRATION.md)
+for exact scope; old fork results are not new-weight quality results.
+
+Version 102 contained seven variants. Version 87 migrated
 the three existing Agent adaptations without changing their output; version 88
 added the Qwen3.8 candidate and version 89 fixes optional-renderer event handling
 in every existing variant. Version 90 adds the Qwen3.6 native-tool candidate
@@ -249,11 +258,14 @@ model-free snapshot timings; these are not inference performance claims.
 The separate Qwen3.6 host integration has two passing real development
 workflows; foreground desktop and general quality qualification remain open.
 Passing the native patch gate alone does not qualify the desktop app.
-The host enables Qwen3.8 Agent/Cowork with the new pin and
-its required PLE; Design and other hardware still require separate qualification.
+The host exposes Qwen3.8 Agent/Cowork through unified main with its new
+single-file BF16 n-gram weights; Design and other hardware still require
+separate qualification.
 
 | Source base | Patch |
 | --- | --- |
+| antirez/ds4 `0aaea5a238fb41a35106a551e73c8409dfb751ac` | [main-qwen.patch](main-qwen.patch), after [prepare-main.patch](../ds4-qwen38-prepare/prepare-main.patch) |
+| antirez/ds4 `9139e2ae58a41503968a500f36f75895c1ba63fc` (identical Agent source) | [main-qwen.patch](main-qwen.patch) |
 | antirez/ds4 `bd66c402070042bf0a79ad6ece8242de4c93680c` | [main-v41.patch](main-v41.patch) |
 | antirez/ds4 `c0a6119f363ef82125877142f13fb3fe491cba14` | [main-current.patch](main-current.patch) |
 | antirez/ds4 `f62ca29a308724cde5bc99134ede19104b2a3260` (identical Agent source) | [main-current.patch](main-current.patch) |
@@ -434,7 +446,7 @@ mtime/version freshness is not a complete dependency signature.
   through the host's shader-path setup from an unrelated workspace and checks
   257 exact additions. Existing native objects are required; no weights are
   loaded. This catches runtime source-path omissions that a compile cannot.
-- `node tests/live/qwen38_agent_smoke.mjs ENGINE MODEL_GGUF PLE_GGUF`: explicitly
+- `node tests/live/qwen38_agent_smoke.mjs ENGINE MODEL_GGUF`: explicitly
   loads the candidate's real weights, sequentially runs Agent and Cowork, and
   checks tool receipts, exact file contents, source preservation and readback.
   The backbone is resident and PLE SSD-backed; context 16k, thinking/MTP off.
@@ -443,7 +455,7 @@ mtime/version freshness is not a complete dependency signature.
   trace checks have a model-free gate, `make test-qwen38-tool-oracle`.
   `ENGINE MODEL_GGUF --qwen35` selects the already-built Qwen3.6 candidate,
   with resident weights and no PLE or Qwen3.8-specific power configuration.
-- `node tests/live/qwen38_host_smoke.mjs ENGINE MODEL_GGUF PLE_GGUF`: the same
+- `node tests/live/qwen38_host_smoke.mjs ENGINE MODEL_GGUF`: the same
   development task through actual host launch/send/poll APIs, automatic routing,
   full production charters, private KV, exact artifacts and durable graph receipts.
   It rejects a Design switch while each real engine is active, then requires

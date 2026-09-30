@@ -22,8 +22,11 @@ import tarfile
 import tempfile
 import time
 
-PIN = '8362010a301b3360296e435703f58ffc230a024a'
+PIN = '1305843c735380f912619548b121cba8601f2f85'
 LEGACY_PIN = 'd67687ed15ad9f52b755a9b5fdfc0214ea937555'
+# Reviewed revisions an existing installation may be upgraded from. Each one
+# recorded its own runtime patch variant; none is reapplied to the new base.
+PREVIOUS_PINS = (LEGACY_PIN, '8362010a301b3360296e435703f58ffc230a024a')
 URL = f'https://codeload.github.com/Ninnix/q36/tar.gz/{PIN}'
 SOURCE_LIMIT = 256 * 1024 * 1024
 FILE_LIMIT = 8192
@@ -183,15 +186,16 @@ def _command(argv, cwd, env, seconds=180, *, lifetime_fd=None,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              start_new_session=True, pass_fds=pass_fds)
     output = bytearray()
-    deadline = time.monotonic() + seconds
+    deadline = time.monotonic() + seconds if seconds > 0 else None
     try:
         with selectors.DefaultSelector() as reader:
             reader.register(child.stdout, selectors.EVENT_READ)
             while reader.get_map():
                 require_owner()
-                if time.monotonic() >= deadline:
+                if deadline is not None and time.monotonic() >= deadline:
                     raise RuntimeError(f'Command deadline ({seconds}s) exceeded')
-                for key, _ in reader.select(min(0.2, max(0, deadline - time.monotonic()))):
+                wait = min(0.2, max(0, deadline - time.monotonic())) if deadline is not None else 0.2
+                for key, _ in reader.select(wait):
                     data = os.read(key.fd, 8192)
                     if not data:
                         reader.unregister(key.fileobj)
@@ -208,7 +212,7 @@ def _command(argv, cwd, env, seconds=180, *, lifetime_fd=None,
                 if status is not None:
                     result = status.si_status if status.si_code == os.CLD_EXITED else -status.si_status
                     break
-                if time.monotonic() >= deadline:
+                if deadline is not None and time.monotonic() >= deadline:
                     raise RuntimeError(f'Command deadline ({seconds}s) exceeded')
                 time.sleep(0.01)
         if result:
@@ -243,16 +247,16 @@ def command(argv, cwd, env, seconds=180):
     """A bounded, installer-only supervisor survives loss of the caller.
 
     One extra Python process per sequential command; no worker pool or model
-    process. The inner command keeps its original work deadline/output limit.
-    Eight additional seconds cover its existing termination/reap/drain path,
-    not more compilation time. The parent owns the sole keepalive writer.
+    process. Zero seconds permits slow compilation without a work deadline;
+    output bounds and the sole owner keepalive still supervise its lifetime.
+    Explicit finite probe/network budgets include eight seconds for cleanup.
     """
     print('q36 install: ' + json.dumps(argv), flush=True)
     read_fd, write_fd = os.pipe()
     try:
         supervised = [sys.executable, '-B', str(Path(__file__).resolve()),
                       '--owned-command', str(read_fd), str(seconds), str(LOG_LIMIT), json.dumps(argv)]
-        return _command(supervised, cwd, env, seconds + 8,
+        return _command(supervised, cwd, env, seconds + 8 if seconds > 0 else 0,
                         pass_fds=(read_fd,), cleanup_grace=8,
                         # UTF-8 replacement may expand each invalid input byte
                         # to three bytes; preserve the existing decoded result.
@@ -469,7 +473,7 @@ def legacy_ownership(tree, receipt, stage, env):
     they still match the exact archived bytes. Unknown files stay user-owned.
     """
     revision, digest = receipt.get('commit'), receipt.get('archiveSHA256')
-    if (receipt.get('backend') != 'metal' or revision not in (LEGACY_PIN, PIN) or
+    if (receipt.get('backend') != 'metal' or revision not in (*PREVIOUS_PINS, PIN) or
             not isinstance(digest, str) or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest)):
         raise RuntimeError('Legacy q36 ownership migration lacks a reviewed archive identity; preserved')
     archive, original = stage / 'legacy-source.tar.gz', stage / 'legacy-source'
@@ -629,15 +633,19 @@ def install(root, revision):
                 'MAKEFLAGS', 'MAKELEVEL', 'MFLAGS', 'MAKEOVERRIDES', 'GNUMAKEFLAGS',
                 'CFLAGS', 'CPPFLAGS', 'LDFLAGS', 'CC', 'CXX', 'Q36_DIR'):
             del env[key]
-    patch_file = ASSETS / 'patch/q36-metal-runtime/next-review.patch'
+    patch_file = ASSETS / 'patch/q36-metal-runtime/runtime-1305843.patch'
     patch_script = ASSETS / 'scripts/apply-q36-metal-runtime.sh'
     terminal_script = ASSETS / 'scripts/apply-q36-agent-tty.sh'
     terminal_patch = ASSETS / 'patch/q36-agent-tty/monitor.patch'
     owner_patch = ASSETS / 'patch/q36-agent-tty/monitor-owner.patch'
     usage_patch = ASSETS / 'patch/q36-metal-runtime/cache-usage.patch'
-    patch_order = [str(file.relative_to(ASSETS)) for file in (patch_file, terminal_patch, owner_patch, usage_patch)]
+    attention_patch = ASSETS / 'patch/q36-f16-attention/online-1305843.patch'
+    attention_script = ASSETS / 'scripts/apply-q36-f16-attention.sh'
+    patch_order = [str(file.relative_to(ASSETS)) for file in
+                   (patch_file, terminal_patch, owner_patch, usage_patch, attention_patch)]
     patch_identity = {str(file.relative_to(ASSETS)): sha256(file) for file in
-                      (patch_file, patch_script, terminal_script, terminal_patch, owner_patch, usage_patch)}
+                      (patch_file, patch_script, terminal_script, terminal_patch, owner_patch, usage_patch,
+                       attention_patch, attention_script)}
     installer_identity = sha256(Path(__file__).resolve())
     root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     lock = -1
@@ -677,10 +685,11 @@ def install(root, revision):
                 return
             # Unknown patch requirements must not be silently dropped by an
             # upgrade. Recorded source edits are checked above, before any build.
-            known = set(patch_identity) | {'patch/q36-metal-runtime/runtime.patch'}
+            known = set(patch_identity) | {'patch/q36-metal-runtime/runtime.patch',
+                                           'patch/q36-metal-runtime/next-review.patch'}
             if not isinstance(receipt.get('patches'), dict) or set(receipt['patches']) - known:
                 raise RuntimeError('Existing q36 has additional patch requirements; preserved')
-            if receipt.get('commit') not in (LEGACY_PIN, PIN):
+            if receipt.get('commit') not in (*PREVIOUS_PINS, PIN):
                 raise RuntimeError('Existing q36 revision is not a reviewed upgrade base; preserved')
             if 'managedFiles' not in receipt and (receipt.get('backend') != 'metal' or
                                                   not receipt.get('archiveSHA256')):
@@ -721,14 +730,15 @@ def install(root, revision):
         env['Q36_DIR'] = str(candidate)
         # The terminal and owner changes are separate, reviewed upstream
         # adaptations. Preserve their application order in the durable receipt.
-        command(['/bin/sh', str(patch_script), 'apply', 'next-review'], candidate, env, 20)
+        command(['/bin/sh', str(patch_script), 'apply', 'current'], candidate, env, 20)
         command(['/bin/sh', str(terminal_script), 'apply', 'monitor'], candidate, env, 20)
         command(['/bin/sh', str(terminal_script), 'apply', 'monitor-owner'], candidate, env, 20)
         command(['/bin/sh', str(patch_script), 'apply', 'cache-usage'], candidate, env, 20)
+        command(['/bin/sh', str(attention_script), 'apply', 'online'], candidate, env, 20)
         frozen = source_identity(candidate)
         distributed_inputs = managed_files(candidate) if legacy else None
         build_command = ['make', '-B', '-j2', *targets]
-        build_log = command(build_command, candidate, env, 300)
+        build_log = command(build_command, candidate, env, 0)
         with (candidate / '.dstudio-build.log').open('x') as output:
             output.write(build_log)
         binaries = {}
@@ -852,7 +862,7 @@ def main():
             raise RuntimeError('Invalid installer command supervision arguments')
         fd, seconds, limit = int(sys.argv[2]), float(sys.argv[3]), int(sys.argv[4])
         if (fd < 3 or not stat.S_ISFIFO(os.fstat(fd).st_mode) or
-                not 0 < seconds <= 1800 or not 0 < limit <= LOG_LIMIT or
+                not 0 <= seconds <= 1800 or not 0 < limit <= LOG_LIMIT or
                 len(sys.argv[5]) > 128 * 1024):
             raise RuntimeError('Invalid installer command lifetime or budget')
         argv = json.loads(sys.argv[5])

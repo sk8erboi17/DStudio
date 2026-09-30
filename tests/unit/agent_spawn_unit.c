@@ -31,14 +31,14 @@ int main(void) {
     char temp[] = "/tmp/dstudio-agent-spawn.XXXXXX", engine[1024], gguf[1100], file[2048];
     assert(mkdtemp(temp));
     for (int qwen35 = 0; qwen35 <= 1; qwen35++) {
-    snprintf(engine, sizeof engine, "%s/%s", temp, qwen35 ? DS4_QWEN35_DIR_NAME : DS4_QWEN_DIR_NAME);
+    snprintf(engine, sizeof engine, "%s/%s", temp, qwen35 ? DS4_QWEN35_DIR_NAME : "ds4");
     snprintf(gguf, sizeof gguf, "%s/gguf", engine);
     assert(!mkdir(engine, 0755) && !mkdir(gguf, 0755));
     cstr_copy(g_ds4_dir, sizeof g_ds4_dir, engine);
     cstr_copy(g_web_dir, sizeof g_web_dir, temp);
     cstr_copy(g_model_override, sizeof g_model_override, qwen35 ? MODEL_QWEN35 : MODEL_QWEN);
     g_cfg = ENGINE_DEFAULTS; g_cfg.ssd_streaming = SSD_STREAMING_OFF;
-    const char *files[] = {qwen35 ? MODEL_QWEN35 : MODEL_QWEN, qwen35 ? NULL : MODEL_QWEN_PLE, "ds4-agent-jsonl", "ds4-cowork"};
+    const char *files[] = {qwen35 ? MODEL_QWEN35 : MODEL_QWEN, "ds4-agent-jsonl", "ds4-cowork"};
     for (size_t i = 0; i < sizeof files / sizeof files[0]; i++) {
         if (!files[i]) continue;
         snprintf(file, sizeof file, "%s/%s", engine, files[i]);

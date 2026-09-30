@@ -5,6 +5,37 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {execFileSync} from 'node:child_process';
+import {ownGitRevision} from './quality_baseline.mjs';
+
+export function diagnosticRevision(engine) {
+  const git=ownGitRevision(engine);
+  if(git)return {commit:git.head,git};
+  const file=path.join(engine,'.dstudio-source.json'),info=fs.lstatSync(file);
+  assert(info.isFile()&&!info.isSymbolicLink()&&info.size<=1024*1024,'Expected bounded archive provenance');
+  const bytes=fs.readFileSync(file),receipt=JSON.parse(bytes);
+  assert.equal(receipt.engine,'q36');assert.equal(receipt.backend,'metal');
+  assert.match(receipt.commit,/^[a-f0-9]{40}$/);
+  return {commit:receipt.commit,git:null,receiptSHA256:crypto.createHash('sha256').update(bytes).digest('hex')};
+}
+
+export function retainedDiagnosticPatchFiles(commit,attention) {
+  const current=commit==='1305843c735380f912619548b121cba8601f2f85';
+  assert(current||commit==='d02b6a20a7662300003c859e186ceb5bec7aa849','Unreviewed diagnostic revision');
+  const pairs=current ? [
+    ['q36-metal-runtime/runtime-1305843.patch','apply-q36-metal-runtime.sh'],
+    ['q36-agent-tty/monitor.patch','apply-q36-agent-tty.sh'],
+    ['q36-agent-tty/monitor-owner.patch','apply-q36-agent-tty.sh'],
+    ['q36-metal-runtime/cache-usage.patch','apply-q36-metal-runtime.sh'],
+    ...(attention ? [['q36-f16-attention/online-1305843.patch','apply-q36-f16-attention.sh']] : []),
+    ['q36-metal-diagnostics/runtime.patch','apply-q36-metal-diagnostics.sh']
+  ] : [
+    ['q36-metal-runtime/runtime.patch','apply-q36-metal-runtime.sh'],
+    ['q36-agent-tty/runtime.patch','apply-q36-agent-tty.sh'],
+    ['q36-metal-diagnostics/runtime.patch','apply-q36-metal-diagnostics.sh'],
+    ...(attention ? [['q36-f16-attention/runtime.patch','apply-q36-f16-attention.sh']] : [])
+  ];
+  return pairs.map(([patch,script])=>({patch:'patch/'+patch,script:'scripts/'+script}));
+}
 
 export function retainedDiagnosticOptions(args) {
   const options = args.slice(5);
@@ -18,7 +49,24 @@ export function retainedDiagnosticOptions(args) {
       ...(attention ? ['q36-f16-attention'] : [])]};
 }
 
-export function diagnosticSourceNames(engine) {
+export function diagnosticSourceNames(engine,patchFiles=[]) {
+  if(!ownGitRevision(engine)) {
+    // Use the installer's actual compiler-input census. An archive inside
+    // DStudio must never inherit DStudio's Git HEAD or list its source files.
+    const installer=path.resolve(import.meta.dirname,'../../scripts/install-q36.py');
+    const code='import importlib.util,json,sys; from pathlib import Path; s=importlib.util.spec_from_file_location("installer",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(json.dumps(m.source_identity(Path(sys.argv[2]),installed=True)))';
+    const inventory=JSON.parse(execFileSync('python3',['-B','-c',code,installer,engine],
+      {encoding:'utf8',timeout:10000,maxBuffer:1024*1024}));
+    const names=new Set(Object.keys(inventory));
+    // Patch round-trips also need upstream tests/documentation touched by a
+    // reviewed adaptation, even when they are not compiler inputs. Headers
+    // only route the snapshot; actual application proves compatibility.
+    for(const file of patchFiles)for(const [,name]of fs.readFileSync(file,'utf8').matchAll(/^\+\+\+ b\/(.+)$/gm)) {
+      assert(!path.isAbsolute(name)&&!name.split('/').some(p=>!p||p==='.'||p==='..'));
+      names.add(name);
+    }
+    return [...names];
+  }
   return execFileSync('git', ['-C',engine,'ls-files','--cached','--others','--exclude-standard','-z'],
     {encoding:'utf8',timeout:10000,maxBuffer:1024*1024,
       env:{PATH:process.env.PATH,LC_ALL:'C',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',

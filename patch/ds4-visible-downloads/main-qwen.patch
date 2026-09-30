@@ -1,0 +1,48 @@
+--- a/download_model.sh
++++ b/download_model.sh
+@@ -412,11 +412,8 @@
+ fi
+ 
+ needs_hf_download() {
+-    if [ "${FORCE_HF_DOWNLOAD:-0}" -eq 1 ]; then
+-        return 0
+-    fi
+     case "$1" in
+-        "$PRO_Q2_IMATRIX_FILE"|"$PRO_Q4_LAYERS00_30_FILE"|"$PRO_Q4_LAYERS31_OUTPUT_FILE")
++        "$DS41_Q2_FILE"|"$DS41_Q4_FILE"|"$DS41_Q4_FILE.part1"|"$DS41_Q4_FILE.part2"|"$DS41_VISION_FILE"|"$QWEN38_Q2_FILE"|"$QWEN38_Q4_FILE"|"$QWEN38_VISION_FILE")
+             return 0
+             ;;
+         *)
+@@ -535,10 +532,17 @@
+     echo "using $HF_CMD download"
+     echo "If the download stops, run the same command again to resume it."
+ 
+-    if [ -n "$TOKEN" ]; then
+-        "$HF_CMD" download "$REPO" "$file" --repo-type model --local-dir "$OUT_DIR" --token "$TOKEN"
++    # Preserve native size/SHA verification and bind each model family to its
++    # own immutable release. Qwen is NOT a V4.1 repository revision.
++    case "$REPO" in
++        "$DS41_REPO") hf_revision=dd8a266f7145edc19e2334b46e19b6821f221dc7 ;;
++        "$QWEN38_REPO") hf_revision=d600fe1a43d2e1cdcadb85144ce3142f66f9eefe ;;
++        *) hf_revision=main ;;
++    esac
++    if [ -n "$TOKEN" ]; then
++        "$HF_CMD" download "$REPO" "$file" --repo-type model --revision "$hf_revision" --local-dir "$OUT_DIR" --max-workers 1 --token "$TOKEN"
+     else
+-        "$HF_CMD" download "$REPO" "$file" --repo-type model --local-dir "$OUT_DIR"
++        "$HF_CMD" download "$REPO" "$file" --repo-type model --revision "$hf_revision" --local-dir "$OUT_DIR" --max-workers 1
+     fi
+ 
+     if [ "$hf_out" != "$out" ] && [ -s "$hf_out" ]; then
+@@ -584,9 +588,9 @@
+     echo "If the download stops, run the same command again to resume it."
+ 
+     if [ -n "$TOKEN" ]; then
+-        curl -fL --progress-meter -C - -H "Authorization: Bearer $TOKEN" -o "$part" "$url"
++        curl -fL --show-error --retry 5 --retry-all-errors --progress-meter -C - -H "Authorization: Bearer $TOKEN" -o "$part" "$url"
+     else
+-        curl -fL --progress-meter -C - -o "$part" "$url"
++        curl -fL --show-error --retry 5 --retry-all-errors --progress-meter -C - -o "$part" "$url"
+     fi
+ 
+     mv "$part" "$out"

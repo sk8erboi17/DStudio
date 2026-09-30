@@ -58,9 +58,8 @@ async function step(name, fn) {
   finally { row.seconds = (performance.now()-t)/1000; save(); console.log(`${row.status}: ${name} (${row.seconds.toFixed(1)}s)`); }
 }
 const configs = {
-  main: { dir: 'ds4', endpoint: '/api/ds4/setup', commit: 'bd66c402070042bf0a79ad6ece8242de4c93680c' },
+  main: { dir: 'ds4', endpoint: '/api/ds4/setup', commit: '0aaea5a238fb41a35106a551e73c8409dfb751ac' },
   laguna: { dir: 'ds4-laguna-s21', endpoint: '/api/laguna/setup', target: 'laguna-q4', commit: '448d5695d1c86401a4e9447c440feb983b73e6de' },
-  qwen: { dir: 'ds4-qwen38', endpoint: '/api/qwen/setup', target: 'qwen38-q4k', commit: 'ff4f0ff4fdff70d6b7c3941ef437b91dde960e14' },
   qwen35: { dir: 'ds4-qwen35', endpoint: '/api/qwen35/setup', target: 'qwen36-q6', commit: '73434c4bb9d8bb18425a2577edada69d25d44c47' },
 };
 function verifyRuntime(id, response) {
@@ -81,6 +80,12 @@ function verifyRuntime(id, response) {
     assert.equal(r.error, undefined); assert.equal(r.status, 0, `${bin}: ${r.stderr}`);
     assert.match(r.stdout + r.stderr, /usage|options/i);
     runtime[bin] = { sha256: sha(executable), bytes: fs.statSync(executable).size };
+  }
+  if (id === 'qwen35') {
+    // The fork's MoE shader is corrected at install time, not at first launch.
+    const q6 = spawnSync('sh', [path.join(repo, 'scripts/apply-ds4-qwen35-q6k-moe.sh'), 'check'],
+      { env: { ...env, DS4_DIR: dir }, timeout: 20000, encoding: 'utf8' });
+    assert.equal(q6.stdout.trim(), 'Qwen3.6 Q6_K MoE patch: already applied', q6.stderr);
   }
   assert.deepEqual(fs.readdirSync(path.join(data,'ds4/gguf')), [], 'no weights or partial downloads');
   if (id !== 'main') assert.equal(fs.realpathSync(path.join(dir,'gguf')), path.join(data,'ds4/gguf'));
@@ -179,7 +184,27 @@ try {
     await page.screenshot({path:path.join(run,'03-main-installed.png'),fullPage:true});
     return evidence;
   });
-  for (const id of ['laguna','qwen','qwen35']) {
+  await step('Qwen Next Q2/Q4 reuse main without installing a separate engine', async () => {
+    for (const target of ['qwen38-q2', 'qwen38-q4k']) {
+      const modelHost = page.locator(setupSurface === 'onboarding' ? '#onboard-models' : '#set-models');
+      const boundary = page.waitForResponse(r => r.url().endsWith('/api/model/download') && r.request().method() === 'POST');
+      await modelHost.locator('select').selectOption(target);
+      await modelHost.getByRole('button', {name:'Download',exact:true}).click();
+      await page.locator('#confirm-go').click();
+      assert.equal((await boundary).status(), 409, 'real weight transfer is intentionally outside this install gate');
+      await modelHost.locator('select').waitFor({state:'visible'});
+      assert.equal(report.weightBoundaries.at(-1).body.target, target);
+      assert.equal((await json('/api/status')).ds4dir, path.join(data,'ds4'));
+      assert.equal(fs.existsSync(path.join(data,'ds4-qwen38')), false);
+    }
+    assert(!report.requests.some(r => r.url.endsWith('/api/qwen/setup')));
+    const tombstone = await fetch(report.base + '/api/qwen/setup', {method:'POST',
+      headers:{'Content-Type':'application/json','X-Requested-With':'ds4web'}, body:'{}'});
+    assert.equal(tombstone.status, 410);
+    assert.equal(fs.existsSync(path.join(data,'ds4-qwen38')), false);
+    return {legacyEndpoint:410, weightTransfers:'not run', mainSharedByBothQuantizations:true};
+  });
+  for (const id of ['laguna','qwen35']) {
     await step(`${id}: model choice installs the matching absent engine`, async () => {
       const cfg = configs[id];
       const modelHost = page.locator(setupSurface === 'onboarding' ? '#onboard-models' : '#set-models');
@@ -212,7 +237,7 @@ try {
     assert.equal(sha(path.join(app,'Contents/MacOS/DStudio')),report.appSha256);
     return catalog;
   });
-  await step('six native main adaptations reverse and reapply without source loss', async () => {
+  await step('seven native main adaptations reverse and reapply without source loss', async () => {
     return nativePatchRoundtrip({ support: data, source: path.join(data, 'ds4'),
       scratch: path.join(run, 'patch-roundtrip'), environment: env });
   });

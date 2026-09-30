@@ -24,7 +24,12 @@ apply_file() (
     unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
     GIT_CEILING_DIRECTORIES="$(dirname -- "$ds4_dir")" git -C "$ds4_dir" apply --unidiff-zero "$@" "$patch_file"
 )
-for variant in main-v41.patch streaming-memory.patch; do
+# Try the superset historical unified-main delta first. On restore, the newest
+# ds4.c-only delta is a strict subset of it; reversing that subset first would
+# leave the old server-alias hunk behind. Forward application on current main
+# still falls through to main-latest.patch because the superseded server hunk
+# no longer matches upstream.
+for variant in main-qwen.patch main-latest.patch main-v41.patch streaming-memory.patch; do
     patch_file="$script_dir/../patch/ds4-glm53-runtime/$variant"
     if apply_file "$patch_file" --reverse --check >/dev/null 2>&1; then
         if [ "$action" = restore ]; then

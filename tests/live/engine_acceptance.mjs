@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import {spawn, execFileSync} from 'node:child_process';
+import {spawn, spawnSync, execFileSync} from 'node:child_process';
 import {freePort, sleep} from '../support/real_harness.mjs';
 import {createCommonQuality, runCommonQuality, finishCommonQuality} from '../support/common_quality_runner.mjs';
 
@@ -17,7 +17,8 @@ const commonQuality = process.argv.includes('--common-quality');
 const restartFailedEngine = process.argv.includes('--restart-failed-engine');
 if (!install && !infer) throw Error('Specify --setup and/or --infer; real network/model execution is explicit.');
 const option = (name, fallback) => { const i=process.argv.indexOf(name); return i<0?fallback:process.argv[i+1]; };
-const engines = option('--engines', install ? 'main,laguna,qwen,qwen35' : 'main,laguna').split(',');
+const engines = option('--engines', install ? 'main,laguna,qwen35' : 'main,laguna').split(',');
+assert(!(install && engines.includes('main') && engines.includes('qwen')), 'Qwen Next shares the main installation; select it only once for an empty-install test');
 const qualityUse = option('--quality-use','development-replay');
 assert.ok(['first-exposure','development-replay'].includes(qualityUse),'--quality-use must distinguish first exposure from development replay');
 assert.ok(!commonQuality || (infer && !install && !stateReplay && !viaApp && engines.length === 1 && process.argv.includes('--engines')),
@@ -36,7 +37,7 @@ const modelRoot = path.resolve(option('--model-root','ds4/gguf'));
 const configs = {
   main: {dir:'ds4', file:'DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf'},
   laguna: {dir:'ds4-laguna-s21', file:'laguna-s-2.1-Q4_K_M.gguf'},
-  qwen: {dir:'ds4-qwen38',file:'Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf'},
+  qwen: {dir:'ds4',installer:'main',file:'Qwen3.8-Flash-Next-Q4.gguf'},
   qwen35: {dir:'ds4-qwen35',file:'Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf'},
   q36: {dir:'q36',server:'q36-server',file:'Qwen3.8-27B-UD-Q6_K_XL.gguf'},
 };
@@ -101,11 +102,11 @@ async function inference(id, entry) {
   const tokenLimit=commonQuality?entry.quality.manifest.settings.max_tokens:256;
   const args=['--metal','-m',file,'--host','127.0.0.1','--port',String(port),'--ctx',String(context),'--tokens',String(tokenLimit)];
   if(id!=='laguna')args.push('--prefill-chunk',id==='q36' && commonQuality?'128':'512'); // Laguna rejects a custom chunk.
-  // Explicit resident run: PLE for Qwen remains SSD-backed by model design.
-  if(id==='qwen')args.push('--ple',path.join(modelRoot,'Qwen3.8-Flash-Next-PLE-Q4_1.gguf'));
+  // Qwen's original BF16 n-grams are SSD-backed inside this single GGUF.
   if(id==='q36')args.push('--quality','--cache-type-k','f16','--cache-type-v','f16');
-  entry.inference={mode:id==='qwen'?'resident backbone + native SSD PLE':'Metal resident, no SSD expert streaming',transport:viaApp?'DStudio launch API and Chat HTTP proxy':'native engine HTTP',model:{path:file,bytes:st.size,mtime:st.mtime.toISOString()},binarySha256:hashFile(bin),argv:viaApp?undefined:args,cases:[]};
+  entry.inference={mode:id==='qwen'?'resident backbone + embedded BF16 n-grams on SSD':'Metal resident, no SSD expert streaming',transport:viaApp?'DStudio launch API and Chat HTTP proxy':'native engine HTTP',model:{path:file,bytes:st.size,mtime:st.mtime.toISOString()},binarySha256:hashFile(bin),argv:viaApp?undefined:args,cases:[]};
   let q36Sources;
+  let q35Sources;
   if(id==='q36') {
     assert.equal(process.platform,'darwin','This live q36 gate requires Metal; Vulkan is not inferred');
     const pins=JSON.parse(execFileSync('python3',[path.join(root,'scripts/download-qwen27.py'),'--manifest'],{encoding:'utf8',timeout:5000}));
@@ -115,17 +116,67 @@ async function inference(id, entry) {
     assert.equal(entry.inference.model.sha256,pins.files.model.sha256,'Verify full pinned weights before loading');
     entry.inference.model.repository=pins.repository;entry.inference.model.revision=pins.revision;
     entry.inference.installer=JSON.parse(fs.readFileSync(path.join(cwd,'.dstudio-source.json'),'utf8'));
-    assert.equal(entry.inference.installer.commit,'8362010a301b3360296e435703f58ffc230a024a');
+    assert.equal(entry.inference.installer.commit,'1305843c735380f912619548b121cba8601f2f85');
+    const attentionPatch='patch/q36-f16-attention/online-1305843.patch';
+    for(const name of [attentionPatch,'scripts/apply-q36-f16-attention.sh'])
+      assert.equal(entry.inference.installer.patches?.[name],hashFile(path.join(root,name)),
+        `Install the current parallel F16 attention before evaluation: ${name}`);
+    assert.equal(entry.inference.installer.patchOrder?.at(-1),attentionPatch);
     q36Sources=entry.inference.installer.sources;
     for(const [name,hash] of Object.entries(q36Sources))assert.equal(hashFile(path.join(cwd,name)),hash,`Installed source drift: ${name}`);
     assert.equal(entry.inference.binarySha256,entry.inference.installer.binaries['q36-server']);
-    entry.inference.mode+=`; exact quality kernels; F16 K/V; ${context} context capacity`;
+    entry.inference.mode+=`; quality kernels; FP32 online F16 attention (operator error bound 1e-3); F16 K/V; ${context} context capacity`;
     save();
   }
   if(id==='qwen') {
-    const ple=path.join(modelRoot,'Qwen3.8-Flash-Next-PLE-Q4_1.gguf'), pst=fs.statSync(ple);
-    assert.equal(pst.size,32000157440,'the complete required PLE must be present');
-    entry.inference.ple={path:ple,bytes:pst.size,mtime:pst.mtime.toISOString()};
+    const weights = {
+      'Qwen3.8-Flash-Next-Q2.gguf': [147207127040, 'b1b93fa69aca5f187b0fb813aca8f3ec1beb5cf8cf0bd38cf041b93e0b6ccac9'],
+      'Qwen3.8-Flash-Next-Q4.gguf': [177280286720, '680944460a8cbe93ba8b6d7b6107213ffb7e22320bd913000e563ca0a0f25a8a'],
+    };
+    const expected=weights[cfg.file]; assert(expected, 'Use a pinned single-file BF16 n-gram release');
+    assert.equal(st.size,expected[0]);
+    entry.inference.model.sha256=await hashLargeFile(file);
+    assert.equal(entry.inference.model.sha256,expected[1]);
+    // Main is a Git checkout; the ceiling keeps DStudio's own repository from
+    // answering for an engine directory that lacks its own .git.
+    const head=execFileSync('git',['-C',cwd,'rev-parse','HEAD'],{encoding:'utf8',timeout:5000,
+      env:{...process.env,GIT_CEILING_DIRECTORIES:path.dirname(cwd)}}).trim();
+    entry.inference.installer={engine:'main',commit:head};
+    save();
+  }
+  if(id==='qwen35') {
+    // Same full-weight evidence as q36/Next: a public quality aggregate needs
+    // the verified pinned file, not only its name and size.
+    const pins=JSON.parse(execFileSync('python3',[path.join(root,'scripts/download-qwen35.py'),'--manifest'],{encoding:'utf8',timeout:5000}));
+    assert.equal(cfg.file,pins.files.model.file);
+    assert.equal(st.size,pins.files.model.bytes);
+    entry.inference.model.sha256=await hashLargeFile(file);
+    assert.equal(entry.inference.model.sha256,pins.files.model.sha256,'Verify full pinned weights before loading');
+    entry.inference.model.repository=pins.repository;entry.inference.model.revision=pins.revision;
+    entry.inference.installer=JSON.parse(fs.readFileSync(path.join(cwd,'.dstudio-source.json'),'utf8'));
+    // Metal kernels are compiled from this source at load time, so its state
+    // (original fork shader or DStudio Q6_K correction) identifies the run.
+    const kernel=path.join(cwd,'metal/qwen35.metal');
+    const q6k=spawnSync('sh',[path.join(root,'scripts/apply-ds4-qwen35-q6k-moe.sh'),'check'],
+      {encoding:'utf8',timeout:10000,env:{...process.env,DS4_DIR:cwd}});
+    assert.equal(entry.inference.installer.commit,'73434c4bb9d8bb18425a2577edada69d25d44c47');
+    assert.equal(q6k.status,0,'Verify the Qwen3.6 Q6_K correction before evaluation');
+    assert.equal(q6k.stdout.trim(),'Qwen3.6 Q6_K MoE patch: already applied',
+      'Apply the Qwen3.6 Q6_K correction before evaluation');
+    entry.inference.installer.kernelSource={file:'metal/qwen35.metal',sha256:hashFile(kernel),
+      q6kMoePatch:q6k.status===0?q6k.stdout.trim():`check failed: ${(q6k.stderr||q6k.stdout).trim()}`};
+    const patch='patch/ds4-qwen35-prefill/prefill-73434c4.patch';
+    const applied=spawnSync('git',['-C',cwd,'apply','--reverse','--check',path.join(root,patch)],
+      {encoding:'utf8',timeout:10000,env:{PATH:process.env.PATH,LC_ALL:'C',GIT_CONFIG_NOSYSTEM:'1',
+        GIT_CONFIG_GLOBAL:'/dev/null',GIT_CEILING_DIRECTORIES:path.dirname(cwd)}});
+    assert.equal(applied.status,0,'Apply and rebuild the bounded Qwen3.6 prefill before evaluation');
+    const fresh=spawnSync('make',['-q','ds4-server'],{cwd,encoding:'utf8',timeout:10000});
+    assert.equal(fresh.status,0,'Rebuild ds4-server after source/header/shader changes before evaluation');
+    q35Sources=Object.fromEntries(['ds4.c','ds4.h','ds4_gpu.h','ds4_metal.m','ds4_server.c','metal/qwen35.metal','Makefile']
+      .map(name=>[name,hashFile(path.join(cwd,name))]));
+    entry.inference.installer.prefill={patchSha256:hashFile(path.join(root,patch)),
+      scriptSha256:hashFile(path.join(root,'scripts/apply-ds4-qwen35-prefill.sh')),maxChunkTokens:64,sources:q35Sources};
+    save();
   }
   const begin=performance.now();
   let child;
@@ -218,6 +269,7 @@ async function inference(id, entry) {
           row.reaped=new Date().toISOString();save();
           assert.equal(hashFile(bin),entry.inference.binarySha256,'engine changed during evaluation');
           for(const [name,hash] of Object.entries(q36Sources||{}))assert.equal(hashFile(path.join(cwd,name)),hash,`Source changed before restart: ${name}`);
+          for(const [name,hash] of Object.entries(q35Sources||{}))assert.equal(hashFile(path.join(cwd,name)),hash,`Source changed before restart: ${name}`);
           const current=fs.statSync(file);
           for(const key of ['dev','ino','size','mtimeMs','ctimeMs'])assert.equal(current[key],st[key],`Model changed before restart: ${key}`);
           const nextPort=await freePort(),nextBase=`http://127.0.0.1:${nextPort}`;
@@ -317,8 +369,9 @@ async function inference(id, entry) {
     assert.ok(entry.inference.cases.every(c=>c.status==='pass'),'one or more answer/protocol checks failed');
   } finally {
     await stop(child);
-    if(q36Sources){
-      for(const [name,hash] of Object.entries(q36Sources))assert.equal(hashFile(path.join(cwd,name)),hash,`Inference mutated native source: ${name}`);
+    for(const [name,hash] of Object.entries(q35Sources||{}))assert.equal(hashFile(path.join(cwd,name)),hash,`Inference mutated native source: ${name}`);
+    if(q36Sources || q35Sources){
+      for(const [name,hash] of Object.entries(q36Sources||{}))assert.equal(hashFile(path.join(cwd,name)),hash,`Inference mutated native source: ${name}`);
       assert.equal(hashFile(bin),entry.inference.binarySha256,'Inference changed its executable');
       const after=fs.statSync(file);
       assert.equal(after.ino,st.ino);assert.equal(after.size,st.size);assert.equal(after.mtimeMs,st.mtimeMs);
@@ -345,10 +398,10 @@ for(const id of engines){
     }
     if(install){
       const target=path.join(installedRoot,configs[id].dir);assert.ok(!fs.existsSync(target),'fresh install starts without checkout');
-      const before=performance.now();const child=launch(app,['--install-engine',id,installedRoot],path.join(run,id+'-install.log'),root);
+      const before=performance.now();const child=launch(app,['--install-engine',configs[id].installer||id,installedRoot],path.join(run,id+'-install.log'),root);
       await bounded(child,1200000);
       entry.installation={seconds:(performance.now()-before)/1000,receipt:JSON.parse(fs.readFileSync(path.join(target,'.dstudio-source.json'),'utf8'))};
-      const executables = id==='q36' ? ['q36','q36-server'] : ['qwen','qwen35'].includes(id)
+      const executables = id==='q36' ? ['q36','q36-server'] : id==='qwen35'
         ? ['ds4','ds4-server','ds4-agent','ds4-agent-jsonl','ds4-cowork']
         : ['ds4-server','ds4-agent-jsonl','ds4-cowork','ds4-design'];
       entry.installation.executables=[];

@@ -14,7 +14,7 @@ try {
 }
 
 const repoRoot = process.cwd();
-const webRoot = path.join(repoRoot, 'web');
+const webRoot = path.resolve(process.env.DSTUDIO_TEST_WEB_ROOT || path.join(repoRoot, 'web'));
 const starts = [];
 const sends = [];
 const steering = [];
@@ -25,6 +25,7 @@ let goalGraph = null;
 const goalControls = [];
 const sessions = [];
 const chatRequests = [];
+const pdfPlanRequests = [];
 const coworkAttachments = [];
 let currentMode = 'server';
 let currentWorkdir = '/tmp/dstudio-ui-test';
@@ -467,6 +468,13 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
     const chatRequest = JSON.parse(await readBody(req) || '{}');
+    if (chatRequest.stream === false) {
+      assert.ok(chatRequest.messages[0].content.includes('semantic PDF read planner'), 'Unexpected simulated nonstreaming request');
+      assert.equal(chatRequest.max_tokens, 140);
+      pdfPlanRequests.push(chatRequest);
+      json(res, 200, {choices: [{message: {content: JSON.stringify({mode: 'overview', pages: '', query: ''})}}]});
+      return;
+    }
     chatRequests.push(chatRequest);
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
@@ -936,6 +944,8 @@ try {
     'Cowork send should preserve the selected skill and document instruction',
     debugDetails,
   );
+  assert.equal(pdfPlanRequests.length, 1, 'The attachment must receive a valid model planner response');
+  assert.ok(pdfPlanRequests[0].messages.at(-1).content.includes('Cowork streaming fixture'), 'Planning preserves the original request');
   const coworkResponseNames = page.locator('.agent-response-name').filter({ hasText: 'Cowork' });
   await coworkResponseNames.last().waitFor({ timeout: 5000 });
   assert.equal(await coworkResponseNames.count(), 2, 'The service notice and actual reply have distinct Cowork headers');

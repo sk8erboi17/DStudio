@@ -187,7 +187,7 @@ try {
     row.exit = await finish(900000);
     assert.deepEqual(row.exit, { code: 0, signal: null });
     row.receipt = JSON.parse(fs.readFileSync(receiptFile, 'utf8'));
-    assert.equal(row.receipt.commit, '8362010a301b3360296e435703f58ffc230a024a');
+    assert.equal(row.receipt.commit, '1305843c735380f912619548b121cba8601f2f85');
     assert.equal(row.receipt.upgradeFrom.receiptSHA256, oldReceiptHash);
     assert.equal(row.receipt.upgradeFrom.ownershipReconstructed, true);
     const backup = path.join(destination, row.receipt.upgradeFrom.backup);

@@ -16,7 +16,7 @@ const workspace = path.join(run, 'workspace');
 for (const dir of [engine, assets, workspace]) fs.mkdirSync(dir);
 const binary = path.resolve(process.argv[2] || 'tests/.build/dstudio-server-test');
 const report = { schema: 'dstudio.launch-control.v1',
-  scope: 'Real native HTTP and process lifecycle; simulated builders, no inference',
+  scope: 'Real native HTTP and process lifecycle; simulated builders and remote model profile, no inference',
   started: new Date().toISOString(), binarySHA256: crypto.createHash('sha256')
     .update(fs.readFileSync(binary)).digest('hex'), cases: [] };
 const port = await freePort(), base = `http://127.0.0.1:${port}`;
@@ -30,6 +30,10 @@ const child = spawn(binary, [String(port), engine], {
 fs.closeSync(log);
 const exited = new Promise(resolve => { child.once('exit', resolve); child.once('error', resolve); });
 async function request(endpoint, body, timeout = 3000) {
+  // The executable/barriers exercise native ownership without using the user's
+  // global model lock or engine port. No model request is made to this URL.
+  if (endpoint === '/api/start' && body?.modelBackend !== 'local') body = { modelBackend: 'remote',
+    remoteBaseUrl: base, remoteModel: 'fixture-no-inference', ...body };
   const res = await fetch(base + endpoint, { method: body === undefined ? 'GET' : 'POST',
     headers: csrfHeaders, body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(timeout) });
@@ -213,7 +217,7 @@ try {
     } finally { if (processExists(pending.builderPid)) pending.release(); }
   });
   await checkCase('a checkpoint changed behind a blocked build is rejected before stopping the old engine', async evidence => {
-    const pending = await blockedBuild();
+    const pending = await blockedBuild(0, { modelBackend: 'local' });
     try {
       fixture(path.join(engine, initial.modelFile), 'changed fixture bytes, still not weights\n');
       pending.release(); evidence.start = await pending.response;
@@ -299,7 +303,7 @@ try {
     const model = 'gguf/DeepSeek-V4-Flash-Vision-Exp-fixture.gguf';
     fixture(path.join(engine, model), 'fixture only, no inference\n');
     const before = (await request('/api/status')).body;
-    const pending = await blockedBuild(0, { gguf: model });
+    const pending = await blockedBuild(0, { gguf: model, modelBackend: 'local' });
     fixture(path.join(engine, 'gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf'), 'new fixture encoder bytes\n');
     pending.release(); evidence.start = await pending.response;
     try {

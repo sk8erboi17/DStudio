@@ -7,9 +7,10 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import {spawn, spawnSync, execFileSync} from 'node:child_process';
 import {artifactRunDir, writeArtifact, freePort, httpJsonRequest} from '../support/real_harness.mjs';
-import {hashStableFile, fileIdentity, ownGitRevision} from '../support/quality_baseline.mjs';
+import {hashStableFile, fileIdentity} from '../support/quality_baseline.mjs';
 import {selectRetainedDiagnosticCase, validateRetainedDiagnosticRequest,
-  verifyDiagnosticPatchStack, diagnosticSourceNames, retainedDiagnosticOptions} from '../support/q36_retained_diagnostic_inputs.mjs';
+  verifyDiagnosticPatchStack, diagnosticSourceNames, retainedDiagnosticOptions,
+  diagnosticRevision,retainedDiagnosticPatchFiles} from '../support/q36_retained_diagnostic_inputs.mjs';
 
 const root=path.resolve(import.meta.dirname,'../..'), run=artifactRunDir('q36-retained-diagnostic');
 const report={status:'running',started:new Date().toISOString(),
@@ -65,7 +66,7 @@ function capture(name,data){
 console.log('Diagnostic evidence: '+run);save();
 try{
   assert.equal(process.platform,'darwin','Metal diagnostic unavailable on this host');
-  const {inputs:cli,preflightOnly,variant,patchNames}=retainedDiagnosticOptions(process.argv.slice(2));
+  const {inputs:cli,preflightOnly,variant}=retainedDiagnosticOptions(process.argv.slice(2));
   report.variant=variant;
   report.mode=preflightOnly?'preflight-only':'native-diagnostic';
   const [engineArg,modelArg,priorArg,caseId,expectedBinary]=cli;
@@ -85,12 +86,13 @@ try{
     nativeFailure:{httpStatus:old.httpStatus,elapsedMs:old.elapsedMs,error:old.error},
     engineCommit:entry.inference.installer.commit,binarySHA256:entry.inference.binarySha256,
     requestFileSHA256:sha(requestBytes)};
-  report.engine={directory:engine,git:ownGitRevision(engine)};
-  assert.equal(report.engine.git?.head,'d02b6a20a7662300003c859e186ceb5bec7aa849','Use the reviewed diagnostic candidate');
+  report.engine={directory:engine,...diagnosticRevision(engine)};
+  const patchStack=retainedDiagnosticPatchFiles(report.engine.commit,variant==='bounded-f16-attention');
+  if(report.engine.commit==='1305843c735380f912619548b121cba8601f2f85'&&variant==='bounded-f16-attention')report.variant='parallel-online-f16';
   const binary=path.join(engine,'q36-server');assert.equal(sha(read(binary,64*1024*1024)),expectedBinary);
   const captured=path.join(run,'q36-server');fs.copyFileSync(binary,captured,fs.constants.COPYFILE_EXCL);fs.chmodSync(captured,0o700);
   report.binary={source:binary,captured,sha256:expectedBinary};
-  const names=diagnosticSourceNames(engine);
+  const names=diagnosticSourceNames(engine,patchStack.map(p=>path.join(root,p.patch)));
   assert.ok(names.length>0&&names.length<4096);let bytes=0;
   for(const name of names){
     const file=path.join(engine,name),info=fs.lstatSync(file);assert.ok(info.isFile()&&!info.isSymbolicLink());
@@ -105,17 +107,22 @@ try{
     const file=path.join(root,name);assert.equal(sha(read(file)),expected,'Frozen grader changed');report.hashes[file]=expected;
   }
   const patchFiles=[];
-  for(const patch of patchNames){
-    const file=path.join(root,'patch',patch,'runtime.patch');report.hashes[file]=sha(read(file));
-    const capturedPatch=path.join(run,'patches',patch,'runtime.patch');
+  for(const {patch,script:scriptName} of patchStack){
+    const file=path.join(root,patch);report.hashes[file]=sha(read(file));
+    const capturedPatch=path.join(run,'patches',patch);
     fs.mkdirSync(path.dirname(capturedPatch),{recursive:true});
     fs.copyFileSync(file,capturedPatch,fs.constants.COPYFILE_EXCL);
     report.hashes[capturedPatch]=report.hashes[file];patchFiles.push(capturedPatch);
-    const script=path.join(root,'scripts',`apply-${patch}.sh`);report.hashes[script]=sha(read(script));
+    const script=path.join(root,scriptName);report.hashes[script]=sha(read(script));
   }
   report.patchValidation=verifyDiagnosticPatchStack(engine,path.join(run,'patch-validation'),names,patchFiles);
-  const diff=execFileSync('git',['-C',engine,'diff','--binary','HEAD'],{timeout:10000,maxBuffer:16*1024*1024});
-  fs.writeFileSync(path.join(run,'engine-changes.patch'),diff,{flag:'wx'});report.engine.diffSHA256=sha(diff);
+  if(report.engine.git){
+    const diff=execFileSync('git',['-C',engine,'diff','--binary','HEAD'],{timeout:10000,maxBuffer:16*1024*1024});
+    fs.writeFileSync(path.join(run,'engine-changes.patch'),diff,{flag:'wx'});report.engine.diffSHA256=sha(diff);
+  }else{
+    const receipt=path.join(engine,'.dstudio-source.json');report.hashes[receipt]=sha(read(receipt));
+    fs.copyFileSync(receipt,path.join(run,'archive-provenance.json'),fs.constants.COPYFILE_EXCL);
+  }
   fs.writeFileSync(path.join(run,'retained-request.json'),requestBytes,{flag:'wx'});
   if(preflightOnly){
     report.status='preflight-pass';

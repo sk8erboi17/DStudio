@@ -213,6 +213,24 @@ Before implementation, identify the behavioral oracle and affected surfaces:
 - Heavy model runs are explicit, sequential and resource-bounded. Do not stop
   unrelated user processes. Report memory/SSD mode and never compare speed before
   correctness checks pass. Stop only processes started by the current test.
+- Slow hardware must not fail valid owned work solely because time elapsed.
+  Model loading/inference, runtime preparation, PDF planning and research
+  discovery/synthesis/review have no automatic application wall-clock cutoff.
+  Bound concurrency, queues, page/query/action counts and retained bytes instead;
+  preserve responsive Stop, owner-death cleanup, identity revalidation and honest
+  failure reporting. Task Graph deadlines must be explicitly configured: omitted
+  or zero `timeoutMs` means no elapsed-work cutoff. Preserve positive budgets in
+  existing graphs. Connection establishment, individual web requests, blocked
+  consumers and cancellation escalation may retain appropriate deadlines.
+- Research answer synthesis and review must not have an application-imposed
+  elapsed-time cutoff. The project owner explicitly removed the 240-second
+  writer/review deadline: a slow valid local-model request must remain active
+  until completion, an actual transport/engine failure or user cancellation.
+  Keep Stop effective, retain generated text on failure and completed evidence,
+  and report incomplete outcomes honestly. Bound discovery, page counts and
+  retained data; do not replace a failed answer with an internal source-map/report
+  scaffold.
+  Explicit deadlines in isolated fault-injection tests remain appropriate.
 
 ## Impact-scoped verification
 

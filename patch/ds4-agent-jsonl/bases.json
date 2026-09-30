@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentManifestVersion": 102,
+  "currentManifestVersion": 103,
   "repository": "https://github.com/antirez/ds4",
   "sourceFile": "ds4_agent.c",
   "application": "Choose a complete exact-context variant, apply once to a private source copy, then compile with build.mk. Do not edit the upstream Agent file.",
@@ -17,6 +17,19 @@
     }
   },
   "bases": [
+    {
+      "name": "main-qwen",
+      "revision": "9139e2ae58a41503968a500f36f75895c1ba63fc",
+      "patch": "main-qwen.patch",
+      "sourceSHA256": "8b8911d242142641afabe4e0673d260dc1f99762aa8f6988f7b6b4aa206f6e65",
+      "patchSHA256": "1edc14b6834e4c3ca566421f1b8835bc6690e8d391b8c05fcef0ac1d20349979",
+      "derivedSHA256": "2ea1db54e3837e05af14b5ae87f6eab0b85b84c9e28bb00bc048272f4a72ba6c",
+      "requiredCorePatch": "../ds4-qwen38-prepare/prepare-main.patch",
+      "oracle": "Unified main: native Qwen and DSML/V4.1 tool grammar, worker-owned cancellable session preparation, durable session save, JSONL steering, compaction, Cowork and PLD. Sanitized native behavior tests use simulated model responses; not a full-model quality or historical byte-parity claim.",
+      "equivalentSourceRevisions": [
+        "0aaea5a238fb41a35106a551e73c8409dfb751ac"
+      ]
+    },
     {
       "name": "main-v41",
       "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",

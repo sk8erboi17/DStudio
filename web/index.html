@@ -2339,6 +2339,16 @@
       border: none;
       padding-inline: 0;
     }
+    .msg--researching {
+      content-visibility: visible;
+      contain-intrinsic-size: auto;
+    }
+    .msg-research-error {
+      margin-bottom: 1rem;
+      border-left: 2px solid var(--warn);
+      padding: 0.6rem 0.85rem;
+      color: var(--warn);
+    }
 
     /* Honest in-flight state: token speed is only shown after completion, when
        the API has returned an exact completion-token count. */
@@ -9463,7 +9473,7 @@
             </div>
             <details class="set-disclosure">
               <summary>How SSD streaming behaves</summary>
-              <p class="set-help">Default is Off while DS4 is the only heavyweight model. Metal uses full residency when it fits and its normal lazy memory-mapped path otherwise, without enabling expert SSD streaming or reducing context. On remains an explicit launch choice for supported models. Qwen always keeps expert streaming Off; only Qwen3.8-Flash-Next uses a separate SSD-backed PLE file.</p>
+              <p class="set-help">Default is Off while DS4 is the only heavyweight model. Metal uses full residency when it fits and its normal lazy memory-mapped path otherwise, without enabling expert SSD streaming or reducing context. On remains an explicit launch choice for supported models. Qwen keeps expert streaming Off. Qwen Next reads original BF16 n-grams from SSD inside its single GGUF; it no longer needs a separate PLE file.</p>
             </details>
             <p class="set-inline-msg set-memory-readout" id="set-memory-msg"></p>
             <div class="field__row" style="margin-top:0.45rem">
@@ -10071,13 +10081,9 @@
     const LAN_CLIENT_MODEL_ID = 'ds4';
     // Web and Roadmap research are intentionally not stopped by wall-clock
     // deadlines: large local models may spend minutes prefilling source text.
-    // Infinity keeps both current and legacy research paths open until
-    // completion or manual Stop.
+    // Planner calls wait for completion or manual Stop.
     const WEB_SEARCH_PLAN_TIMEOUT_MS = Number.POSITIVE_INFINITY;
-    const WEB_SEARCH_REQUEST_TIMEOUT_MS = Number.POSITIVE_INFINITY;
-    const WEB_RESEARCH_PLAN_TIMEOUT_MS = Number.POSITIVE_INFINITY;
     const WEB_RESEARCH_JUDGE_TIMEOUT_MS = Number.POSITIVE_INFINITY;
-    const WEB_RESEARCH_TOTAL_TIMEOUT_MS = Number.POSITIVE_INFINITY;
 
     const PERSIST_CHATS_DEBOUNCE_MS = 750;
     const PERSIST_SETTINGS_DEBOUNCE_MS = 300;
@@ -12280,9 +12286,11 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           /^Qwen3\.8-27B-mmproj-F16\.gguf$/i.test(String(part?.file || part?.path || '').split(/[\\/]/).pop()) &&
           String(part?.engineDir || '') === String(g?.engineDir || ''));
       if (!/qwen3\.8-flash-next/i.test(file)) return true;
-      return (allGgufs || []).some((part) =>
-        /^Qwen3\.8-Flash-Next-PLE-Q4_1\.gguf$/i.test(String(part?.file || '')) &&
-        String(part?.engineDir || '') === String(g?.engineDir || ''));
+      // Main validates the embedded BF16 table when loading. Neither a legacy
+      // sidecar nor an unrelated projector can make an old checkpoint usable.
+      return /^Qwen3\.8-Flash-Next-Q[24]\.gguf$/i.test(file) &&
+        !/(?:^|[/\\])ds4-qwen38(?:[/\\]|$)/i.test(String(g?.engineDir || '')) &&
+        String(g?.branch || '') !== 'qwen3.8-flash-next';
     }
     function ggufBranchLabel(g) {
       return String(g?.branch || g?.engineName || 'ds4');
@@ -12310,7 +12318,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       { id: 'glm53-q2', label: 'GLM 5.3 Flash · Q2 — ~96.5 GB / 90 GiB', body: { target: 'glm53-q2', engine: 'main' }, match: /^GLM-5\.3-Flash-Q2\.gguf$/i },
       { id: 'glm53-vision', role: 'vision-support', label: 'GLM 5.3 Flash · native vision encoder — ~1.13 GB', body: { target: 'glm53-vision', engine: 'main' }, match: /^GLM-5\.3-Flash-Vision-Encoder\.gguf$/i },
       { id: 'laguna-q4', label: 'Laguna S 2.1 · Q4_K_M — ~68 GB · Metal/full residency', body: { target: 'laguna-q4', engine: 'laguna' }, match: /^laguna-s-2\.1-Q4_K_M\.gguf$/i },
-      { id: 'qwen38-q4k', label: 'Qwen3.8-Flash-Next · Q4_K — 105.4 GB base + PLE · Chat, Agent, Cowork', body: { target: 'qwen38-q4k', engine: 'qwen' }, match: /^Qwen3\.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out\.gguf$/i },
+      { id: 'qwen38-q2', label: 'Qwen3.8-Flash-Next · Q2 — 147.2 GB disk / 41.7 GiB resident · main · BF16 n-grams included', body: { target: 'qwen38-q2', engine: 'main' }, match: /^Qwen3\.8-Flash-Next-Q2\.gguf$/i },
+      { id: 'qwen38-q4k', label: 'Qwen3.8-Flash-Next · Q4 — 177.3 GB disk / 69.7 GiB resident · main · BF16 n-grams included', body: { target: 'qwen38-q4k', engine: 'main' }, match: /^Qwen3\.8-Flash-Next-Q4\.gguf$/i },
       { id: 'qwen36-q6', label: 'Qwen3.6-35B-A3B · Q6_K_XL — 31.8 GB · Chat, Agent, Cowork · Metal, no PLE', body: { target: 'qwen36-q6', engine: 'qwen35' }, match: /^Qwen3\.6-35B-A3B-UD-Q6_K_XL\.gguf$/i },
       { id: 'qwen27-q6', label: 'Qwen3.8-27B · Q6_K_XL + F16 projector — 26.2 GB · Experimental, quality checks incomplete', body: { target: 'qwen27-q6', engine: 'q36' }, match: /^Qwen3\.8-27B-UD-Q6_K_XL\.gguf$/i },
     ];
@@ -12318,7 +12327,6 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       const files = (ggufs || []).map((g) => String(g?.file || ''));
       return MODEL_DOWNLOADS.filter((d) => !d.role &&
         (!files.some((file) => d.match.test(file)) ||
-         (d.id === 'qwen38-q4k' && !files.some((file) => /^Qwen3\.8-Flash-Next-PLE-Q4_1\.gguf$/i.test(file))) ||
          (d.id === 'qwen27-q6' && !(ggufs || []).some((g) => d.match.test(String(g?.file || '')) &&
            g.engineDir && (ggufs || []).some((p) => p.engineDir === g.engineDir && /^Qwen3\.8-27B-mmproj-F16\.gguf$/i.test(String(p?.file || '')))))));
     }
@@ -15806,6 +15814,10 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       function renderChat(chat, opts = {}) {
         const forceBottom = opts.stickToBottom === true;
         const streaming = !!chat?.id && Store.isChatStreaming(chat.id);
+        if (forceBottom && chat?.id) {
+          followBottomChatId = chat.id;
+          follow.setFollowing(true);
+        }
         const stick = forceBottom || shouldAutoFollow(chat?.id) || (!streaming && shouldStickToBottom(root));
         const prevScrollTop = root.scrollTop;
         snapshotComposerTransition(root);   // hero-state positions, BEFORE the rebuild
@@ -15954,7 +15966,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       function buildMessage(m, chat, isLastAssistant) {
         const userHasAttachments = m.role === 'user' && !!m.attachments?.length;
         const article = el('article', {
-          class: `msg msg--${m.role}${m.streaming ? ' msg--streaming' : ''}${userHasAttachments ? ' msg--user-wrap' : ''}`,
+          class: `msg msg--${m.role}${m.streaming ? ' msg--streaming' : ''}${m.webSearching ? ' msg--researching' : ''}${userHasAttachments ? ' msg--user-wrap' : ''}`,
           'data-id': m.id,
         });
 
@@ -16034,6 +16046,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         }
 
         if (m.reasoning) article.append(buildThinking(m.reasoning));
+        if (m.error?.type === 'research-review') article.append(el('div', {
+          class: 'msg-research-error', role: 'alert', text: m.error.message,
+        }));
 
         const content = el('div', { class: 'msg__content md' });
         const displayContent = displayContentForMessage(m);
@@ -16041,7 +16056,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         const roadmap = chat?.mode === 'roadmap' ? roadmapForMessage(m) : null;
         if (displayContent) {
           setMarkdown(content, displayContent);
-        } else if (!roadmap && !m.streaming && m.finishReason !== 'error') {
+        } else if (!roadmap && !m.streaming && m.finishReason !== 'error' && m.error?.type !== 'research-review') {
           // Streaming with no content: no placeholder, the ▍ cursor
           // (::after of .msg--streaming) indicates it is generating.
           content.innerHTML = '<p class="placeholder">(no response)</p>';
@@ -16336,11 +16351,15 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
       function buildWebSearching(trace = []) {
         const wrap = el('div', { class: 'web-searching-wrap' });
-        wrap.append(el('div', { class: 'web-searching', text: 'webSearching' }));
+        wrap.append(el('div', { class: 'web-searching', text: 'Research in progress' }));
         const rows = (trace || []).filter(Boolean);
         if (rows.length) {
           const box = el('div', { class: 'web-trace', 'aria-label': 'Web search pipeline' });
-          rows.slice(0, 12).forEach((step) => {
+          // End the bounded view at current work, rather than letting a large
+          // pending batch hide the active row or retaining the first 12 forever.
+          const current = rows.findLastIndex(step => step.state !== 'pending');
+          const end = current < 0 ? Math.min(12, rows.length) : current + 1;
+          rows.slice(Math.max(0, end - 12), end).forEach((step) => {
             const row = el('div', { class: 'web-trace__row', 'data-state': step.state || 'pending' }, [
               el('span', { class: 'web-trace__dot', 'aria-hidden': 'true' }),
               el('div', {}, [
@@ -16353,6 +16372,23 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           wrap.append(box);
         }
         return wrap;
+      }
+
+      function updateWebSearching(messageId, trace) {
+        const chat = Store.getActiveChat();
+        if (!chat || chat.mode === 'roadmap' || !chat.messages.some(m => m.id === messageId && m.webSearching)) return false;
+        const article = root?.querySelector(`.msg[data-id="${cssEscape(messageId)}"]`);
+        const panel = article?.querySelector('.web-searching-wrap');
+        if (!panel) return false;
+        const stick = shouldAutoFollow(chat.id);
+        const previousTop = root.scrollTop;
+        // Keep saved messages attached. Rebuilding the entire transcript for
+        // every progress event discards selections and WebKit's painted layers.
+        panel.replaceWith(buildWebSearching(trace));
+        messageNodes.delete(messageId);
+        follow.settle(stick, previousTop);
+        updateScrollBtn();
+        return true;
       }
 
       function buildResearchReport(report) {
@@ -16462,7 +16498,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           bits.push(el('button', { class: 'btn', type: 'button', 'data-act': 'continue', text: 'Continue' }));
         } else if (m.finishReason === 'incomplete') {
           bits.push(el('span', { class: 'warn', text: m.error?.message || 'Response incomplete (stream ended early)' }));
-          bits.push(el('button', { class: 'btn', type: 'button', 'data-act': 'continue', text: 'Continue' }));
+          bits.push(m.error?.type === 'research-review'
+            ? el('button', { class: 'btn', type: 'button', 'data-act': 'retry', text: 'Retry research' })
+            : el('button', { class: 'btn', type: 'button', 'data-act': 'continue', text: 'Continue' }));
         } else if (m.finishReason === 'aborted') {
           bits.push(el('span', { class: 'warn', text: 'Interrupted' }));
         } else if (m.finishReason === 'interrupted') {
@@ -16687,7 +16725,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         Chat.sendMessage('', { regenerate: true });
       }
 
-      return { mount, renderChat, updateImageGeneration, updateVideoGeneration, beginAssistant, shouldAutoFollow, finishAutoFollow, announce };
+      return { mount, renderChat, updateImageGeneration, updateVideoGeneration, updateWebSearching, beginAssistant, shouldAutoFollow, finishAutoFollow, announce };
     })();
 
     /* ==================== UI: connection indicator ==================== */
@@ -17432,11 +17470,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return /\b(repo|repository|github|gitlab|cod(e|ice)|source|stack|dipenden|dependencies|package|makefile|license|licenza|test|ci|workflow|build|architettura|architecture|framework|sdk|api)\b/i.test(String(text || ''));
       }
 
-      function researchReportWantsTechnical(query, facts = [], sources = []) {
+      function researchReportWantsTechnical(query) {
         if (technicalQuestionLikely(query)) return true;
         const q = String(query || '');
         if (/\b(endpoint|runtime|server|client|backend|frontend|database|schema|security|vulnerab|exploit|CVE|HTTP|SSE|SDK|API|build|deploy|framework|library|package|repo|repository|code|source)\b/i.test(q)) return true;
-        return (facts || []).some((f) => /\b(src\/|extension\/|patch\/|api\/|\/v1|server|runtime|engine|proxy|endpoint|build|Makefile|UI|HTML|C HTTP|ds4|GGUF|LAN|SSE|GSA|license|memory|model|client|backend)\b/i.test(f?.fact || ''));
+        // Retrieved evidence cannot change the user's requested report format.
+        // A news source mentioning an AI model does not request a stack audit.
+        return false;
       }
 
       function classifySourceKind(source, question = '') {
@@ -17685,29 +17725,52 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return new Error(raw || `${label} failed.`);
       }
 
-      async function completeWebPipelineText(payload, timeoutMs, label, signal) {
+      async function completeWebPipelineText(payload, timeoutMs, label, signal, draft = null) {
         if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-        // A slow SSD-backed model is legitimate; an orphaned request is not.
-        // Keep a generous hard ceiling, separate from the run's soft admission
-        // deadline. Abort the actual transport, not just its progress display.
+        // Infinity explicitly permits a slow local model to finish. Discovery
+        // admission limits are separate; Stop still aborts the real transport.
         const controller = new AbortController();
-        const duration = Number.isFinite(timeoutMs) && timeoutMs > 0
-          ? Math.min(timeoutMs, 15 * 60 * 1000) : 15 * 60 * 1000;
+        const duration = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 0;
         const cancel = () => controller.abort(new DOMException('Aborted', 'AbortError'));
         signal?.addEventListener('abort', cancel, { once: true });
         let timer;
         const stopped = new Promise((_, reject) => {
           controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
-          timer = setTimeout(() => controller.abort(new DOMException(`${label} exceeded its request deadline.`, 'TimeoutError')), duration);
+          if (duration) timer = setTimeout(() => controller.abort(new DOMException(`${label} exceeded its request deadline.`, 'TimeoutError')), duration);
         });
+        let partial = '', lastProgressAt = -Infinity;
+        const inference = async () => {
+          if (!draft || typeof Api.streamChat !== 'function') return Api.completeText(payload, controller.signal);
+          let finish = '';
+          for await (const event of Api.streamChat(payload, controller.signal)) {
+            if (controller.signal.aborted) throw controller.signal.reason;
+            if (event.type === 'content') {
+              const text = String(event.text || '');
+              if (partial.length + text.length > 64 * 1024)
+                throw new Error(`${label} exceeded the retained draft size.`);
+              partial += text;
+              if (performance.now() - lastProgressAt >= 500) {
+                draft.onProgress?.(partial.length);
+                lastProgressAt = performance.now();
+              }
+            } else if (event.type === 'finish') finish = event.reason;
+            else if (event.type === 'abort') throw new DOMException('Aborted', 'AbortError');
+            else if (event.type === 'error') throw new Error(event.message || `${label} failed.`);
+          }
+          if (finish !== 'stop') throw new Error(finish === 'length'
+            ? `${label} reached the model output limit.` : `${label} ended before completion.`);
+          return partial;
+        };
         try {
-          const result = await Promise.race([Api.completeText(payload, controller.signal), stopped]);
+          const result = await Promise.race([inference(), stopped]);
           // A completed HTTP reply cannot authorize publishing an old run's
           // evidence after Stop, even if its adapter ignored the abort signal.
           if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
           return result;
         } catch (e) {
-          throw webPipelineError(e, label);
+          const error = webPipelineError(e, label);
+          if (draft && partial) error.partialText = partial;
+          throw error;
         } finally {
           clearTimeout(timer);
           signal?.removeEventListener('abort', cancel);
@@ -17715,12 +17778,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
 
       function researchRunLimits(mode) {
-        // Admission ceilings, not quality targets or promised completion times.
-        // Stop admitting new discovery/extraction work at the soft deadline;
-        // retain completed evidence and reserve the final bounded writer call.
+        // Count/byte ceilings bound discovery independently of hardware speed.
+        // A slow valid extraction or planner must not spend a hidden wall-clock
+        // budget. Stop and actual transport failures still end the operation.
         return mode === 'research'
-          ? { queries: 18, reads: 24, actions: 12, sources: 256, durationMs: 30 * 60 * 1000 }
-          : { queries: 6, reads: 8, actions: 0, sources: 96, durationMs: 10 * 60 * 1000 };
+          ? { queries: 18, reads: 24, actions: 12, sources: 256, durationMs: Infinity }
+          : { queries: 6, reads: 8, actions: 0, sources: 96, durationMs: Infinity };
       }
 
       function researchAdmissionOpen(state) {
@@ -19042,14 +19105,17 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           return { content: '', complete: false, error: 'The research report changed after review. Run Research again.' };
         const complete = quality.ok === true && quality.audit?.ok === true && !web.stopReason;
         return { content: web.report, complete,
-          error: complete ? '' : 'Research answer review is incomplete. This draft may contain unresolved claims or unmet requirements.' };
+          error: complete ? '' : web.reportSynthesisError
+            ? `Research answer incomplete: ${web.reportSynthesisError}`
+            : 'Research answer review is incomplete. This draft may contain unresolved claims or unmet requirements.' };
       }
 
       async function synthesizeResearchReport(query, state, settings, onProgress) {
         let facts = researchAnswerFacts(state);
         let sources = researchAnswerSources(state, facts);
         const draft = buildResearchReportDraft(query, sources, facts, state.judge);
-        if (!facts.length) return { report: draft, draft, error: 'no extracted facts', quality: researchReportQuality(draft, sources, facts, query), fallback: true };
+        if (!facts.length) return { report: '', draft, error: 'no extracted facts',
+          quality: { ...researchReportQuality('', sources, facts, query), ok: false }, fallback: true };
         const technicalReport = researchReportWantsTechnical(query, facts, sources);
         const factContext = buildFactsContext(query, sources, facts, { research: false });
         const maxWords = researchWordLimit(query);
@@ -19087,22 +19153,17 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             ].join('\n'),
           },
         ];
-        // One initial draft and at most two repairs share a single deadline.
+        // One initial draft and at most two repairs. Slow model work has no
+        // application time cutoff; cancellation and actual failures still win.
         // Keep rejected attempts for diagnosis. The reviewer is a model, not an
         // independent benchmark oracle; externally checked answers remain required.
-        const deadline = performance.now() + Math.min(WEB_RESEARCH_TOTAL_TIMEOUT_MS, 240_000);
         const attempts = [];
         let report = '', quality = null, error = '', repair = [], comparisons = [];
-        const remaining = () => {
-          const ms = deadline - performance.now();
-          if (ms <= 0) throw new DOMException('Answer review time budget ended.', 'TimeoutError');
-          return ms;
-        };
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             if (attempt === 0) {
               onProgress?.('Comparing the definitions used by the sources.');
-              comparisons = await compareResearchQuantities(query, state.facts, settings, remaining());
+              comparisons = await compareResearchQuantities(query, state.facts, settings, Infinity);
               const differences = comparisons.filter(item => item.relation === 'different');
               const ids = new Set(differences.flatMap(item => item.definitions.flatMap(definition => definition.factIds)));
               facts = (state.facts || []).filter(fact => ids.has(fact.factId) || facts.some(selected => selected.factId === fact.factId));
@@ -19114,10 +19175,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               model: settings.model,
               messages: [...messages, ...repair],
               temperature: 0, maxTokens: 2200, thinkLevel: 'off',
-            }, remaining(), 'Deep Research report synthesis', settings.webSignal)).trim();
+            }, Infinity, 'Deep Research report synthesis', settings.webSignal, {
+              onProgress: chars => onProgress?.(`Writing the answer from source evidence · ${chars.toLocaleString()} characters received.`),
+            })).trim();
             quality = researchReportQuality(report, sources, facts, query);
             onProgress?.('Checking claims, missing details, source disagreements and requested length.');
-            const audit = await auditResearchReport(query, report, state, settings, remaining(), comparisons);
+            const audit = await auditResearchReport(query, report, state, settings, Infinity, comparisons);
             quality = { ...quality, structuralOk: quality.ok, audit, ok: quality.ok && audit.ok };
             attempts.push({ report, quality });
             if (quality.ok) break;
@@ -19144,14 +19207,16 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           } catch (e) {
             if (settings.webSignal?.aborted || e?.name === 'AbortError') throw e;
             error = e?.message || String(e);
+            if (e?.partialText) report = e.partialText;
             attempts.push({ report, error });
             quality = { ...researchReportQuality(report, sources, facts, query), ok: false, audit: null };
             break;
           }
         }
         if (!report) {
-          report = draft;
-          quality = { ...researchReportQuality(report, sources, facts, query), ok: false, audit: null };
+          // The evidence scaffold remains diagnostic input. It is not an
+          // answer, and cannot stand in for missing generated text.
+          quality = { ...researchReportQuality('', sources, facts, query), ok: false, audit: null };
         }
         quality = { ...quality, comparisons, deliveryVersion: 1, reviewedText: report, request: query };
         return { report, draft, attempts, quality, fallback: !quality.ok, error: quality.ok ? '' : error };
@@ -19249,24 +19314,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           }
         }
         return state.byUrl.get(key);
-      }
-
-      function seedExplicitUrlSources(userText, byUrl) {
-        const added = [];
-        for (const url of explicitUserUrls(userText)) {
-          const key = sourceKey(url);
-          if (byUrl.has(key)) continue;
-          const source = {
-            title: `Explicit URL: ${url}`,
-            url,
-            content: 'Explicit URL provided by the user request. Read this source before answering.',
-            explicit: true,
-            _order: byUrl.size,
-          };
-          byUrl.set(key, source);
-          added.push(source);
-        }
-        return added;
       }
 
       async function executeWebSearchQueries(state, queries, onTrace) {
@@ -19664,83 +19711,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         };
       }
 
-      function normalizeSearchPlan(plan, userText) {
-        const obj = plan && typeof plan === 'object' ? plan : {};
-        const entity = String(obj.entity || '').replace(/\s+/g, ' ').trim();
-        const mustMatch = uniqueStrings([...(Array.isArray(obj.mustMatch) ? obj.mustMatch : []), entity]
-          .filter((x) => String(x).trim().length >= 2), 4);
-        const exactQueries = mustMatch.flatMap((t) => [`"${t}"`, t]);
-        const queries = uniqueStrings([...exactQueries, ...(Array.isArray(obj.queries) ? obj.queries : [])], 4);
-        if (!queries.length) throw new Error('planner returned no search queries');
-        return {
-          intent: String(obj.intent || 'web_lookup').slice(0, 80),
-          entity,
-          mustMatch,
-          queries,
-          requireExact: mustMatch.length > 0,
-        };
-      }
-
-      async function completeSearchPlan(messages, settings) {
-        const text = await completeWebPipelineText({
-          model: settings.model,
-          messages,
-          temperature: 0,
-          maxTokens: 420,
-          thinkLevel: 'off',
-        }, WEB_SEARCH_PLAN_TIMEOUT_MS, 'Web Search planner', settings.webSignal);
-        return normalizeSearchPlan(JSON.parse(stripJsonFence(text)));
-      }
-
-      async function planWebSearch(userText, settings) {
-        const messages = [
-          {
-            role: 'system',
-            content: [
-              'You are DStudio web search planner.',
-              'Return strict JSON only. No markdown.',
-              'Preserve unknown names, products, brands, domains, handles, and typos exactly as typed.',
-              'Never autocorrect an unknown term before search.',
-              'Generate exact-match queries first, then broader queries only if useful.',
-              'Schema: {"intent":"entity_lookup|news|docs|general","entity":"main exact entity or empty","mustMatch":["exact terms that search results should contain"],"queries":["search query 1","search query 2","search query 3"]}.',
-            ].join('\n'),
-          },
-          { role: 'user', content: `User message:\n${userText}` },
-        ];
-        let primaryError = null;
-        try {
-          const plan = await completeSearchPlan(messages, settings);
-          plan.planner = 'primary';
-          return plan;
-        } catch (e) {
-          primaryError = e;
-          if (isAbortLikeError(e)) throw e;
-        }
-
-        const repairMessages = [
-          {
-            role: 'system',
-            content: [
-              'You are DStudio web search planner retry.',
-              'The first planner failed. Return strict JSON only. No markdown. No prose.',
-              'Do not use heuristics. Decide the exact search target from the user message.',
-              'Preserve unknown names, products, brands, domains, handles, and possible typos exactly as typed.',
-              'Never autocorrect unknown terms before search.',
-              'Return 2-4 concrete search queries. Put exact-match queries first when an entity exists.',
-              'Schema: {"intent":"entity_lookup|news|docs|general","entity":"exact entity or empty","mustMatch":["exact terms search results should preserve"],"queries":["query 1","query 2"]}.',
-            ].join('\n'),
-          },
-          { role: 'user', content: `User message:\n${userText}` },
-        ];
-        try {
-          const plan = await completeSearchPlan(repairMessages, settings);
-          plan.planner = 'retry';
-          return plan;
-        } catch (e) {
-          throw new Error(`Web Search planner failed twice: ${primaryError?.message || 'primary failed'}; ${e?.message || 'retry failed'}`);
-        }
-      }
-
       function webSourceHost(url) {
         try { return new URL(url).hostname.replace(/^www\./, '').toLowerCase(); }
         catch { return ''; }
@@ -19775,250 +19745,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return urls;
       }
 
-      function sourcePathParts(url) {
-        try { return new URL(url).pathname.split('/').filter(Boolean); }
-        catch { return []; }
-      }
-
-      function seedExplicitUrlSources(userText, byUrl) {
-        const added = [];
-        for (const url of explicitUserUrls(userText)) {
-          const key = sourceKey(url);
-          if (byUrl.has(key)) continue;
-          const source = {
-            title: `Explicit URL: ${url}`,
-            url,
-            content: 'Explicit URL provided by the user request. Open and read this source before answering.',
-            explicit: true,
-            _order: byUrl.size,
-          };
-          byUrl.set(key, source);
-          added.push(source);
-        }
-        return added;
-      }
-
-      function sourcePathIdentity(source) {
-        const host = webSourceHost(source?.url);
-        if (!host) return '';
-        const parts = sourcePathParts(source.url);
-        if (parts.length < 2) return '';
-        return `${host}/${parts[0].toLowerCase()}/${parts[1].toLowerCase()}`;
-      }
-
-      function userAskedExternalComparison(userText, plan) {
-        const hay = [
-          userText || '',
-          plan?.intent || '',
-          ...(plan?.researchQuestions || []),
-          ...(plan?.sufficiency || []),
-        ].join(' ').toLowerCase();
-        return [
-          'competitor',
-          'competitors',
-          'alternative',
-          'alternatives',
-          'compare',
-          'comparison',
-          'confronto',
-          'confronta',
-          'comparazione',
-          'pricing',
-          'prezzi',
-          'price',
-          'reviews',
-          'recensioni',
-          'news',
-          'market',
-          'benchmark',
-          ' vs ',
-        ].some((term) => hay.includes(term));
-      }
-
-      function sameExplicitSourceFamily(source, explicitSources) {
-        const key = sourceKey(source?.url);
-        const host = webSourceHost(source?.url);
-        const pathIdentity = sourcePathIdentity(source);
-        for (const explicit of explicitSources || []) {
-          if (key && key === sourceKey(explicit.url)) return true;
-          const explicitHost = webSourceHost(explicit.url);
-          if (host && host === explicitHost) return true;
-          const explicitPathIdentity = sourcePathIdentity(explicit);
-          if (pathIdentity && pathIdentity === explicitPathIdentity) return true;
-        }
-        return false;
-      }
-
-      function selectableSourcesAfterExplicitRead(userText, plan, sources, readUrls) {
-        const explicitRead = (sources || []).filter((s) => s?.explicit && readUrls.has(sourceKey(s.url)));
-        if (!explicitRead.length || userAskedExternalComparison(userText, plan)) return sources;
-        const filtered = (sources || []).filter((s) => sameExplicitSourceFamily(s, explicitRead));
-        return filtered.length ? filtered : sources;
-      }
-
-      function sourceTextBlob(source) {
-        return [
-          source?.title || '',
-          source?.url || '',
-          source?.content || '',
-        ].join(' ').toLowerCase();
-      }
-
-      function isLikelyPrimarySource(source) {
-        const host = webSourceHost(source?.url);
-        if (!host) return false;
-        const parts = sourcePathParts(source.url);
-        const blob = sourceTextBlob(source);
-        return parts.length >= 1 && /(docs?|documentation|readme|source code|repository|package|makefile|license|pricing|product|official)/i.test(blob);
-      }
-
-      function sourcePrimaryReadScore(source, plan) {
-        const host = webSourceHost(source?.url);
-        const blob = sourceTextBlob(source);
-        const compactTerms = (plan?.mustMatch || [])
-          .map((t) => String(t || '').toLowerCase().replace(/\s+/g, ''))
-          .filter(Boolean);
-        const compactUrl = String(source?.url || '').toLowerCase().replace(/\s+/g, '');
-        const compactTitle = String(source?.title || '').toLowerCase().replace(/\s+/g, '');
-        const compactBlob = blob.replace(/\s+/g, '');
-        const termMatches = compactTerms.some((term) =>
-          host.includes(term) || compactUrl.includes(term) || compactTitle.includes(term) || compactBlob.includes(term)
-        );
-        let score = 0;
-        if (source?.explicit) score += 220;
-        if (isLikelyPrimarySource(source)) score += termMatches ? 90 : 15;
-        if (/(^|\W)(readme|docs?|documentation|repository|source code|package\.json|requirements\.txt|makefile)(\W|$)/i.test(blob)) score += 45;
-        for (const term of compactTerms) {
-          if (host.includes(term)) score += 50;
-          if (compactUrl.includes(term)) score += 30;
-          if (compactTitle.includes(term)) score += 20;
-        }
-        if (/^(reddit\.com|news\.ycombinator\.com|youtube\.com|youtu\.be|x\.com|twitter\.com)$/.test(host)) score -= 70;
-        return score;
-      }
-
-      function mandatoryPrimaryReadSources(plan, sources, readUrls = new Set()) {
-        const explicitPending = [...(sources || [])]
-          .filter((s) => s?.explicit && s?.url && !readUrls.has(sourceKey(s.url)));
-        if (explicitPending.length) return explicitPending;
-        if ((sources || []).some((s) => s?.explicit && readUrls.has(sourceKey(s.url)))) return [];
-        return [...(sources || [])]
-          .filter((s) => s?.url && !readUrls.has(sourceKey(s.url)))
-          .map((source) => ({ source, score: sourcePrimaryReadScore(source, plan) }))
-          .filter((r) => r.score >= 80)
-          .sort((a, b) => b.score - a.score)
-          .map((r) => r.source);
-      }
-
-      function mergeSourceSelections(...lists) {
-        const seen = new Set();
-        const out = [];
-        for (const list of lists) {
-          for (const source of list || []) {
-            if (!source?.url) continue;
-            const key = sourceKey(source.url);
-            if (seen.has(key)) continue;
-            seen.add(key);
-            out.push(source);
-          }
-        }
-        return out;
-      }
-
-      function scoreWebSource(source, plan, order) {
-        const title = String(source.title || '').toLowerCase();
-        const url = String(source.url || '').toLowerCase();
-        const host = webSourceHost(source.url);
-        const content = String(source.content || '').toLowerCase();
-        let score = 100 - order;
-        let matched = plan.mustMatch.length === 0;
-        if (source?.explicit) {
-          score += 500;
-          matched = true;
-        }
-        for (const rawTerm of plan.mustMatch) {
-          const term = rawTerm.toLowerCase();
-          if (!term) continue;
-          const compact = term.replace(/\s+/g, '');
-          const hostHit = host.includes(compact) || host.includes(term);
-          const titleHit = title.includes(term);
-          const urlHit = url.includes(term) || url.includes(compact);
-          const contentHit = content.includes(term);
-          if (hostHit || titleHit || urlHit || contentHit) matched = true;
-          if (hostHit) score += 36;
-          if (urlHit) score += 24;
-          if (titleHit) score += 18;
-          if (contentHit) score += 6;
-          if (host === `${compact}.com`) score += 30;
-        }
-        if (plan.requireExact && !matched) score -= 160;
-        return { source, score, matched };
-      }
-
-      function rankWebSources(byUrl, plan) {
-        return [...byUrl.values()]
-          .map((source) => scoreWebSource(source, plan, source._order || 0))
-          .sort((a, b) => b.score - a.score);
-      }
-
-      function selectedWebSources(ranked, plan) {
-        const exact = ranked.filter((r) => r.matched).map((r) => r.source);
-        return plan.requireExact ? exact : ranked.map((r) => r.source);
-      }
-
-      function normalizeSearchReadPlan(obj, sources, readUrls) {
-        const byKey = new Map((sources || []).map((s) => [sourceKey(s.url), s]));
-        const urls = [];
-        const seen = new Set();
-        for (const rawUrl of uniqueStrings(obj?.urls || [], Infinity)) {
-          const key = sourceKey(rawUrl);
-          const source = byKey.get(key);
-          if (!source || readUrls.has(key) || seen.has(key)) continue;
-          seen.add(key);
-          urls.push(source.url);
-        }
-        return {
-          reason: String(obj?.reason || '').replace(/\s+/g, ' ').trim(),
-          urls,
-        };
-      }
-
-      async function selectSearchReads(userText, plan, sources, readUrls, settings) {
-        const messages = [
-          {
-            role: 'system',
-            content: [
-              'You are DStudio Web Search read_selector.',
-              'Return strict JSON only. No markdown.',
-              'Choose result URLs that must be opened before answering.',
-              'Do not answer about a software project, repository, technical stack, docs, package, company product, or pricing from snippets alone.',
-              'For code repositories, documentation, or product pages, select the page that can expose README, file listing, docs, pricing, or source-of-truth details.',
-              'For official docs or product pages, select the official page.',
-              'If an explicit user-provided URL has already been read, select additional URLs only when they are clearly the same project/organization or the user asked for comparison, competitors, pricing, news, or alternatives.',
-              'Avoid unrelated homonyms that merely share the same product or project name.',
-              'Use only URLs from the provided source list. Do not invent URLs.',
-              'Schema: {"reason":"short reason","urls":["exact source URL"]}.',
-            ].join('\n'),
-          },
-          {
-            role: 'user',
-            content: [
-              `User question:\n${userText}`,
-              `Search plan:\n${JSON.stringify(plan)}`,
-              `Sources:\n${summarizeSourcesForReadSelection(sources, readUrls, plan) || 'None'}`,
-            ].join('\n\n'),
-          },
-        ];
-        const text = await completeWebPipelineText({
-          model: settings.model,
-          messages,
-          temperature: 0,
-          maxTokens: 700,
-          thinkLevel: 'off',
-        }, WEB_RESEARCH_JUDGE_TIMEOUT_MS, 'Web Search read selector', settings.webSignal);
-        return normalizeSearchReadPlan(JSON.parse(stripJsonFence(text)), sources, readUrls);
-      }
-
       function readableWebSearchError(message) {
         const raw = String(message || '').trim();
         if (!raw) return 'Web Search failed.';
@@ -20036,213 +19762,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return /^(web search|deep research)/i.test(raw) ? raw : `Web Search failed: ${raw}`;
       }
 
-      function planTraceDetail(plan) {
-        const bits = [];
-        if (plan.planner) bits.push(`planner: ${plan.planner}`);
-        if (plan.intent) bits.push(`intent: ${plan.intent}`);
-        if (plan.mustMatch?.length) bits.push(`preserve: ${plan.mustMatch.join(', ')}`);
-        if (plan.queries?.length) bits.push(`queries: ${plan.queries.join(' | ')}`);
-        return bits.join(' · ') || 'planner returned a search plan';
-      }
-
       function emitSearchTrace(onTrace, steps) {
         if (typeof onTrace === 'function') onTrace(steps.map((s) => ({ ...s })));
       }
 
       async function searchWithPlan(userText, settings, onTrace) {
         return await runResearchPipeline(userText, settings, { mode: 'search', onTrace });
-        let trace = [
-          { label: 'Plan search', detail: 'Extract exact entities, preserve unknown terms, build query candidates.', state: 'active' },
-        ];
-        emitSearchTrace(onTrace, trace);
-        const plan = await planWebSearch(userText, settings);
-        trace = [
-          { label: 'Plan search', detail: planTraceDetail(plan), state: 'done' },
-        ];
-        const querySteps = plan.queries.map((query) => ({ label: 'Search query', detail: query, state: 'pending' }));
-        emitSearchTrace(onTrace, [...trace, ...querySteps]);
-        const byUrl = new Map();
-        const errors = [];
-        const explicitSources = seedExplicitUrlSources(userText, byUrl);
-        if (explicitSources.length) {
-          trace = [
-            ...trace,
-            { label: 'Explicit URLs', detail: explicitSources.map((s) => s.url).join(', '), state: 'done' },
-          ];
-          emitSearchTrace(onTrace, [...trace, ...querySteps]);
-        }
-        let order = byUrl.size;
-        for (let i = 0; i < plan.queries.length; i++) {
-          const query = plan.queries[i];
-          querySteps[i].state = 'active';
-          emitSearchTrace(onTrace, [...trace, ...querySteps]);
-          let res;
-          try {
-            res = await Engine.webSearch(query);
-          } catch (e) {
-            const msg = readableWebSearchError(e?.message);
-            errors.push(msg);
-            querySteps[i].state = 'error';
-            querySteps[i].detail = `${query} -> ${msg}`;
-            emitSearchTrace(onTrace, [...trace, ...querySteps]);
-            continue;
-          }
-          if (!res?.ok) {
-            const msg = readableWebSearchError(res?.error);
-            errors.push(msg);
-            querySteps[i].state = 'error';
-            querySteps[i].detail = `${query} -> ${msg}`;
-            emitSearchTrace(onTrace, [...trace, ...querySteps]);
-            continue;
-          }
-          const count = (res.sources || []).filter((s) => s?.url).length;
-          querySteps[i].state = 'done';
-          querySteps[i].detail = `${query} -> ${count} result${count === 1 ? '' : 's'}`;
-          emitSearchTrace(onTrace, [...trace, ...querySteps]);
-          for (const source of res.sources || []) {
-            if (!source?.url) continue;
-            const key = source.url.replace(/#.*$/, '').replace(/\/$/, '').toLowerCase();
-            if (!byUrl.has(key)) byUrl.set(key, { ...source, _order: order++ });
-          }
-        }
-        const ranked = rankWebSources(byUrl, plan);
-        const sources = selectedWebSources(ranked, plan);
-        const rankDetail = ranked.slice(0, 5)
-          .map((r) => `${webSourceHost(r.source.url) || 'source'} ${Math.round(r.score)}${r.matched ? '' : ' no-exact'}`)
-          .join(' | ');
-        trace = [
-          ...trace,
-          ...querySteps,
-          { label: 'Rank results', detail: rankDetail || 'No rankable results returned.', state: ranked.length ? 'done' : 'error' },
-          { label: 'Selected sources', detail: sources.map((s) => webSourceHost(s.url) || s.url).join(', ') || 'None', state: sources.length ? 'done' : 'error' },
-        ];
-        emitSearchTrace(onTrace, trace);
-        if (!sources.length) {
-          const exactMsg = plan.mustMatch.length ? ` matching ${plan.mustMatch.map((t) => `"${t}"`).join(', ')}` : '';
-          throw new Error(errors[0] || `Web search returned no usable sources${exactMsg}.`);
-        }
-        const readUrls = new Set();
-        const mandatoryReads = mandatoryPrimaryReadSources(plan, sources, readUrls);
-        if (mandatoryReads.length) {
-          const primaryStep = {
-            label: 'Primary reads',
-            detail: `Reading high-confidence primary sources first: ${mandatoryReads.map((s) => webSourceHost(s.url) || s.url).join(', ')}`,
-            state: 'done',
-          };
-          trace = [...trace, primaryStep];
-          emitSearchTrace(onTrace, trace);
-          const { readSteps } = await readResearchSources(
-            mandatoryReads,
-            readUrls,
-            performance.now() + WEB_SEARCH_REQUEST_TIMEOUT_MS,
-            onTrace,
-            trace,
-          );
-          trace = [...trace, ...readSteps];
-          emitSearchTrace(onTrace, trace);
-        }
-        const selectStep = { label: 'Select reads', detail: 'Model chooses source pages to open before answering.', state: 'active' };
-        emitSearchTrace(onTrace, [...trace, selectStep]);
-        let modelReadSources = [];
-        try {
-          const selectableSources = selectableSourcesAfterExplicitRead(userText, plan, sources, readUrls);
-          const readPlan = await selectSearchReads(userText, plan, selectableSources, readUrls, settings);
-          const bySourceKey = new Map(selectableSources.map((s) => [sourceKey(s.url), s]));
-          modelReadSources = readPlan.urls.map((url) => bySourceKey.get(sourceKey(url))).filter(Boolean);
-          selectStep.state = 'done';
-          selectStep.detail = modelReadSources.length
-            ? `${readPlan.reason || 'selected reads'}: ${modelReadSources.map((s) => webSourceHost(s.url) || s.url).join(', ')}`
-            : (readPlan.reason || 'no extra reads selected');
-        } catch (e) {
-          selectStep.state = 'error';
-          selectStep.detail = readableWebSearchError(e?.message);
-        }
-        trace = [...trace, selectStep];
-        emitSearchTrace(onTrace, trace);
-        const readTargets = mergeSourceSelections(modelReadSources);
-        if (readTargets.length) {
-          const { readSteps } = await readResearchSources(
-            readTargets,
-            readUrls,
-            performance.now() + WEB_SEARCH_REQUEST_TIMEOUT_MS,
-            onTrace,
-            trace,
-          );
-          trace = [...trace, ...readSteps];
-          emitSearchTrace(onTrace, trace);
-        }
-        const contextSources = selectableSourcesAfterExplicitRead(userText, plan, sources, readUrls);
-        if (contextSources.length !== sources.length) {
-          trace = [
-            ...trace,
-            {
-              label: 'Context sources',
-              detail: `Focused on explicit URL family: ${contextSources.map((s) => webSourceHost(s.url) || s.url).join(', ')}`,
-              state: 'done',
-            },
-          ];
-          emitSearchTrace(onTrace, trace);
-        }
-        return { plan, sources: contextSources };
-      }
-
-      function normalizeResearchPlan(plan) {
-        const obj = plan && typeof plan === 'object' ? plan : {};
-        const entity = String(obj.entity || '').replace(/\s+/g, ' ').trim();
-        const mustMatch = uniqueStrings([...(Array.isArray(obj.mustMatch) ? obj.mustMatch : []), entity]
-          .filter((x) => String(x).trim().length >= 2), 8);
-        const queries = uniqueStrings(Array.isArray(obj.queries) ? obj.queries : [], 16);
-        if (!queries.length) throw new Error('research planner returned no search queries');
-        return {
-          intent: String(obj.intent || 'deep_research').slice(0, 80),
-          entity,
-          mustMatch,
-          queries,
-          researchQuestions: uniqueStrings(obj.researchQuestions || [], 12),
-          probeGoals: uniqueStrings(obj.probeGoals || [], 12),
-          sufficiency: uniqueStrings(obj.sufficiency || [], 12),
-        };
-      }
-
-      async function completeResearchPlan(messages, settings) {
-        const text = await completeWebPipelineText({
-          model: settings.model,
-          messages,
-          temperature: 0,
-          maxTokens: 900,
-          thinkLevel: 'off',
-        }, WEB_RESEARCH_PLAN_TIMEOUT_MS, 'Deep Research planner', settings.webSignal);
-        return normalizeResearchPlan(JSON.parse(stripJsonFence(text)));
-      }
-
-      async function planDeepResearch(userText, settings) {
-        const system = [
-          'You are DStudio Deep Research planner.',
-          'Return strict JSON only. No markdown.',
-          'Preserve unknown names, products, brands, domains, handles, and typos exactly as typed.',
-          'Never autocorrect an unknown term before search.',
-          'Create broad and targeted search queries. Include official/source-of-truth queries when possible.',
-          'Schema: {"intent":"stack|company|docs|news|general","entity":"exact entity or empty","mustMatch":["exact terms"],"researchQuestions":["question"],"probeGoals":["what HTTP/curl should verify"],"sufficiency":["what evidence is enough"],"queries":["query"]}.',
-        ].join('\n');
-        let primaryError = null;
-        try {
-          const plan = await completeResearchPlan([
-            { role: 'system', content: system },
-            { role: 'user', content: `User message:\n${userText}` },
-          ], settings);
-          plan.planner = 'primary';
-          return plan;
-        } catch (e) {
-          primaryError = e;
-          if (isAbortLikeError(e)) throw e;
-        }
-        const retry = await completeResearchPlan([
-          { role: 'system', content: `${system}\nThe first planner failed. Retry with simpler valid JSON. Do not use heuristics.` },
-          { role: 'user', content: `User message:\n${userText}` },
-        ], settings);
-        retry.planner = 'retry';
-        retry.primaryError = primaryError?.message || '';
-        return retry;
       }
 
       function sourceKey(url) {
@@ -20268,156 +19793,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         } catch {
           return raw.replace(/#.*$/, '').replace(/\/$/, '').toLowerCase();
         }
-      }
-
-      function summarizeSourcesForJudge(sources) {
-        return sources.map((s, i) => [
-          `[${i + 1}] ${compactText(s.title, 160) || s.url}`,
-          `URL: ${s.url}`,
-          `Host: ${webSourceHost(s.url) || 'unknown'}`,
-          `Read page: ${s.read ? `yes (${s.reader || 'browser'})` : 'no, search snippet only'}`,
-          `Text: ${compactText(s.content, 900)}`,
-        ].join('\n')).join('\n\n');
-      }
-
-      function summarizeProbesForJudge(probes) {
-        return probes.map((p, i) => [
-          `[P${i + 1}] ${p.method || 'HEAD'} ${p.url}`,
-          `Status: ${p.status || 'unknown'} Final: ${p.finalUrl || p.url}`,
-          `Headers/body: ${compactText(`${p.headers || ''}\n${p.bodyExcerpt || ''}`, 900)}`,
-        ].join('\n')).join('\n\n');
-      }
-
-      function normalizeResearchJudge(obj) {
-        const decision = String(obj?.decision || '').toLowerCase();
-        return {
-          decision: decision === 'enough' ? 'enough' : 'continue',
-          reason: String(obj?.reason || '').replace(/\s+/g, ' ').trim(),
-          gaps: uniqueStrings(obj?.gaps || [], Infinity),
-          queries: uniqueStrings(obj?.queries || obj?.newQueries || [], Infinity),
-        };
-      }
-
-      function normalizeResearchReadPlan(obj, sources, readUrls) {
-        const byKey = new Map((sources || []).map((s) => [sourceKey(s.url), s]));
-        const urls = [];
-        const seen = new Set();
-        for (const rawUrl of uniqueStrings(obj?.urls || [], Infinity)) {
-          const key = sourceKey(rawUrl);
-          const source = byKey.get(key);
-          if (!source || readUrls.has(key) || seen.has(key)) continue;
-          seen.add(key);
-          urls.push(source.url);
-        }
-        return {
-          reason: String(obj?.reason || '').replace(/\s+/g, ' ').trim(),
-          urls,
-        };
-      }
-
-      function summarizeSourcesForReadSelection(sources, readUrls, plan = null) {
-        return sources.map((s, i) => [
-          `[${i + 1}] ${compactText(s.title, 160) || s.url}`,
-          `URL: ${s.url}`,
-          `Host: ${webSourceHost(s.url) || 'unknown'}`,
-          `Source kind: ${classifySourceKind(s)}`,
-          `Explicit user URL: ${s.explicit ? 'yes' : 'no'}`,
-          `Adapter candidate: ${s.adapter ? 'yes' : 'no'}`,
-          `Already read: ${readUrls.has(sourceKey(s.url)) ? 'yes' : 'no'}`,
-          `Primary-source score: ${sourcePrimaryReadScore(s, plan || { mustMatch: [] })}`,
-          `Adapter guidance: ${sourceKindGuidance(classifySourceKind(s))}`,
-          `Search text: ${compactText(s.content, 500)}`,
-        ].join('\n')).join('\n\n');
-      }
-
-      async function selectResearchReads(userText, plan, sources, probes, readUrls, settings) {
-        const messages = [
-          {
-            role: 'system',
-            content: [
-              'You are DStudio read_selector.',
-              'Return strict JSON only. No markdown.',
-              'Choose which search result URLs should be opened and read with the browser before judging the research.',
-              'Do not judge software projects, repositories, technical stack, docs, dependencies, pricing, company/product claims, or code quality from snippets alone.',
-              'For code repositories, documentation, or product pages, select the page that can expose README, file listing, docs, pricing, or source-of-truth details.',
-              'For official docs, product pages, package registries, or source-of-truth pages, select the official page.',
-              'If an explicit user-provided URL has already been read, select additional URLs only when they are clearly the same project/organization or the user asked for comparison, competitors, pricing, news, or alternatives.',
-              'Avoid unrelated homonyms that merely share the same product or project name.',
-              'Select every URL that materially improves evidence for the user question.',
-              'Return an empty urls array only if there are no source-of-truth URLs worth reading and more search queries are needed first.',
-              'Use only URLs from the provided source list. Do not invent URLs.',
-              'Schema: {"reason":"short reason","urls":["exact source URL"]}.',
-            ].join('\n'),
-          },
-          {
-            role: 'user',
-            content: [
-              `User question:\n${userText}`,
-              `Research plan:\n${JSON.stringify(plan)}`,
-              `Sources:\n${summarizeSourcesForReadSelection(sources, readUrls, plan) || 'None'}`,
-              `HTTP probes:\n${summarizeProbesForJudge(probes) || 'None'}`,
-            ].join('\n\n'),
-          },
-        ];
-        const text = await completeWebPipelineText({
-          model: settings.model,
-          messages,
-          temperature: 0,
-          maxTokens: 700,
-          thinkLevel: 'off',
-        }, WEB_RESEARCH_JUDGE_TIMEOUT_MS, 'Deep Research read selector', settings.webSignal);
-        return normalizeResearchReadPlan(JSON.parse(stripJsonFence(text)), sources, readUrls);
-      }
-
-      async function judgeDeepResearch(userText, plan, sources, probes, settings) {
-        const buildMessages = (attempt) => [
-          {
-            role: 'system',
-            content: [
-              'You are DStudio research_judge.',
-              'Return strict JSON only. No markdown.',
-              'Decide if the collected evidence is enough to answer the user well.',
-              'If the task is about a software project, repository, stack, docs, dependencies, pricing, or code quality and primary pages are still only snippets, return continue.',
-              'Prefer evidence from read pages over snippets; treat unread search snippets as discovery, not proof.',
-              'If evidence is weak, return continue and new model-generated queries. Do not invent sources.',
-              'Return the complete judgment without abbreviating or truncating it.',
-              attempt > 1 ? `Retry ${attempt}: the previous response was not valid complete JSON. Preserve every relevant reason, gap, and query, and close the entire object.` : '',
-              'Schema: {"decision":"enough|continue","reason":"reason","gaps":["missing evidence"],"queries":["next query"]}.',
-            ].filter(Boolean).join('\n'),
-          },
-          {
-            role: 'user',
-            content: [
-              `User question:\n${userText}`,
-              `Initial plan:\n${JSON.stringify(plan)}`,
-              `Sources:\n${summarizeSourcesForJudge(sources) || 'None'}`,
-              `HTTP probes:\n${summarizeProbesForJudge(probes) || 'None'}`,
-            ].join('\n\n'),
-          },
-        ];
-        let obj = null;
-        let lastError = null;
-        for (let attempt = 1; attempt <= 3; attempt++) {
-          try {
-            obj = await completeWebPipelineObject({
-              model: settings.model,
-              messages: buildMessages(attempt),
-              temperature: 0,
-              // Omit max_tokens entirely: the judge may use all context left
-              // and must always be allowed to close its JSON response.
-              maxTokens: 0,
-              thinkLevel: 'off',
-            }, WEB_RESEARCH_JUDGE_TIMEOUT_MS,
-            attempt === 1 ? 'Deep Research judge' : `Deep Research judge retry ${attempt - 1}`,
-            settings.webSignal);
-            break;
-          } catch (error) {
-            if (isAbortLikeError(error)) throw error;
-            lastError = error;
-          }
-        }
-        if (!obj) throw lastError || new Error('Deep Research judge failed to return valid JSON.');
-        return normalizeResearchJudge(obj);
       }
 
       async function readResearchSources(selectedSources, readUrls, deadline, onTrace, trace, question = '', signal, options = {}) {
@@ -20471,221 +19846,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return { readSteps, readSources };
       }
 
-      async function probeResearchSources(sources, probes, probed, deadline, onTrace, trace) {
-        const probeSteps = [];
-        for (const source of sources) {
-          if (!source?.url || probed.has(source.url) || performance.now() > deadline) continue;
-          probed.add(source.url);
-          const step = { label: 'Curl probe', detail: source.url, state: 'active' };
-          probeSteps.push(step);
-          emitSearchTrace(onTrace, [...trace, ...probeSteps]);
-          try {
-            const head = await Engine.httpProbe(source.url, 'HEAD');
-            probes.push(head);
-            const ct = String(head.headers || '').toLowerCase();
-            if (ct.includes('text/html') && performance.now() < deadline) {
-              const get = await Engine.httpProbe(source.url, 'GET');
-              probes.push(get);
-            }
-            step.state = 'done';
-            step.detail = `${source.url} -> ${head.status || 'ok'}`;
-          } catch (e) {
-            step.state = 'error';
-            step.detail = `${source.url} -> ${readableWebSearchError(e?.message)}`;
-          }
-          emitSearchTrace(onTrace, [...trace, ...probeSteps]);
-        }
-        return probeSteps;
-      }
-
-      function buildResearchContext(query, sources, probes, plan, judge) {
-        const technicalReport = researchReportWantsTechnical(query, [], sources);
-        const lines = [
-          '[Deep research context]',
-          'Use this gathered evidence to answer the user as a grounded Markdown report.',
-          'Every concrete current claim should be grounded in the source numbers or HTTP probe numbers when possible.',
-          technicalReport
-            ? 'For technical/source-code questions, include stack or implementation findings only when evidence supports them.'
-            : 'For general questions, do not add technical-stack sections, local paths, Curl/HTTP observations, or artifact/download paths unless the user explicitly asked.',
-          'If evidence is missing, say what is not verifiable.',
-          `User query: ${query}`,
-          `Intent: ${plan.intent || 'deep_research'}`,
-        ];
-        if (plan.mustMatch?.length) lines.push(`Exact terms to preserve: ${plan.mustMatch.join(', ')}`);
-        if (plan.researchQuestions?.length) lines.push(`Research questions: ${plan.researchQuestions.join(' | ')}`);
-        if (judge?.reason) lines.push(`Final judge: ${judge.decision} - ${judge.reason}`);
-        lines.push('', 'Sources:');
-        (sources || []).forEach((s, i) => {
-          lines.push(
-            `[${i + 1}] ${compactText(s.title, 180) || s.url}`,
-            `URL: ${s.url}`,
-            `Host: ${webSourceHost(s.url) || 'unknown'}`,
-            `Read page: ${s.read ? `yes (${s.reader || 'browser'})` : 'no, search snippet only'}`,
-            `Excerpt: ${compactText(s.content, 1200)}`,
-            '',
-          );
-        });
-        lines.push('HTTP probes:');
-        (probes || []).forEach((p, i) => {
-          lines.push(
-            `[P${i + 1}] ${p.method || 'HEAD'} ${p.url}`,
-            `Status: ${p.status || 'unknown'}`,
-            `Final URL: ${p.finalUrl || p.url}`,
-            `Headers/body excerpt: ${compactText(`${p.headers || ''}\n${p.bodyExcerpt || ''}`, 1200)}`,
-            '',
-          );
-        });
-        lines.push(technicalReport
-          ? 'Required output: write a concise but complete Markdown report with Summary, Evidence, Stack/technical findings, Curl/HTTP observations when useful, Gaps, and Sources.'
-          : 'Required output: write a concise but complete Markdown report with Summary, Evidence, Gaps, and Sources.');
-        lines.push('[/Deep research context]');
-        return lines.join('\n');
-      }
-
       async function runDeepResearch(userText, settings, onTrace, job = null) {
         return await runResearchPipeline(userText, settings, {
           mode: 'research', onTrace, job, purpose: job?.purpose,
         });
-        const throwIfCancelled = () => {
-          if (job?.cancelled) throw new Error('Deep Research cancelled.');
-        };
-        const deadline = performance.now() + WEB_RESEARCH_TOTAL_TIMEOUT_MS;
-        let trace = [
-          { label: 'Plan research', detail: 'Model is defining research questions, queries, and sufficiency criteria.', state: 'active' },
-        ];
-        emitSearchTrace(onTrace, trace);
-        throwIfCancelled();
-        const plan = await planDeepResearch(userText, settings);
-        throwIfCancelled();
-        trace = [{ label: 'Plan research', detail: planTraceDetail(plan), state: 'done' }];
-        emitSearchTrace(onTrace, trace);
-
-        const byUrl = new Map();
-        const explicitSources = seedExplicitUrlSources(userText, byUrl);
-        if (explicitSources.length) {
-          trace = [
-            ...trace,
-            { label: 'Explicit URLs', detail: explicitSources.map((s) => s.url).join(', '), state: 'done' },
-          ];
-          emitSearchTrace(onTrace, trace);
-        }
-        const probes = [];
-        const probed = new Set();
-        const readUrls = new Set();
-        const searched = new Set();
-        let nextQueries = [...plan.queries];
-        let judge = { decision: 'continue', reason: 'Research has not been judged yet.', queries: nextQueries };
-        let stopReason = '';
-
-        for (let round = 1; performance.now() < deadline; round++) {
-          throwIfCancelled();
-          const roundQueries = uniqueStrings(nextQueries).filter((q) => !searched.has(q.toLowerCase()));
-          if (!roundQueries.length) { stopReason = 'model returned no new queries'; break; }
-          const querySteps = roundQueries.map((query) => ({ label: `Search round ${round}`, detail: query, state: 'pending' }));
-          emitSearchTrace(onTrace, [...trace, ...querySteps]);
-          for (let i = 0; i < roundQueries.length && performance.now() < deadline; i++) {
-            throwIfCancelled();
-            const query = roundQueries[i];
-            searched.add(query.toLowerCase());
-            querySteps[i].state = 'active';
-            emitSearchTrace(onTrace, [...trace, ...querySteps]);
-            try {
-              const res = await Engine.webSearch(query);
-              throwIfCancelled();
-              if (!res?.ok) throw new Error(res?.error || 'search failed');
-              let added = 0;
-              for (const source of res.sources || []) {
-                if (!source?.url) continue;
-                const key = sourceKey(source.url);
-                if (!byUrl.has(key)) { byUrl.set(key, { ...source, _order: byUrl.size }); added++; }
-              }
-              querySteps[i].state = 'done';
-              querySteps[i].detail = `${query} -> ${added} new source${added === 1 ? '' : 's'}`;
-            } catch (e) {
-              querySteps[i].state = 'error';
-              querySteps[i].detail = `${query} -> ${readableWebSearchError(e?.message)}`;
-            }
-            emitSearchTrace(onTrace, [...trace, ...querySteps]);
-          }
-          trace = [...trace, ...querySteps];
-          const sources = [...byUrl.values()];
-          const mandatoryReads = mandatoryPrimaryReadSources(plan, sources, readUrls);
-          if (mandatoryReads.length) {
-            const primaryStep = {
-              label: `Primary reads ${round}`,
-              detail: `Reading high-confidence primary sources first: ${mandatoryReads.map((s) => webSourceHost(s.url) || s.url).join(', ')}`,
-              state: 'done',
-            };
-            trace = [...trace, primaryStep];
-            emitSearchTrace(onTrace, trace);
-            throwIfCancelled();
-            const { readSteps, readSources } = await readResearchSources(mandatoryReads, readUrls, deadline, onTrace, trace);
-            trace = [...trace, ...readSteps];
-            throwIfCancelled();
-            const probeSteps = await probeResearchSources(readSources, probes, probed, deadline, onTrace, trace);
-            trace = [...trace, ...probeSteps];
-          }
-          const selectStep = { label: `Select reads ${round}`, detail: 'Model chooses which result URLs need browser reading.', state: 'active' };
-          emitSearchTrace(onTrace, [...trace, selectStep]);
-          let selectedReadSources = [];
-          try {
-            const selectableSources = selectableSourcesAfterExplicitRead(userText, plan, sources, readUrls);
-            const readPlan = await selectResearchReads(userText, plan, selectableSources, probes, readUrls, settings);
-            throwIfCancelled();
-            const bySourceKey = new Map(selectableSources.map((s) => [sourceKey(s.url), s]));
-            selectedReadSources = readPlan.urls.map((url) => bySourceKey.get(sourceKey(url))).filter(Boolean);
-            selectStep.state = 'done';
-            selectStep.detail = selectedReadSources.length
-              ? `${readPlan.reason || 'selected sources'}: ${selectedReadSources.map((s) => webSourceHost(s.url) || s.url).join(', ')}`
-              : (readPlan.reason || 'no URL needs browser reading now');
-          } catch (e) {
-            selectStep.state = 'error';
-            selectStep.detail = readableWebSearchError(e?.message);
-          }
-          trace = [...trace, selectStep];
-          emitSearchTrace(onTrace, trace);
-          throwIfCancelled();
-          const { readSteps, readSources } = await readResearchSources(selectedReadSources, readUrls, deadline, onTrace, trace);
-          trace = [...trace, ...readSteps];
-          throwIfCancelled();
-          const probeSteps = await probeResearchSources(readSources, probes, probed, deadline, onTrace, trace);
-          trace = [...trace, ...probeSteps];
-          const judgeStep = { label: `Judge round ${round}`, detail: 'Model decides if the evidence is enough.', state: 'active' };
-          emitSearchTrace(onTrace, [...trace, judgeStep]);
-          try {
-            judge = await judgeDeepResearch(userText, plan, sources, probes, settings);
-            throwIfCancelled();
-            judgeStep.state = 'done';
-            judgeStep.detail = `${judge.decision}: ${judge.reason || (judge.queries.length ? judge.queries.join(' | ') : 'no reason')}`;
-          } catch (e) {
-            judgeStep.state = 'error';
-            judgeStep.detail = readableWebSearchError(e?.message);
-            stopReason = 'judge failed';
-            trace = [...trace, judgeStep];
-            emitSearchTrace(onTrace, trace);
-            break;
-          }
-          trace = [...trace, judgeStep];
-          emitSearchTrace(onTrace, trace);
-          if (judge.decision === 'enough') break;
-          nextQueries = judge.queries;
-        }
-        if (performance.now() >= deadline) stopReason = 'research stopped by time limit';
-        const gatheredSources = [...byUrl.values()];
-        const sources = selectableSourcesAfterExplicitRead(userText, plan, gatheredSources, readUrls);
-        if (sources.length !== gatheredSources.length) {
-          trace = [
-            ...trace,
-            {
-              label: 'Context sources',
-              detail: `Focused on explicit URL family: ${sources.map((s) => webSourceHost(s.url) || s.url).join(', ')}`,
-              state: 'done',
-            },
-          ];
-          emitSearchTrace(onTrace, trace);
-        }
-        const context = buildResearchContext(userText, sources, probes, plan, { ...judge, reason: stopReason || judge.reason });
-        return { plan, sources, probes, context, judge, stopReason };
       }
 
       function slugForFilename(text) {
@@ -21892,11 +21056,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         researchJobs.set(chatId, job);
         Store.setChatStreaming(chatId, controller);
         const updateTrace = (trace) => {
-          if (job.cancelled) return;
+          if (job.cancelled || researchJobs.get(chatId) !== job) return;
           const chat = Store.getChat(chatId);
           if (!chat) return;
           Store.patchMessage(chatId, searchMsgId, { webTrace: trace });
-          renderChatIfActive(chatId);
+          if (Store.getActiveChat()?.id === chatId && !Messages.updateWebSearching(searchMsgId, trace)) renderChatIfActive(chatId);
         };
         (async () => {
           let shouldReply = false;
@@ -21981,7 +21145,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const updateTrace = (trace) => {
           searchMsg.webTrace = trace;
           Store.patchMessage(chat.id, searchMsg.id, { webTrace: trace });
-          renderChatIfActive(chat.id);
+          if (Store.getActiveChat()?.id === chat.id && !Messages.updateWebSearching(searchMsg.id, trace)) renderChatIfActive(chat.id);
         };
         if (webMode === 'research') {
           startDeepResearchJob(chat.id, userMsg.id, { ...settings }, searchMsg.id);
@@ -22328,6 +21492,15 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const chat = Store.getActiveChat();
         if (!chat || Store.isChatStreaming(chat.id)) return;
         if (chat.messages.at(-1)?.role !== 'assistant') return;
+        if (chat.mode !== 'roadmap' && chat.messages.at(-1).error?.type === 'research-review') {
+          const user = chat.messages.findLast(message => message.role === 'user');
+          if (!user) return;
+          // A failed reviewed report is bound to its old bytes. Resubmitting
+          // the request retains that failure instead of redisplaying it or
+          // treating an unchecked "Continue" as a successful reviewed answer.
+          sendMessage(user.content, { attachments: user.attachments || [] });
+          return;
+        }
         sendMessage(null, { regenerate: true });
       }
 
@@ -22954,6 +22127,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       let input;
       let sendBtn;
       let stopBtn;
+      let attachmentPreparation = null; // One composer-owned, cancellable preflight.
       let meta;
       let slashMenu;
       let fileInput;
@@ -23190,6 +22364,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         });
         on(input, 'blur', () => setTimeout(closeSlash, 150)); // let a click land first
         on(stopBtn, 'click', () => {
+          if (attachmentPreparation?.chatId === Store.getActiveChat()?.id) {
+            attachmentPreparation.controller.abort();
+            return;
+          }
           if (agentMode) {
             stopGsaLoop('GSA loop stopped.');
             AgentView.stopLiveGeneration();
@@ -23739,16 +22917,23 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       function pdfReadPlanFromModel(raw, question) {
         let plan = null;
-        try { plan = JSON.parse(stripJsonFence(String(raw || ''))); }
-        catch { plan = null; }
-        if (!plan || !['overview', 'pages', 'search'].includes(plan.mode)) return { mode: 'overview' };
+        // The web-search fence parser is private to that runtime. Parse this
+        // planner's bounded response here; a parsing/routing error must never
+        // silently change a physical-page or passage request into an overview.
+        const text = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+        try { plan = JSON.parse(text); }
+        catch { throw new Error('The PDF read planner returned invalid JSON.'); }
+        if (!plan || !['overview', 'pages', 'search'].includes(plan.mode))
+          throw new Error('The PDF read planner returned an unsupported read mode.');
         if (plan.mode === 'pages') {
           const pages = typeof plan.pages === 'string' ? plan.pages.trim().slice(0, 40) : '';
-          return pages ? { mode: 'pages', pages } : { mode: 'overview' };
+          if (!pages) throw new Error('The PDF read planner did not specify physical pages.');
+          return { mode: 'pages', pages };
         }
         if (plan.mode === 'search') {
           const query = typeof plan.query === 'string' ? plan.query.trim().slice(0, 900) : '';
-          return query ? { mode: 'search', query } : { mode: 'overview' };
+          if (!query) throw new Error('The PDF read planner did not specify a retrieval query.');
+          return { mode: 'search', query };
         }
         return { mode: 'overview', question: String(question || '').trim() };
       }
@@ -23756,7 +22941,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       /* LLM-only document routing. It understands the request semantically in
        * any language and chooses broad overview, exact physical pages, or RAG.
        * There is deliberately no keyword/regex intent fallback. */
-      async function routePdfReadPlan(question, settings) {
+      async function routePdfReadPlan(question, settings, signal) {
+        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
         const request = String(question || '').trim() || 'Review the attached PDF.';
         const chat = Store.getActiveChat();
         const recent = (chat?.messages || []).slice(-6)
@@ -23786,11 +22972,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             temperature: 0,
             maxTokens: 140,
             thinkLevel: 'off',
-          }, AbortSignal.timeout(90000));
+          }, signal);
+          if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
           return pdfReadPlanFromModel(raw, request);
         } catch (e) {
-          console.warn('Semantic PDF routing failed; using bounded overview.', e);
-          return { mode: 'overview', routingError: String(e?.message || e) };
+          if (signal?.aborted || e?.name === 'AbortError') throw e;
+          throw new Error(`PDF read planning failed: ${e?.message || e}`);
         }
       }
 
@@ -23802,12 +22989,21 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // embedding helper. Scanned pages are reported explicitly instead of
       // being sent to a secondary vision model. While the read runs, a progress
       // poll keeps the attachment tile updated.
-      // Never throws.
+      // Ordinary read failures become explicit attachment diagnostics. Stop or
+      // stale preparation throws and preserves the original bytes for retry.
       async function analyzePdfAttachment(att, question, readPlan = { mode: 'overview' }, opts = {}) {
         const entry = imageAttachData.get(att.id);
         if (!entry || !entry.pdfBytes) return false;
+        const originalBytes = entry.pdfBytes;
+        const revalidate = () => {
+          if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+          opts.assertCurrent?.();
+          if (imageAttachData.get(att.id) !== entry || entry.pdfBytes !== originalBytes)
+            throw new DOMException('Attachment preparation changed', 'AbortError');
+        };
+        revalidate();
         const completeProbe = readPlan.mode === 'complete';
-        let completed = false;
+        let completed = false, interrupted = false;
         entry.status = 'analyzing';
         entry.progress = '';
         renderPendingAttachments();
@@ -23830,11 +23026,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const post = () => fetch('/api/pdf/describe', {
           method: 'POST', headers: H,
           body: JSON.stringify(payload),
+          signal: opts.signal,
         });
         const poll = setInterval(() => {
           fetch(`/api/pdf/progress?job=${job}`)
             .then((r) => r.json())
             .then((p) => {
+              if (opts.signal?.aborted || imageAttachData.get(att.id) !== entry) return;
               if (p?.phase === 'semantic') {
                 entry.progress = 'hybrid passage index';
                 renderPendingAttachments();
@@ -23844,15 +23042,19 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }, 1200);
         try {
           let res = await post();
+          revalidate();
           if (res.status === 503) {
             const need = await res.clone().json().catch(() => ({}));
+            revalidate();
             if (need.needs !== 'embedding') throw new Error(need.error || 'PDF text extraction is unavailable.');
             entry.status = 'installing';
             renderPendingAttachments();
             await ensureEmbeddingSetup();
+            revalidate();
             res = await post();
           }
           const r = await res.json().catch(() => ({}));
+          revalidate();
           if (!res.ok || !r.ok) throw new Error(r.error || `HTTP ${res.status}`);
           // Older hosts, scans and over-budget documents must not be mistaken
           // for a complete read. Retain their bytes for the normal planner.
@@ -23921,6 +23123,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           completed = true;
           return true;
         } catch (e) {
+          if (opts.signal?.aborted || e?.name === 'AbortError') {
+            interrupted = true;
+            if (imageAttachData.get(att.id) === entry) entry.status = 'ready';
+            throw e;
+          }
           if (completeProbe) return false;
           att.content = `[PDF "${att.name}" attached, but reading it failed: ${e?.message || e}.]`;
           entry.status = 'failed';
@@ -23931,7 +23138,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           // The PDF bytes exist only to feed this read — a 1GB PDF is ~1.37GB
           // of data URI, which must not linger in the session LRU (the small
           // rendered-page preview in entry.dataUri is all later UI needs).
-          if (!completeProbe || completed) delete entry.pdfBytes;
+          if ((!completeProbe || completed) && !interrupted && !opts.signal?.aborted &&
+              imageAttachData.get(att.id) === entry && entry.pdfBytes === originalBytes) delete entry.pdfBytes;
           renderPendingAttachments();
         }
       }
@@ -23949,9 +23157,22 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           if (entry) { entry.status = 'analyzing'; entry.progress = 'planning pages'; }
         });
         renderPendingAttachments();
-        const readPlan = opts.roadmapPdfPlan
-          ? { mode: 'search', query: `Learning path evidence: prerequisites, concept order, curriculum, outcomes, exercises and projects. Learner goal: ${question || 'infer the goal from this document'}`.slice(0, 900) }
-          : await routePdfReadPlan(question, Store.getSettings());
+        const entries = remaining.map(attachment => [attachment, imageAttachData.get(attachment.id)]);
+        let readPlan;
+        try {
+          readPlan = opts.roadmapPdfPlan
+            ? { mode: 'search', query: `Learning path evidence: prerequisites, concept order, curriculum, outcomes, exercises and projects. Learner goal: ${question || 'infer the goal from this document'}`.slice(0, 900) }
+            : await routePdfReadPlan(question, opts.settings || Store.getSettings(), opts.signal);
+          if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+          opts.assertCurrent?.();
+        } catch (e) {
+          for (const [attachment, entry] of entries) if (entry && imageAttachData.get(attachment.id) === entry) {
+            entry.status = opts.signal?.aborted || e?.name === 'AbortError' ? 'ready' : 'failed';
+            entry.progress = '';
+          }
+          renderPendingAttachments();
+          throw e;
+        }
         await Promise.all(remaining.map((attachment) =>
           analyzePdfAttachment(attachment, question, readPlan, opts)));
       }
@@ -23974,7 +23195,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // Shared finalization for the normal composer and a focused Roadmap Tutor
       // room. It keeps one implementation of text, PDF and native-vision attachments,
       // so a dropped file means the same thing in both chat surfaces.
-      async function preparePendingAttachments(text, { roadmapPdfPlan = false, consume = true } = {}) {
+      async function preparePendingAttachments(text, { roadmapPdfPlan = false, consume = true, signal, assertCurrent, settings } = {}) {
         const q = text && text.trim() ? text.trim() : undefined;
         const imgs = pendingAttachments.filter((a) => a.kind === 'image' && !a.content);
         const pdfs = pendingAttachments.filter((a) => a.kind === 'pdf' && !a.content);
@@ -23991,7 +23212,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           renderPendingAttachments();
         }
         if (pdfs.length) {
-          await preparePdfAttachments(pdfs, q, { nativeVision: nativeModelVision, roadmapPdfPlan });
+          await preparePdfAttachments(pdfs, q, { nativeVision: nativeModelVision, roadmapPdfPlan, signal, assertCurrent, settings });
         }
         return consume ? takePendingAttachments() : [...pendingAttachments];
       }
@@ -24021,6 +23242,18 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // a retry is just a second press, not a lost message.
       async function finalizeAndSendChat(text) {
         const chatId = Store.ensureActiveChat().id;
+        if (attachmentPreparation) return;
+        const settings = { ...Store.getSettings() };
+        const modelIdentity = value => JSON.stringify([value.model, value.modelGguf, value.modelEngineDir, value.chatBackend, value.ctxSize]);
+        const preparedModel = modelIdentity(settings);
+        const preparation = { chatId, controller: new AbortController() };
+        attachmentPreparation = preparation;
+        const assertCurrent = () => {
+          if (preparation.controller.signal.aborted || attachmentPreparation !== preparation ||
+              Store.getActiveChat()?.id !== chatId || modelIdentity(Store.getSettings()) !== preparedModel)
+            throw new DOMException('Attachment preparation changed', 'AbortError');
+        };
+        onStreamingChange();
         if (sendBtn) sendBtn.disabled = true;
         if (input) input.disabled = true;
         let attachments;
@@ -24065,11 +23298,20 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           } else {
             attachments = await preparePendingAttachments(text, {
               roadmapPdfPlan: curMode === 'roadmap',
+              consume: false, settings, signal: preparation.controller.signal, assertCurrent,
             });
+            assertCurrent();
+            if (attachments) consumePreparedAttachments(attachments);
           }
+        } catch (e) {
+          if (!preparation.controller.signal.aborted && e?.name !== 'AbortError')
+            toast(e?.message || 'Attachment preparation failed.', 'error');
+          attachments = null;
         } finally {
+          if (attachmentPreparation === preparation) attachmentPreparation = null;
           if (sendBtn) sendBtn.disabled = false;
           if (input) input.disabled = false;
+          onStreamingChange();
         }
         if (!attachments) return;
         if (Store.getActiveChat()?.id !== chatId) {
@@ -24813,15 +24055,20 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         // The send/stop state reflects ONLY the active chat: another chat may
         // generate in the background without blocking the composer of the current one.
         const id = Store.getActiveChat()?.id;
+        if (attachmentPreparation && attachmentPreparation.chatId !== id)
+          attachmentPreparation.controller.abort();
+        const preparing = !!attachmentPreparation && attachmentPreparation.chatId === id;
         const streaming = !!id && Store.isChatStreaming(id);
         const researching = !!id && Chat.isResearching(id);
-        const busy = streaming || researching;
-        input.disabled = false;
+        const busy = streaming || researching || preparing;
+        input.disabled = preparing;
+        sendBtn.disabled = preparing;
         sendBtn.hidden = false;
         sendBtn.title = busy ? 'Add context to this turn' : 'Send message';
         stopBtn.hidden = !busy;
-        stopBtn.setAttribute('aria-label', researching ? 'Stop research' : 'Stop response');
-        stopBtn.title = researching ? 'Stop research' : 'Stop response';
+        const stopLabel = preparing ? 'Stop attachment preparation' : researching ? 'Stop research' : 'Stop response';
+        stopBtn.setAttribute('aria-label', stopLabel);
+        stopBtn.title = stopLabel;
         if (!busy) {
           const collapsedRoadmap = curMode === 'roadmap' && !document.body.classList.contains('composer-raised');
           if (collapsedRoadmap) {
@@ -27398,7 +26645,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             ? 'Qwen3.8-27B keeps its dense weights in RAM. It needs no PLE file; disk KV cache is separate. Your SSD streaming preference for other models is kept.'
             : localQwen35Selected(s)
             ? 'Qwen3.6 keeps all weights in RAM and needs no PLE file. Expert streaming stays Off; your preference for other models is kept.'
-            : 'Qwen3.8-Flash-Next keeps the main weights in RAM and its PLE on SSD. Expert streaming stays Off; your preference for other models is kept.'
+            : 'Qwen Next keeps its backbone weights in RAM and reads original BF16 n-grams from SSD inside the same GGUF. Expert streaming stays Off; your preference for other models is kept.'
           : 'Metal-only. Keep Off unless the model cannot remain resident in memory.';
       }
 
@@ -27422,7 +26669,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         f.designThinkTokens.value = String([0, 8192, 16384, 24576].includes(+s.designThinkTokens) ? +s.designThinkTokens : 0);
         setThemeActive(s.theme || 'light');
         f.ctx.value = String(s.ctxSize ?? 65536);
-        const fullPower = localQwen35Selected(s) || localQwen27Selected(s);
+        const fullPower = localQwenSelected(s);
         f.power.value = fullPower ? '100' : String(s.enginePower ?? 90);
         f.power.disabled = fullPower;
         qs('#set-power-note').textContent = fullPower
@@ -27999,6 +27246,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           el('div', { class: 'set-model-family__rows' }, family.cards),
         ]));
         const emptyNodes = [];
+        if (allGgufs.some(g => /Qwen3\.8-Flash-Next-Q4KImatrix/i.test(String(g?.file || g?.path || '')))) {
+          emptyNodes.push(el('div', { class: 'set-help', role: 'status', text: 'Qwen Next has moved to ds4 main. Your older base + PLE files are preserved, but cannot be loaded by this engine. Choose the new single-file Qwen Next Q2 or Q4 download below; no download starts automatically.' }));
+        }
         if (!familyNodes.length) {
           if (setModelScanning || ggufCache === null) {
             emptyNodes.push(el('div', { class: 'onboard__model', text: 'Scanning the engine folders…' }));
@@ -29557,12 +28807,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (!r.ok && data && !data.error) data.error = `/api/laguna/setup returned HTTP ${r.status}`;
         return data;
       }
-      async function setupQwen() {
-        const r = await apiFetch('/api/qwen/setup', { method: 'POST', headers: H });
-        const data = await r.json();
-        if (!r.ok) return { ...data, ok: false, error: data.error || `Qwen setup HTTP ${r.status}` };
-        return data;
-      }
       async function setupQwen35() {
         const r = await apiFetch('/api/qwen35/setup', { method: 'POST', headers: H });
         const data = await r.json();
@@ -29833,7 +29077,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return r.json();
       }
 
-      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, stop, cancelLaunch, agentSend, agentSteer, agentSteerStatus, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupLaguna, setupQwen, setupQwen35, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, stopModelDownload, openModelFolder, deleteModelPartials, engineCheckouts, setEngineCheckout, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, setHttpPort, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
+      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, stop, cancelLaunch, agentSend, agentSteer, agentSteerStatus, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupLaguna, setupQwen35, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, stopModelDownload, openModelFolder, deleteModelPartials, engineCheckouts, setEngineCheckout, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, setHttpPort, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
     })();
 
     /* ==================== Remote LAN chat ==================== */
@@ -35892,7 +35136,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       function launchBase(remote = false, settings = Store.getSettings()) {
         return {
           ctx: settings.ctxSize || 65536,
-          power: !remote && (localQwen35Selected(settings) || localQwen27Selected(settings)) ? 100
+          power: !remote && localQwenSelected(settings) ? 100
             : Math.max(1, Math.min(100, parseInt(settings.enginePower ?? 90, 10) || 90)),
           ...(remote ? {} : { ssdStreaming: localSsdStreaming(settings),
             metalHotlistSeed: !localQwen27Selected(settings) && !!settings.metalHotlistSeed,
@@ -36158,9 +35402,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               await launchDesiredContext();
             }
 
-            const deadline = Date.now() + 180000;
             let stoppedPolls = 0;
-            while (Date.now() < deadline) {
+            while (true) {
               await new Promise((resolve) => setTimeout(resolve, 400));
               revalidate();
               st = await Engine.status();
@@ -36174,8 +35417,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               // A launch that was already in flight may have used the saved
               // Chat context instead of this request's temporary Roadmap
               // context. As soon as that launch settles, perform the one
-              // required restart instead of polling the wrong context until
-              // the readiness deadline.
+              // required restart instead of waiting on the wrong context.
               if (!desiredLaunchRequested && !switching) {
                 await launchDesiredContext();
                 stoppedPolls = 0;
@@ -36188,7 +35430,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               stoppedPolls++;
               if (stoppedPolls >= 3 && st.engineError) throw new Error(st.engineError);
             }
-            throw new Error('The local chat model did not become ready within 3 minutes.');
           })().finally(() => {
             if (chatReadyFlight === flight) chatReadyFlight = null;
           });
@@ -36529,7 +35770,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const branch = String(c?.branch || '').toLowerCase();
         const name = String(c?.name || '').toLowerCase();
         if (engine === 'laguna') return branch === 'laguna-s2.1' || name === 'ds4-laguna-s21';
-        if (engine === 'qwen') return branch === 'qwen3.8-flash-next' || name === 'ds4-qwen38';
         if (engine === 'qwen35') return branch === 'qwen35moe-support' || name === 'ds4-qwen35';
         return branch === 'main' || name === 'ds4';
       }
@@ -36539,9 +35779,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         catch { /* setup below can still recover optional engines */ }
         let checkout = list.find((c) => checkoutMatchesEngine(c, engine));
         if (!checkout && engine !== 'main') {
-          const label = engine === 'qwen35' ? 'Qwen3.6-35B-A3B' : engine === 'qwen' ? 'Qwen3.8-Flash-Next' : 'Laguna S 2.1';
+          const label = engine === 'qwen35' ? 'Qwen3.6-35B-A3B' : 'Laguna S 2.1';
           toast(`Installing the ${label} engine first…`, 'info');
-          const setup = await (engine === 'qwen35' ? Engine.setupQwen35() : engine === 'qwen' ? Engine.setupQwen() : Engine.setupLaguna());
+          const setup = await (engine === 'qwen35' ? Engine.setupQwen35() : Engine.setupLaguna());
           if (!setup || setup.ok === false) throw new Error(setup?.error || `${label} engine setup failed`);
           list = (await Engine.engineCheckouts())?.checkouts || [];
           checkout = list.find((c) => checkoutMatchesEngine(c, engine));
@@ -36563,7 +35803,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           return;
         }
         const body = { ...(spec || {}) };
-        const engine = body.engine || 'main';
+        const engine = body.engine === 'qwen' ? 'main' : body.engine || 'main';
         delete body.engine;
         const label = body.target || 'model';
         Store.setModelState({
@@ -36831,8 +36071,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (overlayCancel) overlayCancel.hidden = !launchTaskId;
         if (launchTaskId) appendOverlayLog(`Launch task #${launchTaskId}`);
 
-        const t0 = Date.now();
-        const timeoutMs = target === 'server' ? 180000 : 15 * 60 * 1000;
         let deaths = 0;
         let lastStatusError = '';
         const launchWasSuperseded = async () => {
@@ -36906,14 +36144,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               return;
             }
           }
-          if (Date.now() - t0 > timeoutMs) {
-            const mins = Math.round(timeoutMs / 60000);
-            failOverlay(`Loading timeout${launchTaskId ? ` (task #${launchTaskId})` : ''} (the engine took over ${mins} min to start).${lastStatusError ? ` Last /api/status error: ${lastStatusError}.` : ' Check the engine log.'}`);
-            switching = false;
-            launchTarget = null;
-            Statusbar.render();
-            return;
-          }
+          // Time alone is not failure: a slow model may still be loading.
+          // Keep the attempt and Cancel available until native readiness,
+          // an actual launch failure, cancellation or supersession.
+          if (!st && lastStatusError) updateOverlay(0, 'Waiting for runtime status…', lastStatusError);
           setTimeout(tick, 500);
         };
         tick();

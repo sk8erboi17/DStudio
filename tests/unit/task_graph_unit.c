@@ -59,6 +59,28 @@ static void drive(dtg_runtime *rt, long long advance, int rounds) {
         dtg_scheduler_tick(now + i * (advance ? advance : 1));
 }
 
+static void test_work_budgets(const char *workspace) {
+    char err[512] = "";
+    dtg_runtime *unlimited = create_graph(workspace,
+        "{\"id\":\"slow\",\"kind\":\"host_tool\",\"title\":\"Slow\",\"synthetic\":{\"delayMs\":10000}}", NULL);
+    CHECK(dtg_scheduler_start(unlimited, err, sizeof err));
+    dtg_node *slow = dtg_find_node(&unlimited->graph, "slow");
+    CHECK(slow && slow->state == DTG_NODE_RUNNING);
+    dtg_scheduler_tick(slow->started_ms + 2000);
+    CHECK(slow->state == DTG_NODE_RUNNING);
+    dtg_scheduler_tick(slow->started_ms + 4LL * 60 * 60 * 1000);
+    CHECK(slow->state == DTG_NODE_SUCCEEDED);
+    dtg_runtime *bounded = create_graph(workspace,
+        "{\"id\":\"budget\",\"kind\":\"host_tool\",\"title\":\"Explicit budget\",\"timeoutMs\":1000,\"synthetic\":{\"delayMs\":10000}}", NULL);
+    CHECK(dtg_scheduler_start(bounded, err, sizeof err));
+    dtg_node *budget = dtg_find_node(&bounded->graph, "budget");
+    CHECK(budget && budget->state == DTG_NODE_RUNNING);
+    dtg_scheduler_tick(budget->started_ms + 2000);
+    CHECK(budget->native_cancel_requested);
+    dtg_scheduler_tick(budget->started_ms + 20000);
+    CHECK(budget->state == DTG_NODE_FAILED);
+}
+
 static void test_json_and_validation(void) {
     char err[512] = "";
     dtg_graph graph;
@@ -68,6 +90,7 @@ static void test_json_and_validation(void) {
         "{\"id\":\"b\",\"kind\":\"join\",\"title\":\"B\",\"dependsOn\":[\"a\"]}]}";
     CHECK(dtg_parse_graph_json(valid, &graph, err, sizeof err));
     CHECK(graph.node_count == 2 && graph.edge_count == 1);
+    CHECK(graph.nodes[0].timeout_ms == 0);
     CHECK(dtg_policy_validate(&graph, 0, err, sizeof err));
     size_t order[2] = {99, 99};
     CHECK(dtg_topological_order(&graph, order, err, sizeof err));
@@ -77,7 +100,26 @@ static void test_json_and_validation(void) {
     dtg_graph roundtrip;
     CHECK(dtg_parse_graph_json(serialized.ptr, &roundtrip, err, sizeof err));
     CHECK(roundtrip.node_count == graph.node_count && roundtrip.edge_count == graph.edge_count);
+    CHECK(roundtrip.nodes[0].timeout_ms == 0);
     dtg_graph_free(&roundtrip); free(serialized.ptr); dtg_graph_free(&graph);
+
+    const char *budgets[] = {"0", "1234", "-1", "86400001", "null", "\"1234\""};
+    for (size_t i = 0; i < sizeof budgets / sizeof *budgets; i++) {
+        char definition[512];
+        snprintf(definition, sizeof definition,
+            "{\"goal\":\"Budget contract\",\"policy\":\"test.synthetic.v1\",\"executorMode\":\"synthetic\","
+            "\"nodes\":[{\"id\":\"a\",\"kind\":\"host_tool\",\"title\":\"A\",\"timeoutMs\":%s}]}", budgets[i]);
+        err[0] = '\0';
+        CHECK(dtg_parse_graph_json(definition, &graph, err, sizeof err) == (i < 2));
+        if (i < 2) {
+            CHECK(graph.nodes[0].timeout_ms == (i ? 1234 : 0));
+            serialized = (json_dyn_buf){0};
+            CHECK(dtg_graph_definition_json(&graph, &serialized));
+            CHECK(dtg_parse_graph_json(serialized.ptr, &roundtrip, err, sizeof err));
+            CHECK(roundtrip.nodes[0].timeout_ms == graph.nodes[0].timeout_ms);
+            dtg_graph_free(&roundtrip); free(serialized.ptr); dtg_graph_free(&graph);
+        }
+    }
 
     const char *key_like_value =
         "{\"goal\":\"approval\",\"approval\":{\"required\":true},\"policy\":\"test.synthetic.v1\","
@@ -593,6 +635,7 @@ int main(void) {
     CHECK(setenv("DS4UI_TEST_MODE", "1", 1) == 0);
     CHECK(setenv("DS4UI_DATA_DIR", workspace, 1) == 0);
     test_json_and_validation();
+    test_work_budgets(workspace);
     test_store_scheduler(workspace);
     test_retry_failure_and_terminal_dep(workspace);
     test_approval_pause_cancel(workspace);

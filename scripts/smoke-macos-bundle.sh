@@ -115,7 +115,7 @@ pins = produced_json([app, '--engine-pins'])
 assert pins['schema'] == 'dstudio.engine-pins.v1'
 engines = {entry['id']: entry for entry in pins['engines']}
 assert len(engines) == len(pins['engines'])
-assert set(engines) == {'main', 'laguna', 'qwen', 'qwen35', 'q36'}
+assert set(engines) == {'main', 'laguna', 'qwen35', 'q36'}
 assert engines['q36']['directory'] == 'q36'
 assert re.fullmatch(r'[0-9a-f]{40}', engines['q36']['commit'])
 assert engines['q36']['commit'] in engines['q36']['archiveURL']
@@ -154,5 +154,12 @@ finally:
     child.wait()
 PY
 codesign --verify --deep --strict "$TMP_ROOT/DStudio.app"
+
+# Run the production Chat preparation against the current main source shape
+# using materialized bundle assets, from Finder's cwd. Compilation is simulated
+# in this lifecycle harness; the native build is a separate gate. An old bundle
+# that omits the current PLD patch must fail before it reaches that compiler.
+node "$ROOT/tests/integration/server_pld_build_test.mjs" \
+  "$TMP_ROOT/DStudio.app/Contents/MacOS/DStudio" --latest --bundle-profile
 
 echo "macOS bundle smoke test: ok"

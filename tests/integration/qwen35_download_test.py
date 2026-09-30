@@ -1,8 +1,11 @@
 """Production downloader + real curl against a tiny local HTTP fixture, no weights."""
 import hashlib
+import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -103,6 +106,21 @@ class DownloadTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'Download failed'):
             self.download(url=self.url + '-missing')
         self.assertFalse(self.target.exists())
+
+    def test_manifest_prints_pins_without_disk_or_network(self):
+        # Live acceptance verifies loaded weights against these pins; printing
+        # them must not create directories, download or require a token.
+        before = sorted(self.root.iterdir())
+        run = subprocess.run([sys.executable, '-B', str(Path('scripts/download-qwen35.py').resolve()), '--manifest'],
+                             capture_output=True, text=True, timeout=10, cwd=self.root,
+                             env={'PATH': '/usr/bin:/bin', 'HOME': str(self.root)})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        pins = json.loads(run.stdout)
+        self.assertEqual(pins['files']['model'], {'file': downloader.FILE, 'bytes': downloader.SIZE,
+                                                  'sha256': downloader.SHA256})
+        self.assertEqual((pins['repository'], pins['revision']), (downloader.REPO, downloader.REVISION))
+        self.assertEqual(sorted(self.root.iterdir()), before)
+        self.assertEqual(REQUESTS, [])
 
 
 if __name__ == '__main__':

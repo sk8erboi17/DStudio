@@ -13,7 +13,8 @@ if [ -z "$ds4_dir" ] || [ ! -f "$ds4_dir/download_model.sh" ]; then
 fi
 ds4_dir=$(CDPATH= cd -- "$ds4_dir" && pwd)
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-if grep -q 'qwen38-q4k' "$ds4_dir/download_model.sh" ||
+if { grep -q 'qwen38-q4k' "$ds4_dir/download_model.sh" &&
+     ! grep -q 'QWEN38_REPO="antirez/qwen3.8-flash-next-gguf"' "$ds4_dir/download_model.sh"; } ||
    ! grep -q 'ds4f-vision-q2' "$ds4_dir/download_model.sh" ||
    ! grep -q 'glm53-q2' "$ds4_dir/download_model.sh"; then
     echo "DStudio visible downloads patch: non-main checkout skipped"
@@ -26,7 +27,7 @@ apply_file() (
     unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
     GIT_CEILING_DIRECTORIES="$(dirname -- "$ds4_dir")" git -C "$ds4_dir" apply  "$@" "$patch_file"
 )
-for variant in main-v41.patch visible-partials.patch; do
+for variant in main-qwen.patch main-v41.patch visible-partials.patch; do
     patch_file="$script_dir/../patch/ds4-visible-downloads/$variant"
     if apply_file "$patch_file" --reverse --check >/dev/null 2>&1; then
         if [ "$action" = restore ]; then

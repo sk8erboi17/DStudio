@@ -50,9 +50,10 @@ class InstallTests(unittest.TestCase):
         for name in ('q36', 'q36-server'):
             (tree / name).write_text('#!/bin/sh\n[ "$1" = "--help" ]\n')
             (tree / name).chmod(0o755)
-        inputs = ['patch/q36-metal-runtime/next-review.patch', 'scripts/apply-q36-metal-runtime.sh',
+        inputs = ['patch/q36-metal-runtime/runtime-1305843.patch', 'scripts/apply-q36-metal-runtime.sh',
                   'scripts/apply-q36-agent-tty.sh', 'patch/q36-agent-tty/monitor.patch',
-                  'patch/q36-agent-tty/monitor-owner.patch', 'patch/q36-metal-runtime/cache-usage.patch']
+                  'patch/q36-agent-tty/monitor-owner.patch', 'patch/q36-metal-runtime/cache-usage.patch',
+                  'scripts/apply-q36-f16-attention.sh', 'patch/q36-f16-attention/online-1305843.patch']
         receipt = {'engine': 'q36', 'commit': installer.PIN,
                    'backend': 'metal' if sys.platform == 'darwin' else 'vulkan',
                    'patches': {name: installer.sha256(installer.ASSETS / name) for name in inputs},
@@ -382,12 +383,14 @@ class InstallTests(unittest.TestCase):
                 assets, destination = case / 'assets', case / 'install'
                 destination.mkdir(parents=True)
                 inputs = [
-                    'patch/q36-metal-runtime/next-review.patch',
+                    'patch/q36-metal-runtime/runtime-1305843.patch',
                     'scripts/apply-q36-metal-runtime.sh',
                     'scripts/apply-q36-agent-tty.sh',
                     'patch/q36-agent-tty/monitor.patch',
                     'patch/q36-agent-tty/monitor-owner.patch',
                     'patch/q36-metal-runtime/cache-usage.patch',
+                    'patch/q36-f16-attention/online-1305843.patch',
+                    'scripts/apply-q36-f16-attention.sh',
                 ]
                 for name in inputs:
                     file = assets / name
@@ -432,17 +435,18 @@ class InstallTests(unittest.TestCase):
                         receipt = json.loads((destination / 'q36/.dstudio-source.json').read_text())
                         self.assertEqual(receipt['installerSHA256'], initial_installer)
                         self.assertEqual(receipt['patches'], initial_patches)
-                        self.assertEqual(receipt['patchOrder'], [inputs[0], inputs[3], inputs[4], inputs[5]])
+                        self.assertEqual(receipt['patchOrder'], [inputs[0], inputs[3], inputs[4], inputs[5], inputs[6]])
                         self.assertEqual(receipt['managedFiles'], installer.managed_files(destination / 'q36'))
                         self.assertEqual(set(receipt['managedFiles']), {'q36.c', 'q36', 'q36-server', '.dstudio-build.log'})
                         self.assertFalse(receipt['modelLoaded'])
                         self.assertFalse(receipt['qualityValidated'])
                         self.assertEqual(list(destination.glob('.dstudio-q36-stage-*')), [])
                 self.assertEqual(applied, [
-                    ('apply-q36-metal-runtime.sh', ['apply', 'next-review']),
+                    ('apply-q36-metal-runtime.sh', ['apply', 'current']),
                     ('apply-q36-agent-tty.sh', ['apply', 'monitor']),
                     ('apply-q36-agent-tty.sh', ['apply', 'monitor-owner']),
                     ('apply-q36-metal-runtime.sh', ['apply', 'cache-usage']),
+                    ('apply-q36-f16-attention.sh', ['apply', 'online']),
                 ])
 
     def test_command_errors_and_output_limits_are_not_success(self):
@@ -461,11 +465,15 @@ class InstallTests(unittest.TestCase):
                 installer.command([sys.executable, '-c', 'import os; os.write(1, b"x"*65)'],
                                   self.root, os.environ, 5)
 
-    def upgrade_fixture(self):
+    def upgrade_fixture(self, commit=None, runtime_patch=None):
         tree = self.installed_fixture()
         receipt_file = tree / '.dstudio-source.json'
         receipt = json.loads(receipt_file.read_text())
-        receipt['commit'] = installer.LEGACY_PIN
+        receipt['commit'] = commit or installer.LEGACY_PIN
+        if runtime_patch:
+            # The previous reviewed pin recorded its own runtime variant.
+            receipt['patches'].pop('patch/q36-metal-runtime/runtime-1305843.patch')
+            receipt['patches'][runtime_patch] = installer.sha256(installer.ASSETS / runtime_patch)
         receipt['managedFiles'] = installer.managed_files(tree)
         receipt_file.write_text(json.dumps(receipt))
         self.archive_with([('q36.c', b'new independently prepared source', 'file')])
@@ -536,6 +544,23 @@ class InstallTests(unittest.TestCase):
             installer.install(self.root, installer.PIN)
             self.assertEqual(publication.call_count, 1)
             self.assertEqual(len(list(self.root.glob('.dstudio-q36-stage-*'))), 1)
+
+    def test_pins_current_upstream_and_upgrades_the_previous_reviewed_pin(self):
+        self.assertEqual(installer.PIN, '1305843c735380f912619548b121cba8601f2f85')
+        self.assertEqual(installer.PREVIOUS_PINS,
+                         ('d67687ed15ad9f52b755a9b5fdfc0214ea937555', '8362010a301b3360296e435703f58ffc230a024a'))
+        tree, old_receipt = self.upgrade_fixture('8362010a301b3360296e435703f58ffc230a024a',
+                                                 'patch/q36-metal-runtime/next-review.patch')
+        (tree / 'notes.md').write_bytes(b'user notes survive')
+        with mock.patch.object(installer, 'command', side_effect=self.prepare_upgrade):
+            installer.install(self.root, installer.PIN)
+        receipt = json.loads((tree / '.dstudio-source.json').read_text())
+        self.assertEqual(receipt['commit'], installer.PIN)
+        self.assertEqual(receipt['patchOrder'][0], 'patch/q36-metal-runtime/runtime-1305843.patch')
+        backup = self.root / receipt['upgradeFrom']['backup']
+        self.assertEqual((backup / '.dstudio-source.json').read_bytes(), old_receipt)
+        self.assertEqual((tree / 'notes.md').read_bytes(), b'user notes survive')
+        self.assertEqual((tree / 'q36.c').read_bytes(), b'new independently prepared source')
 
     def test_upgrade_preserves_code_projects_without_compiling_or_adopting_them(self):
         tree, old_receipt = self.upgrade_fixture()
@@ -810,6 +835,22 @@ class InstallTests(unittest.TestCase):
             installer.install(self.root, installer.PIN)
         self.assertEqual(len(list(self.root.glob('.dstudio-q36-stage-*'))), 1)
 
+    def test_slow_compile_has_no_deadline_but_remains_supervised(self):
+        elapsed = 0
+
+        def clock():
+            nonlocal elapsed
+            elapsed += 4 * 60 * 60
+            return elapsed
+
+        with mock.patch.object(installer.time, 'monotonic', side_effect=clock):
+            self.assertEqual(installer._command(
+                [sys.executable, '-c', 'import time; time.sleep(.02); print("late-build")'],
+                self.root, os.environ, 0), 'late-build\n')
+        self.assertEqual(installer.command(
+            [sys.executable, '-c', 'print("owned-unbounded-build")'],
+            self.root, os.environ, 0), 'owned-unbounded-build\n')
+
     def test_command_never_signals_a_reaped_process_group_identity(self):
         actual_killpg = os.killpg
         signals = []
@@ -883,7 +924,7 @@ import importlib.util, json, os, pathlib, sys
 spec = importlib.util.spec_from_file_location('owned_installer', sys.argv[1])
 installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
-installer.command(json.loads(sys.argv[2]), pathlib.Path(sys.argv[3]), os.environ, 30)
+installer.command(json.loads(sys.argv[2]), pathlib.Path(sys.argv[3]), os.environ, 0)
 '''
         with socket.socket() as listener:
             listener.bind(('127.0.0.1', 0))

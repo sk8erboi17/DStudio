@@ -1,4 +1,5 @@
 name=Chat prompt lookup
 version=3
+patch=main-latest.patch
 patch=main-current.patch
 patch=main-previous.patch

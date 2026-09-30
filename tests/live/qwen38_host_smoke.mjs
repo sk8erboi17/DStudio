@@ -14,9 +14,9 @@ const qwen35 = process.argv.includes('--qwen35');
 const controls = process.argv.includes('--controls');
 const resetLifecycle = process.argv.includes('--reset-lifecycle');
 const inputs = process.argv.slice(2).filter(arg => !['--qwen35', '--controls', '--reset-lifecycle'].includes(arg));
-assert.equal(inputs.length, qwen35 ? 2 : 3, 'Supply engine + model (+ PLE for Qwen3.8); optional --qwen35 / --controls / --reset-lifecycle');
+assert.equal(inputs.length, 2, 'Supply engine + model GGUF; optional --qwen35 / --controls / --reset-lifecycle');
 const root = path.resolve(import.meta.dirname, '../..');
-const [engine, model, ple] = inputs.map(file => fs.realpathSync(file));
+const [engine, model] = inputs.map(file => fs.realpathSync(file));
 const host = path.join(root, 'tests/.build/dstudio-server-test');
 const run = artifactRunDir(qwen35 ? 'qwen35-host-live' : 'qwen38-host-live');
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -30,12 +30,12 @@ const report = {started: new Date().toISOString(),
   helperSHA256: Object.fromEntries(['real_harness.mjs', 'quality_baseline.mjs', 'qwen38_tool_oracle.mjs']
     .map(name => [name, hash(fs.readFileSync(path.join(root, 'tests/support', name)))])),
   engine, family: qwen35 ? 'Qwen3.6-35B-A3B' : 'Qwen3.8-Flash-Next',
-  revision: ownGitRevision(engine), weights: [identity(model), ...(ple ? [identity(ple)] : [])],
+  revision: ownGitRevision(engine), weights: [identity(model)],
   sourceReceipt: fs.existsSync(path.join(engine, '.dstudio-source.json'))
     ? JSON.parse(fs.readFileSync(path.join(engine, '.dstudio-source.json'), 'utf8')) : null,
   host: {path: host, sha256: hash(fs.readFileSync(host))},
   memory: qwen35 ? 'resident model weights; no PLE, expert streaming, MTP or DSpark'
-    : 'resident backbone plus native SSD-backed PLE; expert streaming off; no MTP/DSpark requested',
+    : 'resident backbone plus embedded BF16 n-grams on SSD; expert streaming off; no MTP/DSpark requested',
   settings: {backend: 'Metal', context: 16384, thinking: 'off', power: 100,
     sampling: 'unmodified production Agent defaults (not the earlier fixed-seed CLI run)',
     timeoutSecondsPerWorkflow: 600, maxToolCalls: 12, transcriptByteLimit: 3 * 1024 * 1024,
@@ -294,9 +294,8 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => {
   report.interrupted = signal; await stopOwnedHost(); save(); process.exit(130);
 });
 try {
-  assert.equal(path.basename(engine), qwen35 ? 'ds4-qwen35' : 'ds4-qwen38', 'Use the installed Qwen engine identity');
+  assert.equal(path.basename(engine), qwen35 ? 'ds4-qwen35' : 'ds4', 'Use the installed Qwen engine identity');
   assert.equal(fs.realpathSync(path.join(engine, 'gguf', path.basename(model))), model);
-  if (ple) assert.equal(fs.realpathSync(path.join(engine, 'gguf/Qwen3.8-Flash-Next-PLE-Q4_1.gguf')), ple);
   assert(report.weights.every(w => w.bytes > 1024 ** 3), 'Actual complete weight prerequisites required');
   const ps = spawnSync('ps', ['-axo', 'pid=,comm='], {encoding: 'utf8', timeout: 5000});
   assert.equal(ps.status, 0, ps.stderr);
@@ -407,7 +406,7 @@ try {
     console.log(`${mode}: ${row.passed ? 'PASS' : 'FAIL'} (${row.seconds.toFixed(2)} s)`);
     if (!row.passed) break; // Do not obscure a failure with another heavyweight start.
   }
-  assert.deepEqual([identity(model), ...(ple ? [identity(ple)] : [])], report.weights, 'Weight identity changed');
+  assert.deepEqual([identity(model)], report.weights, 'Weight identity changed');
   for (const [file, expectedHash] of Object.entries(report.nativeSources))
     assert.equal(hash(fs.readFileSync(path.join(engine, file))), expectedHash, 'Launch changed native source: ' + file);
   report.passed = report.cases.length === 2 && report.cases.every(r => r.passed);

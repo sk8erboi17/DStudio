@@ -13,6 +13,13 @@ checked route for tests and API clients.
 
 ## Native action contract
 
+Nodes do not impose a default wall-clock cutoff. Omitted or zero `timeoutMs`
+allows valid slow work to finish; a positive value (up to 86,400,000 ms) is an
+explicit per-node budget enforced by the scheduler and preserved in the graph
+definition and recovery path. Existing positive budgets are unchanged. Stop,
+turn/tool counts, concurrency/output bounds and required completion evidence
+still apply. New Goal graphs explicitly use zero.
+
 Set `policy: "agent.general.v1"`, `mode: "agent"` and
 `executorMode: "native"`. Execution is closed-world: arbitrary tool JSON is
 never retained or evaluated. V1 accepts only:

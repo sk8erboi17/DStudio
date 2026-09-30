@@ -7,10 +7,64 @@
   },
   "bases": [
     {
+      "name": "main-latest",
+      "repository": "https://github.com/antirez/ds4",
+      "revision": "0aaea5a238fb41a35106a551e73c8409dfb751ac",
+      "sourceSHA256": "9324cd8bd87b52abd8fe2848ba029a207e4e3371f43f07c8d04a26fcc8977071",
+      "rawSourceSHA256": "9324cd8bd87b52abd8fe2848ba029a207e4e3371f43f07c8d04a26fcc8977071",
+      "prerequisites": [],
+      "patch": "main-latest.patch",
+      "patchSHA256": "361e0f624ea59edd2ec0582127d8e0cb6ebdeae5146093333fd99dff58e83868",
+      "derivedSHA256": "cc22b83e3b63ac442f42b3ca40c4005c8edacd33067e336fe25afd8b7b6cd98d",
+      "oracle": "Latest unified main keeps upstream Qwen batched MTP/server scheduling intact; the DStudio PLD overlay is admitted only on its existing serial greedy path. This is patch/runtime behavior evidence, not a model-quality or throughput claim."
+    },
+    {
+      "name": "main-latest-metrics",
+      "repository": "https://github.com/antirez/ds4",
+      "revision": "0aaea5a238fb41a35106a551e73c8409dfb751ac",
+      "sourceSHA256": "e00b610fbf24640b5ec27928d00451375e555465fc62f6c02d420176ac6d288a",
+      "rawSourceSHA256": "9324cd8bd87b52abd8fe2848ba029a207e4e3371f43f07c8d04a26fcc8977071",
+      "prerequisites": [
+        "patch/ds4-server-metrics/usage-metrics.patch"
+      ],
+      "patch": "main-latest.patch",
+      "patchSHA256": "361e0f624ea59edd2ec0582127d8e0cb6ebdeae5146093333fd99dff58e83868",
+      "derivedSHA256": "c726184a8ea7b8c2071cecc97852c1a273a109c98ca7cc3075d9fee94fb25f66",
+      "oracle": "Latest unified main keeps upstream Qwen batched MTP/server scheduling intact; the DStudio PLD overlay is admitted only on its existing serial greedy path. This is patch/runtime behavior evidence, not a model-quality or throughput claim."
+    },
+    {
+      "name": "main-qwen",
+      "repository": "https://github.com/antirez/ds4",
+      "revision": "9139e2ae58a41503968a500f36f75895c1ba63fc",
+      "sourceSHA256": "192362255b01190ea1b2b638b87694b5644b389e5cc490bcf73590ca100a1721",
+      "rawSourceSHA256": "192362255b01190ea1b2b638b87694b5644b389e5cc490bcf73590ca100a1721",
+      "prerequisites": [],
+      "patch": "main-current.patch",
+      "patchSHA256": "8ea89124191f2ee3dcd3193eec326c8fe393e2680abc4e5280954e14bc9c39bf",
+      "derivedSHA256": "45af76b4652c72c193571cb5404e91595f8783e24b681feb03c218ea1bb72d77",
+      "oracle": "The native unified server preserves family-specific Qwen/DeepSeek/GLM protocol handling; the existing DStudio PLD overlay still applies exactly. Qwen model selection does not claim PLD support or model-quality qualification."
+    },
+    {
+      "name": "main-qwen-metrics",
+      "repository": "https://github.com/antirez/ds4",
+      "revision": "9139e2ae58a41503968a500f36f75895c1ba63fc",
+      "sourceSHA256": "d2ecefe561428c244b4eff538085e14db7947fc8f08f3a446fad49ac62e237b4",
+      "rawSourceSHA256": "192362255b01190ea1b2b638b87694b5644b389e5cc490bcf73590ca100a1721",
+      "prerequisites": [
+        "patch/ds4-server-metrics/usage-metrics.patch"
+      ],
+      "patch": "main-current.patch",
+      "patchSHA256": "8ea89124191f2ee3dcd3193eec326c8fe393e2680abc4e5280954e14bc9c39bf",
+      "derivedSHA256": "80005d308c484cc58768f6634b651d8c21e153c5b9334f97e6546bd5ad190994",
+      "oracle": "The native unified server preserves family-specific Qwen/DeepSeek/GLM protocol handling; the existing DStudio PLD overlay still applies exactly. Qwen model selection does not claim PLD support or model-quality qualification."
+    },
+    {
       "name": "main-current",
       "repository": "https://github.com/antirez/ds4",
       "revision": "c0a6119f363ef82125877142f13fb3fe491cba14",
-      "equivalentSourceRevisions": ["f62ca29a308724cde5bc99134ede19104b2a3260"],
+      "equivalentSourceRevisions": [
+        "f62ca29a308724cde5bc99134ede19104b2a3260"
+      ],
       "sourceSHA256": "c2a06bb52185cb74a3f21d183760975cc0efd5d1b8ce969a094f5fbd93944c49",
       "rawSourceSHA256": "c2a06bb52185cb74a3f21d183760975cc0efd5d1b8ce969a094f5fbd93944c49",
       "prerequisites": [],
@@ -23,7 +77,9 @@
       "name": "main-current-metrics",
       "repository": "https://github.com/antirez/ds4",
       "revision": "c0a6119f363ef82125877142f13fb3fe491cba14",
-      "equivalentSourceRevisions": ["f62ca29a308724cde5bc99134ede19104b2a3260"],
+      "equivalentSourceRevisions": [
+        "f62ca29a308724cde5bc99134ede19104b2a3260"
+      ],
       "sourceSHA256": "fa486b1371653feded8ba2ae29ed46eb88956bfbcca4737ef70c95f1006c5647",
       "rawSourceSHA256": "c2a06bb52185cb74a3f21d183760975cc0efd5d1b8ce969a094f5fbd93944c49",
       "prerequisites": [

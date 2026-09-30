@@ -292,11 +292,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return /\b(repo|repository|github|gitlab|cod(e|ice)|source|stack|dipenden|dependencies|package|makefile|license|licenza|test|ci|workflow|build|architettura|architecture|framework|sdk|api)\b/i.test(String(text || ''));
       }
 
-      function researchReportWantsTechnical(query, facts = [], sources = []) {
+      function researchReportWantsTechnical(query) {
         if (technicalQuestionLikely(query)) return true;
         const q = String(query || '');
         if (/\b(endpoint|runtime|server|client|backend|frontend|database|schema|security|vulnerab|exploit|CVE|HTTP|SSE|SDK|API|build|deploy|framework|library|package|repo|repository|code|source)\b/i.test(q)) return true;
-        return (facts || []).some((f) => /\b(src\/|extension\/|patch\/|api\/|\/v1|server|runtime|engine|proxy|endpoint|build|Makefile|UI|HTML|C HTTP|ds4|GGUF|LAN|SSE|GSA|license|memory|model|client|backend)\b/i.test(f?.fact || ''));
+        // Retrieved evidence cannot change the user's requested report format.
+        // A news source mentioning an AI model does not request a stack audit.
+        return false;
       }
 
       function classifySourceKind(source, question = '') {
@@ -545,29 +547,52 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return new Error(raw || `${label} failed.`);
       }
 
-      async function completeWebPipelineText(payload, timeoutMs, label, signal) {
+      async function completeWebPipelineText(payload, timeoutMs, label, signal, draft = null) {
         if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-        // A slow SSD-backed model is legitimate; an orphaned request is not.
-        // Keep a generous hard ceiling, separate from the run's soft admission
-        // deadline. Abort the actual transport, not just its progress display.
+        // Infinity explicitly permits a slow local model to finish. Discovery
+        // admission limits are separate; Stop still aborts the real transport.
         const controller = new AbortController();
-        const duration = Number.isFinite(timeoutMs) && timeoutMs > 0
-          ? Math.min(timeoutMs, 15 * 60 * 1000) : 15 * 60 * 1000;
+        const duration = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 0;
         const cancel = () => controller.abort(new DOMException('Aborted', 'AbortError'));
         signal?.addEventListener('abort', cancel, { once: true });
         let timer;
         const stopped = new Promise((_, reject) => {
           controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
-          timer = setTimeout(() => controller.abort(new DOMException(`${label} exceeded its request deadline.`, 'TimeoutError')), duration);
+          if (duration) timer = setTimeout(() => controller.abort(new DOMException(`${label} exceeded its request deadline.`, 'TimeoutError')), duration);
         });
+        let partial = '', lastProgressAt = -Infinity;
+        const inference = async () => {
+          if (!draft || typeof Api.streamChat !== 'function') return Api.completeText(payload, controller.signal);
+          let finish = '';
+          for await (const event of Api.streamChat(payload, controller.signal)) {
+            if (controller.signal.aborted) throw controller.signal.reason;
+            if (event.type === 'content') {
+              const text = String(event.text || '');
+              if (partial.length + text.length > 64 * 1024)
+                throw new Error(`${label} exceeded the retained draft size.`);
+              partial += text;
+              if (performance.now() - lastProgressAt >= 500) {
+                draft.onProgress?.(partial.length);
+                lastProgressAt = performance.now();
+              }
+            } else if (event.type === 'finish') finish = event.reason;
+            else if (event.type === 'abort') throw new DOMException('Aborted', 'AbortError');
+            else if (event.type === 'error') throw new Error(event.message || `${label} failed.`);
+          }
+          if (finish !== 'stop') throw new Error(finish === 'length'
+            ? `${label} reached the model output limit.` : `${label} ended before completion.`);
+          return partial;
+        };
         try {
-          const result = await Promise.race([Api.completeText(payload, controller.signal), stopped]);
+          const result = await Promise.race([inference(), stopped]);
           // A completed HTTP reply cannot authorize publishing an old run's
           // evidence after Stop, even if its adapter ignored the abort signal.
           if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
           return result;
         } catch (e) {
-          throw webPipelineError(e, label);
+          const error = webPipelineError(e, label);
+          if (draft && partial) error.partialText = partial;
+          throw error;
         } finally {
           clearTimeout(timer);
           signal?.removeEventListener('abort', cancel);
@@ -575,12 +600,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
 
       function researchRunLimits(mode) {
-        // Admission ceilings, not quality targets or promised completion times.
-        // Stop admitting new discovery/extraction work at the soft deadline;
-        // retain completed evidence and reserve the final bounded writer call.
+        // Count/byte ceilings bound discovery independently of hardware speed.
+        // A slow valid extraction or planner must not spend a hidden wall-clock
+        // budget. Stop and actual transport failures still end the operation.
         return mode === 'research'
-          ? { queries: 18, reads: 24, actions: 12, sources: 256, durationMs: 30 * 60 * 1000 }
-          : { queries: 6, reads: 8, actions: 0, sources: 96, durationMs: 10 * 60 * 1000 };
+          ? { queries: 18, reads: 24, actions: 12, sources: 256, durationMs: Infinity }
+          : { queries: 6, reads: 8, actions: 0, sources: 96, durationMs: Infinity };
       }
 
       function researchAdmissionOpen(state) {
@@ -1902,14 +1927,17 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           return { content: '', complete: false, error: 'The research report changed after review. Run Research again.' };
         const complete = quality.ok === true && quality.audit?.ok === true && !web.stopReason;
         return { content: web.report, complete,
-          error: complete ? '' : 'Research answer review is incomplete. This draft may contain unresolved claims or unmet requirements.' };
+          error: complete ? '' : web.reportSynthesisError
+            ? `Research answer incomplete: ${web.reportSynthesisError}`
+            : 'Research answer review is incomplete. This draft may contain unresolved claims or unmet requirements.' };
       }
 
       async function synthesizeResearchReport(query, state, settings, onProgress) {
         let facts = researchAnswerFacts(state);
         let sources = researchAnswerSources(state, facts);
         const draft = buildResearchReportDraft(query, sources, facts, state.judge);
-        if (!facts.length) return { report: draft, draft, error: 'no extracted facts', quality: researchReportQuality(draft, sources, facts, query), fallback: true };
+        if (!facts.length) return { report: '', draft, error: 'no extracted facts',
+          quality: { ...researchReportQuality('', sources, facts, query), ok: false }, fallback: true };
         const technicalReport = researchReportWantsTechnical(query, facts, sources);
         const factContext = buildFactsContext(query, sources, facts, { research: false });
         const maxWords = researchWordLimit(query);
@@ -1947,22 +1975,17 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             ].join('\n'),
           },
         ];
-        // One initial draft and at most two repairs share a single deadline.
+        // One initial draft and at most two repairs. Slow model work has no
+        // application time cutoff; cancellation and actual failures still win.
         // Keep rejected attempts for diagnosis. The reviewer is a model, not an
         // independent benchmark oracle; externally checked answers remain required.
-        const deadline = performance.now() + Math.min(WEB_RESEARCH_TOTAL_TIMEOUT_MS, 240_000);
         const attempts = [];
         let report = '', quality = null, error = '', repair = [], comparisons = [];
-        const remaining = () => {
-          const ms = deadline - performance.now();
-          if (ms <= 0) throw new DOMException('Answer review time budget ended.', 'TimeoutError');
-          return ms;
-        };
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             if (attempt === 0) {
               onProgress?.('Comparing the definitions used by the sources.');
-              comparisons = await compareResearchQuantities(query, state.facts, settings, remaining());
+              comparisons = await compareResearchQuantities(query, state.facts, settings, Infinity);
               const differences = comparisons.filter(item => item.relation === 'different');
               const ids = new Set(differences.flatMap(item => item.definitions.flatMap(definition => definition.factIds)));
               facts = (state.facts || []).filter(fact => ids.has(fact.factId) || facts.some(selected => selected.factId === fact.factId));
@@ -1974,10 +1997,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               model: settings.model,
               messages: [...messages, ...repair],
               temperature: 0, maxTokens: 2200, thinkLevel: 'off',
-            }, remaining(), 'Deep Research report synthesis', settings.webSignal)).trim();
+            }, Infinity, 'Deep Research report synthesis', settings.webSignal, {
+              onProgress: chars => onProgress?.(`Writing the answer from source evidence · ${chars.toLocaleString()} characters received.`),
+            })).trim();
             quality = researchReportQuality(report, sources, facts, query);
             onProgress?.('Checking claims, missing details, source disagreements and requested length.');
-            const audit = await auditResearchReport(query, report, state, settings, remaining(), comparisons);
+            const audit = await auditResearchReport(query, report, state, settings, Infinity, comparisons);
             quality = { ...quality, structuralOk: quality.ok, audit, ok: quality.ok && audit.ok };
             attempts.push({ report, quality });
             if (quality.ok) break;
@@ -2004,14 +2029,16 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           } catch (e) {
             if (settings.webSignal?.aborted || e?.name === 'AbortError') throw e;
             error = e?.message || String(e);
+            if (e?.partialText) report = e.partialText;
             attempts.push({ report, error });
             quality = { ...researchReportQuality(report, sources, facts, query), ok: false, audit: null };
             break;
           }
         }
         if (!report) {
-          report = draft;
-          quality = { ...researchReportQuality(report, sources, facts, query), ok: false, audit: null };
+          // The evidence scaffold remains diagnostic input. It is not an
+          // answer, and cannot stand in for missing generated text.
+          quality = { ...researchReportQuality('', sources, facts, query), ok: false, audit: null };
         }
         quality = { ...quality, comparisons, deliveryVersion: 1, reviewedText: report, request: query };
         return { report, draft, attempts, quality, fallback: !quality.ok, error: quality.ok ? '' : error };
@@ -2109,24 +2136,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           }
         }
         return state.byUrl.get(key);
-      }
-
-      function seedExplicitUrlSources(userText, byUrl) {
-        const added = [];
-        for (const url of explicitUserUrls(userText)) {
-          const key = sourceKey(url);
-          if (byUrl.has(key)) continue;
-          const source = {
-            title: `Explicit URL: ${url}`,
-            url,
-            content: 'Explicit URL provided by the user request. Read this source before answering.',
-            explicit: true,
-            _order: byUrl.size,
-          };
-          byUrl.set(key, source);
-          added.push(source);
-        }
-        return added;
       }
 
       async function executeWebSearchQueries(state, queries, onTrace) {
@@ -2524,83 +2533,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         };
       }
 
-      function normalizeSearchPlan(plan, userText) {
-        const obj = plan && typeof plan === 'object' ? plan : {};
-        const entity = String(obj.entity || '').replace(/\s+/g, ' ').trim();
-        const mustMatch = uniqueStrings([...(Array.isArray(obj.mustMatch) ? obj.mustMatch : []), entity]
-          .filter((x) => String(x).trim().length >= 2), 4);
-        const exactQueries = mustMatch.flatMap((t) => [`"${t}"`, t]);
-        const queries = uniqueStrings([...exactQueries, ...(Array.isArray(obj.queries) ? obj.queries : [])], 4);
-        if (!queries.length) throw new Error('planner returned no search queries');
-        return {
-          intent: String(obj.intent || 'web_lookup').slice(0, 80),
-          entity,
-          mustMatch,
-          queries,
-          requireExact: mustMatch.length > 0,
-        };
-      }
-
-      async function completeSearchPlan(messages, settings) {
-        const text = await completeWebPipelineText({
-          model: settings.model,
-          messages,
-          temperature: 0,
-          maxTokens: 420,
-          thinkLevel: 'off',
-        }, WEB_SEARCH_PLAN_TIMEOUT_MS, 'Web Search planner', settings.webSignal);
-        return normalizeSearchPlan(JSON.parse(stripJsonFence(text)));
-      }
-
-      async function planWebSearch(userText, settings) {
-        const messages = [
-          {
-            role: 'system',
-            content: [
-              'You are DStudio web search planner.',
-              'Return strict JSON only. No markdown.',
-              'Preserve unknown names, products, brands, domains, handles, and typos exactly as typed.',
-              'Never autocorrect an unknown term before search.',
-              'Generate exact-match queries first, then broader queries only if useful.',
-              'Schema: {"intent":"entity_lookup|news|docs|general","entity":"main exact entity or empty","mustMatch":["exact terms that search results should contain"],"queries":["search query 1","search query 2","search query 3"]}.',
-            ].join('\n'),
-          },
-          { role: 'user', content: `User message:\n${userText}` },
-        ];
-        let primaryError = null;
-        try {
-          const plan = await completeSearchPlan(messages, settings);
-          plan.planner = 'primary';
-          return plan;
-        } catch (e) {
-          primaryError = e;
-          if (isAbortLikeError(e)) throw e;
-        }
-
-        const repairMessages = [
-          {
-            role: 'system',
-            content: [
-              'You are DStudio web search planner retry.',
-              'The first planner failed. Return strict JSON only. No markdown. No prose.',
-              'Do not use heuristics. Decide the exact search target from the user message.',
-              'Preserve unknown names, products, brands, domains, handles, and possible typos exactly as typed.',
-              'Never autocorrect unknown terms before search.',
-              'Return 2-4 concrete search queries. Put exact-match queries first when an entity exists.',
-              'Schema: {"intent":"entity_lookup|news|docs|general","entity":"exact entity or empty","mustMatch":["exact terms search results should preserve"],"queries":["query 1","query 2"]}.',
-            ].join('\n'),
-          },
-          { role: 'user', content: `User message:\n${userText}` },
-        ];
-        try {
-          const plan = await completeSearchPlan(repairMessages, settings);
-          plan.planner = 'retry';
-          return plan;
-        } catch (e) {
-          throw new Error(`Web Search planner failed twice: ${primaryError?.message || 'primary failed'}; ${e?.message || 'retry failed'}`);
-        }
-      }
-
       function webSourceHost(url) {
         try { return new URL(url).hostname.replace(/^www\./, '').toLowerCase(); }
         catch { return ''; }
@@ -2635,250 +2567,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return urls;
       }
 
-      function sourcePathParts(url) {
-        try { return new URL(url).pathname.split('/').filter(Boolean); }
-        catch { return []; }
-      }
-
-      function seedExplicitUrlSources(userText, byUrl) {
-        const added = [];
-        for (const url of explicitUserUrls(userText)) {
-          const key = sourceKey(url);
-          if (byUrl.has(key)) continue;
-          const source = {
-            title: `Explicit URL: ${url}`,
-            url,
-            content: 'Explicit URL provided by the user request. Open and read this source before answering.',
-            explicit: true,
-            _order: byUrl.size,
-          };
-          byUrl.set(key, source);
-          added.push(source);
-        }
-        return added;
-      }
-
-      function sourcePathIdentity(source) {
-        const host = webSourceHost(source?.url);
-        if (!host) return '';
-        const parts = sourcePathParts(source.url);
-        if (parts.length < 2) return '';
-        return `${host}/${parts[0].toLowerCase()}/${parts[1].toLowerCase()}`;
-      }
-
-      function userAskedExternalComparison(userText, plan) {
-        const hay = [
-          userText || '',
-          plan?.intent || '',
-          ...(plan?.researchQuestions || []),
-          ...(plan?.sufficiency || []),
-        ].join(' ').toLowerCase();
-        return [
-          'competitor',
-          'competitors',
-          'alternative',
-          'alternatives',
-          'compare',
-          'comparison',
-          'confronto',
-          'confronta',
-          'comparazione',
-          'pricing',
-          'prezzi',
-          'price',
-          'reviews',
-          'recensioni',
-          'news',
-          'market',
-          'benchmark',
-          ' vs ',
-        ].some((term) => hay.includes(term));
-      }
-
-      function sameExplicitSourceFamily(source, explicitSources) {
-        const key = sourceKey(source?.url);
-        const host = webSourceHost(source?.url);
-        const pathIdentity = sourcePathIdentity(source);
-        for (const explicit of explicitSources || []) {
-          if (key && key === sourceKey(explicit.url)) return true;
-          const explicitHost = webSourceHost(explicit.url);
-          if (host && host === explicitHost) return true;
-          const explicitPathIdentity = sourcePathIdentity(explicit);
-          if (pathIdentity && pathIdentity === explicitPathIdentity) return true;
-        }
-        return false;
-      }
-
-      function selectableSourcesAfterExplicitRead(userText, plan, sources, readUrls) {
-        const explicitRead = (sources || []).filter((s) => s?.explicit && readUrls.has(sourceKey(s.url)));
-        if (!explicitRead.length || userAskedExternalComparison(userText, plan)) return sources;
-        const filtered = (sources || []).filter((s) => sameExplicitSourceFamily(s, explicitRead));
-        return filtered.length ? filtered : sources;
-      }
-
-      function sourceTextBlob(source) {
-        return [
-          source?.title || '',
-          source?.url || '',
-          source?.content || '',
-        ].join(' ').toLowerCase();
-      }
-
-      function isLikelyPrimarySource(source) {
-        const host = webSourceHost(source?.url);
-        if (!host) return false;
-        const parts = sourcePathParts(source.url);
-        const blob = sourceTextBlob(source);
-        return parts.length >= 1 && /(docs?|documentation|readme|source code|repository|package|makefile|license|pricing|product|official)/i.test(blob);
-      }
-
-      function sourcePrimaryReadScore(source, plan) {
-        const host = webSourceHost(source?.url);
-        const blob = sourceTextBlob(source);
-        const compactTerms = (plan?.mustMatch || [])
-          .map((t) => String(t || '').toLowerCase().replace(/\s+/g, ''))
-          .filter(Boolean);
-        const compactUrl = String(source?.url || '').toLowerCase().replace(/\s+/g, '');
-        const compactTitle = String(source?.title || '').toLowerCase().replace(/\s+/g, '');
-        const compactBlob = blob.replace(/\s+/g, '');
-        const termMatches = compactTerms.some((term) =>
-          host.includes(term) || compactUrl.includes(term) || compactTitle.includes(term) || compactBlob.includes(term)
-        );
-        let score = 0;
-        if (source?.explicit) score += 220;
-        if (isLikelyPrimarySource(source)) score += termMatches ? 90 : 15;
-        if (/(^|\W)(readme|docs?|documentation|repository|source code|package\.json|requirements\.txt|makefile)(\W|$)/i.test(blob)) score += 45;
-        for (const term of compactTerms) {
-          if (host.includes(term)) score += 50;
-          if (compactUrl.includes(term)) score += 30;
-          if (compactTitle.includes(term)) score += 20;
-        }
-        if (/^(reddit\.com|news\.ycombinator\.com|youtube\.com|youtu\.be|x\.com|twitter\.com)$/.test(host)) score -= 70;
-        return score;
-      }
-
-      function mandatoryPrimaryReadSources(plan, sources, readUrls = new Set()) {
-        const explicitPending = [...(sources || [])]
-          .filter((s) => s?.explicit && s?.url && !readUrls.has(sourceKey(s.url)));
-        if (explicitPending.length) return explicitPending;
-        if ((sources || []).some((s) => s?.explicit && readUrls.has(sourceKey(s.url)))) return [];
-        return [...(sources || [])]
-          .filter((s) => s?.url && !readUrls.has(sourceKey(s.url)))
-          .map((source) => ({ source, score: sourcePrimaryReadScore(source, plan) }))
-          .filter((r) => r.score >= 80)
-          .sort((a, b) => b.score - a.score)
-          .map((r) => r.source);
-      }
-
-      function mergeSourceSelections(...lists) {
-        const seen = new Set();
-        const out = [];
-        for (const list of lists) {
-          for (const source of list || []) {
-            if (!source?.url) continue;
-            const key = sourceKey(source.url);
-            if (seen.has(key)) continue;
-            seen.add(key);
-            out.push(source);
-          }
-        }
-        return out;
-      }
-
-      function scoreWebSource(source, plan, order) {
-        const title = String(source.title || '').toLowerCase();
-        const url = String(source.url || '').toLowerCase();
-        const host = webSourceHost(source.url);
-        const content = String(source.content || '').toLowerCase();
-        let score = 100 - order;
-        let matched = plan.mustMatch.length === 0;
-        if (source?.explicit) {
-          score += 500;
-          matched = true;
-        }
-        for (const rawTerm of plan.mustMatch) {
-          const term = rawTerm.toLowerCase();
-          if (!term) continue;
-          const compact = term.replace(/\s+/g, '');
-          const hostHit = host.includes(compact) || host.includes(term);
-          const titleHit = title.includes(term);
-          const urlHit = url.includes(term) || url.includes(compact);
-          const contentHit = content.includes(term);
-          if (hostHit || titleHit || urlHit || contentHit) matched = true;
-          if (hostHit) score += 36;
-          if (urlHit) score += 24;
-          if (titleHit) score += 18;
-          if (contentHit) score += 6;
-          if (host === `${compact}.com`) score += 30;
-        }
-        if (plan.requireExact && !matched) score -= 160;
-        return { source, score, matched };
-      }
-
-      function rankWebSources(byUrl, plan) {
-        return [...byUrl.values()]
-          .map((source) => scoreWebSource(source, plan, source._order || 0))
-          .sort((a, b) => b.score - a.score);
-      }
-
-      function selectedWebSources(ranked, plan) {
-        const exact = ranked.filter((r) => r.matched).map((r) => r.source);
-        return plan.requireExact ? exact : ranked.map((r) => r.source);
-      }
-
-      function normalizeSearchReadPlan(obj, sources, readUrls) {
-        const byKey = new Map((sources || []).map((s) => [sourceKey(s.url), s]));
-        const urls = [];
-        const seen = new Set();
-        for (const rawUrl of uniqueStrings(obj?.urls || [], Infinity)) {
-          const key = sourceKey(rawUrl);
-          const source = byKey.get(key);
-          if (!source || readUrls.has(key) || seen.has(key)) continue;
-          seen.add(key);
-          urls.push(source.url);
-        }
-        return {
-          reason: String(obj?.reason || '').replace(/\s+/g, ' ').trim(),
-          urls,
-        };
-      }
-
-      async function selectSearchReads(userText, plan, sources, readUrls, settings) {
-        const messages = [
-          {
-            role: 'system',
-            content: [
-              'You are DStudio Web Search read_selector.',
-              'Return strict JSON only. No markdown.',
-              'Choose result URLs that must be opened before answering.',
-              'Do not answer about a software project, repository, technical stack, docs, package, company product, or pricing from snippets alone.',
-              'For code repositories, documentation, or product pages, select the page that can expose README, file listing, docs, pricing, or source-of-truth details.',
-              'For official docs or product pages, select the official page.',
-              'If an explicit user-provided URL has already been read, select additional URLs only when they are clearly the same project/organization or the user asked for comparison, competitors, pricing, news, or alternatives.',
-              'Avoid unrelated homonyms that merely share the same product or project name.',
-              'Use only URLs from the provided source list. Do not invent URLs.',
-              'Schema: {"reason":"short reason","urls":["exact source URL"]}.',
-            ].join('\n'),
-          },
-          {
-            role: 'user',
-            content: [
-              `User question:\n${userText}`,
-              `Search plan:\n${JSON.stringify(plan)}`,
-              `Sources:\n${summarizeSourcesForReadSelection(sources, readUrls, plan) || 'None'}`,
-            ].join('\n\n'),
-          },
-        ];
-        const text = await completeWebPipelineText({
-          model: settings.model,
-          messages,
-          temperature: 0,
-          maxTokens: 700,
-          thinkLevel: 'off',
-        }, WEB_RESEARCH_JUDGE_TIMEOUT_MS, 'Web Search read selector', settings.webSignal);
-        return normalizeSearchReadPlan(JSON.parse(stripJsonFence(text)), sources, readUrls);
-      }
-
       function readableWebSearchError(message) {
         const raw = String(message || '').trim();
         if (!raw) return 'Web Search failed.';
@@ -2896,213 +2584,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return /^(web search|deep research)/i.test(raw) ? raw : `Web Search failed: ${raw}`;
       }
 
-      function planTraceDetail(plan) {
-        const bits = [];
-        if (plan.planner) bits.push(`planner: ${plan.planner}`);
-        if (plan.intent) bits.push(`intent: ${plan.intent}`);
-        if (plan.mustMatch?.length) bits.push(`preserve: ${plan.mustMatch.join(', ')}`);
-        if (plan.queries?.length) bits.push(`queries: ${plan.queries.join(' | ')}`);
-        return bits.join(' · ') || 'planner returned a search plan';
-      }
-
       function emitSearchTrace(onTrace, steps) {
         if (typeof onTrace === 'function') onTrace(steps.map((s) => ({ ...s })));
       }
 
       async function searchWithPlan(userText, settings, onTrace) {
         return await runResearchPipeline(userText, settings, { mode: 'search', onTrace });
-        let trace = [
-          { label: 'Plan search', detail: 'Extract exact entities, preserve unknown terms, build query candidates.', state: 'active' },
-        ];
-        emitSearchTrace(onTrace, trace);
-        const plan = await planWebSearch(userText, settings);
-        trace = [
-          { label: 'Plan search', detail: planTraceDetail(plan), state: 'done' },
-        ];
-        const querySteps = plan.queries.map((query) => ({ label: 'Search query', detail: query, state: 'pending' }));
-        emitSearchTrace(onTrace, [...trace, ...querySteps]);
-        const byUrl = new Map();
-        const errors = [];
-        const explicitSources = seedExplicitUrlSources(userText, byUrl);
-        if (explicitSources.length) {
-          trace = [
-            ...trace,
-            { label: 'Explicit URLs', detail: explicitSources.map((s) => s.url).join(', '), state: 'done' },
-          ];
-          emitSearchTrace(onTrace, [...trace, ...querySteps]);
-        }
-        let order = byUrl.size;
-        for (let i = 0; i < plan.queries.length; i++) {
-          const query = plan.queries[i];
-          querySteps[i].state = 'active';
-          emitSearchTrace(onTrace, [...trace, ...querySteps]);
-          let res;
-          try {
-            res = await Engine.webSearch(query);
-          } catch (e) {
-            const msg = readableWebSearchError(e?.message);
-            errors.push(msg);
-            querySteps[i].state = 'error';
-            querySteps[i].detail = `${query} -> ${msg}`;
-            emitSearchTrace(onTrace, [...trace, ...querySteps]);
-            continue;
-          }
-          if (!res?.ok) {
-            const msg = readableWebSearchError(res?.error);
-            errors.push(msg);
-            querySteps[i].state = 'error';
-            querySteps[i].detail = `${query} -> ${msg}`;
-            emitSearchTrace(onTrace, [...trace, ...querySteps]);
-            continue;
-          }
-          const count = (res.sources || []).filter((s) => s?.url).length;
-          querySteps[i].state = 'done';
-          querySteps[i].detail = `${query} -> ${count} result${count === 1 ? '' : 's'}`;
-          emitSearchTrace(onTrace, [...trace, ...querySteps]);
-          for (const source of res.sources || []) {
-            if (!source?.url) continue;
-            const key = source.url.replace(/#.*$/, '').replace(/\/$/, '').toLowerCase();
-            if (!byUrl.has(key)) byUrl.set(key, { ...source, _order: order++ });
-          }
-        }
-        const ranked = rankWebSources(byUrl, plan);
-        const sources = selectedWebSources(ranked, plan);
-        const rankDetail = ranked.slice(0, 5)
-          .map((r) => `${webSourceHost(r.source.url) || 'source'} ${Math.round(r.score)}${r.matched ? '' : ' no-exact'}`)
-          .join(' | ');
-        trace = [
-          ...trace,
-          ...querySteps,
-          { label: 'Rank results', detail: rankDetail || 'No rankable results returned.', state: ranked.length ? 'done' : 'error' },
-          { label: 'Selected sources', detail: sources.map((s) => webSourceHost(s.url) || s.url).join(', ') || 'None', state: sources.length ? 'done' : 'error' },
-        ];
-        emitSearchTrace(onTrace, trace);
-        if (!sources.length) {
-          const exactMsg = plan.mustMatch.length ? ` matching ${plan.mustMatch.map((t) => `"${t}"`).join(', ')}` : '';
-          throw new Error(errors[0] || `Web search returned no usable sources${exactMsg}.`);
-        }
-        const readUrls = new Set();
-        const mandatoryReads = mandatoryPrimaryReadSources(plan, sources, readUrls);
-        if (mandatoryReads.length) {
-          const primaryStep = {
-            label: 'Primary reads',
-            detail: `Reading high-confidence primary sources first: ${mandatoryReads.map((s) => webSourceHost(s.url) || s.url).join(', ')}`,
-            state: 'done',
-          };
-          trace = [...trace, primaryStep];
-          emitSearchTrace(onTrace, trace);
-          const { readSteps } = await readResearchSources(
-            mandatoryReads,
-            readUrls,
-            performance.now() + WEB_SEARCH_REQUEST_TIMEOUT_MS,
-            onTrace,
-            trace,
-          );
-          trace = [...trace, ...readSteps];
-          emitSearchTrace(onTrace, trace);
-        }
-        const selectStep = { label: 'Select reads', detail: 'Model chooses source pages to open before answering.', state: 'active' };
-        emitSearchTrace(onTrace, [...trace, selectStep]);
-        let modelReadSources = [];
-        try {
-          const selectableSources = selectableSourcesAfterExplicitRead(userText, plan, sources, readUrls);
-          const readPlan = await selectSearchReads(userText, plan, selectableSources, readUrls, settings);
-          const bySourceKey = new Map(selectableSources.map((s) => [sourceKey(s.url), s]));
-          modelReadSources = readPlan.urls.map((url) => bySourceKey.get(sourceKey(url))).filter(Boolean);
-          selectStep.state = 'done';
-          selectStep.detail = modelReadSources.length
-            ? `${readPlan.reason || 'selected reads'}: ${modelReadSources.map((s) => webSourceHost(s.url) || s.url).join(', ')}`
-            : (readPlan.reason || 'no extra reads selected');
-        } catch (e) {
-          selectStep.state = 'error';
-          selectStep.detail = readableWebSearchError(e?.message);
-        }
-        trace = [...trace, selectStep];
-        emitSearchTrace(onTrace, trace);
-        const readTargets = mergeSourceSelections(modelReadSources);
-        if (readTargets.length) {
-          const { readSteps } = await readResearchSources(
-            readTargets,
-            readUrls,
-            performance.now() + WEB_SEARCH_REQUEST_TIMEOUT_MS,
-            onTrace,
-            trace,
-          );
-          trace = [...trace, ...readSteps];
-          emitSearchTrace(onTrace, trace);
-        }
-        const contextSources = selectableSourcesAfterExplicitRead(userText, plan, sources, readUrls);
-        if (contextSources.length !== sources.length) {
-          trace = [
-            ...trace,
-            {
-              label: 'Context sources',
-              detail: `Focused on explicit URL family: ${contextSources.map((s) => webSourceHost(s.url) || s.url).join(', ')}`,
-              state: 'done',
-            },
-          ];
-          emitSearchTrace(onTrace, trace);
-        }
-        return { plan, sources: contextSources };
-      }
-
-      function normalizeResearchPlan(plan) {
-        const obj = plan && typeof plan === 'object' ? plan : {};
-        const entity = String(obj.entity || '').replace(/\s+/g, ' ').trim();
-        const mustMatch = uniqueStrings([...(Array.isArray(obj.mustMatch) ? obj.mustMatch : []), entity]
-          .filter((x) => String(x).trim().length >= 2), 8);
-        const queries = uniqueStrings(Array.isArray(obj.queries) ? obj.queries : [], 16);
-        if (!queries.length) throw new Error('research planner returned no search queries');
-        return {
-          intent: String(obj.intent || 'deep_research').slice(0, 80),
-          entity,
-          mustMatch,
-          queries,
-          researchQuestions: uniqueStrings(obj.researchQuestions || [], 12),
-          probeGoals: uniqueStrings(obj.probeGoals || [], 12),
-          sufficiency: uniqueStrings(obj.sufficiency || [], 12),
-        };
-      }
-
-      async function completeResearchPlan(messages, settings) {
-        const text = await completeWebPipelineText({
-          model: settings.model,
-          messages,
-          temperature: 0,
-          maxTokens: 900,
-          thinkLevel: 'off',
-        }, WEB_RESEARCH_PLAN_TIMEOUT_MS, 'Deep Research planner', settings.webSignal);
-        return normalizeResearchPlan(JSON.parse(stripJsonFence(text)));
-      }
-
-      async function planDeepResearch(userText, settings) {
-        const system = [
-          'You are DStudio Deep Research planner.',
-          'Return strict JSON only. No markdown.',
-          'Preserve unknown names, products, brands, domains, handles, and typos exactly as typed.',
-          'Never autocorrect an unknown term before search.',
-          'Create broad and targeted search queries. Include official/source-of-truth queries when possible.',
-          'Schema: {"intent":"stack|company|docs|news|general","entity":"exact entity or empty","mustMatch":["exact terms"],"researchQuestions":["question"],"probeGoals":["what HTTP/curl should verify"],"sufficiency":["what evidence is enough"],"queries":["query"]}.',
-        ].join('\n');
-        let primaryError = null;
-        try {
-          const plan = await completeResearchPlan([
-            { role: 'system', content: system },
-            { role: 'user', content: `User message:\n${userText}` },
-          ], settings);
-          plan.planner = 'primary';
-          return plan;
-        } catch (e) {
-          primaryError = e;
-          if (isAbortLikeError(e)) throw e;
-        }
-        const retry = await completeResearchPlan([
-          { role: 'system', content: `${system}\nThe first planner failed. Retry with simpler valid JSON. Do not use heuristics.` },
-          { role: 'user', content: `User message:\n${userText}` },
-        ], settings);
-        retry.planner = 'retry';
-        retry.primaryError = primaryError?.message || '';
-        return retry;
       }
 
       function sourceKey(url) {
@@ -3128,156 +2615,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         } catch {
           return raw.replace(/#.*$/, '').replace(/\/$/, '').toLowerCase();
         }
-      }
-
-      function summarizeSourcesForJudge(sources) {
-        return sources.map((s, i) => [
-          `[${i + 1}] ${compactText(s.title, 160) || s.url}`,
-          `URL: ${s.url}`,
-          `Host: ${webSourceHost(s.url) || 'unknown'}`,
-          `Read page: ${s.read ? `yes (${s.reader || 'browser'})` : 'no, search snippet only'}`,
-          `Text: ${compactText(s.content, 900)}`,
-        ].join('\n')).join('\n\n');
-      }
-
-      function summarizeProbesForJudge(probes) {
-        return probes.map((p, i) => [
-          `[P${i + 1}] ${p.method || 'HEAD'} ${p.url}`,
-          `Status: ${p.status || 'unknown'} Final: ${p.finalUrl || p.url}`,
-          `Headers/body: ${compactText(`${p.headers || ''}\n${p.bodyExcerpt || ''}`, 900)}`,
-        ].join('\n')).join('\n\n');
-      }
-
-      function normalizeResearchJudge(obj) {
-        const decision = String(obj?.decision || '').toLowerCase();
-        return {
-          decision: decision === 'enough' ? 'enough' : 'continue',
-          reason: String(obj?.reason || '').replace(/\s+/g, ' ').trim(),
-          gaps: uniqueStrings(obj?.gaps || [], Infinity),
-          queries: uniqueStrings(obj?.queries || obj?.newQueries || [], Infinity),
-        };
-      }
-
-      function normalizeResearchReadPlan(obj, sources, readUrls) {
-        const byKey = new Map((sources || []).map((s) => [sourceKey(s.url), s]));
-        const urls = [];
-        const seen = new Set();
-        for (const rawUrl of uniqueStrings(obj?.urls || [], Infinity)) {
-          const key = sourceKey(rawUrl);
-          const source = byKey.get(key);
-          if (!source || readUrls.has(key) || seen.has(key)) continue;
-          seen.add(key);
-          urls.push(source.url);
-        }
-        return {
-          reason: String(obj?.reason || '').replace(/\s+/g, ' ').trim(),
-          urls,
-        };
-      }
-
-      function summarizeSourcesForReadSelection(sources, readUrls, plan = null) {
-        return sources.map((s, i) => [
-          `[${i + 1}] ${compactText(s.title, 160) || s.url}`,
-          `URL: ${s.url}`,
-          `Host: ${webSourceHost(s.url) || 'unknown'}`,
-          `Source kind: ${classifySourceKind(s)}`,
-          `Explicit user URL: ${s.explicit ? 'yes' : 'no'}`,
-          `Adapter candidate: ${s.adapter ? 'yes' : 'no'}`,
-          `Already read: ${readUrls.has(sourceKey(s.url)) ? 'yes' : 'no'}`,
-          `Primary-source score: ${sourcePrimaryReadScore(s, plan || { mustMatch: [] })}`,
-          `Adapter guidance: ${sourceKindGuidance(classifySourceKind(s))}`,
-          `Search text: ${compactText(s.content, 500)}`,
-        ].join('\n')).join('\n\n');
-      }
-
-      async function selectResearchReads(userText, plan, sources, probes, readUrls, settings) {
-        const messages = [
-          {
-            role: 'system',
-            content: [
-              'You are DStudio read_selector.',
-              'Return strict JSON only. No markdown.',
-              'Choose which search result URLs should be opened and read with the browser before judging the research.',
-              'Do not judge software projects, repositories, technical stack, docs, dependencies, pricing, company/product claims, or code quality from snippets alone.',
-              'For code repositories, documentation, or product pages, select the page that can expose README, file listing, docs, pricing, or source-of-truth details.',
-              'For official docs, product pages, package registries, or source-of-truth pages, select the official page.',
-              'If an explicit user-provided URL has already been read, select additional URLs only when they are clearly the same project/organization or the user asked for comparison, competitors, pricing, news, or alternatives.',
-              'Avoid unrelated homonyms that merely share the same product or project name.',
-              'Select every URL that materially improves evidence for the user question.',
-              'Return an empty urls array only if there are no source-of-truth URLs worth reading and more search queries are needed first.',
-              'Use only URLs from the provided source list. Do not invent URLs.',
-              'Schema: {"reason":"short reason","urls":["exact source URL"]}.',
-            ].join('\n'),
-          },
-          {
-            role: 'user',
-            content: [
-              `User question:\n${userText}`,
-              `Research plan:\n${JSON.stringify(plan)}`,
-              `Sources:\n${summarizeSourcesForReadSelection(sources, readUrls, plan) || 'None'}`,
-              `HTTP probes:\n${summarizeProbesForJudge(probes) || 'None'}`,
-            ].join('\n\n'),
-          },
-        ];
-        const text = await completeWebPipelineText({
-          model: settings.model,
-          messages,
-          temperature: 0,
-          maxTokens: 700,
-          thinkLevel: 'off',
-        }, WEB_RESEARCH_JUDGE_TIMEOUT_MS, 'Deep Research read selector', settings.webSignal);
-        return normalizeResearchReadPlan(JSON.parse(stripJsonFence(text)), sources, readUrls);
-      }
-
-      async function judgeDeepResearch(userText, plan, sources, probes, settings) {
-        const buildMessages = (attempt) => [
-          {
-            role: 'system',
-            content: [
-              'You are DStudio research_judge.',
-              'Return strict JSON only. No markdown.',
-              'Decide if the collected evidence is enough to answer the user well.',
-              'If the task is about a software project, repository, stack, docs, dependencies, pricing, or code quality and primary pages are still only snippets, return continue.',
-              'Prefer evidence from read pages over snippets; treat unread search snippets as discovery, not proof.',
-              'If evidence is weak, return continue and new model-generated queries. Do not invent sources.',
-              'Return the complete judgment without abbreviating or truncating it.',
-              attempt > 1 ? `Retry ${attempt}: the previous response was not valid complete JSON. Preserve every relevant reason, gap, and query, and close the entire object.` : '',
-              'Schema: {"decision":"enough|continue","reason":"reason","gaps":["missing evidence"],"queries":["next query"]}.',
-            ].filter(Boolean).join('\n'),
-          },
-          {
-            role: 'user',
-            content: [
-              `User question:\n${userText}`,
-              `Initial plan:\n${JSON.stringify(plan)}`,
-              `Sources:\n${summarizeSourcesForJudge(sources) || 'None'}`,
-              `HTTP probes:\n${summarizeProbesForJudge(probes) || 'None'}`,
-            ].join('\n\n'),
-          },
-        ];
-        let obj = null;
-        let lastError = null;
-        for (let attempt = 1; attempt <= 3; attempt++) {
-          try {
-            obj = await completeWebPipelineObject({
-              model: settings.model,
-              messages: buildMessages(attempt),
-              temperature: 0,
-              // Omit max_tokens entirely: the judge may use all context left
-              // and must always be allowed to close its JSON response.
-              maxTokens: 0,
-              thinkLevel: 'off',
-            }, WEB_RESEARCH_JUDGE_TIMEOUT_MS,
-            attempt === 1 ? 'Deep Research judge' : `Deep Research judge retry ${attempt - 1}`,
-            settings.webSignal);
-            break;
-          } catch (error) {
-            if (isAbortLikeError(error)) throw error;
-            lastError = error;
-          }
-        }
-        if (!obj) throw lastError || new Error('Deep Research judge failed to return valid JSON.');
-        return normalizeResearchJudge(obj);
       }
 
       async function readResearchSources(selectedSources, readUrls, deadline, onTrace, trace, question = '', signal, options = {}) {
@@ -3331,221 +2668,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return { readSteps, readSources };
       }
 
-      async function probeResearchSources(sources, probes, probed, deadline, onTrace, trace) {
-        const probeSteps = [];
-        for (const source of sources) {
-          if (!source?.url || probed.has(source.url) || performance.now() > deadline) continue;
-          probed.add(source.url);
-          const step = { label: 'Curl probe', detail: source.url, state: 'active' };
-          probeSteps.push(step);
-          emitSearchTrace(onTrace, [...trace, ...probeSteps]);
-          try {
-            const head = await Engine.httpProbe(source.url, 'HEAD');
-            probes.push(head);
-            const ct = String(head.headers || '').toLowerCase();
-            if (ct.includes('text/html') && performance.now() < deadline) {
-              const get = await Engine.httpProbe(source.url, 'GET');
-              probes.push(get);
-            }
-            step.state = 'done';
-            step.detail = `${source.url} -> ${head.status || 'ok'}`;
-          } catch (e) {
-            step.state = 'error';
-            step.detail = `${source.url} -> ${readableWebSearchError(e?.message)}`;
-          }
-          emitSearchTrace(onTrace, [...trace, ...probeSteps]);
-        }
-        return probeSteps;
-      }
-
-      function buildResearchContext(query, sources, probes, plan, judge) {
-        const technicalReport = researchReportWantsTechnical(query, [], sources);
-        const lines = [
-          '[Deep research context]',
-          'Use this gathered evidence to answer the user as a grounded Markdown report.',
-          'Every concrete current claim should be grounded in the source numbers or HTTP probe numbers when possible.',
-          technicalReport
-            ? 'For technical/source-code questions, include stack or implementation findings only when evidence supports them.'
-            : 'For general questions, do not add technical-stack sections, local paths, Curl/HTTP observations, or artifact/download paths unless the user explicitly asked.',
-          'If evidence is missing, say what is not verifiable.',
-          `User query: ${query}`,
-          `Intent: ${plan.intent || 'deep_research'}`,
-        ];
-        if (plan.mustMatch?.length) lines.push(`Exact terms to preserve: ${plan.mustMatch.join(', ')}`);
-        if (plan.researchQuestions?.length) lines.push(`Research questions: ${plan.researchQuestions.join(' | ')}`);
-        if (judge?.reason) lines.push(`Final judge: ${judge.decision} - ${judge.reason}`);
-        lines.push('', 'Sources:');
-        (sources || []).forEach((s, i) => {
-          lines.push(
-            `[${i + 1}] ${compactText(s.title, 180) || s.url}`,
-            `URL: ${s.url}`,
-            `Host: ${webSourceHost(s.url) || 'unknown'}`,
-            `Read page: ${s.read ? `yes (${s.reader || 'browser'})` : 'no, search snippet only'}`,
-            `Excerpt: ${compactText(s.content, 1200)}`,
-            '',
-          );
-        });
-        lines.push('HTTP probes:');
-        (probes || []).forEach((p, i) => {
-          lines.push(
-            `[P${i + 1}] ${p.method || 'HEAD'} ${p.url}`,
-            `Status: ${p.status || 'unknown'}`,
-            `Final URL: ${p.finalUrl || p.url}`,
-            `Headers/body excerpt: ${compactText(`${p.headers || ''}\n${p.bodyExcerpt || ''}`, 1200)}`,
-            '',
-          );
-        });
-        lines.push(technicalReport
-          ? 'Required output: write a concise but complete Markdown report with Summary, Evidence, Stack/technical findings, Curl/HTTP observations when useful, Gaps, and Sources.'
-          : 'Required output: write a concise but complete Markdown report with Summary, Evidence, Gaps, and Sources.');
-        lines.push('[/Deep research context]');
-        return lines.join('\n');
-      }
-
       async function runDeepResearch(userText, settings, onTrace, job = null) {
         return await runResearchPipeline(userText, settings, {
           mode: 'research', onTrace, job, purpose: job?.purpose,
         });
-        const throwIfCancelled = () => {
-          if (job?.cancelled) throw new Error('Deep Research cancelled.');
-        };
-        const deadline = performance.now() + WEB_RESEARCH_TOTAL_TIMEOUT_MS;
-        let trace = [
-          { label: 'Plan research', detail: 'Model is defining research questions, queries, and sufficiency criteria.', state: 'active' },
-        ];
-        emitSearchTrace(onTrace, trace);
-        throwIfCancelled();
-        const plan = await planDeepResearch(userText, settings);
-        throwIfCancelled();
-        trace = [{ label: 'Plan research', detail: planTraceDetail(plan), state: 'done' }];
-        emitSearchTrace(onTrace, trace);
-
-        const byUrl = new Map();
-        const explicitSources = seedExplicitUrlSources(userText, byUrl);
-        if (explicitSources.length) {
-          trace = [
-            ...trace,
-            { label: 'Explicit URLs', detail: explicitSources.map((s) => s.url).join(', '), state: 'done' },
-          ];
-          emitSearchTrace(onTrace, trace);
-        }
-        const probes = [];
-        const probed = new Set();
-        const readUrls = new Set();
-        const searched = new Set();
-        let nextQueries = [...plan.queries];
-        let judge = { decision: 'continue', reason: 'Research has not been judged yet.', queries: nextQueries };
-        let stopReason = '';
-
-        for (let round = 1; performance.now() < deadline; round++) {
-          throwIfCancelled();
-          const roundQueries = uniqueStrings(nextQueries).filter((q) => !searched.has(q.toLowerCase()));
-          if (!roundQueries.length) { stopReason = 'model returned no new queries'; break; }
-          const querySteps = roundQueries.map((query) => ({ label: `Search round ${round}`, detail: query, state: 'pending' }));
-          emitSearchTrace(onTrace, [...trace, ...querySteps]);
-          for (let i = 0; i < roundQueries.length && performance.now() < deadline; i++) {
-            throwIfCancelled();
-            const query = roundQueries[i];
-            searched.add(query.toLowerCase());
-            querySteps[i].state = 'active';
-            emitSearchTrace(onTrace, [...trace, ...querySteps]);
-            try {
-              const res = await Engine.webSearch(query);
-              throwIfCancelled();
-              if (!res?.ok) throw new Error(res?.error || 'search failed');
-              let added = 0;
-              for (const source of res.sources || []) {
-                if (!source?.url) continue;
-                const key = sourceKey(source.url);
-                if (!byUrl.has(key)) { byUrl.set(key, { ...source, _order: byUrl.size }); added++; }
-              }
-              querySteps[i].state = 'done';
-              querySteps[i].detail = `${query} -> ${added} new source${added === 1 ? '' : 's'}`;
-            } catch (e) {
-              querySteps[i].state = 'error';
-              querySteps[i].detail = `${query} -> ${readableWebSearchError(e?.message)}`;
-            }
-            emitSearchTrace(onTrace, [...trace, ...querySteps]);
-          }
-          trace = [...trace, ...querySteps];
-          const sources = [...byUrl.values()];
-          const mandatoryReads = mandatoryPrimaryReadSources(plan, sources, readUrls);
-          if (mandatoryReads.length) {
-            const primaryStep = {
-              label: `Primary reads ${round}`,
-              detail: `Reading high-confidence primary sources first: ${mandatoryReads.map((s) => webSourceHost(s.url) || s.url).join(', ')}`,
-              state: 'done',
-            };
-            trace = [...trace, primaryStep];
-            emitSearchTrace(onTrace, trace);
-            throwIfCancelled();
-            const { readSteps, readSources } = await readResearchSources(mandatoryReads, readUrls, deadline, onTrace, trace);
-            trace = [...trace, ...readSteps];
-            throwIfCancelled();
-            const probeSteps = await probeResearchSources(readSources, probes, probed, deadline, onTrace, trace);
-            trace = [...trace, ...probeSteps];
-          }
-          const selectStep = { label: `Select reads ${round}`, detail: 'Model chooses which result URLs need browser reading.', state: 'active' };
-          emitSearchTrace(onTrace, [...trace, selectStep]);
-          let selectedReadSources = [];
-          try {
-            const selectableSources = selectableSourcesAfterExplicitRead(userText, plan, sources, readUrls);
-            const readPlan = await selectResearchReads(userText, plan, selectableSources, probes, readUrls, settings);
-            throwIfCancelled();
-            const bySourceKey = new Map(selectableSources.map((s) => [sourceKey(s.url), s]));
-            selectedReadSources = readPlan.urls.map((url) => bySourceKey.get(sourceKey(url))).filter(Boolean);
-            selectStep.state = 'done';
-            selectStep.detail = selectedReadSources.length
-              ? `${readPlan.reason || 'selected sources'}: ${selectedReadSources.map((s) => webSourceHost(s.url) || s.url).join(', ')}`
-              : (readPlan.reason || 'no URL needs browser reading now');
-          } catch (e) {
-            selectStep.state = 'error';
-            selectStep.detail = readableWebSearchError(e?.message);
-          }
-          trace = [...trace, selectStep];
-          emitSearchTrace(onTrace, trace);
-          throwIfCancelled();
-          const { readSteps, readSources } = await readResearchSources(selectedReadSources, readUrls, deadline, onTrace, trace);
-          trace = [...trace, ...readSteps];
-          throwIfCancelled();
-          const probeSteps = await probeResearchSources(readSources, probes, probed, deadline, onTrace, trace);
-          trace = [...trace, ...probeSteps];
-          const judgeStep = { label: `Judge round ${round}`, detail: 'Model decides if the evidence is enough.', state: 'active' };
-          emitSearchTrace(onTrace, [...trace, judgeStep]);
-          try {
-            judge = await judgeDeepResearch(userText, plan, sources, probes, settings);
-            throwIfCancelled();
-            judgeStep.state = 'done';
-            judgeStep.detail = `${judge.decision}: ${judge.reason || (judge.queries.length ? judge.queries.join(' | ') : 'no reason')}`;
-          } catch (e) {
-            judgeStep.state = 'error';
-            judgeStep.detail = readableWebSearchError(e?.message);
-            stopReason = 'judge failed';
-            trace = [...trace, judgeStep];
-            emitSearchTrace(onTrace, trace);
-            break;
-          }
-          trace = [...trace, judgeStep];
-          emitSearchTrace(onTrace, trace);
-          if (judge.decision === 'enough') break;
-          nextQueries = judge.queries;
-        }
-        if (performance.now() >= deadline) stopReason = 'research stopped by time limit';
-        const gatheredSources = [...byUrl.values()];
-        const sources = selectableSourcesAfterExplicitRead(userText, plan, gatheredSources, readUrls);
-        if (sources.length !== gatheredSources.length) {
-          trace = [
-            ...trace,
-            {
-              label: 'Context sources',
-              detail: `Focused on explicit URL family: ${sources.map((s) => webSourceHost(s.url) || s.url).join(', ')}`,
-              state: 'done',
-            },
-          ];
-          emitSearchTrace(onTrace, trace);
-        }
-        const context = buildResearchContext(userText, sources, probes, plan, { ...judge, reason: stopReason || judge.reason });
-        return { plan, sources, probes, context, judge, stopReason };
       }
 
       function slugForFilename(text) {

@@ -32,10 +32,11 @@ async function command(binary, args, cwd, env) {
 }
 try {
   assert.equal(process.platform, 'darwin', 'Metal unavailable: NOT RUN');
-  assert.ok(process.argv.length===3 || process.argv.length===4&&['--segmented', '--profile-stages'].includes(process.argv[3]),
+  assert.ok(process.argv.length===3 || process.argv.length===4&&['--segmented', '--profile-stages', '--online'].includes(process.argv[3]),
     'Supply one built q36 source directory and optional --segmented or --profile-stages');
   report.segmentedExpectation=process.argv.length===4;
   report.isolatedStageDiagnostic=process.argv[3]==='--profile-stages';
+  report.onlineExpectation=process.argv[3]==='--online';
   if (report.isolatedStageDiagnostic) report.scope += '; encoder-isolated diagnostic perturbs scheduling, not production latency';
   const source = fs.realpathSync(process.argv[2]);
   const env = {...process.env};

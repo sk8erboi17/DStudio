@@ -15,11 +15,16 @@ fi
 ds4_dir=$(CDPATH= cd -- "$ds4_dir" && pwd)
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 patch_file="$script_dir/../patch/ds4-glm53-m2max/native-decode.patch"
+if grep -q 'DS4_MODEL_FAMILY_QWEN4_EXP' "$ds4_dir/ds4.c" &&
+   grep -q 'DS4_MODEL_FAMILY_DEEPSEEK41' "$ds4_dir/ds4.c"; then
+    patch_file="$script_dir/../patch/ds4-glm53-m2max/native-decode-main-qwen.patch"
+fi
 
 # DStudio routes only Qwen checkpoints to this fork. Its rebased source also
 # contains GLM code, but that does not make the GLM-specific M2 adaptation a
 # Qwen dependency (its native layer/expert bounds and kernels are different).
-if grep -q 'DS4_MODEL_FAMILY_QWEN4_EXP' "$ds4_dir/ds4.c"; then
+if grep -q 'DS4_MODEL_FAMILY_QWEN4_EXP' "$ds4_dir/ds4.c" &&
+   ! grep -q 'DS4_MODEL_FAMILY_DEEPSEEK41' "$ds4_dir/ds4.c"; then
     if grep -q 'glm_stream_m2_glm53_top8_addr_enabled' "$ds4_dir/ds4.c"; then
         echo "DStudio M2 Max patch: unsupported GLM adaptation present in Qwen source; no files changed" >&2
         exit 1
@@ -63,6 +68,10 @@ else
     cat "$patch_file" > "$main_patch"
 fi
 # September 6 main prints all selected experts itself. Keep that upstream loop;
+if grep -q 'DS4_MODEL_FAMILY_QWEN4_EXP' "$ds4_dir/ds4.c" &&
+   grep -q 'DS4_MODEL_FAMILY_DEEPSEEK41' "$ds4_dir/ds4.c"; then
+    cat "$script_dir/../patch/ds4-glm53-m2max/hotlist-main-layout.patch" >> "$main_patch"
+fi
 # earlier source layouts still need the old six-to-eight diagnostic correction.
 if ! grep -Fq '"experts=",' "$ds4_dir/ds4_metal.m"; then
     cat "$script_dir/../patch/ds4-glm53-m2max/legacy-selected-logging.patch" >> "$main_patch"

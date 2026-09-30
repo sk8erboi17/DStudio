@@ -522,7 +522,7 @@ static int dtg_parse_node(const char *json, const dtg_json_token *tokens,
     node->max_attempts = 1;
     node->idempotent = 1;
     node->priority = 50;
-    node->timeout_ms = 900000;
+    node->timeout_ms = 0;
     if (!dtg_json_object_string(json, tokens, count, object, "id", node->id, sizeof node->id, 1, err, errsz) ||
         !dtg_json_object_string(json, tokens, count, object, "kind", kind, sizeof kind, 1, err, errsz) ||
         !dtg_json_object_string(json, tokens, count, object, "title", node->title, sizeof node->title, 1, err, errsz) ||
@@ -558,7 +558,9 @@ static int dtg_parse_node(const char *json, const dtg_json_token *tokens,
         !dtg_json_object_bool(json, tokens, count, object, "optional", 0, &node->optional, err, errsz) ||
         !dtg_json_object_int(json, tokens, count, object, "priority", 50, -1000, 1000, &v, err, errsz)) return 0;
     node->priority = (int)v;
-    if (!dtg_json_object_int(json, tokens, count, object, "timeoutMs", 900000, 1, 86400000, &v, err, errsz)) return 0;
+    /* Zero/omitted means no elapsed-work cutoff. Explicit positive budgets
+     * remain part of the graph contract and survive serialization/recovery. */
+    if (!dtg_json_object_int(json, tokens, count, object, "timeoutMs", 0, 0, 86400000, &v, err, errsz)) return 0;
     node->timeout_ms = v;
 
     int mock = dtg_json_object_field(json, tokens, count, object, "synthetic");

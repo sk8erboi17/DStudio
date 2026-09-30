@@ -78,14 +78,15 @@ try {
   // Smallest resident model first; all heavy processes are strictly sequential.
   candidates.sort((a,b)=>fs.statSync(path.join(modelRoot,a)).size-fs.statSync(path.join(modelRoot,b)).size);
   for(const [index,file] of candidates.entries()) {
-    const dirName=/^Qwen3\.6/i.test(file)?'ds4-qwen35':/^Qwen3\.8/i.test(file)?'ds4-qwen38':/^laguna/i.test(file)?'ds4-laguna-s21':'ds4';
+    const dirName=/^Qwen3\.6/i.test(file)?'ds4-qwen35':/^Qwen3\.8-27B/i.test(file)?'q36':/^laguna/i.test(file)?'ds4-laguna-s21':'ds4';
     const dir=path.join(sources,dirName);
-    const ssd=dirName==='ds4'?'on':'off';
+    const next=/^Qwen3\.8-Flash-Next/i.test(file);
+    const ssd=dirName==='ds4'&&!next?'on':'off';
     const profile=path.join(run,`profile-${index}`);fs.mkdirSync(profile);
     const stat=fs.statSync(path.join(modelRoot,file));
     const row={file,bytes:stat.size,mtime:stat.mtime.toISOString(),engine:dirName,checks:[],
       configuration:{ctx:8192,ssdStreaming:ssd,power:100,dspark:false,think:'off'},
-      mode:dirName==='ds4-qwen38'?'resident backbone + native SSD PLE':ssd==='on'?'SSD expert streaming':'resident Metal'};
+      mode:next?'resident backbone + embedded BF16 n-grams on SSD':ssd==='on'?'SSD expert streaming':'resident Metal'};
     report.models.push(row);save();console.log(`LOAD ${index+1}/${candidates.length}: ${file} (${row.mode})`);
     try {
       const env={...process.env,DS4UI_DATA_DIR:profile,DS4UI_NO_WINDOW:'1',DS4UI_DEFER_ENGINE_START:'1',

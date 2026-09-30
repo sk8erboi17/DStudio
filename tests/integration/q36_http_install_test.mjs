@@ -18,7 +18,7 @@ try {
   const [engine, model, projector] = process.argv.slice(2).map(f => fs.realpathSync(f));
   const receiptFile = path.join(engine, '.dstudio-source.json');
   const installed = JSON.parse(fs.readFileSync(receiptFile, 'utf8'));
-  assert.equal(installed.commit, '8362010a301b3360296e435703f58ffc230a024a');
+  assert.equal(installed.commit, '1305843c735380f912619548b121cba8601f2f85');
   const harness = path.join(root, 'tests/live/q36_http_vision_live_test.mjs');
   const inputs = [receiptFile, path.join(engine, 'q36-server'), import.meta.filename, harness,
     path.join(root, 'scripts/install-q36.py'), ...Object.keys(installed.patches).map(f => path.join(root, f))];

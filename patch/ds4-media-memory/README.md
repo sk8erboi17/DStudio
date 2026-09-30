@@ -6,6 +6,14 @@ on or off. Its source delta is unchanged by the Design builder migration: the
 header hunk now anchors on the two adjacent SSD/GLM streaming declarations,
 without depending on the unrelated tensor-matmul declaration found in Laguna.
 
+Main since `9139e2a` gives the CUDA cache-budget setter a real implementation; the active `0aaea5a` pin retains it. The
+patch now anchors only on its signature, not its former empty body; the
+applied residency source is unchanged. Both the managed installer and Design
+builder check the full delta before mutation. The installer no longer accepts
+a marker or fuzzy partial application as a complete adaptation. Native Metal
+builds, exact stack restoration and Design's 18 process/filesystem regressions
+cover this rebase; they do not qualify CUDA execution.
+
 For Design, `extension/design/build-design.sh` applies this patch only in its
 private build snapshot and verifies the complete forward or reverse delta using
 Git. It neither edits nor restores the original checkout. Existing setup/server

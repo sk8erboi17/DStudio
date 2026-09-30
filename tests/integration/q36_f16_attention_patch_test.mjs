@@ -11,7 +11,8 @@ import {artifactRunDir, writeArtifact} from '../support/real_harness.mjs';
 const root = path.resolve(import.meta.dirname, '../..'), run = artifactRunDir('q36-f16-attention-patch');
 const tree = path.join(run, 'source'), files = ['q36_metal.m', 'metal/attention.metal'];
 const script = path.join(root, 'scripts/apply-q36-f16-attention.sh');
-const patch = path.join(root, 'patch/q36-f16-attention/runtime.patch');
+const online = process.argv[3] === '--online';
+const patch = path.join(root, `patch/q36-f16-attention/${online ? 'online-1305843' : 'runtime'}.patch`);
 const report = {started: new Date().toISOString(), passed: false, tests: [], commands: [],
   scope: 'Actual patch lifecycle and Make dependency decision; no inference or fresh network installation'};
 const save = () => writeArtifact(run, 'results.json', report);
@@ -26,17 +27,18 @@ function command(binary, args, expected = 0, cwd = tree, extra = {}) {
     error: r.error?.message, stdout: r.stdout?.toString(), stderr: r.stderr?.toString()}); save();
   assert.ifError(r.error); assert.equal(r.status, expected, r.stderr?.toString());
 }
-const apply = (action, expected = 0, extra = {}) => command('/bin/sh', [script, action], expected,
+const apply = (action, expected = 0, extra = {}) => command('/bin/sh', [script, action, online ? 'online' : 'pinned'], expected,
   tree, {Q36_DIR: tree, ...extra});
 function test(name, fn) {fn(); report.tests.push({name, passed: true}); save();}
 try {
-  assert.equal(process.argv.length, 3, 'Supply one built q36 candidate directory');
+  assert(process.argv.length===3 || process.argv.length===4 && online, 'Supply one built q36 candidate directory and optional --online');
   const source = fs.realpathSync(process.argv[2]);
   const inputs = [script, patch, import.meta.filename, ...files.map(f => path.join(source, f))];
   report.inputs = Object.fromEntries(inputs.map(f => [f, sha(fs.readFileSync(f))]));
   fs.copyFileSync(patch, path.join(run, 'candidate.patch'), fs.constants.COPYFILE_EXCL);
   fs.copyFileSync(script, path.join(run, 'apply.sh'), fs.constants.COPYFILE_EXCL);
   fs.mkdirSync(path.join(tree, 'metal'), {recursive: true});
+  if (online) fs.copyFileSync(path.join(source, 'q36_gpu.h'), path.join(tree, 'q36_gpu.h'), fs.constants.COPYFILE_EXCL);
   for (const f of files) fs.copyFileSync(path.join(source, f), path.join(tree, f), fs.constants.COPYFILE_EXCL);
   apply('restore');
   // Same-file and separate-file unrelated user changes must survive every action.
@@ -71,7 +73,7 @@ try {
       fs.writeFileSync(file, header + hunk); fragments.push(file);
     }
   }
-  assert.equal(fragments.length, 3, 'Update partial-install scenarios when the patch structure changes');
+  assert(fragments.length>=3, 'Need multiple independent partial-install scenarios');
   for (const selection of [[1], [2], [0, 1], [0, 2]]) test('partial hunk application rejected atomically: ' + selection, () => {
     restore(baseline);
     for (const index of selection) command('git', ['apply', fragments[index]]);

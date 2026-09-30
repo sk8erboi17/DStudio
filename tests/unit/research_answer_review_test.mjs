@@ -11,7 +11,6 @@ const definitions = JSON.stringify({ comparisons: [{ value: '40', definitions: [
 ], relation: 'different', summary: 'Guest inclusion differs; the equal total does not establish agreement.' }] });
 let comparisonReply = definitions;
 const tools = new Function('Api', `
-  const WEB_RESEARCH_TOTAL_TIMEOUT_MS = Infinity;
   ${runtime}
   return { researchWordLimit, researchReportQuality, synthesizeResearchReport,
     researchReportForDelivery, buildResearchReportDraft, buildFactsContext, compareResearchQuantities, auditResearchReport };
@@ -112,7 +111,10 @@ for (const invalid of ['{}', definitions.replace('"F2"', '"F99"'), definitions.r
   const rejected = await tools.synthesizeResearchReport('Compare totals', state, {});
   assert.equal(requests.length, 1, 'Invalid definition review cannot authorize writing an unchecked answer');
   assert.equal(rejected.quality.ok, false);
-  assert.equal(rejected.quality.wordCount, rejected.report.trim().split(/\s+/).length, 'Fallback diagnostics describe the actual displayed draft');
+  assert.equal(rejected.quality.wordCount, rejected.report.trim() ? rejected.report.trim().split(/\s+/).length : 0,
+    'Failure diagnostics describe actual generated text, including an empty answer');
+  assert.equal(rejected.report, '', 'A failed comparison cannot publish the internal evidence scaffold');
+  assert.ok(rejected.draft.length > 0, 'Retain the scaffold separately for diagnosis');
 }
 comparisonReply = definitions;
 

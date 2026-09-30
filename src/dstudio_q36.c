@@ -3,7 +3,8 @@
  * No weights/KV live here. Launch preparation supplies file identities, and
  * native readiness describes the files actually opened by the child.
  * Bounds: one process, 1536-byte receipt, 256-byte diagnostic tail, 64 KiB per
- * stream/tick, 120 s loading and 4 s parent-side teardown. No log is readiness.
+ * stream/tick and 4 s parent-side teardown. Loading ends only on a validated
+ * readiness receipt, actual failure or Stop. No log is readiness.
  * This is process ownership, not a reusable endpoint/session cache. */
 #include "../extension/remote/dstudio_json_tokens.h"
 
@@ -21,7 +22,7 @@ typedef struct {
     pid_t pid, frontend;
     int owner, output, errors, ready, stopping, killed;
     unsigned long long launch_task;
-    long long deadline;
+    long long deadline; /* Stop escalation only; loading has no wall-clock cap. */
     size_t received;
     char receipt[1536], last_log[256], error[256];
 } q36_owned_runtime;
@@ -241,8 +242,6 @@ static void q36_tick(void) {
             }
         }
     }
-    if (!g_q36.ready && !g_q36.stopping && dstudio_now_ms() >= g_q36.deadline)
-        q36_fail("Qwen model loading exceeded its deadline");
     if (g_q36.stopping && !g_q36.killed && dstudio_now_ms() >= g_q36.deadline) {
         kill(g_q36.pid, SIGKILL); g_q36.killed = 1;
     }
@@ -383,7 +382,7 @@ static int q36_start_owned(const q36_launch_spec *spec, unsigned long long task,
     close(pair[1]); close(output[1]); close(errors[1]);
     memset(&g_q36, 0, sizeof g_q36); g_q36.spec = *spec;
     g_q36.pid = pid; g_q36.owner = pair[0]; g_q36.output = output[0]; g_q36.errors = errors[0];
-    g_q36.launch_task = task; g_q36.deadline = dstudio_now_ms() + 120000;
+    g_q36.launch_task = task;
     reset_progress("Loading Qwen27B…");
     return 1;
 fail:

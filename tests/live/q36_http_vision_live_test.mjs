@@ -112,7 +112,7 @@ async function execute() {
     // Agent exit/web behavior, not the HTTP inference core. This admits a test,
     // never transfers the older revision's inference results to the new one.
     assert(['8ce8924fde5797ece13df16d87246cbe4fffbea6',
-      '8362010a301b3360296e435703f58ffc230a024a'].includes(revision), 'Unreviewed q36 revision');
+      '8362010a301b3360296e435703f58ffc230a024a', '1305843c735380f912619548b121cba8601f2f85'].includes(revision), 'Unreviewed q36 revision');
     report.review = {engine, git, revision, backend: 'metal', installed: false,
       ...(nativeReceipt ? {nativeBuild: {file: nativeReceipt, sha256: report.inputs[nativeReceipt],
         sourceRevision: build.sourceRevision, serverSHA256: build.serverSHA256}} : {})};
@@ -151,15 +151,19 @@ async function execute() {
     report.inputs[receiptFile] = hash(receiptFile);
     report.installation = JSON.parse(fs.readFileSync(receiptFile, 'utf8'));
     assert(['d67687ed15ad9f52b755a9b5fdfc0214ea937555',
-      '8362010a301b3360296e435703f58ffc230a024a'].includes(report.installation.commit), 'Unreviewed installed revision');
+      '8362010a301b3360296e435703f58ffc230a024a', '1305843c735380f912619548b121cba8601f2f85'].includes(report.installation.commit), 'Unreviewed installed revision');
     assert.equal(report.installation.engine, 'q36'); assert.equal(report.installation.backend, 'metal');
-    currentRenderer = report.installation.commit === '8362010a301b3360296e435703f58ffc230a024a';
-    const runtimePatch = `patch/q36-metal-runtime/${currentRenderer ? 'next-review' : 'runtime'}.patch`;
+    currentRenderer = ['8362010a301b3360296e435703f58ffc230a024a', '1305843c735380f912619548b121cba8601f2f85'].includes(report.installation.commit);
+    const runtimePatch = `patch/q36-metal-runtime/${report.installation.commit === '1305843c735380f912619548b121cba8601f2f85' ? 'runtime-1305843'
+      : currentRenderer ? 'next-review' : 'runtime'}.patch`;
+    const onlineAttention = report.installation.commit === '1305843c735380f912619548b121cba8601f2f85';
     const patchOrder = [runtimePatch, ...(currentRenderer ? [
       'patch/q36-agent-tty/monitor.patch', 'patch/q36-agent-tty/monitor-owner.patch',
-      'patch/q36-metal-runtime/cache-usage.patch'] : [])];
+      'patch/q36-metal-runtime/cache-usage.patch'] : []),
+      ...(onlineAttention ? ['patch/q36-f16-attention/online-1305843.patch'] : [])];
     const patchInputs = [...patchOrder, 'scripts/apply-q36-metal-runtime.sh',
-      ...(currentRenderer ? ['scripts/apply-q36-agent-tty.sh'] : [])];
+      ...(currentRenderer ? ['scripts/apply-q36-agent-tty.sh'] : []),
+      ...(onlineAttention ? ['scripts/apply-q36-f16-attention.sh'] : [])];
     assert.deepEqual(Object.keys(report.installation.patches || {}).sort(), patchInputs.sort(), 'Incomplete installed patch inventory');
     const installer = path.join(root, 'scripts/install-q36.py');
     report.inputs[installer] = hash(installer);

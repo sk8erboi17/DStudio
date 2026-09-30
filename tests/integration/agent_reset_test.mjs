@@ -51,6 +51,7 @@ try {
   const objects = ['ds4', 'ds4_distributed', 'ds4_tp', 'ds4_ssd', 'ds4_metal', 'ds4_layer_pack',
     'ds4_help', 'ds4_kvstore', 'linenoise', 'ds4_gpu_args'].map(n => path.join(engine, `${n}.o`));
   if (qwen38) objects.push(path.join(engine, 'ds4_image.o'));
+  if (fs.existsSync(path.join(engine, 'ds4_engram.o'))) objects.push(path.join(engine, 'ds4_engram.o'));
   if (fs.existsSync(path.join(engine, 'ds4_prompt_prefix.o'))) objects.push(path.join(engine, 'ds4_prompt_prefix.o'));
   report.engineObjects = objects.map(file => ({file: path.basename(file), sha256: hash(fs.readFileSync(file))}));
   for (const [name, file] of [['web', path.join(run, 'ds4_web.c')],
