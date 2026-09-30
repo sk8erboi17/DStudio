@@ -17,16 +17,17 @@ runtime checkouts, user changes, settings and model paths are preserved.
 | Laguna S 2.1 | [ds4-laguna-s21](../src/engines/ds4-laguna-s21/) | `448d5695d1c86401a4e9447c440feb983b73e6de` |
 | Qwen3.6 MoE | [ds4-qwen35](../src/engines/ds4-qwen35/) | `73434c4bb9d8bb18425a2577edada69d25d44c47` |
 | Qwen27B | [q36](../src/engines/q36/) | `1305843c735380f912619548b121cba8601f2f85` |
-| Historical Qwen Next fork, source reference only | [ds4-qwen38](../src/engines/ds4-qwen38/) | `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14` |
 
-The historical fork is not an active installer target. Qwen Next uses main;
-its earlier separate PLE format is not silently converted or selected.
+Only active engines are distributed. Qwen Next uses main; its retired separate
+fork is preserved in Git history and the historical patches, without shipping
+its source snapshot. Its earlier separate PLE format is not silently converted
+or selected.
 
 ## Source identity and installation
 
-The exact upstream import was independently repeated: all five manifests and
-2069 distributed files match their pinned Git archives byte for byte. Imported
-upstream formatting is retained. The full staged whitespace scan recorded
+The four distributed snapshots contain 1492 files matching their pinned Git
+archives byte for byte. Their upstream formatting is retained. The original
+five-snapshot import was independently repeated; its staged scan recorded
 2902 inherited findings across 35 unchanged upstream files; authored changes
 pass the whitespace check. No engine source was rewritten to conceal those
 upstream formatting differences.
@@ -98,6 +99,17 @@ passed after upstream fetching was removed. Update checks expose no engine-pull
 action; stale `ds4-latest` requests fail before restoring patches or running Git.
 These checks qualify the installation path on this Mac, not model quality, CUDA,
 Vulkan, Windows, the native window or a complete release.
+
+The subsequent removal of the retired Qwen Next source snapshot excludes
+577 files (31,503,887 bytes) from new source distributions and app bundles.
+The original Git commit and historical patches retain its provenance. Follow-up
+verification runs `make test-engine-sources test-engine-pins
+test-engine-setup-unit test-engine-updates test-macos-bundle`: all 18 source
+cases pass, only the four active engines can be copied, and the relocated app
+materializes only their source snapshots with pins matching its native metadata.
+The retired source cannot be copied or installed, and its old HTTP installer
+remains unavailable. These checks do not rerun inference or the full quality
+suite; the four-build first-launch result above belongs to the original import.
 
 ## Refreshing reviewed source snapshots
 

@@ -285,17 +285,30 @@ class SourceTests(unittest.TestCase):
     def test_all_shipped_snapshots_copy_and_verify_actual_bytes(self):
         assets = Path('.').resolve()
         catalog, _, _ = sources.load_catalog(assets)
+        copied = set()
         for engine, entry in catalog['engines'].items():
             with self.subTest(engine=engine):
                 target = self.root / entry['directory']
                 proof = sources.copy_sources(assets, engine, entry['commit'], target)
                 sources.verify_sources(assets, engine, entry['commit'], proof)
+                copied.add(proof['engine'])
                 self.assertEqual(proof['files'], len(entry['files']))
                 self.assertTrue((target / 'LICENSE').is_file())
                 self.assertFalse((target / '.git').exists())
                 self.assertFalse((target / 'gguf').exists())
                 self.assertFalse(any(p.name in ('ds4', 'ds4-server', 'q36', 'q36-server') and p.is_file()
                                      for p in target.iterdir()))
+        self.assertEqual(copied, {'main', 'laguna', 'qwen35', 'q36'})
+
+    def test_retired_qwen_next_sources_are_unavailable_without_publication(self):
+        assets = Path('.').resolve()
+        revision = 'ff4f0ff4fdff70d6b7c3941ef437b91dde960e14'
+        for operation in (sources.copy_sources, sources.install):
+            with self.subTest(operation=operation.__name__):
+                with self.assertRaisesRegex(RuntimeError, 'pins disagree'):
+                    operation(assets, 'historical-qwen38', revision, self.target)
+                self.assertFalse(self.target.exists())
+                self.assertFalse(list(self.target.parent.iterdir()))
 
 
 if __name__ == '__main__':

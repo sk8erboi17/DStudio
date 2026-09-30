@@ -2519,13 +2519,15 @@ DStudio Chat latency and from the small cross-engine acceptance battery.
 ## Bundled offline engine sources (September 30, 2026)
 
 `make test-engine-sources` executes the production verifier, source copy and
-exclusive publisher with real files. Its 17 cases cover byte/mode integrity,
+exclusive publisher with real files. Its 18 cases cover byte/mode integrity,
 missing/extra/altered inputs, linked files and parents (including a deterministic
 parent-switch barrier), source/manifest and target races, owner-lease replacement,
 independent preparations overlapping at a deterministic barrier,
 retained-candidate limits and interrupted durability acknowledgement. It also
-copies/verifies all five shipped source snapshots. No compilation or inference
-is claimed by these cases.
+copies/verifies all four active source snapshots and rejects copying or
+installing the retired Qwen Next source. `make test-macos-bundle` checks that
+the relocated app materializes exactly those four snapshots with pins matching
+its native metadata. No inference is claimed by these cases.
 
 `make test-engine-updates` exercises the actual native HTTP endpoints with a
 fixture checkout and Git peer. Update checks must not invoke Git, and stale

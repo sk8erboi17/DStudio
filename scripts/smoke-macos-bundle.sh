@@ -107,6 +107,7 @@ python3 "$TMP_ROOT/support/scripts/download-qwen35.py" --help >/dev/null
 python3 "$TMP_ROOT/support/scripts/install-q36.py" --help >/dev/null
 python3 - "$TMP_ROOT/DStudio.app/Contents/MacOS/DStudio" "$TMP_ROOT" <<'PY'
 import json, os, re, subprocess, sys
+from pathlib import Path
 app, root = sys.argv[1:]
 env = {**os.environ, 'DS4UI_DATA_DIR': os.path.join(root, 'metadata support'), 'DS4UI_TEST_MODE': '1'}
 def produced_json(command):
@@ -119,6 +120,16 @@ assert set(engines) == {'main', 'laguna', 'qwen35', 'q36'}
 assert engines['q36']['directory'] == 'q36'
 assert re.fullmatch(r'[0-9a-f]{40}', engines['q36']['commit'])
 assert engines['q36']['commit'] in engines['q36']['archiveURL']
+source_root = Path(root, 'support/src/engines')
+assert {p.name for p in source_root.iterdir() if p.is_dir()} == {
+    'ds4', 'ds4-laguna-s21', 'ds4-qwen35', 'q36'
+}, 'the materialized app must include only active engine snapshots'
+source_manifest = json.loads((source_root / 'manifest.json').read_text())
+assert set(source_manifest['engines']) == set(engines)
+for engine, pin in engines.items():
+    bundled = source_manifest['engines'][engine]
+    assert bundled['commit'] == pin['commit']
+    assert 'src/engines/' + bundled['directory'] == pin['sourceDirectory']
 manifest = produced_json([sys.executable, os.path.join(root, 'support/scripts/download-qwen27.py'), '--manifest'])
 assert re.fullmatch(r'[0-9a-f]{40}', manifest['revision'])
 assert set(manifest['files']) == {'model', 'vision'}
