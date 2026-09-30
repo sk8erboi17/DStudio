@@ -1,0 +1,335 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_clustered : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+
+/* GQA-tiled prefill attention: one workgroup serves the query heads sharing
+ * a KV head across eight adjacent SPAN-key spans. Each K/V value is fetched
+ * once per GQA group; span partials are folded in order before one compact
+ * group partial is written for attn_combine.
+ *
+ * Inside each span every head keeps the arithmetic of attn_decode_split:
+ * the same 64-key walk, quad-strided dot, online softmax and t-ordered sums.
+ * Groups retain span order; only the association between groups changes. */
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Qbuf {
+    float q[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Kcache {
+    uint kc[];
+};
+
+layout(set = 0, binding = 2) readonly buffer Vcache {
+    uint vc[];
+};
+
+layout(set = 0, binding = 3) readonly buffer Sinks {
+    float sinks[];
+};
+
+layout(set = 0, binding = 4) writeonly buffer Partials {
+    float part[];
+};
+
+layout(push_constant) uniform Push {
+    uint pos0;
+    uint n_head;
+    uint n_head_kv;
+    uint head_dim;
+    uint n_spans;
+    uint n_tok;
+    uint has_sinks;
+    uint k_type;
+    uint v_type;
+    uint k_row_bytes;
+    uint v_row_bytes;
+    uint tok0;
+} pc;
+
+#define TILE 64u
+#define SPAN 512u
+#define SPAN_GROUP 8u
+#define HQ 8u
+
+shared float sh_q[HQ * 256u];
+shared float sh_w[HQ * TILE];
+shared float sh_gacc[HQ * 256u];
+shared float sh_gm[HQ];
+shared float sh_gl[HQ];
+
+uint load_k_u8(uint off) {
+    uint word = kc[off >> 2u];
+    return (word >> ((off & 3u) * 8u)) & 255u;
+}
+
+uint load_v_u8(uint off) {
+    uint word = vc[off >> 2u];
+    return (word >> ((off & 3u) * 8u)) & 255u;
+}
+
+float load_k_f16(uint off) {
+    return unpackHalf2x16(load_k_u8(off) | (load_k_u8(off + 1u) << 8u)).x;
+}
+
+float load_v_f16(uint off) {
+    return unpackHalf2x16(load_v_u8(off) | (load_v_u8(off + 1u) << 8u)).x;
+}
+
+int i8(uint v) {
+    return v >= 128u ? int(v) - 256 : int(v);
+}
+
+float kc_at(uint tok, uint kvh, uint i) {
+    if (pc.k_type == 0u) {
+        return load_k_f16(tok * pc.k_row_bytes + (kvh * pc.head_dim + i) * 2u);
+    }
+    uint block_bytes = pc.k_type == 1u ? 34u : 18u;
+    uint head_bytes = ((pc.head_dim + 31u) / 32u) * block_bytes;
+    uint base = tok * pc.k_row_bytes + kvh * head_bytes + (i / 32u) * block_bytes;
+    if (pc.k_type == 2u) {
+        uint j = i & 31u;
+        uint q = load_k_u8(base + 2u + (j & 15u));
+        q = j < 16u ? q & 15u : q >> 4u;
+        return load_k_f16(base) * float(int(q) - 8);
+    }
+    return load_k_f16(base) * float(i8(load_k_u8(base + 2u + (i & 31u))));
+}
+
+float vc_at(uint tok, uint kvh, uint i) {
+    if (pc.v_type == 0u) {
+        uint idx = (tok * pc.v_row_bytes) / 2u + kvh * pc.head_dim + i;
+        uint word = vc[idx >> 1u];
+        vec2 pair = unpackHalf2x16(word);
+        return (idx & 1u) == 0u ? pair.x : pair.y;
+    }
+    uint block_bytes = pc.v_type == 1u ? 34u : 18u;
+    uint head_bytes = ((pc.head_dim + 31u) / 32u) * block_bytes;
+    uint base = tok * pc.v_row_bytes + kvh * head_bytes + (i / 32u) * block_bytes;
+    if (pc.v_type == 2u) {
+        uint j = i & 31u;
+        uint q = load_v_u8(base + 2u + (j & 15u));
+        q = j < 16u ? q & 15u : q >> 4u;
+        return load_v_f16(base) * float(int(q) - 8);
+    }
+    return load_v_f16(base) * float(i8(load_v_u8(base + 2u + (i & 31u))));
+}
+
+float vc_at_f16(uint idx) {
+    uint word = vc[idx >> 1u];
+    vec2 pair = unpackHalf2x16(word);
+    return (idx & 1u) == 0u ? pair.x : pair.y;
+}
+
+/* dot() is shadowed by the per-query accumulator array below. */
+float dot4(vec4 a, vec4 b) {
+    return dot(a, b);
+}
+
+void main(void) {
+    uint tid = gl_LocalInvocationID.x;
+    uint kvh = gl_WorkGroupID.x;
+    uint tok = gl_WorkGroupID.y;
+    uint qtok = pc.tok0 + tok;
+    uint heads_per_kv = pc.n_head / pc.n_head_kv;
+    uint h0 = kvh * heads_per_kv;
+    uint hn = min(HQ, heads_per_kv);
+    uint n_kv = pc.pos0 + qtok + 1u;
+    uint spans = (n_kv + SPAN - 1u) / SPAN;
+    uint group = gl_WorkGroupID.z;
+    uint span_first = group * SPAN_GROUP;
+    uint span_limit = min(span_first + SPAN_GROUP, spans);
+    if (span_first >= spans) return;
+
+    uint half_dim = pc.head_dim >> 1;
+    float scale = 1.0 / sqrt(float(pc.head_dim));
+
+    for (uint e = tid; e < HQ * 256u; e += 256u) {
+        uint j = e >> 8u;
+        uint d = e & 255u;
+        sh_q[e] = j < hn && d < pc.head_dim ?
+            q[(qtok * pc.n_head + h0 + j) * pc.head_dim + d] : 0.0;
+    }
+    barrier();
+
+    for (uint j = 0u; j < HQ; j++) {
+        sh_gacc[j * 256u + tid] = 0.0;
+        if (tid == 0u) {
+            sh_gm[j] = -3.402823466e38;
+            sh_gl[j] = 0.0;
+        }
+    }
+    barrier();
+
+    for (uint span = span_first; span < span_limit; span++) {
+        uint span0 = span * SPAN;
+        uint span_end = min(span0 + SPAN, n_kv);
+        float m[HQ];
+        float l[HQ];
+        float acc[HQ];
+        float nm[HQ];
+        for (uint j = 0u; j < HQ; j++) {
+            m[j] = span == 0u && pc.has_sinks != 0u && j < hn ?
+                sinks[h0 + j] : -3.402823466e38;
+            l[j] = 0.0;
+            acc[j] = 0.0;
+        }
+
+        for (uint base = span0; base < span_end; base += TILE) {
+        uint tile_n = min(TILE, span_end - base);
+
+        /* Scores: each K word is loaded once and dotted against all heads
+         * sharing this KV head. */
+        uint key_t = tid >> 2;
+        uint quad = tid & 3u;
+        {
+            float dot[HQ];
+            for (uint j = 0u; j < HQ; j++) dot[j] = 0.0;
+            if (key_t < tile_n) {
+                uint key = base + key_t;
+                if (pc.k_type == 0u) {
+                    uint kbase = (key * pc.n_head_kv + kvh) * half_dim;
+                    for (uint w = quad; w < half_dim; w += 4u) {
+                        vec2 kp = unpackHalf2x16(kc[kbase + w]);
+                        for (uint j = 0u; j < HQ; j++) {
+                            dot[j] += sh_q[j * 256u + 2u * w] * kp.x + sh_q[j * 256u + 2u * w + 1u] * kp.y;
+                        }
+                    }
+                } else if (pc.k_type == 1u && pc.v_type == 2u && (pc.head_dim & 63u) == 0u) {
+                    /* Mirror of the decode kernels' q8_0 stripe walk: same
+                     * pair partition, same s-chain word order, same
+                     * d0*s0 + d1*s1 combine, per query — bit-lockstep with
+                     * attn_decode_fused/split is the invariant. */
+                    uint pairs = pc.head_dim >> 6u;
+                    uint k_head_bytes = (pc.head_dim >> 5u) * 34u;
+                    uint kb = key * pc.k_row_bytes + kvh * k_head_bytes;
+                    for (uint p = quad; p < pairs; p += 4u) {
+                        uint wi = (kb + p * 68u) >> 2u;
+                        uint prev = kc[wi];
+                        float d0 = unpackHalf2x16(prev).x;
+                        float s0[HQ];
+                        float s1[HQ];
+                        for (uint j = 0u; j < HQ; j++) { s0[j] = 0.0; s1[j] = 0.0; }
+                        for (uint k = 0u; k < 8u; k++) {
+                            uint next = kc[wi + 1u + k];
+                            uint sw = (prev >> 16u) | (next << 16u);
+                            prev = next;
+                            vec4 qv = vec4(unpack8(int(sw)));
+                            uint qi = p * 64u + 4u * k;
+                            for (uint j = 0u; j < HQ; j++) {
+                                s0[j] += dot4(qv, vec4(sh_q[j * 256u + qi], sh_q[j * 256u + qi + 1u],
+                                                      sh_q[j * 256u + qi + 2u], sh_q[j * 256u + qi + 3u]));
+                            }
+                        }
+                        float d1 = unpackHalf2x16(prev).y;
+                        for (uint k = 0u; k < 8u; k++) {
+                            vec4 qv = vec4(unpack8(int(kc[wi + 9u + k])));
+                            uint qi = p * 64u + 32u + 4u * k;
+                            for (uint j = 0u; j < HQ; j++) {
+                                s1[j] += dot4(qv, vec4(sh_q[j * 256u + qi], sh_q[j * 256u + qi + 1u],
+                                                      sh_q[j * 256u + qi + 2u], sh_q[j * 256u + qi + 3u]));
+                            }
+                        }
+                        for (uint j = 0u; j < HQ; j++) dot[j] += d0 * s0[j] + d1 * s1[j];
+                    }
+                } else {
+                    for (uint w = quad; w < half_dim; w += 4u) {
+                        vec2 kp = vec2(kc_at(key, kvh, 2u * w), kc_at(key, kvh, 2u * w + 1u));
+                        for (uint j = 0u; j < HQ; j++) {
+                            dot[j] += sh_q[j * 256u + 2u * w] * kp.x + sh_q[j * 256u + 2u * w + 1u] * kp.y;
+                        }
+                    }
+                }
+            }
+            for (uint j = 0u; j < HQ; j++) {
+                if (j >= hn) continue;
+                float d = key_t < tile_n ? dot[j] : 0.0;
+                d = subgroupClusteredAdd(d, 4u);
+                if (quad == 0u && key_t < tile_n) {
+                    sh_w[j * TILE + key_t] = d * scale;
+                }
+            }
+        }
+        barrier();
+
+        /* Online softmax bookkeeping, redundantly per thread, per head. */
+        for (uint j = 0u; j < HQ; j++) {
+            if (j >= hn) { nm[j] = m[j]; continue; }
+            float tmax = -3.402823466e38;
+            for (uint t = 0u; t < tile_n; t++) tmax = max(tmax, sh_w[j * TILE + t]);
+            float n = max(m[j], tmax);
+            float r = exp(m[j] - n);
+            l[j] *= r;
+            acc[j] *= r;
+            nm[j] = n;
+        }
+        barrier();
+        for (uint e = tid; e < HQ * TILE; e += 256u) {
+            uint j = e / TILE;
+            uint t = e % TILE;
+            if (j < hn && t < tile_n) sh_w[e] = exp(sh_w[e] - nm[j]);
+        }
+        barrier();
+
+        /* V accumulation: one cache load per (key, dim), reused by every
+         * query head; every l/acc chain stays in key order. */
+        uint vrow = pc.n_head_kv * pc.head_dim;
+        uint vbase = base * vrow + kvh * pc.head_dim + tid;
+        for (uint t = 0u; t < tile_n; t++) {
+            float vv;
+            if (pc.v_type == 0u) {
+                vv = tid < pc.head_dim ? vc_at_f16(vbase + t * vrow) : 0.0;
+            } else {
+                vv = tid < pc.head_dim ? vc_at(base + t, kvh, tid) : 0.0;
+            }
+            for (uint j = 0u; j < hn; j++) {
+                float w = sh_w[j * TILE + t];
+                l[j] += w;
+                acc[j] += w * vv;
+            }
+        }
+        for (uint j = 0u; j < HQ; j++) m[j] = nm[j];
+            barrier();
+        }
+
+        for (uint j = 0u; j < hn; j++) {
+            if (span == span_first) {
+                sh_gacc[j * 256u + tid] = acc[j];
+            } else {
+                float n = max(sh_gm[j], m[j]);
+                float r = exp(sh_gm[j] - n);
+                float rs = exp(m[j] - n);
+                sh_gacc[j * 256u + tid] =
+                    sh_gacc[j * 256u + tid] * r + acc[j] * rs;
+                if (tid == 0u) {
+                    l[j] = sh_gl[j] * r + l[j] * rs;
+                    m[j] = n;
+                }
+            }
+        }
+        /* Every wave must consume the old maxima before lane 0 publishes
+         * the next ones. Keep the new metadata private until that point. */
+        barrier();
+        if (tid == 0u) {
+            for (uint j = 0u; j < hn; j++) {
+                sh_gm[j] = m[j];
+                sh_gl[j] = l[j];
+            }
+        }
+        barrier();
+    }
+
+    for (uint j = 0u; j < hn; j++) {
+        uint pbase = ((tok * pc.n_head + h0 + j) *
+                      pc.n_spans + group) * (pc.head_dim + 2u);
+        if (tid < pc.head_dim)
+            part[pbase + tid] = sh_gacc[j * 256u + tid];
+        if (tid == 0u) {
+            part[pbase + pc.head_dim] = sh_gm[j];
+            part[pbase + pc.head_dim + 1u] = sh_gl[j];
+        }
+    }
+}

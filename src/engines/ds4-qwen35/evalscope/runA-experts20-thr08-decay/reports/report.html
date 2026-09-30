@@ -1,0 +1,3479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Evaluation Report — q35-experts20-thr08-decay</title>
+  <style>
+/* ── Reset ────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Design tokens ───────────────────────────────────────────── */
+:root {
+  --bg:             #0c0c1a;
+  --bg-card:        #12122b;
+  --bg-card2:       #16163a;
+  --bg-deep:        #09091a;
+  --bg-hover:       #1b1b3a;
+  --border:         rgba(129, 109, 248, 0.10);
+  --border-md:      rgba(129, 109, 248, 0.18);
+  --border-strong:  rgba(129, 109, 248, 0.28);
+  --text:           #e2e8f0;
+  --text-muted:     #8896aa;
+  --text-dim:       #505870;
+  --accent:         #816DF8;
+  --accent-dim:     rgba(129, 109, 248, 0.12);
+  --accent-glow:    rgba(129, 109, 248, 0.25);
+  --accent-dark:    #5B3FD6;
+  --purple:         #a78bfa;
+  --purple-dim:     rgba(167, 139, 250, 0.12);
+  --green:          #0F9C7E;
+  --green-dim:      rgba(15, 156, 126, 0.12);
+  --yellow:         #fbbf24;
+  --radius-xs:      4px;
+  --radius-sm:      8px;
+  --radius:         12px;
+  --radius-lg:      16px;
+  --radius-xl:      20px;
+  --shadow-sm:      0 2px 8px rgba(0,0,0,0.4);
+  --shadow:         0 4px 20px rgba(0,0,0,0.55);
+  --shadow-lg:      0 8px 40px rgba(0,0,0,0.6);
+  --transition:     0.18s ease;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.65;
+  font-size: 15px;
+  min-height: 100vh;
+}
+
+/* thin global scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(129,109,248,0.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(129,109,248,0.38); }
+* { scrollbar-width: thin; scrollbar-color: rgba(129,109,248,0.2) transparent; }
+
+/* ── Layout ──────────────────────────────────────────────────── */
+.container {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 5rem;
+}
+
+/* ── Floating TOC ────────────────────────────────────────────── */
+.toc {
+  position: fixed;
+  right: 1.5rem;
+  top: 4.5rem;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+.toc > * { pointer-events: auto; }
+
+.toc-toggle-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-card2);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--accent);
+  transition: background var(--transition), transform var(--transition), box-shadow var(--transition);
+  flex-shrink: 0;
+}
+.toc-toggle-btn:hover {
+  background: var(--bg-hover);
+  transform: scale(1.08);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.toc-toggle-btn svg { display: block; }
+
+.toc-panel {
+  background: var(--bg-card2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 1rem 0.75rem 1rem 1rem;
+  width: 220px;
+  max-height: calc(100vh - 9rem);
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+  display: none;
+  animation: toc-in 0.15s ease;
+}
+.toc.expanded .toc-panel { display: block; }
+
+@keyframes toc-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.toc-heading {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-dim);
+  margin-bottom: 0.65rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  padding-left: 0.25rem;
+}
+
+.toc-list, .toc-sub {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.toc-sub { margin-left: 0.6rem; margin-top: 1px; }
+
+.toc-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition), background var(--transition);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+.toc-link:hover { color: var(--accent); background: var(--accent-dim); }
+.toc-link.active { color: var(--accent); background: var(--accent-dim); font-weight: 600; }
+
+.toc-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+  opacity: 0.4;
+  transition: opacity var(--transition);
+}
+.toc-link.active .toc-dot { opacity: 1; }
+.toc-sub-link { font-size: 0.75rem; color: var(--text-dim); }
+
+/* ── Back-to-top button ──────────────────────────────────────── */
+.back-to-top {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 2rem;
+  z-index: 200;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: var(--bg-card2);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--accent);
+  text-decoration: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition), transform var(--transition), box-shadow var(--transition);
+}
+.back-to-top.visible { opacity: 1; pointer-events: auto; }
+.back-to-top:hover { transform: translateY(-2px); box-shadow: 0 0 0 3px var(--accent-glow); }
+
+/* ── Brand bar (fixed top-left, above container) ───────────── */
+.brand-bar {
+  position: fixed;
+  top: 0.85rem;
+  left: 1.5rem;
+  z-index: 300;
+}
+.brand-logo {
+  display: block;
+  line-height: 0;
+  text-decoration: none;
+  color: inherit;
+}
+.brand-logo svg {
+  height: 20px;
+  width: auto;
+}
+
+/* ── Header card ─────────────────────────────────────────────── */
+.report-header {
+  background: linear-gradient(140deg, #0e0e28 0%, #13163a 55%, #0b1024 100%);
+  border: 1px solid var(--border-md);
+  border-radius: var(--radius-xl);
+  padding: 2.75rem 2.5rem 2.25rem;
+  margin-bottom: 2.25rem;
+  box-shadow: var(--shadow-lg);
+  position: relative;
+  overflow: hidden;
+}
+.report-header::before {
+  content: '';
+  position: absolute;
+  top: -60%; right: -8%;
+  width: 480px; height: 480px;
+  background: radial-gradient(circle, rgba(129,109,248,0.08) 0%, transparent 65%);
+  pointer-events: none;
+}
+.report-header::after {
+  content: '';
+  position: absolute;
+  bottom: -50%; left: -5%;
+  width: 350px; height: 350px;
+  background: radial-gradient(circle, rgba(167,139,250,0.06) 0%, transparent 65%);
+  pointer-events: none;
+}
+.header-inner { position: relative; z-index: 1; }
+
+.header-eyebrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+.header-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(129,109,248,0.1);
+  border: 1px solid rgba(129,109,248,0.28);
+  border-radius: 20px;
+  padding: 0.22rem 0.9rem;
+  font-size: 0.73rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+.header-badge a { color: inherit; text-decoration: none; }
+.header-badge a:hover { text-decoration: underline; }
+
+.report-title {
+  font-size: 2.4rem;
+  font-weight: 800;
+  background: linear-gradient(130deg, #e2e8f0 30%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin-bottom: 1.75rem;
+}
+
+.meta-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+.meta-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border-md);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.9rem;
+  min-width: 0;
+}
+.meta-chip-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-dim);
+}
+.meta-chip-value {
+  font-size: 0.85rem;
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
+/* ── Section ─────────────────────────────────────────────────── */
+.section { margin-bottom: 3rem; }
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border-md);
+}
+.section-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px; height: 38px;
+  background: var(--accent-dim);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.section-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+/* ── Card ────────────────────────────────────────────────────── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.card:hover { border-color: var(--border-md); }
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.015);
+}
+.card-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.card-badge {
+  font-size: 0.7rem;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 20px;
+  padding: 0.15rem 0.6rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ── Sub-card ─────────────────────────────────────────────────── */
+.sub-card {
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+.sub-card-header {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── Chart wrap ──────────────────────────────────────────────── */
+.chart-wrap { padding: 0.75rem; min-height: 350px; }
+.chart-wrap > div { width: 100% !important; }
+
+/* ── Tables ──────────────────────────────────────────────────── */
+.table-wrap {
+  overflow-x: auto;
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  background: transparent;
+}
+
+thead tr { background: rgba(255,255,255,0.025); }
+
+th {
+  padding: 0.7rem 1.1rem;
+  text-align: left;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border-md);
+  white-space: nowrap;
+}
+td {
+  padding: 0.6rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: rgba(129,109,248,0.04); }
+
+.score-cell {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+}
+.num-cell {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+
+/* inline tags */
+.tag {
+  display: inline-block;
+  background: var(--purple-dim);
+  color: var(--purple);
+  border-radius: var(--radius-xs);
+  padding: 0.08em 0.5em;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+.metric-tag {
+  display: inline-block;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: var(--radius-xs);
+  padding: 0.08em 0.5em;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+/* ── Dataset accordion card ──────────────────────────────────── */
+.ds-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 0.9rem;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition), box-shadow var(--transition);
+  overflow: hidden;
+}
+.ds-card:hover { border-color: var(--border-md); }
+.ds-card[open] { border-color: var(--border-strong); box-shadow: var(--shadow); }
+
+.ds-summary {
+  padding: 0.95rem 1.25rem;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  user-select: none;
+  background: rgba(255,255,255,0.02);
+  transition: background var(--transition);
+}
+.ds-summary::-webkit-details-marker { display: none; }
+.ds-summary:hover { background: rgba(129,109,248,0.04); }
+.ds-card[open] .ds-summary { background: rgba(129,109,248,0.05); border-bottom: 1px solid var(--border); }
+
+.ds-summary-left {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+.ds-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--accent);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+.ds-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ds-summary-right { flex-shrink: 0; }
+
+.score-pill {
+  display: inline-block;
+  padding: 0.22rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
+  /* dynamic color via JS */
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.ds-body { padding: 1.25rem; }
+
+/* ── Inner toggles (description / analysis) ──────────────────── */
+.inner-toggle { margin-bottom: 0.85rem; }
+
+.inner-toggle > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 0.3rem 0.65rem;
+  user-select: none;
+  border-radius: 20px;
+  border: 1px solid rgba(129,109,248,0.25);
+  background: rgba(129,109,248,0.07);
+  transition: color var(--transition), background var(--transition), border-color var(--transition), box-shadow var(--transition);
+}
+.inner-toggle > summary::-webkit-details-marker { display: none; }
+.inner-toggle > summary:hover {
+  color: #fff;
+  background: rgba(129,109,248,0.18);
+  border-color: rgba(129,109,248,0.5);
+  box-shadow: 0 0 8px rgba(129,109,248,0.2);
+}
+.inner-toggle[open] > summary {
+  color: #fff;
+  background: rgba(129,109,248,0.15);
+  border-color: rgba(129,109,248,0.45);
+}
+
+.inner-arrow {
+  display: inline-flex;
+  align-items: center;
+  color: inherit;
+  transition: transform 0.18s ease;
+}
+
+/* ── Description block ───────────────────────────────────────── */
+.ds-description {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  padding: 1rem 1.25rem;
+  background: var(--bg-deep);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--accent-dark);
+  word-break: break-word;
+  line-height: 1.75;
+  margin-bottom: 0.5rem;
+}
+.ds-description p { margin-bottom: 0.6rem; }
+.ds-description p:last-child { margin-bottom: 0; }
+.ds-description ul, .ds-description ol { padding-left: 1.4rem; margin-bottom: 0.6rem; }
+.ds-description li { margin-bottom: 0.2rem; }
+.ds-description strong { color: var(--text); font-weight: 600; }
+.ds-description em { font-style: italic; }
+.ds-description code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 0.82rem;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.1em 0.35em;
+  color: var(--yellow);
+}
+.ds-description pre { background: var(--bg-hover); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.75rem 1rem; overflow-x: auto; margin-bottom: 0.6rem; }
+.ds-description pre code { background: transparent; border: none; padding: 0; color: var(--text); }
+.ds-description h2, .ds-description h3 { font-size: 0.9rem; font-weight: 600; color: var(--accent); margin: 1rem 0 0.35rem; border-bottom: 1px solid var(--border); padding-bottom: 0.2rem; }
+.ds-description table { font-size: 0.82rem; margin-bottom: 0.6rem; background: transparent; }
+.ds-description th { font-size: 0.8rem; padding: 0.4rem 0.7rem; }
+.ds-description td { padding: 0.35rem 0.7rem; }
+.ds-description hr { border: none; border-top: 1px solid var(--border); margin: 0.75rem 0; }
+
+/* ── Analysis block ──────────────────────────────────────────── */
+.analysis-section {
+  font-size: 0.875rem;
+  color: var(--text);
+  padding: 1rem 1.25rem;
+  background: var(--bg-deep);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--green);
+  word-break: break-word;
+  line-height: 1.75;
+  margin-bottom: 0.5rem;
+}
+.analysis-section p { margin-bottom: 0.6rem; }
+.analysis-section p:last-child { margin-bottom: 0; }
+.analysis-section ul, .analysis-section ol { padding-left: 1.4rem; margin-bottom: 0.6rem; }
+.analysis-section li { margin-bottom: 0.2rem; }
+.analysis-section strong { color: var(--text); font-weight: 600; }
+.analysis-section em { color: var(--text-muted); font-style: italic; }
+.analysis-section code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 0.82rem;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.1em 0.35em;
+  color: var(--yellow);
+}
+.analysis-section pre { background: var(--bg-hover); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.75rem 1rem; overflow-x: auto; margin-bottom: 0.6rem; }
+.analysis-section pre code { background: transparent; border: none; padding: 0; color: var(--text); }
+.analysis-section h2, .analysis-section h3 { font-size: 0.9rem; font-weight: 600; color: var(--accent); margin: 1rem 0 0.35rem; border-bottom: 1px solid var(--border); padding-bottom: 0.2rem; }
+.analysis-section h2:first-child, .analysis-section h3:first-child { margin-top: 0; }
+.analysis-section blockquote { border-left: 3px solid var(--border-strong); margin: 0.5rem 0; padding: 0.3rem 0.85rem; color: var(--text-muted); font-style: italic; }
+.analysis-section hr { border: none; border-top: 1px solid var(--border); margin: 0.75rem 0; }
+.analysis-section table { font-size: 0.82rem; margin-bottom: 0.6rem; background: transparent; }
+.analysis-section th { font-size: 0.8rem; padding: 0.4rem 0.7rem; }
+.analysis-section td { padding: 0.35rem 0.7rem; }
+
+/* ── Model tag ───────────────────────────────────────────────── */
+.model-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-deep);
+  border: 1px solid var(--border-md);
+  border-radius: var(--radius-sm);
+  padding: 0.25rem 0.7rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+/* ── Footer ──────────────────────────────────────────────────── */
+.report-footer {
+  margin-top: 4rem;
+  padding: 1.5rem;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border-top: 1px solid var(--border);
+}
+.report-footer a { color: var(--accent); text-decoration: none; }
+.report-footer a:hover { text-decoration: underline; }
+
+/* ── Language switcher (shared: eval + perf reports) ────────── */
+.lang-switcher {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border-md);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.lang-btn {
+  padding: 0.28rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+.lang-btn:hover  { background: rgba(255,255,255,0.06); color: var(--text); }
+.lang-btn.active { background: var(--accent); color: #0d1117; }
+
+/* ── Responsive ──────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .report-title { font-size: 1.8rem; }
+  .report-header { padding: 2rem 1.5rem 1.75rem; }
+  .container { padding: 1.25rem 1rem 4rem; }
+  .toc { right: 0.75rem; top: auto; bottom: 5rem; }
+}
+@media (max-width: 600px) {
+  .report-title { font-size: 1.5rem; }
+  .report-header { padding: 1.5rem 1.1rem 1.4rem; border-radius: var(--radius); }
+  .meta-chip-value { max-width: 220px; }
+  .ds-name { max-width: 180px; }
+  .toc-panel { width: 185px; }
+}
+  </style>
+  <!-- Plotly.js via CDN -->
+  <script src="https://resources.modelscope.cn/third-part/js/plotly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+
+<!-- ── Floating Table of Contents ────────────────────────────── -->
+<nav class="toc" id="toc">
+  <button class="toc-toggle-btn" id="toc-toggle" title="Toggle table of contents" aria-label="Toggle table of contents">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+      <line x1="3" y1="6" x2="21" y2="6"/>
+      <line x1="3" y1="12" x2="15" y2="12"/>
+      <line x1="3" y1="18" x2="18" y2="18"/>
+    </svg>
+  </button>
+  <div class="toc-panel" id="toc-panel" role="navigation" aria-label="Page contents">
+    <div class="toc-heading" data-i18n="toc.title">Contents</div>
+    <ul class="toc-list">
+      <li>
+        <a href="#section-overview" class="toc-link" data-section="section-overview">
+          <span class="toc-dot"></span><span data-i18n="nav.overview">Overview</span>
+        </a>
+      </li>
+      <li>
+        <a href="#section-results" class="toc-link" data-section="section-results">
+          <span class="toc-dot"></span><span data-i18n="nav.results">Results by Dataset</span>
+        </a>
+        
+        <ul class="toc-sub">
+          
+          <li>
+            <a href="#ds-1" class="toc-link toc-sub-link" data-section="ds-1" title="HumanEval">
+              <span class="toc-dot"></span>HumanEval
+            </a>
+          </li>
+          
+          <li>
+            <a href="#ds-2" class="toc-link toc-sub-link" data-section="ds-2" title="MMLU">
+              <span class="toc-dot"></span>MMLU
+            </a>
+          </li>
+          
+          <li>
+            <a href="#ds-3" class="toc-link toc-sub-link" data-section="ds-3" title="MMLU-Pro">
+              <span class="toc-dot"></span>MMLU-Pro
+            </a>
+          </li>
+          
+        </ul>
+        
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<!-- ── Back to top ────────────────────────────────────────────── -->
+<a href="#top" class="back-to-top" id="back-to-top" aria-label="Back to top">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+    <polyline points="18 15 12 9 6 15"/>
+  </svg>
+</a>
+
+<div class="brand-bar">
+  <!-- ── Brand logo ─────────────────────────────────────────── -->
+<a class="brand-logo" href="https://modelscope.cn/" target="_blank" rel="noopener" aria-label="ModelScope">
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" width="152" height="20" viewBox="0 0 151.58 20"><path d="M68.452 7.063h-2.827v9.242h8.168V7.063h-5.34zm2.513 7.24h-2.513V9.066h2.513v5.237z" fill="#D8D8E3"/><path d="M113.03 7.063v2.001 5.237 2.003h7.539v-2.003h-4.712V9.065h4.712V7.063h-4.712-2.827z" fill="#D8D8E3"/><path d="M125.353 7.063h-2.827v9.242h8.168V7.063h-5.34zm2.513 7.24h-2.513V9.066h2.513v5.237z" fill="#D8D8E3"/><path d="M135.742 7.063h-2.827v12.631h2.827v-3.389h5.34V7.063h-5.34zm2.513 7.24h-2.513V9.066h2.513v5.237z" fill="#D8D8E3"/><path d="M81.494 7.063h-5.34v9.242h8.168V3.674h-2.828v3.39zm0 7.24h-2.513V9.066h2.513v5.237z" fill="#D8D8E3"/><path d="M97.48 3.674h2.827v12.63H97.48z" fill="#D8D8E3"/><path d="M89.584 7.063h-2.827v9.319h8.168v-2.08h-5.34v-1.54h5.34V7.064h-5.34zm2.513 3.698h-2.513V9.066h2.513v1.695z" fill="#D8D8E3"/><path d="M148.753 7.063h-5.34v9.242h8.167v-2.003h-5.34v-1.502h5.34V7.063h-2.827zm0 3.736h-2.513V9.066h2.513v1.733z" fill="#D8D8E3"/><path d="M102.732 5.051v2.001 2.417 1.981.021h5.34v2.83h-5.34v2.003h5.34 2.828v-4.833-2.003h-2.828-2.513V7.052h5.34V5.051h-5.34-2.827z" fill="#D8D8E3"/><path d="M51.923 5.214h-2.825v2.772 2.773h-2.828v2.773h2.828v2.772h2.827v-2.772h-2.827v-2.773h2.827V7.986h2.826V5.214h-2.828z" fill="#D8D8E3"/><path d="M54.752 10.76v2.772h2.828V10.76 7.986h-2.828v2.773z" fill="#D8D8E3"/><path d="M57.581 5.214v2.772h2.828v2.773 2.773 2.772h2.826v-2.772-2.773-2.773-2.772h-2.826-2.828z" fill="#D8D8E3"/><path fill="#624AFF" d="M0 7.886h4.312v4.228H0z"/><path fill="#624AFF" d="M16.665 12.114h4.311v4.228h-4.311z"/><path d="M29.6 16.342h-4.312V20h8.042v-7.886H29.6v4.228z" fill="#624AFF"/><path fill="#36CFD1" d="M20.977 7.886h4.311v4.228h-4.311z"/><path fill="#36CFD1" d="M0 3.658h4.312v4.228H0z"/><path fill="#624AFF" d="M33.33 7.886h4.311v4.228H33.33z"/><path fill="#36CFD1" d="M33.33 3.658h4.311v4.228H33.33z"/><path d="M25.288 0v3.658H29.6v4.228h3.73V0h-8.042z" fill="#624AFF"/><path fill="#36CFD1" d="M12.354 7.886h4.311v4.228h-4.311z"/><path d="M8.042 3.658h4.312V0H4.312v7.886h3.73V3.658z" fill="#624AFF"/><path d="M8.042 12.114H4.312V20h8.042v-3.658H8.042v-4.228z" fill="#624AFF"/></svg>
+</a>
+</div>
+
+<div class="container" id="top">
+
+  <!-- ── Header ──────────────────────────────────────────────── -->
+<header class="report-header">
+  <div class="header-inner">
+    <div class="header-eyebrow">
+      <span class="header-badge">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+        </svg>
+        <a href="https://github.com/modelscope/evalscope" target="_blank" rel="noopener">EvalScope</a>
+      </span>
+      <!-- Language toggle: EN / 中文 -->
+      <div class="lang-switcher" role="group" aria-label="Language selection">
+        <button class="lang-btn active" data-lang="en">EN</button>
+        <button class="lang-btn" data-lang="zh">中文</button>
+      </div>
+    </div>
+    <h1 class="report-title" data-i18n="header.title">Evaluation Report</h1>
+    <div class="meta-chips">
+      <div class="meta-chip">
+        <span class="meta-chip-label" data-i18n="meta.models">Model(s)</span>
+        <span class="meta-chip-value" title="q35-experts20-thr08-decay">q35-experts20-thr08-decay</span>
+      </div>
+      <div class="meta-chip">
+        <span class="meta-chip-label" data-i18n="meta.datasets">Datasets</span>
+        <span class="meta-chip-value" title="humaneval, mmlu, mmlu_pro">humaneval, mmlu, mmlu_pro</span>
+      </div>
+      <div class="meta-chip">
+        <span class="meta-chip-label" data-i18n="meta.generated_at">Generated at</span>
+        <span class="meta-chip-value">2026-08-24 03:19:17</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+  <!-- ── Overview ────────────────────────────────────────────── -->
+  <section class="section" id="section-overview">
+    <div class="section-header">
+      <div class="section-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+          <rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
+        </svg>
+      </div>
+      <h2 class="section-title" data-i18n="section.overview">Overview</h2>
+    </div>
+
+    
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title" data-i18n="card.score_summary">Score Summary</span>
+        <span class="card-badge">3 <span data-i18n="badge.entries">entries</span></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th data-i18n="col.dataset">Dataset</th>
+              <th data-i18n="col.model">Model</th>
+              <th data-i18n="col.metric">Metric</th>
+              <th data-i18n="col.score">Score</th>
+              <th data-i18n="col.num">Num</th>
+            </tr>
+          </thead>
+          <tbody>
+            
+            <tr>
+              <td><span class="tag">HumanEval</span></td>
+              <td>q35-experts20-thr08-decay</td>
+              <td><span class="metric-tag">mean_acc</span></td>
+              <td class="score-cell">0.9667</td>
+              <td class="num-cell">30</td>
+            </tr>
+            
+            <tr>
+              <td><span class="tag">MMLU</span></td>
+              <td>q35-experts20-thr08-decay</td>
+              <td><span class="metric-tag">mean_acc</span></td>
+              <td class="score-cell">0.9688</td>
+              <td class="num-cell">32</td>
+            </tr>
+            
+            <tr>
+              <td><span class="tag">MMLU-Pro</span></td>
+              <td>q35-experts20-thr08-decay</td>
+              <td><span class="metric-tag">mean_acc</span></td>
+              <td class="score-cell">0.8125</td>
+              <td class="num-cell">16</td>
+            </tr>
+            
+          </tbody>
+        </table>
+      </div>
+    </div>
+    
+
+    
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title" data-i18n="card.overview_chart">Overall Score Chart</span>
+      </div>
+      <div class="chart-wrap"><div style="height:100%; width:100%;">                            <div id="8c23fe43-a6eb-4254-873c-2ec5baf1998a" class="plotly-graph-div" style="height:100%; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("8c23fe43-a6eb-4254-873c-2ec5baf1998a")) {                    Plotly.newPlot(                        "8c23fe43-a6eb-4254-873c-2ec5baf1998a",                        [{"hovertemplate":"Dataset=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"","marker":{"color":"#636efa","pattern":{"shape":""}},"name":"","orientation":"v","showlegend":false,"text":{"dtype":"f8","bdata":"5WGh1jTv7j9xrIvbaADvPwAAAAAAAOo\u002f"},"textposition":"outside","x":["HumanEval","MMLU","MMLU-Pro"],"xaxis":"x","y":{"dtype":"f8","bdata":"5WGh1jTv7j9xrIvbaADvPwAAAAAAAOo\u002f"},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}","width":0.2}],                        {"template":{"data":{"barpolar":[{"marker":{"line":{"color":"rgb(17,17,17)","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"bar":[{"error_x":{"color":"#f2f5fa"},"error_y":{"color":"#f2f5fa"},"marker":{"line":{"color":"rgb(17,17,17)","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"carpet":[{"aaxis":{"endlinecolor":"#A2B1C6","gridcolor":"#506784","linecolor":"#506784","minorgridcolor":"#506784","startlinecolor":"#A2B1C6"},"baxis":{"endlinecolor":"#A2B1C6","gridcolor":"#506784","linecolor":"#506784","minorgridcolor":"#506784","startlinecolor":"#A2B1C6"},"type":"carpet"}],"choropleth":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"choropleth"}],"contourcarpet":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"contourcarpet"}],"contour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"contour"}],"heatmap":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"heatmap"}],"histogram2dcontour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2dcontour"}],"histogram2d":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2d"}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"mesh3d":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"mesh3d"}],"parcoords":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"parcoords"}],"pie":[{"automargin":true,"type":"pie"}],"scatter3d":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatter3d"}],"scattercarpet":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattercarpet"}],"scattergeo":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergeo"}],"scattergl":[{"marker":{"line":{"color":"#283442"}},"type":"scattergl"}],"scattermapbox":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermapbox"}],"scattermap":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermap"}],"scatterpolargl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolargl"}],"scatterpolar":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolar"}],"scatter":[{"marker":{"line":{"color":"#283442"}},"type":"scatter"}],"scatterternary":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterternary"}],"surface":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"surface"}],"table":[{"cells":{"fill":{"color":"#506784"},"line":{"color":"rgb(17,17,17)"}},"header":{"fill":{"color":"#2a3f5f"},"line":{"color":"rgb(17,17,17)"}},"type":"table"}]},"layout":{"annotationdefaults":{"arrowcolor":"#f2f5fa","arrowhead":0,"arrowwidth":1},"autotypenumbers":"strict","coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]],"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]},"colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#f2f5fa"},"geo":{"bgcolor":"rgb(17,17,17)","lakecolor":"rgb(17,17,17)","landcolor":"rgb(17,17,17)","showlakes":true,"showland":true,"subunitcolor":"#506784"},"hoverlabel":{"align":"left"},"hovermode":"closest","mapbox":{"style":"dark"},"paper_bgcolor":"rgb(17,17,17)","plot_bgcolor":"rgb(17,17,17)","polar":{"angularaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"bgcolor":"rgb(17,17,17)","radialaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""}},"scene":{"xaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"},"yaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"},"zaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"}},"shapedefaults":{"line":{"color":"#f2f5fa"}},"sliderdefaults":{"bgcolor":"#C8D4E3","bordercolor":"rgb(17,17,17)","borderwidth":1,"tickwidth":0},"ternary":{"aaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"baxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"bgcolor":"rgb(17,17,17)","caxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""}},"title":{"x":0.05},"updatemenudefaults":{"bgcolor":"#506784","borderwidth":0},"xaxis":{"automargin":true,"gridcolor":"#283442","linecolor":"#506784","ticks":"","title":{"standoff":15},"zerolinecolor":"#283442","zerolinewidth":2},"yaxis":{"automargin":true,"gridcolor":"#283442","linecolor":"#506784","ticks":"","title":{"standoff":15},"zerolinecolor":"#283442","zerolinewidth":2}}},"xaxis":{"anchor":"y","domain":[0.0,1.0],"title":{"text":"Dataset"}},"yaxis":{"anchor":"x","domain":[0.0,1.0],"title":{"text":"Score"},"range":[0,1]},"legend":{"tracegroupgap":0},"margin":{"t":60},"barmode":"relative","uniformtext":{"minsize":12,"mode":"hide"}},                        {"responsive": true}                    )                };            </script>        </div></div>
+    </div>
+    
+
+    
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title" data-i18n="card.score_dist">Score Distribution</span>
+      </div>
+      <div class="chart-wrap"><div style="height:600px; width:100%;">                            <div id="89669178-9248-481b-9dd5-6aa30dc28fc7" class="plotly-graph-div" style="height:100%; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("89669178-9248-481b-9dd5-6aa30dc28fc7")) {                    Plotly.newPlot(                        "89669178-9248-481b-9dd5-6aa30dc28fc7",                        [{"branchvalues":"total","customdata":{"dtype":"f8","bdata":"5WGh1jTv7j8AAAAAAADwPwAAAAAAAPA\u002fAAAAAAAA8D8AAAAAAADwPwAAAAAAAPA\u002fAAAAAAAA6D8AAAAAAADwPwAAAAAAAPA\u002fAAAAAAAA8D8AAAAAAADgPwAAAAAAAPA\u002fAAAAAAAA8D8AAAAAAADgPwAAAAAAAOA\u002fAAAAAAAA8D8AAAAAAADwP+VhodY07+4\u002fAAAAAAAA8D8AAAAAAADwP1VVVVVVVe0\u002fAAAAAAAA8D8AAAAAAADqP+VhodY07+4\u002fAAAAAAAA7z8AAAAAAADqPw==","shape":"26, 1"},"domain":{"x":[0.0,1.0],"y":[0.0,1.0]},"hovertemplate":"labels=%{label}\u003cbr\u003eNum=%{value}\u003cbr\u003eparent=%{parent}\u003cbr\u003eid=%{id}\u003cbr\u003eScore=%{color}\u003cextra\u003e\u003c\u002fextra\u003e","ids":["humaneval\u002fdefault\u002fopenai_humaneval","mmlu\u002fHumanities\u002fformal_logic","mmlu\u002fHumanities\u002fphilosophy","mmlu\u002fOther\u002fnutrition","mmlu\u002fSTEM\u002fabstract_algebra","mmlu\u002fSTEM\u002fmachine_learning","mmlu\u002fSTEM\u002fconceptual_physics","mmlu\u002fSocial Science\u002feconometrics","mmlu\u002fSocial Science\u002fhigh_school_psychology","mmlu_pro\u002fdefault\u002fcomputer science","mmlu_pro\u002fdefault\u002fmath","mmlu_pro\u002fdefault\u002fphysics","mmlu_pro\u002fdefault\u002fchemistry","mmlu_pro\u002fdefault\u002flaw","mmlu_pro\u002fdefault\u002fphilosophy","mmlu_pro\u002fdefault\u002feconomics","mmlu_pro\u002fdefault\u002fpsychology","humaneval\u002fdefault","mmlu\u002fHumanities","mmlu\u002fOther","mmlu\u002fSTEM","mmlu\u002fSocial Science","mmlu_pro\u002fdefault","humaneval","mmlu","mmlu_pro"],"labels":["openai_humaneval","formal_logic","philosophy","nutrition","abstract_algebra","machine_learning","conceptual_physics","econometrics","high_school_psychology","computer science","math","physics","chemistry","law","philosophy","economics","psychology","default","Humanities","Other","STEM","Social Science","default","humaneval","mmlu","mmlu_pro"],"marker":{"coloraxis":"coloraxis","colors":{"dtype":"f8","bdata":"5WGh1jTv7j8AAAAAAADwPwAAAAAAAPA\u002fAAAAAAAA8D8AAAAAAADwPwAAAAAAAPA\u002fAAAAAAAA6D8AAAAAAADwPwAAAAAAAPA\u002fAAAAAAAA8D8AAAAAAADgPwAAAAAAAPA\u002fAAAAAAAA8D8AAAAAAADgPwAAAAAAAOA\u002fAAAAAAAA8D8AAAAAAADwP+VhodY07+4\u002fAAAAAAAA8D8AAAAAAADwP1VVVVVVVe0\u002fAAAAAAAA8D8AAAAAAADqP+VhodY07+4\u002fAAAAAAAA7z8AAAAAAADqPw=="}},"maxdepth":4,"name":"","parents":["humaneval\u002fdefault","mmlu\u002fHumanities","mmlu\u002fHumanities","mmlu\u002fOther","mmlu\u002fSTEM","mmlu\u002fSTEM","mmlu\u002fSTEM","mmlu\u002fSocial Science","mmlu\u002fSocial Science","mmlu_pro\u002fdefault","mmlu_pro\u002fdefault","mmlu_pro\u002fdefault","mmlu_pro\u002fdefault","mmlu_pro\u002fdefault","mmlu_pro\u002fdefault","mmlu_pro\u002fdefault","mmlu_pro\u002fdefault","humaneval","mmlu","mmlu","mmlu","mmlu","mmlu_pro","","",""],"values":{"dtype":"f8","bdata":"AAAAAAAAPkAAAAAAAAAQQAAAAAAAABBAAAAAAAAAEEAAAAAAAAAQQAAAAAAAABBAAAAAAAAAEEAAAAAAAAAQQAAAAAAAABBAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAD5AAAAAAAAAIEAAAAAAAAAQQAAAAAAAAChAAAAAAAAAIEAAAAAAAAAwQAAAAAAAAD5AAAAAAAAAQEAAAAAAAAAwQA=="},"type":"sunburst","insidetextorientation":"radial"}],                        {"template":{"data":{"barpolar":[{"marker":{"line":{"color":"rgb(17,17,17)","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"bar":[{"error_x":{"color":"#f2f5fa"},"error_y":{"color":"#f2f5fa"},"marker":{"line":{"color":"rgb(17,17,17)","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"carpet":[{"aaxis":{"endlinecolor":"#A2B1C6","gridcolor":"#506784","linecolor":"#506784","minorgridcolor":"#506784","startlinecolor":"#A2B1C6"},"baxis":{"endlinecolor":"#A2B1C6","gridcolor":"#506784","linecolor":"#506784","minorgridcolor":"#506784","startlinecolor":"#A2B1C6"},"type":"carpet"}],"choropleth":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"choropleth"}],"contourcarpet":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"contourcarpet"}],"contour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"contour"}],"heatmap":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"heatmap"}],"histogram2dcontour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2dcontour"}],"histogram2d":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2d"}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"mesh3d":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"mesh3d"}],"parcoords":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"parcoords"}],"pie":[{"automargin":true,"type":"pie"}],"scatter3d":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatter3d"}],"scattercarpet":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattercarpet"}],"scattergeo":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergeo"}],"scattergl":[{"marker":{"line":{"color":"#283442"}},"type":"scattergl"}],"scattermapbox":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermapbox"}],"scattermap":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermap"}],"scatterpolargl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolargl"}],"scatterpolar":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolar"}],"scatter":[{"marker":{"line":{"color":"#283442"}},"type":"scatter"}],"scatterternary":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterternary"}],"surface":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"surface"}],"table":[{"cells":{"fill":{"color":"#506784"},"line":{"color":"rgb(17,17,17)"}},"header":{"fill":{"color":"#2a3f5f"},"line":{"color":"rgb(17,17,17)"}},"type":"table"}]},"layout":{"annotationdefaults":{"arrowcolor":"#f2f5fa","arrowhead":0,"arrowwidth":1},"autotypenumbers":"strict","coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]],"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]},"colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#f2f5fa"},"geo":{"bgcolor":"rgb(17,17,17)","lakecolor":"rgb(17,17,17)","landcolor":"rgb(17,17,17)","showlakes":true,"showland":true,"subunitcolor":"#506784"},"hoverlabel":{"align":"left"},"hovermode":"closest","mapbox":{"style":"dark"},"paper_bgcolor":"rgb(17,17,17)","plot_bgcolor":"rgb(17,17,17)","polar":{"angularaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"bgcolor":"rgb(17,17,17)","radialaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""}},"scene":{"xaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"},"yaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"},"zaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"}},"shapedefaults":{"line":{"color":"#f2f5fa"}},"sliderdefaults":{"bgcolor":"#C8D4E3","bordercolor":"rgb(17,17,17)","borderwidth":1,"tickwidth":0},"ternary":{"aaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"baxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"bgcolor":"rgb(17,17,17)","caxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""}},"title":{"x":0.05},"updatemenudefaults":{"bgcolor":"#506784","borderwidth":0},"xaxis":{"automargin":true,"gridcolor":"#283442","linecolor":"#506784","ticks":"","title":{"standoff":15},"zerolinecolor":"#283442","zerolinewidth":2},"yaxis":{"automargin":true,"gridcolor":"#283442","linecolor":"#506784","ticks":"","title":{"standoff":15},"zerolinecolor":"#283442","zerolinewidth":2}}},"coloraxis":{"colorbar":{"title":{"text":"Score"}},"colorscale":[[0.0,"rgb(165,0,38)"],[0.1,"rgb(215,48,39)"],[0.2,"rgb(244,109,67)"],[0.3,"rgb(253,174,97)"],[0.4,"rgb(254,224,139)"],[0.5,"rgb(255,255,191)"],[0.6,"rgb(217,239,139)"],[0.7,"rgb(166,217,106)"],[0.8,"rgb(102,189,99)"],[0.9,"rgb(26,152,80)"],[1.0,"rgb(0,104,55)"]],"cmid":0.9359102564102565,"autocolorscale":false,"cmin":0,"cmax":1},"legend":{"tracegroupgap":0},"margin":{"t":10,"l":10,"r":10,"b":10},"height":600},                        {"responsive": true}                    )                };            </script>        </div></div>
+    </div>
+    
+
+  </section>
+
+  <!-- ── Results by Dataset ───────────────────────────────────── -->
+  <section class="section" id="section-results">
+    <div class="section-header">
+      <div class="section-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 11l3 3L22 4"/>
+          <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
+        </svg>
+      </div>
+      <h2 class="section-title" data-i18n="section.results">Results by Dataset</h2>
+    </div>
+
+    
+    <details class="ds-card" id="ds-1" open>
+      <summary class="ds-summary">
+        <div class="ds-summary-left">
+          <span class="ds-arrow">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </span>
+          <span class="ds-name">HumanEval</span>
+        </div>
+        <div class="ds-summary-right">
+          <span class="score-pill" data-score="0.9667">0.9667</span>
+        </div>
+      </summary>
+
+      <div class="ds-body">
+
+        
+        <details class="inner-toggle">
+          <summary>
+            <span class="inner-arrow">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            </span>
+            <span data-i18n="toggle.description">Description</span>
+          </summary>
+          <div class="ds-description">
+            
+            <div class="desc-lang-content" data-desc-lang="en"><h2>Overview</h2>
+<p>HumanEval is a benchmark for evaluating the code generation capabilities of language models. It consists of 164 hand-written Python programming problems with function signatures, docstrings, and comprehensive test cases.</p>
+<h2>Task Description</h2>
+<ul>
+<li><strong>Task Type</strong>: Code Generation (Python)</li>
+<li><strong>Input</strong>: Function signature with docstring describing the expected behavior</li>
+<li><strong>Output</strong>: Complete Python function implementation</li>
+<li><strong>Languages</strong>: Python only</li>
+</ul>
+<h2>Key Features</h2>
+<ul>
+<li>164 hand-crafted programming problems</li>
+<li>Each problem includes a function signature, docstring, and test cases</li>
+<li>Problems range from simple string manipulation to complex algorithms</li>
+<li>Canonical solutions provided for reference</li>
+<li>Automatic correctness verification through test execution</li>
+</ul>
+<h2>Evaluation Notes</h2>
+<ul>
+<li><strong>Security Warning</strong>: By default, code is executed in the local environment. We strongly recommend using sandbox execution for safety. See the <a href="https://evalscope.readthedocs.io/en/latest/user_guides/sandbox.html">sandbox documentation</a> for details.</li>
+<li>Supports <code>pass@k</code> metric calculation for measuring generation quality</li>
+<li>Default timeout is 4 seconds per problem</li>
+<li>Code is extracted from markdown code blocks if present</li>
+</ul>
+<h2>Properties</h2>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Benchmark Name</strong></td>
+<td><code>humaneval</code></td>
+</tr>
+<tr>
+<td><strong>Dataset ID</strong></td>
+<td><a href="https://modelscope.cn/datasets/opencompass/humaneval/summary">opencompass/humaneval</a></td>
+</tr>
+<tr>
+<td><strong>Paper</strong></td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><strong>Tags</strong></td>
+<td><code>Coding</code></td>
+</tr>
+<tr>
+<td><strong>Metrics</strong></td>
+<td><code>acc</code></td>
+</tr>
+<tr>
+<td><strong>Default Shots</strong></td>
+<td>0-shot</td>
+</tr>
+<tr>
+<td><strong>Evaluation Split</strong></td>
+<td><code>test</code></td>
+</tr>
+<tr>
+<td><strong>Aggregation</strong></td>
+<td><code>mean_and_pass_at_k</code></td>
+</tr>
+</tbody>
+</table>
+<h2>Data Statistics</h2>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Total Samples</td>
+<td>164</td>
+</tr>
+<tr>
+<td>Prompt Length (Mean)</td>
+<td>609.6 chars</td>
+</tr>
+<tr>
+<td>Prompt Length (Min/Max)</td>
+<td>274 / 1519 chars</td>
+</tr>
+</tbody>
+</table>
+<h2>Sample Example</h2>
+<p><strong>Subset</strong>: <code>openai_humaneval</code></p>
+<pre><code class="language-json">{
+  &quot;input&quot;: [
+    {
+      &quot;id&quot;: &quot;5f652252&quot;,
+      &quot;content&quot;: &quot;Read the following function signature and docstring, and fully implement the function described. Your response should only contain the code for this function.\nfrom typing import List\n\n\ndef has_close_elements(numbers: List[float], threshold: f ... [TRUNCATED] ... Check if in given list of numbers, are any two numbers closer to each other than\n    given threshold.\n    &gt;&gt;&gt; has_close_elements([1.0, 2.0, 3.0], 0.5)\n    False\n    &gt;&gt;&gt; has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)\n    True\n    \&quot;\&quot;\&quot;\n&quot;
+    }
+  ],
+  &quot;target&quot;: &quot;    for idx, elem in enumerate(numbers):\n        for idx2, elem2 in enumerate(numbers):\n            if idx != idx2:\n                distance = abs(elem - elem2)\n                if distance &lt; threshold:\n                    return True\n\n    return False\n&quot;,
+  &quot;id&quot;: 0,
+  &quot;group_id&quot;: 0,
+  &quot;metadata&quot;: {
+    &quot;task_id&quot;: &quot;HumanEval/0&quot;,
+    &quot;entry_point&quot;: &quot;has_close_elements&quot;,
+    &quot;prompt&quot;: &quot;from typing import List\n\n\ndef has_close_elements(numbers: List[float], threshold: float) -&gt; bool:\n    \&quot;\&quot;\&quot; Check if in given list of numbers, are any two numbers closer to each other than\n    given threshold.\n    &gt;&gt;&gt; has_close_elements([1.0, 2.0, 3.0], 0.5)\n    False\n    &gt;&gt;&gt; has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)\n    True\n    \&quot;\&quot;\&quot;\n&quot;,
+    &quot;test&quot;: &quot;\n\nMETADATA = {\n    'author': 'jt',\n    'dataset': 'test'\n}\n\n\ndef check(candidate):\n    assert candidate([1.0, 2.0, 3.9, 4.0, 5.0, 2.2], 0.3) == True\n    assert candidate([1.0, 2.0, 3.9, 4.0, 5.0, 2.2], 0.05) == False\n    assert candidate([1.0 ... [TRUNCATED] ...  candidate([1.0, 2.0, 5.9, 4.0, 5.0], 0.8) == False\n    assert candidate([1.0, 2.0, 3.0, 4.0, 5.0, 2.0], 0.1) == True\n    assert candidate([1.1, 2.2, 3.1, 4.1, 5.1], 1.0) == True\n    assert candidate([1.1, 2.2, 3.1, 4.1, 5.1], 0.5) == False\n\n&quot;
+  }
+}
+</code></pre>
+<p><em>Note: Some content was truncated for display.</em></p>
+<h2>Prompt Template</h2>
+<p><strong>Prompt Template:</strong></p>
+<pre><code class="language-text">Read the following function signature and docstring, and fully implement the function described. Your response should only contain the code for this function.
+{question}
+</code></pre>
+<h2>Sandbox Configuration</h2>
+<p>This benchmark requires a sandbox environment for code execution.</p>
+<pre><code class="language-json">{
+  &quot;image&quot;: &quot;python:3.11-slim&quot;,
+  &quot;tools_config&quot;: {
+    &quot;shell_executor&quot;: {},
+    &quot;python_executor&quot;: {}
+  }
+}
+</code></pre></div>
+            
+            
+            <div class="desc-lang-content" data-desc-lang="zh" style="display:none"><h2>概述</h2>
+<p>HumanEval 是一个用于评估语言模型代码生成能力的基准测试。它包含 164 个手工编写的 Python 编程问题，每个问题都提供了函数签名、文档字符串（docstring）和全面的测试用例。</p>
+<h2>任务描述</h2>
+<ul>
+<li><strong>任务类型</strong>：代码生成（Python）</li>
+<li><strong>输入</strong>：带有文档字符串的函数签名，描述预期行为</li>
+<li><strong>输出</strong>：完整的 Python 函数实现</li>
+<li><strong>语言</strong>：仅限 Python</li>
+</ul>
+<h2>主要特性</h2>
+<ul>
+<li>164 个精心设计的编程问题</li>
+<li>每个问题均包含函数签名、文档字符串和测试用例</li>
+<li>问题难度从简单的字符串操作到复杂的算法不等</li>
+<li>提供标准参考解答</li>
+<li>通过执行测试用例自动验证正确性</li>
+</ul>
+<h2>评估说明</h2>
+<ul>
+<li><strong>安全警告</strong>：默认情况下，代码会在本地环境中执行。我们强烈建议使用沙箱（sandbox）执行以确保安全。详情请参阅 <a href="https://evalscope.readthedocs.io/zh-cn/latest/user_guides/sandbox.html">沙箱文档</a>。</li>
+<li>支持 <code>pass@k</code> 指标计算，用于衡量生成质量</li>
+<li>每个问题默认超时时间为 4 秒</li>
+<li>若存在 Markdown 代码块，则从中提取代码</li>
+</ul>
+<h2>属性</h2>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>基准测试名称</strong></td>
+<td><code>humaneval</code></td>
+</tr>
+<tr>
+<td><strong>数据集ID</strong></td>
+<td><a href="https://modelscope.cn/datasets/opencompass/humaneval/summary">opencompass/humaneval</a></td>
+</tr>
+<tr>
+<td><strong>论文</strong></td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><strong>标签</strong></td>
+<td><code>Coding</code></td>
+</tr>
+<tr>
+<td><strong>指标</strong></td>
+<td><code>acc</code></td>
+</tr>
+<tr>
+<td><strong>默认示例数（Shots）</strong></td>
+<td>0-shot</td>
+</tr>
+<tr>
+<td><strong>评估划分</strong></td>
+<td><code>test</code></td>
+</tr>
+<tr>
+<td><strong>聚合方式</strong></td>
+<td><code>mean_and_pass_at_k</code></td>
+</tr>
+</tbody>
+</table>
+<h2>数据统计</h2>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>总样本数</td>
+<td>164</td>
+</tr>
+<tr>
+<td>提示词长度（平均）</td>
+<td>609.6 字符</td>
+</tr>
+<tr>
+<td>提示词长度（最小/最大）</td>
+<td>274 / 1519 字符</td>
+</tr>
+</tbody>
+</table>
+<h2>样例示例</h2>
+<p><strong>子集</strong>: <code>openai_humaneval</code></p>
+<pre><code class="language-json">{
+  &quot;input&quot;: [
+    {
+      &quot;id&quot;: &quot;5f652252&quot;,
+      &quot;content&quot;: &quot;Read the following function signature and docstring, and fully implement the function described. Your response should only contain the code for this function.\nfrom typing import List\n\n\ndef has_close_elements(numbers: List[float], threshold: f ... [TRUNCATED] ... Check if in given list of numbers, are any two numbers closer to each other than\n    given threshold.\n    &gt;&gt;&gt; has_close_elements([1.0, 2.0, 3.0], 0.5)\n    False\n    &gt;&gt;&gt; has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)\n    True\n    \&quot;\&quot;\&quot;\n&quot;
+    }
+  ],
+  &quot;target&quot;: &quot;    for idx, elem in enumerate(numbers):\n        for idx2, elem2 in enumerate(numbers):\n            if idx != idx2:\n                distance = abs(elem - elem2)\n                if distance &lt; threshold:\n                    return True\n\n    return False\n&quot;,
+  &quot;id&quot;: 0,
+  &quot;group_id&quot;: 0,
+  &quot;metadata&quot;: {
+    &quot;task_id&quot;: &quot;HumanEval/0&quot;,
+    &quot;entry_point&quot;: &quot;has_close_elements&quot;,
+    &quot;prompt&quot;: &quot;from typing import List\n\n\ndef has_close_elements(numbers: List[float], threshold: float) -&gt; bool:\n    \&quot;\&quot;\&quot; Check if in given list of numbers, are any two numbers closer to each other than\n    given threshold.\n    &gt;&gt;&gt; has_close_elements([1.0, 2.0, 3.0], 0.5)\n    False\n    &gt;&gt;&gt; has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)\n    True\n    \&quot;\&quot;\&quot;\n&quot;,
+    &quot;test&quot;: &quot;\n\nMETADATA = {\n    'author': 'jt',
+    'dataset': 'test'\n}\n\n\ndef check(candidate):\n    assert candidate([1.0, 2.0, 3.9, 4.0, 5.0, 2.2], 0.3) == True\n    assert candidate([1.0, 2.0, 3.9, 4.0, 5.0, 2.2], 0.05) == False\n    assert candidate([1.0 ... [TRUNCATED] ...  candidate([1.0, 2.0, 5.9, 4.0, 5.0], 0.8) == False\n    assert candidate([1.0, 2.0, 3.0, 4.0, 5.0, 2.0], 0.1) == True\n    assert candidate([1.1, 2.2, 3.1, 4.1, 5.1], 1.0) == True\n    assert candidate([1.1, 2.2, 3.1, 4.1, 5.1], 0.5) == False\n\n&quot;
+  }
+}
+</code></pre>
+<p><em>注：部分内容因显示需要已被截断。</em></p>
+<h2>提示模板</h2>
+<p><strong>提示模板：</strong></p>
+<pre><code class="language-text">Read the following function signature and docstring, and fully implement the function described. Your response should only contain the code for this function.
+{question}
+</code></pre>
+<h2>沙箱配置</h2>
+<p>此基准测试需要沙箱环境来执行代码。</p>
+<pre><code class="language-json">{
+  &quot;image&quot;: &quot;python:3.11-slim&quot;,
+  &quot;tools_config&quot;: {
+    &quot;shell_executor&quot;: {},
+    &quot;python_executor&quot;: {}
+  }
+}
+</code></pre></div>
+            
+          </div>
+        </details>
+        
+
+        
+
+          
+
+          
+          <div class="card" style="margin-bottom:1rem;">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    
+                    <th data-i18n="col.category">Category</th>
+                    
+                    <th data-i18n="col.subset">Subset</th>
+                    <th data-i18n="col.metric">Metric</th>
+                    <th data-i18n="col.score">Score</th>
+                    <th data-i18n="col.num">Num</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">default</span></td>
+                    
+                    <td>openai_humaneval</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">0.9667</td>
+                    <td class="num-cell">30</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">default</span></td>
+                    
+                    <td>openai_humaneval</td>
+                    <td><span class="metric-tag">mean_acc_pass@1</span></td>
+                    <td class="score-cell">0.9667</td>
+                    <td class="num-cell">30</td>
+                  </tr>
+                  
+                </tbody>
+              </table>
+            </div>
+          </div>
+          
+
+          
+          <div class="sub-card">
+            <div class="sub-card-header">
+              HumanEval &middot; <span data-i18n="card.subset_scores">Subset Scores</span>
+            </div>
+            <div class="chart-wrap"><div style="height:100%; width:100%;">                            <div id="chart-humaneval-q35-experts20-thr08-decay" class="plotly-graph-div" style="height:100%; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-humaneval-q35-experts20-thr08-decay")) {                    Plotly.newPlot(                        "chart-humaneval-q35-experts20-thr08-decay",                        [{"alignmentgroup":"True","hovertemplate":"Subset=openai_humaneval\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"openai_humaneval","marker":{"color":"#636efa","pattern":{"shape":""}},"name":"openai_humaneval","offsetgroup":"openai_humaneval","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"5WGh1jTv7j\u002flYaHWNO\u002fuPw=="},"textposition":"outside","x":["mean_acc","mean_acc_pass@1"],"xaxis":"x","y":{"dtype":"f8","bdata":"5WGh1jTv7j\u002flYaHWNO\u002fuPw=="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}","width":0.2}],                        {"template":{"data":{"barpolar":[{"marker":{"line":{"color":"rgb(17,17,17)","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"bar":[{"error_x":{"color":"#f2f5fa"},"error_y":{"color":"#f2f5fa"},"marker":{"line":{"color":"rgb(17,17,17)","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"carpet":[{"aaxis":{"endlinecolor":"#A2B1C6","gridcolor":"#506784","linecolor":"#506784","minorgridcolor":"#506784","startlinecolor":"#A2B1C6"},"baxis":{"endlinecolor":"#A2B1C6","gridcolor":"#506784","linecolor":"#506784","minorgridcolor":"#506784","startlinecolor":"#A2B1C6"},"type":"carpet"}],"choropleth":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"choropleth"}],"contourcarpet":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"contourcarpet"}],"contour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"contour"}],"heatmap":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"heatmap"}],"histogram2dcontour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2dcontour"}],"histogram2d":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2d"}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"mesh3d":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"mesh3d"}],"parcoords":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"parcoords"}],"pie":[{"automargin":true,"type":"pie"}],"scatter3d":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatter3d"}],"scattercarpet":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattercarpet"}],"scattergeo":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergeo"}],"scattergl":[{"marker":{"line":{"color":"#283442"}},"type":"scattergl"}],"scattermapbox":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermapbox"}],"scattermap":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermap"}],"scatterpolargl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolargl"}],"scatterpolar":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolar"}],"scatter":[{"marker":{"line":{"color":"#283442"}},"type":"scatter"}],"scatterternary":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterternary"}],"surface":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"surface"}],"table":[{"cells":{"fill":{"color":"#506784"},"line":{"color":"rgb(17,17,17)"}},"header":{"fill":{"color":"#2a3f5f"},"line":{"color":"rgb(17,17,17)"}},"type":"table"}]},"layout":{"annotationdefaults":{"arrowcolor":"#f2f5fa","arrowhead":0,"arrowwidth":1},"autotypenumbers":"strict","coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]],"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]},"colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#f2f5fa"},"geo":{"bgcolor":"rgb(17,17,17)","lakecolor":"rgb(17,17,17)","landcolor":"rgb(17,17,17)","showlakes":true,"showland":true,"subunitcolor":"#506784"},"hoverlabel":{"align":"left"},"hovermode":"closest","mapbox":{"style":"dark"},"paper_bgcolor":"rgb(17,17,17)","plot_bgcolor":"rgb(17,17,17)","polar":{"angularaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"bgcolor":"rgb(17,17,17)","radialaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""}},"scene":{"xaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"},"yaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"},"zaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"}},"shapedefaults":{"line":{"color":"#f2f5fa"}},"sliderdefaults":{"bgcolor":"#C8D4E3","bordercolor":"rgb(17,17,17)","borderwidth":1,"tickwidth":0},"ternary":{"aaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"baxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"bgcolor":"rgb(17,17,17)","caxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""}},"title":{"x":0.05},"updatemenudefaults":{"bgcolor":"#506784","borderwidth":0},"xaxis":{"automargin":true,"gridcolor":"#283442","linecolor":"#506784","ticks":"","title":{"standoff":15},"zerolinecolor":"#283442","zerolinewidth":2},"yaxis":{"automargin":true,"gridcolor":"#283442","linecolor":"#506784","ticks":"","title":{"standoff":15},"zerolinecolor":"#283442","zerolinewidth":2}}},"xaxis":{"anchor":"y","domain":[0.0,1.0],"title":{"text":"Metric"}},"yaxis":{"anchor":"x","domain":[0.0,1.0],"title":{"text":"Score"},"range":[0,1]},"legend":{"title":{"text":"Subset"},"tracegroupgap":0},"margin":{"t":60},"barmode":"group","uniformtext":{"minsize":12,"mode":"hide"}},                        {"responsive": true}                    )                };            </script>        </div></div>
+          </div>
+          
+
+          
+
+        
+
+      </div>
+    </details>
+    
+    <details class="ds-card" id="ds-2" >
+      <summary class="ds-summary">
+        <div class="ds-summary-left">
+          <span class="ds-arrow">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </span>
+          <span class="ds-name">MMLU</span>
+        </div>
+        <div class="ds-summary-right">
+          <span class="score-pill" data-score="0.9688">0.9688</span>
+        </div>
+      </summary>
+
+      <div class="ds-body">
+
+        
+        <details class="inner-toggle">
+          <summary>
+            <span class="inner-arrow">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            </span>
+            <span data-i18n="toggle.description">Description</span>
+          </summary>
+          <div class="ds-description">
+            
+            <div class="desc-lang-content" data-desc-lang="en"><h2>Overview</h2>
+<p>MMLU (Massive Multitask Language Understanding) is a comprehensive evaluation benchmark designed to measure knowledge acquired during pretraining. It covers 57 subjects across STEM, humanities, social sciences, and other domains, ranging from elementary to professional difficulty levels.</p>
+<h2>Task Description</h2>
+<ul>
+<li><strong>Task Type</strong>: Multiple-Choice Question Answering</li>
+<li><strong>Input</strong>: Question with four answer choices (A, B, C, D)</li>
+<li><strong>Output</strong>: Single correct answer letter</li>
+<li><strong>Subjects</strong>: 57 subjects organized into 4 categories (STEM, Humanities, Social Sciences, Other)</li>
+</ul>
+<h2>Key Features</h2>
+<ul>
+<li>Covers diverse knowledge domains from elementary to advanced professional levels</li>
+<li>Tests both factual knowledge and reasoning abilities</li>
+<li>Includes subjects like abstract algebra, anatomy, astronomy, business ethics, and more</li>
+<li>Standard benchmark for measuring LLM knowledge breadth</li>
+</ul>
+<h2>Evaluation Notes</h2>
+<ul>
+<li>Default configuration uses <strong>5-shot</strong> examples from the dev split</li>
+<li>Supports Chain-of-Thought (CoT) prompting for improved reasoning</li>
+<li>Results can be aggregated by subject or category (STEM, Humanities, Social Sciences, Other)</li>
+<li>Use <code>subset_list</code> parameter to evaluate specific subjects</li>
+</ul>
+<h2>Properties</h2>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Benchmark Name</strong></td>
+<td><code>mmlu</code></td>
+</tr>
+<tr>
+<td><strong>Dataset ID</strong></td>
+<td><a href="https://modelscope.cn/datasets/cais/mmlu/summary">cais/mmlu</a></td>
+</tr>
+<tr>
+<td><strong>Paper</strong></td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><strong>Tags</strong></td>
+<td><code>Knowledge</code>, <code>MCQ</code></td>
+</tr>
+<tr>
+<td><strong>Metrics</strong></td>
+<td><code>acc</code></td>
+</tr>
+<tr>
+<td><strong>Default Shots</strong></td>
+<td>5-shot</td>
+</tr>
+<tr>
+<td><strong>Evaluation Split</strong></td>
+<td><code>test</code></td>
+</tr>
+<tr>
+<td><strong>Train Split</strong></td>
+<td><code>dev</code></td>
+</tr>
+</tbody>
+</table>
+<h2>Data Statistics</h2>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Total Samples</td>
+<td>14,042</td>
+</tr>
+<tr>
+<td>Prompt Length (Mean)</td>
+<td>3212.2 chars</td>
+</tr>
+<tr>
+<td>Prompt Length (Min/Max)</td>
+<td>985 / 14626 chars</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Per-Subset Statistics:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Subset</th>
+<th>Samples</th>
+<th>Prompt Mean</th>
+<th>Prompt Min</th>
+<th>Prompt Max</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>abstract_algebra</code></td>
+<td>100</td>
+<td>1256.98</td>
+<td>1143</td>
+<td>1383</td>
+</tr>
+<tr>
+<td><code>anatomy</code></td>
+<td>135</td>
+<td>1446</td>
+<td>1306</td>
+<td>1783</td>
+</tr>
+<tr>
+<td><code>astronomy</code></td>
+<td>152</td>
+<td>2616.64</td>
+<td>2401</td>
+<td>3191</td>
+</tr>
+<tr>
+<td><code>business_ethics</code></td>
+<td>100</td>
+<td>2756.36</td>
+<td>2492</td>
+<td>3145</td>
+</tr>
+<tr>
+<td><code>clinical_knowledge</code></td>
+<td>265</td>
+<td>1680.76</td>
+<td>1510</td>
+<td>1995</td>
+</tr>
+<tr>
+<td><code>college_biology</code></td>
+<td>144</td>
+<td>2104.53</td>
+<td>1874</td>
+<td>2641</td>
+</tr>
+<tr>
+<td><code>college_chemistry</code></td>
+<td>100</td>
+<td>1800.19</td>
+<td>1641</td>
+<td>2239</td>
+</tr>
+<tr>
+<td><code>college_computer_science</code></td>
+<td>100</td>
+<td>3424.74</td>
+<td>3129</td>
+<td>4137</td>
+</tr>
+<tr>
+<td><code>college_mathematics</code></td>
+<td>100</td>
+<td>1972.77</td>
+<td>1776</td>
+<td>2230</td>
+</tr>
+<tr>
+<td><code>college_medicine</code></td>
+<td>173</td>
+<td>2377.62</td>
+<td>2005</td>
+<td>6779</td>
+</tr>
+<tr>
+<td><code>college_physics</code></td>
+<td>102</td>
+<td>1941.26</td>
+<td>1757</td>
+<td>2237</td>
+</tr>
+<tr>
+<td><code>computer_security</code></td>
+<td>100</td>
+<td>1598.89</td>
+<td>1414</td>
+<td>2238</td>
+</tr>
+<tr>
+<td><code>conceptual_physics</code></td>
+<td>235</td>
+<td>1340.77</td>
+<td>1246</td>
+<td>1572</td>
+</tr>
+<tr>
+<td><code>econometrics</code></td>
+<td>114</td>
+<td>2286.2</td>
+<td>1976</td>
+<td>2708</td>
+</tr>
+<tr>
+<td><code>electrical_engineering</code></td>
+<td>145</td>
+<td>1372.1</td>
+<td>1279</td>
+<td>1578</td>
+</tr>
+<tr>
+<td><code>elementary_mathematics</code></td>
+<td>378</td>
+<td>1856.81</td>
+<td>1724</td>
+<td>2322</td>
+</tr>
+<tr>
+<td><code>formal_logic</code></td>
+<td>126</td>
+<td>2338.07</td>
+<td>2065</td>
+<td>3022</td>
+</tr>
+<tr>
+<td><code>global_facts</code></td>
+<td>100</td>
+<td>1644.77</td>
+<td>1558</td>
+<td>2001</td>
+</tr>
+<tr>
+<td><code>high_school_biology</code></td>
+<td>310</td>
+<td>2218.56</td>
+<td>1971</td>
+<td>2737</td>
+</tr>
+<tr>
+<td><code>high_school_chemistry</code></td>
+<td>203</td>
+<td>1740.83</td>
+<td>1519</td>
+<td>2341</td>
+</tr>
+<tr>
+<td><code>high_school_computer_science</code></td>
+<td>100</td>
+<td>3595.34</td>
+<td>3224</td>
+<td>4732</td>
+</tr>
+<tr>
+<td><code>high_school_european_history</code></td>
+<td>165</td>
+<td>13421.12</td>
+<td>12392</td>
+<td>14626</td>
+</tr>
+<tr>
+<td><code>high_school_geography</code></td>
+<td>198</td>
+<td>1849.07</td>
+<td>1726</td>
+<td>2204</td>
+</tr>
+<tr>
+<td><code>high_school_government_and_politics</code></td>
+<td>193</td>
+<td>2355.29</td>
+<td>2171</td>
+<td>2922</td>
+</tr>
+<tr>
+<td><code>high_school_macroeconomics</code></td>
+<td>390</td>
+<td>1861.47</td>
+<td>1649</td>
+<td>2206</td>
+</tr>
+<tr>
+<td><code>high_school_mathematics</code></td>
+<td>270</td>
+<td>1731.31</td>
+<td>1591</td>
+<td>2224</td>
+</tr>
+<tr>
+<td><code>high_school_microeconomics</code></td>
+<td>238</td>
+<td>1849.97</td>
+<td>1651</td>
+<td>2396</td>
+</tr>
+<tr>
+<td><code>high_school_physics</code></td>
+<td>151</td>
+<td>2110.63</td>
+<td>1836</td>
+<td>2926</td>
+</tr>
+<tr>
+<td><code>high_school_psychology</code></td>
+<td>545</td>
+<td>2431.39</td>
+<td>2223</td>
+<td>3498</td>
+</tr>
+<tr>
+<td><code>high_school_statistics</code></td>
+<td>216</td>
+<td>3273.79</td>
+<td>2932</td>
+<td>4328</td>
+</tr>
+<tr>
+<td><code>high_school_us_history</code></td>
+<td>204</td>
+<td>10530.61</td>
+<td>9656</td>
+<td>11469</td>
+</tr>
+<tr>
+<td><code>high_school_world_history</code></td>
+<td>237</td>
+<td>6700.7</td>
+<td>5650</td>
+<td>8814</td>
+</tr>
+<tr>
+<td><code>human_aging</code></td>
+<td>223</td>
+<td>1448.65</td>
+<td>1335</td>
+<td>1725</td>
+</tr>
+<tr>
+<td><code>human_sexuality</code></td>
+<td>131</td>
+<td>1556.02</td>
+<td>1412</td>
+<td>2250</td>
+</tr>
+<tr>
+<td><code>international_law</code></td>
+<td>121</td>
+<td>3094.31</td>
+<td>2778</td>
+<td>3432</td>
+</tr>
+<tr>
+<td><code>jurisprudence</code></td>
+<td>108</td>
+<td>1851.24</td>
+<td>1638</td>
+<td>2370</td>
+</tr>
+<tr>
+<td><code>logical_fallacies</code></td>
+<td>163</td>
+<td>2114.39</td>
+<td>1932</td>
+<td>2503</td>
+</tr>
+<tr>
+<td><code>machine_learning</code></td>
+<td>112</td>
+<td>2852.01</td>
+<td>2659</td>
+<td>3150</td>
+</tr>
+<tr>
+<td><code>management</code></td>
+<td>103</td>
+<td>1326.07</td>
+<td>1220</td>
+<td>1571</td>
+</tr>
+<tr>
+<td><code>marketing</code></td>
+<td>234</td>
+<td>1984.28</td>
+<td>1832</td>
+<td>2266</td>
+</tr>
+<tr>
+<td><code>medical_genetics</code></td>
+<td>100</td>
+<td>1531.32</td>
+<td>1409</td>
+<td>1775</td>
+</tr>
+<tr>
+<td><code>miscellaneous</code></td>
+<td>783</td>
+<td>1121.57</td>
+<td>1004</td>
+<td>2096</td>
+</tr>
+<tr>
+<td><code>moral_disputes</code></td>
+<td>346</td>
+<td>2300.58</td>
+<td>2101</td>
+<td>2711</td>
+</tr>
+<tr>
+<td><code>moral_scenarios</code></td>
+<td>895</td>
+<td>2709.89</td>
+<td>2644</td>
+<td>2853</td>
+</tr>
+<tr>
+<td><code>nutrition</code></td>
+<td>306</td>
+<td>2620.9</td>
+<td>2408</td>
+<td>3111</td>
+</tr>
+<tr>
+<td><code>philosophy</code></td>
+<td>311</td>
+<td>1472.67</td>
+<td>1319</td>
+<td>2292</td>
+</tr>
+<tr>
+<td><code>prehistory</code></td>
+<td>324</td>
+<td>2388.29</td>
+<td>2201</td>
+<td>2899</td>
+</tr>
+<tr>
+<td><code>professional_accounting</code></td>
+<td>282</td>
+<td>2820.72</td>
+<td>2515</td>
+<td>3400</td>
+</tr>
+<tr>
+<td><code>professional_law</code></td>
+<td>1,534</td>
+<td>8077.0</td>
+<td>6997</td>
+<td>10539</td>
+</tr>
+<tr>
+<td><code>professional_medicine</code></td>
+<td>272</td>
+<td>4832.72</td>
+<td>4380</td>
+<td>5802</td>
+</tr>
+<tr>
+<td><code>professional_psychology</code></td>
+<td>612</td>
+<td>2860.73</td>
+<td>2594</td>
+<td>3789</td>
+</tr>
+<tr>
+<td><code>public_relations</code></td>
+<td>110</td>
+<td>1991.35</td>
+<td>1824</td>
+<td>2712</td>
+</tr>
+<tr>
+<td><code>security_studies</code></td>
+<td>245</td>
+<td>6405.04</td>
+<td>5680</td>
+<td>7818</td>
+</tr>
+<tr>
+<td><code>sociology</code></td>
+<td>201</td>
+<td>2176.49</td>
+<td>1976</td>
+<td>2530</td>
+</tr>
+<tr>
+<td><code>us_foreign_policy</code></td>
+<td>100</td>
+<td>2129.28</td>
+<td>1944</td>
+<td>2393</td>
+</tr>
+<tr>
+<td><code>virology</code></td>
+<td>166</td>
+<td>1563.11</td>
+<td>1426</td>
+<td>2507</td>
+</tr>
+<tr>
+<td><code>world_religions</code></td>
+<td>171</td>
+<td>1051.68</td>
+<td>985</td>
+<td>1255</td>
+</tr>
+</tbody>
+</table>
+<h2>Sample Example</h2>
+<p><strong>Subset</strong>: <code>abstract_algebra</code></p>
+<pre><code class="language-json">{
+  &quot;input&quot;: [
+    {
+      &quot;id&quot;: &quot;c7cbfbb9&quot;,
+      &quot;content&quot;: &quot;Here are some examples of how to answer similar questions:\n\nFind all c in Z_3 such that Z_3[x]/(x^2 + c) is a field.\nA) 0\nB) 1\nC) 2\nD) 3\nANSWER: B\n\nStatement 1 | If aH is an element of a factor group, then |aH| divides |a|. Statement 2 | If H ... [TRUNCATED] ... d be of the following format: 'ANSWER: [LETTER]' (without quotes) where [LETTER] is one of A,B,C,D. Think step by step before answering.\n\nFind the degree for the given field extension Q(sqrt(2), sqrt(3), sqrt(18)) over Q.\n\nA) 0\nB) 4\nC) 2\nD) 6&quot;
+    }
+  ],
+  &quot;choices&quot;: [
+    &quot;0&quot;,
+    &quot;4&quot;,
+    &quot;2&quot;,
+    &quot;6&quot;
+  ],
+  &quot;target&quot;: &quot;B&quot;,
+  &quot;id&quot;: 0,
+  &quot;group_id&quot;: 0,
+  &quot;subset_key&quot;: &quot;abstract_algebra&quot;,
+  &quot;metadata&quot;: {
+    &quot;subject&quot;: &quot;abstract_algebra&quot;
+  }
+}
+</code></pre>
+<p><em>Note: Some content was truncated for display.</em></p>
+<h2>Prompt Template</h2>
+<p><strong>Prompt Template:</strong></p>
+<pre><code class="language-text">Answer the following multiple choice question. The last line of your response should be of the following format: 'ANSWER: [LETTER]' (without quotes) where [LETTER] is one of {letters}. Think step by step before answering.
+
+{question}
+
+{choices}
+</code></pre></div>
+            
+            
+            <div class="desc-lang-content" data-desc-lang="zh" style="display:none"><h2>概述</h2>
+<p>MMLU（Massive Multitask Language Understanding，大规模多任务语言理解）是一个综合性评估基准，旨在衡量模型在预训练阶段所获得的知识。它涵盖 STEM、人文学科、社会科学及其他领域的 57 个学科，难度从基础到专业级别不等。</p>
+<h2>任务描述</h2>
+<ul>
+<li><strong>任务类型</strong>：多项选择题问答（Multiple-Choice Question Answering）</li>
+<li><strong>输入</strong>：包含四个选项（A、B、C、D）的问题</li>
+<li><strong>输出</strong>：单个正确答案的字母</li>
+<li><strong>学科范围</strong>：57 个学科，分为 4 个类别（STEM、人文学科、社会科学、其他）</li>
+</ul>
+<h2>主要特点</h2>
+<ul>
+<li>覆盖从基础到高级专业水平的多样化知识领域</li>
+<li>同时考察事实性知识和推理能力</li>
+<li>包含抽象代数、解剖学、天文学、商业伦理等多个学科</li>
+<li>是衡量大语言模型知识广度的标准基准</li>
+</ul>
+<h2>评估说明</h2>
+<ul>
+<li>默认配置使用开发集（dev split）中的 <strong>5-shot</strong> 示例</li>
+<li>支持思维链（Chain-of-Thought, CoT）提示以提升推理能力</li>
+<li>结果可按学科或类别（STEM、人文学科、社会科学、其他）进行聚合</li>
+<li>使用 <code>subset_list</code> 参数可评估特定学科</li>
+</ul>
+<h2>属性</h2>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>基准测试名称</strong></td>
+<td><code>mmlu</code></td>
+</tr>
+<tr>
+<td><strong>数据集 ID</strong></td>
+<td><a href="https://modelscope.cn/datasets/cais/mmlu/summary">cais/mmlu</a></td>
+</tr>
+<tr>
+<td><strong>论文</strong></td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><strong>标签</strong></td>
+<td><code>Knowledge</code>, <code>MCQ</code></td>
+</tr>
+<tr>
+<td><strong>指标</strong></td>
+<td><code>acc</code></td>
+</tr>
+<tr>
+<td><strong>默认示例数量</strong></td>
+<td>5-shot</td>
+</tr>
+<tr>
+<td><strong>评估集</strong></td>
+<td><code>test</code></td>
+</tr>
+<tr>
+<td><strong>训练集</strong></td>
+<td><code>dev</code></td>
+</tr>
+</tbody>
+</table>
+<h2>数据统计</h2>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>总样本数</td>
+<td>14,042</td>
+</tr>
+<tr>
+<td>提示词长度（平均）</td>
+<td>3212.2 字符</td>
+</tr>
+<tr>
+<td>提示词长度（最小/最大）</td>
+<td>985 / 14626 字符</td>
+</tr>
+</tbody>
+</table>
+<p><strong>各子集统计数据：</strong></p>
+<table>
+<thead>
+<tr>
+<th>子集</th>
+<th>样本数</th>
+<th>提示平均长度</th>
+<th>提示最小长度</th>
+<th>提示最大长度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>abstract_algebra</code></td>
+<td>100</td>
+<td>1256.98</td>
+<td>1143</td>
+<td>1383</td>
+</tr>
+<tr>
+<td><code>anatomy</code></td>
+<td>135</td>
+<td>1446</td>
+<td>1306</td>
+<td>1783</td>
+</tr>
+<tr>
+<td><code>astronomy</code></td>
+<td>152</td>
+<td>2616.64</td>
+<td>2401</td>
+<td>3191</td>
+</tr>
+<tr>
+<td><code>business_ethics</code></td>
+<td>100</td>
+<td>2756.36</td>
+<td>2492</td>
+<td>3145</td>
+</tr>
+<tr>
+<td><code>clinical_knowledge</code></td>
+<td>265</td>
+<td>1680.76</td>
+<td>1510</td>
+<td>1995</td>
+</tr>
+<tr>
+<td><code>college_biology</code></td>
+<td>144</td>
+<td>2104.53</td>
+<td>1874</td>
+<td>2641</td>
+</tr>
+<tr>
+<td><code>college_chemistry</code></td>
+<td>100</td>
+<td>1800.19</td>
+<td>1641</td>
+<td>2239</td>
+</tr>
+<tr>
+<td><code>college_computer_science</code></td>
+<td>100</td>
+<td>3424.74</td>
+<td>3129</td>
+<td>4137</td>
+</tr>
+<tr>
+<td><code>college_mathematics</code></td>
+<td>100</td>
+<td>1972.77</td>
+<td>1776</td>
+<td>2230</td>
+</tr>
+<tr>
+<td><code>college_medicine</code></td>
+<td>173</td>
+<td>2377.62</td>
+<td>2005</td>
+<td>6779</td>
+</tr>
+<tr>
+<td><code>college_physics</code></td>
+<td>102</td>
+<td>1941.26</td>
+<td>1757</td>
+<td>2237</td>
+</tr>
+<tr>
+<td><code>computer_security</code></td>
+<td>100</td>
+<td>1598.89</td>
+<td>1414</td>
+<td>2238</td>
+</tr>
+<tr>
+<td><code>conceptual_physics</code></td>
+<td>235</td>
+<td>1340.77</td>
+<td>1246</td>
+<td>1572</td>
+</tr>
+<tr>
+<td><code>econometrics</code></td>
+<td>114</td>
+<td>2286.2</td>
+<td>1976</td>
+<td>2708</td>
+</tr>
+<tr>
+<td><code>electrical_engineering</code></td>
+<td>145</td>
+<td>1372.1</td>
+<td>1279</td>
+<td>1578</td>
+</tr>
+<tr>
+<td><code>elementary_mathematics</code></td>
+<td>378</td>
+<td>1856.81</td>
+<td>1724</td>
+<td>2322</td>
+</tr>
+<tr>
+<td><code>formal_logic</code></td>
+<td>126</td>
+<td>2338.07</td>
+<td>2065</td>
+<td>3022</td>
+</tr>
+<tr>
+<td><code>global_facts</code></td>
+<td>100</td>
+<td>1644.77</td>
+<td>1558</td>
+<td>2001</td>
+</tr>
+<tr>
+<td><code>high_school_biology</code></td>
+<td>310</td>
+<td>2218.56</td>
+<td>1971</td>
+<td>2737</td>
+</tr>
+<tr>
+<td><code>high_school_chemistry</code></td>
+<td>203</td>
+<td>1740.83</td>
+<td>1519</td>
+<td>2341</td>
+</tr>
+<tr>
+<td><code>high_school_computer_science</code></td>
+<td>100</td>
+<td>3595.34</td>
+<td>3224</td>
+<td>4732</td>
+</tr>
+<tr>
+<td><code>high_school_european_history</code></td>
+<td>165</td>
+<td>13421.12</td>
+<td>12392</td>
+<td>14626</td>
+</tr>
+<tr>
+<td><code>high_school_geography</code></td>
+<td>198</td>
+<td>1849.07</td>
+<td>1726</td>
+<td>2204</td>
+</tr>
+<tr>
+<td><code>high_school_government_and_politics</code></td>
+<td>193</td>
+<td>2355.29</td>
+<td>2171</td>
+<td>2922</td>
+</tr>
+<tr>
+<td><code>high_school_macroeconomics</code></td>
+<td>390</td>
+<td>1861.47</td>
+<td>1649</td>
+<td>2206</td>
+</tr>
+<tr>
+<td><code>high_school_mathematics</code></td>
+<td>270</td>
+<td>1731.31</td>
+<td>1591</td>
+<td>2224</td>
+</tr>
+<tr>
+<td><code>high_school_microeconomics</code></td>
+<td>238</td>
+<td>1849.97</td>
+<td>1651</td>
+<td>2396</td>
+</tr>
+<tr>
+<td><code>high_school_physics</code></td>
+<td>151</td>
+<td>2110.63</td>
+<td>1836</td>
+<td>2926</td>
+</tr>
+<tr>
+<td><code>high_school_psychology</code></td>
+<td>545</td>
+<td>2431.39</td>
+<td>2223</td>
+<td>3498</td>
+</tr>
+<tr>
+<td><code>high_school_statistics</code></td>
+<td>216</td>
+<td>3273.79</td>
+<td>2932</td>
+<td>4328</td>
+</tr>
+<tr>
+<td><code>high_school_us_history</code></td>
+<td>204</td>
+<td>10530.61</td>
+<td>9656</td>
+<td>11469</td>
+</tr>
+<tr>
+<td><code>high_school_world_history</code></td>
+<td>237</td>
+<td>6700.7</td>
+<td>5650</td>
+<td>8814</td>
+</tr>
+<tr>
+<td><code>human_aging</code></td>
+<td>223</td>
+<td>1448.65</td>
+<td>1335</td>
+<td>1725</td>
+</tr>
+<tr>
+<td><code>human_sexuality</code></td>
+<td>131</td>
+<td>1556.02</td>
+<td>1412</td>
+<td>2250</td>
+</tr>
+<tr>
+<td><code>international_law</code></td>
+<td>121</td>
+<td>3094.31</td>
+<td>2778</td>
+<td>3432</td>
+</tr>
+<tr>
+<td><code>jurisprudence</code></td>
+<td>108</td>
+<td>1851.24</td>
+<td>1638</td>
+<td>2370</td>
+</tr>
+<tr>
+<td><code>logical_fallacies</code></td>
+<td>163</td>
+<td>2114.39</td>
+<td>1932</td>
+<td>2503</td>
+</tr>
+<tr>
+<td><code>machine_learning</code></td>
+<td>112</td>
+<td>2852.01</td>
+<td>2659</td>
+<td>3150</td>
+</tr>
+<tr>
+<td><code>management</code></td>
+<td>103</td>
+<td>1326.07</td>
+<td>1220</td>
+<td>1571</td>
+</tr>
+<tr>
+<td><code>marketing</code></td>
+<td>234</td>
+<td>1984.28</td>
+<td>1832</td>
+<td>2266</td>
+</tr>
+<tr>
+<td><code>medical_genetics</code></td>
+<td>100</td>
+<td>1531.32</td>
+<td>1409</td>
+<td>1775</td>
+</tr>
+<tr>
+<td><code>miscellaneous</code></td>
+<td>783</td>
+<td>1121.57</td>
+<td>1004</td>
+<td>2096</td>
+</tr>
+<tr>
+<td><code>moral_disputes</code></td>
+<td>346</td>
+<td>2300.58</td>
+<td>2101</td>
+<td>2711</td>
+</tr>
+<tr>
+<td><code>moral_scenarios</code></td>
+<td>895</td>
+<td>2709.89</td>
+<td>2644</td>
+<td>2853</td>
+</tr>
+<tr>
+<td><code>nutrition</code></td>
+<td>306</td>
+<td>2620.9</td>
+<td>2408</td>
+<td>3111</td>
+</tr>
+<tr>
+<td><code>philosophy</code></td>
+<td>311</td>
+<td>1472.67</td>
+<td>1319</td>
+<td>2292</td>
+</tr>
+<tr>
+<td><code>prehistory</code></td>
+<td>324</td>
+<td>2388.29</td>
+<td>2201</td>
+<td>2899</td>
+</tr>
+<tr>
+<td><code>professional_accounting</code></td>
+<td>282</td>
+<td>2820.72</td>
+<td>2515</td>
+<td>3400</td>
+</tr>
+<tr>
+<td><code>professional_law</code></td>
+<td>1,534</td>
+<td>8077.0</td>
+<td>6997</td>
+<td>10539</td>
+</tr>
+<tr>
+<td><code>professional_medicine</code></td>
+<td>272</td>
+<td>4832.72</td>
+<td>4380</td>
+<td>5802</td>
+</tr>
+<tr>
+<td><code>professional_psychology</code></td>
+<td>612</td>
+<td>2860.73</td>
+<td>2594</td>
+<td>3789</td>
+</tr>
+<tr>
+<td><code>public_relations</code></td>
+<td>110</td>
+<td>1991.35</td>
+<td>1824</td>
+<td>2712</td>
+</tr>
+<tr>
+<td><code>security_studies</code></td>
+<td>245</td>
+<td>6405.04</td>
+<td>5680</td>
+<td>7818</td>
+</tr>
+<tr>
+<td><code>sociology</code></td>
+<td>201</td>
+<td>2176.49</td>
+<td>1976</td>
+<td>2530</td>
+</tr>
+<tr>
+<td><code>us_foreign_policy</code></td>
+<td>100</td>
+<td>2129.28</td>
+<td>1944</td>
+<td>2393</td>
+</tr>
+<tr>
+<td><code>virology</code></td>
+<td>166</td>
+<td>1563.11</td>
+<td>1426</td>
+<td>2507</td>
+</tr>
+<tr>
+<td><code>world_religions</code></td>
+<td>171</td>
+<td>1051.68</td>
+<td>985</td>
+<td>1255</td>
+</tr>
+</tbody>
+</table>
+<h2>样例示例</h2>
+<p><strong>子集</strong>: <code>abstract_algebra</code></p>
+<pre><code class="language-json">{
+  &quot;input&quot;: [
+    {
+      &quot;id&quot;: &quot;c7cbfbb9&quot;,
+      &quot;content&quot;: &quot;Here are some examples of how to answer similar questions:\n\nFind all c in Z_3 such that Z_3[x]/(x^2 + c) is a field.\nA) 0\nB) 1\nC) 2\nD) 3\nANSWER: B\n\nStatement 1 | If aH is an element of a factor group, then |aH| divides |a|. Statement 2 | If H ... [TRUNCATED] ... d be of the following format: 'ANSWER: [LETTER]' (without quotes) where [LETTER] is one of A,B,C,D. Think step by step before answering.\n\nFind the degree for the given field extension Q(sqrt(2), sqrt(3), sqrt(18)) over Q.\n\nA) 0\nB) 4\nC) 2\nD) 6&quot;
+    }
+  ],
+  &quot;choices&quot;: [
+    &quot;0&quot;,
+    &quot;4&quot;,
+    &quot;2&quot;,
+    &quot;6&quot;
+  ],
+  &quot;target&quot;: &quot;B&quot;,
+  &quot;id&quot;: 0,
+  &quot;group_id&quot;: 0,
+  &quot;subset_key&quot;: &quot;abstract_algebra&quot;,
+  &quot;metadata&quot;: {
+    &quot;subject&quot;: &quot;abstract_algebra&quot;
+  }
+}
+</code></pre>
+<p><em>注：部分内容为显示目的已截断。</em></p>
+<h2>提示模板</h2>
+<p><strong>提示模板：</strong></p>
+<pre><code class="language-text">Answer the following multiple choice question. The last line of your response should be of the following format: 'ANSWER: [LETTER]' (without quotes) where [LETTER] is one of {letters}. Think step by step before answering.
+
+{question}
+
+{choices}
+</code></pre></div>
+            
+          </div>
+        </details>
+        
+
+        
+
+          
+
+          
+          <div class="card" style="margin-bottom:1rem;">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    
+                    <th data-i18n="col.category">Category</th>
+                    
+                    <th data-i18n="col.subset">Subset</th>
+                    <th data-i18n="col.metric">Metric</th>
+                    <th data-i18n="col.score">Score</th>
+                    <th data-i18n="col.num">Num</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">Humanities</span></td>
+                    
+                    <td>formal_logic</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">1.0000</td>
+                    <td class="num-cell">4</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">Humanities</span></td>
+                    
+                    <td>philosophy</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">1.0000</td>
+                    <td class="num-cell">4</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">Other</span></td>
+                    
+                    <td>nutrition</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">1.0000</td>
+                    <td class="num-cell">4</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">STEM</span></td>
+                    
+                    <td>abstract_algebra</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">1.0000</td>
+                    <td class="num-cell">4</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">STEM</span></td>
+                    
+                    <td>machine_learning</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">1.0000</td>
+                    <td class="num-cell">4</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">STEM</span></td>
+                    
+                    <td>conceptual_physics</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">0.7500</td>
+                    <td class="num-cell">4</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">Social Science</span></td>
+                    
+                    <td>econometrics</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">1.0000</td>
+                    <td class="num-cell">4</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">Social Science</span></td>
+                    
+                    <td>high_school_psychology</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">1.0000</td>
+                    <td class="num-cell">4</td>
+                  </tr>
+                  
+                </tbody>
+              </table>
+            </div>
+          </div>
+          
+
+          
+          <div class="sub-card">
+            <div class="sub-card-header">
+              MMLU &middot; <span data-i18n="card.subset_scores">Subset Scores</span>
+            </div>
+            <div class="chart-wrap"><div style="height:100%; width:100%;">                            <div id="chart-mmlu-q35-experts20-thr08-decay" class="plotly-graph-div" style="height:100%; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-mmlu-q35-experts20-thr08-decay")) {                    Plotly.newPlot(                        "chart-mmlu-q35-experts20-thr08-decay",                        [{"alignmentgroup":"True","hovertemplate":"Subset=formal_logic\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"formal_logic","marker":{"color":"#636efa","pattern":{"shape":""}},"name":"formal_logic","offsetgroup":"formal_logic","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"},{"alignmentgroup":"True","hovertemplate":"Subset=philosophy\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"philosophy","marker":{"color":"#EF553B","pattern":{"shape":""}},"name":"philosophy","offsetgroup":"philosophy","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"},{"alignmentgroup":"True","hovertemplate":"Subset=nutrition\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"nutrition","marker":{"color":"#00cc96","pattern":{"shape":""}},"name":"nutrition","offsetgroup":"nutrition","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"},{"alignmentgroup":"True","hovertemplate":"Subset=abstract_algebra\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"abstract_algebra","marker":{"color":"#ab63fa","pattern":{"shape":""}},"name":"abstract_algebra","offsetgroup":"abstract_algebra","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"},{"alignmentgroup":"True","hovertemplate":"Subset=machine_learning\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"machine_learning","marker":{"color":"#FFA15A","pattern":{"shape":""}},"name":"machine_learning","offsetgroup":"machine_learning","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"},{"alignmentgroup":"True","hovertemplate":"Subset=conceptual_physics\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"conceptual_physics","marker":{"color":"#19d3f3","pattern":{"shape":""}},"name":"conceptual_physics","offsetgroup":"conceptual_physics","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA6D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA6D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"},{"alignmentgroup":"True","hovertemplate":"Subset=econometrics\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"econometrics","marker":{"color":"#FF6692","pattern":{"shape":""}},"name":"econometrics","offsetgroup":"econometrics","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"},{"alignmentgroup":"True","hovertemplate":"Subset=high_school_psychology\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"high_school_psychology","marker":{"color":"#B6E880","pattern":{"shape":""}},"name":"high_school_psychology","offsetgroup":"high_school_psychology","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"}],                        {"template":{"data":{"barpolar":[{"marker":{"line":{"color":"rgb(17,17,17)","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"bar":[{"error_x":{"color":"#f2f5fa"},"error_y":{"color":"#f2f5fa"},"marker":{"line":{"color":"rgb(17,17,17)","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"carpet":[{"aaxis":{"endlinecolor":"#A2B1C6","gridcolor":"#506784","linecolor":"#506784","minorgridcolor":"#506784","startlinecolor":"#A2B1C6"},"baxis":{"endlinecolor":"#A2B1C6","gridcolor":"#506784","linecolor":"#506784","minorgridcolor":"#506784","startlinecolor":"#A2B1C6"},"type":"carpet"}],"choropleth":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"choropleth"}],"contourcarpet":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"contourcarpet"}],"contour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"contour"}],"heatmap":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"heatmap"}],"histogram2dcontour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2dcontour"}],"histogram2d":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2d"}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"mesh3d":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"mesh3d"}],"parcoords":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"parcoords"}],"pie":[{"automargin":true,"type":"pie"}],"scatter3d":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatter3d"}],"scattercarpet":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattercarpet"}],"scattergeo":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergeo"}],"scattergl":[{"marker":{"line":{"color":"#283442"}},"type":"scattergl"}],"scattermapbox":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermapbox"}],"scattermap":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermap"}],"scatterpolargl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolargl"}],"scatterpolar":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolar"}],"scatter":[{"marker":{"line":{"color":"#283442"}},"type":"scatter"}],"scatterternary":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterternary"}],"surface":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"surface"}],"table":[{"cells":{"fill":{"color":"#506784"},"line":{"color":"rgb(17,17,17)"}},"header":{"fill":{"color":"#2a3f5f"},"line":{"color":"rgb(17,17,17)"}},"type":"table"}]},"layout":{"annotationdefaults":{"arrowcolor":"#f2f5fa","arrowhead":0,"arrowwidth":1},"autotypenumbers":"strict","coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]],"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]},"colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#f2f5fa"},"geo":{"bgcolor":"rgb(17,17,17)","lakecolor":"rgb(17,17,17)","landcolor":"rgb(17,17,17)","showlakes":true,"showland":true,"subunitcolor":"#506784"},"hoverlabel":{"align":"left"},"hovermode":"closest","mapbox":{"style":"dark"},"paper_bgcolor":"rgb(17,17,17)","plot_bgcolor":"rgb(17,17,17)","polar":{"angularaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"bgcolor":"rgb(17,17,17)","radialaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""}},"scene":{"xaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"},"yaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"},"zaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"}},"shapedefaults":{"line":{"color":"#f2f5fa"}},"sliderdefaults":{"bgcolor":"#C8D4E3","bordercolor":"rgb(17,17,17)","borderwidth":1,"tickwidth":0},"ternary":{"aaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"baxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"bgcolor":"rgb(17,17,17)","caxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""}},"title":{"x":0.05},"updatemenudefaults":{"bgcolor":"#506784","borderwidth":0},"xaxis":{"automargin":true,"gridcolor":"#283442","linecolor":"#506784","ticks":"","title":{"standoff":15},"zerolinecolor":"#283442","zerolinewidth":2},"yaxis":{"automargin":true,"gridcolor":"#283442","linecolor":"#506784","ticks":"","title":{"standoff":15},"zerolinecolor":"#283442","zerolinewidth":2}}},"xaxis":{"anchor":"y","domain":[0.0,1.0],"title":{"text":"Metric"}},"yaxis":{"anchor":"x","domain":[0.0,1.0],"title":{"text":"Score"},"range":[0,1]},"legend":{"title":{"text":"Subset"},"tracegroupgap":0},"margin":{"t":60},"barmode":"group","uniformtext":{"minsize":12,"mode":"hide"}},                        {"responsive": true}                    )                };            </script>        </div></div>
+          </div>
+          
+
+          
+
+        
+
+      </div>
+    </details>
+    
+    <details class="ds-card" id="ds-3" >
+      <summary class="ds-summary">
+        <div class="ds-summary-left">
+          <span class="ds-arrow">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </span>
+          <span class="ds-name">MMLU-Pro</span>
+        </div>
+        <div class="ds-summary-right">
+          <span class="score-pill" data-score="0.8125">0.8125</span>
+        </div>
+      </summary>
+
+      <div class="ds-body">
+
+        
+        <details class="inner-toggle">
+          <summary>
+            <span class="inner-arrow">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            </span>
+            <span data-i18n="toggle.description">Description</span>
+          </summary>
+          <div class="ds-description">
+            
+            <div class="desc-lang-content" data-desc-lang="en"><h2>Overview</h2>
+<p>MMLU-Pro is an enhanced version of MMLU with increased difficulty and reasoning requirements. It features 10 answer choices instead of 4 and includes more challenging questions requiring deeper reasoning across 14 diverse domains.</p>
+<h2>Task Description</h2>
+<ul>
+<li><strong>Task Type</strong>: Multiple-Choice Question Answering (10 options)</li>
+<li><strong>Input</strong>: Question with up to 10 answer choices</li>
+<li><strong>Output</strong>: Single correct answer letter (A-J)</li>
+<li><strong>Domains</strong>: 14 subjects including science, law, engineering, psychology</li>
+</ul>
+<h2>Key Features</h2>
+<ul>
+<li>10 answer choices per question (vs 4 in original MMLU)</li>
+<li>More challenging questions requiring reasoning</li>
+<li>Includes Chain-of-Thought (CoT) explanations</li>
+<li>14 diverse subjects covered</li>
+<li>Reduced impact of random guessing (10% vs 25%)</li>
+</ul>
+<h2>Evaluation Notes</h2>
+<ul>
+<li>Default configuration uses <strong>5-shot</strong> examples</li>
+<li>Answers should follow "ANSWER: [LETTER]" format</li>
+<li>Uses subject-specific few-shot examples</li>
+<li>Step-by-step reasoning encouraged</li>
+<li>Evaluates on test split with validation for few-shot</li>
+</ul>
+<h2>Properties</h2>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Benchmark Name</strong></td>
+<td><code>mmlu_pro</code></td>
+</tr>
+<tr>
+<td><strong>Dataset ID</strong></td>
+<td><a href="https://modelscope.cn/datasets/TIGER-Lab/MMLU-Pro/summary">TIGER-Lab/MMLU-Pro</a></td>
+</tr>
+<tr>
+<td><strong>Paper</strong></td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><strong>Tags</strong></td>
+<td><code>Knowledge</code>, <code>MCQ</code></td>
+</tr>
+<tr>
+<td><strong>Metrics</strong></td>
+<td><code>acc</code></td>
+</tr>
+<tr>
+<td><strong>Default Shots</strong></td>
+<td>5-shot</td>
+</tr>
+<tr>
+<td><strong>Evaluation Split</strong></td>
+<td><code>test</code></td>
+</tr>
+<tr>
+<td><strong>Train Split</strong></td>
+<td><code>validation</code></td>
+</tr>
+</tbody>
+</table>
+<h2>Data Statistics</h2>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Total Samples</td>
+<td>12,032</td>
+</tr>
+<tr>
+<td>Prompt Length (Mean)</td>
+<td>4959.66 chars</td>
+</tr>
+<tr>
+<td>Prompt Length (Min/Max)</td>
+<td>3048 / 12100 chars</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Per-Subset Statistics:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Subset</th>
+<th>Samples</th>
+<th>Prompt Mean</th>
+<th>Prompt Min</th>
+<th>Prompt Max</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>computer science</code></td>
+<td>410</td>
+<td>5184.05</td>
+<td>4696</td>
+<td>7303</td>
+</tr>
+<tr>
+<td><code>math</code></td>
+<td>1,351</td>
+<td>4853.54</td>
+<td>4574</td>
+<td>7519</td>
+</tr>
+<tr>
+<td><code>chemistry</code></td>
+<td>1,132</td>
+<td>4567.2</td>
+<td>4182</td>
+<td>5975</td>
+</tr>
+<tr>
+<td><code>engineering</code></td>
+<td>969</td>
+<td>3595.66</td>
+<td>3048</td>
+<td>5775</td>
+</tr>
+<tr>
+<td><code>law</code></td>
+<td>1,101</td>
+<td>7001.35</td>
+<td>5581</td>
+<td>9200</td>
+</tr>
+<tr>
+<td><code>biology</code></td>
+<td>717</td>
+<td>5881.08</td>
+<td>5179</td>
+<td>7850</td>
+</tr>
+<tr>
+<td><code>health</code></td>
+<td>818</td>
+<td>4624.44</td>
+<td>4134</td>
+<td>9310</td>
+</tr>
+<tr>
+<td><code>physics</code></td>
+<td>1,299</td>
+<td>4389.59</td>
+<td>4004</td>
+<td>6511</td>
+</tr>
+<tr>
+<td><code>business</code></td>
+<td>789</td>
+<td>4646.01</td>
+<td>4316</td>
+<td>6915</td>
+</tr>
+<tr>
+<td><code>philosophy</code></td>
+<td>499</td>
+<td>3760.1</td>
+<td>3360</td>
+<td>5289</td>
+</tr>
+<tr>
+<td><code>economics</code></td>
+<td>844</td>
+<td>4680.21</td>
+<td>4118</td>
+<td>6907</td>
+</tr>
+<tr>
+<td><code>other</code></td>
+<td>924</td>
+<td>3730.86</td>
+<td>3316</td>
+<td>6108</td>
+</tr>
+<tr>
+<td><code>psychology</code></td>
+<td>798</td>
+<td>5274.19</td>
+<td>4656</td>
+<td>6942</td>
+</tr>
+<tr>
+<td><code>history</code></td>
+<td>381</td>
+<td>9919.94</td>
+<td>8711</td>
+<td>12100</td>
+</tr>
+</tbody>
+</table>
+<h2>Sample Example</h2>
+<p><strong>Subset</strong>: <code>computer science</code></p>
+<pre><code class="language-json">{
+  &quot;input&quot;: [
+    {
+      &quot;id&quot;: &quot;79336f87&quot;,
+      &quot;content&quot;: &quot;The following are multiple choice questions (with answers) about computer science. Think step by step and then finish your answer with 'ANSWER: [LETTER]' (without quotes) where [LETTER] is the correct letter choice.\n\nQuestion:\nA certain pipel ... [TRUNCATED] ...  random index of a larger value.\nG) The method should be written to return the largest index among larger values.\nH) The method should be written on the assumption that there is only one value in the array that is larger than the given item.\n&quot;
+    }
+  ],
+  &quot;choices&quot;: [
+    &quot;The method should return an error if more than one larger value is found.&quot;,
+    &quot;The specification should be modified to indicate what should be done if there is more than one index of larger values.&quot;,
+    &quot;The method should be written to output a message if more than one larger value is found.&quot;,
+    &quot;The method should be written so as to return the index of every occurrence of a larger value.&quot;,
+    &quot;The method should be written to return the last occurrence of a larger value.&quot;,
+    &quot;The method should return a random index of a larger value.&quot;,
+    &quot;The method should be written to return the largest index among larger values.&quot;,
+    &quot;The method should be written on the assumption that there is only one value in the array that is larger than the given item.&quot;
+  ],
+  &quot;target&quot;: &quot;B&quot;,
+  &quot;id&quot;: 0,
+  &quot;group_id&quot;: 0,
+  &quot;subset_key&quot;: &quot;computer science&quot;,
+  &quot;metadata&quot;: {
+    &quot;cot_content&quot;: &quot;&quot;,
+    &quot;subject&quot;: &quot;computer science&quot;,
+    &quot;question_id&quot;: 10356
+  }
+}
+</code></pre>
+<p><em>Note: Some content was truncated for display.</em></p>
+<h2>Prompt Template</h2>
+<p><strong>Prompt Template:</strong></p>
+<pre><code class="language-text">Answer the following multiple choice question. The last line of your response should be of the following format: 'ANSWER: [LETTER]' (without quotes) where [LETTER] is one of {letters}. Think step by step before answering.
+
+Question:
+{question}
+Options:
+{choices}
+
+</code></pre>
+<details>
+<summary>Few-shot Template</summary>
+
+
+<pre><code class="language-text">The following are multiple choice questions (with answers) about {subject}. Think step by step and then finish your answer with 'ANSWER: [LETTER]' (without quotes) where [LETTER] is the correct letter choice.
+
+{examples}
+Answer the following multiple choice question. The last line of your response should be of the following format: 'ANSWER: [LETTER]' (without quotes) where [LETTER] is one of {letters}. Think step by step before answering.
+
+Question:
+{question}
+Options:
+{choices}
+
+</code></pre>
+
+
+</details></div>
+            
+            
+            <div class="desc-lang-content" data-desc-lang="zh" style="display:none"><h2>概述</h2>
+<p>MMLU-Pro 是 MMLU 的增强版本，具有更高的难度和更强的推理要求。它将每道题的答案选项从 4 个增加到 10 个，并包含更具挑战性的问题，需要在 14 个不同领域中进行更深入的推理。</p>
+<h2>任务描述</h2>
+<ul>
+<li><strong>任务类型</strong>：多项选择题问答（10 个选项）</li>
+<li><strong>输入</strong>：包含最多 10 个答案选项的问题</li>
+<li><strong>输出</strong>：单个正确答案字母（A-J）</li>
+<li><strong>领域</strong>：涵盖科学、法律、工程、心理学等 14 个学科</li>
+</ul>
+<h2>主要特点</h2>
+<ul>
+<li>每道题提供 10 个答案选项（原始 MMLU 为 4 个）</li>
+<li>问题更具挑战性，需要更强的推理能力</li>
+<li>包含思维链（Chain-of-Thought, CoT）解释</li>
+<li>覆盖 14 个多样化主题</li>
+<li>随机猜测的正确率显著降低（10% 对比 25%）</li>
+</ul>
+<h2>评估说明</h2>
+<ul>
+<li>默认配置使用 <strong>5-shot</strong> 示例</li>
+<li>答案应遵循 "ANSWER: [LETTER]" 格式</li>
+<li>使用特定学科的 few-shot 示例</li>
+<li>鼓励逐步推理</li>
+<li>在测试集上评估，并使用验证集提供 few-shot 示例</li>
+</ul>
+<h2>属性</h2>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>基准测试名称</strong></td>
+<td><code>mmlu_pro</code></td>
+</tr>
+<tr>
+<td><strong>数据集ID</strong></td>
+<td><a href="https://modelscope.cn/datasets/TIGER-Lab/MMLU-Pro/summary">TIGER-Lab/MMLU-Pro</a></td>
+</tr>
+<tr>
+<td><strong>论文</strong></td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><strong>标签</strong></td>
+<td><code>Knowledge</code>, <code>MCQ</code></td>
+</tr>
+<tr>
+<td><strong>指标</strong></td>
+<td><code>acc</code></td>
+</tr>
+<tr>
+<td><strong>默认示例数</strong></td>
+<td>5-shot</td>
+</tr>
+<tr>
+<td><strong>评估分割</strong></td>
+<td><code>test</code></td>
+</tr>
+<tr>
+<td><strong>训练分割</strong></td>
+<td><code>validation</code></td>
+</tr>
+</tbody>
+</table>
+<h2>数据统计</h2>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>总样本数</td>
+<td>12,032</td>
+</tr>
+<tr>
+<td>提示词长度（平均）</td>
+<td>4959.66 字符</td>
+</tr>
+<tr>
+<td>提示词长度（最小/最大）</td>
+<td>3048 / 12100 字符</td>
+</tr>
+</tbody>
+</table>
+<p><strong>各子集统计信息：</strong></p>
+<table>
+<thead>
+<tr>
+<th>子集</th>
+<th>样本数</th>
+<th>提示平均长度</th>
+<th>提示最小长度</th>
+<th>提示最大长度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>computer science</code></td>
+<td>410</td>
+<td>5184.05</td>
+<td>4696</td>
+<td>7303</td>
+</tr>
+<tr>
+<td><code>math</code></td>
+<td>1,351</td>
+<td>4853.54</td>
+<td>4574</td>
+<td>7519</td>
+</tr>
+<tr>
+<td><code>chemistry</code></td>
+<td>1,132</td>
+<td>4567.2</td>
+<td>4182</td>
+<td>5975</td>
+</tr>
+<tr>
+<td><code>engineering</code></td>
+<td>969</td>
+<td>3595.66</td>
+<td>3048</td>
+<td>5775</td>
+</tr>
+<tr>
+<td><code>law</code></td>
+<td>1,101</td>
+<td>7001.35</td>
+<td>5581</td>
+<td>9200</td>
+</tr>
+<tr>
+<td><code>biology</code></td>
+<td>717</td>
+<td>5881.08</td>
+<td>5179</td>
+<td>7850</td>
+</tr>
+<tr>
+<td><code>health</code></td>
+<td>818</td>
+<td>4624.44</td>
+<td>4134</td>
+<td>9310</td>
+</tr>
+<tr>
+<td><code>physics</code></td>
+<td>1,299</td>
+<td>4389.59</td>
+<td>4004</td>
+<td>6511</td>
+</tr>
+<tr>
+<td><code>business</code></td>
+<td>789</td>
+<td>4646.01</td>
+<td>4316</td>
+<td>6915</td>
+</tr>
+<tr>
+<td><code>philosophy</code></td>
+<td>499</td>
+<td>3760.1</td>
+<td>3360</td>
+<td>5289</td>
+</tr>
+<tr>
+<td><code>economics</code></td>
+<td>844</td>
+<td>4680.21</td>
+<td>4118</td>
+<td>6907</td>
+</tr>
+<tr>
+<td><code>other</code></td>
+<td>924</td>
+<td>3730.86</td>
+<td>3316</td>
+<td>6108</td>
+</tr>
+<tr>
+<td><code>psychology</code></td>
+<td>798</td>
+<td>5274.19</td>
+<td>4656</td>
+<td>6942</td>
+</tr>
+<tr>
+<td><code>history</code></td>
+<td>381</td>
+<td>9919.94</td>
+<td>8711</td>
+<td>12100</td>
+</tr>
+</tbody>
+</table>
+<h2>样例示例</h2>
+<p><strong>子集</strong>: <code>computer science</code></p>
+<pre><code class="language-json">{
+  &quot;input&quot;: [
+    {
+      &quot;id&quot;: &quot;79336f87&quot;,
+      &quot;content&quot;: &quot;The following are multiple choice questions (with answers) about computer science. Think step by step and then finish your answer with 'ANSWER: [LETTER]' (without quotes) where [LETTER] is the correct letter choice.\n\nQuestion:\nA certain pipel ... [TRUNCATED] ...  random index of a larger value.\nG) The method should be written to return the largest index among larger values.\nH) The method should be written on the assumption that there is only one value in the array that is larger than the given item.\n&quot;
+    }
+  ],
+  &quot;choices&quot;: [
+    &quot;The method should return an error if more than one larger value is found.&quot;,
+    &quot;The specification should be modified to indicate what should be done if there is more than one index of larger values.&quot;,
+    &quot;The method should be written to output a message if more than one larger value is found.&quot;,
+    &quot;The method should be written so as to return the index of every occurrence of a larger value.&quot;,
+    &quot;The method should be written to return the last occurrence of a larger value.&quot;,
+    &quot;The method should return a random index of a larger value.&quot;,
+    &quot;The method should be written to return the largest index among larger values.&quot;,
+    &quot;The method should be written on the assumption that there is only one value in the array that is larger than the given item.&quot;
+  ],
+  &quot;target&quot;: &quot;B&quot;,
+  &quot;id&quot;: 0,
+  &quot;group_id&quot;: 0,
+  &quot;subset_key&quot;: &quot;computer science&quot;,
+  &quot;metadata&quot;: {
+    &quot;cot_content&quot;: &quot;&quot;,
+    &quot;subject&quot;: &quot;computer science&quot;,
+    &quot;question_id&quot;: 10356
+  }
+}
+</code></pre>
+<p><em>注：部分内容因展示需要已被截断。</em></p>
+<h2>提示模板</h2>
+<p><strong>提示模板：</strong></p>
+<pre><code class="language-text">Answer the following multiple choice question. The last line of your response should be of the following format: 'ANSWER: [LETTER]' (without quotes) where [LETTER] is one of {letters}. Think step by step before answering.
+
+Question:
+{question}
+Options:
+{choices}
+
+</code></pre>
+<details>
+<summary>Few-shot 模板</summary>
+
+
+<pre><code class="language-text">The following are multiple choice questions (with answers) about {subject}. Think step by step and then finish your answer with 'ANSWER: [LETTER]' (without quotes) where [LETTER] is the correct letter choice.
+
+{examples}
+Answer the following multiple choice question. The last line of your response should be of the following format: 'ANSWER: [LETTER]' (without quotes) where [LETTER] is one of {letters}. Think step by step before answering.
+
+Question:
+{question}
+Options:
+{choices}
+
+</code></pre>
+
+
+</details></div>
+            
+          </div>
+        </details>
+        
+
+        
+
+          
+
+          
+          <div class="card" style="margin-bottom:1rem;">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    
+                    <th data-i18n="col.category">Category</th>
+                    
+                    <th data-i18n="col.subset">Subset</th>
+                    <th data-i18n="col.metric">Metric</th>
+                    <th data-i18n="col.score">Score</th>
+                    <th data-i18n="col.num">Num</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">default</span></td>
+                    
+                    <td>computer science</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">1.0000</td>
+                    <td class="num-cell">2</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">default</span></td>
+                    
+                    <td>math</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">0.5000</td>
+                    <td class="num-cell">2</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">default</span></td>
+                    
+                    <td>physics</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">1.0000</td>
+                    <td class="num-cell">2</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">default</span></td>
+                    
+                    <td>chemistry</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">1.0000</td>
+                    <td class="num-cell">2</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">default</span></td>
+                    
+                    <td>law</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">0.5000</td>
+                    <td class="num-cell">2</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">default</span></td>
+                    
+                    <td>philosophy</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">0.5000</td>
+                    <td class="num-cell">2</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">default</span></td>
+                    
+                    <td>economics</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">1.0000</td>
+                    <td class="num-cell">2</td>
+                  </tr>
+                  
+                  <tr>
+                    
+                    <td><span class="tag">default</span></td>
+                    
+                    <td>psychology</td>
+                    <td><span class="metric-tag">mean_acc</span></td>
+                    <td class="score-cell">1.0000</td>
+                    <td class="num-cell">2</td>
+                  </tr>
+                  
+                </tbody>
+              </table>
+            </div>
+          </div>
+          
+
+          
+          <div class="sub-card">
+            <div class="sub-card-header">
+              MMLU-Pro &middot; <span data-i18n="card.subset_scores">Subset Scores</span>
+            </div>
+            <div class="chart-wrap"><div style="height:100%; width:100%;">                            <div id="chart-mmlu_pro-q35-experts20-thr08-decay" class="plotly-graph-div" style="height:100%; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-mmlu_pro-q35-experts20-thr08-decay")) {                    Plotly.newPlot(                        "chart-mmlu_pro-q35-experts20-thr08-decay",                        [{"alignmentgroup":"True","hovertemplate":"Subset=computer science\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"computer science","marker":{"color":"#636efa","pattern":{"shape":""}},"name":"computer science","offsetgroup":"computer science","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"},{"alignmentgroup":"True","hovertemplate":"Subset=math\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"math","marker":{"color":"#EF553B","pattern":{"shape":""}},"name":"math","offsetgroup":"math","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA4D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA4D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"},{"alignmentgroup":"True","hovertemplate":"Subset=physics\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"physics","marker":{"color":"#00cc96","pattern":{"shape":""}},"name":"physics","offsetgroup":"physics","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"},{"alignmentgroup":"True","hovertemplate":"Subset=chemistry\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"chemistry","marker":{"color":"#ab63fa","pattern":{"shape":""}},"name":"chemistry","offsetgroup":"chemistry","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"},{"alignmentgroup":"True","hovertemplate":"Subset=law\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"law","marker":{"color":"#FFA15A","pattern":{"shape":""}},"name":"law","offsetgroup":"law","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA4D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA4D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"},{"alignmentgroup":"True","hovertemplate":"Subset=philosophy\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"philosophy","marker":{"color":"#19d3f3","pattern":{"shape":""}},"name":"philosophy","offsetgroup":"philosophy","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA4D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA4D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"},{"alignmentgroup":"True","hovertemplate":"Subset=economics\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"economics","marker":{"color":"#FF6692","pattern":{"shape":""}},"name":"economics","offsetgroup":"economics","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"},{"alignmentgroup":"True","hovertemplate":"Subset=psychology\u003cbr\u003eMetric=%{x}\u003cbr\u003eScore=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"psychology","marker":{"color":"#B6E880","pattern":{"shape":""}},"name":"psychology","offsetgroup":"psychology","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"textposition":"outside","x":["mean_acc"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAA8D8="},"yaxis":"y","type":"bar","texttemplate":"%{text:.2f}"}],                        {"template":{"data":{"barpolar":[{"marker":{"line":{"color":"rgb(17,17,17)","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"bar":[{"error_x":{"color":"#f2f5fa"},"error_y":{"color":"#f2f5fa"},"marker":{"line":{"color":"rgb(17,17,17)","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"carpet":[{"aaxis":{"endlinecolor":"#A2B1C6","gridcolor":"#506784","linecolor":"#506784","minorgridcolor":"#506784","startlinecolor":"#A2B1C6"},"baxis":{"endlinecolor":"#A2B1C6","gridcolor":"#506784","linecolor":"#506784","minorgridcolor":"#506784","startlinecolor":"#A2B1C6"},"type":"carpet"}],"choropleth":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"choropleth"}],"contourcarpet":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"contourcarpet"}],"contour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"contour"}],"heatmap":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"heatmap"}],"histogram2dcontour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2dcontour"}],"histogram2d":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2d"}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"mesh3d":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"mesh3d"}],"parcoords":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"parcoords"}],"pie":[{"automargin":true,"type":"pie"}],"scatter3d":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatter3d"}],"scattercarpet":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattercarpet"}],"scattergeo":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergeo"}],"scattergl":[{"marker":{"line":{"color":"#283442"}},"type":"scattergl"}],"scattermapbox":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermapbox"}],"scattermap":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermap"}],"scatterpolargl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolargl"}],"scatterpolar":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolar"}],"scatter":[{"marker":{"line":{"color":"#283442"}},"type":"scatter"}],"scatterternary":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterternary"}],"surface":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"surface"}],"table":[{"cells":{"fill":{"color":"#506784"},"line":{"color":"rgb(17,17,17)"}},"header":{"fill":{"color":"#2a3f5f"},"line":{"color":"rgb(17,17,17)"}},"type":"table"}]},"layout":{"annotationdefaults":{"arrowcolor":"#f2f5fa","arrowhead":0,"arrowwidth":1},"autotypenumbers":"strict","coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]],"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]},"colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#f2f5fa"},"geo":{"bgcolor":"rgb(17,17,17)","lakecolor":"rgb(17,17,17)","landcolor":"rgb(17,17,17)","showlakes":true,"showland":true,"subunitcolor":"#506784"},"hoverlabel":{"align":"left"},"hovermode":"closest","mapbox":{"style":"dark"},"paper_bgcolor":"rgb(17,17,17)","plot_bgcolor":"rgb(17,17,17)","polar":{"angularaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"bgcolor":"rgb(17,17,17)","radialaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""}},"scene":{"xaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"},"yaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"},"zaxis":{"backgroundcolor":"rgb(17,17,17)","gridcolor":"#506784","gridwidth":2,"linecolor":"#506784","showbackground":true,"ticks":"","zerolinecolor":"#C8D4E3"}},"shapedefaults":{"line":{"color":"#f2f5fa"}},"sliderdefaults":{"bgcolor":"#C8D4E3","bordercolor":"rgb(17,17,17)","borderwidth":1,"tickwidth":0},"ternary":{"aaxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"baxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""},"bgcolor":"rgb(17,17,17)","caxis":{"gridcolor":"#506784","linecolor":"#506784","ticks":""}},"title":{"x":0.05},"updatemenudefaults":{"bgcolor":"#506784","borderwidth":0},"xaxis":{"automargin":true,"gridcolor":"#283442","linecolor":"#506784","ticks":"","title":{"standoff":15},"zerolinecolor":"#283442","zerolinewidth":2},"yaxis":{"automargin":true,"gridcolor":"#283442","linecolor":"#506784","ticks":"","title":{"standoff":15},"zerolinecolor":"#283442","zerolinewidth":2}}},"xaxis":{"anchor":"y","domain":[0.0,1.0],"title":{"text":"Metric"}},"yaxis":{"anchor":"x","domain":[0.0,1.0],"title":{"text":"Score"},"range":[0,1]},"legend":{"title":{"text":"Subset"},"tracegroupgap":0},"margin":{"t":60},"barmode":"group","uniformtext":{"minsize":12,"mode":"hide"}},                        {"responsive": true}                    )                };            </script>        </div></div>
+          </div>
+          
+
+          
+
+        
+
+      </div>
+    </details>
+    
+
+  </section>
+
+  <!-- ── Footer ──────────────────────────────────────────────── -->
+  <!-- ── Footer ──────────────────────────────────────────────── -->
+<footer class="report-footer">
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+  </svg>
+  <span data-i18n="footer.generated_by">Generated by</span>
+  <a href="https://github.com/modelscope/evalscope" target="_blank" rel="noopener">EvalScope</a>
+</footer>
+
+</div><!-- /container -->
+
+<script>
+(function () {
+  'use strict';
+
+var DEFAULT_LANG = 'en';
+
+/* ═══════════════════════════════════════════════════════════════════
+ * i18n dictionary — Evaluation Report
+ *
+ * Keys follow a dot-notation namespace:
+ *   toc.*        — floating table of contents
+ *   nav.*        — TOC link labels
+ *   header.*     — page header text
+ *   meta.*       — header meta-chip labels
+ *   section.*    — section heading titles
+ *   card.*       — card / sub-card heading titles
+ *   col.*        — table column headers
+ *   badge.*      — inline count suffixes
+ *   toggle.*     — collapsible inner-toggle labels
+ *   footer.*     — footer text
+ *
+ * To add a new language, duplicate the `en` block, change the key,
+ * and provide translated values. No other code changes required.
+ * ═══════════════════════════════════════════════════════════════════ */
+var I18N = {
+
+  en: {
+    /* ── Navigation / TOC ─────────────────────── */
+    'toc.title':         'Contents',
+    'nav.overview':      'Overview',
+    'nav.results':       'Results by Dataset',
+
+    /* ── Page header ──────────────────────────── */
+    'header.title':      'Evaluation Report',
+    'meta.models':       'Model(s)',
+    'meta.datasets':     'Datasets',
+    'meta.generated_at': 'Generated at',
+
+    /* ── Section headings ─────────────────────── */
+    'section.overview':  'Overview',
+    'section.results':   'Results by Dataset',
+
+    /* ── Card titles ──────────────────────────── */
+    'card.score_summary':  'Score Summary',
+    'card.overview_chart': 'Overall Score Chart',
+    'card.score_dist':     'Score Distribution',
+    'card.subset_scores':  'Subset Scores',
+
+    /* ── Table column headers ─────────────────── */
+    'col.dataset':   'Dataset',
+    'col.model':     'Model',
+    'col.metric':    'Metric',
+    'col.score':     'Score',
+    'col.num':       'Num',
+    'col.subset':    'Subset',
+    'col.category':  'Category',
+
+    /* ── Inline badge suffixes ────────────────── */
+    'badge.entries': 'entries',
+
+    /* ── Collapsible toggle labels ────────────── */
+    'toggle.description': 'Description',
+    'toggle.analysis':    'Analysis',
+
+    /* ── Footer ───────────────────────────────── */
+    'footer.generated_by': 'Generated by',
+  },
+
+  zh: {
+    /* ── Navigation / TOC ─────────────────────── */
+    'toc.title':         '目录',
+    'nav.overview':      '概览',
+    'nav.results':       '数据集结果',
+
+    /* ── Page header ──────────────────────────── */
+    'header.title':      '评测报告',
+    'meta.models':       '模型',
+    'meta.datasets':     '数据集',
+    'meta.generated_at': '生成时间',
+
+    /* ── Section headings ─────────────────────── */
+    'section.overview':  '概览',
+    'section.results':   '数据集结果',
+
+    /* ── Card titles ──────────────────────────── */
+    'card.score_summary':  '分数汇总',
+    'card.overview_chart': '整体分数图表',
+    'card.score_dist':     '分数分布',
+    'card.subset_scores':  '子集分数',
+
+    /* ── Table column headers ─────────────────── */
+    'col.dataset':   '数据集',
+    'col.model':     '模型',
+    'col.metric':    '指标',
+    'col.score':     '分数',
+    'col.num':       '数量',
+    'col.subset':    '子集',
+    'col.category':  '类别',
+
+    /* ── Inline badge suffixes ────────────────── */
+    'badge.entries': '条记录',
+
+    /* ── Collapsible toggle labels ────────────── */
+    'toggle.description': '数据集描述',
+    'toggle.analysis':    '分析',
+
+    /* ── Footer ───────────────────────────────── */
+    'footer.generated_by': '由以下工具生成',
+  },
+
+}; /* end I18N */
+/* ── Language switcher ─────────────────────────────────────────── */
+
+/**
+ * Apply a language to the page.
+ *
+ * Walks every element carrying a [data-i18n] attribute and replaces
+ * its textContent with the matching translation. Falls back silently
+ * when a key is absent (element keeps its original text).
+ *
+ * The `.desc-lang-content` handling is a safe no-op on pages that do
+ * not contain description blocks (e.g. the perf report).
+ *
+ * @param {string} lang - Language code: 'en' | 'zh'
+ */
+function setLang(lang) {
+  if (!I18N[lang]) return;
+  var dict = I18N[lang];
+
+  /* Update all translated elements */
+  document.querySelectorAll('[data-i18n]').forEach(function (el) {
+    var key = el.dataset.i18n;
+    if (Object.prototype.hasOwnProperty.call(dict, key)) {
+      el.textContent = dict[key];
+    }
+  });
+
+  /* Show the matching description language, hide the other (eval only; no-op on perf) */
+  document.querySelectorAll('.desc-lang-content').forEach(function (el) {
+    el.style.display = (el.dataset.descLang === lang) ? '' : 'none';
+  });
+
+  /* Highlight the active lang button */
+  document.querySelectorAll('.lang-btn').forEach(function (btn) {
+    btn.classList.toggle('active', btn.dataset.lang === lang);
+  });
+
+  /* Update <html lang> for accessibility / SEO */
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+
+  /* Persist selection across page reloads (shared key across all reports) */
+  try { localStorage.setItem('evalscope-lang', lang); } catch (e) { /* ignore */ }
+}
+
+/* Bind click handlers to the EN / 中文 toggle buttons */
+document.querySelectorAll('.lang-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () { setLang(btn.dataset.lang); });
+});
+
+/* Restore the last-selected language on page load,
+   falling back to the server-side DEFAULT_LANG when no stored preference exists */
+(function initLang() {
+  try {
+    var saved = localStorage.getItem('evalscope-lang');
+    setLang((saved && I18N[saved]) ? saved : (DEFAULT_LANG || 'en'));
+  } catch (e) {
+    setLang(DEFAULT_LANG || 'en');
+  }
+}());
+
+/* ── Dataset / run accordion arrow ───────────────────────────── */
+document.querySelectorAll('details.ds-card').forEach(function (el) {
+  var arrow = el.querySelector('.ds-arrow');
+  function sync() {
+    if (arrow) arrow.style.transform = el.open ? 'rotate(90deg)' : 'rotate(0deg)';
+  }
+  sync();
+  el.addEventListener('toggle', function () {
+    sync();
+    /* Plotly responsive resize */
+    if (el.open) window.dispatchEvent(new Event('resize'));
+  });
+});
+
+/* ── Floating TOC toggle ─────────────────────────────────────── */
+var toc       = document.getElementById('toc');
+var tocToggle = document.getElementById('toc-toggle');
+
+/* Auto-expand on wide screens */
+if (window.innerWidth >= 1320) toc.classList.add('expanded');
+
+tocToggle.addEventListener('click', function () {
+  toc.classList.toggle('expanded');
+});
+
+/* Close TOC when clicking outside */
+document.addEventListener('click', function (e) {
+  if (!toc.contains(e.target)) toc.classList.remove('expanded');
+});
+
+/* ── TOC smooth scroll + mobile close ───────────────────────── */
+document.querySelectorAll('.toc-link').forEach(function (link) {
+  link.addEventListener('click', function (e) {
+    var href = link.getAttribute('href');
+    if (!href || !href.startsWith('#')) return;
+    e.preventDefault();
+    var target = document.getElementById(href.slice(1));
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (window.innerWidth < 1320) toc.classList.remove('expanded');
+    }
+  });
+});
+
+/* ── TOC active section via IntersectionObserver ─────────────── */
+var tocSections = [];
+document.querySelectorAll('.toc-link[data-section]').forEach(function (link) {
+  var id = link.dataset.section;
+  var el = document.getElementById(id);
+  if (el) tocSections.push({ id: id, el: el, link: link });
+});
+
+var currentActive = null;
+function setActive(id) {
+  if (currentActive === id) return;
+  currentActive = id;
+  tocSections.forEach(function (s) {
+    s.link.classList.toggle('active', s.id === id);
+  });
+}
+
+if ('IntersectionObserver' in window && tocSections.length) {
+  var obs = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (entry.isIntersecting) setActive(entry.target.id);
+    });
+  }, { rootMargin: '-15% 0px -70% 0px', threshold: 0 });
+
+  tocSections.forEach(function (s) { obs.observe(s.el); });
+}
+
+/* ── Back-to-top visibility ──────────────────────────────────── */
+var btt = document.getElementById('back-to-top');
+if (btt) {
+  window.addEventListener('scroll', function () {
+    btt.classList.toggle('visible', window.scrollY > 300);
+  }, { passive: true });
+
+  btt.addEventListener('click', function (e) {
+    e.preventDefault();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+}
+/* ── Score cell gradient colouring ──────────────────────────── */
+function scoreHue(val) {
+  var c = Math.max(0, Math.min(1, val));
+  return Math.round(c * 120); // 0=red, 60=yellow, 120=green
+}
+
+document.querySelectorAll('td.score-cell').forEach(function (cell) {
+  var val = parseFloat(cell.textContent);
+  if (isNaN(val)) return;
+  cell.style.color = 'hsl(' + scoreHue(val) + ', 72%, 62%)';
+});
+
+/* ── Score pill dynamic colour ───────────────────────────────── */
+document.querySelectorAll('.score-pill[data-score]').forEach(function (pill) {
+  var val = parseFloat(pill.dataset.score);
+  if (isNaN(val)) return;
+  var h = scoreHue(val);
+  pill.style.background   = 'hsla(' + h + ', 60%, 30%, 0.32)';
+  pill.style.color         = 'hsl(' + h + ', 72%, 65%)';
+  pill.style.borderColor   = 'hsla(' + h + ', 60%, 50%, 0.35)';
+});
+
+/* ── Inner toggle arrow ──────────────────────────────────────── */
+document.querySelectorAll('details.inner-toggle').forEach(function (el) {
+  var arrow = el.querySelector('.inner-arrow');
+  function sync() {
+    if (arrow) arrow.style.transform = el.open ? 'rotate(90deg)' : 'rotate(0deg)';
+  }
+  sync();
+  el.addEventListener('toggle', sync);
+});
+
+}());
+</script>
+
+</body>
+</html>

@@ -1,0 +1,88 @@
+#version 460
+
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+/* Micro-batch (2..8 token) variant of matmul_q8_0_f32b for the MTP
+ * speculative verify pass.  The decode matvec is weight-read-bound with
+ * idle ALUs, so accumulating all tokens in registers per weight load
+ * costs the same bandwidth as one token; per-token accumulation order
+ * is exactly the single-token kernel's, so a verified token is
+ * bit-identical to the same token decoded alone. */
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights {
+    uint16_t wb16[];
+};
+
+layout(set = 0, binding = 1) readonly buffer X {
+    vec4 xv[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint out_dim;
+    uint n_tok;
+    uint blocks;
+    uint row_bytes;
+    float scale;
+} pc;
+
+const uint Q8_0_U16 = 17u;
+const uint NT = 8u;
+
+shared float sh_sub[4][NT];
+
+void main(void) {
+    uint tid = gl_LocalInvocationID.x;
+    uint row = gl_WorkGroupID.y * 16384u + gl_WorkGroupID.x;
+    if (row >= pc.out_dim) return;
+    uint row_base = row * pc.blocks * Q8_0_U16;
+    uint in_vec4 = pc.blocks * 8u;
+    uint bstep = gl_WorkGroupSize.x >> 2u;
+    uint boff = tid >> 2u;
+    uint eoff = (tid & 3u) * 8u;
+    float acc[NT];
+    for (uint t = 0u; t < NT; t++) acc[t] = 0.0;
+
+    for (uint b = boff; b < pc.blocks; b += bstep) {
+        uint base = row_base + b * Q8_0_U16;
+        float d = unpackHalf2x16(uint(wb16[base])).x;
+        uint q = base + 1u + (eoff >> 1u);
+        uint p0 = uint(wb16[q + 0u]) | (uint(wb16[q + 1u]) << 16u);
+        uint p1 = uint(wb16[q + 2u]) | (uint(wb16[q + 3u]) << 16u);
+        vec4 w0 = vec4(unpack8(int(p0)));
+        vec4 w1 = vec4(unpack8(int(p1)));
+        uint xi = (b * 32u + eoff) >> 2u;
+        for (uint t = 0u; t < NT; t++) {
+            if (t >= pc.n_tok) break;
+            uint xt = t * in_vec4 + xi;
+            acc[t] += d * (dot(w0, xv[xt]) + dot(w1, xv[xt + 1u]));
+        }
+    }
+
+    for (uint t = 0u; t < NT; t++) acc[t] = subgroupAdd(acc[t]);
+    if (gl_NumSubgroups > 1u) {
+        if (subgroupElect()) {
+            for (uint t = 0u; t < NT; t++) sh_sub[gl_SubgroupID][t] = acc[t];
+        }
+        barrier();
+        if (tid == 0u) {
+            for (uint t = 0u; t < NT; t++) {
+                acc[t] = sh_sub[0][t];
+                for (uint i = 1u; i < gl_NumSubgroups; i++) acc[t] += sh_sub[i][t];
+            }
+        }
+    }
+    if (tid == 0u) {
+        for (uint t = 0u; t < NT; t++) {
+            if (t < pc.n_tok) y[t * pc.out_dim + row] = acc[t] * pc.scale;
+        }
+    }
+}

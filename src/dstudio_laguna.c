@@ -29,7 +29,7 @@ static void laguna_send_json(int fd, const char *status, int ok,
                json_dyn_put_escaped(&b, DS4_LAGUNA_UPSTREAM_COMMIT) &&
                json_dyn_puts(&b, ",\"dir\":") &&
                json_dyn_put_escaped(&b, dir ? dir : "") &&
-               json_dyn_printf(&b, ",\"downloaded\":%s,\"built\":%s",
+               json_dyn_printf(&b, ",\"downloaded\":false,\"bundled\":true,\"sourcesInstalled\":%s,\"built\":%s",
                                downloaded ? "true" : "false",
                                built ? "true" : "false") &&
                json_dyn_puts(&b, ",\"error\":") &&
@@ -96,7 +96,7 @@ static void api_setup_laguna(int fd) {
             return;
         }
         char err[8600];
-        if (!setup_download_ds4_archive(DS4_LAGUNA_ARCHIVE_URL,
+        if (!setup_install_bundled_sources("laguna",
                                         DS4_LAGUNA_UPSTREAM_COMMIT, target,
                                         log_tail, sizeof log_tail,
                                         err, sizeof err)) {

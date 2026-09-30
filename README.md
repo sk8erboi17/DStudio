@@ -932,8 +932,8 @@ The [earlier prefill/decode comparison](docs/DS4_MAIN_UPDATE_2026-09-05.md)
 measures an older V4/GLM revision, not V4.1 or this update.
 
 - **OS.** One `make` builds the branded app per platform: **DStudio.app** on **macOS** (Apple Silicon is the primary tested target), a **`dstudio`** binary on **Linux** (WebKitGTK / GTK3 via `webkit2gtk-4.1`) and a portable **Windows x64** folder/zip via `make windows`. Linux and Windows are less exercised, and `ds4` itself must be built for your platform.
-- Apple Command Line Tools (`xcode-select --install`) or another C compiler (`cc` / `clang`). `curl`, `tar` and `make` are used by first-run setup to download and build the pinned upstream `ds4` source archive; `node` is optional, only for `make check`.
-- **[antirez's ds4](https://github.com/antirez/ds4)**: DStudio keeps the primary `./ds4` checkout pinned to upstream `main`; Laguna and experimental Qwen use managed side-by-side engine directories. Every engine shares the single physical model store at `./ds4/gguf`. Source archives receive the relevant local patch set from `patch/`; macOS builds require Apple Command Line Tools (including Git for the atomic M2 patch).
+- Apple Command Line Tools (`xcode-select --install`) or another C compiler (`cc` / `clang`). Python 3 and `make` are used by first-run setup to verify, copy and build the pinned engine sources included in this repository; `node` is optional, only for test/benchmark targets.
+- **[antirez's ds4](https://github.com/antirez/ds4)**: DStudio keeps the primary `./ds4` checkout pinned to upstream `main`; Laguna and experimental Qwen use managed side-by-side engine directories. Every engine shares the single physical model store at `./ds4/gguf`. The [bundled source snapshots](docs/BUNDLED_ENGINES.md) receive the relevant local patch set from `patch/`; macOS builds require Apple Command Line Tools (including Git for the atomic M2 patch).
 - **A supported GGUF model.** The managed menu currently offers DeepSeek V4 plus the optional model families documented below. DeepSeek variants include:
   - **Flash**: ~87 GB on disk, ~96-128 GB RAM
   - **Pro**: ~430 GB on disk, ~512 GB RAM
@@ -1050,7 +1050,7 @@ If you build DStudio or use Agent/Cowork/Design from a LAN client with your own 
 - **MSYS2 POSIX** build tools: `pacman -S make patch gcc`.
 - **Visual Studio Build Tools** or `clang-cl` for building the native Windows wrapper.
 
-The error `msys-gcc_s-seh-1.dll was not found` means Windows found `ds4-agent-jsonl.exe` but not the MSYS2 runtime it was built with. Install MSYS2 in `C:\msys64`; DStudio adds its runtime directories to `PATH` before launching Agent/Cowork/Design. Do not copy `msys-2.0.dll` or Cygwin/MSYS DLLs next to the DS4 binaries: that can make MSYS detect the wrong root and break `/tmp`, `fork()` and shell tools. LAN Agent/Cowork/Design model calls use DStudio's internal bridge; Agent/Design tools stay on the client, while Cowork uses its bounded Office bridge. First-run setup uses Windows `curl` and `tar` to download the pinned ds4 source archive; Git is not required.
+The error `msys-gcc_s-seh-1.dll was not found` means Windows found `ds4-agent-jsonl.exe` but not the MSYS2 runtime it was built with. Install MSYS2 in `C:\msys64`; DStudio adds its runtime directories to `PATH` before launching Agent/Cowork/Design. Do not copy `msys-2.0.dll` or Cygwin/MSYS DLLs next to the DS4 binaries: that can make MSYS detect the wrong root and break `/tmp`, `fork()` and shell tools. LAN Agent/Cowork/Design model calls use DStudio's internal bridge; Agent/Design tools stay on the client, while Cowork uses its bounded Office bridge. First-run source setup uses Python 3 to verify and copy the included ds4 sources; there is no upstream source download. The portable package includes the engine binaries and source assets. This source-install change was verified on macOS; Windows installation was not rerun.
 
 ## Development
 
@@ -1180,12 +1180,12 @@ See [test scope and limits](tests/README.md#qwen-real-host-workflows) and the
 
 ### Real installation and inference checks
 
-The important distinction is simple: **can a clean installation download and
-build the engines, and can a real loaded model answer checked questions?**
+The important distinction is simple: **can a clean installation build the included
+engine sources without the network, and can a real loaded model answer checked questions?**
 
 ```sh
-make test-setup-live        # Downloads and builds main, Laguna, Qwen3.8 and Qwen3.6 from scratch
-make test-first-launch-e2e  # Fresh headless .app + real UI clicks, engine downloads and patch/build checks
+make test-setup-live        # Builds bundled main, Laguna, Qwen3.6 and q36 in an empty directory
+make test-first-launch-e2e  # Fresh headless .app + real WebKit clicks, offline engine patch/build checks
 make test-inference-live    # Loads real DeepSeek/Laguna weights and checks answers
 make test-inference-live ENGINES=qwen
 make test-qwen-chat-live    # Starts Qwen through DStudio and checks the real Chat path

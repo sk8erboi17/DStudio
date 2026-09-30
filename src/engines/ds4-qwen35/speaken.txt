@@ -1,0 +1,13 @@
+What if your model could choose how smart it wants to be — for every single token?
+
+Today, Mixture-of-Experts models route every token through the same fixed number of experts. Efficient? Yes. Rigid? Also yes.
+
+Our new inference engine breaks that limit. With dynamic expert expansion, the network decides, token by token, how much compute to activate: from 3 billion active parameters per token up to more than 4 billion — exactly when the question gets hard.
+
+The results? On the MMLU-Pro benchmark, a 6-bit quantized 35B MoE model climbs from 80.5% to about 82.9% — a +2.4 point leap. That brings a compact quantized model remarkably close to its full-precision original, and puts it in range of much larger dense models — the 27-billion class — in pure accuracy.
+
+All of this on a single consumer Mac, no data center required. Same model. Same memory. A smarter router.
+
+The expert count is no longer fixed. It's a decision.
+
+The next generation of local inference is here.

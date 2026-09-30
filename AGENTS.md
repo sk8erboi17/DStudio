@@ -191,9 +191,12 @@ Before implementation, identify the behavioral oracle and affected surfaces:
   labeled as simulated; they do not validate model quality or inference.
   Keep fixture initialization scoped to its owning origin/frame; do not weaken
   production iframe isolation or suppress browser errors to make a harness pass.
-- Real installation tests start with an empty task-owned directory, download the
-  pinned upstream sources over the network, build them, and verify the installed
-  runtime. Never overwrite a user's existing checkout or models for a test.
+- Real engine installation tests start with an empty task-owned directory, copy
+  and verify the pinned sources shipped in `src/engines/`, build them, and verify
+  the installed runtime. Exercise installation with external network denied;
+  missing or altered bundled sources must fail without a remote fallback.
+  Network provenance/admission audits remain separate, explicitly invoked tools.
+  Never overwrite a user's existing checkout or models for a test.
 - Real inference tests launch an actual engine with real weights, send held-out
   tasks with independently checked expected answers, and retain requests, answers,
   engine/model identity, timings and failures. A nonempty answer or exit code zero
@@ -248,7 +251,8 @@ below are entry points, not a claim that every change needs every suite:
 | Cowork tools and document work | `make test-cowork test-cowork-bench-validate` |
 | Design runtime, controls and original systems | `make test-design-runtime test-design-bench-validate` |
 | PDF reading, citations and viewer | `make test-pdf-complete test-pdf-evidence` |
-| Empty-profile first launch | `make test-first-launch-e2e` (network, isolated install) |
+| Bundled engine sources and updates | `make test-engine-sources test-engine-pins test-engine-updates` |
+| Empty-profile first launch | `make test-first-launch-e2e` (offline, isolated install) |
 | Engine installation and real inference | `make test-engine-acceptance` (network and actual weights) |
 
 See `tests/README.md` and the `Makefile` for prerequisites, focused browser
@@ -326,7 +330,11 @@ Correctness comes first; retain failures even when throughput looks better.
   `tests/.artifacts/`, not among test sources.
 - Preserve established engine/model paths and user settings unless a tested
   migration is part of the request. Never move, duplicate or delete model weights
-  just to tidy directories. Managed engine sources and build products are ignored.
+  just to tidy directories. Pristine pinned engine snapshots in `src/engines/`
+  are versioned and bundled. Writable installed checkouts and build products
+  remain ignored. Engine setup and the update UI must not fetch, clone or pull
+  upstream sources; new pins ship with DStudio. Preserve the per-file provenance
+  manifest, upstream licenses and explicit adaptations under `patch/`.
 - Preserve unrelated dirty changes. Update callers, build rules and documentation
   when moving files. No commit, push or model download beyond the user's scope.
 - Do not combine mass moves, broad renaming, build-target rewrites and behavioral

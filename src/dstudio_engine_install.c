@@ -1,4 +1,4 @@
-/* CLI and optional-Qwen setup use the same archive installer/build helpers as
+/* CLI and optional-Qwen setup use the same bundled-source installer/build helpers as
  * first-run setup. No model loading, listeners or unrelated process shutdown. */
 typedef struct {
     const char *id, *name, *url, *commit;
@@ -25,8 +25,8 @@ static int setup_engine_pins_cli(int argc) {
     for (size_t i = 0; i < sizeof engine_install_sources / sizeof engine_install_sources[0]; i++) {
         const engine_install_source *s = &engine_install_sources[i];
         /* All fields are compile-time installer constants, not external text. */
-        printf("%s{\"id\":\"%s\",\"directory\":\"%s\",\"commit\":\"%s\",\"archiveURL\":\"%s\"}",
-               i ? "," : "", s->id, s->name, s->commit, s->url);
+        printf("%s{\"id\":\"%s\",\"directory\":\"%s\",\"commit\":\"%s\",\"archiveURL\":\"%s\",\"bundled\":true,\"sourceDirectory\":\"src/engines/%s\"}",
+               i ? "," : "", s->id, s->name, s->commit, s->url, s->name);
     }
     printf("]}\n");
     return ferror(stdout) ? 1 : 0;
@@ -43,7 +43,7 @@ static int setup_install_engine(const char *engine, const char *root,
         stat(root, &root_st) != 0 || !S_ISDIR(root_st.st_mode)) {
         snprintf(err, errsz, "installation root must be an existing directory with a supported path length"); return 0;
     }
-    const char *name = source->name, *url = source->url, *commit = source->commit;
+    const char *name = source->name, *commit = source->commit;
     if (!strcmp(engine, "q36")) {
 #ifdef _WIN32
         snprintf(err, errsz, "q36 currently requires Apple Silicon Metal or Linux Vulkan"); return 0;
@@ -81,9 +81,9 @@ static int setup_install_engine(const char *engine, const char *root,
         if (lstat(target, &after) || !S_ISDIR(after.st_mode)) {
             snprintf(err, errsz, "q36 installation disappeared after verification"); return 0;
         }
-        /* A successful upgrade also downloads/builds a candidate. The Python
+        /* A successful upgrade also copies/builds a bundled candidate. The Python
          * helper publishes a new directory inode atomically; same-inode reuse
-         * is verification only, not another download. */
+         * is verification only, not another source installation. */
         *downloaded = absent || before.st_dev != after.st_dev || before.st_ino != after.st_ino;
         printf("%s", output);
         return 1;
@@ -106,15 +106,10 @@ static int setup_install_engine(const char *engine, const char *root,
                 snprintf(err, errsz, "target contains local data, refusing to replace: %.900s", target); return 0;
             }
         }
-        printf("install-engine: downloading %s at %s\n", engine, commit);
-        if (!setup_download_ds4_archive(url, commit, target, log_tail, sizeof log_tail, err, errsz)) return 0;
+        printf("install-engine: copying bundled %s at %s\n", engine, commit);
+        if (!setup_install_bundled_sources(engine, commit, target, log_tail, sizeof log_tail, err, errsz)) return 0;
         *downloaded = 1;
-        char receipt[DSTUDIO_PATH_MAX + 32], data[512];
-        snprintf(receipt, sizeof receipt, "%s/.dstudio-source.json", target);
-        snprintf(data, sizeof data, "{\"engine\":\"%s\",\"commit\":\"%s\",\"url\":\"%s\"}\n", engine, commit, url);
-        if (!jsonl_write_file(receipt, data, strlen(data))) {
-            snprintf(err, errsz, "could not write source download receipt"); return 0;
-        }
+
     }
     /* Model paths are resolved against the installation root, independently of
      * the patch/assets root. Never relocate or duplicate existing model data. */
@@ -170,7 +165,7 @@ static int setup_engine_cli(int argc, char **argv) {
                      g_engine_err[0] ? ": " : "", g_engine_err[0] ? g_engine_err : "");
     }
     if (!ok) fprintf(stderr, "install-engine: FAILED: %s\n", err);
-    else printf("install-engine: OK engine=%s downloaded=%d path=%s\n", argv[2], downloaded, target);
+    else printf("install-engine: OK engine=%s bundled=1 sourcesInstalled=%d path=%s\n", argv[2], downloaded, target);
     return ok ? 0 : 1;
 }
 
@@ -193,7 +188,7 @@ static void api_setup_qwen35(int fd) {
     }
     int ok = setup_install_engine("qwen35", root, target, sizeof target, &downloaded, err, sizeof err);
     json_dyn_buf b = {0};
-    json_dyn_printf(&b, "{\"ok\":%s,\"downloaded\":%s,\"built\":%s,\"capability\":\"chat-agent-cowork\",\"error\":",
+    json_dyn_printf(&b, "{\"ok\":%s,\"downloaded\":false,\"bundled\":true,\"sourcesInstalled\":%s,\"built\":%s,\"capability\":\"chat-agent-cowork\",\"error\":",
                     ok ? "true" : "false", downloaded ? "true" : "false", ok ? "true" : "false");
     json_dyn_put_escaped(&b, err); json_dyn_puts(&b, "}");
     send_json(fd, ok ? "200 OK" : "409 Conflict", b.ptr ? b.ptr : "{\"ok\":false}");

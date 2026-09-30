@@ -1,0 +1,43 @@
+#version 460
+
+/* Dense f16 matvec.  Accumulates in fp64 with the same sequential order as
+ * the CPU reference (q36_tensor_matvec dequant path), so a row dot is
+ * bit-exact against the CPU engine. */
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights {
+    uint w[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Input {
+    float x[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint in_dim;
+    uint out_dim;
+    uint n_tok;
+    float scale;
+} pc;
+
+float f16_at(uint idx) {
+    uint word = w[idx >> 1];
+    uint hbits = ((idx & 1u) == 0u) ? (word & 0xffffu) : (word >> 16);
+    return unpackHalf2x16(hbits).x;
+}
+
+void main(void) {
+    uint out_row = gl_GlobalInvocationID.x;
+    uint tok = gl_GlobalInvocationID.y;
+    if (out_row >= pc.out_dim || tok >= pc.n_tok) return;
+    double acc = 0.0;
+    uint wbase = out_row * pc.in_dim;
+    uint xbase = tok * pc.in_dim;
+    for (uint i = 0; i < pc.in_dim; i++) acc += double(f16_at(wbase + i)) * double(x[xbase + i]);
+    y[tok * pc.out_dim + out_row] = float(acc) * pc.scale;
+}

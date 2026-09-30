@@ -29,6 +29,19 @@ class InstallTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.archive = self.root / 'fixture.tar.gz'
         self.target = self.root / 'candidate'
+        self.bundle = self.root / 'source bundle'
+        self.catalog = {'schema': 'dstudio.engine-sources.v1', 'engines': {}, 'legacyQ36': {}}
+        real_catalog = installer.bundled_engine_sources.load_catalog
+        redirect = mock.patch.object(installer.bundled_engine_sources, 'load_catalog',
+                                     side_effect=lambda _assets: real_catalog(self.bundle))
+        redirect.start()
+        self.addCleanup(redirect.stop)
+        for name in ('copy_sources', 'verify_sources'):
+            production = getattr(installer.bundled_engine_sources, name)
+            redirect = mock.patch.object(installer.bundled_engine_sources, name,
+                side_effect=lambda _assets, *args, function=production: function(self.bundle, *args))
+            redirect.start()
+            self.addCleanup(redirect.stop)
 
     def archive_with(self, entries):
         with tarfile.open(self.archive, 'w:gz') as package:
@@ -41,6 +54,27 @@ class InstallTests(unittest.TestCase):
                     member.type = tarfile.SYMTYPE
                     member.linkname = value
                     package.addfile(member)
+
+        # Fixture archives also populate an actual source bundle. Patch/build
+        # peers remain simulated; source copying/hash checks execute production.
+        entry = {'repository': 'https://example.invalid/q36', 'commit': installer.PIN,
+                 'directory': 'q36-' + installer.PIN, 'historical': False, 'files': {},
+                 'archiveSHA256': installer.sha256(self.archive)}
+        tree = self.bundle / 'src/engines' / entry['directory']
+        if tree.exists():
+            shutil.rmtree(tree)
+        tree.mkdir(parents=True)
+        for name, value, kind in entries:
+            if kind != 'file' or '..' in Path(name).parts:
+                continue
+            file = tree / name
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_bytes(value)
+            entry['files'][name] = {'sha256': installer.sha256(file), 'bytes': len(value),
+                                    'executable': False}
+        self.catalog['engines']['q36'] = entry
+        self.catalog['legacyQ36'][installer.PIN] = entry
+        (self.bundle / 'src/engines/manifest.json').write_text(json.dumps(self.catalog))
 
     def installed_fixture(self):
         """Real files and executable --help peers, explicitly not an engine build."""
@@ -373,7 +407,7 @@ class InstallTests(unittest.TestCase):
             installer.managed_files(self.target)
 
     def test_publication_revalidates_installer_and_patch_inputs(self):
-        # Network, patch application and compilation are simulated here. The
+        # Patch application and compilation are simulated here. The bundled
         # production extraction, input hashing, revalidation and publication
         # execute against real files; a separate live gate builds upstream.
         self.archive_with([('q36.c', b'fixture source', 'file')])
@@ -403,9 +437,7 @@ class InstallTests(unittest.TestCase):
                 applied = []
 
                 def prepare(argv, cwd, env, seconds):
-                    if argv[0] == 'curl':
-                        shutil.copyfile(self.archive, argv[argv.index('--output') + 1])
-                    elif argv[0] == '/bin/sh':
+                    if argv[0] == '/bin/sh':
                         applied.append((Path(argv[1]).name, argv[2:]))
                     elif argv[0] == 'make':
                         for name in ('q36', 'q36-server'):
@@ -480,11 +512,9 @@ class InstallTests(unittest.TestCase):
         return tree, receipt_file.read_bytes()
 
     def prepare_upgrade(self, argv, cwd, env, seconds):
-        # Only download/patch/build are simulated. The installed --help program,
+        # Only patch/build are simulated. The installed --help program,
         # locks, hardlinks, receipts, namespace exchange and fsync are real.
-        if argv[0] == 'curl':
-            shutil.copyfile(self.archive, argv[argv.index('--output') + 1])
-        elif argv[0] == 'make':
+        if argv[0] == 'make':
             for name in ('q36', 'q36-server'):
                 (cwd / name).write_text('#!/bin/sh\n[ "$1" = "--help" ] && printf "new runtime\\n"\n')
                 (cwd / name).chmod(0o755)
@@ -691,9 +721,6 @@ class InstallTests(unittest.TestCase):
         before = {p: (p.stat().st_ino, p.read_bytes()) for p in retained}
 
         def prepare(argv, cwd, env, seconds):
-            if argv[0] == 'curl' and argv[-1].endswith(installer.LEGACY_PIN):
-                shutil.copyfile(legacy_archive, argv[argv.index('--output') + 1])
-                return 'simulated network, exact legacy fixture archive'
             result = self.prepare_upgrade(argv, cwd, env, seconds)
             if argv[0] == 'make':
                 (cwd / 'q36_gpu_core_metal.o').write_bytes(b'new generated object')

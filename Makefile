@@ -120,6 +120,8 @@ ifeq ($(UNAME),Darwin)
 	@cp -R extension/gsa/templates $(APP_SUPPORT)/extension/gsa/
 	@cp extension/gsa/tools/catalog.json extension/gsa/tools/README.md $(APP_SUPPORT)/extension/gsa/tools/
 	@cp -R patch scripts $(APP_SUPPORT)/
+	@mkdir -p $(APP_SUPPORT)/src
+	@cp -R src/engines $(APP_SUPPORT)/src/
 	@cp LICENSE THIRD_PARTY_NOTICES.md $(APP_SUPPORT)/
 	@find $(APP_SUPPORT) -type f \( -name .DS_Store -o -name '*.pyc' -o -name '*.pyo' \) -delete
 	@find $(APP_SUPPORT) -type d -name __pycache__ -empty -delete
@@ -606,6 +608,18 @@ check-fast: test-qwen27-download test-qwen27-download-host
 .PHONY: test-q36-install
 test-q36-install:
 	@python3 tests/integration/q36_install_test.py
+
+.PHONY: test-engine-sources
+test-engine-sources:
+	@python3 tests/integration/bundled_engine_sources_test.py
+
+check-fast: test-engine-sources
+
+.PHONY: test-engine-updates
+test-engine-updates: $(TEST_SERVER)
+	@node tests/integration/engine_updates_test.mjs "$(TEST_SERVER)"
+
+check-fast: test-engine-updates
 
 .PHONY: test-q36-cache-usage
 test-q36-cache-usage:
@@ -1194,7 +1208,7 @@ test-ui-qwen-learn:
 	@DSTUDIO_TEST_MODEL=qwen35 DSTUDIO_TEST_STALE_CHECKOUT=1 node tests/browser/ui_roadmap_playwright_test.mjs
 	@DSTUDIO_TEST_MODEL=qwen27 DSTUDIO_TEST_STALE_CHECKOUT=1 node tests/browser/ui_roadmap_playwright_test.mjs
 
-# Explicit live gates. Setup really downloads/builds in a new empty directory;
+# Explicit live gates. Setup really copies/builds bundled sources in an empty directory;
 # inference really loads installed weights, one model at a time.
 .PHONY: test-setup-live test-inference-live test-engine-acceptance test-qwen-chat-live benchmark-qwen-decode
 test-setup-live: $(TEST_SERVER)

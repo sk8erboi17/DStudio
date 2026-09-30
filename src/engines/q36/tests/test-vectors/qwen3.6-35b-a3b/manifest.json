@@ -1,0 +1,51 @@
+{
+  "schema": "q36-test-vector-manifest-v1",
+  "checkpoint": "qwen3.6-35b-a3b",
+  "source": "llama.cpp-direct-logits",
+  "template": "legacy-q36-nothink",
+  "model": "Qwen3.6-35B-A3B-Q8_0.gguf",
+  "top_logprobs": 20,
+  "max_tokens": 4,
+  "prompts": [
+    {
+      "id": "short_italian_fact",
+      "kind": "short",
+      "prompt_file": "prompts/short_italian_fact.txt",
+      "llamacpp_file": "llamacpp/short_italian_fact.llamacpp.json",
+      "prompt_chars": 57,
+      "steps": 4
+    },
+    {
+      "id": "short_code_completion",
+      "kind": "short",
+      "prompt_file": "prompts/short_code_completion.txt",
+      "llamacpp_file": "llamacpp/short_code_completion.llamacpp.json",
+      "prompt_chars": 102,
+      "steps": 3
+    },
+    {
+      "id": "short_reasoning_plain",
+      "kind": "short",
+      "prompt_file": "prompts/short_reasoning_plain.txt",
+      "llamacpp_file": "llamacpp/short_reasoning_plain.llamacpp.json",
+      "prompt_chars": 51,
+      "steps": 4
+    },
+    {
+      "id": "long_memory_archive",
+      "kind": "long",
+      "prompt_file": "prompts/long_memory_archive.txt",
+      "llamacpp_file": "llamacpp/long_memory_archive.llamacpp.json",
+      "prompt_chars": 18503,
+      "steps": 4
+    },
+    {
+      "id": "long_code_audit",
+      "kind": "long",
+      "prompt_file": "prompts/long_code_audit.txt",
+      "llamacpp_file": "llamacpp/long_code_audit.llamacpp.json",
+      "prompt_chars": 18851,
+      "steps": 4
+    }
+  ]
+}

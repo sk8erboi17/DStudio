@@ -1,0 +1,190 @@
+#version 460
+#extension GL_ARB_gpu_shader_int64 : require
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights {
+    uint wb[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Q8 {
+    uint q8[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint out_dim;
+    uint n_tok;
+    uint blocks;
+    float scale;
+} pc;
+
+const uint Q5X8_WORDS = 360u;
+const uint Q8_WORDS = 74u;
+
+const uint Q5_D_OFF = 0u;
+const uint Q5_DMIN_OFF = 16u;
+const uint Q5_SCALES_OFF = 32u;
+const uint Q5_MINS_OFF = 96u;
+const uint Q5_QH_OFF = 160u;
+const uint Q5_QS_OFF = 416u;
+
+shared uint sh_w[Q5X8_WORDS];
+shared uint sh_a[Q8_WORDS * 4u];
+shared float sh_lane[64u * 4u];
+shared float sh_min[64u * 4u];
+
+uint load_w_u8(uint off) {
+    uint word = sh_w[off >> 2u];
+    return (word >> ((off & 3u) * 8u)) & 255u;
+}
+
+uint load_w_u16(uint off) {
+    return load_w_u8(off) | (load_w_u8(off + 1u) << 8u);
+}
+
+float load_f16(uint off) {
+    return unpackHalf2x16(load_w_u16(off)).x;
+}
+
+float q8_d(uint tok) {
+    return uintBitsToFloat(sh_a[tok * Q8_WORDS]);
+}
+
+int q8_i8(uint tok, uint idx) {
+    uint word = sh_a[tok * Q8_WORDS + 2u + (idx >> 2u)];
+    uint v = (word >> ((idx & 3u) * 8u)) & 255u;
+    return v >= 128u ? int(v) - 256 : int(v);
+}
+
+int q8_bsum(uint tok, uint group16) {
+    uint word = sh_a[tok * Q8_WORDS + 66u + (group16 >> 1u)];
+    uint v = ((group16 & 1u) == 0u) ? (word & 65535u) : (word >> 16u);
+    return v >= 32768u ? int(v) - 65536 : int(v);
+}
+
+uint q5_scale(uint row, uint group) {
+    return load_w_u8(Q5_SCALES_OFF + group * 8u + row);
+}
+
+uint q5_min(uint row, uint group) {
+    return load_w_u8(Q5_MINS_OFF + group * 8u + row);
+}
+
+uint q5_qh(uint row, uint idx) {
+    return load_w_u8(Q5_QH_OFF + idx * 8u + row);
+}
+
+uint q5_qs(uint row, uint idx) {
+    return load_w_u8(Q5_QS_OFF + idx * 8u + row);
+}
+
+uint q5_value(uint row, uint idx) {
+    uint g = idx >> 5u;
+    uint i = idx & 31u;
+    uint b = q5_qs(row, (g >> 1u) * 32u + i);
+    uint lo = ((g & 1u) == 0u) ? (b & 15u) : (b >> 4u);
+    uint hi = (q5_qh(row, i) >> g) & 1u;
+    return lo | (hi << 4u);
+}
+
+float fma32(float a, float b, float c) {
+    double p = double(a) * double(b);
+    double s = p + double(c);
+    double bv = s - p;
+    double e = (p - (s - bv)) + (double(c) - bv);
+    if (e != 0.0LF) {
+        uint64_t bits = doubleBitsToUint64(s);
+        if ((bits & 1UL) == 0UL) {
+            if (s > 0.0LF) bits += (e > 0.0LF) ? 1UL : -1UL;
+            else if (s < 0.0LF) bits += (e < 0.0LF) ? 1UL : -1UL;
+            s = uint64BitsToDouble(bits);
+        }
+    }
+    return float(s);
+}
+
+void main(void) {
+    uint lid = gl_LocalInvocationID.x;
+    uint row = gl_WorkGroupID.x * 8u + (lid >> 3u);
+    uint lane = lid & 7u;
+    uint pack = gl_WorkGroupID.y;
+    uint tok0 = pack * 4u;
+    bool row_live = row < pc.out_dim;
+    uint row_sub = row & 7u;
+    float lane_acc[4] = { 0.0, 0.0, 0.0, 0.0 };
+    float min_acc[4] = { 0.0, 0.0, 0.0, 0.0 };
+
+    for (uint b = 0u; b < pc.blocks; b++) {
+        uint wbase = (gl_WorkGroupID.x * pc.blocks + b) * Q5X8_WORDS;
+        bool tok_live[4];
+        for (uint i = lid; i < Q5X8_WORDS; i += 64u) sh_w[i] = wb[wbase + i];
+        for (uint u = 0u; u < 4u; u++) {
+            uint tok = tok0 + u;
+            uint abase = (tok * pc.blocks + b) * Q8_WORDS;
+            tok_live[u] = tok < pc.n_tok;
+            for (uint i = lid; i < Q8_WORDS; i += 64u) sh_a[u * Q8_WORDS + i] = tok_live[u] ? q8[abase + i] : 0u;
+        }
+        barrier();
+
+        if (row_live) {
+            float yd[4];
+            int lk[4] = { 0, 0, 0, 0 };
+            float wd = load_f16(Q5_D_OFF + row_sub * 2u);
+            float wdmin = load_f16(Q5_DMIN_OFF + row_sub * 2u);
+            for (uint u = 0u; u < 4u; u++) yd[u] = tok_live[u] ? q8_d(u) : 0.0;
+
+            if (lane == 0u) {
+                for (uint u = 0u; u < 4u; u++) {
+                    if (!tok_live[u]) continue;
+                    int mins_total = 0;
+                    for (uint g = 0u; g < 8u; g++) mins_total += int(q5_min(row_sub, g)) * (q8_bsum(u, 2u * g) + q8_bsum(u, 2u * g + 1u));
+                    min_acc[u] = fma32(-yd[u] * wdmin, float(mins_total), min_acc[u]);
+                }
+            }
+            for (uint g = 0u; g < 8u; g++) {
+                uint e = 32u * g + 4u * lane;
+                int qv0 = int(q5_value(row_sub, e + 0u));
+                int qv1 = int(q5_value(row_sub, e + 1u));
+                int qv2 = int(q5_value(row_sub, e + 2u));
+                int qv3 = int(q5_value(row_sub, e + 3u));
+                int wsc = int(q5_scale(row_sub, g));
+                for (uint u = 0u; u < 4u; u++) {
+                    if (!tok_live[u]) continue;
+                    int s4 = qv0 * q8_i8(u, e + 0u)
+                           + qv1 * q8_i8(u, e + 1u)
+                           + qv2 * q8_i8(u, e + 2u)
+                           + qv3 * q8_i8(u, e + 3u);
+                    lk[u] += wsc * s4;
+                }
+            }
+            for (uint u = 0u; u < 4u; u++) {
+                if (!tok_live[u]) continue;
+                lane_acc[u] = fma32(yd[u] * wd, float(lk[u]), lane_acc[u]);
+            }
+        }
+        barrier();
+    }
+
+    for (uint u = 0u; u < 4u; u++) {
+        sh_lane[u * 64u + lid] = lane_acc[u];
+        sh_min[u * 64u + lid] = min_acc[u];
+    }
+    barrier();
+
+    if (row_live && lane == 0u) {
+        uint r0 = lid;
+        for (uint u = 0u; u < 4u; u++) {
+            uint tok = tok0 + u;
+            uint soff = u * 64u + r0;
+            if (tok >= pc.n_tok) continue;
+            float total = ((sh_lane[soff + 0u] + sh_lane[soff + 4u]) + (sh_lane[soff + 2u] + sh_lane[soff + 6u]))
+                        + ((sh_lane[soff + 1u] + sh_lane[soff + 5u]) + (sh_lane[soff + 3u] + sh_lane[soff + 7u]));
+            total += sh_min[soff];
+            y[tok * pc.out_dim + row] = total * pc.scale;
+        }
+    }
+}

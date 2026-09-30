@@ -1,0 +1,77 @@
+#version 460
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Input {
+    float x[];
+};
+
+layout(set = 0, binding = 1) writeonly buffer Output {
+    uint q8[];
+};
+
+layout(push_constant) uniform Push {
+    uint in_dim;
+    uint blocks;
+    uint n_tok;
+} pc;
+
+const uint QK8_0 = 32u;
+const uint Q8_0_PADDED_BYTES = 36u;
+
+shared float sh_abs[32];
+shared uint sh_idx[32];
+
+int nearest_int(float fval) {
+    uint bits = floatBitsToUint(fval + 12582912.0f);
+    return int(bits & 0x007fffffu) - 0x00400000;
+}
+
+uint pack_i8x4(int a0, int a1, int a2, int a3) {
+    return (uint(a0) & 255u)
+         | ((uint(a1) & 255u) << 8u)
+         | ((uint(a2) & 255u) << 16u)
+         | ((uint(a3) & 255u) << 24u);
+}
+
+void main(void) {
+    uint lid = gl_LocalInvocationID.x;
+    uint block = gl_WorkGroupID.x;
+    uint tok = gl_WorkGroupID.y;
+    uint xbase = tok * pc.in_dim + block * QK8_0;
+    uint out_word = ((tok * pc.blocks + block) * Q8_0_PADDED_BYTES) >> 2u;
+
+    float xv = x[xbase + lid];
+    sh_abs[lid] = abs(xv);
+    sh_idx[lid] = lid;
+    barrier();
+
+    for (uint s = 16u; s > 0u; s >>= 1u) {
+        if (lid < s) {
+            float other_abs = sh_abs[lid + s];
+            uint other_idx = sh_idx[lid + s];
+            if (other_abs > sh_abs[lid] || (other_abs == sh_abs[lid] && other_idx < sh_idx[lid])) {
+                sh_abs[lid] = other_abs;
+                sh_idx[lid] = other_idx;
+            }
+        }
+        barrier();
+    }
+
+    float d = sh_abs[0] * (1.0f / 127.0f);
+    float id = d != 0.0f ? 1.0f / d : 0.0f;
+    if (lid == 0u) q8[out_word] = packHalf2x16(vec2(d, 0.0f));
+
+    if (lid < 8u) {
+        uint e = lid * 4u;
+        int q0 = id != 0.0f ? nearest_int(x[xbase + e + 0u] * id) : 0;
+        int q1 = id != 0.0f ? nearest_int(x[xbase + e + 1u] * id) : 0;
+        int q2 = id != 0.0f ? nearest_int(x[xbase + e + 2u] * id) : 0;
+        int q3 = id != 0.0f ? nearest_int(x[xbase + e + 3u] * id) : 0;
+        q0 = clamp(q0, -128, 127);
+        q1 = clamp(q1, -128, 127);
+        q2 = clamp(q2, -128, 127);
+        q3 = clamp(q3, -128, 127);
+        q8[out_word + 1u + lid] = pack_i8x4(q0, q1, q2, q3);
+    }
+}

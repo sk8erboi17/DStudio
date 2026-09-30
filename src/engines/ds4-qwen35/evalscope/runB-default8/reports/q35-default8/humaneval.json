@@ -1,0 +1,61 @@
+{
+    "name": "q35-default8@humaneval",
+    "dataset_name": "humaneval",
+    "dataset_pretty_name": "HumanEval",
+    "dataset_description": "\n## Overview\n\nHumanEval is a benchmark for evaluating the code generation capabilities of language models. It consists of 164 hand-written Python programming problems with function signatures, docstrings, and comprehensive test cases.\n\n## Task Description\n\n- **Task Type**: Code Generation (Python)\n- **Input**: Function signature with docstring describing the expected behavior\n- **Output**: Complete Python function implementation\n- **Languages**: Python only\n\n## Key Features\n\n- 164 hand-crafted programming problems\n- Each problem includes a function signature, docstring, and test cases\n- Problems range from simple string manipulation to complex algorithms\n- Canonical solutions provided for reference\n- Automatic correctness verification through test execution\n\n## Evaluation Notes\n\n- **Security Warning**: By default, code is executed in the local environment. We strongly recommend using sandbox execution for safety. See the [sandbox documentation](https://evalscope.readthedocs.io/en/latest/user_guides/sandbox.html) for details.\n- Supports `pass@k` metric calculation for measuring generation quality\n- Default timeout is 4 seconds per problem\n- Code is extracted from markdown code blocks if present\n",
+    "model_name": "q35-default8",
+    "score": 0.9667,
+    "metrics": [
+        {
+            "name": "mean_acc",
+            "num": 30,
+            "score": 0.9667,
+            "macro_score": 0.9667,
+            "categories": [
+                {
+                    "name": [
+                        "default"
+                    ],
+                    "num": 30,
+                    "score": 0.9667,
+                    "macro_score": 0.9667,
+                    "subsets": [
+                        {
+                            "name": "openai_humaneval",
+                            "score": 0.9667,
+                            "num": 30,
+                            "is_aggregate": false
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "mean_acc_pass@1",
+            "num": 30,
+            "score": 0.9667,
+            "macro_score": 0.9667,
+            "categories": [
+                {
+                    "name": [
+                        "default"
+                    ],
+                    "num": 30,
+                    "score": 0.9667,
+                    "macro_score": 0.9667,
+                    "subsets": [
+                        {
+                            "name": "openai_humaneval",
+                            "score": 0.9667,
+                            "num": 30,
+                            "is_aggregate": false
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "analysis": "N/A",
+    "perf_metrics": null,
+    "num": 30
+}

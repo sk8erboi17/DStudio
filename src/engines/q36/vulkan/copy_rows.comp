@@ -1,0 +1,26 @@
+#version 460
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Input {
+    float src[];
+};
+
+layout(set = 0, binding = 1) writeonly buffer Output {
+    float dst[];
+};
+
+layout(push_constant) uniform Push {
+    uint src_stride;
+    uint dst_stride;
+    uint src_offset;
+    uint n;
+    uint rows;
+} pc;
+
+void main(void) {
+    uint row = gl_WorkGroupID.y;
+    uint i = gl_GlobalInvocationID.x;
+    if (row >= pc.rows || i >= pc.n) return;
+    dst[row * pc.dst_stride + i] = src[row * pc.src_stride + pc.src_offset + i];
+}

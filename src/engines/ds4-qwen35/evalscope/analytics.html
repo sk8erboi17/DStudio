@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MMLU-Pro Round 4 — Benchmark Analytics</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0b1020; --card:rgba(255,255,255,.055); --card-brd:rgba(255,255,255,.12);
+    --tx:#e8ecf8; --tx2:#9aa5c0; --acc:#6ea8fe; --ok:#34d399; --warn:#fbbf24; --bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--tx); min-height:100vh;
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    overflow-x:hidden;
+  }
+  /* liquid background */
+  .blob{position:fixed;border-radius:50%;filter:blur(90px);opacity:.30;z-index:0;pointer-events:none;
+        animation:drift 26s ease-in-out infinite alternate}
+  #b1{width:46vmax;height:46vmax;background:#1d4ed8;top:-14vmax;left:-12vmax}
+  #b2{width:38vmax;height:38vmax;background:#7c3aed;bottom:-14vmax;right:-10vmax;animation-delay:-8s}
+  #b3{width:30vmax;height:30vmax;background:#0891b2;top:38%;left:55%;animation-delay:-16s;opacity:.22}
+  @keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(6vmax,4vmax) scale(1.12)}}
+  .wrap{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:20px 16px 60px}
+  header{margin:6px 0 18px}
+  h1{font-size:clamp(22px,4vw,32px);margin:0 0 4px;
+     background:linear-gradient(90deg,#93c5fd,#c4b5fd 55%,#67e8f9);
+     -webkit-background-clip:text;background-clip:text;color:transparent;font-weight:800}
+  .sub{color:var(--tx2);font-size:13.5px}
+  .sub a{color:var(--acc);text-decoration:none}
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:14px 0}
+  .btn{border:1px solid var(--card-brd);background:var(--card);color:var(--tx);
+       border-radius:999px;padding:7px 16px;font-size:13.5px;cursor:pointer;backdrop-filter:blur(12px);
+       transition:.2s}
+  .btn:hover{background:rgba(255,255,255,.12)}
+  .btn[aria-pressed="true"]{background:linear-gradient(90deg,#2563ebcc,#7c3aedcc);border-color:transparent}
+  #status{color:var(--tx2);font-size:12.5px;margin-left:auto}
+  .card{background:var(--card);border:1px solid var(--card-brd);border-radius:18px;
+        backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+        box-shadow:0 8px 30px rgba(0,0,0,.35);padding:16px;margin:0;position:relative}
+  .fs-btn{position:absolute;top:10px;right:12px;z-index:5;width:30px;height:30px;
+          border-radius:9px;border:1px solid var(--card-brd);background:rgba(13,19,38,.72);
+          color:var(--tx2);font-size:15px;line-height:1;cursor:pointer;opacity:0;transition:.18s;
+          display:flex;align-items:center;justify-content:center}
+  .card:hover .fs-btn,.card:focus-within .fs-btn{opacity:1}
+  .fs-btn:hover{color:var(--tx);background:rgba(37,99,235,.55)}
+  .card:fullscreen{background:#0d1326;overflow:auto;border-radius:0;
+                   display:flex;flex-direction:column;justify-content:center}
+  .card:fullscreen .canvas-box{height:calc(100vh - 90px);max-height:820px}
+  .card:fullscreen .tablewrap{max-height:calc(100vh - 70px);overflow:auto}
+  .card:fullscreen .fs-btn{opacity:1;position:fixed;top:14px;right:16px}
+  .grid{display:grid;gap:14px;margin:14px 0}
+  .g-cards{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+  .g-2{grid-template-columns:1fr 1fr}
+  .g-3{grid-template-columns:repeat(3,1fr)}
+  h2{font-size:17px;margin:26px 0 10px;font-weight:700}
+  h2 .hint{font-weight:400;font-size:12.5px;color:var(--tx2)}
+  .kpi .v{font-size:24px;font-weight:800;letter-spacing:.3px}
+  .kpi .l{font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.8px}
+  .kpi .m{font-size:12px;color:var(--tx2);margin-top:2px}
+  .canvas-box{position:relative;height:280px}
+  .canvas-box.tall{height:340px}
+  select{background:#141a30;color:var(--tx);border:1px solid var(--card-brd);
+         border-radius:10px;padding:7px 10px;font-size:13.5px;max-width:100%}
+  .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse;width:100%;font-size:13px;white-space:nowrap}
+  th,td{padding:7px 10px;text-align:right;border-bottom:1px solid rgba(255,255,255,.07)}
+  th:first-child,td:first-child{text-align:left}
+  thead th{color:var(--tx2);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.6px}
+  tbody tr:hover{background:rgba(255,255,255,.045)}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:1px}
+  .pos{color:var(--ok)} .neg{color:var(--bad)}
+  .note{color:var(--tx2);font-size:12.5px;margin-top:8px}
+  footer{color:var(--tx2);font-size:12px;margin-top:34px;text-align:center}
+  #err{display:none;background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.4);
+       border-radius:12px;padding:12px 16px;margin:12px 0;font-size:14px}
+  @media (max-width:760px){
+    .g-2,.g-3{grid-template-columns:1fr}
+    .canvas-box{height:240px}
+    .wrap{padding:14px 10px 44px}
+    th,td{padding:6px 8px}
+  }
+</style>
+</head>
+<body>
+<div class="blob" id="b1"></div><div class="blob" id="b2"></div><div class="blob" id="b3"></div>
+<div class="wrap">
+  <header>
+    <h1>MMLU-Pro Round 4 — Benchmark Analytics</h1>
+    <div class="sub">Interactive comparison of quality mix, verbosity and latency across runs ·
+      data: <a id="srclink" href="https://raw.githubusercontent.com/vagrillo/ds4/refs/heads/qwen35moe-support/evalscope/round4_results.json" target="_blank" rel="noopener">round4_results.json</a> (fetched live)</div>
+  </header>
+
+  <div id="err"></div>
+
+  <div class="toolbar">
+    <button id="filterToggle" class="btn" title="Run-name filter" aria-expanded="false">⛶ Filter</button>
+    <span class="sub" id="filterInfo"></span>
+  </div>
+  <div class="toolbar" id="filterBar" style="display:none">
+    <input id="nameFilter" type="text" value="*r4" spellcheck="false" placeholder="run-name filter, e.g. *r4" size="14"
+           style="background:#141a30;color:var(--tx);border:1px solid var(--card-brd);border-radius:10px;padding:7px 12px;font-size:13.5px">
+  </div>
+  <div class="toolbar" id="chips" aria-label="Run filter"></div>
+
+  <h2>Scoreboard <span class="hint">big numbers: paired accuracy — only questions answered by BOTH selected r4 runs · small: own-run accuracy below</span></h2>
+  <div class="grid g-cards" id="scoreboard"></div>
+
+  <h2>Run summary <span class="hint">per selected run · non-truncated answers unless noted</span></h2>
+  <div class="grid g-cards" id="kpis"></div>
+
+  <h2>Volume &amp; answer quality mix</h2>
+  <div class="grid g-2">
+    <div class="card"><button class="fs-btn" title="Fullscreen">⤢</button><div class="canvas-box"><canvas id="cMix"></canvas></div></div>
+    <div class="card"><button class="fs-btn" title="Fullscreen">⤢</button><div class="canvas-box"><canvas id="cTrunc"></canvas></div></div>
+  </div>
+
+  <h2>Verbosity <span class="hint">output tokens per answer</span></h2>
+  <div class="grid g-2">
+    <div class="card"><button class="fs-btn" title="Fullscreen">⤢</button><div class="canvas-box"><canvas id="cTok"></canvas></div></div>
+    <div class="card"><button class="fs-btn" title="Fullscreen">⤢</button><div class="canvas-box"><canvas id="cTokHist"></canvas></div></div>
+  </div>
+
+  <h2>Latency <span class="hint">seconds per answer</span></h2>
+  <div class="grid g-2">
+    <div class="card"><button class="fs-btn" title="Fullscreen">⤢</button><div class="canvas-box"><canvas id="cLat"></canvas></div></div>
+    <div class="card"><button class="fs-btn" title="Fullscreen">⤢</button><div class="canvas-box"><canvas id="cLatHist"></canvas></div></div>
+  </div>
+
+  <h2>Per-subject breakdown <span class="hint">selected runs · mean tokens and answer count</span></h2>
+  <div class="card"><button class="fs-btn" title="Fullscreen">⤢</button><div class="canvas-box tall"><canvas id="cSubj"></canvas></div></div>
+
+  <h2>Head-to-head <span class="hint">paired by subject + question id, only questions answered by both runs</span></h2>
+  <div class="toolbar">
+    <label class="sub" for="selA">Run A</label>
+    <select id="selA"></select>
+    <label class="sub" for="selB">Run B</label>
+    <select id="selB"></select>
+  </div>
+  <div class="grid g-cards" id="h2hKpis"></div>
+  <div class="grid g-2">
+    <div class="card"><button class="fs-btn" title="Fullscreen">⤢</button><div class="canvas-box tall"><canvas id="cScatter"></canvas></div></div>
+    <div class="card"><button class="fs-btn" title="Fullscreen">⤢</button><div class="canvas-box"><canvas id="cDelta"></canvas></div></div>
+  </div>
+  <div class="grid">
+    <div class="card"><button class="fs-btn" title="Fullscreen">⤢</button><div class="canvas-box"><canvas id="cAgree"></canvas></div></div>
+  </div>
+
+  <h2>Tables</h2>
+  <div class="grid">
+    <div class="card"><button class="fs-btn" title="Fullscreen">⤢</button><div class="tablewrap" id="tRuns"></div></div>
+    <div class="card"><button class="fs-btn" title="Fullscreen">⤢</button><div class="tablewrap" id="tSubj"></div></div>
+  </div>
+
+  <h2>Per-subject score matrix <span class="hint">paired accuracy 0.xxx per subject — green = subject winner, red = loser, ✓ wins; computed only on questions answered by all selected runs</span></h2>
+  <div class="grid">
+    <div class="card"><button class="fs-btn" title="Fullscreen">⤢</button><div class="tablewrap" id="tMatrix"></div></div>
+  </div>
+
+  <div class="note">Note: with this dataset alone, “quality” is shown as the ok / trunc / ko mix (trunc = 8K reasoning
+    budget exhausted) and as cross-run answer agreement on identical questions; it is not accuracy vs. gold labels.
+    tok/s is Σtokens / Σlatency over non-truncated answers.</div>
+
+  <footer>Benchmark: Qwen3.6-35B expert-expansion study · serial decode · temp 0 · page has no backend, it fetches the JSON directly from GitHub.</footer>
+</div>
+
+<script>
+"use strict";
+const DATA_URL = "https://raw.githubusercontent.com/vagrillo/ds4/refs/heads/qwen35moe-support/evalscope/round4_results.json";
+const PALETTE = ["#60a5fa","#f472b6","#34d399","#fbbf24","#a78bfa","#22d3ee","#fb923c","#e879f9"];
+const charts = {};
+let RAW = [], RUNS = [], RUNS_VIEW = [], active = new Set(), selA = null, selB = null;
+
+/* ---------- utils ---------- */
+const $ = id => document.getElementById(id);
+const fmt = (x,d=1) => (x==null||!isFinite(x)) ? "–" : x.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmt0 = x => fmt(x,0);
+const mean = a => a.length ? a.reduce((s,x)=>s+x,0)/a.length : NaN;
+const median = a => pct(a,50);
+function pct(a,p){ if(!a.length) return NaN; const s=[...a].sort((x,y)=>x-y), i=(s.length-1)*p/100,
+  lo=Math.floor(i), hi=Math.ceil(i); return s[lo]+(s[hi]-s[lo])*(i-lo); }
+const pctl = (a,p)=>pct(a,p);
+function hist(vals, edges){ const b=new Array(edges.length-1).fill(0);
+  for(const v of vals){ if(v<edges[0]) continue; let k=edges.findIndex((e,i)=>i>0&&v<e)-1;
+    if(k>=b.length) k=b.length-1; if(k>=0) b[k]++; } return b; }
+
+function statsFor(run){
+  const rs = RAW.filter(r=>r.run===run);
+  const ok = rs.filter(r=>r.result==="correct"), tr = rs.filter(r=>r.result==="trunc"),
+        ko = rs.filter(r=>r.result==="wrong");
+  // verbosity/latency: exclude answers still generating when the budget cut (no letter)
+  const tok = rs.filter(r=>r.result!=="trunc"&&!r.truncated&&r.tokens>0).map(r=>r.tokens);
+  const lat = rs.filter(r=>r.result!=="trunc"&&!r.truncated&&r.latency_s>0).map(r=>r.latency_s);
+  return { run, n:rs.length, nOk:ok.length, nTr:tr.length, nKo:ko.length,
+    tok, lat, meanTok:mean(tok), medTok:median(tok), p90Tok:pctl(tok,90),
+    meanLat:mean(lat), medLat:median(lat), p90Lat:pctl(lat,90),
+    acc: rs.length ? ok.length/rs.length : NaN };
+}
+
+/* fullscreen toggles on every card */
+function initFullscreen(){
+  document.querySelectorAll(".card").forEach(c=>{
+    const b=c.querySelector(".fs-btn"); if(!b||b.dataset.bound) return;
+    b.dataset.bound="1";
+    b.onclick=()=>{ if(document.fullscreenElement){ document.exitFullscreen(); }
+                    else if(c.requestFullscreen){ c.requestFullscreen().catch(()=>{}); } };
+  });
+}
+document.addEventListener("fullscreenchange",()=>{
+  document.querySelectorAll(".fs-btn").forEach(b=>b.textContent=document.fullscreenElement?"✕":"⤢");
+});
+
+/* ---------- rendering ---------- */
+function colorOf(run){ return PALETTE[RUNS.indexOf(run) % PALETTE.length]; }
+function labelOf(run){ const m = RAW.find(r=>r.run===run); return m ? (m.model||run) : run; }
+function shortLabel(run){ return labelOf(run).length>34 ? labelOf(run).slice(0,33)+"…" : labelOf(run); }
+function shortName(run){ return run.length>26 ? run.slice(0,25)+"…" : run; }
+function mk(id,cfg){ if(charts[id]) charts[id].destroy();
+  Chart.defaults.color="#9aa5c0"; Chart.defaults.borderColor="rgba(255,255,255,.08)";
+  Chart.defaults.font.family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
+  charts[id]=new Chart($(id),cfg); }
+
+function renderChips(){
+  const c=$("chips"); c.innerHTML="";
+  if($("filterBar").style.display==="none"){   // collapsed: hide chips + refresh too
+    c.style.display="none"; return;
+  }
+  c.style.display="flex";
+  for(const run of RUNS){
+    const b=document.createElement("button");
+    b.className="btn"; b.textContent=shortLabel(run); b.title=run;
+    b.setAttribute("aria-pressed", active.has(run));
+    b.onclick=()=>{ active.has(run)?active.delete(run):active.add(run);
+      b.setAttribute("aria-pressed",active.has(run)); renderAll(); };
+    c.appendChild(b);
+  }
+  const rf=document.createElement("button"); rf.className="btn"; rf.textContent="↻ Refresh data";
+  rf.onclick=load; c.appendChild(rf);
+  const st=document.createElement("span"); st.id="status"; c.appendChild(st);
+}
+
+/* wildcard run-name filter, default *r4 */
+function globToRe(g){
+  const esc=g.replace(/[.+^${}()|[\]\\]/g,"\\$&").replace(/\*/g,".*").replace(/\?/g,".");
+  return new RegExp("^"+esc+"$","i");
+}
+function applyFilter(){
+  const pat=$("nameFilter").value.trim()||"*";
+  let re; try{ re=globToRe(pat); }catch(e){ return; }
+  const matching=RUNS.filter(r=>re.test(r));
+  RUNS_VIEW=matching.length?matching:RUNS;
+  $("filterInfo").textContent=`${RUNS_VIEW.length}/${RUNS.length} runs match "${pat}"`+
+    (matching.length?"":" (no match — showing all)");
+  if(selA&&!RUNS_VIEW.includes(selA)) selA=RUNS_VIEW[0]||null;
+  if(selB&&!RUNS_VIEW.includes(selB)) selB=RUNS_VIEW[RUNS_VIEW.length-1]||null;
+  active=new Set([...active].filter(r=>RUNS_VIEW.includes(r)));
+  if(!active.size) active=new Set(RUNS_VIEW);
+}
+
+function renderScoreboard(){
+  const el=$("scoreboard"); el.innerHTML = active.size===0 ? "" : "";
+  const runs=[...active];
+  // paired accuracy: questions answered by ALL selected runs
+  const pairScore=new Map();
+  if(runs.length>1){
+    const sets=runs.map(r=>new Set(RAW.filter(x=>x.run===r).map(x=>x.subject+"|"+x.question_id)));
+    const common=[...sets[0]].filter(k=>sets.every(s=>s.has(k)));
+    for(const r of runs){
+      const M=new Map(RAW.filter(x=>x.run===r).map(x=>[x.subject+"|"+x.question_id,x]));
+      const okc=common.filter(k=>M.get(k).result==="correct").length;
+      pairScore.set(r,{ok:okc,n:common.length});
+    }
+  }
+  const scoreOf=(r)=>pairScore.size?pairScore.get(r).ok/pairScore.get(r).n
+                     :(s=>s.n?s.nOk/s.n:NaN)(statsFor(r));
+  const sorted=runs.map(r=>({r,s:statsFor(r)})).sort((a,b)=>scoreOf(b.r)-scoreOf(a.r));
+  const best=sorted.length?scoreOf(sorted[0].r):NaN;
+  const single=runs.length<2;
+  for(const {r,s} of sorted){
+    const score=scoreOf(r), col=colorOf(r);
+    const big=single
+      ? (s.n?score.toFixed(3):"–")
+      : score.toFixed(3);
+    const bigNote=single?"own-run accuracy":`${pairScore.get(r).ok} correct / ${pairScore.get(r).n} paired`;
+    const d=document.createElement("div"); d.className="card kpi";
+    d.innerHTML=`<div class="l"><span class="dot" style="background:${col}"></span>${shortName(r)}</div>
+      <div class="v" style="font-size:40px;background:linear-gradient(90deg,${col},#e8ecf8);
+        -webkit-background-clip:text;background-clip:text;color:transparent;
+        ${score===best?"text-shadow:0 0 24px "+col+"88;":""}">${big}</div>
+      <div class="m">${bigNote}</div>
+      <div class="m" style="margin-top:8px;font-size:12px;color:var(--tx2)">
+        own run: <span style="color:var(--tx)">${s.n?(s.nOk/s.n).toFixed(3):"–"}</span>
+        (${s.nOk} correct / ${s.n})</div>
+      <div class="m">wrong ${s.nKo} · trunc ${s.nTr}</div>`;
+    el.appendChild(d);
+  }
+}
+
+function renderKpis(){
+  $("kpis").innerHTML = active.size===0
+    ? `<div class="card note">Select at least one run above.</div>` : "";
+  for(const run of active){
+    const s=statsFor(run), col=colorOf(run);
+    const div=document.createElement("div"); div.className="card kpi";
+    div.innerHTML=`
+      <div class="l"><span class="dot" style="background:${col}"></span>${shortLabel(run)}</div>
+      <div class="v">${s.n}</div><div class="m">answers</div>
+      <div class="m">correct ${s.nOk} · wrong ${s.nKo} · trunc ${s.nTr}</div>
+      <div class="v" style="margin-top:10px;font-size:19px;color:#34d399">${s.n?fmt(100*s.nOk/s.n)+"%":"–"}</div>
+      <div class="m">accuracy vs gold</div>
+      <div class="v" style="margin-top:10px;font-size:19px">${fmt0(s.meanTok)}</div><div class="m">mean tokens</div>
+      <div class="v" style="margin-top:10px;font-size:19px">${fmt(s.meanLat)} s</div><div class="m">mean latency</div>`;
+    $("kpis").appendChild(div);
+  }
+}
+
+function sel(){ return [...active]; }
+
+function renderMix(){
+  const runs=sel();
+  mk("cMix",{type:"bar",data:{labels:runs.map(shortLabel),datasets:[
+    {label:"correct",data:runs.map(r=>statsFor(r).nOk),backgroundColor:"#34d399",borderRadius:6},
+    {label:"wrong",data:runs.map(r=>statsFor(r).nKo),backgroundColor:"#f87171",borderRadius:6},
+    {label:"trunc",data:runs.map(r=>statsFor(r).nTr),backgroundColor:"#fbbf24",borderRadius:6}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:"Answers: correct / wrong / trunc per run"}},
+    scales:{x:{stacked:true},y:{stacked:true}}}});
+  mk("cTrunc",{type:"bar",data:{labels:runs.map(shortLabel),datasets:[
+    {label:"accuracy",data:runs.map(r=>{const s=statsFor(r);return s.n?100*s.nOk/s.n:0}),backgroundColor:"#34d399cc",borderRadius:6},
+    {label:"truncation %",data:runs.map(r=>{const s=statsFor(r);return s.n?100*s.nTr/s.n:0}),backgroundColor:"#fbbf2499",borderRadius:6}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:"Accuracy vs gold & truncation rate (%)"}},
+    scales:{y:{beginAtZero:true,ticks:{callback:v=>v+"%"}}}}});
+}
+
+function renderVerb(){
+  const runs=sel();
+  mk("cTok",{type:"bar",data:{labels:runs.map(shortLabel),datasets:[
+    {label:"mean",data:runs.map(r=>statsFor(r).meanTok),backgroundColor:runs.map(colorOf),borderRadius:6},
+    {label:"median",data:runs.map(r=>statsFor(r).medTok),backgroundColor:runs.map(c=>c+"66"),borderRadius:6},
+    {label:"p90",data:runs.map(r=>statsFor(r).p90Tok),backgroundColor:"transparent",
+     borderColor:runs.map(colorOf),borderWidth:2,borderRadius:6}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:"Tokens per answer: mean / median / p90"}},
+    scales:{y:{beginAtZero:true}}}});
+  const edges=Array.from({length:10},(_,i)=>i*1000).concat([12000]);
+  mk("cTokHist",{type:"line",data:{labels:edges.slice(0,-1).map((e,i)=>`${e/1000}k–${edges[i+1]/1000}k`),
+    datasets:runs.map(r=>({label:shortLabel(r),data:hist(statsFor(r).tok,edges),
+      borderColor:colorOf(r),backgroundColor:colorOf(r)+"33",fill:false,tension:.3,pointRadius:2}))},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:"Token distribution (non-truncated answers)"}},
+      scales:{y:{beginAtZero:true}}}});
+}
+
+function renderLat(){
+  const runs=sel();
+  mk("cLat",{type:"bar",data:{labels:runs.map(shortLabel),datasets:[
+    {label:"mean s",data:runs.map(r=>statsFor(r).meanLat),backgroundColor:runs.map(colorOf),borderRadius:6},
+    {label:"median s",data:runs.map(r=>statsFor(r).medLat),backgroundColor:runs.map(c=>c+"66"),borderRadius:6},
+    {label:"p90 s",data:runs.map(r=>statsFor(r).p90Lat),backgroundColor:"transparent",
+     borderColor:runs.map(colorOf),borderWidth:2,borderRadius:6}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:"Latency per answer (s): mean / median / p90"}},
+    scales:{y:{beginAtZero:true}}}});
+  const edges=Array.from({length:13},(_,i)=>i*60);
+  mk("cLatHist",{type:"bar",data:{labels:edges.slice(0,-1).map((e,i)=>`${e}s–${edges[i+1]}s`),
+    datasets:runs.map(r=>({label:shortLabel(r),data:hist(statsFor(r).lat,edges),
+      backgroundColor:colorOf(r)+"cc",borderRadius:4}))},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{title:{display:true,text:"Latency distribution (non-truncated answers)"}},
+      scales:{y:{beginAtZero:true}}}});
+}
+
+function renderAgree(){
+  const runs=sel();
+  if(runs.length<2){ mk("cAgree",{type:"bar",data:{labels:[],datasets:[]}}); return; }
+  const labels=[],vals=[],cols=[];
+  for(let i=0;i<runs.length;i++) for(let j=i+1;j<runs.length;j++){
+    const both=pairsOf(runs[i],runs[j]).filter(([x,y])=>x.pred&&y.pred);
+    const ag=both.filter(([x,y])=>x.pred===y.pred).length;
+    labels.push(shortLabel(runs[i]).slice(0,14)+" vs "+shortLabel(runs[j]).slice(0,14));
+    vals.push(both.length?100*ag/both.length:0); cols.push(colorOf(runs[j])+"cc");
+  }
+  mk("cAgree",{type:"bar",data:{labels,datasets:[{label:"identical answer %",data:vals,
+    backgroundColor:cols,borderRadius:6}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{title:{display:true,text:"Cross-run answer agreement (same ANSWER letter, paired questions)"}},
+      scales:{y:{beginAtZero:true,max:100,ticks:{callback:v=>v+"%"}}}}});
+}
+
+function renderSubj(){
+  const runs=sel();
+  const subjects=[...new Set(RAW.map(r=>r.subject))]
+    .map(s=>({s,n:RAW.filter(r=>r.subject===s).length}))
+    .sort((a,b)=>b.n-a.n).slice(0,9).map(o=>o.s);
+  mk("cSubj",{type:"bar",data:{labels:subjects,datasets:runs.map(r=>({
+    label:shortLabel(r),
+    data:subjects.map(s=>{const v=RAW.filter(x=>x.run===r&&x.subject===s&&x.result!=="trunc"&&!x.truncated&&x.tokens>0).map(x=>x.tokens);
+      return v.length?mean(v):null;}),
+    backgroundColor:colorOf(r)+"cc",borderRadius:5}))},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:"Mean tokens by subject (top 9 subjects by volume)"}},
+      scales:{y:{beginAtZero:true}}}});
+}
+
+/* ---------- head-to-head ---------- */
+function pairKey(r){ return r.subject+"|"+r.question_id; }
+function pairsOf(a,b){
+  const A=new Map(RAW.filter(r=>r.run===a).map(r=>[pairKey(r),r]));
+  const out=[];
+  for(const r of RAW.filter(r=>r.run===b)){ const x=A.get(pairKey(r)); if(x) out.push([x,r]); }
+  return out;
+}
+function renderH2hSelects(){
+  for(const [id,v] of [["selA",selA],["selB",selB]]){
+    const s=$(id); s.innerHTML="";
+    for(const r of RUNS){ const o=document.createElement("option"); o.value=r;
+      o.textContent=shortLabel(r); if(r===v)o.selected=true; s.appendChild(o); }
+    s.onchange=()=>{ selA=$("selA").value; selB=$("selB").value; renderH2h(); };
+  }
+}
+function renderH2h(){
+  if(!selA||!selB) return;
+  const P=pairsOf(selA,selB);
+  const both=P.filter(([x,y])=>x.result!=="trunc"&&y.result!=="trunc"&&!x.truncated&&!y.truncated&&x.tokens>0&&y.tokens>0);
+  const agree=both.filter(([x,y])=>x.pred&&y.pred&&x.pred===y.pred).length;
+  const dT=both.map(([x,y])=>y.tokens-x.tokens);
+  const dL=both.map(([x,y])=>y.latency_s-x.latency_s);
+  const kpi=(l,v,m,c)=>`<div class="card kpi"><div class="l">${l}</div>
+     <div class="v" ${c?`style="color:${c}"`:""}>${v}</div><div class="m">${m}</div></div>`;
+  const advT = dT.length? -mean(dT):NaN;  // >0 means B is more concise
+  $("h2hKpis").innerHTML =
+    kpi("Paired questions", fmt0(P.length), `both-ok pairs: ${both.length}`) +
+    kpi("Answer agreement", both.length? fmt(100*agree/both.length)+"%":"–", `same ANSWER letter on ${agree}/${both.length} pairs`, "#93c5fd") +
+    kpi("Δ tokens (B − A)", dT.length? fmt0(mean(dT)):"–", advT>0?"B more concise on average":"A more concise on average", advT>0?"#34d399":"#f87171") +
+    kpi("Δ latency (B − A)", dL.length? fmt(mean(dL))+" s":"–", dL.length&&mean(dL)<0?"B faster on average":"A faster on average", (dL.length&&mean(dL)<0)?"#34d399":"#f87171");
+
+  // scatter A vs B tokens with diagonal
+  const step=Math.max(1,Math.floor(both.length/600));
+  const pts=both.filter((_,i)=>i%step===0).map(([x,y])=>({x:x.tokens,y:y.tokens}));
+  const mx=Math.max(8000,...pts.map(p=>Math.max(p.x,p.y)));
+  mk("cScatter",{type:"scatter",data:{datasets:[
+    {label:`${shortLabel(selB)} (y) vs ${shortLabel(selA)} (x)`,data:pts,
+     backgroundColor:colorOf(selB)+"99",pointRadius:3},
+    {label:"x = y",type:"line",data:[{x:0,y:0},{x:mx,y:mx}],borderColor:"#9aa5c088",
+     borderDash:[6,6],pointRadius:0,fill:false}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{title:{display:true,text:"Tokens per question: B vs A (below diagonal → B more concise)"}},
+      scales:{x:{title:{display:true,text:shortLabel(selA)+" tokens"},beginAtZero:true},
+              y:{title:{display:true,text:shortLabel(selB)+" tokens"},beginAtZero:true}}}});
+
+  // delta histogram
+  const edges=Array.from({length:17},(_,i)=>-4000+i*500);
+  const labels=edges.slice(0,-1).map((e,i)=>`${e/1000}k`).map((t,i)=>i===8?"0":t);
+  mk("cDelta",{type:"bar",data:{labels,datasets:[{label:"pairs (B − A tokens)",
+    data:hist(dT,edges),backgroundColor:colorOf(selB)+"cc",borderRadius:4}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{title:{display:true,text:"Token delta distribution (B − A), negative = B more concise"}},
+      scales:{y:{beginAtZero:true}}}});
+
+  // combined rating: accuracy (correct/total) shown as horizontal bars
+  const rr=RUNS_VIEW.filter(r=>active.has(r)||r===selA||r===selB);
+  mk("cEff",{type:"bar",data:{labels:rr.map(shortLabel),
+    datasets:[{label:"accuracy (correct / total)",data:rr.map(r=>100*statsFor(r).nOk/statsFor(r).n),
+      backgroundColor:rr.map(colorOf),borderRadius:6}]},
+    options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,
+      plugins:{title:{display:true,text:"Combined rating: accuracy per run (correct / total, %)"}},
+      scales:{x:{beginAtZero:true,max:100,ticks:{callback:v=>v+"%"}}}}});
+}
+
+/* ---------- tables ---------- */
+function renderTables(){
+  const runs=RUNS_VIEW;
+  let h=`<table><thead><tr><th>run</th><th>answers</th><th>correct</th><th>wrong</th><th>trunc</th>
+    <th>accuracy %</th><th>trunc %</th><th>mean tok</th><th>median</th><th>p90</th><th>mean lat (s)</th></tr></thead><tbody>`;
+  for(const r of runs){ const s=statsFor(r);
+    h+=`<tr><td><span class="dot" style="background:${colorOf(r)}"></span>${shortLabel(r)} <span class="sub">(${r})</span></td>
+      <td>${s.n}</td><td>${s.nOk}</td><td>${s.nTr}</td><td>${s.nKo}</td>
+      <td class="pos">${s.n?fmt(100*s.nOk/s.n):"–"}</td>
+      <td>${s.n?fmt(100*s.nTr/s.n):"–"}</td><td>${fmt0(s.meanTok)}</td><td>${fmt0(s.medTok)}</td>
+      <td>${fmt0(s.p90Tok)}</td><td>${fmt(s.meanLat)}</td></tr>`; }
+  $("tRuns").innerHTML=h+"</tbody></table>";
+
+  const subjects=[...new Set(RAW.map(r=>r.subject))].sort();
+  h=`<table><thead><tr><th>subject</th>${runs.map(r=>`<th>${shortLabel(r)}<br><span class="sub">n · mean tok</span></th>`).join("")}</tr></thead><tbody>`;
+  for(const s of subjects){
+    h+=`<tr><td>${s}</td>`;
+    for(const r of runs){ const rs=RAW.filter(x=>x.run===r&&x.subject===s);
+      const tok=rs.filter(x=>x.result!=="trunc"&&!x.truncated&&x.tokens>0).map(x=>x.tokens);
+      h+=`<td>${rs.length} · ${tok.length?fmt0(mean(tok)):"–"}</td>`; }
+    h+="</tr>";
+  }
+  $("tSubj").innerHTML=h+"</tbody></table>";
+}
+
+/* per-subject score matrix: paired accuracy 0.xxx, winner cell green, loser red */
+function renderScoreMatrix(){
+  const runs=[...active];
+  const el=$("tMatrix");
+  if(runs.length<2){ el.innerHTML=`<div class="note">Select at least two runs to compare per-subject paired scores.</div>`; return; }
+  const subjects=[...new Set(RAW.map(r=>r.subject))].sort();
+  const sets=runs.map(r=>new Set(RAW.filter(x=>x.run===r).map(x=>x.subject+"|"+x.question_id)));
+  const maps=runs.map(r=>new Map(RAW.filter(x=>x.run===r).map(x=>[x.subject+"|"+x.question_id,x])));
+  let h=`<table><thead><tr><th>subject</th>${runs.map(r=>
+    `<th><span class="dot" style="background:${colorOf(r)}"></span>${shortName(r)}</th>`).join("")}</tr></thead><tbody>`;
+  let totWins=Object.fromEntries(runs.map(r=>[r,0]));
+  for(const s of subjects){
+    // common keys within this subject across all selected runs
+    const common=[];
+    for(const k of sets[0]) if(k.startsWith(s+"|")&&sets.every((st,i)=>st.has(k))) common.push(k);
+    if(!common.length) continue;
+    const scores=runs.map((r,i)=>{
+      const okc=common.filter(k=>maps[i].get(k).result==="correct").length;
+      return {ok:okc,n:common.length,score:okc/common.length};
+    });
+    const best=Math.max(...scores.map(x=>x.score));
+    h+=`<tr><td>${s} <span class="sub">(${common.length})</span></td>`;
+    scores.forEach((x,i)=>{
+      const win=scores.length>1&&x.score===best&&best>0;
+      const lose=scores.length>1&&x.score<best;
+      const bg=win?"rgba(52,211,153,.22)":lose?"rgba(248,113,113,.16)":"transparent";
+      const mark=win?" ✓":"";
+      totWins[runs[i]]+=win?1:0;
+      h+=`<td style="background:${bg};${win?"color:#34d399;font-weight:700":""}${lose?";color:#f87171":""}">${x.score.toFixed(3)}${mark}</td>`;
+    });
+    h+="</tr>";
+  }
+  // totals row
+  const bestW=Math.max(...runs.map(r=>totWins[r]));
+  h+=`<tr style="border-top:2px solid rgba(255,255,255,.25)"><td><b>subjects won</b></td>`;
+  for(const r of runs){
+    const win=totWins[r]===bestW&&bestW>0;
+    h+=`<td style="${win?"color:#34d399;font-weight:700":""}">${totWins[r]}/${subjects.filter(s=>{
+      for(const k of sets[0]) if(k.startsWith(s+"|")) return sets.every(st=>st.has(k));
+      return false;}).length}${win?" ✓":""}</td>`;
+  }
+  h+="</tr></tbody></table>";
+  el.innerHTML=h;
+}
+
+function renderAll(){
+  renderScoreboard(); renderKpis(); renderMix(); renderVerb(); renderLat(); renderSubj(); renderH2h();
+  renderAgree(); renderTables(); renderScoreMatrix(); initFullscreen();
+  const st=$("status");
+  if(st) st.textContent=`${RAW.length} records · ${RUNS_VIEW.length}/${RUNS.length} runs shown · fetched ${new Date().toLocaleTimeString("en-GB")}`;
+}
+
+/* ---------- load ---------- */
+async function load(){
+  try{
+    $("err").style.display="none";
+    const res=await fetch(DATA_URL+"?t="+Date.now());
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    RAW=await res.json();
+    if(!Array.isArray(RAW)||!RAW.length) throw new Error("empty or unexpected JSON");
+    RUNS=[...new Set(RAW.map(r=>r.run))];
+    applyFilter();
+    if(!selA||!RUNS_VIEW.includes(selA)) selA=RUNS_VIEW.includes("q35-default8-r4")?"q35-default8-r4":RUNS_VIEW[0];
+    if(!selB||!RUNS_VIEW.includes(selB)) selB=RUNS_VIEW.includes("q35-exp20-thr08-gate27-39-r4")?"q35-exp20-thr08-gate27-39-r4":RUNS_VIEW[RUNS_VIEW.length-1];
+    renderChips(); renderH2hSelects(); renderAll();
+  }catch(e){
+    const el=$("err"); el.style.display="block";
+    el.textContent="Failed to load data: "+e.message+" — check the JSON URL and your connection.";
+  }
+}
+$("nameFilter").addEventListener("input",()=>{ applyFilter(); renderChips(); renderH2hSelects(); renderAll(); });
+$("filterToggle").addEventListener("click",()=>{
+  const bar=$("filterBar"), open=bar.style.display==="none";
+  bar.style.display=open?"flex":"none";
+  $("filterToggle").setAttribute("aria-expanded",open);
+  if(open) $("nameFilter").focus();
+});
+load();
+</script>
+</body>
+</html>

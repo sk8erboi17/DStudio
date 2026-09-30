@@ -199,7 +199,7 @@ node tests/integration/agent_native_build_test.mjs ds4
 ```
 
 These checks require macOS Metal, the documented native build tools and browser
-dependencies; first launch also requires the network. They do not replace the
+dependencies; first launch builds bundled engine sources with external network denied. They do not replace the
 separate real-model acceptance gates.
 
 See [the active WIP](WORK_IN_PROGRESS.md), [the admission matrix](engine-upstream.json)

@@ -25,8 +25,8 @@ Metal fixture buffers, with simulated model responses where declared. The
 download test uses tiny real SHA-checked files and simulated transport. The
 `--unified-qwen` stack gate also checks 40,448 hotlist IDs against an independent
 int32 oracle under ASan/UBSan and the unchanged 256 KiB scratch bound.
-`make test-first-launch-e2e` instead downloads/builds real engine sources from an
-empty profile through headless WebKit; it refuses weights before transfer and
+`make test-first-launch-e2e` instead builds the bundled engine sources from an
+empty profile through headless WebKit, with external network denied; it refuses weights before transfer and
 checks Qwen Q2/Q4 reuse main plus the retired endpoint's 410 response.
 
 ## Qwen3.6 fork: fused MoE Q6_K kernels
@@ -54,7 +54,7 @@ with the original shader and checks command subdivision with deterministic
 counters. These positions are not actual prompt tokens processed by a model.
 Capacity fault injection verifies rejection before allocation and retained prior
 state. A real `--install-engine qwen35 INSTALL_ROOT` run requires the shared
-`INSTALL_ROOT/ds4/gguf` directory; the isolated network/build gate uses an empty
+`INSTALL_ROOT/ds4/gguf` directory; the isolated offline/build gate uses an empty
 store there, without primary-engine installation or any weights.
 
 `make test-v1-relay` executes the production relay with real sockets and
@@ -909,19 +909,19 @@ retry, expansion and Tutor run through production UI with simulated replies.
 With a verified managed installation under a task-owned `tests/.artifacts/`
 directory and existing weights, the explicit real gates are:
 
-The current q36 installer candidate is `8362010`, with runtime `next-review`,
+The historical September 12 q36 installer candidate was `8362010`, with runtime `next-review`,
 terminal `monitor`, then `monitor-owner` applied and recorded in that order.
 `node tests/live/engine_acceptance.mjs --setup --engines main,q36` creates an
-empty private installation and downloads/builds both sources, but no model
-weights. On 12 September `engine-acceptance/run-37al3S` passes both setups
+empty private installation and now copies/builds bundled sources, with no model
+weights or source downloads. The retained September 12 run used source downloads. On 12 September `engine-acceptance/run-37al3S` passes both setups
 and actual executable startup. Its q36 receipt records 147 compiler-source
 inputs and 255 managed files, including build outputs and non-source assets.
 That fresh-install result does not test an existing-install upgrade.
 
 The installer now prepares reviewed upgrades privately and atomically exchanges
 the complete engine directory, retaining the original installation and an
-identity journal. For older Metal receipts, it re-downloads and verifies the
-original archive to reconstruct ownership. Unknown files are not adopted:
+identity journal. For older Metal receipts, it uses the exact original archive inventories shipped
+in the bundled-source manifest to reconstruct ownership offline. Unknown files are not adopted:
 settings, projects, cache and weight aliases remain at the same paths. Regular
 user files share their existing inodes, so the retained directory is **not an
 immutable backup or undo of later user edits**. Unrecorded legacy build products
@@ -932,9 +932,10 @@ active model leases and conflicting user files reject the update without
 overwriting the working engine. Legacy macOS executables also receive an open-
 vnode check; manual launches must stay stopped throughout migration.
 
-`python3 tests/integration/q36_install_test.py` now has 42 model-free cases.
+`python3 tests/integration/q36_install_test.py` now has 44 model-free cases.
 They use actual locks, files, processes, archive extraction, directory exchange
-and fsync, but simulate network and compilation except for the busy native peer.
+and fsync, but simulate patch/build commands except for the busy native peer.
+Bundled source copying and verification use real files and production functions.
 They cover cancellation before/after publication, fsync failure and idempotent
 reopening, with no premature success or second exchange. A command-cleanup
 regression verifies descendant drain and forbids signaling a reaped process-
@@ -2016,7 +2017,7 @@ These tests do not add inference or quality measurements. See the
 
 ```sh
 make test-setup-live                  # Real GitHub downloads + builds: main, Laguna, Qwen3.8, Qwen3.6
-make test-first-launch-e2e            # Headless .app + real WebKit UI + fresh network engine installation
+make test-first-launch-e2e            # Headless .app + real WebKit UI + fresh offline engine installation
 make test-inference-live              # Real resident Metal: installed DeepSeek + Laguna
 make test-inference-live ENGINES=qwen  # Requires downloaded Qwen base + PLE
 make test-engine-acceptance           # Fresh builds AND real inference for all four engines
@@ -2025,8 +2026,8 @@ make benchmark-qwen-decode            # Native generation tok/s, three exact-out
 ```
 
 The setup gate calls DStudio's production headless installer, using the same
-archive installer and runtime builders as app setup. It starts with no engine
-directory, downloads pinned source archives over HTTPS, builds the executables,
+bundled-source installer and runtime builders as app setup. It starts with no engine
+directory, verifies/copies pinned local sources, builds the executables,
 executes their help command, and checks that optional engines share the model
 store. It does **not** simulate a browser onboarding click. Existing user
 checkouts, models, preferences and running processes are not replaced or stopped.
@@ -2513,3 +2514,28 @@ generated HTML or substitute a manually corrected screenshot.
 See the [real-run report](../docs/ENGINE_ACCEPTANCE.md) for actual failures as well
 as successes. Qwen native generation throughput is reported separately from
 DStudio Chat latency and from the small cross-engine acceptance battery.
+
+
+## Bundled offline engine sources (September 30, 2026)
+
+`make test-engine-sources` executes the production verifier, source copy and
+exclusive publisher with real files. Its 17 cases cover byte/mode integrity,
+missing/extra/altered inputs, linked files and parents (including a deterministic
+parent-switch barrier), source/manifest and target races, owner-lease replacement,
+independent preparations overlapping at a deterministic barrier,
+retained-candidate limits and interrupted durability acknowledgement. It also
+copies/verifies all five shipped source snapshots. No compilation or inference
+is claimed by these cases.
+
+`make test-engine-updates` exercises the actual native HTTP endpoints with a
+fixture checkout and Git peer. Update checks must not invoke Git, and stale
+`ds4-latest` requests must fail before changing sources or executing commands.
+The original failing receipt is retained separately from the passing run.
+
+`make test-first-launch-e2e` uses a relocated signed app, an empty profile and
+real WebKit controls. External outbound connections are denied by macOS for
+the app and all its compiler/installer children; loopback UI requests remain
+allowed. Main, Laguna, Qwen3.6 and q36 compile from the bundled snapshots with
+no weights or model inference. Packaging and source installation are separate
+from the operator's full model-quality rerun. See
+[provenance, source omissions and refresh workflow](../docs/BUNDLED_ENGINES.md).

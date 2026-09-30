@@ -1,4 +1,4 @@
-// Real relocated macOS app in headless mode + empty data + WebKit UI + network engine builds.
+// Real relocated macOS app + empty data + WebKit UI + offline engine builds.
 // Only the weight-download boundary is refused: no simulated setup responses.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -21,7 +21,7 @@ fs.mkdirSync(temp);
 assert.equal(fs.existsSync(data), false);
 const report = {
   schema: 'dstudio.first-launch.v1', started: new Date().toISOString(),
-  scope: 'Real bundled app binary in headless mode, empty profile, automated headless WebKit UI, real engine downloads/builds. Weight downloads refused before transfer; no model inference or native-window testing.',
+  scope: 'Real bundled app binary in headless mode, empty profile, automated headless WebKit UI, real bundled engine builds with external network denied by macOS sandbox. Weight downloads refused before transfer; no model inference or native-window testing.',
   results: [], requests: [], weightBoundaries: [], pageErrors: [],
 };
 const save = () => fs.writeFileSync(path.join(run, 'results.json'), JSON.stringify(report, null, 2) + '\n');
@@ -32,6 +32,7 @@ for (const key of ['DS4UI_TEST_MODE', 'DS4UI_NO_WINDOW', 'DS4UI_SKIP_LOADING',
   'DS4UI_DEFER_ENGINE_START', 'DS4_DIR', 'DS4UI_PORT']) delete env[key];
 env.DS4UI_NO_WINDOW = '1';
 env.DS4UI_DEFER_ENGINE_START = '1';
+const offlineProfile = '(version 1) (allow default) (deny network-outbound) (allow network-outbound (remote ip "localhost:*"))';
 let child, browser, page, sentinel;
 let childFinished;
 let serverPid;
@@ -66,7 +67,9 @@ function verifyRuntime(id, response) {
   const cfg = configs[id], dir = path.join(data, cfg.dir);
   assert.equal(response.ok, true, JSON.stringify(response));
   assert.equal(response.built, true);
-  assert.equal(response.downloaded, true, 'must actually download into an absent checkout');
+  assert.equal(response.downloaded, false, 'engine sources must not be downloaded');
+  assert.equal(response.bundled, true);
+  assert.equal(response.sourcesInstalled, true, 'must copy verified sources into an absent checkout');
   let receipt = response;
   if (id.startsWith('qwen')) receipt = JSON.parse(fs.readFileSync(path.join(dir, '.dstudio-source.json'), 'utf8'));
   assert.equal(receipt.commit, cfg.commit);
@@ -111,7 +114,7 @@ try {
   report.protectedListeners = protectedPids;
   const port = await freePort(); report.base = `http://127.0.0.1:${port}`;
   const fd = fs.openSync(path.join(run,'app.log'),'wx');
-  child = spawn(path.join(app,'Contents/MacOS/DStudio'), [String(port)], {
+  child = spawn('/usr/bin/sandbox-exec', ['-p', offlineProfile, path.join(app,'Contents/MacOS/DStudio'), String(port)], {
     cwd: '/', env, detached: true, stdio: ['ignore',fd,fd],
   });
   childFinished = new Promise(resolve => {
@@ -164,7 +167,7 @@ try {
     await page.screenshot({path:path.join(run,'01-first-launch.png'),fullPage:true});
     return { url:page.url(), noSavedBrowserState:true, setupSurface };
   });
-  await step('main: onboarding Install ds4 downloads, patches and compiles', async () => {
+  await step('main: onboarding Install ds4 copies bundled sources, patches and compiles', async () => {
     const response = page.waitForResponse(r => r.url().endsWith(configs.main.endpoint) && r.request().method() === 'POST', {timeout:1200000});
     const button = page.locator(setupSurface === 'onboarding' ? '#onboard-ds4dir-setup-btn' : '#ds4dir-setup');
     await button.click();
@@ -236,6 +239,29 @@ try {
     execFileSync('codesign',['--verify','--deep','--strict',app]);
     assert.equal(sha(path.join(app,'Contents/MacOS/DStudio')),report.appSha256);
     return catalog;
+  });
+  await step('q36 builds from bundled sources offline with no model or app restart', async () => {
+    const started = performance.now();
+    const result = spawnSync('/usr/bin/sandbox-exec', ['-p', offlineProfile,
+      path.join(app,'Contents/MacOS/DStudio'), '--install-engine', 'q36', data],
+      { cwd: '/', env, encoding: 'utf8', timeout: 900000, maxBuffer: 32 * 1024 * 1024 });
+    fs.writeFileSync(path.join(run,'q36-install.log'), (result.stdout || '') + (result.stderr || ''));
+    assert.equal(result.error, undefined); assert.equal(result.status, 0, result.stderr);
+    const output = (result.stdout || '').split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line));
+    const installed = output.find(row => row.ok && row.engine === 'q36');
+    assert(installed?.bundled && installed.sourcesInstalled && installed.downloaded === false);
+    assert.equal(installed.modelLoaded, false);
+    const tree = path.join(data,'q36');
+    const receipt = JSON.parse(fs.readFileSync(path.join(tree,'.dstudio-source.json'),'utf8'));
+    assert.equal(receipt.commit,'1305843c735380f912619548b121cba8601f2f85');
+    assert.equal(receipt.bundledSources.source,'bundled');
+    assert.equal(receipt.qualityValidated,false);
+    assert.equal(fs.realpathSync(path.join(tree,'gguf')),path.join(data,'ds4/gguf'));
+    assert.deepEqual(fs.readdirSync(path.join(data,'ds4/gguf')),[]);
+    const catalog = await json('/api/engine/checkouts');
+    assert(catalog.checkouts.some(entry => entry.dir === tree && entry.hasServer));
+    return {seconds:(performance.now()-started)/1000, receipt,
+      binaries:{q36:sha(path.join(tree,'q36')),server:sha(path.join(tree,'q36-server'))}};
   });
   await step('seven native main adaptations reverse and reapply without source loss', async () => {
     return nativePatchRoundtrip({ support: data, source: path.join(data, 'ds4'),

@@ -9240,7 +9240,7 @@
               <input type="text" id="onboard-ds4dir" class="onboard__path-in" spellcheck="false" autocomplete="off" placeholder="./ds4" readonly>
               <span id="onboard-ds4dir-badge" class="path-badge"></span>
               <button type="button" id="onboard-ds4dir-choose-btn" class="btn btn--sm" title="Choose an existing ds4 checkout folder">Choose…</button>
-              <button type="button" id="onboard-ds4dir-setup-btn" class="btn btn--sm btn--primary" title="Download antirez/ds4 here and apply DStudio patches">Install ds4</button>
+              <button type="button" id="onboard-ds4dir-setup-btn" class="btn btn--sm btn--primary" title="Build the included ds4 sources and apply DStudio patches">Install ds4</button>
             </div>
             <p class="path-msg" id="onboard-ds4dir-msg"></p>
           </div>
@@ -26567,7 +26567,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const label = lf.ds4Setup.textContent;
         lf.ds4Setup.disabled = true;
         lf.ds4Setup.textContent = 'Installing...';
-        lf.ds4Msg.textContent = 'Downloading ds4, building it and applying DStudio patches...';
+        lf.ds4Msg.textContent = 'Preparing the included ds4 sources, building and applying DStudio patches...';
         try {
           const r = await Engine.setupDs4(dir);
           if (r && r.ds4dir) lf.ds4Path.textContent = r.ds4dir;
@@ -28440,7 +28440,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (btn) { btn.disabled = true; btn.textContent = 'Installing...'; }
         if (msg) {
           msg.className = 'path-msg';
-          msg.textContent = 'Downloading ds4, building it and applying DStudio patches...';
+          msg.textContent = 'Preparing the included ds4 sources, building and applying DStudio patches...';
         }
         let r;
         try { r = await Engine.setupDs4(dir); }
@@ -28540,7 +28540,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const btn = qs('#onboard-ds4dir-setup-btn');
         const label = btn?.textContent || 'Install ds4';
         if (btn) { btn.disabled = true; btn.textContent = 'Installing...'; }
-        paintPath(DS4_PATH, 'checking', 'Downloading ds4, building it and applying DStudio patches...');
+        paintPath(DS4_PATH, 'checking', 'Preparing the included ds4 sources, building and applying DStudio patches...');
         let r;
         try { r = await Engine.setupDs4(); }
         catch (e) { r = { ok: false, error: e?.message || 'Could not reach the launcher' }; }
@@ -28552,7 +28552,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (r && r.ok && r.ds4dirOk !== false) {
           lastDs4Ok = true;
           forcedSetup = false;
-          paintPath(DS4_PATH, 'good', r.downloaded ? 'Installed and patched' : 'Built and patched');
+          paintPath(DS4_PATH, 'good', r.sourcesInstalled ? 'Installed and patched' : 'Built and patched');
           updateForcedSetup();
           await refreshModels();
           await loadGgufs();
@@ -34566,7 +34566,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const btn = qs('#ds4dir-setup');
         const warn = qs('#ds4dir-warn');
         const label = btn?.textContent || 'Install ds4';
-        if (warn) { warn.hidden = false; warn.textContent = 'Downloading ds4, building it and applying DStudio patches...'; }
+        if (warn) { warn.hidden = false; warn.textContent = 'Preparing the included ds4 sources, building and applying DStudio patches...'; }
         if (btn) { btn.disabled = true; btn.textContent = 'Installing...'; }
         const r = await Engine.setupDs4().catch((e) => ({ ok: false, error: e?.message || 'Could not reach the launcher' }));
         if (btn) { btn.disabled = false; btn.textContent = label; }

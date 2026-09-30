@@ -22,6 +22,10 @@ import tarfile
 import tempfile
 import time
 
+# Also support behavioral harnesses that import this CLI by file location.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import bundled_engine_sources
+
 PIN = '1305843c735380f912619548b121cba8601f2f85'
 LEGACY_PIN = 'd67687ed15ad9f52b755a9b5fdfc0214ea937555'
 # Reviewed revisions an existing installation may be upgraded from. Each one
@@ -476,16 +480,9 @@ def legacy_ownership(tree, receipt, stage, env):
     if (receipt.get('backend') != 'metal' or revision not in (*PREVIOUS_PINS, PIN) or
             not isinstance(digest, str) or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest)):
         raise RuntimeError('Legacy q36 ownership migration lacks a reviewed archive identity; preserved')
-    archive, original = stage / 'legacy-source.tar.gz', stage / 'legacy-source'
-    url = f'https://codeload.github.com/Ninnix/q36/tar.gz/{revision}'
-    command(['curl', '--disable', '--fail', '--location', '--silent', '--show-error',
-             '--proto', '=https', '--proto-redir', '=https', '--connect-timeout', '20',
-             '--max-time', '120', '--max-filesize', str(64 * 1024 * 1024),
-             '--output', str(archive), url], stage, env, 130)
-    if sha256(archive) != digest:
-        raise RuntimeError('Legacy source archive identity differs; existing installation preserved')
-    extract_sources(archive, original, revision)
-    distributed = managed_files(original)
+    # Exact old archive inventories are shipped as provenance, not fetched.
+    # They prove ownership of unchanged distributed files without copying data.
+    distributed, _ = bundled_engine_sources.legacy_inventory(ASSETS, revision, digest)
     owned = {**receipt['sources'], **receipt['binaries']}
     for name, expected in distributed.items():
         file = tree / name
@@ -679,7 +676,7 @@ def install(root, revision):
                 for name in ('q36', 'q36-server'):
                     command([str(tree / name), '--help'], tree, env, 15)
                 sync_upgrade_namespace(root_fd, receipt)
-                print(json.dumps({'ok': True, 'engine': 'q36', 'downloaded': False, 'backend': backend,
+                print(json.dumps({'ok': True, 'engine': 'q36', 'downloaded': False, 'bundled': True, 'sourcesInstalled': False, 'backend': backend,
                                   'path': str(tree), 'modelLoaded': False,
                                   'upgradeFrom': receipt.get('upgradeFrom')}))
                 return
@@ -718,15 +715,11 @@ def install(root, revision):
         print(f'q36 install: private preparation {stage}', flush=True)
         stage_info = stage.stat()
         candidate = stage / 'q36'
-        archive = stage / 'source.tar.gz'
         if legacy:
             previous['managedFiles'] = legacy_ownership(tree, previous, stage, env)
-        command(['curl', '--disable', '--fail', '--location', '--silent', '--show-error',
-                 '--proto', '=https', '--proto-redir', '=https', '--connect-timeout', '20',
-                 '--max-time', '120', '--max-filesize', str(64 * 1024 * 1024),
-                 '--output', str(archive), URL], stage, env, 130)
-        archive_hash = sha256(archive)
-        extract_sources(archive, candidate)
+        bundle_proof = bundled_engine_sources.copy_sources(ASSETS, 'q36', PIN, candidate)
+        source_helper = Path(bundled_engine_sources.__file__).resolve()
+        source_helper_hash = sha256(source_helper)
         env['Q36_DIR'] = str(candidate)
         # The terminal and owner changes are separate, reviewed upstream
         # adaptations. Preserve their application order in the durable receipt.
@@ -751,13 +744,15 @@ def install(root, revision):
             raise RuntimeError('DStudio patch inputs changed during build; candidate not published')
         if sha256(Path(__file__).resolve()) != installer_identity:
             raise RuntimeError('Installer changed during build; candidate not published')
+        bundled_engine_sources.verify_sources(ASSETS, 'q36', PIN, bundle_proof)
+        if sha256(source_helper) != source_helper_hash:
+            raise RuntimeError('Bundled source helper changed during build; candidate not published')
         legacy_build_paths = retain_legacy_build_paths(candidate, stage, previous, distributed_inputs, snapshot) \
             if legacy else []
-        if legacy:
-            sync_candidate(stage / 'legacy-source')
-            if legacy_build_paths:
-                sync_candidate(stage / 'new-build-products')
-        receipt = {'engine': 'q36', 'commit': PIN, 'url': URL, 'archiveSHA256': archive_hash,
+        if legacy and legacy_build_paths:
+            sync_candidate(stage / 'new-build-products')
+        receipt = {'engine': 'q36', 'commit': PIN, 'url': URL,
+                   'bundledSources': {**bundle_proof, 'helperSHA256': source_helper_hash},
                    'backend': backend, 'patches': patch_identity, 'patchOrder': patch_order,
                    'sources': frozen, 'binaries': binaries,
                    'managedFiles': managed_files(candidate),
@@ -838,12 +833,11 @@ def install(root, revision):
             raise
         finally:
             os.close(stage_fd)
-        # Only the exact archive made here, not recursive cleanup of a caller's
-        # directory. Unexpected entries keep this preparation visible for review.
+        # Only remove our empty preparation, never recursive cleanup of user data.
         if not previous:
-            archive.unlink()
             stage.rmdir()
-        print(json.dumps({'ok': True, 'engine': 'q36', 'downloaded': True, 'backend': backend,
+        print(json.dumps({'ok': True, 'engine': 'q36', 'downloaded': False,
+                          'bundled': True, 'sourcesInstalled': True, 'backend': backend,
                           'path': str(tree), 'modelLoaded': False,
                           'upgradeFrom': receipt.get('upgradeFrom')}), flush=True)
     finally:

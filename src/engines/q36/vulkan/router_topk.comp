@@ -1,0 +1,83 @@
+#version 460
+
+/* Expert router top-k for decode/small batches. Selection runs on raw
+ * logits (softmax is monotone, so the order matches the host's prob-based
+ * scan), then weights renormalize the selected logits only: the full
+ * softmax denominator cancels, mirroring q36_vk_router_fast_rows. Ties
+ * pick the lower expert index like the host insertion scan. One serial
+ * lane is memory-latency bound here, so 256 lanes reduce each round. */
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Logits {
+    float logits[];
+};
+
+layout(set = 0, binding = 1) writeonly buffer Selected {
+    uint selected[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Weights {
+    float wout[];
+};
+
+layout(push_constant) uniform Push {
+    uint n_expert;
+    uint n_used;
+    uint n_tok;
+    float route_scale;
+} pc;
+
+shared float sv[256];
+shared float rv[256];
+shared uint ri[256];
+shared uint win[8];
+shared float winv[8];
+
+void main(void) {
+    uint tok = gl_WorkGroupID.x;
+    uint lid = gl_LocalInvocationID.x;
+    if (tok >= pc.n_tok) return;
+
+    sv[lid] = lid < pc.n_expert ? logits[tok * pc.n_expert + lid] : -1.0 / 0.0;
+    barrier();
+
+    for (uint k = 0u; k < pc.n_used; k++) {
+        rv[lid] = sv[lid];
+        ri[lid] = lid;
+        barrier();
+        for (uint s = 128u; s > 0u; s >>= 1u) {
+            if (lid < s) {
+                float a = rv[lid], b = rv[lid + s];
+                uint ai = ri[lid], bi = ri[lid + s];
+                if (b > a || (b == a && bi < ai)) {
+                    rv[lid] = b;
+                    ri[lid] = bi;
+                }
+            }
+            barrier();
+        }
+        if (lid == 0u) {
+            win[k] = ri[0];
+            winv[k] = rv[0];
+        }
+        barrier();
+        if (lid == win[k]) sv[lid] = -1.0 / 0.0;
+        barrier();
+    }
+
+    if (lid == 0u) {
+        float maxv = winv[0];
+        double sum = 0.0;
+        float top_exp[8];
+        for (uint i = 0u; i < pc.n_used; i++) {
+            top_exp[i] = exp(winv[i] - maxv);
+            sum += double(top_exp[i]);
+        }
+        if (sum < 6.103515625e-5) sum = 6.103515625e-5;
+        for (uint i = 0u; i < pc.n_used; i++) {
+            selected[tok * pc.n_used + i] = win[i];
+            wout[tok * pc.n_used + i] = float(double(top_exp[i]) / sum) * pc.route_scale;
+        }
+    }
+}

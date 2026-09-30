@@ -1,0 +1,116 @@
+#version 460
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights {
+    uint wb[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Q8 {
+    uint q8[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint out_dim;
+    uint n_tok;
+    uint blocks;
+    uint row_bytes;
+    float scale;
+} pc;
+
+const uint Q8_0_BYTES = 34u;
+const uint Q8_0_PADDED_BYTES = 36u;
+const uint Q8_0_PADDED_WORDS = 9u;
+const uint TOK_TILE = 4u;
+
+shared uint sh_q[TOK_TILE * Q8_0_PADDED_WORDS];
+shared float sh_acc[TOK_TILE * 64u];
+
+uint load_w_u8(uint off) {
+    uint word = wb[off >> 2u];
+    return (word >> ((off & 3u) * 8u)) & 255u;
+}
+
+uint load_w_u16(uint off) {
+    return load_w_u8(off) | (load_w_u8(off + 1u) << 8u);
+}
+
+float load_w_f16(uint off) {
+    return unpackHalf2x16(load_w_u16(off)).x;
+}
+
+int i8(uint v) {
+    return v >= 128u ? int(v) - 256 : int(v);
+}
+
+float q_d(uint tok_slot) {
+    return unpackHalf2x16(sh_q[tok_slot * Q8_0_PADDED_WORDS] & 65535u).x;
+}
+
+int q_i8(uint tok_slot, uint idx) {
+    uint word = sh_q[tok_slot * Q8_0_PADDED_WORDS + 1u + (idx >> 2u)];
+    return i8((word >> ((idx & 3u) * 8u)) & 255u);
+}
+
+void main(void) {
+    uint lid = gl_LocalInvocationID.x;
+    uint row = gl_WorkGroupID.x * 8u + (lid >> 3u);
+    uint lane = lid & 7u;
+    uint tok0 = gl_WorkGroupID.y * TOK_TILE;
+    bool row_live = row < pc.out_dim;
+    uint row_base = row_live ? row * pc.row_bytes : 0u;
+    float acc[4] = { 0.0, 0.0, 0.0, 0.0 };
+
+    for (uint b = 0u; b < pc.blocks; b++) {
+        for (uint u = 0u; u < TOK_TILE; u++) {
+            uint tok = tok0 + u;
+            bool tok_live = tok < pc.n_tok;
+            uint qword = (tok * pc.blocks + b) * Q8_0_PADDED_WORDS;
+            for (uint i = lid; i < Q8_0_PADDED_WORDS; i += 64u) {
+                sh_q[u * Q8_0_PADDED_WORDS + i] = tok_live ? q8[qword + i] : 0u;
+            }
+        }
+        barrier();
+
+        if (row_live) {
+            uint wbase = row_base + b * Q8_0_BYTES;
+            float wd = load_w_f16(wbase);
+            uint e = lane * 4u;
+            int w0 = i8(load_w_u8(wbase + 2u + e + 0u));
+            int w1 = i8(load_w_u8(wbase + 2u + e + 1u));
+            int w2 = i8(load_w_u8(wbase + 2u + e + 2u));
+            int w3 = i8(load_w_u8(wbase + 2u + e + 3u));
+            for (uint u = 0u; u < TOK_TILE; u++) {
+                uint tok = tok0 + u;
+                if (tok >= pc.n_tok) continue;
+                int dot = w0 * q_i8(u, e + 0u)
+                        + w1 * q_i8(u, e + 1u)
+                        + w2 * q_i8(u, e + 2u)
+                        + w3 * q_i8(u, e + 3u);
+                acc[u] += wd * q_d(u) * float(dot);
+            }
+        }
+        barrier();
+    }
+
+    for (uint u = 0u; u < TOK_TILE; u++) {
+        sh_acc[u * 64u + lid] = acc[u];
+    }
+    barrier();
+
+    for (uint u = 0u; u < TOK_TILE; u++) {
+        uint tok = tok0 + u;
+        if (row_live && lane == 0u && tok < pc.n_tok) {
+            uint r0 = lid;
+            float total = ((sh_acc[u * 64u + r0 + 0u] + sh_acc[u * 64u + r0 + 4u]) +
+                           (sh_acc[u * 64u + r0 + 2u] + sh_acc[u * 64u + r0 + 6u])) +
+                          ((sh_acc[u * 64u + r0 + 1u] + sh_acc[u * 64u + r0 + 5u]) +
+                           (sh_acc[u * 64u + r0 + 3u] + sh_acc[u * 64u + r0 + 7u]));
+            y[tok * pc.out_dim + row] = total * pc.scale;
+        }
+    }
+}

@@ -1,0 +1,83 @@
+#version 460
+
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer GateWeights {
+    uint16_t gate_w[];
+};
+
+layout(set = 0, binding = 1) readonly buffer UpWeights {
+    uint16_t up_w[];
+};
+
+layout(set = 0, binding = 2) readonly buffer X {
+    vec4 xv[];
+};
+
+layout(set = 0, binding = 3) writeonly buffer Mid {
+    float mid[];
+};
+
+layout(push_constant) uniform Push {
+    uint mid_dim;
+    uint blocks;
+    float gate_scale;
+    float up_scale;
+} pc;
+
+const uint Q8_0_U16 = 17u;
+
+shared float sh_gate[4];
+shared float sh_up[4];
+
+void main(void) {
+    uint tid = gl_LocalInvocationID.x;
+    uint row = gl_WorkGroupID.x;
+    if (row >= pc.mid_dim) return;
+    uint row_base = row * pc.blocks * Q8_0_U16;
+    uint bstep = gl_WorkGroupSize.x >> 2u;
+    uint boff = tid >> 2u;
+    uint eoff = (tid & 3u) * 8u;
+    float gate_acc = 0.0f;
+    float up_acc = 0.0f;
+
+    for (uint b = boff; b < pc.blocks; b += bstep) {
+        uint base = row_base + b * Q8_0_U16;
+        float gate_d = unpackHalf2x16(uint(gate_w[base])).x;
+        float up_d = unpackHalf2x16(uint(up_w[base])).x;
+        uint q = base + 1u + (eoff >> 1u);
+        uint gp0 = uint(gate_w[q]) | (uint(gate_w[q + 1u]) << 16u);
+        uint gp1 = uint(gate_w[q + 2u]) | (uint(gate_w[q + 3u]) << 16u);
+        uint up0 = uint(up_w[q]) | (uint(up_w[q + 1u]) << 16u);
+        uint up1 = uint(up_w[q + 2u]) | (uint(up_w[q + 3u]) << 16u);
+        uint xi = (b * 32u + eoff) >> 2u;
+        vec4 x0 = xv[xi];
+        vec4 x1 = xv[xi + 1u];
+        gate_acc += gate_d * (dot(vec4(unpack8(int(gp0))), x0) +
+                              dot(vec4(unpack8(int(gp1))), x1));
+        up_acc += up_d * (dot(vec4(unpack8(int(up0))), x0) +
+                          dot(vec4(unpack8(int(up1))), x1));
+    }
+
+    gate_acc = subgroupAdd(gate_acc);
+    up_acc = subgroupAdd(up_acc);
+    if (subgroupElect()) {
+        sh_gate[gl_SubgroupID] = gate_acc;
+        sh_up[gl_SubgroupID] = up_acc;
+    }
+    barrier();
+    if (tid == 0u) {
+        for (uint i = 1u; i < gl_NumSubgroups; i++) {
+            gate_acc += sh_gate[i];
+            up_acc += sh_up[i];
+        }
+        float g = gate_acc * pc.gate_scale;
+        float u = up_acc * pc.up_scale;
+        mid[row] = (g / (1.0f + exp(-g))) * u;
+    }
+}

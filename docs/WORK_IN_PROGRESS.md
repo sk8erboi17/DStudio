@@ -5,6 +5,16 @@ release. The current implementation slice is closed and the remaining campaign
 is paused. Publishing its code and documentation does not complete
 [the full plan](../PLAN.MD) or update an already installed DStudio.app.
 
+On September 30 a separate distribution change includes the four pinned
+inference-engine source trees and the retired Qwen Next reference in Git and the
+app. Setup and legacy q36 ownership migration use verified local sources;
+Updates no longer fetches or pulls engines. All four engines build from an
+empty relocated-app profile with external network denied, and packaging,
+source-integrity, owner/publication, native setup and q36 migration checks pass.
+No model, weights, installed user app or full quality run was started. Windows
+and Linux installation were not rerun. See [bundled engines](BUNDLED_ENGINES.md)
+for exact pins, source provenance, limits and verification commands.
+
 The [Qwen Next migration](QWEN_NEXT_MAIN_MIGRATION.md) moves Flash Next onto
 antirez/ds4 main `0aaea5a` (upstream September 20; the Qwen merge landed on
 September 14) and retires its separate installer. Upstream requires new

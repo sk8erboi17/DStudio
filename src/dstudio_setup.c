@@ -1,9 +1,8 @@
 /* ============================================================================
- * On-demand installer (ds4 engine, content archives, GGUFs).
+ * On-demand preparation (bundled ds4 engine and GGUF paths).
  *
- * First-run/setup flows: download and unpack the ds4 engine source and the
- * shipped content archives, resolve the GGUF cache dir, and (on Windows)
- * build the engine. Long-running steps report progress through the task/log
+ * First-run/setup flows: verify and copy bundled engine sources, resolve the
+ * GGUF cache dir, and build the engine. Long-running steps report progress through the task/log
  * observability API so the UI can show a live installer.
  *
  * Extracted from dstudio.c into a per-domain file (one translation unit, all
@@ -167,158 +166,26 @@ static int setup_dir_empty(const char *path, int *empty) {
     return 1;
 }
 
-static int setup_remove_tree(const char *path) {
-    struct stat st;
-    if (lstat(path, &st) != 0) return errno == ENOENT;
-    if (!S_ISDIR(st.st_mode)) return unlink(path) == 0;
-
-    DIR *d = opendir(path);
-    if (!d) return 0;
-    int ok = 1;
-    struct dirent *e;
-    while ((e = readdir(d))) {
-        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
-        char child[DSTUDIO_PATH_MAX];
-        int n = snprintf(child, sizeof child, "%s/%s", path, e->d_name);
-        if (n < 0 || (size_t)n >= sizeof child || !setup_remove_tree(child)) ok = 0;
-    }
-    closedir(d);
-    if (rmdir(path) != 0) ok = 0;
-    return ok;
-}
-
-static int setup_parent_dir(const char *path, char *out, size_t outsz) {
-    if (!path || !path[0] || !out || !outsz) return 0;
-    int n = snprintf(out, outsz, "%s", path);
-    if (n < 0 || (size_t)n >= outsz) return 0;
-    char *slash = strrchr(out, '/');
-#ifdef _WIN32
-    char *bslash = strrchr(out, '\\');
-    if (!slash || bslash > slash) slash = bslash;
-#endif
-    if (!slash) return 0;
-    if (slash == out) slash[1] = '\0';
-    else *slash = '\0';
-    return 1;
-}
-
-static int setup_first_extracted_dir(const char *dir, char *out, size_t outsz) {
-    DIR *d = opendir(dir);
-    if (!d) return 0;
-    int found = 0;
-    struct dirent *e;
-    while ((e = readdir(d))) {
-        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
-        char child[DSTUDIO_PATH_MAX];
-        int n = snprintf(child, sizeof child, "%s/%s", dir, e->d_name);
-        if (n < 0 || (size_t)n >= sizeof child) continue;
-        struct stat st;
-        if (lstat(child, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
-        snprintf(out, outsz, "%s", child);
-        found = 1;
-        break;
-    }
-    closedir(d);
-    return found;
-}
-
-static int setup_download_ds4_archive(const char *url, const char *tag, const char *target,
-                                      char *log_tail, size_t logsz,
-                                      char *err, size_t errsz) {
-    char parent[DSTUDIO_PATH_MAX];
-    if (!setup_parent_dir(target, parent, sizeof parent)) {
-        snprintf(err, errsz, "could not resolve parent folder for %s", target ? target : "(null)");
+/* Engine sources are shipped with the app/repository. The helper verifies a
+ * bounded pinned inventory in a private candidate and publishes exclusively;
+ * missing/corrupt bundle inputs fail without any upstream network fallback. */
+static int setup_install_bundled_sources(const char *engine, const char *commit, const char *target,
+                                         char *log_tail, size_t logsz,
+                                         char *err, size_t errsz) {
+    char script[DSTUDIO_PATH_MAX + 64];
+    int n = snprintf(script, sizeof script, "%s/scripts/bundled_engine_sources.py", g_web_dir);
+    if (!g_web_dir[0] || n < 0 || (size_t)n >= sizeof script || access(script, R_OK) != 0) {
+        snprintf(err, errsz, "bundled engine installer is missing; rebuild or reinstall DStudio");
         return 0;
     }
-
-    char archive[DSTUDIO_PATH_MAX];
-    char extract[DSTUDIO_PATH_MAX];
-    int n = snprintf(archive, sizeof archive, "%s/.dstudio-ds4-%s.tar.gz", parent, tag);
-    int m = snprintf(extract, sizeof extract, "%s/.dstudio-ds4-extract-%ld", parent, (long)getpid());
-    if (n < 0 || (size_t)n >= sizeof archive || m < 0 || (size_t)m >= sizeof extract) {
-        snprintf(err, errsz, "temporary ds4 archive path is too long");
-        return 0;
-    }
-
-    unlink(archive);
-    setup_remove_tree(extract);
-    if (mkdir(extract, 0755) != 0) {
-        snprintf(err, errsz, "could not create temporary extract folder %s: %s", extract, strerror(errno));
-        return 0;
-    }
-
-#ifdef _WIN32
-    char *curl_argv[] = {
-        "C:\\Windows\\System32\\curl.exe", "-L", "--fail", "--show-error", "--retry", "2",
-        "--connect-timeout", "20", "--max-time", "300",
-        "-o", archive, (char *)url, NULL
-    };
-#else
-    char *curl_argv[] = {
-        "curl", "-L", "--fail", "--show-error", "--retry", "2",
-        "--connect-timeout", "20", "--max-time", "300",
-        "-o", archive, (char *)url, NULL
-    };
-#endif
-    int rc = setup_run_cmd_capture(NULL, curl_argv, log_tail, logsz);
+    char *args[] = {"python3", script, "--engine", (char *)engine, "--revision", (char *)commit,
+                    "--target", (char *)target, NULL};
+    int rc = setup_run_cmd_capture(NULL, args, log_tail, logsz);
     if (rc != 0) {
-        snprintf(err, errsz,
-                 "ds4 archive download failed (exit %d). DStudio setup needs curl and tar, not git. URL: %s. Output: %.7000s",
-                 rc, url, log_tail && log_tail[0] ? log_tail : "(no output)");
-        unlink(archive);
-        setup_remove_tree(extract);
+        snprintf(err, errsz, "bundled engine installation failed (%d): %.7600s", rc,
+                 log_tail && log_tail[0] ? log_tail : "Python 3 and complete bundled engine sources are required");
         return 0;
     }
-
-#ifdef _WIN32
-    char *tar_argv[] = { "C:\\Windows\\System32\\tar.exe", "-xzf", archive, "-C", extract, NULL };
-#else
-    char *tar_argv[] = { "tar", "-xzf", archive, "-C", extract, NULL };
-#endif
-    rc = setup_run_cmd_capture(NULL, tar_argv, log_tail, logsz);
-    if (rc != 0) {
-        snprintf(err, errsz,
-                 "ds4 archive extraction failed (exit %d). DStudio setup needs tar. Output: %.7600s",
-                 rc, log_tail && log_tail[0] ? log_tail : "(no output)");
-        unlink(archive);
-        setup_remove_tree(extract);
-        return 0;
-    }
-
-    char extracted[DSTUDIO_PATH_MAX];
-    if (!setup_first_extracted_dir(extract, extracted, sizeof extracted)) {
-        snprintf(err, errsz, "ds4 archive did not contain a source folder");
-        unlink(archive);
-        setup_remove_tree(extract);
-        return 0;
-    }
-
-    struct stat st;
-    if (stat(target, &st) == 0) {
-        int empty = 0;
-        if (!S_ISDIR(st.st_mode) || !setup_dir_empty(target, &empty) || !empty) {
-            snprintf(err, errsz, "DStudio/ds4 exists and is not an empty folder");
-            unlink(archive);
-            setup_remove_tree(extract);
-            return 0;
-        }
-        if (rmdir(target) != 0) {
-            snprintf(err, errsz, "could not replace empty DStudio/ds4 folder: %s", strerror(errno));
-            unlink(archive);
-            setup_remove_tree(extract);
-            return 0;
-        }
-    }
-
-    if (rename(extracted, target) != 0) {
-        snprintf(err, errsz, "could not move extracted ds4 source into %s: %s", target, strerror(errno));
-        unlink(archive);
-        setup_remove_tree(extract);
-        return 0;
-    }
-
-    unlink(archive);
-    setup_remove_tree(extract);
     return 1;
 }
 
@@ -441,7 +308,7 @@ static int setup_windows_build_ds4(char *log_tail, size_t logsz, char *err, size
     char bash[DSTUDIO_PATH_MAX];
     if (!setup_find_windows_bash(bash, sizeof bash)) {
         snprintf(err, errsz,
-                 "Windows ds4 setup downloaded the pinned source, but could not find MSYS2/Cygwin bash. "
+                 "Windows ds4 setup copied the bundled source, but could not find MSYS2/Cygwin bash. "
                  "Install MSYS2 in C:\\msys64 or use the portable package with DS4 engine binaries.");
         return 0;
     }
@@ -506,7 +373,7 @@ static void setup_send_json(int fd, const char *status, int ok, const char *targ
                json_dyn_puts(&b, ds4_dir_valid() ? "true" : "false") &&
                json_dyn_puts(&b, ",\"ggufDirOk\":") &&
                json_dyn_puts(&b, setup_gguf_dir_ok_path(target ? target : g_ds4_dir) ? "true" : "false") &&
-               json_dyn_puts(&b, ",\"downloaded\":") &&
+               json_dyn_puts(&b, ",\"downloaded\":false,\"bundled\":true,\"sourcesInstalled\":") &&
                json_dyn_puts(&b, downloaded ? "true" : "false") &&
                json_dyn_puts(&b, ",\"built\":") &&
                json_dyn_puts(&b, built ? "true" : "false") &&
@@ -720,16 +587,6 @@ static int setup_ensure_server_metrics_runtime(char *err, size_t errsz) {
 #endif
 }
 
-static int setup_restore_ds4_runtime_patches(void) {
-    return setup_qwen38_prepare_patch("restore") &&
-           run_ext_script("scripts/apply-ds4-vision-streaming.sh", "restore") &&
-           run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "restore") &&
-           run_ext_script("scripts/apply-ds4-glm53-runtime.sh", "restore") &&
-           run_ext_script("scripts/apply-ds4-server-metrics.sh", "restore") &&
-           run_ext_script("scripts/apply-ds4-media-memory.sh", "restore") &&
-           run_ext_script("scripts/apply-ds4-visible-downloads.sh", "restore");
-}
-
 /* Optional inference branches share one physical model store. Their `gguf`
  * entry is a directory symlink to the primary ./ds4/gguf folder, so switching
  * source/runtime checkouts never duplicates or relocates multi-gigabyte files. */
@@ -839,7 +696,7 @@ done:
 #endif
 }
 
-/* POST /api/ds4/setup — managed first-run path. Downloads antirez/ds4 at the
+/* POST /api/ds4/setup — managed first-run path. Copies bundled antirez/ds4 at the
  * pinned commit into this DStudio checkout as ./ds4, builds upstream, then applies the external patch
  * sets from patch/. Every step returns a concrete error instead of leaving the
  * onboarding path field in a silent-fail state. */
@@ -896,7 +753,7 @@ static void api_setup_ds4(int fd, const char *body) {
             return;
         }
         char err[8600];
-        if (!setup_download_ds4_archive(DS4_ARCHIVE_URL, DS4_UPSTREAM_COMMIT, target,
+        if (!setup_install_bundled_sources("main", DS4_UPSTREAM_COMMIT, target,
                                         log_tail, sizeof log_tail, err, sizeof err)) {
             setup_send_json(fd, "500 Internal Server Error", 0, target, 0, 0, 0, 0, 0, 0, mode_name(g_mode), err);
             return;
@@ -907,7 +764,7 @@ static void api_setup_ds4(int fd, const char *body) {
     char abs[DSTUDIO_PATH_MAX];
     if (!realpath(target, abs)) {
         char err[1024];
-        snprintf(err, sizeof err, "ds4 checkout path could not be resolved after download: %s", strerror(errno));
+        snprintf(err, sizeof err, "ds4 checkout path could not be resolved after source installation: %s", strerror(errno));
         setup_send_json(fd, "500 Internal Server Error", 0, target, downloaded, 0, 0, 0, 0, 0, mode_name(g_mode), err);
         return;
     }
@@ -915,7 +772,7 @@ static void api_setup_ds4(int fd, const char *body) {
     g_ds4_dir_explicit = chosen[0] ? 1 : 0;
     if (!ds4_dir_valid()) {
         setup_send_json(fd, "409 Conflict", 0, g_ds4_dir, downloaded, 0, 0, 0, 0, 0, mode_name(g_mode),
-                        "downloaded folder does not look like a ds4 checkout");
+                        "bundled source folder does not look like a ds4 checkout");
         return;
     }
     char gguf_err[1024];
@@ -974,7 +831,7 @@ static void api_setup_ds4(int fd, const char *body) {
     if (!design_prepared) {
         setup_send_json(fd, "500 Internal Server Error", 0, g_ds4_dir, downloaded, 1, 1, 0,
                         was_running, 0, mode_name(prev_mode),
-                        "ds4 was downloaded and the agent patch built, but the design runtime build failed");
+                        "ds4 was installed and the agent patch built, but the design runtime build failed");
         return;
     }
 

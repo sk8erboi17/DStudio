@@ -1,8 +1,8 @@
 /* ============================================================================
  * Self-update subsystem.
  *
- * Checks and applies updates to this DStudio checkout: git status of the
- * engine/design-system sources and the staged update run steps. Purely operational;
+ * Checks bundled engine/design-system readiness and runs explicit tool or
+ * patch maintenance. Engine revisions are distributed with DStudio;
  * every step goes through the task/log API for UI progress.
  *
  * Extracted from dstudio.c into a per-domain file (one translation unit, all
@@ -55,74 +55,6 @@ static int updates_add_section(json_dyn_buf *b, int *first, const char *id,
     return ok;
 }
 
-static int updates_ds4_managed_dirty_path(const char *path) {
-    if (!path || !path[0]) return 0;
-    return !strcmp(path, "ds4-agent-jsonl") ||
-           !strcmp(path, "ds4-agent-jsonl.ver") ||
-           !strcmp(path, "ds4-design") ||
-           !strcmp(path, "ds4-design.exe") ||
-           !strcmp(path, "ds4_agent.c.ds4ui.bak") ||
-           !strcmp(path, ".ds4ui-native-build.lock") ||
-           !strcmp(path, ".gitignore") ||
-           !strcmp(path, "Makefile") ||
-           !strcmp(path, "ds4_bench.c") ||
-           !strcmp(path, "metal/moe.metal") ||
-           !strcmp(path, "tests/test_metal_stream_index.m") ||
-           !strcmp(path, "ds4.c") ||
-           !strcmp(path, "ds4.h") ||
-           !strcmp(path, "ds4_gpu.h") ||
-           !strcmp(path, "ds4_metal.m") ||
-           !strcmp(path, "ds4_cuda.cu") ||
-           !strcmp(path, "ds4_server.c");
-}
-
-static int updates_ds4_dirty_is_only_managed(const char *dirty, int *managed_count) {
-    if (managed_count) *managed_count = 0;
-    if (!dirty || !dirty[0]) return 0;
-    char buf[4096];
-    cstr_copy(buf, sizeof buf, dirty);
-    int count = 0;
-    for (char *line = strtok(buf, "\n"); line; line = strtok(NULL, "\n")) {
-        while (*line == '\r' || *line == '\n') line++;
-        if (!line[0]) continue;
-        if (strlen(line) < 4 || line[2] != ' ') return 0;
-        char *path = line + 3;
-        while (*path == ' ') path++;
-        if (!updates_ds4_managed_dirty_path(path)) return 0;
-        count++;
-    }
-    if (managed_count) *managed_count = count;
-    return count > 0;
-}
-
-static void updates_trim_line(char *s) {
-    if (!s) return;
-    char *p = s;
-    while (*p && isspace((unsigned char)*p)) p++;
-    if (p != s) memmove(s, p, strlen(p) + 1);
-    size_t n = strlen(s);
-    while (n && isspace((unsigned char)s[n - 1])) s[--n] = '\0';
-}
-
-static int updates_git_capture_trim(char *const argv[], char *out, size_t outsz) {
-    int rc = setup_run_cmd_capture(NULL, argv, out, outsz);
-    updates_trim_line(out);
-    return rc;
-}
-
-static int updates_ds4_git_upstream(char *upstream, size_t upstreamsz) {
-    if (upstream && upstreamsz) upstream[0] = '\0';
-    char *up_argv[] = { "git", "-C", g_ds4_dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}", NULL };
-    if (updates_git_capture_trim(up_argv, upstream, upstreamsz) == 0 && upstream && upstream[0]) return 1;
-    char verify[256] = "";
-    char *verify_argv[] = { "git", "-C", g_ds4_dir, "rev-parse", "--verify", "--quiet", "origin/main", NULL };
-    if (updates_git_capture_trim(verify_argv, verify, sizeof verify) == 0 && verify[0]) {
-        cstr_copy(upstream, upstreamsz, "origin/main");
-        return 1;
-    }
-    return 0;
-}
-
 static int updates_sections_json(json_dyn_buf *b) {
     resolve_web_dir();
     int first = 1;
@@ -151,82 +83,10 @@ static int updates_sections_json(json_dyn_buf *b) {
                              (gsa_catalog_ok && gsa_tools_found == gsa_tools_total && nuclei_ready) ? "ok" : "warn",
                              gsa_detail, "gsa-tools")) return 0;
 
-    int ds4_git = ds4_dir_valid() && file_present_in_dir(g_ds4_dir, ".git/HEAD");
-    char head[256] = "", dirty[4096] = "", fetch_log[4096] = "";
-    char upstream[256] = "", remote_head[256] = "", counts[128] = "";
-    char *rev_argv[] = { "git", "-C", g_ds4_dir, "rev-parse", "--short", "HEAD", NULL };
-    char *dirty_argv[] = { "git", "-C", g_ds4_dir, "status", "--porcelain", NULL };
-    if (ds4_git) updates_git_capture_trim(rev_argv, head, sizeof head);
-    if (ds4_git) setup_run_cmd_capture(NULL, dirty_argv, dirty, sizeof dirty);
-    int managed_dirty_count = 0;
-    int managed_dirty = ds4_git && dirty[0] && updates_ds4_dirty_is_only_managed(dirty, &managed_dirty_count);
-    int fetch_rc = -1;
-    int upstream_ok = 0;
-    int ahead = -1, behind = -1;
-    if (ds4_git) {
-        char *fetch_argv[] = { "git", "-C", g_ds4_dir, "fetch", "origin", "--prune", NULL };
-        fetch_rc = setup_run_cmd_capture(NULL, fetch_argv, fetch_log, sizeof fetch_log);
-        updates_trim_line(fetch_log);
-        if (fetch_rc == 0) {
-            upstream_ok = updates_ds4_git_upstream(upstream, sizeof upstream);
-            if (upstream_ok) {
-                char *remote_argv[] = { "git", "-C", g_ds4_dir, "rev-parse", "--short", upstream, NULL };
-                updates_git_capture_trim(remote_argv, remote_head, sizeof remote_head);
-                char range[320];
-                snprintf(range, sizeof range, "HEAD...%s", upstream);
-                char *count_argv[] = { "git", "-C", g_ds4_dir, "rev-list", "--left-right", "--count", range, NULL };
-                if (updates_git_capture_trim(count_argv, counts, sizeof counts) == 0) {
-                    sscanf(counts, "%d%*[ \t]%d", &ahead, &behind);
-                }
-            }
-        }
-    }
-    char ds4_detail[900];
-    const char *ds4_state = "ok";
-    if (!ds4_git) {
-        ds4_state = "warn";
-        snprintf(ds4_detail, sizeof ds4_detail,
-                 "ds4 is not a git checkout; latest update requires git-managed ds4.");
-    } else if (fetch_rc != 0) {
-        ds4_state = "warn";
-        snprintf(ds4_detail, sizeof ds4_detail,
-                 "Could not fetch origin, so latest status is not verified. Local HEAD %s. Output: %.520s",
-                 head, fetch_log[0] ? fetch_log : "(no output)");
-    } else if (!upstream_ok || ahead < 0 || behind < 0) {
-        ds4_state = "warn";
-        snprintf(ds4_detail, sizeof ds4_detail,
-                 "Fetched origin, but could not determine upstream comparison for local HEAD %s. Set ds4 branch upstream to origin/main.",
-                 head);
-    } else if (behind > 0 && ahead > 0) {
-        ds4_state = "warn";
-        snprintf(ds4_detail, sizeof ds4_detail,
-                 "Fetched origin; local %s and %s %s diverged (%d local commit(s), %d upstream commit(s)). Resolve before updating.",
-                 head, upstream, remote_head[0] ? remote_head : "remote", ahead, behind);
-    } else if (behind > 0) {
-        ds4_state = "warn";
-        snprintf(ds4_detail, sizeof ds4_detail,
-                 "Fetched origin; local %s is %d commit(s) behind %s %s. Run Update selected to pull/build/verify patches.%s%s",
-                 head, behind, upstream, remote_head[0] ? remote_head : "",
-                 (dirty[0] && managed_dirty) ? " " : "",
-                 (dirty[0] && managed_dirty) ? "DStudio generated artifacts are present and safe to regenerate." : "");
-    } else if (ahead > 0) {
-        ds4_state = "warn";
-        snprintf(ds4_detail, sizeof ds4_detail,
-                 "Fetched origin; local %s is %d commit(s) ahead of %s %s. Latest cannot be verified as a clean upstream checkout.",
-                 head, ahead, upstream, remote_head[0] ? remote_head : "");
-    } else if (dirty[0] && managed_dirty) {
-        snprintf(ds4_detail, sizeof ds4_detail,
-                 "Fetched origin; local %s matches %s %s; %d DStudio generated artifact(s) present and safe to regenerate.",
-                 head, upstream, remote_head[0] ? remote_head : "", managed_dirty_count);
-    } else {
-        if (dirty[0]) ds4_state = "warn";
-        snprintf(ds4_detail, sizeof ds4_detail, "Fetched origin; local %s matches %s %s%s",
-                 head, upstream, remote_head[0] ? remote_head : "",
-                 dirty[0] ? " (dirty worktree: pull may fail until local changes are resolved)" : "");
-    }
-    if (!updates_add_section(b, &first, "ds4-latest", "ds4 latest",
-                             ds4_state,
-                             ds4_detail, "ds4-latest")) return 0;
+    if (!updates_add_section(b, &first, "ds4-latest", "Bundled inference engines",
+                             ds4_dir_valid() ? "ok" : "warn",
+                             "Engine sources are included in DStudio. Update DStudio for new pinned engine revisions; upstream engine fetching is disabled.",
+                             NULL)) return 0;
 
     int anchor_fails = update_patch_anchor_failures();
     char patch_detail[512];
@@ -331,49 +191,6 @@ static int updates_run_patch_verify(unsigned long long task_id, char *err, size_
     return 1;
 }
 
-static int updates_run_ds4_latest(unsigned long long task_id, char *log_tail, size_t logsz,
-                                  char *err, size_t errsz) {
-    if (!ds4_dir_valid()) {
-        snprintf(err, errsz, "ds4 folder is not valid; install ds4 before updating latest");
-        return 0;
-    }
-    if (!file_present_in_dir(g_ds4_dir, ".git/HEAD")) {
-        snprintf(err, errsz, "ds4 is not a git checkout; latest mode requires a git-managed ds4 directory");
-        return 0;
-    }
-    char dirty[4096] = "";
-    char *dirty_argv[] = { "git", "-C", g_ds4_dir, "status", "--porcelain", NULL };
-    setup_run_cmd_capture(NULL, dirty_argv, dirty, sizeof dirty);
-    if (dirty[0] && !updates_ds4_dirty_is_only_managed(dirty, NULL)) {
-        snprintf(err, errsz,
-                 "ds4 worktree has non-DStudio local changes; stash or resolve them before pulling latest. Status: %.7000s",
-                 dirty);
-        return 0;
-    }
-    if (!setup_restore_ds4_runtime_patches()) {
-        snprintf(err, errsz, "could not restore the managed runtime patches before pulling ds4");
-        return 0;
-    }
-    /* A pathname whitelist is not proof that a user's edits are ours. After
-     * exact patch removal, refuse to pull over any remaining tracked delta. */
-    char *clean_argv[] = { "git", "-C", g_ds4_dir, "diff", "--quiet", "HEAD", "--", NULL };
-    if (setup_run_cmd_capture(NULL, clean_argv, log_tail, logsz) != 0) {
-        snprintf(err, errsz, "ds4 still has local edits after managed patch restore; no fetch or pull was run");
-        return 0;
-    }
-    char *fetch_argv[] = { "git", "-C", g_ds4_dir, "fetch", "origin", NULL };
-    if (!update_run_cmd(task_id, "fetching ds4 upstream", NULL, fetch_argv, log_tail, logsz, err, errsz)) return 0;
-    char *pull_argv[] = { "git", "-C", g_ds4_dir, "pull", "--ff-only", NULL };
-    if (!update_run_cmd(task_id, "pulling ds4 latest --ff-only", NULL, pull_argv, log_tail, logsz, err, errsz)) return 0;
-    if (!setup_apply_ds4_runtime_patches()) {
-        snprintf(err, errsz, "latest ds4 no longer accepts the DStudio runtime patches");
-        return 0;
-    }
-    char *make_argv[] = { "make", "-C", g_ds4_dir, NULL };
-    if (!update_run_cmd(task_id, "building ds4 latest", NULL, make_argv, log_tail, logsz, err, errsz)) return 0;
-    return updates_run_patch_verify(task_id, err, errsz);
-}
-
 static int updates_verify_design_systems(unsigned long long task_id, char *err, size_t errsz) {
     task_mark_working(task_id, "verifying design systems");
     if (!content_present()) {
@@ -384,6 +201,12 @@ static int updates_verify_design_systems(unsigned long long task_id, char *err, 
 }
 
 static void api_updates_run(int fd, const char *body) {
+    /* Stale clients cannot restore patches or pull a different engine revision.
+     * The pinned source inventory and all adaptations ship with DStudio. */
+    if (body && strstr(body, "\"ds4-latest\"")) {
+        send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"Upstream engine updates are disabled. Update DStudio for new bundled engine revisions. Existing source and model data were preserved.\"}");
+        return;
+    }
     unsigned long long task_id = task_begin("updates", "Run update doctor", "updates", g_mode, g_ds4_dir, 0, 0);
     char log_tail[8192] = "";
     char err[8600] = "";
@@ -392,10 +215,6 @@ static void api_updates_run(int fd, const char *body) {
     if (update_body_has_task(body, "gsa-tools")) {
         ran++;
         ok = updates_run_gsa_tools(task_id, log_tail, sizeof log_tail, err, sizeof err);
-    }
-    if (ok && update_body_has_task(body, "ds4-latest")) {
-        ran++;
-        ok = updates_run_ds4_latest(task_id, log_tail, sizeof log_tail, err, sizeof err);
     }
     if (ok && update_body_has_task(body, "patch-verify")) {
         ran++;

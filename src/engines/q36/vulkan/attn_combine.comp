@@ -1,0 +1,68 @@
+#version 460
+
+/* Ordered combine for attn_decode_split partials: fold the per-span
+ * (acc, m, l) in span order with online-softmax rescaling, add the sink
+ * term, normalize, and apply the sigmoid output gate.  The fold order is
+ * fixed by n_kv alone, so results are n_tok-invariant. */
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Partials {
+    float part[];
+};
+
+layout(set = 0, binding = 1) readonly buffer QG {
+    float qg[];
+};
+
+layout(set = 0, binding = 2) readonly buffer Sinks {
+    float sinks[];
+};
+
+layout(set = 0, binding = 3) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint pos0;
+    uint n_head;
+    uint head_dim;
+    uint n_spans;
+    uint qg_stride;
+    uint has_sinks;
+    uint span_keys;
+    uint tok0;
+} pc;
+
+void main(void) {
+    uint j = gl_LocalInvocationID.x;
+    uint h = gl_WorkGroupID.x;
+    uint tok = gl_WorkGroupID.y;
+    uint qtok = pc.tok0 + tok;
+    uint n_kv = pc.pos0 + qtok + 1u;
+    uint spans = (n_kv + pc.span_keys - 1u) / pc.span_keys;
+    uint pstride = pc.head_dim + 2u;
+    uint pbase = (tok * pc.n_head + h) * pc.n_spans * pstride;
+    if (j >= pc.head_dim) return;
+
+    float acc = part[pbase + j];
+    float m = part[pbase + pc.head_dim];
+    float l = part[pbase + pc.head_dim + 1u];
+    for (uint s = 1u; s < spans; s++) {
+        uint sb = pbase + s * pstride;
+        float ms = part[sb + pc.head_dim];
+        float ls = part[sb + pc.head_dim + 1u];
+        float nm = max(m, ms);
+        float r = exp(m - nm);
+        float rs = exp(ms - nm);
+        l = l * r + ls * rs;
+        acc = acc * r + part[sb + j] * rs;
+        m = nm;
+    }
+
+    if (pc.has_sinks != 0u) l += exp(sinks[h] - m);
+    float inv = l > 0.0 ? 1.0 / l : 1.0;
+    float g = qg[qtok * pc.qg_stride + h * (pc.head_dim * 2u) + pc.head_dim + j];
+    y[(qtok * pc.n_head + h) * pc.head_dim + j] =
+        (acc * inv) * (1.0 / (1.0 + exp(-g)));
+}

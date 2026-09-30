@@ -1,0 +1,76 @@
+#version 460
+
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights {
+    uint16_t wb16[];
+};
+
+layout(set = 0, binding = 1) readonly buffer X {
+    vec4 xv[];
+};
+
+layout(set = 0, binding = 2) readonly buffer Scalar {
+    float scalar;
+};
+
+layout(set = 0, binding = 3) buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint out_dim;
+    uint blocks;
+    float scale;
+} pc;
+
+const uint Q8_0_U16 = 17u;
+
+shared float sh_sub[4];
+
+float sigmoid_stable(float x) {
+    if (x >= 0.0f) {
+        float z = exp(-x);
+        return 1.0f / (1.0f + z);
+    }
+    float z = exp(x);
+    return z / (1.0f + z);
+}
+
+void main(void) {
+    uint tid = gl_LocalInvocationID.x;
+    uint row = gl_WorkGroupID.x;
+    if (row >= pc.out_dim) return;
+    uint row_base = row * pc.blocks * Q8_0_U16;
+    uint bstep = gl_WorkGroupSize.x >> 2u;
+    uint boff = tid >> 2u;
+    uint eoff = (tid & 3u) * 8u;
+    float acc = 0.0f;
+
+    for (uint b = boff; b < pc.blocks; b += bstep) {
+        uint base = row_base + b * Q8_0_U16;
+        float d = unpackHalf2x16(uint(wb16[base])).x;
+        uint q = base + 1u + (eoff >> 1u);
+        uint p0 = uint(wb16[q]) | (uint(wb16[q + 1u]) << 16u);
+        uint p1 = uint(wb16[q + 2u]) | (uint(wb16[q + 3u]) << 16u);
+        uint xi = (b * 32u + eoff) >> 2u;
+        acc += d * (dot(vec4(unpack8(int(p0))), xv[xi]) +
+                    dot(vec4(unpack8(int(p1))), xv[xi + 1u]));
+    }
+
+    acc = subgroupAdd(acc);
+    if (gl_NumSubgroups > 1u) {
+        if (subgroupElect()) sh_sub[gl_SubgroupID] = acc;
+        barrier();
+        if (tid == 0u) {
+            acc = sh_sub[0];
+            for (uint i = 1u; i < gl_NumSubgroups; i++) acc += sh_sub[i];
+        }
+    }
+    if (tid == 0u) y[row] = fma(acc * pc.scale, sigmoid_stable(scalar), y[row]);
+}

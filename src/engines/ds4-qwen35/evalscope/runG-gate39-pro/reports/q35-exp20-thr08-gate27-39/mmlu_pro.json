@@ -1,0 +1,115 @@
+{
+    "name": "q35-exp20-thr08-gate27-39@mmlu_pro",
+    "dataset_name": "mmlu_pro",
+    "dataset_pretty_name": "MMLU-Pro",
+    "dataset_description": "\n## Overview\n\nMMLU-Pro is an enhanced version of MMLU with increased difficulty and reasoning requirements. It features 10 answer choices instead of 4 and includes more challenging questions requiring deeper reasoning across 14 diverse domains.\n\n## Task Description\n\n- **Task Type**: Multiple-Choice Question Answering (10 options)\n- **Input**: Question with up to 10 answer choices\n- **Output**: Single correct answer letter (A-J)\n- **Domains**: 14 subjects including science, law, engineering, psychology\n\n## Key Features\n\n- 10 answer choices per question (vs 4 in original MMLU)\n- More challenging questions requiring reasoning\n- Includes Chain-of-Thought (CoT) explanations\n- 14 diverse subjects covered\n- Reduced impact of random guessing (10% vs 25%)\n\n## Evaluation Notes\n\n- Default configuration uses **5-shot** examples\n- Answers should follow \"ANSWER: [LETTER]\" format\n- Uses subject-specific few-shot examples\n- Step-by-step reasoning encouraged\n- Evaluates on test split with validation for few-shot\n",
+    "model_name": "q35-exp20-thr08-gate27-39",
+    "score": 0.8143,
+    "metrics": [
+        {
+            "name": "mean_acc",
+            "num": 210,
+            "score": 0.8143,
+            "macro_score": 0.8143,
+            "categories": [
+                {
+                    "name": [
+                        "default"
+                    ],
+                    "num": 210,
+                    "score": 0.8143,
+                    "macro_score": 0.8143,
+                    "subsets": [
+                        {
+                            "name": "computer science",
+                            "score": 0.8667,
+                            "num": 15,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "math",
+                            "score": 0.9333,
+                            "num": 15,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "chemistry",
+                            "score": 0.8,
+                            "num": 15,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "engineering",
+                            "score": 0.7333,
+                            "num": 15,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "law",
+                            "score": 0.6667,
+                            "num": 15,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "biology",
+                            "score": 0.9333,
+                            "num": 15,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "health",
+                            "score": 0.8667,
+                            "num": 15,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "physics",
+                            "score": 1.0,
+                            "num": 15,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "business",
+                            "score": 0.8,
+                            "num": 15,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "philosophy",
+                            "score": 0.8,
+                            "num": 15,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "economics",
+                            "score": 0.9333,
+                            "num": 15,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "other",
+                            "score": 0.6,
+                            "num": 15,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "psychology",
+                            "score": 0.8667,
+                            "num": 15,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "history",
+                            "score": 0.6,
+                            "num": 15,
+                            "is_aggregate": false
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "analysis": "N/A",
+    "perf_metrics": null,
+    "num": 210
+}

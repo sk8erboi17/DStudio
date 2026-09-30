@@ -162,6 +162,8 @@ foreach ($Item in @("web", "extension", "patch", "scripts", "LICENSE", "THIRD_PA
     Copy-Item $Src (Join-Path $OutDir $Item) -Recurse -Force
   }
 }
+New-Item -ItemType Directory -Force -Path (Join-Path $OutDir "src") | Out-Null
+Copy-Item (Join-Path $Root "src\engines") (Join-Path $OutDir "src\engines") -Recurse -Force
 
 Write-Host "windows: generating embedded page headers"
 Write-Base64Header `

@@ -1,0 +1,80 @@
+#version 460
+
+/* Fast delta-net for prefill chunks.  Decode keeps delta_net.comp's exact
+ * fp64/FMA-emulation path. */
+
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer State {
+    float s[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Qbuf {
+    float q[];
+};
+
+layout(set = 0, binding = 2) readonly buffer Kbuf {
+    float k[];
+};
+
+layout(set = 0, binding = 3) readonly buffer Vbuf {
+    float v[];
+};
+
+layout(set = 0, binding = 4) readonly buffer GB {
+    float gb[];
+};
+
+layout(set = 0, binding = 5) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint n_heads;
+    uint state_dim;
+    uint n_tok;
+} pc;
+
+shared float kh[128];
+shared float qh[128];
+
+void main(void) {
+    uint h = gl_WorkGroupID.x;
+    uint j = gl_LocalInvocationID.x;
+    uint n = pc.state_dim;
+    if (h >= pc.n_heads) return;
+
+    uint mat = h * n * n;
+    float norm = inversesqrt(float(n));
+
+    for (uint tok = 0u; tok < pc.n_tok; tok++) {
+        uint vec = tok * pc.n_heads * n + h * n;
+        float decay = gb[tok * 2u * pc.n_heads + h];
+        float beta = gb[tok * 2u * pc.n_heads + pc.n_heads + h];
+
+        if (j < n) {
+            kh[j] = k[vec + j];
+            qh[j] = q[vec + j];
+        }
+        barrier();
+
+        if (j < n) {
+            float sk = 0.0;
+            for (uint i = 0u; i < n; i++) {
+                float sij = s[mat + i * n + j] * decay;
+                s[mat + i * n + j] = sij;
+                sk = fma(sij, kh[i], sk);
+            }
+            float d = (v[vec + j] - sk) * beta;
+
+            float outj = 0.0;
+            for (uint i = 0u; i < n; i++) {
+                float sij = fma(kh[i], d, s[mat + i * n + j]);
+                s[mat + i * n + j] = sij;
+                outj = fma(sij, qh[i], outj);
+            }
+            y[vec + j] = outj * norm;
+        }
+        barrier();
+    }
+}

@@ -1,0 +1,13 @@
+E se il tuo modello potesse scegliere quanto essere intelligente — per ogni singolo token?
+
+Oggi, i modelli Mixture-of-Experts instradano ogni token attraverso lo stesso numero fisso di esperti. Efficiente? Sì. Rigido? Pure.
+
+Il nostro nuovo motore di inferenza rompe questo limite. Con l'espansione dinamica degli esperti, è la rete a decidere, token per token, quanto calcolo attivare: da 3 miliardi di parametri attivi per token a oltre 4 miliardi — proprio quando la domanda diventa difficile.
+
+Il risultato? Sul benchmark MMLU-Pro, un modello MoE 35B quantizzato a 6 bit sale da 80,5% a circa 82,9% — un balzo di +2,4 punti. Questo porta un modello quantizzato compatto molto vicino al suo originale a precisione piena, e lo mette in(range) di modelli dense molto più grandi — la classe da 27 miliardi — in accuratezza pura.
+
+Tutto questo su un singolo Mac consumer, senza data center. Stesso modello. Stessa memoria. Un router più intelligente.
+
+Il numero di esperti non è più fisso. È una decisione.
+
+La prossima generazione di inferenza locale è arrivata.

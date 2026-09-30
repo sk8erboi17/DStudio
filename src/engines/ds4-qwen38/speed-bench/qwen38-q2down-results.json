@@ -1,0 +1,645 @@
+{
+  "date": "2026-09-07",
+  "host": "MacStudioIvan",
+  "chip": "Apple M3 Ultra",
+  "ram_gib": 512,
+  "artifact": {
+    "baseline_bytes": 50343093376,
+    "candidate_bytes": 44806612192,
+    "saved_bytes": 5536481184,
+    "baseline_sha256": "31f1e193771a5f3fdaa7af5865e0417513e8e8cac37579d388052ca54c889d4b",
+    "candidate_sha256": "341c8d79468384a05e22998ae834a489145f6c385e276dcf79170a6b0d0ffd2d",
+    "changed_tensors": 48,
+    "unchanged_tensors": 1207,
+    "all_unchanged_payload_hashes_match_baseline": true
+  },
+  "quality": {
+    "same_executable": true,
+    "same_cases": true,
+    "nll_case_wins_candidate": 33,
+    "nll_case_wins_baseline": 66,
+    "baseline": {
+      "cases": 99,
+      "tokens": 2376,
+      "excluded": [
+        "case_088"
+      ],
+      "target_nll": 0.2907345950790922,
+      "bf16_top1_agreement": 0.9132996632996633,
+      "first_token_matches": 69,
+      "logprob_mae": 0.16137686548245347
+    },
+    "candidate": {
+      "cases": 99,
+      "tokens": 2376,
+      "excluded": [
+        "case_088"
+      ],
+      "target_nll": 0.30357046566619744,
+      "bf16_top1_agreement": 0.9031986531986532,
+      "first_token_matches": 65,
+      "logprob_mae": 0.1771228937558149
+    }
+  },
+  "speed": {
+    "baseline": {
+      "4096": {
+        "prefill_tps": 962.715,
+        "gen_tps": 47.63
+      },
+      "32768": {
+        "prefill_tps": 926.0550000000001,
+        "gen_tps": 47.085
+      }
+    },
+    "candidate": {
+      "4096": {
+        "prefill_tps": 973.1700000000001,
+        "gen_tps": 47.31
+      },
+      "32768": {
+        "prefill_tps": 935.95,
+        "gen_tps": 46.935
+      }
+    }
+  },
+  "smoke": {
+    "baseline": {
+      "counts": {
+        "PASSED": 6,
+        "INCOMPLETE": 6
+      },
+      "cases": [
+        {
+          "source": "MMLU-Pro",
+          "id": "2826",
+          "status": "PASSED",
+          "picked": "J",
+          "expected": "J",
+          "generated_tokens": "751",
+          "think_close": "natural"
+        },
+        {
+          "source": "MMLU-Pro",
+          "id": "10360",
+          "status": "PASSED",
+          "picked": "C",
+          "expected": "C",
+          "generated_tokens": "781",
+          "think_close": "natural"
+        },
+        {
+          "source": "MMLU-Pro",
+          "id": "6034",
+          "status": "PASSED",
+          "picked": "F",
+          "expected": "F",
+          "generated_tokens": "724",
+          "think_close": "natural"
+        },
+        {
+          "source": "MMLU-Pro",
+          "id": "10567",
+          "status": "INCOMPLETE",
+          "picked": "?",
+          "expected": "B",
+          "generated_tokens": "2048",
+          "think_close": "hard_forced"
+        },
+        {
+          "source": "MMLU-Pro",
+          "id": "6500",
+          "status": "PASSED",
+          "picked": "C",
+          "expected": "C",
+          "generated_tokens": "1608",
+          "think_close": "hard_forced"
+        },
+        {
+          "source": "MMLU-Pro",
+          "id": "9487",
+          "status": "PASSED",
+          "picked": "H",
+          "expected": "H",
+          "generated_tokens": "1427",
+          "think_close": "natural"
+        },
+        {
+          "source": "OlympiadBench",
+          "id": "1606",
+          "status": "INCOMPLETE",
+          "picked": "?",
+          "expected": "2",
+          "generated_tokens": "2048",
+          "think_close": "hard_forced"
+        },
+        {
+          "source": "OlympiadBench",
+          "id": "1618",
+          "status": "INCOMPLETE",
+          "picked": "?",
+          "expected": "(1,8,19),(2,7,13),(4,5,7)",
+          "generated_tokens": "2048",
+          "think_close": "hard_forced"
+        },
+        {
+          "source": "OlympiadBench",
+          "id": "1716",
+          "status": "INCOMPLETE",
+          "picked": "?",
+          "expected": "25/2",
+          "generated_tokens": "2048",
+          "think_close": "hard_forced"
+        },
+        {
+          "source": "LiveBench",
+          "id": "c833574b0ff6e8609bee19b36fabc48501cdcd9a64b99cd0422f54ada1acc53d",
+          "status": "INCOMPLETE",
+          "picked": "?",
+          "expected": "satire, martial-arts, horror, 2",
+          "generated_tokens": "2048",
+          "think_close": "hard_forced"
+        },
+        {
+          "source": "NIST Juliet",
+          "id": "juliet-cwe190-int-multiply-01",
+          "status": "PASSED",
+          "picked": "12",
+          "expected": "12",
+          "generated_tokens": "569",
+          "think_close": "natural"
+        },
+        {
+          "source": "NIST Juliet",
+          "id": "juliet-cwe121-array-index-01",
+          "status": "INCOMPLETE",
+          "picked": "?",
+          "expected": "3-4",
+          "generated_tokens": "2048",
+          "think_close": "hard_forced"
+        }
+      ]
+    },
+    "candidate": {
+      "counts": {
+        "PASSED": 5,
+        "INCOMPLETE": 7
+      },
+      "cases": [
+        {
+          "source": "MMLU-Pro",
+          "id": "2826",
+          "status": "PASSED",
+          "picked": "J",
+          "expected": "J",
+          "generated_tokens": "1502",
+          "think_close": "natural"
+        },
+        {
+          "source": "MMLU-Pro",
+          "id": "10360",
+          "status": "PASSED",
+          "picked": "C",
+          "expected": "C",
+          "generated_tokens": "1002",
+          "think_close": "natural"
+        },
+        {
+          "source": "MMLU-Pro",
+          "id": "6034",
+          "status": "PASSED",
+          "picked": "F",
+          "expected": "F",
+          "generated_tokens": "414",
+          "think_close": "natural"
+        },
+        {
+          "source": "MMLU-Pro",
+          "id": "10567",
+          "status": "INCOMPLETE",
+          "picked": "?",
+          "expected": "B",
+          "generated_tokens": "2048",
+          "think_close": "hard_forced"
+        },
+        {
+          "source": "MMLU-Pro",
+          "id": "6500",
+          "status": "INCOMPLETE",
+          "picked": "?",
+          "expected": "C",
+          "generated_tokens": "2048",
+          "think_close": "hard_forced"
+        },
+        {
+          "source": "MMLU-Pro",
+          "id": "9487",
+          "status": "PASSED",
+          "picked": "H",
+          "expected": "H",
+          "generated_tokens": "1855",
+          "think_close": "hard_forced"
+        },
+        {
+          "source": "OlympiadBench",
+          "id": "1606",
+          "status": "INCOMPLETE",
+          "picked": "?",
+          "expected": "2",
+          "generated_tokens": "2048",
+          "think_close": "hard_forced"
+        },
+        {
+          "source": "OlympiadBench",
+          "id": "1618",
+          "status": "INCOMPLETE",
+          "picked": "?",
+          "expected": "(1,8,19),(2,7,13),(4,5,7)",
+          "generated_tokens": "2048",
+          "think_close": "hard_forced"
+        },
+        {
+          "source": "OlympiadBench",
+          "id": "1716",
+          "status": "INCOMPLETE",
+          "picked": "?",
+          "expected": "25/2",
+          "generated_tokens": "2048",
+          "think_close": "hard_forced"
+        },
+        {
+          "source": "LiveBench",
+          "id": "c833574b0ff6e8609bee19b36fabc48501cdcd9a64b99cd0422f54ada1acc53d",
+          "status": "INCOMPLETE",
+          "picked": "?",
+          "expected": "satire, martial-arts, horror, 2",
+          "generated_tokens": "2048",
+          "think_close": "hard_forced"
+        },
+        {
+          "source": "NIST Juliet",
+          "id": "juliet-cwe190-int-multiply-01",
+          "status": "PASSED",
+          "picked": "12",
+          "expected": "12",
+          "generated_tokens": "527",
+          "think_close": "natural"
+        },
+        {
+          "source": "NIST Juliet",
+          "id": "juliet-cwe121-array-index-01",
+          "status": "INCOMPLETE",
+          "picked": "?",
+          "expected": "3-4",
+          "generated_tokens": "1540",
+          "think_close": "hard_forced"
+        }
+      ]
+    },
+    "mtp_smoke": {
+      "output_byte_equal": true,
+      "output_sha256": "e9a2ead1a9c5d175262ba260c243f0bb931cc052da495c4326a3792349982b37",
+      "generated_tokens": 128,
+      "ordinary_generation_tps": 50.97,
+      "mtp_generation_tps": 73.89
+    }
+  },
+  "provenance": {
+    "revision": "ffd85d426313ace6dae805e9f2fb4424d5b427fd",
+    "machine": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "sha256": {
+      "ds4": "3eb8302d606c08a0e2981a41d2514109bce67a108ca2dbdeebd495ba04fa5135",
+      "ds4-eval": "277cbeb7bda396bd8cac5953021c0e929e13bb394faefcedcd8d7c45d8314930",
+      "ds4-bench": "4388d6b7862c12b2e14c2c2420031332abc9fae582c1c18a889ef8cd5bbb3874",
+      "ds4.c": "ae40992d0777a80e0a30582b7dda66099f8f0284967b46d21a8d12d8991436cb",
+      "ds4_metal.m": "b9a2ffe1fe271f86c48433ca2d3c640f0fe971d5f7ca5748bb53b6a24931feb8",
+      "metal/qwen4.metal": "210f4ffd614e3241931fb096f6e9b9c8b6090dfbb68d3aa50d9bfc1662fd2448",
+      "gguf-tools/qwen4_iq2.py": "c590438d13f35ac884ba9f6e187d264bfa8b5195edf917b675ebfadd87fbe327"
+    },
+    "quality_settings": {
+      "suite": "hard-smoke",
+      "cases": 12,
+      "tokens": 2048,
+      "context": 32768,
+      "prefill_chunk": 1024,
+      "temperature": 0,
+      "seed": 123
+    },
+    "measured_build_sha256": {
+      "ds4": "3eb8302d606c08a0e2981a41d2514109bce67a108ca2dbdeebd495ba04fa5135",
+      "ds4-eval": "277cbeb7bda396bd8cac5953021c0e929e13bb394faefcedcd8d7c45d8314930",
+      "ds4-bench": "4388d6b7862c12b2e14c2c2420031332abc9fae582c1c18a889ef8cd5bbb3874",
+      "ds4.c": "ae40992d0777a80e0a30582b7dda66099f8f0284967b46d21a8d12d8991436cb",
+      "ds4_metal.m": "b993a5cf390e6b5d25cff60e1acf41ed85c30f7e5f67cc0319e59ecb6e085bb1",
+      "metal/qwen4.metal": "210f4ffd614e3241931fb096f6e9b9c8b6090dfbb68d3aa50d9bfc1662fd2448"
+    },
+    "final_validation_change": "A later host guard rejects invalid down activation widths not divisible by 32; measured valid 640-wide geometry is unaffected. Final sources will be rebuilt and kernel-tested."
+  },
+  "jobs": [
+    {
+      "name": "candidate-bf16-driver",
+      "command": [
+        "uv",
+        "run",
+        "--no-project",
+        "--with",
+        "numpy",
+        "--with",
+        "tokenizers",
+        "python",
+        "speed-bench/qwen38_q2down_compare.py",
+        "--model",
+        "/Users/ifioravanti/models/qwen38-q2down-experiment/Qwen3.8-Flash-Next-IQ2XXSImatrix-Q2KDownPad768-MTP.gguf",
+        "--ple",
+        "/Users/ifioravanti/models/qwen38-q4k-imatrix/Qwen3.8-Flash-Next-PLE-Q4_1.gguf",
+        "--tokenizer",
+        "/Users/ifioravanti/.cache/huggingface/hub/models--Qwen--Qwen3.8-Flash-Next/snapshots/de4b8e4d43b917e7706784d8bb445c9af86a3540/tokenizer.json",
+        "--out",
+        "/Users/ifioravanti/github/ds4/OUT/qwen38-q2down/candidate-bf16"
+      ],
+      "started": 1788776877.7152152,
+      "returncode": 0,
+      "elapsed_seconds": 68.86908960342407
+    },
+    {
+      "name": "baseline-bench-1",
+      "command": [
+        "./ds4-bench",
+        "-m",
+        "/Users/ifioravanti/models/Qwen3.8-Flash-Next-DS4-IQ2/Qwen3.8-Flash-Next-IQ2XXSImatrix-MXFP4Down-MTP.gguf",
+        "--ple",
+        "/Users/ifioravanti/models/qwen38-q4k-imatrix/Qwen3.8-Flash-Next-PLE-Q4_1.gguf",
+        "--metal",
+        "--prompt-file",
+        "/Users/ifioravanti/github/ds4/OUT/qwen38-q2down/bench-prompt.txt",
+        "--ctx-start",
+        "4096",
+        "--ctx-max",
+        "32768",
+        "--step-mul",
+        "8",
+        "--ctx-alloc",
+        "33025",
+        "--gen-tokens",
+        "128",
+        "--teacher-forced-decode",
+        "--prefill-chunk",
+        "1024",
+        "--csv",
+        "/Users/ifioravanti/github/ds4/OUT/qwen38-q2down/baseline-bench-1.csv"
+      ],
+      "started": 1788776946.584626,
+      "returncode": 1,
+      "elapsed_seconds": 1.6402301788330078
+    },
+    {
+      "name": "baseline-bench-1",
+      "command": [
+        "./ds4-bench",
+        "-m",
+        "/Users/ifioravanti/models/Qwen3.8-Flash-Next-DS4-IQ2/Qwen3.8-Flash-Next-IQ2XXSImatrix-MXFP4Down-MTP.gguf",
+        "--ple",
+        "/Users/ifioravanti/models/qwen38-q4k-imatrix/Qwen3.8-Flash-Next-PLE-Q4_1.gguf",
+        "--metal",
+        "--prompt-file",
+        "/Users/ifioravanti/github/ds4/OUT/qwen38-q2down/bench-prompt.txt",
+        "--ctx-start",
+        "4096",
+        "--ctx-max",
+        "32768",
+        "--step-mul",
+        "8",
+        "--ctx-alloc",
+        "33025",
+        "--gen-tokens",
+        "128",
+        "--teacher-forced-decode",
+        "--prefill-chunk",
+        "1024",
+        "--csv",
+        "/Users/ifioravanti/github/ds4/OUT/qwen38-q2down/baseline-bench-1.csv"
+      ],
+      "started": 1788776981.544662,
+      "returncode": 0,
+      "elapsed_seconds": 42.00995206832886
+    },
+    {
+      "name": "candidate-bench-1",
+      "command": [
+        "./ds4-bench",
+        "-m",
+        "/Users/ifioravanti/models/qwen38-q2down-experiment/Qwen3.8-Flash-Next-IQ2XXSImatrix-Q2KDownPad768-MTP.gguf",
+        "--ple",
+        "/Users/ifioravanti/models/qwen38-q4k-imatrix/Qwen3.8-Flash-Next-PLE-Q4_1.gguf",
+        "--metal",
+        "--prompt-file",
+        "/Users/ifioravanti/github/ds4/OUT/qwen38-q2down/bench-prompt.txt",
+        "--ctx-start",
+        "4096",
+        "--ctx-max",
+        "32768",
+        "--step-mul",
+        "8",
+        "--ctx-alloc",
+        "33025",
+        "--gen-tokens",
+        "128",
+        "--teacher-forced-decode",
+        "--prefill-chunk",
+        "1024",
+        "--csv",
+        "/Users/ifioravanti/github/ds4/OUT/qwen38-q2down/candidate-bench-1.csv"
+      ],
+      "started": 1788777023.555121,
+      "returncode": 0,
+      "elapsed_seconds": 41.66611909866333
+    },
+    {
+      "name": "candidate-bench-2",
+      "command": [
+        "./ds4-bench",
+        "-m",
+        "/Users/ifioravanti/models/qwen38-q2down-experiment/Qwen3.8-Flash-Next-IQ2XXSImatrix-Q2KDownPad768-MTP.gguf",
+        "--ple",
+        "/Users/ifioravanti/models/qwen38-q4k-imatrix/Qwen3.8-Flash-Next-PLE-Q4_1.gguf",
+        "--metal",
+        "--prompt-file",
+        "/Users/ifioravanti/github/ds4/OUT/qwen38-q2down/bench-prompt.txt",
+        "--ctx-start",
+        "4096",
+        "--ctx-max",
+        "32768",
+        "--step-mul",
+        "8",
+        "--ctx-alloc",
+        "33025",
+        "--gen-tokens",
+        "128",
+        "--teacher-forced-decode",
+        "--prefill-chunk",
+        "1024",
+        "--csv",
+        "/Users/ifioravanti/github/ds4/OUT/qwen38-q2down/candidate-bench-2.csv"
+      ],
+      "started": 1788777065.2217221,
+      "returncode": 0,
+      "elapsed_seconds": 41.78662300109863
+    },
+    {
+      "name": "baseline-bench-2",
+      "command": [
+        "./ds4-bench",
+        "-m",
+        "/Users/ifioravanti/models/Qwen3.8-Flash-Next-DS4-IQ2/Qwen3.8-Flash-Next-IQ2XXSImatrix-MXFP4Down-MTP.gguf",
+        "--ple",
+        "/Users/ifioravanti/models/qwen38-q4k-imatrix/Qwen3.8-Flash-Next-PLE-Q4_1.gguf",
+        "--metal",
+        "--prompt-file",
+        "/Users/ifioravanti/github/ds4/OUT/qwen38-q2down/bench-prompt.txt",
+        "--ctx-start",
+        "4096",
+        "--ctx-max",
+        "32768",
+        "--step-mul",
+        "8",
+        "--ctx-alloc",
+        "33025",
+        "--gen-tokens",
+        "128",
+        "--teacher-forced-decode",
+        "--prefill-chunk",
+        "1024",
+        "--csv",
+        "/Users/ifioravanti/github/ds4/OUT/qwen38-q2down/baseline-bench-2.csv"
+      ],
+      "started": 1788777107.008838,
+      "returncode": 0,
+      "elapsed_seconds": 42.11957907676697
+    },
+    {
+      "name": "candidate-hard-smoke",
+      "command": [
+        "./ds4-eval",
+        "-m",
+        "/Users/ifioravanti/models/qwen38-q2down-experiment/Qwen3.8-Flash-Next-IQ2XXSImatrix-Q2KDownPad768-MTP.gguf",
+        "--ple",
+        "/Users/ifioravanti/models/qwen38-q4k-imatrix/Qwen3.8-Flash-Next-PLE-Q4_1.gguf",
+        "--metal",
+        "--suite",
+        "hard-smoke",
+        "--ctx",
+        "32768",
+        "--prefill-chunk",
+        "1024",
+        "--temp",
+        "0",
+        "--seed",
+        "123",
+        "--tokens",
+        "2048",
+        "--plain",
+        "--pause-ms",
+        "1",
+        "--trace",
+        "/Users/ifioravanti/github/ds4/OUT/qwen38-q2down/candidate-hard-smoke.trace"
+      ],
+      "started": 1788777149.1288981,
+      "returncode": 1,
+      "elapsed_seconds": 390.98224997520447
+    },
+    {
+      "name": "candidate-cpu-gpu",
+      "command": [
+        "./ds4",
+        "-m",
+        "/Users/ifioravanti/models/qwen38-q2down-experiment/Qwen3.8-Flash-Next-IQ2XXSImatrix-Q2KDownPad768-MTP.gguf",
+        "--ple",
+        "/Users/ifioravanti/models/qwen38-q4k-imatrix/Qwen3.8-Flash-Next-PLE-Q4_1.gguf",
+        "--metal",
+        "--ctx",
+        "4096",
+        "--first-token-test",
+        "--raw",
+        "-p",
+        "x"
+      ],
+      "started": 1788777540.111547,
+      "returncode": 0,
+      "elapsed_seconds": 4.942179918289185
+    },
+    {
+      "name": "candidate-greedy",
+      "command": [
+        "./ds4",
+        "-m",
+        "/Users/ifioravanti/models/qwen38-q2down-experiment/Qwen3.8-Flash-Next-IQ2XXSImatrix-Q2KDownPad768-MTP.gguf",
+        "--ple",
+        "/Users/ifioravanti/models/qwen38-q4k-imatrix/Qwen3.8-Flash-Next-PLE-Q4_1.gguf",
+        "--metal",
+        "--ctx",
+        "4096",
+        "--temp",
+        "0",
+        "--seed",
+        "123",
+        "-n",
+        "128",
+        "-p",
+        "Write a Python function that returns the prime factors of a positive integer.",
+        "--nothink",
+        "--prefill-chunk",
+        "1024"
+      ],
+      "started": 1788777545.054121,
+      "returncode": 0,
+      "elapsed_seconds": 4.287975788116455
+    },
+    {
+      "name": "candidate-mtp",
+      "command": [
+        "./ds4",
+        "-m",
+        "/Users/ifioravanti/models/qwen38-q2down-experiment/Qwen3.8-Flash-Next-IQ2XXSImatrix-Q2KDownPad768-MTP.gguf",
+        "--ple",
+        "/Users/ifioravanti/models/qwen38-q4k-imatrix/Qwen3.8-Flash-Next-PLE-Q4_1.gguf",
+        "--metal",
+        "--ctx",
+        "4096",
+        "--temp",
+        "0",
+        "--seed",
+        "123",
+        "-n",
+        "128",
+        "-p",
+        "Write a Python function that returns the prime factors of a positive integer.",
+        "--nothink",
+        "--prefill-chunk",
+        "1024",
+        "--mtp"
+      ],
+      "started": 1788777549.342518,
+      "returncode": 0,
+      "elapsed_seconds": 3.3929851055145264
+    }
+  ],
+  "validation": {
+    "tensor_readback_hashes": 1255,
+    "unchanged_payload_hashes": 1207,
+    "pack_tests_passed": 35,
+    "metal_kernel_suite": "passed",
+    "cpu_gpu_one_token_max_logit_error": 0.00147057,
+    "cpu_gpu_one_token_top1_equal": true,
+    "final_binary_greedy_smoke_equal": true
+  },
+  "final_build_sha256": {
+    "ds4": "d127bd8bee9625430f472d65ce965544cd43cfde9b4f28e5c78fab2dfd99e8f5",
+    "ds4-eval": "6ebdcb096fadcef05d4fba7edc2d48c63f20270d4e1f9c1812802f9ad3807ff1",
+    "ds4-bench": "1db4fc9d2403f3ec3d98bc4a1bcbcecdabd5a469db14464f5804601a55480cff",
+    "ds4.c": "ae40992d0777a80e0a30582b7dda66099f8f0284967b46d21a8d12d8991436cb",
+    "ds4_metal.m": "b9a2ffe1fe271f86c48433ca2d3c640f0fe971d5f7ca5748bb53b6a24931feb8",
+    "metal/qwen4.metal": "210f4ffd614e3241931fb096f6e9b9c8b6090dfbb68d3aa50d9bfc1662fd2448",
+    "gguf-tools/qwen4_iq2.py": "c590438d13f35ac884ba9f6e187d264bfa8b5195edf917b675ebfadd87fbe327"
+  },
+  "raw_artifacts": "/Users/ifioravanti/github/ds4/OUT/qwen38-q2down"
+}

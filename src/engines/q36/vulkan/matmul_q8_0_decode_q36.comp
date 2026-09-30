@@ -1,0 +1,85 @@
+#version 460
+
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights {
+    uint wb[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Q8 {
+    uint q8[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint out_dim;
+    uint n_tok;
+    uint blocks;
+    uint row_bytes;
+    float scale;
+} pc;
+
+const uint Q8_0_BYTES = 34u;
+const uint Q8_0_PADDED_BYTES = 36u;
+
+shared float sh_lane[128u];
+
+uint load_w_u32(uint off) {
+    uint shift = (off & 3u) * 8u;
+    uint v = wb[off >> 2u] >> shift;
+    return shift == 0u ? v : v | (wb[(off >> 2u) + 1u] << (32u - shift));
+}
+
+uint load_w_u16(uint off) {
+    uint word = wb[off >> 2u];
+    return ((off & 2u) == 0u) ? (word & 65535u) : (word >> 16u);
+}
+
+float load_w_f16(uint off) {
+    return unpackHalf2x16(load_w_u16(off)).x;
+}
+
+int i8(uint v) {
+    return v >= 128u ? int(v) - 256 : int(v);
+}
+
+int i8_at(uint v, uint shift) {
+    return i8((v >> shift) & 255u);
+}
+
+void main(void) {
+    uint lid = gl_LocalInvocationID.x;
+    uint row = gl_WorkGroupID.x * 16u + (lid >> 3u);
+    uint lane = lid & 7u;
+    bool row_live = row < pc.out_dim;
+    uint row_base = row_live ? row * pc.row_bytes : 0u;
+    float acc = 0.0;
+
+    if (row_live) {
+        uint e = lane * 4u;
+        for (uint b = 0u; b < pc.blocks; b++) {
+            uint wbase = row_base + b * Q8_0_BYTES;
+            uint qbase = b * Q8_0_PADDED_BYTES;
+            uint wq = load_w_u32(wbase + 2u + e);
+            uint xq = q8[(qbase >> 2u) + 1u + lane];
+            int dot = i8_at(wq, 0u) * i8_at(xq, 0u)
+                    + i8_at(wq, 8u) * i8_at(xq, 8u)
+                    + i8_at(wq, 16u) * i8_at(xq, 16u)
+                    + i8_at(wq, 24u) * i8_at(xq, 24u);
+            acc += load_w_f16(wbase) * unpackHalf2x16(q8[qbase >> 2u] & 65535u).x * float(dot);
+        }
+    }
+
+    sh_lane[lid] = acc;
+    barrier();
+
+    if (row_live && lane == 0u) {
+        uint r0 = lid;
+        float total = ((sh_lane[r0 + 0u] + sh_lane[r0 + 4u]) + (sh_lane[r0 + 2u] + sh_lane[r0 + 6u]))
+                    + ((sh_lane[r0 + 1u] + sh_lane[r0 + 5u]) + (sh_lane[r0 + 3u] + sh_lane[r0 + 7u]));
+        y[row] = total * pc.scale;
+    }
+}

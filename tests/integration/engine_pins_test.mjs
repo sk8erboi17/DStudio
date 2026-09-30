@@ -34,6 +34,15 @@ try {
     assert.match(engine.commit,/^[a-f0-9]{40}$/);
     assert.equal(engine.archiveURL,`https://codeload.github.com/${repositories[engine.id]}/tar.gz/${engine.commit}`);
     assert.equal(path.basename(engine.directory),engine.directory);
+    assert.equal(engine.bundled,true);
+    assert.equal(engine.sourceDirectory,`src/engines/${engine.directory}`);
+  }
+  const sources=JSON.parse(fs.readFileSync('src/engines/manifest.json','utf8'));
+  for(const engine of pins.engines) {
+    const shipped=sources.engines[engine.id];
+    assert.equal(shipped.commit,engine.commit);
+    assert.equal(shipped.directory,engine.directory);
+    assert.equal(shipped.historical,false);
   }
   report.cases.push({name:'Complete installer identities without creating a profile or using PATH helpers',passed:true});
   const repeat=invoke(binary,['--engine-pins']);assert.equal(repeat.status,0);

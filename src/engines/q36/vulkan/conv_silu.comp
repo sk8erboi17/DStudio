@@ -1,0 +1,40 @@
+#version 460
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Window {
+    float win[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Kernel {
+    float ker[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Output {
+    float outv[];
+};
+
+layout(push_constant) uniform Push {
+    uint conv_dim;
+    uint n_taps;
+    uint n_tok;
+} pc;
+
+float sigmoid_stable(float x) {
+    if (x >= 0.0f) {
+        float z = exp(-x);
+        return 1.0f / (1.0f + z);
+    }
+    float z = exp(x);
+    return z / (1.0f + z);
+}
+
+void main(void) {
+    uint c = gl_GlobalInvocationID.x;
+    uint tok = gl_WorkGroupID.y;
+    if (c >= pc.conv_dim || tok >= pc.n_tok) return;
+    uint wbase = tok * pc.n_taps * pc.conv_dim;
+    float acc = 0.0f;
+    for (uint t = 0u; t < pc.n_taps; t++) acc += win[wbase + t * pc.conv_dim + c] * ker[c * pc.n_taps + t];
+    outv[tok * pc.conv_dim + c] = acc * sigmoid_stable(acc);
+}

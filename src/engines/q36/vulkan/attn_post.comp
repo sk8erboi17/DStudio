@@ -1,0 +1,53 @@
+#version 460
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Scores {
+    float scores[];
+};
+
+layout(set = 0, binding = 1) readonly buffer QG {
+    float qg[];
+};
+
+layout(set = 0, binding = 2) readonly buffer Sinks {
+    float sinks[];
+};
+
+layout(set = 0, binding = 3) writeonly buffer Aux {
+    float aux[];
+};
+
+layout(push_constant) uniform Push {
+    uint pos0;
+    uint n_head;
+    uint head_dim;
+    uint score_stride;
+    uint qg_stride;
+    uint aux_stride;
+    uint has_sinks;
+} pc;
+
+void main(void) {
+    uint h = gl_WorkGroupID.x;
+    uint tok = gl_WorkGroupID.y;
+    uint n_kv = pc.pos0 + tok + 1u;
+    uint score_base = tok * pc.score_stride + h * n_kv;
+    uint aux_base = tok * pc.aux_stride;
+    float maxv = pc.has_sinks != 0u ? sinks[h] : -3.402823466e38f;
+    double denom = 0.0;
+    for (uint t = 0u; t < n_kv; t++) {
+        if (scores[score_base + t] > maxv) maxv = scores[score_base + t];
+    }
+    if (pc.has_sinks != 0u) denom = double(exp(sinks[h] - maxv));
+    for (uint t = 0u; t < n_kv; t++) {
+        float w = exp(scores[score_base + t] - maxv);
+        scores[score_base + t] = w;
+        denom += w;
+    }
+    aux[aux_base + h] = denom > 0.0 ? float(1.0 / denom) : 1.0f;
+    for (uint j = 0u; j < pc.head_dim; j++) {
+        float g = qg[tok * pc.qg_stride + h * (pc.head_dim * 2u) + pc.head_dim + j];
+        aux[aux_base + pc.n_head + h * pc.head_dim + j] = 1.0f / (1.0f + exp(-g));
+    }
+}

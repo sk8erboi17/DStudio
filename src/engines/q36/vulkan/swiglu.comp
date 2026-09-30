@@ -1,0 +1,33 @@
+#version 460
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Gate {
+    float gatev[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Up {
+    float upv[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Output {
+    float outv[];
+};
+
+layout(push_constant) uniform Push {
+    uint n;
+    float clamp;
+    float weight;
+} pc;
+
+void main(void) {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.n) return;
+    float g = gatev[i];
+    float u = upv[i];
+    if (pc.clamp > 1.0e-6f) {
+        if (g > pc.clamp) g = pc.clamp;
+        u = clamp(u, -pc.clamp, pc.clamp);
+    }
+    outv[i] = (g / (1.0f + exp(-g))) * u * pc.weight;
+}
