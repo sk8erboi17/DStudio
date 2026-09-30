@@ -4,21 +4,33 @@ DStudio's locally authored design systems — Folio, Signal, Forma, Grove, Pulse
 Market, Commons, Atlas and Canvas —
 are included in [`extension/design-systems/`](extension/design-systems/) under the
 [repository license](LICENSE). No third-party design catalog is bundled or
-downloaded. The integrations below download optional runtimes or model weights
-on demand; their notices and licenses still apply. Downloaded runtimes and
-weights are not committed.
+downloaded. DStudio bundles the pinned ds4/q36 source snapshots below under their original
+licenses. Optional media/tool runtimes and model weights are still downloaded
+on demand and are not committed. See [bundled source provenance and limits](docs/BUNDLED_ENGINES.md).
 
 ## ds4 (managed local inference engine)
 
 - Source: https://github.com/antirez/ds4
-- Pinned main commit: `bd66c402070042bf0a79ad6ece8242de4c93680c`
-- Source license: [MIT](https://github.com/antirez/ds4/blob/bd66c402070042bf0a79ad6ece8242de4c93680c/LICENSE)
+- Pinned main commit: `0aaea5a238fb41a35106a551e73c8409dfb751ac`
+- Source license: [MIT](https://github.com/antirez/ds4/blob/0aaea5a238fb41a35106a551e73c8409dfb751ac/LICENSE)
 - Copyright: 2026 The ds4.c authors; 2023–2026 The ggml authors.
+- Distributed sources: [`src/engines/ds4/`](src/engines/ds4/), retaining the
+  [complete MIT notice](src/engines/ds4/LICENSE), including DeepSeek attribution.
+- Laguna source: [`src/engines/ds4-laguna-s21/`](src/engines/ds4-laguna-s21/),
+  commit `448d5695d1c86401a4e9447c440feb983b73e6de`, with its
+  [MIT notice](src/engines/ds4-laguna-s21/LICENSE).
+- Bundled Iris decoder: Copyright 2026 Salvatore Sanfilippo; its
+  [MIT license](src/engines/ds4/third_party/iris/LICENSE) is retained in every
+  snapshot that contains Iris.
+- Upstream vision test images include synthetic fixtures and NASA's public-domain
+  Apollo 17 image AS17-148-22727. The original
+  [fixture attribution](src/engines/ds4/tests/vision-fixtures/glm53/README.md)
+  is retained, including its source link.
 - DStudio adaptations: [`patch/`](patch/README.md).
 
 Managed installs retain the upstream license. Model weights have their own
-terms; the engine's license does not replace them. Optional Laguna and Qwen
-engines remain separate checkouts with independently reviewed pins.
+terms; the engine's license does not replace them. Main now includes
+Qwen3.8-Flash-Next. Laguna, Qwen3.6 MoE and Qwen27B retain separate engine pins.
 
 DeepSeek V4.1 GGUFs are downloaded separately from
 [`antirez/deepseek-v4.1-flash-gguf`](https://huggingface.co/antirez/deepseek-v4.1-flash-gguf/tree/dd8a266f7145edc19e2334b46e19b6821f221dc7),
@@ -31,7 +43,8 @@ vision weights are model components, not DStudio-authored assets.
 
 - Source: [`vagrillo/ds4`](https://github.com/vagrillo/ds4/tree/73434c4bb9d8bb18425a2577edada69d25d44c47).
 - Pinned revision: `73434c4bb9d8bb18425a2577edada69d25d44c47` (documentation-only change from `60fca11f`).
-- Source license: MIT, retaining the ds4.c authors and ggml authors' notices.
+- Source license: MIT, retaining the ds4.c authors and ggml authors' notices
+  in [the distributed fork](src/engines/ds4-qwen35/LICENSE).
 - DStudio's model-catalog correction is shipped as a reversible
   [patch](patch/ds4-qwen35-catalog/README.md), not an unrecorded fork edit.
 - Its native Agent/Cowork candidate is an explicit
@@ -40,18 +53,27 @@ vision weights are model components, not DStudio-authored assets.
   this fork's native ChatML/server format; inference kernels are not replaced.
 - Model weights are downloaded separately and retain their own terms.
 
-### Qwen3.8-Flash-Next native engine fork
+### Qwen3.8-Flash-Next in main and historical fork attribution
 
 - Source: [`ivanfioravanti/ds4-metal`](https://github.com/ivanfioravanti/ds4-metal/tree/ff4f0ff4fdff70d6b7c3941ef437b91dde960e14).
-- Pinned source: `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14`.
-- Source license: MIT, retaining upstream ds4.c and ggml notices.
-- DStudio's metadata-only PLE prefetch correction is supplied as a reversible
-  [patch](patch/ds4-qwen38-inspect/README.md). It does not change inference.
+- Historical separate-engine source: `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14`,
+  retained in Git history, not distributed as a source snapshot or installed.
+- Active source: antirez/ds4 main at `0aaea5a238fb41a35106a551e73c8409dfb751ac`,
+  which includes the Qwen merge. The original contributors' attribution remains.
+- Source license: MIT, retaining upstream ds4.c and ggml notices in
+  [the active bundled engine](src/engines/ds4/LICENSE). Historical patches and
+  the Qwen3.6 tool-parser adaptation above retain their upstream attribution.
+- The older metadata-only PLE prefetch correction remains as a historical
+  [regression patch](patch/ds4-qwen38-inspect/README.md), not a main install step.
 - The structured Agent/Cowork adaptation is an explicit
   [patch](patch/ds4-agent-jsonl/README.md), applied to private build sources.
-- The native [snapshot-allocation correction](patch/ds4-qwen38-snapshot/README.md)
-  retains upstream math and prevents partial speculative state after an allocation failure.
-- Main weights and the separate native PLE retain their own model terms.
+- Main already performs correct native snapshot-allocation cleanup; the older
+  [correction](patch/ds4-qwen38-snapshot/README.md) is retained for historical tests.
+- Current single-file Q2/Q4 weights, including original BF16 n-grams, come from
+  [`antirez/qwen3.8-flash-next-gguf`](https://huggingface.co/antirez/qwen3.8-flash-next-gguf/tree/d600fe1a43d2e1cdcadb85144ce3142f66f9eefe),
+  revision `d600fe1a43d2e1cdcadb85144ce3142f66f9eefe`. They retain their own model
+  terms and provenance; DStudio's or the engine's license does not replace them.
+- [Migration, exact hashes and compatibility limits](docs/QWEN_NEXT_MAIN_MIGRATION.md).
 
 ### q27 (separate Qwen27B engine candidate)
 
@@ -67,7 +89,7 @@ vision weights are model components, not DStudio-authored assets.
 
 ### q36 / QuarkStar (Qwen27B installation candidate)
 
-- Source and installer candidate: [`Ninnix/q36`](https://github.com/Ninnix/q36/tree/8362010a301b3360296e435703f58ffc230a024a).
+- Source and installer candidate: [`Ninnix/q36`](https://github.com/Ninnix/q36/tree/1305843c735380f912619548b121cba8601f2f85).
 - Previous audited base: `d67687ed15ad9f52b755a9b5fdfc0214ea937555`.
 - Separately reviewed candidate: `d02b6a20a7662300003c859e186ceb5bec7aa849`,
   with a [macOS terminal adaptation](patch/q36-agent-tty/README.md) and
@@ -76,7 +98,7 @@ vision weights are model components, not DStudio-authored assets.
   A separate [bounded F16 attention candidate](patch/q36-f16-attention/README.md)
   retains the same upstream MIT terms; operator tests are distinct from its
   still-open complete-model qualification and installer promotion.
-- Current candidate: `8362010a301b3360296e435703f58ffc230a024a`.
+- Historical September 12 candidate: `8362010a301b3360296e435703f58ffc230a024a`.
   The installer applies `next-review.patch`, `monitor.patch`,
   `monitor-owner.patch`, then `cache-usage.patch`, recording their identities
   and order. Native and
@@ -91,8 +113,14 @@ vision weights are model components, not DStudio-authored assets.
 - DStudio's native Metal operators are delivered in a reproducible
   [patch](patch/q36-metal-runtime/README.md), retaining the
   [full upstream notice](patch/q36-metal-runtime/LICENSE). The explicit CLI
-  installer downloads the pinned source and applies the patch; application-mode
+  installer copies [the bundled pinned source](src/engines/q36/) and applies the
+  versioned patches; application-mode
   and cross-backend qualification remain open.
+- Current installer source: `1305843c735380f912619548b121cba8601f2f85`, with
+  [the original MIT notice](src/engines/q36/LICENSE). It applies the rebased
+  runtime, monitor, monitor-owner, cache-usage and online-F16 attention patches.
+  Source installation and legacy ownership migration work offline; the earlier
+  real-model receipts do not qualify this new binary or full model quality.
 - The Q6_K_XL language-model candidate and tested F16 vision component come from
   [`unsloth/Qwen3.8-27B-GGUF`](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/blob/4ca720788d1e01f1bff70c033e0d0028fd02e502/README.md),
   revision `4ca720788d1e01f1bff70c033e0d0028fd02e502`, whose model card

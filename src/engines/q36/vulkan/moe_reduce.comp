@@ -1,0 +1,62 @@
+#version 460
+#extension GL_ARB_gpu_shader_int64 : require
+
+/* Routing-weighted accumulation of per-expert down outputs, port of the
+ * "out[j] += down[j] * top_w[i]" loop in q36_forward_ffn().  Token batch
+ * rides invocation y: token tok reduces expert rows tok*n_used.. into
+ * output row tok. */
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer ExpertOut {
+    float xin[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Weights {
+    float w[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint n;
+    uint n_used;
+} pc;
+
+
+/* Correctly rounded f32 fused multiply-add.  The f32 product is exact in
+ * fp64; the sum is rounded to odd (Boldo-Melquiond) so the final f32
+ * conversion rounds exactly like a hardware fma.  Mesa does not reliably
+ * keep GLSL fma() fused, and a plain fp64 mul+add double-rounds on rare
+ * tie values, which is enough to break CPU parity. */
+float fma32(float a, float b, float c) {
+    double p = double(a) * double(b);
+    double s = p + double(c);
+    double bv = s - p;
+    double e = (p - (s - bv)) + (double(c) - bv);
+    if (e != 0.0LF) {
+        uint64_t bits = doubleBitsToUint64(s);
+        if ((bits & 1UL) == 0UL) {
+            if (s > 0.0LF) bits += (e > 0.0LF) ? 1UL : -1UL;
+            else if (s < 0.0LF) bits += (e < 0.0LF) ? 1UL : -1UL;
+            s = uint64BitsToDouble(bits);
+        }
+    }
+    return float(s);
+}
+
+void main(void) {
+    uint j = gl_GlobalInvocationID.x;
+    uint tok = gl_GlobalInvocationID.y;
+    if (j >= pc.n) return;
+
+    /* The CPU loop compiles to fused multiply-adds; emulate the single
+     * rounding in fp64 (exact f32 product, one f64 round). */
+    float acc = 0.0;
+    for (uint i = 0u; i < pc.n_used; i++) {
+        acc = fma32(xin[(tok * pc.n_used + i) * pc.n + j], w[tok * pc.n_used + i], acc);
+    }
+    y[tok * pc.n + j] = acc;
+}

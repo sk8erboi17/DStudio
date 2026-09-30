@@ -14,27 +14,34 @@ models, backends or modes work.
 
 ## Recorded sources
 
-Snapshot checked on September 12, 2026; `recordedTip` means observed, not qualified.
+Main's pin was updated to upstream's September 20 revision and rechecked as
+main's tip on September 29, 2026; the other recorded tips retain their
+September 12 review. `recordedTip` means observed, not qualified.
 The command rechecks each relevant branch over the network.
 
 | Engine | Recorded revision | Current evidence / remaining work |
 | --- | --- | --- |
-| ds4 main | [`bd66c40`](https://github.com/antirez/ds4/commit/bd66c402070042bf0a79ad6ece8242de4c93680c) | [V4.1 update evidence](DS41_UPDATE_CHECKPOINT.md): installer, managed source and all native consumers updated; fresh-install and scoped native fixtures pass. The complete campaign delta still needs per-target decisions and qualification receipts. |
+| ds4 main, including Qwen3.8 Next | [`0aaea5a`](https://github.com/antirez/ds4/commit/0aaea5a238fb41a35106a551e73c8409dfb751ac) | [Unified-main migration](QWEN_NEXT_MAIN_MIGRATION.md): source, installer, routing and native adapters updated. New Qwen Q2/Q4 weights require new real-model qualification. Earlier [V4.1 results](DS41_UPDATE_CHECKPOINT.md) retain their original revision. |
 | Laguna | [`448d569`](https://github.com/antirez/ds4/commit/448d5695d1c86401a4e9447c440feb983b73e6de) | No new branch commits; applicable main changes, other backends and complete mode coverage remain open. |
-| Qwen3.8 Next | [`ff4f0ff`](https://github.com/ivanfioravanti/ds4-metal/commit/ff4f0ff4fdff70d6b7c3941ef437b91dde960e14) | Installer and managed checkout updated, previous divergent branch retained. Final native builds, first launch and an allocation-failure regression pass. [Earlier real-model replays](QWEN_CHECKPOINT.md) do not qualify the newer speculative decoder. |
-| Qwen3.6 MoE fork | [`73434c4`](https://github.com/vagrillo/ds4/commit/73434c4bb9d8bb18425a2577edada69d25d44c47) | Two documentation-only commits since `60fca11f`; installer and managed archive updated without changing inference code. See the [source-delta receipt](upstream/qwen35-2026-09-08.json). |
-| q36 / Qwen27B | [`8362010`](https://github.com/Ninnix/q36/commit/8362010a301b3360296e435703f58ffc230a024a) | Installer and managed test installation now use this pin with the ordered runtime/monitor/owner/cache-usage patches. Its final binary passes 46/46 real HTTP/image/tool/cache checks and 14/14 scoped DStudio workflow checks; the supervised real upgrade passes 8/8 with legacy cache reuse. Full quality, long-context, mode and app qualification remain open. [Current receipts and limits](DS41_UPDATE_CHECKPOINT.md). |
-| q27 / Qwen27B candidate | [`8cd7083`](https://github.com/signalnine/q27/commit/8cd708389f8b5a2c5a7c481237b00c8d7f570e7f) | 69 new commits since the preceding `44c6e56` candidate, including tokenizer, sampler, KV and DFlash changes. CPU fixtures and native Metal operators pass with a [tested DeltaNet correction](../patch/q27-metal-delta/README.md). Not promoted: real-model quality, custom weight-format/adapter work and actual CUDA qualification remain open. |
+| Qwen3.6 MoE fork | [`73434c4`](https://github.com/vagrillo/ds4/commit/73434c4bb9d8bb18425a2577edada69d25d44c47) | The upstream delta is documentation-only ([receipt](upstream/qwen35-2026-09-08.json)); DStudio separately applies the Q6_K correction and bounded prefill overlays. Native/operator and lifecycle checks pass; full-model qualification on the batched path remains open. [Current checkpoint](QWEN_CHECKPOINT.md). |
+| q36 / Qwen27B | [`1305843`](https://github.com/Ninnix/q36/commit/1305843c735380f912619548b121cba8601f2f85) | Installer uses ordered runtime/monitor/owner/cache-usage/online-F16 patches. Historical real workflows on the preceding stack remain recorded separately. Current parallel-attention operators, lifecycle and fresh source/build checks pass; full-model quality, long-context deadlines and mode qualification on this overlay remain open. [Current checkpoint](QWEN_CHECKPOINT.md). |
+| q27 / Qwen27B candidate | [`8cd7083`](https://github.com/signalnine/q27/commit/8cd708389f8b5a2c5a7c481237b00c8d7f570e7f) | 69 new commits since the preceding `44c6e56` candidate, including tokenizer, sampler, KV and DFlash changes. CPU fixtures and native Metal operators pass with a [tested DeltaNet correction](../patch/q27-metal-delta/README.md). Not promoted. Its only admission row was Linux CUDA, so since September 29 it is outside the macOS-only campaign and no longer an admission track; the Metal DeltaNet patch and its test remain available. |
 
-The matrix declares 41 platform-specific targets covering 35
-engine/backend/checkpoint combinations: twelve macOS Metal targets, 23 Linux
-targets and six Windows CPU targets. Every receipt must match its target's
-operating system as well as the engine and patches. A platform filter is a
-release scope, not proof of cross-platform equivalence. The full campaign
+The matrix declares nine macOS Metal targets. On September 29, 2026 the user
+limited the campaign to macOS on Apple Silicon; the 23 Linux and six Windows
+targets (CPU, CUDA, ROCm, Vulkan) were removed as out of scope, not qualified.
+The same decision keeps only the Vision-Exp DeepSeek V4 Flash checkpoint; its
+four non-Vision rows were removed. DeepSeek V4.1 and GLM 5.3 Flash are
+qualified last, in a separate session.
+Every receipt must still match its target's operating system as well as the
+engine and patches. The full campaign
 census, additional format/quantization choices
 and final build freeze remain separate requirements.
 
-The Agent patch set is now version 102. Its latest real Laguna continuation
+The Agent patch set is now version 103, adding unified main without changing
+the other variants' source output. The separate Qwen Next target is replaced by
+main/Qwen Next Q2 and Q4 rows; all their full qualification gates remain open.
+The version-102 real Laguna continuation
 replay passes 6/6, including separate summary review. The corresponding Qwen3.6
 MoE replay retains 1 PASS, 1 timeout FAIL and 4 not-run cases, plus a summary
 that counts a partial function as emitted. The 77-stage native consumer build
@@ -98,7 +105,7 @@ to make it pass. Each source checkout must have the expected origin and HEAD.
 ```sh
 make check-engine-upstream \
   ENGINE_UPSTREAM_APP=./dstudio \
-  ENGINE_UPSTREAM_FLAGS='--repo main=/path/to/review/main --repo laguna=/path/to/review/laguna --repo qwen38=/path/to/review/qwen38 --repo qwen35=/path/to/review/qwen35 --repo q36=/path/to/review/q36 --repo q27=/path/to/review/q27'
+  ENGINE_UPSTREAM_FLAGS='--repo main=/path/to/review/main --repo laguna=/path/to/review/laguna --repo qwen35=/path/to/review/qwen35 --repo q36=/path/to/review/q36'
 ```
 
 The check prints JSON and exits nonzero on failure. Use a new ignored output
@@ -110,10 +117,10 @@ build, reset or move HEAD.
 
 `make dist-macos` first builds and smoke-tests the bundle, then checks its own
 executable with platform `macos`, before creating the archive. It does not use
-an older executable elsewhere in Applications. Other-platform rows are listed
-as outside that release's scope, never counted as passing. A full check uses
-platform `all`; `linux` and `windows` are available for their release flows.
-The Windows distribution entry point is not yet wired to this gate.
+an older executable elsewhere in Applications. Every declared target is macOS,
+so platforms `all` and `macos` select the same rows. A `linux` or `windows`
+selection has no targets and fails with `MISSING_TARGETS`; those platforms are
+outside the campaign.
 
 ## What admission verifies
 
@@ -143,7 +150,7 @@ valid evidence:
   "finished": "2026-09-08T00:00:00Z",
   "qualification": {
     "schema": "dstudio.engine-qualification.v1",
-    "target": "qwen38/macos/metal/qwen38-next",
+    "target": "main/macos/metal/qwen38-next-q4",
     "platform": "macos",
     "engineRevision": "<exact-40-character-commit>",
     "patchSetSHA256": "<hash-reported-by-the-checker>",
@@ -167,6 +174,7 @@ review's judgment is correct, that an omitted combination was intentionally
 excluded, or that arbitrary host/source changes outside the named inputs were
 tested. The full inventory, independent graders, platform/driver and weight
 identities, suite revisions, final source freeze and release review are still
-required. Metal results do not qualify CUDA, ROCm or Vulkan.
+required. Metal results do not qualify CUDA, ROCm or Vulkan, which are outside
+the macOS-only campaign.
 
 There is no new model-quality score or speed benchmark in this update.

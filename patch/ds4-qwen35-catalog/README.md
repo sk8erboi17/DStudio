@@ -25,5 +25,10 @@ complete patch is checked before any write; mismatched anchors, partial changes
 and a symlinked source file are rejected, preserving unrelated edits. This is a
 Qwen3.6-only installer adaptation, not a patch to apply to all ds4 branches.
 
+Installations upgraded in place (for example `60fca11` to `73434c4`) did not
+receive this patch, so their server kept advertising DeepSeek aliases. Since
+September 29 launch preparation applies it to an existing install and rebuilds
+only a missing or stale `ds4-server` (`make test-qwen35-q6k-moe`, final stage).
+
 Qualification must include the real HTTP catalog and native inference receipts;
 a source diff or a metadata-fixture test alone does not qualify real weights.

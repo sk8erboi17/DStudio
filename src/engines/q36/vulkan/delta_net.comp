@@ -1,0 +1,118 @@
+#version 460
+#extension GL_ARB_gpu_shader_int64 : require
+
+/* Delta-net recurrent decode, port of q36_delta_net_decode().  One
+ * workgroup per head; thread j owns state column j so the decay, rank-1
+ * update, and both state matvecs touch each column exactly once, in the same
+ * order as the CPU reference.  gb packs the precomputed per-head decay
+ * (host expf, so it is bit-equal to the CPU value) followed by beta
+ * (sigmoid), one pair block per token.  The state matvecs accumulate in
+ * fp64 like the reference.
+ *
+ * n_tok tokens run as a sequential loop inside the dispatch: per head the
+ * state chain is strictly token-ordered either way, and one dispatch is
+ * ~n_tok times cheaper than n_tok barrier-separated dispatches, which is
+ * what prefill throughput is bound by on this stack. */
+
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+/* volatile: the out dot must consume sij after its round-trip through f32
+ * storage; without it the compiler forwards the unrounded fp64 value and
+ * bit-equality with the CPU breaks. */
+layout(set = 0, binding = 0) volatile buffer State {
+    float s[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Qbuf {
+    float q[];
+};
+
+layout(set = 0, binding = 2) readonly buffer Kbuf {
+    float k[];
+};
+
+layout(set = 0, binding = 3) readonly buffer Vbuf {
+    float v[];
+};
+
+layout(set = 0, binding = 4) readonly buffer GB {
+    float gb[];
+};
+
+layout(set = 0, binding = 5) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint n_heads;
+    uint state_dim;
+    uint n_tok;
+} pc;
+
+shared float kh[128];
+shared float qh[128];
+
+
+/* Correctly rounded f32 fused multiply-add.  The f32 product is exact in
+ * fp64; the sum is rounded to odd (Boldo-Melquiond) so the final f32
+ * conversion rounds exactly like a hardware fma.  Mesa does not reliably
+ * keep GLSL fma() fused, and a plain fp64 mul+add double-rounds on rare
+ * tie values, which is enough to break CPU parity. */
+float fma32(float a, float b, float c) {
+    double p = double(a) * double(b);
+    double s = p + double(c);
+    double bv = s - p;
+    double e = (p - (s - bv)) + (double(c) - bv);
+    if (e != 0.0LF) {
+        uint64_t bits = doubleBitsToUint64(s);
+        if ((bits & 1UL) == 0UL) {
+            if (s > 0.0LF) bits += (e > 0.0LF) ? 1UL : -1UL;
+            else if (s < 0.0LF) bits += (e < 0.0LF) ? 1UL : -1UL;
+            s = uint64BitsToDouble(bits);
+        }
+    }
+    return float(s);
+}
+
+void main(void) {
+    uint h = gl_WorkGroupID.x;
+    uint j = gl_LocalInvocationID.x;
+    uint n = pc.state_dim;
+    if (h >= pc.n_heads) return;
+
+    uint mat = h * n * n;
+
+    for (uint tok = 0u; tok < pc.n_tok; tok++) {
+        uint vec = tok * pc.n_heads * n + h * n;
+        float decay = gb[tok * 2u * pc.n_heads + h];
+        float beta = gb[tok * 2u * pc.n_heads + pc.n_heads + h];
+
+        if (j < n) {
+            kh[j] = k[vec + j];
+            qh[j] = q[vec + j];
+        }
+        barrier();
+
+        if (j < n) {
+            double sk = 0.0;
+            for (uint i = 0u; i < n; i++) {
+                float sij = s[mat + i * n + j] * decay;
+                s[mat + i * n + j] = sij;
+                sk += double(sij) * double(kh[i]);
+            }
+            float d = (v[vec + j] - float(sk)) * beta;
+
+            double outj = 0.0;
+            for (uint i = 0u; i < n; i++) {
+                /* The CPU state update compiles to a fused multiply-add;
+                 * emulate the single rounding in fp64 (exact f32 product,
+                 * one f64 round). */
+                s[mat + i * n + j] = fma32(kh[i], d, s[mat + i * n + j]);
+                outj += double(s[mat + i * n + j]) * double(qh[i]);
+            }
+            y[vec + j] = float(outj / sqrt(double(n)));
+        }
+        /* kh/qh are reloaded next token; keep readers and writers apart. */
+        barrier();
+    }
+}

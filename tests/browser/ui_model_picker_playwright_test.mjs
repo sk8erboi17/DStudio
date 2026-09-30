@@ -14,7 +14,6 @@ const artifacts = fs.mkdtempSync(path.join(artifactRoot, 'run-'));
 console.log(`model-picker evidence: ${artifacts}`);
 const main = '/tmp/dstudio-picker/ds4';
 const qwen = '/tmp/dstudio-picker/ds4-qwen35';
-const qwen38 = '/tmp/dstudio-picker/ds4-qwen38';
 const qwen27 = '/tmp/dstudio-picker/q36';
 const qwenFile = 'Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf';
 const qwen27File = 'Qwen3.8-27B-UD-Q6_K_XL.gguf';
@@ -24,8 +23,8 @@ const files = [
   ['DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix-0731.gguf', 140e9, main, 'main'],
   ['DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf', 86.7e9, main, 'main'],
   [qwenFile, 31843777504, qwen, 'qwen35moe-support'],
-  ['Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf', 73371680704, qwen38, 'qwen3.8-flash-next'],
-  ['Qwen3.8-Flash-Next-PLE-Q4_1.gguf', 32000157440, qwen38, 'qwen3.8-flash-next'],
+  ['Qwen3.8-Flash-Next-Q4.gguf', 177280286720, main, 'main'],
+  ['Qwen3.8-Flash-Next-PLE-Q4_1.gguf', 32000157440, main, 'main'], // Preserved legacy component, never a chat model.
   [qwen27File, 25299061664, qwen27, 'qwen27b'],
   ['Qwen3.8-27B-mmproj-F16.gguf', 927607488, qwen27, 'qwen27b'],
   ['Qwen3.8-27B-Q4_K_M.gguf', 16e9, qwen27, 'qwen27b'], // Not a qualified quantization.
@@ -78,7 +77,7 @@ const server = http.createServer(async (req, res) => {
     json(res, catalogFailure ? { ok: false, error: 'Catalog unavailable' } : { ok: true, ggufs: catalog }, catalogFailure ? 503 : 200); return;
   }
   if (url.pathname === '/api/engine/checkouts') {
-    json(res, { ok: true, checkouts: [[main, 'ds4', 'main'], [qwen, 'ds4-qwen35', 'qwen35moe-support'], [qwen38, 'ds4-qwen38', 'qwen3.8-flash-next'], [qwen27, 'q36', 'qwen27b']]
+    json(res, { ok: true, checkouts: [[main, 'ds4', 'main'], [qwen, 'ds4-qwen35', 'qwen35moe-support'], [qwen27, 'q36', 'qwen27b']]
       .map(([dir, name, branch]) => ({ dir, name, branch, hasServer: true, active: engineDir === dir })) }); return;
   }
   if (url.pathname === '/api/store') { json(res, { rev: 0, data: null }); return; }

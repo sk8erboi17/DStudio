@@ -1,11 +1,17 @@
 # Reproducible Chat prompt-lookup patch
 
-Version 3 replaces the ordered edit manifest with complete
-[current-main](main-current.patch) and [previous-main](main-previous.patch)
-deltas. [bases.json](bases.json) pins both upstream revisions, source/output
-hashes and the optional server-metrics prerequisite. Each delta works before
-and after that metrics patch, preserving its output exactly. The derived C
-source is byte-identical to the previous version-2 transformer.
+Version 3 replaces the ordered edit manifest with complete exact-context
+deltas. [`main-latest.patch`](main-latest.patch) targets the active antirez/ds4
+main pin `0aaea5a238fb41a35106a551e73c8409dfb751ac`. It keeps upstream's native
+GLM/DSML tracker and batched Qwen MTP scheduling, and wraps only the existing
+serial greedy evaluation path. [`main-current.patch`](main-current.patch) covers
+`c0a6119`/`f62ca29` and, unchanged, the Qwen merge `9139e2a`;
+[`main-previous.patch`](main-previous.patch) covers `f4d03f6`.
+[bases.json](bases.json) pins every upstream revision, source/output hashes and
+the optional server-metrics prerequisite. Each delta works before and after that
+metrics patch, preserving its output exactly. On the older bases the derived C
+source is byte-identical to the previous version-2 transformer; `main-latest`
+has its own recorded output hash and oracle, not a relabeled parity result.
 
 Inference behavior is unchanged: native GLM/DSML state tracking, token boundaries,
 cancellation and prompt-lookup transaction handling remain intact. The shared
@@ -34,9 +40,10 @@ cross-file durable release transaction with Agent/Cowork.
 
 ## Verification
 
-- `make test-runtime-patch-migration`: four pinned server inputs, frozen output
-  parity, independent Git apply/reversal, unrelated edits, CRLF and rejection
-  of repeated, partial or drifted inputs.
+- `make test-runtime-patch-migration`: eight pinned server inputs (four
+  revisions, each with and without server metrics), recorded output hashes,
+  independent Git apply/reversal, unrelated edits, CRLF and rejection of
+  repeated, partial or drifted inputs.
 - `make test-pld-build`: actual host builder and files with a **simulated compiler**;
   cache, Metal-only invalidation, failed-link preservation, invalid outputs,
   source changes during compilation, cleanup, paths with spaces and unsupported ABI.

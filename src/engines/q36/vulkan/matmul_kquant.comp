@@ -1,0 +1,372 @@
+#version 460
+#extension GL_ARB_gpu_shader_int64 : require
+
+/* K-quant matvec against q8_K activations, bit-exact replica of the ggml
+ * AVX2 vec_dot kernels the CPU engine links (ggml_vec_dot_q{2,4,5,6}_K_q8_K
+ * in ggml-cpu/arch/x86/quants.c).  The CPU target (Zen 2 on the BC-250) is
+ * AVX2, so this is the reference numerics.
+ *
+ * AVX2 keeps 8 float accumulator lanes: lane k carries, per 256-block, the
+ * integer dot of elements 32*g + 4k .. +3 over every 32-element group g,
+ * times the group scale, fma-accumulated with the block scale d.  The
+ * q4/q5 mins and the q6 -32 offset ride separate accumulators exactly like
+ * the intrinsics, and the final reduction follows hsum_float_8 pair order.
+ * Integer sums are exact in both worlds, so matching the float skeleton
+ * (fma + add order) makes a row dot bit-equal to the CPU.
+ *
+ * The 8 AVX2 lanes are independent serial chains, so each runs on its own
+ * GPU thread (8 rows x 8 lanes per workgroup) and one thread combines them
+ * in the exact hsum_float_8 pair order.  Prefill tiles four tokens on
+ * workgroup y: each thread keeps four independent accumulators, so a row's
+ * weight block is loaded once and applied to four q8_K activation columns. */
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights {
+    uint wb[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Q8K {
+    uint q8[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint in_dim;
+    uint out_dim;
+    uint n_tok;
+    uint blocks;
+    uint row_bytes;
+    uint type;
+    float scale;
+} pc;
+
+const uint Q2_K = 10u;
+const uint Q4_K = 12u;
+const uint Q5_K = 13u;
+const uint Q6_K = 14u;
+const uint TOK_TILE = 4u;
+const uint Q8K_WORDS = 74u;
+
+shared float sh_lane[64u * TOK_TILE];
+shared float sh_min[64u * TOK_TILE];
+shared uint sh_q8[296u];
+
+uint load_u8(uint off) {
+    uint word = wb[off >> 2];
+    return (word >> ((off & 3u) * 8u)) & 255u;
+}
+
+uint load_u16(uint off) {
+    return load_u8(off) | (load_u8(off + 1u) << 8);
+}
+
+int load_i8(uint off) {
+    uint v = load_u8(off);
+    return v >= 128u ? int(v) - 256 : int(v);
+}
+
+float load_f16(uint off) {
+    return unpackHalf2x16(load_u16(off)).x;
+}
+
+int q8_i8(uint tok_slot, uint idx) {
+    uint word = sh_q8[tok_slot * Q8K_WORDS + 2u + (idx >> 2)];
+    uint v = (word >> ((idx & 3u) * 8u)) & 255u;
+    return v >= 128u ? int(v) - 256 : int(v);
+}
+
+int q8_bsum(uint tok_slot, uint idx) {
+    uint word = sh_q8[tok_slot * Q8K_WORDS + 66u + (idx >> 1)];
+    uint v = ((idx & 1u) == 0u) ? (word & 65535u) : (word >> 16);
+    return v >= 32768u ? int(v) - 65536 : int(v);
+}
+
+float q8_d(uint tok_slot) {
+    return uintBitsToFloat(sh_q8[tok_slot * Q8K_WORDS]);
+}
+
+uint q2_value(uint base, uint idx) {
+    uint in_idx = idx & 127u;
+    uint qoff = base + 16u + (idx >> 7u) * 32u + (in_idx & 31u);
+    return (load_u8(qoff) >> ((in_idx >> 5u) * 2u)) & 3u;
+}
+
+uint q2_scale(uint base, uint group16) {
+    return load_u8(base + group16) & 15u;
+}
+
+uint q2_min(uint base, uint group16) {
+    return load_u8(base + group16) >> 4;
+}
+
+void k4_scale_min(uint base, uint j, out uint scale, out uint mn) {
+    uint s0 = load_u8(base + 4u + j);
+    if (j < 4u) {
+        scale = s0 & 63u;
+        mn = load_u8(base + 8u + j) & 63u;
+    } else {
+        uint sj4 = load_u8(base + 4u + j + 4u);
+        uint sjm4 = load_u8(base + 4u + j - 4u);
+        scale = (sj4 & 15u) | ((sjm4 >> 6) << 4);
+        mn = (sj4 >> 4) | ((s0 >> 6) << 4);
+    }
+}
+
+/* Unsigned q4/q5/q6 value of element idx within one 256-block. */
+uint q4_value(uint base, uint idx) {
+    uint g = idx >> 5;
+    uint i = idx & 31u;
+    uint b = load_u8(base + 16u + (g >> 1) * 32u + i);
+    return ((g & 1u) == 0u) ? (b & 15u) : (b >> 4);
+}
+
+uint q5_value(uint base, uint idx) {
+    uint g = idx >> 5;
+    uint i = idx & 31u;
+    uint b = load_u8(base + 48u + (g >> 1) * 32u + i);
+    uint lo = ((g & 1u) == 0u) ? (b & 15u) : (b >> 4);
+    uint hi = (load_u8(base + 16u + i) >> g) & 1u;
+    return lo | (hi << 4);
+}
+
+uint q6_value(uint base, uint idx) {
+    uint half_block = idx >> 7;
+    uint in_idx = idx & 127u;
+    uint l = in_idx & 31u;
+    uint sel = in_idx >> 5;
+    uint ql_off = half_block * 64u + (((sel & 1u) == 1u) ? 32u : 0u) + l;
+    uint low = (sel < 2u) ? (load_u8(base + ql_off) & 15u)
+                          : (load_u8(base + ql_off) >> 4);
+    uint hi = (load_u8(base + 128u + half_block * 32u + l) >> (sel * 2u)) & 3u;
+    return low | (hi << 4);
+}
+
+
+/* Correctly rounded f32 fused multiply-add.  The f32 product is exact in
+ * fp64; the sum is rounded to odd (Boldo-Melquiond) so the final f32
+ * conversion rounds exactly like a hardware fma.  Mesa does not reliably
+ * keep GLSL fma() fused (even with `precise`), and a plain fp64 mul+add
+ * double-rounds on rare tie values, which is enough to break CPU parity. */
+float fma32(float a, float b, float c) {
+    double p = double(a) * double(b);
+    double s = p + double(c);
+    double bv = s - p;
+    double e = (p - (s - bv)) + (double(c) - bv);
+    if (e != 0.0LF) {
+        uint64_t bits = doubleBitsToUint64(s);
+        if ((bits & 1UL) == 0UL) {
+            if (s > 0.0LF) bits += (e > 0.0LF) ? 1UL : -1UL;
+            else if (s < 0.0LF) bits += (e < 0.0LF) ? 1UL : -1UL;
+            s = uint64BitsToDouble(bits);
+        }
+    }
+    return float(s);
+}
+
+void main(void) {
+    uint lid = gl_LocalInvocationID.x;
+    uint out_row = gl_WorkGroupID.x * 8u + (lid >> 3);
+    uint tok0 = gl_WorkGroupID.y * TOK_TILE;
+    uint k = lid & 7u;
+    bool row_live = out_row < pc.out_dim;
+
+    uint row_base = (row_live ? out_row : 0u) * pc.row_bytes;
+
+    /* This thread carries AVX2 lane k of its row: lanes[k] plus, for q4/q5,
+     * the matching mins accumulator (accm[k] when k < 4, summs when k == 0),
+     * each a serial fma chain over the blocks exactly like the intrinsics. */
+    float lane[4];
+    float mins[4];
+    bool tok_live[4];
+    uint qbase[4];
+    for (uint u = 0u; u < TOK_TILE; u++) {
+        uint tok = tok0 + u;
+        lane[u] = 0.0;
+        mins[u] = 0.0;
+        tok_live[u] = tok < pc.n_tok;
+        qbase[u] = (tok_live[u] ? tok : 0u) * pc.blocks * Q8K_WORDS;
+    }
+
+    for (uint b = 0u; b < pc.blocks; b++) {
+        for (uint u = 0u; u < TOK_TILE; u++) {
+            uint q8b = qbase[u] + b * Q8K_WORDS;
+            for (uint w = lid; w < Q8K_WORDS; w += 64u) {
+                if (tok_live[u]) sh_q8[u * Q8K_WORDS + w] = q8[q8b + w];
+                else sh_q8[u * Q8K_WORDS + w] = 0u;
+            }
+        }
+        barrier();
+
+        if (row_live) {
+            float yd[4];
+            for (uint u = 0u; u < TOK_TILE; u++) yd[u] = tok_live[u] ? q8_d(u) : 0.0;
+
+            if (pc.type == Q2_K) {
+                uint base = row_base + b * 84u;
+                float wd = load_f16(base + 80u);
+                float wdmin = load_f16(base + 82u);
+                int lk[4] = { 0, 0, 0, 0 };
+                for (uint u = 0u; u < TOK_TILE; u++) {
+                    if (!tok_live[u]) continue;
+                    int minprod = int(q2_min(base, 2u * k)) * q8_bsum(u, 2u * k)
+                                + int(q2_min(base, 2u * k + 1u)) * q8_bsum(u, 2u * k + 1u);
+                    lane[u] = fma32(-yd[u] * wdmin, float(minprod), lane[u]);
+                }
+                for (uint hb = 0u; hb < 2u; hb++) {
+                    for (uint s = 0u; s < 4u; s++) {
+                        uint group16 = hb * 8u + 2u * s + (k >= 4u ? 1u : 0u);
+                        uint e = hb * 128u + s * 32u + (k < 4u ? 4u * k : 16u + 4u * (k - 4u));
+                        int qv0 = int(q2_value(base, e + 0u));
+                        int qv1 = int(q2_value(base, e + 1u));
+                        int qv2 = int(q2_value(base, e + 2u));
+                        int qv3 = int(q2_value(base, e + 3u));
+                        int wsc = int(q2_scale(base, group16));
+                        for (uint u = 0u; u < TOK_TILE; u++) {
+                            if (!tok_live[u]) continue;
+                            int s4 = qv0 * q8_i8(u, e + 0u)
+                                   + qv1 * q8_i8(u, e + 1u)
+                                   + qv2 * q8_i8(u, e + 2u)
+                                   + qv3 * q8_i8(u, e + 3u);
+                            lk[u] += wsc * s4;
+                        }
+                    }
+                }
+                for (uint u = 0u; u < TOK_TILE; u++) {
+                    if (tok_live[u]) lane[u] = fma32(yd[u] * wd, float(lk[u]), lane[u]);
+                }
+            } else if (pc.type == Q4_K) {
+                uint base = row_base + b * 144u;
+                float wd = load_f16(base + 0u);
+                float wdmin = load_f16(base + 2u);
+                uint sc[8];
+                uint mn[8];
+                for (uint g = 0u; g < 8u; g++) k4_scale_min(base, g, sc[g], mn[g]);
+                if (k < 4u) {
+                    int mn0 = int(mn[2u * k]);
+                    int mn1 = int(mn[2u * k + 1u]);
+                    for (uint u = 0u; u < TOK_TILE; u++) {
+                        if (!tok_live[u]) continue;
+                        int prod = mn0 * (q8_bsum(u, 4u * k) + q8_bsum(u, 4u * k + 1u))
+                                 + mn1 * (q8_bsum(u, 4u * k + 2u) + q8_bsum(u, 4u * k + 3u));
+                        mins[u] = fma32(-yd[u] * wdmin, float(prod), mins[u]);
+                    }
+                }
+                int lk[4] = { 0, 0, 0, 0 };
+                for (uint g = 0u; g < 8u; g++) {
+                    uint e = 32u * g + 4u * k;
+                    int qv0 = int(q4_value(base, e + 0u));
+                    int qv1 = int(q4_value(base, e + 1u));
+                    int qv2 = int(q4_value(base, e + 2u));
+                    int qv3 = int(q4_value(base, e + 3u));
+                    int wsc = int(sc[g]);
+                    for (uint u = 0u; u < TOK_TILE; u++) {
+                        if (!tok_live[u]) continue;
+                        int s4 = qv0 * q8_i8(u, e + 0u)
+                               + qv1 * q8_i8(u, e + 1u)
+                               + qv2 * q8_i8(u, e + 2u)
+                               + qv3 * q8_i8(u, e + 3u);
+                        lk[u] += wsc * s4;
+                    }
+                }
+                for (uint u = 0u; u < TOK_TILE; u++) {
+                    if (!tok_live[u]) continue;
+                    lane[u] = fma32(yd[u] * wd, float(lk[u]), lane[u]);
+                }
+            } else if (pc.type == Q5_K) {
+                uint base = row_base + b * 176u;
+                float wd = load_f16(base + 0u);
+                float wdmin = load_f16(base + 2u);
+                uint sc[8];
+                uint mn[8];
+                for (uint g = 0u; g < 8u; g++) k4_scale_min(base, g, sc[g], mn[g]);
+                if (k == 0u) {
+                    for (uint u = 0u; u < TOK_TILE; u++) {
+                        int mins_total = 0;
+                        if (!tok_live[u]) continue;
+                        for (uint g = 0u; g < 8u; g++) {
+                            mins_total += int(mn[g]) * (q8_bsum(u, 2u * g) + q8_bsum(u, 2u * g + 1u));
+                        }
+                        mins[u] = fma32(-yd[u] * wdmin, float(mins_total), mins[u]);
+                    }
+                }
+                int lk[4] = { 0, 0, 0, 0 };
+                for (uint g = 0u; g < 8u; g++) {
+                    uint e = 32u * g + 4u * k;
+                    int qv0 = int(q5_value(base, e + 0u));
+                    int qv1 = int(q5_value(base, e + 1u));
+                    int qv2 = int(q5_value(base, e + 2u));
+                    int qv3 = int(q5_value(base, e + 3u));
+                    int wsc = int(sc[g]);
+                    for (uint u = 0u; u < TOK_TILE; u++) {
+                        if (!tok_live[u]) continue;
+                        int s4 = qv0 * q8_i8(u, e + 0u)
+                               + qv1 * q8_i8(u, e + 1u)
+                               + qv2 * q8_i8(u, e + 2u)
+                               + qv3 * q8_i8(u, e + 3u);
+                        lk[u] += wsc * s4;
+                    }
+                }
+                for (uint u = 0u; u < TOK_TILE; u++) {
+                    if (!tok_live[u]) continue;
+                    lane[u] = fma32(yd[u] * wd, float(lk[u]), lane[u]);
+                }
+            } else if (pc.type == Q6_K) {
+                uint base = row_base + b * 210u;
+                float wd = load_f16(base + 208u);
+                int lk[4] = { 0, 0, 0, 0 };
+                for (uint c = 0u; c < 8u; c++) {
+                    uint e = 32u * c + 4u * k;
+                    int qv0 = int(q6_value(base, e + 0u));
+                    int qv1 = int(q6_value(base, e + 1u));
+                    int qv2 = int(q6_value(base, e + 2u));
+                    int qv3 = int(q6_value(base, e + 3u));
+                    int wsc = load_i8(base + 192u + 2u * c + (k >> 2));
+                    for (uint u = 0u; u < TOK_TILE; u++) {
+                        if (!tok_live[u]) continue;
+                        int s4 = qv0 * q8_i8(u, e + 0u)
+                               + qv1 * q8_i8(u, e + 1u)
+                               + qv2 * q8_i8(u, e + 2u)
+                               + qv3 * q8_i8(u, e + 3u);
+                        lk[u] += wsc * s4;
+                    }
+                }
+                int wo0 = load_i8(base + 192u + 2u * k);
+                int wo1 = load_i8(base + 192u + 2u * k + 1u);
+                for (uint u = 0u; u < TOK_TILE; u++) {
+                    if (!tok_live[u]) continue;
+                    lk[u] -= 32 * (q8_bsum(u, 2u * k) * wo0 + q8_bsum(u, 2u * k + 1u) * wo1);
+                    lane[u] = fma32(yd[u] * wd, float(lk[u]), lane[u]);
+                }
+            }
+        }
+        barrier();
+    }
+
+    for (uint u = 0u; u < TOK_TILE; u++) {
+        sh_lane[u * 64u + lid] = lane[u];
+        sh_min[u * 64u + lid] = mins[u];
+    }
+    barrier();
+
+    /* hsum_float_8 pair order, then the mins accumulators like the tails of
+     * the AVX2 kernels, combined by lane 0 of each row. */
+    if (row_live && k == 0u) {
+        uint r0 = lid;
+        for (uint u = 0u; u < TOK_TILE; u++) {
+            uint tok = tok0 + u;
+            uint soff = u * 64u + r0;
+            if (tok >= pc.n_tok) continue;
+            float total = ((sh_lane[soff + 0u] + sh_lane[soff + 4u]) + (sh_lane[soff + 2u] + sh_lane[soff + 6u]))
+                        + ((sh_lane[soff + 1u] + sh_lane[soff + 5u]) + (sh_lane[soff + 3u] + sh_lane[soff + 7u]));
+            if (pc.type == Q4_K) {
+                total += (sh_min[soff + 0u] + sh_min[soff + 2u]) + (sh_min[soff + 1u] + sh_min[soff + 3u]);
+            }
+            if (pc.type == Q5_K) total += sh_min[soff];
+            y[tok * pc.out_dim + out_row] = total * pc.scale;
+        }
+    }
+}

@@ -1,0 +1,9 @@
+imatrix/qwen36/qwen36_antirez_qwen_rendered_imatrix.dat
+qwen36-quantize
+quality-testing/score_openrouter
+quality-testing/score_openrouter.o
+quality-testing/data/
+__pycache__/
+*/__pycache__/
+*/*/__pycache__/
+*.pyc

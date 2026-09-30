@@ -1,0 +1,73 @@
+--- a/ds4.c
++++ b/ds4.c
+@@ -22820,10 +22820,11 @@
+                                   "DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST");
+ }
+ 
+-/* Cold startup scratch. Keeping this bounded workspace off the stack avoids a
+- * roughly 241 KiB frame while preserving layer-major expert order. */
++/* Cold startup scratch. Expert IDs are bounded by the validated shape; keep
++ * their narrow storage independent of 32-bit hit priorities and GPU wire IDs.
++ * Even Qwen's larger global ceiling must fit the existing 256 KiB budget. */
+ typedef struct {
+-    int32_t experts[DS4_MAX_LAYER][DS4_MAX_EXPERT];
++    uint16_t experts[DS4_MAX_LAYER][DS4_MAX_EXPERT];
+     uint32_t priorities[DS4_MAX_LAYER][DS4_MAX_EXPERT];
+     uint32_t counts[DS4_MAX_LAYER];
+     uint64_t seen[DS4_MAX_LAYER][DS4_EXPERT_BIT_WORDS];
+@@ -22831,12 +22832,13 @@
+ 
+ _Static_assert(sizeof(metal_graph_streaming_expert_hotlist_workspace) <= 256u * 1024u,
+                "streaming expert hotlist workspace must remain bounded");
++_Static_assert(DS4_MAX_EXPERT <= UINT16_MAX, "hotlist expert IDs must fit losslessly");
+ 
+ static bool metal_graph_streaming_expert_hotlist_add(
+         uint32_t    layer,
+         uint32_t    expert,
+         uint32_t    priority,
+-        int32_t     experts[DS4_MAX_LAYER][DS4_MAX_EXPERT],
++        uint16_t    experts[DS4_MAX_LAYER][DS4_MAX_EXPERT],
+         uint32_t    priorities[DS4_MAX_LAYER][DS4_MAX_EXPERT],
+         uint32_t    counts[DS4_MAX_LAYER],
+         uint64_t    seen[DS4_MAX_LAYER][DS4_EXPERT_BIT_WORDS],
+@@ -22848,7 +22850,7 @@
+     ds4_expert_bit_set(seen[layer], expert);
+     if (priority == 0) priority = 1;
+     priorities[layer][counts[layer]] = priority;
+-    experts[layer][counts[layer]++] = (int32_t)expert;
++    experts[layer][counts[layer]++] = (uint16_t)expert;
+     (*loaded)++;
+     return true;
+ }
+@@ -22856,7 +22858,7 @@
+ static bool metal_graph_streaming_expert_hotlist_load_file(
+         const char *path,
+         uint32_t    max_entries,
+-        int32_t     experts[DS4_MAX_LAYER][DS4_MAX_EXPERT],
++        uint16_t    experts[DS4_MAX_LAYER][DS4_MAX_EXPERT],
+         uint32_t    priorities[DS4_MAX_LAYER][DS4_MAX_EXPERT],
+         uint32_t    counts[DS4_MAX_LAYER],
+         uint64_t    seen[DS4_MAX_LAYER][DS4_EXPERT_BIT_WORDS],
+@@ -22953,7 +22955,7 @@
+ 
+ static bool metal_graph_streaming_expert_hotlist_load_default(
+         uint32_t    max_entries,
+-        int32_t     experts[DS4_MAX_LAYER][DS4_MAX_EXPERT],
++        uint16_t    experts[DS4_MAX_LAYER][DS4_MAX_EXPERT],
+         uint32_t    priorities[DS4_MAX_LAYER][DS4_MAX_EXPERT],
+         uint32_t    counts[DS4_MAX_LAYER],
+         uint64_t    seen[DS4_MAX_LAYER][DS4_EXPERT_BIT_WORDS],
+@@ -33967,9 +33969,12 @@
+                                            il,
+                                            gate_expert_bytes,
+                                            down_expert_bytes);
++        int32_t expert_ids[DS4_MAX_EXPERT];
++        for (uint32_t j = 0; j < n; j++)
++            expert_ids[j] = (int32_t)workspace->experts[il][j];
+         if (ds4_gpu_stream_expert_cache_seed_experts(
+                     &table,
+-                    workspace->experts[il],
++                    expert_ids,
+                     workspace->priorities[il],
+                     n) == 0) {
+             ok = false;

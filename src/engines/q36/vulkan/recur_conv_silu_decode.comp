@@ -1,0 +1,53 @@
+#version 460
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Cache {
+    float cachev[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Current {
+    float cur[];
+};
+
+layout(set = 0, binding = 2) readonly buffer Kernel {
+    float ker[];
+};
+
+layout(set = 0, binding = 3) writeonly buffer Output {
+    float outv[];
+};
+
+layout(push_constant) uniform Push {
+    uint conv_dim;
+    uint n_taps;
+    uint n_tok;
+} pc;
+
+float sigmoid_stable(float x) {
+    if (x >= 0.0f) {
+        float z = exp(-x);
+        return 1.0f / (1.0f + z);
+    }
+    float z = exp(x);
+    return z / (1.0f + z);
+}
+
+void main(void) {
+    uint c = gl_GlobalInvocationID.x;
+    if (c >= pc.conv_dim) return;
+    uint hist = pc.n_taps - 1u;
+    float h[3];
+    for (uint t = 0u; t < hist; t++) h[t] = cachev[t * pc.conv_dim + c];
+    for (uint tok = 0u; tok < pc.n_tok; tok++) {
+        float acc = 0.0f;
+        for (uint t = 0u; t < hist; t++)
+            acc += h[t] * ker[c * pc.n_taps + t];
+        float x = cur[tok * pc.conv_dim + c];
+        acc += x * ker[c * pc.n_taps + hist];
+        for (uint t = 0u; t + 1u < hist; t++) h[t] = h[t + 1u];
+        h[hist - 1u] = x;
+        outv[tok * pc.conv_dim + c] = acc * sigmoid_stable(acc);
+    }
+    for (uint t = 0u; t < hist; t++) cachev[t * pc.conv_dim + c] = h[t];
+}

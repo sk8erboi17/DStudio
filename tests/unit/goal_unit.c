@@ -88,6 +88,8 @@ int main(void) {
     dtg_runtime *rt = start_goal(3);
     dtg_node *node = dtg_find_node(&rt->graph,"goal");
     assert(node->attempts_started == 1 && !node->automatic_retry);
+    dtg_scheduler_tick(node->started_ms + 4LL * 60 * 60 * 1000);
+    assert(node->state == DTG_NODE_RUNNING && node->attempts_started == 1 && g_agent_working);
     unsigned long long original = node->operation_task_id;
     end_turn("Plan only, no work yet.\n",0);
     assert(node->attempts_started == 2 && node->operation_task_id != original && node->state == DTG_NODE_RUNNING);

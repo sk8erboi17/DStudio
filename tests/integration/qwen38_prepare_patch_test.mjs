@@ -35,7 +35,7 @@ try {
   assert.equal(patch('restore'), 0, 'Private source must be a supported pristine or fully patched base');
   const original = read();
   report.sourceSHA256 = Object.fromEntries(files.map((f, i) => [f, hash(original[i])]));
-  report.patchSHA256 = Object.fromEntries(['prepare-empty.patch', 'prepare-current.patch'].map(file =>
+  report.patchSHA256 = Object.fromEntries(['prepare-empty.patch', 'prepare-current.patch', 'prepare-main.patch'].map(file =>
     [file, hash(fs.readFileSync(path.join(root, 'patch/ds4-qwen38-prepare', file)))]));
   report.harnessSHA256 = hash(fs.readFileSync(import.meta.filename));
   const unrelated = original.map(b => Buffer.concat([b, Buffer.from('\n/* preserved contributor fixture */\n')]));

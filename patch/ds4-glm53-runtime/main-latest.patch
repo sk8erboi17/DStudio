@@ -1,0 +1,30 @@
+diff --git a/ds4.c b/ds4.c
+index af13cc8..7284db5 100644
+--- a/ds4.c
++++ b/ds4.c
+@@ -45347,7 +45347,11 @@ static uint64_t glm_graph_streaming_active_model_bytes(
+         free(spans.v);
+     }
+     for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
+-        if (!weights_model_map_spans(weights, il, il, false, &spans)) {
++        memset(&spans, 0, sizeof(spans));
++        model_map_span_vec_include_layer_decode_static(&spans,
++                                                       &weights->layer[il]);
++        if (!model_map_span_vec_finish(&spans)) {
++            free(spans.v);
+             continue;
+         }
+         const uint64_t bytes = model_map_span_vec_total_bytes(&spans);
+@@ -45525,7 +45529,11 @@ static bool glm_graph_memory_guard_for_compact_cap(
+         uint64_t           transient_extra_bytes,
+         const char        *phase) {
+     if (!model) return true;
+-    if (glm_graph_memory_guard_disabled()) return true;
++    /*DS4UI_GLM53_STREAMING: GLM already has exact graph planning and backend
++     * allocation errors. A second host-memory gate rejects valid mapped or
++     * SSD-streamed launches, so DStudio leaves capacity advice to its UI. */
++    if (ds4_model_is_glm53() ||
++        glm_graph_memory_guard_disabled()) return true;
+ 
+     const uint32_t work_ctx =
+         glm_graph_full_attention_cap(ctx_size, ssd_streaming);

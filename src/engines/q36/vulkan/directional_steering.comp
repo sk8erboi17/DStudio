@@ -1,0 +1,43 @@
+#version 460
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Activations {
+    float x[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Directions {
+    float directions[];
+};
+
+layout(push_constant) uniform Push {
+    uint layer;
+    uint width;
+    uint rows;
+    float scale;
+} pc;
+
+shared float partial[256];
+
+void main(void) {
+    uint row = gl_WorkGroupID.x;
+    uint lane = gl_LocalInvocationID.x;
+    if (row >= pc.rows) return;
+
+    uint xbase = row * pc.width;
+    uint dbase = pc.layer * pc.width;
+    float sum = 0.0;
+    for (uint i = lane; i < pc.width; i += 256u) {
+        sum += x[xbase + i] * directions[dbase + i];
+    }
+    partial[lane] = sum;
+    barrier();
+    for (uint step = 128u; step > 0u; step >>= 1u) {
+        if (lane < step) partial[lane] += partial[lane + step];
+        barrier();
+    }
+
+    float coeff = pc.scale * partial[0];
+    for (uint i = lane; i < pc.width; i += 256u) {
+        x[xbase + i] -= coeff * directions[dbase + i];
+    }
+}

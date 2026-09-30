@@ -182,6 +182,49 @@ static void check_admission_and_pressure(void) {
     printf("{\"case\":\"bounded-admission-credentials-full-pipe-stop\",\"pass\":true,\"rejectedDuplicates\":200,\"maxWorkers\":1,\"stagedBytes\":%zu,\"httpStatus\":200}\n", staged);
 }
 
+static void check_local_stop_resets_model_connection(void) {
+    int listener = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in address = {.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
+    require(listener >= 0 && !bind(listener, (struct sockaddr *)&address, sizeof address) && !listen(listener, 1), "local Stop endpoint");
+    socklen_t size = sizeof address;
+    require(!getsockname(listener, (struct sockaddr *)&address, &size), "local Stop endpoint identity");
+    int result[2], runtime[2]; require(!pipe(result) && !pipe(runtime), "local Stop barriers");
+    pid_t peer = fork(); require(peer >= 0, "owned native socket fixture");
+    if (!peer) {
+        close(result[0]); close(runtime[0]); close(runtime[1]);
+        int fd = accept(listener, NULL, NULL); close(listener);
+        char request[4096] = ""; size_t count = 0;
+        while (fd >= 0 && count + 1 < sizeof request) {
+            ssize_t n = read(fd, request + count, sizeof request - count - 1);
+            if (n <= 0) _exit(3);
+            count += (size_t)n; request[count] = '\0';
+            char *body = strstr(request, "\r\n\r\n");
+            if (body && strstr(body + 4, "qwen3.8-27b") && request[count - 1] == '}') break;
+        }
+        if (fd < 0 || !fd_write_all(result[1], "R", 1)) _exit(3);
+        char byte; ssize_t n = read(fd, &byte, 1);
+        char terminal = n < 0 && errno == ECONNRESET ? 'C' : 'F';
+        (void)fd_write_all(result[1], &terminal, 1); close(fd); _exit(0);
+    }
+    retain_peer(peer); close(listener); close(result[1]); set_nonblock(result[0]);
+    g_in_fd = runtime[1]; g_child = getpid(); g_mode = ENGINE_AGENT; g_agent_working = 1;
+    g_q36.pid = peer; g_q36.ready = 1; g_q36.stopping = 0;
+    g_q36.frontend = g_child; g_q36.launch_task = 777;
+    g_q36.spec.cfg.port = ntohs(address.sin_port);
+    require(model_rpc_start(91, strdup("{\"model\":\"qwen3.8-27b\"}"), 0), "local request uses the native owned endpoint");
+    wait_barrier(result[0], 'R');
+    require(g_model_rpc && !g_model_rpc->canceled && !kill(peer, 0), "valid silent work remains live before Stop");
+    pid_t worker = g_model_rpc->worker;
+    model_rpc_cancel(); wait_barrier(result[0], 'C');
+    g_q36.pid = -1; g_q36.ready = 0; g_q36.frontend = -1;
+    long long deadline = dstudio_now_ms() + 3000;
+    while (g_model_rpc && dstudio_now_ms() < deadline) { model_rpc_tick(); usleep(1000); }
+    require(!g_model_rpc && kill(worker, 0) < 0 && errno == ESRCH, "Stop reaps only the request worker");
+    int status; require(waitpid(peer, &status, 0) == peer && WIFEXITED(status) && !WEXITSTATUS(status), "native socket fixture ended normally");
+    close_pipes(); close(runtime[0]); close(result[0]); g_child = -1; g_mode = ENGINE_NONE; g_agent_working = 0;
+    puts("{\"case\":\"local-stop-resets-inference-socket\",\"pass\":true}");
+}
+
 static void check_worker_failure_and_limits(void) {
     for (int scenario = 0; scenario < 3; scenario++) {
         int runtime[2]; require(!pipe(runtime), "error-delivery runtime pipe");
@@ -197,7 +240,7 @@ static void check_worker_failure_and_limits(void) {
         require(model_rpc_start(31 + scenario, body, 0), "admit request or its explicit error");
         pid_t worker = g_model_rpc->worker;
         if (!scenario) require(worker > 0 && !kill(worker, SIGKILL), "explicit owned helper crash");
-        else if (scenario == 1) g_model_rpc->deadline = model_rpc_now_ms();
+        else if (scenario == 1) require(worker > 0, "actual connection failure uses the owned worker");
         else require(worker == -1, "oversized body cannot launch any network worker");
         char receipt[8192] = ""; size_t count = 0;
         long long deadline = dstudio_now_ms() + 3000;
@@ -210,12 +253,12 @@ static void check_worker_failure_and_limits(void) {
         }
         require(!g_model_rpc && strstr(receipt, "\"type\":\"model_error\"") &&
                 !strstr(receipt, "\"type\":\"model_done\""), "failure produces error, never completion");
-        if (scenario == 1) require(strstr(receipt, "deadline") != NULL, "deadline error remains explicit");
+        if (scenario == 1) require(strstr(receipt, "connect") != NULL, "actual connection error remains explicit");
         if (scenario == 2) require(strstr(receipt, "16 MiB") != NULL, "body limit remains explicit");
         if (worker > 0) require(kill(worker, 0) < 0 && errno == ESRCH, "failed worker reaped");
         close_pipes(); close(runtime[0]);
         printf("{\"case\":\"%s\",\"pass\":true,\"errorReceiptBytes\":%zu}\n",
-                scenario == 0 ? "worker-crash" : scenario == 1 ? "request-deadline" : "body-byte-limit", count);
+                scenario == 0 ? "worker-crash" : scenario == 1 ? "connection-failure" : "body-byte-limit", count);
     }
     g_child = -1; g_mode = ENGINE_NONE; g_agent_working = 0;
     g_interrupt_pending = 1;
@@ -308,6 +351,7 @@ int main(int argc, char **argv) {
         g_child = -1;
         check_admission_and_pressure();
         check_worker_failure_and_limits();
+        check_local_stop_resets_model_connection();
     }
     return leaked_count ? 1 : 0;
 }

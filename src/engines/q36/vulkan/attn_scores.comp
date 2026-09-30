@@ -1,0 +1,84 @@
+#version 460
+
+/* Full-attention decode scores, port of the score loop in
+ * q36_forward_full_attn(): scores[h][t] = dot(q_h, K[t][kvh]) / sqrt(head_dim)
+ * over the selected K cache type.  One invocation per (t, h, tok); query row tok sits
+ * at absolute position pos0 + tok and attends keys 0..pos0+tok (causal), its
+ * scores land at tok * score_stride packed [head][n_kv_tok].  The dot and
+ * the final divide run in fp64 like the CPU reference, so scores are
+ * bit-exact. */
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Qbuf {
+    float q[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Kcache {
+    uint kc[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Scores {
+    float scores[];
+};
+
+layout(push_constant) uniform Push {
+    uint pos0;
+    uint n_head;
+    uint n_head_kv;
+    uint head_dim;
+    uint score_stride;
+    uint k_type;
+    uint k_row_bytes;
+} pc;
+
+uint load_k_u8(uint off) {
+    uint word = kc[off >> 2u];
+    return (word >> ((off & 3u) * 8u)) & 255u;
+}
+
+float load_k_f16(uint off) {
+    return unpackHalf2x16(load_k_u8(off) | (load_k_u8(off + 1u) << 8u)).x;
+}
+
+int i8(uint v) {
+    return v >= 128u ? int(v) - 256 : int(v);
+}
+
+float kc_at(uint tok, uint kvh, uint i) {
+    if (pc.k_type == 0u) {
+        uint idx = (tok * pc.k_row_bytes) / 2u + kvh * pc.head_dim + i;
+        uint word = kc[idx >> 1u];
+        vec2 pair = unpackHalf2x16(word);
+        return (idx & 1u) == 0u ? pair.x : pair.y;
+    }
+    uint block_bytes = pc.k_type == 1u ? 34u : 18u;
+    uint head_bytes = ((pc.head_dim + 31u) / 32u) * block_bytes;
+    uint base = tok * pc.k_row_bytes + kvh * head_bytes + (i / 32u) * block_bytes;
+    if (pc.k_type == 2u) {
+        uint j = i & 31u;
+        uint q = load_k_u8(base + 2u + (j & 15u));
+        q = j < 16u ? q & 15u : q >> 4u;
+        return load_k_f16(base) * float(int(q) - 8);
+    }
+    return load_k_f16(base) * float(i8(load_k_u8(base + 2u + (i & 31u))));
+}
+
+void main(void) {
+    uint t = gl_GlobalInvocationID.x;
+    uint h = gl_GlobalInvocationID.y;
+    uint tok = gl_GlobalInvocationID.z;
+    uint n_kv = pc.pos0 + tok + 1u;
+    if (t >= n_kv || h >= pc.n_head) return;
+
+    uint kvh = h / (pc.n_head / pc.n_head_kv);
+    uint qbase = (tok * pc.n_head + h) * pc.head_dim;
+
+    double dot = 0.0;
+    for (uint i = 0u; i < pc.head_dim; i++) {
+        dot += double(q[qbase + i]) * double(kc_at(t, kvh, i));
+    }
+    /* The CPU divide by sqrt(head_dim) compiles to a multiply by the
+     * stepwise-folded reciprocal constant; reproduce that exact value. */
+    scores[tok * pc.score_stride + h * n_kv + t] = float(dot * (1.0 / sqrt(double(pc.head_dim))));
+}

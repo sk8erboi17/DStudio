@@ -3,12 +3,11 @@
  * The worker has no authority to replace the live engine. Its result is a
  * bounded, explicit JSON message, separate from build stdout/stderr.
  * Lifetime: admission -> prepare -> revalidate -> stop old -> publish/spawn.
- * Limits: one worker group, 15 min preparation, 5 s cancellation grace,
+ * Limits: one worker group, 5 s cancellation grace,
  * 64 KiB charter, 64 KiB pipe work per tick, 2 KiB retained diagnostics.
  * This is not a cache: every attempt revalidates its dependencies and binary. */
 #define LAUNCH_SYS_MAX 65536
 #define LAUNCH_RESULT_MAX (6 * LAUNCH_SYS_MAX + 4096)
-#define LAUNCH_PREPARE_MS (15 * 60 * 1000)
 #define LAUNCH_CANCEL_MS 5000
 #define LAUNCH_DEP_MAX 24
 
@@ -31,7 +30,7 @@ typedef struct {
     unsigned long long task_id;
     pid_t worker;
     int client, output, errors, guard, killed, canceled, received, stopping;
-    long long deadline;
+    long long deadline; /* Explicit cancellation grace, never preparation time. */
     char *result;
     size_t result_len;
     char last_log[2048], failure[256], binary_identity[192];
@@ -220,6 +219,9 @@ static int launch_prepare_cli(int argc, char **argv) {
             ((mode == ENGINE_SERVER && ds4_server_compatible((int)port)) || kill_external_server((int)port));
     }
     if (g_launch_worker_cancel) ok = 0;
+    /* Correct an existing Qwen3.6 install before any mode starts its engine. */
+    if (ok && !g_remote_base_url[0] && selected_checkout_is_qwen35())
+        ok = setup_prepare_qwen35_runtime(g_ds4_dir, mode == ENGINE_SERVER, error, sizeof error);
     if (ok && q36) {
             char root[1024], target[1024]; int downloaded = 0;
             cstr_copy(root, sizeof root, g_ds4_dir);
@@ -404,6 +406,59 @@ static int launch_revalidate(launch_job *j) {
         !native_launch_preflight(&r->cfg, r->mode, r->model, r->remote.base_url[0] != '\0', r->dspark, error, sizeof error);
 }
 
+/* Capture the identity of every input the preparation worker may read, so
+ * launch_revalidate() rejects a candidate whose inputs changed meanwhile. */
+static int launch_capture_dependencies(launch_job *j) {
+    const launch_request *request = &j->request;
+    const int q36 = j->q36 != NULL;
+    int ok = launch_add_dependency(j, request->engine_dir, "", 1) && launch_add_dependency(j, request->assets_dir, "", 1);
+    if (ok && q36 && MODE_IS_PIPED(request->mode)) {
+        ok = q36_agent_directory(request->engine_dir, j->q36->agent_dir, sizeof j->q36->agent_dir) &&
+            launch_add_dependency(j, j->q36->agent_dir, "", 1);
+        j->prepared.runtime_dir = j->q36->agent_dir;
+    }
+    if (ok && request->workdir[0]) ok = launch_add_dependency(j, request->workdir, "", 1);
+    if (ok) ok = launch_add_dependency(j, g_launch_executable, "", 0);
+    if (ok && !request->remote.base_url[0]) ok = launch_add_dependency(j, request->engine_dir, request->model, 0);
+    if (ok && !request->remote.base_url[0]) {
+        const char *vision = native_vision_encoder_rel_for_model(request->model);
+        if (vision) ok = launch_add_dependency(j, request->engine_dir, vision, 0);
+        if (ok && request->dspark) ok = launch_add_dependency(j, request->engine_dir, dspark_rel_for_model(request->model), 0);
+    }
+    if (ok) ok = launch_add_dependency(j, request->assets_dir, "extension/cowork/COWORK.md", 0);
+    if (ok && request->skill[0]) {
+        char dir[1100], rel[96]; user_skills_dir(dir, sizeof dir);
+        snprintf(rel, sizeof rel, "%s/SKILL.md", request->skill);
+        ok = launch_add_dependency(j, dir, rel, 0);
+    }
+    const char *scripts[] = {"scripts/apply-ds4-glm53-m2max.sh", "scripts/apply-ds4-vision-streaming.sh", "scripts/apply-ds4-server-metrics.sh", "scripts/apply-ds4-qwen38-prepare.sh", "extension/design/build-design.sh", NULL};
+    for (int i = 0; ok && scripts[i]; i++) ok = launch_add_dependency(j, request->assets_dir, scripts[i], 0);
+    /* Only a local Qwen3.6 launch reads these; the table is bounded, and the
+     * dense-Qwen Agent already needs most of it. */
+    if (ok && !request->remote.base_url[0] && checkout_is_qwen35(request->engine_dir)) {
+        const char *qwen35[] = {"scripts/apply-ds4-qwen35-q6k-moe.sh", "patch/ds4-qwen35-q6k-moe/moe-q6k-nibble.patch",
+                                "scripts/apply-ds4-qwen35-prefill.sh", "patch/ds4-qwen35-prefill/prefill-73434c4.patch",
+                                "scripts/apply-ds4-qwen35-catalog.sh", "patch/ds4-qwen35-catalog/native-model-id.patch", NULL};
+        for (int i = 0; ok && qwen35[i]; i++) ok = launch_add_dependency(j, request->assets_dir, qwen35[i], 0);
+    }
+    if (q36) {
+        const char *inputs[] = {"scripts/install-q36.py", "scripts/apply-q36-metal-runtime.sh", "patch/q36-metal-runtime/runtime-1305843.patch",
+                               "patch/q36-metal-runtime/cache-usage.patch",
+                               "scripts/apply-q36-f16-attention.sh", "patch/q36-f16-attention/online-1305843.patch",
+                               "scripts/apply-q36-agent-tty.sh", "patch/q36-agent-tty/monitor.patch", "patch/q36-agent-tty/monitor-owner.patch", NULL};
+        for (int i = 0; ok && inputs[i]; i++) ok = launch_add_dependency(j, request->assets_dir, inputs[i], 0);
+        if (ok) ok = launch_add_dependency(j, request->engine_dir, ".dstudio-source.json", 0);
+    }
+    if (ok && request->mode == ENGINE_DESIGN && request->design_system[0]) {
+        const char *files[] = {"DESIGN.md", "tokens.css", "components.html", "assets/preview.js", "references/recipes.md", NULL};
+        for (int i = 0; ok && files[i]; i++) {
+            char rel[256]; snprintf(rel, sizeof rel, "extension/design-systems/%s/%s", request->design_system, files[i]);
+            ok = launch_add_dependency(j, request->assets_dir, rel, 0);
+        }
+    }
+    return ok;
+}
+
 static void launch_begin(int fd, const launch_request *request, unsigned long long resume_task) {
     if (g_launch || g_child_stop_requested || (q36_running() && g_q36.stopping)) {
         send_json(fd, "409 Conflict", "{\"ok\":false,\"code\":\"launch_busy\",\"error\":\"An engine transition is already in progress. Wait or cancel it first.\"}"); return;
@@ -425,42 +480,7 @@ static void launch_begin(int fd, const launch_request *request, unsigned long lo
                 kv_dir_for_model(request->model, j->q36->kv_dir, sizeof j->q36->kv_dir);
         }
     }
-    int ok = j->result && (!q36 || j->q36) && launch_add_dependency(j, request->engine_dir, "", 1) && launch_add_dependency(j, request->assets_dir, "", 1);
-    if (ok && q36 && MODE_IS_PIPED(request->mode)) {
-        ok = q36_agent_directory(request->engine_dir, j->q36->agent_dir, sizeof j->q36->agent_dir) &&
-            launch_add_dependency(j, j->q36->agent_dir, "", 1);
-        j->prepared.runtime_dir = j->q36->agent_dir;
-    }
-    if (ok && request->workdir[0]) ok = launch_add_dependency(j, request->workdir, "", 1);
-    if (ok) ok = launch_add_dependency(j, g_launch_executable, "", 0);
-    if (ok && !request->remote.base_url[0]) ok = launch_add_dependency(j, request->engine_dir, request->model, 0);
-    if (ok && !request->remote.base_url[0]) {
-        const char *vision = native_vision_encoder_rel_for_model(request->model);
-        if (vision) ok = launch_add_dependency(j, request->engine_dir, vision, 0);
-        if (ok && request->dspark) ok = launch_add_dependency(j, request->engine_dir, dspark_rel_for_model(request->model), 0);
-        if (ok && model_file_is_qwen38(request->model)) ok = launch_add_dependency(j, request->engine_dir, MODEL_QWEN_PLE, 0);
-    }
-    if (ok) ok = launch_add_dependency(j, request->assets_dir, "extension/cowork/COWORK.md", 0);
-    if (ok && request->skill[0]) {
-        char dir[1100], rel[96]; user_skills_dir(dir, sizeof dir);
-        snprintf(rel, sizeof rel, "%s/SKILL.md", request->skill);
-        ok = launch_add_dependency(j, dir, rel, 0);
-    }
-    const char *scripts[] = {"scripts/apply-ds4-glm53-m2max.sh", "scripts/apply-ds4-vision-streaming.sh", "scripts/apply-ds4-server-metrics.sh", "scripts/apply-ds4-qwen38-prepare.sh", "extension/design/build-design.sh", NULL};
-    for (int i = 0; ok && scripts[i]; i++) ok = launch_add_dependency(j, request->assets_dir, scripts[i], 0);
-    if (q36) {
-        const char *inputs[] = {"scripts/install-q36.py", "scripts/apply-q36-metal-runtime.sh", "patch/q36-metal-runtime/next-review.patch",
-                               "scripts/apply-q36-agent-tty.sh", "patch/q36-agent-tty/monitor.patch", "patch/q36-agent-tty/monitor-owner.patch", NULL};
-        for (int i = 0; ok && inputs[i]; i++) ok = launch_add_dependency(j, request->assets_dir, inputs[i], 0);
-        if (ok) ok = launch_add_dependency(j, request->engine_dir, ".dstudio-source.json", 0);
-    }
-    if (ok && request->mode == ENGINE_DESIGN && request->design_system[0]) {
-        const char *files[] = {"DESIGN.md", "tokens.css", "components.html", "assets/preview.js", "references/recipes.md", NULL};
-        for (int i = 0; ok && files[i]; i++) {
-            char rel[256]; snprintf(rel, sizeof rel, "extension/design-systems/%s/%s", request->design_system, files[i]);
-            ok = launch_add_dependency(j, request->assets_dir, rel, 0);
-        }
-    }
+    int ok = j->result && (!q36 || j->q36) && launch_capture_dependencies(j);
     if (!ok || !g_launch_executable[0]) {
         launch_dispose(j); send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"Could not capture the launch dependencies\"}"); return;
     }
@@ -472,7 +492,7 @@ static void launch_begin(int fd, const launch_request *request, unsigned long lo
         j->client = fd; launch_result_error(j, "launch_prepare_failed", error); launch_dispose(j);
         g_launch_adopt = fd >= 0; return;
     }
-    j->client = fd; j->deadline = dstudio_now_ms() + LAUNCH_PREPARE_MS;
+    j->client = fd;
     g_launch = j; g_launch_adopt = fd >= 0;
     task_mark_working(j->task_id, "Preparing runtime; current engine is unchanged");
 }
@@ -535,9 +555,9 @@ static void launch_preparation_tick(void) {
                 j->received = 1; launch_worker_kill(j);
             }
         }
-        if (dstudio_now_ms() >= j->deadline) {
-            if (!j->canceled) launch_cancel("Runtime preparation exceeded its deadline");
-            else { cstr_copy(j->failure, sizeof j->failure, "Preparation cancellation required forced termination; source recovery may be needed"); launch_worker_kill(j); }
+        if (j->canceled && dstudio_now_ms() >= j->deadline) {
+            cstr_copy(j->failure, sizeof j->failure, "Preparation cancellation required forced termination; source recovery may be needed");
+            launch_worker_kill(j);
         }
     }
     if (j->worker > 0 && j->killed) {

@@ -19,10 +19,11 @@ latest upstream CLI's macOS terminal lifetime and, in a layered owner patch,
 responsive status/Stop during slow output with tested process lifetime. These
 are native lifecycle fixes, not inference improvements; the candidate
 has not yet been promoted into the managed installer.
-The [bounded F16 attention candidate](q36-f16-attention/README.md) addresses
-the identified long-context Metal command. It preserves the requested context
-and precision, with separate operator/lifecycle and actual-model verification.
-It is not yet a qualified installer update or a new common-100 result.
+The [parallel F16 attention overlay](q36-f16-attention/README.md) on `1305843`
+uses FP32 online softmax with bounded key tiles, preserving F16 KV and context.
+It is included in the managed installer and passes operator/lifecycle checks
+with an explicit numerical error bound. Complete-model long-context quality
+remains untested on this overlay; historical deadline failures remain failures.
 
 Agent/Cowork patch **92** and `ds4-server-pld/` share
 [prompt lookup](ds4-agent-jsonl/PLD.md), with ordinary
@@ -83,24 +84,39 @@ rejects partial/drifted patches without mutation; lifecycle and compiled JSON/SS
 tests cover current main, previous main and Laguna. See the timing/recovery limits
 in the linked notes; this is not an end-to-end latency measurement.
 
+[`ds4-qwen35-q6k-moe/moe-q6k-nibble.patch`](ds4-qwen35-q6k-moe/README.md)
+corrects the Q6_K nibble order in the Qwen3.6 fork's fused MoE Metal kernels.
+Before the fix, half of every Q6_K expert block was decoded from the wrong
+nibble; the installed UD-Q6_K_XL file uses Q6_K routed gate/up in 39 of 40
+layers. A kernel oracle reproduces the defect and verifies the fix; installer
+and launch preparation apply it, and a drifted shader fails closed.
+
+[`ds4-qwen35-prefill/prefill-73434c4.patch`](ds4-qwen35-prefill/README.md)
+adds bounded 64-token Metal prefill after the Q6_K correction. Tested synthetic
+hybrid sessions match original decode logits/state/KV byte for byte, including
+cancellation, allocation failure and resumption. Installer/preparation wiring
+rebuilds stale native inputs. Actual-model quality and long-context deadlines
+remain for the operator's rerun.
+
 [`ds4-qwen35-catalog/native-model-id.patch`](ds4-qwen35-catalog/README.md)
 corrects model discovery on the pinned Qwen3.6 native server: `/v1/models`
 publishes Qwen instead of DeepSeek aliases. Engine setup applies it before
 building; it does not change native inference, templates or request aliases.
 
 [`ds4-qwen38-inspect/metadata-only-ple.patch`](ds4-qwen38-inspect/README.md)
-keeps native Qwen3.8 `--inspect` from requesting a full PLE prefetch. Setup
-applies it before the native build. Normal inference and PLE requirements stay
+is retained for the historical fork: it keeps `--inspect` from requesting a full
+PLE prefetch. Current main does not apply it. Normal historical inference requirements stay
 unchanged; lifecycle and native OS-prefetch behavior have separate tests.
 The complete delta supports checked repeat apply and restore, rejecting drift.
 
-[`ds4-qwen38-snapshot`](ds4-qwen38-snapshot/README.md) follows inspection and
-empty-candidate preparation. It prevents a failed lazy snapshot allocation from
+[`ds4-qwen38-snapshot`](ds4-qwen38-snapshot/README.md) followed inspection and
+empty-candidate preparation on the retired fork. Main already fixes this issue.
+The historical delta prevents a failed lazy snapshot allocation from
 being mistaken for a complete speculative state on retry; the native inference
 math and existing fallback are retained. Actual native-helper failpoint tests
 and patch lifecycle checks are distinct from real-weight quality evaluation.
 
-[`ds4-glm53-runtime`](ds4-glm53-runtime/README.md) selects the V4.1 or older
+[`ds4-glm53-runtime`](ds4-glm53-runtime/README.md) selects the unified-Qwen, V4.1 or older
 complete delta for main, where GLM 5.3 lives. The new base's native non-routed
 weight helper replaces the duplicate local helper; GLM's mapped-span correction
 remains. V4.1 retains its own native memory planner and model ID.

@@ -1,0 +1,37 @@
+{
+    "name": "q35-math-smoke@math_500",
+    "dataset_name": "math_500",
+    "dataset_pretty_name": "MATH-500",
+    "dataset_description": "\n## Overview\n\nMATH-500 is a curated subset of 500 problems from the MATH benchmark, designed to evaluate the mathematical reasoning capabilities of language models. It covers five difficulty levels across various mathematical topics including algebra, geometry, number theory, and calculus.\n\n## Task Description\n\n- **Task Type**: Mathematical Problem Solving\n- **Input**: Mathematical problem statement\n- **Output**: Step-by-step solution with final numerical answer\n- **Difficulty Levels**: Level 1 (easiest) to Level 5 (hardest)\n\n## Key Features\n\n- 500 carefully selected problems from the full MATH dataset\n- Five difficulty levels for fine-grained evaluation\n- Problems cover algebra, geometry, number theory, probability, and more\n- Each problem includes a reference solution\n- Designed for efficient yet comprehensive math evaluation\n\n## Evaluation Notes\n\n- Default configuration uses **0-shot** evaluation\n- Answers should be formatted within `\\boxed{}` for proper extraction\n- Numeric equivalence checking for answer comparison\n- Results can be broken down by difficulty level\n- Commonly used for math reasoning benchmarking due to manageable size\n",
+    "model_name": "q35-math-smoke",
+    "score": 1.0,
+    "metrics": [
+        {
+            "name": "mean_acc",
+            "num": 1,
+            "score": 1.0,
+            "macro_score": 1.0,
+            "categories": [
+                {
+                    "name": [
+                        "default"
+                    ],
+                    "num": 1,
+                    "score": 1.0,
+                    "macro_score": 1.0,
+                    "subsets": [
+                        {
+                            "name": "Level 3",
+                            "score": 1.0,
+                            "num": 1,
+                            "is_aggregate": false
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "analysis": "N/A",
+    "perf_metrics": null,
+    "num": 1
+}

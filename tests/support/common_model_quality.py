@@ -172,6 +172,11 @@ def grade_patch(case, answer, directory):
     # metadata, no whitespace repair and no permissive header stripping.
     if not patch_envelope(answer):
         return {"passed": False, "error": "a unified diff for app.py is required", "before": before}
+    # git apply treats a last diff line without its terminator as a corrupt
+    # patch. Chat answers commonly end without a final newline; restore exactly
+    # one. The envelope above already rejected prose, fences and broken hunks.
+    if not answer.endswith("\n"):
+        answer += "\n"
     if any(re.match(r"^(GIT binary patch|Binary files|rename |copy |new file mode|deleted file mode|old mode|new mode)", line) for line in answer.splitlines()):
         return {"passed": False, "error": "only text modifications to app.py are allowed", "before": before}
     env = {"PATH": "/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null",

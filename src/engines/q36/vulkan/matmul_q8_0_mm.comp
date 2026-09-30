@@ -1,0 +1,127 @@
+#version 460
+
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+
+/* Prefill Q8_0 GEMM against raw f32 activations. 64x64 output tile per
+ * 256-thread workgroup, k-blocked by the 32-element Q8_0 superblock:
+ * weights dequantize once into shared memory and every activation column
+ * reuses them, instead of the matvec path re-reading the row bytes for
+ * every 4 tokens. Each thread accumulates a 4x4 register tile. */
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights {
+    uint16_t wb16[];
+};
+
+layout(set = 0, binding = 1) readonly buffer X {
+    float xv[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint out_dim;
+    uint n_tok;
+    uint blocks;
+    uint row_bytes;
+    float scale;
+} pc;
+
+/* One Q8_0 block is 17 uint16 words: [d_f16][16 x 2 qs bytes]. */
+const uint Q8_0_U16 = 17u;
+const uint BM = 64u;
+const uint BN = 64u;
+const uint BK = 32u;
+
+shared float As[BK][BM];
+shared float Bs[BK][BN + 1u];
+
+void main(void) {
+    uint tid = gl_LocalInvocationID.x;
+    uint row0 = gl_WorkGroupID.x * BM;
+    uint col0 = gl_WorkGroupID.y * BN;
+    uint tx = tid & 15u;
+    uint ty = tid >> 4u;
+    uint in_dim = pc.blocks * BK;
+
+    float acc[4][4] = { { 0.0, 0.0, 0.0, 0.0 }, { 0.0, 0.0, 0.0, 0.0 },
+                        { 0.0, 0.0, 0.0, 0.0 }, { 0.0, 0.0, 0.0, 0.0 } };
+
+    for (uint kb = 0u; kb < pc.blocks; kb++) {
+        /* Stage A: 64 rows x 32 elems, 8 consecutive elems per thread so
+         * one d load and two u32-equivalent qs loads cover them. */
+        {
+            uint r = tid >> 2u;
+            uint e0 = (tid & 3u) * 8u;
+            uint row = row0 + r;
+            uint base = row < pc.out_dim ? (row * pc.blocks + kb) * Q8_0_U16 : 0u;
+            float d = row < pc.out_dim ? unpackHalf2x16(uint(wb16[base])).x : 0.0;
+            uint q = base + 1u + (e0 >> 1u);
+            uint p0 = uint(wb16[q + 0u]) | (uint(wb16[q + 1u]) << 16u);
+            uint p1 = uint(wb16[q + 2u]) | (uint(wb16[q + 3u]) << 16u);
+            vec4 w0 = vec4(unpack8(int(p0))) * d;
+            vec4 w1 = vec4(unpack8(int(p1))) * d;
+            As[e0 + 0u][r] = w0.x;
+            As[e0 + 1u][r] = w0.y;
+            As[e0 + 2u][r] = w0.z;
+            As[e0 + 3u][r] = w0.w;
+            As[e0 + 4u][r] = w1.x;
+            As[e0 + 5u][r] = w1.y;
+            As[e0 + 6u][r] = w1.z;
+            As[e0 + 7u][r] = w1.w;
+        }
+        /* Stage B: 64 tokens x 32 elems. */
+        {
+            uint c = tid >> 2u;
+            uint e0 = (tid & 3u) * 8u;
+            uint col = col0 + c;
+            uint xbase = col * in_dim + kb * BK + e0;
+            bool ok = col < pc.n_tok;
+            for (uint i = 0u; i < 8u; i++) {
+                Bs[e0 + i][c] = ok ? xv[xbase + i] : 0.0;
+            }
+        }
+        barrier();
+
+        for (uint k = 0u; k < BK; k++) {
+            float a0 = As[k][ty * 4u + 0u];
+            float a1 = As[k][ty * 4u + 1u];
+            float a2 = As[k][ty * 4u + 2u];
+            float a3 = As[k][ty * 4u + 3u];
+            float b0 = Bs[k][tx * 4u + 0u];
+            float b1 = Bs[k][tx * 4u + 1u];
+            float b2 = Bs[k][tx * 4u + 2u];
+            float b3 = Bs[k][tx * 4u + 3u];
+            acc[0][0] = fma(a0, b0, acc[0][0]);
+            acc[0][1] = fma(a0, b1, acc[0][1]);
+            acc[0][2] = fma(a0, b2, acc[0][2]);
+            acc[0][3] = fma(a0, b3, acc[0][3]);
+            acc[1][0] = fma(a1, b0, acc[1][0]);
+            acc[1][1] = fma(a1, b1, acc[1][1]);
+            acc[1][2] = fma(a1, b2, acc[1][2]);
+            acc[1][3] = fma(a1, b3, acc[1][3]);
+            acc[2][0] = fma(a2, b0, acc[2][0]);
+            acc[2][1] = fma(a2, b1, acc[2][1]);
+            acc[2][2] = fma(a2, b2, acc[2][2]);
+            acc[2][3] = fma(a2, b3, acc[2][3]);
+            acc[3][0] = fma(a3, b0, acc[3][0]);
+            acc[3][1] = fma(a3, b1, acc[3][1]);
+            acc[3][2] = fma(a3, b2, acc[3][2]);
+            acc[3][3] = fma(a3, b3, acc[3][3]);
+        }
+        barrier();
+    }
+
+    for (uint j = 0u; j < 4u; j++) {
+        uint col = col0 + tx * 4u + j;
+        if (col >= pc.n_tok) continue;
+        for (uint i = 0u; i < 4u; i++) {
+            uint row = row0 + ty * 4u + i;
+            if (row < pc.out_dim) y[col * pc.out_dim + row] = acc[i][j] * pc.scale;
+        }
+    }
+}

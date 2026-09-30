@@ -21,7 +21,18 @@ remain distinct requirements; the earlier 11/12 answer baseline is still FAIL.
 
 ## Reproducible application
 
-The installer candidate now uses [next-review.patch](next-review.patch) on
+Since September 29, 2026 the installer uses [runtime-1305843.patch](runtime-1305843.patch)
+(variant `current`) on [`1305843c735380f912619548b121cba8601f2f85`](https://github.com/Ninnix/q36/tree/1305843c735380f912619548b121cba8601f2f85),
+the upstream tip on that date. It is the reviewed `next-review` runtime rebased
+with three resolved conflicts; the monitor, monitor-owner and cache-usage
+patches are unchanged in content. The new GPU header blob
+`bcfa9e3d5bccc911d48b14c77ee08f76a8642f45` only adds a Vulkan GDN entry point
+that Metal builds do not call. Existing `8362010` and `d67687e` installations
+upgrade in place with their user files preserved. See the
+[source review](../../docs/upstream/q36-2026-09-29.json); earlier real-model
+receipts below belong to `8362010` and are not transferred to the new pin.
+
+The previous installer candidate used [next-review.patch](next-review.patch) on
 [`8362010a301b3360296e435703f58ffc230a024a`](https://github.com/Ninnix/q36/tree/8362010a301b3360296e435703f58ffc230a024a).
 It then applies the [terminal monitor and owner patches](../q36-agent-tty/README.md),
 followed by [cache-usage.patch](cache-usage.patch), in that order. The installation receipt records all patch/script hashes and
@@ -421,7 +432,11 @@ Request ownership bounds: at most eight images, 8 MiB encoded bytes each and
 leases are admitted after bounded headers and **before** retaining/parsing the
 body. Four additional header/control threads remain available at that limit;
 control bodies are capped at 1 KiB, headers at 64 KiB. Header/body receive phases
-each have a ten-second deadline; admitted jobs have a 900-second deadline.
+each have a ten-second deadline. Since September 30, admitted inference jobs
+have no automatic elapsed-work cutoff on any of the three supported runtime
+patch bases. Slow prefill/decode continues until completion, explicit request
+cancellation, an actual socket error or shutdown. Count/byte admission and
+bounded shutdown remain unchanged; isolated probes may still inject a deadline.
 Image buffers live until their client-owned job completes; temporary
 embeddings/tokens/session state are freed on preparation failure. This bounds
 overload rather than promising admission when all twenty connections are busy.
@@ -432,10 +447,24 @@ request ID has at most 65 allocated bytes including its terminator.
 
 On macOS, `POLLHUP` also occurs after legal TCP `SHUT_WR`, when the client still
 reads the answer. Cancellation now checks the actual socket error instead of
-treating every hangup as an abort. A TCP reset, job deadline or shutdown still
-interrupts private work. FIN alone cannot identify an abandoned response;
-explicit cancellation is described below. This is not a claim of general
+treating every hangup as an abort. A TCP reset, explicit cancellation or shutdown still
+interrupts private work. FIN alone cannot identify an abandoned response.
+DStudio's owned HTTP workers/relays arm an abortive TCP close before upload
+and disarm it only after completion, so Stop and an abandoned browser response
+reach this socket-error cancellation path without cancelling another request.
+Explicit request cancellation is described below. This is not a claim of general
 rollback after arbitrary generation/tool effects.
+
+`make test-q36-request-lifetime-patch` downloads each exact upstream source
+archive (`d67687e`, `8362010`, `1305843`) into an isolated directory, verifies
+apply/repeat/restore, partial/drift rejection and unrelated edits, then runs
+the production native HTTP control handlers. Four simulated hours preserve
+valid requests and metadata availability; explicit Stop still cancels them.
+The actual TCP handler also preserves legal half-close and cancels a reset
+without cancelling a different active request.
+These source/HTTP checks use no weights and establish no inference-quality,
+Metal numerical or Vulkan qualification. The managed installer still applies
+the same ordered stack and records source/patch/build identity.
 
 The native parser/ownership gate has 47 cases with ASan/UBSan. Eleven ownership
 cases use a simulated worker and deterministic barriers, checking previous-state
@@ -466,8 +495,9 @@ or a second conversation store; no tombstone or unbounded history is retained.
 `cancellation_requested: true` acknowledges the request to stop, **not** a
 completed stop or undo. `404` means the ID is not currently admitted/active;
 it must not be reported as a successful cancellation. This is local engine
-control, not a new authentication boundary. DStudio's host must still bind a
-fresh ID to its owned run and reconcile admission races before exposing Stop.
+control, not a new authentication boundary. Any caller exposing ID-based Stop
+must bind a fresh ID to its owned run and reconcile admission races. DStudio's
+owned HTTP transport uses the reset-based cancellation described above.
 
 Cancellation during upload returns `499`. A queued job is removed and completed
 without waiting behind another generation. The active worker observes an atomic

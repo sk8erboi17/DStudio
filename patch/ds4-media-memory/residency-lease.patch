@@ -91,7 +91,7 @@ diff --git a/ds4.h b/ds4.h
 diff --git a/ds4_cuda.cu b/ds4_cuda.cu
 --- a/ds4_cuda.cu
 +++ b/ds4_cuda.cu
-@@ -2762,6 +2762,18 @@ extern "C" void ds4_gpu_set_ssd_streaming(bool enabled) {
+@@ -2762,4 +2762,16 @@ extern "C" void ds4_gpu_set_ssd_streaming(bool enabled) {
      if (!g_ssd_streaming_mode) cuda_stream_selected_cache_release();
  }
  
@@ -108,8 +108,6 @@ diff --git a/ds4_cuda.cu b/ds4_cuda.cu
 +}
 +
  extern "C" void ds4_gpu_set_streaming_expert_cache_budget(uint32_t experts) {
-     (void)experts;
- }
 diff --git a/ds4_gpu.h b/ds4_gpu.h
 --- a/ds4_gpu.h
 +++ b/ds4_gpu.h

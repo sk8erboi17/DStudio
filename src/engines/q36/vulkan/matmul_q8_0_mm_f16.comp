@@ -1,0 +1,141 @@
+#version 460
+
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+/* Prefill Q8_0 GEMM, packed-f16 variant of matmul_q8_0_mm. 128x64
+ * output tile per 256-thread workgroup, an 8x4 register tile per
+ * thread. Shared memory holds f16vec4 lanes and the inner loop runs
+ * packed f16 FMAs: the f32 kernel is instruction/latency-bound, not
+ * bandwidth-bound, on the BC-250, so the win comes from doubling the
+ * per-barrier work and halving the FMA instruction count.
+ *
+ * Numerics: weights stage as q * 2^-7 (exact in f16, |q| <= 127) and
+ * activations round once to f16; packed even/odd-k partial sums flush
+ * to f32 accumulators every 32-element Q8_0 block with the block scale
+ * (d * 128) folded in, so f16 add chains are 8 terms long and cannot
+ * overflow. Per-output k order is fixed regardless of n_tok, keeping
+ * the batch-size invariance rule (warm == cold). Results differ from
+ * the f32 kernel by ~1e-3 relative; --quality never routes here. */
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights {
+    uint16_t wb16[];
+};
+
+layout(set = 0, binding = 1) readonly buffer X {
+    float xv[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint out_dim;
+    uint n_tok;
+    uint blocks;
+    uint row_bytes;
+    float scale;
+} pc;
+
+/* One Q8_0 block is 17 uint16 words: [d_f16][16 x 2 qs bytes]. */
+const uint Q8_0_U16 = 17u;
+const uint BM = 128u;
+const uint BN = 64u;
+const uint BK = 32u;
+const uint KK = BK / 4u;
+
+/* [m][kk] layout, one pad slot: 18-word row stride keeps the 64-bit
+ * LDS reads conflict-free across the 16 tx lanes. */
+shared f16vec4 As[BM][KK + 1u];
+shared f16vec4 Bs[BN][KK + 1u];
+shared float Ds[BM];
+
+void main(void) {
+    uint tid = gl_LocalInvocationID.x;
+    uint row0 = gl_WorkGroupID.x * BM;
+    uint col0 = gl_WorkGroupID.y * BN;
+    uint tx = tid & 15u;
+    uint ty = tid >> 4u;
+    uint in_dim = pc.blocks * BK;
+
+    float acc[8][4];
+    for (uint i = 0u; i < 8u; i++)
+        for (uint j = 0u; j < 4u; j++) acc[i][j] = 0.0;
+
+    for (uint kb = 0u; kb < pc.blocks; kb++) {
+        /* Stage A: 128 rows x 32 elems, 16 consecutive elems per thread
+         * so one d load and four u32-equivalent qs loads cover them.
+         * (A registered prefetch of block kb+1 was tried and measured
+         * flat: the extra VGPRs cost more occupancy than the hidden
+         * latency bought.) */
+        {
+            uint r = tid >> 1u;
+            uint kk = (tid & 1u) * 4u;
+            uint row = row0 + r;
+            uint base = row < pc.out_dim ? (row * pc.blocks + kb) * Q8_0_U16 : 0u;
+            uint q = base + 1u + kk * 2u;
+            uint p0 = uint(wb16[q + 0u]) | (uint(wb16[q + 1u]) << 16u);
+            uint p1 = uint(wb16[q + 2u]) | (uint(wb16[q + 3u]) << 16u);
+            uint p2 = uint(wb16[q + 4u]) | (uint(wb16[q + 5u]) << 16u);
+            uint p3 = uint(wb16[q + 6u]) | (uint(wb16[q + 7u]) << 16u);
+            As[r][kk + 0u] = f16vec4(unpack8(int(p0))) * float16_t(0.0078125);
+            As[r][kk + 1u] = f16vec4(unpack8(int(p1))) * float16_t(0.0078125);
+            As[r][kk + 2u] = f16vec4(unpack8(int(p2))) * float16_t(0.0078125);
+            As[r][kk + 3u] = f16vec4(unpack8(int(p3))) * float16_t(0.0078125);
+            if ((tid & 1u) == 0u) {
+                float d = row < pc.out_dim ? unpackHalf2x16(uint(wb16[base])).x : 0.0;
+                Ds[r] = d * 128.0;
+            }
+        }
+        /* Stage B: 64 tokens x 32 elems, rounded once to f16. */
+        {
+            uint c = tid >> 2u;
+            uint kk = (tid & 3u) * 2u;
+            uint col = col0 + c;
+            uint xbase = col * in_dim + kb * BK + kk * 4u;
+            bool ok = col < pc.n_tok;
+            vec4 x0 = ok ? vec4(xv[xbase + 0u], xv[xbase + 1u], xv[xbase + 2u], xv[xbase + 3u]) : vec4(0.0);
+            vec4 x1 = ok ? vec4(xv[xbase + 4u], xv[xbase + 5u], xv[xbase + 6u], xv[xbase + 7u]) : vec4(0.0);
+            Bs[c][kk + 0u] = f16vec4(x0);
+            Bs[c][kk + 1u] = f16vec4(x1);
+        }
+        barrier();
+
+        f16vec2 pk[8][4];
+        for (uint i = 0u; i < 8u; i++)
+            for (uint j = 0u; j < 4u; j++) pk[i][j] = f16vec2(0.0hf);
+        for (uint kk = 0u; kk < KK; kk++) {
+            f16vec4 b0 = Bs[tx +  0u][kk];
+            f16vec4 b1 = Bs[tx + 16u][kk];
+            f16vec4 b2 = Bs[tx + 32u][kk];
+            f16vec4 b3 = Bs[tx + 48u][kk];
+            for (uint i = 0u; i < 8u; i++) {
+                f16vec4 a = As[ty + 16u * i][kk];
+                pk[i][0] = fma(a.zw, b0.zw, fma(a.xy, b0.xy, pk[i][0]));
+                pk[i][1] = fma(a.zw, b1.zw, fma(a.xy, b1.xy, pk[i][1]));
+                pk[i][2] = fma(a.zw, b2.zw, fma(a.xy, b2.xy, pk[i][2]));
+                pk[i][3] = fma(a.zw, b3.zw, fma(a.xy, b3.xy, pk[i][3]));
+            }
+        }
+        for (uint i = 0u; i < 8u; i++) {
+            float d = Ds[ty + 16u * i];
+            for (uint j = 0u; j < 4u; j++) {
+                acc[i][j] = fma(d, float(pk[i][j].x) + float(pk[i][j].y), acc[i][j]);
+            }
+        }
+        barrier();
+    }
+
+    for (uint j = 0u; j < 4u; j++) {
+        uint col = col0 + tx + 16u * j;
+        if (col >= pc.n_tok) continue;
+        for (uint i = 0u; i < 8u; i++) {
+            uint row = row0 + ty + 16u * i;
+            if (row < pc.out_dim) y[col * pc.out_dim + row] = acc[i][j] * pc.scale;
+        }
+    }
+}

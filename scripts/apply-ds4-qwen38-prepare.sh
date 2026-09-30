@@ -22,7 +22,7 @@ apply_input() (
     unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
     GIT_CEILING_DIRECTORIES="$(dirname -- "$engine_dir")" git -C "$engine_dir" apply "$@" "$input_patch"
 )
-for variant in prepare-current.patch prepare-empty.patch; do
+for variant in prepare-main.patch prepare-current.patch prepare-empty.patch; do
 input_patch="$script_dir/../patch/ds4-qwen38-prepare/$variant"
 if apply_input --reverse --check >/dev/null 2>&1; then
     if [ "$action" = restore ]; then

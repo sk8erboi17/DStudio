@@ -1,0 +1,159 @@
+#version 460
+
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+/* Routed Q2_K down projection against the f32 SwiGLU mid values,
+ * expert-major tiles of up to 8 routed pairs. One 32-thread workgroup owns
+ * one output row of one tile's expert; each expert row block is read once
+ * and applied to every pair. Dequantized dot in f32, llama.cpp
+ * mul_mat_vec_q2_k structure. */
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights { uint16_t wb[]; };
+layout(set = 0, binding = 1) readonly buffer Mid { vec2 mid[]; };
+layout(set = 0, binding = 2) readonly buffer Tiles { uint tiles[]; };
+layout(set = 0, binding = 3) readonly buffer Scales { float scales[]; };
+layout(set = 0, binding = 4) writeonly buffer Output { float y[]; };
+
+layout(push_constant) uniform Push {
+    uint out_dim;
+    uint in_dim;
+    uint blocks;
+    uint n_used;
+    uint has_scales;
+    uint identity;
+} pc;
+
+/* One Q2_K superblock is 42 uint16 words:
+ * [8 x scales][32 x qs][dm.x f16][dm.y f16]. */
+const uint Q2K_U16 = 42u;
+const uint PAIR_TILE = 8u;
+const uint TILE_WORDS = 1u + PAIR_TILE;
+const uint INVALID = 0xffffffffu;
+
+shared float sh_sub[2][PAIR_TILE];
+
+void main(void) {
+    uint tid = gl_LocalInvocationID.x;
+    uint row = gl_WorkGroupID.x;
+    uint expert;
+    uint pair[PAIR_TILE];
+    uint m2[PAIR_TILE];
+    bool live[PAIR_TILE];
+    /* Mid rows are per routed pair (x_per_expert layout). identity: decode
+     * binds the router selection directly, one pair per slot. */
+    if (pc.identity != 0u) {
+        expert = tiles[gl_WorkGroupID.y];
+        pair[0] = gl_WorkGroupID.y;
+        live[0] = true;
+        m2[0] = pair[0] * pc.in_dim / 2u;
+        for (uint u = 1u; u < PAIR_TILE; u++) {
+            pair[u] = INVALID;
+            live[u] = false;
+            m2[u] = 0u;
+        }
+    } else {
+        uint tile_base = gl_WorkGroupID.y * TILE_WORDS;
+        expert = tiles[tile_base];
+        if (expert == INVALID) return;
+        for (uint u = 0u; u < PAIR_TILE; u++) {
+            pair[u] = tiles[tile_base + 1u + u];
+            live[u] = pair[u] != INVALID;
+            m2[u] = (live[u] ? pair[u] : 0u) * pc.in_dim / 2u;
+        }
+    }
+    uint itid = tid & 15u;
+    uint ix = tid >> 4u;
+
+    uint row_u16 = pc.blocks * Q2K_U16;
+    uint base_u16 = (expert * pc.out_dim + row) * row_u16;
+
+    uint v_im = itid >> 3u;
+    uint v_in = itid & 7u;
+    uint l0 = 2u * v_in;
+    uint q_off16 = (32u * v_im + l0) >> 1u;
+    uint y_off = 128u * v_im + l0;
+
+    float acc[PAIR_TILE];
+    for (uint u = 0u; u < PAIR_TILE; u++) acc[u] = 0.0;
+
+    for (uint i = ix; i < pc.blocks; i += 2u) {
+        uint bb = base_u16 + i * Q2K_U16;
+        uint qs_u32 = uint(wb[bb + 8u + q_off16]) | (uint(wb[bb + 8u + q_off16 + 8u]) << 16u);
+        vec4 q0 = vec4(unpack8(qs_u32 & 0x03030303u));
+        vec4 q2 = vec4(unpack8((qs_u32 >> 2u) & 0x03030303u));
+        vec4 q4 = vec4(unpack8((qs_u32 >> 4u) & 0x03030303u));
+        vec4 q6 = vec4(unpack8((qs_u32 >> 6u) & 0x03030303u));
+
+        float sc1[8];
+        float sc2[8];
+        for (uint w = 0u; w < 4u; w++) {
+            uint sw = uint(wb[bb + 4u * v_im + w]);
+            sc1[2u * w] = float(sw & 0xFu);
+            sc2[2u * w] = float((sw >> 4u) & 0xFu);
+            sc1[2u * w + 1u] = float((sw >> 8u) & 0xFu);
+            sc2[2u * w + 1u] = float((sw >> 12u) & 0xFu);
+        }
+
+        vec2 dm = unpackHalf2x16(uint(wb[bb + 40u]) | (uint(wb[bb + 41u]) << 16u));
+        uint y2 = (i * 256u + y_off) >> 1u;
+
+        for (uint u = 0u; u < PAIR_TILE; u++) {
+            if (!live[u]) continue;
+            uint yb = m2[u] + y2;
+            vec2 b0 = mid[yb + 0u];
+            vec2 b16 = mid[yb + 8u];
+            vec2 b32 = mid[yb + 16u];
+            vec2 b48 = mid[yb + 24u];
+            vec2 b64 = mid[yb + 32u];
+            vec2 b80 = mid[yb + 40u];
+            vec2 b96 = mid[yb + 48u];
+            vec2 b112 = mid[yb + 56u];
+
+            float sum1 = 0.0;
+            float sum2 = 0.0;
+            for (uint l = 0u; l < 2u; l++) {
+                sum1 = fma(b0[l], sc1[0] * q0[l],
+                       fma(b16[l], sc1[1] * q0[l + 2u],
+                       fma(b32[l], sc1[2] * q2[l],
+                       fma(b48[l], sc1[3] * q2[l + 2u],
+                       fma(b64[l], sc1[4] * q4[l],
+                       fma(b80[l], sc1[5] * q4[l + 2u],
+                       fma(b96[l], sc1[6] * q6[l],
+                       fma(b112[l], sc1[7] * q6[l + 2u], sum1))))))));
+                sum2 = fma(b0[l], sc2[0],
+                       fma(b16[l], sc2[1],
+                       fma(b32[l], sc2[2],
+                       fma(b48[l], sc2[3],
+                       fma(b64[l], sc2[4],
+                       fma(b80[l], sc2[5],
+                       fma(b96[l], sc2[6],
+                       fma(b112[l], sc2[7], sum2))))))));
+            }
+            acc[u] = fma(dm.x, sum1, fma(-dm.y, sum2, acc[u]));
+        }
+    }
+
+    for (uint u = 0u; u < PAIR_TILE; u++) acc[u] = subgroupAdd(acc[u]);
+    if (gl_NumSubgroups > 1u) {
+        if (subgroupElect()) {
+            for (uint u = 0u; u < PAIR_TILE; u++) sh_sub[gl_SubgroupID][u] = acc[u];
+        }
+        barrier();
+        if (tid == 0u) {
+            for (uint i = 1u; i < gl_NumSubgroups; i++) {
+                for (uint u = 0u; u < PAIR_TILE; u++) acc[u] += sh_sub[i][u];
+            }
+        }
+    }
+    if (tid == 0u) {
+        float sc = pc.has_scales != 0u ? scales[expert] : 1.0;
+        for (uint u = 0u; u < PAIR_TILE; u++) {
+            if (live[u]) y[pair[u] * pc.out_dim + row] = acc[u] * sc;
+        }
+    }
+}

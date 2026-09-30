@@ -24,8 +24,8 @@ const report = {scope: 'Real host owner, isolated native child processes and HTT
   binary, binarySha256: digest(fs.readFileSync(binary)), sources, rows, code: result.status,
   signal: result.signal, error: result.error?.message, stdout: result.stdout, stderr: result.stderr,
   passed: rows.filter(row => row.pass === true).length};
-report.pass = result.status === 0 && report.passed === 6 && !rows.some(row => row.pass === false);
+report.pass = result.status === 0 && report.passed === 7 && !rows.some(row => row.pass === false);
 fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify(report, null, 2));
 process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr || '');
-console.log(`model_rpc_lifecycle: ${report.passed}/6; ${output}`);
+console.log(`model_rpc_lifecycle: ${report.passed}/7; ${output}`);
 if (!report.pass) process.exitCode = 1;

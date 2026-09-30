@@ -1,0 +1,47 @@
+#version 460
+
+/* Decode KV append: convert the token's K and V rows to f16 and store them
+ * at their cache position. packHalf2x16 rounds to nearest-even like the
+ * host's ggml_fp32_to_fp16, so cache bytes stay identical. */
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer KCache {
+    uint kc[];
+};
+
+layout(set = 0, binding = 1) buffer VCache {
+    uint vc[];
+};
+
+layout(set = 0, binding = 2) readonly buffer K {
+    float k[];
+};
+
+layout(set = 0, binding = 3) readonly buffer V {
+    float v[];
+};
+
+layout(push_constant) uniform Push {
+    uint k_row;
+    uint v_row;
+    uint pos0;
+    uint n_tok;
+} pc;
+
+void main(void) {
+    uint tok = gl_WorkGroupID.y;
+    uint i = gl_GlobalInvocationID.x * 2u;
+    if (tok >= pc.n_tok) return;
+    uint pos = pc.pos0 + tok;
+    if (i < pc.k_row) {
+        uint src = tok * pc.k_row + i;
+        vec2 pair = vec2(k[src], i + 1u < pc.k_row ? k[src + 1u] : 0.0);
+        kc[(pos * pc.k_row + i) >> 1u] = packHalf2x16(pair);
+    }
+    if (i < pc.v_row) {
+        uint src = tok * pc.v_row + i;
+        vec2 pair = vec2(v[src], i + 1u < pc.v_row ? v[src + 1u] : 0.0);
+        vc[(pos * pc.v_row + i) >> 1u] = packHalf2x16(pair);
+    }
+}

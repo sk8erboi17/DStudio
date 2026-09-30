@@ -141,15 +141,18 @@ int main(void) {
         {"Qwen3.6 Agent missing model", DS4_QWEN35_DIR_NAME, MODEL_QWEN35, ",\"mode\":\"agent\"", "model_unavailable", MODEL_QWEN35},
         {"Qwen3.6 Cowork missing model", DS4_QWEN35_DIR_NAME, MODEL_QWEN35, ",\"mode\":\"cowork\"", "model_unavailable", MODEL_QWEN35},
         {"Qwen3.8 in Qwen3.6 checkout", DS4_QWEN35_DIR_NAME, MODEL_QWEN, "", "engine_model_mismatch", NULL},
-        {"Qwen3.6 in Qwen3.8 checkout", DS4_QWEN_DIR_NAME, MODEL_QWEN35, "", "engine_model_mismatch", NULL},
-        {"Flash in Qwen checkout", DS4_QWEN_DIR_NAME, MODEL_FLASH, "", "engine_model_mismatch", NULL},
-        {"Qwen3.8 missing PLE", DS4_QWEN_DIR_NAME, MODEL_QWEN, "", "model_component_missing", MODEL_QWEN_PLE},
-        {"Qwen3.8 Agent missing PLE", DS4_QWEN_DIR_NAME, MODEL_QWEN, ",\"mode\":\"agent\"", "model_component_missing", MODEL_QWEN_PLE},
-        {"Qwen3.8 Cowork missing PLE", DS4_QWEN_DIR_NAME, MODEL_QWEN, ",\"mode\":\"cowork\"", "model_component_missing", MODEL_QWEN_PLE},
+        {"Qwen3.6 in retired Qwen checkout", DS4_LEGACY_QWEN_DIR_NAME, MODEL_QWEN35, "", "engine_model_mismatch", NULL},
+        {"Flash in retired Qwen checkout", DS4_LEGACY_QWEN_DIR_NAME, MODEL_FLASH, "", "engine_model_mismatch", NULL},
+        {"New Qwen in retired checkout", DS4_LEGACY_QWEN_DIR_NAME, MODEL_QWEN, "", "engine_model_mismatch", NULL},
+        {"Legacy Qwen Chat format", "ds4", MODEL_LEGACY_QWEN, "", "unsupported_model_format", NULL},
+        {"Legacy Qwen Agent format", "ds4", MODEL_LEGACY_QWEN, ",\"mode\":\"agent\"", "unsupported_model_format", NULL},
+        {"Legacy Qwen Cowork format", "ds4", MODEL_LEGACY_QWEN, ",\"mode\":\"cowork\"", "unsupported_model_format", NULL},
         {"Qwen3.6 forced SSD", DS4_QWEN35_DIR_NAME, MODEL_QWEN35, ",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
-        {"Qwen3.8 forced SSD", DS4_QWEN_DIR_NAME, MODEL_QWEN, ",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
-        {"Qwen3.8 Agent forced SSD", DS4_QWEN_DIR_NAME, MODEL_QWEN, ",\"mode\":\"agent\",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
-        {"Qwen3.8 Cowork forced SSD", DS4_QWEN_DIR_NAME, MODEL_QWEN, ",\"mode\":\"cowork\",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
+        /* The UI launches Qwen3.8 at full power; isolate the memory-mode check. */
+        {"Qwen3.8 forced SSD", "ds4", MODEL_QWEN, ",\"power\":100,\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
+        {"Qwen3.8 Agent forced SSD", "ds4", MODEL_QWEN, ",\"power\":100,\"mode\":\"agent\",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
+        {"Qwen3.8 Cowork forced SSD", "ds4", MODEL_QWEN, ",\"power\":100,\"mode\":\"cowork\",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
+        {"Qwen3.8 throttled power", "ds4", MODEL_QWEN, ",\"power\":90", "unsupported_power", NULL},
         {"Laguna forced SSD", DS4_LAGUNA_DIR_NAME, MODEL_LAGUNA, ",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
         {"Missing implicit Flash", "ds4", NULL, "", "model_unavailable", MODEL_FLASH},
         {"Flash missing DSpark", "ds4", MODEL_FLASH, ",\"dspark\":true", "model_component_missing", MODEL_DSPARK_UPSTREAM},
@@ -158,7 +161,7 @@ int main(void) {
         {"Remote Cowork forced SSD", "ds4", NULL, ",\"mode\":\"cowork\",\"modelBackend\":\"remote\",\"remoteBaseUrl\":\"http://127.0.0.1:1\",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
         {"Remote Design forced SSD", "ds4", NULL, ",\"mode\":\"design\",\"modelBackend\":\"remote\",\"remoteBaseUrl\":\"http://127.0.0.1:1\",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
     };
-    const char *files[] = { MODEL_FLASH, MODEL_LAGUNA, MODEL_QWEN35, MODEL_QWEN, MODEL_QWEN_PLE, MODEL_DSPARK_UPSTREAM };
+    const char *files[] = { MODEL_FLASH, MODEL_LAGUNA, MODEL_QWEN35, MODEL_QWEN, MODEL_LEGACY_QWEN, MODEL_DSPARK_UPSTREAM };
     for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
         snprintf(engine, sizeof engine, "%s/%s", temp, cases[i].checkout);
         snprintf(gguf, sizeof gguf, "%s/gguf", engine);

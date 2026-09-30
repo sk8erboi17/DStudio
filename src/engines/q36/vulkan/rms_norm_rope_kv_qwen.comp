@@ -1,0 +1,86 @@
+#version 460
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer K {
+    float k[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Weight {
+    float w[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer KCache {
+    uint kc[];
+};
+
+layout(set = 0, binding = 3) readonly buffer V {
+    float v[];
+};
+
+layout(set = 0, binding = 4) writeonly buffer VCache {
+    uint vc[];
+};
+
+layout(push_constant) uniform Push {
+    uint src_stride;
+    uint n_head;
+    uint pos0;
+    uint n_tok;
+    uint cap;
+    float eps;
+} pc;
+
+shared double sh_sum[256];
+shared float sh_k[256];
+
+void main(void) {
+    uint lid = gl_LocalInvocationID.x;
+    uint head = gl_WorkGroupID.x;
+    uint tok = gl_WorkGroupID.y;
+    uint row = tok * pc.n_head + head;
+    float input_value = k[row * pc.src_stride + lid];
+    sh_sum[lid] = double(input_value) * double(input_value);
+    barrier();
+    for (uint s = 128u; s > 0u; s >>= 1u) {
+        if (lid < s) sh_sum[lid] += sh_sum[lid + s];
+        barrier();
+    }
+    float scale = inversesqrt(float(sh_sum[0] / 256.0) + pc.eps);
+    sh_k[lid] = input_value * scale * w[lid];
+    barrier();
+    if (lid < 32u) {
+        float theta_scale = pow(10000000.0f, -2.0f / 64.0f);
+        float theta[4] = {
+            float(pc.pos0 + tok),
+            float(pc.pos0 + tok),
+            float(pc.pos0 + tok),
+            0.0f
+        };
+        for (uint i = 0u; i < lid; i++) {
+            theta[0] *= theta_scale;
+            theta[1] *= theta_scale;
+            theta[2] *= theta_scale;
+            theta[3] *= theta_scale;
+        }
+        uint axis = 3u;
+        if (lid < 11u) axis = 0u;
+        else if (lid < 22u) axis = 1u;
+        else if (lid < 32u) axis = 2u;
+        float c = cos(theta[axis]);
+        float s = sin(theta[axis]);
+        float x0 = sh_k[lid];
+        float x1 = sh_k[lid + 32u];
+        sh_k[lid] = x0 * c - x1 * s;
+        sh_k[lid + 32u] = x0 * s + x1 * c;
+    }
+    barrier();
+    if (lid < 128u) {
+        uint i = lid * 2u;
+        uint pos = pc.pos0 + tok;
+        uint cache = (pos * pc.n_head + head) * 128u + lid;
+        kc[cache] = packHalf2x16(vec2(sh_k[i], sh_k[i + 1u]));
+        uint src = row * 256u + i;
+        vc[cache] = packHalf2x16(vec2(v[src], v[src + 1u]));
+    }
+}

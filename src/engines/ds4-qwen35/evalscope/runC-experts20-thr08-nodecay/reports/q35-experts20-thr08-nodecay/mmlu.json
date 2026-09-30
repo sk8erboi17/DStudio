@@ -1,0 +1,109 @@
+{
+    "name": "q35-experts20-thr08-nodecay@mmlu",
+    "dataset_name": "mmlu",
+    "dataset_pretty_name": "MMLU",
+    "dataset_description": "\n## Overview\n\nMMLU (Massive Multitask Language Understanding) is a comprehensive evaluation benchmark designed to measure knowledge acquired during pretraining. It covers 57 subjects across STEM, humanities, social sciences, and other domains, ranging from elementary to professional difficulty levels.\n\n## Task Description\n\n- **Task Type**: Multiple-Choice Question Answering\n- **Input**: Question with four answer choices (A, B, C, D)\n- **Output**: Single correct answer letter\n- **Subjects**: 57 subjects organized into 4 categories (STEM, Humanities, Social Sciences, Other)\n\n## Key Features\n\n- Covers diverse knowledge domains from elementary to advanced professional levels\n- Tests both factual knowledge and reasoning abilities\n- Includes subjects like abstract algebra, anatomy, astronomy, business ethics, and more\n- Standard benchmark for measuring LLM knowledge breadth\n\n## Evaluation Notes\n\n- Default configuration uses **5-shot** examples from the dev split\n- Supports Chain-of-Thought (CoT) prompting for improved reasoning\n- Results can be aggregated by subject or category (STEM, Humanities, Social Sciences, Other)\n- Use `subset_list` parameter to evaluate specific subjects\n",
+    "model_name": "q35-experts20-thr08-nodecay",
+    "score": 0.9062,
+    "metrics": [
+        {
+            "name": "mean_acc",
+            "num": 32,
+            "score": 0.9062,
+            "macro_score": 0.9375,
+            "categories": [
+                {
+                    "name": [
+                        "Humanities"
+                    ],
+                    "num": 8,
+                    "score": 1.0,
+                    "macro_score": 1.0,
+                    "subsets": [
+                        {
+                            "name": "formal_logic",
+                            "score": 1.0,
+                            "num": 4,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "philosophy",
+                            "score": 1.0,
+                            "num": 4,
+                            "is_aggregate": false
+                        }
+                    ]
+                },
+                {
+                    "name": [
+                        "Other"
+                    ],
+                    "num": 4,
+                    "score": 1.0,
+                    "macro_score": 1.0,
+                    "subsets": [
+                        {
+                            "name": "nutrition",
+                            "score": 1.0,
+                            "num": 4,
+                            "is_aggregate": false
+                        }
+                    ]
+                },
+                {
+                    "name": [
+                        "STEM"
+                    ],
+                    "num": 12,
+                    "score": 0.75,
+                    "macro_score": 0.75,
+                    "subsets": [
+                        {
+                            "name": "abstract_algebra",
+                            "score": 0.75,
+                            "num": 4,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "machine_learning",
+                            "score": 0.75,
+                            "num": 4,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "conceptual_physics",
+                            "score": 0.75,
+                            "num": 4,
+                            "is_aggregate": false
+                        }
+                    ]
+                },
+                {
+                    "name": [
+                        "Social Science"
+                    ],
+                    "num": 8,
+                    "score": 1.0,
+                    "macro_score": 1.0,
+                    "subsets": [
+                        {
+                            "name": "econometrics",
+                            "score": 1.0,
+                            "num": 4,
+                            "is_aggregate": false
+                        },
+                        {
+                            "name": "high_school_psychology",
+                            "score": 1.0,
+                            "num": 4,
+                            "is_aggregate": false
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "analysis": "N/A",
+    "perf_metrics": null,
+    "num": 32
+}

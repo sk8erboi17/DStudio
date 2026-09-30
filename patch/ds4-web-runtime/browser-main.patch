@@ -1,0 +1,193 @@
+--- a/ds4_web.c
++++ b/ds4_web.c
+@@ -578,7 +578,9 @@ static char *web_ws_read_message(cdp_ws *ws, char *err, size_t err_len) {
+         unsigned char mask[4] = {0};
+         if (masked && web_read_exact(ws, mask, 4, DS4_WEB_CDP_TIMEOUT_MS, err, err_len) != 0)
+             goto fail;
+-        if (len > DS4_WEB_MAX_RESULT_BYTES * 4ULL) {
++        /* Bound the complete message as well as individual fragmented frames. */
++        if (len > DS4_WEB_MAX_RESULT_BYTES * 4ULL ||
++            len > DS4_WEB_MAX_RESULT_BYTES * 4ULL - msg.len) {
+             web_set_err(err, err_len, "websocket message too large");
+             free(msg.ptr);
+             return NULL;
+@@ -804,7 +806,7 @@ static bool web_wait_ready(cdp_ws *ws, char *err, size_t err_len) {
+     return true;
+ }
+ 
+-static bool web_cdp_navigate(cdp_ws *ws, const char *url,
++static bool __attribute__((unused)) web_cdp_navigate(cdp_ws *ws, const char *url,
+                              char *err, size_t err_len) {
+     char *qurl = web_json_quote(url);
+     web_buf params = {0};
+@@ -1167,6 +1169,9 @@
+ /* Fallback target creation over plain HTTP. PUT /json/new works even when
+    Chrome has no window, which is exactly when Target.createTarget fails.
+    The verb must be PUT: modern Chrome answers GET /json/new with 405. */
++/* DStudio uses this upstream recovery path too. Do not reintroduce the old
++ * independent target-creation retry loop: ownership and last-page retention
++ * must remain shared with the native browser lifecycle. */
+ static char *web_create_target_http(ds4_web *web, const char *url,
+                                     char *err, size_t err_len) {
+     char *enc = web_url_encode(url);
+@@ -1327,12 +1332,110 @@ static const char *web_extract_page_js =
+ "return lines.join('\\n');"
+ "})()";
+ 
+-static char *web_run_page_js(ds4_web *web, const char *url, const char *js,
+-                             bool dynamic_scroll,
++/*DS4UI_WEB_VISION*/
++/* One bounded image/chart viewport, from the same owned target as the text.
++ * CDP produces pixels, not an image URL/alt-text proxy. The caller owns the
++ * returned JSON; no screenshot file, page handle or browser cache is retained.
++ * Capture failure preserves text and reports an explicit visual limitation. */
++static char *dstudio_web_visual_result(cdp_ws *ws, const char *markdown,
++                                       const char *expected_url) {
++    char error[256] = {0};
++    char *image = NULL;
++    char *actual_url = NULL;
++    char *response = NULL;
++    long offset_y = 0;
++    bool not_needed = false;
++    char *position = web_cdp_eval_string(ws,
++        "(() => {"
++        "const walk=document.createTreeWalker(document.body,NodeFilter.SHOW_ELEMENT);"
++        "let el,n=0,target=null;"
++        "while((el=walk.nextNode())&&++n<=4096){"
++        "if(!['IMG','SVG','CANVAS','VIDEO'].includes(el.tagName.toUpperCase()))continue;"
++        "const r=el.getBoundingClientRect(),s=getComputedStyle(el);"
++        "if(r.width<160||r.height<90||r.width*r.height<30000||s.display==='none'||s.visibility==='hidden'||s.opacity==='0')continue;"
++        "if(el.tagName==='IMG'&&!el.naturalWidth)continue;"
++        "target=Math.max(0,Math.floor(r.top+scrollY-48));break;}"
++        "if(target===null||target>500000)return JSON.stringify({url:location.href,skip:'no substantial image/chart found within the bounded page scan'});"
++        "window.scrollTo({top:target,left:0,behavior:'instant'});"
++        "return JSON.stringify({url:location.href,top:String(Math.floor(scrollY))});})()",
++        error, sizeof(error));
++    char *scrolled = position ? web_json_get_string(position, "url") : NULL;
++    char *skip = position ? web_json_get_string(position, "skip") : NULL;
++    char *top = position ? web_json_get_string(position, "top") : NULL;
++    if (top) {
++        char *end = NULL;
++        offset_y = strtol(top, &end, 10);
++        if (!end || *end || offset_y < 0 || offset_y > 500000)
++            web_set_err(error, sizeof(error), "invalid screenshot position");
++    }
++    if (!scrolled || !expected_url || strcmp(scrolled, expected_url)) {
++        web_set_err(error, sizeof(error), "page changed before screenshot; pixels unavailable");
++    } else if (skip) {
++        not_needed = true;
++        web_set_err(error, sizeof(error), "%s", skip);
++    } else if (!error[0] && top) {
++        char params[320];
++        snprintf(params, sizeof params,
++            "{\"format\":\"jpeg\",\"quality\":80,\"fromSurface\":true,"
++            "\"captureBeyondViewport\":false,"
++            "\"clip\":{\"x\":0,\"y\":%ld,\"width\":1024,\"height\":768,\"scale\":1}}", offset_y);
++        response = web_cdp_call(ws, "Page.captureScreenshot",
++            params, error, sizeof(error));
++        if (response) image = web_json_get_string(response, "data");
++        if (!image || !image[0]) {
++            web_set_err(error, sizeof(error), "browser did not provide screenshot pixels");
++        } else if (strlen(image) > 768 * 1024) {
++            web_set_err(error, sizeof(error), "screenshot exceeds the 768 KiB encoded limit");
++        } else if (strlen(image) % 4 || strncmp(image, "/9j/", 4) ||
++                   strspn(image, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") != strlen(image)) {
++            web_set_err(error, sizeof(error), "browser returned invalid JPEG data");
++        } else {
++            actual_url = web_cdp_eval_string(ws, "location.href", error, sizeof(error));
++            if (!actual_url || strcmp(actual_url, expected_url))
++                web_set_err(error, sizeof(error), "page changed during screenshot; pixels discarded");
++        }
++    }
++    free(position); free(skip); free(top);
++    free(scrolled);
++    free(response);
++    char *quoted_text = web_json_quote(markdown);
++    web_buf result = {0};
++    web_buf_puts(&result, "{\"ok\":true,\"markdown\":");
++    web_buf_puts(&result, quoted_text);
++    free(quoted_text);
++    if (image && !error[0]) {
++        char *quoted_url = web_json_quote(actual_url);
++        web_buf_puts(&result, ",\"imageUrl\":");
++        web_buf_puts(&result, quoted_url);
++        free(quoted_url);
++        char geometry[96];
++        snprintf(geometry, sizeof geometry, ",\"imageOffsetY\":%ld", offset_y);
++        web_buf_puts(&result, geometry);
++        web_buf_puts(&result, ",\"imageWidth\":1024,\"imageHeight\":768,"
++                    "\"imageScope\":\"one image/chart viewport only; other page regions not inspected\","
++                    "\"imageDataUrl\":\"data:image/jpeg;base64,");
++        web_buf_puts(&result, image);
++        web_buf_puts(&result, "\"");
++    } else {
++        char *quoted_error = web_json_quote(error[0] ? error : "screenshot unavailable");
++        if (not_needed) web_buf_puts(&result, ",\"imageStatus\":\"not_needed\"");
++        web_buf_puts(&result, ",\"imageError\":");
++        web_buf_puts(&result, quoted_error);
++        free(quoted_error);
++    }
++    free(image);
++    free(actual_url);
++    web_buf_puts(&result, "}");
++    return web_buf_take(&result);
++}
++
++static char *web_run_page_js_mode(ds4_web *web, const char *url, const char *js,
++                             bool dynamic_scroll, bool visual,
+                              char *err, size_t err_len) {
+     if (!web_ensure_browser(web, err, err_len)) return NULL;
++/*DS4UI_WEB_DIRECT_NAV*/
+     web_tab tab = {0};
+-    if (!web_open_tab(web, "about:blank", &tab, err, err_len)) return NULL;
++    if (!web_open_tab(web, url, &tab, err, err_len)) return NULL;
+     cdp_ws ws = {.fd = -1, .web = web};
+     if (web_ws_connect(tab.ws_url, &ws, err, err_len) != 0) {
+         web_close_tab(web, &tab);
+@@ -1345,8 +1445,7 @@ static char *web_run_page_js(ds4_web *web, const char *url, const char *js,
+         web_tab_free(&tab);
+         return NULL;
+     }
+-    if (!web_cdp_navigate(&ws, url, err, err_len) ||
+-        !web_wait_navigated_ready(&ws, url, err, err_len))
++    if (!web_wait_navigated_ready(&ws, url, err, err_len))
+     {
+         web_ws_close(&ws);
+         web_close_tab(web, &tab);
+@@ -1383,13 +1482,36 @@ static char *web_run_page_js(ds4_web *web, const char *url, const char *js,
+         web_tab_free(&tab);
+         return NULL;
+     }
++    char *snapshot_url = visual ? web_cdp_eval_string(&ws, "location.href", err, err_len) : NULL;
+     char *out = web_cdp_eval_string(&ws, js, err, err_len);
++    if (visual && out) {
++        char *result = dstudio_web_visual_result(&ws, out, snapshot_url);
++        free(out);
++        out = result;
++    }
++    free(snapshot_url);
++    if (web_set_cancel_err(web, err, err_len)) { free(out); out = NULL; }
+     web_ws_close(&ws);
+     web_close_tab(web, &tab);
+     web_tab_free(&tab);
+     return out;
+ }
+ 
++static char *web_run_page_js(ds4_web *web, const char *url, const char *js,
++                             bool dynamic_scroll, char *err, size_t err_len) {
++    return web_run_page_js_mode(web, url, js, dynamic_scroll, false, err, err_len);
++}
++
++/* DStudio helper API, intentionally separate from upstream's text-only API. */
++char *dstudio_web_visit_visual(ds4_web *web, const char *url,
++                               char *err, size_t err_len) {
++    if (!web || !url || (strncmp(url, "http://", 7) && strncmp(url, "https://", 8))) {
++        web_set_err(err, err_len, "http or https URL required");
++        return NULL;
++    }
++    return web_run_page_js_mode(web, url, web_extract_page_js, true, true, err, err_len);
++}
++
+ ds4_web *ds4_web_create(const ds4_web_config *cfg) {
+     ds4_web *web = web_xmalloc(sizeof(*web));
+     memset(web, 0, sizeof(*web));

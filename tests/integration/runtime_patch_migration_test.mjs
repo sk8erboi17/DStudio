@@ -67,8 +67,14 @@ try {
       }
       const derived = emit('native-apply', original);
       assert.equal(hash(derived), base.derivedSHA256);
-      assert.equal(hash(derived), base.legacyExpandedSHA256, 'Migration must retain exact legacy output');
-      row.checks.push('frozen-legacy-byte-parity');
+      if (base.legacyExpandedSHA256) {
+        assert.equal(hash(derived), base.legacyExpandedSHA256, 'Migration must retain exact legacy output');
+        row.checks.push('frozen-legacy-byte-parity');
+      } else {
+        assert(/^(?:main-qwen|main-latest)(?:-metrics)?$/.test(base.name) && base.oracle,
+          'Only the explicitly rebased main has a new behavioral oracle');
+        row.oracle = base.oracle;
+      }
       command('git', ['apply', '--check', '--whitespace=error', delta], work);
       command('git', ['apply', '--whitespace=error', delta], work);
       assert.deepEqual(fs.readFileSync(file), derived);

@@ -1,7 +1,31 @@
-# DStudio — complete quality and multihardware support plan
+# DStudio — complete quality and macOS support plan
 
 Assessment: September 7, 2026. Priorities: stability, correctness, quality,
-hardware coverage, then performance.
+macOS coverage, then performance.
+
+**Scope decision, September 29, 2026: macOS only.** The user removed other
+hardware from the campaign. Acceptance targets macOS on Apple Silicon with
+Metal; scalar CPU reference oracles run on the same Mac remain part of numerical
+verification. CUDA, ROCm, Vulkan, Linux, Windows, NVIDIA/AMD GPUs, multi-GPU or
+distributed execution and non-Apple CPU backends are **OUT_OF_SCOPE**: no
+implementation, test, BLOCKED row or support claim is required. Existing code
+for them is neither removed nor qualified by this decision. Earlier log entries
+and plan text that mention those platforms are historical; where they conflict
+with this decision, this decision applies.
+
+**Model order decision, September 29, 2026.** DeepSeek V4.1 Flash (Q2/Q4) and
+GLM 5.3 Flash are scheduled **last, in a separate dedicated session**. They remain
+included models with all mandatory modes and gates; they are not dropped,
+downgraded or marked passed. Their real runs start only after the other included
+models' P3–P8 work, as their own explicitly started session.
+
+**DeepSeek V4 Flash decision, September 29, 2026.** Of the DeepSeek V4 Flash
+variants, only **flash-vision** (Vision-Exp IQ2XXS with its native encoder and
+Vision-Exp DSpark drafter) remains in the campaign. flash-iq2, flash-abliterated,
+flash-mixed and flash-mxfp4, with the Flash 0731 drafter, are **OUT_OF_SCOPE**:
+no runs or receipts are required for them. At the user's explicit request their
+five local files (433 GB) were then deleted from `ds4/gguf` on September 29.
+DStudio's existing support and download targets for them are unchanged.
 
 **Current operational status: publication checkpoint.** The user has closed the
 current implementation slice and paused the remaining P0–P11 campaign, which is
@@ -15,6 +39,9 @@ rebuilds requested by the user. That resume instruction is historical, not
 current authorization. It did not authorize downloads or launches outside its scope.
 Status, limitations and commands are in [QWEN_CHECKPOINT.md](docs/QWEN_CHECKPOINT.md).
 The full plan remains open; rebuilding the app alone does not close it.
+On September 29 the user asked to finish the in-progress Qwen Next main migration,
+authorized the Qwen Next Q4 download and did not ask for a commit. That scoped
+slice is logged below; it does not resume or close the rest of P0–P11.
 
 **Verified status:** the plan is ready as a document, but its execution
 is not complete. The broad model-free gate also passed after migrating
@@ -41,6 +68,64 @@ The user subsequently requested its completion, then a pause, then a resumption
 of the full plan, and finally the current publication checkpoint and pause.
 **The full campaign is incomplete and paused.**
 The assessment history remains separate from the new evidence in the log.
+
+### P3/P6 — Qwen3.6 and Qwen27B campaign, September 29
+
+The user asked to complete the Qwen3.6-35B-A3B and Qwen3.8-27B campaign (and then
+the Qwen family) with TDD, Claude as an LLM judge recorded separately from the
+deterministic graders, engine changes only as `.patch` files on each remote's
+latest commit, and no commit. Details: [QWEN_CHECKPOINT.md](docs/QWEN_CHECKPOINT.md).
+
+- Remotes rechecked: vagrillo `qwen35moe-support` still `73434c4`; Ninnix/q36
+  promoted `8362010` → `1305843` (rebased runtime patch, installer 43/43,
+  native Metal gate 42/42).
+- Qwen3.6 fused MoE kernels decoded Q6_K experts with the wrong nibble order:
+  RED → GREEN patch `patch/ds4-qwen35-q6k-moe`, applied by new installs and by the
+  launch-preparation worker; the catalog patch is now also restored on in-place
+  upgrades (RED → GREEN, real installation repaired).
+- Real Qwen3.6: host 2/2, reset 2/2, acceptance 11/12; Learn **FAIL** (host relay
+  closed the idle socket at 600 s during token-at-a-time prefill; not raised);
+  first-exposure common-100 53/100 as frozen, 58/100 after the grader
+  correction, 12 not run (no restart supervision).
+- Real 27B on `1305843`: upgrade 8/8, host 14/14, HTTP vision 40/40, acceptance
+  11/12.
+- Grader correction (final newline on patch answers): RED → GREEN, new corpus
+  identity `5727dcb4…`, earlier receipts regraded separately.
+- Operator errors, retained: a launch-dependency regression (409 for the 27B
+  Agent, fixed with a unit test), a vision run disturbed by a parallel model-free
+  test, and an unsupervised 27B replay stopped at case 30. See the checkpoint.
+- In progress, one engine at a time: supervised 27B replay and Learn; Qwen3.6
+  corpus with the original shader on a private copy (impact) and the complete
+  supervised corpus; Qwen3.8-Flash-Next first-exposure corpus and Learn.
+
+### P2/P3 — Qwen Next on unified main, September 14–29
+
+- Upstream merged Qwen3.8-Flash-Next into antirez/ds4 main at `9139e2a`
+  (September 14). DStudio now pins main to `0aaea5a` (upstream September 20,
+  still main's tip on September 29), retires the separate `ds4-qwen38` installer
+  and routes Qwen Next Chat/Agent/Cowork to main. The legacy base + Q4_1 PLE
+  sidecar and its checkout are preserved, hidden from usable models and rejected
+  before stopping a running engine. Scope and limits:
+  [QWEN_NEXT_MAIN_MIGRATION.md](docs/QWEN_NEXT_MAIN_MIGRATION.md).
+- September 29, model-free on `0aaea5a`: focused engine/patch/Qwen suites pass;
+  `make -k check-fast` first attempt **blocked** (three launch/spawn targets
+  refused because FlashStudy's ds4 engine held port 28000; receipts
+  `launch-control/http-9zSVMx`, `agent_spawn_unit` and `qwen35_runtime_unit`
+  crash logs), complete rerun **PASS** after FlashStudy had closed (no test
+  signalled it). Empty-profile network install `first-launch-bx5TFd` **8/8**,
+  native consumers `agent-native-build/run-4Bj0vH` **20/20**, Metal workspace
+  `metal-workspace/run-nZNHYi` 3/3 engines, real browser helper
+  `web-visual-uhSizH`, WebKit/Chromium picker and Settings pass (simulated engine).
+- Upstream model-free tests on the patched snapshot pass except
+  `ds4_test --metal-kernels`: **29 retained failures**, identical on pristine
+  upstream; the checked fused compressor path is enabled only on M3/M5 and the
+  test assumes it runs. Not a pass, not attributed to DStudio.
+- Real weights on this pin: DeepSeek V4.1 Q2 SSD run
+  `ds41-ssd-0aaea5a-20260928-0043` **13/14** (same retained Python-trace format
+  failure as on `bd66c40`). No Qwen Next weights existed locally: the old base
+  lacks the BF16 `per_layer_token_embd.weight` main requires and the Q4_1
+  sidecar cannot be repacked. The authorized Q4 download and its real-model
+  results are recorded in the migration report.
 
 ### P2/P6 — upstream update and DeepSeek V4.1, September 12
 
@@ -2325,6 +2410,9 @@ LLM checkpoints. Sizes are the bytes actually observed, **not new SHA-256
 checks**. Presence and size do not certify integrity. The abbreviated names
 below identify variants, not interchangeable files.
 
+Since September 29 only `flash-vision` among the DeepSeek V4 Flash rows below
+remains in scope; the other four are listed as observed, then excluded.
+
 | Campaign ID | Installed model/variant | Bytes | Current engine |
 | --- | --- | ---: | --- |
 | flash-iq2 | DeepSeek V4 Flash Chat IQ2XXS, 0731 | 86,720,111,488 | main |
@@ -2365,6 +2453,8 @@ The catalog will not be used as an inventory of completed downloads.
 | HunyuanImage 3 | OUT_OF_SCOPE, editing worker; provider `hunyuan-image3-instruct-nf4` | Do not download/run |
 | MiniMax H3 | OUT_OF_SCOPE, video worker; API `MiniMaxAI/MiniMax-H3`, runtime `h3.c/Metal` | Do not download/run |
 | llama.cpp | OUT_OF_SCOPE, explicitly excluded engine | No runtime, router, installation, executable numerical check, or fallback based on it |
+| DeepSeek V4 Flash flash-iq2, flash-abliterated, flash-mixed, flash-mxfp4 and the Flash 0731 drafter | OUT_OF_SCOPE, user decision of September 29, 2026: only flash-vision remains | No campaign run or receipt; files deleted at the user's request on September 29, existing support unchanged |
+| Non-macOS hardware and backends: CUDA, ROCm, Vulkan, Linux, Windows, NVIDIA/AMD, multi-GPU/distributed | OUT_OF_SCOPE, user decision of September 29, 2026 | No port, build, test or BLOCKED entry; preserve existing upstream/DStudio code unchanged; make no support claim |
 
 The three worker IDs are confirmed in
 [image-pipeline-run.py](scripts/image-pipeline-run.py) and
@@ -2488,6 +2578,10 @@ Behavioral reproduction will be required before correcting them.
 ## 4. Execution order and evidence recording
 
 Planned sequence: **P0 → P1 → P2/P3/P4 → P5 → P6/P7/P8 → P9 → P10 → P11**.
+Within P3–P8, DeepSeek V4.1 Flash (Q2/Q4) and GLM 5.3 Flash run **last, in a
+separate dedicated session** (user decision, September 29); every other
+included model is processed first. Their rows stay in every matrix and
+denominator as TO_DO until that session, never as PASS or OUT_OF_SCOPE.
 P2 reopens before final validation if upstream has advanced. Deterministic
 regressions accompany each tranche; they are not deferred until the end.
 Builds applying patches in the same checkout and inference runs on the same
@@ -2512,7 +2606,10 @@ runId, repetition, inputHash, expectedResult, observedResult,
 status, reason, timings, memory, artifactHashes, rawReceipt
 ```
 
-The initial matrix has at least 10 planned LLM selections, not ten new families.
+The matrix has nine planned LLM selections: flash-vision, laguna, qwen38-next
+Q4 and Q2 (Q2 weights not yet downloaded), qwen36 and qwen38-27b first, then
+DeepSeek V4.1 Q2/Q4 and glm53 in their separate final session. The original ten selections included four non-Vision
+Flash variants that are out of scope since September 29.
 Different Qwen27B formats/quantizations and other backends require separate
 rows. Do not create a Cartesian product of nonexistent combinations: identify
 those supported or required, explaining the nonapplicable ones. The four
@@ -2647,13 +2744,13 @@ the date/SHA, without performing a moving-target pull at startup.
    drift, incorrect order, wrong checkout, and preservation of unrelated
    changes. No ignored partial application. Tests exercise behavior as well
    as verifying source reconstruction.
-8. Complete build signature: source/header/Metal/CUDA/Vulkan, manifest, adapter,
-   compiler/linker/backend. Changing a dependency in a test must actually
+8. Complete build signature: source/header/Metal (and any other source a macOS
+   build actually consumes), manifest, adapter, compiler/linker/backend. Changing a dependency in a test must actually
    produce a new binary; the presence of a version number alone is insufficient.
-9. Correct launchers and supplemental make rules to use the selected backend's
-   arguments, objects, linker, and libraries. Preserve CPU, Metal, CUDA, and
-   ROCm already present in main, and Vulkan where introduced. Do not declare
-   a GPU supported because a CPU object compiles.
+9. Correct launchers and supplemental make rules to use the selected macOS
+   backend's arguments, objects, linker, and libraries. Leave upstream's
+   non-macOS backends unchanged and unqualified (out of scope since September 29).
+   Do not declare a GPU supported because a CPU object compiles.
 10. Add an automatic upstream-distance check, for example
     `scripts/check-engine-upstream.mjs`, with a revisions/delta manifest. It must
     detect new unclassified commits, lost patches, missing receipts, and
@@ -2670,8 +2767,8 @@ remain admission errors; fixture PASS does not declare complete alignment
 or the Windows workflow finished.
 
 Acceptance: no unresolved relevant delta misrepresented as aligned, fully
-reproducible patches, and coverage of previous integrations. Missing hardware:
-procedure ready and runtime BLOCKED; missing port: incomplete requirement.
+reproducible patches, and coverage of previous integrations on macOS. Missing
+port: incomplete requirement. Non-macOS hardware is out of scope, not BLOCKED.
 
 <a id="p3"></a>
 ## 8. P3 — Qwen27B and mode parity
@@ -2745,15 +2842,14 @@ numerical parity to it.
 2. Extend the native installer, `download-model.sh`, bundle, and doctor. The
    upstream q36 downloader uses moving `resolve/main` URLs: DStudio must pin
    the revision and hash, with resumable transfer and atomic promotion after verification.
-3. For Apple/AMD, select a compatible Qwen27B GGUF after quality comparison;
-   for NVIDIA, use `.q27` artifacts and the matching tokenizer. Do not rename
+3. For Apple Silicon, select a compatible Qwen27B GGUF after quality comparison
+   (AMD and NVIDIA `.q27` paths are out of scope since September 29). Do not rename
    GGUF files or also download Qwen3.6 through the candidate's default target.
    Avoid duplicate downloads except required representations of the same 27B.
 4. Engine startup, readiness, stop, error, deadline, stream, and cancellation
    must enter the DStudio lifecycle, with the actual binary and model in the receipt.
 5. Port the expected encoder, preprocessing/resize/tiling, projector, image
-   tokens, positions, and KV synchronization to Metal/CUDA; qualify the
-   existing Vulkan path. Integrate PDF → rendered pages without confusing it
+   tokens, positions, and KV synchronization to Metal. Integrate PDF → rendered pages without confusing it
    with the model's native input. All external changes are `.patch` files;
    no hidden use of another model's encoder.
 6. Compare q36/q27/ornith before promoting an alternative choice: correctness,
@@ -2792,8 +2888,8 @@ numerical parity to it.
 
 Acceptance for each available combination: real installation, response, tool
 with a verified effect, complete Learn, Cowork with reopened export, streaming,
-and cancellation; vision where required. For inaccessible NVIDIA/AMD hardware,
-prepare builds/scripts and report runtime BLOCKED without using maintainers' hosts.
+and cancellation; vision where required. Combinations are macOS/Metal only;
+NVIDIA/AMD hardware is out of scope, not BLOCKED.
 
 <a id="p4"></a>
 ## 9. P4 — PDFs, vision, and isolation of text models
@@ -2884,8 +2980,8 @@ For **each included engine**:
 7. Preflight/staging outside locks, small commit after revalidation. Distinct
    downloading/verified/selected/loading/running states and real progress;
    recoverable pause/stop without lost bytes or premature “100%”.
-8. Equivalent bootstrap on every available platform; scripts and BLOCKED
-   results for unavailable hardware. Headless/HTTP help cover the fault matrix,
+8. Equivalent bootstrap on macOS (non-macOS platforms are out of scope).
+   Headless/HTTP help cover the fault matrix,
    but the real desktop chain remains P7.
 
 Current entry points, **to be parameterized before new runs**:
@@ -2955,8 +3051,7 @@ while ignoring exit codes. Also run standard/long and slow cases.
    with a compatible oracle. A correct Poppler render does not qualify the encoder.
 5. Run relevant upstream gates for OpenAI/Responses/Anthropic servers,
    tools/reasoning, caching, and kernels with ASan/UBSan where available.
-   Distribution and multi-GPU: explicit applicability, hardware test BLOCKED
-   if required but unavailable. Do not start aggregate targets that load Pro/GLM5.2.
+   Distribution and multi-GPU are out of scope. Do not start aggregate targets that load Pro/GLM5.2.
 6. GLM 5.3: rerun the **100 continuations** for the matching checkpoint and
    relevant long-context cases; preserve NLL, first-token, greedy agreement,
    and logprob coverage. Compare the historical baseline without calling it
@@ -3134,9 +3229,10 @@ Freeze at least this initial distribution, identical for every included model:
 | **Total** | **100** | |
 
 - These are additional to upstream continuations, tool/document tests, and
-  the 30 PDFs + 20 images for each vision model. With ten selections, the
-  initial minimum is 1,000 text executions on one path each; additional
-  backends/quants require new rows, not a shared result.
+  the 30 PDFs + 20 images for each vision model. With nine selections, the
+  initial minimum is 900 text executions on one path each; additional
+  quantizations require new rows, not a shared result. Only macOS/Metal paths
+  are in scope.
 - Substantially expand the Qwen3.6 3/3. Startup checks remain smoke tests;
   changing their title does not turn them into a quality battery.
 - Deterministic graders where possible; frozen rubrics for open outputs.
@@ -3184,7 +3280,7 @@ scripting or a separate browser.
    switching, persisted settings, and reopening. Also native dialogs, focus,
    keyboard, resizing, scrolling, readable errors, and return to operation.
 4. **Every model × four modes**: at least one complete path each (initial
-   minimum 40 for ten selections), in addition to critical regressions:
+   minimum 36 for nine selections), in addition to critical regressions:
 
    - Chat: send/stream/copy/stop, new question after stop, text attachment;
    - Agent: choose project, read/search, edit, run tests, and independently
@@ -3501,7 +3597,8 @@ Status: **TO_DO after implementation and measurements**.
    desktop paths. No old PASS transferred to a new engine/encoder/parser
    without testing. Remaining errors must remain visible.
 4. Update README, tests README, ENGINE_ACCEPTANCE, QUALITY_GATES,
-   DESIGN_SYSTEMS, patch docs, hardware matrix, and THIRD_PARTY_NOTICES.
+   DESIGN_SYSTEMS, patch docs, the macOS hardware/configuration matrix, and
+   THIRD_PARTY_NOTICES.
    Correct “Qwen3.6 untested”, ambiguous “four modes”, and obsolete limits
    only in light of specific evidence. Do not remove limits that remain real.
 5. Publish reviewed JSON/CSV results, **Matplotlib** scripts, and PNGs on GitHub,
@@ -3515,7 +3612,8 @@ Status: **TO_DO after implementation and measurements**.
    be distributed and complete public reproducibility is unavailable.
 7. Attach the included/excluded matrix, fresh/upgrade installations, four-mode
    tests, vision/isolation, desktop, generated projects, six Agents/two lanes,
-   before/after, failures, and exact instructions to unblock missing hardware.
+   before/after, failures, and exact instructions to unblock missing
+   credentials, permissions or Mac resources.
 8. Prepare separate commits by cause and reviewed diffs. Push only within the
    campaign's authorized scope, not implied by this planning request. Beforehand:
    privacy, whitespace, and documentation checks; normal push, verify remote SHA.
@@ -3529,11 +3627,11 @@ Status: **TO_DO after implementation and measurements**.
 | 0: included/excluded, only new Qwen27B, no llama.cpp | §1, P0, P3, P4, P6 | File/hash manifest, components, no out-of-scope download |
 | 0: Chat/Agent/Learn/Cowork for all; Design separate | P3, P6, P7, P8 | Real tasks, model identity, and persisted outputs |
 | 1: code/docs/baseline, historical vs current | §2–4, P0 | Commit/diff/build/hash and matrix per combination |
-| 1-a: latest ds4 on all relevant engines/backends | P2, P11 | Complete delta/equivalence/test map and automatic gate |
+| 1-a: latest ds4 on all relevant engines (macOS Metal only) | P2, P11 | Complete delta/equivalence/test map and automatic gate |
 | 1-bis: download/patch/build/startup/fresh/upgrade | P2, P3, P5 | Installer receipts, actual binary/encoder, and inference |
 | 2: real desktop app, four modes, attachments/reopen | P7 | Real actions, screenshots, logs, and independent checks |
 | 3: retired style, hanging tasks, races, and settings | §3, P1 | Reproduction, fix, and first-request regression + real endpoint |
-| 4: Qwen27B Apple/NVIDIA/AMD and four modes | P2–P5 | Core/adapter/weights/vision and separate hardware results |
+| 4: Qwen27B on Apple Silicon and four modes (NVIDIA/AMD out of scope) | P2–P5 | Core/adapter/weights/vision on Metal |
 | 5A: numerics and upstream | P6A | Oracles/tolerances, logits/KV/GDN/spec/encoder, GLM100 |
 | 5B: 100 cases/LLM +30 PDFs/+20 images | P4, P6B | Frozen corpus, expected answers, all results |
 | 5C: product quality and text models without multimodality | P3, P4, P6C, P7 | Reopened outputs, real payloads, and isolated cache/session |
@@ -3556,7 +3654,7 @@ Status: **TO_DO after implementation and measurements**.
 - [x] Written this plan with changes, dependencies, criteria, and complete coverage.
 - [ ] Completed full P0: full hashes, all paths, current baseline.
 - [ ] Corrected and tested Design startup and the other P1 problems.
-- [ ] Aligned all engines/backends and completed `.patch` migrations.
+- [ ] Aligned all engines on macOS Metal and completed `.patch` migrations.
 - [ ] Downloaded/integrated Qwen27B and completed all four modes for every model.
 - [ ] Completed vision/PDF and text-model isolation for every combination.
 - [ ] Run fresh/upgrade installations and all numerical/quality suites.
@@ -3566,7 +3664,7 @@ Status: **TO_DO after implementation and measurements**.
 
 **Final criterion:** the plan can be delivered now; the campaign cannot be
 declared complete until the implementations and all required executable
-tests are finished. Missing hardware/credentials/permissions remain BLOCKED
-with a procedure and exact requirement; they do not become PASS or completed
-implementations. No claim of SOTA parity, universal superiority, or complete
-multihardware support without corresponding evidence.
+tests are finished. Missing credentials/permissions or Mac resources remain
+BLOCKED with a procedure and exact requirement; they do not become PASS or
+completed implementations. Non-macOS hardware is out of scope. No claim of SOTA
+parity, universal superiority, or support beyond the tested macOS configurations.

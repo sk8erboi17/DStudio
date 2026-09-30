@@ -25,8 +25,8 @@ log2timeline-*.log.gz
 core
 core.*
 
-# Managed upstream engine checkout. DStudio downloads its pinned antirez/ds4
-# runtime here and applies reversible patch sets without vendoring source.
+# Writable engine installs and build/model data remain local. Pristine pinned
+# source snapshots are versioned under src/engines/ and copied during setup.
 /ds4/
 /ds4-glm5.3/
 /ds4-glm5.3.zip
@@ -36,6 +36,8 @@ core.*
 /q36/
 /.dstudio-q36-install.lock
 /.dstudio-q36-stage-*/
+/.dstudio-*-sources.lock
+/.dstudio-*-source-*/
 /build/
 
 # Runtime diagnostic dump

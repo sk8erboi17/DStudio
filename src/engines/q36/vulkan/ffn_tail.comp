@@ -1,0 +1,38 @@
+#version 460
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Output {
+    float outv[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Shared {
+    float sharedv[];
+};
+
+layout(set = 0, binding = 2) readonly buffer Scalar {
+    float scalarv[];
+};
+
+layout(push_constant) uniform Push {
+    uint out_dim;
+    uint n_tok;
+} pc;
+
+float sigmoid_stable(float x) {
+    if (x >= 0.0f) {
+        float z = exp(-x);
+        return 1.0f / (1.0f + z);
+    }
+    float z = exp(x);
+    return z / (1.0f + z);
+}
+
+void main(void) {
+    uint j = gl_GlobalInvocationID.x;
+    uint tok = gl_WorkGroupID.y;
+    if (j >= pc.out_dim || tok >= pc.n_tok) return;
+    float g = sigmoid_stable(scalarv[tok]);
+    uint idx = tok * pc.out_dim + j;
+    outv[idx] = fma(sharedv[idx], g, outv[idx]);
+}

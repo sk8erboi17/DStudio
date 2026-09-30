@@ -5,7 +5,6 @@ import fs from 'node:fs';
 const runtime = fs.readFileSync('extension/search/runtime.js', 'utf8');
 let respond;
 const tools = new Function('Api', `
-  const WEB_RESEARCH_TOTAL_TIMEOUT_MS = Infinity;
   ${runtime}
   return { researchAnswerFacts, researchAnswerSources, synthesizeResearchReport, researchReportQuality, writeFinalFromFacts };
 `)({ completeText: (...args) => respond(...args) });

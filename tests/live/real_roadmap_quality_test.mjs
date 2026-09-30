@@ -11,6 +11,7 @@ import {
   waitForModel,
   writeArtifact,
 } from '../support/real_harness.mjs';
+import {roadmapGenerationSettings} from '../support/roadmap_generation_settings.mjs';
 
 const artifacts = artifactRunDir('roadmap-quality-real');
 console.log(`Immutable Learn quality run: ${artifacts}`);
@@ -135,13 +136,14 @@ async function generateRoadmap(baseUrl, protocol, request, research, sources, ca
       // manual Stop, so a slow Thinking max roadmap must be tested the same way.
       timeoutMs: Number(process.env.DSTUDIO_REAL_ROADMAP_TIMEOUT_MS || 0),
       temperature: .25,
-      thinkLevel: 'max',
+      ...roadmapGenerationSettings(),
       onProgress: ({ content, reasoning }) => {
         const now = Date.now();
         if (now - lastProgressWrite < 3000) return;
         lastProgressWrite = now;
         writeArtifact(artifacts, `${caseId}-generation-live.json`, {
           attempt,
+          ...roadmapGenerationSettings(),
           contentChars: content.length,
           reasoningChars: reasoning.length,
           contentTail: content.slice(-1200),
@@ -204,13 +206,23 @@ const server = await startDStudio({
 });
 try {
   if (!server.external) {
-    const gguf = server.ggufs.find((entry) => /DeepSeek-V4-Flash-IQ2XXS.*chat-v2.*0731/i.test(entry.file)) ||
-      server.ggufs.find((entry) => /DeepSeek-V4-Flash/i.test(entry.file));
-    if (!gguf) throw new Error('No DeepSeek V4 Flash GGUF is available for the real Roadmap benchmark.');
-    await startMode(server.baseUrl, {
-      mode: 'server', model: 'uncensored', variant: 'flash',
-      gguf: gguf.file, port: server.enginePort, ctx: 65536, power: 90, think: 'off', ssdStreaming: 'off',
-    }, Number(process.env.DSTUDIO_REAL_TEST_TIMEOUT_MS || 1_800_000));
+    // An explicit model (for example a Qwen GGUF in the engine checkout given
+    // by DSTUDIO_REAL_DS4_DIR) is loaded as selected; there is no fallback.
+    const requested = process.env.DSTUDIO_REAL_ROADMAP_GGUF;
+    const gguf = requested
+      ? server.ggufs.find((entry) => entry.file === requested || entry.file.endsWith(`/${requested}`))
+      : server.ggufs.find((entry) => /DeepSeek-V4-Flash-IQ2XXS.*chat-v2.*0731/i.test(entry.file)) ||
+        server.ggufs.find((entry) => /DeepSeek-V4-Flash/i.test(entry.file));
+    if (!gguf) throw new Error(requested ? `DSTUDIO_REAL_ROADMAP_GGUF not found: ${requested}`
+      : 'No DeepSeek V4 Flash GGUF is available for the real Roadmap benchmark.');
+    const launch = requested && !/DeepSeek-V4-Flash/i.test(gguf.file)
+      // Like the UI, local Qwen engines launch at full power: none implements throttling.
+      ? { mode: 'server', variant: 'flash', gguf: gguf.file, port: server.enginePort,
+          ctx: Number(process.env.DSTUDIO_REAL_ROADMAP_CTX || 65536), power: 100, think: 'off', ssdStreaming: 'off' }
+      : { mode: 'server', model: 'uncensored', variant: 'flash',
+          gguf: gguf.file, port: server.enginePort, ctx: 65536, power: 90, think: 'off', ssdStreaming: 'off' };
+    writeArtifact(artifacts, 'launch.json', launch);
+    await startMode(server.baseUrl, launch, Number(process.env.DSTUDIO_REAL_TEST_TIMEOUT_MS || 1_800_000));
   }
   await waitForModel(server.baseUrl);
   const pipeline = createWebPipeline(server.baseUrl);

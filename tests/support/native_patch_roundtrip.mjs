@@ -1,4 +1,4 @@
-// Six managed native adaptations, not the Agent/server-PLD/web fragment stacks.
+// Managed native adaptations, not the Agent/server-PLD/web fragment stacks.
 // Work only on a new scratch copy. Patch headers route copies; all assertions
 // concern actual apply/restore effects and file integrity.
 import assert from 'node:assert/strict';
@@ -14,6 +14,7 @@ const patches = [
   'ds4-glm53-runtime/streaming-memory.patch',
   'ds4-glm53-m2max/native-decode.patch',
   'ds4-vision-streaming/vision-map.patch',
+  'ds4-qwen38-prepare/prepare-main.patch',
 ];
 const m2Variants = [
   'ds4-glm53-m2max/build-main.patch',
@@ -21,6 +22,11 @@ const m2Variants = [
   'ds4-glm53-m2max/legacy-selected-logging.patch',
   'ds4-visible-downloads/main-v41.patch',
   'ds4-glm53-runtime/main-v41.patch',
+  'ds4-glm53-runtime/main-latest.patch',
+  'ds4-glm53-runtime/main-qwen.patch',
+  'ds4-visible-downloads/main-qwen.patch',
+  'ds4-glm53-m2max/native-decode-main-qwen.patch',
+  'ds4-glm53-m2max/hotlist-main-layout.patch',
 ];
 const sha = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
@@ -61,7 +67,8 @@ export function nativePatchRoundtrip({ support, source, scratch, environment = p
     const script = file === 'ds4-glm53-m2max/native-decode.patch' ? 'glm53-m2max' :
       file === 'ds4-server-metrics/usage-metrics.patch' ? 'server-metrics' :
       file === 'ds4-visible-downloads/visible-partials.patch' ? 'visible-downloads' :
-      file === 'ds4-glm53-runtime/streaming-memory.patch' ? 'glm53-runtime' : null;
+      file === 'ds4-glm53-runtime/streaming-memory.patch' ? 'glm53-runtime' :
+      file === 'ds4-qwen38-prepare/prepare-main.patch' ? 'qwen38-prepare' : null;
     if (script) {
       stage.output = execFileSync('/bin/sh', [path.join(support, `scripts/apply-ds4-${script}.sh`), action],
         { env, encoding: 'utf8', timeout: 30000 });
@@ -83,9 +90,9 @@ export function nativePatchRoundtrip({ support, source, scratch, environment = p
     for (const file of files) assert.equal(sha(path.join(source, file)), before[file], 'original checkout changed');
     assert.equal(sha(note), noteHash, 'unrelated scratch data changed');
     return {
-      scope: 'Six native adaptations, including production-selected M2 build hunks; no inference or complete Agent/web patch-stack claim',
+      scope: 'Seven native adaptations, including unified Qwen prepare and production-selected M2 build hunks; no inference or complete Agent/web patch-stack claim',
       patches: patchFiles.map(file => ({ file, sha256: sha(path.join(support, 'patch', file)) })),
-      scriptSha256: Object.fromEntries(['glm53-m2max', 'server-metrics', 'visible-downloads', 'glm53-runtime'].map(name =>
+      scriptSha256: Object.fromEntries(['glm53-m2max', 'server-metrics', 'visible-downloads', 'glm53-runtime', 'qwen38-prepare'].map(name =>
         [name, sha(path.join(support, `scripts/apply-ds4-${name}.sh`))])),
       filesChecked: files.size, before, restored, stages,
     };

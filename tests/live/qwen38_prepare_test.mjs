@@ -12,15 +12,15 @@ const root = path.resolve(import.meta.dirname, '../..');
 const args = process.argv.slice(2), receiptAt = args.indexOf('--weight-receipts');
 const inventory = receiptAt < 0 ? null : fs.realpathSync(args[receiptAt + 1]);
 if (receiptAt >= 0) args.splice(receiptAt, 2);
-assert.equal(args.length, 3, 'Supply engine, main GGUF and PLE; optional --weight-receipts inventory-dir');
+assert.equal(args.length, 2, 'Supply unified main engine and single-file Qwen GGUF; optional --weight-receipts inventory-dir');
 assert.equal(process.platform, 'darwin', 'This live gate qualifies Metal only');
-const [engine, model, ple] = args.map(p => fs.realpathSync(p));
+const [engine, model] = args.map(p => fs.realpathSync(p));
 const run = artifactRunDir('qwen38-prepare-live'), probe = path.join(run, 'probe');
 const sha = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const report = {started: new Date().toISOString(),
   scope: 'Real Qwen Metal candidate-cancellation and bit-exact parity against normal sync; development regression, not held-out quality',
   engine, revision: ownGitRevision(engine), weights: [], commands: [], rows: [], passed: false,
-  memory: 'Resident main weights and native SSD PLE, expert streaming off, no MTP/DSpark; maximum two private sessions sharing weights',
+  memory: 'Resident backbone and original BF16 n-grams on SSD inside one GGUF, expert streaming off, no MTP/DSpark; maximum two private sessions sharing weights',
   limits: {context: 16384, promptTokens: 8193, seconds: 600, outputBytes: 8 * 1024 * 1024}};
 const save = () => writeArtifact(run, 'results.json', report);
 const environment = Object.fromEntries(Object.entries(process.env)
@@ -52,7 +52,7 @@ try {
   idle();
   const receipts = inventory ? fs.readdirSync(inventory).filter(f => /^weight-\d+\.json$/.test(f))
     .map(f => ({file: path.join(inventory, f), data: JSON.parse(fs.readFileSync(path.join(inventory, f), 'utf8'))})) : [];
-  for (const file of [model, ple]) {
+  for (const file of [model]) {
     const identity = fileIdentity(fs.statSync(file, {bigint: true}));
     const match = receipts.find(r => r.data.identity === identity && r.data.file === file && /^[0-9a-f]{64}$/.test(r.data.sha256));
     if (inventory) assert(match, 'Weight identity changed; a new sequential integrity inventory is required');
@@ -61,7 +61,7 @@ try {
       : {...await hashStableFile(file), integrity: 'Full sequential SHA during this run'};
     report.weights.push({file, ...entry}); save();
   }
-  const objects = ['ds4', 'ds4_image', 'ds4_distributed', 'ds4_tp', 'ds4_ssd', 'ds4_metal',
+  const objects = ['ds4', 'ds4_image', 'ds4_distributed', 'ds4_tp', 'ds4_ssd', 'ds4_engram', 'ds4_metal',
     'ds4_layer_pack', 'ds4_gpu_args', 'ds4_help', 'ds4_prompt_prefix', 'linenoise']
     .map(n => path.join(engine, n + '.o'));
   report.objects = objects.map(file => ({file: path.basename(file), sha256: sha(file)}));
@@ -70,7 +70,7 @@ try {
     '-framework', 'Foundation', '-framework', 'Metal', '-o', probe], 120000);
   report.binarySHA256 = sha(probe); save(); idle();
   console.log('Starting one real Qwen3.8 engine; receipt: ' + run);
-  const out = command('/usr/bin/time', ['-l', probe, model, ple], report.limits.seconds * 1000, engine);
+  const out = command('/usr/bin/time', ['-l', probe, model], report.limits.seconds * 1000, engine);
   report.rows = out.trim().split('\n').filter(s => s.startsWith('{"case":')).map(s => JSON.parse(s));
   assert.equal(report.rows.length, 8);
   assert(report.rows.every(r => r.case === 'load' || r.passed));

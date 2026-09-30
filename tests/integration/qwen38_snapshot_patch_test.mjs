@@ -9,13 +9,14 @@ import {artifactRunDir} from '../support/real_harness.mjs';
 import {ownGitRevision} from '../support/quality_baseline.mjs';
 
 const root = process.cwd(), source = fs.realpathSync(process.argv[2]);
+const upstreamFixed = process.argv.includes('--upstream-fixed');
 const run = artifactRunDir('qwen38-snapshot'), target = path.join(run, 'source');
 const script = path.join(root, 'scripts/apply-ds4-qwen38-snapshot.sh');
 const probe = path.join(root, 'tests/support/qwen38_snapshot_alloc_probe.c');
 const sha = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const report = {schema: 'dstudio.qwen38-snapshot.v1', started: new Date().toISOString(),
   scope: 'Native snapshot helper execution with simulated allocation failures; patch lifecycle; no model or numerical qualification',
-  source, revision: ownGitRevision(source), commands: [], checks: [], passed: false,
+  source, revision: ownGitRevision(source), upstreamFixed, commands: [], checks: [], passed: false,
   support: Object.fromEntries([script, probe, import.meta.filename,
     ...['snapshot-allocation.patch', 'depth3-allocation.patch'].map(f => path.join(root, 'patch/ds4-qwen38-snapshot', f))]
     .map(f => [path.relative(root, f), sha(f)]))};
@@ -36,7 +37,7 @@ try {
   for (const entry of fs.readdirSync(source, {withFileTypes: true}))
     if (entry.isFile() && /\.(c|h|inc)$/.test(entry.name))
       fs.copyFileSync(path.join(source, entry.name), path.join(target, entry.name));
-  assert.equal(patch('restore').status, 0);
+  if (!upstreamFixed) assert.equal(patch('restore').status, 0);
   const file = path.join(target, 'ds4.c'), original = fs.readFileSync(file);
   report.originalSourceSha256 = sha(file);
   fs.appendFileSync(file, '\n/* preserve unrelated contributor content */\n');
@@ -47,6 +48,12 @@ try {
     '-Wl,-dead_strip', '-lm', '-pthread', '-o', binary(name)], name + '-build');
   assert.equal(build('before').status, 0);
   const before = invoke(binary('before'), [], 'before-run');
+  if (upstreamFixed) {
+    assert.equal(before.status, 0, 'native upstream must satisfy every allocation invariant without the retired patch');
+    assert.equal(before.signal, null);
+    assert.deepEqual(fs.readFileSync(file), unrelated);
+    check('native upstream passes all 10 allocation failures, complete retries, live-state preservation and ASan/UBSan without the retired patch');
+  } else {
   assert.ok(before.signal === 'SIGABRT' || before.status === 134, 'the exact unpatched allocation invariant must fail');
   assert.ok(fs.readFileSync(path.join(run, 'before-run.log'), 'utf8').includes('outstanding=2'),
     'failure must be the reproduced incomplete snapshot, not an unrelated crash');
@@ -84,6 +91,7 @@ try {
   fs.writeFileSync(path.join(target, 'ds4.h'), '/* incompatible engine header */\n');
   assert.notEqual(patch('apply').status, 0); assert.deepEqual(fs.readFileSync(file), unrelated);
   check('drift, linked files and incompatible ABI fail without modifying the target');
+  }
   report.passed = true;
 } catch (e) {report.error = e.stack; console.error(e); process.exitCode = 1;}
 finally {report.finished = new Date().toISOString(); save(); console.log('Evidence: ' + run);}

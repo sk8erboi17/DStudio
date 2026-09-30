@@ -1,0 +1,37 @@
+diff --git a/metal/qwen35.metal b/metal/qwen35.metal
+index 183676b..8dbaeb9 100644
+--- a/metal/qwen35.metal
++++ b/metal/qwen35.metal
+@@ -758,7 +758,9 @@ kernel void kernel_qwen35_moe_gate_up(
+         const short l8 = tiisg & 3;
+         const int ql_off = n128 * 64 + (quarter & 1) * 32 + l8 * 8;
+         const int qh_off = n128 * 32 + l8 * 8;
+-        const int ql_shift = (quarter & 1) * 4;
++        /*DS4UI_Q6K_MOE_NIBBLE: ggml order is LO,LO,HI,HI across quarters,
++         * as in kernel_qwen35_matvec_q6_k; ql_off already picks the half. */
++        const int ql_shift = (quarter >> 1) * 4;
+         const int qh_shift = quarter * 2;
+         const int sc_idx = n128 * 8 + quarter * 2 + (l8 >> 1);
+         const int y_off = n128 * 128 + quarter * 32 + l8 * 8;
+@@ -803,7 +805,9 @@ kernel void kernel_qwen35_moe_gate_up(
+         const short l8 = tiisg & 3;
+         const int ql_off = n128 * 64 + (quarter & 1) * 32 + l8 * 8;
+         const int qh_off = n128 * 32 + l8 * 8;
+-        const int ql_shift = (quarter & 1) * 4;
++        /*DS4UI_Q6K_MOE_NIBBLE: ggml order is LO,LO,HI,HI across quarters,
++         * as in kernel_qwen35_matvec_q6_k; ql_off already picks the half. */
++        const int ql_shift = (quarter >> 1) * 4;
+         const int qh_shift = quarter * 2;
+         const int sc_idx = n128 * 8 + quarter * 2 + (l8 >> 1);
+         const int y_off = n128 * 128 + quarter * 32 + l8 * 8;
+@@ -909,7 +913,9 @@ kernel void kernel_qwen35_moe_down(
+         const short l8 = tiisg & 3;
+         const int ql_off = n128 * 64 + (quarter & 1) * 32 + l8 * 8;
+         const int qh_off = n128 * 32 + l8 * 8;
+-        const int ql_shift = (quarter & 1) * 4;
++        /*DS4UI_Q6K_MOE_NIBBLE: ggml order is LO,LO,HI,HI across quarters,
++         * as in kernel_qwen35_matvec_q6_k; ql_off already picks the half. */
++        const int ql_shift = (quarter >> 1) * 4;
+         const int qh_shift = quarter * 2;
+         const int sc_idx = n128 * 8 + quarter * 2 + (l8 >> 1);
+         const int y_off = n128 * 128 + quarter * 32 + l8 * 8;

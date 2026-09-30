@@ -28,7 +28,7 @@ static int goal_definition(const char *objective, const char *context, const cha
         "{\"id\":\"goal\",\"kind\":\"agent_turn\",\"title\":\"Work towards the goal\",\"mutation\":\"workspace_write\","
         "\"capabilities\":[\"filesystem.read\",\"filesystem.write\",\"git.read\",\"terminal\",\"test.run\"],"
         "\"idempotent\":false,\"retry\":{") &&
-        json_dyn_printf(out, "\"maxAttempts\":%d,\"automatic\":false},\"timeoutMs\":900000,", rounds) &&
+        json_dyn_printf(out, "\"maxAttempts\":%d,\"automatic\":false},\"timeoutMs\":0,", rounds) &&
         json_dyn_puts(out, "\"action\":{\"name\":\"agent.goal\",\"text\":") && json_dyn_put_escaped(out, prompt.ptr) &&
         json_dyn_puts(out, ",\"display\":") && json_dyn_put_escaped(out, action_display) &&
         json_dyn_puts(out,

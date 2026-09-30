@@ -37,7 +37,7 @@ try {
   assert.equal(process.argv.length, 3, 'Supply an installed q36 source tree');
   const source = fs.realpathSync(process.argv[2]), receiptFile = path.join(source, '.dstudio-source.json');
   const receipt = JSON.parse(fs.readFileSync(receiptFile, 'utf8'));
-  assert.equal(receipt.commit, '8362010a301b3360296e435703f58ffc230a024a');
+  assert.equal(receipt.commit, '1305843c735380f912619548b121cba8601f2f85');
   const names = Object.keys(receipt.sources); assert.ok(names.length > 0 && names.length <= 8192);
   report.inputs = Object.fromEntries([script, patch, probe, import.meta.filename, receiptFile,
     path.join(root, 'tests/support/q36_http_text_prepare_probe.c'),

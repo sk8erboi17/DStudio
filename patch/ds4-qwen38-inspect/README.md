@@ -1,5 +1,10 @@
 # Qwen3.8 metadata inspection without PLE preloading
 
+**Historical fork only.** Qwen Next now uses antirez/ds4 main (merged at
+`9139e2a`, pinned at `0aaea5a`) and
+single-file BF16 n-grams. This patch is retained for archived regressions, not
+applied by an active engine installer. [Migration](../../docs/QWEN_NEXT_MAIN_MIGRATION.md).
+
 Base: [`ivanfioravanti/ds4-metal`](https://github.com/ivanfioravanti/ds4-metal/tree/bd9cfbccc03a709a3f00b50e0ac1cc41c3fcf02d),
 revision `bd9cfbccc03a709a3f00b50e0ac1cc41c3fcf02d`, branch `qwen3.8-flash-next`.
 The original source is MIT-licensed; retain its notices. Model terms are separate.
@@ -8,7 +13,7 @@ its apply/repeat/check/restore, unrelated-edit, drift, symlink and ABI cases wer
 rerun on a private copy of the actual fresh installation. The historical native
 prefetch measurements below belong to the original base, not a new inference run.
 
-The current install pin is `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14`.
+The last separate-engine pin was `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14`.
 The same complete delta applies to the preceding `2dda88e` snapshot.
 [`metadata-current.patch`](metadata-current.patch) applies the inspection guard
 to its newer headroom-based full-prefault decision. Upstream already maps PLE

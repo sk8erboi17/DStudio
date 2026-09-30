@@ -58,11 +58,22 @@ def download(directory, token='', *, name=FILE, size=SIZE, expected=SHA256, url=
     return target
 
 
+def manifest():
+    return {'repository': REPO, 'revision': REVISION,
+            'files': {'model': {'file': FILE, 'bytes': SIZE, 'sha256': SHA256}}}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--directory', type=Path, required=True)
+    parser.add_argument('--directory', type=Path)
     parser.add_argument('--token', help='Optional Hugging Face token; prefer HF_TOKEN')
+    parser.add_argument('--manifest', action='store_true', help='Print pins without disk or network access')
     args = parser.parse_args()
+    if args.manifest:
+        print(json.dumps(manifest()))
+        return
+    if args.directory is None:
+        parser.error('--directory is required')
     download(args.directory, args.token or os.environ.get('HF_TOKEN', ''))
     print(json.dumps({'repository': REPO, 'revision': REVISION,
                       'verifiedFiles': [{'file': FILE, 'bytes': SIZE, 'sha256': SHA256}]}), flush=True)

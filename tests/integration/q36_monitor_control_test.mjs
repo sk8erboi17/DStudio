@@ -46,7 +46,8 @@ try {
   const head = command('git', ['-C', source, 'rev-parse', 'HEAD'], 5000);
   assert.equal(head.status, 0, head.stderr);
   report.sourceGit = {head: head.stdout.trim()};
-  assert.equal(report.sourceGit.head, '8362010a301b3360296e435703f58ffc230a024a', 'Use the exact reviewed native monitor ABI');
+  // The monitor patch content is identical on both reviewed bases.
+  assert(['8362010a301b3360296e435703f58ffc230a024a', '1305843c735380f912619548b121cba8601f2f85'].includes(report.sourceGit.head), 'Use an exact reviewed native monitor ABI');
   const probe = path.join(root, 'tests/support/q36_agent_monitor_probe.c');
   const names = ['q36_help', 'q36_kvstore', 'q36_ssd', 'q36_web', 'linenoise',
     'q36_gpu_core_metal', 'q36_metal', 'q36_image', 'q36_prompt_prefix'];

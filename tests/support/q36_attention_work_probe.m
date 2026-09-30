@@ -10,6 +10,8 @@ static double command_gpu_ms, max_command_gpu_ms;
 static double command_wait_ms, phase_gpu_ms[32];
 static unsigned phase_commands[32];
 static bool segmented_check;
+static bool online_check;
+static unsigned online_encoders;
 static bool isolated_encoders;
 static unsigned bounded_encoders, max_key_span, max_query_heads;
 static unsigned allocation_lock_violations;
@@ -26,6 +28,8 @@ static NSUInteger max_static_threadgroup_bytes;
 @interface AttentionEncoderProbe : NSObject
 @property(strong) id<MTLComputeCommandEncoder> real;
 @property unsigned span;
+@property bool online;
+@property unsigned headRatio;
 @property(weak) AttentionBufferProbe *owner;
 @end
 
@@ -44,6 +48,9 @@ static NSUInteger max_static_threadgroup_bytes;
 @implementation AttentionEncoderProbe
 - (id)forwardingTargetForSelector:(SEL)selector { return _real; }
 - (void)setLabel:(NSString *)label {
+    _online = [label isEqualToString:@"q36_attention_f16_online_split"] || [label isEqualToString:@"q36_attention_f16_gqa6"];
+    _headRatio = [label isEqualToString:@"q36_attention_f16_gqa6"] ? 6 : 1;
+    if (_online) online_encoders++;
     // Observe submitted kernel identity, not the source or encoder ordinal.
     // A command containing both kernels belongs to a phase, not either kernel.
     unsigned bit = [label isEqualToString:@"q36_attention_f16_scores_segment"] ? 1u :
@@ -55,6 +62,7 @@ static NSUInteger max_static_threadgroup_bytes;
 }
 - (void)setBytes:(const void *)bytes length:(NSUInteger)length atIndex:(NSUInteger)index {
     if (index == 8 && length == 9 * sizeof(uint32_t)) _span = ((const uint32_t *)bytes)[8];
+    if (_online && index == 4 && length == 7 * sizeof(uint32_t)) _span = 512;
     [_real setBytes:bytes length:length atIndex:index];
 }
 - (void)setComputePipelineState:(id<MTLComputePipelineState>)pipeline {
@@ -66,7 +74,8 @@ static NSUInteger max_static_threadgroup_bytes;
     if (_span) {
         bounded_encoders++;
         if (_span > max_key_span) max_key_span = _span;
-        if (groups.width * groups.height > max_query_heads) max_query_heads = (unsigned)(groups.width * groups.height);
+        unsigned pairs = (unsigned)(groups.width * groups.height) * (_online ? _headRatio : 1);
+        if (pairs > max_query_heads) max_query_heads = pairs;
     }
     [_real dispatchThreadgroups:groups threadsPerThreadgroup:threads];
 }
@@ -155,6 +164,45 @@ static int reference_query(q36_gpu_tensor *out, const q36_gpu_tensor *q,
     return q36_gpu_synchronize();
 }
 
+// Independent real-number oracle: scalar FP64 dot products and stable online
+// softmax on the exact uploaded FP32 queries and F16 KV. Sample first/last
+// queries and heads, three value dimensions, without sharing GPU reductions.
+static double scalar_error(const float *q, const float *gate, const _Float16 *k,
+                           const _Float16 *v, const float *got, const float *sinks,
+                           uint32_t heads, uint32_t kv_heads, uint32_t dim,
+                           uint32_t pos0, uint32_t tokens) {
+    double worst=0;
+    for (uint32_t ti=0;ti<2;ti++) for (uint32_t hi=0;hi<2;hi++) {
+        uint32_t t=ti ? tokens-1u : 0u, h=hi ? heads-1u : 0u;
+        uint32_t kh=h/(heads/kv_heads), ds[3]={0,dim/2u,dim-1u};
+        const float *query=q+((size_t)t*heads+h)*dim;
+        double m=-INFINITY, l=0, values[3]={0};
+        for (uint32_t key=0;key<=pos0+t;key++) {
+            size_t base=((size_t)key*kv_heads+kh)*dim;
+            double score=0;
+            for (uint32_t d=0;d<dim;d++) score+=(double)query[d]*(double)k[base+d];
+            score/=sqrt((double)dim);
+            double nm=fmax(m,score), a=exp(m-nm), b=exp(score-nm);
+            l=l*a+b;
+            for (uint32_t j=0;j<3;j++) values[j]=values[j]*a+(double)v[base+ds[j]]*b;
+            m=nm;
+        }
+        if (sinks) {
+            double nm=fmax(m,sinks[h]), a=exp(m-nm);
+            l=l*a+exp((double)sinks[h]-nm);
+            for (uint32_t j=0;j<3;j++) values[j]*=a;
+        }
+        for (uint32_t j=0;j<3;j++) {
+            double g=gate[((size_t)t*heads+h)*dim*2u+dim+ds[j]];
+            double sigmoid=g>=0 ? 1.0/(1.0+exp(-g)) : exp(g)/(1.0+exp(g));
+            double want=values[j]/l*sigmoid;
+            double error=fabs(got[((size_t)t*heads+h)*dim+ds[j]]-want)/fmax(1.0,fabs(want));
+            CHECK(isfinite(error));worst=fmax(worst,error);
+        }
+    }
+    return worst;
+}
+
 static void attention_case_dim(uint32_t heads, uint32_t kv_heads,
                                uint32_t pos0, uint32_t tokens, unsigned pattern,
                                uint32_t dim) {
@@ -210,7 +258,7 @@ static void attention_case_dim(uint32_t heads, uint32_t kv_heads,
     memset(phase_gpu_ms, 0, sizeof(phase_gpu_ms));
     memset(phase_commands, 0, sizeof(phase_commands));
     max_static_threadgroup_bytes = 0;
-    bounded_encoders = max_key_span = max_query_heads = 0;
+    bounded_encoders = max_key_span = max_query_heads = online_encoders = 0;
     const uint64_t live_before = q36_live_bytes; q36_peak_bytes = live_before;
     const double started = now_ms();
     const int admitted = q36_gpu_attn_decode_tensor(out, qt, gt, kt, vt, scores,
@@ -220,6 +268,7 @@ static void attention_case_dim(uint32_t heads, uint32_t kv_heads,
     const double elapsed = now_ms() - started;
     const unsigned measured_commands = command_count, measured_locked = locked_waits;
     const unsigned measured_bounded = bounded_encoders, measured_span = max_key_span, measured_pairs = max_query_heads;
+    const unsigned measured_online = online_encoders;
     const uint64_t scratch_bytes = q36_peak_bytes - live_before;
     const NSUInteger measured_threadgroup_bytes = max_static_threadgroup_bytes;
     const double measured_gpu = command_gpu_ms, measured_max_gpu = max_command_gpu_ms;
@@ -231,7 +280,12 @@ static void attention_case_dim(uint32_t heads, uint32_t kv_heads,
     CHECK(admitted && completed);
     CHECK(measured_locked == 0);
     CHECK(q36_live_bytes == live_before);
-    CHECK(measured_threadgroup_bytes <= 4096u);
+    CHECK(measured_threadgroup_bytes <= (online_check ? 18464u : 4096u));
+    if (online_check && end > 1024) {
+        CHECK(measured_online > 0 && measured_span <= 512);
+        CHECK(scratch_bytes == 0); // Existing request scratch, no allocation.
+        CHECK((uint64_t)measured_pairs * end <= 8u * 1024u * 1024u);
+    }
     if (segmented_check && end > 1024) {
         CHECK(measured_bounded > 0 && measured_span <= 1024 && measured_pairs <= 8192);
         CHECK(scratch_bytes > 0 && scratch_bytes <= 65536);
@@ -250,7 +304,8 @@ static void attention_case_dim(uint32_t heads, uint32_t kv_heads,
     // command. Observe actual submission, not a source spelling or flag.
     if (tokens == 128 && pos0 >= 25000) CHECK(measured_commands > 1);
     bool exact = admitted && completed;
-    double max_uniform_error = 0;
+    double max_uniform_error = 0, max_scaled_error = 0, max_scalar_error = 0;
+    bool bit_exact = true;
     if (exact) {
         CHECK(q36_gpu_tensor_read(base, 0, got, (count + 2 * guard) * sizeof(float)));
         for (size_t i = 0; i < guard; i++) CHECK(got[i] == -913 && got[guard + count + i] == -913);
@@ -263,7 +318,8 @@ static void attention_case_dim(uint32_t heads, uint32_t kv_heads,
                 if (error > max_uniform_error) max_uniform_error = error;
                 // Analytic real-number result versus GPU FP32 reciprocal and
                 // multiply: allow eight FP32 epsilons, not bitwise real math.
-                // The GPU scheduling comparison below remains byte-exact.
+                // The original segmented path retains byte equality; online
+                // reductions instead use the explicit scaled error bound.
                 if (error > 8 * FLT_EPSILON) exact = false;
             }
         }
@@ -275,13 +331,30 @@ static void attention_case_dim(uint32_t heads, uint32_t kv_heads,
             int ok = reference_query(one, qv, gv, kt, vt, scores, pos0 + t, heads, kv_heads, dim, sink_map, sink_size);
             ok = ok && q36_gpu_tensor_read(one, 0, serial, row * sizeof(float));
             CHECK(ok);
-            if (!ok || memcmp(serial, got + guard + t * row, row * sizeof(float))) exact = false;
+            if (!ok) exact = false;
+            else if (memcmp(serial, got + guard + t * row, row * sizeof(float))) {
+                bit_exact = false;
+                if (!online_check) exact = false;
+                for (size_t i = 0; i < row; i++) {
+                    double error = fabs((double)serial[i] - got[guard + t * row + i]) / fmax(1.0, fabs(serial[i]));
+                    if (error > max_scaled_error) max_scaled_error = error;
+                    if (!isfinite(error) || error > 1e-3) exact = false;
+                }
+            }
             q36_gpu_tensor_free(qv); q36_gpu_tensor_free(gv);
+        }
+        if (online_check) {
+            max_scalar_error=scalar_error(q,g,k,v,got+guard,
+                with_sinks ? (float *)((char *)sink_map+64) : NULL,
+                heads,kv_heads,dim,pos0,tokens);
+            CHECK(max_scalar_error<=1e-3);
         }
     }
     CHECK(exact);
+    if (online_check) printf("{\"online\":true,\"position\":%u,\"tokens\":%u,\"maxScaledError\":%.9g,\"maxScalarError\":%.9g,\"errorBound\":0.001,\"bitExact\":%s,\"onlineEncoders\":%u}\n",
+        pos0, tokens, max_scaled_error, max_scalar_error, bit_exact ? "true" : "false", measured_online);
     printf("{\"heads\":%u,\"kvHeads\":%u,\"position\":%u,\"tokens\":%u,\"dim\":%u,"
-           "\"pattern\":%u,\"uniform\":%s,\"admitted\":%s,\"completed\":%s,\"exact\":%s,"
+           "\"pattern\":%u,\"uniform\":%s,\"admitted\":%s,\"completed\":%s,\"withinErrorBound\":%s,"
            "\"commandBuffers\":%u,\"waitsUnderLock\":%u,\"wallMs\":%.6f,"
            "\"gpuMs\":%.6f,\"maxCommandGpuMs\":%.6f,\"maxAnalyticError\":%.9g,"
            "\"waitWallMs\":%.6f,\"scoreMaximumGpuMs\":%.6f,\"weightsValuesGpuMs\":%.6f,"
@@ -366,6 +439,29 @@ static void attention_case_dim(uint32_t heads, uint32_t kv_heads,
             }
             free(after);
         }
+        if (online_check && pos0 == 1024 && pattern == 0) {
+            // Both encoder creation failures discard the unsubmitted candidate.
+            // No private scratch or output leaks into the next operation.
+            for (unsigned fail_at = 1; fail_at <= 2; fail_at++) {
+                encoder_calls = command_count = 0; encoder_fail_at = fail_at;
+                CHECK(!q36_gpu_attn_decode_tensor(out, qt, gt, kt, vt, scores,
+                    sink_map, sink_size, 64, with_sinks, pos0, tokens, heads, kv_heads, dim, 0, 0,
+                    (uint32_t)kvrow * 2, (uint32_t)kvrow * 2));
+                CHECK(encoder_calls == fail_at && q36_batch == nil && command_count == 0);
+                CHECK(q36_gpu_synchronize() && q36_live_bytes == live_before);
+            }
+            encoder_fail_at = 0;
+            CHECK(q36_gpu_attn_decode_tensor(out, qt, gt, kt, vt, scores,
+                sink_map, sink_size, 64, with_sinks, pos0, tokens, heads, kv_heads, dim, 0, 0,
+                (uint32_t)kvrow * 2, (uint32_t)kvrow * 2));
+            CHECK(q36_gpu_synchronize());
+            float *after = malloc((count + 2 * guard) * sizeof(float)); CHECK(after != NULL);
+            if (after) {
+                CHECK(q36_gpu_tensor_read(base, 0, after, (count + 2 * guard) * sizeof(float)));
+                CHECK(memcmp(after, got, (count + 2 * guard) * sizeof(float)) == 0);
+            }
+            free(after);
+        }
     }
     if (pos0 == 25344) {
         AttentionQueueProbe *queue = (AttentionQueueProbe *)q36_queue;
@@ -408,9 +504,10 @@ static void attention_case(uint32_t heads, uint32_t kv_heads,
 }
 
 int main(int argc, char **argv) {
+    online_check = argc == 2 && !strcmp(argv[1], "--online");
     isolated_encoders = argc == 2 && !strcmp(argv[1], "--profile-stages");
     segmented_check = isolated_encoders || (argc == 2 && !strcmp(argv[1], "--segmented"));
-    if (argc > 2 || (argc == 2 && !segmented_check)) return 2;
+    if (argc > 2 || (argc == 2 && !segmented_check && !online_check)) return 2;
     @autoreleasepool {
         if (!q36_gpu_init()) { fprintf(stderr, "Metal unavailable: NOT RUN\n"); return 2; }
         id<MTLCommandQueue> real = q36_queue;

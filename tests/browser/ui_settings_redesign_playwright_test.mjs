@@ -107,9 +107,9 @@ const ggufs = [
   },
 ];
 // Catalog fixtures only: no model download or inference is simulated as a pass.
-const qwenBase = 'Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf';
-for (const [file, size] of [[qwenBase, 73371680704], ['Qwen3.8-Flash-Next-PLE-Q4_1.gguf', 32000157440], ['Qwen3.8-Flash-Next-MTP.gguf', 74900000000]]) {
-  ggufs.push({ file, path: `gguf/${file}`, size, branch: 'qwen3.8-flash-next', engineDir: '/tmp/dstudio-settings/ds4-qwen38' });
+const qwenBase = 'Qwen3.8-Flash-Next-Q4.gguf';
+for (const [file, size] of [[qwenBase, 177280286720], ['Qwen3.8-Flash-Next-PLE-Q4_1.gguf', 32000157440], ['Qwen3.8-Flash-Next-MTP.gguf', 74900000000]]) {
+  ggufs.push({ file, path: `gguf/${file}`, size, branch: 'main', engineDir: '/tmp/dstudio-settings' });
 }
 
 const server = http.createServer(async (req, res) => {
@@ -167,7 +167,6 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/engine/checkouts') {
     const checkouts = [
       { name: 'ds4', branch: 'main', dir: '/tmp/dstudio-settings' },
-      { name: 'ds4-qwen38', branch: 'qwen3.8-flash-next', dir: '/tmp/dstudio-settings/ds4-qwen38' },
       ...(qwen35Setups ? [{ name: 'ds4-qwen35', branch: 'qwen35moe-support', dir: '/tmp/dstudio-settings/ds4-qwen35' }] : []),
     ];
     json(res, { ok: true, checkouts: checkouts.map(c => ({ ...c, hasServer: true, active: activeEngine === c.dir })) });
@@ -452,12 +451,18 @@ try {
   await switchPage.locator('.set-models .onboard__model.ready').filter({ hasText: qwenBase }).click();
   await switchPage.getByRole('button', { name: 'Load model', exact: true }).click();
   await assertLaunch(`gguf/${qwenBase}`, 'off', 1);
+  // Main's Qwen3.8 engine refuses GPU throttling: launch at full power while
+  // the saved 90% preference stays available for DeepSeek.
+  assert.equal(startBodies.at(-1).power, 100);
+  assert.equal(await switchPage.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).enginePower), 90);
   await switchPage.locator('#btn-settings').click();
   await switchPage.locator('#set-nav [data-pane="performance"]').click();
+  assert.equal(await switchPage.locator('#set-power').isDisabled(), true);
+  assert.equal(await switchPage.locator('#set-power').inputValue(), '100');
   await switchPage.waitForFunction(() => /SSD streaming running off/.test(document.querySelector('#set-memory-msg').textContent));
   assert.equal(await switchPage.locator('#set-ssd-streaming').inputValue(), 'off');
   assert.equal(await switchPage.locator('#set-ssd-streaming').isDisabled(), true);
-  assert.match(await switchPage.locator('#set-ssd-streaming-note').innerText(), /PLE.*SSD/);
+  assert.match(await switchPage.locator('#set-ssd-streaming-note').innerText(), /BF16 n-grams.*SSD/);
   const streamingNotice = switchPage.locator('#set-ssd-streaming-notice');
   assert.equal(await streamingNotice.isVisible(), true, 'blocked streaming must have a visible explanation');
   assert.equal(await switchPage.locator('#set-ssd-streaming-badge').innerText(), 'Unavailable for Qwen');
@@ -539,6 +544,9 @@ try {
   }
   await switchPage.waitForFunction(() => document.querySelector('#set-model-count').textContent.includes('installed'));
 
+  // A stale pre-upgrade host can still report the retired checkout. Exercise
+  // its repair to main, including delayed I/O, without adding it to the catalog.
+  activeEngine = '/tmp/dstudio-settings/ds4-qwen38';
   const catalogGate = gate();
   const checkoutGate = gate();
   let catalogEntered = false;
@@ -616,6 +624,7 @@ try {
   engineStatus = { running: true, ready: true, loadPct: 100, stage: 'Ready' };
 
   // Failed checkout must surface the actual error and submit no launch.
+  activeEngine = '/tmp/dstudio-settings/ds4-qwen38';
   checkoutError = 'Selected engine folder is unavailable';
   await cardFor(qwenBase).click();
   await switchPage.getByRole('button', { name: 'Load model', exact: true }).click();
@@ -636,7 +645,7 @@ try {
   await switchPage.locator('#loading-overlay').waitFor({ state: 'hidden', timeout: 6000 });
   startHandler = null;
   // A new Qwen family gets its own setup/download path and does not inherit
-  // Qwen3.8's PLE requirement or DeepSeek's saved expert streaming preference.
+  // Qwen3.8's native SSD n-grams or DeepSeek's saved expert streaming preference.
   await switchPage.locator('#btn-settings').click();
   const downloader = switchPage.locator('.set-models .onboard__dl');
   await downloader.getByRole('combobox').selectOption('qwen36-q6');
@@ -684,8 +693,8 @@ try {
     assert.equal(await switchPage.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).ssdStreaming), 'on');
   }
 
-  // A partially downloaded pair is resumable, but not offered as a usable model.
-  ggufs.splice(ggufs.findIndex((g) => g.file === 'Qwen3.8-Flash-Next-PLE-Q4_1.gguf'), 1);
+  // A missing main GGUF cannot be replaced by a preserved legacy PLE sidecar.
+  ggufs.splice(ggufs.findIndex((g) => g.file === qwenBase), 1);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('#btn-settings').click();
   await page.locator('#settings-dialog').waitFor({ state: 'visible' });

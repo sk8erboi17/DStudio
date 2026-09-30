@@ -1,4 +1,4 @@
-// Real relocated macOS app in headless mode + empty data + WebKit UI + network engine builds.
+// Real relocated macOS app + empty data + WebKit UI + offline engine builds.
 // Only the weight-download boundary is refused: no simulated setup responses.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -21,7 +21,7 @@ fs.mkdirSync(temp);
 assert.equal(fs.existsSync(data), false);
 const report = {
   schema: 'dstudio.first-launch.v1', started: new Date().toISOString(),
-  scope: 'Real bundled app binary in headless mode, empty profile, automated headless WebKit UI, real engine downloads/builds. Weight downloads refused before transfer; no model inference or native-window testing.',
+  scope: 'Real bundled app binary in headless mode, empty profile, automated headless WebKit UI, real bundled engine builds with external network denied by macOS sandbox. Weight downloads refused before transfer; no model inference or native-window testing.',
   results: [], requests: [], weightBoundaries: [], pageErrors: [],
 };
 const save = () => fs.writeFileSync(path.join(run, 'results.json'), JSON.stringify(report, null, 2) + '\n');
@@ -32,6 +32,7 @@ for (const key of ['DS4UI_TEST_MODE', 'DS4UI_NO_WINDOW', 'DS4UI_SKIP_LOADING',
   'DS4UI_DEFER_ENGINE_START', 'DS4_DIR', 'DS4UI_PORT']) delete env[key];
 env.DS4UI_NO_WINDOW = '1';
 env.DS4UI_DEFER_ENGINE_START = '1';
+const offlineProfile = '(version 1) (allow default) (deny network-outbound) (allow network-outbound (remote ip "localhost:*"))';
 let child, browser, page, sentinel;
 let childFinished;
 let serverPid;
@@ -58,16 +59,17 @@ async function step(name, fn) {
   finally { row.seconds = (performance.now()-t)/1000; save(); console.log(`${row.status}: ${name} (${row.seconds.toFixed(1)}s)`); }
 }
 const configs = {
-  main: { dir: 'ds4', endpoint: '/api/ds4/setup', commit: 'bd66c402070042bf0a79ad6ece8242de4c93680c' },
+  main: { dir: 'ds4', endpoint: '/api/ds4/setup', commit: '0aaea5a238fb41a35106a551e73c8409dfb751ac' },
   laguna: { dir: 'ds4-laguna-s21', endpoint: '/api/laguna/setup', target: 'laguna-q4', commit: '448d5695d1c86401a4e9447c440feb983b73e6de' },
-  qwen: { dir: 'ds4-qwen38', endpoint: '/api/qwen/setup', target: 'qwen38-q4k', commit: 'ff4f0ff4fdff70d6b7c3941ef437b91dde960e14' },
   qwen35: { dir: 'ds4-qwen35', endpoint: '/api/qwen35/setup', target: 'qwen36-q6', commit: '73434c4bb9d8bb18425a2577edada69d25d44c47' },
 };
 function verifyRuntime(id, response) {
   const cfg = configs[id], dir = path.join(data, cfg.dir);
   assert.equal(response.ok, true, JSON.stringify(response));
   assert.equal(response.built, true);
-  assert.equal(response.downloaded, true, 'must actually download into an absent checkout');
+  assert.equal(response.downloaded, false, 'engine sources must not be downloaded');
+  assert.equal(response.bundled, true);
+  assert.equal(response.sourcesInstalled, true, 'must copy verified sources into an absent checkout');
   let receipt = response;
   if (id.startsWith('qwen')) receipt = JSON.parse(fs.readFileSync(path.join(dir, '.dstudio-source.json'), 'utf8'));
   assert.equal(receipt.commit, cfg.commit);
@@ -81,6 +83,12 @@ function verifyRuntime(id, response) {
     assert.equal(r.error, undefined); assert.equal(r.status, 0, `${bin}: ${r.stderr}`);
     assert.match(r.stdout + r.stderr, /usage|options/i);
     runtime[bin] = { sha256: sha(executable), bytes: fs.statSync(executable).size };
+  }
+  if (id === 'qwen35') {
+    // The fork's MoE shader is corrected at install time, not at first launch.
+    const q6 = spawnSync('sh', [path.join(repo, 'scripts/apply-ds4-qwen35-q6k-moe.sh'), 'check'],
+      { env: { ...env, DS4_DIR: dir }, timeout: 20000, encoding: 'utf8' });
+    assert.equal(q6.stdout.trim(), 'Qwen3.6 Q6_K MoE patch: already applied', q6.stderr);
   }
   assert.deepEqual(fs.readdirSync(path.join(data,'ds4/gguf')), [], 'no weights or partial downloads');
   if (id !== 'main') assert.equal(fs.realpathSync(path.join(dir,'gguf')), path.join(data,'ds4/gguf'));
@@ -106,7 +114,7 @@ try {
   report.protectedListeners = protectedPids;
   const port = await freePort(); report.base = `http://127.0.0.1:${port}`;
   const fd = fs.openSync(path.join(run,'app.log'),'wx');
-  child = spawn(path.join(app,'Contents/MacOS/DStudio'), [String(port)], {
+  child = spawn('/usr/bin/sandbox-exec', ['-p', offlineProfile, path.join(app,'Contents/MacOS/DStudio'), String(port)], {
     cwd: '/', env, detached: true, stdio: ['ignore',fd,fd],
   });
   childFinished = new Promise(resolve => {
@@ -159,7 +167,7 @@ try {
     await page.screenshot({path:path.join(run,'01-first-launch.png'),fullPage:true});
     return { url:page.url(), noSavedBrowserState:true, setupSurface };
   });
-  await step('main: onboarding Install ds4 downloads, patches and compiles', async () => {
+  await step('main: onboarding Install ds4 copies bundled sources, patches and compiles', async () => {
     const response = page.waitForResponse(r => r.url().endsWith(configs.main.endpoint) && r.request().method() === 'POST', {timeout:1200000});
     const button = page.locator(setupSurface === 'onboarding' ? '#onboard-ds4dir-setup-btn' : '#ds4dir-setup');
     await button.click();
@@ -179,7 +187,27 @@ try {
     await page.screenshot({path:path.join(run,'03-main-installed.png'),fullPage:true});
     return evidence;
   });
-  for (const id of ['laguna','qwen','qwen35']) {
+  await step('Qwen Next Q2/Q4 reuse main without installing a separate engine', async () => {
+    for (const target of ['qwen38-q2', 'qwen38-q4k']) {
+      const modelHost = page.locator(setupSurface === 'onboarding' ? '#onboard-models' : '#set-models');
+      const boundary = page.waitForResponse(r => r.url().endsWith('/api/model/download') && r.request().method() === 'POST');
+      await modelHost.locator('select').selectOption(target);
+      await modelHost.getByRole('button', {name:'Download',exact:true}).click();
+      await page.locator('#confirm-go').click();
+      assert.equal((await boundary).status(), 409, 'real weight transfer is intentionally outside this install gate');
+      await modelHost.locator('select').waitFor({state:'visible'});
+      assert.equal(report.weightBoundaries.at(-1).body.target, target);
+      assert.equal((await json('/api/status')).ds4dir, path.join(data,'ds4'));
+      assert.equal(fs.existsSync(path.join(data,'ds4-qwen38')), false);
+    }
+    assert(!report.requests.some(r => r.url.endsWith('/api/qwen/setup')));
+    const tombstone = await fetch(report.base + '/api/qwen/setup', {method:'POST',
+      headers:{'Content-Type':'application/json','X-Requested-With':'ds4web'}, body:'{}'});
+    assert.equal(tombstone.status, 410);
+    assert.equal(fs.existsSync(path.join(data,'ds4-qwen38')), false);
+    return {legacyEndpoint:410, weightTransfers:'not run', mainSharedByBothQuantizations:true};
+  });
+  for (const id of ['laguna','qwen35']) {
     await step(`${id}: model choice installs the matching absent engine`, async () => {
       const cfg = configs[id];
       const modelHost = page.locator(setupSurface === 'onboarding' ? '#onboard-models' : '#set-models');
@@ -212,7 +240,30 @@ try {
     assert.equal(sha(path.join(app,'Contents/MacOS/DStudio')),report.appSha256);
     return catalog;
   });
-  await step('six native main adaptations reverse and reapply without source loss', async () => {
+  await step('q36 builds from bundled sources offline with no model or app restart', async () => {
+    const started = performance.now();
+    const result = spawnSync('/usr/bin/sandbox-exec', ['-p', offlineProfile,
+      path.join(app,'Contents/MacOS/DStudio'), '--install-engine', 'q36', data],
+      { cwd: '/', env, encoding: 'utf8', timeout: 900000, maxBuffer: 32 * 1024 * 1024 });
+    fs.writeFileSync(path.join(run,'q36-install.log'), (result.stdout || '') + (result.stderr || ''));
+    assert.equal(result.error, undefined); assert.equal(result.status, 0, result.stderr);
+    const output = (result.stdout || '').split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line));
+    const installed = output.find(row => row.ok && row.engine === 'q36');
+    assert(installed?.bundled && installed.sourcesInstalled && installed.downloaded === false);
+    assert.equal(installed.modelLoaded, false);
+    const tree = path.join(data,'q36');
+    const receipt = JSON.parse(fs.readFileSync(path.join(tree,'.dstudio-source.json'),'utf8'));
+    assert.equal(receipt.commit,'1305843c735380f912619548b121cba8601f2f85');
+    assert.equal(receipt.bundledSources.source,'bundled');
+    assert.equal(receipt.qualityValidated,false);
+    assert.equal(fs.realpathSync(path.join(tree,'gguf')),path.join(data,'ds4/gguf'));
+    assert.deepEqual(fs.readdirSync(path.join(data,'ds4/gguf')),[]);
+    const catalog = await json('/api/engine/checkouts');
+    assert(catalog.checkouts.some(entry => entry.dir === tree && entry.hasServer));
+    return {seconds:(performance.now()-started)/1000, receipt,
+      binaries:{q36:sha(path.join(tree,'q36')),server:sha(path.join(tree,'q36-server'))}};
+  });
+  await step('seven native main adaptations reverse and reapply without source loss', async () => {
     return nativePatchRoundtrip({ support: data, source: path.join(data, 'ds4'),
       scratch: path.join(run, 'patch-roundtrip'), environment: env });
   });

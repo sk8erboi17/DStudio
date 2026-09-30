@@ -11,6 +11,236 @@ campaign is paused. See the [plain-language WIP status](WORK_IN_PROGRESS.md).
 Dated entries below retain the evidence and limitations of each historical step;
 later fixes do not retroactively turn earlier failures into passes.
 
+## Scoped software corrections — September 30, 2026
+
+The operator requested the fixes and regression gates, reserving the complete
+quality-suite rerun. **No corpus, Learn inference, model download or quality
+evaluation has been launched in this correction slice.** Existing model scores
+and failed receipts remain unchanged. This resumes only the requested software
+work, not every acceptance item in the full plan.
+
+- **27B, q36 `1305843`:** the installed
+  [parallel F16 attention overlay](../patch/q36-f16-attention/README.md) now uses
+  bounded key tiles and FP32 online softmax. The original GPU shader remains the
+  differential oracle, with independent FP64 samples. All 18 Metal input cases
+  pass (708,420 checks); maximum scaled GPU error is 4.0676e-5 against the stated
+  1e-3 bound. All 18 lifecycle cases and 43 installer fixtures pass. A real
+  empty-root pinned-source download/build and repeated installation pass without
+  weights. This does not yet prove a real long prompt finishes within 900 seconds.
+- **3.6, vagrillo `73434c4`:** the
+  [64-token prefill overlay](../patch/ds4-qwen35-prefill/README.md) batches native
+  projection/MoE work and projects the vocabulary once per chunk. All ten real
+  Metal synthetic hybrid-session cases match original decode logits, recurrent
+  state and F16 KV byte for byte, with cancellation/resumption and 25 allocation
+  failures covered (`qwen35-prefill/run-JFqmqH`). The additional 64-query,
+  65,599-position synthetic KV fixture matches original attention byte for byte
+  across the command-work boundary. This is an operator fixture, not a long
+  model request. Native CLI/server/Agent builds and an empty-target network
+  install with an empty shared model-store prerequisite pass. The Q6_K/catalog
+  preparation-worker regression also passes; headers and
+  shaders invalidate the server through its actual Make graph.
+- **Host relay:** silence during prefill no longer terminates the socket after
+  600 seconds. Production socket tests cover 601 deterministic silent intervals,
+  exact fragmented/error/binary responses and client disconnect cancellation.
+  The caller's original request deadline is preserved.
+- **Next Learn investigation:** the retained 105,003-character reasoning run
+  launched with thinking off but the generator explicitly requested `max`.
+  The harness now accepts and records `DSTUDIO_REAL_ROADMAP_THINK_LEVEL=off`,
+  verified through real HTTP requests to a simulated engine. Its ordinary
+  default remains `max`, matching the product generation path. No new live run
+  has established whether the model loops under a genuinely non-thinking request.
+- **Diagnostic replay:** current `1305843` archive provenance and the complete
+  online/diagnostic patch stack round-trip in a private source copy. The old
+  `d02b6a20` diagnostic path remains available. The real retained replay is not run.
+- **Desktop DeepSeek preparation:** the installed September 14 app lacked the
+  current-main PLD overlay and rejected `ds4_server.c` before model loading.
+  A materialized-bundle preparation regression reproduces this failure with the
+  old app and passes with the updated app. Actual native preparation passes;
+  existing engine source changes are preserved. The installed app/support payload
+  were updated, with the prior bundle retained privately; no user app or engine
+  was stopped and no model was loaded for this check.
+
+Focused host/setup/dependency, Learn request, relay, common-quality grader,
+native parser/local-tool and macOS bundle checks pass. Model quality, Learn
+completion, the real 900-second long-context deadline and CUDA/Vulkan/Windows
+remain unqualified on the new engine overlays. Full release admission remains
+open. See [test entry points](../tests/README.md) for exact commands and prerequisites.
+
+Operator setup error retained: the first isolated Qwen3.6 install downloaded the
+pinned source but failed because its required shared model-store directory was
+absent. This is not an inference failure or a passing installation; the original
+log is kept and the corrected-prerequisite installation is verified separately.
+
+Commands for the focused correction gates (existing pinned sources/toolchains
+required; all run without model weights or inference):
+
+```sh
+make test-engine-setup-unit test-launch-preflight test-launch-dependencies
+make test-v1-relay test-roadmap-request test-common-quality-oracle
+make test-qwen35-q6k-moe QWEN35_DIR=ds4-qwen35
+make test-qwen35-prefill QWEN35_DIR=ds4-qwen35
+make test-qwen35-agent QWEN35_AGENT_TREE=ds4-qwen35
+make test-q36-f16-online Q36_SOURCE=/path/to/current/q36
+make test-q36-retained-diagnostic-inputs Q36_SOURCE=/path/to/current/q36
+python3 -B tests/integration/q36_install_test.py
+make test-engine-pins test-engine-upstream test-pld-build
+make test-macos-bundle
+```
+
+All pass within their declared native/synthetic/simulated scope. Real source
+installation additionally executed the compiled host's `--install-engine q36`
+and `--install-engine qwen35` commands on task-owned empty targets, with the
+pinned network archives; no weights were downloaded. Actual DeepSeek preparation
+also passed through the installed `.app`'s `--build-server-pld` command. The
+complete quality suite and broad real-model release gates remain **NOT RUN**.
+
+## Current progress — September 29, 2026
+
+Scope: complete the Qwen campaign for Qwen3.6-35B-A3B and Qwen3.8-27B on macOS
+(Qwen3.8-Flash-Next is tracked in [its migration report](QWEN_NEXT_MAIN_MIGRATION.md)).
+Engines were first rechecked against their remotes: vagrillo `qwen35moe-support`
+is still `73434c4`; Ninnix/q36 advanced from `8362010` to `1305843`.
+Changes to both engines are versioned `.patch` files on those latest commits.
+Claude reviews answers and saved artifacts as an external judge, recorded in
+`claude-judge.json` next to each receipt, separately from deterministic graders.
+
+### Qwen3.6: fused MoE kernels decoded Q6_K experts incorrectly
+
+A static review of both candidate engines found that the fork's fused MoE Metal
+kernels read the Q6_K low nibble with `(quarter & 1) * 4`, while ggml, the
+fork's CPU reference and its own dense Q6_K kernel use `(quarter >> 1) * 4`.
+The installed UD-Q6_K_XL file has Q6_K routed gate/up tensors in 39 of 40
+layers, so every decode token used the wrong low four bits for half of those
+expert weights (the two high bits were right).
+
+Test first: a probe runs the production kernels on synthetic blocks against an
+independent oracle that must also agree with the fork's dense kernel. The
+original source fails (2,785 of 4,608 gate/up outputs wrong; RED retained in
+`qwen35-moe-q6/run-CDOrsl`); the three-line [patch](../patch/ds4-qwen35-q6k-moe/README.md)
+passes (`run-Ue13RZ`, max relative error 4e-4). New installs apply it after the
+catalog patch; existing installs receive it in the launch-preparation worker,
+and a drifted shader fails closed. On the user's real installation the worker
+corrected the shader at 13:04:16, before the first engine start.
+
+Real Qwen3.6 host run with the corrected kernels (`qwen35-host-live/run-Vn7wkv`):
+Agent and Cowork **2/2**, including real generation interruption with the engine
+still ready and a later tool read. Both saved files are correct (judged). The
+workflows took 340 s and 492 s: the fork prefills one token at a time and
+computes full logits for each prompt token, which limits long prompts.
+
+### Qwen3.8-27B: q36 promoted to `1305843`
+
+The DStudio runtime was rebased (three resolved conflicts, see the
+[source review](upstream/q36-2026-09-29.json)); the monitor, owner and
+cache-usage patches are unchanged in content. The new upstream GPU ABI adds only
+a Vulkan entry point. Installer fixtures pass 43/43, including an in-place upgrade
+from `8362010`; the native Metal gate passes **42/42** (`q36-metal-runtime/run-H6zHD3`).
+`8362010` real-model receipts are historical and are not transferred.
+
+Real 27B results on `1305843` (upgraded installation, UD-Q6_K_XL with its
+projector, quality kernels and F16 K/V), one engine at a time:
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| In-place upgrade from the legacy pin, cache reuse | **8/8** | `q36-upgrade-live/run-5sHXPi` |
+| DStudio host: Chat, SSE, Agent repair, Cowork XLSX, four pixel-only tool images, Stop | **14/14** | `q36-host-live/run-5dJmsq` |
+| Native HTTP vision, including authenticated tool-only continuations on three APIs | **40/40** | `q36-http-vision-live/run-V2xlxC` |
+| Engine acceptance | **11/12** | `engine-acceptance/run-R3oozg` |
+
+Claude's review confirms the saved Agent fix (four regression cases hold) and the
+independently reopened Cowork workbook (Remaining = Capacity − Registered for
+every row). The acceptance failure is genuine: the code-execution case
+answers 10 instead of 16.
+
+### Qwen3.6: catalog missing after an in-place upgrade
+
+The first real acceptance run on the corrected kernels (`engine-acceptance/run-SHl91w`)
+showed that the installed server still advertised DeepSeek aliases: an in-place
+upgrade had rebuilt the engine without the DStudio catalog patch, so DStudio
+could not verify which model was loaded. Test first
+(`qwen35-moe-q6/run-E9Vqhd` RED): the launch-preparation worker now applies the
+catalog patch together with the Q6_K correction and rebuilds a stale
+`ds4-server` outside the HTTP loop; a drifted source fails closed. The executed
+worker test passes 6/6 (`run-sf4HEa`), including a full installation that lacked
+the catalog. The user's real installation was repaired by that worker at 16:42.
+
+Real Qwen3.6 results on the corrected kernels and catalog:
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Agent and Cowork through the host, with interruption | **2/2** | `qwen35-host-live/run-Vn7wkv` |
+| Reset while busy, cancelled reset, later tool call | **2/2** (Cowork 1,009 s) | `qwen35-host-live/run-b07Bep` |
+| Engine acceptance | **11/12**; catalog identity passes | `engine-acceptance/run-e7zLAt` |
+| Learn (five-source roadmap) | **FAIL**, case 1 of 5; cases 2–5 not run | `roadmap-quality-real/run-s7ce2T` |
+| Common-100, first exposure | **53/100** as frozen, **58/100** after the grader correction below; 12 not run | `engine-acceptance/run-HlZ6BT` |
+
+The acceptance failure is a real reasoning error (the code-execution case
+answers 26; the expected value is 16). The Learn run failed because the host
+relay closed the idle model socket after 600 seconds while the fork was still
+prefilling token by token; the timeout was not raised. Its first two attempts
+also cited placeholder sources, and the third attempt was acceptable to the
+judge. That is a failure, not a partial pass.
+
+The corpus run had no engine-restart supervision, so the first long-context case
+(`long_context-single-needle`, 900-second deadline during prefill) ended it; 88
+cases were executed. Claude's review (`run-HlZ6BT/claude-judge.json`): 53 answers
+correct; five valid patches rejected only by the grader defect below; 12
+substantively correct answers that break the requested format (fenced code,
+values wrapped in objects, patch hunks with wrong line counts), still failures;
+17 wrong answers (mostly arithmetic and logic); one request without an answer.
+Format-only verdicts are backed by re-executing the frozen vectors after
+removing only the formatting defect; one suspected format-only answer
+(`code-nested-lookup`) turned out to be wrong on a boolean index.
+
+### Grader correction: patch answers without a final newline
+
+`git apply` rejects a unified diff whose last line lacks its newline as
+"corrupt patch". In `run-HlZ6BT`, five correct Qwen3.6 patches failed only for
+that reason. Test first (`common-quality-oracle/run-xk7nyure` RED): the grader
+now restores exactly one final newline after the envelope check, while prose,
+fences, wrong paths and broken hunks remain rejected (`run-x5rtgwqo` GREEN; full
+`make test-common-quality-oracle` passes). The corpus identity changes from
+`b98a8980…` to `5727dcb4…`. Saved answers were regraded into separate
+directories without new inference; the originals are unchanged:
+
+| Run | Model | As frozen | After correction |
+| --- | --- | --- | --- |
+| `run-HlZ6BT` | Qwen3.6-35B-A3B | 53 | **58** (five debugging patches) |
+| `run-82sH0Q` | Qwen3.8-27B (q36 `d67687ed`) | 61 | 61 |
+| `run-04wsyc` | Qwen3.8-27B | 56 | 56 |
+| `run-pnsGev` (interval and newline corrections) | Qwen3.8-27B | 55 | 56 (interval only) |
+
+The 27B patches are unaffected: they re-indent `app.py` from four to two
+spaces, so their context does not match the file. With indentation restored,
+eight of ten fixes would pass, according to the judge's re-execution. They
+remain failures. Claude's review of `run-82sH0Q` is in its `claude-judge.json`:
+61 correct, 19 substantively correct with the wrong format, 12 wrong, eight
+long-context requests without an answer (Metal prefill errors and deadlines on
+that pin).
+
+### Operator errors in this session, retained
+
+- A launch-dependency regression of mine made DStudio reject the 27B Agent
+  launch with HTTP 409 ("Could not capture the launch dependencies"): the
+  Qwen3.6 patch inputs pushed the dense Agent over the bounded table
+  (`LAUNCH_DEP_MAX` 24). The real 27B host test caught it (6/14). A unit test
+  now executes the production capture on fixture trees (RED, then GREEN: dense
+  Agent 22/24, Qwen3.6 16, main 10), and the Qwen3.6 inputs are captured only
+  for that engine.
+- `q36-http-vision-live/run-Xp1KXG` (34/40) stopped itself because the
+  model-free `make test-q36-host` ran in parallel and spawned fake `q36-server`
+  peers, which the resource guard correctly treated as another engine. The
+  receipt stays FAIL; see its `INTERFERENCE.md`.
+- The 27B development replay `run-Al53jw` was stopped by the operator after 30
+  cases because it had been queued without restart supervision; its first 29
+  answers match the September 9 receipts case by case. It is excluded from
+  every denominator (see its `INTERRUPTED.md`).
+
+Pending in this campaign (recorded below as they finish), strictly one engine at
+a time: the 27B supervised 100-case replay on `1305843` and Learn; a Qwen3.6 corpus on a private copy with the original
+shader (Q6_K impact); a complete supervised Qwen3.6 corpus; the Qwen3.8-Flash-Next
+first-exposure corpus and Learn.
+
 ## Current progress — September 13, 2026
 
 ### DStudio replay and abrupt installer termination — 01:22 UTC

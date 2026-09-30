@@ -1,0 +1,116 @@
+#version 460
+#extension GL_ARB_gpu_shader_int64 : require
+
+/* Full-attention decode weighted V sum, the per-(head, dim) tail of
+ * q36_forward_full_attn() after the host computed the softmax: scores
+ * already hold expf(score - max), aux packs, per token, inv[n_head] (the
+ * 1/denominator) followed by sig[n_head * head_dim] (the sigmoid output
+ * gate), both produced with libm on the host so they are bit-equal to the
+ * CPU engine.  One invocation per (dim, head, tok); token tok reduces its
+ * causal n_kv = pos0 + tok + 1 keys from its scores region.
+ *
+ * The t-order accumulation emulates the CPU's fused multiply-add in fp64:
+ * the f32 product is exact in double, making mul+add a single f64 rounding
+ * that matches a fused fma except on vanishingly rare f32 ties. */
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Scores {
+    float w[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Vcache {
+    uint vc[];
+};
+
+layout(set = 0, binding = 2) readonly buffer Aux {
+    float aux[];
+};
+
+layout(set = 0, binding = 3) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint pos0;
+    uint n_head;
+    uint n_head_kv;
+    uint head_dim;
+    uint score_stride;
+    uint v_type;
+    uint v_row_bytes;
+} pc;
+
+uint load_v_u8(uint off) {
+    uint word = vc[off >> 2u];
+    return (word >> ((off & 3u) * 8u)) & 255u;
+}
+
+float load_v_f16(uint off) {
+    return unpackHalf2x16(load_v_u8(off) | (load_v_u8(off + 1u) << 8u)).x;
+}
+
+int i8(uint v) {
+    return v >= 128u ? int(v) - 256 : int(v);
+}
+
+float vc_at(uint tok, uint kvh, uint i) {
+    if (pc.v_type == 0u) {
+        uint idx = (tok * pc.v_row_bytes) / 2u + kvh * pc.head_dim + i;
+        uint word = vc[idx >> 1u];
+        vec2 pair = unpackHalf2x16(word);
+        return (idx & 1u) == 0u ? pair.x : pair.y;
+    }
+    uint block_bytes = pc.v_type == 1u ? 34u : 18u;
+    uint head_bytes = ((pc.head_dim + 31u) / 32u) * block_bytes;
+    uint base = tok * pc.v_row_bytes + kvh * head_bytes + (i / 32u) * block_bytes;
+    if (pc.v_type == 2u) {
+        uint j = i & 31u;
+        uint q = load_v_u8(base + 2u + (j & 15u));
+        q = j < 16u ? q & 15u : q >> 4u;
+        return load_v_f16(base) * float(int(q) - 8);
+    }
+    return load_v_f16(base) * float(i8(load_v_u8(base + 2u + (i & 31u))));
+}
+
+
+/* Correctly rounded f32 fused multiply-add.  The f32 product is exact in
+ * fp64; the sum is rounded to odd (Boldo-Melquiond) so the final f32
+ * conversion rounds exactly like a hardware fma.  Mesa does not reliably
+ * keep GLSL fma() fused, and a plain fp64 mul+add double-rounds on rare
+ * tie values, which is enough to break CPU parity. */
+float fma32(float a, float b, float c) {
+    double p = double(a) * double(b);
+    double s = p + double(c);
+    double bv = s - p;
+    double e = (p - (s - bv)) + (double(c) - bv);
+    if (e != 0.0LF) {
+        uint64_t bits = doubleBitsToUint64(s);
+        if ((bits & 1UL) == 0UL) {
+            if (s > 0.0LF) bits += (e > 0.0LF) ? 1UL : -1UL;
+            else if (s < 0.0LF) bits += (e < 0.0LF) ? 1UL : -1UL;
+            s = uint64BitsToDouble(bits);
+        }
+    }
+    return float(s);
+}
+
+void main(void) {
+    uint j = gl_GlobalInvocationID.x;
+    uint h = gl_GlobalInvocationID.y;
+    uint tok = gl_GlobalInvocationID.z;
+    uint n_kv = pc.pos0 + tok + 1u;
+    if (j >= pc.head_dim || h >= pc.n_head) return;
+
+    uint kvh = h / (pc.n_head / pc.n_head_kv);
+    uint sbase = tok * pc.score_stride + h * n_kv;
+    uint abase = tok * (pc.n_head + pc.n_head * pc.head_dim);
+
+    float acc = 0.0;
+    for (uint t = 0u; t < n_kv; t++) {
+        float v = vc_at(t, kvh, j);
+        acc = fma32(w[sbase + t], v, acc);
+    }
+    y[(tok * pc.n_head + h) * pc.head_dim + j] =
+        (acc * aux[abase + h]) * aux[abase + pc.n_head + h * pc.head_dim + j];
+}

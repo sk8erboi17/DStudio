@@ -50,7 +50,9 @@ let chrome;
 let chromeLog;
 try {
   const binaries = [];
-  for (const engine of ['ds4', 'ds4-laguna-s21', 'ds4-qwen38', 'ds4-qwen35']) {
+  const engines=(process.env.DSTUDIO_WEB_VISUAL_TREES || 'ds4,ds4-laguna-s21,ds4-qwen35').split(',');
+  assert(engines.length > 0 && engines.length <= 4, 'Supply one to four explicit source trees; the retired fork is optional historical coverage');
+  for (const engine of engines) {
     const sourcePath = path.join(root, engine, 'ds4_web.c');
     const original = fs.readFileSync(sourcePath);
     const directory = path.join(work, engine); fs.mkdirSync(directory);
@@ -80,7 +82,7 @@ try {
     assert.notEqual(spawnSync(patcher, [drift, patched]).status, 0);
     assert.deepEqual(fs.readFileSync(patched), first);
   }
-  receipt.checks.push('four actual sources compile; repeated preparation, partial/drift rejection, source preservation');
+  receipt.checks.push(`${engines.length} actual sources compile; repeated preparation, partial/drift rejection, source preservation`);
   const chromePath = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   assert.ok(fs.existsSync(chromePath), 'Chrome missing; this test is not a pass without an actual browser');
   const port = await freePort();
@@ -139,7 +141,7 @@ try {
   assert.deepEqual(pageIds(finalTabs), pageIds(initialTabs));
   receipt.checks.push('no image for plain text; actual pixels of a below-the-fold graphic; final tab cleanup');
   receipt.status = 'pass';
-  console.log(`web_visual_browser: four compiled engine sources, real JPEG colors, text, bounds and tab cleanup passed. Receipts: ${path.relative(root, work)}`);
+  console.log(`web_visual_browser: ${engines.length} compiled engine sources, real JPEG colors, text, bounds and tab cleanup passed. Receipts: ${path.relative(root, work)}`);
 } catch (error) {
   receipt.status = 'fail'; receipt.error = error.stack; throw error;
 } finally {

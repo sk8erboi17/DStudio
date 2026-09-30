@@ -1,0 +1,58 @@
+#version 460
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Conv { float conv[]; };
+layout(set = 0, binding = 1) writeonly buffer QOut { float qout[]; };
+layout(set = 0, binding = 2) writeonly buffer KOut { float kout[]; };
+layout(set = 0, binding = 3) writeonly buffer VOut { float vout[]; };
+
+layout(push_constant) uniform Push {
+    uint n_heads;
+    uint n_groups;
+    uint state_dim;
+    uint conv_stride;
+    uint n_tok;
+    float eps;
+} pc;
+
+shared float sh_q[128];
+shared float sh_k[128];
+shared double sh_sq_q[64];
+shared double sh_sq_k[64];
+
+void main(void) {
+    uint lid = gl_LocalInvocationID.x;
+    uint h = gl_WorkGroupID.x;
+    uint tok = gl_WorkGroupID.y;
+    if (h >= pc.n_heads || tok >= pc.n_tok) return;
+    uint g = h % pc.n_groups;
+    uint conv_base = tok * pc.conv_stride;
+    uint q_base = (tok * pc.n_heads + h) * pc.state_dim;
+    double sq_q = 0.0;
+    double sq_k = 0.0;
+    for (uint i = lid; i < pc.state_dim; i += 64u) {
+        float qv = conv[conv_base + g * pc.state_dim + i];
+        float kv = conv[conv_base + (pc.n_groups + g) * pc.state_dim + i];
+        sh_q[i] = qv;
+        sh_k[i] = kv;
+        sq_q += double(qv) * double(qv);
+        sq_k += double(kv) * double(kv);
+        vout[q_base + i] = conv[conv_base + 2u * pc.n_groups * pc.state_dim + h * pc.state_dim + i];
+    }
+    sh_sq_q[lid] = sq_q;
+    sh_sq_k[lid] = sq_k;
+    barrier();
+    for (uint s = 32u; s > 0u; s >>= 1u) {
+        if (lid < s) {
+            sh_sq_q[lid] += sh_sq_q[lid + s];
+            sh_sq_k[lid] += sh_sq_k[lid + s];
+        }
+        barrier();
+    }
+    float scale_q = 1.0f / max(sqrt(float(sh_sq_q[0])), pc.eps);
+    float scale_k = 1.0f / max(sqrt(float(sh_sq_k[0])), pc.eps);
+    for (uint i = lid; i < pc.state_dim; i += 64u) {
+        qout[q_base + i] = sh_q[i] * scale_q;
+        kout[q_base + i] = sh_k[i] * scale_k;
+    }
+}

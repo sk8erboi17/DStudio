@@ -1,0 +1,52 @@
+#version 460
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Alpha {
+    float alpha[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Beta {
+    float beta[];
+};
+
+layout(set = 0, binding = 2) readonly buffer Dt {
+    float dt[];
+};
+
+layout(set = 0, binding = 3) readonly buffer ACoef {
+    float av[];
+};
+
+layout(set = 0, binding = 4) writeonly buffer Output {
+    float gb[];
+};
+
+layout(push_constant) uniform Push {
+    uint n_heads;
+    uint n_tok;
+} pc;
+
+float sigmoid_stable(float x) {
+    if (x >= 0.0f) {
+        float z = exp(-x);
+        return 1.0f / (1.0f + z);
+    }
+    float z = exp(x);
+    return z / (1.0f + z);
+}
+
+float softplus(float x) {
+    if (x > 20.0f) return x;
+    return log(1.0f + exp(x));
+}
+
+void main(void) {
+    uint h = gl_GlobalInvocationID.x;
+    uint tok = gl_WorkGroupID.y;
+    if (h >= pc.n_heads || tok >= pc.n_tok) return;
+    float a = alpha[tok * pc.n_heads + h];
+    float b = beta[tok * pc.n_heads + h];
+    gb[tok * (pc.n_heads * 2u) + h] = exp(softplus(a + dt[h]) * av[h]);
+    gb[tok * (pc.n_heads * 2u) + pc.n_heads + h] = sigmoid_stable(b);
+}

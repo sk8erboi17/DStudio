@@ -101,9 +101,16 @@ assert.equal(actionLimited.budget.reads, 13);
 assert.equal(actionLimited.judge.decision, 'incomplete');
 assert.match(actionLimited.stopReason, /action budget/);
 
-s = state('research'); now = 1000;
-assert.equal(tools.researchAdmissionOpen(s), false);
-const before = reads;
-await tools.readUrlsIntoState(s, ['https://not-admitted.test'], s.deadline);
-assert.equal(reads, before, 'Expired admission must not start another page');
-console.log('research_budget: real orchestration with simulated evidence, bounded queries/pages/sources/actions, honest partial results, timeout and cancellation passed');
+// Slow classification, extraction and judging consume real work but must not
+// spend a hidden elapsed-time budget before the count ceilings are reached.
+now = 0;
+reply = async () => {
+  now += 2 * 60 * 60 * 1000;
+  return JSON.stringify({ facts: [{ fact: 'A verified sentence.', excerpt: 'A verified sentence.' }] });
+};
+const slow = await tools.runResearchPipeline('Slow unresolved research', { model: 'simulated' }, { mode: 'research' });
+assert.equal(slow.budget.actions, 12);
+assert.equal(slow.budget.reads, 13);
+assert.match(slow.stopReason, /action budget/);
+assert.ok(slow.facts.length > 0);
+console.log('research_budget: simulated evidence, bounded queries/pages/sources/actions, slow discovery, explicit test deadline and Stop passed');

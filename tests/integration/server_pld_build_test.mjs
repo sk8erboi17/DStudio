@@ -11,9 +11,13 @@ const checkout=path.join(root,'engine with spaces');
 const bin=path.join(root,'bin');
 const report={scope:'Production Chat PLD builder; simulated compiler and source fixture, no inference',
   started:new Date().toISOString(),builds:[],passed:false};
+const latest=process.argv.includes('--latest');
+const bundleProfile=process.argv.includes('--bundle-profile');
+report.sourceVariant=latest?'main-latest':'main-current';
+report.bundledSupport=bundleProfile;
 // Preimages are fixture plumbing for the real transformer/builder. Exact native
 // output on the pinned sources has its independent runtime-patch-migration gate.
-const preimages=fs.readFileSync('patch/ds4-server-pld/main-current.patch','utf8')
+const preimages=fs.readFileSync(`patch/ds4-server-pld/${report.sourceVariant}.patch`,'utf8')
   .split(/\n@@[^\n]*\n/).slice(1).map(hunk=>hunk.split('\n')
     .filter(line=>line[0]===' '||line[0]==='-').map(line=>line.slice(1)).join('\n')+'\n');
 try {
@@ -59,8 +63,9 @@ fs.writeFileSync(target,'derived test binary',{mode:0o755});
 `,{mode:0o755});
   const run=(extra={})=>{
     const r=spawnSync(launcher,['--build-server-pld',checkout],{
-      encoding:'utf8',timeout:30000,maxBuffer:2*1024*1024,
-      env:{...process.env,PATH:`${bin}:${process.env.PATH}`,...extra}});
+      cwd:bundleProfile?'/':process.cwd(),encoding:'utf8',timeout:30000,maxBuffer:2*1024*1024,
+      env:{...process.env,PATH:`${bin}:${process.env.PATH}`,
+        ...(bundleProfile?{DS4UI_DATA_DIR:path.join(root,'materialized support')}:{}),...extra}});
     report.builds.push({extra,code:r.status,signal:r.signal,stdout:r.stdout,stderr:r.stderr,error:r.error?.message});
     writeArtifact(root,'results.json',report);return r;
   };

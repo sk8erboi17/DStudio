@@ -1,3 +1,4 @@
 name=ds4-web-runtime
-version=1
+version=2
+patch=browser-main.patch
 patch=browser.patch

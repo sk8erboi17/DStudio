@@ -25,13 +25,24 @@ try {
   };
   const first=invoke(binary,['--engine-pins']);assert.equal(first.status,0,first.stderr);
   const pins=JSON.parse(first.stdout);assert.equal(pins.schema,'dstudio.engine-pins.v1');
-  const repositories={main:'antirez/ds4',laguna:'antirez/ds4',qwen:'ivanfioravanti/ds4-metal',qwen35:'vagrillo/ds4',q36:'Ninnix/q36'};
+  const repositories={main:'antirez/ds4',laguna:'antirez/ds4',qwen35:'vagrillo/ds4',q36:'Ninnix/q36'};
   assert.deepEqual(pins.engines.map(e=>e.id).sort(),Object.keys(repositories).sort());
+  assert.equal(pins.engines.find(e=>e.id==='main').commit,'0aaea5a238fb41a35106a551e73c8409dfb751ac');
+  assert(!pins.engines.some(e=>e.directory==='ds4-qwen38'),'retired Qwen Next engine must not be installable');
   assert.equal(new Set(pins.engines.map(e=>e.directory)).size,pins.engines.length);
   for(const engine of pins.engines) {
     assert.match(engine.commit,/^[a-f0-9]{40}$/);
     assert.equal(engine.archiveURL,`https://codeload.github.com/${repositories[engine.id]}/tar.gz/${engine.commit}`);
     assert.equal(path.basename(engine.directory),engine.directory);
+    assert.equal(engine.bundled,true);
+    assert.equal(engine.sourceDirectory,`src/engines/${engine.directory}`);
+  }
+  const sources=JSON.parse(fs.readFileSync('src/engines/manifest.json','utf8'));
+  for(const engine of pins.engines) {
+    const shipped=sources.engines[engine.id];
+    assert.equal(shipped.commit,engine.commit);
+    assert.equal(shipped.directory,engine.directory);
+    assert.equal(shipped.historical,false);
   }
   report.cases.push({name:'Complete installer identities without creating a profile or using PATH helpers',passed:true});
   const repeat=invoke(binary,['--engine-pins']);assert.equal(repeat.status,0);

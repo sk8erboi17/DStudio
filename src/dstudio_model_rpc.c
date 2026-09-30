@@ -15,7 +15,6 @@
 #define MODEL_RPC_WIRE_MAX (6u * MODEL_RPC_BODY_MAX + 4u)
 #define MODEL_RPC_FRAME_MAX (16u * 1024u * 1024u)
 #define MODEL_RPC_PASS_BYTES (64u * 1024u)
-#define MODEL_RPC_DEADLINE_MS (1800LL * 1000)
 
 typedef struct {
     int id, runtime_fd, saved_flags, flags_changed;
@@ -27,7 +26,7 @@ typedef struct {
 #ifdef _WIN32
     HANDLE worker_job;
 #endif
-    long long deadline, stop_deadline, delivery_deadline;
+    long long stop_deadline, delivery_deadline;
     char *body;
     size_t body_len, body_sent;
     /* Encoded native requests are forwarded as bounded chunks, not assembled
@@ -450,7 +449,6 @@ static model_rpc_relay *model_rpc_new_relay(int id, char *body) {
     j->worker = j->input = j->output = -1;
     j->body = body;
     j->body_len = body ? strnlen(body, MODEL_RPC_BODY_MAX + 1) : 0;
-    j->deadline = model_rpc_now_ms() + MODEL_RPC_DEADLINE_MS;
     return j;
 }
 
@@ -554,8 +552,6 @@ static void model_rpc_tick(void) {
         cstr_copy(g_engine_err, sizeof g_engine_err, reason);
         return;
     }
-    if (!j->canceled && !j->have_final && model_rpc_now_ms() >= j->deadline)
-        model_rpc_relay_fail(j, "Model request exceeded its 30 minute deadline");
     if (j->stopping && j->worker > 0) {
         if (j->stop_deadline && model_rpc_now_ms() >= j->stop_deadline) {
 #ifdef _WIN32

@@ -111,6 +111,9 @@ try {
   page.on('console', message => { if (message.type() === 'error') report.consoleErrors.push(message.text()); });
   await page.addInitScript(({ origin }) => {
     if (window.top !== window || location.origin !== origin) return;
+    const wallNow = Date.now.bind(Date); let elapsed = 0;
+    Date.now = () => wallNow() + elapsed;
+    window.advanceWorkClock = milliseconds => { elapsed += milliseconds; };
     window.ds4PickDirectory = async ({ mode }) => `/fixture/${mode}`;
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({ v: 2, onboarded: true, theme: 'dark',
       model: 'deepseek-v4-flash', modelVariant: 'flash', thinkLevel: 'high', ctxSize: 65536,
@@ -177,6 +180,12 @@ try {
     row.taskId = await startAgent();
     finishPreparation();
     await page.getByText('Loading fixture', { exact: true }).first().waitFor();
+    const seen = statusReads;
+    await page.evaluate(() => window.advanceWorkClock(4 * 60 * 60 * 1000));
+    await until(() => statusReads > seen + 2, 'slow loading stopped polling native status');
+    assert.equal(await overlay.isVisible(), true, 'slow loading must remain visible');
+    assert.equal(await cancel.isVisible(), true, 'Cancel remains available after four simulated hours');
+    assert.equal(await page.getByText(/Loading timeout/).count(), 0);
     await cancel.click(); await overlay.waitFor({ state: 'hidden' });
     assert.equal(tasks.get(row.taskId).status, 'canceled');
     assert.deepEqual(cancels().at(-1).body, { taskId: row.taskId });

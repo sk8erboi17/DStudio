@@ -1,6 +1,6 @@
 // Explicit, sequential live development checks. Actual Qwen weights and native
 // DStudio Agent/Cowork tools, not held-out quality or desktop qualification.
-// --qwen35 uses the existing Qwen3.6 fork without Qwen3.8's PLE or power flags.
+// --qwen35 uses the existing Qwen3.6 fork; Qwen Next uses unified main.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,8 +14,8 @@ const root = path.resolve(import.meta.dirname, '../..');
 assert.equal(process.platform,'darwin','This live runner currently qualifies Metal only');
 const qwen35=process.argv.includes('--qwen35');
 const inputs=process.argv.slice(2).filter(arg=>arg!=='--qwen35');
-assert.equal(inputs.length,qwen35?2:3,'Supply candidate + model GGUF (+ PLE GGUF for Qwen3.8), optionally --qwen35');
-const [engine,model,ple] = inputs.map(file=>fs.realpathSync(file));
+assert.equal(inputs.length,2,'Supply candidate + model GGUF, optionally --qwen35');
+const [engine,model] = inputs.map(file=>fs.realpathSync(file));
 const host = path.join(root,'tests/.build/agent-build-probe');
 const run = artifactRunDir(qwen35?'qwen35-agent-live':'qwen38-agent-live');
 const hash = data=>crypto.createHash('sha256').update(data).digest('hex');
@@ -26,10 +26,10 @@ const identity = file=>{
 const report = {started:new Date().toISOString(), scope:'Two live development tool workflows; not held-out quality or host/UI admission',
   revision:ownGitRevision(engine), engine, family:qwen35?'Qwen3.6-35B-A3B':'Qwen3.8-Flash-Next',
   engineSource:Object.fromEntries(['ds4_agent.c','ds4.c','ds4.h'].map(file=>[file,hash(fs.readFileSync(path.join(engine,file)))])),
-  weights:[identity(model),...(ple?[identity(ple)]:[])],
+  weights:[identity(model)],
   host:{path:host,sha256:hash(fs.readFileSync(host))},
   memory:qwen35?'resident model weights; no PLE or expert streaming, MTP or DSpark':
-    'resident backbone plus native SSD-backed PLE; no expert streaming, MTP or DSpark',
+    'resident backbone plus embedded BF16 n-grams on SSD; no expert streaming, MTP or DSpark',
   settings:{backend:'Metal',context:16384,prefillChunk:512,maxTokensPerModelRound:1024,temperature:0,seed:42,
     thinking:'off',maxToolCalls:12,timeoutSecondsPerWorkflow:600,streamLimitBytes:3*1024*1024},
   cases:[],passed:false};
@@ -100,7 +100,7 @@ try{
    ? 'Read tasks.json in this workspace. Create ready.json as a JSON object with exactly two fields: ids (numeric IDs of the ready items, sorted ascending) and totalMinutes (sum of minutes for ready items only). Derive values from the file; do not change tasks.json. Use read and write/edit file tools, not bash or network. Reopen ready.json with a tool to verify it, then give a brief final summary.'
    : 'Read tasks.json using read_document. Create dispatch.md using write_document. Its content must have exactly two lines: "Ready: " followed by the numeric IDs of ready items sorted ascending, separated by comma and space; and "Minutes: " followed by their total minutes. Derive values from the file; do not change tasks.json. Reopen dispatch.md using read_document to verify it, then give a brief final summary. Do not use shell or network.';
   const binary=path.join(engine,mode==='agent'?'ds4-agent-jsonl':'ds4-cowork');
-  const args=['--non-interactive','--jsonl','--metal','-m',model,...(ple?['--ple',ple]:[]),'-c','16384','-n','1024',
+  const args=['--non-interactive','--jsonl','--metal','-m',model,'-c','16384','-n','1024',
    '--temp','0','--seed','42','--nothink','--prefill-chunk','512','--chdir',workspace,'-p',prompt];
   if(mode==='cowork')args.push('-sys',fs.readFileSync(path.join(root,'extension/cowork/COWORK.md'),'utf8'));
   const row={mode,directory,workspace,prompt,binary:{path:binary,sha256:hash(fs.readFileSync(binary))},
@@ -124,7 +124,7 @@ try{
   }catch(e){row.error=String(e.stack);console.error(row.error);}
   save();console.log(`${mode}: ${row.passed?'PASS':'FAIL'} (${row.seconds?.toFixed(2)||'?'} s)`);
  }
- assert.deepEqual([identity(model),...(ple?[identity(ple)]:[])],report.weights,'Weight identity changed during the run');
+ assert.deepEqual([identity(model)],report.weights,'Weight identity changed during the run');
  report.passed=report.cases.length===2&&report.cases.every(row=>row.passed);
 }catch(e){report.error=String(e.stack);console.error(report.error);}
 finally{report.finished=new Date().toISOString();save();console.log(`Preserved real Qwen tool evidence: ${run}`);}

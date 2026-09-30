@@ -55,8 +55,12 @@ int main(void) {
     assert(!model_is_flash()); /* Never reuse V4's memory or DSpark estimates. */
     assert(model_file_is_auxiliary("Qwen3.8-Flash-Next-PLE-Q4_1.gguf"));
     assert(model_file_is_auxiliary("Qwen3.8-Flash-Next-Q4KImatrix-MTP.gguf"));
-    assert(!model_file_is_supported(MODEL_QWEN_PLE));
+    assert(!model_file_is_supported("gguf/Qwen3.8-Flash-Next-PLE-Q4_1.gguf"));
     assert(model_file_is_supported(MODEL_QWEN));
+    assert(model_file_is_supported(MODEL_QWEN_Q2));
+    assert(setup_engine_source("main") && !setup_engine_source("qwen"));
+    assert(model_file_is_legacy_qwen38(MODEL_LEGACY_QWEN));
+    assert(!model_file_is_legacy_qwen38(MODEL_QWEN));
     /* The dense checkpoint has its own route; the projector is never a Chat
      * model. Other quantizations still require their own qualification. */
     assert(model_file_is_auxiliary("Qwen3.8-27B-mmproj-F16.gguf"));
@@ -80,6 +84,18 @@ int main(void) {
     cfg.ssd_streaming = SSD_STREAMING_OFF;
     assert(model_ssd_streaming(&cfg, 0, MODEL_DS41_Q2, 0, reason, sizeof reason, err, sizeof err) == 0);
     assert(strstr(reason, "Engram") && strstr(reason, "disk-backed"));
+    /* Main's Qwen3.8 path refuses GPU throttling when the engine opens. The
+     * default 90% must be rejected before a working model is stopped. */
+    cfg.power = ENGINE_DEFAULTS.power;
+    assert(cfg.power != 100);
+    const char *throttled = native_launch_preflight(&cfg, ENGINE_SERVER, MODEL_QWEN, 0, 0, err, sizeof err);
+    assert(throttled && !strcmp(throttled, "unsupported_power"));
+    assert(strstr(err, "Qwen Next") && strstr(err, "100%") && cfg.power == ENGINE_DEFAULTS.power && g_child <= 0);
+    throttled = native_launch_preflight(&cfg, ENGINE_AGENT, MODEL_QWEN, 0, 0, err, sizeof err);
+    assert(throttled && !strcmp(throttled, "unsupported_power"));
+    cfg.power = 100;
+    const char *full_power = native_launch_preflight(&cfg, ENGINE_SERVER, MODEL_QWEN, 0, 0, err, sizeof err);
+    assert(!full_power || strcmp(full_power, "unsupported_power"));
 #endif
     // Execute the native preflight for every model named by the UI notice.
     const char *streaming_models[] = { MODEL_FLASH, MODEL_DSVISION_Q2, MODEL_GLM53_Q2, MODEL_PRO };
@@ -107,7 +123,7 @@ int main(void) {
     cfg.ssd_streaming = SSD_STREAMING_OFF;
     assert(cfg_ssd_streaming(&cfg, 0, err, sizeof err));
     assert(!g_ssd_streaming_effective && !err[0]);
-    assert(strstr(g_ssd_streaming_reason, "PLE stays SSD-backed"));
+    assert(strstr(g_ssd_streaming_reason, "BF16 n-grams stay on SSD inside the GGUF"));
     g_dspark_enabled = 1;
     int requested_dspark = 1;
     assert(normalize_flash_memory_request(&cfg, 0, MODEL_QWEN, &requested_dspark, 0, reason, sizeof reason, NULL, NULL));

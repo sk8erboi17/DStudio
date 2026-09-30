@@ -1,0 +1,38 @@
+#version 460
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Cache {
+    float cachev[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Current {
+    float cur[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Window {
+    float win[];
+};
+
+layout(push_constant) uniform Push {
+    uint conv_dim;
+    uint hist;
+    uint n_tok;
+} pc;
+
+void main(void) {
+    uint c = gl_GlobalInvocationID.x;
+    if (c >= pc.conv_dim) return;
+    for (uint t = 0u; t < pc.n_tok; t++) {
+        uint wbase = t * (pc.hist + 1u) * pc.conv_dim;
+        uint cbase = t * pc.conv_dim;
+        for (uint i = 0u; i < pc.hist; i++) {
+            win[wbase + i * pc.conv_dim + c] = cachev[i * pc.conv_dim + c];
+        }
+        win[wbase + pc.hist * pc.conv_dim + c] = cur[cbase + c];
+        for (uint i = 0u; i + 1u < pc.hist; i++) {
+            cachev[i * pc.conv_dim + c] = cachev[(i + 1u) * pc.conv_dim + c];
+        }
+        cachev[(pc.hist - 1u) * pc.conv_dim + c] = cur[cbase + c];
+    }
+}

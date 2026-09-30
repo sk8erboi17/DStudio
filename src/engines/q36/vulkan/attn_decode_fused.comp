@@ -1,0 +1,414 @@
+#version 460
+
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_clustered : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+
+/* Fused full-attention pass: scores, online softmax with optional sinks,
+ * weighted V sum, and sigmoid output gating in one dispatch, replacing the
+ * attn_scores/attn_post/attn_reduce chain in fast mode.  One workgroup per
+ * (head, token); thread j owns output dim j and streams the causal
+ * n_kv = pos0 + tok + 1 keys in 64-key tiles, rescaling the accumulator
+ * when the running max moves (flash-attention style).  The V accumulation
+ * walks four keys per step so each thread keeps four independent cache
+ * loads in flight; the adds stay in t order, one per key.
+ *
+ * Staging K/V tiles through shared memory was tried and regressed both
+ * decode and prefill on RADV GFX1013: the 33KB tile cut occupancy to one
+ * workgroup per CU and the extra barriers serialized staging against
+ * compute.  Keep cache reads direct.
+ *
+ * The per-token arithmetic order depends only on n_kv and the tile size,
+ * never on n_tok, so a token produces bit-identical output whether it
+ * arrives in a prefill chunk, a chunk tail, or a decode step (the
+ * warm==cold session-sync invariant).  Scores use f32 subgroup-clustered
+ * dots; parity with the CPU engine is the fast-path gate (same_top1), the
+ * bit-exact fp64 chain remains available under --quality. */
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Qbuf {
+    float q[];
+};
+
+layout(set = 0, binding = 1) readonly buffer QG {
+    float qg[];
+};
+
+layout(set = 0, binding = 2) readonly buffer Kcache {
+    uint kc[];
+};
+
+layout(set = 0, binding = 3) readonly buffer Vcache {
+    uint vc[];
+};
+
+layout(set = 0, binding = 4) readonly buffer Sinks {
+    float sinks[];
+};
+
+layout(set = 0, binding = 5) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint pos0;
+    uint n_head;
+    uint n_head_kv;
+    uint head_dim;
+    uint qg_stride;
+    uint has_sinks;
+    uint k_type;
+    uint v_type;
+    uint k_row_bytes;
+    uint v_row_bytes;
+} pc;
+
+#define TILE 64u
+
+shared float sh_q[256];
+shared float sh_w[TILE];
+
+uint load_k_u8(uint off) {
+    uint word = kc[off >> 2u];
+    return (word >> ((off & 3u) * 8u)) & 255u;
+}
+
+uint load_v_u8(uint off) {
+    uint word = vc[off >> 2u];
+    return (word >> ((off & 3u) * 8u)) & 255u;
+}
+
+float load_k_f16(uint off) {
+    return unpackHalf2x16(load_k_u8(off) | (load_k_u8(off + 1u) << 8u)).x;
+}
+
+float load_v_f16(uint off) {
+    return unpackHalf2x16(load_v_u8(off) | (load_v_u8(off + 1u) << 8u)).x;
+}
+
+int i8(uint v) {
+    return v >= 128u ? int(v) - 256 : int(v);
+}
+
+float kc_at(uint tok, uint kvh, uint i) {
+    if (pc.k_type == 0u) {
+        return load_k_f16(tok * pc.k_row_bytes + (kvh * pc.head_dim + i) * 2u);
+    }
+    uint block_bytes = pc.k_type == 1u ? 34u : 18u;
+    uint head_bytes = ((pc.head_dim + 31u) / 32u) * block_bytes;
+    uint base = tok * pc.k_row_bytes + kvh * head_bytes + (i / 32u) * block_bytes;
+    if (pc.k_type == 2u) {
+        uint j = i & 31u;
+        uint q = load_k_u8(base + 2u + (j & 15u));
+        q = j < 16u ? q & 15u : q >> 4u;
+        return load_k_f16(base) * float(int(q) - 8);
+    }
+    return load_k_f16(base) * float(i8(load_k_u8(base + 2u + (i & 31u))));
+}
+
+float vc_at(uint tok, uint kvh, uint i) {
+    if (pc.v_type == 0u) {
+        uint idx = (tok * pc.v_row_bytes) / 2u + kvh * pc.head_dim + i;
+        uint word = vc[idx >> 1u];
+        vec2 pair = unpackHalf2x16(word);
+        return (idx & 1u) == 0u ? pair.x : pair.y;
+    }
+    uint block_bytes = pc.v_type == 1u ? 34u : 18u;
+    uint head_bytes = ((pc.head_dim + 31u) / 32u) * block_bytes;
+    uint base = tok * pc.v_row_bytes + kvh * head_bytes + (i / 32u) * block_bytes;
+    if (pc.v_type == 2u) {
+        uint j = i & 31u;
+        uint q = load_v_u8(base + 2u + (j & 15u));
+        q = j < 16u ? q & 15u : q >> 4u;
+        return load_v_f16(base) * float(int(q) - 8);
+    }
+    return load_v_f16(base) * float(i8(load_v_u8(base + 2u + (i & 31u))));
+}
+
+float vc_f16_at(uint idx) {
+    uint word = vc[idx >> 1u];
+    vec2 pair = unpackHalf2x16(word);
+    return (idx & 1u) == 0u ? pair.x : pair.y;
+}
+
+/* Two 34-byte q8_0 blocks pair into a word-aligned 68-byte stripe: d0 in
+ * the first word's low half, d1 in the ninth word's high half, qs bytes
+ * shifting out of consecutive words. One call covers 64 dims of one key. */
+float k_q8_dot_pair(uint b, uint p) {
+    uint wi = b >> 2u;
+    uint prev = kc[wi];
+    float d0 = unpackHalf2x16(prev).x;
+    float s0 = 0.0;
+    for (uint k = 0u; k < 8u; k++) {
+        uint next = kc[wi + 1u + k];
+        uint sw = (prev >> 16u) | (next << 16u);
+        prev = next;
+        uint qi = p * 64u + 4u * k;
+        s0 += dot(vec4(unpack8(int(sw))),
+                  vec4(sh_q[qi], sh_q[qi + 1u], sh_q[qi + 2u], sh_q[qi + 3u]));
+    }
+    float d1 = unpackHalf2x16(prev).y;
+    float s1 = 0.0;
+    for (uint k = 0u; k < 8u; k++) {
+        uint qi = p * 64u + 32u + 4u * k;
+        s1 += dot(vec4(unpack8(int(kc[wi + 9u + k]))),
+                  vec4(sh_q[qi], sh_q[qi + 1u], sh_q[qi + 2u], sh_q[qi + 3u]));
+    }
+    return d0 * s0 + d1 * s1;
+}
+
+float v_q4(uint t, uint vblk, uint vqo, uint vsh) {
+    uint b = t * pc.v_row_bytes + vblk;
+    uint dw = vc[b >> 2u];
+    float d = unpackHalf2x16((b & 2u) == 0u ? dw : (dw >> 16u)).x;
+    uint qb = b + vqo;
+    uint qv = (vc[qb >> 2u] >> (((qb & 3u) * 8u) + vsh)) & 15u;
+    return d * float(int(qv) - 8);
+}
+
+void main(void) {
+    uint tid = gl_LocalInvocationID.x;
+    uint h = gl_WorkGroupID.x;
+    uint tok = gl_WorkGroupID.y;
+    uint n_kv = pc.pos0 + tok + 1u;
+    uint kvh = h / (pc.n_head / pc.n_head_kv);
+    uint half_dim = pc.head_dim >> 1;
+    float scale = 1.0 / sqrt(float(pc.head_dim));
+
+    if (pc.k_type == 0u && pc.v_type == 0u) {
+        uint vrow = pc.n_head_kv * pc.head_dim;
+        if (tid < pc.head_dim) sh_q[tid] = q[(tok * pc.n_head + h) * pc.head_dim + tid];
+        barrier();
+
+        float m = pc.has_sinks != 0u ? sinks[h] : -3.402823466e38;
+        float l = 0.0;
+        float acc = 0.0;
+
+        for (uint base = 0u; base < n_kv; base += TILE) {
+            uint tile_n = min(TILE, n_kv - base);
+            uint key = base + (tid >> 2);
+            uint quad = tid & 3u;
+            float dot = 0.0;
+            if ((tid >> 2) < tile_n) {
+                uint kbase = (key * pc.n_head_kv + kvh) * half_dim;
+                for (uint w = quad; w < half_dim; w += 4u) {
+                    vec2 kp = unpackHalf2x16(kc[kbase + w]);
+                    dot += sh_q[2u * w] * kp.x + sh_q[2u * w + 1u] * kp.y;
+                }
+            }
+            dot = subgroupClusteredAdd(dot, 4u);
+            if (quad == 0u && (tid >> 2) < tile_n) sh_w[tid >> 2] = dot * scale;
+            barrier();
+
+            float tmax = -3.402823466e38;
+            for (uint t = 0u; t < tile_n; t++) tmax = max(tmax, sh_w[t]);
+            float nm = max(m, tmax);
+            float r = exp(m - nm);
+            l *= r;
+            acc *= r;
+            barrier();
+            if (tid < tile_n) sh_w[tid] = exp(sh_w[tid] - nm);
+            barrier();
+
+            uint vbase = base * vrow + kvh * pc.head_dim + tid;
+            uint t = 0u;
+            if (tid < pc.head_dim) {
+                for (; t + 4u <= tile_n; t += 4u) {
+                    float w0 = sh_w[t];
+                    float w1 = sh_w[t + 1u];
+                    float w2 = sh_w[t + 2u];
+                    float w3 = sh_w[t + 3u];
+                    float v0 = vc_f16_at(vbase + t * vrow);
+                    float v1 = vc_f16_at(vbase + (t + 1u) * vrow);
+                    float v2 = vc_f16_at(vbase + (t + 2u) * vrow);
+                    float v3 = vc_f16_at(vbase + (t + 3u) * vrow);
+                    l += w0; acc += w0 * v0;
+                    l += w1; acc += w1 * v1;
+                    l += w2; acc += w2 * v2;
+                    l += w3; acc += w3 * v3;
+                }
+                for (; t < tile_n; t++) {
+                    float w = sh_w[t];
+                    l += w;
+                    acc += w * vc_f16_at(vbase + t * vrow);
+                }
+            } else {
+                for (; t < tile_n; t++) l += sh_w[t];
+            }
+            m = nm;
+            barrier();
+        }
+
+        if (pc.has_sinks != 0u) l += exp(sinks[h] - m);
+        float inv = l > 0.0 ? 1.0 / l : 1.0;
+        if (tid < pc.head_dim) {
+            float g = qg[tok * pc.qg_stride + h * (pc.head_dim * 2u) + pc.head_dim + tid];
+            y[(tok * pc.n_head + h) * pc.head_dim + tid] =
+                (acc * inv) * (1.0 / (1.0 + exp(-g)));
+        }
+        return;
+    }
+
+    /* Default resident cache mix: q8_0 keys, q4_0 values.  Word-wide qs
+     * loads with the block scale factored out of the lane sum replace the
+     * per-element byte extraction of the generic path below. */
+    if (pc.k_type == 1u && pc.v_type == 2u && (pc.head_dim & 63u) == 0u) {
+        uint pairs = pc.head_dim >> 6u;
+        uint k_head_bytes = (pc.head_dim >> 5u) * 34u;
+        uint v_head_bytes = (pc.head_dim >> 5u) * 18u;
+        uint vblk = kvh * v_head_bytes + (tid >> 5u) * 18u;
+        uint vqo = 2u + (tid & 15u);
+        uint vsh = (tid & 31u) < 16u ? 0u : 4u;
+        if (tid < pc.head_dim) sh_q[tid] = q[(tok * pc.n_head + h) * pc.head_dim + tid];
+        barrier();
+
+        float m = pc.has_sinks != 0u ? sinks[h] : -3.402823466e38;
+        float l = 0.0;
+        float acc = 0.0;
+
+        for (uint base = 0u; base < n_kv; base += TILE) {
+            uint tile_n = min(TILE, n_kv - base);
+            uint key = base + (tid >> 2);
+            uint quad = tid & 3u;
+            float dot = 0.0;
+            if ((tid >> 2) < tile_n) {
+                uint kb = key * pc.k_row_bytes + kvh * k_head_bytes;
+                for (uint p = quad; p < pairs; p += 4u) dot += k_q8_dot_pair(kb + p * 68u, p);
+            }
+            dot = subgroupClusteredAdd(dot, 4u);
+            if (quad == 0u && (tid >> 2) < tile_n) sh_w[tid >> 2] = dot * scale;
+            barrier();
+
+            float tmax = -3.402823466e38;
+            for (uint t = 0u; t < tile_n; t++) tmax = max(tmax, sh_w[t]);
+            float nm = max(m, tmax);
+            float r = exp(m - nm);
+            l *= r;
+            acc *= r;
+            barrier();
+            if (tid < tile_n) sh_w[tid] = exp(sh_w[tid] - nm);
+            barrier();
+
+            uint t = 0u;
+            if (tid < pc.head_dim) {
+                for (; t + 4u <= tile_n; t += 4u) {
+                    float w0 = sh_w[t];
+                    float w1 = sh_w[t + 1u];
+                    float w2 = sh_w[t + 2u];
+                    float w3 = sh_w[t + 3u];
+                    float v0 = v_q4(base + t, vblk, vqo, vsh);
+                    float v1 = v_q4(base + t + 1u, vblk, vqo, vsh);
+                    float v2 = v_q4(base + t + 2u, vblk, vqo, vsh);
+                    float v3 = v_q4(base + t + 3u, vblk, vqo, vsh);
+                    l += w0; acc += w0 * v0;
+                    l += w1; acc += w1 * v1;
+                    l += w2; acc += w2 * v2;
+                    l += w3; acc += w3 * v3;
+                }
+                for (; t < tile_n; t++) {
+                    float w = sh_w[t];
+                    l += w;
+                    acc += w * v_q4(base + t, vblk, vqo, vsh);
+                }
+            } else {
+                for (; t < tile_n; t++) l += sh_w[t];
+            }
+            m = nm;
+            barrier();
+        }
+
+        if (pc.has_sinks != 0u) l += exp(sinks[h] - m);
+        float inv = l > 0.0 ? 1.0 / l : 1.0;
+        if (tid < pc.head_dim) {
+            float g = qg[tok * pc.qg_stride + h * (pc.head_dim * 2u) + pc.head_dim + tid];
+            y[(tok * pc.n_head + h) * pc.head_dim + tid] =
+                (acc * inv) * (1.0 / (1.0 + exp(-g)));
+        }
+        return;
+    }
+
+    if (tid < pc.head_dim) sh_q[tid] = q[(tok * pc.n_head + h) * pc.head_dim + tid];
+    barrier();
+
+    float m = pc.has_sinks != 0u ? sinks[h] : -3.402823466e38;
+    float l = 0.0;
+    float acc = 0.0;
+
+    for (uint base = 0u; base < n_kv; base += TILE) {
+        uint tile_n = min(TILE, n_kv - base);
+
+        /* Scores: one quad per key, each lane a strided quarter of the
+         * cache dot, combined with a clustered add.  Lanes past the causal
+         * tail contribute zero so cluster control flow stays uniform. */
+        uint key = base + (tid >> 2);
+        uint quad = tid & 3u;
+        float dot = 0.0;
+        if ((tid >> 2) < tile_n) {
+            for (uint w = quad; w < half_dim; w += 4u) {
+                vec2 kp;
+                if (pc.k_type == 0u) {
+                    uint off = key * pc.k_row_bytes + (kvh * pc.head_dim + 2u * w) * 2u;
+                    kp = unpackHalf2x16(kc[off >> 2u]);
+                } else {
+                    kp = vec2(kc_at(key, kvh, 2u * w), kc_at(key, kvh, 2u * w + 1u));
+                }
+                dot += sh_q[2u * w] * kp.x + sh_q[2u * w + 1u] * kp.y;
+            }
+        }
+        dot = subgroupClusteredAdd(dot, 4u);
+        if (quad == 0u && (tid >> 2) < tile_n) sh_w[tid >> 2] = dot * scale;
+        barrier();
+
+        /* Online softmax update, executed redundantly by every thread so
+         * l stays a single fixed-order f32 sequence per token. */
+        float tmax = -3.402823466e38;
+        for (uint t = 0u; t < tile_n; t++) tmax = max(tmax, sh_w[t]);
+        float nm = max(m, tmax);
+        float r = exp(m - nm);
+        l *= r;
+        acc *= r;
+        barrier();
+        if (tid < tile_n) sh_w[tid] = exp(sh_w[tid] - nm);
+        barrier();
+
+        uint t = 0u;
+        if (tid < pc.head_dim) {
+            for (; t + 4u <= tile_n; t += 4u) {
+                float w0 = sh_w[t];
+                float w1 = sh_w[t + 1u];
+                float w2 = sh_w[t + 2u];
+                float w3 = sh_w[t + 3u];
+                float v0 = vc_at(base + t, kvh, tid);
+                float v1 = vc_at(base + t + 1u, kvh, tid);
+                float v2 = vc_at(base + t + 2u, kvh, tid);
+                float v3 = vc_at(base + t + 3u, kvh, tid);
+                l += w0;
+                acc += w0 * v0;
+                l += w1;
+                acc += w1 * v1;
+                l += w2;
+                acc += w2 * v2;
+                l += w3;
+                acc += w3 * v3;
+            }
+            for (; t < tile_n; t++) {
+                float w = sh_w[t];
+                l += w;
+                acc += w * vc_at(base + t, kvh, tid);
+            }
+        } else {
+            for (; t < tile_n; t++) l += sh_w[t];
+        }
+        m = nm;
+        barrier();
+    }
+
+    if (pc.has_sinks != 0u) l += exp(sinks[h] - m);
+    float inv = l > 0.0 ? 1.0 / l : 1.0;
+    if (tid < pc.head_dim) {
+        float g = qg[tok * pc.qg_stride + h * (pc.head_dim * 2u) + pc.head_dim + tid];
+        y[(tok * pc.n_head + h) * pc.head_dim + tid] =
+            (acc * inv) * (1.0 / (1.0 + exp(-g)));
+    }
+}

@@ -2,9 +2,18 @@
  * Tiny controlled files replace weights: this does not validate inference. */
 #define _GNU_SOURCE
 #include <assert.h>
+#include <sys/socket.h>
+/* This argv fixture launches no listener. Isolate the external-engine probe
+ * from the user's listening endpoints; port guards have separate coverage. */
+static int fixture_connect(int, const struct sockaddr *, socklen_t);
+#define connect fixture_connect
 #define main dstudio_embedded_main_for_tests
 #include "../../src/dstudio.c"
 #undef main
+#undef connect
+static int fixture_connect(int fd, const struct sockaddr *addr, socklen_t size) {
+    (void)fd;(void)addr;(void)size;errno=ECONNREFUSED;return -1;
+}
 
 #ifdef __APPLE__
 static void qwen35_session_commands(void) {

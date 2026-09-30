@@ -1,4 +1,4 @@
-/* CLI and optional-Qwen setup use the same archive installer/build helpers as
+/* CLI and optional-Qwen setup use the same bundled-source installer/build helpers as
  * first-run setup. No model loading, listeners or unrelated process shutdown. */
 typedef struct {
     const char *id, *name, *url, *commit;
@@ -9,7 +9,6 @@ typedef struct {
 static const engine_install_source engine_install_sources[] = {
     {"main", "ds4", DS4_ARCHIVE_URL, DS4_UPSTREAM_COMMIT},
     {"laguna", DS4_LAGUNA_DIR_NAME, DS4_LAGUNA_ARCHIVE_URL, DS4_LAGUNA_UPSTREAM_COMMIT},
-    {"qwen", DS4_QWEN_DIR_NAME, DS4_QWEN_ARCHIVE_URL, DS4_QWEN_UPSTREAM_COMMIT},
     {"qwen35", DS4_QWEN35_DIR_NAME, DS4_QWEN35_ARCHIVE_URL, DS4_QWEN35_UPSTREAM_COMMIT},
     {"q36", Q36_DIR_NAME, Q36_ARCHIVE_URL, Q36_UPSTREAM_COMMIT}
 };
@@ -26,8 +25,8 @@ static int setup_engine_pins_cli(int argc) {
     for (size_t i = 0; i < sizeof engine_install_sources / sizeof engine_install_sources[0]; i++) {
         const engine_install_source *s = &engine_install_sources[i];
         /* All fields are compile-time installer constants, not external text. */
-        printf("%s{\"id\":\"%s\",\"directory\":\"%s\",\"commit\":\"%s\",\"archiveURL\":\"%s\"}",
-               i ? "," : "", s->id, s->name, s->commit, s->url);
+        printf("%s{\"id\":\"%s\",\"directory\":\"%s\",\"commit\":\"%s\",\"archiveURL\":\"%s\",\"bundled\":true,\"sourceDirectory\":\"src/engines/%s\"}",
+               i ? "," : "", s->id, s->name, s->commit, s->url, s->name);
     }
     printf("]}\n");
     return ferror(stdout) ? 1 : 0;
@@ -38,13 +37,13 @@ static int setup_install_engine(const char *engine, const char *root,
                                 char *err, size_t errsz) {
     const engine_install_source *source = setup_engine_source(engine);
     if (!source) { snprintf(err, errsz, "unknown engine: %s", engine ? engine : "(null)"); return 0; }
-    int qwen = !strcmp(engine, "qwen") || !strcmp(engine, "qwen35");
+    int qwen = !strcmp(engine, "qwen35");
     struct stat root_st;
     if (!root || strlen(root) >= sizeof g_web_dir ||
         stat(root, &root_st) != 0 || !S_ISDIR(root_st.st_mode)) {
         snprintf(err, errsz, "installation root must be an existing directory with a supported path length"); return 0;
     }
-    const char *name = source->name, *url = source->url, *commit = source->commit;
+    const char *name = source->name, *commit = source->commit;
     if (!strcmp(engine, "q36")) {
 #ifdef _WIN32
         snprintf(err, errsz, "q36 currently requires Apple Silicon Metal or Linux Vulkan"); return 0;
@@ -82,9 +81,9 @@ static int setup_install_engine(const char *engine, const char *root,
         if (lstat(target, &after) || !S_ISDIR(after.st_mode)) {
             snprintf(err, errsz, "q36 installation disappeared after verification"); return 0;
         }
-        /* A successful upgrade also downloads/builds a candidate. The Python
+        /* A successful upgrade also copies/builds a bundled candidate. The Python
          * helper publishes a new directory inode atomically; same-inode reuse
-         * is verification only, not another download. */
+         * is verification only, not another source installation. */
         *downloaded = absent || before.st_dev != after.st_dev || before.st_ino != after.st_ino;
         printf("%s", output);
         return 1;
@@ -107,15 +106,10 @@ static int setup_install_engine(const char *engine, const char *root,
                 snprintf(err, errsz, "target contains local data, refusing to replace: %.900s", target); return 0;
             }
         }
-        printf("install-engine: downloading %s at %s\n", engine, commit);
-        if (!setup_download_ds4_archive(url, commit, target, log_tail, sizeof log_tail, err, errsz)) return 0;
+        printf("install-engine: copying bundled %s at %s\n", engine, commit);
+        if (!setup_install_bundled_sources(engine, commit, target, log_tail, sizeof log_tail, err, errsz)) return 0;
         *downloaded = 1;
-        char receipt[DSTUDIO_PATH_MAX + 32], data[512];
-        snprintf(receipt, sizeof receipt, "%s/.dstudio-source.json", target);
-        snprintf(data, sizeof data, "{\"engine\":\"%s\",\"commit\":\"%s\",\"url\":\"%s\"}\n", engine, commit, url);
-        if (!jsonl_write_file(receipt, data, strlen(data))) {
-            snprintf(err, errsz, "could not write source download receipt"); return 0;
-        }
+
     }
     /* Model paths are resolved against the installation root, independently of
      * the patch/assets root. Never relocate or duplicate existing model data. */
@@ -133,28 +127,14 @@ static int setup_install_engine(const char *engine, const char *root,
     }
     printf("install-engine: building %s (no model loaded)\n", engine);
     if (qwen) {
-        if (!strcmp(engine, "qwen") &&
-            !run_ext_script_for_dir("scripts/apply-ds4-qwen38-inspect.sh", "apply", target)) {
-            snprintf(err, errsz, "Qwen3.8 PLE inspection patch did not apply; source changes preserved");
-            return 0;
-        }
-        if (!strcmp(engine, "qwen") &&
-            !run_ext_script_for_dir("scripts/apply-ds4-qwen38-prepare.sh", "apply", target)) {
-            snprintf(err, errsz, "Qwen3.8 candidate-preparation patch did not apply; source changes preserved");
-            return 0;
-        }
-        if (!strcmp(engine, "qwen") &&
-            !run_ext_script_for_dir("scripts/apply-ds4-qwen38-snapshot.sh", "apply", target)) {
-            snprintf(err, errsz, "Qwen3.8 snapshot-allocation patch did not apply; source changes preserved");
-            return 0;
-        }
         if (!strcmp(engine, "qwen35") &&
             !run_ext_script_for_dir("scripts/apply-ds4-qwen35-catalog.sh", "apply", target)) {
             snprintf(err, errsz, "Qwen3.6 model-catalog patch did not apply; source changes preserved");
             return 0;
         }
-        /* Both forks retain their own inference semantics. Their structured
-         * Agent/Cowork patches are built separately in launch preparation. */
+        if (!strcmp(engine, "qwen35") && !setup_apply_qwen35_runtime_patches(target, err, errsz)) return 0;
+        /* Qwen3.6 retains its own inference semantics. Its structured
+         * Agent/Cowork patch is built separately in launch preparation. */
         char *args[] = {"make", "-j2", "-C", target, "ds4", "ds4-server", "ds4-agent", NULL};
         int rc = setup_run_cmd_capture(NULL, args, log_tail, sizeof log_tail);
         if (rc) { snprintf(err, errsz, "Qwen native build failed (%d): %.7000s", rc, log_tail); return 0; }
@@ -165,7 +145,7 @@ static int setup_install_engine(const char *engine, const char *root,
 
 static int setup_engine_cli(int argc, char **argv) {
     if (argc < 3 || argc > 4) {
-        fprintf(stderr, "usage: %s --install-engine main|laguna|qwen|qwen35|q36 [existing-install-root]\n", argv[0]); return 2;
+        fprintf(stderr, "usage: %s --install-engine main|laguna|qwen35|q36 [existing-install-root]\n", argv[0]); return 2;
     }
     resolve_web_dir();
     char root[DSTUDIO_PATH_MAX], target[DSTUDIO_PATH_MAX], err[8600] = "";
@@ -177,7 +157,7 @@ static int setup_engine_cli(int argc, char **argv) {
     /* The CLI has no interactive owner to block. In the app, this additional
      * build belongs to the existing asynchronous launch preparation worker,
      * not the synchronous optional-engine HTTP installer. */
-    if (ok && (!strcmp(argv[2], "qwen") || !strcmp(argv[2], "qwen35"))) {
+    if (ok && !strcmp(argv[2], "qwen35")) {
         cstr_copy(g_ds4_dir, sizeof g_ds4_dir, target);
         ok = run_build_jsonl("build");
         if (!ok)
@@ -185,20 +165,13 @@ static int setup_engine_cli(int argc, char **argv) {
                      g_engine_err[0] ? ": " : "", g_engine_err[0] ? g_engine_err : "");
     }
     if (!ok) fprintf(stderr, "install-engine: FAILED: %s\n", err);
-    else printf("install-engine: OK engine=%s downloaded=%d path=%s\n", argv[2], downloaded, target);
+    else printf("install-engine: OK engine=%s bundled=1 sourcesInstalled=%d path=%s\n", argv[2], downloaded, target);
     return ok ? 0 : 1;
 }
 
 static void api_setup_qwen(int fd) {
-    resolve_web_dir();
-    char target[DSTUDIO_PATH_MAX], err[8600] = ""; int downloaded = 0;
-    int ok = setup_install_engine("qwen", g_web_dir, target, sizeof target, &downloaded, err, sizeof err);
-    json_dyn_buf b = {0};
-    json_dyn_printf(&b, "{\"ok\":%s,\"downloaded\":%s,\"built\":%s,\"capability\":\"chat-agent-cowork\",\"error\":",
-                    ok ? "true" : "false", downloaded ? "true" : "false", ok ? "true" : "false");
-    json_dyn_put_escaped(&b, err); json_dyn_puts(&b, "}");
-    send_json(fd, ok ? "200 OK" : "409 Conflict", b.ptr ? b.ptr : "{\"ok\":false}");
-    free(b.ptr);
+    /* A stale client must never reinstall the retired checkout. */
+    send_json(fd, "410 Gone", "{\"ok\":false,\"engine\":\"main\",\"error\":\"Qwen Next is included in ds4 main. Update DStudio and download the single-file Qwen Next Q2 or Q4 model from Settings > Models.\"}");
 }
 
 static void api_setup_qwen35(int fd) {
@@ -215,7 +188,7 @@ static void api_setup_qwen35(int fd) {
     }
     int ok = setup_install_engine("qwen35", root, target, sizeof target, &downloaded, err, sizeof err);
     json_dyn_buf b = {0};
-    json_dyn_printf(&b, "{\"ok\":%s,\"downloaded\":%s,\"built\":%s,\"capability\":\"chat-agent-cowork\",\"error\":",
+    json_dyn_printf(&b, "{\"ok\":%s,\"downloaded\":false,\"bundled\":true,\"sourcesInstalled\":%s,\"built\":%s,\"capability\":\"chat-agent-cowork\",\"error\":",
                     ok ? "true" : "false", downloaded ? "true" : "false", ok ? "true" : "false");
     json_dyn_put_escaped(&b, err); json_dyn_puts(&b, "}");
     send_json(fd, ok ? "200 OK" : "409 Conflict", b.ptr ? b.ptr : "{\"ok\":false}");

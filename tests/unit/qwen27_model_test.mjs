@@ -168,12 +168,17 @@ await check('only the exact 27B quantization with its own projector is selectabl
   assert.equal(c.ggufIsUsableModel(part, [model, part]), false);
   assert.equal(c.ggufIsEngineComponent(part), true);
 });
-await check('27B projector and Flash-Next PLE cannot satisfy each other', () => {
+await check('legacy Next base/PLE cannot replace the single-file main model or the 27B projector', () => {
   const {context: c} = harness();
   const flash = item('Qwen3.8-Flash-Next-Q4KImatrixExperts.gguf', '/fixture/qwen38');
   const ple = item('Qwen3.8-Flash-Next-PLE-Q4_1.gguf', flash.engineDir);
   assert.equal(c.ggufIsUsableModel(flash, [flash, item(projector, flash.engineDir)]), false);
-  assert.equal(c.ggufIsUsableModel(flash, [flash, ple]), true);
+  assert.equal(c.ggufIsUsableModel(flash, [flash, ple]), false);
+  for (const quant of ['Q2', 'Q4']) {
+    const current = item(`Qwen3.8-Flash-Next-${quant}.gguf`, '/fixture/ds4');
+    assert.equal(c.ggufIsUsableModel(current, [current]), true);
+    assert.equal(c.ggufIsUsableModel({...current, engineDir: '/fixture/ds4-qwen38'}, [current]), false);
+  }
   assert.equal(c.ggufIsUsableModel(item(file), [item(file), item(ple.file)]), false);
   assert.equal(c.modelIdForEngineStatus({modelFile: flash.path}), 'qwen3.8-flash-next');
 });

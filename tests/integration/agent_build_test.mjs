@@ -17,8 +17,11 @@ for (const p of [assets, engine, tools]) fs.mkdirSync(p);
 fs.cpSync('patch', path.join(assets, 'patch'), { recursive: true });
 for (const p of ['extension/remote', 'extension/cowork', 'scripts'])
   fs.mkdirSync(path.join(assets, p), { recursive: true });
-for (const script of ['apply-ds4-glm53-m2max.sh', 'apply-ds4-vision-streaming.sh'])
-  fs.writeFileSync(path.join(assets, 'scripts', script), '#!/bin/sh\nexit 0\n');
+for (const script of [
+  'apply-ds4-glm53-m2max.sh',
+  'apply-ds4-vision-streaming.sh',
+  'apply-ds4-qwen38-prepare.sh',
+]) fs.writeFileSync(path.join(assets, 'scripts', script), '#!/bin/sh\nexit 0\n');
 for (const file of ['ds4_agent.c', 'ds4_web.c']) fs.copyFileSync(path.join('ds4', file), path.join(engine, file));
 for (const file of ['ds4.c', 'ds4.h', 'Makefile']) fs.writeFileSync(path.join(engine, file), '// builder fixture\n');
 for (const file of ['ds4-agent-jsonl', 'ds4-cowork'])

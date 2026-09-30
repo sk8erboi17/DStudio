@@ -16,7 +16,9 @@ const qwen = {model: 'qwen3.8-flash-next', modelGguf: 'gguf/Qwen3.8-Flash-Next.g
 const defer = () => {let resolve; const promise = new Promise(r => {resolve = r;}); return {promise, resolve};};
 function harness(initial, settings = qwen, launch = null, beforeStatus = null) {
   let live = structuredClone(initial), starts = [], polls = 0;
-  const context = vm.createContext({Promise, DOMException, JSON, Number, String, Math, Date,
+  let elapsed = 0;
+  class WorkDate extends Date { static now() { return Date.now() + elapsed; } }
+  const context = vm.createContext({Promise, DOMException, JSON, Number, String, Math, Date: WorkDate,
     setTimeout: fn => setTimeout(fn, 0), clearTimeout,
     chatReadyFlight: null, chatReadyContext: null, chatReadyKey: null,
     switching: false, launchTarget: '', isLanClientMode: () => false,
@@ -35,6 +37,7 @@ function harness(initial, settings = qwen, launch = null, beforeStatus = null) {
     snapshot: () => context.settingsStore.getSettings(),
     finished: () => context.chatReadyFlight?.promise.catch(() => {}),
     starts, get polls() {return polls;}, select: s => context.settingsStore.setSettings(s),
+    advance: ms => { elapsed += ms; },
     status: s => {live = structuredClone(s);}};
 }
 function ready(s = qwen) {
@@ -64,6 +67,22 @@ await check('same model file in another engine must not be reused', async () => 
 await check('the matching running model is reused without restart', async () => {
   const h = harness(ready());
   assert.equal((await h.call()).modelFile, qwen.modelGguf); assert.equal(h.starts.length, 0);
+});
+await check('four simulated loading hours do not expire a valid readiness waiter', async () => {
+  const entered = defer(), release = defer(), stillLoading = defer(), readyRelease = defer();
+  let h;
+  h = harness({mode: 'none', running: false}, qwen, async () => {
+    h.status({...ready(), ready: false}); return {ok: true, ctx: qwen.ctxSize};
+  }, async () => {
+    if (h.polls === 2) { entered.resolve(); await release.promise; }
+    if (h.polls === 3) { stillLoading.resolve(); await readyRelease.promise; }
+  });
+  const pending = h.call();
+  await entered.promise; h.advance(4 * 60 * 60 * 1000); release.resolve();
+  await Promise.race([stillLoading.promise, pending.then(() => { throw Error('Readiness completed before a native receipt'); })]);
+  assert.equal(h.starts.length, 1, 'Slow loading cannot trigger repeated launches');
+  h.status(ready()); readyRelease.resolve();
+  assert.equal((await pending).modelFile, qwen.modelGguf);
 });
 await check('a context mismatch still requires exactly one restart', async () => {
   const h = harness({...ready(), config: {ctx: 32768}});

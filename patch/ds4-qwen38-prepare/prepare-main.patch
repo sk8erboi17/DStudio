@@ -1,0 +1,270 @@
+diff --git a/ds4.c b/ds4.c
+index 633a3cf..df784b5 100644
+--- a/ds4.c
++++ b/ds4.c
+@@ -58347,15 +58347,33 @@ static bool qwen4_graph_moe(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds
+     return ok;
+ }
+ 
++/* Only an unpublished candidate may stop between GPU layers. Live sync keeps
++ * upstream's complete-token checkpoint/logit frontier. No partial candidate
++ * becomes authoritative; the caller must discard it after cancellation. */
++typedef struct {
++    ds4_session_cancel_fn cancel;
++    void *cancel_ud;
++    ds4_session_progress_fn display;
++    void *display_ud;
++    bool interrupted;
++} qwen4_prepare_control;
++
++static bool qwen4_prepare_cancelled(qwen4_prepare_control *control) {
++    if (control && control->cancel && control->cancel(control->cancel_ud))
++        control->interrupted = true;
++    return control && control->interrupted;
++}
++
+ /* host side: embedding rows tiled into R and the PLE n-gram gather */
+ static bool qwen4_graph_stage_inputs(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w,
+-                                     const int *tokens, uint32_t T) {
++                                     const int *tokens, uint32_t T, qwen4_prepare_control *control) {
+     const uint32_t E = DS4_N_EMBD, hc = DS4_N_HC, hc_dim = E * hc;
+     float *row = g->host_row;
+     const ds4_vision_span *spans = g->vis_spans;
+     size_t n_spans = g->vis_span_count;
+     if (!spans) spans = qwen4_fake_spans(&n_spans);
+     for (uint32_t t = 0; t < T; t++) {
++        if ((t & 31u) == 0 && qwen4_prepare_cancelled(control)) return false;
+         float *dst = row + (uint64_t)t * hc_dim;
+         const float *img = n_spans ? qwen4_span_row(spans, n_spans, g->pos + t) : NULL;
+         if (img) memcpy(dst, img, E * sizeof(float));
+@@ -58371,6 +58389,7 @@ static bool qwen4_graph_stage_inputs(ds4_qwen4_gpu_graph *g, const ds4_model *m,
+         return false;
+     uint32_t ids[256 * DS4_MAX_PLE_HEADS];
+     for (uint32_t t = 0; t < T; t++) {
++        if ((t & 31u) == 0 && qwen4_prepare_cancelled(control)) return false;
+         qwen4_ple_step(tokens[t], g->ple_prev, ids + (t % 256u) * DS4_N_PLE_HEADS);
+         if (t == 0 && g->snap_after_first) {
+             memcpy(g->snap_ple_prev, g->ple_prev, sizeof(g->snap_ple_prev));
+@@ -58389,7 +58408,8 @@ static bool qwen4_graph_stage_inputs(ds4_qwen4_gpu_graph *g, const ds4_model *m,
+             }
+         }
+     }
+-    return ds4_gpu_tensor_write(g->ple_emb, 0, row, (uint64_t)T * E * sizeof(float)) != 0;
++    return !qwen4_prepare_cancelled(control) &&
++        ds4_gpu_tensor_write(g->ple_emb, 0, row, (uint64_t)T * E * sizeof(float)) != 0;
+ }
+ 
+ /* Forward T tokens at g->pos..; logits (optional) receive the last token's
+@@ -58397,8 +58417,9 @@ static bool qwen4_graph_stage_inputs(ds4_qwen4_gpu_graph *g, const ds4_model *m,
+  * everything is causal by construction because the recurrent kernels walk
+  * tokens in order and attention reads the caches written for the same
+  * chunk.  g->R keeps the pre-mixer streams of every row afterwards. */
+-static bool qwen4_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w,
+-                                       const int *tokens, uint32_t T, float *logits_out, bool all_rows) {
++static bool qwen4_graph_forward_tokens_controlled(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w,
++                                       const int *tokens, uint32_t T, float *logits_out, bool all_rows,
++                                       qwen4_prepare_control *control) {
+     if (!g || T == 0 || T > g->cap_tokens || g->pos + T > g->ctx_cap) return false;
+     if (all_rows && T > g->n_logit_rows) return false;
+     for (uint32_t t = 0; t < T; t++) {
+@@ -58427,9 +58448,10 @@ static bool qwen4_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model *
+         }
+     }
+     const double t0 = timing ? now_sec() : 0.0;
+-    if (!qwen4_graph_stage_inputs(g, m, w, tokens, T)) return false;
++    if (!qwen4_graph_stage_inputs(g, m, w, tokens, T, control)) return false;
+     const double t1 = timing ? now_sec() : 0.0;
+     if (!glm_graph_begin_commands_if_needed()) return false;
++    bool commands_open = true;
+     bool ok = true;
+     /* DS4_QWEN4_TIMING=2 on prefill batches: sync after each stage group and
+      * report GPU ms per group (adds sync overhead; diagnostics only) */
+@@ -58446,6 +58468,7 @@ static bool qwen4_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model *
+         } \
+     } while (0)
+     for (uint32_t il = 0; il < n_trunk && ok; il++) {
++        if (qwen4_prepare_cancelled(control)) { ok = false; break; }
+         const ds4_layer_weights *l = &w->layer[il];
+         if (ds4_qwen4_layer_is_ple(il)) {
+             ok = qwen4_gemv(g->ple_key, m, l->ple_key, g->ple_emb, T) &&
+@@ -58499,7 +58522,22 @@ static bool qwen4_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model *
+         /* Submit this prefix while the host encodes the remaining layers.
+          * Flush keeps the same ordered queue and retains pending buffers;
+          * end_commands below waits for both batches before inputs are reused. */
+-        if (ok && il + 1u == flush_layer) ok = ds4_gpu_flush_commands() != 0;
++        if (ok && control && control->cancel) {
++            /* Drain before polling Stop so the caller can retire the private
++             * candidate. Tensor math, layer order and token chunks stay native. */
++            ok = ds4_gpu_end_commands() != 0;
++            commands_open = false;
++            if (ok && control->display)
++                control->display(control->display_ud, "prefill_layer",
++                                 (int)il + 1, (int)n_trunk);
++            if (ok && qwen4_prepare_cancelled(control)) ok = false;
++            if (ok) {
++                ok = glm_graph_begin_commands_if_needed();
++                commands_open = ok;
++            }
++        } else if (ok && il + 1u == flush_layer) {
++            ok = ds4_gpu_flush_commands() != 0;
++        }
+     }
+     if (prof_on) {
+         fprintf(stderr, "ds4: Qwen3.8 prefill stage ms/chunk (pos=%u T=%u ok=%d): "
+@@ -58526,7 +58564,7 @@ static bool qwen4_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model *
+         if (ok) ok = qwen4_gemv(g->logits, m, w->output, g->mixed, 1);
+     }
+     const double t2 = timing ? now_sec() : 0.0;
+-    if (!ds4_gpu_end_commands()) ok = false;
++    if (commands_open && !ds4_gpu_end_commands()) ok = false;
+     const double t3 = timing ? now_sec() : 0.0;
+     if (ok && logits_out) {
+         const uint64_t rows = all_rows ? T : 1u;
+@@ -58554,6 +58592,11 @@ static bool qwen4_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model *
+     return ok;
+ }
+ 
++static bool qwen4_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w,
++                                       const int *tokens, uint32_t T, float *logits_out, bool all_rows) {
++    return qwen4_graph_forward_tokens_controlled(g, m, w, tokens, T, logits_out, all_rows, NULL);
++}
++
+ static bool qwen4_graph_forward_token(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w,
+                                       int token, float *logits_out) {
+     return qwen4_graph_forward_tokens(g, m, w, &token, 1, logits_out, false);
+@@ -74455,7 +74498,8 @@ static void ds4_session_note_prefill_progress(void *ud, const char *event, int c
+  *
+  * A non-matching prompt discards the checkpoint and prefills from token zero.
+  */
+-static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, char *err, size_t errlen);
++static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, char *err, size_t errlen,
++                                     bool prepare_empty);
+ 
+ bool ds4_session_vision_prefix_matches(
+         const ds4_session     *s,
+@@ -74591,7 +74635,7 @@ static int ds4_session_sync_lockstep(ds4_session *s, const ds4_tokens *prompt,
+     s->cancel = ds4_session_tp_sync_cancelled;
+     s->cancel_ud = &p;
+     ds4_session_tp_sync_checkpoint(&p, 0u, 0, prompt->len);
+-    int rc = p.failed ? 1 : ds4_session_sync_internal(s, prompt, err, errlen);
++    int rc = p.failed ? 1 : ds4_session_sync_internal(s, prompt, err, errlen, false);
+     ds4_session_tp_sync_checkpoint(&p, 3u, rc, prompt->len);
+     s->progress = p.progress;
+     s->display_progress = p.display;
+@@ -74615,7 +74659,8 @@ static int ds4_session_sync_lockstep(ds4_session *s, const ds4_tokens *prompt,
+  * graph sequence and the per-layer gates pair up.  The worker acks a sync
+  * once its matching prefill completes, surfacing worker-side failures
+  * here instead of as a gate timeout mid-decode. */
+-int ds4_session_sync(ds4_session *s, const ds4_tokens *prompt, char *err, size_t errlen) {
++static int ds4_session_sync_impl(ds4_session *s, const ds4_tokens *prompt, char *err, size_t errlen,
++                                  bool prepare_empty) {
+     if (s && s->checkpoint_valid && !ds4_session_vision_prefix_matches(
+                      s, s->sync_images, s->sync_image_count)) {
+         ds4_session_invalidate(s);
+@@ -74625,7 +74670,7 @@ int ds4_session_sync(ds4_session *s, const ds4_tokens *prompt, char *err, size_t
+ #endif
+     const bool mirror = ds4_session_tp_leader(s);
+     if (mirror && (!prompt || prompt->len <= 0))
+-        return ds4_session_sync_internal(s, prompt, err, errlen);
++        return ds4_session_sync_internal(s, prompt, err, errlen, false);
+     if (mirror && prompt && prompt->len > 0) {
+         if (s->sync_image_count > UINT32_MAX) {
+             snprintf(err, errlen, "tp: too many image spans to synchronize");
+@@ -74645,7 +74690,7 @@ int ds4_session_sync(ds4_session *s, const ds4_tokens *prompt, char *err, size_t
+     }
+     int rc = s && s->engine && s->engine->tp.active && prompt && prompt->len > 0 ?
+         ds4_session_sync_lockstep(s, prompt, err, errlen) :
+-        ds4_session_sync_internal(s, prompt, err, errlen);
++        ds4_session_sync_internal(s, prompt, err, errlen, prepare_empty);
+ #ifndef DS4_NO_GPU
+     if (rc == 0) glm_debug_dump_prefill_logits(s->logits);
+     if (rc == 0) {
+@@ -74703,6 +74748,26 @@ int ds4_session_sync(ds4_session *s, const ds4_tokens *prompt, char *err, size_t
+     return rc;
+ }
+ 
++int ds4_session_sync(ds4_session *s, const ds4_tokens *prompt, char *err, size_t errlen) {
++    return ds4_session_sync_impl(s, prompt, err, errlen, false);
++}
++
++int ds4_session_prepare_empty(ds4_session *s, const ds4_tokens *prompt, char *err, size_t errlen) {
++#ifdef DS4_HAS_QWEN4_METAL
++    if (s && ds4_session_is_qwen4(s) && !s->distributed && !s->engine->tp.active &&
++        !s->checkpoint_valid && s->checkpoint.len == 0 && !s->sync_image_count &&
++        !s->checkpoint_image_count) {
++        int rc = ds4_session_sync_impl(s, prompt, err, errlen, true);
++        if (rc != 0) ds4_session_invalidate(s);
++        return rc;
++    }
++#else
++    (void)s; (void)prompt;
++#endif
++    snprintf(err, errlen, "candidate preparation requires an empty, local Qwen3.8 GPU session");
++    return 1;
++}
++
+ int ds4_session_sync_multimodal(
+         ds4_session *s,
+         const ds4_tokens *prompt,
+@@ -74779,7 +74844,11 @@ int ds4_session_sync_multimodal(
+     return rc;
+ }
+ 
+-static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, char *err, size_t errlen) {
++static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, char *err, size_t errlen,
++                                     bool prepare_empty) {
++#ifndef DS4_HAS_QWEN4_METAL
++    (void)prepare_empty;
++#endif
+     if (!s || !prompt) {
+         snprintf(err, errlen, "missing session or prompt");
+         return 1;
+@@ -74837,6 +74906,10 @@ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, c
+          * batches, despite having multiple rows, must never overwrite dumps. */
+         s->qwen4_graph.dump_prompt_rows = true;
+         int prefill_rc = 0;
++        qwen4_prepare_control control = {
++            .cancel = s->cancel, .cancel_ud = s->cancel_ud,
++            .display = s->display_progress, .display_ud = s->display_progress_ud,
++        };
+         for (int i = start; i < prompt->len;) {
+             if (ds4_session_cancelled(s)) {
+                 snprintf(err, errlen, "interrupted");
+@@ -74850,11 +74923,13 @@ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, c
+              * may leave it as the live session. Every completed chunk needs
+              * its own logits as well as recurrent/KV state. */
+             s->checkpoint_valid = false;
+-            if (!qwen4_graph_forward_tokens(&s->qwen4_graph, &e->model, &e->weights,
+-                                            prompt->v + i, chunk, s->logits, false)) {
+-                snprintf(err, errlen, "Qwen3.8 prefill failed at token %d", i);
++            if (!qwen4_graph_forward_tokens_controlled(&s->qwen4_graph, &e->model, &e->weights,
++                                            prompt->v + i, chunk, s->logits, false,
++                                            prepare_empty ? &control : NULL)) {
++                if (control.interrupted) snprintf(err, errlen, "interrupted");
++                else snprintf(err, errlen, "Qwen3.8 prefill failed at token %d", i);
+                 s->checkpoint_valid = false;
+-                prefill_rc = 1;
++                prefill_rc = control.interrupted ? DS4_SESSION_SYNC_INTERRUPTED : 1;
+                 break;
+             }
+             for (uint32_t j = 0; j < chunk; j++) token_vec_push(&s->checkpoint, prompt->v[i + (int)j]);
+diff --git a/ds4.h b/ds4.h
+index c817abc..45f85d6 100644
+--- a/ds4.h
++++ b/ds4.h
+@@ -439,6 +439,15 @@ typedef enum {
+  * state is refilled from scratch. */
+ #define DS4_SESSION_SYNC_INTERRUPTED 2
+ int ds4_session_sync(ds4_session *s, const ds4_tokens *prompt, char *err, size_t errlen);
++/* DStudio candidate preparation: only an empty, unpublished, local Qwen3.8
++ * GPU session is accepted. Kernels, token chunks and context stay unchanged.
++ * Cancellation may stop after a partially evaluated layer and invalidates the
++ * whole candidate, NOT a valid token prefix. The caller owns/discards it and
++ * must revalidate cancellation/ownership before publishing a successful result.
++ * Live sessions must use sync(), whose checkpoint contract is unchanged.
++ * UI-only "prefill_layer" progress counts completed layers, not prompt tokens.
++ * Distributed/tensor-parallel and other model paths are explicitly rejected. */
++int ds4_session_prepare_empty(ds4_session *s, const ds4_tokens *prompt, char *err, size_t errlen);
+ int ds4_session_sync_multimodal(ds4_session *s,
+                                 const ds4_tokens *prompt,
+                                 const ds4_vision_span *images,

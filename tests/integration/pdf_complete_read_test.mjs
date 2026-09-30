@@ -139,6 +139,7 @@ try {
     await context.route('**/api/doctor',r=>fulfill(r,{ok:true,issues:[],checks:[]}));
     await context.route('**/v1/models',r=>fulfill(r,{data:[{id:'deepseek-v4-flash',context_length:8192}]}));
     const completions=[],reads=[],forbidden=[],errors=[];
+    let heldPlanner=null;
     await context.route('**/api/start',async r=>{forbidden.push(r.request().postData());await r.abort();});
     await context.route('**/api/embed/setup',async r=>{forbidden.push('embedding setup');await r.abort();});
     await context.route('**/v1/chat/completions',async route=>{
@@ -147,7 +148,7 @@ try {
       // below use the real server; this is not a model-quality assertion.
       const evidence={citations:[{id:'P2',documentId:result.documentId,page:2,quote:'Final calibration code: ZEBRA-7319.'}]};
       const answer=`ZEBRA-7319 [P2]\n\n\`\`\`dstudio-pdf-evidence\n${JSON.stringify(evidence)}\n\`\`\``;
-      if(!req.stream){await fulfill(route,{choices:[{message:{content:'{"mode":"overview"}'}}]});return;}
+      if(!req.stream){heldPlanner=route;return;}
       await route.fulfill({contentType:'text/event-stream',body:
         `data: ${JSON.stringify({choices:[{delta:{content:answer},finish_reason:null}]})}\n\n`+
         `data: ${JSON.stringify({choices:[{delta:{},finish_reason:'stop'}]})}\n\ndata: [DONE]\n\n`});
@@ -171,6 +172,53 @@ try {
     await page.locator('.pdf-evidence-highlight').first().scrollIntoViewIfNeeded();
     await page.screenshot({path:path.join(run,'chat-evidence.png'),fullPage:true});
     assert.doesNotMatch(await page.locator('.msg--assistant').innerText(),/dstudio-pdf-evidence|"documentId"/);
+    assert.deepEqual(forbidden,[]);assert.deepEqual(errors,[]);
+    // Fitting PDFs above still skip the planner. A larger document uses a real
+    // browser fetch held at the simulated model boundary, then exercises Stop
+    // and a slow exact-page response without changing the native PDF reader.
+    await page.goto(base+'/',{waitUntil:'domcontentloaded'});
+    await page.locator('#composer-input').waitFor({state:'visible'});
+    await page.clock.install();
+    const attachLarge=async()=>{
+      await page.locator('#chat-file-input').setInputFiles(large.file);
+      await page.locator('#composer-files').getByText('large.pdf',{exact:true}).waitFor({state:'visible'});
+      await page.locator('#composer-input').fill('Read physical page 8.');
+      await page.locator('#btn-send').click();
+      for(let i=0;i<100&&!heldPlanner;i++)await sleep(20);
+      assert.ok(heldPlanner,'semantic planner request reached its response barrier');
+    };
+    await attachLarge();
+    const canceledPlanner=heldPlanner;heldPlanner=null;
+    const beforeCancel={completions:completions.length,reads:reads.length};
+    await page.locator('#btn-stop').click();
+    await page.locator('#btn-send').waitFor({state:'visible'});
+    await fulfill(canceledPlanner,{choices:[{message:{content:'{"mode":"overview"}'}}]}).catch(()=>{});
+    await sleep(100);
+    assert.equal(completions.length,beforeCancel.completions,'Stop cannot start an answer from a late planner');
+    assert.equal(reads.length,beforeCancel.reads,'Stop cannot convert canceled planning into an overview read');
+    assert.equal(await page.locator('#composer-files').getByText('large.pdf',{exact:true}).count(),1,'Stop keeps the attachment');
+    assert.equal(await page.locator('#composer-input').inputValue(),'Read physical page 8.','Stop keeps the user request');
+    assert.equal(await page.locator('#btn-send').isEnabled(),true);
+    await page.locator('#btn-send').click();
+    for(let i=0;i<100&&!heldPlanner;i++)await sleep(20);
+    assert.ok(heldPlanner,'retry reuses preserved original bytes');
+    await page.clock.fastForward(4*60*60*1000);
+    assert.equal(await page.locator('#btn-stop').isVisible(),true,'four-hour planner still has Stop');
+    assert.equal(await page.locator('#composer-input').isDisabled(),true);
+    const slowPlanner=heldPlanner;heldPlanner=null;
+    await fulfill(slowPlanner,{choices:[{message:{content:'{"mode":"pages","pages":"8"}'}}]});
+    for(let i=0;i<150&&reads.at(-1)?.pages!=='8';i++)await sleep(20);
+    if(reads.at(-1)?.pages!=='8') {
+      report.slowPlannerFailure={reads,completions,forbidden,errors,bodyText:(await page.locator('body').innerText()).slice(-6000)};
+      await page.screenshot({path:path.join(run,'slow-planner-failure.png'),fullPage:true});
+      save();
+    }
+    assert.equal(reads.at(-1)?.pages,'8','slow planner preserves requested physical page');
+    assert.equal(reads.at(-1)?.profile,'interactive');
+    for(let i=0;i<150&&completions.at(-1)?.stream!==true;i++)await sleep(20);
+    assert.equal(completions.at(-1)?.stream,true,'the answer starts only after the exact-page read');
+    const latePrompt=JSON.stringify(completions.at(-1).messages.filter(message=>message.role==='user').at(-1));
+    assert.ok(latePrompt.includes('Pagina 8'));assert.ok(!latePrompt.includes('Pagina 1'));
     assert.deepEqual(forbidden,[]);assert.deepEqual(errors,[]);
     await context.close();
   });

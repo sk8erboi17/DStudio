@@ -5831,7 +5831,7 @@ diff --git a/q36_server.c b/q36_server.c
      int fd = ca->fd;
      free(ca);
  
-+    job j = {.fd = fd, .deadline = now_sec() + 900.0};
++    job j = {.fd = fd}; /* Stop/socket failure ends inference; no elapsed-work cap. */
 +    atomic_init(&j.cancelled, false);
 +    pthread_mutex_init(&j.mu, NULL);
 +    pthread_cond_init(&j.cv, NULL);

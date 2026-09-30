@@ -1,5 +1,12 @@
 # Qwen Next speculative snapshots: allocation failure is not readiness
 
+**Historical fork only.** Unified antirez/ds4 main (since `9139e2a`, including
+the active `0aaea5a` pin) already unwinds
+partial snapshot allocations. DStudio does not apply this patch there.
+`make test-qwen38-snapshot-patch` now executes all ten failpoints directly on
+main with ASan/UBSan; the original patch/reproducer runner remains available
+below for historical sources. [Current migration](../../docs/QWEN_NEXT_MAIN_MIGRATION.md).
+
 Base: MIT-licensed `ivanfioravanti/ds4-metal`, branch `qwen3.8-flash-next`,
 `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14`.
 [`snapshot-allocation.patch`](snapshot-allocation.patch) fixes both the new
@@ -21,7 +28,7 @@ introduced. The existing reset/replay fallback and successful-copy arithmetic
 remain unchanged. Per-set limits still follow the native model's layer and
 recurrent-state dimensions; allocation failure is explicit and retryable.
 
-The installer and native Agent/Cowork builder apply inspection → empty-candidate
+The historical installer and native Agent/Cowork builder applied inspection → empty-candidate
 preparation → snapshot allocation before compiling. Restore in reverse order.
 The script selects the complete set required by the source ABI, then performs
 exact forward/reverse checks. A partially fixed newer source cannot pass as the
@@ -30,7 +37,7 @@ unchanged; this does not extend their supported Agent/core ABI.
 
 ```sh
 DS4_DIR=/path/to/qwen38 sh scripts/apply-ds4-qwen38-snapshot.sh check
-make test-qwen38-snapshot-patch QWEN38_AGENT_TREE=/path/to/current/qwen38
+node tests/integration/qwen38_snapshot_patch_test.mjs /path/to/historical/qwen38
 ```
 
 The test compiles the actual native core helpers with a deterministic simulated

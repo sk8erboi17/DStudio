@@ -1,0 +1,195 @@
+#version 460
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer GateWeights { uint gate_wb[]; };
+layout(set = 0, binding = 1) readonly buffer UpWeights { uint up_wb[]; };
+layout(set = 0, binding = 2) readonly buffer Q8K { uint q8[]; };
+layout(set = 0, binding = 3) readonly buffer Tiles { uint tiles[]; };
+layout(set = 0, binding = 4) readonly buffer GateScales { float gate_scales[]; };
+layout(set = 0, binding = 5) readonly buffer UpScales { float up_scales[]; };
+layout(set = 0, binding = 6) writeonly buffer Output { float y[]; };
+layout(set = 0, binding = 7) readonly buffer Tables { uint tables[]; };
+
+layout(push_constant) uniform Push {
+    uint out_dim;
+    uint blocks;
+    uint row_bytes;
+    uint expert_stride;
+    uint n_used;
+    uint has_gate_scales;
+    uint has_up_scales;
+} pc;
+
+const uint TAB_XXS_GRID = 0u;
+const uint TAB_KSIGNS = 512u;
+const uint PAIR_TILE = 8u;
+const uint TILE_WORDS = 1u + PAIR_TILE;
+const uint INVALID_PAIR = 0xffffffffu;
+const uint Q8K_WORDS = 74u;
+
+shared uint sh_q8[Q8K_WORDS * PAIR_TILE];
+shared float sh_gate[64u * PAIR_TILE];
+shared float sh_up[64u * PAIR_TILE];
+
+uint gate_u8(uint off) {
+    return (gate_wb[off >> 2] >> ((off & 3u) * 8u)) & 255u;
+}
+
+uint gate_u16(uint off) {
+    return gate_u8(off) | (gate_u8(off + 1u) << 8);
+}
+
+float gate_f16(uint off) {
+    return unpackHalf2x16(gate_u16(off)).x;
+}
+
+uint up_u8(uint off) {
+    return (up_wb[off >> 2] >> ((off & 3u) * 8u)) & 255u;
+}
+
+uint up_u16(uint off) {
+    return up_u8(off) | (up_u8(off + 1u) << 8);
+}
+
+float up_f16(uint off) {
+    return unpackHalf2x16(up_u16(off)).x;
+}
+
+uint tab_u8(uint word_base, uint byte_idx) {
+    return (tables[word_base + (byte_idx >> 2)] >> ((byte_idx & 3u) * 8u)) & 255u;
+}
+
+int i8(uint v) {
+    return v >= 128u ? int(v) - 256 : int(v);
+}
+
+float q8_d(uint pair_slot) {
+    return uintBitsToFloat(sh_q8[pair_slot * Q8K_WORDS]);
+}
+
+int signed_grid4(uint grid_word, uint signs, uint bit0, uint q8_word) {
+    int sumi = 0;
+    for (uint j = 0u; j < 4u; j++) {
+        uint shift = 8u * j;
+        int prod = int((grid_word >> shift) & 255u) * i8((q8_word >> shift) & 255u);
+        sumi += ((signs >> (bit0 + j)) & 1u) != 0u ? -prod : prod;
+    }
+    return sumi;
+}
+
+void main(void) {
+    uint lid = gl_LocalInvocationID.x;
+    uint row = gl_WorkGroupID.x * 8u + (lid >> 3u);
+    uint tile = gl_WorkGroupID.y;
+    uint lane = lid & 7u;
+    bool row_live = row < pc.out_dim;
+    uint tile_base = tile * TILE_WORDS;
+    uint expert = tiles[tile_base];
+    if (expert == 0xffffffffu) return;
+    uint gate_row_base = expert * pc.expert_stride + (row_live ? row : 0u) * pc.row_bytes;
+    uint up_row_base = gate_row_base;
+    uint pair[PAIR_TILE];
+    bool pair_valid[PAIR_TILE];
+    bool pair_live[PAIR_TILE];
+    uint qbase[PAIR_TILE];
+    float gate_lane[PAIR_TILE];
+    float up_lane[PAIR_TILE];
+
+    for (uint u = 0u; u < PAIR_TILE; u++) {
+        uint p = tiles[tile_base + 1u + u];
+        uint tok = (p != INVALID_PAIR) ? (p / pc.n_used) : 0u;
+        pair[u] = p;
+        pair_valid[u] = p != INVALID_PAIR;
+        pair_live[u] = row_live && pair_valid[u];
+        qbase[u] = (pair_valid[u] ? tok : 0u) * pc.blocks * Q8K_WORDS;
+        gate_lane[u] = 0.0;
+        up_lane[u] = 0.0;
+    }
+
+    for (uint b = 0u; b < pc.blocks; b++) {
+        for (uint u = 0u; u < PAIR_TILE; u++) {
+            uint q8b = qbase[u] + b * Q8K_WORDS;
+            for (uint w = lid; w < Q8K_WORDS; w += 64u) {
+                sh_q8[u * Q8K_WORDS + w] = pair_valid[u] ? q8[q8b + w] : 0u;
+            }
+        }
+        barrier();
+
+        if (row_live) {
+            float yd[PAIR_TILE];
+            int gate_lk[PAIR_TILE];
+            int up_lk[PAIR_TILE];
+            uint gate_base = gate_row_base + b * 66u;
+            uint up_base = up_row_base + b * 66u;
+            float gate_wd = gate_f16(gate_base);
+            float up_wd = up_f16(up_base);
+
+            for (uint u = 0u; u < PAIR_TILE; u++) {
+                yd[u] = pair_valid[u] ? q8_d(u) : 0.0;
+                gate_lk[u] = 0;
+                up_lk[u] = 0;
+            }
+
+            for (uint ib = 0u; ib < 8u; ib++) {
+                uint gate_q2 = gate_base + 2u + ib * 8u;
+                uint gate_aux0 = gate_u16(gate_q2) | (gate_u16(gate_q2 + 2u) << 16);
+                uint gate_aux1 = gate_u16(gate_q2 + 4u) | (gate_u16(gate_q2 + 6u) << 16);
+                int gate_ls = int(2u * (gate_aux1 >> 28) + 1u);
+                uint gate_l = lane >> 1u;
+                uint gate_grid = TAB_XXS_GRID + ((gate_aux0 >> (8u * gate_l)) & 255u) * 2u;
+                uint gate_sgn = tab_u8(TAB_KSIGNS, (gate_aux1 >> (7u * gate_l)) & 127u);
+
+                uint up_q2 = up_base + 2u + ib * 8u;
+                uint up_aux0 = up_u16(up_q2) | (up_u16(up_q2 + 2u) << 16);
+                uint up_aux1 = up_u16(up_q2 + 4u) | (up_u16(up_q2 + 6u) << 16);
+                int up_ls = int(2u * (up_aux1 >> 28) + 1u);
+                uint up_l = lane >> 1u;
+                uint up_grid = TAB_XXS_GRID + ((up_aux0 >> (8u * up_l)) & 255u) * 2u;
+                uint up_sgn = tab_u8(TAB_KSIGNS, (up_aux1 >> (7u * up_l)) & 127u);
+                uint side = lane & 1u;
+                uint bit0 = side * 4u;
+                uint gate_word = tables[gate_grid + side];
+                uint up_word = tables[up_grid + side];
+                uint q8_word_off = 2u + ib * 8u + lane;
+
+                for (uint u = 0u; u < PAIR_TILE; u++) {
+                    if (!pair_live[u]) continue;
+                    uint q8_word = sh_q8[u * Q8K_WORDS + q8_word_off];
+                    gate_lk[u] += gate_ls * signed_grid4(gate_word, gate_sgn, bit0, q8_word);
+                    up_lk[u] += up_ls * signed_grid4(up_word, up_sgn, bit0, q8_word);
+                }
+            }
+
+            for (uint u = 0u; u < PAIR_TILE; u++) {
+                if (!pair_live[u]) continue;
+                gate_lane[u] = fma(gate_wd * yd[u], float(gate_lk[u]), gate_lane[u]);
+                up_lane[u] = fma(up_wd * yd[u], float(up_lk[u]), up_lane[u]);
+            }
+        }
+        barrier();
+    }
+
+    for (uint u = 0u; u < PAIR_TILE; u++) {
+        sh_gate[u * 64u + lid] = gate_lane[u];
+        sh_up[u * 64u + lid] = up_lane[u];
+    }
+    barrier();
+
+    if (row_live && lane == 0u) {
+        uint r0 = lid;
+        for (uint u = 0u; u < PAIR_TILE; u++) {
+            uint p = pair[u];
+            uint soff = u * 64u + r0;
+            if (p == INVALID_PAIR) continue;
+            float gate = ((sh_gate[soff + 0u] + sh_gate[soff + 4u]) + (sh_gate[soff + 2u] + sh_gate[soff + 6u]))
+                       + ((sh_gate[soff + 1u] + sh_gate[soff + 5u]) + (sh_gate[soff + 3u] + sh_gate[soff + 7u]));
+            float up = ((sh_up[soff + 0u] + sh_up[soff + 4u]) + (sh_up[soff + 2u] + sh_up[soff + 6u]))
+                     + ((sh_up[soff + 1u] + sh_up[soff + 5u]) + (sh_up[soff + 3u] + sh_up[soff + 7u]));
+            gate *= 0.125;
+            up *= 0.125;
+            if (pc.has_gate_scales != 0u) gate *= gate_scales[expert];
+            if (pc.has_up_scales != 0u) up *= up_scales[expert];
+            y[p * pc.out_dim + row] = (gate / (1.0f + exp(-gate))) * up;
+        }
+    }
+}

@@ -7,10 +7,27 @@
   },
   "bases": [
     {
+      "name": "main-qwen",
+      "repository": "https://github.com/antirez/ds4",
+      "revision": "9139e2ae58a41503968a500f36f75895c1ba63fc",
+      "sourceSHA256": "89625148524c2bcfecf72ead19be7189adced08df5bb8d1b558d5ecfc73aaf14",
+      "rawSourceSHA256": "89625148524c2bcfecf72ead19be7189adced08df5bb8d1b558d5ecfc73aaf14",
+      "prerequisites": [],
+      "patch": "browser-main.patch",
+      "patchSHA256": "0d745afe9d2ac43a6dfda8e9fca3852da6d720106d2187cf7439dd4c34de0769",
+      "derivedSHA256": "e6295ed7ff77c87605805f987cf37ebd2e64fe53b97523f34db0de84d3a254fc",
+      "oracle": "Upstream's GET /json/list and PUT /json/new target recovery, plus bounded fragmented CDP replies and DStudio visual evidence. Upstream target recovery supersedes the former duplicate-target adapter; no historical byte-parity claim.",
+      "equivalentSourceRevisions": [
+        "0aaea5a238fb41a35106a551e73c8409dfb751ac"
+      ]
+    },
+    {
       "name": "main-current",
       "repository": "https://github.com/antirez/ds4",
       "revision": "c0a6119f363ef82125877142f13fb3fe491cba14",
-      "equivalentSourceRevisions": ["f62ca29a308724cde5bc99134ede19104b2a3260"],
+      "equivalentSourceRevisions": [
+        "f62ca29a308724cde5bc99134ede19104b2a3260"
+      ],
       "sourceSHA256": "c6baf247c8063b80bac793ee6a031a352299be6632eaceac81f3bc5f302367c4",
       "rawSourceSHA256": "c6baf247c8063b80bac793ee6a031a352299be6632eaceac81f3bc5f302367c4",
       "prerequisites": [],

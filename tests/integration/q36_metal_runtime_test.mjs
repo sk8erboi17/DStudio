@@ -21,11 +21,14 @@ async function hashFile(file) {
 }
 const related = ['q36.c', 'q36.h', 'q36_metal.m', 'q36_server.c', 'metal/recurrent.metal', 'metal/vision.metal', 'tests/q36_test.c'];
 const script = path.join(root, 'scripts/apply-q36-metal-runtime.sh');
-const nextReview = process.argv.slice(3).includes('--next');
-const extra = process.argv.slice(3).filter(arg => arg !== '--next');
-const patchVariant = nextReview ? 'next-review' : 'pinned';
-const patchName = nextReview ? 'next-review.patch' : 'runtime.patch';
-report.nextReview = nextReview;
+// --current is the reviewed next-review runtime rebased onto upstream 1305843;
+// it enables the same newer-runtime checks with its own exact patch.
+const current = process.argv.slice(3).includes('--current');
+const nextReview = current || process.argv.slice(3).includes('--next');
+const extra = process.argv.slice(3).filter(arg => arg !== '--next' && arg !== '--current');
+const patchVariant = current ? 'current' : nextReview ? 'next-review' : 'pinned';
+const patchName = current ? 'runtime-1305843.patch' : nextReview ? 'next-review.patch' : 'runtime.patch';
+report.nextReview = nextReview; report.currentUpstream = current;
 const env = {...process.env};
 for (const key of Object.keys(env)) if (/^(GIT_|Q36_|DYLD_)|^(MAKEFLAGS|MAKELEVEL|MFLAGS|MAKEOVERRIDES|GNUMAKEFLAGS|CFLAGS|CPPFLAGS|LDFLAGS|CC|CXX)$/.test(key)) delete env[key];
 env.Q36_DIR = tree;

@@ -1,0 +1,124 @@
+#version 460
+
+/* q8_K activation quantization on GPU.  One workgroup handles one 256-wide
+ * block from one token row: 64 threads x 4 floats each.  The block layout
+ * matches q36_vk_block_q8_K exactly: d, dmin=0, 64 packed q bytes, 8 packed
+ * bsum word pairs.  This is the fast path; quality mode keeps the old host
+ * quantizer. */
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Input {
+    float x[];
+};
+
+layout(set = 0, binding = 1) writeonly buffer Output {
+    uint q8[];
+};
+
+layout(push_constant) uniform Push {
+    uint in_dim;
+    uint blocks;
+    uint n_tok;
+} pc;
+
+const uint QK_K = 256u;
+const uint Q8K_WORDS = 74u;
+
+shared float sh_abs[64];
+shared float sh_val[64];
+shared uint sh_idx[64];
+shared int sh_sum4[64];
+shared int sh_bsum[16];
+
+int nearest_int(float fval) {
+    /* precise: keep the mul that produces fval from contracting into an fma
+     * with this magic-number add, or bytes drift from the CPU quantizer. */
+    precise float val = fval + 12582912.0f;
+    uint bits = floatBitsToUint(val);
+    return int(bits & 0x007fffffu) - 0x00400000;
+}
+
+uint pack_i8x4(int a0, int a1, int a2, int a3) {
+    return (uint(a0) & 255u)
+         | ((uint(a1) & 255u) << 8u)
+         | ((uint(a2) & 255u) << 16u)
+         | ((uint(a3) & 255u) << 24u);
+}
+
+void main(void) {
+    uint lid = gl_LocalInvocationID.x;
+    uint block = gl_WorkGroupID.x;
+    uint tok = gl_WorkGroupID.y;
+    uint elem0 = lid * 4u;
+    uint xbase = (tok * pc.in_dim) + block * QK_K;
+    uint out_base = (tok * pc.blocks + block) * Q8K_WORDS;
+    float best_abs = 0.0f;
+    float best_val = 0.0f;
+    uint best_idx = elem0;
+
+    for (uint j = 0u; j < 4u; j++) {
+        uint idx = elem0 + j;
+        float xv = x[xbase + idx];
+        float ax = abs(xv);
+        if (ax > best_abs) {
+            best_abs = ax;
+            best_val = xv;
+            best_idx = idx;
+        }
+    }
+
+    sh_abs[lid] = best_abs;
+    sh_val[lid] = best_val;
+    sh_idx[lid] = best_idx;
+    barrier();
+
+    for (uint s = 32u; s > 0u; s >>= 1u) {
+        if (lid < s) {
+            float other_abs = sh_abs[lid + s];
+            uint other_idx = sh_idx[lid + s];
+            if (other_abs > sh_abs[lid] || (other_abs == sh_abs[lid] && other_idx < sh_idx[lid])) {
+                sh_abs[lid] = other_abs;
+                sh_val[lid] = sh_val[lid + s];
+                sh_idx[lid] = other_idx;
+            }
+        }
+        barrier();
+    }
+
+    /* fp64 divisions: GLSL float division is only 2.5-ulp on RADV, and the
+     * CPU quantizer's correctly rounded d must match bit for bit. */
+    float maxv = sh_val[0];
+    float iscale = maxv != 0.0f ? float(-127.0 / double(maxv)) : 0.0f;
+    float d = iscale != 0.0f ? float(1.0 / double(iscale)) : 0.0f;
+    int qv[4];
+    int sum4 = 0;
+
+    for (uint j = 0u; j < 4u; j++) {
+        float xv = x[xbase + elem0 + j];
+        int q = iscale != 0.0f ? nearest_int(iscale * xv) : 0;
+        if (q > 127) q = 127;
+        qv[j] = q;
+        sum4 += q;
+    }
+
+    if (lid == 0u) {
+        q8[out_base + 0u] = floatBitsToUint(d);
+        q8[out_base + 1u] = 0u;
+    }
+    q8[out_base + 2u + lid] = pack_i8x4(qv[0], qv[1], qv[2], qv[3]);
+
+    sh_sum4[lid] = sum4;
+    barrier();
+
+    if ((lid & 3u) == 0u) {
+        sh_bsum[lid >> 2u] = sh_sum4[lid] + sh_sum4[lid + 1u] + sh_sum4[lid + 2u] + sh_sum4[lid + 3u];
+    }
+    barrier();
+
+    if (lid < 8u) {
+        int s0 = sh_bsum[2u * lid + 0u];
+        int s1 = sh_bsum[2u * lid + 1u];
+        q8[out_base + 66u + lid] = (uint(s0) & 0xffffu) | ((uint(s1) & 0xffffu) << 16u);
+    }
+}

@@ -46,7 +46,10 @@ try {
     'cancelled owner replay preserves the admitted request and cache',
     'context admission uses the exact replay rather than the preliminary rendering',
     'native tool-map serialization runs outside shared synchronization',
-    'owner diagnostic trace preserves bytes without holding shared synchronization'];
+    'owner diagnostic trace preserves bytes without holding shared synchronization',
+    'four simulated hours do not cancel admitted inference; metadata remains responsive',
+    'explicit Stop still cancels inference after four simulated hours',
+    'TCP reset cancels only abandoned inference; legal HTTP half-close remains valid'];
   for (const [index, name] of cases.entries()) {
     const result = spawnSync(binary, [String(index)], {encoding: 'utf8', timeout: 10000, maxBuffer: 2 ** 20});
     const row = {name, passed: false, status: result.status, signal: result.signal,

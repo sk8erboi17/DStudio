@@ -1,0 +1,50 @@
+#version 460
+
+/* Dense f32 matvec.  fp64 accumulation, one 64-thread workgroup per output
+ * row: strided fp64 partials plus an fp64 tree reduction.  Not the CPU's
+ * serial order, but fp64 keeps 29 guard bits over the f32 inputs, so the
+ * router logits and delta gates it feeds cannot flip a top-k choice. */
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights {
+    float w[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Input {
+    float x[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Output {
+    float y[];
+};
+
+layout(push_constant) uniform Push {
+    uint in_dim;
+    uint out_dim;
+    uint n_tok;
+    float scale;
+} pc;
+
+shared double sh_sum[64];
+
+void main(void) {
+    uint out_row = gl_WorkGroupID.x;
+    uint tok = gl_WorkGroupID.y;
+    uint lid = gl_LocalInvocationID.x;
+    if (out_row >= pc.out_dim || tok >= pc.n_tok) return;
+
+    uint wbase = out_row * pc.in_dim;
+    uint xbase = tok * pc.in_dim;
+    double acc = 0.0;
+    for (uint i = lid; i < pc.in_dim; i += 64u) {
+        acc += double(w[wbase + i]) * double(x[xbase + i]);
+    }
+    sh_sum[lid] = acc;
+    barrier();
+    for (uint s = 32u; s > 0u; s >>= 1u) {
+        if (lid < s) sh_sum[lid] += sh_sum[lid + s];
+        barrier();
+    }
+    if (lid == 0u) y[tok * pc.out_dim + out_row] = float(sh_sum[0]) * pc.scale;
+}

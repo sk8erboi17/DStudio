@@ -6,7 +6,17 @@
 #include <stdatomic.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <time.h>
 #include "q36.h"
+/* Advance only the monotonic work clock after the real HTTP request is queued.
+ * Condition-variable barriers keep their real realtime clock. */
+static atomic_llong simulated_elapsed_seconds;
+static int slow_clock_gettime(clockid_t clock, struct timespec *value) {
+    int rc = clock_gettime(clock, value);
+    if (!rc && clock == CLOCK_MONOTONIC)
+        value->tv_sec += atomic_load(&simulated_elapsed_seconds);
+    return rc;
+}
 static void simulated_tokenize(q36_engine *, const char *, q36_tokens *);
 static bool replay_context_fixture;
 static pthread_mutex_t *observed_output_mutex;
@@ -44,6 +54,7 @@ static ssize_t observed_recv(int fd, void *bytes, size_t size, int flags) {
 #define fwrite observed_fwrite
 #define fflush observed_fflush
 #define q36_tokenize_rendered_chat simulated_tokenize
+#define clock_gettime slow_clock_gettime
 #define Q36_SERVER_TEST
 #define Q36_SERVER_TEST_NO_MAIN
 #include "q36_server.c"
@@ -51,6 +62,7 @@ static ssize_t observed_recv(int fd, void *bytes, size_t size, int flags) {
 #undef fwrite
 #undef fflush
 #undef q36_tokenize_rendered_chat
+#undef clock_gettime
 
 /* Queue/control tests only: no vocabulary or model runs in this probe. */
 static void simulated_tokenize(q36_engine *e, const char *text, q36_tokens *tokens) {
@@ -69,6 +81,7 @@ static void checked(bool value, int line) {
 #define check(value) checked((value), __LINE__)
 typedef struct {int fd, watch; pthread_t thread;} connection;
 typedef struct {client_arg *arg; int watch;} incoming;
+static bool tcp_clients;
 static void *client_entry(void *arg) {
     incoming in = *(incoming *)arg; free(arg);
     watched_slot = in.watch; receives = 0;
@@ -80,7 +93,17 @@ static void *client_entry(void *arg) {
     return result;
 }
 static connection connect_client(int watch) {
-    int pair[2]; assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
+    int pair[2];
+    if (tcp_clients) {
+        int listener = socket(AF_INET, SOCK_STREAM, 0);
+        struct sockaddr_in address = {.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
+        assert(listener >= 0 && !bind(listener, (struct sockaddr *)&address, sizeof address) && !listen(listener, 1));
+        socklen_t size = sizeof address;
+        assert(!getsockname(listener, (struct sockaddr *)&address, &size));
+        pair[1] = socket(AF_INET, SOCK_STREAM, 0);
+        assert(pair[1] >= 0 && !connect(pair[1], (struct sockaddr *)&address, sizeof address));
+        pair[0] = accept(listener, NULL, NULL); assert(pair[0] >= 0); close(listener);
+    } else assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
     configure_client_socket(pair[0]);
     incoming *in = calloc(1, sizeof(*in)); assert(in);
     in->watch = watch; in->arg = calloc(1, sizeof(*in->arg)); assert(in->arg);
@@ -322,6 +345,54 @@ int main(int argc, char **argv) {
         check(strstr(saved, "owner event 17") != NULL);
         check(strstr(saved, "===== end request 1 =====") != NULL);
         free(saved);
+    } else if (mode == 16 || mode == 17) {
+        connection c = queued_body("slow-valid-request");
+        job *active = dequeue(&srv);
+        atomic_store(&simulated_elapsed_seconds, 4 * 60 * 60);
+        check(!server_job_cancelled(active));
+        check(rpc("GET /v1/models HTTP/1.1\r\nHost: localhost\r\n\r\n", body, sizeof(body)) == 200);
+        if (mode == 17) {
+            check(cancel_id("slow-valid-request", body, sizeof(body)) == 202);
+            check(server_job_cancelled(active));
+        }
+        http_response(active->fd, mode == 17 ? 499 : 200, "application/json", "{\"simulated_worker\":true}");
+        server_finish_job(&srv, active);
+        check(response(&c, body, sizeof(body)) == (mode == 17 ? 499 : 200));
+        close_client(&c);
+        check(cancel_id("slow-valid-request", body, sizeof(body)) == 404);
+    } else if (mode == 18) {
+        tcp_clients = true;
+        connection c = queued_body("tcp-stop-unique");
+        job *active = dequeue(&srv);
+        check(!server_job_cancelled(active));
+        /* Sending FIN is a legal HTTP half-close; it must preserve inference. */
+        check(shutdown(c.fd, SHUT_WR) == 0);
+        struct pollfd p = {.fd = active->fd, .events = POLLIN};
+        check(poll(&p, 1, 1000) > 0);
+        check(!server_job_cancelled(active));
+        connection other = queued_body("tcp-still-live");
+        job *unaffected = dequeue(&srv);
+        check(!server_job_cancelled(unaffected));
+        /* A stopped owned worker uses an abortive full close, unambiguously
+         * different from FIN. The native cancellation oracle must observe it. */
+        struct linger abandoned = {.l_onoff = 1, .l_linger = 0};
+        check(setsockopt(c.fd, SOL_SOCKET, SO_LINGER, &abandoned, sizeof abandoned) == 0);
+        close(c.fd); c.fd = -1;
+        double deadline = now_sec() + 2;
+        bool interrupted = false;
+        while (now_sec() < deadline && !interrupted) {
+            poll(&p, 1, 100);
+            /* Darwin may report reset through POLLHUP + SO_ERROR. Assert the
+             * production cancellation result rather than one kernel bit. */
+            interrupted = server_job_cancelled(active);
+        }
+        check(interrupted);
+        check(!server_job_cancelled(unaffected));
+        check(rpc("GET /v1/models HTTP/1.1\r\nHost: localhost\r\n\r\n", body, sizeof body) == 200);
+        server_finish_job(&srv, active); pthread_join(c.thread, NULL);
+        http_response(unaffected->fd, 200, "application/json", "{\"preserved\":true}");
+        server_finish_job(&srv, unaffected);
+        check(response(&other, body, sizeof body) == 200); close_client(&other);
     } else return 2;
     check(srv.clients == 0); check(srv.head == NULL && srv.tail == NULL);
     check(srv.live_jobs == NULL && srv.generation_clients == 0);
