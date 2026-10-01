@@ -1,38 +1,6 @@
-// Local catalog preview. All state belongs to this document and is lost on reload.
-// There are no requests, account changes, purchases or durable saves.
+// DStudio originals: local preview behavior shared by every pack.
+// No network, storage, accounts or persistence: state is lost on reload.
 const root = document.documentElement;
-const theme = document.querySelector('[data-theme-toggle]');
-theme.addEventListener('click', () => {
-  const dark = root.dataset.theme !== 'dark';
-  root.dataset.theme = dark ? 'dark' : 'light';
-  theme.setAttribute('aria-pressed', String(dark));
-  theme.textContent = dark ? 'Light appearance' : 'Dark appearance';
-});
-for (const button of document.querySelectorAll('[data-view]')) button.addEventListener('click', () => {
-  for (const b of document.querySelectorAll('[data-view]')) b.setAttribute('aria-pressed', String(b === button));
-  for (const panel of document.querySelectorAll('[data-panel]')) panel.hidden = panel.dataset.panel !== button.dataset.view;
-});
-for (const dialog of document.querySelectorAll('dialog')) {
-  let opener;
-  dialog.addEventListener('close', () => opener?.focus());
-  for (const button of document.querySelectorAll('[data-dialog="'+dialog.id+'"]')) button.addEventListener('click', () => {
-    opener = button; dialog.showModal();
-  });
-  for (const button of dialog.querySelectorAll('[data-close]')) button.addEventListener('click', () => dialog.close());
-}
-const requestDialog = document.querySelector('#request-dialog');
-let requestOpener;
-for (const button of document.querySelectorAll('[data-open]')) button.addEventListener('click', () => {
-  requestOpener = button;
-  document.querySelector('#request-topic').value = button.dataset.open;
-  document.querySelector('#request-status').textContent = '';
-  requestDialog.showModal();
-});
-requestDialog.addEventListener('close', () => requestOpener?.focus());
-document.querySelector('#request-form').addEventListener('submit', event => {
-  event.preventDefault();
-  if (event.currentTarget.reportValidity()) document.querySelector('#request-status').textContent = 'Preview complete. Nothing was sent or booked.';
-});
 const byId = id => document.getElementById(id);
 const make = (tag, text, attributes = {}) => {
   const node = document.createElement(tag);
@@ -41,6 +9,74 @@ const make = (tag, text, attributes = {}) => {
   return node;
 };
 
+const theme = document.querySelector('[data-theme-toggle]');
+const syncTheme = () => {
+  const dark = root.dataset.theme === 'dark';
+  theme.setAttribute('aria-pressed', String(dark));
+  theme.textContent = dark ? 'Light appearance' : 'Dark appearance';
+};
+theme.addEventListener('click', () => {
+  root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  syncTheme();
+});
+syncTheme();
+
+const views = [...document.querySelectorAll('[data-view]')];
+for (const button of views) button.addEventListener('click', () => {
+  for (const other of views) other.setAttribute('aria-pressed', String(other === button));
+  for (const panel of document.querySelectorAll('[data-panel]')) panel.hidden = panel.dataset.panel !== button.dataset.view;
+});
+
+// Named dialogs: [data-dialog="id"] opens, [data-close] closes, focus returns to the opener.
+for (const dialog of document.querySelectorAll('dialog:not(#request-dialog)')) {
+  let opener = null;
+  dialog.addEventListener('close', () => opener?.focus());
+  for (const button of document.querySelectorAll('[data-dialog="' + dialog.id + '"]')) button.addEventListener('click', () => {
+    opener = button;
+    dialog.showModal();
+  });
+  for (const button of dialog.querySelectorAll('[data-close]')) button.addEventListener('click', () => dialog.close());
+}
+
+// The shared request dialog. It validates and confirms only what really happened.
+const requestDialog = byId('request-dialog');
+let requestOpener = null;
+for (const button of document.querySelectorAll('[data-open]')) button.addEventListener('click', () => {
+  requestOpener = button;
+  byId('request-topic').value = button.dataset.open;
+  byId('request-status').textContent = '';
+  requestDialog.showModal();
+});
+requestDialog.querySelector('[data-close]').addEventListener('click', () => requestDialog.close());
+requestDialog.addEventListener('close', () => requestOpener?.focus());
+byId('request-form').addEventListener('submit', event => {
+  event.preventDefault();
+  if (!event.currentTarget.reportValidity()) return;
+  byId('request-status').textContent = 'Preview complete. Nothing was sent or booked.';
+});
+
+// Optional list filter: [data-filter] input, [data-record] rows, [data-filter-status] message.
+const filter = document.querySelector('[data-filter]');
+if (filter) filter.addEventListener('input', () => {
+  const query = filter.value.trim().toLowerCase();
+  let found = 0;
+  for (const row of document.querySelectorAll('[data-record]')) {
+    row.hidden = !row.textContent.toLowerCase().includes(query);
+    if (!row.hidden) found++;
+  }
+  document.querySelector('[data-filter-status]').textContent = found
+    ? found + (found === 1 ? ' matching item' : ' matching items')
+    : 'No matching items. Try another search.';
+});
+
+// Optional single choice: [data-choice] buttons, [data-choice-status] live message.
+for (const choice of document.querySelectorAll('[data-choice]')) choice.addEventListener('click', () => {
+  for (const other of document.querySelectorAll('[data-choice]')) other.setAttribute('aria-pressed', String(other === choice));
+  document.querySelector('[data-choice-status]').textContent =
+    'Selected: ' + (choice.dataset.label || choice.textContent.trim()) + '. Preview only; no booking made.';
+});
+
+// Commons: fixed example threads, local replies (plain text only) and a reversible review queue.
 // Fixed fixtures plus at most ten 500-character replies per thread. No network.
 const threads=[
   {id:'bookbinding',title:'A first notebook, made together',author:'Ada Lane',initials:'AL',topic:'Making',body:'I am putting together a beginner bookbinding afternoon. What would make a first session feel welcoming?',replies:['A small practice fold before starting the cover would help.']},
@@ -75,15 +111,14 @@ function renderThreads(){
   const query=byId('thread-search').value.trim().toLowerCase();
   const filtered=threads.filter(t=>(t.title+' '+t.topic+' '+t.author+' '+t.body+' '+t.id).toLowerCase().includes(query));
   for(const thread of filtered){
-    const row=make('article',undefined,{class:'thread-card'}),byline=make('div',undefined,{class:'thread-byline'});
-    const who=make('div');who.append(make('strong',thread.author),make('small','Example member'));
-    byline.append(make('span',thread.initials,{class:'avatar','aria-hidden':true}),who);
-    const meta=make('div',undefined,{class:'thread-meta'}),open=make('button','Open discussion',{class:'btn secondary','aria-label':'Open '+thread.title});
+    const row=make('article',undefined,{class:'thread-row'}),n=thread.replies.length;
+    const open=make('button',thread.title,{type:'button',class:'thread-title','aria-label':'Open '+thread.title});
     open.addEventListener('click',()=>openThread(thread.id,open));
-    meta.append(make('span',thread.topic,{class:'topic'}),make('span',thread.replies.length+(thread.replies.length===1?' reply':' replies'),{class:'muted'}),open);
-    row.append(byline,make('h2',thread.title),make('p',thread.body),meta);byId('thread-list').append(row);
+    row.append(make('span',thread.initials,{class:'avatar','aria-hidden':true,'data-tone':threads.indexOf(thread)%4+1}),open,make('span',n+(n===1?' reply':' replies'),{class:'thread-count'}),make('p',thread.body),make('p',thread.author+' · '+thread.topic,{class:'thread-by'}));
+    byId('thread-list').append(row);
   }
-  byId('thread-empty').hidden=filtered.length>0;byId('thread-filter-status').textContent=filtered.length+' discussions shown.';
+  byId('thread-empty').hidden=filtered.length>0;
+  byId('thread-filter-status').textContent=filtered.length+(filtered.length===1?' discussion':' discussions')+' shown.';
 }
 byId('thread-search').addEventListener('input',renderThreads);
 byId('back-threads').addEventListener('click',()=>{byId('thread-detail').hidden=true;byId('discussion-index').hidden=false;renderThreads();if(threadOpener?.isConnected)threadOpener.focus();else byId('thread-search').focus();});
@@ -96,12 +131,13 @@ byId('reply-form').addEventListener('submit',event=>{
 });
 const reports=[{title:'Duplicate workshop announcement',context:'Check whether two fixture posts describe the same event.',resolved:false},{title:'Missing image description',context:'The example report asks for context, not removal of the author.',resolved:false}];
 for(const item of reports){
-  const card=make('article',undefined,{class:'context-card'}),status=make('p','Awaiting local review'),button=make('button','Resolve locally',{class:'btn secondary','aria-label':'Resolve '+item.title});
+  const row=make('article',undefined,{class:'report'}),status=make('p','Awaiting local review',{class:'report-state'});
+  const button=make('button','Resolve locally',{type:'button',class:'link-btn','aria-label':'Resolve '+item.title});
   button.addEventListener('click',()=>{
     item.resolved=!item.resolved;status.textContent=item.resolved?'Resolved in preview':'Awaiting local review';
     button.textContent=item.resolved?'Restore to queue':'Resolve locally';button.setAttribute('aria-label',(item.resolved?'Restore ':'Resolve ')+item.title);
     byId('review-status').textContent=reports.filter(r=>!r.resolved).length+' reports awaiting review. No real content changed.';
   });
-  card.append(make('h3',item.title),make('p',item.context),status,button);byId('review-list').append(card);
+  row.append(make('h3',item.title),button,make('p',item.context),status);byId('review-list').append(row);
 }
 renderThreads();

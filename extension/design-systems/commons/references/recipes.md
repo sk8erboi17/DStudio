@@ -1,32 +1,32 @@
 # Commons: application recipes
 
-## Primary composition
+## Before markup
+Write a one-sentence visual thesis and the user's primary action. Choose a topology from the information hierarchy, then bind this pack's tokens. If alternatives are requested, vary spatial hierarchy and density, not only the accent color.
 
-Place community identity and section navigation in a narrow rail, thread content in a readable middle column and membership/context beside it. At narrow widths put navigation above the stream and context below it. Keep thread authors, labels and reply counts distinct from controls.
+## Primary recipe
+Masthead (name, description, members, one join action) over a heavy rule → section tabs | stream (search and ruled thread rows whose title opens the thread, or one thread with numbered replies and a reply form) | context notes. Rules, alignment and type do the grouping — no cards; secondary actions are text buttons. Below 1180px context follows the stream; below 820px everything stacks.
 
-## A genuinely different second brief
+## Adaptation
+For a member directory, People leads. For a review tool, the queue becomes the stream with context beside it.
 
-For a membership brief, center the people directory and make threads secondary. For review work, use a queue-detail layout with reversible, visibly local decisions rather than moderation controls mixed into every card.
+## Responsive and long content
+Rail and context stack around the stream; person rows put their action on its own line. Use minmax(0,1fr), min-width:0 and overflow-wrap for user text. Do not put content in horizontal scroll regions; reflow rows into labelled stacks instead. Test a long title and translated button text at 320px and 200% text.
 
-## Domain behavior
+## Honest interaction
+Loading: a progress element with a real value or an explicitly indeterminate state. Empty: explain what is missing and offer an implemented next action. Error: keep entered values, say what happened and associate guidance with the control. Success: confirm only what was actually done. Say who sees a report and that resolving it is reversible.
 
-The preview filters three fictional threads, opens discussions, adds up to ten local replies per thread, toggles demo membership and resolves/restores two fixture reports. Profile and review states are examples, never actions on real people or accounts.
+## Export
+Copy the needed CSS and JS beside the generated entry file and update relative paths. The lab toolbar belongs to the catalog only; omit it from client work. No CDN, remote font, brand imitation or borrowed component package is required.
 
-Use the smallest local state needed for the task. Keep state ownership explicit,
-validate edits before applying them and bound history and user input. Do not keep
-an unrelated subsystem alive just to support a preview action.
+## Turn this recipe into a project
 
-## Responsive and accessible
+Treat the supplied layout and breakpoints as examples. First identify the primary
+operation and choose a reading/action order for this brief; remove sample identity
+and irrelevant lab controls. For a second direction, change the topology, density
+or type roles in response to a different need, while keeping the system's thesis.
 
-Use shrinkable grid children, visible labels, logical reading order and native
-controls. At narrow widths stack domain regions rather than compressing paragraphs
-into slivers. At 200% text let controls grow; do not clip their names. Restore focus
-when a dialog closes or a selected item is removed. Respect reduced motion.
-
-## States and delivery
-
-Empty views offer an implemented way back. Errors preserve valid input and explain
-what failed. Confirmation names only the effect that actually happened. Copy local
-dependencies into the exported project, removing catalog-only controls and fictional
-identities. Exercise generated output in a browser; do not manually repair benchmark
-HTML and call it a model delivery.
+Use the state-coverage design-plan reference to map each visible action to its
+validated change and observable result. Include invalid input, no results, Back,
+cancellation and repeated use where applicable. Keep user text literal and name
+what survives a reload. Test the resulting local export with network unavailable,
+then record actual findings and remaining gaps; the recipe is not a test receipt.

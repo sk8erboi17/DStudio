@@ -7328,7 +7328,7 @@ static char *design_tool_pack(const design_tool_call *call, const char *subdir,
     const char *name = tool_arg_value(call, "name");
     if (!design_pack_name_ok(name)) return tool_error("name must be a simple id (a-z, 0-9, -)");
     if (!strcmp(subdir, "design-systems") && !dstudio_design_system_supported(name))
-        return tool_error("retired or unknown system; available originals: folio, signal, forma, grove, pulse, market, commons, atlas, canvas");
+        return tool_error("retired or unknown system; choose an id from the available design-system catalog");
     char path[2300];
     char pack_root[2300] = "";
     char *body = NULL;
@@ -9393,17 +9393,23 @@ static const char design_system_prompt[] =
     "user explicitly asks for alternatives, variants, or a comparison. When you "
     "do propose, write 2-3 separate self-contained files and call propose with "
     "{entry,tag,name,desc}; otherwise keep momentum on one canonical artifact.\n"
-    "The original local systems are folio (reading-led editorial), signal "
-    "(operational instruments), forma (spatial portfolios), grove (human "
-    "services and guided journeys), and pulse (expressive programmes). Choose "
-    "by task and audience, not keywords alone. Call design_system(id), then "
+    "The available original local systems are listed in the runtime catalog. "
+    "Choose by the user's primary action, information density and audience, "
+    "not keywords alone; preserve an explicitly selected system. Call design_system(id), then "
     "pack_file for tokens.css and references/recipes.md before styling. Read "
     "components.html for relevant construction patterns; do not clone the "
     "example identity, lab controls or page skeleton. No third-party catalog.\n"
-    "Write a short design-plan.md before substantial HTML: audience, primary "
-    "action, content priority, system, type roles, page topology, mobile reflow, "
-    "interaction/state map and what distinguishes this brief. Explicit user "
-    "colors and fonts override pack defaults. Adapt the system to the task.\n"
+    "Before substantial HTML, call craft(\"state-coverage\") and use pack_file "
+    "to read its references/design-plan.md. Write a concise project-specific "
+    "design-plan.md: explicit constraints and source facts; audience and primary "
+    "action; content order and chosen topology; system/token and available-font "
+    "bindings; mobile/enlarged-text reflow; action -> state -> visible result "
+    "with failure/cancellation behavior; actual persistence and external effects; "
+    "independent checks and export paths. Record unresolved consequential choices "
+    "instead of inventing facts. Update the plan after a material change and "
+    "retain the user's data and earlier committed work. Explicit user colors "
+    "and fonts override pack defaults. Adapt the system to the task; a plan "
+    "or a self-review is not evidence that its controls work.\n"
     "Compare layout experiments when alternatives are requested; vary spatial "
     "hierarchy, not just palette. Never add gratuitous sections to meet a quota.\n"
     "Never ask the same brand question twice.\n\n"
@@ -12032,11 +12038,19 @@ static int design_run_self_test(void) {
     snprintf(original_markdown, sizeof original_markdown,
              "---\nname: %s\n---\nA reading-led fixture for %s.\n", pack_id, pack_id);
     fails += selftest_expect(design_mkdir_p(original_root), "original pack fixture directory");
-    const char *original_files[] = {"DESIGN.md", "tokens.css", "components.html", NULL};
+    char original_assets[PATH_MAX], original_refs[PATH_MAX];
+    snprintf(original_assets, sizeof original_assets, "%s/assets", original_root);
+    snprintf(original_refs, sizeof original_refs, "%s/references", original_root);
+    fails += selftest_expect(design_mkdir_p(original_assets) && design_mkdir_p(original_refs),
+                             "original pack resource directories");
+    const char *original_files[] = {"DESIGN.md", "tokens.css", "components.html",
+                                    "assets/preview.js", "references/recipes.md", NULL};
     const char *original_bodies[] = {
         original_markdown,
         ":root { --accent: #99432c; }\n",
-        "<!doctype html><html><body><h1>Reading-led fixture</h1></body></html>\n"
+        "<!doctype html><html><body><h1>Reading-led fixture</h1></body></html>\n",
+        "document.body.dataset.ready = 'yes';\n",
+        "# Fixture recipe\nPreserve the selected record on cancellation.\n"
     };
     for (int i = 0; original_files[i]; i++) {
         snprintf(original_file, sizeof original_file, "%s/%s", original_root, original_files[i]);
@@ -12059,9 +12073,34 @@ static int design_run_self_test(void) {
         pf_res = execute_tool_call(&pr, &pf_call);
         const char *payload = strchr(pf_res, '\n');
         fails += selftest_expect(payload && !strcmp(payload + 1, original_bodies[i]),
-                                "pack_file returns original CSS/HTML bytes unchanged");
+                                "pack_file returns original resources and recipes unchanged");
         free(pf_res); tool_call_free(&pf_call);
     }
+    }
+    {
+        char craft_root[PATH_MAX], craft_refs[PATH_MAX], craft_file[PATH_MAX];
+        snprintf(craft_root, sizeof craft_root, "%s/craft/state-coverage", pack_dir);
+        snprintf(craft_refs, sizeof craft_refs, "%s/references", craft_root);
+        fails += selftest_expect(design_mkdir_p(craft_refs), "craft reference fixture directory");
+        const char craft_body[] = "---\nname: State coverage\n---\nFixture craft.\n";
+        const char plan_body[] = "# Fixture project plan\nAction: change one item.\nResult: preserve all other items.\n";
+        snprintf(craft_file, sizeof craft_file, "%s/CRAFT.md", craft_root);
+        fails += selftest_expect(write_file_bytes(craft_file, craft_body, strlen(craft_body), pack_err, sizeof pack_err), "craft fixture bytes");
+        snprintf(craft_file, sizeof craft_file, "%s/design-plan.md", craft_refs);
+        fails += selftest_expect(write_file_bytes(craft_file, plan_body, strlen(plan_body), pack_err, sizeof pack_err), "plan reference fixture bytes");
+        memset(&pf_call, 0, sizeof pf_call); pf_call.name = xstrdup("craft");
+        tool_call_add_arg(&pf_call, "name", "state-coverage", 14, true);
+        pf_res = execute_tool_call(&pr, &pf_call);
+        fails += selftest_expect(strstr(pf_res, craft_body) && strstr(pf_res, "references/design-plan.md"), "craft exposes its project-plan reference");
+        free(pf_res); tool_call_free(&pf_call);
+        memset(&pf_call, 0, sizeof pf_call); pf_call.name = xstrdup("pack_file");
+        tool_call_add_arg(&pf_call, "type", "craft", 5, true);
+        tool_call_add_arg(&pf_call, "name", "state-coverage", 14, true);
+        tool_call_add_arg(&pf_call, "path", "references/design-plan.md", 25, true);
+        pf_res = execute_tool_call(&pr, &pf_call);
+        const char *payload = strchr(pf_res, '\n');
+        fails += selftest_expect(payload && !strcmp(payload + 1, plan_body), "craft pack_file returns the exact project-plan bytes");
+        free(pf_res); tool_call_free(&pf_call);
     }
     memset(&pf_call, 0, sizeof pf_call);
     pf_call.name = xstrdup("design_system");

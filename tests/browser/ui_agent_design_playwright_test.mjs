@@ -3,6 +3,9 @@ import http from 'node:http';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import assert from 'node:assert/strict';
+import {additionalDesignIds} from '../support/design_additional_interactions.mjs';
+
+const designFixtureIds = ['folio','signal','forma','grove','pulse','market','commons','atlas','canvas',...additionalDesignIds];
 
 let chromium;
 const browserKind = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
@@ -126,7 +129,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/start' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req) || '{}');
     starts.push(body);
-    if (body.mode === 'design' && body.designSystem && !['folio', 'signal'].includes(body.designSystem)) {
+    if (body.mode === 'design' && body.designSystem && !designFixtureIds.includes(body.designSystem)) {
       json(res, 400, { ok: false, code: 'invalid_design_system', error: 'Invalid design system fixture' });
       return;
     }
@@ -451,6 +454,10 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, designSystems: [
       { id: 'folio', name: 'Folio', description: 'Reading-led editorial system with warm paper and expressive serif.', modes: '', category: 'general', outputKinds: 'html', upstream: 'dstudio-original/folio', hasComponents: true },
       { id: 'signal', name: 'Signal', description: 'Precise operational system with clear signals and tabular readings.', modes: '', category: 'web-ui-prototype', outputKinds: 'image-brief', upstream: 'dstudio-original/signal', hasComponents: false },
+      ...designFixtureIds.filter(id => !['folio','signal'].includes(id)).map(id => ({
+        id, name:id[0].toUpperCase()+id.slice(1), description:'An isolated original-system UI fixture.',
+        category:'general', outputKinds:'html', upstream:'dstudio-original/'+id, hasComponents:true,
+      })),
     ] });
     return;
   }
@@ -1137,7 +1144,16 @@ try {
   assert.equal(await page.locator('.design-gallery-card__title').filter({ hasText: 'Folio' }).count(), 0, 'Design gallery search should filter cards in place');
   await designSearch.fill('');
   await page.locator('.design-gallery-card__title').filter({ hasText: 'Folio' }).first().waitFor({ timeout: 5000 });
-  assert.ok(await page.getByText(/2 items/).count(), 'Design gallery should include design systems without downloadable skill templates');
+  assert.ok(await page.getByText(/25 items/).count(), 'Design gallery should include all supplied originals and systems without downloadable skill templates');
+  for(const id of additionalDesignIds) {
+    const name=id[0].toUpperCase()+id.slice(1);
+    await designSearch.fill(name);
+    const card=page.locator('.design-gallery-card').filter({has:page.locator('.design-gallery-card__title',{hasText:new RegExp('^'+name+'$')})}).first();
+    await card.getByRole('button',{name:'Use brief',exact:true}).click();
+    await page.waitForFunction(id=>JSON.parse(localStorage.getItem('ds4web.settings.v2')).designSystem===id,id);
+    assert.match(await page.locator('#composer-input').inputValue(),new RegExp('design_system\\("'+id+'"\\)'));
+  }
+  await designSearch.fill('');
   const designGalleryDialogOpen = await page.locator('#design-gallery-dialog').evaluate((dialog) => !!dialog.open);
   assert.equal(designGalleryDialogOpen, false, 'Design gallery should render inline rather than opening a modal');
   const folioCard = page.locator('.design-gallery-card').filter({ hasText: 'Folio' }).first();

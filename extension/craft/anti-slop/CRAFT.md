@@ -1,49 +1,41 @@
 ---
-name: Anti-AI-slop
-description: Kill the tells of machine-generated design — emoji icons, placeholder copy, fake logos, gratuitous gradients/shadows, repeated data, and the "default Tailwind" look. Be specific.
+name: Specificity and honest content
+description: Derive composition and copy from this brief; remove fabricated trust, inconsistent data and unimplemented controls.
 ---
 
-# CRAFT: anti-AI-slop
+# CRAFT: specificity and honest content
 
-The default output of a model is generic. Slop is the set of tells that say "a machine made
-this without taste." Your job is to remove every one and make it *specific*.
+## Start from the actual task
 
-## Never ship these
+Write one sentence explaining the visual direction and the user's primary action.
+Choose hierarchy and topology for this content: reading, comparing, editing,
+monitoring or completing a guided step. A second brief must not inherit the same
+hero/card skeleton merely with different copy. Whitespace, cards, serifs and sans
+are useful when they serve the task; none is a universal requirement or defect.
 
-- **Emoji as icons or content.** 🎨 🎙️ 💬 ⬇ 👁 as buttons, thumbnails, bullets, or section
-  markers. Use **inline SVG** (a real icon) or text. Emoji as an accessible name is also an
-  a11y failure.
-- **Placeholder copy.** No `lorem ipsum`, `[REPLACE]`, "Feature One / Feature Two", "Your
-  text here", "Item 1 / Item 2". Use specific domain copy. Source factual claims;
-  label invented prototype records as examples, never as actual customers or results.
-- **Fake logos / fake brands / clip-art.** No grey rectangles labelled "LOGO", no invented
-  company marks in a "trusted by" row. If you'd be faking trust, omit the section.
-- **Inconsistent data.** Totals, units and labels must agree. Repeated real values
-  are legitimate; do not invent different numbers merely to look varied. Don't
-  pair an icon with the wrong meaning (an eye labelled "views" next to a duration).
+## Keep claims and data honest
 
-## Earn every effect
+Use supplied facts and assets. Label invented prototype records as examples;
+never fabricate customers, awards, endorsements, savings or measured results.
+Omit an unsupported trust section. Coherent repeated values are legitimate;
+units, labels, subtotals and totals must agree. Do not vary numbers for decoration.
+Preserve explicit required copy, including useful inline emphasis.
 
-- Use the chosen system's contrast and emphasis roles. A colored event canvas
-  is legitimate; distinguish the primary action through contrast, shape and space.
-  Do not force every design into the same neutral-background percentage.
-- **Effects must be earned:** aggressive gradients, drop shadows on every card,
-  glassmorphism-by-default, and rainbow borders are tells. Default to flat + space + a single
-  considered detail.
-- **Real visuals, not symbol soup.** A "thumbnail" is a framed image area with `object-fit`,
-  not a centered emoji on a gradient.
+Use named, understandable controls and appropriate local SVG or supplied icons.
+Emoji may be requested content, but must not be the sole control name, status
+signal or substitute for an image. Real images need suitable crops and alt text;
+an empty decorative rectangle is not a product photo.
 
-## Beat the "default template" look
+## Give every visible action a result
 
-- Let content determine the composition. A focused form may need one panel; an
-  editorial issue can alternate a reading column and index. Vary hierarchy where
-  useful, not to meet a quota. Avoid repeating a generic marketing skeleton.
-- Specificity over decoration: name real things, use real proportions, write copy a human in
-  that domain would write. A page that could belong to any product belongs to none.
+Operate navigation, filters, dialogs, forms and undo where present. Remove a
+control that has no role, or expose its actual unavailable/demo state. A preview
+must identify local-only actions; production success depends on the implemented
+operation. Reject generic placeholder text and unexplained dead links.
 
-## Self-check before artifact
+## Review independently
 
-- Zero emoji used as icons/content? Zero placeholders? Zero fake logos?
-- Internally coherent, sourced or clearly illustrative data; no mismatched icon meanings?
-- One accent, effects earned, real visuals (not emoji-on-gradient)?
-- Would a designer with taste recognize this as deliberate, not generated?
+Check composition in grayscale and at mobile width, then operate the exported
+project. Verify factual claims, data consistency and actual saved artifacts
+separately from visual review. A model's critique or attractive screenshot cannot
+prove working behavior or a quality improvement over a comparison variant.

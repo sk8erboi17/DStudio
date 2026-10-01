@@ -396,9 +396,9 @@ oracle and exact serial/chunk GPU comparisons, mixed host/shader rejection and
 complete patch lifecycle must pass. This does not qualify whole-model answers,
 custom q27-format conversion, CUDA, or DStudio's pending q27 application adapter.
 
-## Nine original Design systems
+## Twenty-five original Design systems
 
-`make test-design-originals` serves the real native catalog and all nine authored
+`make test-design-originals` serves the real native catalog and all twenty-five authored
 packs. In Chromium and WebKit it exercises both themes, 320/390/768/1440px,
 computed contrast, 200% text, radio/checkbox label columns, forms and dialog
 focus return. Every pack is also opened as a standalone local file with HTTP
@@ -407,12 +407,33 @@ pages and the opaque app iframe: filters, cart totals/limits, literal replies,
 review restoration, synchronized map/list selection, route ordering, object
 edits, cancelled drags, keyboard selection and bounded undo/redo.
 
+The sixteen added packs have their own actual browser scenarios in
+[`design_additional_interactions.mjs`](support/design_additional_interactions.mjs):
+reconciliation, conversation identity/literal replies, work limits, silent media
+transport, journey/fare changes, local device controls, code selection/search,
+recipe scaling, validated stock/history, adjacent-day rest, deal activities,
+invoice quantities/status, billing/quotes and guided steps. Invalid admissions
+must preserve previous content and drafts. These controls run in both themes and
+desktop/mobile layouts, opaque frames and direct local-file exports; extended
+retention/size boundary cases run in the light desktop view in both browsers.
+
 Each missing pack is still recognized as supported but unavailable; the native
 setup endpoint must not fetch or overwrite it. `make test-design-self` exercises
-the real Agent pack dispatcher and returned CSS/HTML bytes for every supported
-ID. `make test-macos-bundle` validates the catalog materialized from the packaged
-app. These are authored assets and model-free tests, not the 18 model-generated
-projects required by the quality campaign or native desktop qualification.
+the real Agent pack dispatcher and exact returned Markdown, CSS, HTML, JavaScript
+and recipe bytes for every supported ID, plus the craft project-plan reference.
+The Chromium/WebKit Agent/Design UI test uses a simulated 25-item catalog and
+checks that every new system's selection reaches the actual composer and saved
+preference. `make test-macos-bundle` validates the catalog materialized from the
+packaged app. These are authored assets and model-free tests, not the 18
+model-generated projects required by the quality campaign, qualification of
+generated output for the new sixteen packs or final native desktop qualification.
+
+The October 1 gate passed 402/402 preview checks. Native runtime, recorded
+benchmark validation, release checks, simulated gallery tests in both browsers
+and macOS bundle smoke also passed. Failed WebKit resize receipts are retained
+separately from successful retries; early Hearth/Counter diagnostic failures
+were corrected harness assumptions, not product fixes. See
+[integration scope and remaining acceptance](../docs/DESIGN_SYSTEMS.md).
 
 ## Design startup and baseline provenance
 

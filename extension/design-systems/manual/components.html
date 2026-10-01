@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>Manual — DStudio original design system</title><link rel="stylesheet" href="tokens.css"><style>
+.mn-top{display:flex;flex-wrap:wrap;align-items:end;gap:12px 28px;padding:22px 0 18px;border-bottom:1px solid var(--border-strong)}
+.mn-brand{font:700 22px/1 var(--font-display);letter-spacing:-.02em}
+.mn-ver{padding-bottom:2px;font:400 12.5px/1.4 var(--font-mono);color:var(--muted)}
+.mn-search{width:min(320px,100%);margin-left:auto}
+.mn-search input{min-height:40px;padding:7px 12px;font-size:14.5px}
+.mn-body{display:grid;grid-template-columns:220px minmax(0,1fr) 220px;gap:0 48px;align-items:start}
+.mn-nav{position:sticky;top:0;display:grid;gap:10px;padding:26px 0}
+.mn-count{font-size:13px;color:var(--muted)}
+.mn-article{min-width:0;max-width:72ch;padding:28px 0 48px}
+.crumbs{font:400 12.5px/1.4 var(--font-mono);color:var(--muted)}
+.mn-toc{position:sticky;top:0;display:grid;gap:14px;padding:30px 0}
+.mn-feedback{display:flex;flex-wrap:wrap;align-items:center;gap:4px 18px;margin-top:40px;padding-top:14px;border-top:1px solid var(--border-strong)}
+.mn-feedback p:first-child{font-weight:700}
+.mn-feedback [role=status]{width:100%;font-size:14px;color:var(--muted)}
+@media (max-width:1180px){.mn-body{grid-template-columns:200px minmax(0,1fr)}.mn-toc{grid-column:2;position:static;padding-top:0}}
+@media (max-width:820px){.mn-body{grid-template-columns:minmax(0,1fr)}.mn-nav,.mn-toc{position:static;grid-column:auto}.mn-nav{padding:16px 0;border-bottom:1px solid var(--border)}.mn-search{margin-left:0}}
+</style></head>
+<body><a class="skip" href="#main">Skip to content</a><div class="shell">
+<header class="lab-bar"><strong>DSTUDIO ORIGINALS / MANUAL <span class="muted">v1 — interactive example, not a live service</span></strong><div class="lab-actions" aria-label="Preview controls"><button type="button" data-view="example" aria-pressed="true">Example</button><button type="button" data-view="components" aria-pressed="false">Components</button><button type="button" data-theme-toggle aria-pressed="false">Dark appearance</button></div></header>
+<main id="main" tabindex="-1">
+<div data-panel="example" class="mn">
+<header class="mn-top"><span class="mn-brand">Manual</span><span class="mn-ver">v3.2 · example API reference</span><div class="field mn-search"><label for="mn-search">Search the manual</label><input id="mn-search" type="search" placeholder="A topic or a term" autocomplete="off"></div></header>
+<div class="mn-body">
+<nav class="mn-nav" aria-label="Manual sections"><ol class="toc-list" id="mn-nav-list">
+<li><a href="#mn-article">1 Getting started</a><ol><li><a href="#mn-article">1.1 Install the client</a></li><li><a href="#mn-article">1.2 First request</a></li></ol></li>
+<li><a href="#mn-article" aria-current="page">2 Authenticating requests</a><ol><li><a href="#s-2-1">2.1 Create a key</a></li><li><a href="#s-2-2">2.2 Send the key</a></li><li><a href="#s-2-3">2.3 Parameters</a></li></ol></li>
+<li><a href="#mn-article">3 Errors and retries</a></li>
+<li><a href="#mn-article">4 Pagination</a></li>
+<li><a href="#mn-article">5 Webhooks</a></li>
+</ol><p class="mn-count" id="mn-nav-count" role="status"></p></nav>
+<article class="mn-article doc" id="mn-article" aria-labelledby="mn-title">
+<p class="crumbs">Manual / 2 Authenticating requests</p>
+<h1 id="mn-title"><span class="sec-no">2</span><span>Authenticating requests</span></h1>
+<p class="lead">Every request carries a key in the Authorization header. Keys belong to one project and can be rotated without downtime.</p>
+<h2 id="s-2-1">2.1 Create a key</h2>
+<ol class="steps"><li><span>Open <strong>Project settings → Keys</strong>.</span></li><li><span>Choose <strong>New key</strong> and name it after the service that will use it.</span></li><li><span>Store the key at once: it is shown only when it is created.</span></li></ol>
+<div class="note"><strong>Note</strong><p>Never ship a key in client-side code. Sign requests from a server you control.</p></div>
+<h2 id="s-2-2">2.2 Send the key</h2>
+<p>Pass the key as a bearer token. The examples read it from an environment variable named <code>MANUAL_KEY</code>.</p>
+<div class="code"><div class="code-tabs" role="group" aria-label="Example language"><button type="button" data-lang="curl" aria-pressed="true">curl</button><button type="button" data-lang="js" aria-pressed="false">JavaScript</button><button type="button" data-lang="py" aria-pressed="false">Python</button></div><pre id="mn-code" tabindex="0" aria-label="Code example"></pre><div class="code-foot"><button type="button" class="link-btn" id="mn-select">Select code</button><p class="code-status" id="mn-code-status" role="status"></p></div></div>
+<h2 id="s-2-3">2.3 Parameters</h2>
+<dl class="params"><div><dt><code>Authorization</code><span>header · required</span></dt><dd>The word Bearer, a space and the key, for example <code>Bearer mk_test_example</code>.</dd></div><div><dt><code>X-Project</code><span>header · optional</span></dt><dd>Chooses the project when a key can reach more than one.</dd></div><div><dt><code>expires_in</code><span>integer · optional</span></dt><dd>Seconds until a short-lived key expires, from 60 to 86400.</dd></div></dl>
+<p style="margin-top:16px">A missing or rejected key returns <code>401</code>. Search this manual with <kbd>/</kbd> in the full product.</p>
+<div class="mn-feedback"><p>Was this page useful?</p><div class="actions"><button type="button" class="link-btn" data-useful="yes">Yes</button><button type="button" class="link-btn" data-useful="no">No</button></div><p id="mn-feedback" role="status"></p></div>
+</article>
+<aside class="mn-toc" aria-label="On this page"><p class="eyebrow">On this page</p><ol class="toc-list"><li><a href="#s-2-1">2.1 Create a key</a></li><li><a href="#s-2-2">2.2 Send the key</a></li><li><a href="#s-2-3">2.3 Parameters</a></li></ol><div class="actions"><button type="button" class="btn" data-open="Manual test key">Create a test key</button></div></aside>
+</div>
+</div>
+<section data-panel="components" class="specimen" hidden aria-label="Manual components"><p class="eyebrow">DStudio originals / Manual / v1</p><h1>A working visual vocabulary.</h1>
+<p class="spec-lede">Manual is a reference you can work from: numbered sections, a 72-character measure, real steps, a dark code panel that switches language and can be selected, and ruled parameters. Notes sit on a rule, never in a box.</p>
+<div class="spec-grid">
+<section class="sample"><h2>Color roles</h2><div class="swatches"><div class="swatch" style="background:var(--bg)"><span>Canvas</span><code>--bg</code></div><div class="swatch" style="background:var(--surface)"><span>Surface</span><code>--surface</code></div><div class="swatch" style="background:var(--surface-2)"><span>Quiet</span><code>--surface-2</code></div><div class="swatch" style="background:var(--fg);color:var(--bg)"><span>Ink</span><code>--fg</code></div><div class="swatch" style="background:var(--accent);color:var(--on-accent)"><span>Action</span><code>--accent</code></div><div class="swatch swatch--status"><span class="badge">Saved</span><span class="badge badge--danger">Needs a fix</span></div></div><p class="muted">Every pair is measured in both appearances. State is always named in text, never by color alone.</p></section>
+<section class="sample"><h2>Actions &amp; focus</h2><div class="actions"><button type="button" class="btn" data-open="Manual primary action">Try primary action</button><button type="button" class="btn secondary" data-open="Manual secondary action">Secondary</button><button type="button" class="btn" disabled>Unavailable</button></div><p class="muted">Tab to see the focus ring. Escape closes the dialog and focus returns here.</p></section>
+<section class="sample"><h2>Forms that explain</h2><div class="field"><label for="sample-name">Project name</label><input id="sample-name" placeholder="A name you can recognise" aria-describedby="sample-name-hint"><small id="sample-name-hint">The label stays visible while you type.</small></div><div class="field"><label for="sample-error">Email — example error</label><input id="sample-error" value="not-an-address" aria-invalid="true" aria-describedby="email-error"><span id="email-error" class="error">Enter a complete address, such as name@example.com.</span></div><fieldset class="choices"><legend>Notify me</legend><label class="choice"><input type="radio" name="sample-notify" checked><span>Only when something needs my attention</span></label><label class="choice"><input type="radio" name="sample-notify"><span>A weekly summary, never more often</span></label></fieldset></section>
+<section class="sample"><h2>Beyond the happy path</h2><div class="empty"><strong>Nothing here yet.</strong><p>Create the first item and it will be listed here.</p><button type="button" class="btn secondary" data-open="Manual first item">Try creating an item</button></div><div class="field"><label for="sample-progress">Example loading — 60%</label><progress id="sample-progress" max="100" value="60"></progress></div><p class="badge">Example confirmation — changes saved</p></section>
+<section class="sample"><h2>Progressive detail</h2><div><details><summary>What belongs in a component?</summary><p>Purpose, default state, keyboard behaviour, error handling and reflow. This preview is an example, not a backend.</p></details><details><summary>Does it work offline?</summary><p>Yes. No external scripts, fonts, image hosts or packages are requested.</p></details></div></section>
+<section class="sample"><h2>Code panel</h2><div class="code"><div class="code-tabs" role="group" aria-label="Sample language"><button type="button" aria-pressed="true">curl</button><button type="button" aria-pressed="false">Python</button></div><pre tabindex="0" aria-label="Sample code"><span class="c-com"># list projects</span>
+<span class="c-key">curl</span> https://api.example.test/v3/projects \
+  -H <span class="c-str">"Authorization: Bearer $MANUAL_KEY"</span></pre></div><p class="muted">Code wraps instead of scrolling. The palette stays dark in both appearances and is measured against its own ground.</p></section>
+<section class="sample"><h2>Parameters</h2><dl class="params"><div><dt><code>limit</code><span>integer · optional</span></dt><dd>Items per page, from 1 to 100.</dd></div><div><dt><code>cursor</code><span>string · optional</span></dt><dd>Returned by the previous page.</dd></div></dl></section>
+<section class="sample"><h2>Steps, note and keys</h2><ol class="steps"><li><span>Open <strong>Keys</strong>.</span></li><li><span>Press <kbd>N</kbd> to create a key.</span></li></ol><div class="note"><strong>Note</strong><p>A note is set on a rule, not boxed.</p></div></section>
+</div></section>
+</main>
+<footer class="pack-foot"><span>Manual v1 · an original DStudio design system</span><span>Local assets · real controls · example content</span></footer>
+</div>
+<dialog id="request-dialog" aria-labelledby="request-title"><button type="button" class="close" data-close aria-label="Close preview dialog">×</button><p class="eyebrow">Local preview</p><h2 id="request-title">Try the interaction.</h2><p>This form runs only in this preview. Nothing is sent, saved or booked.</p><form id="request-form"><div class="field"><label for="request-topic">Subject</label><input id="request-topic" name="topic" readonly></div><div class="field"><label for="request-name">Name</label><input id="request-name" name="name" required autocomplete="off" placeholder="Your name"></div><div class="field"><label for="request-email">Email</label><input id="request-email" name="email" type="email" required autocomplete="off" placeholder="name@example.com"></div><div class="actions"><button class="btn" type="submit">Complete preview</button></div><p id="request-status" class="status" role="status"></p></form></dialog>
+<script src="assets/preview.js" defer></script></body></html>

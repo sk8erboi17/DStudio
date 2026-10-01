@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>Larder — DStudio original design system</title><link rel="stylesheet" href="tokens.css"><style>
+.ld{padding-bottom:64px}
+.ld-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:20px 56px;align-items:end;padding:44px 0 30px;border-bottom:1px solid var(--border-strong)}
+.ld-head h1{margin:10px 0 14px;font-size:clamp(3rem,7vw,6.2rem);line-height:.92}
+.ld-lede{max-width:52ch;font-size:18px;color:var(--muted)}
+.ld-facts{display:flex;flex-wrap:wrap;gap:12px 36px}
+.ld-facts div{display:grid;gap:2px}
+.ld-facts dt{font:600 11px/1.4 var(--font-ui);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.ld-facts dd{margin:0;font:400 32px/1.1 var(--font-display)}
+.ld-body{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,7fr);gap:40px 72px;align-items:start;padding-top:34px}
+.ld-body h2{margin-bottom:14px;font-size:36px}
+.ld-note{padding-top:12px;font-size:14px;color:var(--muted)}
+.ld-method .actions{margin-top:20px}
+@media (max-width:900px){.ld-head,.ld-body{grid-template-columns:minmax(0,1fr)}}
+</style></head>
+<body><a class="skip" href="#main">Skip to content</a><div class="shell">
+<header class="lab-bar"><strong>DSTUDIO ORIGINALS / LARDER <span class="muted">v1 — interactive example, not a live service</span></strong><div class="lab-actions" aria-label="Preview controls"><button type="button" data-view="example" aria-pressed="true">Example</button><button type="button" data-view="components" aria-pressed="false">Components</button><button type="button" data-theme-toggle aria-pressed="false">Dark appearance</button></div></header>
+<main id="main" tabindex="-1">
+<div data-panel="example" class="ld">
+<header class="ld-head">
+<div><p class="eyebrow">Weeknight · vegetarian · <span id="ld-serves">serves 4</span> · 45 min</p><h1>Tomato &amp; white bean braise</h1><p class="ld-lede">Slow-cooked tomatoes, soft beans and a crisp breadcrumb top. One pan, one oven, about forty-five minutes.</p></div>
+<dl class="ld-facts"><div><dt>Prep</dt><dd>15 min</dd></div><div><dt>Cook</dt><dd>30 min</dd></div><div><dt>Oven</dt><dd>200 °C</dd></div></dl>
+</header>
+<div class="ld-body">
+<section aria-labelledby="ld-ing-title">
+<h2 id="ld-ing-title">Ingredients</h2>
+<div class="servings"><span class="servings-label" id="ld-serv-label">Servings</span><button type="button" class="step" id="ld-less" aria-label="Fewer servings">−</button><output id="ld-servings" aria-labelledby="ld-serv-label">4</output><button type="button" class="step" id="ld-more" aria-label="More servings">+</button></div>
+<ul class="ingredients" id="ld-list" aria-label="Ingredients"></ul>
+<p class="ld-note" id="ld-gathered" role="status">0 of 9 gathered</p>
+<p class="ld-note" id="ld-serv-msg" role="status">Quantities are rounded when the recipe is scaled.</p>
+</section>
+<section class="ld-method" aria-labelledby="ld-method-title">
+<h2 id="ld-method-title">Method</h2>
+<ol class="method" id="ld-steps"></ol>
+<p class="ld-note" id="ld-progress" role="status">0 of 6 steps done · next: step 1</p>
+<div class="actions"><button type="button" class="btn" data-open="Larder shopping list">Add to shopping list</button></div>
+</section>
+</div>
+</div>
+<section data-panel="components" class="specimen" hidden aria-label="Larder components"><p class="eyebrow">DStudio originals / Larder / v1</p><h1>A working visual vocabulary.</h1>
+<p class="spec-lede">Larder is a cookbook page that works at the stove: cream and tomato, Bodoni titles and numerals, quantities that rescale, ingredients you can tick off and one step marked Now.</p>
+<div class="spec-grid">
+<section class="sample"><h2>Color roles</h2><div class="swatches"><div class="swatch" style="background:var(--bg)"><span>Canvas</span><code>--bg</code></div><div class="swatch" style="background:var(--surface)"><span>Surface</span><code>--surface</code></div><div class="swatch" style="background:var(--surface-2)"><span>Quiet</span><code>--surface-2</code></div><div class="swatch" style="background:var(--fg);color:var(--bg)"><span>Ink</span><code>--fg</code></div><div class="swatch" style="background:var(--accent);color:var(--on-accent)"><span>Action</span><code>--accent</code></div><div class="swatch swatch--status"><span class="badge">Saved</span><span class="badge badge--danger">Needs a fix</span></div></div><p class="muted">Every pair is measured in both appearances. State is always named in text, never by color alone.</p></section>
+<section class="sample"><h2>Actions &amp; focus</h2><div class="actions"><button type="button" class="btn" data-open="Larder primary action">Try primary action</button><button type="button" class="btn secondary" data-open="Larder secondary action">Secondary</button><button type="button" class="btn" disabled>Unavailable</button></div><p class="muted">Tab to see the focus ring. Escape closes the dialog and focus returns here.</p></section>
+<section class="sample"><h2>Forms that explain</h2><div class="field"><label for="sample-name">Project name</label><input id="sample-name" placeholder="A name you can recognise" aria-describedby="sample-name-hint"><small id="sample-name-hint">The label stays visible while you type.</small></div><div class="field"><label for="sample-error">Email — example error</label><input id="sample-error" value="not-an-address" aria-invalid="true" aria-describedby="email-error"><span id="email-error" class="error">Enter a complete address, such as name@example.com.</span></div><fieldset class="choices"><legend>Notify me</legend><label class="choice"><input type="radio" name="sample-notify" checked><span>Only when something needs my attention</span></label><label class="choice"><input type="radio" name="sample-notify"><span>A weekly summary, never more often</span></label></fieldset></section>
+<section class="sample"><h2>Beyond the happy path</h2><div class="empty"><strong>Nothing here yet.</strong><p>Create the first item and it will be listed here.</p><button type="button" class="btn secondary" data-open="Larder first item">Try creating an item</button></div><div class="field"><label for="sample-progress">Example loading — 60%</label><progress id="sample-progress" max="100" value="60"></progress></div><p class="badge">Example confirmation — changes saved</p></section>
+<section class="sample"><h2>Progressive detail</h2><div><details><summary>What belongs in a component?</summary><p>Purpose, default state, keyboard behaviour, error handling and reflow. This preview is an example, not a backend.</p></details><details><summary>Does it work offline?</summary><p>Yes. No external scripts, fonts, image hosts or packages are requested.</p></details></div></section>
+<section class="sample"><h2>Servings</h2><div class="servings"><span class="servings-label">Servings</span><button type="button" class="step" aria-label="Sample fewer servings">−</button><output>4</output><button type="button" class="step" aria-label="Sample more servings" aria-disabled="true">+</button></div><p class="muted">Bounds stay focusable and explain themselves; the number is the largest thing in the row.</p></section>
+<section class="sample"><h2>Ingredient rows</h2><ul class="ingredients" aria-label="Sample ingredients"><li><label class="choice"><input type="checkbox" checked><span><strong class="qty">400 g</strong> cherry tomatoes</span></label></li><li><label class="choice"><input type="checkbox"><span><strong class="qty">1½</strong> tins of white beans, drained</span></label></li></ul></section>
+<section class="sample"><h2>Method step</h2><ol class="method" aria-label="Sample step"><li class="method-step" data-now="true"><span class="step-no" aria-hidden="true">3</span><div><span class="now-tag">Now</span><p>Add the tomatoes and stock; simmer until they begin to burst.</p></div></li></ol><p class="muted">One step at a time is marked Now, in words and in the numeral.</p></section>
+</div></section>
+</main>
+<footer class="pack-foot"><span>Larder v1 · an original DStudio design system</span><span>Local assets · real controls · example content</span></footer>
+</div>
+<dialog id="request-dialog" aria-labelledby="request-title"><button type="button" class="close" data-close aria-label="Close preview dialog">×</button><p class="eyebrow">Local preview</p><h2 id="request-title">Try the interaction.</h2><p>This form runs only in this preview. Nothing is sent, saved or booked.</p><form id="request-form"><div class="field"><label for="request-topic">Subject</label><input id="request-topic" name="topic" readonly></div><div class="field"><label for="request-name">Name</label><input id="request-name" name="name" required autocomplete="off" placeholder="Your name"></div><div class="field"><label for="request-email">Email</label><input id="request-email" name="email" type="email" required autocomplete="off" placeholder="name@example.com"></div><div class="actions"><button class="btn" type="submit">Complete preview</button></div><p id="request-status" class="status" role="status"></p></form></dialog>
+<script src="assets/preview.js" defer></script></body></html>

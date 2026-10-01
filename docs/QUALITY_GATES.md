@@ -231,21 +231,24 @@ When a gate fails, classify it before editing code:
 
 ## Roadmap
 
-1. **Current release gate:** keep G0–G6 green on Apple Silicon with the selected
-   81 GB IQ2XXS model, DS4-only explicit SSD streaming off and requested context
-   unchanged; preserve raw evidence for both long profiles.
-2. **Next platform gate:** run the deterministic matrix on Linux/CUDA and
-   Windows CPU packaging; make helper/runtime absence an explicit startup error,
-   never a silent tool omission.
+1. **Current macOS qualification:** complete applicable G0–G6 evidence for the
+   nine included selections and exact final configurations in [PLAN.MD](../PLAN.MD).
+   Preserve each existing release profile and original failure; the historical
+   81 GB IQ2XXS profile does not qualify the entire current matrix. Excluded
+   media workers are not campaign requirements.
+2. **Separate platform roadmap:** Linux/CUDA and Windows CPU packaging remain
+   outside the owner's macOS-only campaign. Do not schedule them as missing
+   campaign work or infer support from macOS results.
 3. **Performance ratchet:** record p50/p95 startup, first-tool and turn latency
    after correctness is stable. Add upper bounds only from several clean runs;
    latency never trades away correctness or safety.
 4. **Visual diversity ratchet:** add reference-free landing, dashboard, mobile,
    deck and image-led corpora with perceptual/layout fingerprints so a model
    cannot pass by repeating one composition.
-5. **Independent review:** add a second local visual judge and a deterministic
-   computed-contrast probe alongside the shipped DOM overflow, interactive-
-   overlap and sparse-panel probes. Promote
+5. **Independent review:** add a second local visual judge and complete generated-
+   project contrast coverage, reusing the existing rendered-contrast probe in
+   `tests/support/design_project_audit.mjs` rather than reimplementing it.
+   Keep the shipped DOM overflow, interactive-overlap and sparse-panel probes. Promote
    further subjective visual findings to blocking only when a reproducible
    pixel/DOM signal or judge consensus supports them.
 6. **Release automation:** publish a signed summary containing commit, model

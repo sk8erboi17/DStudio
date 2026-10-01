@@ -1,55 +1,39 @@
 ---
 name: Typography
-description: Readable hierarchy, deliberate display type and responsive text. Use available fonts and derive the scale from the content, not a size quota.
+description: Choose available type roles for the audience, content and density; verify readable hierarchy and enlarged-text reflow.
 ---
 
 # CRAFT: typography
 
-Most of "good design" is typography done with discipline. A clear scale, restrained weights,
-a comfortable measure, and real hierarchy carry the page before any color or layout.
+## Choose roles before sizes
 
-## Scale & weights
+Define display, section, prose, control, metadata and numeric/code roles that the
+brief actually needs. Reuse roles consistently; vary scale and density between
+an editorial page, an instrument and an editor. A modular scale is a starting
+point, not a required number of sizes. User-specified fonts take precedence.
 
-- Define roles first: display, section heading, body, label and metadata. Reuse
-  each role consistently. A modular scale is a useful starting point, not a quota
-  that should flatten a poster or make a dense table enormous.
-- Use weights the actual font supplies; make emphasis selective. Fractional
-  variable weights only work when that variable font is available. Check the
-  rendered fallback instead of assuming it has identical metrics.
-- Adjust display tracking for the chosen face; leave prose at a readable default.
-  Do not force condensed, serif and humanist faces into the same treatment.
+Use actual available weights. Preserve the exact requested family name, load a
+supplied local font with `@font-face`, and report an unavailable face honestly.
+System fonts and documented fallbacks work offline; naming Inter or a branded
+font does not install it. Check the actual fallback's wrapping and glyphs.
 
-## Readability
+## Reading and alignment
 
-- **Measure 60–75 characters** per line for body text (~`max-width: 68ch`). Wider tires the
-  eye; narrower is choppy.
-- **Body ≥ 16px**, line-height 1.5–1.7 for prose, ~1.1–1.2 for big headings.
-- **Left-align body** (don't justify — rivers; don't center long paragraphs).
-  Use rem/em for text and fluid headings with a relative minimum. Test 200% text
-  scaling independently of viewport width. Allow grid children to shrink and
-  long words to wrap without hiding overflow; labels and controls must still work.
+For ordinary prose, start near 16px with comfortable line spacing and roughly
+60–75 characters per line, then adjust to language, typeface and task. These are
+starting values, not a veto on a caption, poster, poem or compact operational row.
+Avoid long centered or justified prose. Give code and figures appropriate fonts;
+use tabular lining figures and consistent units for numeric comparisons.
 
-## Fonts (system-safe)
+Let headings wrap naturally. Use relative minimum sizes in fluid scales and
+containers that grow with text. Do not shrink type or clip overflow to fit a
+fixed-height card. Check 200% text independently of viewport width, long titles,
+translated labels and third/later rows, not just the first ideal example.
 
-- The deliverable runs offline with no external requests, so **don't depend on a web font you
-  can't load**. Lead with a real font name only if you also give a correct system fallback
-  stack — and don't tune metrics (weights, tracking) to a font that won't be present.
-- Web-safe pairings: a clean sans for UI/body (`-apple-system, Inter, system-ui`), an
-  optional serif (`Georgia, "Times New Roman"`) for editorial headings/quotes; mono
-  (`ui-monospace, "SF Mono"`) for code/data.
+## Verify before delivery
 
-## Hierarchy
-
-- Establish hierarchy with **size + weight + space**, not boxes and borders. One clear
-  first-glance landing point per screen.
-- Labels/eyebrows: smaller, uppercase, letter-spaced, muted — but still legible (contrast).
-- Numbers in tables: tabular figures, right-aligned.
-
-## Self-check before artifact
-
-- Consistent roles, intentional emphasis and display type appropriate to the task?
-- Body ≥16px, measure 60–75ch, left-aligned, good line-height?
-- No dependence on an unloadable web font / fractional weight?
-- Hierarchy from type+space (clear first-glance point), labels legible?
-- Enlarged text reflows at mobile width; no clipped words, overlapping controls
-  or fixed-height containers hiding content?
+Check rendered hierarchy, actual line lengths, truncation and focus readability
+at desktop and mobile widths. Inspect cramped prose and enlarged controls.
+Keep code bytes and user copy intact while changing visual emphasis. After a
+font or width change, rerender every affected layout; a named font or CSS rule is
+not evidence of the rendered result.

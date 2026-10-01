@@ -1,67 +1,40 @@
 ---
-name: Layout & responsive integrity
-description: When you change a size, aspect ratio or breakpoint, restructure the container — never leave an element floating with dead space. Layout edits are structural, not local.
+name: Layout and responsive integrity
+description: Design the container, reading order and media behavior together; verify narrow widths and enlarged text without hiding defects.
 ---
 
-# CRAFT: layout & responsive integrity
+# CRAFT: layout and responsive integrity
 
-The most common layout bug in an edited design: changing **one** element's size or aspect
-ratio without restructuring the container that depended on the old proportions. The element
-shrinks or stretches into the wrong shape and leaves **dead space**. A resize is a
-**structural** change, not a one-property tweak.
+## Choose a topology for the content
 
-## The cardinal rule of resizing
+Decide reading/action order, side information, density and what changes on a
+narrow screen before styling. The pack's composition is a starting point.
+Change the parent flow when an element's size, aspect ratio or content changes;
+check later rows and unrelated siblings too. Preserve intentional whitespace,
+while repairing accidental slivers and stranded controls.
 
-When the user asks to change a size, aspect ratio, or orientation (e.g. "make it 9:16",
-"taller", "two columns"), **re-flow the whole region**, not just the target element:
+Use shrinkable grid/flex tracks (`minmax(0,1fr)`, `min-width:0`) and appropriate
+wrapping. Do not reduce readable type, clip the page or hide overflow to mask a
+wrong track. Keep DOM order meaningful; CSS `order` also affects grid placement
+and cannot establish a keyboard/screen-reader reading order by itself.
 
-1. **Change the element's dimension AND its container's layout together.** Ask: "with the
-   new shape, where does everything else go?" Whitespace can create hierarchy;
-   a paragraph stranded in an accidental sliver of the grid cannot.
-2. **Match the layout to the new proportion:**
-   - Wide media (16:9, 4:3) → media on **top**, content below (vertical card). `width: 100%`.
-   - Tall/portrait media (9:16, 3:4) → media on the **left**, content to the **right**
-     (horizontal card: `.card { display: flex }`, media `flex: 0 0 <fixed-width>`, content
-     `flex: 1`). A full-width 9:16 in a wide card is ~2× taller than the card — almost never
-     what's wanted.
-3. **Account for space.** A reading measure or deliberate offset can leave room
-   around content. Preserve that intention, but fix accidental narrow tracks,
-   cropped copy and containers stretched by an unrelated sibling.
+## Media and text
 
-## Aspect-ratio mechanics (the trap)
+Choose media size and crop together with the container. A portrait can sit beside
+text or lead a full-width story; neither orientation mandates one universal card.
+Give aspect-ratio an intentional width constraint, then test caps and flex sizing.
+Use `object-fit:contain` when source details must remain visible; `cover` is an
+explicit crop, unsuitable when it discards evidence or required labels.
 
-`aspect-ratio` + `max-height` (or `max-width`) **without an explicit `width`** makes the
-browser derive the *other* dimension from the cap, so a block silently collapses to a small
-box (e.g. `aspect-ratio: 9/16; max-height: 220px` → width ≈ 124px, stranded left). Fixes:
+Text containers grow with content. Prefer minimum rather than fixed heights;
+consider dynamic viewport units for mobile chrome and content that exceeds it.
+A dense table/map/editor may have a labelled local scroll region and keyboard
+access. Ordinary page content still reflows without sideways page scrolling.
 
-- Give the element a real width (`width: 100%`, or a fixed width in a flex track), then let
-  `aspect-ratio` set the height. Use `object-fit: cover` for media so it fills without
-  distortion.
-- Use `aspect-ratio` to *shape* an element, `max-height`/`max-width` only as a guard — not
-  as the thing that determines the size.
+## Verify the exported result
 
-## General layout hygiene
-
-- **Containers own their children's flow.** A grid/flex parent decides placement; children
-  don't float arbitrarily. Center, stretch, or pin deliberately.
-- **Keep source order meaningful.** Changing `order` also changes grid auto-placement.
-  For alternating compositions assign grid areas/columns deliberately, then reset
-  placement at the mobile breakpoint. Check the second and third rows too: the
-  first can look correct while a later paragraph lands in the number rail.
-- **Measure actual prose width.** No page overflow does not mean readable text.
-  Long prose squeezed into many very short lines calls for a container/placement
-  repair, not smaller type. Use inspect_layout's crampedProse selectors and boxes.
-- **No `height: 100vh`** for full-height (mobile address bar) → `min-height: 100dvh`.
-- **No fixed pixel heights on text containers** — content grows; use min-height + padding.
-- **Breakpoints are real layouts** (390 / 768 / 1280), not a shrunk desktop. Reasses column
-  counts, media placement, and nav at each — and re-check there's no dead space or overflow.
-- **No horizontal scroll** at any width (unless a deliberate scroller). Test 390px.
-
-## Self-check after any size/layout edit
-
-- Did I restructure the **container**, or only the element? (If only the element → wrong.)
-- Does surrounding space serve the composition, or expose a broken track?
-- Are later rows readable, and does the mobile visual sequence still match the
-  intended reading/action order?
-- Does the new proportion suit a vertical or horizontal arrangement — and did I pick it?
-- Re-checked 390 / 768 / 1280: no overflow, no stranded boxes, media uses `object-fit`?
+Exercise 320/390/768/1440px, offered themes, 200% text, long titles, translated
+controls and missing/large content. Check width and height, overlap, source/visual
+order, meaningful crop and reachability of every action. No page overflow alone
+is not proof of readable prose; inspect actual text boxes and cramped columns.
+After HTML/CSS/font changes, rerender affected widths and operate the controls.

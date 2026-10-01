@@ -182,12 +182,20 @@ Claude reviewed every answer and saved artifact as an external judge,
 separately from the deterministic checks: all quality items and both saved
 files are correct and correctly formatted.
 
-These are development workflows and small acceptance sets, not the 100-case
-quality corpus, long-context qualification or a speed benchmark. Q2 was not
-downloaded or tested. Numerical equivalence to a trusted model reference,
-native desktop sessions, Design/vision support and non-Metal hardware are
-**not qualified by these checks**. Earlier fork scores remain historical and
-must not be reported as scores for these new weights.
+Later on September 29 the separate complete corpus receipt
+`engine-acceptance/run-l3Fevh/qwen-common-100/results.json` records **75/100**,
+with all **8/8 long-context cases passing**, for these new single-file Q4 weights
+on main. The remaining 25 answer/format failures are retained. This is a
+first-exposure corpus result, not a score inherited from the retired fork and
+not an all-green product qualification or a speed benchmark. Its weight SHA-256
+matches the Q4 identity above; [the current checkpoint](QWEN_CHECKPOINT.md)
+records the receipt and remaining work.
+
+The small development workflow checks remain separate from that corpus. Q2
+was not downloaded or tested in those runs. Trusted full-model numerical
+equivalence, complete Learn/PDF/native-desktop workflows and Design/vision
+support remain unqualified. Non-Metal hardware is outside the current campaign.
+Earlier fork scores stay historical and cannot qualify these new weights.
 
 Reproduce the scoped installation/workspace checks from the repository root:
 

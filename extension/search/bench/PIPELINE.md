@@ -5,6 +5,13 @@ or a citation appeared. A correct answer must cover the requested details,
 have supporting source evidence, disclose relevant conflicting definitions,
 and follow the requested length. A faster wrong answer does not count as a win.
 
+This is a historical September 6 development experiment, not the current
+application's timeout policy. Since September 30, discovery, synthesis and
+review have no automatic application elapsed-work cutoff; bounded work/bytes,
+actual transport failures and Stop remain effective. The recorded runtime,
+results and benchmark deadlines below are retained unchanged. See
+[remaining answer-quality work](../../../docs/SEARCH_AGENT_QUALITY_PLAN.md).
+
 ## Answer-review update
 
 **Latest complete replay: 4/4 meets the checked requirements, versus 2/4 in the
@@ -47,8 +54,9 @@ sources. An unrecognized length instruction still relies on the model.
 The app delivers the exact reviewed text without another model rewrite.
 The original request and reviewed bytes are bound together; stale or altered
 reports cannot inherit a passing review. An unsuccessful review remains an
-incomplete draft. Source comparison, writing and at most two corrections share
-a four-minute deadline. A model review is **not** the benchmark grader or a
+incomplete draft. In this historical runtime, source comparison, writing and
+at most two corrections shared a four-minute deadline; the application no
+longer imposes that cutoff. A model review is **not** the benchmark grader or a
 guarantee of truth: it can inherit an extraction error or miss an unsupported claim.
 
 Three complete rejected development attempts are retained:

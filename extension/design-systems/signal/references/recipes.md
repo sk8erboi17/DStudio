@@ -1,19 +1,32 @@
 # Signal: application recipes
 
 ## Before markup
-Write a one-sentence visual thesis and the user's primary action. Select a page topology based on information hierarchy, then bind this pack's tokens. Sketch a second topology if the user asks for alternatives; vary spatial hierarchy, not merely accent color.
+Write a one-sentence visual thesis and the user's primary action. Choose a topology from the information hierarchy, then bind this pack's tokens. If alternatives are requested, vary spatial hierarchy and density, not only the accent color.
 
 ## Primary recipe
-Desktop 180px rail and flexible main canvas. Align readings on a baseline, always put units beside values. Scroll dense tables inside a labelled region at narrow widths; never overflow the page.
+Top rule (product, breadcrumb, sync time) → rail and main. Main: heading → up to four readings on a ruled strip → queue with filter beside an inspector → activity log. Use rules and alignment, not cards; the row title selects the row; one primary action lives in the inspector. Below 1180px the inspector follows the queue; below 900px the rail wraps above and rows become labelled stacks.
 
 ## Adaptation
-For public-facing pages replace the rail with a compact top bar and show one real workflow before feature claims. Never invent uptime or performance data.
+For a settings tool, the queue becomes grouped key-value rows. For monitoring, keep readings with units and a timestamped log; draw a chart only when it answers a stated question.
 
 ## Responsive and long content
-At narrow widths reduce display type with clamp(), stack unequal columns in reading order and preserve labels/units. Use minmax(0,1fr), min-width:0 and overflow-wrap for user text. Tabular data may have a labelled local horizontal scroll region; never hide page overflow to mask layout defects. Test a long title and translated button text.
+Rows reflow into stacks with ID and state first; the rail wraps into a row. Keep numerals tabular. Use minmax(0,1fr), min-width:0 and overflow-wrap for user text. Do not put content in horizontal scroll regions; reflow rows into labelled stacks instead. Test a long title and translated button text at 320px and 200% text.
 
 ## Honest interaction
-Loading: a progress element with a real value or an explicitly indeterminate state. Empty: explain what is missing and offer an implemented next action. Error: retain entered values, describe what happened, associate instructions with the control. Success: confirm only the action actually performed. Use native details and dialog where suitable; Escape closes, focus returns, primary actions remain named.
+Loading: a progress element with a real value or an explicitly indeterminate state. Empty: explain what is missing and offer an implemented next action. Error: keep entered values, say what happened and associate guidance with the control. Success: confirm only what was actually done. A filter always states how many items match.
 
 ## Export
-Copy the necessary CSS and JS beside the generated entry file and update relative paths. The sample's lab toolbar belongs only to the catalog; omit it from finished client work. No CDN, remote font, brand imitation or borrowed component package is required.
+Copy the needed CSS and JS beside the generated entry file and update relative paths. The lab toolbar belongs to the catalog only; omit it from client work. No CDN, remote font, brand imitation or borrowed component package is required.
+
+## Turn this recipe into a project
+
+Treat the supplied layout and breakpoints as examples. First identify the primary
+operation and choose a reading/action order for this brief; remove sample identity
+and irrelevant lab controls. For a second direction, change the topology, density
+or type roles in response to a different need, while keeping the system's thesis.
+
+Use the state-coverage design-plan reference to map each visible action to its
+validated change and observable result. Include invalid input, no results, Back,
+cancellation and repeated use where applicable. Keep user text literal and name
+what survives a reload. Test the resulting local export with network unavailable,
+then record actual findings and remaining gaps; the recipe is not a test receipt.

@@ -6,7 +6,11 @@
  * Legacy downloaded folders are never exposed, even on an older install. */
 static const char *const dstudio_design_system_ids[] = {
     "folio", "signal", "forma", "grove", "pulse",
-    "market", "commons", "atlas", "canvas", NULL
+    "market", "commons", "atlas", "canvas",
+    "ledger", "relay", "docket", "tempo",
+    "transit", "hearth", "manual", "larder",
+    "depot", "roster", "pipeline", "tally",
+    "letter", "datasheet", "walkthrough", "counter", NULL
 };
 static int dstudio_design_system_supported(const char *id) {
     if (!id) return 0;

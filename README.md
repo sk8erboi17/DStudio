@@ -65,22 +65,22 @@ A source push does not replace older downloaded app releases.
 ## Work in progress
 
 **This is an in-progress source update, not a fully qualified release.**
-See the [September 13 change and verification notes](docs/changes/2026-09-13.md).
-Qwen27B and Qwen3.6 have working, narrowly tested Chat/Agent/Cowork paths on
-Apple Silicon, but neither integration is complete. Qwen Design is not
-integrated; full Learn/Tutor, desktop and quality qualification remain open.
-The 27B's earlier 100-task replay remains **61 passed / 39 failed**, and the
-latest Qwen3.6 long Agent test still times out. Successful targeted retries
-do not replace those results.
+The [remaining-work backlog](docs/WORK_IN_PROGRESS.md) and [active plan](PLAN.MD)
+now contain unfinished work only; completed tranches and original failed
+receipts are retained in their linked historical archives.
 
-The update also includes engine/V4.1 work, recoverable installation and cache
-fixes, Agent goals/live input, nine offline Design systems and new behavioral
-tests. **Integrated**, **tested on specific tasks** and **fully qualified** mean
-different things. See the [plain-language WIP status](docs/WORK_IN_PROGRESS.md)
-for each model's remaining work and [the full plan](PLAN.MD) for acceptance.
-The current implementation slice is closed; the remaining campaign is paused.
-Publishing this snapshot does not update your installed app or claim that all
-models work in every mode or on every backend.
+Qwen Design adapters and complete Qwen3.6/27B disk-session restoration remain
+missing. Full-model qualification of the 27B online-attention and 3.6 batched-
+prefill overlays, complete Learn/Tutor, PDF/vision, native desktop, installation
+recovery, generated Design projects and final release admission remain open.
+The September 29 complete corpus receipts are **27B 61/100, Qwen3.6 63/100 and
+current-main Next Q4 75/100** (Next long context **8/8**). They retain failures
+and do not qualify the subsequent inference overlays. The older 3.6 long-Agent
+timeout/partial-summary failure still needs current-stack revalidation.
+
+The remaining campaign is paused and covers macOS on Apple Silicon only.
+Publishing a source checkpoint does not update your installed app or qualify
+every model and mode.
 
 ## Install on macOS
 
@@ -148,7 +148,7 @@ pinned at `0aaea5a`). There is no separate
 Qwen Next engine to install or select. Upstream also changed the model format:
 download the new **Q2 (147.2 GB)** or **Q4 (177.3 GB)** in Settings → Models.
 Old weights stay on disk, but cannot be used by this integration. Qwen3.6 MoE
-and Qwen27B are separate and unchanged. [Migration and test scope](docs/QWEN_NEXT_MAIN_MIGRATION.md).
+and Qwen27B retain their separate engines. [Migration and test scope](docs/QWEN_NEXT_MAIN_MIGRATION.md).
 
 Both **Qwen3.6-35B-A3B and Qwen3.8-Flash-Next can now use Agent and Cowork**
 on Apple Silicon: read your files, make changes and check the saved result.
@@ -418,11 +418,13 @@ do not claim to have seen pixels. [Measured scope and limitations](extension/sea
 
 Research also has a stopping point: Search admits up to 6 queries and 8 page
 reads; Deep Research up to 18 queries, 24 reads and 12 follow-up actions. It
-keeps collected evidence and marks unresolved work as incomplete. The 10/30-minute
-budgets stop new evidence work, not an already running inference or the final
-writer; discovery model calls have a separate 15-minute ceiling. Answer writing
-and review share four minutes, with at most two corrections. These are
-resource limits, not expected response times or proof of answer quality.
+keeps collected evidence and marks unresolved work as incomplete. Source and
+retained-byte limits bound discovery; at most two answer corrections are allowed.
+Discovery model calls, writing and review have no automatic application
+elapsed-time cutoff. A slow valid local-model request remains active until
+completion, an actual failure or Stop. Individual external web requests retain
+their own transport limits. Work limits are not expected response times or
+proof of answer quality.
 
 ### Agent
 
@@ -568,7 +570,7 @@ The whole pipeline, from a one-line idea to laid-out screens:
 
 - **1 · Brief and questions.** Design asks for missing product, audience and visual decisions. A complete brief can start the build directly; an explicit request to skip the interview also works.
 - **2 · Generating.** It loads the right skills/design systems, writes a short plan, builds the screens and shows live progress from real runtime events instead of raw tool noise.
-- **Original visual systems.** Nine locally authored systems are included: **Folio** (editorial), **Signal** (operational tools), **Forma** (portfolios), **Grove** (guided services), **Pulse** (events), **Market** (catalogs and baskets), **Commons** (communities), **Atlas** (maps and itineraries) and **Canvas** (object editors with undo). Each has coordinated light/dark colors, working offline examples and composition recipes. No external design catalog or first-run design download. Preview them in the Design gallery; [behavior, tests and remaining quality checks](docs/DESIGN_SYSTEMS.md). The new examples pass browser interaction checks; the 18-project model-generated evaluation is not yet complete.
+- **Original visual systems.** Twenty-five local systems ship offline, including editorial, operational, portfolio, service, event, commerce, community, map and editor directions, plus finance, correspondence, planning, inventory, documentation, recipe, media and product-landing systems. Each has coordinated light/dark colors, interactive examples, domain behavior contracts and composition recipes. Select them in the Design gallery; [the complete catalog, tests and remaining qualification](docs/DESIGN_SYSTEMS.md) distinguish authored preview checks from model-generated quality. The frozen eighteen-project evaluation for the original nine systems remains incomplete; it does not qualify the sixteen added systems.
 - **Measured layout checks.** Before registering HTML, the native agent renders at 1280, 768 and 390px, including on text-only models. Measured page overflow, overlapping controls and distorted media block registration. Linked CSS changes are re-measured; a missing renderer is reported, not counted as a pass. These checks do not replace visual judgement or task-specific interaction tests.
 - **More reliable delivery.** Incomplete writes are rejected, with recovery guidance to retry smaller, complete files; unfinished answers are no longer silently marked complete when they hit the output limit. The agent can flag squeezed paragraphs and missing page anchors without imposing one font or layout. [Real before/after experiment](docs/DESIGN_AGENT_EXPERIMENT.md): improvements in individual cases, but no overall quality win established by the initial three-brief comparison.
 - **Reasoning control.** Thinking effort and context capacity are independent. Design honors the context selected in Settings (with a 32k minimum) even at Thinking Max instead of silently allocating 393,216 tokens. Max keeps hidden reasoning unlimited across tool rounds; the optional 8k, 16k and 24k caps close only the model's native `</think>` block and leave the visible/tool response unrestricted.
@@ -601,8 +603,9 @@ video operation already running is allowed to finish before the additional
 context is processed. Stop remains a separate action.
 
 In Agent, use `/goal <objective>` to keep working across turns towards one
-saved objective. The default limit is **8 turns**, with a 15-minute limit per
-turn. Use `/goal pause`, `/goal resume` or `/goal clear`, or the buttons above
+saved objective. The default limit is **8 turns**, with no default elapsed-time
+cutoff per turn. Explicit positive deadlines in saved/API graphs remain enforced.
+Use `/goal pause`, `/goal resume` or `/goal clear`, or the buttons above
 the composer. Pause takes effect after the current turn; Clear stops the goal
 but keeps its journal and existing files. A crash never automatically replays
 an interrupted action.
@@ -1308,3 +1311,109 @@ DStudio is early, hardware-hungry and built for the local-AI crowd. The most use
 ## License
 
 [BSD 3-Clause](LICENSE) © 2026 Giuseppe Perrotta
+
+## WIP completion checklist — October 1, 2026
+
+The full macOS/Apple Silicon campaign remains **incomplete and paused**. Checked
+items mean the stated implementation or scoped verification is complete; they
+do not qualify every model or a final release. The owner controls the complete
+quality-suite rerun. Exact acceptance criteria and retained failures are in
+[the remaining WIP](docs/WORK_IN_PROGRESS.md) and [PLAN.MD](PLAN.MD).
+
+### Completed implementation and scoped checks
+
+- [x] Bundle the four pinned engine source trees with provenance and versioned
+  adaptations; build/install from an empty offline profile without fetching or
+  recloning upstream sources. Retire the separate Qwen Next installer/reference.
+  [Sources and verification](docs/BUNDLED_ENGINES.md).
+- [x] Move Qwen Next onto unified main and record the single-file Q4 baseline:
+  75/100 corpus answers and 8/8 long-context cases. Wrong answers remain in the
+  denominator; this baseline does not qualify Q2 or every mode.
+  [Qwen evidence](docs/QWEN_CHECKPOINT.md).
+- [x] Implement the Q6_K correction, parallel 27B F16 attention, bounded 3.6
+  batched prefill, launch/preparation/dependency fixes and silent-prefill relay
+  handling, with scoped regressions. Full-model qualification remains below.
+  [Implementation and retained failures](docs/QWEN_CHECKPOINT.md).
+- [x] Remove automatic application elapsed-work cutoffs from model preparation,
+  inference, PDF planning and Research discovery/writing/review. Retain Stop,
+  count/byte/concurrency bounds, transport errors and explicitly configured Task
+  Graph budgets. [Scope and limits](docs/history/wip-through-2026-09-30.md).
+- [x] Correct Research progress/transcript preservation, streamed writer output,
+  visible incomplete outcomes and the internal source-map fallback; prevent
+  incidental source wording from choosing an unrequested technical format.
+  [Remaining real-answer checks](docs/SEARCH_AGENT_QUALITY_PLAN.md).
+- [x] Share transcript selection/scroll handling across Chat, Agent, Cowork,
+  Design and Tutor; fix image admission/viewing, native-window styling/dragging
+  and Learn/Tutor interaction regressions. The recorded simulated UI matrix
+  passes 54/54 executions, including slow/fast streams and reviewed selection
+  GIFs. [Actual coverage and limitations](tests/README.md#complete-simulated-ui-matrix).
+- [x] Update the nine existing Design packs in place and add sixteen new packs:
+  25 offline systems, 25 direction guides, 25 recipes, eight craft guides and a
+  runtime-readable project-plan template. Correct preview layout, validation,
+  stock/history, shift-rest and invoice-state defects.
+  [Catalog and integration](docs/DESIGN_SYSTEMS.md).
+- [x] Pass 402/402 authored Design preview checks in Chromium/WebKit, simulated
+  gallery checks, native Design runtime/recovery gates, recorded benchmark
+  validation and macOS bundle smoke. No model ran for this integration.
+  [Verification scope](docs/DESIGN_SYSTEMS.md#october-1-integration-and-guidance).
+- [x] Consolidate active WIP/plan/checkpoints into remaining work; retain dated
+  implementation history, original failures and receipt identities in
+  [the archives](docs/WORK_IN_PROGRESS.md#current-sources-and-historical-evidence).
+
+### Still required for the campaign
+
+- [ ] Implement and qualify independent Qwen Design adapters and the required
+  missing native-vision paths; preserve explicit unsupported-capability errors.
+- [ ] Complete native disk-session checkpoint restoration for Qwen3.6 and 27B.
+- [ ] Complete Agent/Cowork dependency signatures, crash-safe runtime-pair
+  publication and verified legacy-source recovery.
+- [ ] Bound q36 directory/parser work and complete full-model multi-session
+  acceptance.
+- [ ] Verify complete 27B/3.6 numerical behavior and original long requests on
+  the new inference overlays; perform invalidated quality reruns only under the
+  owner's supervision and qualify Next Q2 independently.
+- [ ] Complete Learn/Tutor and the retained Next reasoning-setting incident;
+  revalidate the 3.6 long-Agent timeout/partial-summary failure on current code.
+- [ ] Complete selected-model Agent/Goals/Cowork long tasks, steering,
+  pause/resume, durable recovery, exactly-once effects and reopened exports.
+- [ ] Independently qualify native PDF/vision inputs, including at least 30 PDFs
+  and 20 images per vision checkpoint, actual pixels and negative text-model/
+  history/cache cases across all required modes.
+- [ ] Complete at least 36 native-model desktop workflows (nine selections ×
+  Chat/Agent/Learn/Cowork), plus Design, switching, cancellation and final-build
+  regressions.
+- [ ] Qualify the remaining fourteen Design domain auditor oracles; generate,
+  operate and visually review the eighteen frozen projects for the original
+  nine systems, preserving failed outputs and regenerating through the runtime.
+- [ ] Add separate generated-project briefs/oracles and real-model qualification
+  for the sixteen new Design systems. Authored previews do not qualify them.
+- [ ] Complete installation/upgrade/failure/recovery coverage and final engine
+  admission; bind exact qualifying receipts to the 117 required gate slots.
+  Unfilled slots are missing evidence, not 117 failed tests.
+- [ ] Complete held-out Search/Research answer evaluation, actual native-vision
+  webpage checks and the real-model replay of the retained writer incident.
+- [ ] In the dedicated final session, qualify V4.1 Q2/Q4 and GLM 5.3, including
+  V4.1's retained format failure, GLM's matching 100 continuations and complete
+  mode/vision/memory/SSD acceptance.
+- [ ] Finish current-build/path/case inventory, the complete campaign coordinator
+  and the public coverage report.
+- [ ] Implement the actual Codex/Responses comparison adapter and complete the
+  six-agent/two-lane comparison with held-out cases and independent oracles.
+- [ ] Complete phase profiling, matched baselines, final release admission and
+  reviewed aggregate results/Matplotlib publication.
+- [ ] Reproduce the isolated WebKit gallery-filter failure before claiming a
+  causal fix; retain its failed receipt despite later passing simulated runs.
+
+### Separate product roadmap
+
+These items are outside the paused campaign's current acceptance scope:
+
+- [ ] Validate the two-photo MiniMax H3 path end to end in its own authorized run.
+- [ ] Broaden Design visual-diversity/independent-review coverage and establish
+  latency baselines and signed release-summary automation.
+- [ ] Develop the richer Plan-mode and MCP ideas described in
+  [Project Roadmap](#project-roadmap); they are ideas, not completed commitments.
+
+Private prompts, documents, transcripts, weights and raw screenshots/receipts
+remain ignored. Publishing this checkpoint does not resume model runs or close
+any unchecked requirement.

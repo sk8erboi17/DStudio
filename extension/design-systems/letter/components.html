@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>Letter — DStudio original design system</title><link rel="stylesheet" href="tokens.css"><style>
+.lt{padding-bottom:80px}
+.lt-top{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 28px;padding:18px 0;border-bottom:1px solid var(--border)}
+.lt-brand{font:600 24px/1 var(--font-display);letter-spacing:.01em}
+.lt-nav{display:flex;flex-wrap:wrap;gap:4px 24px}
+.lt-nav a{color:var(--fg);font-size:16px;text-decoration:none}
+.lt-nav a:hover{color:var(--accent);text-decoration:underline}
+.lt .letter{padding-top:56px}
+.lt-price{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin-top:12px;padding:26px 0;border-top:3px double var(--border-strong);border-bottom:3px double var(--border-strong)}
+.lt-price h2{font-size:28px}
+.lt-faq{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-top:20px}
+.lt-faq h2{font-size:28px}
+.lt-cta{align-items:baseline;gap:12px 24px}
+</style></head>
+<body><a class="skip" href="#main">Skip to content</a><div class="shell">
+<header class="lab-bar"><strong>DSTUDIO ORIGINALS / LETTER <span class="muted">v1 — interactive example, not a live service</span></strong><div class="lab-actions" aria-label="Preview controls"><button type="button" data-view="example" aria-pressed="true">Example</button><button type="button" data-view="components" aria-pressed="false">Components</button><button type="button" data-theme-toggle aria-pressed="false">Dark appearance</button></div></header>
+<main id="main" tabindex="-1">
+<div data-panel="example" class="lt">
+<div class="lt-top"><span class="lt-brand">Abaco</span><nav class="lt-nav" aria-label="Site"><a href="#lt-price">Price</a><a href="#lt-faq">Questions</a><a href="#lt-sign">Who we are</a></nav></div>
+<article class="letter" aria-labelledby="lt-h1">
+<p class="eyebrow">A letter from the people who make Abaco</p>
+<h1 id="lt-h1">“Your shop already has a system. It’s a drawer full of paper.”</h1>
+<p class="dateline">Milan, October</p>
+<p>Dear shopkeeper,</p>
+<p>We built Abaco for the hour after closing — stock to count, invoices to send, a supplier to pay. It does those three things on one screen, in plain words, on the computer you already own.</p>
+<p>It is not an enterprise suite. There are no modules to buy and no consultant to call. If something is unclear, you write to us and one of the four of us answers.</p>
+<dl class="benefits"><div><dt>Stock</dt><dd>Count shelves with your phone; Abaco tells you what to reorder before you run out.</dd></div><div><dt>Invoices</dt><dd>Electronic invoices in the format your accountant expects, numbered and kept for ten years.</dd></div><div><dt>Suppliers</dt><dd>Every bill, due date and payment in one ruled list, with reminders that never shout.</dd></div></dl>
+<section class="lt-price" id="lt-price" aria-labelledby="lt-price-title"><h2 id="lt-price-title">One price, written as a sentence</h2>
+<fieldset class="choices inline-choices"><legend>Billing</legend><label class="choice"><input type="radio" name="lt-billing" value="month" checked><span>Monthly</span></label><label class="choice"><input type="radio" name="lt-billing" value="year"><span>Yearly, two months free</span></label></fieldset>
+<p class="price-sentence" id="lt-sentence" aria-live="polite"><strong>€19 a month</strong> for the whole shop, however many people use it.</p>
+<div class="actions lt-cta"><button type="button" class="btn" data-open="Abaco trial">Start a 30-day trial</button><a href="#lt-faq">Read the questions first</a></div>
+<p class="hint">No card needed for the trial. Example pricing: nothing is charged in this preview.</p></section>
+<p class="signature" id="lt-sign">Yours, from the workshop,<span>Giulia, Marco, Ade and Sofia</span></p>
+<section class="lt-faq" id="lt-faq" aria-labelledby="lt-faq-title"><h2 id="lt-faq-title">Questions people ask before trying it</h2><div><details><summary>Can I bring my existing stock list?</summary><p>Yes. Import a spreadsheet; Abaco shows you what it understood before anything is saved.</p></details><details><summary>What happens to my data if I leave?</summary><p>You download everything as ordinary files, and we delete our copy within thirty days.</p></details><details><summary>Does it work without a connection?</summary><p>Counting stock does. Sending invoices needs a connection.</p></details></div></section>
+</article>
+</div>
+<section data-panel="components" class="specimen" hidden aria-label="Letter components"><p class="eyebrow">DStudio originals / Letter / v1</p><h1>A working visual vocabulary.</h1>
+<p class="spec-lede">Letter is a landing page written as a letter: warm paper, one book serif for everything, a quoted headline, a salutation, benefits as a ruled list, the price as a sentence and a signature from real people.</p>
+<div class="spec-grid">
+<section class="sample"><h2>Color roles</h2><div class="swatches"><div class="swatch" style="background:var(--bg)"><span>Canvas</span><code>--bg</code></div><div class="swatch" style="background:var(--surface)"><span>Surface</span><code>--surface</code></div><div class="swatch" style="background:var(--surface-2)"><span>Quiet</span><code>--surface-2</code></div><div class="swatch" style="background:var(--fg);color:var(--bg)"><span>Ink</span><code>--fg</code></div><div class="swatch" style="background:var(--accent);color:var(--on-accent)"><span>Action</span><code>--accent</code></div><div class="swatch swatch--status"><span class="badge">Saved</span><span class="badge badge--danger">Needs a fix</span></div></div><p class="muted">Every pair is measured in both appearances. State is always named in text, never by color alone.</p></section>
+<section class="sample"><h2>Actions &amp; focus</h2><div class="actions"><button type="button" class="btn" data-open="Letter primary action">Try primary action</button><button type="button" class="btn secondary" data-open="Letter secondary action">Secondary</button><button type="button" class="btn" disabled>Unavailable</button></div><p class="muted">Tab to see the focus ring. Escape closes the dialog and focus returns here.</p></section>
+<section class="sample"><h2>Forms that explain</h2><div class="field"><label for="sample-name">Project name</label><input id="sample-name" placeholder="A name you can recognise" aria-describedby="sample-name-hint"><small id="sample-name-hint">The label stays visible while you type.</small></div><div class="field"><label for="sample-error">Email — example error</label><input id="sample-error" value="not-an-address" aria-invalid="true" aria-describedby="email-error"><span id="email-error" class="error">Enter a complete address, such as name@example.com.</span></div><fieldset class="choices"><legend>Notify me</legend><label class="choice"><input type="radio" name="sample-notify" checked><span>Only when something needs my attention</span></label><label class="choice"><input type="radio" name="sample-notify"><span>A weekly summary, never more often</span></label></fieldset></section>
+<section class="sample"><h2>Beyond the happy path</h2><div class="empty"><strong>Nothing here yet.</strong><p>Create the first item and it will be listed here.</p><button type="button" class="btn secondary" data-open="Letter first item">Try creating an item</button></div><div class="field"><label for="sample-progress">Example loading — 60%</label><progress id="sample-progress" max="100" value="60"></progress></div><p class="badge">Example confirmation — changes saved</p></section>
+<section class="sample"><h2>Progressive detail</h2><div><details><summary>What belongs in a component?</summary><p>Purpose, default state, keyboard behaviour, error handling and reflow. This preview is an example, not a backend.</p></details><details><summary>Does it work offline?</summary><p>Yes. No external scripts, fonts, image hosts or packages are requested.</p></details></div></section>
+<section class="sample"><h2>Headline and dateline</h2><div class="letter" style="margin:0"><h1 style="font-size:2.4rem">“A drawer full of paper.”</h1><p class="dateline">Milan, October</p></div><p class="muted">A quoted headline hangs its opening mark into the margin.</p></section>
+<section class="sample"><h2>Price as a sentence</h2><p class="price-sentence"><strong>€190 a year</strong> for the whole shop — two months free.</p><p class="muted">No plan grid: one price, stated once, with what it covers.</p></section>
+<section class="sample"><h2>Benefits and signature</h2><dl class="benefits"><div><dt>Stock</dt><dd>Know what to reorder before you run out.</dd></div></dl><p class="signature">Yours, from the workshop,<span>Giulia, Marco, Ade and Sofia</span></p></section>
+</div></section>
+</main>
+<footer class="pack-foot"><span>Letter v1 · an original DStudio design system</span><span>Local assets · real controls · example content</span></footer>
+</div>
+<dialog id="request-dialog" aria-labelledby="request-title"><button type="button" class="close" data-close aria-label="Close preview dialog">×</button><p class="eyebrow">Local preview</p><h2 id="request-title">Try the interaction.</h2><p>This form runs only in this preview. Nothing is sent, saved or booked.</p><form id="request-form"><div class="field"><label for="request-topic">Subject</label><input id="request-topic" name="topic" readonly></div><div class="field"><label for="request-name">Name</label><input id="request-name" name="name" required autocomplete="off" placeholder="Your name"></div><div class="field"><label for="request-email">Email</label><input id="request-email" name="email" type="email" required autocomplete="off" placeholder="name@example.com"></div><div class="actions"><button class="btn" type="submit">Complete preview</button></div><p id="request-status" class="status" role="status"></p></form></dialog>
+<script src="assets/preview.js" defer></script></body></html>

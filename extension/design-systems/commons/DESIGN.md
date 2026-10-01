@@ -1,61 +1,64 @@
 ---
 name: Commons
-description: A conversation-first community space with readable threads, member context and an explicit review queue.
+description: A neighbourhood noticeboard: soft white and lake blue, rounded headings, readable threads, member context and a visible review queue.
 modes: [design]
 ds4_category: community
 ds4_local_mode: native
 ds4_output_kinds: html
 ds4_upstream: dstudio-original/commons
 ---
-# Commons — original DStudio system, version 1
+# Commons — original DStudio system, version 2
 
 ## Visual thesis
-
-People and conversations, not a marketing hero. A compact vertical community rail anchors a central discussion stream and a quieter context column.
+People and conversations, not a marketing hero. A community rail with membership and sections anchors a central stream; context and guidelines sit in a quieter column.
 
 Best fit: Communities, discussion spaces, member directories and collaborative review.
 
 ## Load before building
+Read `tokens.css`, `components.html`, `assets/preview.js` and `references/recipes.md` using `pack_file(type="design_system", name="commons", path="…")`. These are local authored assets, not an external template or framework. The preview uses example content, not real customers, metrics, transactions or availability.
 
-Read `tokens.css`, `components.html`, `assets/preview.js` and
-`references/recipes.md` through `pack_file(type="design_system", name="commons", path="…")`.
-These are original local assets, not a framework or external service.
+## Fit the brief
+
+Identify the audience, the primary action and the source of each factual claim.
+Preserve explicit user copy, colors, fonts and supplied assets. The composition
+below is a starting point: adapt its density, order and proportions to the task.
+Record consequential missing decisions; do not invent customers, results or services.
+Use only the relevant craft guidance, starting with `craft("state-coverage")`.
+Its `references/design-plan.md` provides the short plan and action/result checklist.
 
 ## Compose, do not clone
+Masthead (name, description, members, one join action) over a heavy rule → section tabs | stream (search and ruled thread rows whose title opens the thread, or one thread with numbered replies and a reply form) | context notes. Rules, alignment and type do the grouping — no cards; secondary actions are text buttons. Below 1180px context follows the stream; below 820px everything stacks.
 
-Place community identity and section navigation in a narrow rail, thread content in a readable middle column and membership/context beside it. At narrow widths put navigation above the stream and context below it. Keep thread authors, labels and reply counts distinct from controls.
-
-For a membership brief, center the people directory and make threads secondary. For review work, use a queue-detail layout with reversible, visibly local decisions rather than moderation controls mixed into every card.
-
-Derive the actual content order and controls from the brief. Do not copy the
-fictional preview identity into the output. Two different briefs need different
-compositions, not just new words or colors. Explicit user choices take precedence.
+The reference is a worked example, not a universal layout. Keep the thesis and derive content order from the user's task. Never copy the example identity (Westside Makers and its members) into a deliverable. Two unrelated briefs must not become the same skeleton with different text.
 
 ## Tokens and typography
+`tokens.css` is the executable source of truth. Bind --bg, --surface, --surface-2, --fg, --muted, --border, --border-strong, --accent, --accent-hover and --on-accent; use --success/--danger with a textual label. Avatar tones (`--tone-1…4`) carry initials with `--on-tone` at full contrast. Light and dark palettes are coordinated, not inverted. Measure the actual rendered foreground/background pairs in every offered theme; a token value or color notation does not prove contrast. Display: ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Segoe UI", system-ui. Body: system-ui, -apple-system, "Segoe UI", sans-serif. All stacks work offline; actual glyphs depend on installed fonts. Never claim a fallback is a supplied brand font. Explicit user typography wins.
 
-The executable `tokens.css` defines coordinated light/dark roles for background,
-surfaces, foreground, muted text, borders, accent and status. Display uses
-"Trebuchet MS", Arial, sans-serif; body uses "Segoe UI", Arial, sans-serif. These are local fallback stacks,
-not bundled brand fonts. Preserve readable contrast, focus indicators and labels.
+## Signature components
+`.avatar[data-tone]`, `.threads` + `.thread-row` with a `.thread-title` button and `.thread-count`, `.replies` (numbered, rule-separated), `.tabs`, `.note`, `.person`, `.report`, `.link-btn`.
 
-## Interaction and ownership
+## States and honesty
+Copy only the components the brief needs. The component view demonstrates primary/secondary/disabled buttons, labelled inputs, an inline error, empty/loading/success states, disclosure and a keyboard-dismissible dialog that returns focus. Keep :focus-visible, 44px targets where practical, reduced motion and reflow at 320px and 200% text. Never express state by color alone. Replies are plain text, local and never published; membership and moderation changes are local and reversible.
 
-The preview filters three fictional threads, opens discussions, adds up to ten local replies per thread, toggles demo membership and resolves/restores two fixture reports. Profile and review states are examples, never actions on real people or accounts.
+Prototype interactions must say they are local previews; wire real operations only when they are implemented. A successful animation is not proof that an action succeeded. Copy referenced CSS/JS into the generated project with relative links: an export must not depend on DStudio API URLs. Do not place text over gradients or background images.
 
-State is owned by the preview document and lost on reload. The agent must implement
-actual persistence or external actions separately when requested; a preview
-confirmation never proves a purchase, publication, file save or backend operation.
-Keep limits and error states explicit. User text enters text nodes, not HTML.
+## Avoid
+Rounded cards around posts, a bordered button per row, like counts as the main hierarchy, infinite feeds, engagement badges, anonymous moderation and HTML in user text.
 
-## Acceptance and export
+## Behavior contract
 
-Render at 320/390/768/1440 px in light and dark. Test 200% text, keyboard navigation,
-form validation, choices, empty state, dialog Escape/focus return and all domain
-controls. Radio/checkbox labels keep a separate indicator column when wrapping.
-Do not hide overflowing page content. Map/artboard viewports may scroll locally
-when clearly labelled, with a fully keyboard-operable alternative.
+Keep replies and moderation attached to the correct thread/member. Render entered text literally; reversible local review must preserve prior replies and identify uncommitted external actions.
 
-Copy the needed CSS and JS beside the generated HTML and update relative links.
-Export must work without DStudio, remote fonts, CDNs or APIs. Omit the catalog lab
-bar from client work. Fixed preview fixtures and successful static tests do not
-constitute model-generated quality evidence.
+Separate editable drafts from committed state. Define each action's input,
+validation, owner, visible result and failure/cancellation behavior in the plan.
+Derived views must share the committed data; never let a progress animation or
+model self-review stand in for a saved result. Keep queues, retained input and
+history bounded. In a preview, state belongs to this document and reload resets it;
+production persistence and external effects require their own implemented contract.
+
+## Acceptance
+Render at 390, 768 and 1440px in both appearances; check 320px and 200% text for overflow and clipping. Operate every control with the keyboard; Escape closes dialogs and focus returns. Measure contrast on rendered pairs. Exercise loading/error/empty/success with real behavior or a clearly labelled demo state. Search, open a thread, reject an empty reply, add a literal-text reply, join and leave, open a profile, and resolve then restore a report. A passing preview is not a claim about generated model quality.
+
+After checking the exported files, report what was exercised, what remains
+unverified and the actual saved entry path. Recheck affected controls and layouts
+after any HTML, CSS or JavaScript repair; do not infer a pass from unchanged markup.

@@ -1,42 +1,49 @@
 ---
 name: State coverage
-description: A design that only shows the happy path is half-built. Render loading, empty, error, populated and edge states — for every data-driven surface.
+description: Map actual actions to validated state and visible outcomes; preserve input, cancellation, recovery and honest persistence.
 ---
 
 # CRAFT: state coverage
 
-Most of a real product is *not* the happy path. A screen that only shows full, perfect data
-is a render, not a design. Cover the states that actually happen.
+## Plan only what this brief needs
 
-## The five states (for every data-driven surface)
+Read `references/design-plan.md` with `pack_file` and write the project-specific
+plan before substantial implementation. Use concrete records/actions and expected
+results, not a long generic checklist. Update it after a material change; omit
+inapplicable states with a reason instead of inventing unnecessary screens.
 
-1. **Loading** — skeletons that match the final layout (shimmer), not a spinner on blank.
-   Don't reflow when data arrives.
-2. **Empty** — a real first-run message + the **one action** that fills it ("No invoices yet
-   — create your first"). Never a blank panel.
-3. **Error** — what failed, in plain language, + a **retry**, scoped to the affected region
-   (don't blank the whole screen for one panel's failure). No leaking internals.
-4. **Populated** — realistic, **varied** data: long names, big numbers, every status, a few
-   edge values that stress truncation and alignment. Never "Item 1 / Item 2".
-5. **Edge** — the cases that break naive layouts: a 40-char unbroken string, a huge number, a
-   negative/zero value, a list of 1 and of 100, a missing optional field.
+## Data and operation states
 
-## Interaction states
+- Initial/empty: explain what is absent and expose an implemented next action.
+- Loading: retain useful prior content and input; use real or indeterminate
+  progress. Match the layout without implying a completed operation.
+- Populated: use coherent, sourced or explicitly illustrative data and expose
+  selection, quantities and statuses in words.
+- Error: identify the failed operation/field, retain prior valid data and drafts,
+  and provide a real recovery path. Cancellation is a separate outcome.
+- Edge: test no/one/many records, long strings, invalid/nonfinite values and
+  missing optional data. Bound retained data and history where used.
 
-Every interactive element needs **default / hover / focus / active / disabled** — and where
-relevant **selected** and **indeterminate** (checkboxes, partial selection). Focus must be
-visible (see accessibility). Disabled must look disabled and not be focusable as if active.
+Do not add simulated failures or timers to a live product just to display every
+state. Isolated browser fixtures can exercise real pending/error transitions.
 
-## Forms & async
+## Action and ownership contract
 
-- Validation states **per field** (default / focus / error / success), inline, on blur and
-  on submit — not a single generic banner.
-- Async actions: the trigger shows **in-progress** (and disables to prevent double-submit),
-  then **success** or **error**. Never a dead button that gives no feedback.
+For every visible action identify input, validation, committed owner and result.
+Prepare edits privately, revalidate the selected record/request before commit,
+and derive counters/details from that same state. Duplicate clicks must not
+repeat an external effect; stale callbacks cannot overwrite a newer selection.
+Retain useful hover/focus/selected/disabled feedback with understandable reasons.
 
-## Self-check before artifact
+Separate drafts from committed values. Back/Undo restores only supported recorded
+changes; cancelled interactions preserve previous results. New streamed text
+must preserve reading position, focus and selected text. A response failure keeps
+already received content and reports incomplete status honestly.
 
-- Did I render loading / empty / error — or only populated?
-- Is the populated data varied and edge-tested (long strings, big numbers, 1 vs many)?
-- Do interactive elements have hover / focus / active / disabled?
-- Do forms show per-field validation, and async actions show progress → result?
+## Persistence and evidence
+
+Declare what survives reload, what stays local and what is actually sent/saved.
+A demo click cannot claim delivery, payment, booking or a physical-device change.
+Verify tool/file results independently of animation or model text. Exercise valid,
+invalid, cancelled and repeated actions, reopen where supported, and record actual
+outcomes and not-run checks. A plan is guidance, not a passing test receipt.

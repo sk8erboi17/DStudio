@@ -1,61 +1,64 @@
 ---
 name: Market
-description: A useful shop, not a sales landing page: tactile product shelves, clear comparisons and a visible basket.
+description: A good shop counter: stone and aubergine, honest prices, finish plinths, a filter rail, comparison and an itemised basket.
 modes: [design]
 ds4_category: commerce
 ds4_local_mode: native
 ds4_output_kinds: html
 ds4_upstream: dstudio-original/market
 ---
-# Market — original DStudio system, version 1
+# Market — original DStudio system, version 2
 
 ## Visual thesis
-
-Products, differences and totals take precedence over persuasion. A compact editorial masthead leads into a working catalog, with filters on the left and a basket available throughout.
+Products, differences and totals before persuasion. A plain masthead leads into a filter rail and a shelf; every object shows its price, finish and a way to compare, and the basket adds up in view.
 
 Best fit: Catalogs, product comparison, configurators and local order prototypes.
 
 ## Load before building
+Read `tokens.css`, `components.html`, `assets/preview.js` and `references/recipes.md` using `pack_file(type="design_system", name="market", path="…")`. These are local authored assets, not an external template or framework. The preview uses example content, not real customers, metrics, transactions or availability.
 
-Read `tokens.css`, `components.html`, `assets/preview.js` and
-`references/recipes.md` through `pack_file(type="design_system", name="market", path="…")`.
-These are original local assets, not a framework or external service.
+## Fit the brief
+
+Identify the audience, the primary action and the source of each factual claim.
+Preserve explicit user copy, colors, fonts and supplied assets. The composition
+below is a starting point: adapt its density, order and proportions to the task.
+Record consequential missing decisions; do not invent customers, results or services.
+Use only the relevant craft guidance, starting with `craft("state-coverage")`.
+Its `references/design-plan.md` provides the short plan and action/result checklist.
 
 ## Compose, do not clone
+Masthead with basket → heading and plain-language note → filter rail (search, collection, reset, live count) beside the shelf → comparison tray. The basket is a dialog with quantity controls, total, clear and an empty state. Below 900px the rail moves above the shelf.
 
-Use a narrow filter rail, a two- or three-column product shelf and an explicit comparison strip. Keep price, variant and availability beside the action. On mobile, filters precede the shelf, products form one column, and the basket remains a labelled button.
-
-A configurator can replace the shelf with a large product study and staged choices; keep a running itemized total. A comparison brief needs aligned attributes, not duplicated marketing cards.
-
-Derive the actual content order and controls from the brief. Do not copy the
-fictional preview identity into the output. Two different briefs need different
-compositions, not just new words or colors. Explicit user choices take precedence.
+The reference is a worked example, not a universal layout. Keep the thesis and derive content order from the user's task. Never copy the example identity (Marlow Goods and its four objects) into a deliverable. Two unrelated briefs must not become the same skeleton with different text.
 
 ## Tokens and typography
+`tokens.css` is the executable source of truth. Bind --bg, --surface, --surface-2, --fg, --muted, --border, --border-strong, --accent, --accent-hover and --on-accent; use --success/--danger with a textual label. Finish plinths use fixed material colors in both appearances; drawings switch line color for contrast. Light and dark palettes are coordinated, not inverted. Measure the actual rendered foreground/background pairs in every offered theme; a token value or color notation does not prove contrast. Display: "Avenir Next", "Segoe UI", system-ui, sans-serif (semibold, tight tracking). Body: the same stack; prices with tabular figures. All stacks work offline; actual glyphs depend on installed fonts. Never claim a fallback is a supplied brand font. Explicit user typography wins.
 
-The executable `tokens.css` defines coordinated light/dark roles for background,
-surfaces, foreground, muted text, borders, accent and status. Display uses
-Georgia, "Times New Roman", serif; body uses "Helvetica Neue", Arial, sans-serif. These are local fallback stacks,
-not bundled brand fonts. Preserve readable contrast, focus indicators and labels.
+## Signature components
+`.product` with `.product-art[data-finish]`, `.product-heading` and price, a finish select, compare `label.choice`, `.compare-item`, `.basket-list` with `.basket-controls`, `.basket-total`.
 
-## Interaction and ownership
+## States and honesty
+Copy only the components the brief needs. The component view demonstrates primary/secondary/disabled buttons, labelled inputs, an inline error, empty/loading/success states, disclosure and a keyboard-dismissible dialog that returns focus. Keep :focus-visible, 44px targets where practical, reduced motion and reflow at 320px and 200% text. Never express state by color alone. Prices are illustrative; basket and comparison are local and vanish on reload. Never show checkout as available.
 
-The example filters four fictional products, selects variants, compares up to three products and maintains a bounded local basket. Basket quantities are limited to six per variant; all prices are illustrative EUR amounts. No checkout, inventory reservation or payment occurs.
+Prototype interactions must say they are local previews; wire real operations only when they are implemented. A successful animation is not proof that an action succeeded. Copy referenced CSS/JS into the generated project with relative links: an export must not depend on DStudio API URLs. Do not place text over gradients or background images.
 
-State is owned by the preview document and lost on reload. The agent must implement
-actual persistence or external actions separately when requested; a preview
-confirmation never proves a purchase, publication, file save or backend operation.
-Keep limits and error states explicit. User text enters text nodes, not HTML.
+## Avoid
+Countdown timers, fake discounts, unsourced star ratings, carousels and imitation product photos.
 
-## Acceptance and export
+## Behavior contract
 
-Render at 320/390/768/1440 px in light and dark. Test 200% text, keyboard navigation,
-form validation, choices, empty state, dialog Escape/focus return and all domain
-controls. Radio/checkbox labels keep a separate indicator column when wrapping.
-Do not hide overflowing page content. Map/artboard viewports may scroll locally
-when clearly labelled, with a fully keyboard-operable alternative.
+Compute quantities, line totals and basket totals from the same item/variant state. Filter and comparison changes cannot silently change the basket; removing an item retains usable focus.
 
-Copy the needed CSS and JS beside the generated HTML and update relative links.
-Export must work without DStudio, remote fonts, CDNs or APIs. Omit the catalog lab
-bar from client work. Fixed preview fixtures and successful static tests do not
-constitute model-generated quality evidence.
+Separate editable drafts from committed state. Define each action's input,
+validation, owner, visible result and failure/cancellation behavior in the plan.
+Derived views must share the committed data; never let a progress animation or
+model self-review stand in for a saved result. Keep queues, retained input and
+history bounded. In a preview, state belongs to this document and reload resets it;
+production persistence and external effects require their own implemented contract.
+
+## Acceptance
+Render at 390, 768 and 1440px in both appearances; check 320px and 200% text for overflow and clipping. Operate every control with the keyboard; Escape closes dialogs and focus returns. Measure contrast on rendered pairs. Exercise loading/error/empty/success with real behavior or a clearly labelled demo state. Filter by search and collection, compare at most three, raise a quantity to its limit and clear the basket; focus stays inside the basket dialog. A passing preview is not a claim about generated model quality.
+
+After checking the exported files, report what was exercised, what remains
+unverified and the actual saved entry path. Recheck affected controls and layouts
+after any HTML, CSS or JavaScript repair; do not infer a pass from unchanged markup.

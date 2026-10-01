@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>Counter — DStudio original design system</title><link rel="stylesheet" href="tokens.css"><style>
+.ct{padding-bottom:64px}
+.ct-top{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 20px;padding:18px 0;border-bottom:1px solid var(--border)}
+.ct-brand{font:400 26px/1 var(--font-display);letter-spacing:.02em;text-transform:uppercase}
+.ct-top span:last-child{font-size:14px;color:var(--muted)}
+.ct-hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px 72px;align-items:start;padding:48px 0 56px}
+.ct-copy,.ct-quote{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;min-width:0}
+.ct-copy h1{font-size:clamp(3.2rem,7vw,6.4rem);line-height:.92}
+.ct-lede{max-width:44ch;font-size:18px;color:var(--muted)}
+.ct-quote{justify-items:start;padding-top:8px}
+.ct-quote .breakdown,.ct-quote .actions{width:100%}
+.ct-sec{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;padding:40px 0;border-top:1px solid var(--border-strong)}
+.ct-sec h2{font-size:clamp(2rem,4vw,3rem)}
+@media (max-width:900px){.ct-hero{grid-template-columns:minmax(0,1fr)}}
+</style></head>
+<body><a class="skip" href="#main">Skip to content</a><div class="shell">
+<header class="lab-bar"><strong>DSTUDIO ORIGINALS / COUNTER <span class="muted">v1 — interactive example, not a live service</span></strong><div class="lab-actions" aria-label="Preview controls"><button type="button" data-view="example" aria-pressed="true">Example</button><button type="button" data-view="components" aria-pressed="false">Components</button><button type="button" data-theme-toggle aria-pressed="false">Dark appearance</button></div></header>
+<main id="main" tabindex="-1">
+<div data-panel="example" class="ct">
+<div class="ct-top"><span class="ct-brand">Tessera</span><span>Staff, rotas and payroll exports · example product</span></div>
+<section class="ct-hero" aria-labelledby="ct-h1">
+<div class="ct-copy"><p class="eyebrow">Pricing you can work out yourself</p><h1 id="ct-h1">What would it cost you?</h1><p class="ct-lede">Move the two sliders. The number on the tag is the price — no sales call, no setup fee.</p>
+<div class="field"><label for="ct-people">People on the rota<output class="out" id="ct-people-out">18</output></label><input type="range" id="ct-people" min="1" max="60" value="18"></div>
+<div class="field"><label for="ct-sites">Locations<output class="out" id="ct-sites-out">2</output></label><input type="range" id="ct-sites" min="1" max="10" value="2"></div>
+<fieldset class="choices"><legend>Add-ons</legend><label class="choice"><input type="checkbox" id="ct-einv"><span>E-invoicing · €6 per location</span></label><label class="choice"><input type="checkbox" id="ct-payroll"><span>Payroll export · €2 per person</span></label></fieldset></div>
+<div class="ct-quote" aria-labelledby="ct-plan"><p class="eyebrow" id="ct-plan">Team plan</p><p class="price-tag" aria-live="polite"><span class="price-cur">€</span><output id="ct-total">128</output><span class="price-per">a month</span></p>
+<ul class="breakdown" id="ct-breakdown" aria-label="How the price adds up"></ul>
+<div class="actions"><button type="button" class="btn" id="ct-cta" data-open="Tessera trial · Team plan">Start with the Team plan</button></div>
+<p class="hint">Prices exclude VAT. Example pricing: nothing is charged in this preview.</p></div>
+</section>
+<section class="ct-sec" aria-labelledby="ct-plans-title"><h2 id="ct-plans-title">Plans side by side</h2>
+<div class="matrix" id="ct-matrix"><div class="m-row head" aria-hidden="true"><span>Included</span><span>Solo</span><span>Team</span><span>Company</span></div>
+<div class="m-row"><span>Price</span><span data-plan="Solo">€12 flat</span><span data-plan="Team">€6 per person</span><span data-plan="Company">€5 per person</span></div>
+<div class="m-row"><span>People</span><span data-plan="Solo">Up to 3</span><span data-plan="Team">Up to 30</span><span data-plan="Company">31 or more</span></div>
+<div class="m-row"><span>Extra locations</span><span data-plan="Solo">Not available</span><span data-plan="Team">€20 each</span><span data-plan="Company">€15 each</span></div>
+<div class="m-row"><span>Rota and time clock</span><span data-plan="Solo">Included</span><span data-plan="Team">Included</span><span data-plan="Company">Included</span></div>
+<div class="m-row"><span>Named support contact</span><span data-plan="Solo">Not included</span><span data-plan="Team">Not included</span><span data-plan="Company">Included</span></div></div></section>
+<section class="ct-sec" aria-labelledby="ct-faq-title"><h2 id="ct-faq-title">Questions about the bill</h2><div><details><summary>What counts as a person?</summary><p>Anyone with at least one shift in the month. People who leave stop counting the month after.</p></details><details><summary>Can I change plan later?</summary><p>Yes. Tessera moves you to the plan that fits; the new price starts on the next bill.</p></details></div></section>
+</div>
+<section data-panel="components" class="specimen" hidden aria-label="Counter components"><p class="eyebrow">DStudio originals / Counter / v1</p><h1>A working visual vocabulary.</h1>
+<p class="spec-lede">Counter is a landing page where you work out the price: cream and black, Impact capitals, two sliders, a pink price tag with black numerals, a breakdown in words and the plans as one honest table.</p>
+<div class="spec-grid">
+<section class="sample"><h2>Color roles</h2><div class="swatches"><div class="swatch" style="background:var(--bg)"><span>Canvas</span><code>--bg</code></div><div class="swatch" style="background:var(--surface)"><span>Surface</span><code>--surface</code></div><div class="swatch" style="background:var(--surface-2)"><span>Quiet</span><code>--surface-2</code></div><div class="swatch" style="background:var(--fg);color:var(--bg)"><span>Ink</span><code>--fg</code></div><div class="swatch" style="background:var(--accent);color:var(--on-accent)"><span>Action</span><code>--accent</code></div><div class="swatch swatch--status"><span class="badge">Saved</span><span class="badge badge--danger">Needs a fix</span></div></div><p class="muted">Every pair is measured in both appearances. State is always named in text, never by color alone.</p></section>
+<section class="sample"><h2>Actions &amp; focus</h2><div class="actions"><button type="button" class="btn" data-open="Counter primary action">Try primary action</button><button type="button" class="btn secondary" data-open="Counter secondary action">Secondary</button><button type="button" class="btn" disabled>Unavailable</button></div><p class="muted">Tab to see the focus ring. Escape closes the dialog and focus returns here.</p></section>
+<section class="sample"><h2>Forms that explain</h2><div class="field"><label for="sample-name">Project name</label><input id="sample-name" placeholder="A name you can recognise" aria-describedby="sample-name-hint"><small id="sample-name-hint">The label stays visible while you type.</small></div><div class="field"><label for="sample-error">Email — example error</label><input id="sample-error" value="not-an-address" aria-invalid="true" aria-describedby="email-error"><span id="email-error" class="error">Enter a complete address, such as name@example.com.</span></div><fieldset class="choices"><legend>Notify me</legend><label class="choice"><input type="radio" name="sample-notify" checked><span>Only when something needs my attention</span></label><label class="choice"><input type="radio" name="sample-notify"><span>A weekly summary, never more often</span></label></fieldset></section>
+<section class="sample"><h2>Beyond the happy path</h2><div class="empty"><strong>Nothing here yet.</strong><p>Create the first item and it will be listed here.</p><button type="button" class="btn secondary" data-open="Counter first item">Try creating an item</button></div><div class="field"><label for="sample-progress">Example loading — 60%</label><progress id="sample-progress" max="100" value="60"></progress></div><p class="badge">Example confirmation — changes saved</p></section>
+<section class="sample"><h2>Progressive detail</h2><div><details><summary>What belongs in a component?</summary><p>Purpose, default state, keyboard behaviour, error handling and reflow. This preview is an example, not a backend.</p></details><details><summary>Does it work offline?</summary><p>Yes. No external scripts, fonts, image hosts or packages are requested.</p></details></div></section>
+<section class="sample"><h2>Price tag</h2><p class="price-tag"><span class="price-cur">€</span><output>128</output><span class="price-per">a month</span></p><p class="muted">The tag is the only pink on the page and always carries black text.</p></section>
+<section class="sample"><h2>Breakdown</h2><ul class="breakdown"><li><span>18 people × €6</span><span>€108</span></li><li><span>1 extra location × €20</span><span>€20</span></li></ul><p class="muted">Every euro on the tag is a line in words.</p></section>
+<section class="sample"><h2>Plan table</h2><div class="matrix"><div class="m-row"><span>Price</span><span data-plan="Solo">€12 flat</span><span data-plan="Team" class="is-current">€6 per person</span><span data-plan="Company">€5 per person</span></div></div><p class="muted">The plan the estimate picked is underlined in the table.</p></section>
+</div></section>
+</main>
+<footer class="pack-foot"><span>Counter v1 · an original DStudio design system</span><span>Local assets · real controls · example content</span></footer>
+</div>
+<dialog id="request-dialog" aria-labelledby="request-title"><button type="button" class="close" data-close aria-label="Close preview dialog">×</button><p class="eyebrow">Local preview</p><h2 id="request-title">Try the interaction.</h2><p>This form runs only in this preview. Nothing is sent, saved or booked.</p><form id="request-form"><div class="field"><label for="request-topic">Subject</label><input id="request-topic" name="topic" readonly></div><div class="field"><label for="request-name">Name</label><input id="request-name" name="name" required autocomplete="off" placeholder="Your name"></div><div class="field"><label for="request-email">Email</label><input id="request-email" name="email" type="email" required autocomplete="off" placeholder="name@example.com"></div><div class="actions"><button class="btn" type="submit">Complete preview</button></div><p id="request-status" class="status" role="status"></p></form></dialog>
+<script src="assets/preview.js" defer></script></body></html>

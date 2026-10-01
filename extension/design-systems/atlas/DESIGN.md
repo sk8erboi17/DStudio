@@ -1,57 +1,64 @@
 ---
 name: Atlas
-description: A map-and-list workspace for finding places and composing an itinerary, with a fully local schematic map.
+description: Map and list as one object: map paper, cartographic magenta, numbered pins, matching cards and an editable route.
 modes: [design]
 ds4_category: places
 ds4_local_mode: native
 ds4_output_kinds: html
 ds4_upstream: dstudio-original/atlas
 ---
-# Atlas — original DStudio system, version 1
+# Atlas — original DStudio system, version 2
 
 ## Visual thesis
+Move between spatial context and a readable list without losing the current place. A schematic map with numbered pins, place cards and a reorderable route share one selection.
 
-Move between spatial context and a readable list without losing the current place. An illustrated map, compact field notes and an editable route share one selection.
-
-Best fit: Place directories, exhibition guides, campus information and itinerary prototypes.
+Best fit: Place directories, exhibition and campus guides, itineraries and visitor information.
 
 ## Load before building
+Read `tokens.css`, `components.html`, `assets/preview.js` and `references/recipes.md` using `pack_file(type="design_system", name="atlas", path="…")`. These are local authored assets, not an external template or framework. The preview uses example content, not real customers, metrics, transactions or availability.
 
-Read `tokens.css`, `components.html`, `assets/preview.js` and
-`references/recipes.md` with `pack_file(type="design_system", name="atlas", path="…")`.
-These are original local assets, not an external framework or service.
+## Fit the brief
+
+Identify the audience, the primary action and the source of each factual claim.
+Preserve explicit user copy, colors, fonts and supplied assets. The composition
+below is a starting point: adapt its density, order and proportions to the task.
+Record consequential missing decisions; do not invent customers, results or services.
+Use only the relevant craft guidance, starting with `craft("state-coverage")`.
+Its `references/design-plan.md` provides the short plan and action/result checklist.
 
 ## Compose, do not clone
+Header with a type filter → sticky map (7 columns) beside the place directory, with the route under it. Directory and route are ruled lists, not cards: the place name selects it on the map, one text action adds it, and stops reorder with ↑ ↓ ×. Below 980px: map, route, then list.
 
-Give the map and place list equal importance, with a concise trip header and an itinerary below. Show the selected place in both views. Stack map, list and route on mobile, preserving a complete list alternative to map interaction.
-
-For a directory, emphasize filters and detailed place cards; keep the map as context. For an itinerary builder, emphasize route order and remove/reorder controls. A museum guide can use floor-plan coordinates without pretending they are geographic.
-
-Derive structure and interactions from the brief. Do not copy the fictional
-preview identity into a deliverable. Explicit user choices take precedence.
+The reference is a worked example, not a universal layout. Keep the thesis and derive content order from the user's task. Never copy the example identity (Slow Walks and its four places) into a deliverable. Two unrelated briefs must not become the same skeleton with different text.
 
 ## Tokens and typography
+`tokens.css` is the executable source of truth. Bind --bg, --surface, --surface-2, --fg, --muted, --border, --border-strong, --accent, --accent-hover and --on-accent; use --success/--danger with a textual label. `--land`, `--water`, `--park`, `--street` and `--block` paint the schematic map in both appearances; the route is `--accent`. Light and dark palettes are coordinated, not inverted. Measure the actual rendered foreground/background pairs in every offered theme; a token value or color notation does not prove contrast. Display: "DIN Alternate", Bahnschrift, "Avenir Next", "Segoe UI", system-ui. Body: "Avenir Next", "Segoe UI", system-ui; notes in a monospace stack. All stacks work offline; actual glyphs depend on installed fonts. Never claim a fallback is a supplied brand font. Explicit user typography wins.
 
-`tokens.css` owns coordinated light and dark semantic roles. Display uses
-Georgia, "Times New Roman", serif; body uses "Helvetica Neue", Arial, sans-serif. Local fallback fonts are not
-bundled brand fonts. Preserve readable contrast, named controls and visible focus.
+## Signature components
+`.atlas-map` (SVG base plus HTML pins), `.map-pin` with `aria-pressed`, `.map-label`, `.map-scale`, `.map-north`, `.legend`, `.place-list` + `.place-row[data-selected]` (number, `.place-name` button, `.add-stop`), `.route-list` + `.route-stop` with `.route-tools`, `.link-btn`.
 
-## Interaction and ownership
+## States and honesty
+Copy only the components the brief needs. The component view demonstrates primary/secondary/disabled buttons, labelled inputs, an inline error, empty/loading/success states, disclosure and a keyboard-dismissible dialog that returns focus. Keep :focus-visible, 44px targets where practical, reduced motion and reflow at 320px and 200% text. Never express state by color alone. The map is schematic: no live directions, distances or opening hours unless supplied. Visit times are illustrative.
 
-Four fictional places on a schematic map share selection with the list. Filtering never removes an existing route stop. The local itinerary contains each place at most once, supports move/remove/reset, and draws its selected order. Coordinates and walking times are illustrative, not navigation advice.
+Prototype interactions must say they are local previews; wire real operations only when they are implemented. A successful animation is not proof that an action succeeded. Copy referenced CSS/JS into the generated project with relative links: an export must not depend on DStudio API URLs. Do not place text over gradients or background images.
 
-State belongs to this document and is lost on reload. Keep preparation separate
-from committed edits; cancelled interaction must not change the previous result.
-Use text nodes for user labels, never HTML. Implement actual persistence and
-external actions separately when the brief requires them, with honest receipts.
+## Avoid
+Card stacks for places, two bordered buttons per place, embedded tile maps or remote map APIs, pins without list equivalents, color-only categories and SVG text that cannot reflow.
 
-## Acceptance and export
+## Behavior contract
 
-Test 320/390/768/1440 px, light/dark, 200% text, keyboard, form validation,
-selection, empty state, dialog Escape/focus return and every domain control.
-Radio/checkbox labels retain a separate indicator column. Never clip page text
-to hide overflow. Spatial views require equivalent keyboard-operable controls.
+Map, place list, selected detail and ordered itinerary derive from the same place identities. Reordering preserves membership and selection; a schematic cannot claim live routing.
 
-Copy local CSS and JS alongside the exported HTML and use relative links.
-Remove the catalog toolbar. No DStudio API, CDN, remote fonts or data service is
-required. Static preview tests are not evidence of model-generated quality.
+Separate editable drafts from committed state. Define each action's input,
+validation, owner, visible result and failure/cancellation behavior in the plan.
+Derived views must share the committed data; never let a progress animation or
+model self-review stand in for a saved result. Keep queues, retained input and
+history bounded. In a preview, state belongs to this document and reload resets it;
+production persistence and external effects require their own implemented contract.
+
+## Acceptance
+Render at 390, 768 and 1440px in both appearances; check 320px and 200% text for overflow and clipping. Operate every control with the keyboard; Escape closes dialogs and focus returns. Measure contrast on rendered pairs. Exercise loading/error/empty/success with real behavior or a clearly labelled demo state. Select from the map and from the list, add, reorder and remove stops, filter without losing the route, and reset. A passing preview is not a claim about generated model quality.
+
+After checking the exported files, report what was exercised, what remains
+unverified and the actual saved entry path. Recheck affected controls and layouts
+after any HTML, CSS or JavaScript repair; do not infer a pass from unchanged markup.

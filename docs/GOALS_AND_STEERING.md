@@ -62,8 +62,11 @@ Raw image bytes are session-local, not promised to survive a reload.
 A Goal is an `agent.goal` action under the existing native Task Graph scheduler.
 The immutable graph owns the objective and turn budget; `events.jsonl` owns
 progress and pause/resume. The UI stores only its graph/workspace identity.
-The default is 8 turns (API `goalMaxTurns`: 1–32), 15 minutes per turn. This is
-a turn budget, **not a token budget**. No token-budget enforcement is claimed.
+The default is 8 turns (API `goalMaxTurns`: 1–32). Newly created Goals use
+`timeoutMs: 0`: there is no default elapsed-work cutoff per turn. Explicit
+positive deadlines in saved/API Task Graphs remain enforced and serialized.
+Turn/tool limits, Stop and owner-death cleanup remain effective. This is a turn
+budget, **not a token budget**. No token-budget enforcement is claimed.
 
 A healthy incomplete turn may schedule a new planning turn over current state.
 That is distinct from replaying a failed write/command. A crash, cancellation,
@@ -118,9 +121,9 @@ and stale buffer bytes. A late WAITING cannot erase a prior failed turn receipt.
 Browser tests execute the real UI with simulated HTTP/model responses. They
 check Chat/Tutor partial-answer preservation, recovered drafts without automatic
 replay or loss, late-reply draft preservation, native same-turn routing without
-Stop, Goal controls, and the existing Agent/Cowork/Design interactions. WebKit's
-clipboard alone is simulated because Playwright does not offer its clipboard
-permission override; Chromium exercises the actual clipboard API.
+Stop, Goal controls, and the existing Agent/Cowork/Design interactions. Clipboard
+storage is simulated in both real browsers to preserve the operator's clipboard.
+The checks verify copied text bytes; they do not qualify native clipboard access.
 
 These are not live-model quality or throughput benchmarks. CUDA and Windows
 steering have not been validated; native host steering is currently enabled

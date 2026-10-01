@@ -1,38 +1,6 @@
-// Local catalog preview. All state belongs to this document and is lost on reload.
-// There are no requests, account changes, purchases or durable saves.
+// DStudio originals: local preview behavior shared by every pack.
+// No network, storage, accounts or persistence: state is lost on reload.
 const root = document.documentElement;
-const theme = document.querySelector('[data-theme-toggle]');
-theme.addEventListener('click', () => {
-  const dark = root.dataset.theme !== 'dark';
-  root.dataset.theme = dark ? 'dark' : 'light';
-  theme.setAttribute('aria-pressed', String(dark));
-  theme.textContent = dark ? 'Light appearance' : 'Dark appearance';
-});
-for (const button of document.querySelectorAll('[data-view]')) button.addEventListener('click', () => {
-  for (const b of document.querySelectorAll('[data-view]')) b.setAttribute('aria-pressed', String(b === button));
-  for (const panel of document.querySelectorAll('[data-panel]')) panel.hidden = panel.dataset.panel !== button.dataset.view;
-});
-for (const dialog of document.querySelectorAll('dialog')) {
-  let opener;
-  dialog.addEventListener('close', () => opener?.focus());
-  for (const button of document.querySelectorAll('[data-dialog="'+dialog.id+'"]')) button.addEventListener('click', () => {
-    opener = button; dialog.showModal();
-  });
-  for (const button of dialog.querySelectorAll('[data-close]')) button.addEventListener('click', () => dialog.close());
-}
-const requestDialog = document.querySelector('#request-dialog');
-let requestOpener;
-for (const button of document.querySelectorAll('[data-open]')) button.addEventListener('click', () => {
-  requestOpener = button;
-  document.querySelector('#request-topic').value = button.dataset.open;
-  document.querySelector('#request-status').textContent = '';
-  requestDialog.showModal();
-});
-requestDialog.addEventListener('close', () => requestOpener?.focus());
-document.querySelector('#request-form').addEventListener('submit', event => {
-  event.preventDefault();
-  if (event.currentTarget.reportValidity()) document.querySelector('#request-status').textContent = 'Preview complete. Nothing was sent or booked.';
-});
 const byId = id => document.getElementById(id);
 const make = (tag, text, attributes = {}) => {
   const node = document.createElement(tag);
@@ -41,6 +9,74 @@ const make = (tag, text, attributes = {}) => {
   return node;
 };
 
+const theme = document.querySelector('[data-theme-toggle]');
+const syncTheme = () => {
+  const dark = root.dataset.theme === 'dark';
+  theme.setAttribute('aria-pressed', String(dark));
+  theme.textContent = dark ? 'Light appearance' : 'Dark appearance';
+};
+theme.addEventListener('click', () => {
+  root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  syncTheme();
+});
+syncTheme();
+
+const views = [...document.querySelectorAll('[data-view]')];
+for (const button of views) button.addEventListener('click', () => {
+  for (const other of views) other.setAttribute('aria-pressed', String(other === button));
+  for (const panel of document.querySelectorAll('[data-panel]')) panel.hidden = panel.dataset.panel !== button.dataset.view;
+});
+
+// Named dialogs: [data-dialog="id"] opens, [data-close] closes, focus returns to the opener.
+for (const dialog of document.querySelectorAll('dialog:not(#request-dialog)')) {
+  let opener = null;
+  dialog.addEventListener('close', () => opener?.focus());
+  for (const button of document.querySelectorAll('[data-dialog="' + dialog.id + '"]')) button.addEventListener('click', () => {
+    opener = button;
+    dialog.showModal();
+  });
+  for (const button of dialog.querySelectorAll('[data-close]')) button.addEventListener('click', () => dialog.close());
+}
+
+// The shared request dialog. It validates and confirms only what really happened.
+const requestDialog = byId('request-dialog');
+let requestOpener = null;
+for (const button of document.querySelectorAll('[data-open]')) button.addEventListener('click', () => {
+  requestOpener = button;
+  byId('request-topic').value = button.dataset.open;
+  byId('request-status').textContent = '';
+  requestDialog.showModal();
+});
+requestDialog.querySelector('[data-close]').addEventListener('click', () => requestDialog.close());
+requestDialog.addEventListener('close', () => requestOpener?.focus());
+byId('request-form').addEventListener('submit', event => {
+  event.preventDefault();
+  if (!event.currentTarget.reportValidity()) return;
+  byId('request-status').textContent = 'Preview complete. Nothing was sent or booked.';
+});
+
+// Optional list filter: [data-filter] input, [data-record] rows, [data-filter-status] message.
+const filter = document.querySelector('[data-filter]');
+if (filter) filter.addEventListener('input', () => {
+  const query = filter.value.trim().toLowerCase();
+  let found = 0;
+  for (const row of document.querySelectorAll('[data-record]')) {
+    row.hidden = !row.textContent.toLowerCase().includes(query);
+    if (!row.hidden) found++;
+  }
+  document.querySelector('[data-filter-status]').textContent = found
+    ? found + (found === 1 ? ' matching item' : ' matching items')
+    : 'No matching items. Try another search.';
+});
+
+// Optional single choice: [data-choice] buttons, [data-choice-status] live message.
+for (const choice of document.querySelectorAll('[data-choice]')) choice.addEventListener('click', () => {
+  for (const other of document.querySelectorAll('[data-choice]')) other.setAttribute('aria-pressed', String(other === choice));
+  document.querySelector('[data-choice-status]').textContent =
+    'Selected: ' + (choice.dataset.label || choice.textContent.trim()) + '. Preview only; no booking made.';
+});
+
+// Canvas: a bounded object editor with drag, keyboard nudges and 30-step history.
 // This document is the owner. A drag is a private candidate until pointer-up;
 // cancellation discards it. History holds at most 30 snapshots of 12 small objects.
 let state={selected:1,objects:[{id:1,kind:'text',label:'Make room.',x:5,y:6},{id:2,kind:'block',label:'For an idea.',x:48,y:44}]};
