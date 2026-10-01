@@ -540,9 +540,10 @@ async function waitFor(fn, label, details = () => '') {
   assert.fail(`${label}${details() ? `\n${details()}` : ''}`);
 }
 
+let page;
+const pageErrors = [];
 try {
-  const page = await browser.newPage();
-  const pageErrors = [];
+  page = await browser.newPage();
   page.on('pageerror', (e) => pageErrors.push(e?.stack || e?.message || String(e)));
   page.on('console', (msg) => {
     if (msg.type() === 'error') pageErrors.push(msg.text());
@@ -739,10 +740,8 @@ try {
   // Getting your own prompt back out must not depend on dragging a selection
   // across a transcript that is still streaming: every user turn carries a
   // copy button that yields the exact text the model was sent.
-  // WebKit does not expose Playwright's clipboard permission override. Exercise
-  // the same copy interaction with an explicitly simulated clipboard there.
-  if (browserKind === 'chromium') await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  else await page.evaluate(() => {
+  // Keep the operating-system clipboard untouched in both real browsers.
+  await page.evaluate(() => {
     let copied = '';
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
       writeText: async text => { copied = text; }, readText: async () => copied,
@@ -1335,6 +1334,23 @@ try {
   assert.ok(starts.some((s) => s.mode === 'cowork'), 'cowork tab should start the cowork runtime');
   assert.ok(starts.some((s) => s.mode === 'design'), 'design tab should start the design runtime');
   console.log('ui_agent_design_playwright_test: ok');
+} catch (error) {
+  fs.mkdirSync('tests/.artifacts/agent-design-browser', { recursive: true });
+  const dir = fs.mkdtempSync(`tests/.artifacts/agent-design-browser/${browserKind}-`);
+  const view = await page?.evaluate(() => ({
+    bodyClass: document.body.className,
+    activeElement: document.activeElement?.outerHTML.slice(0, 1000),
+    search: [...document.querySelectorAll('[aria-label="Search design gallery"]')]
+      .map(node => ({ value: node.value, connected: node.isConnected })),
+    cards: [...document.querySelectorAll('.design-gallery-card__title')].map(node => node.textContent),
+  })).catch(() => null);
+  fs.writeFileSync(path.join(dir, 'failure.json'), JSON.stringify({
+    scope: 'Real browser, simulated runtimes', browserKind, error: String(error.stack),
+    view, pageErrors: pageErrors.slice(-100), starts, sessions,
+  }, null, 2) + '\n');
+  await page?.screenshot({ path: path.join(dir, 'failure.png'), fullPage: true }).catch(() => {});
+  console.log(`Agent/Design failure evidence: ${dir}`);
+  throw error;
 } finally {
   await browser.close().catch(() => {});
   server.close();

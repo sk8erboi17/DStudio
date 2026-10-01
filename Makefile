@@ -1251,8 +1251,67 @@ test-pdf-evidence: $(TEST_SERVER)
 test-pdf-complete: $(TEST_SERVER)
 	@node tests/integration/pdf_complete_read_test.mjs $(TEST_SERVER)
 
-test-ui-browser:
-	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_model_picker_playwright_test.mjs && node tests/browser/ui_loading_playwright_test.mjs && node tests/browser/ui_agent_design_playwright_test.mjs && node tests/browser/ui_gear_popover_test.mjs && node tests/browser/ui_think_max_context_test.mjs && node tests/browser/ui_attachment_preview_playwright_test.mjs && node tests/browser/ui_roadmap_playwright_test.mjs && node tests/browser/ui_settings_redesign_playwright_test.mjs && node tests/browser/ui_video_generation_playwright_test.mjs; else echo "node missing: NOT RUN UI browser tests"; exit 1; fi
+.PHONY: test-ui-loading
+test-ui-loading:
+	@node tests/unit/loading_launch_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_loading_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_loading_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_loading_startup_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_loading_startup_playwright_test.mjs
+
+test-ui-browser: test-ui-loading
+	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_model_picker_playwright_test.mjs && node tests/browser/ui_agent_design_playwright_test.mjs && node tests/browser/ui_gear_popover_test.mjs && node tests/browser/ui_think_max_context_test.mjs && node tests/browser/ui_attachment_preview_playwright_test.mjs && node tests/browser/ui_roadmap_playwright_test.mjs && node tests/browser/ui_settings_redesign_playwright_test.mjs && node tests/browser/ui_video_generation_playwright_test.mjs; else echo "node missing: NOT RUN UI browser tests"; exit 1; fi
+
+.PHONY: test-ui-sidebar test-macos-window-theme
+test-ui-sidebar:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_sidebar_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_sidebar_playwright_test.mjs
+
+test-ui-browser: test-ui-sidebar
+
+# All runtime/generation/download responses are fixtures; no engine is started.
+.PHONY: test-ui-simulated test-ui-chat-images test-ui-chat-controls test-ui-selection test-ui-stability test-ui-stream-interaction test-ui-roadmap-hover test-ui-document-policy
+test-ui-document-policy: $(TEST_SERVER)
+	@node tests/integration/ui_document_policy_test.mjs $<
+test-ui-browser: test-ui-document-policy
+test-ui-simulated:
+	@node tests/support/run_simulated_ui.mjs
+test-ui-chat-images:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_chat_images_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_chat_images_playwright_test.mjs
+test-ui-chat-controls:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_chat_controls_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_chat_controls_playwright_test.mjs
+test-ui-selection:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_stream_selection_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_stream_selection_playwright_test.mjs
+test-ui-stability:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_selection_stability_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_selection_stability_playwright_test.mjs
+test-ui-stream-interaction:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_stream_interaction_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_stream_interaction_playwright_test.mjs
+test-ui-roadmap-hover:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_hover_controls_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_hover_controls_playwright_test.mjs
+
+test-ui-browser: test-ui-chat-images test-ui-chat-controls test-ui-selection test-ui-stability test-ui-stream-interaction test-ui-roadmap-hover
+ifeq ($(UNAME),Darwin)
+$(TEST_BUILD)/macos-window-theme: tests/unit/macos_window_theme_test.mm $(HDR) | $(TEST_BUILD)
+	$(APPCXX) $(APP_CXXFLAGS) $< -framework Cocoa -framework WebKit -o $@
+test-macos-window-theme: $(TEST_BUILD)/macos-window-theme
+	@$<
+check-fast: test-macos-window-theme
+else
+test-macos-window-theme:
+	@echo "macOS Cocoa/WebKit unavailable: NOT RUN"; exit 1
+endif
+
+.PHONY: test-ui-reasoning-spacing
+test-ui-reasoning-spacing:
+	@node tests/browser/ui_reasoning_spacing_test.mjs
+
+check-fast: test-ui-reasoning-spacing
 
 test-ui-live-vision:
 	@if command -v node >/dev/null 2>&1; then node tests/live/ui_live_vision_playwright_test.mjs; else echo "node missing: NOT RUN live Vision UI test"; exit 1; fi

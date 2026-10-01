@@ -586,14 +586,15 @@ static int dtg_agent_submit_for_graph(const char *title, const char *prompt,
 /* connect-src widened to http/https: with bind on the LAN the page, loaded
  * from another host, must be able to contact ds4-server on the server IP (no
  * longer just loopback). img-src also allows remote favicons for cited web
- * sources. default-src stays 'none'. */
+ * sources and session-owned blob previews for image attachments. default-src
+ * stays 'none'; blob scripts and foreign frames remain disallowed. */
 static const char SEC_HEADERS[] =
     "Connection: close\r\n"
     "Cache-Control: no-store\r\n"
     "X-Content-Type-Options: nosniff\r\n"
     "Referrer-Policy: no-referrer\r\n"
     "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; "
-    "script-src 'unsafe-inline'; img-src data: http: https:; connect-src http: https:; "
+    "script-src 'unsafe-inline'; img-src data: blob: http: https:; connect-src http: https:; "
     "frame-src 'self'\r\n";
 
 /* Headers for design files served in preview iframes. The preview must behave
