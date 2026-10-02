@@ -6,15 +6,19 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { artifactRunDir } from '../support/real_harness.mjs';
+import { historicalQwenSource, historicalQwenInspectRevision } from '../support/retired_qwen_sources.mjs';
 
-const root = process.cwd(), source = fs.realpathSync(process.argv[2] || 'ds4-qwen38');
+const root = process.cwd();
+const sourceArgument = process.argv[2]?.startsWith('--') ? null : process.argv[2];
+const source = sourceArgument ? fs.realpathSync(sourceArgument) : null;
 const nativeIndex = process.argv.indexOf('--native');
 const weights = nativeIndex < 0 ? null : fs.realpathSync(process.argv[nativeIndex + 1]);
 const run = artifactRunDir('qwen38-inspect');
 const engine = path.join(run, 'source'), script = path.resolve('scripts/apply-ds4-qwen38-inspect.sh');
 const report = { schema: 'dstudio.qwen38-inspect.v1', started: new Date().toISOString(),
   scope: weights ? 'Actual native metadata and OS-prefetch interception, no inference; normal startup deliberately stopped at first prefetch' :
-    'Patch lifecycle only, no weights or inference', source, weights, commands: [], checks: [] };
+    'Patch lifecycle only, no weights or inference', source,
+  fixtureRevision: source ? null : historicalQwenInspectRevision, weights, commands: [], checks: [] };
 const sha = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 report.harnessSha256 = sha(new URL(import.meta.url));
 report.probeSourceSha256 = sha('tests/support/native_prefetch_probe.c');
@@ -30,8 +34,16 @@ const invoke = (exe, args, env = {}, cwd = root, timeout = 20000) => {
 const patch = action => invoke('sh', [script, action], { DS4_DIR: engine });
 const passed = name => { report.checks.push({ name, status: 'PASS' }); save(); console.log(`PASS: ${name}`); };
 try {
-  fs.cpSync(source, engine, { recursive: true, dereference: false,
-    filter: file => !['.git', 'gguf'].includes(path.basename(file)) });
+  if (weights && !source)
+    throw Error('Native inspection requires an explicit full historical checkout before --native WEIGHTS_DIR');
+  if (source) {
+    fs.cpSync(source, engine, { recursive: true, dereference: false,
+      filter: file => !['.git', 'gguf'].includes(path.basename(file)) });
+  } else {
+    fs.mkdirSync(engine);
+    for (const file of ['ds4.c', 'ds4.h'])
+      fs.writeFileSync(path.join(engine, file), historicalQwenSource(historicalQwenInspectRevision, file));
+  }
   // Restore on the private copy also accepts an already-patched installation.
   assert.equal(patch('restore').status, 0);
   const file = path.join(engine, 'ds4.c');

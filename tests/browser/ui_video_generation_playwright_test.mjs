@@ -3,9 +3,11 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 
+const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
+assert.ok(['chromium', 'webkit'].includes(browserName), 'Unknown browser');
 let chromium;
 try {
-  ({ chromium } = await import('playwright'));
+  chromium = (await import('playwright'))[browserName];
 } catch {
   console.log('ui_video_generation_playwright_test: playwright missing, NOT RUN');
   process.exit(1);
@@ -546,10 +548,9 @@ try {
   await page.locator('.composer__file').waitFor({ state: 'visible' });
   await page.locator('#composer-input').fill('Edit this image and make the background blue.');
   const userCountBeforeImageGuard = await page.locator('.msg--user').count();
-  assert.equal(await page.locator('#btn-send').isEnabled(), true,
-    'the text-only attachment guard must be reachable');
-  await page.locator('#btn-send').click();
-  await page.locator('.toast').filter({ hasText: 'Images are unavailable with this model.' })
+  assert.equal(await page.locator('#btn-send').isEnabled(), false,
+    'text-only attachments are blocked before send');
+  await page.locator('.attachment-notice').filter({ hasText: 'This model cannot read images.' })
     .waitFor({ state: 'visible', timeout: 10000 });
   assert.equal(await page.locator('#composer-input').inputValue(),
     'Edit this image and make the background blue.',

@@ -130,7 +130,8 @@ POST /api/task-graph/{approve,start,pause,resume,cancel}
 POST /api/task-graph/node/{approve,retry,skip,cancel,undo}
 ```
 
-The Agent header's **Graph** button opens the live DAG. It groups nodes by
+The Task Graph icon in the Agent's **Open IDE** side bar (and the ⌘K
+command **Task Graph**) opens the live DAG. It groups nodes by
 dependency depth, shows incoming edges, action/state/watchdog/undo receipts,
 tails the durable journal every 750 ms and exposes the valid controls for the
 current state.

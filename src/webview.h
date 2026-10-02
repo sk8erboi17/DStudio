@@ -177,6 +177,19 @@ static void      webview_run(webview_t w);
 }
 @end
 
+/* Only the reserved native title-bar inset owns window gestures. The rest of
+ * WKWebView retains ordinary text selection, clicks and attachment drops. */
+@interface DS4TitlebarView : NSView
+@end
+@implementation DS4TitlebarView
+- (BOOL)isOpaque { return NO; }
+- (BOOL)mouseDownCanMoveWindow { return YES; }
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { (void)event; return YES; }
+- (void)mouseDown:(NSEvent *)event {
+    [self.window performWindowDragWithEvent:event];
+}
+@end
+
 /* Theme bridge: the page posts "light"/"dark" (window.webkit.messageHandlers
  * .ds4Theme) when the theme changes in Settings, and the title bar recolours
  * to match — light page → light chrome, dark page → dark chrome. */
@@ -187,14 +200,14 @@ static void      webview_run(webview_t w);
 - (void)userContentController:(WKUserContentController *)ucc
       didReceiveScriptMessage:(WKScriptMessage *)message {
     (void)ucc;
-    if (!self.win) return;
+    if (!self.win || !message.frameInfo.isMainFrame) return;
     BOOL light = [message.body isKindOfClass:[NSString class]] &&
                  [(NSString *)message.body isEqualToString:@"light"];
     self.win.appearance = [NSAppearance appearanceNamed:
         light ? NSAppearanceNameAqua : NSAppearanceNameDarkAqua];
     self.win.backgroundColor = light
-        ? [NSColor colorWithSRGBRed:0.961 green:0.961 blue:0.965 alpha:1.0]  /* #f5f5f6 */
-        : [NSColor colorWithSRGBRed:0.086 green:0.086 blue:0.086 alpha:1.0]; /* #161616 */
+        ? [NSColor whiteColor]
+        : [NSColor colorWithSRGBRed:30.0/255.0 green:34.0/255.0 blue:42.0/255.0 alpha:1.0]; /* #1e222a */
 }
 @end
 
@@ -295,7 +308,8 @@ static webview_t webview_create(int width, int height, const char *title) {
     ds4_wv *w = (ds4_wv *)calloc(1, sizeof(ds4_wv));
     NSRect frame = NSMakeRect(0, 0, width, height);
     NSUInteger style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                       NSWindowStyleMaskResizable | NSWindowStyleMaskMiniaturizable;
+                       NSWindowStyleMaskResizable | NSWindowStyleMaskMiniaturizable |
+                       NSWindowStyleMaskFullSizeContentView;
     NSWindow *win = [[NSWindow alloc] initWithContentRect:frame
                                                styleMask:style
                                                  backing:NSBackingStoreBuffered
@@ -304,19 +318,17 @@ static webview_t webview_create(int width, int height, const char *title) {
     [win setReleasedWhenClosed:NO];
     [win center];
 
-    /* Title bar that matches the app's black theme instead of the default
-     * light-gray macOS chrome: a transparent title bar over a dark window
-     * background, forced dark appearance so the traffic lights and the strip
-     * they sit in blend with the UI. The lights stay (kept on macOS); the
-     * content sits just below, so window dragging still works natively.
-     * The bar color is the app's --surface (#161616) — the exact color of
-     * the sidebar and the header that sit directly under the bar, so they
-     * read as one continuous surface. (The page body below is --bg #0a0a0a.) */
-    NSColor *ink = [NSColor colorWithSRGBRed:0.086 green:0.086 blue:0.086 alpha:1.0]; /* #161616 */
+    /* Web panes continue their own colors under transparent native chrome.
+     * The page reserves 28px for native controls and window gestures. */
+    NSColor *ink = [NSColor colorWithSRGBRed:30.0/255.0 green:34.0/255.0 blue:42.0/255.0 alpha:1.0];
     win.titleVisibility = NSWindowTitleHidden;
     win.titlebarAppearsTransparent = YES;
+    win.titlebarSeparatorStyle = NSTitlebarSeparatorStyleNone;
     win.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
     win.backgroundColor = ink;
+    /* Cocoa routes background dragging only through eligible native views;
+     * WKWebView explicitly excludes itself so web text stays selectable. */
+    win.movableByWindowBackground = YES;
 
     WKWebViewConfiguration *cfg = [[WKWebViewConfiguration alloc] init];
     if ([cfg respondsToSelector:@selector(setAllowsInlineMediaPlayback:)])
@@ -329,6 +341,11 @@ static webview_t webview_create(int width, int height, const char *title) {
     DS4ThemeHandler *themeHandler = [[DS4ThemeHandler alloc] init];
     themeHandler.win = win;
     [cfg.userContentController addScriptMessageHandler:themeHandler name:@"ds4Theme"];
+    WKUserScript *titlebarScript = [[WKUserScript alloc]
+        initWithSource:@"(() => { const apply = () => document.documentElement.style.setProperty('--native-titlebar-height', '28px'); if (document.documentElement) apply(); else document.addEventListener('DOMContentLoaded', apply, {once: true}); })();"
+        injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES];
+    [cfg.userContentController addUserScript:titlebarScript];
+    [titlebarScript release];
     DS4DirectoryPickerHandler *dirHandler = [[DS4DirectoryPickerHandler alloc] init];
     dirHandler.win = win;
     [cfg.userContentController addScriptMessageHandler:dirHandler name:@"ds4PickDirectory"];
@@ -346,7 +363,19 @@ static webview_t webview_create(int width, int height, const char *title) {
     [wv setUIDelegate:[[DS4UIDelegate alloc] init]];
     /* no-ARC: alloc/init keeps the delegates alive (WKWebView holds them weakly) */
     [wv setNavigationDelegate:[[DS4NavDelegate alloc] init]];
-    [win setContentView:wv];
+    /* Keep native chrome beside WKWebView: drawing an opaque native subview
+     * inside WebKit's compositing surface can obscure the whole web page. */
+    NSView *content = [[NSView alloc] initWithFrame:frame];
+    [win setContentView:content];
+    [content addSubview:wv];
+    DS4TitlebarView *titlebar = [[DS4TitlebarView alloc] initWithFrame:NSMakeRect(
+        0, NSHeight(content.bounds) - 28, NSWidth(content.bounds), 28)];
+    titlebar.wantsLayer = YES;
+    titlebar.layer.backgroundColor = NSColor.clearColor.CGColor;
+    titlebar.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
+    [content addSubview:titlebar positioned:NSWindowAbove relativeTo:nil];
+    [titlebar release];
+    [content release];
     [win setDelegate:[[DS4WindowDelegate alloc] init]];
 
     w->window = win;

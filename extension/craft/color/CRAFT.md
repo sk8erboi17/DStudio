@@ -1,52 +1,39 @@
 ---
 name: Color discipline
-description: Derive emphasis from the brief and the chosen system. Use stable color roles, measured contrast and explicit status labels, not color quotas.
+description: Bind semantic roles to the brief and system; measure rendered contrast and distinguish state without color quotas.
 ---
 
 # CRAFT: color discipline
 
-Choose a color logic that helps the audience understand the page. Folio's paper,
-Signal's dark work surface and Pulse's colored poster are different valid choices.
-They should not converge to one neutral canvas merely to satisfy a percentage.
+## Bind meaning to roles
 
-## Emphasis and meaning
+Choose canvas, reading surface, text, secondary text, border, action, focus and
+status roles together. Use the selected pack's tokens, then adapt them to explicit
+user constraints. Preserve a coherent palette in every offered theme. RGB, hex,
+HSL and OKLch are representations; changing notation is not a quality improvement.
 
-- Choose canvas, reading surfaces and action emphasis together. One accent can
-  appear in several links, focus rings and selected controls without becoming a
-  defect. Inspect what actually dominates the rendered page, not reference counts.
-- Keep the primary action identifiable through contrast, shape, placement and
-  spacing. A colored canvas is legitimate when it serves the visual direction.
-- Status colors are roles, not a ban on brand colors. A green service identity
-  is not automatically a success message. Use explicit status text and distinguish
-  selected, pending, successful and failed operations within that palette.
-- Add effects only when they clarify hierarchy or the chosen visual character;
-  never add a glow or gradient to compensate for weak content or composition.
+An accent may serve several related controls. Multiple functional colors or a
+colored canvas can be appropriate; use no fixed accent percentage, color count
+or universal neutral-background rule. Inspect what dominates the actual view.
+Differentiate selected, pending, successful and failed states with words/shape
+as well as color. A brand green is not a success receipt.
 
-## Tokens
+## Measure the result
 
-- Define a small token set and use it everywhere — `--bg --surface --surface-2 --border --fg
-  --muted --accent` (+ accent-hover, semantic). No hard-coded one-off hexes scattered in the
-  markup.
-- Use the pack's supplied color values and pairs. RGB/hex and OKLch are both
-  valid; converting notation is not a quality improvement. Distinguish reading
-  layers without placing borders around every element.
+Use resolved foreground/background colors, including opacity and layers, and
+apply the accessibility craft thresholds. A lightness value alone cannot prove
+contrast. Check secondary labels, placeholders, links, focus and each interactive
+state in both themes. Place text on a stable readable surface when images or
+varying backgrounds prevent a reliable pair; inspect every relevant crop.
 
-## Contrast (cross-ref accessibility)
+Derive dark appearance intentionally instead of inverting colors. Surface order
+and accent treatment follow the design, not a mandatory elevation formula.
+Gradients, shadows and highlights need a purpose and measured legibility.
 
-- **Verify on the rendered colors**, after `var()`/`color-mix()`/opacity resolve. The usual
-  failure is a **muted text token too light** for body copy (oklch L ~55–70% on white ≈ 3:1).
-  Body/secondary text must hit ≥4.5:1 — darken the muted token, don't ship the gray.
-- Text over images/gradients needs a scrim or a solid plate; never trust contrast over a
-  photo.
+## Verify before delivery
 
-## Dark mode (if offered)
-
-- Not a CSS invert. Layer surfaces lighter with elevation (bg < surface < card), desaturate
-  the accent slightly, soften pure-white text to ~oklch(0.95). Re-check contrast — both ways.
-
-## Self-check before artifact
-
-- Does the palette support this brief, with a clear primary action and unambiguous states?
-- Tokens defined and used (no scattered one-off hexes)?
-- Body + muted text ≥ 4.5:1 on the rendered background?
-- If dark mode: layered surfaces, re-checked contrast?
+Can the primary action and each state be understood without hue? Do actual
+rendered text pairs and controls remain readable after hover/focus/theme changes?
+Do data colors keep the same meaning across chart, table and legend? Record
+unmeasured image/gradient cases explicitly and inspect them instead of claiming
+that a token or an automated solid-color check covers them.

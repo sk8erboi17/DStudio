@@ -355,6 +355,56 @@ static void emit_tool_build_event(const char *type, const char *name,
     emit_event_line(&b);
 }
 
+/* Live tool stanzas for the UI, the same protocol the Agent runtime emits:
+ *   tool_call_begin {name}          an invoke's tool name is known
+ *   tool_call_param {param, path}   a parameter value opened; path is the
+ *                                   already-closed `path` argument, or ""
+ *   tool_body_delta {text}          body bytes (write content, edit old/new,
+ *                                   bash command) in size/time-capped batches
+ * The complete tool_call event still follows at execution and is the only
+ * signal that a call ran; these events are a preview of generation. */
+static void emit_tool_call_begin_event(const char *name) {
+    if (!g_jsonl) return;
+    design_buf b = {0};
+    buf_puts(&b, "\x1e{\"type\":\"tool_call_begin\",\"name\":\"");
+    json_escape_buf(&b, name ? name : "", name ? strlen(name) : 0);
+    buf_puts(&b, "\"}\n");
+    emit_event_line(&b);
+}
+
+static void emit_tool_call_param_event(const char *param, const char *path) {
+    if (!g_jsonl) return;
+    design_buf b = {0};
+    buf_puts(&b, "\x1e{\"type\":\"tool_call_param\",\"param\":\"");
+    json_escape_buf(&b, param ? param : "", param ? strlen(param) : 0);
+    buf_puts(&b, "\",\"path\":\"");
+    json_escape_buf(&b, path ? path : "", path ? strlen(path) : 0);
+    buf_puts(&b, "\"}\n");
+    emit_event_line(&b);
+}
+
+static void emit_tool_body_delta_event(const char *s, size_t n) {
+    if (!g_jsonl || !n) return;
+    design_buf b = {0};
+    buf_puts(&b, "\x1e{\"type\":\"tool_body_delta\",\"text\":\"");
+    json_escape_buf(&b, s, n);
+    buf_puts(&b, "\"}\n");
+    emit_event_line(&b);
+}
+
+/* Largest e <= end such that s[start..e) does not end inside a UTF-8
+ * sequence: event lines must stay valid UTF-8 even when a batch is cut by
+ * size or time, or a token arrives as part of a character. */
+static size_t utf8_complete_end(const char *s, size_t start, size_t end) {
+    size_t j = end;
+    while (j > start && end - j < 3 && ((unsigned char)s[j - 1] & 0xC0) == 0x80) j--;
+    if (j == start) return end;
+    unsigned char lead = (unsigned char)s[j - 1];
+    if (lead < 0xC0) return end;
+    size_t need = lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : 2;
+    return (j - 1) + need <= end ? end : j - 1;
+}
+
 /* Todos card: the todos parameter is already JSON authored by the model.
  * Embed it verbatim (newlines and the \x1e prefix would break the line
  * protocol, so they are flattened); the UI try/catches the parse. */
@@ -896,6 +946,9 @@ typedef struct {
      * tool call beyond the tolerated forms): the round must end in a
      * retryable tool error + syntax reminder, never a silent "ok". */
     bool suspect;
+    /* +1 for every invoke whose name was parsed. A counter, not the name
+     * pointer: an unclosed invoke is freed and its address may be reused. */
+    unsigned invoke_seq;
 } dsml_parser;
 
 static void tool_call_free(design_tool_call *c) {
@@ -1203,6 +1256,7 @@ static void dsml_parse(dsml_parser *p) {
                 dsml_set_error(p, "tool invoke without name");
                 return;
             }
+            p->invoke_seq++;
             p->parse_pos += tag_len;
         } else if (dsml_open_tag_is(tag, "parameter")) {
             free(p->param_name);
@@ -1308,13 +1362,91 @@ typedef struct {
     bool name_emitted;
     size_t next_progress_bytes;
     double last_progress_at;
+    /* Live tool-stanza events (see emit_tool_call_begin_event). Offsets are
+     * into parser->raw; ui_emitted is the first body byte not yet sent. */
+    unsigned ui_invoke_seq;
+    bool ui_body;
+    size_t ui_value_start;
+    size_t ui_emitted;
+    double ui_last_flush;
 } design_stream;
+
+#define DESIGN_UI_BODY_BATCH 384
+#define DESIGN_UI_BODY_SECONDS 0.2
+
+static bool design_ui_body_param(const char *tool, const char *param) {
+    if (!tool || !param) return false;
+    if (!strcmp(param, "content") || !strcmp(param, "text")) return true;
+    if (!strcmp(tool, "edit")) return !strcmp(param, "old") || !strcmp(param, "new");
+    if (!strcmp(tool, "bash")) return !strcmp(param, "command");
+    return false;
+}
+
+/* Sends open-parameter bytes that are certainly value bytes: never a tail
+ * that could still become the closing tag, never part of a character. */
+static void design_ui_flush_body(design_stream *st, bool force) {
+    dsml_parser *p = st->parser;
+    if (!st->ui_body || p->state != DSML_PARAM_VALUE) return;
+    size_t end = p->raw_len;
+    if (p->param_close_prefix) {
+        /* The tail from the last '<' (within 64 bytes) may still be the
+         * closing tag: hold it back until the parser decides. */
+        size_t floor = end > st->ui_value_start + 64 ? end - 64 : st->ui_value_start;
+        size_t lt = end;
+        while (lt > floor) {
+            lt--;
+            if (p->raw[lt] == '<') break;
+        }
+        if (p->raw[lt] == '<') end = lt;
+    }
+    if (end <= st->ui_emitted) return;
+    end = utf8_complete_end(p->raw, st->ui_emitted, end);
+    if (end <= st->ui_emitted) return;
+    double now = now_sec();
+    if (!force && end - st->ui_emitted < DESIGN_UI_BODY_BATCH &&
+        now - st->ui_last_flush < DESIGN_UI_BODY_SECONDS) return;
+    emit_tool_body_delta_event(p->raw + st->ui_emitted, end - st->ui_emitted);
+    st->ui_emitted = end;
+    st->ui_last_flush = now;
+}
+
+/* One byte was fed to the parser: at most one tag can have completed. */
+static void design_ui_stream_step(design_stream *st, dsml_state before) {
+    if (!g_jsonl) return;
+    dsml_parser *p = st->parser;
+    if (p->invoke_seq != st->ui_invoke_seq && p->current.name) {
+        st->ui_invoke_seq = p->invoke_seq;
+        st->ui_body = false;
+        emit_tool_call_begin_event(p->current.name);
+    }
+    if (before != DSML_PARAM_VALUE && p->state == DSML_PARAM_VALUE) {
+        emit_tool_call_param_event(p->param_name, tool_arg_value(&p->current, "path"));
+        st->ui_body = design_ui_body_param(p->current.name, p->param_name);
+        st->ui_value_start = st->ui_emitted = p->param_value_start;
+        st->ui_last_flush = now_sec();
+        return;
+    }
+    if (before == DSML_PARAM_VALUE && p->state != DSML_PARAM_VALUE) {
+        /* Closed: the stored argument is the exact value; send what is left. */
+        if (st->ui_body && p->state == DSML_STRUCTURAL && p->current.argc > 0) {
+            const char *value = p->current.args[p->current.argc - 1].value;
+            size_t len = value ? strlen(value) : 0;
+            size_t done = st->ui_emitted - st->ui_value_start;
+            if (done < len) emit_tool_body_delta_event(value + done, len - done);
+        }
+        st->ui_body = false;
+        return;
+    }
+    design_ui_flush_body(st, false);
+}
 
 static void stream_text(design_stream *st, const char *s, size_t n) {
     for (size_t i = 0; i < n; i++) {
         char c = s[i];
         if (st->suppressed) {
+            dsml_state before = st->parser->state;
             dsml_feed(st->parser, &c, 1);
+            design_ui_stream_step(st, before);
             if (!st->name_emitted && st->parser->current.name) {
                 emit_tool_build_event("tool_call_building",
                                       st->parser->current.name,
@@ -1366,6 +1498,8 @@ static void stream_text(design_stream *st, const char *s, size_t n) {
 static void stream_finish(design_stream *st) {
     if (!st->suppressed && st->hold_len) out_text(st->hold, st->hold_len);
     st->hold_len = 0;
+    /* An unclosed stanza (truncated output): show its streamed bytes. */
+    if (g_jsonl) design_ui_flush_body(st, true);
 }
 
 /* Same rule as ds4-agent: decode DSML structure greedily because it is a
@@ -7328,7 +7462,7 @@ static char *design_tool_pack(const design_tool_call *call, const char *subdir,
     const char *name = tool_arg_value(call, "name");
     if (!design_pack_name_ok(name)) return tool_error("name must be a simple id (a-z, 0-9, -)");
     if (!strcmp(subdir, "design-systems") && !dstudio_design_system_supported(name))
-        return tool_error("retired or unknown system; available originals: folio, signal, forma, grove, pulse, market, commons, atlas, canvas");
+        return tool_error("retired or unknown system; choose an id from the available design-system catalog");
     char path[2300];
     char pack_root[2300] = "";
     char *body = NULL;
@@ -9393,17 +9527,23 @@ static const char design_system_prompt[] =
     "user explicitly asks for alternatives, variants, or a comparison. When you "
     "do propose, write 2-3 separate self-contained files and call propose with "
     "{entry,tag,name,desc}; otherwise keep momentum on one canonical artifact.\n"
-    "The original local systems are folio (reading-led editorial), signal "
-    "(operational instruments), forma (spatial portfolios), grove (human "
-    "services and guided journeys), and pulse (expressive programmes). Choose "
-    "by task and audience, not keywords alone. Call design_system(id), then "
+    "The available original local systems are listed in the runtime catalog. "
+    "Choose by the user's primary action, information density and audience, "
+    "not keywords alone; preserve an explicitly selected system. Call design_system(id), then "
     "pack_file for tokens.css and references/recipes.md before styling. Read "
     "components.html for relevant construction patterns; do not clone the "
     "example identity, lab controls or page skeleton. No third-party catalog.\n"
-    "Write a short design-plan.md before substantial HTML: audience, primary "
-    "action, content priority, system, type roles, page topology, mobile reflow, "
-    "interaction/state map and what distinguishes this brief. Explicit user "
-    "colors and fonts override pack defaults. Adapt the system to the task.\n"
+    "Before substantial HTML, call craft(\"state-coverage\") and use pack_file "
+    "to read its references/design-plan.md. Write a concise project-specific "
+    "design-plan.md: explicit constraints and source facts; audience and primary "
+    "action; content order and chosen topology; system/token and available-font "
+    "bindings; mobile/enlarged-text reflow; action -> state -> visible result "
+    "with failure/cancellation behavior; actual persistence and external effects; "
+    "independent checks and export paths. Record unresolved consequential choices "
+    "instead of inventing facts. Update the plan after a material change and "
+    "retain the user's data and earlier committed work. Explicit user colors "
+    "and fonts override pack defaults. Adapt the system to the task; a plan "
+    "or a self-review is not evidence that its controls work.\n"
     "Compare layout experiments when alternatives are requested; vary spatial "
     "hierarchy, not just palette. Never add gratuitous sections to meet a quota.\n"
     "Never ask the same brand question twice.\n\n"
@@ -12032,11 +12172,19 @@ static int design_run_self_test(void) {
     snprintf(original_markdown, sizeof original_markdown,
              "---\nname: %s\n---\nA reading-led fixture for %s.\n", pack_id, pack_id);
     fails += selftest_expect(design_mkdir_p(original_root), "original pack fixture directory");
-    const char *original_files[] = {"DESIGN.md", "tokens.css", "components.html", NULL};
+    char original_assets[PATH_MAX], original_refs[PATH_MAX];
+    snprintf(original_assets, sizeof original_assets, "%s/assets", original_root);
+    snprintf(original_refs, sizeof original_refs, "%s/references", original_root);
+    fails += selftest_expect(design_mkdir_p(original_assets) && design_mkdir_p(original_refs),
+                             "original pack resource directories");
+    const char *original_files[] = {"DESIGN.md", "tokens.css", "components.html",
+                                    "assets/preview.js", "references/recipes.md", NULL};
     const char *original_bodies[] = {
         original_markdown,
         ":root { --accent: #99432c; }\n",
-        "<!doctype html><html><body><h1>Reading-led fixture</h1></body></html>\n"
+        "<!doctype html><html><body><h1>Reading-led fixture</h1></body></html>\n",
+        "document.body.dataset.ready = 'yes';\n",
+        "# Fixture recipe\nPreserve the selected record on cancellation.\n"
     };
     for (int i = 0; original_files[i]; i++) {
         snprintf(original_file, sizeof original_file, "%s/%s", original_root, original_files[i]);
@@ -12059,9 +12207,34 @@ static int design_run_self_test(void) {
         pf_res = execute_tool_call(&pr, &pf_call);
         const char *payload = strchr(pf_res, '\n');
         fails += selftest_expect(payload && !strcmp(payload + 1, original_bodies[i]),
-                                "pack_file returns original CSS/HTML bytes unchanged");
+                                "pack_file returns original resources and recipes unchanged");
         free(pf_res); tool_call_free(&pf_call);
     }
+    }
+    {
+        char craft_root[PATH_MAX], craft_refs[PATH_MAX], craft_file[PATH_MAX];
+        snprintf(craft_root, sizeof craft_root, "%s/craft/state-coverage", pack_dir);
+        snprintf(craft_refs, sizeof craft_refs, "%s/references", craft_root);
+        fails += selftest_expect(design_mkdir_p(craft_refs), "craft reference fixture directory");
+        const char craft_body[] = "---\nname: State coverage\n---\nFixture craft.\n";
+        const char plan_body[] = "# Fixture project plan\nAction: change one item.\nResult: preserve all other items.\n";
+        snprintf(craft_file, sizeof craft_file, "%s/CRAFT.md", craft_root);
+        fails += selftest_expect(write_file_bytes(craft_file, craft_body, strlen(craft_body), pack_err, sizeof pack_err), "craft fixture bytes");
+        snprintf(craft_file, sizeof craft_file, "%s/design-plan.md", craft_refs);
+        fails += selftest_expect(write_file_bytes(craft_file, plan_body, strlen(plan_body), pack_err, sizeof pack_err), "plan reference fixture bytes");
+        memset(&pf_call, 0, sizeof pf_call); pf_call.name = xstrdup("craft");
+        tool_call_add_arg(&pf_call, "name", "state-coverage", 14, true);
+        pf_res = execute_tool_call(&pr, &pf_call);
+        fails += selftest_expect(strstr(pf_res, craft_body) && strstr(pf_res, "references/design-plan.md"), "craft exposes its project-plan reference");
+        free(pf_res); tool_call_free(&pf_call);
+        memset(&pf_call, 0, sizeof pf_call); pf_call.name = xstrdup("pack_file");
+        tool_call_add_arg(&pf_call, "type", "craft", 5, true);
+        tool_call_add_arg(&pf_call, "name", "state-coverage", 14, true);
+        tool_call_add_arg(&pf_call, "path", "references/design-plan.md", 25, true);
+        pf_res = execute_tool_call(&pr, &pf_call);
+        const char *payload = strchr(pf_res, '\n');
+        fails += selftest_expect(payload && !strcmp(payload + 1, plan_body), "craft pack_file returns the exact project-plan bytes");
+        free(pf_res); tool_call_free(&pf_call);
     }
     memset(&pf_call, 0, sizeof pf_call);
     pf_call.name = xstrdup("design_system");

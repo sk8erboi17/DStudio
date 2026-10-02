@@ -12,6 +12,12 @@ receipts and unresolved source reviews. It must fail admission until those
 items are resolved. Its rows are requirements, not an announcement that all
 models, backends or modes work.
 
+The October 1 documentation audit counts nine macOS targets, **117 required
+gate slots and zero linked receipts** in that matrix. These are missing bound
+qualification records, not 117 failed tests. Existing scoped results may be
+linked only after checking the exact source/patch/binary/model identity and gate
+scope; no new release receipt was created by the documentation cleanup.
+
 ## Recorded sources
 
 Main's pin was updated to upstream's September 20 revision and rechecked as
@@ -21,8 +27,8 @@ The command rechecks each relevant branch over the network.
 
 | Engine | Recorded revision | Current evidence / remaining work |
 | --- | --- | --- |
-| ds4 main, including Qwen3.8 Next | [`0aaea5a`](https://github.com/antirez/ds4/commit/0aaea5a238fb41a35106a551e73c8409dfb751ac) | [Unified-main migration](QWEN_NEXT_MAIN_MIGRATION.md): source, installer, routing and native adapters updated. New Qwen Q2/Q4 weights require new real-model qualification. Earlier [V4.1 results](DS41_UPDATE_CHECKPOINT.md) retain their original revision. |
-| Laguna | [`448d569`](https://github.com/antirez/ds4/commit/448d5695d1c86401a4e9447c440feb983b73e6de) | No new branch commits; applicable main changes, other backends and complete mode coverage remain open. |
+| ds4 main, including Qwen3.8 Next | [`0aaea5a`](https://github.com/antirez/ds4/commit/0aaea5a238fb41a35106a551e73c8409dfb751ac) | [Unified-main migration](QWEN_NEXT_MAIN_MIGRATION.md) is implemented. New single-file Q4 has a complete 75/100 corpus receipt, including 8/8 long cases; Q2 and complete numerical/mode/desktop qualification remain open. [V4.1 evidence and remaining work](DS41_UPDATE_CHECKPOINT.md) retain the scope of each recorded revision. |
+| Laguna | [`448d569`](https://github.com/antirez/ds4/commit/448d5695d1c86401a4e9447c440feb983b73e6de) | No new branch commits at the last recorded review; applicable main changes and complete macOS mode coverage remain open. Other backends are outside this campaign. |
 | Qwen3.6 MoE fork | [`73434c4`](https://github.com/vagrillo/ds4/commit/73434c4bb9d8bb18425a2577edada69d25d44c47) | The upstream delta is documentation-only ([receipt](upstream/qwen35-2026-09-08.json)); DStudio separately applies the Q6_K correction and bounded prefill overlays. Native/operator and lifecycle checks pass; full-model qualification on the batched path remains open. [Current checkpoint](QWEN_CHECKPOINT.md). |
 | q36 / Qwen27B | [`1305843`](https://github.com/Ninnix/q36/commit/1305843c735380f912619548b121cba8601f2f85) | Installer uses ordered runtime/monitor/owner/cache-usage/online-F16 patches. Historical real workflows on the preceding stack remain recorded separately. Current parallel-attention operators, lifecycle and fresh source/build checks pass; full-model quality, long-context deadlines and mode qualification on this overlay remain open. [Current checkpoint](QWEN_CHECKPOINT.md). |
 | q27 / Qwen27B candidate | [`8cd7083`](https://github.com/signalnine/q27/commit/8cd708389f8b5a2c5a7c481237b00c8d7f570e7f) | 69 new commits since the preceding `44c6e56` candidate, including tokenizer, sampler, KV and DFlash changes. CPU fixtures and native Metal operators pass with a [tested DeltaNet correction](../patch/q27-metal-delta/README.md). Not promoted. Its only admission row was Linux CUDA, so since September 29 it is outside the macOS-only campaign and no longer an admission track; the Metal DeltaNet patch and its test remain available. |

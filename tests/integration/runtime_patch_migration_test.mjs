@@ -6,6 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { artifactRunDir, writeArtifact } from '../support/real_harness.mjs';
+import { historicalQwenSource } from '../support/retired_qwen_sources.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const run = artifactRunDir('runtime-patch-migration');
@@ -25,6 +26,7 @@ function sourceFor(kind, base, file) {
   const name = base.name.replace(/-metrics$/, '');
   if (process.env.DSTUDIO_RUNTIME_BASE_SOURCES)
     return fs.readFileSync(path.join(process.env.DSTUDIO_RUNTIME_BASE_SOURCES, `${kind}-${name}.c`));
+  if (name === 'qwen38') return historicalQwenSource(base.revision, file);
   const engines = { laguna: 'ds4-laguna-s21', qwen38: 'ds4-qwen38', qwen35: 'ds4-qwen35' };
   const engine = path.join(root, engines[name] || 'ds4');
   const git = spawnSync('git', ['-C', engine, 'show', `${base.revision}:${file}`], { maxBuffer: 16 * 1024 * 1024 });

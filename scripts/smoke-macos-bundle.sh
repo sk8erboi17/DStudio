@@ -89,7 +89,11 @@ import json
 import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     catalog = json.load(handle)["designSystems"]
-assert sorted(item["id"] for item in catalog) == ["atlas", "canvas", "commons", "folio", "forma", "grove", "market", "pulse", "signal"]
+assert sorted(item["id"] for item in catalog) == [
+    "atlas", "canvas", "commons", "counter", "datasheet", "depot", "docket", "folio", "forma",
+    "grove", "hearth", "larder", "ledger", "letter", "manual", "market", "pipeline", "pulse",
+    "relay", "roster", "signal", "tally", "tempo", "transit", "walkthrough",
+]
 assert all(item["hasComponents"] and item["hasAssets"] and item["hasReferences"] for item in catalog)
 PY
 curl -fsS -X POST -H 'X-Requested-With: ds4web' \

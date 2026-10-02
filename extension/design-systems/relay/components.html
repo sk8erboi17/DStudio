@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>Relay — DStudio original design system</title><link rel="stylesheet" href="tokens.css"><style>
+.rl{padding:28px 0 60px}
+.rl-app{display:grid;grid-template-columns:minmax(0,330px) minmax(0,1fr);border-top:2px solid var(--fg)}
+.rl-list{display:grid;align-content:start;gap:14px;padding:24px 28px 24px 0;border-right:1px solid var(--border)}
+.rl-list h1{margin-top:4px;font-size:clamp(2.1rem,3.4vw,2.9rem)}
+.rl-search input{min-height:42px;padding:8px 12px;font-size:15px}
+.rl-count{font:500 13px/1.4 var(--font-ui);color:var(--muted)}
+.rl-thread{display:grid;align-content:start;min-width:0;padding:24px 0 0 44px}
+.rl-thread-head{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:6px 20px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.rl-thread-head h2{font-size:clamp(1.7rem,2.6vw,2.3rem)}
+.rl-thread-head p{margin-top:4px;font:400 14px/1.4 var(--font-ui)}
+@media (max-width:900px){.rl-app{grid-template-columns:minmax(0,1fr)}.rl-list{padding:20px 0 24px;border-right:0;border-bottom:1px solid var(--border)}.rl-thread{padding:22px 0 0}}
+</style></head>
+<body><a class="skip" href="#main">Skip to content</a><div class="shell">
+<header class="lab-bar"><strong>DSTUDIO ORIGINALS / RELAY <span class="muted">v1 — interactive example, not a live service</span></strong><div class="lab-actions" aria-label="Preview controls"><button type="button" data-view="example" aria-pressed="true">Example</button><button type="button" data-view="components" aria-pressed="false">Components</button><button type="button" data-theme-toggle aria-pressed="false">Dark appearance</button></div></header>
+<main id="main" tabindex="-1">
+<div data-panel="example" class="rl">
+<div class="rl-app">
+<section class="rl-list" aria-labelledby="rl-heading">
+<div><p class="eyebrow">Relay · example inbox</p><h1 id="rl-heading">Conversations</h1></div>
+<div class="field rl-search"><label for="rl-search">Search conversations</label><input id="rl-search" type="search" placeholder="A name or a word" autocomplete="off"></div>
+<p class="rl-count" id="rl-count" role="status">4 conversations · 1 unread</p>
+<ul class="convos" id="rl-convos" aria-label="Conversations"></ul>
+<div class="empty" id="rl-empty" hidden><strong>No conversations match.</strong><p>Try a name or a word from a message.</p></div>
+</section>
+<section class="rl-thread" aria-labelledby="rl-title">
+<header class="rl-thread-head"><div><h2 id="rl-title">Mira Okafor</h2><p class="muted" id="rl-sub">Studio lease · 2 people</p></div><button type="button" class="link-btn" id="rl-mark">Mark as unread</button></header>
+<ol class="transcript" id="rl-transcript" aria-label="Messages"></ol>
+<form class="compose" id="rl-compose" novalidate><div class="field"><label for="rl-text" id="rl-text-label">Reply to Mira Okafor</label><textarea id="rl-text" placeholder="Write a reply" aria-describedby="rl-error"></textarea><span class="error" id="rl-error" hidden>Write something before sending.</span></div><div class="compose-foot"><p class="hint">Replies stay in this preview. Nothing is delivered.</p><button type="submit" class="btn">Send reply</button></div><p class="status" id="rl-status" role="status"></p></form>
+</section>
+</div>
+</div>
+<section data-panel="components" class="specimen" hidden aria-label="Relay components"><p class="eyebrow">DStudio originals / Relay / v1</p><h1>A working visual vocabulary.</h1>
+<p class="spec-lede">Relay treats messages as correspondence: names in the margin, prose in a reading serif, days divided by quiet rules and unread marked with a word and a dot — never a bubble.</p>
+<div class="spec-grid">
+<section class="sample"><h2>Color roles</h2><div class="swatches"><div class="swatch" style="background:var(--bg)"><span>Canvas</span><code>--bg</code></div><div class="swatch" style="background:var(--surface)"><span>Surface</span><code>--surface</code></div><div class="swatch" style="background:var(--surface-2)"><span>Quiet</span><code>--surface-2</code></div><div class="swatch" style="background:var(--fg);color:var(--bg)"><span>Ink</span><code>--fg</code></div><div class="swatch" style="background:var(--accent);color:var(--on-accent)"><span>Action</span><code>--accent</code></div><div class="swatch swatch--status"><span class="badge">Saved</span><span class="badge badge--danger">Needs a fix</span></div></div><p class="muted">Every pair is measured in both appearances. State is always named in text, never by color alone.</p></section>
+<section class="sample"><h2>Actions &amp; focus</h2><div class="actions"><button type="button" class="btn" data-open="Relay primary action">Try primary action</button><button type="button" class="btn secondary" data-open="Relay secondary action">Secondary</button><button type="button" class="btn" disabled>Unavailable</button></div><p class="muted">Tab to see the focus ring. Escape closes the dialog and focus returns here.</p></section>
+<section class="sample"><h2>Forms that explain</h2><div class="field"><label for="sample-name">Project name</label><input id="sample-name" placeholder="A name you can recognise" aria-describedby="sample-name-hint"><small id="sample-name-hint">The label stays visible while you type.</small></div><div class="field"><label for="sample-error">Email — example error</label><input id="sample-error" value="not-an-address" aria-invalid="true" aria-describedby="email-error"><span id="email-error" class="error">Enter a complete address, such as name@example.com.</span></div><fieldset class="choices"><legend>Notify me</legend><label class="choice"><input type="radio" name="sample-notify" checked><span>Only when something needs my attention</span></label><label class="choice"><input type="radio" name="sample-notify"><span>A weekly summary, never more often</span></label></fieldset></section>
+<section class="sample"><h2>Beyond the happy path</h2><div class="empty"><strong>Nothing here yet.</strong><p>Create the first item and it will be listed here.</p><button type="button" class="btn secondary" data-open="Relay first item">Try creating an item</button></div><div class="field"><label for="sample-progress">Example loading — 60%</label><progress id="sample-progress" max="100" value="60"></progress></div><p class="badge">Example confirmation — changes saved</p></section>
+<section class="sample"><h2>Progressive detail</h2><div><details><summary>What belongs in a component?</summary><p>Purpose, default state, keyboard behaviour, error handling and reflow. This preview is an example, not a backend.</p></details><details><summary>Does it work offline?</summary><p>Yes. No external scripts, fonts, image hosts or packages are requested.</p></details></div></section>
+<section class="sample"><h2>Transcript</h2><ol class="transcript" aria-label="Sample messages"><li class="day">Tuesday 14 October</li><li class="msg"><p class="msg-meta"><strong>Mira</strong><time>09:14</time></p><p class="msg-body">Could we move the walkthrough to Thursday?</p></li><li class="msg" data-me="true"><p class="msg-meta"><strong>You</strong><time>09:20</time></p><p class="msg-body">Thursday at ten is fine.</p></li></ol><p class="muted">Names sit in the margin with the time beneath; the message reads as prose.</p></section>
+<section class="sample"><h2>Conversation rows</h2><ul class="convos" aria-label="Sample conversations"><li class="convo" data-unread="true"><button type="button" class="convo-open" aria-pressed="false"><span class="convo-who">Jonas Weber</span><span class="convo-time">19:30</span><span class="convo-snippet">Route is 48 km, mostly flat.</span><span class="convo-new">1 new</span></button></li><li class="convo"><button type="button" class="convo-open" aria-pressed="true"><span class="convo-who">Mira Okafor</span><span class="convo-time">09:14</span><span class="convo-snippet">Could we move the walkthrough?</span></button></li></ul><p class="muted">Unread is a word and a mark, never color alone. The open row has a rule, not a box.</p></section>
+</div></section>
+</main>
+<footer class="pack-foot"><span>Relay v1 · an original DStudio design system</span><span>Local assets · real controls · example content</span></footer>
+</div>
+<dialog id="request-dialog" aria-labelledby="request-title"><button type="button" class="close" data-close aria-label="Close preview dialog">×</button><p class="eyebrow">Local preview</p><h2 id="request-title">Try the interaction.</h2><p>This form runs only in this preview. Nothing is sent, saved or booked.</p><form id="request-form"><div class="field"><label for="request-topic">Subject</label><input id="request-topic" name="topic" readonly></div><div class="field"><label for="request-name">Name</label><input id="request-name" name="name" required autocomplete="off" placeholder="Your name"></div><div class="field"><label for="request-email">Email</label><input id="request-email" name="email" type="email" required autocomplete="off" placeholder="name@example.com"></div><div class="actions"><button class="btn" type="submit">Complete preview</button></div><p id="request-status" class="status" role="status"></p></form></dialog>
+<script src="assets/preview.js" defer></script></body></html>

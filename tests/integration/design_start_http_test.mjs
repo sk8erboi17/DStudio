@@ -74,6 +74,12 @@ try {
   assert.equal(catalog.status, 200);
   assert.ok(catalog.body.designSystems.some(s => s.id === 'folio'));
   assert.ok(catalog.body.catalogIds.includes('folio'));
+  // The brief gallery's "For …" line comes from each pack's own "Best fit:" line.
+  for (const system of catalog.body.designSystems) {
+    const md = fs.readFileSync(path.resolve('extension/design-systems', system.id, 'DESIGN.md'), 'utf8');
+    const line = md.split('\n').find(l => l.startsWith('Best fit:'));
+    assert.equal(system.bestFit, line ? line.slice('Best fit:'.length).trim() : '', `${system.id} bestFit`);
+  }
   const packRoot = path.join(run, 'isolated assets');
   const pack = path.join(packRoot, 'extension/design-systems/folio');
   fs.mkdirSync(path.join(packRoot, 'extension/design'), { recursive: true });

@@ -4,9 +4,11 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 
+const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
+assert.ok(['chromium', 'webkit'].includes(browserName), 'Unknown browser');
 let chromium;
 try {
-  ({ chromium } = await import('playwright'));
+  chromium = (await import('playwright'))[browserName];
 } catch {
   console.log('ui_plan_mode_matrix_test: playwright missing, NOT RUN');
   process.exit(1);

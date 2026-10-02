@@ -43,7 +43,9 @@ let roadmapAttempts = 0;
 let activeContext = 65536;
 let activeEngineDir = modelFixture.engine;
 let factFindingIssued = false;
-let tutorResponses = 0, releaseTutorFinish;
+let tutorResponses = 0, releaseTutorFinish, releaseBlockStart;
+// Keep the first expansion pending until its live controls have been observed.
+const blockStartGate = new Promise(resolve => { releaseBlockStart = resolve; });
 const tutorFinishGate = new Promise(resolve => {releaseTutorFinish = resolve;});
 
 const roadmapSources = [
@@ -260,7 +262,10 @@ const server = http.createServer(async (req, res) => {
     const isFactAuditor = system.includes('DStudio roadmap factual auditor');
     const isCurriculumJudge = system.includes('DStudio roadmap curriculum judge');
     const isRoadmapRepairer = system.includes('DStudio roadmap repairer');
-    if (isBlock) blockAttempts += 1;
+    if (isBlock) {
+      blockAttempts += 1;
+      if (blockAttempts === 1) await blockStartGate;
+    }
     if (isRoadmap) roadmapAttempts += 1;
     const truncatedBlock = isBlock && blockAttempts === 1;
     const generatedBlock = {
@@ -407,6 +412,14 @@ try {
 let page;
 try {
   page = await browser.newPage({ viewport: { width: 1360, height: 960 } });
+  await page.clock.install();
+  const prepareRecoveryFixture = async () => {
+    // Quiesce the old document before injecting a recovery snapshot. Otherwise
+    // a pending persistence write can overwrite it, or a background status
+    // request can race the intentional navigation. Browser errors remain fatal.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
+    await page.waitForLoadState('networkidle');
+  };
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error?.stack || error?.message || String(error)));
   page.on('console', (msg) => { if (msg.type() === 'error') pageErrors.push(msg.text()); });
@@ -702,6 +715,8 @@ try {
   const savedRoadmap = saved.chats?.find((chat) => chat.mode === 'roadmap');
   let savedReply = savedRoadmap?.messages?.find((message) => message.role === 'assistant');
   assert.equal(savedReply?.roadmapProgress?.['html-semantics'], true, 'Topic completion should persist in roadmap history');
+  assert.equal(await page.locator('#chat-list [data-id="' + savedRoadmap.id + '"] .chat-item__progress').getAttribute('aria-label'),
+    '1 of 20 topics complete', 'Sidebar completion must use the same saved topic state as Learn');
   assert.equal(savedReply?.roadmapVerification?.status, 'verified',
     'the saved Roadmap should expose a completed factual and curriculum verification state');
   assert.equal(savedReply?.roadmapVerification?.repairRounds, 1,
@@ -745,6 +760,7 @@ try {
     'Add should visibly show that the model is elaborating the learner input');
   assert.equal(await addForm.locator('button[type="submit"]').isDisabled(), true,
     'Add should prevent duplicate submissions while the model is working');
+  releaseBlockStart();
   await page.waitForFunction(() => document.querySelectorAll('.roadmap-topic').length === 21);
   const customTopic = page.locator('.roadmap-topic[data-topic-id*="accessibilita-html"]');
   await customTopic.waitFor({ state: 'visible' });
@@ -941,7 +957,7 @@ try {
   assert.match(studySystem, /DStudio mathematical typesetting protocol/);
   assert.match(studySystem, /DStudio Tutor file output protocol/);
   const studyUser = studyRequest.messages.findLast((message) => message.role === 'user')?.content || '';
-  assert.match(studyUser, /\[Attached study material\]/);
+  assert.match(studyUser, /\[Attached files\]/, 'Tutor uses the same attachment envelope as Chat');
   assert.match(studyUser, /Appunti tutor: usa header, main e footer/);
   await study.locator('.roadmap-study__input').fill('Tutor steering fixture');
   await study.locator('.roadmap-study__send').click();
@@ -981,7 +997,8 @@ try {
   // The sidebar now exposes rename without relying on a hidden double-click/right-click gesture.
   const activeSidebarChat = page.locator('.chat-item--active');
   await activeSidebarChat.hover();
-  await activeSidebarChat.locator('.chat-item__rename').click();
+  await activeSidebarChat.getByRole('button', { name: 'Conversation actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Rename', exact: true }).click();
   const renameInput = activeSidebarChat.locator('input[aria-label="Rename chat"]');
   await renameInput.fill('Frontend personale');
   await renameInput.press('Enter');
@@ -1015,6 +1032,7 @@ try {
   // must preserve the previous graph and expose both the interrupted prompt
   // and a way back, instead of replacing it with a permanent loading trace.
   await page.setViewportSize({ width: 1360, height: 960 });
+  await prepareRecoveryFixture();
   await page.evaluate((previousRoadmap) => {
     const savedChats = JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}');
     const now = Date.now();
@@ -1038,6 +1056,7 @@ try {
     }));
   }, roadmap);
   await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.clock.resume();
   await page.waitForFunction(() => document.querySelector('#tab-server')?.classList.contains('tab--active'));
   await page.locator('#tab-roadmap').click();
   const interruptedState = page.locator('.roadmap-attempt.is-paused');
@@ -1075,6 +1094,7 @@ try {
 
   // With no old graph to return to, recovery still has a clear paused state
   // and a retry action rather than an endless loading card.
+  await prepareRecoveryFixture();
   await page.evaluate(() => {
     const savedChats = JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}');
     const now = Date.now();
@@ -1092,6 +1112,7 @@ try {
     }));
   });
   await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.clock.resume();
   await page.waitForFunction(() => document.querySelector('#tab-server')?.classList.contains('tab--active'));
   await page.locator('#tab-roadmap').click();
   const orphanedState = page.locator('.roadmap-direct-error');
@@ -1119,6 +1140,7 @@ try {
   await page?.screenshot({path: path.join(artifacts, 'failure.png')}).catch(() => {});
   throw error;
 } finally {
+  releaseBlockStart();
   releaseTutorFinish();
   writeArtifact(artifacts, 'results.json', {...receipt, chatRequests, startRequests, missingRequests});
   await browser.close().catch(() => {});

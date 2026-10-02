@@ -57,7 +57,11 @@ vision weights are model components, not DStudio-authored assets.
 
 - Source: [`ivanfioravanti/ds4-metal`](https://github.com/ivanfioravanti/ds4-metal/tree/ff4f0ff4fdff70d6b7c3941ef437b91dde960e14).
 - Historical separate-engine source: `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14`,
-  retained in Git history, not distributed as a source snapshot or installed.
+  retained in Git history, not distributed as an installable source snapshot.
+  Five exact compressed files from this and two earlier revisions are retained
+  solely as [historical patch regression inputs](tests/fixtures/retired-qwen-next/),
+  with [per-file provenance](tests/fixtures/retired-qwen-next/provenance.json) and
+  the upstream [MIT notice](tests/fixtures/retired-qwen-next/LICENSE).
 - Active source: antirez/ds4 main at `0aaea5a238fb41a35106a551e73c8409dfb751ac`,
   which includes the Qwen merge. The original contributors' attribution remains.
 - Source license: MIT, retaining upstream ds4.c and ggml notices in

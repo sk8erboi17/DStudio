@@ -336,6 +336,15 @@ test-v1-relay: $(TEST_BUILD)/v1_relay_unit
 	@$(TEST_BUILD)/v1_relay_unit
 check-fast: test-v1-relay
 
+# Agent IDE workspace files: real handlers/dispatcher on a temporary workspace.
+.PHONY: test-agent-workspace
+$(TEST_BUILD)/agent_workspace_unit: tests/unit/agent_workspace_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/unit/agent_workspace_unit.c -pthread -o $@
+test-agent-workspace: $(TEST_BUILD)/agent_workspace_unit
+	@$(TEST_BUILD)/agent_workspace_unit
+check-fast: test-agent-workspace
+
 .PHONY: test-v1-proxy-exchange
 test-v1-proxy-exchange: $(TEST_SERVER)
 	@node tests/integration/v1_proxy_exchange_test.mjs $(TEST_SERVER)
@@ -643,8 +652,9 @@ test-qwen35-prefill:
 	@node tests/integration/qwen35_prefill_test.mjs "$(or $(QWEN35_DIR),ds4-qwen35)"
 
 .PHONY: test-qwen38-inspect
+# Archived patch inputs are shipped as bounded fixtures, not an installed fork.
 test-qwen38-inspect:
-	@node tests/integration/qwen38_inspect_patch_test.mjs "$(or $(QWEN38_DIR),ds4-qwen38)"
+	@node tests/integration/qwen38_inspect_patch_test.mjs $(if $(QWEN38_DIR),"$(QWEN38_DIR)")
 
 # Explicit real Metal operators; optional verified projector, never LLM weights.
 .PHONY: test-q36-metal-runtime
@@ -1079,6 +1089,12 @@ test-design-archive-build: $(TEST_SERVER)
 test-design-tool-recovery: test-design-self
 	@node tests/integration/design_tool_recovery_test.mjs
 
+# Live tool-stanza events (Open IDE preview): real runtime, simulated model.
+.PHONY: test-design-tool-stream
+test-design-tool-stream: test-design-self
+	@node tests/integration/design_tool_stream_test.mjs
+test-design-runtime: test-design-tool-stream
+
 test-design-self: test-design-build-freshness $(TEST_SERVER)
 	@DSTUDIO_BUILD_HOST="$(abspath $(TEST_SERVER))" extension/design/build-design.sh build
 	@./ds4/ds4-design --self-test
@@ -1251,8 +1267,84 @@ test-pdf-evidence: $(TEST_SERVER)
 test-pdf-complete: $(TEST_SERVER)
 	@node tests/integration/pdf_complete_read_test.mjs $(TEST_SERVER)
 
-test-ui-browser:
-	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_model_picker_playwright_test.mjs && node tests/browser/ui_loading_playwright_test.mjs && node tests/browser/ui_agent_design_playwright_test.mjs && node tests/browser/ui_gear_popover_test.mjs && node tests/browser/ui_think_max_context_test.mjs && node tests/browser/ui_attachment_preview_playwright_test.mjs && node tests/browser/ui_roadmap_playwright_test.mjs && node tests/browser/ui_settings_redesign_playwright_test.mjs && node tests/browser/ui_video_generation_playwright_test.mjs; else echo "node missing: NOT RUN UI browser tests"; exit 1; fi
+.PHONY: test-ui-loading
+test-ui-loading:
+	@node tests/unit/loading_launch_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_loading_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_loading_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_loading_startup_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_loading_startup_playwright_test.mjs
+
+test-ui-browser: test-ui-loading
+	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_model_picker_playwright_test.mjs && node tests/browser/ui_agent_design_playwright_test.mjs && node tests/browser/ui_gear_popover_test.mjs && node tests/browser/ui_think_max_context_test.mjs && node tests/browser/ui_attachment_preview_playwright_test.mjs && node tests/browser/ui_roadmap_playwright_test.mjs && node tests/browser/ui_settings_redesign_playwright_test.mjs && node tests/browser/ui_video_generation_playwright_test.mjs; else echo "node missing: NOT RUN UI browser tests"; exit 1; fi
+
+.PHONY: test-ui-sidebar test-macos-window-theme
+test-ui-sidebar:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_sidebar_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_sidebar_playwright_test.mjs
+
+test-ui-browser: test-ui-sidebar
+
+# All runtime/generation/download responses are fixtures; no engine is started.
+.PHONY: test-ui-simulated test-ui-chat-images test-ui-chat-controls test-ui-selection test-ui-stability test-ui-stream-interaction test-ui-roadmap-hover test-ui-document-policy
+test-ui-document-policy: $(TEST_SERVER)
+	@node tests/integration/ui_document_policy_test.mjs $<
+test-ui-browser: test-ui-document-policy
+test-ui-simulated:
+	@node tests/support/run_simulated_ui.mjs
+test-ui-chat-images:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_chat_images_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_chat_images_playwright_test.mjs
+test-ui-chat-controls:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_chat_controls_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_chat_controls_playwright_test.mjs
+test-ui-selection:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_stream_selection_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_stream_selection_playwright_test.mjs
+test-ui-stability:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_selection_stability_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_selection_stability_playwright_test.mjs
+# Open IDE (Agent and Design): real browser + real host file handlers; simulated streams.
+.PHONY: test-ui-agent-ide
+$(TEST_BUILD)/agent_workspace_host: tests/support/agent_workspace_host.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/support/agent_workspace_host.c -o $@
+test-ui-agent-ide: $(TEST_BUILD)/agent_workspace_host
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_agent_ide_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_agent_ide_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_design_ide_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_design_ide_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
+test-ui-browser: test-ui-agent-ide
+# Full-window screens under the native macOS title-bar strip (simulated inset).
+.PHONY: test-ui-native-titlebar
+test-ui-native-titlebar:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_native_titlebar_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_native_titlebar_playwright_test.mjs
+test-ui-browser: test-ui-native-titlebar
+test-ui-stream-interaction:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_stream_interaction_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_stream_interaction_playwright_test.mjs
+test-ui-roadmap-hover:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_hover_controls_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_hover_controls_playwright_test.mjs
+
+test-ui-browser: test-ui-chat-images test-ui-chat-controls test-ui-selection test-ui-stability test-ui-stream-interaction test-ui-roadmap-hover
+ifeq ($(UNAME),Darwin)
+$(TEST_BUILD)/macos-window-theme: tests/unit/macos_window_theme_test.mm $(HDR) | $(TEST_BUILD)
+	$(APPCXX) $(APP_CXXFLAGS) $< -framework Cocoa -framework WebKit -o $@
+test-macos-window-theme: $(TEST_BUILD)/macos-window-theme
+	@$<
+check-fast: test-macos-window-theme
+else
+test-macos-window-theme:
+	@echo "macOS Cocoa/WebKit unavailable: NOT RUN"; exit 1
+endif
+
+.PHONY: test-ui-reasoning-spacing
+test-ui-reasoning-spacing:
+	@node tests/browser/ui_reasoning_spacing_test.mjs
+
+check-fast: test-ui-reasoning-spacing
 
 test-ui-live-vision:
 	@if command -v node >/dev/null 2>&1; then node tests/live/ui_live_vision_playwright_test.mjs; else echo "node missing: NOT RUN live Vision UI test"; exit 1; fi

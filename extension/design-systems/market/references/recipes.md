@@ -1,32 +1,32 @@
 # Market: application recipes
 
-## Primary composition
+## Before markup
+Write a one-sentence visual thesis and the user's primary action. Choose a topology from the information hierarchy, then bind this pack's tokens. If alternatives are requested, vary spatial hierarchy and density, not only the accent color.
 
-Use a narrow filter rail, a two- or three-column product shelf and an explicit comparison strip. Keep price, variant and availability beside the action. On mobile, filters precede the shelf, products form one column, and the basket remains a labelled button.
+## Primary recipe
+Masthead with basket → heading and plain-language note → filter rail (search, collection, reset, live count) beside the shelf → comparison tray. The basket is a dialog with quantity controls, total, clear and an empty state. Below 900px the rail moves above the shelf.
 
-## A genuinely different second brief
+## Adaptation
+For a configurator, the shelf becomes options with a running total. For a catalog without purchase, drop the basket and keep comparison.
 
-A configurator can replace the shelf with a large product study and staged choices; keep a running itemized total. A comparison brief needs aligned attributes, not duplicated marketing cards.
+## Responsive and long content
+The rail moves above the shelf and comparisons stack. Use minmax(0,1fr), min-width:0 and overflow-wrap for user text. Do not put content in horizontal scroll regions; reflow rows into labelled stacks instead. Test a long title and translated button text at 320px and 200% text.
 
-## Domain behavior
+## Honest interaction
+Loading: a progress element with a real value or an explicitly indeterminate state. Empty: explain what is missing and offer an implemented next action. Error: keep entered values, say what happened and associate guidance with the control. Success: confirm only what was actually done. Totals recompute from line items; limits are stated before they are reached.
 
-The example filters four fictional products, selects variants, compares up to three products and maintains a bounded local basket. Basket quantities are limited to six per variant; all prices are illustrative EUR amounts. No checkout, inventory reservation or payment occurs.
+## Export
+Copy the needed CSS and JS beside the generated entry file and update relative paths. The lab toolbar belongs to the catalog only; omit it from client work. No CDN, remote font, brand imitation or borrowed component package is required.
 
-Use the smallest local state needed for the task. Keep state ownership explicit,
-validate edits before applying them and bound history and user input. Do not keep
-an unrelated subsystem alive just to support a preview action.
+## Turn this recipe into a project
 
-## Responsive and accessible
+Treat the supplied layout and breakpoints as examples. First identify the primary
+operation and choose a reading/action order for this brief; remove sample identity
+and irrelevant lab controls. For a second direction, change the topology, density
+or type roles in response to a different need, while keeping the system's thesis.
 
-Use shrinkable grid children, visible labels, logical reading order and native
-controls. At narrow widths stack domain regions rather than compressing paragraphs
-into slivers. At 200% text let controls grow; do not clip their names. Restore focus
-when a dialog closes or a selected item is removed. Respect reduced motion.
-
-## States and delivery
-
-Empty views offer an implemented way back. Errors preserve valid input and explain
-what failed. Confirmation names only the effect that actually happened. Copy local
-dependencies into the exported project, removing catalog-only controls and fictional
-identities. Exercise generated output in a browser; do not manually repair benchmark
-HTML and call it a model delivery.
+Use the state-coverage design-plan reference to map each visible action to its
+validated change and observable result. Include invalid input, no results, Back,
+cancellation and repeated use where applicable. Keep user text literal and name
+what survives a reload. Test the resulting local export with network unavailable,
+then record actual findings and remaining gaps; the recipe is not a test receipt.

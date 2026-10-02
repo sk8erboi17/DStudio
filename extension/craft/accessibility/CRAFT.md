@@ -1,53 +1,53 @@
 ---
 name: Accessibility baseline
-description: The floor every artifact must clear — WCAG 2.2 AA: real contrast, keyboard reach, focus, labels, alt, target size, reduced motion. Verify on the rendered result, not the source.
+description: Check rendered contrast, keyboard operation, focus, labels, targets and reflow; report coverage without claiming certification.
 ---
 
 # CRAFT: accessibility baseline
 
-Use these checks as a practical accessibility baseline, not a certification of
-WCAG conformance or legal compliance. Automated gates cover only part of the work.
-Operate the controls, test keyboard order and enlarged text, and inspect the
-**rendered** result rather than inferring accessibility from CSS declarations.
+Use this as a practical baseline, not WCAG certification. Automated checks cover
+part of the work; operate controls and inspect actual rendered states.
 
-## Color contrast (the one most often missed)
+## Contrast and meaning
 
-- **Body / normal text ≥ 4.5:1**; large text (≥24px, or ≥18.66px bold) ≥ 3:1; UI components
-  and graphical objects (icons, input borders, focus rings) ≥ 3:1.
-- **Compute it on the actual rendered colors** — resolve `var()`, `color-mix()`, gradients,
-  and any `rgba`/`opacity` over the parent. A "muted" text token (`oklch` lightness ~55–70%)
-  on a light background is the classic failure: it reads ~3:1. Darken it (aim L ≤ 50% on
-  light themes) rather than keeping the pretty-but-illegible gray.
-- Don't rely on color alone to convey meaning (add text/icon/shape).
+Use at least 4.5:1 for ordinary text and 3:1 for large text (18pt, or 14pt bold).
+Check required control boundaries and meaningful graphics at 3:1. Compute actual
+resolved color pairs without rounding a failing ratio up. Thin fonts, images,
+opacity and changing backgrounds require further inspection. Status and selection
+need understandable words, shape or structure as well as hue.
+See [W3C contrast guidance](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html).
 
-## Keyboard, focus, structure
+## Keyboard and focus
 
-- **Everything interactive is reachable and operable by keyboard**, in a logical order.
-- **Visible focus**: a clear `:focus-visible` ring (≥3:1 against the background) on every
-  link, button, input, and custom control. Never `outline: none` without a replacement.
-- **One `<h1>`**, headings in order (no skipping levels) — they are the document outline.
-- Use **semantic elements** (`<nav> <main> <button> <a> <ul><li> <table>`); a `<div>` with a
-  click handler is not a button. Landmarks (`header/nav/main/footer`) for structure.
+Use semantic links, buttons, inputs, tables and landmarks. Provide a clear main
+heading and meaningful heading order. Every operation has a keyboard path;
+spatial editors also expose equivalent position/list controls. Focus remains
+visible and unobscured. Opening a dialog moves focus inside; Escape/cancel closes
+it where appropriate and returns focus to a useful surviving control. Deleting
+or filtering a focused item must leave a usable destination.
 
-## Labels, names, media
+## Labels and updates
 
-- Every input has a real **`<label>`** (not placeholder-only). Icon-only buttons get an
-  `aria-label`. Links have meaningful text (not "click here").
-- Images have **`alt`** — descriptive for content, `alt=""` for decoration. Never an emoji or
-  a filename as the accessible name.
+Associate each input with a visible label, errors and instructions. Name icon
+buttons; give content images meaningful alt text and decorative images empty alt.
+Group related choices. Announce consequential state changes without repeating
+an entire stream or moving focus on every update. Keep user-entered text literal.
 
-## Touch & motion
+## Reflow and pointer targets
 
-- **Target size ≥ 24×24px** (AA), and ≥44×44px is the craft target for primary touch
-  controls, with spacing so they aren't mis-tapped.
-- **`@media (prefers-reduced-motion: reduce)`**: drop non-essential animation, parallax,
-  auto-play, and bounce; keep simple fades. No content that flashes > 3×/sec.
-- Body text is resizable/zoomable (use rem/em, no `user-scalable=no`).
+Verify 320 CSS-pixel width and 200% enlarged text, logical reading order and no
+page clipping. A data table, map or editor may need a labelled local two-dimensional
+region with an equivalent usable path; explain the exception, do not hide overflow.
+See [W3C reflow guidance](https://www.w3.org/WAI/WCAG22/Understanding/reflow.html).
 
-## Self-check before artifact
+Prefer roomy primary controls, around 44px. The minimum target criterion uses
+24 CSS pixels or qualifying spacing/exceptions; do not claim every smaller inline
+link fails automatically. Inspect real hit areas and adjacent controls.
+See [W3C target-size guidance](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html).
 
-- Contrast computed on the rendered colors, body ≥ 4.5:1 (esp. the muted/secondary text)?
-- Keyboard: reach + visible focus on every control?
-- One h1, ordered headings, semantic landmarks?
-- Labels on inputs, alt on images, names on icon buttons?
-- Targets ≥ 24px (44px for primary), reduced-motion honored?
+## Before delivery
+
+Operate the export with keyboard, both themes and enlarged text. Check dialog
+focus return, error recovery, selected/disabled states and reduced motion.
+Record manual, automated and not-run checks separately; declarations and ARIA
+attributes alone do not establish accessible behavior.

@@ -88,7 +88,26 @@ target recovery. The separate snapshot/inspection patches and older Agent/Web
 variants remain as historical regression assets, not new engine installs.
 The obsolete `scripts/download-qwen38.py` sidecar downloader is removed.
 The legacy setup endpoint returns 410 with migration guidance; it cannot
-reinstall `ds4-qwen38`. Existing checkout files and weights are not deleted.
+reinstall `ds4-qwen38`. Setup does not delete existing checkout files or weights.
+
+The obsolete development checkout can be removed after preserving local work.
+Default historical Agent, Web and inspection-patch regressions use
+[compressed exact upstream inputs](../tests/fixtures/retired-qwen-next/), with
+revision, size and SHA-256 checks; they do not require that installed fork.
+Native historical inspection or an explicitly requested historical backend
+build still requires a supplied full source tree. Active Qwen Next backend
+routing is covered through the main engine. Model files remain in `ds4/gguf/`.
+
+On October 2, the obsolete development checkout was removed after verifying a
+complete recovery archive of its local changes and Git history. The four affected
+model-free gates (`test-qwen38-inspect`, `test-agent-patch-migration`,
+`test-runtime-patch-migration`, `test-backend-link`) passed before the change and
+again with that directory absent. `test-engine-pins` and `test-engine-sources`
+also passed afterward. The supplementary `test-engine-setup-unit` gate remains
+blocked: its selection/preservation unit passed, but the Qwen runtime unit could
+not bind a loopback socket because the sandbox returns `EPERM`. That gate is
+not counted as passing. No model was started; native historical inspection and
+real CUDA/ROCm compilation were not rerun.
 
 ## Verification and remaining qualification
 
@@ -182,12 +201,20 @@ Claude reviewed every answer and saved artifact as an external judge,
 separately from the deterministic checks: all quality items and both saved
 files are correct and correctly formatted.
 
-These are development workflows and small acceptance sets, not the 100-case
-quality corpus, long-context qualification or a speed benchmark. Q2 was not
-downloaded or tested. Numerical equivalence to a trusted model reference,
-native desktop sessions, Design/vision support and non-Metal hardware are
-**not qualified by these checks**. Earlier fork scores remain historical and
-must not be reported as scores for these new weights.
+Later on September 29 the separate complete corpus receipt
+`engine-acceptance/run-l3Fevh/qwen-common-100/results.json` records **75/100**,
+with all **8/8 long-context cases passing**, for these new single-file Q4 weights
+on main. The remaining 25 answer/format failures are retained. This is a
+first-exposure corpus result, not a score inherited from the retired fork and
+not an all-green product qualification or a speed benchmark. Its weight SHA-256
+matches the Q4 identity above; [the current checkpoint](QWEN_CHECKPOINT.md)
+records the receipt and remaining work.
+
+The small development workflow checks remain separate from that corpus. Q2
+was not downloaded or tested in those runs. Trusted full-model numerical
+equivalence, complete Learn/PDF/native-desktop workflows and Design/vision
+support remain unqualified. Non-Metal hardware is outside the current campaign.
+Earlier fork scores stay historical and cannot qualify these new weights.
 
 Reproduce the scoped installation/workspace checks from the repository root:
 

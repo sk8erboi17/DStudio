@@ -52,13 +52,18 @@ function attachmentHarness(settings = q27) {
   Object.assign(h.context, {toast: (...args) => notices.push(args), renderPendingAttachments() {},
     preparePdfAttachments: async (pdfs, question, options) => pdfRequests.push(plain({pdfs, question, options}))});
   h.context.settingsStore.getState = () => ({ui: {agentWorkdir: '/workspace'}});
+  h.context.settingsStore.getActiveChat = () => ({id: 'fixture-chat'});
   const runtime = ['preparePendingAttachments', 'prepareCoworkPendingAttachments',
+    'consumePreparedAttachments',
     'coworkAttachmentHint', 'nativeModelImagesForHistory', 'msgContentForModel', 'attachmentContextForModel']
     .map(name => extractFunction(source, name)).join('\n');
-  vm.runInContext(`const pendingAttachments = [{id: 'pixels', name: 'input.png', kind: 'image',
+  const owners = source.slice(source.indexOf('      const attachmentOwner ='),
+    source.indexOf('      function cancelAttachmentRead('));
+  vm.runInContext(`let pendingAttachments = [{id: 'pixels', name: 'input.png', kind: 'image',
       content: '', coworkRel: '.attachments/input.png'}];
     const imageAttachData = new Map([['pixels', {dataUri: imageUri}]]);
-    const takePendingAttachments = () => pendingAttachments.splice(0);
+    let curMode = 'server', tutorAttachmentSession = null;
+    ${owners}
     const roadmapSafeUrl = value => value;
     ${runtime}`, h.context);
   return {...h, notices, pdfRequests};
@@ -66,8 +71,10 @@ function attachmentHarness(settings = q27) {
 await check('27B image capability names its own projector and correct download location', () => {
   const {context: c} = harness();
   assert.equal(c.localNativeVisionInfo(q27)?.kind, 'qwen27');
-  assert.match(c.nativeVisionEncoderError(q27), /Qwen3\.8-27B/);
-  assert.match(c.nativeVisionEncoderError(q27), /Settings.*Models/);
+  const failure = c.nativeVisionEncoderError(q27);
+  assert.equal(failure.code, 'native_vision_unavailable');
+  assert.match(failure.message, /Qwen3\.8-27B/);
+  assert.match(failure.message, /Settings.*Models/);
 });
 await check('27B Chat and Tutor attachment preparation preserves pixels in the produced message', async () => {
   const h = attachmentHarness(), c = h.context;

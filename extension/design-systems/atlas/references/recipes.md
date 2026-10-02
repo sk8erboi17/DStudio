@@ -1,33 +1,32 @@
 # Atlas: application recipes
 
-## Primary composition
+## Before markup
+Write a one-sentence visual thesis and the user's primary action. Choose a topology from the information hierarchy, then bind this pack's tokens. If alternatives are requested, vary spatial hierarchy and density, not only the accent color.
 
-Give the map and place list equal importance, with a concise trip header and an itinerary below. Show the selected place in both views. Stack map, list and route on mobile, preserving a complete list alternative to map interaction.
+## Primary recipe
+Header with a type filter → sticky map (7 columns) beside the place directory, with the route under it. Directory and route are ruled lists, not cards: the place name selects it on the map, one text action adds it, and stops reorder with ↑ ↓ ×. Below 980px: map, route, then list.
 
-## Different second brief
+## Adaptation
+For an exhibition guide, rooms replace streets and the route becomes a suggested order. For a campus, the filter becomes building types.
 
-For a directory, emphasize filters and detailed place cards; keep the map as context. For an itinerary builder, emphasize route order and remove/reorder controls. A museum guide can use floor-plan coordinates without pretending they are geographic.
+## Responsive and long content
+The map keeps its aspect ratio and labels wrap inside it; the list follows. Use minmax(0,1fr), min-width:0 and overflow-wrap for user text. Do not put content in horizontal scroll regions; reflow rows into labelled stacks instead. Test a long title and translated button text at 320px and 200% text.
 
-## Observable behavior
+## Honest interaction
+Loading: a progress element with a real value or an explicitly indeterminate state. Empty: explain what is missing and offer an implemented next action. Error: keep entered values, say what happened and associate guidance with the control. Success: confirm only what was actually done. Selection is announced in text as well as on the map.
 
-Four fictional places on a schematic map share selection with the list. Filtering never removes an existing route stop. The local itinerary contains each place at most once, supports move/remove/reset, and draws its selected order. Coordinates and walking times are illustrative, not navigation advice.
+## Export
+Copy the needed CSS and JS beside the generated entry file and update relative paths. The lab toolbar belongs to the catalog only; omit it from client work. No CDN, remote font, brand imitation or borrowed component package is required.
 
-Keep one owner for selection and edited data; derive all representations from it.
-Validate finite coordinates and bounded input before publication. Discard cancelled
-private candidates. History has explicit count/byte bounds and no external effects.
+## Turn this recipe into a project
 
-## Reflow and input
+Treat the supplied layout and breakpoints as examples. First identify the primary
+operation and choose a reading/action order for this brief; remove sample identity
+and irrelevant lab controls. For a second direction, change the topology, density
+or type roles in response to a different need, while keeping the system's thesis.
 
-Let text and controls grow independently of the viewport. Use shrinkable grid
-children, visible labels and logical reading order. Stack side panels at narrow
-widths. Do not hide overflowing page text. Operate every pointer action using a
-keyboard alternative too; return focus after closing a dialog or removing an item.
-Respect reduced motion and confirm only effects actually committed.
-
-## Export and quality
-
-Copy required dependencies beside the HTML and update relative paths. Omit the
-catalog-only controls and fictional sample identity. Run the exported project
-without DStudio or network. Inspect generated output visually and operate controls;
-if a benchmark artifact is defective, let the Agent revise or regenerate it.
-Never manually repair the HTML and describe it as model output.
+Use the state-coverage design-plan reference to map each visible action to its
+validated change and observable result. Include invalid input, no results, Back,
+cancellation and repeated use where applicable. Keep user text literal and name
+what survives a reload. Test the resulting local export with network unavailable,
+then record actual findings and remaining gaps; the recipe is not a test receipt.

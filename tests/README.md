@@ -3,6 +3,367 @@
 Correctness before performance. No test is accepted merely because a function
 name, comment, prompt phrase or CSS declaration occurs in application source.
 
+## Aperture startup screen
+
+`make test-ui-loading` executes the real startup page in WebKit and Chromium
+with a **simulated HTTP launcher**, plus the production saved-settings function.
+It covers configured context/SSD preferences, native theme messages, effective
+configuration and model identity, engine-reported memory plans and prefill,
+DSpark byte estimates and explicit confirmation, occupied ports, responsive
+small-window layouts, reduced motion, and explicit error recovery. Startup
+failures remain readable until the user opens DStudio. An activity animation
+changes the active arc without changing reported percentages or completed
+phases; it stops for errors, confirmation, readiness and reduced motion.
+Response barriers and browser clocks keep a preparation pending for a simulated
+hour: the single start request must remain connected, status polling must
+continue and old-engine readiness/counters must not finish the new attempt.
+The native start reply follows preparation, so that request has no elapsed
+preparation cutoff; individual status requests remain bounded. Response barriers
+verify unknown initial counters and the ready indicator before navigation.
+An admitted preparation must not be launched again; a pending replacement
+must not inherit the previous engine's ready flag. Model/configuration changes
+clear old metrics and progress. No time-based progress simulation or external
+font, framework or image downloads run on the startup page.
+
+The checks are included through `test-ui-browser` in `check-fast`. Both
+Playwright browsers must be installed. Each run retains screenshots in a new
+`tests/.artifacts/loading-design/BROWSER-*` directory. The prior failed layout
+and duplicate-start regressions are retained privately. These tests verify UI
+and HTTP behavior, not real model loading or answer quality. The native host
+and macOS bundle have separate scoped checks; other desktop platforms remain
+outside this rendering run.
+
+## Sidebar and native macOS title bar
+
+`make test-ui-sidebar` runs the production page in WebKit and Chromium with a
+simulated launcher. It verifies the Rail layout (80px mode rail to contain all
+three native window controls, 220px history panel), all five mode controls, collapsed history with visible
+mode labels and Settings, persisted collapse, conversation selection,
+pin/rename actions, creation from the conversation header and narrow windows
+in both themes. History, workspace paths, learning completion and background
+activity remain views of the existing conversation/stream owners; no sample
+conversations or runtime measurements are installed from the reference mockup.
+Screenshots and receipts are retained under `tests/.artifacts/sidebar/`.
+Raster checks verify that each pane's color continues through the top inset in
+both themes. The rail/history divider reaches the top; the history/chat divider
+is removed. Collapsing history keeps the widened rail and all mode controls.
+
+`make test-macos-window-theme` creates an actual Cocoa window and WKWebView
+using the production wrapper. It verifies full-window content under native
+window controls, no title-bar separator, the reserved 28px content inset and
+real JavaScript theme messages in both themes. The transparent native drag view
+receives top gestures without painting over the web panes. Hit testing verifies
+all three window buttons, selectable WebKit content and the drag area after a
+resize. It requires macOS and is included
+in `check-fast` there; unsupported platforms report NOT RUN. The browser checks
+are included in `test-ui-browser`. Neither check runs inference.
+
+`tests/support/macos_window_preview.mjs` provides a separate, operator-driven
+native window fixture. Pass the built `tests/.build/macos-window-theme` binary
+and a captured `ui-document-policy/RUN/document.json` artifact. The task-owned
+bundle uses simulated loopback APIs, origin-scoped settings/conversations and
+synthetic images; it never opens the operator's DStudio profile or starts an
+engine. Its bounded recording retains actual native window frames, move/input
+events, original-image Blob decoding and HTTP requests. This checks OS dragging
+separately from Playwright. Its five-minute limit belongs only to this isolated
+preview. Native screenshots also verify text selection without moving the
+window; successful automated hit testing alone does not prove OS dragging.
+
+## Open IDE (Agent workspace view)
+
+`make test-agent-workspace` executes the real `/api/agent/fs/list`, `read` and
+`write` handlers and the real connection dispatcher on a task-owned temporary
+workspace, with a task-owned idle child standing in for the Agent process. It
+checks that only a running Agent exposes its workspace, that relative-path
+syntax and symlink escapes are refused, that only lossless UTF-8 text is
+published, that saves are refused while the agent works or when the digest is
+stale (leaving the bytes unchanged), that an admitted save replaces the exact
+bytes atomically with the original permission bits, that CSRF and the large
+save body path work over a real 127.0.0.1 connection, and that the endpoints
+stay host-local with LAN enabled.
+
+`make test-ui-agent-ide` runs WebKit and Chromium against the same real
+handlers through `tests/support/agent_workspace_host.c`. The agent stream is
+**simulated**: events are scripted in the format recorded from
+`ds4-agent-jsonl`, and the test performs each tool's file effect itself. It
+covers the header button, the thought bubble (live reasoning, the last thought
+kept while the agent writes without covering its caret, dismissal until the
+next thought), the
+live cursor and follow mode (a partially streamed path never opens a tab), the reload from disk
+after `tool_result`, edit and terminal streaming, the read-only lock while the
+agent works, exact-byte saves after the turn, conflict handling, the host-side
+refusal while the agent works, and Task Graph access. Receipts and screenshots
+are written to `tests/.artifacts/ui-agent-ide/`. It does not exercise a model
+or measure inference.
+
+The same target runs `tests/browser/ui_design_ide_playwright_test.mjs` in both
+browsers. It serves the same real handlers in Design mode
+(`agent_workspace_host design`) from a folder that already holds a user file,
+and the page and security headers exactly as the native host serves them, so
+both preview frames run under the production policy. The Design stream is
+**simulated** in the event format produced by `ds4-design`. It checks that the
+brief has no IDE and that Start stays enabled for a non-empty folder, the
+**Open in IDE to see it live** shortcut, the Code · Split · Design layouts and
+their persisted divider, the blank artboard before `<body>` and the
+colors/classes the stream actually declared, and the streamed body in the
+host-served live frame (opaque origin; the page's `<script>` and inline
+handlers stay off; its relative stylesheet loads). With real wheel input it
+scrolls the page in Split and in Design while further batches arrive and
+asserts that the position and the document itself survive each update; after
+`tool_result` the saved bytes stay in the same frame until the turn ends, and
+the patched document equals a fresh parse of the same bytes. It then checks the
+saved file with scripts on after the turn, the canvas shortcut, and a user's
+unsaved edit previewed and then saved byte for byte. `make test-agent-workspace`
+also checks that clearing a Design project removes only files the run created
+(refusing when the folder had more files than the snapshot can track) and that
+the live frame's policy allows only its own bootstrap, by a nonce that is
+fresh for each response. The Agent IDE test holds background re-reads of the
+file it changes on disk, so its conflict step always exercises the host's
+digest refusal instead of depending on timing.
+
+`make test-ui-native-titlebar` runs WebKit and Chromium with the 28px
+title-bar inset that DStudio.app injects (`--native-titlebar-height`, top frame
+only). It checks that no operable control in the main window or the Learn study
+room reaches into that strip, where the window controls sit and a native view
+turns clicks into window drags, and that the study room's top bar paints across
+it. The Design IDE test applies the same inset and checks the Design canvas and
+the fullscreen artboard. The runtime and roadmap are simulated; the native
+window itself is not exercised.
+
+## Image previews under the native HTTP policy
+
+`make test-ui-document-policy` starts the real HTTP host with an empty,
+task-owned profile and deferred inference. It captures the produced bundled
+page and security headers, then serves those exact bytes to WebKit and Chromium
+with all runtime APIs simulated. Host status must remain not running before and
+after capture. Each browser must prepare a local PNG, decode its Blob preview
+and open the original-resolution viewer; Blob scripts and foreign frames must
+still be blocked. It then executes all 15 image interaction cases in each
+browser under the captured policy, including the installed-encoder/inactive
+runtime error and retry with the original image bytes intact. This is image
+admission/rendering evidence, not real-model vision qualification.
+
+The original production policy blocked the session-owned Blob image URLs even
+though fake-server image tests passed. Only image loading now permits Blob URLs.
+Failed and successful receipts remain under ignored
+`tests/.artifacts/ui-document-policy/` and `tests/.artifacts/chat-images/`.
+Playwright with both browsers and Python/Pillow are required. No model downloads,
+weight changes or live generation run in this target.
+
+## Complete simulated UI matrix
+
+`make test-ui-simulated` executes 24 browser suites in each of real WebKit and
+Chromium, plus Learn/Tutor replays for all three Qwen model families with stale
+checkout fixtures (54 suite executions). All launcher, generation, tool, installation,
+download and persistence responses are isolated loopback fixtures. It never
+starts DStudio, inference engines or weight downloads. The new image/selection
+fixtures reject outbound requests and fail unknown endpoints. Clipboard writes
+are simulated in both browsers so the operator's clipboard remains untouched.
+Missing dependencies, browser errors, failed assertions and test-process
+deadlines fail the matrix; they are never counted as passing or skipped.
+
+| Surface | Observable coverage |
+| --- | --- |
+| Startup and navigation | Aperture phases, pending/failed launch, matching attempt identity, recovery, rail/history layout, both themes, pin/rename/new/collapse and narrow windows |
+| Composer and settings | Model compatibility, context and thinking controls, gear menus, simulated install/download progress, preferences, transport and launch controls |
+| Chat media | Picker/drop/paste, six-file/size admission, preparation failure/removal, stale-owner cancellation, original-image save/copy, galleries, overflow images, keyboard navigation, zoom, mobile viewer, persisted previews and generated media |
+| Chat and Research | Enter/send, exact copy, edit cancel/save, regeneration, visible failure/retry, streaming, background conversations, host-store restoration in an empty browser profile, reading position, retained text, Stop, incomplete outcomes and research progress |
+| Agent, Cowork and Design | Simulated native transcripts, tool/diff rendering, workspace attachments, document-table evidence, questions, plan/GSA/RSA controls, sandboxed artifact selection and annotation, reopen/resume |
+| Learn and Tutor | Research-backed roadmap creation, audits/retries, graph editing, progress, PNG/export, study history, context steering, thinking/model controls, native image parts, attachment isolation and stable mouse/keyboard study targets |
+
+`make test-ui-chat-images`, `make test-ui-chat-controls`, `make test-ui-selection`,
+`make test-ui-stability`, `make test-ui-stream-interaction` and
+`make test-ui-roadmap-hover` are focused entry points.
+Image bytes are synthetic fixtures under `tests/fixtures/ui-images/`. Original
+blobs live only in the browser session; persisted thumbnails are explicitly
+labeled **Preview** and save with a preview filename and matching encoding.
+Remove, conversation changes and room closure discard late preparation; earlier
+ready attachments remain available. Deterministic blocked PDF replies verify
+Stop/retry, room closure and immutable admission: files added during a read stay
+available for the next send. These checks do not claim real-model vision
+quality, media synthesis quality or operating-system drag/clipboard integration.
+
+The selection suite sends slow (220 ms per chunk) and fast (12 ms per chunk)
+simulated streams to Chat, Agent, Cowork, Design and Tutor. Actual mouse drags
+select text and extend upward through autoscroll while new chunks continue.
+Both ongoing updates and final completion must preserve the exact selected
+passage and reading position. Releasing selection must expose accumulated text,
+and the persisted response/transcript must retain every simulated byte/event.
+Chat/Tutor comparisons apply their existing final-answer edge-whitespace
+normalization; native transcripts are compared byte-for-byte, including tool
+and session protocol events.
+Syntax-highlighted code is selected with the mouse too. Design exercises its
+live task list and releases a held initial hydration response between the real
+Send mouse-down and mouse-up. The form must remain attached, preserve the draft
+and admit exactly one turn. The same fixture fails against the previous brief
+rebuild in both browsers; its receipts are retained. Artifact controls also run
+in the existing Design suite. The checks do not use DOM Range APIs to manufacture selections;
+range geometry only locates mouse targets.
+
+The stability suite adds 15 cases per browser across all five modes: a held
+passage, a drag extending into the heading, and actual Select All. Slow and
+bursty simulated streams keep working through explicit update/completion
+barriers. Bounded animation-frame observations check that the original endpoint
+nodes/offsets remain attached, the complete protected passage stays selected,
+and the reading position does not jump. The held passage must also retain
+identical screenshot pixels before and after the updates. A real click clears
+the highlight and exposes all deferred text; persisted bytes are checked
+independently. Selection covering changing header clocks may legitimately
+change its full string, but not the protected passage or endpoint identities.
+
+The interaction suite adds ten cases per browser: slow (180 ms per chunk) and
+fast (10 ms) generation in Chat, Agent, Cowork, Design and Tutor, using both
+themes. Real upward/downward wheel gestures establish the reading position.
+Actual keyboard selection in a Unicode composer draft must retain its focus,
+value, extent and direction through four consumed updates and completion.
+Frame observations also check the visible passage's position without a document
+selection hiding a rebuild. Design's live progress rows intentionally retire
+into a completed transcript; its composer invariants still apply. The quiet
+fixture barrier permits the production persistence debounce to run without
+completing the request. A producer-tick barrier avoids making the slow-stream
+assertion depend on the duration of a short wheel gesture.
+
+The roadmap control suite adds four cases per browser (two themes, 1100px and
+760px widths). It moves to the original visible Study coordinates and performs
+one mouse-down/up, rather than letting a locator retry a control that moved on
+hover. Revealing Add/Delete must not move Study or intercept that click.
+Keyboard traversal uses Tab in Chromium and Option-Tab in macOS WebKit, keeps
+the control geometry stable, and preserves the study draft when reopening.
+An actual upward mouse drag selects the study heading and description before
+opening a different block. Both the static title and inner context must show
+that new block: WebKit's transient old range must not hold an old thread's body
+behind the new title. Selection protection applies to updates of the same
+thread; an explicit thread change must publish its own content.
+Narrow mode selection must close the drawer and update its expanded state.
+After marking a topic complete, the suite edits a new block and reopens the
+active conversation. The original form must stay connected with the same field
+values and saved completion state. This reproduces the formerly stale message
+view key that discarded drafts and active expansion controls on a later render.
+No generation is required by opening or reopening a study.
+
+Chat, Agent/Cowork/Design and Tutor use the same `createTranscriptInteraction`
+handler for pointer ownership, wheel/keyboard input, edge autoscroll, selection
+protection and deferred repaint release. It wraps the existing follow-scroll
+algorithm, binds once to each persistent reader and retains at most one pending
+repaint notification. Conversation changes reset that notification. Text and
+thread identity stay in their existing owners; the domain callback revalidates
+the displayed conversation before rendering. All five modes run the same mouse,
+keyboard, completion, reading-position and persistence regressions.
+
+The broader Learn fixture holds its first expansion response until the live
+status and disabled submission control have been observed. Recovery tests pause
+the fixture browser clock and drain owned HTTP work before injecting their
+snapshot, then resume immediately after reload. This prevents the old document
+from overwriting the injected input and keeps intentional navigation from racing
+its background requests. Browser errors still fail the test. The selection,
+wheel, raster and composer stability suites use the normal browser clock.
+
+The regressions address reader-spanning selection being detached, estimated
+layout heights/unequal live and completed native typography moving a passage,
+duplicate deferred bottom scrolling overriding fresh input, caret rounding
+changing the autoscroll anchor, and roadmap hover controls moving under the
+pointer or progress updates discarding the active block editor. Original failing
+receipts are retained. The selection gesture starts
+inside a word: Chromium also collapses the former trailing-space diagonal drag
+in a static DOM with all application scripts removed. The revised oracle checks
+the complete intervening line and the exact actual browser anchor, without
+manufacturing a DOM selection.
+The study-context gesture similarly targets a glyph inside the description's
+word. An independent static HTML control also collapses Chromium's former
+glyph target, including without application styles or scripts. The replacement
+gesture still must select both the heading and the intervening description;
+original failed fixture receipts and the static control remain in artifacts.
+
+Research's HTTP-barrier test also uses real mouse selection during discovery
+progress and on retained writer output after a transport failure, recording
+`research-selection.gif` under `tests/.artifacts/research-progress-browser/`.
+The local persistence fixture returns the native host's JSON object in `data`;
+the Chat controls test consumes a produced snapshot from a fresh browser context
+and checks the restored conversation against its original complete contents.
+
+Prerequisites: Node, Playwright with installed WebKit/Chromium, and Python with
+Pillow for the selection recordings. Each run retains its receipt/logs under
+ignored `tests/.artifacts/ui-simulated/`, with source digests for each execution;
+screenshots and animated GIFs live under
+`tests/.artifacts/chat-images/`, `tests/.artifacts/ui-selection/`,
+`tests/.artifacts/ui-stability/`, `tests/.artifacts/ui-stream-interaction/` and
+`tests/.artifacts/ui-roadmap-hover/`. The GIF encoder
+accepts at most 80 frames per recording and also emits a frame contact sheet for
+visual review. Original failed receipts remain beside successful retries.
+The recordings sample mouse gestures; they are not frame-rate or latency
+benchmarks. Research waits for a browser paint before capturing the actual
+highlight, without creating or modifying the selection.
+The 180-second runner deadline bounds an isolated test process only; it does not
+add a production generation timeout. Native macOS window/build checks remain
+separate, and a passing simulated matrix does not qualify real inference or
+other desktop platforms.
+
+`node tests/support/ui_interaction_preview.mjs` provides a disposable browser
+origin for direct computer-use checks. It seeds only its own main frame and
+denies external fetches with a preview-specific CSP. Bounded stdin commands
+pause/append/finish the simulated wire stream; mouse, keyboard and scrolling
+remain actual browser interactions. Use a terminal with open stdin and close
+the owned preview afterward. Its ten-minute lifetime bounds test diagnostics,
+not production work. Receipts, screenshots and operator-recorded GIFs stay in
+ignored `tests/.artifacts/ui-interaction/`. The native host's actual CSP remains
+covered separately by `make test-ui-document-policy`.
+
+Validation checkpoint, 2026-10-01 on macOS: `make test-ui-simulated` passed all
+48 executions with unchanged production HTML throughout the run.
+`make test-frontend-unit test-macos-window-theme test-macos-bundle` passed and
+rebuilt the app. After synchronizing only Research screenshot capture with the
+browser paint, `make test-ui-research-progress` passed its eight cases in each
+browser again. The 20 slow/fast selection GIFs and both Research GIFs were
+visually reviewed. These results cover the declared simulated UI matrix;
+real inference, operating-system drag/clipboard integration, manual native
+window dragging and the operator's running app were not tested.
+
+Scoped follow-up validation, 2026-10-01 on macOS, after the native preview and
+image-policy fixes: `make test-ui-sidebar test-ui-document-policy`,
+`make test-ui-chat-controls test-ui-selection`,
+`make test-frontend-unit test-qwen27-model-ui`, and
+`make test-macos-window-theme test-macos-bundle` passed. The final image-policy
+run covers four policy cases and 15 image cases per browser; the selection run
+covers all five modes at both simulated speeds in both browsers. All 20 new GIF
+contact sheets were visually reviewed. Separate native previews recorded OS
+window moves, actual Blob image decoding and visible text selection, with all
+HTTP APIs simulated. The app was rebuilt; the operator's running app and real
+engines were not started or restarted. These are scoped follow-up checks, not a
+new complete-matrix or inference qualification. Original failures remain in
+ignored artifacts beside the successful retries.
+
+Shared transcript interaction checkpoint, 2026-10-01 on macOS:
+`make test-ui-simulated` passed all 54 executions after applying the shared
+handler, Learn progress view-key correction and Tutor thread-navigation fix.
+Production HTML SHA256 remained
+`bbab19544100b7d03cf59d1da0f5b00558d18d6a087db6379be99b63e2612465`
+throughout the final run. The 78 selection/scroll/composer/roadmap cases all
+passed, and all 613 decoded frames of their GIF recordings were visually
+reviewed. `make test-frontend-unit test-macos-window-theme test-macos-bundle
+test-ui-document-policy` passed against that version and rebuilt the app without
+launching it. Earlier complete runs with 52/54 results remain in artifacts.
+One earlier WebKit Design gallery-filter clearing failure did not reproduce in
+an unchanged focused replay or either later complete passing matrix; no causal
+fix is claimed for that isolated failure. Direct Chrome mouse/wheel checks
+also preserved Chat, Agent, Cowork and Tutor selections with simulated streams.
+The complete receipt, recordings, failed-run links and visual review manifest
+are retained in ignored `tests/.artifacts/ui-simulated/run-jxwQp1/` and
+`tests/.artifacts/ui-audit-visual/final-review/`. The recorded GIFs are sampled
+interaction evidence, not a performance benchmark or proof of every possible
+UI state. All engines, generations, tools and downloads were simulated.
+
+## Reasoning Markdown spacing
+
+`make test-ui-reasoning-spacing` executes the production Markdown renderer and
+styles in real WebKit and Chromium using a synthetic standalone layout fixture.
+It compares Chat and Agent reasoning paragraph/list geometry with ordinary
+Markdown and verifies code bytes, visible code indentation and explicit blank
+lines in plain-text summaries. The regression fails before the spacing fix in
+both browsers. It requires both Playwright browsers installed, is included in
+`check-fast`, and writes screenshots and receipts under
+`tests/.artifacts/reasoning-spacing/`. This is a rendering check, not a full-app
+interaction or inference test.
+
 ## Qwen Next on unified main
 
 Flash Next now uses antirez/ds4 main `0aaea5a`, not a separate managed engine.
@@ -96,9 +457,9 @@ oracle and exact serial/chunk GPU comparisons, mixed host/shader rejection and
 complete patch lifecycle must pass. This does not qualify whole-model answers,
 custom q27-format conversion, CUDA, or DStudio's pending q27 application adapter.
 
-## Nine original Design systems
+## Twenty-five original Design systems
 
-`make test-design-originals` serves the real native catalog and all nine authored
+`make test-design-originals` serves the real native catalog and all twenty-five authored
 packs. In Chromium and WebKit it exercises both themes, 320/390/768/1440px,
 computed contrast, 200% text, radio/checkbox label columns, forms and dialog
 focus return. Every pack is also opened as a standalone local file with HTTP
@@ -107,12 +468,40 @@ pages and the opaque app iframe: filters, cart totals/limits, literal replies,
 review restoration, synchronized map/list selection, route ordering, object
 edits, cancelled drags, keyboard selection and bounded undo/redo.
 
+The sixteen added packs have their own actual browser scenarios in
+[`design_additional_interactions.mjs`](support/design_additional_interactions.mjs):
+reconciliation, conversation identity/literal replies, work limits, silent media
+transport, journey/fare changes, local device controls, code selection/search,
+recipe scaling, validated stock/history, adjacent-day rest, deal activities,
+invoice quantities/status, billing/quotes and guided steps. Invalid admissions
+must preserve previous content and drafts. These controls run in both themes and
+desktop/mobile layouts, opaque frames and direct local-file exports; extended
+retention/size boundary cases run in the light desktop view in both browsers.
+
 Each missing pack is still recognized as supported but unavailable; the native
 setup endpoint must not fetch or overwrite it. `make test-design-self` exercises
-the real Agent pack dispatcher and returned CSS/HTML bytes for every supported
-ID. `make test-macos-bundle` validates the catalog materialized from the packaged
-app. These are authored assets and model-free tests, not the 18 model-generated
-projects required by the quality campaign or native desktop qualification.
+the real Agent pack dispatcher and exact returned Markdown, CSS, HTML, JavaScript
+and recipe bytes for every supported ID, plus the craft project-plan reference.
+The Chromium/WebKit Agent/Design UI test simulates the catalog response from
+the real packs' `DESIGN.md` files and serves each pack's real `tokens.css`. It
+checks the brief's gallery (family filters and counts, light/dark palettes and
+type parsed from the tokens, search and empty state), that loading every new
+system's brief reaches the actual composer and saved preference, replaces the
+previous preset while keeping typed text, and that the chip removes it again.
+It also types in the gallery search while further Agent polls are served (a
+request-count barrier) and checks that the caret and every keystroke stay in
+the search: idle polls used to move focus to the composer, so a search typed
+across a poll landed in the prompt. `make test-macos-bundle` validates the catalog materialized from the
+packaged app. These are authored assets and model-free tests, not the 18
+model-generated projects required by the quality campaign, qualification of
+generated output for the new sixteen packs or final native desktop qualification.
+
+The October 1 gate passed 402/402 preview checks. Native runtime, recorded
+benchmark validation, release checks, simulated gallery tests in both browsers
+and macOS bundle smoke also passed. Failed WebKit resize receipts are retained
+separately from successful retries; early Hearth/Counter diagnostic failures
+were corrected harness assumptions, not product fixes. See
+[integration scope and remaining acceptance](../docs/DESIGN_SYSTEMS.md).
 
 ## Design startup and baseline provenance
 
@@ -253,11 +642,20 @@ prompts and answers. An unrequested JSON wrapper around a correct value is
 classified separately but **remains failed**. `common_quality_summary_test.mjs`
 checks these publication boundaries with explicitly synthetic unit data.
 
-`make test-qwen38-inspect` tests the reversible metadata-only PLE patch on a
-private source copy. Add `--native ds4/gguf` to the documented Node command in
+`make test-qwen38-inspect` tests the reversible metadata-only PLE patch on
+verified [historical input files](fixtures/retired-qwen-next/) expanded into a
+private directory. It does not require the retired installed fork. Set
+`QWEN38_DIR` to explicitly test another complete historical checkout.
+Add `--native ds4/gguf` after a full source directory in the documented Node command in
 [the patch notes](../patch/ds4-qwen38-inspect/README.md) to build the real CLI
 and check its OS prefetch behavior and actual GGUF summaries on macOS. The
 ordinary uninstrumented CLI is checked too. This does not generate tokens.
+
+Historical Qwen Agent and Web patch migration cases use the same offline fixture
+reader, retaining their original revision/hash and independent Git oracles.
+Default backend link tests cover the active main, Laguna and Qwen3.6 trees;
+Qwen Next uses main. Supply full source paths to `backend_link_test.mjs` for an
+explicit historical backend-routing run. Its compiler outputs remain simulated.
 
 `make test-engine-startup` runs four real HTTP startup cases without
 `DS4UI_TEST_MODE`, with inference explicitly deferred and isolated source
@@ -314,7 +712,7 @@ For the historical four-source comparison, supply the archived Qwen fork explici
 
 ```sh
 make test-agent-native-build AGENT_MAIN_TREE=ds4 AGENT_LAGUNA_TREE=ds4-laguna-s21 \
-  AGENT_QWEN38_TREE=ds4-qwen38 AGENT_QWEN35_TREE=ds4-qwen35
+  AGENT_QWEN38_TREE=/path/to/archived-qwen-next AGENT_QWEN35_TREE=ds4-qwen35
 ```
 
 Sources are copied into a new task-owned directory, without weights or reused
@@ -2344,7 +2742,11 @@ comparison directory selects its frozen executable/source to reproduce the old
 failure; that failing receipt is retained rather than counted as passing.
 `make test-design-tool-recovery` executes the native loop with deliberately
 truncated simulated model frames and verifies exact file preservation/retry
-results. `make test-design-archive-build` compiles a real local source archive
+results. `make test-design-tool-stream` runs the same loop and checks the live
+`tool_call_begin` / `tool_call_param` / `tool_body_delta` events used by Open
+IDE: the streamed write body equals the saved bytes, deltas are capped,
+cut on UTF-8 boundaries and never contain DSML markup, edits stream old then
+new, and an unclosed stanza is previewed but never executed. `make test-design-archive-build` compiles a real local source archive
 without engine Git metadata and checks rebuilds after source changes. Neither
 test loads a model; the archive test does not download its fixture.
 `make test-design-build-freshness` executes the production native builder and

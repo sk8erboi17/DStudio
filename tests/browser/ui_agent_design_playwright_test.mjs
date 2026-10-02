@@ -3,6 +3,9 @@ import http from 'node:http';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import assert from 'node:assert/strict';
+import {additionalDesignIds} from '../support/design_additional_interactions.mjs';
+
+const designFixtureIds = ['folio','signal','forma','grove','pulse','market','commons','atlas','canvas',...additionalDesignIds];
 
 let chromium;
 const browserKind = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
@@ -36,6 +39,7 @@ let agentPollWorking = false;
 let agentPollSessionWorking = false;
 let agentPollDeliveredLen = 0;
 let agentPollCaughtUp = 0;
+let agentPollCount = 0;
 let holdNextNewSession = false;
 let releaseHeldNewSession = null;
 let failNextNativeNewSession = false;
@@ -126,7 +130,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/start' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req) || '{}');
     starts.push(body);
-    if (body.mode === 'design' && body.designSystem && !['folio', 'signal'].includes(body.designSystem)) {
+    if (body.mode === 'design' && body.designSystem && !designFixtureIds.includes(body.designSystem)) {
       json(res, 400, { ok: false, code: 'invalid_design_system', error: 'Invalid design system fixture' });
       return;
     }
@@ -304,6 +308,7 @@ const server = http.createServer(async (req, res) => {
     const raw = Buffer.from(agentPollText);
     const text = raw.subarray(Math.min(since, raw.length)).toString('utf8');
     agentPollDeliveredLen = raw.length;
+    agentPollCount++;
     if (since >= raw.length && !agentPollWorking) agentPollCaughtUp++;
     json(res, 200, {
       base: 0,
@@ -441,6 +446,15 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { rev: 0 });
     return;
   }
+  if (url.pathname.startsWith('/api/design-system-preview/') && url.pathname.endsWith('/tokens.css')) {
+    // The gallery specimens read each pack's real tokens.css.
+    const id = decodeURIComponent(url.pathname.split('/')[3] || '');
+    const file = path.resolve('extension/design-systems', id, 'tokens.css');
+    if (!/^[a-z0-9-]+$/.test(id) || !fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
+    res.end(fs.readFileSync(file));
+    return;
+  }
   if (url.pathname.startsWith('/api/design-system-preview/')) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end('<!doctype html><html><body style="margin:0;font:20px system-ui;background:#0b1020;color:#f8fafc"><main style="padding:32px"><h1>Folio Components</h1><p>Original local design-system fixture</p></main></body></html>');
@@ -448,10 +462,15 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/design-systems') {
     if (holdDesignCatalog) await new Promise(resolve => { releaseDesignCatalog = resolve; });
-    json(res, 200, { ok: true, designSystems: [
-      { id: 'folio', name: 'Folio', description: 'Reading-led editorial system with warm paper and expressive serif.', modes: '', category: 'general', outputKinds: 'html', upstream: 'dstudio-original/folio', hasComponents: true },
-      { id: 'signal', name: 'Signal', description: 'Precise operational system with clear signals and tabular readings.', modes: '', category: 'web-ui-prototype', outputKinds: 'image-brief', upstream: 'dstudio-original/signal', hasComponents: false },
-    ] });
+    // Same fields the native md_catalog reads from each pack's DESIGN.md.
+    json(res, 200, { ok: true, designSystems: designFixtureIds.map(id => {
+      const md = fs.readFileSync(path.resolve('extension/design-systems', id, 'DESIGN.md'), 'utf8');
+      const field = key => (md.match(new RegExp(`^${key}:\\s*(.*)$`, 'm')) || [])[1]?.trim() || '';
+      const bestFit = (md.split('\n').find(line => line.startsWith('Best fit:')) || '').slice('Best fit:'.length).trim();
+      return { id, name: field('name') || id, description: field('description'), modes: field('modes'),
+        category: field('ds4_category'), outputKinds: field('ds4_output_kinds'), upstream: field('ds4_upstream'),
+        bestFit, available: true, hasComponents: id !== 'signal' };
+    }) });
     return;
   }
   if (url.pathname === '/api/user-skills') {
@@ -540,9 +559,10 @@ async function waitFor(fn, label, details = () => '') {
   assert.fail(`${label}${details() ? `\n${details()}` : ''}`);
 }
 
+let page;
+const pageErrors = [];
 try {
-  const page = await browser.newPage();
-  const pageErrors = [];
+  page = await browser.newPage();
   page.on('pageerror', (e) => pageErrors.push(e?.stack || e?.message || String(e)));
   page.on('console', (msg) => {
     if (msg.type() === 'error') pageErrors.push(msg.text());
@@ -739,10 +759,8 @@ try {
   // Getting your own prompt back out must not depend on dragging a selection
   // across a transcript that is still streaming: every user turn carries a
   // copy button that yields the exact text the model was sent.
-  // WebKit does not expose Playwright's clipboard permission override. Exercise
-  // the same copy interaction with an explicitly simulated clipboard there.
-  if (browserKind === 'chromium') await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  else await page.evaluate(() => {
+  // Keep the operating-system clipboard untouched in both real browsers.
+  await page.evaluate(() => {
     let copied = '';
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
       writeText: async text => { copied = text; }, readText: async () => copied,
@@ -1056,8 +1074,10 @@ try {
     'design send did not reach /api/agent/send',
     debugDetails,
   );
-  await page.locator('#agent-view .gen').waitFor({ state: 'visible', timeout: 5000 });
-  await page.locator('#agent-view .gen').waitFor({ state: 'hidden', timeout: 5000 });
+  // Design now renders the same instrumented transcript as Agent.
+  await page.locator('#agent-view .agent-response-name', { hasText: /^Design$/ }).first().waitFor({ timeout: 5000 });
+  assert.equal(await page.locator('#agent-view .design-brief-steps, #agent-view .flow-steps').count(), 0,
+    'the phase steps belong to the brief, not to the conversation');
   await waitFor(
     () => sessions.some((s) => s.action === 'list'),
     'completed Design turn should refresh the session binding once',
@@ -1082,8 +1102,8 @@ try {
   await delay(1800);
   assert.equal(
     await page.evaluate(() => window.__designGeneratingMounts),
-    1,
-    'background /list maintenance must not remount the Design generating screen',
+    0,
+    'Design must not mount a separate generating screen (it renders the conversation)',
   );
   assert.equal(
     sessions.filter((s) => s.action === 'list').length,
@@ -1108,7 +1128,7 @@ try {
       viewportHeight: innerHeight,
       agentScrollTop: document.querySelector('#agent-view')?.scrollTop || 0,
       agentTop: document.querySelector('#agent-view')?.getBoundingClientRect().top || 0,
-      briefTop: document.querySelector('.brief')?.getBoundingClientRect().top || 0,
+      briefTop: document.querySelector('.design-brief')?.getBoundingClientRect().top || 0,
       bodyClass: document.body.className,
       placeholder: document.querySelector('#composer-input')?.getAttribute('placeholder') || '',
     };
@@ -1121,32 +1141,105 @@ try {
   assert.equal(await page.locator('.design-brief-composer-slot > .composer').count(), 1,
     'Design should place the real shared chat directly below its intro');
   assert.equal(await page.getByRole('button', { name: /Open gallery/i }).count(), 0, 'Design brief should not require an Open gallery button');
-  await page.locator('.design-gallery-card__title').filter({ hasText: 'Folio' }).waitFor({ timeout: 5000 });
-  await page.locator('.design-gallery-card__title').filter({ hasText: 'Signal' }).waitFor({ timeout: 5000 });
+  const cardName = (name) => page.locator('.dg-card .dg-name').filter({ hasText: new RegExp(`^${name}$`) });
+  await cardName('Folio').waitFor({ timeout: 5000 });
+  await cardName('Signal').waitFor({ timeout: 5000 });
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).designSystem === '');
   assert.equal(await retirementNotice, true, 'retiring a saved style must show a visible notice');
-  await page.locator('.brief-gallery-panel__title', { hasText: 'Visual starting points' }).waitFor({ timeout: 5000 });
+  await page.locator('#dg-title', { hasText: 'Visual starting points' }).waitFor({ timeout: 5000 });
   const designOrder = await page.evaluate(() => ({
     composerBottom: document.querySelector('.design-brief-composer-slot > .composer')?.getBoundingClientRect().bottom || 0,
-    galleryTop: document.querySelector('.brief-gallery-panel')?.getBoundingClientRect().top || 0,
+    galleryTop: document.querySelector('section.dg')?.getBoundingClientRect().top || 0,
   }));
   assert.ok(designOrder.composerBottom <= designOrder.galleryTop,
     `Design chat must precede Visual starting points: ${JSON.stringify(designOrder)}`);
-  const designSearch = page.getByLabel('Search design gallery');
+  assert.equal(await page.locator('.design-brief-steps li[aria-current="step"]').textContent(), '1Brief',
+    'the brief shows the design phases with Brief as the current step');
+
+  // Families come from each pack's DESIGN.md category; counts follow the catalog.
+  const familyCount = (family) => page.locator(`[data-dg-family="${family}"] span`).last().textContent();
+  assert.equal(await familyCount('all'), String(designFixtureIds.length));
+  await page.locator('[data-dg-family="landing"]').click();
+  assert.deepEqual((await page.locator('.dg-card .dg-name').allTextContents()).sort(),
+    ['Counter', 'Datasheet', 'Letter', 'Walkthrough'], 'the Landing pages family lists the landing systems');
+  assert.equal(await familyCount('landing'), '4');
+  await page.locator('[data-dg-family="all"]').click();
+  await cardName('Folio').waitFor({ timeout: 5000 });
+
+  // Specimens use the pack's own tokens.css, light and dark.
+  const folioBackground = () => page.locator('.dg-card[data-design-system="folio"] .dg-spec').evaluate((node) => getComputedStyle(node).backgroundColor);
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.dg-card[data-design-system="folio"] .dg-spec')).backgroundColor === 'rgb(243, 238, 228)',
+    null, { timeout: 5000 });
+  assert.equal(await page.locator('.dg-card[data-design-system="folio"] .dg-fonts').textContent(), 'Iowan Old Style · Charter');
+  assert.match(await page.locator('.dg-card[data-design-system="folio"] .dg-for').textContent(), /^For Essays, research notes/);
+  await page.locator('[data-dg-appearance="dark"]').click();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.dg-card[data-design-system="folio"] .dg-spec')).backgroundColor === 'rgb(27, 25, 21)',
+    null, { timeout: 5000 });
+  assert.equal(await page.locator('[data-dg-appearance="dark"]').getAttribute('aria-checked'), 'true');
+  await page.locator('[data-dg-appearance="light"]').click();
+  assert.equal(await folioBackground(), 'rgb(243, 238, 228)');
+
+  const designSearch = page.getByLabel('Search design systems');
   await designSearch.fill('Signal');
-  await page.locator('.design-gallery-card__title').filter({ hasText: 'Signal' }).first().waitFor({ timeout: 5000 });
-  assert.equal(await page.locator('.design-gallery-card__title').filter({ hasText: 'Folio' }).count(), 0, 'Design gallery search should filter cards in place');
+  await cardName('Signal').first().waitFor({ timeout: 5000 });
+  assert.equal(await cardName('Folio').count(), 0, 'Design gallery search should filter cards in place');
+  await designSearch.fill('zzzz-no-system');
+  await page.getByText('No systems match “zzzz-no-system”.').waitFor({ timeout: 5000 });
+  await page.getByRole('button', { name: 'Clear search and filters' }).click();
+  await cardName('Folio').first().waitFor({ timeout: 5000 });
+  // Regression: every Agent poll with no visible turn used to put the caret
+  // back in the composer, so a search typed across a poll landed in the prompt
+  // instead. Barrier: two more polls are served while the caret is in the search.
+  await designSearch.click();
+  await page.keyboard.type('Fol');
+  const pollsBefore = agentPollCount;
+  for (const deadline = Date.now() + 10000; agentPollCount < pollsBefore + 3;) {
+    assert.ok(Date.now() < deadline, 'the Agent view stopped polling');
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const promptBeforeSearch = await page.locator('#composer-input').inputValue();
+  await page.keyboard.type('io');
+  assert.equal(await designSearch.evaluate((node) => document.activeElement === node), true, 'an idle poll keeps the caret in the search');
+  assert.equal(await designSearch.inputValue(), 'Folio');
+  assert.equal(await page.locator('#composer-input').inputValue(), promptBeforeSearch, 'search keystrokes never reach the prompt');
   await designSearch.fill('');
-  await page.locator('.design-gallery-card__title').filter({ hasText: 'Folio' }).first().waitFor({ timeout: 5000 });
-  assert.ok(await page.getByText(/2 items/).count(), 'Design gallery should include design systems without downloadable skill templates');
-  const designGalleryDialogOpen = await page.locator('#design-gallery-dialog').evaluate((dialog) => !!dialog.open);
-  assert.equal(designGalleryDialogOpen, false, 'Design gallery should render inline rather than opening a modal');
-  const folioCard = page.locator('.design-gallery-card').filter({ hasText: 'Folio' }).first();
-  await folioCard.click();
-  await page.waitForFunction(() => document.querySelector('#design-preview-dialog')?.open === true, null, { timeout: 5000 });
-  assert.equal(await folioCard.evaluate((el) => el.classList.contains('is-selected')), true, 'clicked design-system card should stay highlighted');
-  await page.frameLocator('#design-preview-frame').getByRole('heading', { name: 'Folio Components' }).waitFor({ timeout: 5000 });
-  await page.locator('#design-preview-close').click();
+  let previousId = '';
+  for(const id of additionalDesignIds) {
+    const name=id[0].toUpperCase()+id.slice(1);
+    await designSearch.fill(name);
+    const card=page.locator(`.dg-card[data-design-system="${id}"]`);
+    await card.getByRole('button',{name:'Use brief',exact:true}).click();
+    await page.waitForFunction(id=>JSON.parse(localStorage.getItem('ds4web.settings.v2')).designSystem===id,id);
+    const prompt = await page.locator('#composer-input').inputValue();
+    assert.match(prompt,new RegExp('design_system\\("'+id+'"\\)'));
+    if (previousId) assert.doesNotMatch(prompt, new RegExp('design_system\\("'+previousId+'"\\)'), 'a new brief replaces the previous one in place');
+    assert.equal(await card.getByRole('button',{name:'Brief loaded',exact:true}).count(), 1);
+    previousId = id;
+  }
+  await designSearch.fill('');
+
+  // A card loads its brief into the shared composer, keeping what was typed,
+  // shows the selection chip and offers to review the brief.
+  await page.locator('#composer-input').fill('Keep my own words');
+  await page.locator('.dg-card[data-design-system="folio"]').click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).designSystem === 'folio');
+  const withPreset = await page.locator('#composer-input').inputValue();
+  assert.match(withPreset, /design_system\("folio"\)/);
+  assert.ok(withPreset.endsWith('\n\nKeep my own words'), 'typed text is kept after the preset');
+  await page.locator('.design-brief-chip', { hasText: 'Design system Folio' }).waitFor({ timeout: 5000 });
+  assert.equal(await page.locator('.dg-card[data-design-system="folio"]').evaluate((node) => node.classList.contains('is-selected')), true);
+  await page.locator('#dg-toast', { hasText: 'Folio brief loaded into the composer' }).waitFor({ timeout: 5000 });
+  await page.locator('#agent-view').evaluate((node) => { node.scrollTop = node.scrollHeight; });
+  await page.locator('#dg-toast').getByRole('button', { name: /Review brief/ }).click();
+  await page.waitForFunction(() => document.querySelector('#agent-view').scrollTop === 0 &&
+    document.activeElement === document.querySelector('#composer-input'), null, { timeout: 5000 });
+  await page.locator('.design-brief-chip').getByRole('button', { name: 'Remove design system from the brief' }).click();
+  assert.equal(await page.locator('#composer-input').inputValue(), 'Keep my own words', 'removing the system removes only its preset');
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).designSystem === '');
+  assert.equal(await page.locator('.design-brief-chip').count(), 0);
+  assert.equal(await page.locator('#design-gallery-dialog').evaluate((dialog) => !!dialog.open), false,
+    'Design gallery should render inline rather than opening a modal');
+  assert.equal(await page.locator('#design-preview-dialog').evaluate((dialog) => !!dialog.open), false);
 
   const queuedPrompt = 'Design prompt queued behind fresh context';
   await page.locator('#composer-input').fill(queuedPrompt);
@@ -1335,6 +1428,23 @@ try {
   assert.ok(starts.some((s) => s.mode === 'cowork'), 'cowork tab should start the cowork runtime');
   assert.ok(starts.some((s) => s.mode === 'design'), 'design tab should start the design runtime');
   console.log('ui_agent_design_playwright_test: ok');
+} catch (error) {
+  fs.mkdirSync('tests/.artifacts/agent-design-browser', { recursive: true });
+  const dir = fs.mkdtempSync(`tests/.artifacts/agent-design-browser/${browserKind}-`);
+  const view = await page?.evaluate(() => ({
+    bodyClass: document.body.className,
+    activeElement: document.activeElement?.outerHTML.slice(0, 1000),
+    search: [...document.querySelectorAll('[aria-label="Search design systems"]')]
+      .map(node => ({ value: node.value, connected: node.isConnected })),
+    cards: [...document.querySelectorAll('.dg-card .dg-name')].map(node => node.textContent),
+  })).catch(() => null);
+  fs.writeFileSync(path.join(dir, 'failure.json'), JSON.stringify({
+    scope: 'Real browser, simulated runtimes', browserKind, error: String(error.stack),
+    view, pageErrors: pageErrors.slice(-100), starts, sessions,
+  }, null, 2) + '\n');
+  await page?.screenshot({ path: path.join(dir, 'failure.png'), fullPage: true }).catch(() => {});
+  console.log(`Agent/Design failure evidence: ${dir}`);
+  throw error;
 } finally {
   await browser.close().catch(() => {});
   server.close();

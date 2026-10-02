@@ -45,7 +45,10 @@ check('old V4 encoder does not satisfy the V4.1 download', () => {
   const available = plain(context.availableNativeVisionDownloads([item('DeepSeek-V4-Flash-Vision-Encoder.gguf')]));
   assert(available.some(x => x.id === 'ds41f-vision'));
   assert.equal(context.localNativeVisionInfo(settings).kind, 'deepseek41');
-  assert.match(context.nativeVisionEncoderError(settings), /matching V4\.1/);
+  const failure = context.nativeVisionEncoderError(settings, { deepseekVisionInstalled: true });
+  assert.equal(failure.code, 'native_vision_unavailable');
+  assert.match(failure.message, /matching V4\.1/);
+  assert.doesNotMatch(failure.message, /encoder is installed/, 'the V4 encoder cannot confirm the V4.1 encoder');
 });
 check('unrecognized quantization and partial assembly are not selectable', () => {
   for (const file of ['DeepSeek-V4.1-Flash-Q3.gguf', 'DeepSeek-V4.1-Flash-Q4.gguf.assembling', 'DeepSeek-V4.1-Flash-Q2.gguf.part'])

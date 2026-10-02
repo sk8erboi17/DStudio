@@ -6,6 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { artifactRunDir, writeArtifact } from '../support/real_harness.mjs';
+import { historicalQwenSource } from '../support/retired_qwen_sources.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const assets = path.join(root, 'patch/ds4-agent-jsonl');
@@ -25,6 +26,8 @@ function command(cmd, args, cwd = root, pass = true) {
 function baseSource(base) {
   if (process.env.DSTUDIO_AGENT_BASE_SOURCES)
     return fs.readFileSync(path.join(process.env.DSTUDIO_AGENT_BASE_SOURCES, `${base.name}.c`));
+  if (['qwen38', 'qwen38-next'].includes(base.name) && !process.env.DSTUDIO_AGENT_QWEN38_DIR)
+    return historicalQwenSource(base.revision, bases.sourceFile);
   const engine = path.resolve(base.name === 'qwen35'
     ? (process.env.DSTUDIO_AGENT_QWEN35_DIR || path.join(root, 'ds4-qwen35'))
     : base.name === 'qwen38' || base.name === 'qwen38-next'

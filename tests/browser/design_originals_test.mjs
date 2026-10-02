@@ -9,6 +9,13 @@ import {chromium, webkit} from 'playwright';
 import {freePort, sleep, csrfHeaders} from '../support/real_harness.mjs';
 import {renderedContrast, doubleRenderedText, renderedReflow} from '../support/design_preview_accessibility.mjs';
 import {checkChoiceColumns, exerciseDesignDomain} from '../support/design_domain_interactions.mjs';
+import {additionalDesignIds, exerciseAdditionalDesign} from '../support/design_additional_interactions.mjs';
+
+async function exercisePack(id, scope, page, options) {
+  if (additionalDesignIds.includes(id)) await exerciseAdditionalDesign(id, scope, page, options);
+  else await exerciseDesignDomain(id, scope, page, options);
+  await checkChoiceColumns(scope);
+}
 
 const root = process.cwd();
 fs.mkdirSync('tests/.artifacts', {recursive:true});
@@ -45,9 +52,13 @@ try {
   for(let i=0;i<120;i++){try{if((await fetch(base+'/api/status')).ok){ready=true;break;}}catch{}await sleep(100);}
   assert.ok(ready,'native server did not start');
   let catalog;
-  await check('native catalog contains exactly nine complete originals, excludes retired folders',async()=>{
+  await check('native catalog contains exactly twenty-five complete originals, excludes retired folders',async()=>{
     catalog=(await (await fetch(base+'/api/design-systems')).json()).designSystems;
-    assert.deepEqual(catalog.map(s=>s.id).sort(),['atlas','canvas','commons','folio','forma','grove','market','pulse','signal']);
+    assert.deepEqual(catalog.map(s=>s.id).sort(),[
+      'atlas','canvas','commons','counter','datasheet','depot','docket','folio','forma',
+      'grove','hearth','larder','ledger','letter','manual','market','pipeline','pulse',
+      'relay','roster','signal','tally','tempo','transit','walkthrough',
+    ]);
     assert.ok(catalog.every(s=>s.hasComponents && s.hasAssets && s.hasReferences));
     const legacy=await fetch(base+'/api/design-system-preview/retired/components.html');
     assert.equal(legacy.status,404);
@@ -195,13 +206,13 @@ try {
         assert.equal(await preview.locator(':focus').textContent(),'Try primary action');
         assert.deepEqual(external,[]);assert.deepEqual(errors,[]);
       });
-      if(['market','commons','atlas','canvas'].includes(system.id)) {
+      if(['market','commons','atlas','canvas',...additionalDesignIds].includes(system.id)) {
         for(const appearance of ['light','dark']) for(const width of [1440,390]) {
           await check(engine+' / '+system.name+' / '+appearance+' '+width+' / actual domain controls',async()=>{
             await page.setViewportSize({width,height:1000});
             await page.goto(base+'/api/design-system-preview/'+system.id+'/components.html');
             if(appearance==='dark')await page.locator('[data-theme-toggle]').click();
-            await exerciseDesignDomain(system.id,page,page,{limits:appearance==='light'&&width===1440});
+            await exercisePack(system.id,page,page,{limits:appearance==='light'&&width===1440});
             assert.deepEqual(external,[]);assert.deepEqual(errors,[]);
           });
         }
@@ -209,7 +220,7 @@ try {
           await page.goto(base+'/__design_test_host');
           await page.setViewportSize({width:1440,height:1000});
           await page.setContent('<iframe title="Design preview" sandbox="allow-scripts allow-forms" style="width:100%;height:900px;border:0" src="'+base+'/api/design-system-preview/'+system.id+'/components.html"></iframe>');
-          await exerciseDesignDomain(system.id,page.frameLocator('iframe'),page);
+          await exercisePack(system.id,page.frameLocator('iframe'),page);
           assert.deepEqual(external,[]);assert.deepEqual(errors,[]);
         });
       }
@@ -233,6 +244,10 @@ try {
           await independent.getByRole('status').filter({hasText:'Nothing was sent or booked.'}).waitFor();
           await independent.keyboard.press('Escape');
           assert.equal(await independent.locator(':focus').textContent(),'Try primary action');
+          if(additionalDesignIds.includes(system.id)) {
+            await independent.getByRole('button',{name:'Example',exact:true}).click();
+            await exercisePack(system.id,independent,independent);
+          }
           assert.deepEqual(await renderedReflow(independent),[]);
           assert.ok(requests.length>=3,'HTML, CSS and JavaScript must actually load');
           assert.deepEqual(requests.filter(url=>!url.startsWith(localPrefix)),[],'standalone pack cannot depend on DStudio or the network');

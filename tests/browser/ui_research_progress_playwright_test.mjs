@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { artifactRunDir, writeArtifact } from '../support/real_harness.mjs';
 
 // Actual production UI and HTTP messages with simulated discovery/model replies.
@@ -17,6 +18,9 @@ const scriptEnd = originalHtml.lastIndexOf('</script>');
 const html = originalHtml.slice(0, scriptEnd) +
   'window.__researchTest = { Store, Messages, Chat };\n' + originalHtml.slice(scriptEnd);
 const artifacts = artifactRunDir('research-progress-browser');
+const frames = path.join(artifacts, 'selection-frames');
+fs.mkdirSync(frames);
+let frame = 0;
 const receipt = { scope: 'Production Chat research UI; simulated engine and pages', browserName,
   htmlSHA256: createHash('sha256').update(originalHtml).digest('hex'), cases: [], status: 'RUNNING' };
 writeArtifact(artifacts, 'results.json', receipt);
@@ -124,6 +128,31 @@ const server = http.createServer(async (req, res) => {
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser, page;
+const captureSelection = async () => {
+  // WebKit may expose the range before painting its highlight. Record the
+  // actual mouse selection after the next paint without changing that range.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.screenshot({ path: path.join(frames, `${String(frame++).padStart(3, '0')}.png`) });
+};
+async function selectParagraph(locator) {
+  await locator.scrollIntoViewIfNeeded();
+  const points = await locator.evaluate(element => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), nodes = [];
+    let node;
+    while ((node = walker.nextNode())) if (node.length) nodes.push(node);
+    const edge = (node, last) => {
+      const range = document.createRange();
+      const offset = last ? node.length - 1 : 0;
+      range.setStart(node, offset); range.setEnd(node, offset + 1);
+      const rect = range.getBoundingClientRect();
+      return { x: last ? rect.right - .1 : rect.left + .1, y: rect.y + rect.height / 2 };
+    };
+    return { start: edge(nodes[0], false), end: edge(nodes.at(-1), true) };
+  });
+  await page.mouse.move(points.end.x, points.end.y); await page.mouse.down();
+  await page.mouse.move(points.start.x, points.start.y, { steps: 12 }); await page.mouse.up();
+  return page.evaluate(() => String(getSelection()).trim());
+}
 async function check(name, test) {
   const row = { name }; receipt.cases.push(row);
   try { await test(); row.status = 'PASS'; }
@@ -173,12 +202,16 @@ try {
     assert.ok(await page.locator('.web-trace__row').count() <= 12);
   });
   await page.screenshot({ path: path.join(artifacts, 'waiting-for-extraction.png') });
+  await page.locator('#messages').hover();
+  await page.mouse.wheel(0, -2000);
+  await page.locator('#messages').evaluate(root => { root.scrollTop = 0; });
+  await captureSelection();
+  assert.equal(await selectParagraph(page.locator('[data-id="saved-answer"] .msg__content p')), greeting,
+    'a real upward mouse drag selects the complete saved answer during research');
+  await captureSelection();
   await page.evaluate(() => {
     const root = document.querySelector('#messages');
     const history = document.querySelector('[data-id="saved-answer"]');
-    const text = history.querySelector('.msg__content p').firstChild;
-    const range = document.createRange(); range.selectNodeContents(text);
-    const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
     window.__progressHistory = history;
     window.__progressDetachments = 0;
     window.__progressObserver = new MutationObserver(records => {
@@ -199,7 +232,8 @@ try {
     }));
     assert.equal(result.detachments, 0, 'Progress cannot detach saved messages and leave WebKit repainting an empty transcript');
     assert.equal(result.same, true); assert.equal(result.attached, true);
-    assert.equal(result.selection, greeting); assert.equal(result.top, 0);
+    assert.equal(result.selection.trim(), greeting); assert.equal(result.top, 0);
+    await captureSelection();
   });
   await page.evaluate(() => { window.getSelection().removeAllRanges(); window.__progressObserver.disconnect(); });
   await check('pending batches cannot hide current work and a background update cannot replace another chat', async () => {
@@ -270,6 +304,11 @@ try {
     assert.ok(result.request.reportDraft.length > 0); assert.equal(result.request.reportQuality.ok, false);
     assert.equal(result.visibleText.includes('Source map'), false);
     await page.screenshot({ path: path.join(artifacts, 'writer-failed.png') });
+    await captureSelection();
+    assert.equal(await selectParagraph(page.locator('.msg--assistant').last().locator('.msg__content p').first()), partialAnswer.trim(),
+      'the actual retained writer output is selectable after a transport failure');
+    await captureSelection();
+    await page.evaluate(() => getSelection().removeAllRanges());
   });
   await check('failure without generated output shows an error and keeps the scaffold private', async () => {
     writerMode = 'empty';
@@ -315,4 +354,5 @@ try {
   await browser?.close();
   server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));
+  if (frame) execFileSync('python3', ['tests/support/encode_ui_gif.py', frames, path.join(artifacts, 'research-selection.gif')]);
 }

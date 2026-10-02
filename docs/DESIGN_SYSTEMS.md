@@ -1,6 +1,6 @@
 # DStudio originals
 
-Nine original visual systems replace the downloaded design catalog. They ship
+Twenty-five original visual systems replace the downloaded design catalog. They ship
 with the repository and macOS/Windows support bundle, without a first-run
 design download. Runtime/model dependencies retain their required notices.
 
@@ -15,6 +15,22 @@ design download. Runtime/model dependencies retain their required notices.
 | Commons | Community rail, discussion stream, profiles and reversible review queue | Communities, collaboration |
 | Atlas | Synchronized schematic map and place list, editable itinerary | Place directories, guides |
 | Canvas | Central artboard, object tools, inspector and bounded undo/redo | Editors, creative workspaces |
+| Ledger | Ruled entries, tabular amounts, running balance and reconciliation | Budgets, statements, invoices |
+| Relay | Conversation index, reading-led transcript and local reply composer | Correspondence, messaging |
+| Docket | Ruled task lanes, selected-item inspector and explicit work limit | Task boards, work queues |
+| Tempo | Track library, transport, seek and volume with honest playback state | Media libraries, audio interfaces |
+| Transit | Departure rows, named lines and ordered journey legs | Timetables, journey planners |
+| Hearth | Room tabs, named device switches and bounded temperature controls | Home/device control interfaces |
+| Manual | Section index, exact selectable code, parameters and feedback | Documentation, technical references |
+| Larder | Scalable quantities, ingredient checklist and current cooking step | Recipes, procedural guides |
+| Depot | Stock rows, reorder levels, bin detail and validated movements | Inventory, stock management |
+| Roster | Person/day shifts, coverage gaps and explicit rest constraints | Shift planning, leave management |
+| Pipeline | Stage filters, deal dossier and factual activity timeline | Sales workflows, relationship management |
+| Tally | Invoice register, editable draft lines and consistent totals | Billing, invoices |
+| Letter | Reading-led proposition, benefits, price sentence and named action | Editorial landing pages |
+| Datasheet | Revision/specification rows, comparisons and plan table | Technical product landing pages |
+| Walkthrough | Guided steps synchronized with a drawn product view | Product demonstrations, onboarding |
+| Counter | Input-driven quote, breakdown and selected plan | Pricing/configuration landing pages |
 
 These are visual vocabularies, not universal page templates. Task and audience
 determine hierarchy, typography and interaction. Explicit user choices win.
@@ -25,7 +41,7 @@ preview and disappear on reload. They do not make purchases, publish content,
 provide live directions or save a project. Canvas supports pointer dragging,
 keyboard movement and inspector edits with 30 undo states and a 12-object limit.
 
-The nine-pack browser gate passes in Chromium and WebKit, including light/dark,
+The earlier nine-pack browser gate passed in Chromium and WebKit, including light/dark,
 320/390/768/1440px, 200% text, form validation, dialog focus return, choice-label
 geometry and actual domain controls. Direct local-file exports also work without
 DStudio APIs. These are authored component tests, **not model-generated output
@@ -36,7 +52,7 @@ regression caught keyboard focus leaving the inspector on a different object;
 Canvas now selects the focused object before arrow-key edits. Removing the final
 Market basket row also retains focus inside its dialog.
 
-The eighteen original briefs are now in
+The eighteen frozen briefs for the original nine systems are in
 [`tests/fixtures/design_pack_projects.json`](../tests/fixtures/design_pack_projects.json),
 with two distinct interaction scenarios for every system. The native generator
 can select this corpus via `DESIGN_COMPARE_SUITE`; it freezes the complete
@@ -48,6 +64,71 @@ implemented; full oracle qualification, real generation and screenshot review
 remain outstanding. The historical three-brief
 auditor explicitly rejects this new corpus instead of silently skipping its
 interactions and returning a misleading pass.
+
+## October 1 integration and guidance
+
+The supplied DStudio archive adds sixteen systems and revises the original nine.
+Its SHA-256 is `3b377ac045bcecb2796f9f7d92b2354e33cc58e3b315cd52c9e6bf273bef7bfa`.
+Only design-system resources and the catalog were imported; unrelated loading,
+sidebar/chat mockups, uploads and archive support scripts were not installed.
+The native host, pack dispatcher and bundled/offline checks expose the same
+25 supported IDs. Missing resources remain explicit failures, without downloads.
+
+All 25 `DESIGN.md` and recipe files now distinguish the visual starting point,
+explicit user constraints, domain state invariants and observable acceptance.
+The eight craft guides use adaptable type/layout/color choices, source-grounded
+content, keyboard/reflow checks and stable reading/selection during updates.
+Contrast and target guidance links to the applicable W3C explanations; these
+checks are not accessibility certification. Local/system font availability and
+explicit user choices remain authoritative.
+
+The native Design prompt instructs the agent to load `craft("state-coverage")`
+before substantial work; the pack dispatcher exposes
+[`references/design-plan.md`](../extension/craft/state-coverage/references/design-plan.md)
+through `pack_file`. The project plan records actual facts, primary action,
+topology, token/font bindings, reflow, action/validation/result/failure behavior,
+persistence and independently checked exports. A plan or model self-review is
+not evidence of delivery. Packs/craft remain loaded on demand, not embedded as
+one complete catalog in startup. Instruction adherence on model-generated work
+has not been measured in this integration.
+
+The preview checks exercise actual controls for the sixteen added domains, as
+well as the existing examples. Relay retains at most 20 new replies per
+conversation and Pipeline 20 new activities per deal, each up to 1000 JavaScript
+string units. Admission failure retains prior content and the typed draft.
+Depot bounds stock to 0–999999 whole units and 32 retained movements per bin;
+invalid/unsafe adjustments cannot change stock or history. Roster checks the
+11-hour demonstration constraint in both adjacent-day directions, including
+cross-midnight shifts; it is not a legal or complete workforce scheduler.
+Tally retains valid totals and blocks sending while a draft quantity is invalid.
+
+WebKit resize tests reproduced width defects in Forma, Atlas and Letter. Explicit
+shrinkable media tracks/widths and a naturally sized billing legend repair the
+containers without clipping content. Original failing browser receipts and
+separate harness corrections remain in ignored artifacts. Current integration
+verification is recorded below; no model inference is part of these checks.
+
+Model-free verification on October 1:
+
+| Command | Scope and result |
+| --- | --- |
+| `make test-design-originals` | 402/402 checks passed: native catalog and unavailable resources; Chromium/WebKit controls, both themes, four widths, 200% text, opaque frames and offline exports |
+| `DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_agent_design_playwright_test.mjs` | Passed with simulated services; gallery and selection of the sixteen new systems |
+| `DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_agent_design_playwright_test.mjs` | Passed with the same simulated service scope |
+| `make test-design-runtime test-design-bench-validate test-design-release` | Passed; native pack/plan dispatch, recovery, controls, cancellation/resume, audit regressions and existing recorded benchmark/release checks |
+| `make test-macos-bundle` | Passed; packaged catalog and bundled resources, without opening the user's app |
+
+The preview report retains 200 distinct Chromium screenshots and rendered contrast
+observations for both browsers. Visual review used contact sheets of all 25 light
+desktop and dark mobile examples; these show the upper composition, not every
+state or the full page. Automated layout/control checks are separate. No weights,
+real generation or new quality benchmark ran. Existing benchmark validation only
+checks its recorded fixtures/baselines and is not a fresh inference result.
+
+The existing eighteen-project corpus remains frozen, with its original nine-system
+identities and failure denominator. It does not cover generated output for the
+sixteen added systems. Those require separate future briefs/oracles and actual
+model runs; importing them does not resume the paused completion campaign.
 
 ## What the agent receives
 
@@ -308,7 +389,7 @@ Generated evidence and the recoverable retired-catalog snapshot stay under
 ignored tests/.artifacts/. Do not publish claims of measured aesthetic
 improvement until the actual before/after outputs have been reviewed.
 
-Latest original-pack receipt: `tests/.artifacts/design-originals-g514nT/`:
+Historical original-pack receipt: `tests/.artifacts/design-originals-g514nT/`:
 32 aggregate checks passed, 40 screenshots, 2610 computed text-color pairs
 across both engines/themes and example/component/dialog views. Desktop/light
 and mobile/dark compositions were visually inspected; this is a local preview

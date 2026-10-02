@@ -1,39 +1,38 @@
 ---
 name: Motion discipline
-description: Motion is feedback, not decoration. Short, purposeful, interruptible, and reduced-motion-aware. Animate transform/opacity, never block the content.
+description: Make transitions purposeful, interruptible and reduced-motion-aware while preserving reading, selection and control.
 ---
 
 # CRAFT: motion discipline
 
-Motion exists to **explain** (where did this come from, what changed, what's loading) — not
-to impress. Most of a good interface is still. Earn every animation.
+## Explain a change
 
-## Rules
+Use motion for meaningful feedback, spatial continuity or a deliberate visual
+character. Transition length follows distance and task; roughly 120–240ms is a
+useful UI starting point, not a mandatory quota. Prefer transform/opacity when
+appropriate, and measure actual layout/painting cost before calling it cheap.
 
-- **Purpose**: every animation answers "what changed / where did it go". Hover feedback, state
-  transitions, enter/exit, loading. No motion that decorates without informing.
-- **Duration**: 120–240ms for UI transitions, up to ~300–400ms for larger/hero moves. Faster
-  than you think. Ease-out for enters, ease-in for exits.
-- **Animate cheap properties**: `transform` and `opacity` (GPU-friendly). Avoid animating
-  `width/height/top/left` (layout thrash) — use transform/scale instead.
-- **Never block content**: don't gate reading on an entrance animation; text appears
-  immediately or near-so. No word-by-word reveals on body copy.
-- **Restraint**: one or two considered motions per screen. Bounces/springs only where a
-  playful brand calls for it (see the design system), never by default.
+Content is readable immediately. Do not gate reading on a hero entrance or
+word-by-word prose reveal. Keep controls available during pending work; an
+animation cannot determine when loading, saving or an external operation succeeds.
+Unknown progress stays indeterminate instead of inventing a percentage.
 
-## Reduced motion (required)
+## Preserve interaction
 
-```css
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
-}
-```
-Drop parallax, auto-play, infinite loops, and large transforms; keep essential, instant
-feedback. Nothing flashes more than 3×/second.
+Interrupt or retarget transitions safely after rapid input. Cancelled drags and
+previews keep prior committed data. Updating a view must preserve focus, typed
+input, scroll intent and text selection; avoid replacing the whole reading DOM
+on each streamed fragment. Pause automatic motion when the user is reading or
+operating the region, and expose necessary playback/Stop controls.
 
-## Self-check before artifact
+## Reduced motion and verification
 
-- Does each animation inform (feedback/transition/loading), not just decorate?
-- Durations 120–240ms (UI), transform/opacity only, content never blocked?
-- `prefers-reduced-motion` honored (parallax/auto-play/loops dropped)?
-- Restrained — one or two motions per screen, not motion everywhere?
+Respect `prefers-reduced-motion` by removing nonessential travel, parallax,
+autoplay and decorative loops; preserve immediate state feedback. Apply the
+preference to JavaScript-driven motion as well as CSS. Do not rely on a global
+near-zero-duration rule if code waits for an animation event to complete.
+
+Exercise rapid repeated input, cancellation, reduced motion and slow/fast
+simulated updates. Check flicker, stale callbacks, focus and reading selection
+in the actual browser. Record only tested outcomes, not a performance claim
+based on the property chosen to animate.

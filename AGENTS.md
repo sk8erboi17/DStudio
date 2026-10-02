@@ -347,7 +347,7 @@ Correctness comes first; retain failures even when throughput looks better.
   explicitly: distinguish implemented features, scoped passing checks, retained
   failures and remaining acceptance work. Publishing a checkpoint is not release
   qualification or authorization to resume a paused implementation campaign.
-- DStudio's nine original design systems live in `extension/design-systems/` and
+- DStudio's twenty-five original design systems live in `extension/design-systems/` and
   work offline. Preserve provenance and applicable notices for dependencies that
   remain; removing an optional catalog does not remove other license obligations.
 - Before an authorized push, review the staged diff for secrets/private artifacts,
