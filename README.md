@@ -1312,7 +1312,7 @@ DStudio is early, hardware-hungry and built for the local-AI crowd. The most use
 
 [BSD 3-Clause](LICENSE) © 2026 Giuseppe Perrotta
 
-## WIP completion checklist — October 1, 2026
+## WIP completion checklist — October 2, 2026
 
 The full macOS/Apple Silicon campaign remains **incomplete and paused**. Checked
 items mean the stated implementation or scoped verification is complete; they
@@ -1325,7 +1325,9 @@ quality-suite rerun. Exact acceptance criteria and retained failures are in
 - [x] Bundle the four pinned engine source trees with provenance and versioned
   adaptations; build/install from an empty offline profile without fetching or
   recloning upstream sources. Retire the separate Qwen Next installer/reference.
-  [Sources and verification](docs/BUNDLED_ENGINES.md).
+  Its historical patch tests now use small, verified offline inputs instead of
+  an installed fork. [Sources and verification](docs/BUNDLED_ENGINES.md),
+  [historical inputs](tests/fixtures/retired-qwen-next/).
 - [x] Move Qwen Next onto unified main and record the single-file Q4 baseline:
   75/100 corpus answers and 8/8 long-context cases. Wrong answers remain in the
   denominator; this baseline does not qualify Q2 or every mode.

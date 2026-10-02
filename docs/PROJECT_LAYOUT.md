@@ -12,9 +12,12 @@
 - `extension/design-systems/`: original DStudio visual systems, included offline.
 - `build/`, `tests/.build/`, `tests/.artifacts/`, `dist/`: ignored generated outputs.
 
-`ds4/`, `ds4-laguna-s21/`, `ds4-qwen38/` and `ds4-qwen35/` are ignored managed engines. Their
+`ds4/`, `ds4-laguna-s21/`, `ds4-qwen35/` and `q36/` are ignored managed engines. Their
 paths are intentionally stable for saved settings and existing workspaces.
 `ds4/gguf/` remains the single physical model store; optional engines link to it.
+Qwen Next uses `ds4/`; the retired `ds4-qwen38/` checkout is unnecessary for the
+application and default patch tests. Exact historical regression inputs live in
+[`tests/fixtures/retired-qwen-next/`](../tests/fixtures/retired-qwen-next/).
 Generated Design workspaces, exports, the private Discord archive and existing
 local app bundles are not relocated, since persisted user paths can refer to them.
 

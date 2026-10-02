@@ -574,11 +574,20 @@ prompts and answers. An unrequested JSON wrapper around a correct value is
 classified separately but **remains failed**. `common_quality_summary_test.mjs`
 checks these publication boundaries with explicitly synthetic unit data.
 
-`make test-qwen38-inspect` tests the reversible metadata-only PLE patch on a
-private source copy. Add `--native ds4/gguf` to the documented Node command in
+`make test-qwen38-inspect` tests the reversible metadata-only PLE patch on
+verified [historical input files](fixtures/retired-qwen-next/) expanded into a
+private directory. It does not require the retired installed fork. Set
+`QWEN38_DIR` to explicitly test another complete historical checkout.
+Add `--native ds4/gguf` after a full source directory in the documented Node command in
 [the patch notes](../patch/ds4-qwen38-inspect/README.md) to build the real CLI
 and check its OS prefetch behavior and actual GGUF summaries on macOS. The
 ordinary uninstrumented CLI is checked too. This does not generate tokens.
+
+Historical Qwen Agent and Web patch migration cases use the same offline fixture
+reader, retaining their original revision/hash and independent Git oracles.
+Default backend link tests cover the active main, Laguna and Qwen3.6 trees;
+Qwen Next uses main. Supply full source paths to `backend_link_test.mjs` for an
+explicit historical backend-routing run. Its compiler outputs remain simulated.
 
 `make test-engine-startup` runs four real HTTP startup cases without
 `DS4UI_TEST_MODE`, with inference explicitly deferred and isolated source
@@ -635,7 +644,7 @@ For the historical four-source comparison, supply the archived Qwen fork explici
 
 ```sh
 make test-agent-native-build AGENT_MAIN_TREE=ds4 AGENT_LAGUNA_TREE=ds4-laguna-s21 \
-  AGENT_QWEN38_TREE=ds4-qwen38 AGENT_QWEN35_TREE=ds4-qwen35
+  AGENT_QWEN38_TREE=/path/to/archived-qwen-next AGENT_QWEN35_TREE=ds4-qwen35
 ```
 
 Sources are copied into a new task-owned directory, without weights or reused

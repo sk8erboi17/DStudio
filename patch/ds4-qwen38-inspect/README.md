@@ -33,8 +33,8 @@ the existing `inspect_only` decision to the PLE mapping too. Metadata parsing,
 shape validation and normal inference prefetch are unchanged. The PLE remains
 required for this split checkpoint; this does not enable expert streaming.
 
-The installer applies this patch before building Qwen3.8, followed by the
-matching [private-reset preparation patch](../ds4-qwen38-prepare/README.md) and
+The retired fork installer applied this patch before building Qwen3.8, followed
+by the matching [private-reset preparation patch](../ds4-qwen38-prepare/README.md) and
 [snapshot allocation correction](../ds4-qwen38-snapshot/README.md) before native
 runtime builds. For an explicitly selected checkout:
 
@@ -47,12 +47,16 @@ DS4_DIR=/path/to/ds4-qwen38 sh scripts/apply-ds4-qwen38-inspect.sh restore
 Verification:
 
 ```sh
-node tests/integration/qwen38_inspect_patch_test.mjs ds4-qwen38
-node tests/integration/qwen38_inspect_patch_test.mjs ds4-qwen38 --native ds4/gguf
+make test-qwen38-inspect
+node tests/integration/qwen38_inspect_patch_test.mjs /path/to/archived-qwen-next --native ds4/gguf
 ```
 
-The first command uses a private source copy for patch lifecycle tests. The second
-also builds the native CLI, uses existing real model/PLE metadata, and on macOS
+The first command verifies and expands the exact
+[historical source fixtures](../../tests/fixtures/retired-qwen-next/) into a
+private directory for patch lifecycle tests, without an installed fork.
+`QWEN38_DIR=/path/to/archived-qwen-next` selects a full historical source tree.
+The second command requires that explicit full tree, builds the native CLI,
+uses existing real model/PLE metadata, and on macOS
 interposes the OS prefetch call. It proves the original inspection asks to
 prefetch the full PLE and the patched inspection does not, with identical output.
 It then runs without interposition and checks all reported tensor counts. A

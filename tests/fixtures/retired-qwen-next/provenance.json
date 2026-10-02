@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://github.com/ivanfioravanti/ds4-metal",
+  "purpose": "Exact upstream inputs for historical patch regressions; no runnable engine or model files",
+  "inspectionRevision": "ff4f0ff4fdff70d6b7c3941ef437b91dde960e14",
+  "licenseSHA256": "9f13072241f0c2f4a92036b7e9f744525e4f16e29d162d11ccf7dacc34f61056",
+  "files": {
+    "b4c355079d375d20821ece732e99195c71b32c06/ds4_agent.c": {
+      "path": "b4c355079d375d20821ece732e99195c71b32c06/ds4_agent.c.gz",
+      "bytes": 513360,
+      "sha256": "aecf46bf84387ea1f77ee2cabec366d0b0dcb5873ce6bb995726e06482e6bff6",
+      "compressedBytes": 106696,
+      "compressedSHA256": "b694e2e37b6173de264e2b743c44f51da2233da74d04ce4d20ff2b76a1c3fb62"
+    },
+    "bd9cfbccc03a709a3f00b50e0ac1cc41c3fcf02d/ds4_web.c": {
+      "path": "bd9cfbccc03a709a3f00b50e0ac1cc41c3fcf02d/ds4_web.c.gz",
+      "bytes": 49051,
+      "sha256": "c6baf247c8063b80bac793ee6a031a352299be6632eaceac81f3bc5f302367c4",
+      "compressedBytes": 11751,
+      "compressedSHA256": "e5b901ca0fffd13f5be66420869138d34a557422dcf2a5146641e0a32e2994c1"
+    },
+    "ff4f0ff4fdff70d6b7c3941ef437b91dde960e14/ds4.c": {
+      "path": "ff4f0ff4fdff70d6b7c3941ef437b91dde960e14/ds4.c.gz",
+      "bytes": 3574132,
+      "sha256": "ed7285c41fc6b7659de60263ecc5f795e18117f7d9c0c1f139974345aab05104",
+      "compressedBytes": 525407,
+      "compressedSHA256": "25785fb0a32bb7c4e239caf61ac25b899074a0a0b39bb46f1b71a37bcd298964"
+    },
+    "ff4f0ff4fdff70d6b7c3941ef437b91dde960e14/ds4.h": {
+      "path": "ff4f0ff4fdff70d6b7c3941ef437b91dde960e14/ds4.h.gz",
+      "bytes": 28329,
+      "sha256": "eaf7a1aa9406b80be24aaa053f0af23a04d5b52cd67a49637df4f593d0047840",
+      "compressedBytes": 7125,
+      "compressedSHA256": "d23620c9fa42e4897e9d8f40f70947c7da9359a94d0e09701125cb42d211e9b4"
+    },
+    "ff4f0ff4fdff70d6b7c3941ef437b91dde960e14/ds4_agent.c": {
+      "path": "ff4f0ff4fdff70d6b7c3941ef437b91dde960e14/ds4_agent.c.gz",
+      "bytes": 533774,
+      "sha256": "773cfa9ab127ec87ac1b39a7c5b7d2414300522fab94b6c34f9869f95c3d556a",
+      "compressedBytes": 111112,
+      "compressedSHA256": "d4b6f10249a1161a6ac66424672993a7680f3845feda6d0912b83ae8d589fe3e"
+    }
+  }
+}

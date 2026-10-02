@@ -643,8 +643,9 @@ test-qwen35-prefill:
 	@node tests/integration/qwen35_prefill_test.mjs "$(or $(QWEN35_DIR),ds4-qwen35)"
 
 .PHONY: test-qwen38-inspect
+# Archived patch inputs are shipped as bounded fixtures, not an installed fork.
 test-qwen38-inspect:
-	@node tests/integration/qwen38_inspect_patch_test.mjs "$(or $(QWEN38_DIR),ds4-qwen38)"
+	@node tests/integration/qwen38_inspect_patch_test.mjs $(if $(QWEN38_DIR),"$(QWEN38_DIR)")
 
 # Explicit real Metal operators; optional verified projector, never LLM weights.
 .PHONY: test-q36-metal-runtime
