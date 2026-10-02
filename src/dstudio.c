@@ -6391,6 +6391,7 @@ static int spawn_agent_prepared(const engine_cfg *cfg, const char *workdir,
  * only exits into the workspace passed with --workspace. The source lives in
  * THIS repo (extension/design/ds4_design.c, native \x1e events): the script
  * compiles it in the ds4 repo as an untracked output, without patch or .bak. */
+static void design_snapshot_preexisting(const char *dir); /* see api_design_clean */
 static int spawn_design_prepared(const engine_cfg *cfg, const char *workdir,
                                  char *err, size_t errsz, launch_prepared *prepared) {
     if (native_launch_preflight(cfg, ENGINE_DESIGN, current_model_rel(),
@@ -6583,6 +6584,7 @@ static int spawn_design_prepared(const engine_cfg *cfg, const char *workdir,
     g_child = pid; g_mode = ENGINE_DESIGN; g_cfg = *cfg;
     snprintf(g_workdir, sizeof g_workdir, "%s", wd);
     snprintf(g_design_dir, sizeof g_design_dir, "%s", wd);
+    design_snapshot_preexisting(wd);
     agent_buf_reset();
     reset_progress("Starting the design agent…");
     /* Model allocation can finish before Design has prefetched its system
@@ -7937,6 +7939,31 @@ static void fm_field(const char *content, const char *key, char *out, size_t out
     }
 }
 
+/* First body line that starts with `prefix` (e.g. "Best fit:"), trimmed.
+ * Bounded scan; the pack file itself is never modified. */
+static void md_line_value(const char *content, const char *prefix, char *out, size_t outsz) {
+    out[0] = '\0';
+    size_t plen = strlen(prefix);
+    const char *p = content;
+    for (size_t scanned = 0; *p && scanned < 65536;) {
+        const char *end = strchr(p, '\n');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        if (len > plen && !strncmp(p, prefix, plen)) {
+            const char *s = p + plen;
+            const char *e = p + len;
+            while (s < e && (*s == ' ' || *s == '\t')) s++;
+            while (e > s && (e[-1] == ' ' || e[-1] == '\t' || e[-1] == '\r')) e--;
+            size_t n = (size_t)(e - s) < outsz - 1 ? (size_t)(e - s) : outsz - 1;
+            memcpy(out, s, n);
+            out[n] = '\0';
+            return;
+        }
+        if (!end) return;
+        scanned += len + 1;
+        p = end + 1;
+    }
+}
+
 /* Emit a JSON catalog of Markdown packs under extension/<subdir>/<id>/<file>,
  * reading each pack's frontmatter name/description/modes. */
 static void md_catalog(int fd, const char *subdir, const char *file, const char *key) {
@@ -7974,6 +8001,8 @@ static void md_catalog(int fd, const char *subdir, const char *file, const char 
                 fm_field(content, "ds4_output_kinds", output, sizeof output);
                 fm_field(content, "ds4_provider", provider, sizeof provider);
                 fm_field(content, "ds4_upstream", upstream, sizeof upstream);
+                char best_fit[600] = "";
+                if (!strcmp(subdir, "design-systems")) md_line_value(content, "Best fit:", best_fit, sizeof best_fit);
                 free(content);
                 if (!nm[0]) cstr_copy(nm, sizeof nm, id);
                 char assets[2300], refs[2300], example[2300], components[2300];
@@ -7998,6 +8027,8 @@ static void md_catalog(int fd, const char *subdir, const char *file, const char 
                 if (!json_dyn_puts(&body, ",\"upstream\":") || !json_dyn_put_escaped(&body, upstream)) goto oom;
                 if (!strcmp(subdir, "design-systems") &&
                     !json_dyn_printf(&body, ",\"available\":%s", design_system_pack_available(id) ? "true" : "false")) goto oom;
+                if (!strcmp(subdir, "design-systems") &&
+                    (!json_dyn_puts(&body, ",\"bestFit\":") || !json_dyn_put_escaped(&body, best_fit))) goto oom;
                 if (!json_dyn_printf(&body,
                                       ",\"hasAssets\":%s,\"hasReferences\":%s,\"hasExample\":%s,\"hasComponents\":%s}",
                                       has_assets ? "true" : "false",
@@ -8990,6 +9021,45 @@ static void api_agent_poll(int fd, const char *path) {
 }
 
 /* ==================== design: project and workspace ==================== */
+
+/* Top-level regular files already in the Design folder when the runtime
+ * started (see api_design_clean). Owner: the HTTP loop; replaced on every
+ * Design start; bounded to DESIGN_PREEXISTING_MAX names. */
+#define DESIGN_PREEXISTING_MAX 4096
+static char **g_design_preexisting = NULL;
+static int g_design_preexisting_n = 0;
+static int g_design_preexisting_overflow = 0;
+
+static void design_snapshot_preexisting(const char *dir) {
+    for (int i = 0; i < g_design_preexisting_n; i++) free(g_design_preexisting[i]);
+    free(g_design_preexisting);
+    g_design_preexisting = NULL;
+    g_design_preexisting_n = 0;
+    g_design_preexisting_overflow = 0;
+    DIR *d = dir && dir[0] ? opendir(dir) : NULL;
+    if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        if (de->d_name[0] == '.') continue;
+        char p[2200];
+        snprintf(p, sizeof p, "%s/%s", dir, de->d_name);
+        struct stat st;
+        if (lstat(p, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        if (g_design_preexisting_n >= DESIGN_PREEXISTING_MAX) { g_design_preexisting_overflow = 1; break; }
+        char **grown = realloc(g_design_preexisting, (size_t)(g_design_preexisting_n + 1) * sizeof *grown);
+        char *name = grown ? strdup(de->d_name) : NULL;
+        if (!grown || !name) { if (grown) g_design_preexisting = grown; g_design_preexisting_overflow = 1; break; }
+        g_design_preexisting = grown;
+        g_design_preexisting[g_design_preexisting_n++] = name;
+    }
+    closedir(d);
+}
+
+static int design_preexisting(const char *name) {
+    for (int i = 0; i < g_design_preexisting_n; i++)
+        if (!strcmp(g_design_preexisting[i], name)) return 1;
+    return 0;
+}
 /* The design workspace is a PROJECT DIR of free files:
  * the UI shows the list as tabs and renders the files in an iframe. serve acts
  * only as a sandboxed reader: relative paths validated, never free paths. */
@@ -9268,6 +9338,7 @@ static void api_fs_mkdir(int fd, const char *body) {
     send_json(fd, "200 OK", out);
 }
 
+#include "dstudio_agent_workspace.c"
 #include "dstudio_setup.c"
 #include "dstudio_laguna.c"
 #include "dstudio_engine_install.c"
@@ -9437,12 +9508,20 @@ static void api_fs_list(int fd, const char *body) {
     free(b.ptr);
 }
 
-/* POST /api/design/clean — empties the design workspace: deleting the LAST
- * design conversation in the UI also clears the project files (regular files
- * only, top level, no dotfiles — never recursive, never outside the dir). */
+/* POST /api/design/clean — deleting the LAST design conversation in the UI
+ * also clears the project files the design run produced (regular files only,
+ * top level, no dotfiles — never recursive, never outside the dir). Design may
+ * start in a folder that already holds the user's files: those are recorded
+ * when the runtime starts (design_snapshot_preexisting) and never removed. If
+ * the folder had more files than the record holds, nothing is removed. */
 static void api_design_clean(int fd) {
     if (!g_design_dir[0]) {
         send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"no design workspace\"}");
+        return;
+    }
+    if (g_design_preexisting_overflow) {
+        send_json(fd, "409 Conflict",
+                  "{\"ok\":false,\"code\":\"preexisting_untracked\",\"error\":\"The folder held too many files to tell yours from the design's; nothing was removed\"}");
         return;
     }
     int removed = 0;
@@ -9452,6 +9531,7 @@ static void api_design_clean(int fd) {
         while ((de = readdir(d)) != NULL) {
             if (de->d_name[0] == '.') continue;          /* no dotfiles, no traversal */
             if (strchr(de->d_name, '/')) continue;
+            if (design_preexisting(de->d_name)) continue; /* the user's own file */
             char p[2200];
             snprintf(p, sizeof p, "%s/%s", g_design_dir, de->d_name);
             struct stat st;
@@ -11302,6 +11382,10 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/model/download/stop")) { api_model_download_stop(fd); return 200; }
     if (!strcmp(path, "/api/model/folder/open")) { api_model_folder_open(fd, body); return 200; }
     if (!strcmp(path, "/api/model/partials/delete")) { api_model_partials_delete(fd, body); return 200; }
+    if (!strcmp(path, "/api/agent/fs/list")) { api_agent_fs_list(fd, body); return 200; }
+    if (!strcmp(path, "/api/agent/fs/read")) { api_agent_fs_read(fd, body); return 200; }
+    /* Normally reached through the dedicated large-body branch in handle_connection. */
+    if (!strcmp(path, "/api/agent/fs/write")) { api_agent_fs_write(fd, body); return 200; }
     if (!strcmp(path, "/api/fs/list")) { api_fs_list(fd, body); return 200; }
     if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); return 200; }
     if (!strcmp(path, "/api/ds4/setup")) { api_setup_ds4(fd, body); return 200; }
@@ -11390,6 +11474,9 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
     if (is_get && !strcmp(path, "/api/design/files")) { api_design_files(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/design/annotator.js")) { api_design_annotator_script(fd, head_only); return 200; }
     if (is_get && !strncmp(path, "/api/design/preview/", 20)) { api_design_preview_file(fd, path, head_only); return 200; }
+    if (is_get && !strncmp(path, "/api/design/live-frame", 22) && (path[22] == '\0' || path[22] == '?')) {
+        api_design_live_frame(fd, path, head_only); return 200;
+    }
     if (is_get && !strncmp(path, "/api/design/file?", 17)) { api_design_file(fd, path, head_only); return 200; }
     if (!head_only && strcmp(method, "GET") != 0) {
         send_text(fd, "405 Method Not Allowed", "method not allowed\n", 0);
@@ -11566,6 +11653,27 @@ static void handle_connection(int fd) {
             return;
         }
         api_agent_attach_image(fd, buf);
+        free(buf);
+        close(fd);
+        return;
+    }
+
+    /* IDE saves carry a whole text file (JSON-escaped, so up to several times
+     * the 2 MiB file cap). Host-local + CSRF protected; the handler admits the
+     * save only while the Agent is idle (src/dstudio_agent_workspace.c). */
+    if (!strcmp(method, "POST") && path_eq_clean(path, "/api/agent/fs/write")) {
+        if (!header_has(req, header_len, "x-requested-with: ds4web")) {
+            send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}"); close(fd); return;
+        }
+        char *buf = NULL;
+        size_t off = 0;
+        if (!read_request_body_alloc(fd, req, got, header_len, clen, AGENT_IDE_WRITE_BODY_MAX,
+                                     "file too large\n", &buf, &off))
+        {
+            close(fd);
+            return;
+        }
+        api_agent_fs_write(fd, buf);
         free(buf);
         close(fd);
         return;

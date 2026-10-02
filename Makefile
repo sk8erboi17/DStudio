@@ -336,6 +336,15 @@ test-v1-relay: $(TEST_BUILD)/v1_relay_unit
 	@$(TEST_BUILD)/v1_relay_unit
 check-fast: test-v1-relay
 
+# Agent IDE workspace files: real handlers/dispatcher on a temporary workspace.
+.PHONY: test-agent-workspace
+$(TEST_BUILD)/agent_workspace_unit: tests/unit/agent_workspace_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/unit/agent_workspace_unit.c -pthread -o $@
+test-agent-workspace: $(TEST_BUILD)/agent_workspace_unit
+	@$(TEST_BUILD)/agent_workspace_unit
+check-fast: test-agent-workspace
+
 .PHONY: test-v1-proxy-exchange
 test-v1-proxy-exchange: $(TEST_SERVER)
 	@node tests/integration/v1_proxy_exchange_test.mjs $(TEST_SERVER)
@@ -1080,6 +1089,12 @@ test-design-archive-build: $(TEST_SERVER)
 test-design-tool-recovery: test-design-self
 	@node tests/integration/design_tool_recovery_test.mjs
 
+# Live tool-stanza events (Open IDE preview): real runtime, simulated model.
+.PHONY: test-design-tool-stream
+test-design-tool-stream: test-design-self
+	@node tests/integration/design_tool_stream_test.mjs
+test-design-runtime: test-design-tool-stream
+
 test-design-self: test-design-build-freshness $(TEST_SERVER)
 	@DSTUDIO_BUILD_HOST="$(abspath $(TEST_SERVER))" extension/design/build-design.sh build
 	@./ds4/ds4-design --self-test
@@ -1289,6 +1304,23 @@ test-ui-selection:
 test-ui-stability:
 	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_selection_stability_playwright_test.mjs
 	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_selection_stability_playwright_test.mjs
+# Open IDE (Agent and Design): real browser + real host file handlers; simulated streams.
+.PHONY: test-ui-agent-ide
+$(TEST_BUILD)/agent_workspace_host: tests/support/agent_workspace_host.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/support/agent_workspace_host.c -o $@
+test-ui-agent-ide: $(TEST_BUILD)/agent_workspace_host
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_agent_ide_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_agent_ide_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_design_ide_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_design_ide_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
+test-ui-browser: test-ui-agent-ide
+# Full-window screens under the native macOS title-bar strip (simulated inset).
+.PHONY: test-ui-native-titlebar
+test-ui-native-titlebar:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_native_titlebar_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_native_titlebar_playwright_test.mjs
+test-ui-browser: test-ui-native-titlebar
 test-ui-stream-interaction:
 	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_stream_interaction_playwright_test.mjs
 	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_stream_interaction_playwright_test.mjs

@@ -41,7 +41,7 @@ export async function startFixtureStream(page, mode, prompt = 'Verifica della se
       await dialog.getByRole('button', { name: /^(Start|Launch)/ }).click();
       await page.locator('#loading-overlay').waitFor({ state: 'hidden' });
       scroller = '#agent-view';
-      paragraphs = mode === 'design' ? '#agent-view .gen-steps .gstep span:last-child' : '#agent-view .seg--text p';
+      paragraphs = mode === 'design' ? '#agent-view .todos-card li span:last-child' : '#agent-view .seg--text p';
     }
     await page.locator(input).fill(prompt); await page.locator('#btn-send').click();
   }

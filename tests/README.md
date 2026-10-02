@@ -69,6 +69,67 @@ separately from Playwright. Its five-minute limit belongs only to this isolated
 preview. Native screenshots also verify text selection without moving the
 window; successful automated hit testing alone does not prove OS dragging.
 
+## Open IDE (Agent workspace view)
+
+`make test-agent-workspace` executes the real `/api/agent/fs/list`, `read` and
+`write` handlers and the real connection dispatcher on a task-owned temporary
+workspace, with a task-owned idle child standing in for the Agent process. It
+checks that only a running Agent exposes its workspace, that relative-path
+syntax and symlink escapes are refused, that only lossless UTF-8 text is
+published, that saves are refused while the agent works or when the digest is
+stale (leaving the bytes unchanged), that an admitted save replaces the exact
+bytes atomically with the original permission bits, that CSRF and the large
+save body path work over a real 127.0.0.1 connection, and that the endpoints
+stay host-local with LAN enabled.
+
+`make test-ui-agent-ide` runs WebKit and Chromium against the same real
+handlers through `tests/support/agent_workspace_host.c`. The agent stream is
+**simulated**: events are scripted in the format recorded from
+`ds4-agent-jsonl`, and the test performs each tool's file effect itself. It
+covers the header button, the thought bubble (live reasoning, the last thought
+kept while the agent writes without covering its caret, dismissal until the
+next thought), the
+live cursor and follow mode (a partially streamed path never opens a tab), the reload from disk
+after `tool_result`, edit and terminal streaming, the read-only lock while the
+agent works, exact-byte saves after the turn, conflict handling, the host-side
+refusal while the agent works, and Task Graph access. Receipts and screenshots
+are written to `tests/.artifacts/ui-agent-ide/`. It does not exercise a model
+or measure inference.
+
+The same target runs `tests/browser/ui_design_ide_playwright_test.mjs` in both
+browsers. It serves the same real handlers in Design mode
+(`agent_workspace_host design`) from a folder that already holds a user file,
+and the page and security headers exactly as the native host serves them, so
+both preview frames run under the production policy. The Design stream is
+**simulated** in the event format produced by `ds4-design`. It checks that the
+brief has no IDE and that Start stays enabled for a non-empty folder, the
+**Open in IDE to see it live** shortcut, the Code · Split · Design layouts and
+their persisted divider, the blank artboard before `<body>` and the
+colors/classes the stream actually declared, and the streamed body in the
+host-served live frame (opaque origin; the page's `<script>` and inline
+handlers stay off; its relative stylesheet loads). With real wheel input it
+scrolls the page in Split and in Design while further batches arrive and
+asserts that the position and the document itself survive each update; after
+`tool_result` the saved bytes stay in the same frame until the turn ends, and
+the patched document equals a fresh parse of the same bytes. It then checks the
+saved file with scripts on after the turn, the canvas shortcut, and a user's
+unsaved edit previewed and then saved byte for byte. `make test-agent-workspace`
+also checks that clearing a Design project removes only files the run created
+(refusing when the folder had more files than the snapshot can track) and that
+the live frame's policy allows only its own bootstrap, by a nonce that is
+fresh for each response. The Agent IDE test holds background re-reads of the
+file it changes on disk, so its conflict step always exercises the host's
+digest refusal instead of depending on timing.
+
+`make test-ui-native-titlebar` runs WebKit and Chromium with the 28px
+title-bar inset that DStudio.app injects (`--native-titlebar-height`, top frame
+only). It checks that no operable control in the main window or the Learn study
+room reaches into that strip, where the window controls sit and a native view
+turns clicks into window drags, and that the study room's top bar paints across
+it. The Design IDE test applies the same inset and checks the Design canvas and
+the fullscreen artboard. The runtime and roadmap are simulated; the native
+window itself is not exercised.
+
 ## Image previews under the native HTTP policy
 
 `make test-ui-document-policy` starts the real HTTP host with an empty,
@@ -421,9 +482,16 @@ Each missing pack is still recognized as supported but unavailable; the native
 setup endpoint must not fetch or overwrite it. `make test-design-self` exercises
 the real Agent pack dispatcher and exact returned Markdown, CSS, HTML, JavaScript
 and recipe bytes for every supported ID, plus the craft project-plan reference.
-The Chromium/WebKit Agent/Design UI test uses a simulated 25-item catalog and
-checks that every new system's selection reaches the actual composer and saved
-preference. `make test-macos-bundle` validates the catalog materialized from the
+The Chromium/WebKit Agent/Design UI test simulates the catalog response from
+the real packs' `DESIGN.md` files and serves each pack's real `tokens.css`. It
+checks the brief's gallery (family filters and counts, light/dark palettes and
+type parsed from the tokens, search and empty state), that loading every new
+system's brief reaches the actual composer and saved preference, replaces the
+previous preset while keeping typed text, and that the chip removes it again.
+It also types in the gallery search while further Agent polls are served (a
+request-count barrier) and checks that the caret and every keystroke stay in
+the search: idle polls used to move focus to the composer, so a search typed
+across a poll landed in the prompt. `make test-macos-bundle` validates the catalog materialized from the
 packaged app. These are authored assets and model-free tests, not the 18
 model-generated projects required by the quality campaign, qualification of
 generated output for the new sixteen packs or final native desktop qualification.
@@ -2674,7 +2742,11 @@ comparison directory selects its frozen executable/source to reproduce the old
 failure; that failing receipt is retained rather than counted as passing.
 `make test-design-tool-recovery` executes the native loop with deliberately
 truncated simulated model frames and verifies exact file preservation/retry
-results. `make test-design-archive-build` compiles a real local source archive
+results. `make test-design-tool-stream` runs the same loop and checks the live
+`tool_call_begin` / `tool_call_param` / `tool_body_delta` events used by Open
+IDE: the streamed write body equals the saved bytes, deltas are capped,
+cut on UTF-8 boundaries and never contain DSML markup, edits stream old then
+new, and an unclosed stanza is previewed but never executed. `make test-design-archive-build` compiles a real local source archive
 without engine Git metadata and checks rebuilds after source changes. Neither
 test loads a model; the archive test does not download its fixture.
 `make test-design-build-freshness` executes the production native builder and

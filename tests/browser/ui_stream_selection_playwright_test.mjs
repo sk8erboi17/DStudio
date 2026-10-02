@@ -119,7 +119,7 @@ try {
           await poll(() => nativeMode === mode, 'the simulated runtime must accept the selected mode');
           await page.locator('#loading-overlay').waitFor({ state: 'hidden' });
           await page.waitForFunction(mode => document.body.dataset.mode === mode || document.querySelector('#tab-' + mode)?.classList.contains('tab--active'), mode);
-          scroller = '#agent-view'; paragraphs = mode === 'design' ? '#agent-view .gen-steps .gstep span:last-child' : '#agent-view .agent-answer-streaming p';
+          scroller = '#agent-view'; paragraphs = mode === 'design' ? '#agent-view .todos-card li span:last-child' : '#agent-view .agent-answer-streaming p';
         }
         await page.locator('#composer-input').fill('Selection fixture');
         if (mode === 'design') {
