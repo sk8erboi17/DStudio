@@ -82,8 +82,8 @@ try {
   }
   const packRoot = path.join(run, 'isolated assets');
   const pack = path.join(packRoot, 'extension/design-systems/folio');
-  fs.mkdirSync(path.join(packRoot, 'extension/design'), { recursive: true });
-  fs.writeFileSync(path.join(packRoot, 'extension/design/build-design.sh'), '#!/bin/sh\nexit 87\n');
+  fs.mkdirSync(path.join(packRoot, 'src/harness/design'), { recursive: true });
+  fs.writeFileSync(path.join(packRoot, 'src/harness/design/build-design.sh'), '#!/bin/sh\nexit 87\n');
   assert.equal((await request('/api/webdir', { path: packRoot })).status, 200);
   for (const [name, files] of [
     ['missing pack', []],
@@ -122,7 +122,7 @@ try {
   fs.mkdirSync(path.join(packRoot, 'scripts'));
   for (const script of ['apply-ds4-glm53-m2max.sh', 'apply-ds4-vision-streaming.sh'])
     fs.writeFileSync(path.join(packRoot, 'scripts', script), '#!/bin/sh\nexit 0\n');
-  fs.writeFileSync(path.join(packRoot, 'extension/design/build-design.sh'),
+  fs.writeFileSync(path.join(packRoot, 'src/harness/design/build-design.sh'),
     '#!/bin/sh\nprintf "%s\\n" "$1" >> "$DS4_DIR/build-attempts"\nexit 87\n');
   let buildAttempts = 0;
   for (const style of ['folio', '', 'none']) {

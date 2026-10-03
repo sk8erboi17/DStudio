@@ -28,7 +28,7 @@ function command(exe,args,cwd=root,extraEnv={}){
  assert.equal(result.status,0,result.stderr||result.error?.message||`Process ended: ${result.signal || result.status}`);return result.stdout;
 }
 try{
- const includes=[run,engine,path.join(root,'extension/remote'),path.join(root,'extension/cowork'),path.join(root,'patch/ds4-agent-jsonl')];
+ const includes=[run,engine,path.join(root,'extension/remote'),path.join(root,'src/harness/cowork'),path.join(root,'patch/ds4-agent-jsonl')];
  const flags=['-O1','-std=c11',...(sanitize?['-g','-fno-omit-frame-pointer','-fsanitize=address,undefined','-fno-sanitize-recover=all']:[]),
   ...includes.flatMap(p=>['-I',p])];
  // An extracted source archive must never acquire the surrounding project's
@@ -52,7 +52,7 @@ try{
  command('cc',[...flags,'-c',path.join(engine,'ds4_gpu_args.c'),'-o',gpuArgs]);objects.push(gpuArgs);
  if(upstream)objects.push(path.join(engine,'ds4_web.o'));
  else for(const [name,source] of [['web',path.join(run,'ds4_web.c')],
-  ['cowork',path.join(root,'extension/cowork/ds4_cowork.c')],
+  ['cowork',path.join(root,'src/harness/cowork/ds4_cowork.c')],
   ['remote',path.join(root,'extension/remote/dstudio_remote_llm.c')],
   ['pld',path.join(root,'patch/ds4-agent-jsonl/pld_core.c')]]){
   const output=path.join(run,`${name}.o`);command('cc',[...flags,'-c',source,'-o',output]);objects.push(output);
@@ -63,7 +63,7 @@ try{
   '-framework','Foundation','-framework','Metal','-o',binary]);
  const workspace=path.join(run,'workspace');fs.mkdirSync(workspace);
  fs.writeFileSync(path.join(run,'outside.md'),'outside fixture stays unchanged\n',{flag:'wx'});
- const output=command(binary,[],workspace,{DS4UI_COWORK_HELPER:path.join(root,'extension/cowork/office_tool.py')});
+ const output=command(binary,[],workspace,{DS4UI_COWORK_HELPER:path.join(root,'src/harness/cowork/office_tool.py')});
  report.rows=output.trim().split('\n').map(line=>JSON.parse(line));
  assert.equal(report.rows.find(row=>row.case==='upstream-agent-units').failures,0);
  assert.equal(report.rows.find(row=>row.case==='literal-markup-fragmentation').failures,0);

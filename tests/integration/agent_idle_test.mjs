@@ -39,7 +39,7 @@ try {
   report.inputs = ['tests/integration/agent_idle_test.mjs', 'tests/support/agent_idle_probe.c',
     'patch/ds4-agent-jsonl/manifest', 'patch/ds4-agent-jsonl/bases.json', 'patch/ds4-agent-jsonl/build.mk',
     'patch/ds4-agent-jsonl/remote-agent.cfrag', 'patch/ds4-agent-jsonl/remote-tools.cfrag',
-    'extension/remote/dstudio_remote_llm.c', 'extension/cowork/ds4_cowork.c',
+    'extension/remote/dstudio_remote_llm.c', 'src/harness/cowork/ds4_cowork.c',
     path.join(engine, 'ds4_agent.c'), path.join(engine, 'ds4_web.c')].map(capture);
   report.coreObjects = fs.readdirSync(engine).filter(f => f.endsWith('.o')).map(f => capture(path.join(engine, f)));
   const emitter = path.join(run, 'emit');
@@ -56,7 +56,7 @@ try {
     'JSONL_WEB_SRC=' + path.join(run, 'web.c'),
     `JSONL_CFLAGS=-O1 -g -std=c11 -I${run} -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all`,
     'DSTUDIO_REMOTE_DIR=' + path.join(root, 'extension/remote'),
-    'DSTUDIO_COWORK_DIR=' + path.join(root, 'extension/cowork'),
+    'DSTUDIO_COWORK_DIR=' + path.join(root, 'src/harness/cowork'),
     'DSTUDIO_PLD_DIR=' + path.join(root, 'patch/ds4-agent-jsonl'), binary], engine);
   report.binarySHA256 = hash(fs.readFileSync(binary));
   const result = command(binary, [], run, false, 20000);

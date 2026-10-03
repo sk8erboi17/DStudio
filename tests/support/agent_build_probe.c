@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
     }
     assert(argc == 4);
     if (!strcmp(argv[3], "design") || !strcmp(argv[3], "design-status"))
-        return run_ext_script("extension/design/build-design.sh",
+        return run_ext_script("src/harness/design/build-design.sh",
             !strcmp(argv[3], "design") ? "build" : "status") ? 0 : 1;
     if (!strcmp(argv[3], "server-qwen38"))
         cstr_copy(g_model_override, sizeof g_model_override, MODEL_QWEN);

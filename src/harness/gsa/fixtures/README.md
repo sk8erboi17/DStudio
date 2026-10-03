@@ -5,13 +5,13 @@ This tree contains the active 16-case local, source-first benchmark suite for DS
 The suite is balanced for an 8-hour run target on the current local DS4 setup:
 - 8 categories, 2 workspaces per category.
 - 4 difficulties, 4 workspaces per difficulty overall.
-- Answer keys remain outside the workspaces under `extension/gsa/answer-key/`.
+- Answer keys remain outside the workspaces under `src/harness/gsa/answer-key/`.
 
 Open only a leaf `workspace/` directory in DStudio/GSA, for example:
 
-`extension/gsa/fixtures/web/hard/web-hard-01-api-access-boundary/workspace`
+`src/harness/gsa/fixtures/web/hard/web-hard-01-api-access-boundary/workspace`
 
-Do not point GSA at `gsa/`, `extension/gsa/fixtures/`, or `extension/gsa/answer-key/`.
+Do not point GSA at `gsa/`, `src/harness/gsa/fixtures/`, or `src/harness/gsa/answer-key/`.
 
 The workspaces contain production-style source trees, configs, tests, local artifacts, and curation docs. They do not contain scoring keys. Some targets contain a reportable implementation issue, some are clean, and some intentionally lack enough evidence to close the case.
 

@@ -12,19 +12,19 @@ import {
   sleep,
   startDStudio,
   startMode,
-} from "../../../tests/support/real_harness.mjs";
+} from "../../../../tests/support/real_harness.mjs";
 
 const root = repoRoot;
-const fixturesRoot = path.join(root, "extension", "gsa", "fixtures");
+const fixturesRoot = path.join(root, "src", "harness", "gsa", "fixtures");
 const indexPath = path.join(fixturesRoot, "index.json");
-const benchmarkRoot = path.join(root, "extension", "gsa", "benchmark");
+const benchmarkRoot = path.join(root, "src", "harness", "gsa", "benchmark");
 
 function usage() {
   console.error([
-    "usage: node extension/gsa/bench/run.mjs [options]",
+    "usage: node src/harness/gsa/bench/run.mjs [options]",
     "",
     "Options:",
-    "  --out <dir>             Output run directory (default: extension/gsa/benchmark/gsa-<timestamp>)",
+    "  --out <dir>             Output run directory (default: src/harness/gsa/benchmark/gsa-<timestamp>)",
     "  --base-url <url>        Use an already running DStudio server",
     "  --case <id>             Run one case id",
     "  --cases <id,id,...>     Run a comma-separated list of case ids",
@@ -46,7 +46,7 @@ function usage() {
     "  --fail-fast             Stop at the first failed case instead of continuing",
     "  --report-only           Regenerate summary/BENCHMARK.md from an existing run directory",
     "",
-    "The runner never copies extension/gsa/answer-key into a workspace. Answer keys are",
+    "The runner never copies src/harness/gsa/answer-key into a workspace. Answer keys are",
     "used only by score.mjs after report generation.",
   ].join("\n"));
 }
@@ -750,7 +750,7 @@ async function runCase(baseUrl, item, outRoot, opts) {
 }
 
 function runScore(outRoot) {
-  const res = spawnSync(process.execPath, ["extension/gsa/bench/score.mjs", "--reports", outRoot, "--out", outRoot], {
+  const res = spawnSync(process.execPath, ["src/harness/gsa/bench/score.mjs", "--reports", outRoot, "--out", outRoot], {
     cwd: root,
     encoding: "utf8",
   });
@@ -787,7 +787,7 @@ function writeBenchmarkReport(outRoot, selectedCount, meta) {
     "",
     `- Dataset: ${datasetTotal} local-only workspaces balanced for an 8-hour run target: 2 per category and 4 per difficulty overall.`,
     "- Categories: crypto, web, reverse engineering, forensics, OSINT, network security, malware analysis and pwn.",
-    "- Each case is copied into `extension/gsa/benchmark/<run>/<project>/workspace` before GSA starts.",
+    "- Each case is copied into `src/harness/gsa/benchmark/<run>/<project>/workspace` before GSA starts.",
     "- Answer keys are not copied into the workspace and are not sent to the model.",
     "- Calibration policy: no answer-key hints, no benchmark-specific prompts, and no prompts that reveal whether a case contains a vulnerability.",
     "- Tool policy: external tools are advisory only; scanner success/failure must be cross-checked with source, artifacts, manual reasoning, or targeted Python helpers.",
@@ -838,9 +838,9 @@ function writeBenchmarkReport(outRoot, selectedCount, meta) {
     "## Reproduce",
     "",
     "```sh",
-    "node extension/gsa/bench/validate.mjs",
-    `node extension/gsa/bench/run.mjs --out ${path.relative(root, outRoot)}`,
-    `node extension/gsa/bench/score.mjs --reports ${path.relative(root, outRoot)} --out ${path.relative(root, outRoot)}`,
+    "node src/harness/gsa/bench/validate.mjs",
+    `node src/harness/gsa/bench/run.mjs --out ${path.relative(root, outRoot)}`,
+    `node src/harness/gsa/bench/score.mjs --reports ${path.relative(root, outRoot)} --out ${path.relative(root, outRoot)}`,
     "```",
     "",
     "Detailed per-case artifacts are in each project folder: `manifest.json`, tool/run artifacts under `gsa/`, raw phase output, parsed phase JSON and `report.md`.",
@@ -854,7 +854,7 @@ function writeBenchmarkReport(outRoot, selectedCount, meta) {
   }
   const body = lines.join("\n");
   writeText(path.join(outRoot, "BENCHMARK.md"), body);
-  writeText(path.join(root, "extension", "gsa", "BENCHMARK.md"), body);
+  writeText(path.join(root, "src", "harness", "gsa", "BENCHMARK.md"), body);
 }
 
 const args = parseArgs(process.argv);

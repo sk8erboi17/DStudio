@@ -102,12 +102,12 @@ try{
   const binary=path.join(engine,mode==='agent'?'ds4-agent-jsonl':'ds4-cowork');
   const args=['--non-interactive','--jsonl','--metal','-m',model,'-c','16384','-n','1024',
    '--temp','0','--seed','42','--nothink','--prefill-chunk','512','--chdir',workspace,'-p',prompt];
-  if(mode==='cowork')args.push('-sys',fs.readFileSync(path.join(root,'extension/cowork/COWORK.md'),'utf8'));
+  if(mode==='cowork')args.push('-sys',fs.readFileSync(path.join(root,'src/harness/cowork/COWORK.md'),'utf8'));
   const row={mode,directory,workspace,prompt,binary:{path:binary,sha256:hash(fs.readFileSync(binary))},
    args,events:[],passed:false};report.cases.push(row);save();
   try{
    noExistingEngine();
-   await execute(row,binary,args,{DS4UI_RUNTIME_NAME:mode,DS4UI_COWORK_HELPER:path.join(root,'extension/cowork/office_tool.py'),
+   await execute(row,binary,args,{DS4UI_RUNTIME_NAME:mode,DS4UI_COWORK_HELPER:path.join(root,'src/harness/cowork/office_tool.py'),
     DS4UI_SESSION_CACHE_DIR:path.join(directory,'private-kv-cache')});
    const file=path.join(workspace,output),st=fs.lstatSync(file);
    assert(st.isFile()&&!st.isSymbolicLink()&&st.size<65536,'Output must be a bounded regular file');

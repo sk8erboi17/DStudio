@@ -92,7 +92,7 @@ for (const binary of binaries) for (const test of cases.filter(t => !selected ||
     { cwd: work, detached: true, stdio: ['pipe','pipe','pipe'], env: { ...process.env,
       DS4UI_REMOTE_TOOL_PROTOCOL: test.protocol || 'openai', DS4UI_RUNTIME_NAME: test.cowork ? 'cowork' : 'agent',
       DS4UI_REMOTE_VISION: '',
-      DS4UI_COWORK_HELPER: path.join(root, 'extension/cowork/office_tool.py'),
+      DS4UI_COWORK_HELPER: path.join(root, 'src/harness/cowork/office_tool.py'),
       DSTUDIO_STEER_PORT: '', DSTUDIO_STEER_KEY: '', DS4UI_SESSION_CACHE_DIR: path.join(work, 'sessions') } });
   row.pid = child.pid;
   const done = new Promise(resolve => {

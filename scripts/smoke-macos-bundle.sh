@@ -79,7 +79,7 @@ if status.get("ds4dir") != os.path.join(support, "ds4"):
     raise SystemExit(f"managed ds4 path is wrong: {status.get('ds4dir')!r}")
 PY
 
-test -f "$TMP_ROOT/support/extension/design/build-design.sh"
+test -f "$TMP_ROOT/support/src/harness/design/build-design.sh"
 test -f "$TMP_ROOT/support/extension/task-graph/bench/manifest.json"
 test -f "$TMP_ROOT/support/patch/ds4-agent-jsonl/manifest"
 test -f "$TMP_ROOT/support/scripts/apply-ds4-server-metrics.sh"

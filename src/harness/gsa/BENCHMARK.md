@@ -6,7 +6,7 @@
 
 - Dataset: 16 local-only workspaces balanced for an 8-hour run target: 2 per category and 4 per difficulty overall.
 - Categories: crypto, web, reverse engineering, forensics, OSINT, network security, malware analysis and pwn.
-- Each case is copied into `extension/gsa/benchmark/<run>/<project>/workspace` before GSA starts.
+- Each case is copied into `src/harness/gsa/benchmark/<run>/<project>/workspace` before GSA starts.
 - Answer keys are not copied into the workspace and are not sent to the model.
 - Calibration policy: no answer-key hints, no benchmark-specific prompts, and no prompts that reveal whether a case contains a vulnerability.
 - Tool policy: external tools are advisory only; scanner success/failure must be cross-checked with source, artifacts, manual reasoning, or targeted Python helpers.
@@ -16,7 +16,7 @@
 
 ## Run
 
-- Run directory: `extension/gsa/benchmark/gsa-re-malware-loop-20260615-90112-64k-nosssd`
+- Run directory: `src/harness/gsa/benchmark/gsa-re-malware-loop-20260615-90112-64k-nosssd`
 - Selected cases this invocation: 2
 - Completed reports: 0
 - Failed runs: 2
@@ -27,9 +27,9 @@
 ## Reproduce
 
 ```sh
-node extension/gsa/bench/validate.mjs
-node extension/gsa/bench/run.mjs --out extension/gsa/benchmark/gsa-re-malware-loop-20260615-90112-64k-nosssd
-node extension/gsa/bench/score.mjs --reports extension/gsa/benchmark/gsa-re-malware-loop-20260615-90112-64k-nosssd --out extension/gsa/benchmark/gsa-re-malware-loop-20260615-90112-64k-nosssd
+node src/harness/gsa/bench/validate.mjs
+node src/harness/gsa/bench/run.mjs --out src/harness/gsa/benchmark/gsa-re-malware-loop-20260615-90112-64k-nosssd
+node src/harness/gsa/bench/score.mjs --reports src/harness/gsa/benchmark/gsa-re-malware-loop-20260615-90112-64k-nosssd --out src/harness/gsa/benchmark/gsa-re-malware-loop-20260615-90112-64k-nosssd
 ```
 
 Detailed per-case artifacts are in each project folder: `manifest.json`, tool/run artifacts under `gsa/`, raw phase output, parsed phase JSON and `report.md`.

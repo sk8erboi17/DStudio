@@ -208,7 +208,7 @@ try {
       'patch/ds4-agent-jsonl/manifest', 'patch/ds4-agent-jsonl/remote-tools.cfrag', 'patch/ds4-agent-jsonl/remote-agent.cfrag',
       'patch/ds4-agent-jsonl/remote-vision.patch',
       'extension/remote/dstudio_remote_llm.c', 'extension/remote/dstudio_remote_llm.h',
-      'extension/cowork/office_tool.py', 'extension/cowork/COWORK.md', 'extension/cowork/document_table.py');
+      'src/harness/cowork/office_tool.py', 'src/harness/cowork/COWORK.md', 'src/harness/cowork/document_table.py');
   }
   report.inputs = Object.fromEntries(inputs.map(file => [path.resolve(file), hash(file)])); save(); assertIsolation();
   const port = await freePort(), enginePort = await freePort(); base = `http://127.0.0.1:${port}`;

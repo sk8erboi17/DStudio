@@ -25,7 +25,7 @@ function command(exe,args,cwd=root,env={}){
 }
 try{
  const flags=['-O1','-std=c11',...(sanitize?['-g','-fno-omit-frame-pointer','-fsanitize=address,undefined','-fno-sanitize-recover=all']:[]),
- ...[run,engine,path.join(root,'extension/remote'),path.join(root,'extension/cowork'),path.join(root,'patch/ds4-agent-jsonl')].flatMap(p=>['-I',p])];
+ ...[run,engine,path.join(root,'extension/remote'),path.join(root,'src/harness/cowork'),path.join(root,'patch/ds4-agent-jsonl')].flatMap(p=>['-I',p])];
  report.engineGit=ownGitRevision(engine);report.compiler=command('cc',['--version']);
  report.sourceSHA256=hash(fs.readFileSync(path.join(engine,'ds4_agent.c')));
  if(upstream)fs.copyFileSync(path.join(engine,'ds4_agent.c'),path.join(run,'ds4_agent.c'));
@@ -38,7 +38,7 @@ try{
  const objects=['ds4','ds4_distributed','ds4_tp','ds4_ssd','ds4_metal','ds4_layer_pack','ds4_help','ds4_kvstore','linenoise','ds4_gpu_args'].map(n=>path.join(engine,`${n}.o`));
  report.engineObjects=objects.map(file=>({file:path.basename(file),sha256:hash(fs.readFileSync(file))}));
  if(upstream)objects.push(path.join(engine,'ds4_web.o'));
- else for(const [name,file] of [['web',path.join(run,'ds4_web.c')],['cowork',path.join(root,'extension/cowork/ds4_cowork.c')],
+ else for(const [name,file] of [['web',path.join(run,'ds4_web.c')],['cowork',path.join(root,'src/harness/cowork/ds4_cowork.c')],
   ['remote',path.join(root,'extension/remote/dstudio_remote_llm.c')],['pld',path.join(root,'patch/ds4-agent-jsonl/pld_core.c')]]){
   const object=path.join(run,`${name}.o`);command('cc',[...flags,'-c',file,'-o',object]);objects.push(object);
  }
@@ -46,7 +46,7 @@ try{
   'tests/support/qwen35_agent_probe.c',...objects,'-lm','-pthread','-framework','Foundation','-framework','Metal','-o',binary]);
  const workspace=path.join(run,'workspace');fs.mkdirSync(workspace);
  fs.writeFileSync(path.join(run,'outside.md'),'Outside fixture stays unchanged.\n',{flag:'wx'});
- report.rows=command(binary,[],workspace,{DS4UI_COWORK_HELPER:path.join(root,'extension/cowork/office_tool.py')})
+ report.rows=command(binary,[],workspace,{DS4UI_COWORK_HELPER:path.join(root,'src/harness/cowork/office_tool.py')})
   .trim().split('\n').map(line=>JSON.parse(line));
  assert.equal(report.rows.find(r=>r.case==='native-agent-regressions').failures,0);
  assert.equal(report.rows.find(r=>r.case==='fragmentation-and-literal-markup').failures,0);

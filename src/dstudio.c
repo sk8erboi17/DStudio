@@ -383,7 +383,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define MODEL_QWEN27_BYTES 25299061664LL
 #define MODEL_QWEN27_VISION_BYTES 927607488LL
 
-#include "../extension/design/design_system_catalog.h"
+#include "../src/harness/design/design_system_catalog.h"
 
 #define MODEL_STD "gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"
 #define MODEL_UNC "gguf/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128.gguf"
@@ -3496,7 +3496,7 @@ static int web_dir_valid(void) {
     if (!g_web_dir[0]) return 0;
     struct stat st;
     char marker[2200];
-    snprintf(marker, sizeof marker, "%s/extension/design/build-design.sh", g_web_dir);
+    snprintf(marker, sizeof marker, "%s/src/harness/design/build-design.sh", g_web_dir);
     return stat(marker, &st) == 0 && S_ISREG(st.st_mode);
 }
 
@@ -4735,7 +4735,7 @@ static void child_setenv_skills(void) {
         char p[1100];
         snprintf(p, sizeof p, "%s/extension", g_web_dir);
         setenv("DS4UI_SKILLS_DIR", p, 1);
-        snprintf(p, sizeof p, "%s/extension/cowork/office_tool.py", g_web_dir);
+        snprintf(p, sizeof p, "%s/src/harness/cowork/office_tool.py", g_web_dir);
         setenv("DS4UI_COWORK_HELPER", p, 1);
     }
     /* Local GLM 5.3 and DeepSeek Vision-Exp receive their matching encoder and
@@ -5147,7 +5147,7 @@ static char *build_skill_sys(int mode, int structured_tools) {
 
     size_t n = 0;
     if (cowork_mode) {
-        snprintf(path, sizeof path, "%s/extension/cowork/COWORK.md", g_web_dir);
+        snprintf(path, sizeof path, "%s/src/harness/cowork/COWORK.md", g_web_dir);
         n = 0;
         char *cowork_instructions = jsonl_read_file(path, &n);
         sys_append(&buf, &len, &cap, cowork_instructions, n);
@@ -5405,7 +5405,7 @@ static int jsonl_make(const char *ds4_abs, const char *target, const char *stage
         if (g_web_dir[0]) {
             snprintf(remote_arg, sizeof remote_arg, "DSTUDIO_REMOTE_DIR=%s/extension/remote", g_web_dir);
             argv[ai++] = remote_arg;
-            snprintf(cowork_arg, sizeof cowork_arg, "DSTUDIO_COWORK_DIR=%s/extension/cowork", g_web_dir);
+            snprintf(cowork_arg, sizeof cowork_arg, "DSTUDIO_COWORK_DIR=%s/src/harness/cowork", g_web_dir);
             argv[ai++] = cowork_arg;
         }
         argv[ai] = NULL;
@@ -5873,7 +5873,7 @@ static int mac_materialize_bundle_support(const char *bundle_root,
     if (waited != pid || !WIFEXITED(st) || WEXITSTATUS(st) != 0) return 0;
 
     char marker[DSTUDIO_PATH_MAX + 80], abs[DSTUDIO_PATH_MAX];
-    n = snprintf(marker, sizeof marker, "%s/extension/design/build-design.sh", target);
+    n = snprintf(marker, sizeof marker, "%s/src/harness/design/build-design.sh", target);
     if (n < 0 || (size_t)n >= sizeof marker || access(marker, R_OK) != 0) return 0;
     if (!realpath(target, abs)) return 0;
     cstr_copy(out, outsz, abs);
@@ -5969,7 +5969,7 @@ static int run_ext_script_for_dir(const char *script, const char *action,
     char abs_script[DSTUDIO_PATH_MAX + 1024];
     if (g_web_dir[0]) snprintf(abs_script, sizeof abs_script, "%s/%s", g_web_dir, script);
     else snprintf(abs_script, sizeof abs_script, "%s", script);
-    int design = !strcmp(script, "extension/design/build-design.sh");
+    int design = !strcmp(script, "src/harness/design/build-design.sh");
     int build_lock = -1, stage_fd = -1, root_fd = -1;
     char stage[DSTUDIO_PATH_MAX + 64] = "";
     if (design) {
@@ -6389,7 +6389,7 @@ static int spawn_agent_prepared(const engine_cfg *cfg, const char *workdir,
 /* Starts ds4-design --jsonl. Like the agent but without --chdir: the cwd stays
  * the ds4 dir (binary, model and relative Metal sources work), and the design
  * only exits into the workspace passed with --workspace. The source lives in
- * THIS repo (extension/design/ds4_design.c, native \x1e events): the script
+ * THIS repo (src/harness/design/ds4_design.c, native \x1e events): the script
  * compiles it in the ds4 repo as an untracked output, without patch or .bak. */
 static void design_snapshot_preexisting(const char *dir); /* see api_design_clean */
 static int spawn_design_prepared(const engine_cfg *cfg, const char *workdir,
@@ -6414,7 +6414,7 @@ static int spawn_design_prepared(const engine_cfg *cfg, const char *workdir,
 #else
     if (!prepared && (!run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") ||
         !run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") ||
-        !run_ext_script("extension/design/build-design.sh", "build"))) {
+        !run_ext_script("src/harness/design/build-design.sh", "build"))) {
         snprintf(err, errsz, "build of ds4-design failed (see the serve terminal)");
         return 0;
     }
@@ -7230,7 +7230,7 @@ static void api_doctor(int fd) {
     int agent_ok = ds4_ok && (agent_src_ok || rel_exists("ds4-agent-jsonl") ||
                               rel_exists("ds4-agent-jsonl.exe"));
     char cowork_helper[DSTUDIO_PATH_MAX];
-    snprintf(cowork_helper, sizeof cowork_helper, "%s/extension/cowork/office_tool.py",
+    snprintf(cowork_helper, sizeof cowork_helper, "%s/src/harness/cowork/office_tool.py",
              g_web_dir[0] ? g_web_dir : ".");
     int cowork_ok = agent_ok && access(cowork_helper, R_OK) == 0;
     int design_ok = ds4_ok && (rel_exists("ds4-design") || rel_exists("ds4-design.exe") ||
@@ -7284,7 +7284,7 @@ static void api_doctor(int fd) {
     ok = ok && doctor_add_check(&b, &first, "cowork", "Cowork",
         cowork_ok ? "ok" : "warn",
         cowork_ok ? "Cowork runtime and local Office tools are available."
-                  : "Cowork needs the structured runtime and extension/cowork Office helper.",
+                  : "Cowork needs the structured runtime and src/harness/cowork Office helper.",
         cowork_ok ? NULL : "open-settings");
 
     if (!design_ok) warn++;
@@ -8075,12 +8075,12 @@ oom:
 #include "dstudio_goal.c"
 /* GSA implementation lives with the extension assets. It is included here so
  * DStudio still builds as one C translation unit while keeping GSA ownership
- * under extension/gsa/. */
-#include "../extension/gsa/dstudio_gsa.cfrag"
+ * under src/harness/gsa/. */
+#include "../src/harness/gsa/dstudio_gsa.cfrag"
 
 /* RSA reuses the same optional tool pool as GSA but keeps separate run
- * artifacts and prompts under extension/rsa/. */
-#include "../extension/rsa/dstudio_rsa.cfrag"
+ * artifacts and prompts under src/harness/rsa/. */
+#include "../src/harness/rsa/dstudio_rsa.cfrag"
 
 static void parse_cfg(const char *body, engine_cfg *cfg, int *bad) {
     long v;
@@ -9346,7 +9346,7 @@ static void api_fs_mkdir(int fd, const char *body) {
 
 /* Point the launcher at a different DStudio checkout (where extension/ lives:
  * the design build + the jsonl patch). Verified: it must be a real folder that
- * contains extension/design/build-design.sh, else the change is refused. */
+ * contains src/harness/design/build-design.sh, else the change is refused. */
 static void api_set_webdir(int fd, const char *body) {
     char path[1024] = {0};
     json_get_string(body, "path", path, sizeof path);
@@ -9358,9 +9358,9 @@ static void api_set_webdir(int fd, const char *body) {
         return;
     }
     char marker[DSTUDIO_PATH_MAX + 1024];
-    snprintf(marker, sizeof marker, "%s/extension/design/build-design.sh", abs);
+    snprintf(marker, sizeof marker, "%s/src/harness/design/build-design.sh", abs);
     if (stat(marker, &st) != 0 || !S_ISREG(st.st_mode)) {
-        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"not a DStudio folder (extension/design missing)\"}");
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"not a DStudio folder (src/harness/design missing)\"}");
         return;
     }
     cstr_copy(g_web_dir, sizeof g_web_dir, abs);
@@ -11897,7 +11897,7 @@ int main(int argc, char **argv)
         resolve_ds4_dir();
         const char *action = argc > 3 ? argv[3] : "build";
         if (argc > 4 || (strcmp(action, "build") && strcmp(action, "status"))) return 2;
-        return run_ext_script("extension/design/build-design.sh", action) ? 0 : 1;
+        return run_ext_script("src/harness/design/build-design.sh", action) ? 0 : 1;
     }
     /* Compile only: no model loading, listeners or engine launch. */
     if (argc > 1 && strcmp(argv[1], "--build-server-pld") == 0) {

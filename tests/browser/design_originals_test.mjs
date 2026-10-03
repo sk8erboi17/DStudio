@@ -20,11 +20,11 @@ async function exercisePack(id, scope, page, options) {
 const root = process.cwd();
 fs.mkdirSync('tests/.artifacts', {recursive:true});
 const run = fs.mkdtempSync(path.resolve('tests/.artifacts/design-originals-'));
-for (const d of ['install/extension/design','install/ds4/gguf','data'])
+for (const d of ['install/src/harness/design','install/ds4/gguf','data'])
   fs.mkdirSync(path.join(run,d), {recursive:true});
 const install = path.join(run,'install');
 fs.cpSync('extension/design-systems', path.join(install,'extension/design-systems'), {recursive:true});
-fs.copyFileSync('extension/design/build-design.sh', path.join(install,'extension/design/build-design.sh'));
+fs.copyFileSync('src/harness/design/build-design.sh', path.join(install,'src/harness/design/build-design.sh'));
 fs.writeFileSync(path.join(install,'ds4/Makefile'),'all:\n\t@true\n');
 // An old install can retain a stale directory. It must neither appear nor load.
 fs.mkdirSync(path.join(install,'extension/design-systems/retired'));

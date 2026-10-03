@@ -305,7 +305,7 @@ try {
     const first = await nextRequest(), names = first.body.tools.map(t => t.function.name);
     checkStructuredCatalog(first);
     assert(first.body.messages.find(m => m.role === 'system').content.includes(
-      fs.readFileSync(path.join(root, 'extension/cowork/COWORK.md'), 'utf8')),
+      fs.readFileSync(path.join(root, 'src/harness/cowork/COWORK.md'), 'utf8')),
       'The complete Cowork workflow must reach the model unchanged');
     for (const name of ['excel', 'read_document', 'write_document', 'write_pdf', 'presentation'])
       assert.equal(names.filter(n => n === name).length, 1, 'Missing or duplicated Office schema: ' + name);

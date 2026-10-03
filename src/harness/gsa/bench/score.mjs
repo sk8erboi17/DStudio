@@ -3,10 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 const scriptDir = path.dirname(new URL(import.meta.url).pathname);
-const root = path.resolve(scriptDir, "../../..");
+const root = path.resolve(scriptDir, "../../../..");
 
 function usage() {
-  console.error("usage: node extension/gsa/bench/score.mjs --reports <dir> [--out <dir>] [--fixtures extension/gsa/fixtures] [--answers extension/gsa/answer-key]");
+  console.error("usage: node src/harness/gsa/bench/score.mjs --reports <dir> [--out <dir>] [--fixtures src/harness/gsa/fixtures] [--answers src/harness/gsa/answer-key]");
 }
 
 function parseArgs(argv) {
@@ -252,8 +252,8 @@ if (!args.reports) {
 }
 
 const reportsRoot = path.resolve(root, args.reports);
-const fixturesRoot = path.resolve(root, args.fixtures || "extension/gsa/fixtures");
-const answersRoot = path.resolve(root, args.answers || "extension/gsa/answer-key");
+const fixturesRoot = path.resolve(root, args.fixtures || "src/harness/gsa/fixtures");
+const answersRoot = path.resolve(root, args.answers || "src/harness/gsa/answer-key");
 const outRoot = path.resolve(root, args.out || reportsRoot);
 
 if (!fs.existsSync(reportsRoot)) {

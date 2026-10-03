@@ -4,9 +4,9 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 const scriptDir = path.dirname(new URL(import.meta.url).pathname);
-const root = path.resolve(scriptDir, "../../..");
-const fixturesRoot = path.join(root, "extension", "gsa", "fixtures");
-const answersRoot = path.join(root, "extension", "gsa", "answer-key");
+const root = path.resolve(scriptDir, "../../../..");
+const fixturesRoot = path.join(root, "src", "harness", "gsa", "fixtures");
+const answersRoot = path.join(root, "src", "harness", "gsa", "answer-key");
 const indexPath = path.join(fixturesRoot, "index.json");
 
 const categories = [
@@ -76,7 +76,7 @@ function workspaceTextFiles(workspace) {
 const failures = [];
 
 if (!fs.existsSync(indexPath)) fail(`missing ${path.relative(root, indexPath)}`);
-if (fs.existsSync(path.join(root, "extension", "gsa", "fixture_projects_gen.mjs"))) {
+if (fs.existsSync(path.join(root, "src", "harness", "gsa", "fixture_projects_gen.mjs"))) {
   fail("gsa/fixture_projects_gen.mjs must not be the source of truth for curated benchmark workspaces");
 }
 

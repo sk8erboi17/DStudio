@@ -684,7 +684,7 @@ static int setup_build_branch_runtimes(const char *target, const char *label,
                  g_engine_err[0] ? ": " : "", g_engine_err[0] ? g_engine_err : "");
         goto done;
     }
-    if (!run_ext_script("extension/design/build-design.sh", "build")) {
+    if (!run_ext_script("src/harness/design/build-design.sh", "build")) {
         snprintf(err, errsz, "%s Design runtime build failed", label);
         goto done;
     }
@@ -827,7 +827,7 @@ static void api_setup_ds4(int fd, const char *body) {
         return;
     }
 
-    int design_prepared = run_ext_script("extension/design/build-design.sh", "build");
+    int design_prepared = run_ext_script("src/harness/design/build-design.sh", "build");
     if (!design_prepared) {
         setup_send_json(fd, "500 Internal Server Error", 0, g_ds4_dir, downloaded, 1, 1, 0,
                         was_running, 0, mode_name(prev_mode),

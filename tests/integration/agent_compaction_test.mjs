@@ -67,14 +67,14 @@ try {
   const flags = ['-O1', '-std=c11', '-g', '-fno-omit-frame-pointer',
     '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
     ...(family === 'laguna' ? ['-DDSTUDIO_COMPACT_LAGUNA'] : []),
-    ...[run, engine, path.join(root, 'extension/remote'), path.join(root, 'extension/cowork'),
+    ...[run, engine, path.join(root, 'extension/remote'), path.join(root, 'src/harness/cowork'),
       path.join(root, 'patch/ds4-agent-jsonl')].flatMap(p => ['-I', p])];
   const objects = ['ds4', 'ds4_distributed', 'ds4_tp', 'ds4_ssd', 'ds4_metal', 'ds4_layer_pack',
     'ds4_help', 'ds4_kvstore', 'linenoise', 'ds4_gpu_args'].map(n => path.join(engine, n + '.o'));
   if (fs.existsSync(path.join(engine, 'ds4_prompt_prefix.o'))) objects.push(path.join(engine, 'ds4_prompt_prefix.o'));
   report.engineObjects = objects.map(retainInput);
   for (const [name, file] of [['web', path.join(run, 'ds4_web.c')],
-    ['cowork', path.join(root, 'extension/cowork/ds4_cowork.c')],
+    ['cowork', path.join(root, 'src/harness/cowork/ds4_cowork.c')],
     ['remote', path.join(root, 'extension/remote/dstudio_remote_llm.c')],
     ['pld', path.join(root, 'patch/ds4-agent-jsonl/pld_core.c')]]) {
     report.inputs.push(retainInput(file));

@@ -184,7 +184,7 @@ static int updates_run_patch_verify(unsigned long long task_id, char *err, size_
         return 0;
     }
     task_mark_working(task_id, "building design runtime");
-    if (!run_ext_script("extension/design/build-design.sh", "build")) {
+    if (!run_ext_script("src/harness/design/build-design.sh", "build")) {
         snprintf(err, errsz, "design runtime build failed after patch verification");
         return 0;
     }

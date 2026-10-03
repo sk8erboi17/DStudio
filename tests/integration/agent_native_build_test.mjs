@@ -27,7 +27,7 @@ const supportFiles = ['patch/ds4-agent-jsonl/remote-agent.cfrag', 'patch/ds4-age
   ...['manifest','main-qwen.patch','main-v41.patch','main-current.patch','main-previous.patch','laguna.patch','qwen38.patch','qwen38-next.patch','qwen35.patch','pld_core.c',
     'pld_agent.inc','pld_agent_rewind.h','pld_agent_compaction.h','compaction_text.h'].map(f => `patch/ds4-agent-jsonl/${f}`),
   'patch/ds4-agent-jsonl/build.mk', 'extension/remote/dstudio_remote_llm.c', 'extension/remote/dstudio_remote_llm.h',
-  'extension/remote/dstudio_wire_string.h', 'extension/remote/dstudio_json_tokens.h', 'extension/cowork/ds4_cowork.c',
+  'extension/remote/dstudio_wire_string.h', 'extension/remote/dstudio_json_tokens.h', 'src/harness/cowork/ds4_cowork.c',
   'tests/integration/remote_structured_tools_test.mjs', 'tests/unit/remote_turn_error_unit.c', 'src/dstudio_task_executor.c',
   'tests/support/agent_structured_probe.c', 'tests/support/agent_idle_probe.c'];
 const ownerProbe = fs.realpathSync(process.env.DSTUDIO_STRUCTURED_OWNER_PROBE || path.join(root, 'tests/.build/remote-turn-error-unit'));
@@ -148,14 +148,14 @@ try {
     await run(row, 'renderer-build', 'make', ['-f',path.join(root,'patch/ds4-agent-jsonl/build.mk'),
       'JSONL_OUT=renderer-check','JSONL_AGENT_SRC=renderer-check/probe.c','JSONL_WEB_SRC=renderer-check/web.c',
       `JSONL_CFLAGS=-O1 -g -std=c11 -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all${backend==='cpu'?' -DDS4_NO_GPU':''}`,
-      `DSTUDIO_REMOTE_DIR=${path.join(root,'extension/remote')}`,`DSTUDIO_COWORK_DIR=${path.join(root,'extension/cowork')}`,
+      `DSTUDIO_REMOTE_DIR=${path.join(root,'extension/remote')}`,`DSTUDIO_COWORK_DIR=${path.join(root,'src/harness/cowork')}`,
       `DSTUDIO_PLD_DIR=${path.join(root,'patch/ds4-agent-jsonl')}`,'renderer-check/ds4-agent-jsonl'],engine);
     await run(row, 'renderer', path.join(renderer,'ds4-agent-jsonl'), [], renderer);
     const structured = path.join(engine, 'structured-check'); fs.mkdirSync(structured);
     await run(row, 'structured-build', 'make', ['-f',path.join(root,'patch/ds4-agent-jsonl/build.mk'),
       'JSONL_OUT=structured-check','JSONL_AGENT_SRC=renderer-check/agent-runtime.c','JSONL_WEB_SRC=renderer-check/web.c',
       `JSONL_CFLAGS=-O1 -g -std=c11 -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all${backend==='cpu'?' -DDS4_NO_GPU':''}`,
-      `DSTUDIO_REMOTE_DIR=${path.join(root,'extension/remote')}`,`DSTUDIO_COWORK_DIR=${path.join(root,'extension/cowork')}`,
+      `DSTUDIO_REMOTE_DIR=${path.join(root,'extension/remote')}`,`DSTUDIO_COWORK_DIR=${path.join(root,'src/harness/cowork')}`,
       `DSTUDIO_PLD_DIR=${path.join(root,'patch/ds4-agent-jsonl')}`,'structured-check/ds4-agent-jsonl'],engine);
     await run(row, 'structured-tools', process.execPath, [path.join(root,'tests/integration/remote_structured_tools_test.mjs'),
       path.join(engine,'ds4-agent-jsonl'), path.join(structured,'ds4-agent-jsonl')], root,
@@ -165,7 +165,7 @@ try {
       'JSONL_OUT=bounded-check',`JSONL_AGENT_SRC=${path.join(root,'tests/support/agent_structured_probe.c')}`,
       'JSONL_WEB_SRC=renderer-check/web.c',
       `JSONL_CFLAGS=-O1 -g -std=c11 -Irenderer-check -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all${backend==='cpu'?' -DDS4_NO_GPU':''}`,
-      `DSTUDIO_REMOTE_DIR=${path.join(root,'extension/remote')}`,`DSTUDIO_COWORK_DIR=${path.join(root,'extension/cowork')}`,
+      `DSTUDIO_REMOTE_DIR=${path.join(root,'extension/remote')}`,`DSTUDIO_COWORK_DIR=${path.join(root,'src/harness/cowork')}`,
       `DSTUDIO_PLD_DIR=${path.join(root,'patch/ds4-agent-jsonl')}`,'bounded-check/ds4-agent-jsonl'],engine);
     await run(row, 'structured-bounds', path.join(engine,'bounded-check/ds4-agent-jsonl'), [], engine);
     fs.mkdirSync(path.join(engine, 'idle-check'));
@@ -173,7 +173,7 @@ try {
       'JSONL_OUT=idle-check', `JSONL_AGENT_SRC=${path.join(root, 'tests/support/agent_idle_probe.c')}`,
       'JSONL_WEB_SRC=renderer-check/web.c',
       `JSONL_CFLAGS=-O1 -g -std=c11 -Irenderer-check -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all${backend==='cpu'?' -DDS4_NO_GPU':''}`,
-      `DSTUDIO_REMOTE_DIR=${path.join(root, 'extension/remote')}`, `DSTUDIO_COWORK_DIR=${path.join(root, 'extension/cowork')}`,
+      `DSTUDIO_REMOTE_DIR=${path.join(root, 'extension/remote')}`, `DSTUDIO_COWORK_DIR=${path.join(root, 'src/harness/cowork')}`,
       `DSTUDIO_PLD_DIR=${path.join(root, 'patch/ds4-agent-jsonl')}`, 'idle-check/ds4-agent-jsonl'], engine);
     await run(row, 'idle-owner', path.join(engine, 'idle-check/ds4-agent-jsonl'), [], engine);
     await run(row, 'repeat', buildHost, buildArgs(engine), host ? '/' : root);

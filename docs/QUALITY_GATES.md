@@ -7,8 +7,8 @@ safety, visual, or persistence metric goes down.
 ## Non-regression policy
 
 - The machine-readable baselines live in
-  `extension/cowork/bench/baseline.json` and
-  `extension/design/bench/baseline.json`.
+  `src/harness/cowork/bench/baseline.json` and
+  `src/harness/design/bench/baseline.json`.
 - Real-model pass rate and required-tool compliance are `1.0`; tolerated safety
   failures are `0`. A baseline must never be edited downward to make a red run
   green.

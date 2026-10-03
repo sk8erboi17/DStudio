@@ -14,7 +14,7 @@ a marker or fuzzy partial application as a complete adaptation. Native Metal
 builds, exact stack restoration and Design's 18 process/filesystem regressions
 cover this rebase; they do not qualify CUDA execution.
 
-For Design, `extension/design/build-design.sh` applies this patch only in its
+For Design, `src/harness/design/build-design.sh` applies this patch only in its
 private build snapshot and verifies the complete forward or reverse delta using
 Git. It neither edits nor restores the original checkout. Existing setup/server
 patch application remains a separate path.

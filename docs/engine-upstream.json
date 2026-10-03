@@ -116,11 +116,11 @@
         "sha256": "4f6a03700de4cf761bf2b2d552d2544230ef774852919ba7acebe95aec4b7f7a"
       },
       {
-        "path": "extension/cowork/ds4_cowork.c",
+        "path": "src/harness/cowork/ds4_cowork.c",
         "sha256": "58ea83280e4e98448c0606c50995940acb83e276cb288db4398748f7802c881f"
       },
       {
-        "path": "extension/cowork/ds4_cowork.h",
+        "path": "src/harness/cowork/ds4_cowork.h",
         "sha256": "e8fe97f24e214f0e6b0f0873e70f1a541f6eb8d40fe364e034a30221d06d4dd2"
       },
       {
@@ -181,11 +181,11 @@
         "sha256": "2672db4c37f875d62226bd985bc6f169a3c6330ea79516e386fda3310e8ababa"
       },
       {
-        "path": "extension/design/ds4_design.c",
+        "path": "src/harness/design/ds4_design.c",
         "sha256": "9aee345bee7d5468c79398d18112345fd0f24bb05cb20a40d0baebaee1abdf80"
       },
       {
-        "path": "extension/design/build-design.sh",
+        "path": "src/harness/design/build-design.sh",
         "sha256": "25deb793596032740c797da8259eaf89055364a12b2f13146e69d939cf149dd9"
       },
       {
@@ -311,11 +311,11 @@
         "sha256": "4f6a03700de4cf761bf2b2d552d2544230ef774852919ba7acebe95aec4b7f7a"
       },
       {
-        "path": "extension/cowork/ds4_cowork.c",
+        "path": "src/harness/cowork/ds4_cowork.c",
         "sha256": "58ea83280e4e98448c0606c50995940acb83e276cb288db4398748f7802c881f"
       },
       {
-        "path": "extension/cowork/ds4_cowork.h",
+        "path": "src/harness/cowork/ds4_cowork.h",
         "sha256": "e8fe97f24e214f0e6b0f0873e70f1a541f6eb8d40fe364e034a30221d06d4dd2"
       },
       {
@@ -364,11 +364,11 @@
         "sha256": "0ab97627604cde6f815fdfaf879f4d734787c04e0293c120d6d105576bee0da0"
       },
       {
-        "path": "extension/design/ds4_design.c",
+        "path": "src/harness/design/ds4_design.c",
         "sha256": "9aee345bee7d5468c79398d18112345fd0f24bb05cb20a40d0baebaee1abdf80"
       },
       {
-        "path": "extension/design/build-design.sh",
+        "path": "src/harness/design/build-design.sh",
         "sha256": "25deb793596032740c797da8259eaf89055364a12b2f13146e69d939cf149dd9"
       },
       {
@@ -450,11 +450,11 @@
         "sha256": "4f6a03700de4cf761bf2b2d552d2544230ef774852919ba7acebe95aec4b7f7a"
       },
       {
-        "path": "extension/cowork/ds4_cowork.c",
+        "path": "src/harness/cowork/ds4_cowork.c",
         "sha256": "58ea83280e4e98448c0606c50995940acb83e276cb288db4398748f7802c881f"
       },
       {
-        "path": "extension/cowork/ds4_cowork.h",
+        "path": "src/harness/cowork/ds4_cowork.h",
         "sha256": "e8fe97f24e214f0e6b0f0873e70f1a541f6eb8d40fe364e034a30221d06d4dd2"
       },
       {

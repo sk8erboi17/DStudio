@@ -21,7 +21,7 @@ const report = {scope: 'Real GNU Make backend routing with simulated compilers/l
 const hash = data => crypto.createHash('sha256').update(data).digest('hex');
 const save = () => writeArtifact(run, 'results.json', report);
 const supplemental = path.join(root, 'patch/ds4-agent-jsonl/build.mk');
-const design = path.join(root, 'extension/design/design.mk');
+const design = path.join(root, 'src/harness/design/design.mk');
 const probe = path.join(root, 'tests/support/build_link_probe.mjs');
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 const tool = name => `${quote(process.execPath)} ${quote(probe)} ${name}`;
@@ -85,9 +85,9 @@ try {
         const native = link(make(row, 'native', [backend === 'cpu' ? 'cpu' : 'ds4-agent', ...selected], cwd), 'ds4-agent');
         const derivedRows = make(row, 'jsonl', ['-f', supplemental, './ds4-agent-jsonl', './ds4-server-pld', ...selected,
           'JSONL_AGENT_SRC=ds4_agent.c', 'JSONL_WEB_SRC=ds4_web.c', 'JSONL_SERVER_SRC=ds4_server.c',
-          `DSTUDIO_REMOTE_DIR=${path.join(root, 'extension/remote')}`, `DSTUDIO_COWORK_DIR=${path.join(root, 'extension/cowork')}`], cwd);
+          `DSTUDIO_REMOTE_DIR=${path.join(root, 'extension/remote')}`, `DSTUDIO_COWORK_DIR=${path.join(root, 'src/harness/cowork')}`], cwd);
         const designRows = make(row, 'design', ['-f', design, 'ds4-design', ...selected,
-          `DESIGN_SRC=${path.join(root, 'extension/design/ds4_design.c')}`, `REMOTE_DIR=${path.join(root, 'extension/remote')}`], cwd);
+          `DESIGN_SRC=${path.join(root, 'src/harness/design/ds4_design.c')}`, `REMOTE_DIR=${path.join(root, 'extension/remote')}`], cwd);
         const frontend = new Set(['ds4_agent.o', 'ds4_agent_cpu.o', 'ds4_help.o', 'ds4_prompt_prefix.o',
           'ds4_web.o', 'ds4_kvstore.o', 'linenoise.o', 'ds4_gpu_args.o', 'ds4_gpu_args_cpu.o']);
         const nativeCore = native.objects.filter(object => !frontend.has(object));

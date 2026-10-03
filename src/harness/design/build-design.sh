@@ -3,7 +3,7 @@
 # Original sources, shared objects and the running executable remain intact.
 set -euo pipefail
 EXT="$(cd "$(dirname "$0")" && pwd -P)"
-ROOT="$(cd "$EXT/../.." && pwd -P)"
+ROOT="$(cd "$EXT/../../.." && pwd -P)"
 die() { echo "build-design: $*" >&2; exit 1; }
 DS4_DIR="$(cd "${DS4_DIR:-$ROOT/ds4}" && pwd -P)" || die "invalid engine directory"
 ACTION="${1:-build}"
@@ -69,8 +69,8 @@ snapshot_sources() {
   (cd "$from" && "${DIGEST[@]}" "${files[@]}") | "${DIGEST[@]}" | awk '{print $1}'
 }
 
-support_files=(extension/design/build-design.sh extension/design/design.mk
-  extension/design/ds4_design.c extension/design/design_system_catalog.h
+support_files=(src/harness/design/build-design.sh src/harness/design/design.mk
+  src/harness/design/ds4_design.c src/harness/design/design_system_catalog.h
   extension/remote/dstudio_remote_llm.c extension/remote/dstudio_remote_llm.h
   extension/remote/dstudio_wire_string.h
   patch/ds4-media-memory/residency-lease.patch patch/ds4-media-memory/legacy-labels.patch)
@@ -79,7 +79,7 @@ support_signature() (
     from="$ROOT/$file"
     if [ -n "${1:-}" ]; then
       case "$file" in
-        extension/design/*) from="$1/design/${file##*/}" ;;
+        src/harness/design/*) from="$1/design/${file##*/}" ;;
         extension/remote/*) from="$1/remote/${file##*/}" ;;
         patch/*) from="$1/${file##*/}" ;;
       esac
@@ -94,7 +94,7 @@ support_signature > "$STAGE/support-inputs"
 SUPPORT_SIGNATURE=$("${DIGEST[@]}" "$STAGE/support-inputs" | awk '{print $1}')
 for file in "${support_files[@]}"; do
   case "$file" in
-    extension/design/*) cp "$ROOT/$file" "$STAGE/support/design/" ;;
+    src/harness/design/*) cp "$ROOT/$file" "$STAGE/support/design/" ;;
     extension/remote/*) cp "$ROOT/$file" "$STAGE/support/remote/" ;;
     patch/*) cp "$ROOT/$file" "$STAGE/support/" ;;
   esac

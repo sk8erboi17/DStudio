@@ -25,7 +25,7 @@ endif
 JSONL_GPU_ARGS_OBJ ?= $(if $(wildcard ds4_gpu_args.c),$(if $(findstring -DDS4_NO_GPU,$(JSONL_CFLAGS)),ds4_gpu_args_cpu.o,ds4_gpu_args.o),)
 JSONL_PROMPT_PREFIX_OBJ ?= $(if $(wildcard ds4_prompt_prefix.c),ds4_prompt_prefix.o,)
 DSTUDIO_REMOTE_DIR ?= ../DStudio/extension/remote
-DSTUDIO_COWORK_DIR ?= ../DStudio/extension/cowork
+DSTUDIO_COWORK_DIR ?= ../DStudio/src/harness/cowork
 DSTUDIO_PLD_DIR ?= $(DSTUDIO_REMOTE_DIR)/../../patch/ds4-agent-jsonl
 # Agent/Cowork builds use a private, checkout-relative directory. No upstream
 # source or working derived executable is replaced before both links succeed.

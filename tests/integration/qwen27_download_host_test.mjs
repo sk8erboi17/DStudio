@@ -21,7 +21,7 @@ function file(name, data) {fs.mkdirSync(path.dirname(name), {recursive: true}); 
 file(path.join(engine, 'Makefile'), 'all:\n\t@false\n');
 file(path.join(alternate, 'Makefile'), 'all:\n\t@false\n');
 fs.mkdirSync(path.join(engine, 'gguf'), {recursive: true});
-file(path.join(assets, 'extension/design/build-design.sh'), '#!/bin/sh\nexit 0\n');
+file(path.join(assets, 'src/harness/design/build-design.sh'), '#!/bin/sh\nexit 0\n');
 file(path.join(assets, 'scripts/apply-ds4-visible-downloads.sh'), '#!/bin/sh\nexit 0\n');
 // Observe the real opener argv without opening Finder/a desktop application.
 const opener = path.join(run, 'bin/open');

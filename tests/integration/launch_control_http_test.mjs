@@ -71,7 +71,7 @@ try {
     fixture(path.join(assets, 'scripts', script), '#!/bin/sh\nexit 0\n');
   const gate = path.join(engine, 'prepare-gate'), entered = path.join(engine, 'prepare-entered');
   assert.equal(spawnSync('mkfifo', [gate]).status, 0);
-  fixture(path.join(assets, 'extension/design/build-design.sh'),
+  fixture(path.join(assets, 'src/harness/design/build-design.sh'),
     '#!/bin/sh\nprintf "%s\\n" "$$" > "$DS4_DIR/prepare-entered"\n' +
     'IFS= read -r release < "$DS4_DIR/prepare-gate"\nexit 87\n');
   assert.equal((await request('/api/webdir', { path: assets })).status, 200);
@@ -117,7 +117,7 @@ try {
     '  printf "ack: %s\\n" "$line"\nprintf "+DWARFSTAR_WAITING\\n" >&2\n' +
     'done\n');
   fs.chmodSync(path.join(engine, 'ds4-design'), 0o755);
-  fixture(path.join(assets, 'extension/design/build-design.sh'), '#!/bin/sh\nexit 0\n');
+  fixture(path.join(assets, 'src/harness/design/build-design.sh'), '#!/bin/sh\nexit 0\n');
   let enginePid;
   const started = await checkCase('prepared executable starts only through the native owner', async evidence => {
     evidence.start = await request('/api/start', { mode: 'design', designSystem: 'folio', workdir: workspace }, 15000);
@@ -137,7 +137,7 @@ try {
     const id = ++attempt;
     const input = path.join(engine, `gate-${id}`), marker = path.join(engine, `entered-${id}`);
     assert.equal(spawnSync('mkfifo', [input]).status, 0);
-    fixture(path.join(assets, 'extension/design/build-design.sh'),
+    fixture(path.join(assets, 'src/harness/design/build-design.sh'),
       `#!/bin/sh\nprintf "%s\\n" "$$" > "$DS4_DIR/entered-${id}"\n` +
       `IFS= read -r release < "$DS4_DIR/gate-${id}"\nexit ${exitCode}\n`);
     const before = (await request('/api/status')).body;
@@ -259,7 +259,7 @@ try {
   await checkCase('cancel during engine loading stops only that launch and cannot be revived by a late ready marker', async evidence => {
     const gate = path.join(engine, 'fixture-loading-gate');
     assert.equal(spawnSync('mkfifo', [gate]).status, 0);
-    fixture(path.join(assets, 'extension/design/build-design.sh'), '#!/bin/sh\nexit 0\n');
+    fixture(path.join(assets, 'src/harness/design/build-design.sh'), '#!/bin/sh\nexit 0\n');
     fixture(path.join(engine, 'ds4-design'), '#!/bin/sh\n' +
       'trap "" TERM\n' +
       'printf "%s\\n" "$$" > engine-pid\n' +

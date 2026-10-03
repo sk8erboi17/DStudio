@@ -38,7 +38,7 @@ report.dstudioDirty = Boolean(execFileSync('git', ['status', '--porcelain'], { e
 report.engineRevision = execFileSync('git', ['-C', process.env.DSTUDIO_REAL_DS4_DIR || 'ds4', 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 if (requiredProducts.length) report.opencodeVersion = execFileSync('/opt/homebrew/bin/opencode', ['--version'], { encoding: 'utf8' }).trim();
 report.harnessSha256 = createHash('sha256').update(fs.readFileSync(new URL(import.meta.url))).digest('hex');
-report.sourceHashes = Object.fromEntries(['extension/cowork/ds4_cowork.c', 'extension/design/ds4_design.c',
+report.sourceHashes = Object.fromEntries(['src/harness/cowork/ds4_cowork.c', 'src/harness/design/ds4_design.c',
   'patch/ds4-agent-jsonl/remote-agent.cfrag', 'patch/ds4-agent-jsonl/manifest',
   'patch/ds4-agent-jsonl/main-current.patch', 'patch/ds4-agent-jsonl/main-previous.patch',
   'patch/ds4-agent-jsonl/laguna.patch'].map(file => [file,

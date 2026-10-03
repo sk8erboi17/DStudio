@@ -21,7 +21,7 @@ function call(args) {
   const id = 'call-' + ++sequence, file = path.join(run, id + '.json');
   writeArtifact(run, id + '.json', {protocol: 'ds4.cowork.tool.v1', tool: 'spreadsheet',
     args: Object.fromEntries(Object.entries(args).map(([k, v]) => [k, String(v)]))});
-  const r = spawnSync('python3', ['-B', 'extension/cowork/office_tool.py', '--request-json', file, '--workspace', work],
+  const r = spawnSync('python3', ['-B', 'src/harness/cowork/office_tool.py', '--request-json', file, '--workspace', work],
     {encoding: 'utf8', timeout: 10000, maxBuffer: 2 ** 20});
   writeArtifact(run, id + '.result.json', {status:r.status, stdout:r.stdout, stderr:r.stderr});
   assert.equal(r.status, 0, r.stderr || r.stdout);

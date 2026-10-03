@@ -48,7 +48,7 @@ const report={schemaVersion:1,benchmark:'prompt-lookup-real-engine',startedAt:ne
 for(const file of ['pld.h','pld_core.c','pld_agent.inc','pld_server_eval.inc','pld_server_finish.inc'])
   report.source.patchHashes[file]=sha(fs.readFileSync(`patch/ds4-agent-jsonl/${file}`));
 report.source.benchmarkHashes=Object.fromEntries(['run-real.mjs','fixtures.mjs'].map(file=>[file,sha(fs.readFileSync(`extension/prompt-lookup/bench/${file}`))]));
-report.source.coworkSystemSha=sha(fs.readFileSync('extension/cowork/COWORK.md'));
+report.source.coworkSystemSha=sha(fs.readFileSync('src/harness/cowork/COWORK.md'));
 report.source.binaryHashes=Object.fromEntries(surfaces.map(surface=>{
   const binary=surface==='chat'?'ds4-server-pld':surface==='agent'?'ds4-agent-jsonl':'ds4-cowork';
   return [binary,sha(fs.readFileSync(path.join(engineDir,binary)))];
@@ -120,8 +120,8 @@ async function start(surface,mode,repeat){
     const workspace=sharedWorkspace;
     env.DS4UI_SESSION_CACHE_DIR=path.join(dir,'session-cache');
     env.DS4UI_RUNTIME_NAME=surface;
-    env.DS4UI_COWORK_HELPER=path.join(root,'extension/cowork/office_tool.py');
-    const system=(surface==='cowork'?fs.readFileSync(path.join(root,'extension/cowork/COWORK.md'),'utf8')+'\n\n':'')+
+    env.DS4UI_COWORK_HELPER=path.join(root,'src/harness/cowork/office_tool.py');
+    const system=(surface==='cowork'?fs.readFileSync(path.join(root,'src/harness/cowork/COWORK.md'),'utf8')+'\n\n':'')+
       'Work only within this benchmark workspace. Do not use the network. Follow the requested file operation, verify it with tools, then give a short final answer.';
     base.push('--jsonl','--non-interactive','--temp','0','--top-p','1','--min-p','0','--seed','314159',
       '--nothink','--tokens','1600','--chdir',workspace,'-sys',

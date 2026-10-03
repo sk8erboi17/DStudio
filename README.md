@@ -571,7 +571,7 @@ RSA is the non-security reverse-structure workflow. It inventories a public site
 
 ## Design: a studio built **on** ds4
 
-Design is not a chat skin. It is a separate local design agent that runs a designer's pipeline end to end. **`ds4-design` is DStudio's own extension to ds4**: it lives in this repo (`extension/design/ds4_design.c`), uses the selected ds4 model backend, and has its own system prompt, tools and native structured events.
+Design is not a chat skin. It is a separate local design agent that runs a designer's pipeline end to end. **`ds4-design` is DStudio's own extension to ds4**: it lives in this repo (`src/harness/design/ds4_design.c`), uses the selected ds4 model backend, and has its own system prompt, tools and native structured events.
 
 <div align="center">
 
@@ -977,7 +977,7 @@ measures an older V4/GLM revision, not V4.1 or this update.
 
 > The local models are intentionally large. If the selected GGUF does not fit your hardware, the screenshots show the native workflows and the optional DeepSeek API backend can provide inference while workspace tools stay local.
 
-`ds4-design` lives in **this** repo (`extension/design/ds4_design.c`) and is compiled into the ds4 repo automatically the first time you open Design.
+`ds4-design` lives in **this** repo (`src/harness/design/ds4_design.c`) and is compiled into the ds4 repo automatically the first time you open Design.
 Its build is isolated from the engine's existing source and object files. If a
 build fails or is interrupted, DStudio reports the failure; a compiler left
 running after its owner exits cannot install a new runtime by itself.
@@ -1059,7 +1059,7 @@ and installed beside the main engine:
 
 ### Windows notes
 
-For normal use, download/extract the Windows portable zip and run `DStudio.exe`. Keep the files together: `DStudio.exe`, `ds4-server.exe`, `ds4-agent-jsonl.exe`, `ds4-cowork.exe`, `ds4-agent-jsonl.ver`, `ds4-design.exe` and the packaged `extension/cowork` helper are meant to live in the same portable folder. Cowork currently also requires a reachable Python 3 runtime.
+For normal use, download/extract the Windows portable zip and run `DStudio.exe`. Keep the files together: `DStudio.exe`, `ds4-server.exe`, `ds4-agent-jsonl.exe`, `ds4-cowork.exe`, `ds4-agent-jsonl.ver`, `ds4-design.exe` and the packaged `src/harness/cowork` helper are meant to live in the same portable folder. Cowork currently also requires a reachable Python 3 runtime.
 
 If you build DStudio or use Agent/Cowork/Design from a LAN client with your own local DS4 checkout, install:
 

@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 
 function usage() {
-  console.log(`usage: node extension/rsa/bench/compare.mjs --target <url> [--out <dir>] [--query <term>]
+  console.log(`usage: node src/harness/rsa/bench/compare.mjs --target <url> [--out <dir>] [--query <term>]
 
 Compares two RSA modes without using an LLM as judge:
   old  = homepage/robots/sitemap/manifest HTML inventory only
@@ -27,7 +27,7 @@ if (!target || process.argv.includes('--help')) {
 }
 
 const query = arg('query', 'ninja');
-const outRoot = arg('out', path.join('extension', 'rsa', 'benchmark', `rsa-compare-${new Date().toISOString().replace(/[:.]/g, '').slice(0, 15)}`));
+const outRoot = arg('out', path.join('src', 'harness', 'rsa', 'benchmark', `rsa-compare-${new Date().toISOString().replace(/[:.]/g, '').slice(0, 15)}`));
 const targetUrl = new URL(target);
 const origin = targetUrl.origin;
 const loopbackTarget = /^(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(targetUrl.hostname);

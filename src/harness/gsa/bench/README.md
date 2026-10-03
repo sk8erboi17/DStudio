@@ -11,13 +11,13 @@ The active benchmark is the 8-hour balanced suite:
 
 Run a case by opening only the leaf `workspace/` folder in DStudio/GSA, then save the final report as:
 
-`extension/gsa/artifacts/<run-id>/<case-id>.md`
+`src/harness/gsa/artifacts/<run-id>/<case-id>.md`
 
-Automated real GSA run, saved under `extension/gsa/benchmark/` with one folder per analyzed project:
+Automated real GSA run, saved under `src/harness/gsa/benchmark/` with one folder per analyzed project:
 
 ```sh
-node extension/gsa/bench/run.mjs --limit 1
-node extension/gsa/bench/run.mjs --ctx 65536 --think normal --timeout-min 15 --out extension/gsa/benchmark/gsa-balanced-8h
+node src/harness/gsa/bench/run.mjs --limit 1
+node src/harness/gsa/bench/run.mjs --ctx 65536 --think normal --timeout-min 15 --out src/harness/gsa/benchmark/gsa-balanced-8h
 ```
 
 Each project folder contains the copied workspace, raw phase output, parsed phase JSON, GSA artifacts and `report.md`.
@@ -25,13 +25,13 @@ Each project folder contains the copied workspace, raw phase output, parsed phas
 Score a run:
 
 ```sh
-node extension/gsa/bench/score.mjs --reports extension/gsa/benchmark/gsa-balanced-8h --out extension/gsa/benchmark/gsa-balanced-8h
+node src/harness/gsa/bench/score.mjs --reports src/harness/gsa/benchmark/gsa-balanced-8h --out src/harness/gsa/benchmark/gsa-balanced-8h
 ```
 
 Validate the benchmark dataset:
 
 ```sh
-node extension/gsa/bench/validate.mjs
+node src/harness/gsa/bench/validate.mjs
 ```
 
-The answer keys under `extension/gsa/answer-key/` are scoring material. Never include that directory in a GSA workspace.
+The answer keys under `src/harness/gsa/answer-key/` are scoring material. Never include that directory in a GSA workspace.

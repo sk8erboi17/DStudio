@@ -13,7 +13,7 @@ assert(inputs.length, 'Supply already-built Agent/Cowork/Design binaries');
 const output = artifactRunDir('runtime-model-interrupt');
 const receipt = { scope: 'Native SIGINT, same-process next turn and real tools; simulated model, no weights', rows: [] };
 receipt.sources = Object.fromEntries(['extension/remote/dstudio_remote_llm.c', 'extension/remote/dstudio_remote_llm.h',
-  'extension/remote/dstudio_wire_string.h', 'patch/ds4-agent-jsonl/remote-agent.cfrag', 'extension/design/ds4_design.c',
+  'extension/remote/dstudio_wire_string.h', 'patch/ds4-agent-jsonl/remote-agent.cfrag', 'src/harness/design/ds4_design.c',
   'tests/integration/runtime_model_interrupt_test.mjs'].map(file => {
     const bytes = fs.readFileSync(file), target = path.join(output, 'sources', file);
     fs.mkdirSync(path.dirname(target), { recursive: true }); fs.copyFileSync(file, target);

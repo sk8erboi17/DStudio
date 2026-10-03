@@ -34,7 +34,7 @@ import {
   startMode,
 } from '../support/real_harness.mjs';
 
-const FIXTURES_ROOT = path.join(repoRoot, 'extension', 'gsa', 'fixtures');
+const FIXTURES_ROOT = path.join(repoRoot, 'src', 'harness', 'gsa', 'fixtures');
 
 function usage() {
   console.error([

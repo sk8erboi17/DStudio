@@ -128,7 +128,7 @@ try {
   for (const c of cases) {
     const out = path.join(tmp, c.id);
     const target = `http://127.0.0.1:${port}${c.path}`;
-    const run = await runCompare(['extension/rsa/bench/compare.mjs', '--target', target, '--out', out, '--query', 'fixture']);
+    const run = await runCompare(['src/harness/rsa/bench/compare.mjs', '--target', target, '--out', out, '--query', 'fixture']);
     assert.equal(run.status, 0, `compare failed for ${c.id} status=${run.status} signal=${run.signal} timedOut=${run.timedOut} error=${run.error?.message || ''}
 stdout:
 ${run.stdout}

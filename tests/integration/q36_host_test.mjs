@@ -30,7 +30,7 @@ fixture(path.join(engine, model), 'model bytes are a fixture, not weights');
 fixture(path.join(engine, projector), 'projector bytes are a fixture, not weights');
 fixture(path.join(engine, '.dstudio-source.json'), '{"fixture":true}\n');
 fs.copyFileSync(peer, path.join(engine, 'q36-server')); fs.chmodSync(path.join(engine, 'q36-server'), 0o755);
-fixture(path.join(assets, 'extension/design/build-design.sh'), '#!/bin/sh\nexit 0\n');
+fixture(path.join(assets, 'src/harness/design/build-design.sh'), '#!/bin/sh\nexit 0\n');
 fixture(path.join(assets, 'scripts/apply-ds4-visible-downloads.sh'), '#!/bin/sh\nexit 0\n');
 fixture(path.join(assets, 'scripts/install-q36.py'), 'import sys\nprint("fixture installer: no build or download", sys.argv[1:])\n');
 const port = await freePort(), enginePort = await freePort();

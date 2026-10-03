@@ -273,7 +273,7 @@ static int launch_prepare_cli(int argc, char **argv) {
 #else
         ok = run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") && !g_launch_worker_cancel &&
              run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") && !g_launch_worker_cancel &&
-             run_ext_script("extension/design/build-design.sh", "build");
+             run_ext_script("src/harness/design/build-design.sh", "build");
 #endif
     } else if (ok) ok = run_build_jsonl("build");
     if (g_launch_worker_cancel) ok = 0;
@@ -425,13 +425,13 @@ static int launch_capture_dependencies(launch_job *j) {
         if (vision) ok = launch_add_dependency(j, request->engine_dir, vision, 0);
         if (ok && request->dspark) ok = launch_add_dependency(j, request->engine_dir, dspark_rel_for_model(request->model), 0);
     }
-    if (ok) ok = launch_add_dependency(j, request->assets_dir, "extension/cowork/COWORK.md", 0);
+    if (ok) ok = launch_add_dependency(j, request->assets_dir, "src/harness/cowork/COWORK.md", 0);
     if (ok && request->skill[0]) {
         char dir[1100], rel[96]; user_skills_dir(dir, sizeof dir);
         snprintf(rel, sizeof rel, "%s/SKILL.md", request->skill);
         ok = launch_add_dependency(j, dir, rel, 0);
     }
-    const char *scripts[] = {"scripts/apply-ds4-glm53-m2max.sh", "scripts/apply-ds4-vision-streaming.sh", "scripts/apply-ds4-server-metrics.sh", "scripts/apply-ds4-qwen38-prepare.sh", "extension/design/build-design.sh", NULL};
+    const char *scripts[] = {"scripts/apply-ds4-glm53-m2max.sh", "scripts/apply-ds4-vision-streaming.sh", "scripts/apply-ds4-server-metrics.sh", "scripts/apply-ds4-qwen38-prepare.sh", "src/harness/design/build-design.sh", NULL};
     for (int i = 0; ok && scripts[i]; i++) ok = launch_add_dependency(j, request->assets_dir, scripts[i], 0);
     /* Only a local Qwen3.6 launch reads these; the table is bounded, and the
      * dense-Qwen Agent already needs most of it. */

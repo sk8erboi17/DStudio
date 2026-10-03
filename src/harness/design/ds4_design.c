@@ -34,7 +34,7 @@
  *   <question-form> blocks still stream as plain text; the UI recognizes and
  *   renders them.
  *
- * Build:  extension/design/build-design.sh  (from DStudio; output untracked
+ * Build:  src/harness/design/build-design.sh  (from DStudio; output untracked
  *         in the ds4 repo).  Run: ./ds4-design --metal -m model.gguf
  *         --workspace ~/designs --jsonl
  */

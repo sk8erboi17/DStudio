@@ -36,8 +36,8 @@ SRC      := src/dstudio.c
 # Per-domain sub-files #included into dstudio.c (one translation unit, all
 # static — same pattern as the GSA/RSA .cfrag includes). Listed as build
 # prerequisites so editing a domain file triggers a rebuild.
-SUBSRC   := $(wildcard src/dstudio_*.c) extension/design/design_system_catalog.h extension/remote/dstudio_wire_string.h extension/remote/dstudio_json_tokens.h
-EXT_SUBSRC := $(wildcard extension/gsa/*.cfrag extension/rsa/*.cfrag)
+SUBSRC   := $(wildcard src/dstudio_*.c) src/harness/design/design_system_catalog.h extension/remote/dstudio_wire_string.h extension/remote/dstudio_json_tokens.h
+EXT_SUBSRC := $(wildcard src/harness/gsa/*.cfrag src/harness/rsa/*.cfrag)
 APP      := src/app.cc
 HDR      := src/webview.h
 PAGE     := web/index.html
@@ -111,14 +111,15 @@ MAC_SHA := $(MAC_ZIP).sha256
 app: $(BIN)
 ifeq ($(UNAME),Darwin)
 	@rm -rf $(APPDIR)
-	@mkdir -p $(APPDIR)/Contents/MacOS $(APP_SUPPORT)/extension/gsa/tools
+	@mkdir -p $(APPDIR)/Contents/MacOS $(APP_SUPPORT)/extension $(APP_SUPPORT)/src/harness/gsa/tools
 	@cp -X $(BIN) $(APPDIR)/Contents/MacOS/$(APPNAME)
 	@cp $(ICNS) $(APPDIR)/Contents/Resources/ds4.icns
 	@cp $(PLIST) $(APPDIR)/Contents/Info.plist
-	@cp -R extension/design extension/design-systems extension/cowork extension/remote extension/craft extension/search extension/task-graph $(APP_SUPPORT)/extension/
-	@mkdir -p $(APP_SUPPORT)/extension/gsa
-	@cp -R extension/gsa/templates $(APP_SUPPORT)/extension/gsa/
-	@cp extension/gsa/tools/catalog.json extension/gsa/tools/README.md $(APP_SUPPORT)/extension/gsa/tools/
+	@cp -R extension/design-systems extension/remote extension/craft extension/search extension/task-graph $(APP_SUPPORT)/extension/
+	@cp -R src/harness/design src/harness/cowork $(APP_SUPPORT)/src/harness/
+	@mkdir -p $(APP_SUPPORT)/src/harness/gsa
+	@cp -R src/harness/gsa/templates $(APP_SUPPORT)/src/harness/gsa/
+	@cp src/harness/gsa/tools/catalog.json src/harness/gsa/tools/README.md $(APP_SUPPORT)/src/harness/gsa/tools/
 	@cp -R patch scripts $(APP_SUPPORT)/
 	@mkdir -p $(APP_SUPPORT)/src
 	@cp -R src/engines $(APP_SUPPORT)/src/
@@ -1052,16 +1053,16 @@ test-model-rpc-input: $(TEST_BUILD)/model-rpc-input-test
 
 check-fast: test-model-rpc-input
 
-$(TEST_COWORK_BRIDGE): tests/integration/ds4_cowork_bridge_test.c extension/cowork/ds4_cowork.c extension/cowork/ds4_cowork.h
+$(TEST_COWORK_BRIDGE): tests/integration/ds4_cowork_bridge_test.c src/harness/cowork/ds4_cowork.c src/harness/cowork/ds4_cowork.h
 	@mkdir -p $(TEST_BUILD)
-	$(CC) $(CFLAGS) -Iextension/cowork tests/integration/ds4_cowork_bridge_test.c extension/cowork/ds4_cowork.c -o $@
+	$(CC) $(CFLAGS) -Isrc/harness/cowork tests/integration/ds4_cowork_bridge_test.c src/harness/cowork/ds4_cowork.c -o $@
 
 test-cowork-unit: $(TEST_COWORK_BRIDGE)
 	@command -v python3 >/dev/null 2>&1 || (echo "python3 missing: Cowork Office runtime requires Python 3" && exit 1)
 	@python3 -m unittest -v tests/unit/ds4_cowork_office_test.py
 	@python3 -m unittest -v tests/unit/document_table_test.py
 	@node tests/unit/cowork_spreadsheet_oracle_test.mjs
-	@$(TEST_COWORK_BRIDGE) "$$(pwd)/extension/cowork/office_tool.py"
+	@$(TEST_COWORK_BRIDGE) "$$(pwd)/src/harness/cowork/office_tool.py"
 
 test-cowork-browser:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Cowork browser test requires node" && exit 1)
@@ -1074,7 +1075,7 @@ test-cowork: test-cowork-unit test-cowork-browser test-cowork-http
 
 test-cowork-bench-validate:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Cowork benchmark validation requires node" && exit 1)
-	@node extension/cowork/bench/validate.mjs
+	@node src/harness/cowork/bench/validate.mjs
 
 test-design-build-freshness: $(TEST_BUILD)/agent-build-probe
 	@node tests/integration/design_build_test.mjs $(TEST_BUILD)/agent-build-probe
@@ -1096,7 +1097,7 @@ test-design-tool-stream: test-design-self
 test-design-runtime: test-design-tool-stream
 
 test-design-self: test-design-build-freshness $(TEST_SERVER)
-	@DSTUDIO_BUILD_HOST="$(abspath $(TEST_SERVER))" extension/design/build-design.sh build
+	@DSTUDIO_BUILD_HOST="$(abspath $(TEST_SERVER))" src/harness/design/build-design.sh build
 	@./ds4/ds4-design --self-test
 
 test-design-controls:
@@ -1161,7 +1162,7 @@ test-design-runtime: test-design-self test-design-tool-recovery test-design-comp
 
 test-design-bench-validate:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Design benchmark validation requires node" && exit 1)
-	@node extension/design/bench/validate.mjs
+	@node src/harness/design/bench/validate.mjs
 
 test-design-release:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Design release gate requires node" && exit 1)
@@ -1400,7 +1401,7 @@ test-http-lan: $(TEST_SERVER)
 	@tests/integration/http_lan_test.sh $(TEST_SERVER)
 
 test-gsa-bench-validate:
-	@if command -v node >/dev/null 2>&1; then node extension/gsa/bench/validate.mjs; else echo "node missing: NOT RUN GSA benchmark validation"; exit 1; fi
+	@if command -v node >/dev/null 2>&1; then node src/harness/gsa/bench/validate.mjs; else echo "node missing: NOT RUN GSA benchmark validation"; exit 1; fi
 
 check-fast: $(BIN) test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-lan-unit test-remote-utf8 test-cowork test-cowork-bench-validate test-design-runtime test-design-bench-validate test-design-release test-image-pipeline test-frontend-unit test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-checkout test-http-lan test-gsa-bench-validate
 

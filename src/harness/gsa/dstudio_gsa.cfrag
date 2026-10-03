@@ -12,7 +12,7 @@ static void gsa_tools_dir(char *out, size_t outsz) {
 #ifdef _WIN32
     snprintf(out, outsz, "%s\\extension\\gsa\\tools\\bin", g_web_dir[0] ? g_web_dir : ".");
 #else
-    snprintf(out, outsz, "%s/extension/gsa/tools/bin", g_web_dir[0] ? g_web_dir : ".");
+    snprintf(out, outsz, "%s/src/harness/gsa/tools/bin", g_web_dir[0] ? g_web_dir : ".");
 #endif
 }
 
@@ -20,7 +20,7 @@ static void gsa_nuclei_templates_dir(char *out, size_t outsz) {
 #ifdef _WIN32
     snprintf(out, outsz, "%s\\extension\\gsa\\tools\\nuclei-templates", g_web_dir[0] ? g_web_dir : ".");
 #else
-    snprintf(out, outsz, "%s/extension/gsa/tools/nuclei-templates", g_web_dir[0] ? g_web_dir : ".");
+    snprintf(out, outsz, "%s/src/harness/gsa/tools/nuclei-templates", g_web_dir[0] ? g_web_dir : ".");
 #endif
 }
 
@@ -90,7 +90,7 @@ static int gsa_extension_path(char *out, size_t outsz, const char *rel) {
 #ifdef _WIN32
     return (size_t)snprintf(out, outsz, "%s\\extension\\gsa\\%s", g_web_dir[0] ? g_web_dir : ".", rel) < outsz;
 #else
-    return (size_t)snprintf(out, outsz, "%s/extension/gsa/%s", g_web_dir[0] ? g_web_dir : ".", rel) < outsz;
+    return (size_t)snprintf(out, outsz, "%s/src/harness/gsa/%s", g_web_dir[0] ? g_web_dir : ".", rel) < outsz;
 #endif
 }
 

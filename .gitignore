@@ -72,24 +72,24 @@ MEMORY.MD
 
 # Generated benchmark runs and local evaluation output
 benchmark/
-extension/gsa/benchmark/
-extension/gsa/artifacts/bench/
+src/harness/gsa/benchmark/
+src/harness/gsa/artifacts/bench/
 
 # GSA managed tool downloads/installers generated locally
-extension/gsa/tools/bin/*
-!extension/gsa/tools/bin/.gitkeep
-extension/gsa/tools/go/
-extension/gsa/tools/pipx/
-extension/gsa/tools/python/
-extension/gsa/tools/cargo/
-extension/gsa/tools/node/
-extension/gsa/tools/grype/
-extension/gsa/tools/trivy-cache/
-extension/gsa/tools/nuclei-templates/
-extension/gsa/tools/smoke/
-extension/gsa/tools/install-gsa-tools.sh
-extension/gsa/tools/install-gsa-tools.ps1
-extension/gsa/tools/install-gsa-tools.log
-extension/gsa/tools/.crates*
+src/harness/gsa/tools/bin/*
+!src/harness/gsa/tools/bin/.gitkeep
+src/harness/gsa/tools/go/
+src/harness/gsa/tools/pipx/
+src/harness/gsa/tools/python/
+src/harness/gsa/tools/cargo/
+src/harness/gsa/tools/node/
+src/harness/gsa/tools/grype/
+src/harness/gsa/tools/trivy-cache/
+src/harness/gsa/tools/nuclei-templates/
+src/harness/gsa/tools/smoke/
+src/harness/gsa/tools/install-gsa-tools.sh
+src/harness/gsa/tools/install-gsa-tools.ps1
+src/harness/gsa/tools/install-gsa-tools.log
+src/harness/gsa/tools/.crates*
 
 # Original design systems are versioned and bundled, never downloaded.

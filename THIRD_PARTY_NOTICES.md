@@ -195,7 +195,7 @@ package environments, vulnerability databases and template checkout are not
 vendored or committed in this repository.
 
 The authoritative current inventory and install methods are maintained in
-[`extension/gsa/tools/catalog.json`](extension/gsa/tools/catalog.json); the
+[`src/harness/gsa/tools/catalog.json`](src/harness/gsa/tools/catalog.json); the
 managed-directory layout is documented in
-[`extension/gsa/tools/README.md`](extension/gsa/tools/README.md). Each optional
+[`src/harness/gsa/tools/README.md`](src/harness/gsa/tools/README.md). Each optional
 download remains subject to its own upstream license and terms.
