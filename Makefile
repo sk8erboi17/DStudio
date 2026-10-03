@@ -152,6 +152,8 @@ endif
 test-macos-bundle: app
 ifeq ($(UNAME),Darwin)
 	@./scripts/smoke-macos-bundle.sh $(APPDIR)
+	@# The app binary re-executes itself as the llama.cpp/MLX server guard.
+	@node tests/integration/resident_guard_test.mjs "$(abspath $(APPDIR))/Contents/MacOS/$(APPNAME)"
 else
 	@echo "test-macos-bundle is for macOS only"
 endif

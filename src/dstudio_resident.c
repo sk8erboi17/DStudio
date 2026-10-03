@@ -167,6 +167,19 @@ static void resident_request_stop(const char *reason) {
                       "stopping llama.cpp guard pid %d: %s", (int)g_resident.pid, reason);
 }
 
+static void resident_fail(const char *reason);
+/* "<engine> <what>: <last line the guard or server wrote>", so a failed start
+ * names its engine and its actual cause instead of a bare channel state. */
+static void resident_fail_engine(const char *what) {
+    char line[sizeof g_resident.last_log], reason[sizeof g_resident.error];
+    cstr_copy(line, sizeof line, g_resident.last_log);
+    size_t n = strlen(line);
+    while (n && (line[n - 1] == '\n' || line[n - 1] == '\r' || line[n - 1] == ' ')) line[--n] = '\0';
+    char *last = strrchr(line, '\n');
+    const char *tail = last ? last + 1 : line;
+    snprintf(reason, sizeof reason, "The %s %s%s%.180s", resident_engine_label(g_resident.spec.kind), what, *tail ? ": " : "", tail);
+    resident_fail(reason);
+}
 static void resident_fail(const char *reason) {
     if (!g_resident.error[0]) cstr_copy(g_resident.error, sizeof g_resident.error, reason);
     g_ready = 0;
@@ -397,7 +410,7 @@ static void resident_tick(void) {
     pid_t done = waitpid(g_resident.pid, &status, WNOHANG); /* closes the process handle on exit */
     if (done != g_resident.pid) return;
     int unexpected = !g_resident.stopping;
-    if (unexpected) resident_fail("The llama.cpp inference process exited unexpectedly");
+    if (unexpected) resident_fail_engine("server exited unexpectedly");
     /* Closing the job kills anything the server may have started. */
     if (g_resident.job) { CloseHandle(g_resident.job); g_resident.job = NULL; }
     for (int i = 0; i < 2; i++) if (*streams[i] >= 0) CloseHandle((HANDLE)(intptr_t)*streams[i]);
@@ -416,10 +429,10 @@ static void resident_tick(void) {
     if (g_resident.owner >= 0 && !g_resident.stopping) {
         /* The guard never writes: EOF means it is gone. */
         ssize_t n = read(g_resident.owner, chunk, sizeof chunk);
-        if (n == 0) resident_fail("The llama.cpp guard closed its owner channel");
-        else if (n > 0) resident_fail("Unexpected data on the llama.cpp owner channel");
+        if (n == 0) resident_fail_engine("server guard stopped");
+        else if (n > 0) resident_fail_engine("guard wrote on its owner channel");
         else if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)
-            resident_fail("Could not read the llama.cpp owner channel");
+            resident_fail_engine("owner channel could not be read");
     }
     if (!g_resident.ready && !g_resident.stopping && g_resident.owner >= 0) resident_probe_step();
     if (g_resident.stopping && !g_resident.killed && dstudio_now_ms() >= g_resident.deadline) {
@@ -429,7 +442,7 @@ static void resident_tick(void) {
     pid_t done = waitpid(g_resident.pid, &status, WNOHANG);
     if (done != g_resident.pid && !(done < 0 && errno == ECHILD)) return;
     int unexpected = !g_resident.stopping;
-    if (unexpected) resident_fail("The llama.cpp inference process exited unexpectedly");
+    if (unexpected) resident_fail_engine("server exited unexpectedly");
     /* The guard reaped the server; nothing in its group may outlive it. */
     kill(-g_resident.pid, SIGKILL);
     for (int i = 0; i < 2; i++) if (*streams[i] >= 0) close(*streams[i]);
