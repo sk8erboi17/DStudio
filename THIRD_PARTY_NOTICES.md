@@ -132,6 +132,20 @@ vision weights are model components, not DStudio-authored assets.
   filenames, sizes and hashes are pinned in `scripts/download-qwen27.py`.
   An encoder differential test is not full language-model qualification.
 
+## pi, pi-ds4 and OpenCode (Agent harness sources)
+
+- **pi**: https://github.com/earendil-works/pi at `a276dabe57911253350bffb93cb7d7aff6a73261`,
+  [MIT](src/harness/pi/LICENSE), Copyright 2025 Mario Zechner. Snapshot in
+  [`src/harness/pi/`](src/harness/pi/), unmodified; six prebuilt native addons (`*.node`) are
+  omitted and listed with their hashes in the [harness manifest](src/harness/manifest.json).
+- **pi-ds4**: https://github.com/mitsuhiko/pi-ds4 at `db8806cd52757fbaf957fe56b54700a1094a30b8`,
+  [MIT](src/harness/pi-ds4/LICENSE), Copyright 2026 Armin Ronacher. Snapshot in
+  [`src/harness/pi-ds4/`](src/harness/pi-ds4/), unmodified.
+- **OpenCode**: https://github.com/anomalyco/opencode at `907b3bc518fa48e90e8ec24dd327d13eee71c36c`,
+  [MIT](src/harness/opencode/LICENSE), Copyright 2025 opencode. Snapshot in
+  [`src/harness/opencode/`](src/harness/opencode/); 60 symbolic links, 9 marketing/help videos and
+  15 generated demo outputs are omitted and listed in the manifest.
+
 ## Ideogram 4 FP8 (optional image-generation runtime)
 
 DStudio downloads Ideogram 4 and its runtime on demand; neither code nor model

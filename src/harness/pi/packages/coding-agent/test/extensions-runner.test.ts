@@ -1,0 +1,1413 @@
+import { createInMemoryModelRegistry } from "./model-runtime-test-utils.ts";
+/**
+ * Tests for ExtensionRunner - conflict detection, error handling, tool wrapping.
+ */
+
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AuthStorage } from "../src/core/auth-storage.ts";
+import { createEventBus } from "../src/core/event-bus.ts";
+import {
+	createExtensionRuntime,
+	discoverAndLoadExtensions,
+	loadExtensionFromFactory,
+	loadExtensions,
+} from "../src/core/extensions/loader.ts";
+import { ExtensionRunner, emitProjectTrustEvent } from "../src/core/extensions/runner.ts";
+import type {
+	ExtensionActions,
+	ExtensionContextActions,
+	ExtensionFactory,
+	ExtensionUIContext,
+	ProviderConfig,
+} from "../src/core/extensions/types.ts";
+import { KeybindingsManager, type KeyId } from "../src/core/keybindings.ts";
+import type { ModelRegistry } from "../src/core/model-registry.ts";
+import type { ScopedModel } from "../src/core/model-resolver.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
+import { buildSystemPrompt } from "../src/core/system-prompt.ts";
+
+describe("ExtensionRunner", () => {
+	let tempDir: string;
+	let extensionsDir: string;
+	let sessionManager: SessionManager;
+	let modelRegistry: ModelRegistry;
+	const defaultKeybindings = new KeybindingsManager().getEffectiveConfig();
+
+	beforeEach(async () => {
+		tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-runner-test-"));
+		extensionsDir = path.join(tempDir, "extensions");
+		fs.mkdirSync(extensionsDir);
+		sessionManager = SessionManager.inMemory();
+		modelRegistry = await createInMemoryModelRegistry(AuthStorage.inMemory());
+	});
+
+	afterEach(() => {
+		fs.rmSync(tempDir, { recursive: true, force: true });
+	});
+
+	const providerModelConfig: ProviderConfig = {
+		baseUrl: "https://provider.test/v1",
+		apiKey: "provider-test-key",
+		api: "openai-completions",
+		models: [
+			{
+				id: "instant-model",
+				name: "Instant Model",
+				reasoning: false,
+				input: ["text"],
+				cost: {
+					input: 1,
+					output: 2,
+					cacheRead: 0.1,
+					cacheWrite: 1.25,
+					tiers: [
+						{
+							inputTokensAbove: 272000,
+							input: 2,
+							output: 3,
+							cacheRead: 0.2,
+							cacheWrite: 2.5,
+						},
+					],
+				},
+				contextWindow: 128000,
+				maxTokens: 4096,
+			},
+		],
+	};
+
+	const extensionActions: ExtensionActions = {
+		sendMessage: () => {},
+		sendUserMessage: () => {},
+		appendEntry: () => {},
+		setSessionName: () => {},
+		getSessionName: () => undefined,
+		setLabel: () => {},
+		getActiveTools: () => [],
+		getAllTools: () => [],
+		getSettings: () => ({}),
+		setActiveTools: () => {},
+		refreshTools: () => {},
+		getCommands: () => [],
+		setModel: async () => false,
+		getThinkingLevel: () => "off",
+		setThinkingLevel: () => {},
+	};
+
+	const extensionContextActions: ExtensionContextActions = {
+		getModel: () => undefined,
+		isIdle: () => true,
+		isProjectTrusted: () => true,
+		getSignal: () => undefined,
+		abort: () => {},
+		hasPendingMessages: () => false,
+		shutdown: () => {},
+		getContextUsage: () => undefined,
+		compact: () => {},
+		getSystemPrompt: () => "",
+		getScopedModels: () => [],
+	};
+
+	describe("scopedModels", () => {
+		it("reflects the getScopedModels context action on ctx.scopedModels", async () => {
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+
+			// Before bindCore the default is an empty list (never undefined).
+			expect(runner.createContext().scopedModels).toEqual([]);
+
+			// After bindCore wires a getScopedModels action, ctx.scopedModels
+			// returns it live (same reference, lazy getter).
+			const scoped = [{ model: { id: "scoped-test" }, thinkingLevel: "high" }] as unknown as ScopedModel[];
+			runner.bindCore(extensionActions, { ...extensionContextActions, getScopedModels: () => scoped });
+			expect(runner.createContext().scopedModels).toBe(scoped);
+		});
+	});
+
+	describe("project_trust", () => {
+		it("continues past undecided handlers and returns the first yes/no decision", async () => {
+			const undecidedPath = path.join(extensionsDir, "undecided.ts");
+			const decidedPath = path.join(extensionsDir, "decided.ts");
+			fs.writeFileSync(
+				undecidedPath,
+				`export default function(pi) {
+	pi.on("project_trust", () => ({ trusted: "undecided", remember: true }));
+}`,
+			);
+			fs.writeFileSync(
+				decidedPath,
+				`export default function(pi) {
+	pi.on("project_trust", () => ({ trusted: "no", remember: true }));
+}`,
+			);
+
+			const extensionsResult = await loadExtensions([undecidedPath, decidedPath], tempDir);
+			const result = await emitProjectTrustEvent(
+				extensionsResult,
+				{ type: "project_trust", cwd: tempDir },
+				{
+					cwd: tempDir,
+					mode: "tui",
+					hasUI: false,
+					ui: {
+						select: async () => undefined,
+						confirm: async () => false,
+						input: async () => undefined,
+						notify: () => {},
+					},
+				},
+			);
+
+			expect(result.result).toEqual({ trusted: "no", remember: true });
+			expect(result.errors).toEqual([]);
+		});
+	});
+
+	describe("shortcut conflicts", () => {
+		it("warns when extension shortcut conflicts with built-in", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.registerShortcut("ctrl+c", {
+						description: "Conflicts with built-in",
+						handler: async () => {},
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "conflict.ts"), extCode);
+
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const shortcuts = runner.getShortcuts(defaultKeybindings);
+
+			expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("conflicts with built-in"));
+			expect(shortcuts.has("ctrl+c")).toBe(false);
+
+			warnSpy.mockRestore();
+		});
+
+		it("allows a shortcut when the reserved set no longer contains the default key", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.registerShortcut("ctrl+p", {
+						description: "Uses freed default",
+						handler: async () => {},
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "rebinding.ts"), extCode);
+
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const keybindings = { ...defaultKeybindings, "app.model.cycleForward": "ctrl+n" as KeyId };
+			const shortcuts = runner.getShortcuts(keybindings);
+
+			expect(shortcuts.has("ctrl+p")).toBe(true);
+			expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("conflicts with built-in"));
+
+			warnSpy.mockRestore();
+		});
+
+		it("warns but allows when extension uses non-reserved built-in shortcut", async () => {
+			const pasteImageKey = Array.isArray(defaultKeybindings["app.clipboard.pasteImage"])
+				? (defaultKeybindings["app.clipboard.pasteImage"][0] ?? "")
+				: defaultKeybindings["app.clipboard.pasteImage"];
+			const extCode = `
+				export default function(pi) {
+					pi.registerShortcut("${pasteImageKey}", {
+						description: "Overrides non-reserved",
+						handler: async () => {},
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "non-reserved.ts"), extCode);
+
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const shortcuts = runner.getShortcuts(defaultKeybindings);
+
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining("built-in shortcut for app.clipboard.pasteImage"),
+			);
+			expect(shortcuts.has(pasteImageKey as KeyId)).toBe(true);
+
+			warnSpy.mockRestore();
+		});
+
+		it("blocks shortcuts for reserved actions even when rebound", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.registerShortcut("ctrl+x", {
+						description: "Conflicts with rebound reserved",
+						handler: async () => {},
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "rebound-reserved.ts"), extCode);
+
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const keybindings = { ...defaultKeybindings, "app.interrupt": "ctrl+x" as KeyId };
+			const shortcuts = runner.getShortcuts(keybindings);
+
+			expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("conflicts with built-in"));
+			expect(shortcuts.has("ctrl+x")).toBe(false);
+
+			warnSpy.mockRestore();
+		});
+
+		it("blocks shortcuts when reserved key is also bound to non-reserved actions", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.registerShortcut("ctrl+p", {
+						description: "Conflicts with shared reserved default",
+						handler: async () => {},
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "shared-reserved.ts"), extCode);
+
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const shortcuts = runner.getShortcuts(defaultKeybindings);
+
+			expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("conflicts with built-in"));
+			expect(shortcuts.has("ctrl+p")).toBe(false);
+
+			warnSpy.mockRestore();
+		});
+
+		it("blocks shortcuts when reserved action has multiple keys", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.registerShortcut("ctrl+y", {
+						description: "Conflicts with multi-key reserved",
+						handler: async () => {},
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "multi-reserved.ts"), extCode);
+
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const keybindings = { ...defaultKeybindings, "app.clear": ["ctrl+x", "ctrl+y"] as KeyId[] };
+			const shortcuts = runner.getShortcuts(keybindings);
+
+			expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("conflicts with built-in"));
+			expect(shortcuts.has("ctrl+y")).toBe(false);
+
+			warnSpy.mockRestore();
+		});
+
+		it("warns but allows when non-reserved action has multiple keys", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.registerShortcut("ctrl+y", {
+						description: "Overrides multi-key non-reserved",
+						handler: async () => {},
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "multi-non-reserved.ts"), extCode);
+
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const keybindings = { ...defaultKeybindings, "app.clipboard.pasteImage": ["ctrl+x", "ctrl+y"] as KeyId[] };
+			const shortcuts = runner.getShortcuts(keybindings);
+
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining("built-in shortcut for app.clipboard.pasteImage"),
+			);
+			expect(shortcuts.has("ctrl+y")).toBe(true);
+
+			warnSpy.mockRestore();
+		});
+
+		it("warns when two extensions register same shortcut", async () => {
+			// Use a non-reserved shortcut
+			const extCode1 = `
+				export default function(pi) {
+					pi.registerShortcut("ctrl+shift+x", {
+						description: "First extension",
+						handler: async () => {},
+					});
+				}
+			`;
+			const extCode2 = `
+				export default function(pi) {
+					pi.registerShortcut("ctrl+shift+x", {
+						description: "Second extension",
+						handler: async () => {},
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "ext1.ts"), extCode1);
+			fs.writeFileSync(path.join(extensionsDir, "ext2.ts"), extCode2);
+
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const shortcuts = runner.getShortcuts(defaultKeybindings);
+
+			expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("shortcut conflict"));
+			// Last one wins
+			expect(shortcuts.has("ctrl+shift+x")).toBe(true);
+
+			warnSpy.mockRestore();
+		});
+	});
+
+	describe("tool collection", () => {
+		it("collects tools from multiple extensions", async () => {
+			const toolCode = (name: string) => `
+				import { Type } from "typebox";
+				export default function(pi) {
+					pi.registerTool({
+						name: "${name}",
+						label: "${name}",
+						description: "Test tool",
+						parameters: Type.Object({}),
+						execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "tool-a.ts"), toolCode("tool_a"));
+			fs.writeFileSync(path.join(extensionsDir, "tool-b.ts"), toolCode("tool_b"));
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const tools = runner.getAllRegisteredTools();
+
+			expect(tools.length).toBe(2);
+			expect(tools.map((t) => t.definition.name).sort()).toEqual(["tool_a", "tool_b"]);
+		});
+
+		// Regression test for #9300.
+		it("rejects extension tools without a parameter schema", async () => {
+			const extensionPath = path.join(extensionsDir, "missing-parameters.js");
+			fs.writeFileSync(
+				extensionPath,
+				`export default function(pi) {
+	pi.registerTool({
+		name: "noop",
+		label: "No-op",
+		description: "Do nothing",
+		execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+	});
+}`,
+			);
+
+			const result = await loadExtensions([extensionPath], tempDir);
+
+			expect(result.extensions).toHaveLength(0);
+			expect(result.errors).toEqual([
+				{
+					path: extensionPath,
+					error: `Failed to load extension: Tool "noop" registered by extension "${extensionPath}" must define an object parameter schema.`,
+				},
+			]);
+		});
+
+		it("keeps first tool when two extensions register the same name", async () => {
+			const first = `
+				import { Type } from "typebox";
+				export default function(pi) {
+					pi.registerTool({
+						name: "shared",
+						label: "shared",
+						description: "first",
+						parameters: Type.Object({}),
+						execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+					});
+				}
+			`;
+			const second = `
+				import { Type } from "typebox";
+				export default function(pi) {
+					pi.registerTool({
+						name: "shared",
+						label: "shared",
+						description: "second",
+						parameters: Type.Object({}),
+						execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "a-first.ts"), first);
+			fs.writeFileSync(path.join(extensionsDir, "b-second.ts"), second);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const tools = runner.getAllRegisteredTools();
+
+			expect(tools).toHaveLength(1);
+			expect(tools[0]?.definition.description).toBe("first");
+		});
+	});
+
+	describe("command collection", () => {
+		it("collects commands from multiple extensions", async () => {
+			const cmdCode = (name: string) => `
+				export default function(pi) {
+					pi.registerCommand("${name}", {
+						description: "Test command",
+						handler: async () => {},
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "cmd-a.ts"), cmdCode("cmd-a"));
+			fs.writeFileSync(path.join(extensionsDir, "cmd-b.ts"), cmdCode("cmd-b"));
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const commands = runner.getRegisteredCommands();
+
+			expect(commands.length).toBe(2);
+			expect(commands.map((c) => c.name).sort()).toEqual(["cmd-a", "cmd-b"]);
+			expect(commands.map((c) => c.invocationName).sort()).toEqual(["cmd-a", "cmd-b"]);
+		});
+
+		it("gets command by invocation name", async () => {
+			const cmdCode = `
+				export default function(pi) {
+					pi.registerCommand("my-cmd", {
+						description: "My command",
+						handler: async () => {},
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "cmd.ts"), cmdCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+
+			const cmd = runner.getCommand("my-cmd");
+			expect(cmd).toBeDefined();
+			expect(cmd?.name).toBe("my-cmd");
+			expect(cmd?.invocationName).toBe("my-cmd");
+			expect(cmd?.description).toBe("My command");
+
+			const missing = runner.getCommand("not-exists");
+			expect(missing).toBeUndefined();
+		});
+
+		it("suffixes duplicate extension commands in insertion order", async () => {
+			const cmdCode = (description: string) => `
+				export default function(pi) {
+					pi.registerCommand("shared-cmd", {
+						description: "${description}",
+						handler: async () => {},
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "cmd-a.ts"), cmdCode("First command"));
+			fs.writeFileSync(path.join(extensionsDir, "cmd-b.ts"), cmdCode("Second command"));
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const commands = runner.getRegisteredCommands();
+			const diagnostics = runner.getCommandDiagnostics();
+
+			expect(commands).toHaveLength(2);
+			expect(commands.map((command) => command.name)).toEqual(["shared-cmd", "shared-cmd"]);
+			expect(commands.map((command) => command.invocationName)).toEqual(["shared-cmd:1", "shared-cmd:2"]);
+			expect(commands.map((command) => command.description)).toEqual(["First command", "Second command"]);
+			expect(diagnostics).toEqual([]);
+			expect(runner.getCommand("shared-cmd:1")?.description).toBe("First command");
+			expect(runner.getCommand("shared-cmd:2")?.description).toBe("Second command");
+		});
+	});
+
+	describe("context creation", () => {
+		it("exposes the current abort signal on ExtensionContext", async () => {
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const controller = new AbortController();
+
+			runner.bindCore(extensionActions, {
+				...extensionContextActions,
+				getSignal: () => controller.signal,
+			});
+
+			const ctx = runner.createContext();
+			expect(ctx.signal).toBe(controller.signal);
+			expect(ctx.signal?.aborted).toBe(false);
+
+			controller.abort();
+			expect(ctx.signal?.aborted).toBe(true);
+		});
+
+		it("exposes print mode and hasUI false by default", async () => {
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			runner.bindCore(extensionActions, extensionContextActions);
+
+			const ctx = runner.createContext();
+			expect(ctx.mode).toBe("print");
+			expect(ctx.hasUI).toBe(false);
+		});
+
+		it("exposes project trust state on ExtensionContext", async () => {
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			runner.bindCore(extensionActions, {
+				...extensionContextActions,
+				isProjectTrusted: () => false,
+			});
+
+			const ctx = runner.createContext();
+			expect(ctx.isProjectTrusted()).toBe(false);
+		});
+
+		it("exposes rpc mode with hasUI true when an RPC UI context is provided", async () => {
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			runner.bindCore(extensionActions, extensionContextActions);
+			runner.setUIContext({} as ExtensionUIContext, "rpc");
+
+			const ctx = runner.createContext();
+			expect(ctx.mode).toBe("rpc");
+			expect(ctx.hasUI).toBe(true);
+		});
+
+		it("exposes tui mode with hasUI true when a TUI UI context is provided", async () => {
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			runner.bindCore(extensionActions, extensionContextActions);
+			runner.setUIContext({} as ExtensionUIContext, "tui");
+
+			const ctx = runner.createContext();
+			expect(ctx.mode).toBe("tui");
+			expect(ctx.hasUI).toBe(true);
+		});
+	});
+
+	describe("error handling", () => {
+		it("calls error listeners when handler throws", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.on("context", async () => {
+						throw new Error("Handler error!");
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "throws.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+
+			const errors: Array<{ extensionPath: string; event: string; error: string }> = [];
+			runner.onError((err) => {
+				errors.push(err);
+			});
+
+			// Emit context event which will trigger the throwing handler
+			await runner.emitContext([]);
+
+			expect(errors.length).toBe(1);
+			expect(errors[0].error).toContain("Handler error!");
+			expect(errors[0].event).toBe("context");
+		});
+
+		// Regression test for #9068.
+		it("fails closed when a user_bash handler throws", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.on("user_bash", async () => {
+						throw new Error("Routing failed");
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "throws.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const errors: Array<{ event: string; error: string }> = [];
+			runner.onError((error) => errors.push(error));
+
+			await expect(
+				runner.emitUserBash({ type: "user_bash", command: "pwd", excludeFromContext: false, cwd: tempDir }),
+			).rejects.toThrow("Routing failed");
+			expect(errors).toMatchObject([{ event: "user_bash", error: "Routing failed" }]);
+		});
+
+		// Regression test for #9068.
+		it.each([
+			["an empty object", "{}"],
+			["null operations", "{ operations: null }"],
+			["operations without exec", "{ operations: {} }"],
+			["a null result", "{ result: null }"],
+			["an incomplete result", '{ result: { output: "handled" } }'],
+			[
+				"operations and a result",
+				'{ operations: { exec: async () => ({ exitCode: 0 }) }, result: { output: "handled", exitCode: 0, cancelled: false, truncated: false } }',
+			],
+		])("fails closed when a user_bash handler returns %s", async (_description, handlerResult) => {
+			const extCode = `
+				export default function(pi) {
+					pi.on("user_bash", async () => (${handlerResult}));
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "invalid-result.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const errors: Array<{ event: string; error: string }> = [];
+			runner.onError((error) => errors.push(error));
+
+			await expect(
+				runner.emitUserBash({ type: "user_bash", command: "pwd", excludeFromContext: false, cwd: tempDir }),
+			).rejects.toThrow("Invalid user_bash handler result");
+			expect(errors).toMatchObject([
+				{ event: "user_bash", error: expect.stringContaining("Invalid user_bash handler result") },
+			]);
+		});
+
+		it("accepts valid user_bash operations and result overrides", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.on("user_bash", async (event) => {
+						if (event.command === "operations") {
+							return { operations: { exec: async () => ({ exitCode: 0 }) } };
+						}
+						return { result: { output: "handled", exitCode: 0, cancelled: false, truncated: false } };
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "valid-results.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const event = { type: "user_bash" as const, excludeFromContext: false, cwd: tempDir };
+
+			const operations = await runner.emitUserBash({ ...event, command: "operations" });
+			expect(operations).toEqual({ operations: { exec: expect.any(Function) } });
+			await expect(runner.emitUserBash({ ...event, command: "result" })).resolves.toEqual({
+				result: { output: "handled", exitCode: 0, cancelled: false, truncated: false },
+			});
+		});
+	});
+
+	describe("message and entry renderers", () => {
+		it("gets Markdown transformers in extension load order", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.registerMarkdownTransformer((markdown) => markdown);
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "markdown-renderer-a.ts"), extCode);
+			fs.writeFileSync(path.join(extensionsDir, "markdown-renderer-b.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+
+			expect(runner.getMarkdownTransformers()).toHaveLength(2);
+		});
+
+		it("gets message renderer by type", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.registerMessageRenderer("my-type", (message, options, theme) => null);
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "renderer.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+
+			const renderer = runner.getMessageRenderer("my-type");
+			expect(renderer).toBeDefined();
+
+			const missing = runner.getMessageRenderer("not-exists");
+			expect(missing).toBeUndefined();
+		});
+
+		it("gets entry renderer by type", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.registerEntryRenderer("my-entry", (entry, options, theme) => null);
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "entry-renderer.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+
+			expect(runner.getEntryRenderer("my-entry")).toBeDefined();
+			expect(runner.getEntryRenderer("not-exists")).toBeUndefined();
+		});
+	});
+
+	describe("flags", () => {
+		it("collects flags from extensions", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.registerFlag("my-flag", {
+						description: "My flag",
+						handler: async () => {},
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "with-flag.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const flags = runner.getFlags();
+
+			expect(flags.has("my-flag")).toBe(true);
+		});
+
+		it("keeps first flag when two extensions register the same name", async () => {
+			const first = `
+				export default function(pi) {
+					pi.registerFlag("shared-flag", {
+						description: "first",
+						type: "boolean",
+						default: true,
+					});
+				}
+			`;
+			const second = `
+				export default function(pi) {
+					pi.registerFlag("shared-flag", {
+						description: "second",
+						type: "boolean",
+						default: false,
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "a-first.ts"), first);
+			fs.writeFileSync(path.join(extensionsDir, "b-second.ts"), second);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const flags = runner.getFlags();
+
+			expect(flags.get("shared-flag")?.description).toBe("first");
+			expect(result.runtime.flagValues.get("shared-flag")).toBe(true);
+		});
+
+		it("rejects default values that do not match the flag type", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.registerFlag("safe-mode", {
+						type: "boolean",
+						default: "false",
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "bad-flag-default.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+
+			expect(result.extensions).toHaveLength(0);
+			expect(result.errors[0]?.error).toContain(
+				'Invalid default for flag "safe-mode": expected boolean, got string',
+			);
+			expect(result.runtime.flagValues.has("safe-mode")).toBe(false);
+		});
+
+		it("can set flag values", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.registerFlag("test-flag", {
+						description: "Test flag",
+						handler: async () => {},
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "flag.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+
+			// Setting a flag value should not throw
+			runner.setFlagValue("--test-flag", true);
+
+			// The flag values are stored in the shared runtime
+			expect(result.runtime.flagValues.get("--test-flag")).toBe(true);
+		});
+	});
+
+	describe("before_agent_start", () => {
+		it("keeps ctx.getSystemPrompt() in sync with chained system prompt updates", async () => {
+			const extCode1 = `
+				export default function(pi) {
+					pi.on("before_agent_start", async (_event, ctx) => {
+						return {
+							systemPrompt: ctx.getSystemPrompt() + "\\nfirst",
+						};
+					});
+				}
+			`;
+			const extCode2 = `
+				export default function(pi) {
+					pi.on("before_agent_start", async (_event, ctx) => {
+						return {
+							systemPrompt: ctx.getSystemPrompt() + "\\nsecond",
+						};
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "before-agent-start-1.ts"), extCode1);
+			fs.writeFileSync(path.join(extensionsDir, "before-agent-start-2.ts"), extCode2);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			expect(result.errors).toEqual([]);
+			expect(result.extensions).toHaveLength(2);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const errors: string[] = [];
+			runner.onError((error) => errors.push(error.error));
+			runner.bindCore(extensionActions, extensionContextActions);
+
+			const chained = await runner.emitBeforeAgentStart("hello", undefined, {
+				cwd: tempDir,
+				customPrompt: "base",
+			});
+
+			expect(errors).toEqual([]);
+			expect(chained.messages).toEqual([]);
+			expect(buildSystemPrompt(chained.systemPromptOptions)).toMatch(/base[\s\S]*\nfirst\nsecond$/);
+		});
+	});
+
+	describe("boundary chaining", () => {
+		it("chains shared draft proposals and preserves omitted result fields", async () => {
+			const runtime = createExtensionRuntime();
+			const eventBus = createEventBus();
+			const observations: Array<{ entries: number; continuation: boolean; preview: number }> = [];
+			const first = await loadExtensionFromFactory(
+				(pi) => {
+					pi.on("agent_before_settle", (event) => {
+						observations.push({
+							entries: event.entries.length,
+							continuation: event.continue,
+							preview: event.context.contextEntries.length,
+						});
+						event.entries.push({ type: "custom", customType: "first", data: 1 });
+						return { continue: true };
+					});
+				},
+				tempDir,
+				eventBus,
+				runtime,
+				"<inline:first>",
+			);
+			const second = await loadExtensionFromFactory(
+				(pi) => {
+					pi.on("agent_before_settle", (event) => {
+						observations.push({
+							entries: event.entries.length,
+							continuation: event.continue,
+							preview: event.context.contextEntries.length,
+						});
+						return { entries: [] };
+					});
+				},
+				tempDir,
+				eventBus,
+				runtime,
+				"<inline:second>",
+			);
+			const runner = new ExtensionRunner([first, second], runtime, tempDir, sessionManager, modelRegistry);
+
+			const result = await runner.emitBoundary({ type: "agent_before_settle", outcome: "completed" }, (entries) => ({
+				contextEntries: entries.map((entry, index) => ({
+					sourceEntry: {
+						type: "custom",
+						id: `draft-${index}`,
+						parentId: null,
+						timestamp: "",
+						customType: entry.type,
+					},
+					messages: [],
+				})),
+				contextMessages: [],
+				llmMessages: [],
+				pendingMessages: [],
+				canContinue: false,
+			}));
+
+			expect(observations).toEqual([
+				{ entries: 0, continuation: false, preview: 0 },
+				{ entries: 1, continuation: true, preview: 1 },
+			]);
+			expect(result.entries).toEqual([]);
+			expect(result.continue).toBe(true);
+		});
+
+		it("reports invalid boundary previews and lets later handlers repair the proposal", async () => {
+			const runtime = createExtensionRuntime();
+			let secondRan = false;
+			const first = await loadExtensionFromFactory(
+				(pi) => {
+					pi.on("agent_before_settle", () => ({
+						entries: [{ type: "context_edit", targetId: "missing", replacement: null }],
+					}));
+				},
+				tempDir,
+				createEventBus(),
+				runtime,
+				"<inline:invalid>",
+			);
+			const second = await loadExtensionFromFactory(
+				(pi) => {
+					pi.on("agent_before_settle", (event) => {
+						secondRan = true;
+						expect(event.entries).toHaveLength(1);
+						return { entries: [] };
+					});
+				},
+				tempDir,
+				createEventBus(),
+				runtime,
+				"<inline:repair>",
+			);
+			const runner = new ExtensionRunner([first, second], runtime, tempDir, sessionManager, modelRegistry);
+			const errors: string[] = [];
+			runner.onError((error) => errors.push(error.error));
+
+			const result = await runner.emitBoundary({ type: "agent_before_settle", outcome: "completed" }, (entries) => {
+				if (entries.some((entry) => entry.type === "context_edit")) throw new Error("Entry missing not found");
+				return {
+					contextEntries: [],
+					contextMessages: [],
+					llmMessages: [],
+					pendingMessages: [],
+					canContinue: false,
+				};
+			});
+
+			expect(secondRan).toBe(true);
+			expect(errors).toContain("Invalid boundary entries: Entry missing not found");
+			expect(result.entries).toEqual([]);
+			expect(result.valid).toBe(true);
+		});
+
+		it("keeps shared mutations made before a handler throws", async () => {
+			const runtime = createExtensionRuntime();
+			const extension = await loadExtensionFromFactory(
+				(pi) => {
+					pi.on("agent_before_settle", (event) => {
+						event.entries.push({ type: "custom", customType: "kept" });
+						throw new Error("boundary failed");
+					});
+				},
+				tempDir,
+				createEventBus(),
+				runtime,
+			);
+			const runner = new ExtensionRunner([extension], runtime, tempDir, sessionManager, modelRegistry);
+			const errors: string[] = [];
+			runner.onError((error) => errors.push(error.error));
+
+			const result = await runner.emitBoundary({ type: "agent_before_settle", outcome: "completed" }, () => ({
+				contextEntries: [],
+				contextMessages: [],
+				llmMessages: [],
+				pendingMessages: [],
+				canContinue: false,
+			}));
+
+			expect(result.entries).toMatchObject([{ type: "custom", customType: "kept" }]);
+			expect(errors).toEqual(["boundary failed"]);
+		});
+	});
+
+	describe("tool_result chaining", () => {
+		it("chains content modifications across handlers", async () => {
+			const extCode1 = `
+				export default function(pi) {
+					pi.on("tool_result", async (event) => {
+						return {
+							content: [...event.content, { type: "text", text: "ext1" }],
+						};
+					});
+				}
+			`;
+			const extCode2 = `
+				export default function(pi) {
+					pi.on("tool_result", async (event) => {
+						return {
+							content: [...event.content, { type: "text", text: "ext2" }],
+						};
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "tool-result-1.ts"), extCode1);
+			fs.writeFileSync(path.join(extensionsDir, "tool-result-2.ts"), extCode2);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+
+			const chained = await runner.emitToolResult({
+				type: "tool_result",
+				toolName: "my_tool",
+				toolCallId: "call-1",
+				input: {},
+				content: [{ type: "text", text: "base" }],
+				details: { initial: true },
+				isError: false,
+			});
+
+			expect(chained).toBeDefined();
+			const chainedContent = chained?.content;
+			expect(chainedContent).toBeDefined();
+			expect(chainedContent![0]).toEqual({ type: "text", text: "base" });
+			expect(chainedContent).toHaveLength(3);
+			const appendedText = chainedContent!
+				.slice(1)
+				.filter((item): item is { type: "text"; text: string } => item.type === "text")
+				.map((item) => item.text);
+			expect(appendedText.sort()).toEqual(["ext1", "ext2"]);
+		});
+
+		it("preserves previous modifications when later handlers return partial patches", async () => {
+			const extCode1 = `
+				export default function(pi) {
+					pi.on("tool_result", async () => {
+						return {
+							content: [{ type: "text", text: "first" }],
+							details: { source: "ext1" },
+						};
+					});
+				}
+			`;
+			const extCode2 = `
+				export default function(pi) {
+					pi.on("tool_result", async () => {
+						return {
+							isError: true,
+						};
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "tool-result-partial-1.ts"), extCode1);
+			fs.writeFileSync(path.join(extensionsDir, "tool-result-partial-2.ts"), extCode2);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+
+			const chained = await runner.emitToolResult({
+				type: "tool_result",
+				toolName: "my_tool",
+				toolCallId: "call-2",
+				input: {},
+				content: [{ type: "text", text: "base" }],
+				details: { initial: true },
+				isError: false,
+			});
+
+			expect(chained).toEqual({
+				content: [{ type: "text", text: "first" }],
+				details: { source: "ext1" },
+				isError: true,
+			});
+		});
+	});
+
+	describe("provider registration", () => {
+		it("bindCore ignores invalid queued registrations and reports extension error", async () => {
+			const runtime = createExtensionRuntime();
+			runtime.registerProvider(
+				"broken-provider",
+				{
+					streamSimple: (() => {
+						throw new Error("should not run");
+					}) as any,
+				},
+				"/tmp/broken-extension.ts",
+			);
+
+			const runner = new ExtensionRunner([], runtime, tempDir, sessionManager, modelRegistry);
+			const errors: string[] = [];
+			runner.onError((error) => errors.push(`${error.extensionPath}: ${error.error}`));
+
+			expect(() => runner.bindCore(extensionActions, extensionContextActions)).not.toThrow();
+			expect(errors).toEqual([
+				'/tmp/broken-extension.ts: Provider broken-provider: "api" is required when registering streamSimple.',
+			]);
+			await expect(modelRegistry.refresh()).resolves.toMatchObject({ aborted: false });
+		});
+
+		it("pre-bind unregister removes all queued registrations for a provider", () => {
+			const runtime = createExtensionRuntime();
+
+			runtime.registerProvider("queued-provider", providerModelConfig);
+			runtime.registerProvider("queued-provider", {
+				...providerModelConfig,
+				models: [
+					{
+						id: "instant-model-2",
+						name: "Instant Model 2",
+						reasoning: false,
+						input: ["text"],
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+						contextWindow: 128000,
+						maxTokens: 4096,
+					},
+				],
+			});
+			expect(runtime.pendingProviderRegistrations).toHaveLength(2);
+
+			runtime.unregisterProvider("queued-provider");
+			expect(runtime.pendingProviderRegistrations).toHaveLength(0);
+		});
+
+		it("post-bind register and unregister take effect immediately", () => {
+			const runtime = createExtensionRuntime();
+			const runner = new ExtensionRunner([], runtime, tempDir, sessionManager, modelRegistry);
+
+			runner.bindCore(extensionActions, extensionContextActions);
+			expect(runtime.pendingProviderRegistrations).toHaveLength(0);
+
+			runtime.registerProvider("instant-provider", providerModelConfig);
+			expect(runtime.pendingProviderRegistrations).toHaveLength(0);
+			expect(modelRegistry.find("instant-provider", "instant-model")?.cost.tiers).toEqual([
+				{
+					inputTokensAbove: 272000,
+					input: 2,
+					output: 3,
+					cacheRead: 0.2,
+					cacheWrite: 2.5,
+				},
+			]);
+
+			runtime.unregisterProvider("instant-provider");
+			expect(modelRegistry.find("instant-provider", "instant-model")).toBeUndefined();
+		});
+	});
+
+	describe("command context", () => {
+		it("passes fork options through to the bound handler", async () => {
+			const runtime = createExtensionRuntime();
+			const runner = new ExtensionRunner([], runtime, tempDir, sessionManager, modelRegistry);
+			const fork = vi.fn(async () => ({ cancelled: false }));
+
+			runner.bindCommandContext({
+				waitForIdle: async () => {},
+				newSession: async () => ({ cancelled: false }),
+				fork,
+				navigateTree: async () => ({ cancelled: false }),
+				switchSession: async () => ({ cancelled: false }),
+				reload: async () => {},
+			});
+
+			const commandContext = runner.createCommandContext();
+			await commandContext.fork("entry-1");
+			expect(fork).toHaveBeenCalledWith("entry-1", undefined);
+
+			await commandContext.fork("entry-2", { position: "at" });
+			expect(fork).toHaveBeenLastCalledWith("entry-2", { position: "at" });
+		});
+	});
+
+	// #8967: event handler unsubscription must not disturb other registrations.
+	describe("event subscriptions", () => {
+		async function loadSubscriptionExtension(factory: ExtensionFactory) {
+			const runtime = createExtensionRuntime();
+			const extension = await loadExtensionFromFactory(factory, tempDir, createEventBus(), runtime);
+			const runner = new ExtensionRunner([extension], runtime, tempDir, sessionManager, modelRegistry);
+			return { extension, runner };
+		}
+
+		it("allows self-removal without skipping neighboring handlers", async () => {
+			const calls: string[] = [];
+			const { runner } = await loadSubscriptionExtension((pi) => {
+				const unsubscribe = pi.on("agent_end", () => {
+					calls.push("A");
+					unsubscribe();
+				});
+				pi.on("agent_end", () => {
+					calls.push("B");
+				});
+			});
+
+			await runner.emit({ type: "agent_end", messages: [] });
+			expect(calls).toEqual(["A", "B"]);
+
+			await runner.emit({ type: "agent_end", messages: [] });
+			expect(calls).toEqual(["A", "B", "B"]);
+		});
+
+		it("removes duplicate registrations independently and cleans up the last handler", async () => {
+			const calls: string[] = [];
+			const unsubscribers: Array<() => void> = [];
+			const { extension, runner } = await loadSubscriptionExtension((pi) => {
+				const shared = () => {
+					calls.push("shared");
+				};
+				unsubscribers.push(pi.on("agent_end", shared));
+				unsubscribers.push(
+					pi.on("agent_end", () => {
+						calls.push("B");
+					}),
+				);
+				unsubscribers.push(pi.on("agent_end", shared));
+			});
+			const [stopFirst, stopB, stopSecond] = unsubscribers;
+
+			stopSecond();
+			stopSecond();
+			await runner.emit({ type: "agent_end", messages: [] });
+			expect(calls).toEqual(["shared", "B"]);
+
+			stopFirst();
+			await runner.emit({ type: "agent_end", messages: [] });
+			expect(calls).toEqual(["shared", "B", "B"]);
+
+			stopB();
+			expect(extension.handlers.has("agent_end")).toBe(false);
+		});
+
+		it("keeps removed pending handlers in the current dispatch", async () => {
+			const calls: string[] = [];
+			const { runner } = await loadSubscriptionExtension((pi) => {
+				pi.on("agent_end", () => {
+					calls.push("A");
+					stopB();
+				});
+				const stopB = pi.on("agent_end", () => {
+					calls.push("B");
+				});
+				pi.on("agent_end", () => {
+					calls.push("C");
+				});
+			});
+
+			await runner.emit({ type: "agent_end", messages: [] });
+			expect(calls).toEqual(["A", "B", "C"]);
+			await runner.emit({ type: "agent_end", messages: [] });
+			expect(calls).toEqual(["A", "B", "C", "A", "C"]);
+		});
+
+		it("defers registrations made during dispatch until the next dispatch", async () => {
+			const calls: string[] = [];
+			const { runner } = await loadSubscriptionExtension((pi) => {
+				pi.on("agent_end", () => {
+					calls.push("A");
+					pi.on("agent_end", () => {
+						calls.push("C");
+					});
+				});
+				pi.on("agent_end", () => {
+					calls.push("B");
+				});
+			});
+
+			await runner.emit({ type: "agent_end", messages: [] });
+			expect(calls).toEqual(["A", "B"]);
+			await runner.emit({ type: "agent_end", messages: [] });
+			expect(calls).toEqual(["A", "B", "A", "B", "C"]);
+		});
+
+		it("uses a fresh handler list for nested dispatches", async () => {
+			const calls: string[] = [];
+			const { runner } = await loadSubscriptionExtension((pi) => {
+				const stopA = pi.on("agent_end", async () => {
+					calls.push("A");
+					stopA();
+					stopB();
+					pi.on("agent_end", () => {
+						calls.push("C");
+					});
+					await runner.emit({ type: "agent_end", messages: [] });
+				});
+				const stopB = pi.on("agent_end", () => {
+					calls.push("B");
+				});
+			});
+
+			await runner.emit({ type: "agent_end", messages: [] });
+			expect(calls).toEqual(["A", "C", "B"]);
+		});
+	});
+
+	describe("hasHandlers", () => {
+		it("returns true when handlers exist for event type", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.on("tool_call", async () => undefined);
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "handler.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+
+			expect(runner.hasHandlers("tool_call")).toBe(true);
+			expect(runner.hasHandlers("agent_end")).toBe(false);
+		});
+	});
+
+	describe("before_provider_headers", () => {
+		it("lets a handler mutate headers in place and preserves existing headers", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.on("before_provider_headers", (event) => {
+						event.headers["X-Turn-Index"] = "3";
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "headers.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+
+			expect(runner.hasHandlers("before_provider_headers")).toBe(true);
+
+			const headers = await runner.emitBeforeProviderHeaders({ "User-Agent": "kimchi/1.0" });
+			expect(headers["X-Turn-Index"]).toBe("3");
+			expect(headers["User-Agent"]).toBe("kimchi/1.0");
+		});
+
+		it("isolates a throwing handler and still applies the others", async () => {
+			const throwing = `
+				export default function(pi) {
+					pi.on("before_provider_headers", () => {
+						throw new Error("header handler boom");
+					});
+				}
+			`;
+			const good = `
+				export default function(pi) {
+					pi.on("before_provider_headers", (event) => {
+						event.headers["X-Good"] = "yes";
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "a-throwing.ts"), throwing);
+			fs.writeFileSync(path.join(extensionsDir, "b-good.ts"), good);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const errors: Array<{ event: string; error: string }> = [];
+			runner.onError((err) => errors.push(err));
+
+			const headers = await runner.emitBeforeProviderHeaders({ "User-Agent": "x" });
+
+			expect(headers["X-Good"]).toBe("yes");
+			expect(headers["User-Agent"]).toBe("x");
+			expect(errors).toHaveLength(1);
+			expect(errors[0].event).toBe("before_provider_headers");
+			expect(errors[0].error).toContain("header handler boom");
+		});
+	});
+});

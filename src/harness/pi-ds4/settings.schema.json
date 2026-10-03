@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/mitsuhiko/pi-ds4/main/settings.schema.json",
+  "title": "pi-ds4 settings",
+  "description": "Configuration for ~/.pi/ds4/settings.json. Environment variables with the same names override these values.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+
+    "protocol": { "$ref": "#/$defs/protocol" },
+    "DS4_PROTOCOL": { "$ref": "#/$defs/protocol" },
+    "ds4_protocol": { "$ref": "#/$defs/protocol" },
+
+    "apiKey": { "$ref": "#/$defs/nullableString" },
+    "api_key": { "$ref": "#/$defs/nullableString" },
+    "DS4_API_KEY": { "$ref": "#/$defs/nullableString" },
+    "ds4_api_key": { "$ref": "#/$defs/nullableString" },
+
+    "supportRepo": { "$ref": "#/$defs/nullableString" },
+    "support_repo": { "$ref": "#/$defs/nullableString" },
+    "DS4_SUPPORT_REPO": { "$ref": "#/$defs/nullableString" },
+    "ds4_support_repo": { "$ref": "#/$defs/nullableString" },
+
+    "supportBranch": { "$ref": "#/$defs/nullableString" },
+    "support_branch": { "$ref": "#/$defs/nullableString" },
+    "DS4_SUPPORT_BRANCH": { "$ref": "#/$defs/nullableString" },
+    "ds4_support_branch": { "$ref": "#/$defs/nullableString" },
+
+    "runtimeDir": { "$ref": "#/$defs/nullableString" },
+    "runtime_dir": { "$ref": "#/$defs/nullableString" },
+    "DS4_RUNTIME_DIR": { "$ref": "#/$defs/nullableString" },
+    "ds4_runtime_dir": { "$ref": "#/$defs/nullableString" },
+
+    "autoUpdate": { "$ref": "#/$defs/nullableBoolean" },
+    "auto_update": { "$ref": "#/$defs/nullableBoolean" },
+    "DS4_AUTO_UPDATE": { "$ref": "#/$defs/nullableBoolean" },
+    "ds4_auto_update": { "$ref": "#/$defs/nullableBoolean" },
+
+    "contextTokens": { "$ref": "#/$defs/nullableNumber" },
+    "context_tokens": { "$ref": "#/$defs/nullableNumber" },
+    "DS4_CONTEXT_TOKENS": { "$ref": "#/$defs/nullableNumber" },
+    "ds4_context_tokens": { "$ref": "#/$defs/nullableNumber" },
+
+    "power": { "$ref": "#/$defs/powerPercent" },
+    "DS4_POWER": { "$ref": "#/$defs/powerPercent" },
+    "ds4_power": { "$ref": "#/$defs/powerPercent" },
+
+    "ssdStreaming": { "$ref": "#/$defs/ssdStreaming" },
+    "ssd_streaming": { "$ref": "#/$defs/ssdStreaming" },
+    "DS4_SSD_STREAMING": { "$ref": "#/$defs/ssdStreaming" },
+    "ds4_ssd_streaming": { "$ref": "#/$defs/ssdStreaming" },
+
+    "readyTimeoutMs": { "$ref": "#/$defs/nullableNumber" },
+    "ready_timeout_ms": { "$ref": "#/$defs/nullableNumber" },
+    "DS4_READY_TIMEOUT_MS": { "$ref": "#/$defs/nullableNumber" },
+    "ds4_ready_timeout_ms": { "$ref": "#/$defs/nullableNumber" },
+
+    "serverBinary": { "$ref": "#/$defs/nullableString" },
+    "server_binary": { "$ref": "#/$defs/nullableString" },
+    "DS4_SERVER_BINARY": { "$ref": "#/$defs/nullableString" },
+    "ds4_server_binary": { "$ref": "#/$defs/nullableString" },
+
+    "watchdogScript": { "$ref": "#/$defs/nullableString" },
+    "watchdog_script": { "$ref": "#/$defs/nullableString" },
+    "DS4_WATCHDOG_SCRIPT": { "$ref": "#/$defs/nullableString" },
+    "ds4_watchdog_script": { "$ref": "#/$defs/nullableString" }
+  },
+  "$defs": {
+    "nullableString": {
+      "type": ["string", "null"]
+    },
+    "nullableNumber": {
+      "type": ["number", "string", "null"],
+      "description": "Strings must parse as finite numbers."
+    },
+    "nullableBoolean": {
+      "type": ["boolean", "number", "string", "null"],
+      "description": "Boolean or one of true/false, yes/no, on/off, or 1/0."
+    },
+    "powerPercent": {
+      "type": ["integer", "string", "null"],
+      "minimum": 1,
+      "maximum": 100,
+      "pattern": "^(?:[1-9]|[1-9][0-9]|100)$",
+      "default": 100,
+      "description": "GPU duty-cycle target from 1 to 100. Lower values apply to DeepSeek V4 models; GLM 5.2 and DeepSeek V4.1 always run at 100."
+    },
+    "ssdStreaming": {
+      "type": ["boolean", "string", "null"],
+      "enum": [true, false, "auto", "true", "false", "yes", "no", "on", "off", "1", "0", null],
+      "default": "auto",
+      "description": "Run ds4-server with --ssd-streaming. auto (default) enables it for models whose resident weights do not fit in system RAM, such as DeepSeek V4.1."
+    },
+    "protocol": {
+      "type": ["string", "null"],
+      "enum": [
+        "openai",
+        "openai-completions",
+        "chat",
+        "chat-completions",
+        "responses",
+        "openai-responses",
+        "anthropic",
+        "anthropic-messages",
+        "messages",
+        null
+      ]
+    }
+  }
+}

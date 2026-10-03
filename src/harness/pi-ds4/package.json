@@ -1,0 +1,44 @@
+{
+  "name": "pi-ds4",
+  "version": "0.1.0",
+  "description": "Pi provider extension for local ds4.c DeepSeek V4, DeepSeek V4.1 and GLM 5.2 inference.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "ds4",
+    "deepseek",
+    "glm"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "skills": [
+      "./pi-ds4-config"
+    ]
+  },
+  "files": [
+    "index.ts",
+    "ds4-watchdog.sh",
+    "install-pi-extension-local.sh",
+    "settings.example.json",
+    "settings.schema.json",
+    "pi-ds4-config/SKILL.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  }
+}

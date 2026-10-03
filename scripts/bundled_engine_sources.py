@@ -70,8 +70,13 @@ def read_regular(path, limit, sink=None, root=None):
             os.close(parent)
 
 
-def load_catalog(assets):
-    root = assets / 'src/engines'
+ENGINES, HARNESSES = 'src/engines', 'src/harness'  # same manifest schema and checks
+
+
+def load_catalog(assets, catalog=ENGINES):
+    if catalog not in (ENGINES, HARNESSES):
+        raise RuntimeError('Unknown bundled source catalog')
+    root = assets / catalog
     if (assets / 'src').is_symlink() or root.is_symlink():
         raise RuntimeError('Bundled engine source directory is linked')
     digest, _, data = read_regular(root / 'manifest.json', MANIFEST_LIMIT, root=assets)
@@ -102,8 +107,8 @@ def checked_files(entry):
     return files
 
 
-def source_entry(assets, engine, revision):
-    catalog, digest, root = load_catalog(assets)
+def source_entry(assets, engine, revision, catalog=ENGINES):
+    catalog, digest, root = load_catalog(assets, catalog)
     entry = catalog.get('engines', {}).get(engine)
     if not isinstance(entry, dict) or entry.get('commit') != revision:
         raise RuntimeError('Bundled source and native engine pins disagree')
@@ -134,8 +139,8 @@ def source_entry(assets, engine, revision):
     return entry, digest, tree
 
 
-def transfer(assets, engine, revision, target=None):
-    entry, manifest_hash, tree = source_entry(assets, engine, revision)
+def transfer(assets, engine, revision, target=None, catalog=ENGINES):
+    entry, manifest_hash, tree = source_entry(assets, engine, revision, catalog)
     if target is not None:
         target.mkdir(mode=0o700, exist_ok=False)
     for name, metadata in entry['files'].items():
@@ -157,19 +162,19 @@ def transfer(assets, engine, revision, target=None):
             digest, size, _ = read_regular(source, metadata['bytes'], root=assets)
         if (digest, size) != (metadata['sha256'], metadata['bytes']):
             raise RuntimeError('Bundled engine source digest differs; no candidate published')
-    if load_catalog(assets)[1] != manifest_hash:
+    if load_catalog(assets, catalog)[1] != manifest_hash:
         raise RuntimeError('Bundled engine source manifest changed during preparation')
     return {'manifestSHA256': manifest_hash, 'engine': engine, 'commit': revision,
             'repository': entry['repository'], 'source': 'bundled',
             'files': len(entry['files']), 'bytes': sum(m['bytes'] for m in entry['files'].values())}
 
 
-def copy_sources(assets, engine, revision, target):
-    return transfer(assets, engine, revision, target)
+def copy_sources(assets, engine, revision, target, catalog=ENGINES):
+    return transfer(assets, engine, revision, target, catalog)
 
 
-def verify_sources(assets, engine, revision, expected):
-    if transfer(assets, engine, revision) != expected:
+def verify_sources(assets, engine, revision, expected, catalog=ENGINES):
+    if transfer(assets, engine, revision, catalog=catalog) != expected:
         raise RuntimeError('Bundled engine source identity changed; no candidate published')
 
 
