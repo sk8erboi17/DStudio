@@ -17,13 +17,13 @@ fs.copyFileSync(probeInput,probe);
 const assets = path.join(run, 'support with spaces'), engine = path.join(run, 'engine with spaces');
 const tools = path.join(run, 'tools'), countFile = path.join(run, 'compiler-count');
 for (const dir of [assets, engine, tools]) fs.mkdirSync(dir);
-for (const dir of ['extension/design', 'extension/remote', 'patch/ds4-media-memory'])
+for (const dir of ['src/harness/design', 'extension/remote', 'patch/ds4-media-memory'])
   fs.cpSync(path.join(root, dir), path.join(assets, dir), {recursive: true});
 // Optional historical script reproduces the original defect in an isolated
 // copy. It is never installed in the user's support tree.
 const legacy = process.env.DSTUDIO_TEST_DESIGN_LEGACY;
 if (legacy) {
-  fs.copyFileSync(legacy, path.join(assets, 'extension/design/build-design.sh'));
+  fs.copyFileSync(legacy, path.join(assets, 'src/harness/design/build-design.sh'));
   fs.mkdirSync(path.join(assets, 'scripts'));
   fs.copyFileSync(path.join(root, 'scripts/apply-ds4-media-memory.sh'), path.join(assets, 'scripts/apply-ds4-media-memory.sh'));
 }

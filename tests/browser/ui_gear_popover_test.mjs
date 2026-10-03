@@ -55,7 +55,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/api/start' && req.method === 'POST') {
-    await readBody(req);
+    const body = JSON.parse(await readBody(req) || '{}');
+    if (body.mode) statusMode = body.mode;
     json(res, 200, { ok: true });
     return;
   }
@@ -183,17 +184,27 @@ try {
   await page.waitForFunction(() => !document.querySelector('#agent-view')?.hidden);
   await page.locator('#cbar-gear').click();
   await page.locator('#cbar-pop').waitFor({ state: 'visible' });
-  const gsaToggle = page.locator('#cbar-pop .cbar-menu-toggle').filter({ hasText: 'Guided Security Analysis' });
-  assert.equal(await gsaToggle.getAttribute('role'), 'switch', 'GSA should be a semantic switch, not an Off/On dropdown');
-  assert.equal(await gsaToggle.getAttribute('aria-checked'), 'true', 'persisted GSA On should be reflected in its switch');
-  const profileTrigger = page.locator('#cbar-pop .cdrop-trig').filter({ hasText: 'Profile' });
-  await profileTrigger.evaluate((node) => {
+  assert.equal(await page.locator('#cbar-pop button').filter({ hasText: /Guided Security Analysis|Reverse Structure Analysis|GSA|RSA/ }).count(), 0,
+    'GSA/RSA controls should be absent from the rendered composer settings');
+  assert.equal(await page.locator('#cbar-pop .cdrop-trig').filter({ hasText: 'Profile' }).count(), 0,
+    'the security profile belongs to the workflow surface');
+  await page.locator('#btn-workflow').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#btn-workflow').innerText(), 'Open RSA/GSA',
+    'Agent should expose its workflow through the conversation header');
+
+  await page.keyboard.press('Escape');
+  await page.locator('#tab-server').click();
+  await page.locator('#messages').waitFor({ state: 'visible' });
+  await page.locator('#cbar-gear').click();
+  await page.locator('#cbar-pop').waitFor({ state: 'visible' });
+  const webTrigger = page.locator('#cbar-pop .cdrop-trig').filter({ hasText: 'Web' });
+  await webTrigger.evaluate((node) => {
     node.click();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   });
   assert.equal(await page.locator('body > .cdrop-menu:not([hidden])').count(), 0,
     'Escape in the opening event loop should close the detached dropdown before it can intercept another control');
-  await profileTrigger.click();
+  await webTrigger.click();
   await page.locator('body > .cdrop-menu:not([hidden])').waitFor({ state: 'visible' });
 
   const boxes = await page.evaluate(() => {
@@ -214,8 +225,11 @@ try {
     assert.ok(r.width > 100 && r.height > 30, `${name} is not visibly sized: ${JSON.stringify(boxes)}`);
   }
   await page.keyboard.press('Escape');
-  await gsaToggle.click();
-  await page.waitForFunction(() => document.querySelector('#cbar-pop .cbar-menu-toggle')?.getAttribute('aria-checked') === 'false');
+  assert.equal(await page.locator('body > .cdrop-menu:not([hidden])').count(), 0,
+    'Escape should close the visible detached Web dropdown');
+  await webTrigger.click();
+  await page.locator('body > .cdrop-menu:not([hidden])').getByRole('menuitemradio', { name: 'Search Local browser', exact: true }).click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}').webMode === 'search');
   statusMode = 'server';
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('#conn-indicator .conn-model').filter({ hasText: 'deepseek-v4-flash' }).waitFor();

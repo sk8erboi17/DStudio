@@ -19,8 +19,8 @@ import {
 } from '../support/real_harness.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const casesDoc = JSON.parse(fs.readFileSync(path.join(root, 'extension/cowork/bench/cases.json'), 'utf8'));
-const baseline = JSON.parse(fs.readFileSync(path.join(root, 'extension/cowork/bench/baseline.json'), 'utf8'));
+const casesDoc = JSON.parse(fs.readFileSync(path.join(root, 'src/harness/cowork/bench/cases.json'), 'utf8'));
+const baseline = JSON.parse(fs.readFileSync(path.join(root, 'src/harness/cowork/bench/baseline.json'), 'utf8'));
 const profile = process.env.DSTUDIO_COWORK_PROFILE || 'standard';
 assert.ok(casesDoc.profiles[profile], `Unknown DSTUDIO_COWORK_PROFILE=${profile}`);
 
@@ -54,7 +54,7 @@ function officeCall(tool, args) {
   fs.writeFileSync(requestPath, JSON.stringify(request));
   try {
     const run = spawnSync('python3', [
-      path.join(root, 'extension/cowork/office_tool.py'),
+      path.join(root, 'src/harness/cowork/office_tool.py'),
       '--request-json', requestPath,
       '--workspace', workspace,
     ], { encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 });

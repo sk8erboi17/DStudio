@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {extractFunction, artifactRunDir, writeArtifact} from '../support/real_harness.mjs';
-import {q36VisionPNG} from '../support/q36_vision_fixtures.mjs';
+import {visionPNG} from '../support/vision_fixtures.mjs';
 
 const source = fs.readFileSync('web/index.html', 'utf8');
 const helpers = source.slice(source.indexOf('    const isGlm53Gguf ='), source.indexOf('    function relativeTime('));
@@ -15,7 +15,7 @@ const functions = ['parseGgufName', 'parseGguf', 'modelIdForEngineStatus', 'gguf
 const run = artifactRunDir('qwen27-model-ui');
 const receipt = {scope: 'Production UI functions with simulated state/engine; no model or browser', cases: []};
 const file = 'Qwen3.8-27B-UD-Q6_K_XL.gguf', projector = 'Qwen3.8-27B-mmproj-F16.gguf';
-const q27 = {model: 'qwen3.8-27b', modelGguf: `gguf/${file}`, modelEngineDir: '/fixture/q36',
+const q27 = {model: 'qwen3.8-27b', modelGguf: `gguf/${file}`, modelEngineDir: '/fixture/ds4',
   chatBackend: 'local', ctxSize: 65536, thinkLevel: 'high', enginePower: 90,
   ssdStreaming: 'on', dspark: true, metalHotlistSeed: true};
 function harness(settings = q27, confirm = async () => true) {
@@ -48,7 +48,7 @@ const item = (file, engineDir = '/fixture/q36') => ({file, path: `gguf/${file}`,
 const plain = value => JSON.parse(JSON.stringify(value));
 function attachmentHarness(settings = q27) {
   const h = harness(settings), notices = [], pdfRequests = [];
-  h.context.imageUri = 'data:image/png;base64,' + q36VisionPNG(0).toString('base64');
+  h.context.imageUri = 'data:image/png;base64,' + visionPNG(0).toString('base64');
   Object.assign(h.context, {toast: (...args) => notices.push(args), renderPendingAttachments() {},
     preparePdfAttachments: async (pdfs, question, options) => pdfRequests.push(plain({pdfs, question, options}))});
   h.context.settingsStore.getState = () => ({ui: {agentWorkdir: '/workspace'}});
@@ -127,7 +127,7 @@ await check('download is offered until both exact 27B components share an engine
   const {context: c} = harness();
   const choices = files => plain(c.availableModelDownloads(files)).filter(x => x.id === 'qwen27-q6');
   assert.equal(choices([]).length, 1);
-  assert.deepEqual(choices([])[0].body, {target: 'qwen27-q6', engine: 'q36'});
+  assert.deepEqual(choices([])[0].body, {target: 'qwen27-q6', engine: 'main', llama: true});
   assert.equal(choices([item(file)]).length, 1);
   assert.equal(choices([item(projector)]).length, 1);
   assert.equal(choices([item(file), item(projector, '/other')]).length, 1);
@@ -144,15 +144,18 @@ await check('download phase distinguishes setup, hashing, completion and a resum
   assert.equal(c.modelDownloadStateFromStatus({...status, downloadPct: -1, downloadPhase: 'failed',
     pausedDownload: true, pausedDownloadVariant: 'qwen27-q6'}).paused, true);
 });
-await check('27B download never invokes synchronous engine setup or rewrites selection', async () => {
-  const h = harness(), posts = [], updates = [], notices = [];
-  Object.assign(h.context, {ensureModelDownloadEngine: async () => {throw Error('unexpected setup/selection');},
+await check('27B download installs no Qwen engine synchronously and keeps the selection', async () => {
+  // llama.cpp is built by the background download worker; the UI only makes
+  // sure the main installation (its gguf/ store) is the active one.
+  const h = harness(), posts = [], updates = [], notices = [], engines = [];
+  Object.assign(h.context, {ensureModelDownloadEngine: async (engine) => {engines.push(engine); return {active: true};},
     toast: (...value) => notices.push(value), fetch: async (url, init) => {posts.push([url, JSON.parse(init.body)]); return {json: async () => ({ok: true})};},
     setInterval: () => 1, clearInterval: () => {}, pollDownload: () => {}});
   h.context.settingsStore.setModelState = value => updates.push(plain(value));
   vm.runInContext(`let dlPoll = null; ${extractFunction(source, 'downloadModel')}`, h.context);
   const original = plain(h.settings());
-  await h.context.downloadModel({target: 'qwen27-q6', engine: 'q36'});
+  await h.context.downloadModel({target: 'qwen27-q6', engine: 'main', llama: true});
+  assert.deepEqual(engines, ['main']);
   assert.deepEqual(posts, [['/api/model/download', {target: 'qwen27-q6'}]]);
   assert.deepEqual(plain(h.settings()), original);
   assert.equal(updates.at(-1).download.variant, 'qwen27-q6');
@@ -195,62 +198,52 @@ await check('27B uses native full power and no SSD experts/DSpark/hotlist withou
   assert.equal(h.settings().enginePower, 90); assert.equal(h.settings().ssdStreaming, 'on');
   assert.equal(h.settings().dspark, true); assert.equal(h.settings().metalHotlistSeed, true);
 });
-await check('27B request preserves sampling and uses its native off/high/max rather than xhigh', () => {
+await check('27B request preserves sampling and switches thinking through the llama.cpp template', () => {
   const h = harness();
   for (const thinkLevel of ['off', 'high', 'max']) {
     const body = h.context.buildBody({model: q27.model, messages: [{role: 'user', content: 'Question'}],
-      temperature: .6, maxTokens: 45, thinkLevel, settings: {...h.settings(), ctxSize: 131072}});
+      temperature: .6, maxTokens: 45, thinkLevel, settings: {...h.settings(), ctxSize: 65536}});
     assert.equal(body.model, q27.model); assert.equal(body.temperature, .6);
-    assert.equal(body.think, thinkLevel !== 'off'); assert.equal(body.reasoning_effort, thinkLevel === 'off' ? undefined : thinkLevel);
+    assert.deepEqual(plain(body.chat_template_kwargs), {enable_thinking: thinkLevel !== 'off'});
+    assert.equal(body.reasoning_effort, undefined, 'llama.cpp Qwen templates have no effort levels');
   }
 });
-await check('27B maximum uses native 96k threshold, not DeepSeek 384k', () => {
+await check('27B has one thinking switch: Max needs no larger context', () => {
   const h = harness();
-  assert.equal(h.context.thinkingProfile(h.settings()).minimumContext, 98304);
-  assert.equal(h.context.thinkingProfile(h.settings()).singleLevel, false);
-  assert.equal(h.context.settingsForThinking(h.settings(), 'max').ctxSize, 98304);
-  assert.equal(h.settings().ctxSize, 65536);
+  const profile = h.context.thinkingProfile(h.settings());
+  assert.equal(profile.minimumContext, 0); assert.equal(profile.singleLevel, true); assert.equal(profile.maximum, 'on');
+  assert.equal(h.context.settingsForThinking(h.settings(), 'max').ctxSize, 65536);
 });
-await check('a stale low-context Max preference cannot silently send a weaker request', () => {
+await check('a Max preference at low context sends the same request as thinking on', () => {
   const h = harness();
-  assert.throws(() => h.context.buildBody({model: q27.model, messages: [], thinkLevel: 'max', settings: h.settings()}), /needs at least 96k/);
+  const body = h.context.buildBody({model: q27.model, messages: [], thinkLevel: 'max', settings: h.settings()});
+  assert.deepEqual(plain(body.chat_template_kwargs), {enable_thinking: true});
 });
-await check('accepting 27B max confirms 96k then restores the original capacity', async () => {
+await check('selecting 27B Max asks nothing and keeps the chosen capacity', async () => {
   const h = harness();
-  assert.equal(await h.context.confirmTrueThinkingMax(), true);
-  assert.match(h.prompts[0].title, /96k/);
-  assert.equal(h.settings().ctxSize, 98304);
-  assert.equal(h.context.restoreContextAfterThinkingMax(), true);
-  assert.equal(h.settings().ctxSize, 65536);
-});
-await check('declining 27B max preserves context and thinking', async () => {
-  const h = harness(q27, async () => false);
-  assert.equal(await h.context.confirmTrueThinkingMax(), false);
-  assert.equal(h.settings().ctxSize, 65536); assert.equal(h.settings().thinkLevel, 'high');
-});
-await check('Max already fits at 128k and never lowers a larger chosen capacity', async () => {
-  const h = harness({...q27, ctxSize: 131072});
   assert.equal(await h.context.confirmTrueThinkingMax(), true);
   assert.equal(h.prompts.length, 0);
-  assert.equal(h.context.settingsForThinking(h.settings(), 'max').ctxSize, 131072);
+  assert.equal(h.settings().ctxSize, 65536);
 });
 await check('a changed model cannot receive an old confirmation or restore another model context', async () => {
   let answer, entered;
   const pending = new Promise(resolve => {entered = resolve;});
-  const h = harness(q27, () => {entered(); return new Promise(resolve => {answer = resolve;});});
+  // DeepSeek still needs its 384k boundary for true Max, so it prompts.
+  const deepseek = {...q27, modelGguf: 'gguf/DeepSeek-V4-Flash.gguf', model: 'deepseek-v4-flash', modelEngineDir: '/fixture/ds4'};
+  const h = harness(deepseek, () => {entered(); return new Promise(resolve => {answer = resolve;});});
   const change = h.context.confirmTrueThinkingMax(); await pending;
-  h.select({modelGguf: 'gguf/DeepSeek-V4-Flash.gguf', model: 'deepseek-v4-flash', modelEngineDir: '/fixture/ds4'});
+  h.select({modelGguf: q27.modelGguf, model: q27.model, modelEngineDir: '/fixture/ds4'});
   answer(true);
   await assert.rejects(change, /selection changed/i);
   assert.equal(h.settings().ctxSize, 65536);
-  const h2 = harness(); await h2.context.confirmTrueThinkingMax();
-  h2.select({modelGguf: 'gguf/DeepSeek-V4-Flash.gguf', model: 'deepseek-v4-flash', modelEngineDir: '/fixture/ds4', ctxSize: 393216});
+  const h2 = harness(deepseek); await h2.context.confirmTrueThinkingMax();
+  h2.select({modelGguf: q27.modelGguf, model: q27.model, modelEngineDir: '/fixture/ds4', ctxSize: 131072});
   assert.equal(h2.context.restoreContextAfterThinkingMax(), false);
-  assert.equal(h2.settings().ctxSize, 393216);
+  assert.equal(h2.settings().ctxSize, 131072);
 });
 await check('existing Qwen families and DeepSeek retain their native reasoning profiles', () => {
   const {context: c} = harness();
-  for (const [file, minimum, maximum] of [['Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf', 0, 'on'],
+  for (const [file, minimum, maximum] of [['Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf', 0, 'on'], ['Qwen3.8-27B-UD-Q6_K_XL.gguf', 0, 'on'],
     ['Qwen3.8-Flash-Next.gguf', 0, 'xhigh'], ['DeepSeek-V4-Flash.gguf', 393216, 'max']]) {
     const s = {...q27, modelGguf: `gguf/${file}`};
     assert.equal(c.thinkingProfile(s).minimumContext, minimum);
@@ -260,10 +253,11 @@ await check('existing Qwen families and DeepSeek retain their native reasoning p
 for (const change of ['context', 'A-B-A']) await check(`a pending Max confirmation is stale after ${change}`, async () => {
   let answer, entered;
   const waiting = new Promise(resolve => {entered = resolve;});
-  const h = harness(q27, () => {entered(); return new Promise(resolve => {answer = resolve;});});
+  const deepseek = {...q27, modelGguf: 'gguf/DeepSeek-V4-Flash.gguf', model: 'deepseek-v4-flash', modelEngineDir: '/fixture/ds4'};
+  const h = harness(deepseek, () => {entered(); return new Promise(resolve => {answer = resolve;});});
   const pending = h.context.confirmTrueThinkingMax(); await waiting;
   if (change === 'context') h.select({ctxSize: 131072});
-  else {h.select({modelGguf: 'gguf/DeepSeek-V4-Flash.gguf'}); h.select({modelGguf: q27.modelGguf});}
+  else {h.select({modelGguf: q27.modelGguf}); h.select({modelGguf: deepseek.modelGguf});}
   answer(true);
   await assert.rejects(pending, /setting changed|selection changed/i);
   assert.equal(h.settings().ctxSize, change === 'context' ? 131072 : 65536);

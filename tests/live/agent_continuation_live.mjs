@@ -13,11 +13,10 @@ import {continuationTrace, continuationCode} from '../support/agent_continuation
 const root = path.resolve(import.meta.dirname, '../..');
 assert.equal(process.platform, 'darwin', 'This live runner exercises Metal on macOS only');
 const [receiptArg, family, modelArg] = process.argv.slice(2);
-assert(receiptArg && ['laguna', 'qwen35'].includes(family) && modelArg,
-  'Supply a passing native-build results.json, laguna|qwen35, and the real GGUF');
+assert(receiptArg && family === 'laguna' && modelArg,
+  'Supply a passing native-build results.json, laguna, and the real GGUF');
 const receiptPath = fs.realpathSync(receiptArg), model = fs.realpathSync(modelArg);
 function continuationPrefill(family) {
-  if (family === 'qwen35') return {chunk: 512, args: ['--prefill-chunk', '512']};
   // Laguna rejects any custom chunk before model loading. Its native graph
   // selects the prefill shape; this does not change context or output limits.
   assert.equal(family, 'laguna', 'Unsupported continuation engine family');
@@ -143,7 +142,7 @@ try {
   const existing = spawnSync('ps', ['-axo', 'pid=,comm='], {encoding: 'utf8', timeout: 5000});
   assert.equal(existing.status, 0);
   const active = existing.stdout.split('\n').filter(line =>
-    /\/(?:ds4(?:[-_](?:server|agent|cowork|design|native|cpu|pld|jsonl))+|ds4|q36-server|q27-server)$/.test(line.trim()));
+    /\/(?:ds4(?:[-_](?:server|agent|cowork|design|native|cpu|pld|jsonl))+|ds4|llama-server)$/.test(line.trim()));
   assert.equal(active.length, 0, 'Existing model engines need separate handling; this runner never stops them');
   report.hostMemoryBefore = spawnSync('memory_pressure', ['-Q'], {encoding: 'utf8', timeout: 5000}).stdout;
   const host = path.join(root, 'tests/.build/agent-build-probe'); report.inputs.push(captureInput(host));

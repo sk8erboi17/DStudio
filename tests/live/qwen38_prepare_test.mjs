@@ -38,7 +38,7 @@ function command(exe, argv, timeout = 30000, cwd = root) {
 }
 function idle() {
   const text = command('ps', ['-axo', 'pid=,comm=']);
-  const active = text.split('\n').filter(line => /\/(ds4|ds4-server|ds4-agent|ds4-agent-jsonl|ds4-cowork|ds4-design|q36|q27)(\s|$)/.test(line));
+  const active = text.split('\n').filter(line => /\/(ds4|ds4-server|ds4-agent|ds4-agent-jsonl|ds4-cowork|ds4-design|llama-server)(\s|$)/.test(line));
   assert.equal(active.length, 0, 'An unrelated inference process is running; no processes were stopped: ' + active.join('\n'));
 }
 try {

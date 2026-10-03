@@ -141,7 +141,7 @@ binary. Do not restore/apply patches concurrently with another build or update.
 | `make test-lan-unit test-glm53-m2max-patch test-pld test-frontend-unit test-design-build-freshness` | PASS; PLD's 27885 assertions use a stateful test double, not real-model quality evidence |
 | `./tests/.build/dstudio-server-test --build-jsonl "$PWD/ds4"` | PASS, Agent and Cowork compiled; repeat cached |
 | `./tests/.build/dstudio-server-test --build-server-pld "$PWD/ds4"` | PASS, derived Chat compiled; repeat cached |
-| `DS4_DIR="$PWD/ds4" bash extension/design/build-design.sh build` | PASS, Design compiled; repeat cached |
+| `DS4_DIR="$PWD/ds4" bash src/harness/design/build-design.sh build` | PASS, Design compiled; repeat cached |
 | Binary marker checks and packaged hook/patch byte comparison | PASS |
 | `git diff --check`; `git -C ds4 diff --check` | PASS |
 | CPU compile-only and ASan/UBSan | NOT RUN again here; PASS for this identical patch in the preceding port phase, logs archived below |

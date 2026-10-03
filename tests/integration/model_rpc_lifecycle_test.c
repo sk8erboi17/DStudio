@@ -208,15 +208,16 @@ static void check_local_stop_resets_model_connection(void) {
     }
     retain_peer(peer); close(listener); close(result[1]); set_nonblock(result[0]);
     g_in_fd = runtime[1]; g_child = getpid(); g_mode = ENGINE_AGENT; g_agent_working = 1;
-    g_q36.pid = peer; g_q36.ready = 1; g_q36.stopping = 0;
-    g_q36.frontend = g_child; g_q36.launch_task = 777;
-    g_q36.spec.cfg.port = ntohs(address.sin_port);
+    g_resident.pid = peer; g_resident.ready = 1; g_resident.stopping = 0;
+    g_resident.frontend = g_child; g_resident.launch_task = 777;
+    g_resident.spec.cfg.port = ntohs(address.sin_port);
+    cstr_copy(g_resident.spec.model_id, sizeof g_resident.spec.model_id, "qwen3.8-27b");
     require(model_rpc_start(91, strdup("{\"model\":\"qwen3.8-27b\"}"), 0), "local request uses the native owned endpoint");
     wait_barrier(result[0], 'R');
     require(g_model_rpc && !g_model_rpc->canceled && !kill(peer, 0), "valid silent work remains live before Stop");
     pid_t worker = g_model_rpc->worker;
     model_rpc_cancel(); wait_barrier(result[0], 'C');
-    g_q36.pid = -1; g_q36.ready = 0; g_q36.frontend = -1;
+    g_resident.pid = -1; g_resident.ready = 0; g_resident.frontend = -1;
     long long deadline = dstudio_now_ms() + 3000;
     while (g_model_rpc && dstudio_now_ms() < deadline) { model_rpc_tick(); usleep(1000); }
     require(!g_model_rpc && kill(worker, 0) < 0 && errno == ESRCH, "Stop reaps only the request worker");

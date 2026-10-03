@@ -147,6 +147,17 @@ try {
     row.taskId = await startAgent();
     await cancel.waitFor({ state: 'visible' });
     assert.equal(await overlay.isVisible(), true);
+    // A local launch shows no network note; Cancel is one compact line at
+    // the right of the timer, inside the card footer.
+    assert.equal(await page.locator('#loading-privacy').isVisible(), false);
+    row.foot = await page.evaluate(() => {
+      const box = (s) => document.querySelector(s).getBoundingClientRect();
+      const b = box('#loading-cancel'), t = box('.loading-timing'), f = box('.loading-foot');
+      return { buttonH: b.height, buttonW: b.width,
+        rightOfTimer: b.left >= t.right, inside: b.top >= f.top && b.bottom <= f.bottom && b.right <= f.right };
+    });
+    assert.ok(row.foot.buttonH <= 32, `Cancel must be one compact line, got ${row.foot.buttonH}px`);
+    assert.ok(row.foot.rightOfTimer && row.foot.inside, JSON.stringify(row.foot));
     assert.equal(await page.locator('#loading-pct').textContent(), '0');
     assert.equal(await page.locator('#agent-view').isVisible(), false);
     assert.equal(state.mode, 'server');

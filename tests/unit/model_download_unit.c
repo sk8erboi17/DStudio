@@ -76,7 +76,7 @@ int main(void) {
     snprintf(path, sizeof path, "%s/ds4/Makefile", root); assert(jsonl_write_file(path, "all:\n", 5));
     char store[1024]; snprintf(store, sizeof store, "%s/gguf", main_dir); assert(mkdir(store, 0700) == 0);
     snprintf(marker, sizeof marker, "%s/entered", root);
-    snprintf(installer, sizeof installer, "%s/scripts/install-q36.py", root);
+    snprintf(installer, sizeof installer, "%s/scripts/install-llama.py", root);
     const char *program = "import sys,time\nfrom pathlib import Path\nr=Path(sys.argv[sys.argv.index('--root')+1])\n(r/'entered').write_text('blocked')\nwhile True: time.sleep(.02)\n";
     assert(jsonl_write_file(installer, program, strlen(program)));
     cstr_copy(g_ds4_dir, sizeof g_ds4_dir, main_dir); cstr_copy(g_web_dir, sizeof g_web_dir, root);

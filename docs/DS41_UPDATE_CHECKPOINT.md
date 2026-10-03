@@ -16,11 +16,11 @@ history and original failures are retained in
    publication and verified legacy-source recovery. Retain source/backup identity
    and unrelated checkout changes throughout failure and recovery.
 3. Extend current install/upgrade/fault acceptance across the full engine/mode
-   matrix. Fresh bundled offline builds and a real q36 cache-preserving upgrade
-   already exist; they are not missing implementations or permission to overwrite
-   a user's installed engines.
-4. Complete q36's current numerical/long-context, Learn/Tutor, PDF/vision,
-   multi-session and native-desktop qualification through
+   matrix. Fresh bundled offline builds exist (main, Laguna, llama.cpp); the real
+   q36 cache-preserving upgrade predates q36's retirement on October 3. Neither
+   is permission to overwrite a user's installed engines.
+4. Complete the llama.cpp Qwen3.6/27B numerical/long-context, Learn/Tutor,
+   PDF/vision, multi-session and native-desktop qualification through
    [the active Qwen checkpoint](QWEN_CHECKPOINT.md).
 5. Bind all final source/patch/compiler/binary/weight/component/settings
    identities, then complete final admission and reviewed publication.

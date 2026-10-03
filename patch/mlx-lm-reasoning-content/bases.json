@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "package": "mlx-lm",
+  "version": "0.32.0",
+  "repository": "https://github.com/ml-explore/mlx-lm",
+  "revision": "a9bd8af5c02118882af735cef60705d2efce9fd0",
+  "after": ["mlx-lm-single-model/single-model.patch"],
+  "order": [
+    "reasoning-content.patch"
+  ],
+  "patches": {
+    "reasoning-content.patch": {
+      "sha256": "412911540e9fc3440f2477f499343f06a08d92db86b9a7d91235b40399158be6",
+      "baseFile": "mlx_lm/server.py",
+      "baseSHA256": "71b239fdd4d093af9519b5849bcc50016571a20ab0c72f21448d2892db9033d9",
+      "baseNote": "the wheel's server.py after single-model.patch"
+    }
+  }
+}

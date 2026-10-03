@@ -56,7 +56,7 @@ try {
   run('cc', ['-O1', '-std=c11', 'tests/support/emit_agent_patch.c', '-o', emit]);
   run(emit, [path.join(engine, 'ds4_agent.c'), path.join(scratch, 'ds4_agent.c')]);
   run(emit, [path.join(engine, 'ds4_web.c'), path.join(scratch, 'ds4_web.c'), '--web']);
-  const includes = [scratch, engine, path.resolve('extension/remote'), path.resolve('extension/cowork'), path.resolve('patch/ds4-agent-jsonl')];
+  const includes = [scratch, engine, path.resolve('extension/remote'), path.resolve('src/harness/cowork'), path.resolve('patch/ds4-agent-jsonl')];
   const objects = ['ds4_distributed', 'ds4_tp', 'ds4_ssd', 'ds4_metal',
     'ds4_layer_pack', 'ds4_help', 'ds4_kvstore', 'linenoise', 'ds4_gpu_args',
     ...(laguna ? ['ds4', 'rax'] : ['ds4_image', 'ds4_prompt_prefix'])];
@@ -67,7 +67,7 @@ try {
   const derived = [
     ['ds4_pld_core', path.resolve('patch/ds4-agent-jsonl/pld_core.c'), ...(laguna ? [] : ['-DDSTUDIO_PLD_NATIVE'])],
     ['ds4_web', path.join(scratch, 'ds4_web.c')],
-    ['ds4_cowork', path.resolve('extension/cowork/ds4_cowork.c')],
+    ['ds4_cowork', path.resolve('src/harness/cowork/ds4_cowork.c')],
     ['dstudio_remote_llm', path.resolve('extension/remote/dstudio_remote_llm.c')],
   ];
   for (const [name, source, ...flags] of derived)

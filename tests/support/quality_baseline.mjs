@@ -54,7 +54,9 @@ export function ownGitRevision(dir) {
   } catch { return null; }
 }
 
-const managedEngines = ['ds4', 'ds4-laguna-s21', 'ds4-qwen38', 'ds4-qwen35', 'q36'];
+// ds4-qwen38 is a retired fork whose files may remain; llama.cpp serves the
+// local Qwen checkpoints.
+const managedEngines = ['ds4', 'ds4-laguna-s21', 'ds4-qwen38', 'llama.cpp'];
 
 // Mirror the launcher's persisted checkout and fixed sibling search. Never
 // enumerate a home directory, File Provider tree, or unrelated application data.
@@ -174,7 +176,8 @@ export async function captureBaseline(root, {
     // Root-level checkpoints are also valid native engine inputs.
     for (const alias of location.aliases) stores.push(alias, path.join(alias, 'gguf'));
     const engine = { ...location, git: ownGitRevision(real), sourceReceipt: null, sources: [], binaries: [] };
-    const downloaded = path.join(real, '.dstudio-source.json');
+    // ds4-family installs keep the source receipt; llama.cpp its build receipt.
+    const downloaded = ['.dstudio-source.json', '.dstudio-llama.json'].map(name => path.join(real, name)).find(file => fs.existsSync(file)) || path.join(real, '.dstudio-source.json');
     if (fs.existsSync(downloaded)) {
       try {
         if (fs.statSync(downloaded).size > 64 * 1024) throw Error('Oversized source receipt');
@@ -182,7 +185,7 @@ export async function captureBaseline(root, {
       } catch (error) { receipt.errors.push({ file: downloaded, error: error.message }); }
     }
     for (const rel of sourceFiles(real)) engine.sources.push({ path: rel, ...await hashStableFile(path.join(real, rel)) });
-    for (const name of ['ds4', 'ds4-server', 'ds4-agent', 'ds4-agent-jsonl', 'ds4-cowork', 'ds4-design', 'q36', 'q36-server']) {
+    for (const name of ['ds4', 'ds4-server', 'ds4-agent', 'ds4-agent-jsonl', 'ds4-cowork', 'ds4-design', 'bin/llama-server']) {
       const bin = path.join(real, name);
       if (fs.existsSync(bin)) engine.binaries.push({ path: bin, ...await hashStableFile(bin), executed: false });
     }

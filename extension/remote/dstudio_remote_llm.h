@@ -72,4 +72,23 @@ int dstudio_remote_chat_stream_tools(const char *base_url,
                                      char **tool_calls_json,
                                      char *err, size_t err_len);
 
+/* Live preview while a structured call is generated: complete protocol lines
+ * ("\x1e{...}\n": tool_call_begin, tool_call_param, tool_body_delta) for the
+ * runtime to write to its transcript, in order with its other output. A
+ * preview never validates or executes anything; tool_calls_json is still the
+ * only executable result. preview may be NULL. */
+typedef void (*dstudio_remote_preview_cb)(void *ud, const char *line, size_t len);
+int dstudio_remote_chat_stream_tools_preview(const char *base_url,
+                                             const char *model,
+                                             const char *messages_json,
+                                             const char *tools_json,
+                                             int think_level,
+                                             float temperature, float top_p, float min_p,
+                                             int max_tokens,
+                                             dstudio_remote_chunk_cb cb, void *ud,
+                                             dstudio_remote_cancel_cb cancelled,
+                                             dstudio_remote_preview_cb preview, void *preview_ud,
+                                             char **tool_calls_json,
+                                             char *err, size_t err_len);
+
 #endif

@@ -12,8 +12,10 @@ const repairCheckout = process.env.DSTUDIO_TEST_STALE_CHECKOUT === '1';
 const modelFixture = {
   deepseek: { id: 'deepseek-v4-flash', file: 'gguf/DeepSeek-V4-Flash-test.gguf', engine: '/fixture/ds4', effort: 'max', normalEffort: 'high', maximum: 'max', minimum: 393216 },
   qwen38: { id: 'qwen3.8-flash-next', file: 'gguf/Qwen3.8-Flash-Next-Q4.gguf', engine: '/fixture/ds4', effort: 'xhigh', normalEffort: 'xhigh', maximum: 'xhigh', minimum: 0 },
-  qwen35: { id: 'qwen3.6-35b-a3b', file: 'gguf/Qwen3.6-35B-A3B-test.gguf', engine: '/fixture/ds4-qwen35', effort: undefined, normalEffort: undefined, maximum: 'on', minimum: 0 },
-  qwen27: { id: 'qwen3.8-27b', file: 'gguf/Qwen3.8-27B-UD-Q6_K_XL.gguf', engine: '/fixture/q36', effort: 'max', normalEffort: 'high', maximum: 'max', minimum: 98304 },
+  // llama.cpp serves both Qwen checkpoints from the main installation: one
+  // thinking switch through the chat template, no reasoning_effort.
+  qwen35: { id: 'qwen3.6-35b-a3b', file: 'gguf/Qwen3.6-35B-A3B-test.gguf', engine: '/fixture/ds4', effort: undefined, normalEffort: undefined, maximum: 'on', minimum: 0 },
+  qwen27: { id: 'qwen3.8-27b', file: 'gguf/Qwen3.8-27B-UD-Q6_K_XL.gguf', engine: '/fixture/ds4', effort: undefined, normalEffort: undefined, maximum: 'on', minimum: 0 },
 }[modelFamily];
 assert(modelFixture, 'Unknown model fixture');
 let browserType;

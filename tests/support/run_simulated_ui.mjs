@@ -17,7 +17,7 @@ const suites = [
   'ui_settings_redesign_playwright_test', 'ui_video_generation_playwright_test',
   'ui_research_progress_playwright_test', 'ui_launch_control_playwright_test',
   'ui_plan_mode_playwright_test', 'ui_plan_mode_matrix_test',
-  'ui_gsa_playwright_test', 'ui_rsa_playwright_test',
+  'ui_gsa_playwright_test', 'ui_rsa_playwright_test', 'ui_workflow_playwright_test',
 ];
 const browsers = process.env.DSTUDIO_TEST_BROWSER ? [process.env.DSTUDIO_TEST_BROWSER] : ['webkit', 'chromium'];
 assert.ok(browsers.every(browser => ['webkit', 'chromium'].includes(browser)));

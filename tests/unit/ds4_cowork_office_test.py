@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MODULE_PATH = ROOT / "extension" / "cowork" / "office_tool.py"
+MODULE_PATH = ROOT / "src" / "harness" / "cowork" / "office_tool.py"
 SPEC = importlib.util.spec_from_file_location("ds4_cowork_office", MODULE_PATH)
 office = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

@@ -15,7 +15,7 @@ const engine = path.join(run, 'engine with spaces');
 const tools = path.join(run, 'tools');
 for (const p of [assets, engine, tools]) fs.mkdirSync(p);
 fs.cpSync('patch', path.join(assets, 'patch'), { recursive: true });
-for (const p of ['extension/remote', 'extension/cowork', 'scripts'])
+for (const p of ['extension/remote', 'src/harness/cowork', 'scripts'])
   fs.mkdirSync(path.join(assets, p), { recursive: true });
 for (const script of [
   'apply-ds4-glm53-m2max.sh',

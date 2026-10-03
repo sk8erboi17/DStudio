@@ -11,7 +11,7 @@ import {fileURLToPath} from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const engine=path.join(root,'ds4');
 const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
-let binary=path.join(engine,'ds4-design'),source=path.join(root,'extension/design/ds4_design.c'),capturedReceipt;
+let binary=path.join(engine,'ds4-design'),source=path.join(root,'src/harness/design/ds4_design.c'),capturedReceipt;
 if(process.argv[2]) {
   const captured=path.resolve(process.argv[2]);
   const original=JSON.parse(fs.readFileSync(path.join(captured,'report.json')));

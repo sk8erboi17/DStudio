@@ -55,9 +55,9 @@ echo "windows-cygwin: building DStudio jsonl patch helper"
 )
 
 echo "windows-cygwin: building ds4-design"
-"$MAKE_BIN" -C "$DS4_DIR" -f "$ROOT/extension/design/design.mk" \
+"$MAKE_BIN" -C "$DS4_DIR" -f "$ROOT/src/harness/design/design.mk" \
   CC="$CC_BIN" \
-  DESIGN_SRC="$ROOT/extension/design/ds4_design.c" \
+  DESIGN_SRC="$ROOT/src/harness/design/ds4_design.c" \
   REMOTE_DIR="$ROOT/extension/remote" \
   CFLAGS="$CPU_CFLAGS" \
   LDLIBS="-lm -pthread" \

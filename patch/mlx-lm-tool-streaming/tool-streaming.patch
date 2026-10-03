@@ -1,0 +1,233 @@
+--- a/mlx_lm/server.py
++++ b/mlx_lm/server.py
+@@ -1448,6 +1448,15 @@
+ 
+         # Tool call formatter
+         tool_formatter = ToolCallFormatter(ctx.tool_parser, request.tools, self.stream)
++        # DStudio: Qwen3-Coder tool calls stream as they are generated (see
++        # dstudio_tool_stream.py); other parsers keep the upstream path.
++        tool_stream = None
++        if (self.stream and os.environ.get("DSTUDIO_MLX_TOOL_STREAM") == "1"
++                and getattr(ctx.tool_parser, "__module__", "").endswith("tool_parsers.qwen3_coder")):
++            from .dstudio_tool_stream import QwenToolStreams
++            from .tool_parsers import qwen3_coder
++            tool_stream = QwenToolStreams(request.tools, qwen3_coder._get_arguments_config,
++                                          qwen3_coder._convert_param_value)
+ 
+         # Initialize the text state machine
+         sm_state = ctx.text_sm.make_state(ctx.initial_state)
+@@ -1488,9 +1497,19 @@
+                     reasoning_text += clean_text
+                 elif current_state == "tool":
+                     tool_text += clean_text
++                    if tool_stream is not None:
++                        deltas = tool_stream.begin() if prev_state != "tool" else []
++                        deltas += tool_stream.feed(clean_text)
++                        if deltas:
++                            resp = self.generate_response("", None, tool_calls=deltas)
++                            self.wfile.write(f"data: {json.dumps(resp)}\n\n".encode())
++                            self.wfile.flush()
+                 elif current_state == "normal":
+                     if prev_state == "tool":
+-                        tool_calls.append(tool_text)
++                        if tool_stream is not None:
++                            tool_stream.end()  # already streamed: never formatted again
++                        else:
++                            tool_calls.append(tool_text)
+                         tool_text = ""
+                         made_tool_call = True
+                     text += clean_text
+@@ -1525,7 +1544,10 @@
+                 prev_state = current_state
+ 
+             if prev_state == "tool" and tool_text:
+-                tool_calls.append(tool_text)
++                if tool_stream is not None:
++                    tool_stream.end()
++                else:
++                    tool_calls.append(tool_text)
+                 made_tool_call = True
+ 
+             if finish_reason == "stop" and made_tool_call:
+--- /dev/null
++++ b/mlx_lm/dstudio_tool_stream.py
+@@ -0,0 +1,179 @@
++# DStudio: stream Qwen3-Coder XML tool calls as OpenAI argument fragments.
++#
++# Upstream emits a tool call only after it is complete. With
++# DSTUDIO_MLX_TOOL_STREAM=1 the server converts it while it is generated:
++#   <function=NAME><parameter=KEY>VALUE</parameter>...</function>
++# becomes fragments whose concatenation is exactly
++# json.dumps(arguments, ensure_ascii=False) of the upstream parser
++# (tool_parsers/qwen3_coder.py) for the same text:
++#   - one leading and one trailing newline of a value are not part of it;
++#   - a value equal to "null" (any case) is null;
++#   - a parameter whose schema type is not a string is converted at its end by
++#     the upstream converter; any other value streams as a JSON string.
++# A repeated parameter, a value the converter rejects or a missing
++# </function> leaves the arguments incomplete: the client must then reject the
++# call (upstream would drop it or keep the last value). Nothing is executed
++# here; the client validates the complete arguments.
++import json
++import uuid
++
++_PARAM = "<parameter="
++_PARAM_END = "</parameter>"
++_FUNCTION = "<function="
++_FUNCTION_END = "</function>"
++_STRING_TYPES = {"string", "str", "text", "varchar", "char", "enum"}
++
++
++def _held_prefix(text, *markers):
++    """Length of the longest suffix of text that may still begin a marker."""
++    best = 0
++    for marker in markers:
++        for n in range(min(len(marker) - 1, len(text)), 0, -1):
++            if marker.startswith(text[-n:]):
++                best = max(best, n)
++                break
++    return best
++
++
++def _escape(text):
++    return json.dumps(text, ensure_ascii=False)[1:-1]
++
++
++class QwenToolStreams:
++    """One streaming request. begin() at each tool block, feed() its text,
++    end() when the block closes; each returns OpenAI tool_calls deltas."""
++
++    def __init__(self, tools, arguments_config, convert):
++        self.tools, self.arguments_config, self.convert = tools, arguments_config, convert
++        self.index = -1
++        self.call = None
++
++    def begin(self):
++        self.index += 1
++        self.call = {"state": "pre", "buf": "", "name": None, "id": "call_" + uuid.uuid4().hex,
++                     "config": {}, "keys": set(), "param": None, "typed": False,
++                     "value": "", "started": False, "lead": True, "invalid": False}
++        return []
++
++    def _args(self, fragment):
++        return {"index": self.index, "function": {"arguments": fragment}}
++
++    def feed(self, text):
++        c = self.call
++        if c is None or c["invalid"] or c["state"] == "done":
++            return []
++        c["buf"] += text
++        out = []
++        while True:
++            state, buf = c["state"], c["buf"]
++            if state == "pre":
++                at = buf.find(_FUNCTION)
++                if at < 0:
++                    c["buf"] = buf[-(len(_FUNCTION) - 1):] if buf else ""
++                    return out
++                rest = buf[at + len(_FUNCTION):]
++                stripped = rest.lstrip()
++                end = next((i for i, ch in enumerate(stripped) if ch.isspace() or ch in "<>"), -1)
++                if end <= 0:
++                    c["buf"] = buf  # the name is not complete yet
++                    return out
++                c["name"] = stripped[:end]
++                c["config"] = self.arguments_config(c["name"], self.tools) or {}
++                rest = stripped[end + 1:] if stripped[end] == ">" else stripped[end:]
++                out.append({"index": self.index, "id": c["id"], "type": "function",
++                            "function": {"name": c["name"], "arguments": "{"}})
++                c["state"], c["buf"] = "between", rest
++            elif state == "between":
++                p, f = buf.find(_PARAM), buf.find(_FUNCTION_END)
++                if f >= 0 and (p < 0 or f < p):
++                    out.append(self._args("}"))
++                    c["state"], c["buf"] = "done", ""
++                    return out
++                if p < 0:
++                    keep = _held_prefix(buf, _PARAM, _FUNCTION_END)
++                    c["buf"] = buf[len(buf) - keep:] if keep else ""
++                    return out
++                c["state"], c["buf"] = "pname", buf[p + len(_PARAM):]
++            elif state == "pname":
++                stripped = buf.lstrip()
++                end = next((i for i, ch in enumerate(stripped) if ch.isspace() or ch in "<>"), -1)
++                if end < 0:
++                    c["buf"] = buf
++                    return out
++                name = stripped[:end]
++                if not name or name in c["keys"]:
++                    c["invalid"] = True  # repeated or empty: arguments stay incomplete
++                    return out
++                c["keys"].add(name)
++                param = c["config"].get(name) or None
++                kind = str(param.get("type", "string")).strip().lower() if isinstance(param, dict) else "string"
++                c["typed"] = bool(param) and kind not in _STRING_TYPES
++                out.append(self._args(("" if len(c["keys"]) == 1 else ", ") + json.dumps(name, ensure_ascii=False) + ": "))
++                c.update(param_name=name, value="", started=False, lead=True)
++                rest = stripped[end + 1:] if stripped[end] == ">" else stripped[end:]
++                c["state"], c["buf"] = "pvalue", rest
++            elif state == "pvalue":
++                at = buf.find(_PARAM_END)
++                if at >= 0:
++                    out.extend(self._value(buf[:at], closing=True))
++                    c["state"], c["buf"] = "between", buf[at + len(_PARAM_END):]
++                    continue
++                keep = _held_prefix(buf, _PARAM_END)
++                out.extend(self._value(buf[:len(buf) - keep], closing=False))
++                c["buf"] = buf[len(buf) - keep:]
++                return out
++            else:
++                return out
++            if c["invalid"]:
++                return out
++
++    def _value(self, text, closing):
++        """Value bytes seen so far for the open parameter; streams what is
++        certainly part of the final JSON string."""
++        c = self.call
++        c["value"] += text
++        value = c["value"]
++        if c["lead"] and value:
++            if value.startswith("\n"):
++                value = value[1:]
++            c["lead"] = False
++            c["value"] = value
++        if not closing and c["lead"]:
++            return []  # the first character decides the leading newline
++        if c["typed"]:
++            if not closing:
++                return []
++            raw = value[:-1] if value.endswith("\n") else value
++            try:
++                converted = self.convert(raw, c["param_name"], c["config"])
++            except (ValueError, TypeError):
++                c["invalid"] = True
++                return []
++            return [self._args(json.dumps(converted, ensure_ascii=False))]
++        if closing:
++            raw = value[:-1] if value.endswith("\n") else value
++            if not c["started"]:
++                return [self._args("null" if raw.lower() == "null" else json.dumps(raw, ensure_ascii=False))]
++            done = c.get("sent", 0)
++            return [self._args(_escape(raw[done:]) + '"')]
++        # Open: hold a final newline (it may be the stripped one) and anything
++        # that may still spell the null literal.
++        visible = value[:-1] if value.endswith("\n") else value
++        if not c["started"]:
++            if len(visible) <= 4 and "null".startswith(visible.lower()):
++                return []
++            c["started"], c["sent"] = True, 0
++            out = '"'
++        else:
++            out = ""
++        done = c["sent"]
++        if len(visible) > done:
++            out += _escape(visible[done:])
++            c["sent"] = len(visible)
++        return [self._args(out)] if out else []
++
++    def end(self):
++        """The tool block closed. Without </function> the arguments stay
++        incomplete (upstream cannot parse that text either)."""
++        self.call = None
++        return []

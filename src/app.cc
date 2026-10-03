@@ -361,7 +361,9 @@ int main(int argc, char **argv) {
         (argc > 1 && (!strcmp(argv[1], "--build-jsonl") || !strcmp(argv[1], "--build-server-pld") ||
                       !strcmp(argv[1], "--build-design") ||
                       !strcmp(argv[1], "--install-engine") || !strcmp(argv[1], "--engine-pins") || !strcmp(argv[1], "--check-anchors") ||
-                      !strcmp(argv[1], "--prepare-launch") || !strcmp(argv[1], "--model-rpc-worker"))))
+                      !strcmp(argv[1], "--prepare-launch") || !strcmp(argv[1], "--model-rpc-worker") ||
+                      /* The llama.cpp/MLX server guard re-executes this binary. */
+                      !strcmp(argv[1], "--resident-guard"))))
         return ds4_serve_main(argc, argv);
 
 #ifdef _WIN32

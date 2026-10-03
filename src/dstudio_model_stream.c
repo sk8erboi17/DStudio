@@ -110,10 +110,23 @@ static int model_rpc_tools_delta(model_rpc_job *job, const model_rpc_json *doc, 
             target->function_type = 1;
         }
         if (!model_rpc_append_field(job, doc, call, "id", target->id, sizeof target->id, NULL)) return 0;
+        size_t before = target->arguments.len;
         int function = model_rpc_field(doc, call, "function");
         if (function >= 0 && (doc->tokens[function].type != DTG_JSON_OBJECT ||
             !model_rpc_append_field(job, doc, function, "name", target->name, sizeof target->name, NULL) ||
             !model_rpc_append_field(job, doc, function, "arguments", NULL, MODEL_RPC_ARGUMENT_MAX + 1, &target->arguments))) return 0;
+        /* Live preview, in arrival order: nothing here is validated or
+         * executable; the terminal model_tool_calls batch alone is. */
+        const char *name = target->name[0] && !target->announced ? target->name : NULL;
+        size_t added = target->arguments.len - before;
+        if (name || added) {
+            if (!model_rpc_write_tool_delta(job, (int)ordinal, name, target->id,
+                                            added ? target->arguments.ptr + before : "", added)) {
+                model_rpc_fail(job, "model stream consumer is unavailable");
+                return 1;
+            }
+            if (name) target->announced = 1;
+        }
     }
     return 1;
 }

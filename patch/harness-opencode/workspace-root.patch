@@ -1,0 +1,24 @@
+--- a/packages/opencode/src/project/instance-store.ts
++++ b/packages/opencode/src/project/instance-store.ts
+@@ -44,7 +44,7 @@
+ 
+     const boot = (input: LoadInput & { directory: string }) =>
+       Effect.gen(function* () {
+-        const ctx: InstanceContext =
++        const found: InstanceContext =
+           input.project && input.worktree
+             ? {
+                 directory: input.directory,
+@@ -58,6 +58,12 @@
+                   project: result.project,
+                 })),
+               )
++        // DStudio: with DSTUDIO_CONTAIN_DIRECTORY=1 the session directory is
++        // also the workspace root the model is told about, never an enclosing
++        // git worktree it could then write to (through the shell). Unset,
++        // upstream behavior is unchanged.
++        const ctx: InstanceContext =
++          process.env.DSTUDIO_CONTAIN_DIRECTORY === "1" ? { ...found, worktree: input.directory } : found
+         yield* bootstrap.run.pipe(Effect.provideService(InstanceRef, ctx))
+         return ctx
+       }).pipe(Effect.withSpan("InstanceStore.boot"))

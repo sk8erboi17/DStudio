@@ -1,0 +1,42 @@
+--- a/packages/opencode/src/project/instance-context.ts
++++ b/packages/opencode/src/project/instance-context.ts
+@@ -1,7 +1,31 @@
++import fs from "fs"
++import path from "path"
+ import { LocalContext } from "@/util/local-context"
+ import { FSUtil } from "@opencode-ai/core/fs-util"
+ import type * as Project from "./project"
+ 
++// DStudio: DSTUDIO_CONTAIN_DIRECTORY=1 confines file tools to the session
++// directory itself, not the enclosing git worktree, and compares real paths
++// (the nearest existing ancestor is resolved) so a symlink inside the
++// directory cannot lead outside it. Unset, upstream behavior is unchanged.
++const directoryOnly = process.env.DSTUDIO_CONTAIN_DIRECTORY === "1"
++
++function realPath(target: string): string {
++  let probe = target
++  const tail: string[] = []
++  while (!fs.existsSync(probe)) {
++    const parent = path.dirname(probe)
++    if (parent === probe) break
++    tail.unshift(path.basename(probe))
++    probe = parent
++  }
++  try {
++    return path.join(fs.realpathSync(probe), ...tail)
++  } catch {
++    return target
++  }
++}
++
+ export interface InstanceContext {
+   directory: string
+   worktree: string
+@@ -16,6 +40,7 @@
+  * Paths within the worktree but outside the working directory should not trigger external_directory permission.
+  */
+ export function containsPath(filepath: string, ctx: InstanceContext): boolean {
++  if (directoryOnly) return FSUtil.contains(realPath(ctx.directory), realPath(filepath))
+   if (FSUtil.contains(ctx.directory, filepath)) return true
+   // Non-git projects set worktree to "/" which would match ANY absolute path.
+   // Skip worktree check in this case to preserve external_directory permissions.

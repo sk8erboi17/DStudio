@@ -660,6 +660,18 @@ static void ds4ui_remote_steer_append(void *owner, const char *text) {
     ds4ui_msg_list_add(owner, "user", text);
 }
 
+/* Structured calls (llama.cpp/MLX): the transport turns argument fragments
+ * into the live stanza lines the DSML stream emits (tool_call_begin,
+ * tool_call_param, tool_body_delta), published in order with the text. A
+ * preview only: execution still waits for the validated batch. */
+static void ds4ui_remote_preview(void *owner, const char *line, size_t len) {
+    ds4ui_remote_stream_ctx *ctx = owner;
+    if (!ctx || !ctx->worker || !line || !len) return;
+    if (ctx->reasoning_open) { ds4ui_emit_event(ctx->worker, "reasoning_end"); ctx->reasoning_open = false; }
+    agent_publish(ctx->worker, line, len);
+    ds4ui_remote_flush(ctx->worker);
+}
+
 static int ds4ui_remote_model_cancel(void *owner) {
     ds4ui_remote_stream_ctx *ctx = owner;
     /* The same owner is inside model I/O, so its outer loop cannot consume
@@ -684,11 +696,12 @@ static int ds4ui_remote_run_structured(agent_worker *w, ds4ui_msg_list *messages
         ds4ui_remote_stream_ctx context = {.worker = w, .raw = &raw};
         char *calls = NULL;
         agent_set_status(w, AGENT_WORKER_GENERATING);
-        int rc = dstudio_remote_chat_stream_tools(w->cfg->remote_base_url,
+        int rc = dstudio_remote_chat_stream_tools_preview(w->cfg->remote_base_url,
             w->cfg->remote_model && w->cfg->remote_model[0] ? w->cfg->remote_model : "ds4",
             snapshot, schema_text, ds4ui_remote_think_level(w->cfg),
             w->cfg->gen.temperature, w->cfg->gen.top_p, w->cfg->gen.min_p, w->cfg->gen.n_predict,
-            ds4ui_remote_chunk, &context, ds4ui_remote_model_cancel, &calls, error, sizeof error);
+            ds4ui_remote_chunk, &context, ds4ui_remote_model_cancel,
+            ds4ui_remote_preview, &context, &calls, error, sizeof error);
         free(snapshot);
         ds4ui_remote_images_reply(messages, !rc && !context.text_failed && !agent_sigint && !worker_should_interrupt(w));
         if (context.reasoning_open) ds4ui_emit_event(w, "reasoning_end");

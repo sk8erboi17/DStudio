@@ -24,8 +24,8 @@ in this campaign.
 | --- | --- | --- |
 | DeepSeek V4 Flash Vision-Exp IQ2XXS | main 0aaea5a | First group |
 | Laguna S 2.1 Q4_K_M | laguna 448d569 | First group |
-| Qwen3.6-35B-A3B UD-Q6_K_XL | qwen35 73434c4 | First group |
-| Qwen3.8-27B UD-Q6_K_XL | q36 1305843 | First group |
+| Qwen3.6-35B-A3B UD-Q6_K_XL | llama.cpp 99b9548 (b11371) | First group |
+| Qwen3.8-27B UD-Q6_K_XL | llama.cpp 99b9548 (b11371) | First group |
 | Qwen3.8-Flash-Next single-file Q4 | main 0aaea5a | First group |
 | Qwen3.8-Flash-Next single-file Q2 | main 0aaea5a | First group; not qualified |
 | DeepSeek V4.1 Flash Q2 | main 0aaea5a | Last, dedicated session |
@@ -38,8 +38,11 @@ October 1. Exact revisions, patches and release targets live in
 documented in [BUNDLED_ENGINES.md](docs/BUNDLED_ENGINES.md). The retired Qwen
 Next fork is neither an installer target nor a bundled reference.
 
+On October 3 the owner replaced the vagrillo/ds4 (`ds4-qwen35`) and Ninnix/q36
+Qwen engines with the bundled llama.cpp; their earlier results are history.
+
 Out of scope: non-macOS platforms/backends, multi-GPU/distributed execution,
-q27's removed Linux/CUDA admission target, llama.cpp, Pro/GLM5.2, other
+q27's removed Linux/CUDA admission target, Pro/GLM5.2, other
 uninstalled LLM families, the four non-Vision DeepSeek V4 Flash variants and
 their 0731 drafter, and the Ideogram/Hunyuan/MiniMax generation workers.
 Preserve existing support and user data. Excluded workers may not be replaced
@@ -163,8 +166,8 @@ patch migrations and retired-Next removal are implemented.
    publication of the runtime pair and verified recovery of legacy patched
    source markers. Preserve originals, backups and unrelated checkout edits.
    See [the build limitations](patch/ds4-agent-jsonl/README.md#verification).
-4. Bound q36 directory/parser work and complete current full-model multi-session
-   coverage. Profile the relevant control and owner paths; do not claim
+4. Complete current full-model multi-session coverage for the llama.cpp
+   Qwen models (the q36 directory/parser item retired with that engine). Profile the relevant control and owner paths; do not claim
    multi-session quality from operator or single-owner fixtures.
 5. For new changes, retain versioned external `.patch` files with exact bases/
    order. Exercise fresh/repeat/restore, partial/drift/wrong-order rejection,
@@ -245,9 +248,9 @@ text-model isolation and intact source data after error or Stop. No fallback VLM
 <a id="p5"></a>
 ## P5 — Extend installation, upgrade and recovery coverage
 
-Status: IN_PROGRESS. Four bundled engines already build offline from isolated
-empty relocated profiles; a real q36 cross-version cache-preserving upgrade
-is verified. Extend this evidence rather than scheduling those as new features.
+Status: IN_PROGRESS. Main, Laguna and llama.cpp build offline from isolated
+empty relocated profiles. The real q36 cross-version cache-preserving upgrade
+was verified before q36 was retired and does not cover llama.cpp. Extend this evidence rather than scheduling those as new features.
 
 1. Complete the final-bundle matrix using task-owned empty profiles and paths
    with spaces. Setup must verify pinned bundled sources with external source

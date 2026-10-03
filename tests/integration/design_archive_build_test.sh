@@ -2,7 +2,7 @@
 # Real archive compilation and executable startup. No model or network.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
-builder="$root/extension/design/build-design.sh"
+builder="$root/src/harness/design/build-design.sh"
 mkdir -p "$root/tests/.artifacts/design-archive-build"
 temporary=$(mktemp -d "$root/tests/.artifacts/design-archive-build/run-XXXXXX")
 fixture="$temporary/engine with spaces"

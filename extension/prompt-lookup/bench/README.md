@@ -127,7 +127,7 @@ Those are model-free implementation checks, separate from the 78 real tasks.
   recreated synthetic files and a fresh conversation before each task.
   `DS4UI_SESSION_CACHE_DIR` isolates saved benchmark conversations without
   touching the user's cache or changing `HOME`.
-- Cowork receives the actual `extension/cowork/COWORK.md` system instructions,
+- Cowork receives the actual `src/harness/cowork/COWORK.md` system instructions,
   matching the app's Office workflow. A preliminary transport-only pilot that
   omitted that file is not part of the published comparison.
 - An exploratory run exposed upstream's per-session timestamp injection.

@@ -59,32 +59,55 @@ static void tick_until_reaped(void (*tick)(void), pid_t pid) {
     } while (now.tv_sec - start.tv_sec < 3);
     require(0, "canceled owned process is reaped");
 }
+/* A one-shot /props responder: the readiness the llama.cpp owner accepts. */
+static int props_server(const char *json, int *port) {
+    int listener = socket(AF_INET, SOCK_STREAM, 0); require(listener >= 0, "props listener");
+    struct sockaddr_in address = {0}; socklen_t length = sizeof address;
+    address.sin_family = AF_INET; address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    require(!bind(listener, (struct sockaddr *)&address, sizeof address) && !listen(listener, 4) &&
+            !getsockname(listener, (struct sockaddr *)&address, &length), "props bind");
+    *port = ntohs(address.sin_port);
+    pid_t pid = fork(); require(pid >= 0, "props responder");
+    if (!pid) {
+        int fd = accept(listener, NULL, NULL); char request[2048];
+        if (fd < 0 || read(fd, request, sizeof request) <= 0) _exit(3);
+        char head[160]; int n = snprintf(head, sizeof head,
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", strlen(json));
+        (void)fd_write_all(fd, head, (size_t)n); (void)fd_write_all(fd, json, strlen(json));
+        close(fd); _exit(0);
+    }
+    owned[owned_count++] = pid;
+    close(listener);
+    return pid;
+}
 static void loading(void) {
     work_elapsed_seconds = 0;
     pid_t pid = blocked_child(); int owner[2];
     require(!socketpair(AF_UNIX, SOCK_STREAM, 0, owner), "loading owner socket");
     set_nonblock(owner[0]);
-    memset(&g_q36, 0, sizeof g_q36);
-    g_q36.pid = pid; g_q36.owner = owner[0]; g_q36.output = g_q36.errors = -1;
-    g_q36.deadline = dstudio_now_ms() + 120000;
-    g_q36.spec.cfg.ctx = 8192; g_q36.spec.cfg.port = 42001;
-    cstr_copy(g_q36.spec.model_identity, sizeof g_q36.spec.model_identity, "opened-model");
+    memset(&g_resident, 0, sizeof g_resident);
+    g_resident.pid = pid; g_resident.owner = owner[0]; g_resident.output = g_resident.errors = g_resident.probe = -1;
+    g_resident.spec.cfg.ctx = 8192; g_resident.spec.cfg.port = 9; /* discard: nothing listens yet */
+    cstr_copy(g_resident.spec.directory, sizeof g_resident.spec.directory, "/m/ds4");
+    cstr_copy(g_resident.spec.model, sizeof g_resident.spec.model, MODEL_QWEN27);
+    cstr_copy(g_resident.spec.model_id, sizeof g_resident.spec.model_id, "qwen3.8-27b");
     work_elapsed_seconds = 4 * 60 * 60;
-    q36_tick();
-    require(q36_running() && !g_q36.stopping && !q36_ready() && !g_q36.error[0],
+    for (int i = 0; i < 4; i++) { resident_tick(); work_elapsed_seconds += 1; }
+    require(resident_running() && !g_resident.stopping && !resident_ready() && !g_resident.error[0],
             "four hours of loading is still loading, not failure or readiness");
-    json_dyn_buf receipt = {0};
-    require(json_dyn_printf(&receipt,
-        "{\"version\":1,\"event\":\"ready\",\"pid\":%d,\"host\":\"127.0.0.1\",\"port\":42001,"
-        "\"context\":8192,\"model\":\"qwen3.8-27b\",\"backend\":\"metal\",\"cache_k\":\"f16\","
-        "\"cache_v\":\"f16\",\"ssd_streaming\":false,\"model_file\":\"opened-model\","
-        "\"vision_file\":\"\",\"mtp_file\":\"\"}\n", (int)pid), "late readiness receipt");
-    require(fd_write_all(owner[1], receipt.ptr, receipt.len), "send actual readiness bytes");
-    free(receipt.ptr); q36_tick(); require(q36_ready(), "valid late readiness publishes");
-    q36_request_stop("Unit-test Stop");
+    char json[1024]; int port = 0;
+    snprintf(json, sizeof json, "{\"model_path\":\"/m/ds4/%s\",\"model_alias\":\"qwen3.8-27b\",\"build_info\":\"%s\","
+        "\"total_slots\":1,\"default_generation_settings\":{\"n_ctx\":8192},\"modalities\":{\"vision\":false}}",
+        MODEL_QWEN27, RESIDENT_BUILD_INFO);
+    pid_t responder = props_server(json, &port);
+    g_resident.spec.cfg.port = port;
+    for (int i = 0; i < 200 && !resident_ready(); i++) { resident_tick(); work_elapsed_seconds += 1; usleep(1000); }
+    require(resident_ready(), "a late /props reporting the admitted launch publishes readiness");
+    int status; require(waitpid(responder, &status, 0) == responder, "responder finished");
+    resident_request_stop("Unit-test Stop");
     work_elapsed_seconds += 5;
-    tick_until_reaped(q36_tick, pid);
-    require(!q36_running(), "Stop still drains a slow engine"); close(owner[1]);
+    tick_until_reaped(resident_tick, pid);
+    require(!resident_running(), "Stop still drains a slow engine"); close(owner[1]);
 }
 static void preparation(void) {
     work_elapsed_seconds = 0;

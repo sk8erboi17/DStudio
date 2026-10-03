@@ -78,7 +78,8 @@ try {
   // Smallest resident model first; all heavy processes are strictly sequential.
   candidates.sort((a,b)=>fs.statSync(path.join(modelRoot,a)).size-fs.statSync(path.join(modelRoot,b)).size);
   for(const [index,file] of candidates.entries()) {
-    const dirName=/^Qwen3\.6/i.test(file)?'ds4-qwen35':/^Qwen3\.8-27B/i.test(file)?'q36':/^laguna/i.test(file)?'ds4-laguna-s21':'ds4';
+    // The Qwen checkpoints run on llama.cpp from the main installation.
+    const dirName=/^laguna/i.test(file)?'ds4-laguna-s21':'ds4';
     const dir=path.join(sources,dirName);
     const next=/^Qwen3\.8-Flash-Next/i.test(file);
     const ssd=dirName==='ds4'&&!next?'on':'off';

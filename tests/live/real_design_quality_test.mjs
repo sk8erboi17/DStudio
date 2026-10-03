@@ -28,8 +28,8 @@ import {
 } from '../support/design_resume_checkpoint.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const casesDoc = JSON.parse(fs.readFileSync(path.join(root, 'extension/design/bench/cases.json'), 'utf8'));
-const baseline = JSON.parse(fs.readFileSync(path.join(root, 'extension/design/bench/baseline.json'), 'utf8'));
+const casesDoc = JSON.parse(fs.readFileSync(path.join(root, 'src/harness/design/bench/cases.json'), 'utf8'));
+const baseline = JSON.parse(fs.readFileSync(path.join(root, 'src/harness/design/bench/baseline.json'), 'utf8'));
 const profile = process.env.DSTUDIO_DESIGN_PROFILE || 'standard';
 assert.ok(casesDoc.profiles[profile], `Unknown DSTUDIO_DESIGN_PROFILE=${profile}`);
 const unbounded = process.env.DSTUDIO_DESIGN_UNBOUNDED === '1';

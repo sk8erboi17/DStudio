@@ -29,7 +29,7 @@ const localManifest = JSON.parse(localManifestBytes.toString('utf8'));
 assert.equal(localManifest.schema, 'ds4.design.release.v1', 'invalid local release manifest');
 assert.equal(localManifest.caseId, caseId, 'local release manifest case mismatch');
 const testCase = JSON.parse(fs.readFileSync(
-  path.join(root, 'extension/design/bench/cases.json'), 'utf8')).cases
+  path.join(root, 'src/harness/design/bench/cases.json'), 'utf8')).cases
   .find(item => item.id === caseId);
 assert.ok(testCase?.fullStack, `unknown full-stack benchmark case: ${caseId}`);
 if (!testMode) assert.equal(localManifest.pagesUrl, base.href,

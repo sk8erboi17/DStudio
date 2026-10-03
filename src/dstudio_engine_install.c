@@ -9,8 +9,7 @@ typedef struct {
 static const engine_install_source engine_install_sources[] = {
     {"main", "ds4", DS4_ARCHIVE_URL, DS4_UPSTREAM_COMMIT},
     {"laguna", DS4_LAGUNA_DIR_NAME, DS4_LAGUNA_ARCHIVE_URL, DS4_LAGUNA_UPSTREAM_COMMIT},
-    {"qwen35", DS4_QWEN35_DIR_NAME, DS4_QWEN35_ARCHIVE_URL, DS4_QWEN35_UPSTREAM_COMMIT},
-    {"q36", Q36_DIR_NAME, Q36_ARCHIVE_URL, Q36_UPSTREAM_COMMIT}
+    {"llama", LLAMA_DIR_NAME, LLAMA_ARCHIVE_URL, LLAMA_UPSTREAM_COMMIT}
 };
 
 static const engine_install_source *setup_engine_source(const char *id) {
@@ -32,62 +31,90 @@ static int setup_engine_pins_cli(int argc) {
     return ferror(stdout) ? 1 : 0;
 }
 
+/* The bundled MLX wheels: a source checkout holds them in src/engines/mlx; a
+ * release bundle keeps them in Resources/MlxPackages (same layout), outside
+ * the support payload copied at every launch. */
+static int setup_mlx_assets(char *out, size_t cap) {
+    char probe[DSTUDIO_PATH_MAX + 64];
+    snprintf(probe, sizeof probe, "%s/src/engines/mlx/manifest.json", g_web_dir);
+    if (g_web_dir[0] && access(probe, R_OK) == 0) { cstr_copy(out, cap, g_web_dir); return 1; }
+#ifdef __APPLE__
+    char exe[DSTUDIO_PATH_MAX]; cstr_copy(exe, sizeof exe, g_launch_executable);
+    char *slash = strrchr(exe, '/');
+    if (slash) {
+        *slash = '\0';
+        int n = snprintf(out, cap, "%s/../Resources/MlxPackages", exe);
+        snprintf(probe, sizeof probe, "%s/src/engines/mlx/manifest.json", out);
+        if (n > 0 && (size_t)n < cap && access(probe, R_OK) == 0) return 1;
+    }
+#endif
+    return 0;
+}
+
+/* MLX is a verified offline wheel installation, not a source snapshot: it has
+ * no entry in the engine-pin table. Background preparation only. */
+static int setup_install_mlx(const char *root, char *target, size_t targetsz, int *downloaded,
+                             char *err, size_t errsz) {
+#ifndef __APPLE__
+    (void)root; (void)target; (void)targetsz; (void)downloaded;
+    snprintf(err, errsz, "MLX runs on macOS with Apple Silicon only"); return 0;
+#else
+    char script[DSTUDIO_PATH_MAX + 64], assets[DSTUDIO_PATH_MAX], output[8192];
+    int n = snprintf(target, targetsz, "%s/mlx", root);
+    int m = snprintf(script, sizeof script, "%s/scripts/install-mlx.py", g_web_dir);
+    if (n < 0 || (size_t)n >= targetsz || m < 0 || (size_t)m >= sizeof script || !g_web_dir[0] ||
+        !setup_mlx_assets(assets, sizeof assets)) {
+        snprintf(err, errsz, "DStudio's bundled MLX runtime is unavailable"); return 0;
+    }
+    struct stat before, after;
+    int before_rc = lstat(target, &before), absent = before_rc != 0 && errno == ENOENT;
+    char *args[] = {"python3", script, "--root", (char *)root, "--assets", assets, NULL};
+    int rc = setup_run_cmd_capture(NULL, args, output, sizeof output);
+    if (rc) { snprintf(err, errsz, "MLX installation failed (%d): %.7000s", rc, output); return 0; }
+    if (lstat(target, &after) || !S_ISDIR(after.st_mode)) { snprintf(err, errsz, "MLX installation disappeared after verification"); return 0; }
+    *downloaded = absent || before.st_dev != after.st_dev || before.st_ino != after.st_ino;
+    printf("%s", output);
+    return 1;
+#endif
+}
+
 static int setup_install_engine(const char *engine, const char *root,
                                 char *target, size_t targetsz, int *downloaded,
                                 char *err, size_t errsz) {
+    if (engine && !strcmp(engine, "mlx")) return setup_install_mlx(root, target, targetsz, downloaded, err, errsz);
     const engine_install_source *source = setup_engine_source(engine);
     if (!source) { snprintf(err, errsz, "unknown engine: %s", engine ? engine : "(null)"); return 0; }
-    int qwen = !strcmp(engine, "qwen35");
     struct stat root_st;
     if (!root || strlen(root) >= sizeof g_web_dir ||
         stat(root, &root_st) != 0 || !S_ISDIR(root_st.st_mode)) {
         snprintf(err, errsz, "installation root must be an existing directory with a supported path length"); return 0;
     }
     const char *name = source->name, *commit = source->commit;
-    if (!strcmp(engine, "q36")) {
-#ifdef _WIN32
-        snprintf(err, errsz, "q36 currently requires Apple Silicon Metal or Linux Vulkan"); return 0;
-#else
-        /* CLI/background preparation only. The helper owns a private bounded
-         * candidate and atomically publishes after build/identity checks. Never
-         * call this synchronously from the native HTTP control loop. */
+    if (!strcmp(engine, "llama")) {
+        /* Background preparation only: the helper copies the bundled sources,
+         * builds llama-server offline in a private stage and publishes it
+         * atomically. Never call this from the native HTTP control loop. */
         char script[DSTUDIO_PATH_MAX + 64], output[8192];
         int n = snprintf(target, targetsz, "%s/%s", root, name);
-        int m = snprintf(script, sizeof script, "%s/scripts/install-q36.py", g_web_dir);
+        int m = snprintf(script, sizeof script, "%s/scripts/install-llama.py", g_web_dir);
         if (n < 0 || (size_t)n >= targetsz || m < 0 || (size_t)m >= sizeof script || !g_web_dir[0]) {
-            snprintf(err, errsz, "q36 installer path is unavailable or too long"); return 0;
+            snprintf(err, errsz, "llama.cpp installer path is unavailable or too long"); return 0;
         }
-        struct stat before;
-        int before_rc = lstat(target, &before);
-        int absent = before_rc != 0 && errno == ENOENT;
+        struct stat before, after;
+        int before_rc = lstat(target, &before), absent = before_rc != 0 && errno == ENOENT;
         if (before_rc && !absent) {
-            snprintf(err, errsz, "cannot inspect the existing q36 installation: %s", strerror(errno)); return 0;
+            snprintf(err, errsz, "cannot inspect the existing llama.cpp installation: %s", strerror(errno)); return 0;
         }
         char *args[] = {"python3", script, "--root", (char *)root, "--revision", (char *)commit, NULL};
         int rc = setup_run_cmd_capture(NULL, args, output, sizeof output);
-        if (rc) { snprintf(err, errsz, "q36 installation failed (%d): %.7000s", rc, output); return 0; }
-        /* A standalone CLI install need not bootstrap DeepSeek. In a DStudio
-         * installation, use its existing model store without copying weights. */
-        char primary[DSTUDIO_PATH_MAX + 16]; struct stat primary_st;
-        snprintf(primary, sizeof primary, "%s/ds4", root);
-        if (!stat(primary, &primary_st) && S_ISDIR(primary_st.st_mode)) {
-            char saved[DSTUDIO_PATH_MAX]; cstr_copy(saved, sizeof saved, g_web_dir);
-            cstr_copy(g_web_dir, sizeof g_web_dir, root);
-            int linked = setup_link_shared_gguf(target, err, errsz);
-            cstr_copy(g_web_dir, sizeof g_web_dir, saved);
-            if (!linked) return 0;
-        }
-        struct stat after;
+        if (rc) { snprintf(err, errsz, "llama.cpp installation failed (%d): %.7000s", rc, output); return 0; }
         if (lstat(target, &after) || !S_ISDIR(after.st_mode)) {
-            snprintf(err, errsz, "q36 installation disappeared after verification"); return 0;
+            snprintf(err, errsz, "llama.cpp installation disappeared after verification"); return 0;
         }
-        /* A successful upgrade also copies/builds a bundled candidate. The Python
-         * helper publishes a new directory inode atomically; same-inode reuse
-         * is verification only, not another source installation. */
+        /* Built means a newly published directory; reuse is verification only. */
         *downloaded = absent || before.st_dev != after.st_dev || before.st_ino != after.st_ino;
         printf("%s", output);
         return 1;
-#endif
     }
 #if !defined(__APPLE__)
     if (strcmp(engine, "main")) {
@@ -126,26 +153,12 @@ static int setup_install_engine(const char *engine, const char *root,
         }
     }
     printf("install-engine: building %s (no model loaded)\n", engine);
-    if (qwen) {
-        if (!strcmp(engine, "qwen35") &&
-            !run_ext_script_for_dir("scripts/apply-ds4-qwen35-catalog.sh", "apply", target)) {
-            snprintf(err, errsz, "Qwen3.6 model-catalog patch did not apply; source changes preserved");
-            return 0;
-        }
-        if (!strcmp(engine, "qwen35") && !setup_apply_qwen35_runtime_patches(target, err, errsz)) return 0;
-        /* Qwen3.6 retains its own inference semantics. Its structured
-         * Agent/Cowork patch is built separately in launch preparation. */
-        char *args[] = {"make", "-j2", "-C", target, "ds4", "ds4-server", "ds4-agent", NULL};
-        int rc = setup_run_cmd_capture(NULL, args, log_tail, sizeof log_tail);
-        if (rc) { snprintf(err, errsz, "Qwen native build failed (%d): %.7000s", rc, log_tail); return 0; }
-        return 1;
-    }
     return setup_build_branch_runtimes(target, engine, log_tail, sizeof log_tail, err, errsz);
 }
 
 static int setup_engine_cli(int argc, char **argv) {
     if (argc < 3 || argc > 4) {
-        fprintf(stderr, "usage: %s --install-engine main|laguna|qwen35|q36 [existing-install-root]\n", argv[0]); return 2;
+        fprintf(stderr, "usage: %s --install-engine main|laguna|llama|mlx [existing-install-root]\n", argv[0]); return 2;
     }
     resolve_web_dir();
     char root[DSTUDIO_PATH_MAX], target[DSTUDIO_PATH_MAX], err[8600] = "";
@@ -154,16 +167,6 @@ static int setup_engine_cli(int argc, char **argv) {
     }
     int downloaded = 0;
     int ok = setup_install_engine(argv[2], root, target, sizeof target, &downloaded, err, sizeof err);
-    /* The CLI has no interactive owner to block. In the app, this additional
-     * build belongs to the existing asynchronous launch preparation worker,
-     * not the synchronous optional-engine HTTP installer. */
-    if (ok && !strcmp(argv[2], "qwen35")) {
-        cstr_copy(g_ds4_dir, sizeof g_ds4_dir, target);
-        ok = run_build_jsonl("build");
-        if (!ok)
-            snprintf(err, sizeof err, "Qwen Agent/Cowork build failed; existing source and model data preserved%s%s",
-                     g_engine_err[0] ? ": " : "", g_engine_err[0] ? g_engine_err : "");
-    }
     if (!ok) fprintf(stderr, "install-engine: FAILED: %s\n", err);
     else printf("install-engine: OK engine=%s bundled=1 sourcesInstalled=%d path=%s\n", argv[2], downloaded, target);
     return ok ? 0 : 1;
@@ -175,22 +178,6 @@ static void api_setup_qwen(int fd) {
 }
 
 static void api_setup_qwen35(int fd) {
-    resolve_web_dir();
-    char root[DSTUDIO_PATH_MAX], target[DSTUDIO_PATH_MAX], err[8600] = "";
-    int downloaded = 0;
-    /* Sources must be siblings of the user's active checkout, not hidden in
-     * Application Support while its GGUF store lives in a source workspace. */
-    if (!realpath(g_ds4_dir, root)) cstr_copy(root, sizeof root, g_web_dir);
-    else {
-        char *slash = strrchr(root, '/');
-        if (slash && slash != root) *slash = '\0';
-        else cstr_copy(root, sizeof root, g_web_dir);
-    }
-    int ok = setup_install_engine("qwen35", root, target, sizeof target, &downloaded, err, sizeof err);
-    json_dyn_buf b = {0};
-    json_dyn_printf(&b, "{\"ok\":%s,\"downloaded\":false,\"bundled\":true,\"sourcesInstalled\":%s,\"built\":%s,\"capability\":\"chat-agent-cowork\",\"error\":",
-                    ok ? "true" : "false", downloaded ? "true" : "false", ok ? "true" : "false");
-    json_dyn_put_escaped(&b, err); json_dyn_puts(&b, "}");
-    send_json(fd, ok ? "200 OK" : "409 Conflict", b.ptr ? b.ptr : "{\"ok\":false}");
-    free(b.ptr);
+    /* A stale client must never reinstall the retired vagrillo/ds4 engine. */
+    send_json(fd, "410 Gone", "{\"ok\":false,\"engine\":\"llama\",\"error\":\"Qwen3.6 now runs on DStudio's bundled llama.cpp engine, which is built on first use. Choose the model from the model menu; old files are preserved.\"}");
 }

@@ -37,7 +37,7 @@ const modelDigest=crypto.createHash('sha256');
 for await(const chunk of fs.createReadStream(model,{highWaterMark:8*1024*1024}))modelDigest.update(chunk);
 const modelAfter=fs.statSync(model);
 for(const key of ['dev','ino','size','mtimeMs','ctimeMs'])assert.equal(modelAfter[key],stat[key],'Selected model changed while hashing');
-const source=path.resolve(sourceArg||'extension/design/ds4_design.c');
+const source=path.resolve(sourceArg||'src/harness/design/ds4_design.c');
 const capturedSource=path.join(capturedPacks,'ds4_design.c');
 fs.copyFileSync(source,capturedSource);
 const startupTimeout=Number(process.env.DESIGN_COMPARE_STARTUP_TIMEOUT_MS||900000);

@@ -2518,7 +2518,7 @@ the archive contents before qualification.
   artifact verification; headless setup using the production path.
 - Agent derived from `ds4_agent.c`; Cowork uses the same structured runtime
   with Office tools; Design owns its loop in
-  [ds4_design.c](../../extension/design/ds4_design.c). Do not replace them with the
+  [ds4_design.c](../../src/harness/design/ds4_design.c). Do not replace them with the
   new engines' agents. Reusable transport lives in `extension/remote/`.
 - Task Graph: real executors, policy, watchdog, append-only journal,
   pause/resume/recovery, checkpoints, and undo with declared limits.
@@ -2573,7 +2573,7 @@ Behavioral reproduction will be required before correcting them.
 | `src/dstudio.c`: `spawn_agent`, `spawn_design` | Qwen explicitly rejected because the structured adapter is missing | Implement the contract, then remove the block; do not merely remove the if |
 | `src/dstudio_engine_install.c` | Four engines, optional ones limited to macOS; Qwen builds only upstream runtimes | Set up DStudio runtimes and new backends, P2/P3/P5 |
 | Launcher and supplemental make rules | Linker/libraries/objects now inherited from upstream: routing 16/16, real main/Laguna CPU/Metal builds | Launch/runtime and real Windows/CUDA/ROCm tests remain; simulated linking does not qualify them |
-| `extension/design/build-design.sh` | Archive signature covers C/H/M/Metal/inc/mk but not all CUDA/Vulkan sources | Include `.cu`, `.cuh`, shaders, and relevant dependencies; prove an actual rebuild |
+| `src/harness/design/build-design.sh` | Archive signature covers C/H/M/Metal/inc/mk but not all CUDA/Vulkan sources | Include `.cu`, `.cuh`, shaders, and relevant dependencies; prove an actual rebuild |
 | `web/index.html`: Learn/Tutor | Requirement `DS4_TRUE_MAX_CONTEXT = 393216` is also used in generic paths | Derive thinking/context from model/engine; do not impose DeepSeek semantics on Qwen |
 | `tests/live/real_roadmap_quality_test.mjs` | Five real cases, hardcoded Flash selection, and launch at 64k/off; deletion of previous artifacts | Parameterize, align with the product, add tutor/persistence; immutable receipts |
 | `extension/task-graph/bench/run-cli-competitors.mjs` | Pi/OpenCode only; model pin and thinking limited to Chat Completions; clears results directory | Real Codex Responses, unique receipts, parameter/protocol verification, P9 |
@@ -2681,7 +2681,7 @@ lifecycle/races and desktop test still to complete**.
 
 Main files: [web/index.html](../../web/index.html),
 [dstudio.c](../../src/dstudio.c),
-[catalog](../../extension/design/design_system_catalog.h),
+[catalog](../../src/harness/design/design_system_catalog.h),
 [UI test](../../tests/browser/ui_agent_design_playwright_test.mjs).
 
 1. Reproduce with a persisted retired setting and an immediate click on Design.
