@@ -1214,8 +1214,13 @@ test-chat-lifecycle:
 test-follow-scroll:
 	@node tests/unit/follow_scroll_test.mjs
 
-test-frontend-unit: test-chat-lifecycle test-follow-scroll test-ds41-model-ui
+test-frontend-unit: test-chat-lifecycle test-follow-scroll test-ds41-model-ui test-blueprint-core
 	@node tests/unit/frontend_behavior_test.mjs
+
+# Blueprint core (parse, validate, layout, verify) executed from web/index.html.
+.PHONY: test-blueprint-core
+test-blueprint-core:
+	@node tests/unit/blueprint_core_test.mjs
 
 # Production Learn/Tutor browser interactions; engine responses are simulated.
 # Repeat with DSTUDIO_TEST_BROWSER=webkit for the macOS webview engine family.
@@ -1321,6 +1326,16 @@ test-ui-native-titlebar:
 	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_native_titlebar_playwright_test.mjs
 	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_native_titlebar_playwright_test.mjs
 test-ui-browser: test-ui-native-titlebar
+# Blueprint (Agent): real browser + real host workspace handlers; simulated Agent stream.
+.PHONY: test-ui-blueprint
+test-ui-blueprint: $(TEST_BUILD)/agent_workspace_host
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_blueprint_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_blueprint_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
+test-ui-browser: test-ui-blueprint
+# REAL inference (DeepSeek weights, one instance): explicit and sequential.
+.PHONY: test-blueprint-live
+test-blueprint-live: $(BIN)
+	@node tests/live/blueprint_live_test.mjs
 test-ui-stream-interaction:
 	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_stream_interaction_playwright_test.mjs
 	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_stream_interaction_playwright_test.mjs
@@ -1357,6 +1372,13 @@ test-ui-gsa:
 
 test-ui-rsa:
 	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_rsa_playwright_test.mjs; else echo "node missing: NOT RUN RSA UI tests"; exit 1; fi
+
+# Production workflow UI with simulated native replies; never launches a model.
+.PHONY: test-ui-workflow
+test-ui-workflow:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_workflow_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_workflow_playwright_test.mjs
+test-ui-browser: test-ui-workflow
 
 test-rsa-collectors:
 	@if command -v node >/dev/null 2>&1; then node tests/integration/rsa_collectors_matrix_test.mjs; else echo "node missing: NOT RUN RSA collector tests"; exit 1; fi

@@ -3,6 +3,7 @@
  * 127.0.0.1 for one task-owned workspace. No engine or model runs: a
  * task-owned idle child stands in for the Agent process, and the test toggles
  * the host's agent-working state through stdin ("working 1" / "working 0",
+ * "root <path>" to move the running Agent to another folder,
  * acknowledged with "ok"). Prints "PORT <n>" once listening; exits on stdin EOF.
  * With a second argument "design" it stands in for the Design runtime instead:
  * the same folder is then also the project served by /api/design/preview/. */
@@ -57,6 +58,8 @@ int main(int argc, char **argv) {
                 *nl = '\0';
                 if (!strcmp(line, "working 1")) g_agent_working = 1;
                 else if (!strcmp(line, "working 0")) g_agent_working = 0;
+                /* "root <path>": the Agent restarted on another folder. */
+                else if (!strncmp(line, "root ", 5)) cstr_copy(g_workdir, sizeof g_workdir, line + 5);
                 printf("ok\n");
                 fflush(stdout);
                 size_t rest = used - (size_t)(nl + 1 - line);

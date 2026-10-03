@@ -130,6 +130,72 @@ it. The Design IDE test applies the same inset and checks the Design canvas and
 the fullscreen artboard. The runtime and roadmap are simulated; the native
 window itself is not exercised.
 
+## Blueprint (Agent)
+
+`make test-blueprint-core` (part of `make test-frontend-unit`) executes the
+production `createBlueprintCore` from `web/index.html`: every prefix of a
+streamed spec parses without throwing and only adds nodes; validation drops
+unknown endpoints, duplicates, unsafe paths and excess items and reports each
+drop; reach and routes follow stated relationships only, cycles included;
+citations are verified, moved, unverified, missing or unquoted against file
+text, each cited file read once and bounded; layout is deterministic with no
+overlapping nodes and every node inside its lane; the SVG escapes every author
+string; the prompt names the file, schema and evidence contract; the Design
+hand-off lists every part and relationship and stays under 26k characters for
+the largest spec the schema keeps; the implement prompt follows the blueprint
+basis.
+
+`make test-ui-blueprint` runs WebKit and Chromium against the real host
+workspace handlers and the real `/api/fs/mkdir` on a task-owned workspace. The
+Agent stream is **simulated** in the ds4-agent-jsonl event format and the test
+performs the write. It covers the header button, the production prompt and file
+path, the diagram building from the streamed JSON, verification of each kind of
+citation outcome against the workspace bytes, node evidence, upstream and
+downstream trace, routes (including none), lens, find, opening a citation in the
+IDE at its lines and returning, the standalone HTML export opened in a fresh
+page, the new-blueprint card, a sequence diagram, an invalid file, reopening
+the last blueprint after a reload, **Implement code** (the implement prompt in
+the same conversation, on the running engine, without a new session) and
+**Send to Design** (Design starts on `design/` inside the project, the blueprint
+card waits for the user's brief and goes with the first message only). Design
+startup is simulated too: no design engine or model runs.
+
+`make test-blueprint-live` is **real inference**: an isolated DStudio host
+starts the Agent with actual DeepSeek V4 Flash weights (one instance; run it
+alone) on a copy of the held-out `tests/fixtures/blueprint/ticket-service`, sends
+the production prompt for an architecture map and for a cache-miss sequence,
+and grades the written specs with the production validator and verifier against
+an independent oracle written from the fixture's code: components found,
+expected relationships, unsupported relationships, cache-miss ordering and the
+share of citations whose quote occurs in the cited file. Thresholds are fixed in
+the test. Prompts, transcripts, written specs, SVGs, grades, model identity,
+timings and failures stay in `tests/.artifacts/blueprint-live/`. A missing model
+or a run exceeding `DSTUDIO_REAL_TEST_TIMEOUT_MS` is reported as failed/blocked.
+
+First real run, October 2, 2026, on this Apple Silicon Mac (96 GB) with
+`DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf`, Agent
+mode, thinking high, 65,536-token context, SSD streaming off: **2/2 passed**.
+Architecture (786 s turn): 7/7 components, 6/6 expected relationships, 0
+unsupported, 43/43 citations found at their cited lines (25/25 claims). Cache-
+miss sequence (564 s turn): 4/4 participants, cache read → database read →
+cache write in order, 33/33 citations found at their cited lines. Engine start
+took 50 s. This is one held-out repository and two prompts: it shows the
+pipeline works with the real model, not that every repository or model maps
+correctly. The written specs, transcripts and SVGs are retained in the run's
+artifact folder.
+
+## GSA/RSA workflow workspace
+
+`make test-ui-workflow` executes the production workflow in WebKit and Chromium
+with **simulated native HTTP replies and filesystem bytes**. It covers the
+**Open RSA/GSA** header control, removal of duplicate controls from the composer
+menu, admission inputs and effective profile, phase-save barriers,
+pause/step/resume, Stop during preparation and save, retained committed effects,
+reload without replay, rejection, artifact previews and both themes at narrow
+and desktop sizes. No model or tool subprocess starts. Screenshots and receipts,
+including failed runs, remain under `tests/.artifacts/ui-workflow/`.
+See [workflow behavior](../docs/workflow-ui.md) for ownership and limits.
+
 ## Image previews under the native HTTP policy
 
 `make test-ui-document-policy` starts the real HTTP host with an empty,
@@ -152,9 +218,9 @@ weight changes or live generation run in this target.
 
 ## Complete simulated UI matrix
 
-`make test-ui-simulated` executes 24 browser suites in each of real WebKit and
+`make test-ui-simulated` executes 25 browser suites in each of real WebKit and
 Chromium, plus Learn/Tutor replays for all three Qwen model families with stale
-checkout fixtures (54 suite executions). All launcher, generation, tool, installation,
+checkout fixtures (56 suite executions). All launcher, generation, tool, installation,
 download and persistence responses are isolated loopback fixtures. It never
 starts DStudio, inference engines or weight downloads. The new image/selection
 fixtures reject outbound requests and fail unknown endpoints. Clipboard writes

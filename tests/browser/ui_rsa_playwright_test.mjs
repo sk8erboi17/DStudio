@@ -197,6 +197,18 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, gsaTools: { mode: 'tool-assisted', tools: [] } });
     return;
   }
+  if (url.pathname === '/api/agent/fs/list') {
+    json(res, 200, { ok: true, root: '/tmp/dstudio-rsa-ui-test', entries: [], truncated: false });
+    return;
+  }
+  if (url.pathname === '/api/agent/fs/read') {
+    const body = JSON.parse(await readBody(req) || '{}');
+    const runId = String(body.path || '').match(/\/runs\/([^/]+)\//)?.[1];
+    const phase = path.basename(body.path || '').replace(/\.json$/, '');
+    const saved = rsaPhases.find((p) => p.runId === runId && p.phase === phase);
+    json(res, 200, { ok: true, root: '/tmp/dstudio-rsa-ui-test', content: saved?.output || '', utf8: true, binary: false, tooLarge: false });
+    return;
+  }
   if (url.pathname === '/api/rsa/start' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req) || '{}');
     rsaStarts.push(body);
@@ -365,6 +377,8 @@ try {
   assert.equal(maxConcurrentAgentPolls, 1, 'RSA phase polling must remain single-flight across send and watchdog callers');
   assert.ok(sends.every((s) => /"value":"max"/.test(s.prompt || '')), 'every RSA send should force thinking max');
 
+  await page.locator('#workflow-surface').waitFor({ state: 'visible' });
+  await page.locator('#wf-back').click();
   await page.locator('.gsa-phase-card').first().waitFor({ timeout: 5000 });
   const cardText = await page.locator('.gsa-phase-card').allInnerTexts().then((items) => items.join('\n'));
   assert.match(cardText, /RSA/);
