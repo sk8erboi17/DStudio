@@ -24,7 +24,7 @@ const receipt = { scope: `Native ${backend} compilation/linking and real tools w
   buildHost, started: new Date().toISOString(), runs: [], passed: false };
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 const supportFiles = ['patch/ds4-agent-jsonl/remote-agent.cfrag', 'patch/ds4-agent-jsonl/remote-tools.cfrag',
-  ...['manifest','main-qwen.patch','main-v41.patch','main-current.patch','main-previous.patch','laguna.patch','qwen38.patch','qwen38-next.patch','qwen35.patch','pld_core.c',
+  ...['manifest','main-qwen.patch','main-v41.patch','main-current.patch','main-previous.patch','laguna.patch','qwen38.patch','qwen38-next.patch','pld_core.c',
     'pld_agent.inc','pld_agent_rewind.h','pld_agent_compaction.h','compaction_text.h'].map(f => `patch/ds4-agent-jsonl/${f}`),
   'patch/ds4-agent-jsonl/build.mk', 'extension/remote/dstudio_remote_llm.c', 'extension/remote/dstudio_remote_llm.h',
   'extension/remote/dstudio_wire_string.h', 'extension/remote/dstudio_json_tokens.h', 'src/harness/cowork/ds4_cowork.c',
@@ -97,7 +97,7 @@ async function designBuild(row) {
 }
 try {
   for (const [i, input] of inputs.entries()) {
-    const name = ['main', 'laguna', 'qwen38', 'qwen35'][i], source = fs.realpathSync(input);
+    const name = ['main', 'laguna', 'qwen38'][i], source = fs.realpathSync(input);
     const engine = path.join(output, `${name} engine`);
     fs.mkdirSync(engine);
     const row = { name, source, engine, files: snapshot(source, engine), commands: [] };
@@ -114,7 +114,7 @@ try {
     }
     await run(row, 'build', buildHost, buildArgs(engine), host ? '/' : root);
     if (host) {
-      row.packagedPatches = ['manifest', 'main-qwen.patch', 'main-v41.patch', 'main-current.patch', 'main-previous.patch', 'laguna.patch', 'qwen38.patch', 'qwen38-next.patch', 'qwen35.patch', 'pld_agent_compaction.h', 'compaction_text.h', 'remote-agent.cfrag'].map(file => {
+      row.packagedPatches = ['manifest', 'main-qwen.patch', 'main-v41.patch', 'main-current.patch', 'main-previous.patch', 'laguna.patch', 'qwen38.patch', 'qwen38-next.patch', 'pld_agent_compaction.h', 'compaction_text.h', 'remote-agent.cfrag'].map(file => {
         const relative = path.join('patch/ds4-agent-jsonl', file);
         const sha256 = digest(fs.readFileSync(path.join(output, 'packaged-support', relative)));
         assert.equal(sha256, digest(fs.readFileSync(path.join(root, relative))), `Packaged input differs: ${file}`);
@@ -180,7 +180,7 @@ try {
     // The application skips the unsupported Qwen PLD adapter by selected model,
     // not by the host CLI's default DeepSeek preference. Exercise that actual
     // admission with the selected Qwen identity in a native probe.
-    const qwenServer = name === 'qwen38' || name === 'qwen35';
+    const qwenServer = name === 'qwen38';
     await run(row, 'server-build', qwenServer ? path.join(root,'tests/.build/agent-build-probe') : buildHost,
       qwenServer ? [root, engine, `server-${name}`] :
         host ? ['--build-server-pld', engine] : [root, engine, 'server'], host && !qwenServer ? '/' : root);

@@ -434,6 +434,10 @@ static int remote_chat_stream(const char *base_url,
             dstudio_remote_buf_puts(&body, ",\"reasoning_effort\":");
             dstudio_remote_json_string(&body, think_level >= 2 ? "max" : "high");
         }
+        /* Template-driven servers (llama.cpp, ds4-server) switch thinking
+         * through the chat template; both read this standard field. */
+        dstudio_remote_buf_puts(&body, ",\"chat_template_kwargs\":{\"enable_thinking\":");
+        dstudio_remote_buf_puts(&body, think_level > 0 ? "true}" : "false}");
     }
     char num[160];
     if (cloud) {

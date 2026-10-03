@@ -4,8 +4,8 @@ DStudio's locally authored design systems — Folio, Signal, Forma, Grove, Pulse
 Market, Commons, Atlas and Canvas —
 are included in [`extension/design-systems/`](extension/design-systems/) under the
 [repository license](LICENSE). No third-party design catalog is bundled or
-downloaded. DStudio bundles the pinned ds4/q36 source snapshots below under their original
-licenses. Optional media/tool runtimes and model weights are still downloaded
+downloaded. DStudio bundles the pinned ds4 and llama.cpp source snapshots below under their
+original licenses. Optional media/tool runtimes and model weights are still downloaded
 on demand and are not committed. See [bundled source provenance and limits](docs/BUNDLED_ENGINES.md).
 
 ## ds4 (managed local inference engine)
@@ -28,9 +28,28 @@ on demand and are not committed. See [bundled source provenance and limits](docs
   is retained, including its source link.
 - DStudio adaptations: [`patch/`](patch/README.md).
 
+## llama.cpp (bundled engine for the local Qwen models)
+
+- Source: https://github.com/ggml-org/llama.cpp, tag `b11371`
+- Pinned commit: `99b95488cac0f00ce3f05af113a8c1e287753f87`
+- Source license: [MIT](src/engines/llama.cpp/LICENSE), Copyright 2023–2026 The ggml authors.
+- Distributed sources: [`src/engines/llama.cpp/`](src/engines/llama.cpp/). DStudio builds only
+  `llama-server` from them ([installer](scripts/install-llama.py)); the snapshot is unmodified.
+- Vendored components retained with their notices inside the snapshot:
+  [cpp-httplib](src/engines/llama.cpp/vendor/cpp-httplib/LICENSE) (MIT),
+  [nlohmann/json](src/engines/llama.cpp/licenses/LICENSE-jsonhpp) (MIT),
+  [xxHash](src/engines/llama.cpp/vendor/hash/xxhash/LICENSE) (BSD-2-Clause),
+  [rotate-bits](src/engines/llama.cpp/vendor/hash/rotate-bits/LICENSE.md) (MIT),
+  [stb_image](src/engines/llama.cpp/vendor/stb/stb_image.h) (public domain or MIT),
+  [miniaudio](src/engines/llama.cpp/vendor/miniaudio/miniaudio.h) (public domain or MIT-0) and
+  [subprocess.h](src/engines/llama.cpp/vendor/sheredom/subprocess.h) (Unlicense), as stated in their headers.
+- Omitted from the snapshot (hashes in the [manifest](src/engines/manifest.json)): test vocabulary
+  GGUFs, generated per-backend operator tables (`docs/ops/*.csv`) and published benchmark runs.
+
 Managed installs retain the upstream license. Model weights have their own
 terms; the engine's license does not replace them. Main now includes
-Qwen3.8-Flash-Next. Laguna, Qwen3.6 MoE and Qwen27B retain separate engine pins.
+Qwen3.8-Flash-Next. Laguna retains a separate engine pin; Qwen3.6 MoE and Qwen27B run on
+the bundled llama.cpp below.
 
 DeepSeek V4.1 GGUFs are downloaded separately from
 [`antirez/deepseek-v4.1-flash-gguf`](https://huggingface.co/antirez/deepseek-v4.1-flash-gguf/tree/dd8a266f7145edc19e2334b46e19b6821f221dc7),
@@ -39,19 +58,19 @@ declares MIT. The upstream engine retains the provenance of the DeepSeek
 tokenizer/Engram metadata and its source notices. Engram tables and any matching
 vision weights are model components, not DStudio-authored assets.
 
-### Qwen3.6 native engine fork
+### Retired Qwen side engines
 
-- Source: [`vagrillo/ds4`](https://github.com/vagrillo/ds4/tree/73434c4bb9d8bb18425a2577edada69d25d44c47).
-- Pinned revision: `73434c4bb9d8bb18425a2577edada69d25d44c47` (documentation-only change from `60fca11f`).
-- Source license: MIT, retaining the ds4.c authors and ggml authors' notices
-  in [the distributed fork](src/engines/ds4-qwen35/LICENSE).
-- DStudio's model-catalog correction is shipped as a reversible
-  [patch](patch/ds4-qwen35-catalog/README.md), not an unrecorded fork edit.
-- Its native Agent/Cowork candidate is an explicit
-  [patch](patch/ds4-agent-jsonl/qwen35.patch). The Qwen tool parser is adapted
-  from the MIT-licensed `ivanfioravanti/ds4-metal` source pinned below, using
-  this fork's native ChatML/server format; inference kernels are not replaced.
-- Model weights are downloaded separately and retain their own terms.
+Until October 3, 2026 DStudio also distributed the
+[`vagrillo/ds4`](https://github.com/vagrillo/ds4/tree/73434c4bb9d8bb18425a2577edada69d25d44c47)
+Qwen3.6 fork (`73434c4`, MIT, ds4.c and ggml authors) and the
+[`Ninnix/q36`](https://github.com/Ninnix/q36/tree/1305843c735380f912619548b121cba8601f2f85)
+Qwen27B engine (`1305843`, MIT, Copyright 2026 Nicolo' D'Evangelista, the ds4.c
+authors and the ggml authors), with DStudio patches for both and a reviewed
+[`signalnine/q27`](https://github.com/signalnine/q27/tree/8cd708389f8b5a2c5a7c481237b00c8d7f570e7f)
+Metal adaptation (MIT, Copyright 2026 Gabe Ortiz). None of them is distributed
+any more; their sources, patches and notices remain in Git history. The Qwen3.6
+tool-parser adaptation in the retired `qwen35` Agent patch came from the
+MIT-licensed `ivanfioravanti/ds4-metal` source below.
 
 ### Qwen3.8-Flash-Next in main and historical fork attribution
 
@@ -66,7 +85,7 @@ vision weights are model components, not DStudio-authored assets.
   which includes the Qwen merge. The original contributors' attribution remains.
 - Source license: MIT, retaining upstream ds4.c and ggml notices in
   [the active bundled engine](src/engines/ds4/LICENSE). Historical patches and
-  the Qwen3.6 tool-parser adaptation above retain their upstream attribution.
+  the retired Qwen3.6 tool-parser adaptation retain their upstream attribution.
 - The older metadata-only PLE prefetch correction remains as a historical
   [regression patch](patch/ds4-qwen38-inspect/README.md), not a main install step.
 - The structured Agent/Cowork adaptation is an explicit
@@ -79,52 +98,8 @@ vision weights are model components, not DStudio-authored assets.
   terms and provenance; DStudio's or the engine's license does not replace them.
 - [Migration, exact hashes and compatibility limits](docs/QWEN_NEXT_MAIN_MIGRATION.md).
 
-### q27 (separate Qwen27B engine candidate)
+### Qwen3.8-27B weights
 
-- Source: [`signalnine/q27`](https://github.com/signalnine/q27/tree/8cd708389f8b5a2c5a7c481237b00c8d7f570e7f).
-- Reviewed revision: `8cd708389f8b5a2c5a7c481237b00c8d7f570e7f`.
-- Source license: MIT; Copyright 2026 Gabe Ortiz. The complete notice is
-  retained with the [Metal DeltaNet adaptation](patch/q27-metal-delta/LICENSE).
-- DStudio's [versioned patch](patch/q27-metal-delta/README.md) preserves native
-  recurrence math while using 256-thread column tiles on Metal. It is an
-  isolated engine candidate, not a qualified DStudio model or CUDA result.
-- Custom q27-format weights and tokenizer data are not included or downloaded
-  by this adaptation; their model terms remain separate.
-
-### q36 / QuarkStar (Qwen27B installation candidate)
-
-- Source and installer candidate: [`Ninnix/q36`](https://github.com/Ninnix/q36/tree/1305843c735380f912619548b121cba8601f2f85).
-- Previous audited base: `d67687ed15ad9f52b755a9b5fdfc0214ea937555`.
-- Separately reviewed candidate: `d02b6a20a7662300003c859e186ceb5bec7aa849`,
-  with a [macOS terminal adaptation](patch/q36-agent-tty/README.md) and
-  [optional diagnostic patch](patch/q36-metal-diagnostics/README.md).
-  These are not a promoted installer update or a long-context inference fix.
-  A separate [bounded F16 attention candidate](patch/q36-f16-attention/README.md)
-  retains the same upstream MIT terms; operator tests are distinct from its
-  still-open complete-model qualification and installer promotion.
-- Historical September 12 candidate: `8362010a301b3360296e435703f58ffc230a024a`.
-  The installer applies `next-review.patch`, `monitor.patch`,
-  `monitor-owner.patch`, then `cache-usage.patch`, recording their identities
-  and order. Native and
-  targeted image/tool/cache tests pass, as do fresh installation and a scoped
-  DStudio Chat/Agent/Cowork run. A scoped real legacy-install upgrade also
-  passes with cache reuse; complete migration/failure coverage across engines
-  and full model/application qualification remain separate requirements.
-  Its worker-quiescence rule also informs DStudio's versioned native Agent
-  readiness patches; the existing upstream MIT notice is retained.
-- Source license: MIT; Copyright 2026 Nicolo' D'Evangelista, 2026 the ds4.c
-  authors, and 2023–2026 the ggml authors.
-- DStudio's native Metal operators are delivered in a reproducible
-  [patch](patch/q36-metal-runtime/README.md), retaining the
-  [full upstream notice](patch/q36-metal-runtime/LICENSE). The explicit CLI
-  installer copies [the bundled pinned source](src/engines/q36/) and applies the
-  versioned patches; application-mode
-  and cross-backend qualification remain open.
-- Current installer source: `1305843c735380f912619548b121cba8601f2f85`, with
-  [the original MIT notice](src/engines/q36/LICENSE). It applies the rebased
-  runtime, monitor, monitor-owner, cache-usage and online-F16 attention patches.
-  Source installation and legacy ownership migration work offline; the earlier
-  real-model receipts do not qualify this new binary or full model quality.
 - The Q6_K_XL language-model candidate and tested F16 vision component come from
   [`unsloth/Qwen3.8-27B-GGUF`](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/blob/4ca720788d1e01f1bff70c033e0d0028fd02e502/README.md),
   revision `4ca720788d1e01f1bff70c033e0d0028fd02e502`, whose model card
@@ -132,7 +107,35 @@ vision weights are model components, not DStudio-authored assets.
   filenames, sizes and hashes are pinned in `scripts/download-qwen27.py`.
   An encoder differential test is not full language-model qualification.
 
-## pi, pi-ds4 and OpenCode (Agent harness sources)
+## MLX runtime (bundled wheels for Qwen3.6 on Apple Silicon)
+
+- **MLX** https://github.com/ml-explore/mlx v0.32.3 (`64ea011`) and **MLX LM**
+  https://github.com/ml-explore/mlx-lm v0.32.0 (`a9bd8af`): MIT, Copyright © 2023 Apple Inc.
+  The `mlx-metal` wheel also contains Apple's metal-cpp headers (Apache-2.0).
+- DStudio ships the unmodified PyPI wheels for macOS 26 arm64 and CPython 3.12–3.14 in
+  [`src/engines/mlx/wheels/`](src/engines/mlx/wheels/), with their SHA-256 and declared license in
+  [`src/engines/mlx/manifest.json`](src/engines/mlx/manifest.json). Each wheel keeps its own license
+  file in its `.dist-info`. [`scripts/install-mlx.py`](scripts/install-mlx.py) installs them offline
+  into a private virtual environment and applies
+  [`patch/mlx-lm-single-model`](patch/mlx-lm-single-model/README.md) and
+  [`patch/mlx-lm-reasoning-content`](patch/mlx-lm-reasoning-content/README.md) to the installed
+  MLX LM server.
+- The 32 runtime dependencies keep their own licenses: Apache-2.0 (hf-xet, huggingface_hub,
+  safetensors, sentencepiece, tokenizers, transformers); Apache-2.0 or BSD-2-Clause (packaging);
+  Apache-2.0 and CNRI-Python (regex); BSD-2-Clause (Pygments); BSD-3-Clause (click, fsspec,
+  httpcore, httpx, idna, Jinja2, MarkupSafe, protobuf); BSD-3-Clause, 0BSD, MIT, Zlib and CC0-1.0
+  (numpy); ISC (shellingham); MIT (annotated-doc, anyio, filelock, h11, markdown-it-py, mdurl,
+  PyYAML, rich, typer); MPL-2.0 (certifi); MPL-2.0 and MIT (tqdm); PSF-2.0 (typing_extensions).
+  The MPL-2.0 packages are redistributed unmodified; their source is available from PyPI.
+
+### Qwen3.6-35B-A3B MLX weights
+
+- [`mlx-community/Qwen3.6-35B-A3B-mxfp8`](https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-mxfp8/tree/5c216c8705fed28a7a16fc92555befd507628709),
+  revision `5c216c8705fed28a7a16fc92555befd507628709`, Apache-2.0 per its model card. Downloaded
+  separately, not committed; the 20 files, sizes and SHA-256 are pinned in
+  [`scripts/download-mlx-qwen36.py`](scripts/download-mlx-qwen36.py).
+
+## pi, pi-ds4 and OpenCode (optional Agent harnesses)
 
 - **pi**: https://github.com/earendil-works/pi at `a276dabe57911253350bffb93cb7d7aff6a73261`,
   [MIT](src/harness/pi/LICENSE), Copyright 2025 Mario Zechner. Snapshot in
@@ -140,11 +143,18 @@ vision weights are model components, not DStudio-authored assets.
   omitted and listed with their hashes in the [harness manifest](src/harness/manifest.json).
 - **pi-ds4**: https://github.com/mitsuhiko/pi-ds4 at `db8806cd52757fbaf957fe56b54700a1094a30b8`,
   [MIT](src/harness/pi-ds4/LICENSE), Copyright 2026 Armin Ronacher. Snapshot in
-  [`src/harness/pi-ds4/`](src/harness/pi-ds4/), unmodified.
+  [`src/harness/pi-ds4/`](src/harness/pi-ds4/); DStudio applies
+  [`patch/harness-pi-ds4/external-server.patch`](patch/harness-pi-ds4/README.md) at installation.
 - **OpenCode**: https://github.com/anomalyco/opencode at `907b3bc518fa48e90e8ec24dd327d13eee71c36c`,
   [MIT](src/harness/opencode/LICENSE), Copyright 2025 opencode. Snapshot in
   [`src/harness/opencode/`](src/harness/opencode/); 60 symbolic links, 9 marketing/help videos and
-  15 generated demo outputs are omitted and listed in the manifest.
+  15 generated demo outputs are omitted and listed in the manifest. DStudio applies
+  [`patch/harness-opencode/directory-confinement.patch`](patch/harness-opencode/README.md).
+- Their JavaScript dependencies (npm packages and, for OpenCode, the Bun build tool `bun@1.3.14`)
+  are **not** distributed with DStudio. [`scripts/install-harness.py`](scripts/install-harness.py)
+  downloads them at the user's explicit request, pinned by each project's lockfile, into the
+  user's managed installation; each package keeps its own license there. The built OpenCode
+  executable embeds those dependencies under their licenses.
 
 ## Ideogram 4 FP8 (optional image-generation runtime)
 

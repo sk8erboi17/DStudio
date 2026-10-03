@@ -1,5 +1,5 @@
 /* Executes the production launch-dependency capture on real fixture trees.
- * The worst supported launch (dense Qwen Agent with projector, workspace and
+ * The worst supported launch (llama.cpp 27B Agent with projector, workspace and
  * user skill) must fit the bounded dependency table, and each engine family
  * must capture exactly the patch inputs its preparation worker uses. */
 #define _GNU_SOURCE
@@ -48,42 +48,43 @@ int main(int argc, char **argv) {
     assert(setenv("HOME", temp, 1) == 0);
     assert(getcwd(g_web_dir, sizeof g_web_dir));
     assert(realpath(argv[0], g_launch_executable));
-    char q36[1200], ds4[1200], qwen35[1200], workspace[1200], skills[1200];
-    snprintf(q36, sizeof q36, "%s/q36", temp);
+    char ds4[1200], workspace[1200], skills[1200];
     snprintf(ds4, sizeof ds4, "%s/ds4", temp);
-    snprintf(qwen35, sizeof qwen35, "%s/ds4-qwen35", temp);
     snprintf(workspace, sizeof workspace, "%s/workspace", temp);
-    touch(q36, MODEL_QWEN27); touch(q36, MODEL_QWEN27_VISION); touch(q36, ".dstudio-source.json");
+    /* The Qwen checkpoints live in the main installation's gguf/ store. */
     touch(ds4, "ds4.c"); touch(ds4, MODEL_FLASH);
-    touch(qwen35, "ds4.c"); touch(qwen35, MODEL_QWEN35);
+    touch(ds4, MODEL_QWEN27); touch(ds4, MODEL_QWEN27_VISION); touch(ds4, MODEL_QWEN35);
     assert(mkdir(workspace, 0755) == 0);
     user_skills_dir(skills, sizeof skills);
     touch(skills, "fixture-skill/SKILL.md");
 
-    launch_job *dense = job(q36, MODEL_QWEN27, ENGINE_AGENT, workspace, "fixture-skill");
-    dense->q36 = calloc(1, sizeof *dense->q36);
-    assert(dense->q36);
+    /* llama.cpp-served 27B: the weights, its projector and the installer bind
+     * the candidate; the tools frontend runs from the main installation. */
+    launch_job *dense = job(ds4, MODEL_QWEN27, ENGINE_AGENT, workspace, "fixture-skill");
+    dense->resident = calloc(1, sizeof *dense->resident);
+    assert(dense->resident);
+    cstr_copy(dense->resident->vision, sizeof dense->resident->vision, MODEL_QWEN27_VISION);
     assert(launch_capture_dependencies(dense));
     assert(dense->dependency_count <= LAUNCH_DEP_MAX);
-    assert(captured(dense, "patch/q36-metal-runtime/runtime-1305843.patch"));
-    assert(captured(dense, "patch/q36-f16-attention/online-1305843.patch"));
-    assert(captured(dense, "/ds4") && captured(dense, "Qwen3.8-27B-mmproj-F16.gguf"));
-    assert(!captured(dense, "patch/ds4-qwen35-q6k-moe/moe-q6k-nibble.patch"));
+    assert(captured(dense, "scripts/install-llama.py"));
+    assert(captured(dense, "Qwen3.8-27B-UD-Q6_K_XL.gguf") && captured(dense, "Qwen3.8-27B-mmproj-F16.gguf"));
+    assert(dense->resident->model_identity[0] && strcmp(dense->resident->model_identity, "missing"));
+    assert(dense->resident->vision_identity[0] && strcmp(dense->resident->vision_identity, "missing"));
+    assert(!strcmp(dense->resident->agent_dir, ds4) && dense->prepared.runtime_dir == dense->resident->agent_dir);
 
-    launch_job *moe = job(qwen35, MODEL_QWEN35, ENGINE_COWORK, workspace, "fixture-skill");
+    launch_job *moe = job(ds4, MODEL_QWEN35, ENGINE_COWORK, workspace, "fixture-skill");
+    moe->resident = calloc(1, sizeof *moe->resident);
+    assert(moe->resident);
     assert(launch_capture_dependencies(moe));
-    assert(captured(moe, "patch/ds4-qwen35-q6k-moe/moe-q6k-nibble.patch"));
-    assert(captured(moe, "patch/ds4-qwen35-catalog/native-model-id.patch"));
-    assert(captured(moe, "patch/ds4-qwen35-prefill/prefill-73434c4.patch"));
-    assert(!captured(moe, "patch/q36-metal-runtime/runtime-1305843.patch"));
+    assert(captured(moe, "scripts/install-llama.py") && captured(moe, "Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf"));
+    assert(!moe->resident->vision_identity[0]); /* no projector is admitted for Qwen3.6 */
 
     launch_job *main_engine = job(ds4, MODEL_FLASH, ENGINE_SERVER, NULL, NULL);
     assert(launch_capture_dependencies(main_engine));
-    assert(!captured(main_engine, "patch/ds4-qwen35-q6k-moe/moe-q6k-nibble.patch"));
-    assert(!captured(main_engine, "patch/ds4-qwen35-catalog/native-model-id.patch"));
+    assert(!captured(main_engine, "scripts/install-llama.py"));
 
-    printf("launch_dependencies_unit: dense Agent %d/%d, Qwen3.6 %d, main %d dependencies; family-specific patch inputs captured\n",
+    printf("launch_dependencies_unit: llama.cpp 27B Agent %d/%d, Qwen3.6 Cowork %d, main %d dependencies; engine-specific inputs captured\n",
            dense->dependency_count, LAUNCH_DEP_MAX, moe->dependency_count, main_engine->dependency_count);
-    free(dense->q36); free(dense); free(moe); free(main_engine);
+    free(dense->resident); free(dense); free(moe->resident); free(moe); free(main_engine);
     return 0;
 }

@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "package": "mlx-lm",
+  "version": "0.32.0",
+  "repository": "https://github.com/ml-explore/mlx-lm",
+  "revision": "a9bd8af5c02118882af735cef60705d2efce9fd0",
+  "order": [
+    "single-model.patch"
+  ],
+  "patches": {
+    "single-model.patch": {
+      "sha256": "b201379f2f3fb117a6a7686d547886f2605aa4469898ea7d77d305ed071e64af",
+      "baseFile": "mlx_lm/server.py",
+      "baseSHA256": "57392576de114af80ede723976b9dd156dc234f856b9943b8b44b8b78bc27f79"
+    }
+  }
+}

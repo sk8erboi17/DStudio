@@ -15,7 +15,7 @@ const run = artifactRunDir('backend-link');
 const sources = process.argv.slice(2);
 // Qwen Next shares the active main engine. Retired forks require an explicit
 // source argument; they are not dependencies of the default managed-engine gate.
-if (!sources.length) sources.push('ds4', 'ds4-laguna-s21', 'ds4-qwen35');
+if (!sources.length) sources.push('ds4', 'ds4-laguna-s21');
 const report = {scope: 'Real GNU Make backend routing with simulated compilers/linkers; no inference',
   started: new Date().toISOString(), cases: [], passed: false};
 const hash = data => crypto.createHash('sha256').update(data).digest('hex');

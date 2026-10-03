@@ -105,7 +105,7 @@ static ssize_t model_rpc_pipe_write(int fd, const char *bytes, size_t count) {
 static int model_rpc_owner_matches(const model_rpc_relay *j) {
     return j->epoch == g_model_rpc_epoch && j->runtime == g_child &&
            j->runtime_fd == g_in_fd && g_in_fd >= 0 &&
-           (!j->resident || q36_rpc_current(j->resident, j->resident_generation));
+           (!j->resident || resident_rpc_current(j->resident, j->resident_generation));
 }
 
 static void model_rpc_restore_pipe(model_rpc_relay *j) {
@@ -456,7 +456,8 @@ static int model_rpc_start(int id, char *body, int encoded) {
     model_rpc_tick();
     char local_url[96] = "";
     pid_t resident = 0;
-    unsigned long long generation = q36_rpc_owner(&resident, local_url, sizeof local_url);
+    const char *resident_model = "";
+    unsigned long long generation = resident_rpc_owner(&resident, local_url, sizeof local_url, &resident_model);
     if (g_in_fd < 0 || g_child <= 0 || g_model_rpc_next ||
         (!generation && !g_remote_base_url[0]) ||
         (g_model_rpc && !g_model_rpc->canceled)) { free(body); return 0; }
@@ -472,7 +473,7 @@ static int model_rpc_start(int id, char *body, int encoded) {
             json_dyn_put_escaped(&metadata, generation ? local_url : g_remote_base_url) && json_dyn_puts(&metadata, ",\"key\":") &&
             json_dyn_put_escaped(&metadata, generation ? "" : g_remote_api_key) &&
             json_dyn_puts(&metadata, ",\"expectedModel\":") &&
-            json_dyn_put_escaped(&metadata, generation ? "qwen3.8-27b" : "") && json_dyn_puts(&metadata, "}\n");
+            json_dyn_put_escaped(&metadata, generation ? resident_model : "") && json_dyn_puts(&metadata, "}\n");
         if (ok && metadata.len < sizeof j->metadata) {
             memcpy(j->metadata, metadata.ptr, metadata.len); j->metadata_len = metadata.len;
         } else model_rpc_relay_fail(j, "Internal model request metadata is invalid or too large");

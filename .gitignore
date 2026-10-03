@@ -36,6 +36,9 @@ core.*
 /q36/
 /.dstudio-q36-install.lock
 /.dstudio-q36-stage-*/
+/llama.cpp/
+/.dstudio-llama-install.lock
+/.dstudio-llama-stage-*/
 /.dstudio-*-sources.lock
 /.dstudio-*-source-*/
 /build/
@@ -93,3 +96,11 @@ src/harness/gsa/tools/install-gsa-tools.log
 src/harness/gsa/tools/.crates*
 
 # Original design systems are versioned and bundled, never downloaded.
+
+# Installed third-party harnesses (pi, opencode); sources ship in src/harness.
+/harness/
+# Installed MLX runtime (wheels ship in src/engines/mlx).
+/mlx/
+/.dstudio-mlx-install.lock
+/.dstudio-mlx-stage-*/
+/.dstudio-harness-install.lock

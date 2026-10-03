@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentManifestVersion": 103,
+  "currentManifestVersion": 104,
   "repository": "https://github.com/antirez/ds4",
   "sourceFile": "ds4_agent.c",
   "application": "Choose a complete exact-context variant, apply once to a private source copy, then compile with build.mk. Do not edit the upstream Agent file.",
@@ -172,41 +172,6 @@
         "patch": "qwen38-progress-summary.patch",
         "sha256": "25c7272b276f6a154fae5b6765e6a73b26404ceecebfb2ffa6d6c07f80cf712a",
         "previousDerivedSHA256": "6702a33d351f99387c8ac3de53cba0227298c2f1907bf7de4b9ee5906db818a8"
-      }
-    },
-    {
-      "name": "qwen35",
-      "repository": "https://github.com/vagrillo/ds4",
-      "revision": "60fca11f0c8b16ca50c757324dddd717ba043098",
-      "patch": "qwen35.patch",
-      "sourceSHA256": "73cb34e1001e86fa172b69e77a21c0d4e4a9418b751ec0d5b9f08eb0632e52cb",
-      "patchSHA256": "5199195367dd2db6d88d66fca21e8d8344c3e408608ee8b5571a98ddbf2da1ae",
-      "derivedSHA256": "3593c24f33c8eddb9509f037210a6fed4d380860daeb3fe0f59bc5c96997ae92",
-      "postV97Fix": {
-        "patch": "compaction-publish.patch",
-        "sha256": "16202998886f9d4bd46467b0e0749d41a81fda3f3209bcb711b0bcfb67a34ace",
-        "previousDerivedSHA256": "8177b6c9bf8906c9c4c1fd8ab88938cce5fa7ff3b42943d13044d7ba0121793f"
-      },
-      "oracle": "Pinned Qwen3.6 server ChatML/tool grammar and Qwen3.8 native XML parser; explicit native parser/local-tool regressions. Not a version-86 migration, inference-quality result or host capability enablement.",
-      "postV98Fix": {
-        "patch": "qwen35-continuation.patch",
-        "sha256": "e3bf65ee8a40fdcac87b9cd436fbd9450a5728e171e0e55250eee8c37fc56860",
-        "previousDerivedSHA256": "02655465c0ebd17e40e353fe1998397769cb303fcabbffe0a71668c17dfcd693"
-      },
-      "postV99Fix": {
-        "patch": "qwen35-readiness.patch",
-        "sha256": "c0d7d9f14dc8a9f8a65ba2288cc70de7b8896dc977e5b783947f12aa60ad71ed",
-        "previousDerivedSHA256": "eacd3a72617800c8e343efbc1fb705587c0e144932f0b887597461f7b43006c4"
-      },
-      "postV100Fix": {
-        "patch": "qwen35-durable-summary.patch",
-        "sha256": "bb099f2ffcaa67d71d4ebd6a195ec0678f140d8609356833b3fc4ce9dfd82e3d",
-        "previousDerivedSHA256": "a7a240b20bf54cd9758e8e8538099ac948a4cda5be79677861701cbe7b8d2453"
-      },
-      "postV101Fix": {
-        "patch": "qwen35-progress-summary.patch",
-        "sha256": "a8f52058e37ea7123ca01a973f19799ffe2dda0fce7e750f52ebf88f57bf16eb",
-        "previousDerivedSHA256": "1b5942a42c206668c861b9b9abef67d60fe8b089ee41f8941d8383fa004d9d35"
       }
     },
     {

@@ -27,14 +27,14 @@ file(path.join(assets, 'scripts/apply-ds4-visible-downloads.sh'), '#!/bin/sh\nex
 const opener = path.join(run, 'bin/open');
 file(opener, '#!/bin/sh\nprintf "%s" "$1" > "$DSTUDIO_FIXTURE_OPENED"\n'); fs.chmodSync(opener, 0o755);
 fs.copyFileSync(opener, path.join(run, 'bin/xdg-open')); fs.chmodSync(path.join(run, 'bin/xdg-open'), 0o755);
-file(path.join(assets, 'scripts/install-q36.py'), `import sys, json, time
+file(path.join(assets, 'scripts/install-llama.py'), `import sys, json, time
 from pathlib import Path
 root = Path(sys.argv[sys.argv.index('--root') + 1])
 (root / 'install-entered').write_text(json.dumps(sys.argv[1:]))
 while not (root / 'install-release').exists(): time.sleep(.02)
 if (root / 'install-fail').exists(): sys.exit(9)
-(root / 'q36').mkdir(exist_ok=True)
-(root / 'q36' / 'Makefile').write_text('fixture, no native build')
+(root / 'llama.cpp' / 'bin').mkdir(parents=True, exist_ok=True)
+(root / 'llama.cpp' / 'bin' / 'llama-server').write_text('fixture, no native build')
 `);
 file(path.join(assets, 'scripts/download-qwen27.py'), `import sys, os, json, time
 from pathlib import Path
@@ -122,10 +122,10 @@ try {
     assert.equal(path.resolve(args[args.indexOf('--directory') + 1]), path.join(engine, 'gguf'));
     const store = fs.statSync(path.join(engine, 'gguf'), {bigint: true});
     assert.equal(args[args.indexOf('--directory-identity') + 1], `${store.dev}:${store.ino}`);
-    assert.equal((await request('/api/model/folder/open', {engine: 'q36', downloadTarget: 'qwen27-q6'})).status, 200);
+    assert.equal((await request('/api/model/folder/open', {engine: 'main', downloadTarget: 'qwen27-q6'})).status, 200);
     await until(() => fs.existsSync(path.join(run, 'opened-folder')), 'folder opener not called');
     assert.equal(fs.readFileSync(path.join(run, 'opened-folder'), 'utf8'), path.join(engine, 'gguf'));
-    assert.equal((await request('/api/model/folder/open', {engine: 'q36', downloadTarget: 'qwen36-q6'})).status, 409);
+    assert.equal((await request('/api/model/folder/open', {engine: 'main', downloadTarget: 'qwen36-q6'})).status, 409);
   });
   await check('verification never becomes 100 percent before the verified process exits', async row => {
     release('download'); row.phase = await phase('verifying');

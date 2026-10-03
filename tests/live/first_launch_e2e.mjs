@@ -61,7 +61,6 @@ async function step(name, fn) {
 const configs = {
   main: { dir: 'ds4', endpoint: '/api/ds4/setup', commit: '0aaea5a238fb41a35106a551e73c8409dfb751ac' },
   laguna: { dir: 'ds4-laguna-s21', endpoint: '/api/laguna/setup', target: 'laguna-q4', commit: '448d5695d1c86401a4e9447c440feb983b73e6de' },
-  qwen35: { dir: 'ds4-qwen35', endpoint: '/api/qwen35/setup', target: 'qwen36-q6', commit: '73434c4bb9d8bb18425a2577edada69d25d44c47' },
 };
 function verifyRuntime(id, response) {
   const cfg = configs[id], dir = path.join(data, cfg.dir);
@@ -83,12 +82,6 @@ function verifyRuntime(id, response) {
     assert.equal(r.error, undefined); assert.equal(r.status, 0, `${bin}: ${r.stderr}`);
     assert.match(r.stdout + r.stderr, /usage|options/i);
     runtime[bin] = { sha256: sha(executable), bytes: fs.statSync(executable).size };
-  }
-  if (id === 'qwen35') {
-    // The fork's MoE shader is corrected at install time, not at first launch.
-    const q6 = spawnSync('sh', [path.join(repo, 'scripts/apply-ds4-qwen35-q6k-moe.sh'), 'check'],
-      { env: { ...env, DS4_DIR: dir }, timeout: 20000, encoding: 'utf8' });
-    assert.equal(q6.stdout.trim(), 'Qwen3.6 Q6_K MoE patch: already applied', q6.stderr);
   }
   assert.deepEqual(fs.readdirSync(path.join(data,'ds4/gguf')), [], 'no weights or partial downloads');
   if (id !== 'main') assert.equal(fs.realpathSync(path.join(dir,'gguf')), path.join(data,'ds4/gguf'));
@@ -207,7 +200,7 @@ try {
     assert.equal(fs.existsSync(path.join(data,'ds4-qwen38')), false);
     return {legacyEndpoint:410, weightTransfers:'not run', mainSharedByBothQuantizations:true};
   });
-  for (const id of ['laguna','qwen35']) {
+  for (const id of ['laguna']) {
     await step(`${id}: model choice installs the matching absent engine`, async () => {
       const cfg = configs[id];
       const modelHost = page.locator(setupSurface === 'onboarding' ? '#onboard-models' : '#set-models');
@@ -240,28 +233,28 @@ try {
     assert.equal(sha(path.join(app,'Contents/MacOS/DStudio')),report.appSha256);
     return catalog;
   });
-  await step('q36 builds from bundled sources offline with no model or app restart', async () => {
+  await step('llama.cpp builds from bundled sources offline with no model or app restart', async () => {
+    // The Qwen checkpoints' engine: the app's own CLI copies the bundled
+    // snapshot and builds llama-server with external network denied.
     const started = performance.now();
     const result = spawnSync('/usr/bin/sandbox-exec', ['-p', offlineProfile,
-      path.join(app,'Contents/MacOS/DStudio'), '--install-engine', 'q36', data],
+      path.join(app,'Contents/MacOS/DStudio'), '--install-engine', 'llama', data],
       { cwd: '/', env, encoding: 'utf8', timeout: 900000, maxBuffer: 32 * 1024 * 1024 });
-    fs.writeFileSync(path.join(run,'q36-install.log'), (result.stdout || '') + (result.stderr || ''));
+    fs.writeFileSync(path.join(run,'llama-install.log'), (result.stdout || '') + (result.stderr || ''));
     assert.equal(result.error, undefined); assert.equal(result.status, 0, result.stderr);
     const output = (result.stdout || '').split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line));
-    const installed = output.find(row => row.ok && row.engine === 'q36');
-    assert(installed?.bundled && installed.sourcesInstalled && installed.downloaded === false);
-    assert.equal(installed.modelLoaded, false);
-    const tree = path.join(data,'q36');
-    const receipt = JSON.parse(fs.readFileSync(path.join(tree,'.dstudio-source.json'),'utf8'));
-    assert.equal(receipt.commit,'1305843c735380f912619548b121cba8601f2f85');
+    const installed = output.find(row => row.ok && row.engine === 'llama');
+    assert(installed?.built && !installed.reused, JSON.stringify(output));
+    const tree = path.join(data,'llama.cpp');
+    const receipt = JSON.parse(fs.readFileSync(path.join(tree,'.dstudio-llama.json'),'utf8'));
+    assert.equal(receipt.commit,'99b95488cac0f00ce3f05af113a8c1e287753f87');
     assert.equal(receipt.bundledSources.source,'bundled');
-    assert.equal(receipt.qualityValidated,false);
-    assert.equal(fs.realpathSync(path.join(tree,'gguf')),path.join(data,'ds4/gguf'));
+    assert.equal(receipt.modelLoaded,false);
+    assert.equal(sha(path.join(tree,'bin/llama-server')), receipt.binarySHA256);
+    const version = spawnSync(path.join(tree,'bin/llama-server'), ['--version'], {cwd: tree, encoding: 'utf8', timeout: 20000});
+    assert.equal(version.status, 0); assert.match(version.stdout + version.stderr, /build 11371, commit 99b9548/);
     assert.deepEqual(fs.readdirSync(path.join(data,'ds4/gguf')),[]);
-    const catalog = await json('/api/engine/checkouts');
-    assert(catalog.checkouts.some(entry => entry.dir === tree && entry.hasServer));
-    return {seconds:(performance.now()-started)/1000, receipt,
-      binaries:{q36:sha(path.join(tree,'q36')),server:sha(path.join(tree,'q36-server'))}};
+    return {seconds:(performance.now()-started)/1000, receipt, binary: receipt.binarySHA256};
   });
   await step('seven native main adaptations reverse and reapply without source loss', async () => {
     return nativePatchRoundtrip({ support: data, source: path.join(data, 'ds4'),

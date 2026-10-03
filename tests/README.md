@@ -456,33 +456,7 @@ int32 oracle under ASan/UBSan and the unchanged 256 KiB scratch bound.
 empty profile through headless WebKit, with external network denied; it refuses weights before transfer and
 checks Qwen Q2/Q4 reuse main plus the retired endpoint's 410 response.
 
-## Qwen3.6 fork: fused MoE Q6_K kernels
-
-`make test-qwen35-q6k-moe QWEN35_DIR=ds4-qwen35` builds the fork's core objects
-in a private copy and executes `kernel_qwen35_moe_gate_up`/`_down` on synthetic
-Q6_K and Q8_0 blocks against an independent scalar oracle from ggml's layout.
-The oracle must first agree with the fork's dense Q6_K kernel. The unpatched
-source must fail (RED retained), the versioned patch must pass, and the patch
-lifecycle plus the real `--prepare-launch` worker (existing install corrected,
-drifted shader refused, missing catalog patch applied and stale server rebuilt)
-are exercised. No weights; not a quality result.
-
-`make test-qwen35-prefill QWEN35_DIR=ds4-qwen35` builds original and patched
-cores in private source copies and runs ten real Metal hybrid-session fixtures.
-Mixed Q6_K/Q8_0 and all-Q6_K layouts, 1/17/64/65/130-token boundaries,
-logits/recurrent-state/F16-KV byte parity, chunk progress, cancellation,
-resumption and all 25 candidate GPU-allocation failures are checked. Patch
-apply/repeat/restore and drift/link rejection also execute the real installer
-script. Requires macOS Metal, the pinned fork, Git and a native toolchain;
-downloads no weights and never launches the corpus. See the
-[limits and ownership contract](../patch/ds4-qwen35-prefill/README.md).
-The gate also compares 64 attention queries over 65,599 synthetic KV positions
-with the original shader and checks command subdivision with deterministic
-counters. These positions are not actual prompt tokens processed by a model.
-Capacity fault injection verifies rejection before allocation and retained prior
-state. A real `--install-engine qwen35 INSTALL_ROOT` run requires the shared
-`INSTALL_ROOT/ds4/gguf` directory; the isolated offline/build gate uses an empty
-store there, without primary-engine installation or any weights.
+## Host relay and model RPC
 
 `make test-v1-relay` executes the production relay with real sockets and
 deterministically simulates 601 silent poll intervals. It checks exact fragmented
@@ -503,25 +477,6 @@ bytes sent beyond the old header buffer, then passed with the bounded shared
 exchange. Logs and receipts stay in `tests/.artifacts/v1-proxy-exchange/`.
 It starts no model, uses no weights, and does not contact or signal a user's
 engine. The executed platform is macOS; Windows execution remains not run.
-
-## q36 at upstream 1305843
-
-`make test-q36-metal-runtime Q36_SOURCE=/path/to/clean/1305843 Q36_CURRENT=1`
-runs the native gate with the rebased `runtime-1305843.patch`. Installer
-fixtures (`python3 tests/integration/q36_install_test.py`) cover the new pin and
-in-place upgrades from `8362010` and `d67687e`. Real-model receipts are
-separate; `8362010` results are not transferred.
-
-## q27 native Metal candidate
-
-`make test-q27-metal-delta Q27_SOURCE=/path/to/q27` requires the separately
-downloaded `8cd7083` source and real Metal hardware, but no model weights. It
-copies sources into a new ignored directory, retains the original 512-thread
-failure where reproduced, and applies the versioned 256-thread column patch.
-The unchanged upstream operator suite, native CLI/server builds, 24 scalar
-oracle and exact serial/chunk GPU comparisons, mixed host/shader rejection and
-complete patch lifecycle must pass. This does not qualify whole-model answers,
-custom q27-format conversion, CUDA, or DStudio's pending q27 application adapter.
 
 ## Twenty-five original Design systems
 
@@ -618,8 +573,8 @@ desktop E2E claims. Both new targets are included in `make check-fast`.
 
 `make test-quality-baseline` checks real-file hashing, archive Git provenance,
 shared-store deduplication and complete receipt generation on isolated files.
-Unselected managed `q36` installations and their binaries are included, with
-C++/Objective-C++ sources, included C fragments and CMake recipes. The fixture
+Unselected managed `llama.cpp` installations and their binaries are included,
+with C++/Objective-C++ sources, included C fragments and CMake recipes. The fixture
 does not read the developer's real profile or execute engine binaries.
 To capture a private baseline without loading
 models, run `node tests/support/quality_baseline.mjs --hash-weights` (one bounded
@@ -663,24 +618,25 @@ cap**. Other platforms have no unsafe fallback and are reported as unavailable.
 An explicit existing-weight, single-engine run uses the native engine path:
 
 ```bash
-node tests/live/engine_acceptance.mjs --infer --engines q36 \
+node tests/live/engine_acceptance.mjs --infer --engines qwen \
   --installed-root /path/to/managed-engines --model-root /path/to/gguf \
   --common-quality --quality-use first-exposure
 ```
 
 `--quality-use development-replay` is the default and must be used after exposure
 to these cases. First exposure is to this frozen integration corpus, not a claim
-that model training data has been audited. The five existing engine IDs are
-accepted; `--model-file NAME.gguf` chooses one explicit existing quantization.
+that model training data has been audited. The native engine IDs `main`,
+`laguna` and `qwen` are accepted; `--model-file NAME.gguf` chooses one explicit
+existing quantization. `llama` is setup-only here: Qwen3.6/27B inference runs
+through the host in `make test-llama-resident-live`, and a llama.cpp common-100
+campaign has not been run.
 This path currently requests resident Metal execution (Qwen3.8-Flash-Next reads
 its embedded BF16 n-grams from SSD); it does not claim expert-streaming or other-backend
 coverage. Do not run a configuration that exceeds the host's memory budget.
-Before loading, the Qwen27B, Qwen3.6 and Qwen3.8-Flash-Next paths hash the
-complete weight file against its pin (`scripts/download-qwen27.py --manifest`,
-`scripts/download-qwen35.py --manifest`, the fixed Next table) and record the
-engine revision. Qwen3.6 receipts also record the SHA-256 of the Metal source
-compiled at load time and whether the Q6_K MoE correction is applied, so a
-before/after kernel comparison is identified by its receipts.
+Before loading, the Qwen3.8-Flash-Next path hashes the complete weight file
+against its fixed table and records the engine revision. Retained Qwen27B and
+Qwen3.6 receipts from the retired `q36`/`ds4-qwen35` engines stay unchanged as
+history; they are not llama.cpp results.
 
 A patch answer whose last diff line lacks only its newline terminator is
 accepted after exactly one newline is restored; prose, fences, wrong paths and
@@ -719,15 +675,15 @@ ordinary uninstrumented CLI is checked too. This does not generate tokens.
 
 Historical Qwen Agent and Web patch migration cases use the same offline fixture
 reader, retaining their original revision/hash and independent Git oracles.
-Default backend link tests cover the active main, Laguna and Qwen3.6 trees;
-Qwen Next uses main. Supply full source paths to `backend_link_test.mjs` for an
+Default backend link tests cover the active main and Laguna trees; Qwen Next
+uses main and llama.cpp builds with CMake. Supply full source paths to `backend_link_test.mjs` for an
 explicit historical backend-routing run. Its compiler outputs remain simulated.
 
 `make test-engine-startup` runs four real HTTP startup cases without
 `DS4UI_TEST_MODE`, with inference explicitly deferred and isolated source
-fixtures. A persisted q36 checkout must not receive ds4 Agent recovery; clean
-native sources remain usable and missing/legacy-modified native sources keep
-their errors and backups. This gate is model-free and included in `check-fast`
+fixtures. A persisted retired `q36` or `ds4-qwen35` checkout must be left
+untouched and never receive ds4 Agent recovery; clean native sources remain
+usable and missing/legacy-modified native sources keep their errors and backups. This gate is model-free and included in `check-fast`
 on the current POSIX host, not a Windows or inference qualification.
 
 `tests/live/desktop_chat_e2e.mjs` attaches only to an explicitly provided
@@ -774,11 +730,11 @@ turn must still complete. It uses an isolated workspace and simulated runtime
 pipe, without starting or signalling an inference engine.
 
 To rebuild only unified main, run `node tests/integration/agent_native_build_test.mjs ds4`.
-For the historical four-source comparison, supply the archived Qwen fork explicitly:
+For the historical three-source comparison, supply the archived Qwen fork explicitly:
 
 ```sh
 make test-agent-native-build AGENT_MAIN_TREE=ds4 AGENT_LAGUNA_TREE=ds4-laguna-s21 \
-  AGENT_QWEN38_TREE=/path/to/archived-qwen-next AGENT_QWEN35_TREE=ds4-qwen35
+  AGENT_QWEN38_TREE=/path/to/archived-qwen-next
 ```
 
 Sources are copied into a new task-owned directory, without weights or reused
@@ -943,10 +899,10 @@ are under ignored `tests/.artifacts/agent-compaction/`; no simulated throughput
 is presented as model performance.
 
 `make test-agent-continuation-live CONTINUATION_BUILD_RECEIPT=RESULTS_JSON
-CONTINUATION_FAMILY=qwen35 CONTINUATION_MODEL=MODEL_GGUF` explicitly launches
+CONTINUATION_FAMILY=laguna CONTINUATION_MODEL=MODEL_GGUF` explicitly launches
 the binary from a passing native build receipt, with real resident weights,
-Metal, 8k context and isolated session/workspace files. Use `laguna` for the
-other family and run them sequentially. It never downloads weights, restarts
+Metal, 8k context and isolated session/workspace files. Laguna is the only
+supported family; the earlier Qwen3.6 family ran on the retired `ds4-qwen35` fork. It never downloads weights, restarts
 the app or stops an existing engine. Six development cases cover an archived
 fact, 200 generated C functions across actual compaction, another explicit
 compaction, real file tools using the retained fact, Stop and same-process tool
@@ -1024,11 +980,11 @@ least 4.5:1 notice contrast. Screenshots were visually reviewed. The original
 fixture-timing/ownership failures remain retained; these passes are UI evidence,
 not real-model or packaged-app qualification.
 
-`make test-runtime-patch-migration` does the same for five web bases and four
+`make test-runtime-patch-migration` does the same for the web bases and four
 server inputs (current/previous main, with/without native metrics). Exact raw
 sources may be supplied in `DSTUDIO_RUNTIME_BASE_SOURCES`, named
 `web-main-current.c`, `web-main-previous.c`, `web-laguna.c`, `web-qwen38.c`,
-`web-qwen35.c`, `server-main-current.c` and `server-main-previous.c`.
+`server-main-current.c` and `server-main-previous.c`.
 The test applies the metrics prerequisite itself where required and checks all
 hashes against the committed base manifests. This is not model-quality evidence.
 `make test-steering-runtime` requires their already-built Agent/Cowork
@@ -1069,21 +1025,8 @@ quality. ASan/UBSan instrument the private Agent/parser/helper C objects only;
 `QWEN38_AGENT_FLAGS=` disables them explicitly. It neither starts a model nor
 changes the supplied engine checkout.
 
-`make test-qwen35-agent QWEN35_AGENT_TREE=PATH_TO_BUILT_CANDIDATE
-QWEN35_AGENT_FLAGS=--sanitize` performs the equivalent native Qwen3.6 gate on
-pin `60fca11`: original Agent units, all 261 splits of a call containing literal
-XML and delimiter escapes, malformed/duplicate/over-limit rejection, fixed-bound
-scan counters, four prompt combinations and real document writes/readback.
-Traversal, symlink escape and Cowork shell attempts must leave the fixtures
-unchanged. Additional cases reject the unsupported recurrent checkpoint API
-before any file/state access and preserve literal markup inside JSON documents.
-The latter regression also runs against Qwen3.8's native parser.
-Identity/text are simulated; only private Agent/helper C objects are
-sanitizer-instrumented. `--upstream` reproduces the original unsupported parser
-and is expected to fail, not count as a successful inference test.
-
 `make test-metal-workspace` links a small probe against the already-built native
-Metal objects for main, Laguna and both Qwen forks. It runs from the engine's
+Metal objects for main and Laguna (Qwen3.8 uses main). It runs from the engine's
 directory and from an unrelated workspace with spaces, through the production
 host environment. Each run initializes the actual shader library and checks
 257 GPU additions against a scalar result. `METAL_WORKSPACE_TREES` selects the
@@ -1097,8 +1040,6 @@ The explicit live development gate is:
 ```sh
 make tests/.build/agent-build-probe test-qwen38-tool-oracle
 node tests/live/qwen38_agent_smoke.mjs ENGINE MODEL_GGUF
-# Existing Qwen3.6 candidate, no PLE and no model download:
-node tests/live/qwen38_agent_smoke.mjs ENGINE MODEL_GGUF --qwen35
 ```
 
 It requires the already-built Qwen candidate's Agent/Cowork and actual weights.
@@ -1106,34 +1047,34 @@ Runs are sequential, with 16k context, a 512-token prefill chunk, 1,024 output
 tokens per model round, temperature 0, seed 42, thinking/MTP/DSpark off and at
 most 12 tool calls/600 seconds per workflow. No downloads, app restart or
 termination of an existing engine are performed. This uses resident backbone
-weights plus embedded BF16 n-grams on SSD for Qwen3.8, or resident weights without PLE for
-Qwen3.6; neither uses expert streaming. It verifies exact generated
-files, source preservation, required document tools and subsequent readback.
-The Qwen3.6 variant also requires no disk checkpoint directory to be created.
+weights plus embedded BF16 n-grams on SSD, without expert streaming. It verifies
+exact generated files, source preservation, required document tools and
+subsequent readback. The former `--qwen35` variant is rejected: Qwen3.6 now runs
+on llama.cpp and is covered by `make test-llama-resident-live`.
 The first run's Cowork failure is preserved: its original grader erroneously
 forbade extra local reads despite the request permitting them. The corrected
 oracle still rejects shell/network, wrong targets, missing writes/results and
 missing document readback; the complete two-workflow run was repeated. These
 are development checks, not held-out quality, numerical parity or app-mode
 qualification. Runtime requests/answers and personal paths stay in ignored
-`tests/.artifacts/qwen38-agent-live/` or `tests/.artifacts/qwen35-agent-live/`.
+`tests/.artifacts/qwen38-agent-live/` (older Qwen3.6 receipts stay in
+`tests/.artifacts/qwen35-agent-live/`).
 
 ## Qwen real host workflows
 
 ```sh
 make tests/.build/dstudio-server-test test-qwen38-tool-oracle
 node tests/live/qwen38_host_smoke.mjs ENGINE MODEL_GGUF
-# Qwen3.6: no PLE; additionally exercise generation interrupt and a new session:
-node tests/live/qwen38_host_smoke.mjs ENGINE MODEL_GGUF --qwen35 --controls
+# Additionally exercise generation interrupt and a new session:
+node tests/live/qwen38_host_smoke.mjs ENGINE MODEL_GGUF --controls
 # Separate reset lifecycle: visible prefill, cancellation with retained memory,
-# then a successful reset and real tool read. Run one model at a time:
-node tests/live/qwen38_host_smoke.mjs ENGINE MODEL_GGUF --qwen35 --reset-lifecycle
+# then a successful reset and real tool read:
 node tests/live/qwen38_host_smoke.mjs ENGINE MODEL_GGUF --reset-lifecycle
 ```
 
-Use an already-installed `ds4` at pin `0aaea5a`, or `ds4-qwen35` at
-`73434c4`, with the single-file model resolving to its shared model
-store. This runs the real headless HTTP host in a
+Use an already-installed `ds4` at pin `0aaea5a`, with the single-file model
+resolving to its shared model store. The former `--qwen35` variant on
+`ds4-qwen35` is rejected; its receipts below are retained history. This runs the real headless HTTP host in a
 private profile: asynchronous launch, the unmodified production Agent/Cowork
 charters, structured tools, exact saved files and readback. Agent uses the
 production automatic Task Graph route, including its actual durable journal.
@@ -1141,25 +1082,21 @@ Each mode must also remain usable for another read after a rejected Design
 switch; the Agent-to-Cowork transition must replace only the test-owned process.
 
 Runs are sequential with 16k context, thinking/MTP/DSpark off and expert
-streaming off: resident backbone plus embedded BF16 n-grams on SSD for Qwen3.8, resident
-weights without PLE for Qwen3.6. Sampling remains at the
+streaming off: resident backbone plus embedded BF16 n-grams on SSD. Sampling remains at the
 production Agent defaults, **not** the fixed seed/temperature of the CLI gate.
 Each workflow is bounded to 12 tool calls and 600 seconds, with bounded logs,
 private KV directories and strict workspace checks. The runner refuses an
 existing inference process; it does not download weights, restart the user's
 app or stop unrelated engines. Requests, answers, process and binary identities,
 source-install receipt and failures remain in `tests/.artifacts/qwen38-host-live/`
-or `tests/.artifacts/qwen35-host-live/`.
+(older Qwen3.6 receipts stay in `tests/.artifacts/qwen35-host-live/`).
 
 `--controls` requires actual generated tokens before sending an interrupt,
 checks the canceled task and the still-running engine, starts a new session
 and requires another real tool read without changing earlier files. Its
 separate deadlines are 120 seconds for generation, 15 for interruption, 600
 for reset and 120 for readback; the 600-second workspace-workflow limit is
-unchanged. Qwen3.6 must reject incomplete disk checkpoints before becoming
-busy and must not create a checkpoint directory. Its requested power of 37
-must be reported as effective native 100, without forwarding `--power`.
-An early terminal reply fails this control gate; bounded follow-up status and
+unchanged. An early terminal reply fails this control gate; bounded follow-up status and
 transcript observations are retained, not used to silently accept the failure.
 
 The complete September 7 Qwen3.8 replay passed both workflows. Its initial Agent
@@ -1171,7 +1108,8 @@ forbidden. Separate oracle regressions exercise valid and invalid workspaces.
 This is two real development workflows, not held-out quality, numerical parity,
 foreground desktop coverage or evidence for CUDA/ROCm.
 
-The initial Qwen3.6 host control run remains failed: its workspace operations
+The following Qwen3.6 receipts were produced on the retired `ds4-qwen35` fork
+and are retained as history. The initial Qwen3.6 host control run remains failed: its workspace operations
 passed, but the counting request ended before interruption could be tested.
 The native Agent/Cowork CLI gate passed separately; it does not override that
 host failure. The complete retry passed Agent and Cowork, including generated
@@ -1181,15 +1119,14 @@ reset ran. A generation interrupt did not qualify cancellation during reset.
 The separate version-91 reset fix and gate below address that ownership path;
 they do not erase or establish the cause of the initial counting failure.
 
-`make test-qwen-session-reset QWEN35_AGENT_TREE=ENGINE35
-QWEN38_AGENT_TREE=ENGINE38` executes the shipped patches and real native worker
-with simulated inference and deterministic barriers: six Qwen3.6 cases and
-seven Qwen3.8 cases. It checks the command reader remains available, old context
+`make test-qwen-session-reset QWEN38_AGENT_TREE=ENGINE38` executes the shipped
+patches and real native worker with simulated inference and deterministic
+barriers: seven Qwen3.8 cases (the six retired Qwen3.6 cases ran on `ds4-qwen35`). It checks the command reader remains available, old context
 and attachments survive failure/cancellation, duplicate reset admission fails,
 late cancellation prevents publication and save failure retains the old identity.
-Both original synchronous baselines fail the three shared scenarios. ASan/UBSan
+The original synchronous baseline fails the three shared scenarios. ASan/UBSan
 cover the Agent/helpers, not the already-built engine objects. The observed
-arm64 worker sizes remain 2,144 and 2,184 bytes respectively; candidate session
+arm64 Qwen3.8 worker size remains 2,184 bytes; candidate session
 count is bounded to one alongside the live session.
 
 Patch 92 additionally requires the native Qwen3.8 empty-candidate API. Run
@@ -1212,8 +1149,7 @@ without tools. A second reset must complete, emit one success receipt and permit
 a real read without changing prior files. Each reset remains bounded to 600
 seconds; these development replays are not speed or held-out quality benchmarks.
 The memory fixture is model-specific: the Qwen3.8 pin reports progress after
-native 8,192-token chunks, so its fixture must span two chunks; Qwen3.6 reports
-per token. No chunk-size/context override or numerical engine change is used.
+native 8,192-token chunks, so its fixture must span two chunks. No chunk-size/context override or numerical engine change is used.
 The shared progress oracle requires unfinished work (`0 < done < total`).
 The first Qwen3.8 attempt, `run-uAb5iW`, remains failed: its 4,358-token reset
 completed successfully in one chunk, without an intermediate observation where
@@ -1255,7 +1191,159 @@ all workbook sheets or semantic verification. Output is bounded both to 750,000
 characters and below the bridge's 1 MiB UTF-8 byte limit. These are file/tool
 regressions; run the separate real Qwen tools gate below to assess that workflow.
 
-### Qwen27B host and UI integration
+### Qwen3.6 and Qwen3.8-27B on llama.cpp
+
+Both models run on DStudio's bundled llama.cpp `b11371` (`99b9548`), built
+offline from `src/engines/llama.cpp` on first use. Agent and Cowork use the
+pinned main `ds4` tool runtimes in remote mode against the owned resident
+`llama-server`; Chat uses the same process through the `/v1` proxy. Design
+uses its remote adapter over the same model RPC, with the tool schemas sent as
+structured function tools (`DS4UI_REMOTE_TOOL_PROTOCOL=openai`).
+
+`make test-resident-unit` compiles the production routing, preflight and
+`/props` readiness functions: model-to-engine routing, retired-checkout
+rejection, the 27B projector requirement, context/power/DSpark preflight, and
+readiness that must match the exact model path, alias, build, slot count,
+context and vision modality. A `/props` reply from another model or build is
+not ready.
+
+`make test-resident-guard` (`tests/integration/resident_guard_test.mjs`) runs
+the real `--resident-guard` process with a stand-in server script. Closing the
+owner channel (Stop or host death) stops the server; a server ignoring SIGTERM
+is killed after the 4-second grace; a changed executable is refused before
+exec; an installation in progress is refused, not waited for; and the guard
+runs only as a process-group leader. No model or llama.cpp build is involved.
+Both targets are part of `make check-fast`.
+
+```sh
+make test-llama-resident-live DSTUDIO_LLAMA_MODELS=qwen36   # or qwen27
+```
+
+This explicit heavy gate builds or reuses the managed `llama.cpp`, launches the
+real host in a private profile with the existing verified weights and runs ten
+checks: an Agent CSV total computed with real tool calls, Agent recall, a
+Cowork summary of a saved file, Chat with thinking on (exact product plus
+reasoning present) and off (no reasoning), a 27B image question with pixel-only
+expected answers, and owner death releasing the server. It refuses to start
+when port 28000 is already listening. Receipts, requests and answers stay in
+ignored `tests/.artifacts/llama-resident-live/`. The first Qwen3.6 attempt
+(`run-vaKmku`) is retained as a failure: with thinking off it computed
+4249045 instead of 4248045. The corrected case checks exact arithmetic with
+thinking on and a thinking-off reply without reasoning; both models then pass
+10/10 (`run-NFwKHF`). These are development regressions on Apple Metal, not
+held-out quality, numerical parity or CUDA/ROCm/Vulkan qualification.
+
+`make test-llama-install-profile` (in `check-fast`) executes the installer's
+production build recipes, receipts and leases with simulated toolchains
+(tiny `nvcc`/`hipconfig`/`amdgpu-arch`/`glslc` executables): the macOS recipe
+keeps its original build identity; Linux/Windows add every CPU variant and a
+module per detected backend; a requested backend without a toolchain fails;
+an unrecorded `libggml-*` module or changed bytes make an installation not
+current; exclusive install and shared server leases exclude each other.
+
+`make test-llama-dynamic-build [LLAMA_DYNAMIC_INFER=gguf/MODEL.gguf]` builds the
+dynamic (Linux/Windows) layout for real on macOS, offline under `sandbox-exec`:
+shared libraries, every Apple CPU variant and the Metal module. It checks that
+no load command points into the deleted stage, that the server runs from a new
+location and lists Metal, reuse, and tamper rejection; the optional model run
+loads existing weights once and checks one exact answer. The first run is
+retained as a failure (`run-n4hyywj1`): its relocation check matched raw bytes
+and caught `__FILE__` source paths that the tested static build also contains;
+the corrected check reads `otool -l` load commands. This does not execute
+CUDA, ROCm, Vulkan, Linux or Windows; those paths were only cross-compiled with
+`zig cc` (x86_64/aarch64 Windows, x86_64 Linux).
+
+### Qwen3.6 on MLX (Apple Silicon)
+
+Qwen3.6-35B-A3B also runs from the MLX MXFP8 folder
+(`mlx-community/Qwen3.6-35B-A3B-mxfp8`, pinned revision `5c216c8`) on the MLX
+runtime bundled as unmodified wheels in `src/engines/mlx/` (mlx 0.32.3,
+mlx-lm 0.32.0). The same resident owner, guard and model RPC serve it; only the
+server (`python -m mlx_lm server` from a private virtual environment, with
+`patch/mlx-lm-single-model`) and the readiness probe (`/v1/models` must list
+exactly the admitted folder) differ.
+
+- `make test-mlx-install-unit` (in `check-fast`): wheel verification against the
+  manifest (changed, extra or linked wheels install nothing), per-Python hash
+  selection, interpreter discovery with simulated interpreters, the receipt
+  rule, and the patch's apply/repeat/reverse/drift lifecycle with real
+  `git apply` on the `server.py` taken from the bundled wheel.
+- `make test-mlx-install` (explicit; macOS 26, Python 3.12-3.14): a real
+  installation into a new root with outbound network denied by `sandbox-exec`
+  (pinned versions, Metal reachable, the server CLI runs, reuse, a changed
+  interpreter is not current). No model is loaded.
+- `make test-mlx-download-host` (in `check-fast`; Apple Silicon): seven real
+  HTTP/process/file scenarios with a simulated installer and tiny weight files:
+  the runtime installs before any weight transfer without changing the selected
+  model, progress counts the folder and its private stages against the pinned
+  36.67 GB, Open folder, verification is not completion, installer and
+  verification failures, the refused partial cleanup, a linked folder admitted by
+  its target's identity, and the real downloader rejecting a folder replaced
+  after admission (`--verify-only`, offline).
+- `make test-mlx-model-ui` (in `check-fast`): the production catalog/download UI
+  functions; the download is offered on a Mac only.
+- `make test-resident-unit` and `make test-resident-guard` include the MLX
+  readiness rule and the MLX guard kind with its own installation lease.
+- Real inference: `make test-llama-resident-live DSTUDIO_LLAMA_MODELS=qwen36mlx`
+  and `make test-harness-live DSTUDIO_HARNESS_MODELS=qwen36mlx` (results in
+  [docs/HARNESSES.md](../docs/HARNESSES.md)).
+
+October 3, 2026, M2 Max, the user's existing verified MXFP8 folder linked into
+`ds4/mlx/`: the resident live run passed **6/6** (`run-scIcQY`): Agent CSV
+total, recall, Cowork, Design with the exact `<h1>` (133 s), Chat with
+thinking on (reasoning present, exact product) and off (no reasoning), and a
+killed host leaving no MLX server. Startup, including the offline MLX
+installation, took 22 s. Three earlier runs are retained as failures, each
+fixed in production code with a regression:
+
+- `run-dI6doj`: `/api/start` rejected the folder as a missing model file (only
+  regular files counted); `model_rel_present` now admits an MLX folder with
+  `config.json` (unit-tested with a file, an empty folder and a link).
+- `run-GDiTZ0`: the loaded server was never declared ready, because its
+  Python HTTP server answers `HTTP/1.0` and the probe accepted only `HTTP/1.1`.
+  The probe now accepts both; the unit test replays the real server's reply.
+- `run-JzTNjb`: 4/6. Chat lost the reasoning (MLX names the field `reasoning`;
+  fixed by `patch/mlx-lm-reasoning-content`) and Design stopped with
+  `finish_reason=length` (upstream's 512-token default for requests without a
+  limit; the server now starts with `--max-tokens` equal to the context).
+
+These are development regressions on one Mac, not a quality comparison with
+the llama.cpp Qwen3.6 or a numerical-parity claim for MXFP8.
+
+`scripts/download-mlx-qwen36.py --verify-only --directory <folder>` checked an
+existing local copy against all 20 pins (36,665,809,057 bytes) in 27 s.
+
+### Harnesses: pi and OpenCode as the Agent runtime
+
+`make test-harness-bridge` (in `check-fast`) executes the bridge's production
+classes with real processes and sockets; pi, OpenCode, the host's model RPC
+and ds4-server are explicitly simulated. It covers stdin framing and the
+200 ms prompt boundary, frames that cannot be forged by model text, the
+loopback endpoint's identity/sampling/thinking rules, one model request at a
+time, Stop failing in-flight and queued requests without letting a late frame
+through, pi RPC and OpenCode SSE event translation, user-echo exclusion and
+WAITING/turn-error markers. `make test-harness-patches` (in `check-fast`) runs
+real `git apply` on private copies: apply, repeat-apply rejection, exact
+reverse, drift rejection without changes, the receipt rule (a different patch
+set, pin or entry point is not current) and the bundled snapshots' identity.
+
+`make test-harness-live` (explicit, real weights, sequential) runs pi and
+OpenCode through the production host with Qwen3.6 and Qwen3.8-27B (llama.cpp)
+and DeepSeek V4 Flash (bridge-owned ds4-server): a CSV total written to a file,
+a code read in the same session and a file-tool read outside the workspace,
+each checked independently, plus no surviving process after the host stops.
+October 3, 2026: 18/18 on all six combinations. Retained failures:
+`run-Q00iea` (a stale host binary ran the native Agent; the target now
+rebuilds the host) and `run-qIhfpz` (OpenCode read beside the workspace; fixed
+by `patch/harness-opencode`). See [docs/HARNESSES.md](../docs/HARNESSES.md).
+
+`make test-llama-resident-live` also includes a Design case: the saved page
+must contain the exact generated `<h1>`. Qwen3.6 passed with structured tool
+calls; its first DSML-text attempt (`run-seDvHn`) is retained as a failure.
+On Qwen3.8-27B (thinking on) the first run is retained as BLOCKED at the
+one-hour turn bound (`run-i63kwA`): the page with the exact heading was saved
+and verified, but the turn had not finished. The same run with no turn bound
+(`DSTUDIO_REAL_TEST_TIMEOUT_MS=0`, `run-X0nLw6`) passed 6/6, Design in 2241 s.
 
 `make test-qwen27-download-host` runs seven real HTTP/process/file scenarios,
 with explicitly simulated installer and model bytes. It verifies asynchronous
@@ -1278,1011 +1366,56 @@ HTTP host with the same simulated installer/weights. Select WebKit or Chromium
 with `DSTUDIO_TEST_BROWSER=webkit|chromium` and light/dark with
 `DSTUDIO_TEST_THEME=light|dark`. It covers confirmation, setup, transfer, hashing,
 Stop and Resume; download progress must never replace the composer model label.
-Setup/hash verification do not display transfer percentages. Theme coverage
-requires selecting and asserting the effective UI theme, not only OS emulation.
-Screenshots and failed attempts are retained. This is not the foreground `.app`.
-Partial deletion is deliberately unavailable for the 27B's private locked
-staging format; the old neighboring-`.part` deleter must not claim to remove it.
 
 `make test-qwen27-download-settings-live QWEN27_INSTALL_ROOT=/path/to/install`
-uses a previously installed pinned q36 and both real components. The production
-Settings HTTP path verifies the actual weights/projector and reuses the engine,
-preserving their identities and current model selection. It starts no LLM and
-does not substitute for an empty-network-install or inference-quality gate.
-
-`make test-q36-host` executes 94 executable-identity/readiness/endpoint cases and 15 lifecycle
-scenarios through the actual native host/preparation process, using a compiled
-simulated engine. It checks exact process/file/configuration identity, fragmented
-readiness, a listener/log that is not ready, responsive cancellation, reuse,
-replacement, stale files, foreign ports, unsupported settings and host death
-during an actual partial upload. The latter must not leak an ownership descriptor
-through a fork-only HTTP relay. These are behavior tests, not model answers.
-An exclusive installation lease must reject a launch before executing the
-engine, while status/cancellation stay responsive. Loading, running and draining
-keep a shared lease in the actual child through exec. Read-only installation
-verification may coexist; update admission becomes available only after child
-exit. A deterministic drain barrier proves host death cannot release the lease
-early and a surviving HTTP relay cannot retain it afterwards. Both the current
-94-case unit and 15-scenario host gate pass in Release and ASan/UBSan; this is
-not native model/GPU numerical validation.
-Omitted private port/cache settings reuse the owned model; explicit changes
-reach the new process as actual arguments, while invalid values preserve the
-working model. The fixture publishes received arguments before its ready barrier.
-The earlier 63-case parser/host revision also passed with ASan/UBSan; that
-receipt does not automatically qualify subsequent tool-owner changes or the
-real inference engine's GPU execution.
-
-`make test-q36-agent-host Q36_AGENT_SOURCE=/path/to/main/source` runs seventeen
-scenarios with the actual native Agent/Cowork builds and filesystem tools.
-Only the installer and model replies are simulated. It checks a separately
-owned model across Chat/Agent/Cowork, structured call/result IDs, preserved
-effects, rejected/cancelled preparation, late responses after Stop, loss of the
-model owner and native Max at 96k. GSA/RSA admission is exercised through native,
-automatic, explicit Task Graph and Goal routes: incompatible context must not
-create tasks/graphs or touch the model, valid Max must reach the actual produced
-model request, and a resumed Goal revalidates a replacement runtime. Ordinary
-slash lookalikes stay unchanged. A real Bash verification must complete a Goal
-even when its result frame follows terminal color output; failed/interrupted
-receipts do not qualify. `make test-goal` also exercises those receipt cases
-and the existing continuation, pause/resume and journal-recovery contracts.
-The actual produced model requests must contain one formal schema per tool,
-without DStudio-generated duplicate schemas in the system message. A user-owned
-JSON example that deliberately names `read_pdf` must survive verbatim, and the
-entire Cowork charter must still reach the model. This checks the native
-preparation worker as well as the direct prompt builder; its remote-only build
-setting must not change the selected model's tool protocol.
-The two image scenarios exercise the real view_image tool through the native
-host/transport: original PNG bytes, retained observations after file changes,
-workspace/symlink confinement, and recovery after a simulated decoder error.
-An unaccepted image cannot poison later turns or remove a previously accepted
-one. Model replies remain simulated; these are not visual-quality results.
-The produced prompt and `/api/status` must agree with the image tool: current
-vision survives another mode's cancelled preparation, and model loss removes
-the capability even when its projector remains installed.
-`make test-q36-attachments-browser Q36_AGENT_SOURCE=/path/to/main/source`
-extends the same isolated fixture to nineteen checks. It adds real browser
-uploads and sends in Chat/Cowork, original workspace-file verification, actual
-native image-tool execution and inspection of the received model payload.
-Chat's final response must be acknowledged by the native conversation store,
-read back and remain visible after completion; a transient stream bubble is
-insufficient. Mode changes must keep the same owned model process.
-The installer, model bytes and inference replies remain simulated; neither a
-desktop `.app` nor visual comprehension is claimed. Set `DSTUDIO_TEST_BROWSER`
-to `webkit` (default) or `chromium` and `DSTUDIO_TEST_THEME` to `light` (default)
-or `dark`. Screenshots and all attempts remain in the ignored run directory.
-`make test-qwen27-model-ui` also executes attachment preparation for Chat/Tutor,
-Cowork and PDF routing, preserving attachments when a textual/cloud/LAN model
-does not support those pixels. Its PDF renderer is simulated.
-The native structured-bounds probe adds deterministic read/open/receipt barriers
-for path replacement, source changes and cancellation, plus PNG/JPEG byte
-encoding, special-file rejection, byte/count limits and owner retirement.
-The source input is copied without weights,
-is never modified, and is checked again after the test.
+uses a previously installed pinned `llama.cpp` and both real components. The
+production Settings HTTP path verifies the actual weights/projector and reuses
+the engine, preserving their identities and current model selection. It starts
+no LLM and does not substitute for an empty-network-install or inference gate.
 
 `make test-qwen27-model-ui` executes the production model catalog, settings and
 request functions. It distinguishes 27B from Flash-Next, checks the exact
-projector/quantization pair, preserves other models' preferences and verifies
-native Max at 96k, declined/stale confirmations and model-specific restoration.
-The existing `ui_model_picker_playwright_test.mjs` exercises actual controls,
-launch requests and light/dark rendering for 27B as well as the earlier models.
-Run it normally and with `DSTUDIO_TEST_BROWSER=webkit`; its engine is simulated.
-`make test-ui-qwen-learn` includes the 27B's distinct Max/normal mapping and
-temporary context, alongside the existing two Qwen families. Research, audits,
-retry, expansion and Tutor run through production UI with simulated replies.
+projector/quantization pair, preserves other models' preferences, and sends
+`chat_template_kwargs.enable_thinking` without a `reasoning_effort` for the
+llama.cpp models. The existing `ui_model_picker_playwright_test.mjs` exercises
+actual controls, launch requests and light/dark rendering for 27B as well as
+the earlier models. Run it normally and with `DSTUDIO_TEST_BROWSER=webkit`;
+its engine is simulated. `make test-qwen27-model-ui` also executes attachment
+preparation for Chat/Tutor, Cowork and PDF routing, preserving attachments when
+a textual/cloud/LAN model does not support those pixels. Its PDF renderer is
+simulated.
 
-With a verified managed installation under a task-owned `tests/.artifacts/`
-directory and existing weights, the explicit real gates are:
+`node tests/unit/cowork_spreadsheet_oracle_test.mjs` executes the real Office
+CLI on temporary CSV/XLSX files in sixteen model-free cases; it is included in
+`test-cowork-unit`. A CSV/TSV `inspect` can be a complete read; XLSX `inspect`
+is metadata and cannot replace cell reading. Partial/truncated results,
+mismatched IDs, wrong values, missing results and readback before creation fail.
+`make test-goal` exercises Goal receipt cases and the existing continuation,
+pause/resume and journal-recovery contracts.
 
-The historical September 12 q36 installer candidate was `8362010`, with runtime `next-review`,
-terminal `monitor`, then `monitor-owner` applied and recorded in that order.
-`node tests/live/engine_acceptance.mjs --setup --engines main,q36` creates an
-empty private installation and now copies/builds bundled sources, with no model
-weights or source downloads. The retained September 12 run used source downloads. On 12 September `engine-acceptance/run-37al3S` passes both setups
-and actual executable startup. Its q36 receipt records 147 compiler-source
-inputs and 255 managed files, including build outputs and non-source assets.
-That fresh-install result does not test an existing-install upgrade.
+`make test-macos-bundle` exercises current-main Chat runtime preparation using
+the materialized bundle payload from Finder's `/` working directory, and checks
+that the bundle ships the `main`, `laguna` and `llama` sources with the
+installer pin. The lifecycle compiler is explicitly simulated. An old bundle
+lacking the current PLD patch fails this test; a separate actual native build
+verifies compilation. No model is loaded or user app restarted by this gate.
 
-The installer now prepares reviewed upgrades privately and atomically exchanges
-the complete engine directory, retaining the original installation and an
-identity journal. For older Metal receipts, it uses the exact original archive inventories shipped
-in the bundled-source manifest to reconstruct ownership offline. Unknown files are not adopted:
-settings, projects, cache and weight aliases remain at the same paths. Regular
-user files share their existing inodes, so the retained directory is **not an
-immutable backup or undo of later user edits**. Unrecorded legacy build products
-remain unchanged; conflicting new development-only build outputs are retained
-separately, never substituted for the new desktop executables or runtime assets.
-Additional patch requirements, edited managed files, unreviewed revisions,
-active model leases and conflicting user files reject the update without
-overwriting the working engine. Legacy macOS executables also receive an open-
-vnode check; manual launches must stay stopped throughout migration.
-
-`python3 tests/integration/q36_install_test.py` now has 44 model-free cases.
-They use actual locks, files, processes, archive extraction, directory exchange
-and fsync, but simulate patch/build commands except for the busy native peer.
-Bundled source copying and verification use real files and production functions.
-They cover cancellation before/after publication, fsync failure and idempotent
-reopening, with no premature success or second exchange. A command-cleanup
-regression verifies descendant drain and forbids signaling a reaped process-
-group identity. macOS all-zombie groups are distinguished through libproc.
-User C projects, their Makefiles and linked project directories survive an
-upgrade without becoming compiler inputs or installer-owned files. Engine
-source areas still reject changed, missing, extra or linked inputs. The source
-areas are reviewed against each supported pin's actual build dependencies;
-placing arbitrary code in the engine's own root/shader directories is not
-treated as a separate user project.
-Real caller-death tests kill only their own installer after a socket handshake.
-The owned command must close even if it has already closed stdout or ignores
-SIGTERM. A bounded supervisor retains the command's process-group identity
-through its final signal/reap; the caller alone holds the lifetime pipe writer.
-The raw command output limit is unchanged, including invalid-UTF-8 replacement
-at the byte limit. Network/build fixture simulation remains distinct from the
-actual network upgrade below.
-
-The separate heavy upgrade gate uses an **unchanged copy of a real previous
-task-owned installation**, not fabricated source/build receipts. It performs
-native 27B inference, preserves an actual disk cache across a network download
-and rebuild, then performs native inference again and checks reopening. It now
-starts a fresh upgraded process to continue the old conversation, verifies the
-reported reused-token count against the old KVC header, and compares the same
-answer against a separate cold-cache process. The original installation and
-model bytes are hash-checked; weights are not copied or downloaded. This is
-one concrete cross-version reuse regression, not exhaustive cache-format or
-numerical equivalence, long-context quality or every application mode.
-
-```sh
-make test-q36-upgrade-live \
-  Q36_LEGACY_SOURCE=tests/.artifacts/previous-install/q36 \
-  Q36_MAIN_SOURCE=tests/.artifacts/existing-install/ds4 \
-  QWEN27_MODEL=/path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf
-```
-
-Eight phase outcomes, requests, answers, old/new receipts and failures are retained
-in ignored `q36-upgrade-live/`. A failed pre-upgrade response is a failure, not a
-valid working baseline; subsequent phases remain not run in that attempt.
-
-```sh
-make test-q36-host-live Q36_SOURCE=tests/.artifacts/your-install/q36 \
-  QWEN27_MODEL=/path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf \
-  QWEN27_PROJECTOR=/path/to/Qwen3.8-27B-mmproj-F16.gguf
-make test-q36-host-browser-live Q36_SOURCE=tests/.artifacts/your-install/q36 \
-  QWEN27_MODEL=/path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf \
-  QWEN27_PROJECTOR=/path/to/Qwen3.8-27B-mmproj-F16.gguf
-make test-q36-host-tools-live Q36_SOURCE=tests/.artifacts/your-install/q36 \
-  QWEN27_MODEL=/path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf \
-  QWEN27_PROJECTOR=/path/to/Qwen3.8-27B-mmproj-F16.gguf
-```
-
-The first gate has seven checks: actual host launch, catalog, two exact text
-answers, exact streaming, same-process reuse and Stop releasing the port.
-The real native process must also exclude an exclusive installer through its
-lifetime, allow shared read-only validation/reuse and release its lease on Stop.
-The second adds three real Chat interactions in headless WebKit: an exact text
-answer and two pixel-only counterfactuals. The latter have identical prompts
-and filenames but different known colors. Each uses a new conversation and
-checks the actual image-bearing request, independently expected answer and
-host-persisted history, excluding prior conversations from its oracle.
-It is not an interaction with the installed macOS `.app` window. Both hash the
-actual inputs, use Metal/Q6/F16 KV, context 8192 and a 256 MiB disk-KV budget,
-and refuse an unrelated active engine. Model aliases are hard links inside
-the task-owned installation, never copies or moves of the user's weights.
-No weights are downloaded. Logs, complete answers and screenshots remain under
-ignored `q36-host-live/`; review screenshots before claiming visual acceptance.
-These development regressions do not replace held-out quality evaluation;
-the earlier 11/12 quality failure remains open.
-
-The tools gate retains all seven native checks and adds seven: the real 27B
-fixes a Python program and runs its unchanged tests; Cowork reads a CSV,
-creates an XLSX and reads it back; Chat then answers again with the same
-resident process. The harness separately executes an unchanged Python oracle
-and reopens the workbook using an independent bounded OOXML reader, not the
-writer's own helper. It records prompts, tool calls/results, errors, final task
-state, output files and hashes. A claimed completion is insufficient.
-Four additional pixel-only questions use actual view_image calls in Agent and
-Cowork: changed colors and left/right order, with no expected answer in file
-names, metadata or prompts. The exact final answer, actual tool receipts and
-unchanged original PNGs are checked. Each new turn gets its own 240-second
-budget; the existing ten checks and their deadlines remain unchanged. This
-expanded fourteen-check gate is a development regression, not the broader
-held-out PDF/image corpus or a desktop-window qualification.
-`make test-q36-host-tools-browser-live` combines all fourteen native/tool checks
-with those three real-browser cases (seventeen checks). The image Chat cases
-retain the existing 45-second response deadline, each with an added declared
-run budget; native Chat, tool-turn and Stop deadlines are unchanged. Use the
-same `Q36_SOURCE`, `QWEN27_MODEL` and `QWEN27_PROJECTOR` arguments above.
-The workflow oracle matches returned source/readback cells and call/result
-ordering, not just tool names. A CSV/TSV `inspect` can be a complete read;
-XLSX `inspect` is metadata and cannot replace cell reading. Partial/truncated
-results, mismatched IDs, wrong values, missing results and readback before
-creation fail. `node tests/unit/cowork_spreadsheet_oracle_test.mjs` executes
-the real Office CLI on temporary CSV/XLSX files in sixteen model-free cases;
-it is included in `test-cowork-unit`. The unchanged independent OOXML check
-still validates saved values, row order, sheet identity and absence of formulas.
-Original failed receipts are preserved when correcting a grader; a post-hoc
-workflow audit cannot turn an unfinished/timeout run into a passing full gate.
-This uses direct native orchestration, not Task Graph qualification. Each
-tool turn has a declared 240-second deadline; no earlier Chat/Stop deadline
-is increased. Main's pinned native tool runtime must be installed as the
-`ds4` sibling of the isolated `q36` tree. Tools are built before inputs are
-frozen, without loading a second model. The first readiness-harness failure
-remains recorded; submission must wait for the native ready/idle handshake,
-not merely a successful launch HTTP response.
-
-`make test-q36-host-tools-trace` repeats the same real-tool gate and deadlines
-with a diagnostic-only host that appends the native server's existing `--trace`
-option. It records the actual requests, rendered prompts and phase timings
-under the ignored run directory, with an 8 MiB observed log limit and the same
-overall run bound. It neither edits the inference binary nor substitutes a
-different tool loop. A diagnostic run is not a substitute for the normal-host
-qualification run. No trace is enabled in the installed application.
-
-To diagnose native readback costs without modifying an installed engine:
-
-```sh
-make test-q36-sync-profile-live Q36_SOURCE=/path/to/installed/q36 \
-  QWEN27_MODEL=/path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf \
-  Q36_NATIVE_TRACE=tests/.artifacts/q36-host-live/your-run/native-trace.log
-```
-
-This explicitly heavy diagnostic extracts the retained first Agent request,
-builds two test-only native executables and runs them sequentially with the
-same real weights. It preserves the rendered prompt, quality mode, F16 KV and
-8k context, but uses **eight greedy token choices**, not the original Agent
-sampling or tool loop. The first choice uses prefill logits, so at most seven
-decode evaluations are timed. It is not an Agent completion or answer-quality
-test, and cannot replace the unchanged 240-second real-tools gate.
-
-Before running a model, real Metal copies/readbacks check that instrumentation
-preserves bytes, non-finite values, invalid-range failures and reset behavior.
-Then prompt tokens, chosen tokens and SHA-256 of every full logit vector must
-match the uninstrumented replay. Eleven fixed counter buckets occupy 440 bytes;
-records are emitted once per phase, without per-token logs or extra workers.
-The wrappers are never linked into a managed runtime or desktop app. Each
-native replay has a 240-second deadline and 8 MiB output cap; another engine
-causes the diagnostic to stop only its own process. No downloads or settings
-changes occur. Inputs, compilation commands, outputs and failures remain in
-ignored `q36-sync-profile/` artifacts.
-
-Readback wall time includes waiting for **actual GPU computation**. It is not
-all removable synchronization overhead; GPU-busy time must be read alongside
-it. The report is a single diagnostic pair, not a speedup claim or percentile
-benchmark. Sampled process RSS is not total GPU/unified-memory consumption.
-
-The model-free template regression requires Python/Jinja2, a C compiler and
-the already available GGUF files (only bounded metadata is read):
-
-```sh
-make test-q36-chat-template Q36_SOURCE=/path/to/patched/q36 \
-  QWEN27_MODEL=/path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf \
-  QWEN36_MODEL=/path/to/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf
-```
-
-It executes the production native parser/renderer with ASan/UBSan against the
-exact embedded Jinja templates: eight assistant/tool histories, both explicit
-`preserve_thinking` values and thinking off. Assertions compare whole prompts,
-not source text. Both supplied models give 32 cases; omitting `QWEN36_MODEL`
-tests only the 27B and does not qualify 35B. Original templates, input identities,
-expected/actual output and every failure remain in ignored `q36-chat-template/`.
-The empty-reasoning regression was red in 18 cases before the patch and green
-in all 32 after it. This is format correctness, not inference or numerical parity.
-
-`make test-q36-owner Q36_SOURCE=/path/to/built/patched/q36` tests the native
-private owner socket with real processes, file descriptors and signals, plus
-the actual server's startup-error path. Deliberately blocked preparation,
-cancelled publication, wrong descriptors, a full unread socket, parent SIGKILL
-before/after readiness, descriptor inheritance and replaced model paths are
-checked normally and with ASan/UBSan. Engine/session contents are fixtures:
-this is not an inference-quality or desktop-integration test. The complete
-Metal patch gate runs it after its fresh build. Evidence is retained in ignored
-`tests/.artifacts/q36-owner/` runs, including failures.
-
-`make test-q36-owner-live Q36_SOURCE=/path/to/built/patched/q36 QWEN27_MODEL=/path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf QWEN27_PROJECTOR=/path/to/Qwen3.8-27B-mmproj-F16.gguf`
-sequentially loads the existing hash-verified real model/projector on Metal,
-validates the private readiness against opened-file identities and the HTTP
-catalog, checks two exact text answers, then closes the owner channel and
-requires a clean server exit and released port. It refuses an occupied engine
-environment without stopping other apps. Requests, answers, identities, timings
-and failures remain in ignored `q36-owner-live` artifacts. These are development
-lifecycle regressions, not broad quality or proof that DStudio's picker and all
-application modes are integrated.
-
-`make test-q36-agent-tty Q36_SOURCE=/path/to/reviewed/q36` validates the
-latest upstream CLI terminal candidate in a new source copy. It reproduces
-`NO_TERMINAL` before the fix, exercises seven fictional-password scenarios,
-verifies real EOF and terminal-mode restoration, checks 32 normal/cancelled
-job lifetimes without descriptor leaks, and tests patch repeat/restore,
-partial application, drift and symlink rejection. Baseline and candidate share
-the corrected terminal oracle. No actual password, sudo, model or desktop
-Agent-quality claim is involved; see the [patch notes](../patch/q36-agent-tty/README.md).
-
-`make test-q36-search-extract Q36_SOURCE=/path/to/reviewed/q36` compiles a small
-native emitter and executes the production search extractor in an isolated
-Chromium browser. Set `DSTUDIO_TEST_BROWSER=webkit` for the WebKit counterpart.
-Thirteen controlled-page cases cover opaque Google heading redirects, legacy
-query redirects, title extraction/escaping, duplicates, visibility, non-HTTP
-links and output limits. All page requests are intercepted; this is not live
-Google search, a CDP transport test or model quality. `8362010` passes 13/13
-in each browser (`run-Isb3Cz`, `run-W9TijB`); the same final oracle on
-`8ce8924` retains four failures in each (`run-D1lr73`, `run-dIrVma`, 9/13).
-Earlier `run-TLV8lU`, `run-1ylAjx` and `run-76SZoH` receipts remain retained.
-Receipts contain compiled
-extractor bytes, observed outputs, source hashes and unchanged-input checks.
-
-`make test-q36-monitor-control Q36_SOURCE=REVIEWED_SOURCE Q36_MONITOR_OBJECTS=BUILT_COPY`
-is a separate native concurrency regression on `8362010`: the unmodified and
-terminal-only versions still fail; `Q36_MONITOR_FLAGS=--owner` tests the
-[separate ownership fix](../patch/q36-agent-tty/README.md) in a private copy.
-It includes the actual Agent under ASan/UBSan and runs a real, task-owned shell,
-with a deterministic barrier on one output-file write. The control accessor
-must complete while that write is blocked, and a concurrent trylock must show
-the job mutex is available. Final command output and normal exit are checked
-after releasing the barrier. Native helper objects must have matching source;
-no engine checkout is rebuilt and no weights are loaded.
-`q36-monitor-control/run-SDJGtD` reproduces both blocked-control checks while
-preserving output and normal exit (job 1,208 bytes; worker 2,736 bytes). This
-does not invalidate the distinct earlier terminal-EOF checks, but prevents
-claiming the monitor critical path is qualified. The fix must include signal,
-reap and terminal-message ownership, not just move one write out of the lock.
-Set `Q36_MONITOR_FLAGS=--upstream` to compile the original Agent from the exact
-Git object in a private source fixture. The same final harness reproduces the
-failure in upstream `run-p2HLgN` and adapted `run-ChNShO`; both retain normal
-exit, exact output and unchanged inputs. Thus this blocked-write defect is
-upstream behavior, not introduced by DStudio's terminal-lifetime adaptation.
-
-Final owner receipt `run-g38GQE` passes 7 native cases and 14 patch-lifecycle
-checks. It adds real Stop during blocked output, independent-job progress,
-signal/exit PID lifetime, short-write/ENOSPC bookkeeping, failed thread creation
-and deduplicated terminal-failure notices. Common baseline cases remain failed
-in `run-QWH68o` (upstream) and `run-puGjgb` (terminal-only), 1/5 each; the two
-owner-specific notice cases are not part of that denominator. Profile counters
-are probe-only; the held-signal EOF busy loop found in `run-fPmMoX` is now a
-bounded-iteration regression. These are injected-failure timings, not model
-performance. `Q36_MONITOR_FLAGS='--owner --tsan'` selects ThreadSanitizer instead
-of ASan/UBSan; `run-PnMjJT` passes the same 7 cases and 14 lifecycle checks.
-Existing helper objects are not instrumented in either mode.
-`Q36_AGENT_TTY_FLAGS=--monitor-owner` selects the full native Agent/password/PTY
-rerun with this delta; `run-gd2ap6_q` passes 28 stages and 32 leak-free lifetimes.
-The supplied reviewed checkout and model files are never changed by these tests.
-
-`make test-q36-metal-diagnostics Q36_SOURCE=/path/to/built/q36` validates the
-[optional diagnostic candidate](../patch/q36-metal-diagnostics/README.md):
-actual Metal command options and 64 GPU-computed values, then explicitly
-simulated error objects to check exact status reporting, missing information,
-output bounds and no retry under the shared mutex. It does not reproduce or
-fix the long-context driver failure. Recorded common-100 inputs stay frozen.
-
-`make test-q36-retained-diagnostic-inputs` exercises diagnostic admission with
-fictional terminal receipts and real patch application in private directories.
-It accepts the corpus's underscore-containing IDs, rejects changed requests,
-partial runs and relaxed deadlines, and includes untracked sources introduced
-by patches. Overlays are removed in reverse order and reapplied in forward
-order; every source byte, including unrelated changes, must be preserved.
-
-To investigate one recorded long-context failure, use the separately reviewed
-diagnostic build and its expected binary SHA-256:
-
-```sh
-node tests/live/q36_retained_request_diagnostic.mjs \
-  /path/to/reviewed/q36 /path/to/model.gguf /path/to/terminal-common100-run \
-  long_context-single-needle EXPECTED_BINARY_SHA256 --preflight-only
-```
-
-The preflight loads no model and does not validate inference. Remove only
-`--preflight-only` for an explicitly authorized live diagnosis: it verifies the
-complete pinned weight hash, captures the binary, freezes the request and
-retains the original 900-second deadline. The one owned engine is closed on
-completion/failure/cancellation; other engines are never stopped. The test
-refuses another DStudio/ds4/q36 engine, caps combined logs at 16 MiB and the HTTP
-response at 2 MiB, and records driver diagnostics without retrying the request.
-Each invocation owns a new ignored directory. Its outcome does not replace
-the original common-100 result, qualify model quality or measure a speedup.
-Add `--f16-attention` only for the separately built
-[bounded F16 candidate](../patch/q36-f16-attention/README.md), both at preflight
-and live execution. Historical `d02b6a20` builds retain their four-patch stack;
-current `1305843` builds select runtime, monitor, owner, cache usage, online F16
-attention and the diagnostic overlay, in that order. Archive provenance must
-belong to the engine rather than its parent repository. Use
-`make test-q36-retained-diagnostic-inputs Q36_SOURCE=/path/to/current/q36` to
-round-trip the actual current stack without inference. It does not change the
-request or relax its deadline. Captured patch
-files, binary, source copy and original failed receipts are retained separately.
-
-`make test-q36-metal-runtime Q36_SOURCE=/path/to/pinned/q36` checks the
-[Qwen27B Metal candidate patch](../patch/q36-metal-runtime/README.md) in an
-isolated source-only copy, including real compilation, patch lifecycle,
-blocked driver allocation, both 35B/27B data layouts, MRoPE and projector matmul/attention against
-independent scalar oracles. Requires macOS/Metal, a C/Objective-C toolchain,
-Git and the documented source revision; it downloads nothing and leaves
-installed engines and the app unchanged. Add `QWEN27_PROJECTOR=/path/to/file`
-to run the real pinned F16 projector on two RGB fixtures and compare its
-embeddings with the native scalar encoder. This optional component test is
-NOT_RUN when omitted. Neither path runs an LLM or establishes Qwen27B
-application-mode, image-understanding or other-backend qualification.
-The complete gate also requires the batched cache/decode ownership regression
-below. Its original failed receipts remain; the 9 September gate after the F16
-attention fix passes all 40 stages, including that ownership check. These are
-model-free native/Metal checks, not a full-model quality qualification.
-
-Add `Q36_NEXT_REVIEW=1` for an explicitly reviewed newer source. The receipt
-records both the original checkout hashes and `builtSourceFiles`: the exact
-compiler and shader inputs in the private copy, after patch-lifecycle fixtures.
-These identities are different because the lifecycle test deliberately retains
-unrelated contributor comments. Both sets must remain unchanged throughout
-execution. A downstream live run must use the compiled-source identities, not
-attribute the original checkout's hashes to the built binary.
-
-`make test-q36-attention-work Q36_SOURCE=/path/to/built/q36` reproduces long
-F16 attention without weights, comparing every query with single-query execution
-and an independent analytic fixture. It observes actual GPU command duration,
-output guards, tensor-view bounds, overflow rejection and failed-submission
-recovery. All comparisons run on the same existing shader. The original driver
-failure and slower total time after subdivision remain recorded: shorter GPU
-commands do not by themselves mean faster model inference.
-
-`make test-q36-f16-attention Q36_SOURCE=/path/to/built/candidate` runs the
-candidate's 18 patch-lifecycle checks and 18 actual GPU input cases, including
-extreme values, sinks, both tile boundaries, allocation/submission failures and
-every encoder-creation stage. It compares every query directly with the
-unchanged original shader, not with the candidate's own single-query wrapper.
-It checks bounded work, temporary tensor accounting, output guards and recovery
-after failure. This explicit target neither changes the managed installer nor
-loads weights. Captured probe/harness identities and source hashes must remain
-unchanged; none of these operator checks establishes full-model quality.
-The additional dimensions 1/33/64/128 exercise inactive lanes, shared-memory
-barriers and partial eight-value tails. Actual Metal pipeline metadata bounds
-static threadgroup storage to 4 KiB, separately from temporary tensor accounting.
-The probe records command-buffer GPU times for each two-kernel phase. For an
-explicit **scheduling-perturbed stage diagnostic**, run
-`node tests/integration/q36_attention_work_test.mjs /path/to/built/candidate --profile-stages`.
-This submits each encoder separately to identify its GPU cost; it is not a
-production-latency measurement or a replacement for the eighteen-case gate.
-
-`make test-q36-f16-online Q36_SOURCE=/path/to/installed/q36` tests the managed
-`1305843` online-softmax overlay: 18 lifecycle cases and 18 real Metal input
-cases, through 50,869 processed KV positions. Every output is compared with the
-unchanged original GPU kernel, and selected outputs with an independent FP64
-scalar oracle. The scaled bound is `abs(candidate-reference)/max(1,abs(reference))
-<= 1e-3`. Bounds, invalid views, failed encoders and subsequent recovery are
-also checked. This gate uses no weights; complete-model scores/deadlines remain
-unqualified. The quality runner requires the current attention patch identity
-and the applied/rebuilt Qwen3.6 prefill before starting those models.
-
-`make test-macos-bundle` now exercises current-main Chat runtime preparation
-using the materialized bundle payload from Finder's `/` working directory.
-The lifecycle compiler is explicitly simulated. An old bundle lacking the
-current PLD patch fails this test; a separate actual native build verifies
-compilation. No model is loaded or user app restarted by this gate.
-
-The common-100 runner has an explicit `--restart-failed-engine` option. Only the
-tester's native engine is stopped and reaped before a fresh process is started
-with the same weights, binary and settings. At most eight restarts are allowed;
-the failed case remains failed and is never retried. Subsequent cases keep their
-original prompts/deadlines. Missing readiness, changed identity, cancellation or
-an exhausted restart budget stops the run with remaining cases marked not run.
-HTTP/ownership-handoff simulations are labeled as simulations; actual process
-exit, restart identity and subsequent inference require the separate live run.
+The common-100 runner in `tests/live/engine_acceptance.mjs` has an explicit
+`--restart-failed-engine` option. Only the tester's native engine is stopped and
+reaped before a fresh process is started with the same weights, binary and
+settings. At most eight restarts are allowed; the failed case remains failed and
+is never retried. Subsequent cases keep their original prompts/deadlines.
+Missing readiness, changed identity, cancellation or an exhausted restart budget
+stops the run with remaining cases marked not run.
 
 `make test-qwen-quality-chart` checks actual Matplotlib bars against the reviewed
 public common-100 aggregate, preserving every failure and rejecting incomplete,
 inconsistent or simulated measurements. The chart is tied to the reviewed
 source receipt so another model/run cannot inherit its hardware/date captions.
-Recreate it with `python3 extension/benchmarks/qwen-quality/plot-results.py`;
-the [benchmark notes](../extension/benchmarks/qwen-quality/README.md) distinguish
-the completed development replay from the later F16 candidate under test.
-
-The same gate also runs `make test-q36-dense-quant` and `make test-q36-catalog`
-equivalents against its prepared copy: 75 CPU FFN composition cases with mixed
-weight formats under ASan/UBSan, and actual model-list/detail HTTP serialization
-for three controlled model states. Run either target alone with
-`Q36_SOURCE=/path/to/patched/q36`. These are behavioral regressions, not model
-answers. `make test-qwen27-download test-q36-install` uses real local HTTP,
-archives, filesystem races and subprocesses; it does not download weights.
-The q36 installer suite has 42 tests, including nonblocking shared/exclusive
-admission, a publication racing lease conversion, alias rejection, bounded
-managed-file inventory, preservation of later user notes/cache/model aliases,
-and special files in place of a binary. A FIFO must fail within the test's
-three-second subprocess deadline, never hang in the verifier. Fixture builds
-remain simulated; the empty network-install command above is the real build
-test. Legacy receipts without a managed-file inventory retain their earlier
-verification scope and are not authorization to overwrite unrecorded files.
-Reviewed legacy upgrades reconstruct ownership from the exact verified archive;
-unknown user files are preserved, not adopted.
-
-For an explicit network setup and real Qwen27B acceptance run with already
-downloaded, hash-verified weights:
-
-```sh
-node tests/live/engine_acceptance.mjs --setup --infer --engines q36 --model-root /path/to/model-store
-```
-
-This runs the native server, not DStudio Chat/Agent/Cowork/Learn integration.
-All 12 checks and failed responses remain in the denominator. Source/binary
-identity is verified from the installer receipt; no Vulkan or full-logit parity
-is inferred from a Metal answer test.
-
-`make test-q36-request-parity-live Q36_SOURCE=/path/to/installed/q36 QWEN27_MODEL=/path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf`
-replays the retained Python-answer failure through the real native HTTP parser,
-then the CPU and Metal cores sequentially. It verifies the complete weight hash,
-source receipt, actual prompt tokens and full-vocabulary finite logits. It keeps
-the pinned upstream distribution tolerances and separately executes the Python
-answer oracle: matching wrong answers remain a failed test. Requires already
-built, pinned native objects; no download, user-engine stop or app change. This
-is a development regression, not independent architectural parity or held-out
-quality. It has a 900-second native deadline and bounded output.
-
-`make test-q36-text-prepare Q36_SOURCE=/path/to/patched/q36` executes native
-private text preparation with initialized CPU state and ASan/UBSan. It covers
-all nine K/V format pairings, every allocation failure, cancellation, changed
-prefill/cache configuration and exact state preservation: 2,070 scenarios in
-the current revision. Counted copy bytes are equal at context capacities 64 and
-4,096 with the same active tokens. This does not run forward inference; the
-tiny MTP-state fixtures are not MTP numerical qualification. The complete Metal
-patch gate also runs it, including header apply/restore/drift/link rejection.
-The native fork phase must preserve exact prefix state without forward work;
-failure to reserve token history must return before modifying the previous state.
-
-`make test-q36-vision-prepare Q36_SOURCE=/path/to/review-candidate/q36` exercises
-the new revision's private visual checkpoint fork with initialized native CPU
-buffers and ASan/UBSan. It checks exact active KV/recurrent copies, independent
-image identities and MRoPE state, allocation/cancellation failures, mismatched
-image fingerprints/geometry/positions and overlapping appended images. A
-mismatch must start an empty private candidate, never reuse another image's
-checkpoint. Text-only preparation still cannot inherit a visual checkpoint.
-Copy work is unchanged between context capacities 64 and 4,096 at fixed active
-state. This is a model-free ownership test, not CPU vision support or real-image
-answer qualification; it applies only to the isolated q36 update candidate.
-
-`make test-q36-payload-prepare Q36_SOURCE=/path/to/patched/q36` executes native
-payload restoration under ASan/UBSan with initialized CPU state, not mock
-serialization. It covers every truncated byte count, cancellation through the
-final byte, header/token/configuration errors, all nine K/V formats and every
-observed allocation failure. A larger logits buffer checks the 64 KiB transfer
-bound; policy fields and zero tracked native allocation leaks are asserted.
-The current gate has 9,757 scenarios and 48,564 assertions, including twelve
-native payload-writer cases: bounded transfers, pre/mid/final-byte cancellation,
-short/failed writes and unchanged source bytes. The caller's live
-state and output pointer must survive failure. `Q36_DIRECT_BASELINE=1` uses
-the original in-place reader with the same preservation requirements. These
-are model-free state tests, not GPU/MTP inference or a public HTTP cache test.
-
-`make test-q36-payload-schedule Q36_SOURCE=/path/to/built/patched/q36` tests
-the native scheduled serializer with real Metal buffers and ASan/UBSan. Build
-the exact patched checkout first (`make -C /path/to/q36 -j2 metal`); the harness
-hashes source, object and test inputs before and after execution. Its 186 cases
-cover a separately assembled byte oracle across both model shapes (four
-initialized layers), all nine K/V pairs, recurrent precision and logits location,
-admission/read/output failures, private restoration, scheduled logits,
-cancellation and unchanged active read visits when only context capacity grows.
-Scheduled forks retain exact native KV/recurrent/logit/hidden bytes, allocate
-outside backend admission and copy at most 64 KiB per lease. Two actual private
-KV grows copy the same eight active rows; admission failure/cancellation keeps
-the source and output pointer intact.
-Deterministic blocked input/output allows independent GPU operations through a
-**scheduling fixture**. No model is loaded;
-this is not a server concurrency or quality test.
-
-`make test-q36-cache-owner Q36_SOURCE=/path/to/patched/q36` runs the actual
-native file reader/writer and decode scheduler with simulated numerical sessions.
-Eight scenarios cover blocked reads/writes, exact prefill frontiers, cancelled
-reads/writes, stale publication, corruption and final persistence after worker
-shutdown. A second slot must finish its
-scheduler round-trip before the disk barrier opens; prior file bytes and both
-slot states are checked. The current patch passes. The preceding patch's four
-read-path failures are retained. This acceptance remains required by the complete
-`test-q36-metal-runtime` gate without an expected-failure exemption.
-Both harnesses keep receipts in ignored artifacts; neither starts the user app.
-
-`make test-q36-batched-cache-live Q36_SOURCE=/path/to/installed/q36 QWEN27_MODEL=/path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf`
-is an explicit real-model regression. It starts its own two-slot engine, checks
-exact answers, stops it, restores real disk KV in a fresh process and checks
-concurrent requests and earlier cache bytes. Context is 4,096, prefill 128,
-F16 KV, quality mode and resident weights; no expert streaming or image encoder.
-It refuses overlap with a user's engine/app, bounds logs/runtime, retains failed
-receipts and stops only its own process group. It is not a throughput benchmark,
-broad language-quality score or DStudio desktop acceptance.
-The initial 8/10 run is retained: its cold-cache ceiling excluded the prompts,
-and shutdown refused final serialization. The corrected harness keeps all
-original answer/cache assertions and adds a persisted shutdown-file check.
-The subsequent historical run on patch `960b1505` passes 11/11, including seven exact answers and independent
-checks of native cache files. Both engine processes exit cleanly. Two concurrent
-slots were exercised, but no two-item decode batch was observed; this does not
-qualify fused-batch numerics. A restore delayed by another prefill still requires
-fairness/queue profiling, not a claimed cache speedup.
-The current harness has fifteen checks: cancellation after observable real
-continued prefill, an uninterrupted control and reestablishment of the same
-resident session. The next answer must retain the exact pre-cancel frontier
-and the native control's cache decision. Qwen's empty thinking markers can
-cause a legitimate disk hit even without Stop; requiring a RAM hit produced
-an initial retained 12/13 failure. With the permanent control, patch `1677e0f6`
-passes 15/15 and `960b1505` fails 2/15: cancellation finishes the prompt and
-replaces the previous frontier. All eleven original checks remain.
-
-`make test-q36-session-batch-live Q36_SOURCE=/path/to/installed/q36 QWEN27_MODEL=/path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf`
-builds the pinned upstream session-batch test from source in an ignored run
-directory. It runs actual 1/2/4/8-session Metal computation with F16/F16 and
-Q8_0/Q4_0 KV, preserving upstream's full-logit, argmax, identical-prompt,
-payload, invalid-input and ordered-fallback assertions. The upstream full-logit
-bound is 0.25 absolute, not bitwise equivalence. Its default quality-off,
-512-context, eight-token prefill settings are distinct from the HTTP corpus.
-The runner rejects skips and missing batch sizes and requires actual native
-2/4/8-row execution plus the ordered fallback. The Vulkan-named entrypoint
-uses upstream's Metal test compatibility; this does not qualify Vulkan, HTTP
-scheduling, application modes or general answer quality. No model downloads,
-app restart or implicit inclusion in model-free gates.
-
-The first run on `1677e0f6` failed both KV phases: rows 4..7 in the eight-row
-batch diverged (maximum absolute logit error 9.62949), including one different
-next-token choice. The original receipt remains; passing 1/2/4 rows did not
-qualify eight. This is cross-session scratch reuse, not a looser numerical
-tolerance or a reason to omit a batch size.
-
-`make test-q36-recurrent-batch Q36_SOURCE=/path/to/patched/q36` isolates that
-bug without model weights. It executes the real native recurrent batch and
-Metal kernels against an independent-storage oracle, using synthetic weights
-and both real recurrent layouts. Its 96 cases cover 1..8 sessions, capacities
-8/16, fused/unfused/mixed convolution and two successive steps, checking exact
-output, convolution history and recurrent state. The old revision fails 24
-cases (336 assertions); patch `aa26ffa9` passes all 9,216 assertions with
-ASan/UBSan. The test changes neither upstream's real-model oracle nor its 0.25
-bound. It is part of the model-free runtime gate, not 96 real-model answers or
-proof of Vulkan parity.
-
-The unchanged real-model upstream oracle subsequently passes both KV phases
-on `aa26ffa9`: all 30 full-logit comparisons (1/2/4/8 rows), identical next-token
-choices, and the native payload/invalid-input/fallback assertions. Maximum
-absolute error is 0.00828552 for F16/F16 and 0.214759 for Q8_0/Q4_0, below the
-original 0.25 bound, not bitwise equality. This does not establish general
-answer quality or full application concurrency. Original failed runs remain.
-The existing real HTTP cache/Stop corpus also passes 15/15 again on this
-rebuilt revision, preserving the no-Stop control and exact prior frontier.
-
-`make test-q36-http-text-batched Q36_SOURCE=/path/to/patched/q36` executes the
-same 24 HTTP/cache transaction cases as the single-session gate with actual
-batched scheduling and simulated native numerical work. The old batched path
-fails 20 cases; private whole-prompt preparation passes them without changing
-the single-session assertions. This is not inference or desktop qualification.
-
-`make test-q36-text-prepare-live Q36_SOURCE=/path/to/installed/q36 QWEN27_MODEL=/path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf`
-loads the real model once and tests seven native text preparations plus six
-payload restorations. It compares full checkpoint payloads and finite logits
-byte for byte, with four subsequent decode steps in **each** case, including
-every cancellation. Native chunk/byte boundaries trigger interruption; payload
-cases include a missing final byte, full restoration and legacy token-only
-replay. Payload FILEs are memory-backed, so their timings are not SSD speed.
-Add `Q36_DIRECT_BASELINE=1` to execute the original in-place APIs against the
-same preservation requirements: the expanded retained baseline is 2/13, and
-private preparation is 13/13. The earlier seven-case receipts remain intact.
-This measures native state semantics, not held-out answer quality, complete
-HTTP cache transactions, app Stop or desktop modes.
-It uses at most three test sessions sharing one engine, bounded snapshots/output
-and a 600-second deadline. It refuses another running engine and stops only its
-own test process if another engine starts; no downloads or app restarts.
-`make test-q36-text-schedule-live Q36_SOURCE=/path/to/installed/q36 QWEN27_MODEL=/path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf`
-runs those same thirteen numerical cases through scheduled native fork, prefix
-sync and payload restore, including nonempty legacy token replay. The backend
-lease is a single-owner fixture; actual server concurrency is tested separately.
-
-`make test-q36-vision-session-live Q36_SOURCE=/path/to/installed/q36 QWEN27_MODEL=/path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf QWEN27_PROJECTOR=/path/to/Qwen3.8-27B-mmproj-F16.gguf`
-decodes four original PNG pixel fixtures through the real projector and Metal
-language model. It checks colors, left/right order, return to text, malformed
-span rejection and already-cancelled text/image synchronization from both text
-and visual sessions. Prompt tokens, position and full-vocabulary logits must
-survive that pre-cancelled request. Inputs and grader are frozen in each receipt;
-the 600-second run has one model, bounded output and no app/engine mutation.
-This does not cover cancellation after prefill has started, HTTP image handoff,
-desktop integration or the separate 30-PDF/20-image held-out corpus.
-
-`make test-q36-vision-answer-oracle` checks the color/order grader without models.
-Comma-separated names allow surrounding whitespace, as the image prompt does;
-wrong order, wrong colors, explanations, invalid UTF-8, nonfinite or incomplete
-generation still fail. The original whitespace false negative is retained and
-has a separate, explicit regrade receipt, not an overwritten result.
-
-`make test-q36-http-vision Q36_SOURCE=/path/to/patched/q36` compiles the actual
-HTTP parser/renderer with ASan/UBSan: 37 cases cover image bytes/typed positions,
-ordering, malformed/unsupported input and inclusive count/byte limits. Eleven
-additional cases execute the production session-publication path with a
-simulated native worker, deterministic barriers and real sockets. A blocked
-preparation must leave previous state intact while metadata remains available;
-failure, stale ownership, context mismatch, shutdown and TCP reset cannot publish.
-A legal TCP half-close must still allow completion; explicit per-request
-cancellation must retain the previous session both before and during private
-preparation. The harness now observes
-worker termination as well as barrier admission, so an early production failure
-cannot leave the test waiting for a preparation that never started. These are
-not model quality tests; the outer Metal patch gate runs and freezes them too.
-
-For the isolated `8ce8924` rebase, run
-`node tests/integration/q36_http_vision_test.mjs /path/to/q36 --next`.
-This selects its actual parser ABI and adds native Responses/tool/Anthropic
-image acceptance; the prior unsupported paths remain explicitly checked on
-the older runtime. The probe reports request-owned random markers and their
-actual byte positions without replacing them in the rendered output. The
-common image, bounds and session-publication assertions remain unchanged.
-The next-ABI owner scenarios also run with prepared synthetic image embeddings
-and pending tool IDs (61 total cases). Only successful session publication may
-retire those IDs; failed/cancelled preparation retains them. These exercise the
-real HTTP ownership path, not pixel quality or a simulated model answer.
-
-`make test-q36-http-vision-live Q36_SOURCE=/path/to/installed/q36 QWEN27_MODEL=/path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf QWEN27_PROJECTOR=/path/to/Qwen3.8-27B-mmproj-F16.gguf`
-launches the actual native server with verified LLM/projector hashes and checks
-28 HTTP workflows: color counterfactuals, two-image order, real decoder error,
-text recovery, JSON and SSE completion, including clients that half-close their
-request but keep reading. It also cancels a partially received body and actual
-image preparation through the native request-ID endpoint, checks recovery and
-removal of finished identities. Metadata is probed during image preparation.
-Seven tool scenarios require an actual generated `read_file` call, validated
-arguments, a real fixture-file read, and exact case-sensitive answers to two
-different tool results in each of OpenAI, Responses and Anthropic. Native trace
-receipts must show actual RAM tool replay in the generation path. This is not
-the DStudio Agent loop, nor a disk-cache replay test.
-The 600-second run uses one Metal model at 8k context, F16 KV, greedy decoding
-and no expert streaming. Inputs, outputs, exact server binary and original
-failures are retained; another running engine or user app prevents launch.
-The private opt-in trace is checked every 250 ms against an 8 MiB limit; its
-watchdog and engine are cleaned up at the end. No throughput claim uses this run.
-Process ownership is rechecked every second; if a user app or another engine
-starts, the harness terminates only its own test model and records interruption.
-The retained half-close runs are 14/16 and 16/16; the extended cancellation
-before/after runs are 19/21 and 21/21, with identical prompts/settings and verified
-weights (fresh opaque request IDs per attempt). They do not establish broad
-vision quality, per-request app cancellation, other backends or desktop support.
-The expanded three-protocol run passes 28/28 on the `4c43f699…` patch; the
-earlier 24/24 OpenAI-only receipt retains its original scope and harness.
-
-For the explicitly selected `8ce8924` or `8362010` review checkout, rebuild that isolated
-source with `make -C /path/to/q36 -B -j2 metal`, then run:
-
-```sh
-node tests/live/q36_http_vision_live_test.mjs /path/to/q36 /path/to/Qwen3.8-27B-UD-Q6_K_XL.gguf /path/to/Qwen3.8-27B-mmproj-F16.gguf --next
-```
-
-This does not create an installation receipt or promote the installer pin.
-The harness verifies the checkout's own revision and complete review patch,
-freezes its bounded source set and binary, and rechecks them after execution.
-An archive/source-only copy must instead supply `--native-receipt FILE` from
-the current successful `test-q36-metal-runtime` gate. This verifies its reviewed
-base, actual binary, complete compiled source/shader inventory and current
-build harness/patch. It never inherits DStudio's parent Git revision. Older
-receipts without compiled-source identities cannot qualify this path; rebuild
-in a new private directory and retain the original receipt unchanged.
-
-For that source-copy path, run `make test-q36-http-review` with `Q36_SOURCE`
-set to the native gate's `source with spaces` directory, `Q36_NATIVE_RECEIPT`
-to its `results.json`, and the existing `QWEN27_MODEL`/`QWEN27_PROJECTOR` paths.
-This invokes the actual CLI's `--preflight-only` mode with matching and
-deliberately invalid receipts. It starts no model or socket, does not verify
-weights and must record zero inference cases with status `preflight-pass`.
-It tests admission/provenance, not model correctness. The subsequent real
-`test-q36-http-vision-live` command accepts the same paths plus
-`Q36_NEXT_REVIEW=1` and optional `Q36_DISK_CACHE=1`; it performs weight
-verification and actual inference. A preflight pass is never a live pass.
-
-For an actual managed installation, use `make test-q36-http-install` with
-`Q36_SOURCE`, `QWEN27_MODEL` and `QWEN27_PROJECTOR`. Its 16 admission cases
-use private copies of installed source/binary bytes and deliberately changed
-receipts. They reject altered/missing/extra/linked sources, a nonregular or
-stale server, wrong revision/backend, changed patch/installer and patch order.
-They also accept unrelated C projects and linked project directories without
-compiling or modifying them. They never start a model or verify weights. The
-managed live path recomputes the production installer source inventory,
-including Vulkan inputs; Metal-only
-build receipts remain a separate path. A current managed pin retains all 40
-native image/tool scenarios (46 with disk cache) without requiring `--next`.
-The legacy installed pin keeps its distinct 28/34-case renderer expectations.
-`q36-http-install/run-bsmPUH` passes 14/14 and
-`q36-http-review/run-aGwGJa` passes the existing 13/13 source-copy cases on
-the revised admission harness. These preflight receipts are not inference passes.
-The subsequent actual managed-install replay `q36-http-vision-live/run-oGEVFX`
-passes all 46 cases with disk cache, unchanged 157 captured inputs and both
-verified weights, native exit 0 and its owned PID reaped. It uses the same
-prompts/oracles/deadlines, with no `--next` flag or fabricated Git provenance.
-On 12 September, the new native gate `q36-metal-runtime/run-nY4HeX` passes
-43/43 stages including the projector and 52 captured compiler/shader inputs;
-`q36-http-review/run-fOY8Ec` passes all 13 admission cases. The new exact-revision
-real run `q36-http-vision-live/run-jfuPOr` passes 46/46 on `8362010`, with
-unchanged inputs/weights and native exit 0. It preserves all four earlier disk
-checkpoints through Stop and the eight uninterrupted-continuation fields.
-This is new scoped evidence, not inherited from `8ce8924`, a broad quality
-qualification or installer promotion. Original failed receipts remain intact.
-
-It keeps all 28 original workflows and adds 12 real model/tool checks across
-the three APIs: an actual generated file-read call, a real file result, and
-an authenticated tool-only continuation that must remember the original image
-without resending it. A new image in the tool result must change the exact color
-answer while preserving the matching historical frontier. These are 40
-development workflows, not held-out vision quality or the DStudio Agent loop.
-`q36-http-vision-live/run-vf7idm` passes all 40 on the rebuilt review candidate
-with unchanged source/binary/projector/model identities and normal engine exit.
-The earlier failed quality/long-context receipts remain; this run does not
-enable the installer revision or qualify a different Qwen model/backend.
-Adding `--disk-cache` retains all 46 scenarios; its first next-revision run
-`run-MO5enE` is **43/46 FAIL**. Existing file hashes survive actual Stop, but
-the preceding image state bypasses cold text checkpoint preparation, breaking
-the original uninterrupted-cache oracle and its dependent comparison.
-The full receipt and the separate template/canonicalization mismatch remain
-in the [update checkpoint](../docs/DS41_UPDATE_CHECKPOINT.md); no failure was
-removed or counted as a pass.
-The preserved-thinking review now requires exact `memory-token` reuse for
-uninterrupted continuation; the historical variant keeps its original explicit
-token-mismatch/disk-text oracle. Both still compare all eight frontier fields
-before/after Stop, alongside exact answers and unchanged files. The corrected
-template/image-to-text run `run-6jY0tA` is **45/46 FAIL**: the old session is
-retained, but an eviction checkpoint is published before replacement commits.
-Its strict directory comparison is not relaxed. The final review defers that
-save until successful owner publication. The final-source real replay
-`run-fSs5iW` passes **46/46**, keeping all expected answers, case ordering and
-deadlines. Four published files remain identical through Stop; the exact code
-and all eight native cache-decision fields match uninterrupted continuation
-(1,302-token live prefix, 1,326-token prompt, `memory-token`, no disk reuse).
-Original inputs remain unchanged and the engine exits 0. This closes the
-scoped cache regression, not full quality, long-context or DStudio app support;
-the installer pin and original failed receipts are unchanged.
-
-Add `Q36_DISK_CACHE=1` for the 34-case native HTTP corpus. It retains all 28
-workflows and adds cold/continued checkpoint publication, a real disk-prefix
-hit, an uninterrupted chat-continuation oracle, Stop after a private checkpoint
-has actually been written, and continuation after Stop. Cache files have a
-4 GiB budget; previously published names, sizes and SHA-256 hashes must survive
-Stop unchanged and no private temporary file may escape cleanup. Control and
-Stop keep their original one- and fifteen-second limits. The current
-`c392ca1a…` run passes 34/34. This is a real native cache transaction test,
-not DStudio's application Stop, a storage benchmark or broad answer quality.
-The initial 32/33 receipt is retained. Its last assertion incorrectly required
-RAM reuse: the native renderer drops an empty thinking block from assistant
-history, so the incoming prefix differs even without cancellation. The new
-uninterrupted execution establishes the cache oracle; after Stop all eight
-frontier/cache-decision fields and the exact answer must match it. The same
-harness and oracles apply to both engine revisions.
-The final previous-server run is 31/34. Both revisions receive real Stop at the
-native 512-token checkpoint; private publication, identical previous files and
-the original time limits remain required. Earlier receipts that waited for a
-private-checkpoint marker unavailable in the old server are retained separately
-and do not prove its actual Stop behavior.
-
-`make test-q36-http-text-prepare Q36_SOURCE=/path/to/patched/q36` executes 24
-production HTTP text/cache transaction scenarios with ASan/UBSan, real sockets,
-native cache metadata/files, and explicitly simulated inference. Deterministic
-barriers cover private preparation, cancellation, stale ownership/context,
-shutdown, allocation failure, disk/token/BPE-prefix reuse and corrupt payloads.
-Write/rename failures, cache disabled/low-budget behavior, 64-file admission,
-duplicate destinations, the 8 GiB hard ceiling and repeated tool-map bytes are
-also checked. The previous server passes 3/24, the candidate 24/24; a retained
-intermediate 23/24 exposed undercounted serialized tool blocks. No assertion was
-weakened. Add `Q36_DIRECT_BASELINE=1` only for the historical in-place source.
-This gate is included in the complete 29-stage native Metal patch test; it does
-not qualify batched scheduling or model answer quality.
-
-For the explicit `8ce8924` review, invoke the script with `--next`:
-
-```sh
-node tests/integration/q36_http_text_prepare_test.mjs /path/to/q36-review --next
-node tests/integration/q36_http_text_prepare_test.mjs /path/to/q36-review --next --batched
-```
-
-The 46 single-session cases retain the original 24, then cover actual native
-template/checkpoint agreement, independent text after images, exact visual
-identity rejection and pending-tool retirement. Eleven further cases keep a
-newer unsaved live session alongside an older committed disk file. No file can
-be published/evicted while a replacement is preparing or after it fails, is
-cancelled, loses ownership, changes context or encounters shutdown. Successful
-retirement must preserve and reload the old live tokens/logits exactly. The
-batched gate runs its 36 applicable text cases, not unsupported batched images.
-Final targeted before/after results are 35/46 to 46/46 and 25/36 to 36/36,
-respectively; the earlier real 45/46 failure remains. These are deterministic
-production-control/cache tests with simulated numerical work, not model quality.
-
-`make test-q36-cache-usage Q36_SOURCE=/path/to/installed/q36` verifies the
-separate `cache-usage.patch` against a bounded private source copy of the
-current `8362010` installation. Its 12 stages cover patch lifecycle, all partial
-hunks, drift, symlink/ABI rejection, unrelated edits and dependency invalidation
-for both native server consumers. The included ASan/UBSan HTTP suites have
-78 single-session and 68 batched cases: existing transaction regressions plus
-actual OpenAI completion/chat, Responses and Anthropic JSON/SSE usage, each with
-cold, disk, memory-token and memory-byte prefixes. A preparing/cancelled result
-cannot claim committed reuse. Responses' initial zero-usage placeholder is
-checked separately from its terminal receipt. Native session calculations are
-simulated; this does not run a model. See the [patch evidence and application
-order](../patch/q36-metal-runtime/README.md#committed-text-cache-usage-receipts).
-
-`make test-q36-http-control Q36_SOURCE=/path/to/patched/q36` executes sixteen
-native HTTP/control scenarios with ASan/UBSan, actual socket messages and
-deterministic receive barriers. It covers cancellation before body completion,
-duplicate live IDs, sixteen occupied generation leases with responsive metadata
-and cancellation, malformed framing, cleanup, queued/active cancellation without
-affecting another request, and preventing executable tool calls after an error.
-It also verifies owner-only tool replay for all three HTTP parsers, unchanged
-captured settings, pre-cancellation, context admission after exact rendering,
-and actual tool-map/trace bytes without holding the corresponding shared locks.
-The preceding native revision passes 9/16 with the same final corpus; the
-candidate passes 16/16. To run that historical baseline, invoke
-`node tests/integration/q36_http_control_test.mjs /path/to/previous/q36 --direct-baseline`.
-That option preserves the old owner's no-reparse behavior; it is not a second
-production path or a simulated implementation of the new helper.
-Queue tests use explicitly simulated tokenization/work, not real inference.
-The receipt includes compiled hot-record sizes. The optional
-[`q36_http_control_profile.c`](support/q36_http_control_profile.c) probe measures
-the actual admission/cancel/release mutex paths with 1/8/16 active fixtures and
-128 repetitions. It is model-free and uncontended, with timer overhead/resolution;
-zero clock ticks do not mean zero work. It is not a throughput or application
-latency benchmark, and adds no production profiling overhead.
-
-`make test-q36-tool-replay-identity Q36_SOURCE=/path/to/patched/q36` executes
-93 native cases with ASan/UBSan. Tool IDs cannot replace a changed tool name,
-argument, JSON type, call count or order. It preserves exact sampled bytes for
-equivalent reordered objects, checks real disk-map serialization/restoration,
-large integers, malformed/ambiguous JSON, replay bounds, and rejects unrelated
-content/reasoning in cached blocks. Deterministic barriers exercise overlapping
-preparations, stale/evicted mappings and allocation/text work outside the cache
-mutex. The same corpus passes 22/93 on the preceding server and 93/93 after
-the repair; failed receipts remain. No model or actual tool is run by this gate.
-Legacy multi-call disk records lack positional identity and must fall back to
-rendering incoming calls. New v2 disk records retain the full group and ID
-positions. This remains a required stage of the full Metal patch gate.
-
-`make test-q36-tool-map Q36_SOURCE=/path/to/patched/q36` executes 84 native
-ASan/UBSan cases: real file round-trips after freeing the original RAM cache,
-call order, 247 byte-truncation positions, invalid/duplicate identities,
-current-RAM precedence, allocation failures, bounded index chains/eviction and
-atomic existing-file replacement. Allocation barriers exercise overlapping
-duplicate insertion, stale rebind and absent/present/absent identity races;
-a colliding-key fixture checks actual sampled bytes. Deterministic blocked writes verify that
-`tool_mu` remains available, changed mappings/destinations cannot publish and
-all task-owned temporary files are removed. The 36-case original disk corpus
-fails 19 cases on the preceding revision. Use the harness without `--v2` to run
-that common corpus; `--v2` adds the new native snapshot/replacement entry points.
-No model or actual tool runs in either form. The outer batched `kv_mu` disk
-catalog path and its enclosing `inference_mu` are separate and remain unqualified.
-
-The isolated next-revision candidate uses tool-map version 3 for sampled
-empty-reasoning metadata. Run
-`node tests/integration/q36_tool_map_test.mjs /path/to/q36 --v3` for all 97
-native cases, including different preludes on IDs sharing sampled text,
-disk-only replay, v1/v2 legacy byte fixtures, unknown flags and a stale-write
-race in which only the prelude changes. Legacy maps do not invent metadata
-they never stored. This does not promote the candidate or qualify model output.
-
-`make test-q36-tool-schema Q36_SOURCE=/path/to/patched/q36` executes the native
-schema parser, tool decoder, API serializers and incremental SSE with ASan/UBSan.
-Its 22 generated-byte fixtures include the actual failing Cowork spreadsheet
-call, literal JSON-looking strings, Unicode/whitespace, true non-string values,
-mixed consecutive tools and nested schemas. Each is delivered in 1-, 7- and
-8,192-byte fragments: 66 cases. Assertions compare typed arguments in OpenAI,
-Responses and Anthropic output and reassemble the actual SSE argument bytes.
-Every case also writes/loads native tool maps and verifies exact single/batched
-RAM/disk replay, while changed arguments must miss without losing incoming data.
-The report records request/property/stream sizes. This is neither real inference
-nor a model-quality benchmark; the original 24/48 failure receipt is retained.
-For the preceding source, the harness-only `--legacy-parser-api` option adapts
-the old function signatures without changing the semantic assertions.
-
-The HTTP text-preparation byte-budget oracle reads the actual produced map:
-v1 repeats text per ID, whereas v2 stores one group plus ordinal/ID records.
-Both versions retain the exact one-byte-too-small budget rejection and no-write
-assertions. The former RAM-size comparison's failing receipt is retained;
-it was not a valid format-independent disk-budget oracle.
-
-The existing `q36_http_control_profile.c` accepts `--tool-replay` to measure the
-production cache-reader path with 1/16/256 KiB arguments, one actual cache entry,
-128/100,000 configured ID ceilings and 128 repetitions. It reports layout,
-total time, instrumented lock wait/hold, and time outside those observed locks.
-That last value includes harness/clock overhead, not just JSON comparison.
-It is a model-free uncontended microprofile, not an inference throughput or
-concurrent-service latency claim. Public benchmark charts remain subject to
-Matplotlib, reviewed data and GitHub publication requirements.
-
-`--tool-store` on the same opt-in profile measures native ID rebindings and
-actual temporary-file writes separately, using identical payloads before and
-after the disk-map change. It records layout, active entries, actual disk bytes,
-total time and lock wait/hold distributions. The new path has shorter bounded
-tool-lock holds but higher total preparation time in this microprofile; do not
-report it as a decoding speedup. Neither profile instruments production code.
-
-`make test-q36-cancel-admission Q36_SOURCE=/path/to/patched/q36` runs 24 native
-admission scenarios with ASan/UBSan and initialized bounded state. It verifies
-pre-cancelled reset, prefix append and cache hit, invalid requests and an allowed
-unchanged-prompt request. CPU buffers are real; the GPU fixtures do not execute
-GPU code. The Metal runtime patch gate includes this suite; actual Metal state
-is exercised separately by the full-model test above.
+Recreate it with `python3 extension/benchmarks/qwen-quality/plot-results.py`.
+The [benchmark notes](../extension/benchmarks/qwen-quality/README.md) describe
+that development replay; it was measured on the retired `q36` engine and is not
+a llama.cpp result.
 
 `make test-engine-upstream test-engine-pins` tests release admission separately
 from model quality. The first suite uses controlled Git remotes, real patch
@@ -2554,47 +1687,16 @@ not full-logit comparisons against BF16/CPU, and do not establish general model
 quality, tool-use quality, CUDA parity or exhaustive context-boundary correctness.
 
 Qwen3.8 has experimental **Chat, Agent and Cowork** integration on macOS Metal
-with the new engine pin. Its Design adapter is not implemented. Qwen3.6 now has
-an experimental **Agent/Cowork host integration**, in
-addition to Chat. Design and forced expert SSD streaming remain rejected
-before stopping the current runtime. Only Qwen3.8 needs the SSD-backed PLE file. Qwen3.6 uses the
-31.8 GB Q6_K_XL file, without PLE or expert SSD streaming. Its disk KV checkpoint
-path is disabled until the fork can serialize its complete recurrent state.
+with the new engine pin. Its Design adapter is not implemented. Only Qwen3.8
+needs the SSD-backed PLE file. Qwen3.6 and Qwen3.8-27B run on the bundled
+llama.cpp engine; see [Qwen3.6 and Qwen3.8-27B on llama.cpp](#qwen36-and-qwen38-27b-on-llamacpp).
 
-For a fresh Qwen3.6 source/build check (including its primary-store dependency):
+The Qwen3.6 sections that followed here (fresh `ds4-qwen35` setup, its
+September 7 11/12 native baseline in `engine-acceptance/run-m8zF5Z/`, and the
+`ds4-qwen35-catalog` patch) described the retired fork. Their receipts are
+retained under ignored `tests/.artifacts/`; the commands were removed with the
+fork and are no longer runnable.
 
-```sh
-node tests/live/engine_acceptance.mjs --setup --engines main,qwen35
-make test-engine-setup-unit test-qwen35-download
-# Use the empty-model fresh-install path printed by the setup run:
-node tests/integration/qwen35_setup_http_test.mjs path/from-setup-output/fresh-install
-# Explicit, heavyweight; requires installed Qwen3.6 weights:
-node tests/live/engine_acceptance.mjs --infer --engines qwen35 --via-app
-```
-
-The setup gate downloads into an empty private installation and now executes
-both Qwen structured runtimes as well as the native binaries. The HTTP gate
-also repeats the real CLI installation, runs Agent/Cowork `--help`, verifies
-source and binary preservation, checks the declared capability and requires
-the shared weights directory to remain empty. It does not run inference.
-The updated fresh and repeated Qwen3.6 installation gates passed on September 7.
-Qwen3.8 throughput and answer results must not be attributed to Qwen3.6.
-
-The September 7 quality campaign added a native Qwen3.6 inference baseline:
-11/12 development answer/protocol checks passed; its Python filtering answer
-was incorrect (`22` instead of independently executed `16`). The original
-private receipt is `engine-acceptance/run-m8zF5Z/`; this is not held-out quality
-qualification. The same run revealed incorrect DeepSeek aliases in the native
-model catalog, a separate defect now addressed by
-[`ds4-qwen35-catalog`](../patch/ds4-qwen35-catalog/README.md). Fresh and repeated
-Qwen3.6 setup apply the patch before building. Existing checkouts are not
-silently rewritten at every Chat launch; run engine setup to upgrade them.
-
-`make test-qwen35-catalog QWEN35_DIR=/path/to/source` copies the native server
-source, tests the reversible patch lifecycle and compiles its actual HTTP
-catalog serializer. Metadata is controlled and no weights are loaded. Real
-Qwen acceptance separately verifies that `/v1/models` names Qwen correctly;
-that metadata check does not replace or alter the answer checks.
 
 ## Local regression suite
 
@@ -2902,20 +2004,13 @@ failures; missing output never becomes an internal evidence scaffold. News facts
 mentioning a model cannot select technical-report sections.
 
 `make test-slow-runtime` advances production owner clocks by four hours with
-real task-owned child/pipe barriers: slow q36 loading, runtime preparation,
+real task-owned child/pipe barriers: slow llama.cpp `/props` readiness, runtime preparation,
 silent native inference, late readiness/results, Stop/reaping and discarded
 canceled replies. A held private DS4 lock also exercises shared-engine loading
 through the real HTTP status response without touching the user's lock/process.
 Its PDF planner test executes production routing/preparation with simulated
 model/read responses: exact physical pages, invalid plans, original bytes and
 canceled late reads. These checks use no weights or quality corpus.
-
-`make test-q36-request-lifetime-patch` requires network access, a C compiler,
-Python and Node. It downloads only the three exact upstream source archives,
-executes production patch lifecycle checks and native HTTP behavior with
-ASan/UBSan. It verifies slow requests, explicit Stop, actual TCP reset and legal
-half-close on every supported base;
-it neither installs over user sources nor runs a language model.
 
 The Research work-budget test advances each extraction by two simulated hours
 and still reaches the unchanged page/query/action ceilings. Goal/Task Graph
@@ -2992,10 +2087,10 @@ missing/extra/altered inputs, linked files and parents (including a deterministi
 parent-switch barrier), source/manifest and target races, owner-lease replacement,
 independent preparations overlapping at a deterministic barrier,
 retained-candidate limits and interrupted durability acknowledgement. It also
-copies/verifies all four active source snapshots and rejects copying or
-installing the retired Qwen Next source. `make test-macos-bundle` checks that
-the relocated app materializes exactly those four snapshots with pins matching
-its native metadata. No inference is claimed by these cases.
+copies/verifies all three active source snapshots (main, Laguna, llama.cpp) and
+rejects copying or installing the retired Qwen Next source. `make test-macos-bundle`
+checks that the relocated app materializes exactly those three snapshots with pins
+matching its native metadata. No inference is claimed by these cases.
 
 `make test-engine-updates` exercises the actual native HTTP endpoints with a
 fixture checkout and Git peer. Update checks must not invoke Git, and stale
@@ -3005,7 +2100,8 @@ The original failing receipt is retained separately from the passing run.
 `make test-first-launch-e2e` uses a relocated signed app, an empty profile and
 real WebKit controls. External outbound connections are denied by macOS for
 the app and all its compiler/installer children; loopback UI requests remain
-allowed. Main, Laguna, Qwen3.6 and q36 compile from the bundled snapshots with
-no weights or model inference. Packaging and source installation are separate
+allowed. Main and Laguna compile from the bundled snapshots, and llama.cpp is
+built through the app's `--install-engine llama` CLI, with no weights or model
+inference. Packaging and source installation are separate
 from the operator's full model-quality rerun. See
 [provenance, source omissions and refresh workflow](../docs/BUNDLED_ENGINES.md).

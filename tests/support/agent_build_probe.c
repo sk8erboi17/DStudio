@@ -28,9 +28,7 @@ int main(int argc, char **argv) {
             !strcmp(argv[3], "design") ? "build" : "status") ? 0 : 1;
     if (!strcmp(argv[3], "server-qwen38"))
         cstr_copy(g_model_override, sizeof g_model_override, MODEL_QWEN);
-    if (!strcmp(argv[3], "server-qwen35"))
-        cstr_copy(g_model_override, sizeof g_model_override, MODEL_QWEN35);
-    if (!strcmp(argv[3], "server") || !strcmp(argv[3], "server-qwen38") || !strcmp(argv[3], "server-qwen35")) {
+    if (!strcmp(argv[3], "server") || !strcmp(argv[3], "server-qwen38")) {
         int result = run_build_server_pld();
         if (result < 0) puts("unsupported ABI; native server retained");
         return result ? 0 : 1;

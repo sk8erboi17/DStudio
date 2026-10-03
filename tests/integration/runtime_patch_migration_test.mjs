@@ -27,7 +27,7 @@ function sourceFor(kind, base, file) {
   if (process.env.DSTUDIO_RUNTIME_BASE_SOURCES)
     return fs.readFileSync(path.join(process.env.DSTUDIO_RUNTIME_BASE_SOURCES, `${kind}-${name}.c`));
   if (name === 'qwen38') return historicalQwenSource(base.revision, file);
-  const engines = { laguna: 'ds4-laguna-s21', qwen38: 'ds4-qwen38', qwen35: 'ds4-qwen35' };
+  const engines = { laguna: 'ds4-laguna-s21', qwen38: 'ds4-qwen38' };
   const engine = path.join(root, engines[name] || 'ds4');
   const git = spawnSync('git', ['-C', engine, 'show', `${base.revision}:${file}`], { maxBuffer: 16 * 1024 * 1024 });
   const bytes = git.status === 0 ? git.stdout : fs.readFileSync(path.join(engine, file));

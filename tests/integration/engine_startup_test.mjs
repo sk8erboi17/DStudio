@@ -13,18 +13,22 @@ const run = artifactRunDir('engine-startup');
 const hash = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const report = {started: new Date().toISOString(), binary, binarySHA256: hash(binary),
   scope: 'Production startup and persisted checkout, real HTTP; fixture sources, no model or network download',
-  plannedChecks: 4, cases: []};
+  plannedChecks: 5, cases: []};
 const save = () => writeArtifact(run, 'results.json', report);
 console.log(`Evidence: ${run}`);
 let active, cancelled = false;
 for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => {
   cancelled = true; active?.kill('SIGTERM');
 });
+// Retired Qwen side checkouts (no sibling ds4 here to fall back to) are left
+// exactly as they are: no ds4 Agent recovery runs on them. A ds4-family
+// checkout with its own Agent source keeps its recovery diagnostics visible.
 const scenarios = [
-  {id: 'q36-without-ds4-agent', checkout: 'q36'},
-  {id: 'native-clean', checkout: 'ds4-qwen35', source: '/* Independent native source fixture. */\n'},
-  {id: 'native-missing', checkout: 'ds4-qwen35', error: /ds4_agent\.c/},
-  {id: 'native-legacy-patched', checkout: 'ds4-qwen35', source: '/*DS4UI_JSONL*/\n',
+  {id: 'retired-q36-left-untouched', checkout: 'q36'},
+  {id: 'retired-qwen35-left-untouched', checkout: 'ds4-qwen35', source: '/*DS4UI_JSONL*/\n'},
+  {id: 'native-clean', checkout: 'ds4-laguna-s21', source: '/* Independent native source fixture. */\n'},
+  {id: 'native-missing', checkout: 'ds4-laguna-s21', error: /ds4_agent\.c/},
+  {id: 'native-legacy-patched', checkout: 'ds4-laguna-s21', source: '/*DS4UI_JSONL*/\n',
     backup: '/* Preserve the earlier source until explicitly verified. */\n', error: /legacy Agent source is already modified/},
 ];
 for (const scenario of scenarios) {

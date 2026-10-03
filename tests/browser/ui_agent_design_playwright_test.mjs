@@ -586,6 +586,7 @@ try {
       ctxSize: 65536,
       webMode: 'off',
       designSystem: 'retired-import',
+      agentHarness: 'opencode',
       workdirs: { agent: '/tmp/dstudio-missing-agent', cowork: '/tmp/dstudio-ui-cowork', design: '/tmp/dstudio-ui-design' },
     }));
     localStorage.setItem('ds4web.chats.v2', JSON.stringify({
@@ -649,6 +650,9 @@ try {
     () => JSON.stringify({ starts, pageErrors }, null, 2),
   );
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).workdirs.agent === '/tmp/dstudio-ui-agent');
+  // The Agent harness preference reaches every Agent launch, and only those.
+  assert.ok(starts.filter((s) => s.mode === 'agent').every((s) => s.harness === 'opencode'),
+    `Agent launches carry the selected harness: ${JSON.stringify(starts.map((s) => [s.mode, s.harness]))}`);
   const agentWorkdirSetting = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).workdirs.agent);
   assert.equal(agentWorkdirSetting, '/tmp/dstudio-ui-agent', 'Agent workdir setting should be repaired after a stale path');
   const startsBeforeSkillPick = starts.length;

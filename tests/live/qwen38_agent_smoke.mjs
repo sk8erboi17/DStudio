@@ -1,6 +1,6 @@
 // Explicit, sequential live development checks. Actual Qwen weights and native
 // DStudio Agent/Cowork tools, not held-out quality or desktop qualification.
-// --qwen35 uses the existing Qwen3.6 fork; Qwen Next uses unified main.
+// Qwen Next uses unified main. Qwen3.6 runs on llama.cpp: make test-llama-resident-live.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,24 +12,23 @@ import {verifyQwen38ToolTrace} from '../support/qwen38_tool_oracle.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
 assert.equal(process.platform,'darwin','This live runner currently qualifies Metal only');
-const qwen35=process.argv.includes('--qwen35');
-const inputs=process.argv.slice(2).filter(arg=>arg!=='--qwen35');
-assert.equal(inputs.length,2,'Supply candidate + model GGUF, optionally --qwen35');
+assert(!process.argv.includes('--qwen35'),'--qwen35 was retired with the vagrillo/ds4 engine; run make test-llama-resident-live');
+const inputs=process.argv.slice(2);
+assert.equal(inputs.length,2,'Supply candidate + model GGUF');
 const [engine,model] = inputs.map(file=>fs.realpathSync(file));
 const host = path.join(root,'tests/.build/agent-build-probe');
-const run = artifactRunDir(qwen35?'qwen35-agent-live':'qwen38-agent-live');
+const run = artifactRunDir('qwen38-agent-live');
 const hash = data=>crypto.createHash('sha256').update(data).digest('hex');
 const identity = file=>{
   const st=fs.statSync(file);
   return {path:file,bytes:st.size,mtimeMs:st.mtimeMs,ino:st.ino,dev:st.dev};
 };
 const report = {started:new Date().toISOString(), scope:'Two live development tool workflows; not held-out quality or host/UI admission',
-  revision:ownGitRevision(engine), engine, family:qwen35?'Qwen3.6-35B-A3B':'Qwen3.8-Flash-Next',
+  revision:ownGitRevision(engine), engine, family:'Qwen3.8-Flash-Next',
   engineSource:Object.fromEntries(['ds4_agent.c','ds4.c','ds4.h'].map(file=>[file,hash(fs.readFileSync(path.join(engine,file)))])),
   weights:[identity(model)],
   host:{path:host,sha256:hash(fs.readFileSync(host))},
-  memory:qwen35?'resident model weights; no PLE or expert streaming, MTP or DSpark':
-    'resident backbone plus embedded BF16 n-grams on SSD; no expert streaming, MTP or DSpark',
+  memory:'resident backbone plus embedded BF16 n-grams on SSD; no expert streaming, MTP or DSpark',
   settings:{backend:'Metal',context:16384,prefillChunk:512,maxTokensPerModelRound:1024,temperature:0,seed:42,
     thinking:'off',maxToolCalls:12,timeoutSecondsPerWorkflow:600,streamLimitBytes:3*1024*1024},
   cases:[],passed:false};
@@ -52,7 +51,7 @@ async function execute(row,binary,args,env){
  const streams={stdout:'',stderr:''},fds={stdout:fs.openSync(path.join(row.directory,'stdout.log'),'wx'),
   stderr:fs.openSync(path.join(row.directory,'stderr.log'),'wx')};
  const start=performance.now();let failure,bytes=0,tail='',killTimer;
- const child=spawn(host,[root,engine,qwen35?'metal-sources':'metal-env-qwen38',binary,...args],
+ const child=spawn(host,[root,engine,'metal-env-qwen38',binary,...args],
   {cwd:row.workspace,detached:true,stdio:['ignore','pipe','pipe'],env:{...cleanEnv,...env}});
  row.pid=child.pid;save();
  const stop=reason=>{
@@ -117,8 +116,6 @@ try{
    assert.equal(fs.readFileSync(path.join(workspace,'tasks.json'),'utf8'),source,'Source modified');
    assert.deepEqual(fs.readdirSync(workspace).sort(),['tasks.json',output].sort(),'Unexpected workspace files');
    row.toolChecks=verifyQwen38ToolTrace(mode,row.events,output);
-   if(qwen35)assert(!fs.existsSync(path.join(directory,'private-kv-cache')),
-     'Qwen3.6 must not create incomplete recurrent disk checkpoints');
    row.artifact={path:output,bytes:st.size,sha256:hash(actual)};
    row.passed=true;
   }catch(e){row.error=String(e.stack);console.error(row.error);}

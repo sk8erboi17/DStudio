@@ -1,6 +1,13 @@
 # Qwen — remaining implementation and qualification
 
-Updated October 1, 2026. The full campaign remains incomplete and paused.
+Updated October 3, 2026. The full campaign remains incomplete and paused.
+
+On October 3 the Qwen3.6 and Qwen3.8-27B engines changed: the vagrillo/ds4
+fork (`ds4-qwen35`) and Ninnix/q36 were retired, and both models now run on the
+bundled llama.cpp `b11371` (`99b9548`). Results below that name `q36` or
+`qwen35` were measured on those retired engines and are history, not llama.cpp
+results. The llama.cpp path has passed only the 10-check development gate
+(`make test-llama-resident-live`) on each model.
 The owner reserves the complete quality-suite rerun. This checkpoint removes
 completed implementation tasks from the active backlog while retaining their
 missing full-model acceptance checks.
@@ -15,8 +22,8 @@ For the complete scope use [PLAN.MD](../PLAN.MD); for source/binary admission us
 
 | Model / recorded engine | Implementation still missing | Verification still missing |
 | --- | --- | --- |
-| Qwen3.8-27B / q36 1305843 | Independent Design adapter; complete native disk-session checkpoints; bounded directory/parser work. | Full-model online-F16 numerical/long-context qualification, retained diagnostic request, Learn/Tutor, PDF/vision, native desktop and full multi-session/mode coverage. |
-| Qwen3.6-35B-A3B / qwen35 73434c4 | Independent Design and required native-vision adapters; complete native disk-session checkpoints. | Full-model batched-prefill numerics/long context, current long-Agent continuation/summary replay, Learn/Tutor, PDF/vision, native desktop and complete mode coverage. |
+| Qwen3.8-27B / llama.cpp 99b9548 | Design on llama.cpp; persistent KV/session reuse across engine restarts. | Common-100 on llama.cpp, long context, Learn/Tutor, PDF, native desktop and multi-session/mode coverage. Chat/Agent/Cowork and one image case pass the development gate. |
+| Qwen3.6-35B-A3B / llama.cpp 99b9548 | Design on llama.cpp; persistent KV/session reuse across engine restarts; the planned MLX alternative. | Common-100 on llama.cpp, long context, long-Agent continuation, Learn/Tutor, PDF/vision, native desktop and complete mode coverage. Chat/Agent/Cowork pass the development gate. |
 | Qwen3.8-Flash-Next / main 0aaea5a | Independent Design and required native-vision adapters. | Learn/Tutor, PDF/vision, native desktop, complete mode/continuation quality and trusted full-model numerical references. Q2 requires its own qualification; Q4 results do not cover it. |
 
 Complete Agent/Cowork build signatures, crash-safe pair publication and legacy
@@ -26,34 +33,35 @@ rejection to make an unsupported path appear integrated.
 
 ## Full-model checks after the software corrections
 
-The 27B parallel online-softmax overlay, 3.6 bounded batched-prefill overlay,
-Q6_K correction, preparation/catalog/dependency fixes, silent-prefill relay
-handling and removal of automatic application work cutoffs are implemented.
-Their operator/native/fixture evidence is archived; none is a new coding task.
+The 27B parallel online-softmax overlay, 3.6 bounded batched-prefill overlay
+and Q6_K correction belonged to the retired engines and no longer ship.
+Preparation/catalog/dependency fixes, silent-prefill relay handling and removal
+of automatic application work cutoffs remain implemented.
 
 The remaining acceptance work is:
 
-1. Verify the complete 27B and 3.6 models on those exact current overlays using
+1. Verify the complete 27B and 3.6 models on llama.cpp `99b9548` using
    compatible model/quant references and the original long requests. Preserve
    the original frozen evaluation requirements and deadlines.
 2. Run any invalidated complete corpus under the owner's supervision. Retain
    all original failed cases, source/weight/binary hashes and new run identity;
    do not transfer earlier scores to new inference paths or repeat an unchanged
    deterministic run as supposed evidence of improvement.
-3. Complete the retained 27B diagnostic replay on 1305843. Its provenance and
-   patch-stack roundtrip are corrected; the real request is still not run.
+3. The retained 27B diagnostic replay targeted q36 `1305843`; it can no longer
+   run. Replace it with a llama.cpp long-request check rather than reusing its result.
 4. Complete Next Learn with the intended effective reasoning request. The
    retained incident generated 105,003 reasoning characters: the generator
    requested max despite an off launch. The diagnostic request harness is
    corrected, but no real off-request run establishes completion or a model loop.
 5. Revalidate the v102 3.6 long-Agent timeout and partial-function overcount
-   against the current adapter/prefill path. Preserve its earlier failure.
+   on llama.cpp. Preserve its earlier failure from the retired fork.
 6. Complete native four-mode, vision/PDF, install/upgrade/recovery and desktop
    results, plus exact release receipts. Simulated UI/tool responses are separate.
 
 ## Retained complete corpus evidence — September 29
 
 These complete receipts existed before the September 30 inference overlays.
+The 27B and 3.6 rows were measured on the retired q36 and vagrillo/ds4 engines.
 Scores retain wrong answers, formatting failures and context failures.
 
 | Model | Passed / denominator | Long context | Private receipt under tests/.artifacts/engine-acceptance/ |

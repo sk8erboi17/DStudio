@@ -72,7 +72,7 @@ snapshot_sources() {
 support_files=(src/harness/design/build-design.sh src/harness/design/design.mk
   src/harness/design/ds4_design.c src/harness/design/design_system_catalog.h
   extension/remote/dstudio_remote_llm.c extension/remote/dstudio_remote_llm.h
-  extension/remote/dstudio_wire_string.h
+  extension/remote/dstudio_wire_string.h extension/remote/dstudio_json_tokens.h
   patch/ds4-media-memory/residency-lease.patch patch/ds4-media-memory/legacy-labels.patch)
 support_signature() (
   for file in "${support_files[@]}"; do

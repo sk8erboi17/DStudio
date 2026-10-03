@@ -66,6 +66,11 @@
 #include "ds4_web.h"
 #include "ds4_kvstore.h"
 #include "dstudio_remote_llm.h"
+/* Shared header-only grammar: Design uses only its tokenizer and accessors. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#include "dstudio_json_tokens.h"
+#pragma GCC diagnostic pop
 
 #ifndef O_BINARY
 #define O_BINARY 0
@@ -13294,9 +13299,162 @@ static void design_remote_cb(void *ud, const char *kind, const char *text, size_
     }
 }
 
+/* ---- Structured remote tools --------------------------------------------
+ * DS4UI_REMOTE_TOOL_PROTOCOL=openai is set by the host for its llama.cpp
+ * models, whose chat templates call tools through the function-calling
+ * interface and do not reproduce DSML text reliably (a Qwen3.6 run wrote
+ * "<｜DSML｜todo_write>" and parameters named 'path string='). The schemas are
+ * the ones the system prompt documents, extracted once and sent as `tools`;
+ * every call runs through execute_tool_calls() exactly like a DSML call, and
+ * each result is one `tool` message for its tool_call_id. Other remote
+ * models keep DSML. Bounds: 16 calls per round, 2 MiB of call JSON. */
+#define DESIGN_STRUCTURED_CALLS_MAX 16
+#define DESIGN_STRUCTURED_BYTES_MAX (2u * 1024u * 1024u)
+
+static bool design_remote_structured(void) {
+    const char *p = getenv("DS4UI_REMOTE_TOOL_PROTOCOL");
+    return p && !strcmp(p, "openai");
+}
+static char *design_tool_schemas_json(void);
+/* Immutable once built (the schemas are compiled into this binary). */
+static const char *design_tool_schemas_cached(void) {
+    static char *json;
+    if (!json) json = design_tool_schemas_json();
+    return json;
+}
+
+/* [start, end) of the prompt's DSML "## Tools" section, schemas included. */
+static const char *design_prompt_tools_section(const char **end) {
+    const char *start = strstr(design_system_prompt, "## Tools\n");
+    const char *schemas = start ? strstr(start, "### Available Tool Schemas") : NULL;
+    const char *next = schemas ? strstr(schemas, "\n## ") : NULL;
+    if (!next) return NULL;
+    *end = next + 1;
+    return start;
+}
+
+static char *design_tool_schemas_json(void) {
+    const char *end = NULL, *start = design_prompt_tools_section(&end);
+    if (!start) return NULL;
+    design_buf b = {0};
+    buf_puts(&b, "[");
+    int n = 0;
+    for (const char *at = start; (at = strstr(at, "{\"type\":\"function\"")) && at < end;) {
+        int depth = 0;
+        bool in_string = false, escape = false;
+        const char *p = at;
+        for (; p < end; p++) {
+            char c = *p;
+            if (in_string) {
+                if (escape) escape = false;
+                else if (c == '\\') escape = true;
+                else if (c == '"') in_string = false;
+                continue;
+            }
+            if (c == '"') in_string = true;
+            else if (c == '{') depth++;
+            else if (c == '}' && --depth == 0) { p++; break; }
+        }
+        if (depth) { free(b.ptr); return NULL; }
+        if (n++) buf_puts(&b, ",");
+        buf_append(&b, at, (size_t)(p - at));
+        at = p;
+    }
+    buf_puts(&b, "]");
+    char *json = buf_take(&b), error[128];
+    if (!n || !json || !dtg_json_validate_complete(json, '[', error, sizeof(error))) { free(json); return NULL; }
+    return json;
+}
+
+static void design_remote_messages_append_raw(design_agent *a, const char *object) {
+    dstudio_remote_buf *b = &a->remote_messages;
+    if (b->len == 0) dstudio_remote_buf_puts(b, "[");
+    if (a->remote_message_count > 0) dstudio_remote_buf_puts(b, ",");
+    dstudio_remote_buf_puts(b, object);
+    a->remote_message_count++;
+}
+
+static void design_json_string(design_buf *b, const char *s) {
+    buf_puts(b, "\"");
+    json_escape_buf(b, s ? s : "", s ? strlen(s) : 0);
+    buf_puts(b, "\"");
+}
+
+/* [{"id","type":"function","function":{"name","arguments":"{...}"}}] into the
+ * DSML parser's call list. Returns the call count, 0 for an empty batch and
+ * -1 (with error) for an invalid one; nothing executes on -1. */
+static int design_structured_calls(const char *calls, design_tool_calls *out,
+                                   char ids[][128], char *error, size_t cap) {
+    size_t length = strlen(calls);
+    if (length > DESIGN_STRUCTURED_BYTES_MAX) { snprintf(error, cap, "tool call batch exceeds 2 MiB"); return -1; }
+    int limit = 65536, n = -1;
+    dtg_json_token *tok = malloc((size_t)limit * sizeof(*tok));
+    int count = tok ? dtg_json_tokenize(calls, length, tok, limit) : -1;
+    if (count <= 0 || tok[0].type != DTG_JSON_ARRAY) { snprintf(error, cap, "tool calls are not a JSON array"); goto done; }
+    if (tok[0].size > DESIGN_STRUCTURED_CALLS_MAX) { snprintf(error, cap, "more than %d tool calls in one round", DESIGN_STRUCTURED_CALLS_MAX); goto done; }
+    for (int i = 0; i < tok[0].size; i++) {
+        int item = dtg_json_array_nth(tok, count, 0, i);
+        int id = item >= 0 ? dtg_json_object_field(calls, tok, count, item, "id") : -1;
+        int fn = item >= 0 ? dtg_json_object_field(calls, tok, count, item, "function") : -1;
+        int name = fn >= 0 ? dtg_json_object_field(calls, tok, count, fn, "name") : -1;
+        int args = fn >= 0 ? dtg_json_object_field(calls, tok, count, fn, "arguments") : -1;
+        char tool[64];
+        if (id < 0 || name < 0 || !dtg_json_token_string(calls, &tok[id], ids[i], 128) ||
+            !dtg_json_token_string(calls, &tok[name], tool, sizeof(tool)) || !tool[0]) {
+            snprintf(error, cap, "tool call %d has no id or function name", i + 1); goto done;
+        }
+        size_t raw = args >= 0 ? (size_t)(tok[args].end - tok[args].start) : 0;
+        char *text = malloc(raw + 3);
+        if (!text) { snprintf(error, cap, "out of memory"); goto done; }
+        if (args < 0) strcpy(text, "{}");
+        else if (tok[args].type == DTG_JSON_STRING) { if (!dtg_json_token_string(calls, &tok[args], text, raw + 1)) text[0] = '\0'; }
+        else { memcpy(text, calls + tok[args].start, raw); text[raw] = '\0'; }
+        dtg_json_token *at = malloc((size_t)limit * sizeof(*at));
+        int ac = at ? dtg_json_tokenize(text, strlen(text), at, limit) : -1;
+        if (ac <= 0 || at[0].type != DTG_JSON_OBJECT) {
+            free(at); free(text);
+            snprintf(error, cap, "arguments of %s are not a JSON object", tool); goto done;
+        }
+        design_tool_call call = {0};
+        call.name = strdup(tool);
+        for (int k = 1; k + 1 < ac; k++) {
+            if (at[k].parent != 0) continue;              /* keys are the object's direct children */
+            char key[128];
+            if (!dtg_json_token_string(text, &at[k], key, sizeof(key))) continue;
+            const dtg_json_token *v = &at[k + 1];
+            size_t vlen = (size_t)(v->end - v->start);
+            if (v->type == DTG_JSON_STRING) {
+                char *value = malloc(vlen + 1);
+                if (value && dtg_json_token_string(text, v, value, vlen + 1)) tool_call_add_arg(&call, key, value, strlen(value), true);
+                free(value);
+            } else tool_call_add_arg(&call, key, text + v->start, vlen, false);
+        }
+        free(at); free(text);
+        if (out->len == out->cap) {
+            out->cap = out->cap ? out->cap * 2 : 4;
+            out->v = realloc(out->v, (size_t)out->cap * sizeof(*out->v));
+        }
+        out->v[out->len++] = call;
+    }
+    n = tok[0].size;
+done:
+    free(tok);
+    return n;
+}
+
 static char *design_remote_system_prompt(design_agent *a) {
     design_buf sys = {0};
-    buf_puts(&sys, design_system_prompt);
+    const char *tools_end = NULL;
+    const char *tools = design_remote_structured() ? design_prompt_tools_section(&tools_end) : NULL;
+    if (tools) {
+        /* The schemas travel as `tools`; repeating them as DSML here would ask
+         * for a second, textual call syntax. */
+        buf_append(&sys, design_system_prompt, (size_t)(tools - design_system_prompt));
+        buf_puts(&sys, "## Tools\n\nCall tools only through the function-calling interface: the tool "
+                       "schemas are attached to every request. Never write tool-call markup (DSML, XML "
+                       "or JSON) in your reply text.\n\n");
+        buf_puts(&sys, tools_end);
+    } else buf_puts(&sys, design_system_prompt);
     buf_puts(&sys, "\n\n");
     buf_puts(&sys, design_text_only_inspection_note);
     char *pm = design_read_project_memory(&a->project);
@@ -13362,6 +13520,7 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
     int repeated_tool_errors = 0;
     bool forced_plain = false;
     int incomplete_todo_continues = 0;
+    const bool structured = design_remote_structured();
     for (int tool_round = 0; ; tool_round++) {
         (void)tool_round;
         dstudio_steer_drain(&steering, 0, design_remote_steer_append, a);
@@ -13375,25 +13534,68 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
         };
         char *messages = dstudio_remote_messages_snapshot(&a->remote_messages);
         char err[256] = {0};
-        int rc = dstudio_remote_chat_stream(
-            a->cfg->remote_base_url,
-            a->cfg->remote_model && a->cfg->remote_model[0] ? a->cfg->remote_model : "ds4",
-            messages,
-            design_remote_think_level(agent_think_mode(a)),
-            a->cfg->temperature,
-            a->cfg->top_p,
-            a->cfg->min_p,
-            a->cfg->n_predict,
-            design_remote_cb,
-            &ctx,
-            design_remote_model_cancel,
-            err,
-            sizeof(err));
+        const char *tools_json = structured ? design_tool_schemas_cached() : NULL;
+        char *calls_json = NULL;
+        if (structured && !tools_json) {
+            free(messages);
+            out_text("\nDesign could not prepare its tool schemas for this model.\n",
+                     strlen("\nDesign could not prepare its tool schemas for this model.\n"));
+            dsml_parser_free(&dsml);
+            design_project_finish_run(&a->project, "error");
+            return 0;
+        }
+        int rc = structured
+            ? dstudio_remote_chat_stream_tools(
+                a->cfg->remote_base_url,
+                a->cfg->remote_model && a->cfg->remote_model[0] ? a->cfg->remote_model : "ds4",
+                messages, tools_json,
+                design_remote_think_level(agent_think_mode(a)),
+                a->cfg->temperature, a->cfg->top_p, a->cfg->min_p, a->cfg->n_predict,
+                design_remote_cb, &ctx, design_remote_model_cancel, &calls_json, err, sizeof(err))
+            : dstudio_remote_chat_stream(
+                a->cfg->remote_base_url,
+                a->cfg->remote_model && a->cfg->remote_model[0] ? a->cfg->remote_model : "ds4",
+                messages,
+                design_remote_think_level(agent_think_mode(a)),
+                a->cfg->temperature,
+                a->cfg->top_p,
+                a->cfg->min_p,
+                a->cfg->n_predict,
+                design_remote_cb,
+                &ctx,
+                design_remote_model_cancel,
+                err,
+                sizeof(err));
         free(messages);
         stream_finish(&stream);
         if (ctx.reasoning_open) emit_event("reasoning_end");
         char *assistant = buf_take(&ctx.assistant_raw);
-        if (assistant && assistant[0]) {
+        char call_ids[DESIGN_STRUCTURED_CALLS_MAX][128];
+        int structured_calls = 0;
+        if (structured && rc == 0 && calls_json) {
+            /* A complete batch only (the transport returns calls only after a
+             * successful terminal frame). The assistant message carries its
+             * calls so every following tool message has a valid parent. */
+            structured_calls = design_structured_calls(calls_json, &dsml.calls, call_ids,
+                                                       dsml.error, sizeof(dsml.error));
+            if (structured_calls > 0) {
+                dsml.state = DSML_DONE;
+                design_buf m = {0};
+                buf_puts(&m, "{\"role\":\"assistant\",\"content\":");
+                design_json_string(&m, assistant ? assistant : "");
+                buf_puts(&m, ",\"tool_calls\":");
+                buf_puts(&m, calls_json);
+                buf_puts(&m, "}");
+                char *object = buf_take(&m);
+                design_remote_messages_append_raw(a, object ? object : "{}");
+                free(object);
+            } else if (structured_calls < 0) {
+                dsml.state = DSML_ERROR;
+                tool_calls_free(&dsml.calls);
+            }
+        }
+        free(calls_json);
+        if (structured_calls <= 0 && assistant && assistant[0]) {
             dstudio_remote_messages_append(&a->remote_messages,
                                            &a->remote_message_count,
                                            "assistant",
@@ -13507,7 +13709,32 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
             design_project_finish_run(&a->project, "ok");
             return 0;
         }
-        tool_result = design_tool_round_result(&a->project, &dsml, malformed_tool);
+        bool delivered = false;
+        char *structured_results = NULL;
+        if (structured && structured_calls > 0) {
+            /* One call at a time through the same executor, so each result
+             * becomes the tool message of its own tool_call_id. */
+            design_buf all = {0};
+            for (int i = 0; i < dsml.calls.len; i++) {
+                design_tool_calls one = { .v = &dsml.calls.v[i], .len = 1, .cap = 1 };
+                char *r = execute_tool_calls(&a->project, &one);
+                design_buf m = {0};
+                buf_puts(&m, "{\"role\":\"tool\",\"tool_call_id\":");
+                design_json_string(&m, call_ids[i]);
+                buf_puts(&m, ",\"content\":");
+                design_json_string(&m, r ? r : "");
+                buf_puts(&m, "}");
+                char *object = buf_take(&m);
+                design_remote_messages_append_raw(a, object ? object : "{}");
+                free(object);
+                buf_puts(&all, r ? r : "");
+                buf_puts(&all, "\n");
+                free(r);
+            }
+            tool_result = buf_take(&all);
+            structured_results = strdup(tool_result ? tool_result : "");
+            delivered = true;
+        } else tool_result = design_tool_round_result(&a->project, &dsml, malformed_tool);
         if (!malformed_tool) {
             design_note_concrete_tool_progress(
                 &a->project, &incomplete_todo_continues, tool_round);
@@ -13547,8 +13774,19 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
          * tool_calls schema, so on https backends ship the result as a plain user
          * message instead (same workaround the agent's remote path uses). Local /
          * LAN backends accept the "tool" role as-is. */
-        if (a->cfg->remote_base_url &&
-            strncmp(a->cfg->remote_base_url, "https://", 8) == 0) {
+        if (delivered) {
+            /* Results are already in the transcript; only a note DStudio
+             * appended afterwards (repeated error, stop using tools) remains. */
+            size_t base = structured_results ? strlen(structured_results) : 0;
+            if (tool_result && strlen(tool_result) > base && structured_results &&
+                !strncmp(tool_result, structured_results, base))
+                dstudio_remote_messages_append(&a->remote_messages, &a->remote_message_count,
+                                               "user", tool_result + base);
+            else if (tool_result && structured_results && strcmp(tool_result, structured_results))
+                dstudio_remote_messages_append(&a->remote_messages, &a->remote_message_count,
+                                               "user", tool_result);
+        } else if (structured || (a->cfg->remote_base_url &&
+            strncmp(a->cfg->remote_base_url, "https://", 8) == 0)) {
             design_buf tr = {0};
             buf_puts(&tr, "[tool result]\n");
             buf_puts(&tr, tool_result ? tool_result : "");
@@ -13565,6 +13803,7 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
                                            tool_result);
         }
         free(tool_result);
+        free(structured_results);
         free(assistant);
         dsml_parser_free(&dsml);
     }

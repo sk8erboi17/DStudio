@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/mitsuhiko/pi-ds4",
+  "revision": "db8806cd52757fbaf957fe56b54700a1094a30b8",
+  "order": [
+    "external-server.patch"
+  ],
+  "patches": {
+    "external-server.patch": {
+      "sha256": "9b565940dac69dd06b5f0926330ee005ff013fd63ad57d04202b9410da1d67c2",
+      "baseFile": "index.ts",
+      "baseSHA256": "4022f303f164508ee8559138a9fbb9473e187c17aa3b830e3591153c9f1ab529"
+    }
+  }
+}

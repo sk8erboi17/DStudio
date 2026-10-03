@@ -164,7 +164,10 @@ foreach ($Item in @("web", "extension", "patch", "scripts", "LICENSE", "THIRD_PA
 }
 New-Item -ItemType Directory -Force -Path (Join-Path $OutDir "src") | Out-Null
 Copy-Item (Join-Path $Root "src\engines") (Join-Path $OutDir "src\engines") -Recurse -Force
-# Harnesses: native Cowork/Design/GSA/RSA sources (NOT TESTED on Windows).
+# MLX is macOS/Apple Silicon only: its wheels are not shipped on Windows.
+Remove-Item (Join-Path $OutDir "src\engines\mlx") -Recurse -Force -ErrorAction SilentlyContinue
+# Harnesses: native Cowork/Design/GSA/RSA sources and the pinned offline pi,
+# opencode and pi-ds4 snapshots (NOT TESTED on Windows).
 Copy-Item (Join-Path $Root "src\harness") (Join-Path $OutDir "src\harness") -Recurse -Force
 
 Write-Host "windows: generating embedded page headers"

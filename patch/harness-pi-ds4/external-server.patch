@@ -1,0 +1,66 @@
+--- a/index.ts
++++ b/index.ts
+@@ -38,7 +38,12 @@
+ // Keep the historical typo for on-disk lease/state compatibility with older installs.
+ const MANAGED_BY = "pi-sd4-provider";
+ 
+-const DS4_DIR = join(homedir(), ".pi", "ds4");
++// DStudio: DS4_STATE_DIR keeps settings, locks and logs out of ~/.pi.
++const DS4_DIR = process.env.DS4_STATE_DIR || join(homedir(), ".pi", "ds4");
++// DStudio: a ds4-server owned by the host application. The extension then only
++// registers the provider for that endpoint; it never clones, builds, starts,
++// watches or stops a server, and writes no state of its own.
++const EXTERNAL_BASE_URL = process.env.DS4_EXTERNAL_BASE_URL?.replace(/\/+$/, "") || undefined;
+ const SETTINGS_FILE = join(DS4_DIR, "settings.json");
+ const KV_DIR = join(DS4_DIR, "kv");
+ const SUPPORT_DIR = join(DS4_DIR, "support");
+@@ -2507,7 +2512,49 @@
+ 	registerDs4Provider(pi);
+ }
+ 
++function registerExternalDs4Provider(pi: ExtensionAPI, apiBase: string): void {
++	const id = process.env.DS4_EXTERNAL_MODEL || "deepseek-v4-flash";
++	const contextWindow = SERVER_CONTEXT_TOKENS;
++	const baseUrl = PROVIDER_API === "anthropic-messages" ? apiBase.replace(/\/v1$/, "") : apiBase;
++	const model: Model<ProviderProtocol> = {
++		id,
++		name: process.env.DS4_EXTERNAL_MODEL_NAME || id,
++		api: PROVIDER_API,
++		provider: PROVIDER_ID,
++		baseUrl,
++		reasoning: true,
++		thinkingLevelMap: { off: "none", minimal: null, low: null, medium: null, high: "high", xhigh: null, max: "max" },
++		input: process.env.DS4_EXTERNAL_VISION === "1" ? ["text", "image"] : ["text"],
++		contextWindow,
++		maxTokens: Math.min(384_000, contextWindow),
++		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
++		compat: modelCompat(),
++	};
++	const apiKey = process.env.DS4_API_KEY || "dsv4-local";
++	pi.registerProvider(
++		createProvider<ProviderProtocol>({
++			id: PROVIDER_ID,
++			name: "ds4.c (host-owned server)",
++			baseUrl,
++			auth: {
++				apiKey: {
++					name: "Local ds4 server",
++					async resolve() {
++						return { auth: { apiKey }, source: "host-owned ds4-server" };
++					},
++				},
++			},
++			models: [model],
++			api: protocolStreams(),
++		}),
++	);
++}
++
+ export default async function (pi: ExtensionAPI) {
++	if (EXTERNAL_BASE_URL) {
++		registerExternalDs4Provider(pi, EXTERNAL_BASE_URL);
++		return;
++	}
+ 	runtimeDisposed = false;
+ 	shuttingDown = false;
+ 	leaseStartedAt = Date.now();

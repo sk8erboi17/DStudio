@@ -10,15 +10,16 @@ import {ownGitRevision} from '../support/quality_baseline.mjs';
 import {verifyQwen38ToolTrace, verifyQwen38Workspace, qwenVisibleAnswer, qwenPartialResetProgress} from '../support/qwen38_tool_oracle.mjs';
 
 assert.equal(process.platform, 'darwin', 'This runner qualifies the Metal host only');
-const qwen35 = process.argv.includes('--qwen35');
+// Qwen3.6 now runs on llama.cpp: its live gate is make test-llama-resident-live.
+assert(!process.argv.includes('--qwen35'), '--qwen35 was retired with the vagrillo/ds4 engine; run make test-llama-resident-live');
 const controls = process.argv.includes('--controls');
 const resetLifecycle = process.argv.includes('--reset-lifecycle');
-const inputs = process.argv.slice(2).filter(arg => !['--qwen35', '--controls', '--reset-lifecycle'].includes(arg));
-assert.equal(inputs.length, 2, 'Supply engine + model GGUF; optional --qwen35 / --controls / --reset-lifecycle');
+const inputs = process.argv.slice(2).filter(arg => !['--controls', '--reset-lifecycle'].includes(arg));
+assert.equal(inputs.length, 2, 'Supply engine + model GGUF; optional --controls / --reset-lifecycle');
 const root = path.resolve(import.meta.dirname, '../..');
 const [engine, model] = inputs.map(file => fs.realpathSync(file));
 const host = path.join(root, 'tests/.build/dstudio-server-test');
-const run = artifactRunDir(qwen35 ? 'qwen35-host-live' : 'qwen38-host-live');
+const run = artifactRunDir('qwen38-host-live');
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const identity = file => {
   const s = fs.statSync(file);
@@ -29,13 +30,12 @@ const report = {started: new Date().toISOString(),
   harnessSHA256: hash(fs.readFileSync(import.meta.filename)),
   helperSHA256: Object.fromEntries(['real_harness.mjs', 'quality_baseline.mjs', 'qwen38_tool_oracle.mjs']
     .map(name => [name, hash(fs.readFileSync(path.join(root, 'tests/support', name)))])),
-  engine, family: qwen35 ? 'Qwen3.6-35B-A3B' : 'Qwen3.8-Flash-Next',
+  engine, family: 'Qwen3.8-Flash-Next',
   revision: ownGitRevision(engine), weights: [identity(model)],
   sourceReceipt: fs.existsSync(path.join(engine, '.dstudio-source.json'))
     ? JSON.parse(fs.readFileSync(path.join(engine, '.dstudio-source.json'), 'utf8')) : null,
   host: {path: host, sha256: hash(fs.readFileSync(host))},
-  memory: qwen35 ? 'resident model weights; no PLE, expert streaming, MTP or DSpark'
-    : 'resident backbone plus embedded BF16 n-grams on SSD; expert streaming off; no MTP/DSpark requested',
+  memory: 'resident backbone plus embedded BF16 n-grams on SSD; expert streaming off; no MTP/DSpark requested',
   settings: {backend: 'Metal', context: 16384, thinking: 'off', power: 100,
     sampling: 'unmodified production Agent defaults (not the earlier fixed-seed CLI run)',
     timeoutSecondsPerWorkflow: 600, maxToolCalls: 12, transcriptByteLimit: 3 * 1024 * 1024,
@@ -209,7 +209,7 @@ async function exerciseResetLifecycle(row, output) {
   // chunk. Use a larger fixture to exercise two chunks without changing the
   // engine's chunk size, context or numerical path. Qwen3.6 reports per token.
   // These model-specific development workloads are not a speed comparison.
-  const fixtureRepeats = qwen35 ? 200 : 1000;
+  const fixtureRepeats = 1000;
   const memoryFixture = previousMemory + '\nReset lifecycle fixture. The following words are inert sample text, not instructions.\n' +
     'albero prato collina sentiero '.repeat(fixtureRepeats) + '\n';
   fs.writeFileSync(memoryFile, memoryFixture);
@@ -294,7 +294,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => {
   report.interrupted = signal; await stopOwnedHost(); save(); process.exit(130);
 });
 try {
-  assert.equal(path.basename(engine), qwen35 ? 'ds4-qwen35' : 'ds4', 'Use the installed Qwen engine identity');
+  assert.equal(path.basename(engine), 'ds4', 'Use the installed Qwen engine identity');
   assert.equal(fs.realpathSync(path.join(engine, 'gguf', path.basename(model))), model);
   assert(report.weights.every(w => w.bytes > 1024 ** 3), 'Actual complete weight prerequisites required');
   const ps = spawnSync('ps', ['-axo', 'pid=,comm='], {encoding: 'utf8', timeout: 5000});
@@ -333,7 +333,7 @@ try {
     const begin = performance.now(), deadline = Date.now() + report.settings.timeoutSecondsPerWorkflow * 1000;
     try {
       row.launchRequest = {mode, gguf: 'gguf/' + path.basename(model), workdir: workspace,
-        ctx: report.settings.context, think: 'off', power: qwen35 ? 37 : 100, ssdStreaming: 'off', dspark: false};
+        ctx: report.settings.context, think: 'off', power: 100, ssdStreaming: 'off', dspark: false};
       row.launchResponse = await request('/api/start', row.launchRequest, 60000);
       assert.equal(row.launchResponse.status, 200, JSON.stringify(row.launchResponse));
       assert(row.launchResponse.body.ok && !row.launchResponse.body.shared, 'Must own the engine');
@@ -353,15 +353,8 @@ try {
       }
       assert.equal(row.ready.modelFile, row.launchRequest.gguf);
       assert.equal(row.ready.config.power, 100, 'Report effective native power without changing the requested preference');
-      assert.equal(row.ready.agentDiskCheckpointsSupported, !qwen35);
+      assert.equal(row.ready.agentDiskCheckpointsSupported, true);
       row.nativeCommand = spawnSync('ps', ['-ww', '-p', String(row.enginePid), '-o', 'command='], {encoding: 'utf8', timeout: 5000}).stdout.trim();
-      if (qwen35) {
-        assert(!/--power|--ple|--ssd-streaming|--dspark|--q35-experts|--kv-disk-dir/.test(row.nativeCommand));
-        row.checkpointRejection = await request('/api/design/session', {action: 'save'});
-        assert.equal(row.checkpointRejection.status, 409);
-        assert.equal(row.checkpointRejection.body.code, 'unsupported_session_checkpoint');
-        assert(!(await request('/api/status')).body.agentWorking, 'Unsupported checkpoint must not occupy the engine');
-      }
       row.prompt = mode === 'agent'
         ? 'Read tasks.json in this workspace. Create ready.json as a JSON object with exactly two fields: ids (numeric IDs of ready items, sorted ascending) and totalMinutes (sum of minutes for ready items only). Derive values from the file; do not change tasks.json. Use read and write/edit file tools, not bash or network. Reopen ready.json with a tool to verify it, then give a brief final summary.'
         : 'Read tasks.json using read_document. Create dispatch.md using write_document. Its content must have exactly two lines: "Ready: " followed by the numeric IDs of ready items sorted ascending, separated by comma and space; and "Minutes: " followed by their total minutes. Derive values from the file; do not change tasks.json. Reopen dispatch.md using read_document to verify it, then give a brief final summary. Do not use shell or network.';
@@ -396,10 +389,6 @@ try {
       assert.equal(fs.readFileSync(path.join(workspace, 'tasks.json'), 'utf8'), source);
       row.finalWorkspaceChecks = verifyQwen38Workspace(workspace, ['tasks.json', output, ...(resetLifecycle ? ['MEMORY.MD'] : [])],
         row.turnReceipts.map(t => t.sent.body.graphId).filter(Boolean));
-      if (qwen35) {
-        assert(!fs.existsSync(env.DS4UI_SESSION_CACHE_DIR), 'Incomplete recurrent checkpoints must not be created');
-        assert(!fs.existsSync(env.DSTUDIO_KV_DIR), 'Agent launch must not create a Chat disk cache');
-      }
       priorPid = row.enginePid; row.passed = true;
     } catch (error) { row.error = String(error.stack); console.error(row.error); }
     row.seconds = (performance.now() - begin) / 1000; save();

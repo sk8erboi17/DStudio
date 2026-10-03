@@ -9600,7 +9600,6 @@
             <section class="ide-pv" id="ide-pv" aria-label="Design preview" hidden>
               <div class="ide-pv-h"><b>Design</b><span class="ide-pv-file" id="ide-pv-file"></span><span class="ide-pv-st" id="ide-pv-st"></span></div>
               <div class="ide-pv-body">
-                <iframe class="ide-pv-frame" id="ide-pv-frame" title="Live design preview" sandbox=""></iframe>
                 <div class="ide-board" id="ide-board" hidden>
                   <div class="ide-board-wrap" id="ide-board-wrap">
                     <div class="ide-board-label"><span><b id="ide-board-file">index.html</b><span class="ide-board-who" id="ide-board-who"></span></span><span id="ide-board-bytes">empty</span></div>
@@ -10201,6 +10200,7 @@
               <button type="button" class="set-nav__b" data-pane="vision">Vision</button>
               <button type="button" class="set-nav__b" data-pane="video">Video</button>
               <button type="button" class="set-nav__b" data-pane="embed">Skill search</button>
+              <button type="button" class="set-nav__b" data-pane="harness">Harnesses</button>
             </div>
             <div class="set-nav__group" data-nav-group>
               <div class="set-nav__eyebrow">App</div>
@@ -10499,6 +10499,30 @@
             </div>
             <p class="set-help">A small local multilingual embedding model served by llama.cpp indexes every skill description so the Agent finds the right skill by <strong>meaning</strong> — including Italian and paraphrases — instead of literal keywords. It starts on demand and <strong>stops itself when idle</strong>. Without it, the Agent's skill search returns nothing (there is no lexical fallback). Install builds the index once (a few seconds); files live in <code>~/.dstudio/llama-embed</code>.</p>
           </div>
+        </section>
+
+        <section class="set-grp" data-pane="harness" data-title="Harnesses" data-description="Choose the agent loop that runs Agent mode: DStudio's own, pi or OpenCode." hidden>
+          <div class="field">
+            <label for="set-agent-harness">Agent harness <small class="field-note">same model, engine and workspace; only the agent loop changes</small></label>
+            <select id="set-agent-harness">
+              <option value="native">DStudio Agent</option>
+              <option value="pi">pi</option>
+              <option value="opencode">OpenCode</option>
+            </select>
+            <p class="set-help">pi and OpenCode run with the model you select: Qwen on DStudio's llama.cpp, DeepSeek and the other ds4 models on a ds4-server the harness owns (pi through pi-ds4), or a remote endpoint. Their file tools are confined to the workspace. Cowork and Design keep DStudio's own runtimes. Applies the next time Agent starts.</p>
+          </div>
+          <div class="field">
+            <span>pi <small class="field-note" id="set-harness-pi-version"></small></span>
+            <p class="set-inline-msg" id="set-harness-pi-status">Checking…</p>
+            <div class="field__row"><button type="button" id="set-harness-pi-install" class="btn">Install</button></div>
+          </div>
+          <div class="field">
+            <span>OpenCode <small class="field-note" id="set-harness-opencode-version"></small></span>
+            <p class="set-inline-msg" id="set-harness-opencode-status">Checking…</p>
+            <div class="field__row"><button type="button" id="set-harness-opencode-install" class="btn">Install</button></div>
+          </div>
+          <div class="field__row"><button type="button" id="set-harness-cancel" class="btn" hidden>Cancel installation</button></div>
+          <p class="set-help">The pinned sources of pi, OpenCode and pi-ds4 ship with DStudio. Installing downloads their JavaScript dependencies once, pinned by each project's lockfile, and builds them in the background (OpenCode also fetches its pinned Bun build tool); afterwards they run offline. Nothing is installed system-wide.</p>
         </section>
 
         <section class="set-grp" data-pane="data" data-title="Data" data-description="Manage conversations and local caches stored by DStudio." hidden>
@@ -10898,6 +10922,7 @@
       ssdStreaming: 'off',   // off | on | auto — DS4-only defaults to mapped residency without expert SSD streaming
       metalHotlistSeed: false, // experimental Metal expert-cache hotlist seed; off keeps the stable pread path
       dspark: false,        // DSpark speculative decoding on local Flash models (needs the support GGUF)
+      agentHarness: 'native', // Agent loop: 'native' (DStudio) | 'pi' | 'opencode'; same model and workspace
       webMode: 'off',       // chat web context: 'off' | 'search' | 'research'
       planMode: 'off',      // agent Plan mode: 'off' | 'on' for the next planning turn
       planStyle: 'ask',     // agent plan behavior: ask for choices first | auto-plan with stated assumptions
@@ -10984,6 +11009,11 @@
 
     /* Platform modifier: ⌘ on macOS, Ctrl on Linux/Windows. */
     const IS_MAC = /Mac|iP(hone|ad|od)/.test(navigator.platform);
+    // llama.cpp is the tested static Metal build on macOS; elsewhere it is the
+    // dynamic build whose GPU modules depend on the toolchains found (untested).
+    const LLAMA_ENGINE_NOTE = IS_MAC
+      ? ' It runs on DStudio\'s bundled llama.cpp engine, which is built on first use (CMake required). DStudio verifies the files without changing your selected model.'
+      : ' It runs on DStudio\'s bundled llama.cpp engine, built on first use (CMake required) with a CPU backend plus CUDA, ROCm or Vulkan when their toolkit is installed. This platform has not been tested yet. DStudio verifies the files without changing your selected model.';
     const kbdLabel = (k) => (IS_MAC ? '⌘' : 'Ctrl+') + k;
     const isMod = (e) => (IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
 
@@ -13230,6 +13260,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       /qwen3\.6-35b-a3b/i.test(String(settings?.modelGguf || settings?.model || ''));
     const localQwen27Selected = (settings = Store.getSettings()) =>
       /qwen3\.8-27b(?:-|\.|$)/i.test(String(settings?.modelGguf || settings?.model || ''));
+    // Qwen checkpoints served by DStudio's llama.cpp engine.
+    const localLlamaQwenSelected = (settings = Store.getSettings()) =>
+      localQwen35Selected(settings) || localQwen27Selected(settings);
     const localQwenSelected = (settings = Store.getSettings()) =>
       localQwen35Selected(settings) || localQwen27Selected(settings) ||
       /qwen3\.8-flash-next/i.test(String(settings?.modelGguf || settings?.model || ''));
@@ -13237,11 +13270,11 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       const remote = isLanClientMode() ||
         (settings.chatBackend === 'deepseek' && String(settings.deepseekApiKey || '').trim());
       // Presentation and request mapping for the pinned native renderers, not
-      // an inference implementation. Qwen3.6 uses enable_thinking only;
-      // Qwen3.8 maps HIGH and MAX to xhigh even below DeepSeek's 384k threshold.
-      // The separate dense 27B renderer in pinned q36 uses real MAX at 96k.
+      // an inference implementation. Qwen3.6 and Qwen3.8-27B run on DStudio's
+      // llama.cpp engine, whose Qwen templates have one switch (enable_thinking);
+      // Qwen3.8 Flash Next maps HIGH and MAX to xhigh below DeepSeek's 384k threshold.
       if (!remote && localQwen27Selected(settings))
-        return { kind: 'qwen27', maximum: 'max', minimumContext: 98304, singleLevel: false };
+        return { kind: 'qwen27', maximum: 'on', minimumContext: 0, singleLevel: true };
       if (!remote && localQwenSelected(settings)) {
         const kind = localQwen35Selected(settings) ? 'qwen35' : 'qwen38';
         return { kind, maximum: kind === 'qwen35' ? 'on' : 'xhigh', minimumContext: 0, singleLevel: true };
@@ -13359,6 +13392,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     // Derive {model, kind, quant} from a GGUF filename (shared by onboarding + settings).
     function parseGgufName(file) {
       file = String(file || '').split(/[\\/]/).pop();
+      // An MLX model is a folder of safetensors served by the bundled MLX runtime.
+      if (/^Qwen3\.6-35B-A3B-mxfp8$/i.test(file))
+        return { model: 'Qwen3.6-35B-A3B', kind: 'text · MLX', quant: 'MXFP8' };
       if (/^Qwen3\.8-27B-UD-Q6_K_XL\.gguf$/i.test(file))
         return { model: 'Qwen3.8-27B', kind: 'text + images', quant: 'Q6_K_XL' };
       if (/^Qwen3\.6-35B-A3B-UD-Q6_K_XL\.gguf$/i.test(file))
@@ -13469,8 +13505,10 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       { id: 'laguna-q4', label: 'Laguna S 2.1 · Q4_K_M — ~68 GB · Metal/full residency', body: { target: 'laguna-q4', engine: 'laguna' }, match: /^laguna-s-2\.1-Q4_K_M\.gguf$/i },
       { id: 'qwen38-q2', label: 'Qwen3.8-Flash-Next · Q2 — 147.2 GB disk / 41.7 GiB resident · main · BF16 n-grams included', body: { target: 'qwen38-q2', engine: 'main' }, match: /^Qwen3\.8-Flash-Next-Q2\.gguf$/i },
       { id: 'qwen38-q4k', label: 'Qwen3.8-Flash-Next · Q4 — 177.3 GB disk / 69.7 GiB resident · main · BF16 n-grams included', body: { target: 'qwen38-q4k', engine: 'main' }, match: /^Qwen3\.8-Flash-Next-Q4\.gguf$/i },
-      { id: 'qwen36-q6', label: 'Qwen3.6-35B-A3B · Q6_K_XL — 31.8 GB · Chat, Agent, Cowork · Metal, no PLE', body: { target: 'qwen36-q6', engine: 'qwen35' }, match: /^Qwen3\.6-35B-A3B-UD-Q6_K_XL\.gguf$/i },
-      { id: 'qwen27-q6', label: 'Qwen3.8-27B · Q6_K_XL + F16 projector — 26.2 GB · Experimental, quality checks incomplete', body: { target: 'qwen27-q6', engine: 'q36' }, match: /^Qwen3\.8-27B-UD-Q6_K_XL\.gguf$/i },
+      { id: 'qwen36-q6', label: 'Qwen3.6-35B-A3B · Q6_K_XL — 31.8 GB · llama.cpp · Chat, Agent, Cowork', body: { target: 'qwen36-q6', engine: 'main', llama: true }, match: /^Qwen3\.6-35B-A3B-UD-Q6_K_XL\.gguf$/i },
+      { id: 'qwen27-q6', label: 'Qwen3.8-27B · Q6_K_XL + F16 projector — 26.2 GB · llama.cpp · Chat, Agent, Cowork · Experimental, quality checks incomplete', body: { target: 'qwen27-q6', engine: 'main', llama: true }, match: /^Qwen3\.8-27B-UD-Q6_K_XL\.gguf$/i },
+      // A folder of safetensors for the bundled MLX runtime (Apple Silicon only).
+      ...(/Mac/.test(globalThis.navigator?.platform || '') ? [{ id: 'qwen36-mlx', label: 'Qwen3.6-35B-A3B · MLX MXFP8 — 36.7 GB · MLX, Apple Silicon · Chat, Agent, Cowork, Design', body: { target: 'qwen36-mlx', engine: 'main', mlx: true }, match: /^Qwen3\.6-35B-A3B-mxfp8$/i }] : []),
     ];
     function availableModelDownloads(ggufs) {
       const files = (ggufs || []).map((g) => String(g?.file || ''));
@@ -13573,7 +13611,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         on(resume, 'click', () => Switcher.downloadModel(choice.body));
         host.append(resume);
       }
-      if (dl.paused && dl.variant !== 'qwen27-q6') {
+      if (dl.paused && dl.variant !== 'qwen27-q6' && dl.variant !== 'qwen36-mlx') {
         const remove = el('button', { class: 'btn btn--sm', type: 'button', text: 'Delete partial' });
         on(remove, 'click', async () => {
           const yes = await askConfirm({
@@ -15911,7 +15949,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       function buildBody({ model, messages, temperature, maxTokens, thinkLevel, stream = true, settings = Store.getSettings() }) {
         const off = thinkLevel === 'off';
         const cloud = deepseekMode(settings);
-        const dsparkGreedy = !cloud && !localQwen27Selected(settings) && !!settings.dspark;
+        const dsparkGreedy = !cloud && !localLlamaQwenSelected(settings) && !!settings.dspark;
         const effectiveModel = cloud
           ? (settings.deepseekModel || 'deepseek-v4-flash')
           : model;
@@ -15922,9 +15960,10 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           body.think = !off; // native ds4 parameter, always explicit
         }
         const profile = thinkingProfile(settings);
-        if (!off && profile.kind === 'qwen27' && thinkLevel === 'max' && Number(settings.ctxSize) < profile.minimumContext)
-          throw new Error('Qwen3.8-27B Thinking: max needs at least 96k context. Choose max in the composer to confirm the change, or use high.');
-        if (!off && profile.kind !== 'qwen35') body.reasoning_effort = profile.kind === 'qwen38'
+        const llamaQwen = profile.kind === 'qwen27' || profile.kind === 'qwen35';
+        // llama.cpp switches Qwen thinking through the chat template.
+        if (llamaQwen) body.chat_template_kwargs = { enable_thinking: !off };
+        if (!off && !llamaQwen) body.reasoning_effort = profile.kind === 'qwen38'
           ? (['low', 'medium'].includes(thinkLevel) ? thinkLevel : 'xhigh')
           : thinkLevel === 'max' ? 'max' : 'high';
         if (stream) body.stream_options = { include_usage: true };
@@ -27742,6 +27781,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
         on(qs('#set-embed-install'), 'click', embedInstall);
         on(qs('#set-embed-stop'), 'click', embedStop);
+        on(qs('#set-agent-harness'), 'change', (e) => Store.setSettings({ agentHarness: e.target.value }));
+        for (const name of ['pi', 'opencode']) on(qs(`#set-harness-${name}-install`), 'click', () => harnessInstall(name));
+        on(qs('#set-harness-cancel'), 'click', harnessCancel);
 
         // Sidebar section nav: one pane at a time.
         on(qs('#set-nav'), 'click', (e) => {
@@ -27782,6 +27824,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
         if (id === 'video') refreshVideoStatus();
         if (id === 'embed') refreshEmbedStatus();
+        if (id === 'harness') refreshHarnessStatus();
         if (id === 'connection') refreshEngineSummary();
         if (id === 'advanced') renderDsparkSupport();
         const body = dialog.querySelector('.set-body');
@@ -27946,6 +27989,54 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           if (f.videoInstallRefs) f.videoInstallRefs.disabled = false;
           refreshVideoStatus(true);
         }
+      }
+
+      // ---- Harness controls (host-local /api/harness/*) ----
+      // The host owns the installer child; this view only polls its status.
+      let harnessPoll = null;
+      async function refreshHarnessStatus() {
+        const select = qs('#set-agent-harness');
+        if (select) select.value = Store.getSettings().agentHarness || 'native';
+        let v = null;
+        try { v = await fetch('/api/harness/status', { signal: AbortSignal.timeout(5000) }).then((r) => r.json()); }
+        catch { /* launcher offline */ }
+        for (const name of ['pi', 'opencode']) {
+          const stat = qs(`#set-harness-${name}-status`), btn = qs(`#set-harness-${name}-install`), ver = qs(`#set-harness-${name}-version`);
+          if (!stat || !btn) continue;
+          if (!v?.ok) { stat.textContent = 'Status unavailable (launcher offline?).'; btn.disabled = true; continue; }
+          const h = v.harnesses?.[name] || {};
+          const installing = v.installing === name;
+          stat.textContent = installing ? 'Installing… dependencies download once, then it builds in the background.'
+            : !v.bundled ? 'The bundled sources are missing from this DStudio build.'
+            : h.installed ? `Installed${v.active === name ? ' and running in Agent' : ''}.`
+            : 'Not installed.';
+          if (ver) ver.textContent = h.installed ? `pinned ${String(h.commit || '').slice(0, 7)}` : '';
+          btn.textContent = h.installed ? 'Reinstall' : 'Install';
+          btn.disabled = !!v.installing || !v.bundled || v.active === name;
+        }
+        const cancel = qs('#set-harness-cancel');
+        if (cancel) cancel.hidden = !v?.installing;
+        if (v?.error && !v.installing) {
+          const target = qs('#set-harness-pi-status');
+          if (target) target.textContent = `${target.textContent} Last installation: ${v.error}`;
+        }
+        if (v?.installing && !harnessPoll) harnessPoll = setInterval(refreshHarnessStatus, 3000);
+        if (!v?.installing && harnessPoll) { clearInterval(harnessPoll); harnessPoll = null; }
+      }
+      async function harnessInstall(name) {
+        try {
+          const r = await fetch('/api/harness/install', { method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
+            body: JSON.stringify({ harness: name }) }).then((x) => x.json());
+          if (!r.ok) throw new Error(r.error || 'installation did not start');
+          toast(`Installing ${name === 'pi' ? 'pi' : 'OpenCode'} in the background`, 'info');
+        } catch (e) { toast(`Harness installation failed: ${e?.message || e}`, 'error'); }
+        refreshHarnessStatus();
+      }
+      async function harnessCancel() {
+        try { await fetch('/api/harness/install/cancel', { method: 'POST', headers: { 'X-Requested-With': 'ds4web' } }); }
+        catch { /* best-effort */ }
+        refreshHarnessStatus();
       }
 
       // ---- Embedding sidecar controls (host-local /api/embed/*) ----
@@ -28157,10 +28248,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         qs('#set-ssd-streaming-notice').hidden = !qwen;
         qs('#set-ssd-streaming-badge').textContent = qwen ? 'Unavailable for Qwen' : 'Needs restart';
         qs('#set-ssd-streaming-note').textContent = qwen
-          ? localQwen27Selected(s)
-            ? 'Qwen3.8-27B keeps its dense weights in RAM. It needs no PLE file; disk KV cache is separate. Your SSD streaming preference for other models is kept.'
-            : localQwen35Selected(s)
-            ? 'Qwen3.6 keeps all weights in RAM and needs no PLE file. Expert streaming stays Off; your preference for other models is kept.'
+          ? localQwen27Selected(s) || localQwen35Selected(s)
+            ? (/^mlx\//i.test(String(s.modelGguf || ''))
+              ? 'This Qwen model runs on DStudio\'s bundled MLX runtime, which keeps the weights in unified memory. MLX has no expert streaming or disk KV cache. Your SSD streaming preference for other models is kept.'
+              : IS_MAC
+              ? 'This Qwen model runs on DStudio\'s llama.cpp engine, which maps the weights into Metal memory. llama.cpp has no expert streaming or disk KV cache. Your SSD streaming preference for other models is kept.'
+              : 'This Qwen model runs on DStudio\'s llama.cpp engine, which fits layers to free GPU memory and runs the rest on CPU (untested on this platform). llama.cpp has no expert streaming or disk KV cache. Your SSD streaming preference for other models is kept.')
             : 'Qwen Next keeps its backbone weights in RAM and reads original BF16 n-grams from SSD inside the same GGUF. Expert streaming stays Off; your preference for other models is kept.'
           : 'Metal-only. Keep Off unless the model cannot remain resident in memory.';
       }
@@ -28189,13 +28282,17 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         f.power.value = fullPower ? '100' : String(s.enginePower ?? 90);
         f.power.disabled = fullPower;
         qs('#set-power-note').textContent = fullPower
-          ? 'This Qwen engine uses native full power. Your preference for other models is kept.'
+          ? (localQwen27Selected(s) || localQwen35Selected(s)
+            ? 'llama.cpp has no power throttling; this model always runs at full power. Your preference for other models is kept.'
+            : 'This Qwen engine uses native full power. Your preference for other models is kept.')
           : 'ds4 --power balances throughput and memory pressure.';
         syncSsdStreamingFields();
-        f.metalHotlist.checked = !localQwen27Selected(s) && !!s.metalHotlistSeed;
-        f.metalHotlist.disabled = localQwen27Selected(s);
-        f.dspark.checked = !localQwen27Selected(s) && !!s.dspark;
-        f.dspark.disabled = localQwen27Selected(s);
+        // DS4 engine features: llama.cpp models use neither.
+        const llamaModel = localLlamaQwenSelected(s);
+        f.metalHotlist.checked = !llamaModel && !!s.metalHotlistSeed;
+        f.metalHotlist.disabled = llamaModel;
+        f.dspark.checked = !llamaModel && !!s.dspark;
+        f.dspark.disabled = llamaModel;
         f.system.value = s.systemPrompt ?? '';
         if (f.imagePreset) f.imagePreset.value = selectedImagePreset();
         if (f.videoEncoder) f.videoEncoder.value = 'official';
@@ -28800,7 +28897,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             on(btn, 'click', () => {
               const t = choices.find((x) => x.id === sel.value);
               if (!t) return;
-              const branchNote = t.body.engine === 'q36' ? ' DStudio installs its engine and verifies both files without changing your selected model.' : t.body.engine === 'main' ? ''
+              const branchNote = t.body.llama ? LLAMA_ENGINE_NOTE : t.body.engine === 'main' ? ''
                 : ' DStudio will install and select the matching optional engine if needed.';
               askConfirm({ title: 'Download this model?', body: `${t.label}.${branchNote} Large file — it downloads in the background.`, cta: 'Download' })
                 .then((yes) => { if (yes) Switcher.downloadModel(t.body); });
@@ -29920,7 +30017,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             on(btn, 'click', () => {
               const t = choices.find((x) => x.id === sel.value);
               if (!t) return;
-              const branchNote = t.body.engine === 'q36' ? ' DStudio installs its engine and verifies both files without changing your selected model.' : t.body.engine === 'main' ? ''
+              const branchNote = t.body.llama ? LLAMA_ENGINE_NOTE : t.body.engine === 'main' ? ''
                 : ' DStudio will install and select the matching optional engine if needed.';
               askConfirm({ title: 'Download this model?', body: `${t.label}.${branchNote} Large file — it downloads in the background.`, cta: 'Download' })
                 .then((yes) => { if (yes) Switcher.downloadModel(t.body); });
@@ -36374,8 +36471,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           power: !remote && localQwenSelected(settings) ? 100
             : Math.max(1, Math.min(100, parseInt(settings.enginePower ?? 90, 10) || 90)),
           ...(remote ? {} : { ssdStreaming: localSsdStreaming(settings),
-            metalHotlistSeed: !localQwen27Selected(settings) && !!settings.metalHotlistSeed,
-            dspark: !localQwen27Selected(settings) && !!settings.dspark }),
+            metalHotlistSeed: !localLlamaQwenSelected(settings) && !!settings.metalHotlistSeed,
+            dspark: !localLlamaQwenSelected(settings) && !!settings.dspark }),
         };
       }
       const variant = () => Store.getSettings().modelVariant || 'flash';
@@ -36701,7 +36798,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         // skill; the model routes per turn via its skills_search tool.
         const skill = picked === 'auto' ? '' : picked;
         runtimeSkillAtLaunch.agent = skill;
-        return runSwitch('agent', { mode: 'agent', model: 'standard', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, ...remote }, 'Starting the agent…');
+        const harness = ['pi', 'opencode'].includes(Store.getSettings().agentHarness) ? Store.getSettings().agentHarness : 'native';
+        const label = harness === 'pi' ? 'pi' : harness === 'opencode' ? 'OpenCode' : 'the agent';
+        return runSwitch('agent', { mode: 'agent', model: 'standard', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, harness, ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, ...remote }, `Starting ${label}…`);
       }
 
       async function startCowork(workdir, checkoutReady = false) {
@@ -37005,7 +37104,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const branch = String(c?.branch || '').toLowerCase();
         const name = String(c?.name || '').toLowerCase();
         if (engine === 'laguna') return branch === 'laguna-s2.1' || name === 'ds4-laguna-s21';
-        if (engine === 'qwen35') return branch === 'qwen35moe-support' || name === 'ds4-qwen35';
         return branch === 'main' || name === 'ds4';
       }
       async function ensureModelDownloadEngine(engine) {
@@ -37014,9 +37112,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         catch { /* setup below can still recover optional engines */ }
         let checkout = list.find((c) => checkoutMatchesEngine(c, engine));
         if (!checkout && engine !== 'main') {
-          const label = engine === 'qwen35' ? 'Qwen3.6-35B-A3B' : 'Laguna S 2.1';
+          const label = 'Laguna S 2.1';
           toast(`Installing the ${label} engine first…`, 'info');
-          const setup = await (engine === 'qwen35' ? Engine.setupQwen35() : Engine.setupLaguna());
+          const setup = await Engine.setupLaguna();
           if (!setup || setup.ok === false) throw new Error(setup?.error || `${label} engine setup failed`);
           list = (await Engine.engineCheckouts())?.checkouts || [];
           checkout = list.find((c) => checkoutMatchesEngine(c, engine));
@@ -37039,7 +37137,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
         const body = { ...(spec || {}) };
         const engine = body.engine === 'qwen' ? 'main' : body.engine || 'main';
-        delete body.engine;
+        // llama.cpp models: the host captures the managed ds4/gguf store and
+        // installs llama.cpp itself; no checkout is selected or required here,
+        // so the user's current model and engine stay as they are.
+        // The MLX model likewise: the host installs the bundled MLX runtime.
+        const llama = !!body.llama || !!body.mlx;
+        delete body.engine; delete body.llama; delete body.mlx;
         const label = body.target || 'model';
         Store.setModelState({
           download: {
@@ -37049,9 +37152,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           },
         });
         try {
-          // 27B installation is owned by the background download worker. Do
-          // not route it through the old synchronous setup/checkout switch.
-          if (engine !== 'q36') await ensureModelDownloadEngine(engine);
+          if (!llama) await ensureModelDownloadEngine(engine);
           Store.setModelState({ download: { variant: label, pct: 0, stage: 'Starting download of' } });
           const response = await fetch('/api/model/download', { method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
@@ -39061,10 +39162,28 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + base) : base + html;
       }
 
+      /* Created on first preview, not at startup: an idle sandboxed frame must
+       * not exist in every mode. Isolation is unchanged (sandbox="" until the
+       * live bootstrap grants allow-scripts to its own host-served page). */
+      function previewFrame() {
+        let frame = qs('#ide-pv-frame');
+        if (frame) return frame;
+        frame = el('iframe', { class: 'ide-pv-frame', id: 'ide-pv-frame', title: 'Live design preview', sandbox: '' });
+        qs('#ide-pv .ide-pv-body').prepend(frame);
+        on(frame, 'load', () => {
+          // The bootstrap loads once; another load means it navigated away, so
+          // stop posting to it and start a fresh frame on the next paint.
+          if (!pv || frame.dataset.live !== pv.token || ++pv.loads === 1) return;
+          pv = null;
+          paint();
+        });
+        return frame;
+      }
+
       function renderPreview(label, busy) {
         if (uiMode !== 'design' || layoutOf() === 'code') return;
         const rel = previewTarget();
-        const frame = qs('#ide-pv-frame');
+        const frame = previewFrame();
         const st = qs('#ide-pv-st');
         qs('#ide-pv-file').textContent = rel || '';
         let text = null;
@@ -39136,7 +39255,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           return;
         }
         const frame = qs('#ide-pv-frame');
-        if (frame.dataset.live !== pv.token || !frame.contentWindow) return;
+        if (!frame || frame.dataset.live !== pv.token || !frame.contentWindow) return;
         const msg = { dstudioLive: pv.token, html: pv.html, seq: ++pv.seq };
         if (!pv.sent && pvScroll.has(pv.scrollKey)) msg.scroll = pvScroll.get(pv.scrollKey);
         // The frame has an opaque origin, so there is no origin to target; the
@@ -39149,7 +39268,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       function liveFrameMessage(e) {
         const d = e.data;
         const frame = qs('#ide-pv-frame');
-        if (!pv || !d || typeof d !== 'object' || d.dstudioLive !== pv.token || e.source !== frame.contentWindow) return;
+        if (!pv || !frame || !d || typeof d !== 'object' || d.dstudioLive !== pv.token || e.source !== frame.contentWindow) return;
         if (d.ready === true) { pv.ready = true; pushLive(); return; }
         const x = Number(d.scroll?.x), y = Number(d.scroll?.y);
         if (!Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -39364,13 +39483,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           renderLayer();
         });
         on(window, 'message', liveFrameMessage);
-        on(qs('#ide-pv-frame'), 'load', () => {
-          // The bootstrap loads once; another load means it navigated away, so
-          // stop posting to it and start a fresh frame on the next paint.
-          if (!pv || qs('#ide-pv-frame').dataset.live !== pv.token || ++pv.loads === 1) return;
-          pv = null;
-          paint();
-        });
         on(qs('#ide-thought-hide'), 'click', () => { thoughtDismissedId = thought ? thought.id : ''; paint(); });
         on(qs('#ide-panel-toggle'), 'click', (e) => {
           const panel = qs('#ide-panel');

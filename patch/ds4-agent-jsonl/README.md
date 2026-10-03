@@ -178,16 +178,17 @@ Startup/reset still load memory through their existing path. Native Laguna
 speculation and Qwen's own tool parser remain in place; this does not enable
 PLD or vision on an unsupported branch.
 
-`laguna-continuation.patch` and `qwen35-continuation.patch` record each exact
-v98-to-v99 delta. They are already folded into the full variants; **do not
-apply them again in production**. Migration first reverses v102 reply state,
+`laguna-continuation.patch` records the exact v98-to-v99 delta (the Qwen3.6
+counterpart was retired with the vagrillo/ds4 fork on October 3, 2026). It is already folded into the full variant; **do not
+apply it again in production**. Migration first reverses v102 reply state,
 then v101 summary policy,
 then v100 readiness,
 then v99 and v98, to check
 the unchanged historical oracles and replays the opposite order forwards.
 `make test-agent-continuation` uses actual GGUF vocabularies without loading
-weight tensors: 50 Laguna / 53 Qwen framing checks, plus 16 / 14 native-loop
-checks with scripted inference, pass under ASan/UBSan on v100. The v99 gate
+weight tensors. On v100, 50 Laguna / 53 Qwen framing checks, plus 16 / 14
+native-loop checks with scripted inference, passed under ASan/UBSan; the target
+now runs the Laguna half only. The v99 gate
 had 15 / 13 loop checks, with only 4/15 and 3/13 on v98; those receipts remain
 unchanged. The new check proves Stop arriving before dispatch is not erased.
 It covers three compactions in an 18,000-token answer, exact rendered bytes,
@@ -278,8 +279,6 @@ separate qualification.
 | ivanfioravanti/ds4-metal `66b0e3fc3bf0f548db1ec0c0dd19f4e43567a7f8` (identical Agent source) | [qwen38.patch](qwen38.patch) |
 | ivanfioravanti/ds4-metal `82d031408c50419957fd44b7e9c2d423890b24bd` (identical Agent source) | [qwen38.patch](qwen38.patch) |
 | ivanfioravanti/ds4-metal `b85a6174da6d0ea3139b48194a2ca108097657b1` (identical Agent source; native parser/tool regression passed, not full model qualification) | [qwen38.patch](qwen38.patch) |
-| vagrillo/ds4 `60fca11f0c8b16ca50c757324dddd717ba043098` | [qwen35.patch](qwen35.patch) |
-| vagrillo/ds4 `73434c4bb9d8bb18425a2577edada69d25d44c47` (documentation-only update; identical Agent/core source) | [qwen35.patch](qwen35.patch) |
 
 [`bases.json`](bases.json) records source, patch and output hashes. The shared
 first-party remote implementation remains in `remote-agent.cfrag`, included at
@@ -426,17 +425,11 @@ mtime/version freshness is not a complete dependency signature.
   Model text and engine identity are explicit fixtures; no model is loaded.
   ASan/UBSan instrument the parser/Agent/helper C objects, not upstream core
   objects. `QWEN38_AGENT_FLAGS=` disables those sanitizers explicitly.
-- `make test-qwen35-agent QWEN35_AGENT_TREE=PATH_TO_BUILT_CANDIDATE
-  QWEN35_AGENT_FLAGS=--sanitize`: real native linking, original Agent units,
-  261 stream splits, native schemas, malformed/duplicate/over-limit rejection,
-  JSON document escapes, linear scan counters, recurrent disk-cache guards
-  and real Agent/Cowork filesystem effects. Model text
-  and identity are simulated. No weights are loaded or source checkout edited.
-- `make test-qwen-session-reset QWEN35_AGENT_TREE=PATH_TO_QWEN35
-  QWEN38_AGENT_TREE=PATH_TO_QWEN38`: actual native command reader and worker
-  with a deterministic simulated-inference barrier. Six Qwen3.6 and seven
-  Qwen3.8 scenarios cover cancellation, failure, success, allocation failure,
-  late cancellation, duplicate admission and Qwen3.8 save failure/attachments.
+- `make test-qwen-session-reset QWEN38_AGENT_TREE=PATH_TO_QWEN38`: actual
+  native command reader and worker with a deterministic simulated-inference
+  barrier. Seven Qwen3.8 scenarios cover cancellation, failure, success,
+  allocation failure, late cancellation, duplicate admission and save
+  failure/attachments.
   The original synchronous code fails the three shared baseline scenarios.
   Agent/helper objects use ASan/UBSan; prebuilt engine objects do not.
 - `node tests/integration/upstream_agent_prompt_test.mjs PATH_TO_BUILT_MAIN`:
@@ -453,8 +446,8 @@ mtime/version freshness is not a complete dependency signature.
   Logs, filenames and paths are private ignored artifacts. This is a development
   smoke, not the held-out benchmark or an end-to-end desktop test. Its independent
   trace checks have a model-free gate, `make test-qwen38-tool-oracle`.
-  `ENGINE MODEL_GGUF --qwen35` selects the already-built Qwen3.6 candidate,
-  with resident weights and no PLE or Qwen3.8-specific power configuration.
+  The former `--qwen35` Qwen3.6 variant is rejected; Qwen3.6 now runs on
+  llama.cpp (`make test-llama-resident-live`).
 - `node tests/live/qwen38_host_smoke.mjs ENGINE MODEL_GGUF`: the same
   development task through actual host launch/send/poll APIs, automatic routing,
   full production charters, private KV, exact artifacts and durable graph receipts.
@@ -463,8 +456,7 @@ mtime/version freshness is not a complete dependency signature.
   throughput comparison to the fixed-seed CLI run.
   Add `--reset-lifecycle` to observe live reset prefill, cancel it, recall a
   random code held only in the old conversation, then complete another reset
-  and read back the previously created file. Use `ENGINE MODEL_GGUF --qwen35
-  --reset-lifecycle` for Qwen3.6. Run the two models sequentially.
+  and read back the previously created file.
 
 Receipts and failed attempts remain under ignored `tests/.artifacts/`. The first
 two targets are in `check-fast`. macOS builds, tool execution and sanitizer

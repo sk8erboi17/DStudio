@@ -40,7 +40,7 @@ class SourceTests(unittest.TestCase):
                               'executable': name.endswith('.sh')}
         self.catalog = {'schema': 'dstudio.engine-sources.v1', 'engines': {'main': {
             'repository': 'https://example.invalid/ds4', 'commit': PIN,
-            'directory': 'ds4', 'historical': False, 'files': metadata}}, 'legacyQ36': {}}
+            'directory': 'ds4', 'historical': False, 'files': metadata}}}
         self.manifest = self.assets / 'src/engines/manifest.json'
         self.save()
 
@@ -296,9 +296,40 @@ class SourceTests(unittest.TestCase):
                 self.assertTrue((target / 'LICENSE').is_file())
                 self.assertFalse((target / '.git').exists())
                 self.assertFalse((target / 'gguf').exists())
-                self.assertFalse(any(p.name in ('ds4', 'ds4-server', 'q36', 'q36-server') and p.is_file()
+                # Sources only: no prebuilt engine or server binary is shipped.
+                self.assertFalse(any(p.name in ('ds4', 'ds4-server', 'llama-server') and p.is_file()
                                      for p in target.iterdir()))
-        self.assertEqual(copied, {'main', 'laguna', 'qwen35', 'q36'})
+                self.assertFalse((target / 'bin').exists())
+        self.assertEqual(copied, {'main', 'laguna', 'llama'})
+
+    def test_git_tracks_every_shipped_snapshot_file(self):
+        """A clone must carry complete snapshots. Upstream trees contain names
+        matched by ignore rules (a `core/` directory, nested .gitignore files);
+        those files are added with `git add -f`. Missing, extra or wrongly
+        executable tracked files would make an offline installation fail on
+        every fresh checkout although this working tree verifies."""
+        import subprocess
+        inside = subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], capture_output=True, text=True)
+        if inside.returncode or inside.stdout.strip() != 'true':
+            self.skipTest('NOT RUN: not a Git checkout (for example an installed app)')
+        for catalog in (sources.ENGINES, sources.HARNESSES):
+            manifest = json.loads(Path(catalog, 'manifest.json').read_text())
+            for name, entry in manifest['engines'].items():
+                with self.subTest(catalog=catalog, engine=name):
+                    folder = f"{catalog}/{entry.get('directory', name)}"
+                    listed = subprocess.run(['git', 'ls-files', '-s', '-z', '--', folder + '/'],
+                                            capture_output=True, check=True).stdout.split(b'\0')
+                    tracked = {}
+                    for record in filter(None, listed):
+                        meta, path = record.split(b'\t', 1)
+                        tracked[path.decode()[len(folder) + 1:]] = meta.split()[0].decode()
+                    self.assertEqual(sorted(set(entry['files']) - set(tracked)), [], 'untracked snapshot files')
+                    self.assertEqual(sorted(set(tracked) - set(entry['files'])), [], 'tracked files outside the manifest')
+                    wrong = [f for f, m in entry['files'].items() if (tracked[f] == '100755') != bool(m.get('executable'))]
+                    self.assertEqual(wrong, [], 'tracked mode differs from the manifest')
+        wheels = json.loads(Path('src/engines/mlx/manifest.json').read_text())['files']
+        listed = subprocess.run(['git', 'ls-files', '--', 'src/engines/mlx/wheels/'], capture_output=True, text=True, check=True)
+        self.assertEqual(sorted(Path(p).name for p in listed.stdout.split()), sorted(wheels))
 
     def test_retired_qwen_next_sources_are_unavailable_without_publication(self):
         assets = Path('.').resolve()

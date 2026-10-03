@@ -413,60 +413,6 @@ static int setup_qwen38_prepare_patch(const char *action) {
     return !native || run_ext_script("scripts/apply-ds4-qwen38-prepare.sh", action);
 }
 
-/* The shader correction precedes the bounded prefill overlay. Both are
- * versioned adaptations of the same fork; partial or drifted input is rejected
- * before launching. Native build dependencies invalidate the derived runtime. */
-static int setup_apply_qwen35_runtime_patches(const char *engine_dir, char *err, size_t errsz) {
-    if (!run_ext_script_for_dir("scripts/apply-ds4-qwen35-q6k-moe.sh", "apply", engine_dir)) {
-        snprintf(err, errsz, "could not apply the Qwen3.6 Q6_K MoE correction; source drift or partial patch, no files changed");
-        return 0;
-    }
-    if (!run_ext_script_for_dir("scripts/apply-ds4-qwen35-prefill.sh", "apply", engine_dir)) {
-        snprintf(err, errsz, "could not apply the Qwen3.6 batched prefill; source drift or partial patch, no files changed");
-        return 0;
-    }
-    return 1;
-}
-
-/* In-place upgrades of an existing Qwen3.6 install never applied the model
- * catalog patch, so its server advertised DeepSeek aliases for a loaded Qwen
- * model. Launch preparation applies the versioned patches, then rebuilds
- * only a missing or stale native server for Chat. Runs in the preparation
- * worker, never on the HTTP loop; weights and other binaries are untouched. */
-static int setup_prepare_qwen35_runtime(const char *engine_dir, int server, char *err, size_t errsz) {
-    if (!setup_apply_qwen35_runtime_patches(engine_dir, err, errsz)) return 0;
-    if (!run_ext_script_for_dir("scripts/apply-ds4-qwen35-catalog.sh", "apply", engine_dir)) {
-        snprintf(err, errsz, "could not apply the Qwen3.6 model-catalog patch; source drift or partial patch, no files changed");
-        return 0;
-    }
-    if (!server) return 1;
-    char source[DSTUDIO_PATH_MAX + 32];
-    snprintf(source, sizeof source, "%s/ds4_server.c", engine_dir);
-    struct stat src_st;
-    if (stat(source, &src_st) != 0) {
-        snprintf(err, errsz, "Qwen3.6 engine has no ds4_server.c; reinstall the engine");
-        return 0;
-    }
-    char log_tail[8192] = "";
-    // Query the actual dependency graph: prefill also changes the core, GPU
-    // header and Metal source. Server-source mtime alone misses those updates.
-    char *query_argv[] = { "make", "-q", "-C", (char *)engine_dir, "ds4-server", NULL };
-    int rc = setup_run_cmd_capture(NULL, query_argv, log_tail, sizeof log_tail);
-    if (!rc) return 1;
-    if (rc != 1) {
-        snprintf(err, errsz, "Qwen3.6 server dependency check failed (%d): %.600s", rc, log_tail);
-        return 0;
-    }
-    set_stage("Updating the Qwen3.6 server…", 2);
-    char *make_argv[] = { "make", "-C", (char *)engine_dir, "ds4-server", NULL };
-    rc = setup_run_cmd_capture(NULL, make_argv, log_tail, sizeof log_tail);
-    if (rc) {
-        snprintf(err, errsz, "Qwen3.6 server rebuild failed (%d): %.600s", rc, log_tail);
-        return 0;
-    }
-    return 1;
-}
-
 /* Apply the reversible runtime patches to the active managed checkout. Main
  * owns DeepSeek, GLM and Qwen Next; this is also reused by Laguna setup. */
 static int setup_apply_ds4_runtime_patches(void) {

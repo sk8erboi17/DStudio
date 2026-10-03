@@ -31,7 +31,7 @@
 - [Goals and adding context while working](#goals-and-adding-context-while-working)
 - [50 diverse tasks with Pi and OpenCode](#50-diverse-task-comparison-dstudio-pi-and-opencode)
 - [Latest measured results: web, real product tasks, engine and PDFs](#latest-measured-results)
-  - [Qwen27B: 100 checked tasks](#qwen27b-100-checked-tasks)
+  - [Qwen27B: 100 checked tasks (retired q36 engine)](#qwen27b-100-checked-tasks)
 - [Why automatic checks help](#why-automatic-checks-help)
 - [Requirements](#requirements)
 - [Development](#development)
@@ -69,14 +69,14 @@ The [remaining-work backlog](docs/WORK_IN_PROGRESS.md) and [active plan](PLAN.MD
 now contain unfinished work only; completed tranches and original failed
 receipts are retained in their linked historical archives.
 
-Qwen Design adapters and complete Qwen3.6/27B disk-session restoration remain
-missing. Full-model qualification of the 27B online-attention and 3.6 batched-
-prefill overlays, complete Learn/Tutor, PDF/vision, native desktop, installation
-recovery, generated Design projects and final release admission remain open.
-The September 29 complete corpus receipts are **27B 61/100, Qwen3.6 63/100 and
-current-main Next Q4 75/100** (Next long context **8/8**). They retain failures
-and do not qualify the subsequent inference overlays. The older 3.6 long-Agent
-timeout/partial-summary failure still needs current-stack revalidation.
+Qwen3.6-35B-A3B and Qwen3.8-27B now run on the bundled **llama.cpp** engine
+(see [below](#qwen36-and-qwen38-27b-on-llamacpp)). Design on those two models,
+disk-session restoration for them, complete Learn/Tutor, PDF/vision, native
+desktop, installation recovery, generated Design projects and final release
+admission remain open. The September 29 complete corpus receipts (**27B 61/100,
+Qwen3.6 63/100**, current-main Next Q4 **75/100**, Next long context **8/8**)
+were measured on the retired Qwen side engines and on main; they retain their
+failures and are not a score for the llama.cpp engine.
 
 The remaining campaign is paused and covers macOS on Apple Silicon only.
 Publishing a source checkpoint does not update your installed app or qualify
@@ -134,8 +134,9 @@ promise that an older downloaded release includes every integration.
 | GLM 5.3 Flash | All four modes; images with its encoder | Uses the main engine, not a separate GLM checkout. Full-model QA for the M2 optimization remains open. |
 | Laguna S 2.1 | All four modes, text only | Experimental, macOS Metal; requires resident weights and cannot force expert SSD streaming On. |
 | Qwen3.8-Flash-Next | Experimental Chat, Agent and Cowork | Now uses **ds4 main** on macOS Metal. Requires the new single-file Q2/Q4 download; old base + PLE files are incompatible. Backbone in RAM, embedded BF16 n-grams on SSD. New-weight quality, Design and vision remain unqualified. |
-| Qwen3.6-35B-A3B | Chat, experimental Agent and Cowork | macOS Metal, 31.8 GB Q6_K_XL in RAM; no PLE. Real file/tool workflows pass. New-session preparation runs on a worker and retains the old context on cancellation/failure. Full quality and desktop validation remain open. |
-| Qwen3.8-27B | Experimental Chat, Agent and Cowork | macOS Metal; 25.3 GB Q6_K_XL plus its matching 0.93 GB projector. Download from Settings → Models. Initial real text, image and file/tool workflows pass; Learn, PDF workflows, broad quality and full desktop validation remain open. |
+| Qwen3.6-35B-A3B | Chat, Agent, Cowork and Design on llama.cpp | macOS Metal, 31.8 GB Q6_K_XL. Served by DStudio's bundled llama.cpp (built on first use; needs CMake). Real file/tool workflows and a real Design page pass. Disk checkpoints, broad quality and desktop validation remain open. |
+| Qwen3.6-35B-A3B (MLX) | Chat, Agent, Cowork and Design on MLX | Apple Silicon only, 36.7 GB MXFP8 folder. Served by DStudio's bundled MLX runtime (offline wheels, installed in seconds). Real file/tool workflows and a real Design page pass. Same open items as the GGUF. |
+| Qwen3.8-27B | Chat, Agent, Cowork and Design on llama.cpp, with images | macOS Metal; 25.3 GB Q6_K_XL plus its matching 0.93 GB projector. Same llama.cpp engine. Real text, image, file/tool workflows and a real Design page pass (Design is slow: 37 minutes on an M2 Max with thinking on). Learn, PDF workflows, broad quality and full desktop validation remain open. |
 
 Qwen automatically uses expert SSD streaming **Off**, even if **On** was saved
 for DeepSeek. This does not disable Qwen3.8-Flash-Next's native SSD n-grams or erase the preference
@@ -148,10 +149,89 @@ pinned at `0aaea5a`). There is no separate
 Qwen Next engine to install or select. Upstream also changed the model format:
 download the new **Q2 (147.2 GB)** or **Q4 (177.3 GB)** in Settings → Models.
 Old weights stay on disk, but cannot be used by this integration. Qwen3.6 MoE
-and Qwen27B retain their separate engines. [Migration and test scope](docs/QWEN_NEXT_MAIN_MIGRATION.md).
+and Qwen27B now run on llama.cpp instead (next section). [Migration and test scope](docs/QWEN_NEXT_MAIN_MIGRATION.md).
 
-Both **Qwen3.6-35B-A3B and Qwen3.8-Flash-Next can now use Agent and Cowork**
-on Apple Silicon: read your files, make changes and check the saved result.
+### Qwen3.6 and Qwen3.8-27B on llama.cpp
+
+Both Qwen checkpoints now run on **llama.cpp** (ggml-org, tag `b11371`), which
+ships with DStudio in [`src/engines/llama.cpp`](src/engines/llama.cpp/). The
+first time you start one of them, DStudio builds `llama-server` from those
+sources without using the network (about a minute and a half on an M-series
+Mac; CMake must be installed) and then reuses the build. The weights stay in
+the same `ds4/gguf/` folder; nothing is downloaded again and nothing else
+changes in your settings.
+
+DStudio starts the server itself, checks that it really loaded the model you
+chose (path, context, build and image projector) before marking it ready, and
+stops it when you switch models, press Stop or quit. If DStudio crashes, a small
+guard process stops the server too, so tens of GB are not left in memory.
+Chat, Agent and Cowork share the loaded model: switching between them does not
+reload it. Thinking is one switch (on or off); there is no separate Max level.
+The engine has no power throttling and no expert SSD streaming; DSpark and the
+hotlist do not apply. Design runs on these models with structured tool calls:
+both saved a real page with the exact requested heading (Qwen3.6 in minutes;
+the 27B in 37 minutes with thinking on, which is its speed, not a hang). See
+[docs/HARNESSES.md](docs/HARNESSES.md).
+
+On October 3, 2026, a real-model test through the production host passed **10 of
+10** checks on this Mac (Qwen3.6 and Qwen3.8-27B, five each): an Agent turn reads
+a generated CSV and writes the independently computed total, an Agent answer
+comes from a workspace file, Cowork writes a document with a generated code,
+Chat answers with thinking on and off (and, for the 27B, reads an image), and a
+killed DStudio leaves no `llama-server` behind. One earlier run is kept as a
+failure: with thinking off, Qwen3.6 multiplied two numbers incorrectly. These
+are focused checks, not a quality score.
+
+### Qwen3.6 on MLX (Apple Silicon)
+
+On Apple Silicon, Qwen3.6-35B-A3B can also run on **MLX**, Apple's machine
+learning framework, from the MXFP8 folder
+`mlx-community/Qwen3.6-35B-A3B-mxfp8`. MLX ships with DStudio as verified
+wheels in [`src/engines/mlx`](src/engines/mlx/), so nothing is compiled or
+fetched: the first launch installs it offline into a private Python
+environment in about 15 seconds (Python 3.12-3.14 must be installed, for example
+from Homebrew). Download the weights from **Settings → Models**
+(*Qwen3.6-35B-A3B · MLX MXFP8*, 36.7 GB) or with
+`./download-model.sh qwen36-mlx`; each of the 20 files is checked against its
+pinned SHA-256. If you already have this folder, link it as
+`ds4/mlx/Qwen3.6-35B-A3B-mxfp8`; DStudio checks it and never copies it.
+
+It works like the llama.cpp models: one server owned by DStudio and shared by
+Chat, Agent, Cowork and Design, stopped on Stop, model switch, quit or crash.
+DStudio marks it ready only when the server reports exactly the folder you
+chose. On October 3, 2026 a real run through the production host passed 6/6
+(Agent, recall, Cowork, Design, Chat with thinking on and off, no leftover
+process); three earlier failures that led to fixes are kept in
+[tests/README.md](tests/README.md#qwen36-on-mlx-apple-silicon). MLX keeps all weights in
+memory: it has no expert streaming and no disk KV cache. It is not available on
+Intel Macs, Linux or Windows; use the GGUF there.
+
+**Every harness on every engine.** Design now also runs on the llama.cpp
+models: they receive Design's tool schemas as function tools, which Qwen
+follows reliably where DSML text failed. Agent mode can also run **pi** or
+**OpenCode** instead of DStudio's own agent (Settings → Harnesses), on Qwen
+through llama.cpp, DeepSeek through a `ds4-server` the harness owns (pi via
+pi-ds4) or a remote endpoint. On this Mac all six combinations of {pi,
+OpenCode} × {Qwen3.6, Qwen3.8-27B, DeepSeek V4 Flash} passed three
+independently checked tasks each (18/18), including a blocked read outside the
+workspace. Details, limits and the retained failures:
+[docs/HARNESSES.md](docs/HARNESSES.md).
+
+**Linux and Windows (prepared, not tested).** On those systems DStudio builds
+llama.cpp the way Ollama does: one server plus a loadable module per backend.
+Every CPU variant is built and llama.cpp picks the best one for your processor;
+CUDA, ROCm and Vulkan modules are added when their toolkit is installed
+(`DSTUDIO_LLAMA_BACKENDS` can request or limit them). Layers are placed on the
+GPU memory that is actually free and the rest runs on the CPU; your context
+setting is never lowered. On Windows the server runs inside a Job Object, so it
+stops if DStudio exits. This code compiles for Linux and Windows and the same
+build layout was built and run for real on macOS (with a correct Qwen3.6
+answer), but it has **not** been run on Linux, Windows, CUDA, ROCm or Vulkan.
+The former side engines (vagrillo/ds4 for Qwen3.6, Ninnix/q36
+for the 27B) were retired; see [the retirement record](docs/BUNDLED_ENGINES.md#retired-qwen-side-engines).
+
+**Qwen3.8-Flash-Next can use Agent and Cowork** (on main), as Qwen3.6 can on
+llama.cpp, on Apple Silicon: read your files, make changes and check the saved result.
 Starting a new session no longer blocks the command reader. If that reset
 fails or you cancel it, the previous model context is retained; DStudio waits
 for confirmation before connecting the new conversation.
@@ -161,21 +241,21 @@ Another **13 deterministic regression cases** cover errors, cancellation and
 duplicate requests. These are focused development checks, not a general quality
 score or a speed benchmark; initial failed attempts remain documented. These
 receipts qualify their recorded engine revisions, not every later upstream pin.
-**Design, vision and full desktop/quality validation remain open.** Qwen3.6
-still cannot restore complete disk checkpoints, although chat history is saved.
+**Design, vision and full desktop/quality validation remain open.** The
+llama.cpp models cannot restore disk checkpoints, although chat history is saved.
 See the [test evidence and remaining checkpoints](docs/QWEN_CHECKPOINT.md).
 
-**Qwen3.8-27B is a separate, work-in-progress integration, not Flash-Next.**
-Chat, Agent and Cowork now share its resident model, including the matching
-image projector. A real-model run passes **17 focused checks**: Chat answers
+**Earlier 27B results (retired q36 engine).** Qwen3.8-27B is not Flash-Next.
+Before the move to llama.cpp, Chat, Agent and Cowork shared its model on the q36
+engine, including the matching image projector. A real-model run passed **17 focused checks**: Chat answers
 and uploaded images appear on screen and in saved history; Agent repairs code
 and runs the original tests; Cowork reads a CSV, saves an Excel workbook and
 reopens it for verification. Image-tool questions, switching back to Chat and
 stopping the actual model are checked too. The browser portion uses headless
 WebKit, not the native desktop window; this is not a general accuracy score.
 
-Its Max reasoning needs 96k context: DStudio asks before raising your Chat
-setting, instead of applying DeepSeek's 384k requirement. Learn's routing has
+On q36 its Max reasoning needed 96k context; on llama.cpp thinking is a single
+switch with no context minimum. Learn's routing has
 simulated-browser coverage, not a real-model quality pass. One earlier quality
 case still fails (11/12 correct); the new checks do not close that failure,
 full PDF/image qualification or the remaining desktop tests. The completed
@@ -188,13 +268,13 @@ result, not a held-out evaluation or qualification of the whole Qwen family.
 See the [100-task results](extension/benchmarks/qwen-quality/README.md) and
 [Qwen evidence and limits](docs/QWEN_CHECKPOINT.md).
 
-A separate check on the rebuilt native macOS app also passes: select the 27B,
+A separate check on the then-current native macOS app also passed: select the 27B,
 type a question, verify the exact saved JSON answer, then close the test window
 and confirm its model stops. This covers one desktop Chat workflow, not the
 complete desktop matrix.
 
-Download the experimental 27B from **Settings → Models**. DStudio prepares its
-matching engine in the background and checks both files before reporting the
+Download the 27B from **Settings → Models**. DStudio builds the llama.cpp
+engine in the background if needed and checks both files before reporting the
 download complete. Your selected model stays unchanged. Settings distinguishes
 engine preparation, file transfer and verification; Stop keeps partial data for
 Resume. It does not launch the downloaded model automatically. The CLI target
@@ -219,7 +299,8 @@ From the project root, use one download entry point:
 ./download-model.sh laguna-q4   # Laguna
 ./download-model.sh qwen38-q2   # Qwen Next on main, 147.2 GB single file
 ./download-model.sh qwen38-q4k  # Alternative larger Qwen Q4, 177.3 GB single file
-./download-model.sh qwen36-q6   # Qwen3.6 Q6_K_XL, about 31.8 GB, no PLE
+./download-model.sh qwen36-q6   # Qwen3.6 Q6_K_XL, about 31.8 GB, runs on llama.cpp
+./download-model.sh qwen36-mlx  # Qwen3.6 MXFP8 folder, about 36.7 GB, runs on MLX (Apple Silicon)
 ```
 
 Choose one target; these commands download real, large model files. Existing
@@ -227,7 +308,7 @@ weights stay in the shared `ds4/gguf/` store.
 
 ## What You Can Do
 
-- Run **DeepSeek V4, GLM 5.3 Flash or Laguna S 2.1 locally**, or **Qwen3.8-Flash-Next and Qwen3.6-35B-A3B in Chat, Agent and Cowork** (experimental Metal, with the limits below), through the same native desktop interface and unified GGUF picker.
+- Run **DeepSeek V4, GLM 5.3 Flash or Laguna S 2.1 locally**, or **Qwen3.8-Flash-Next, Qwen3.6-35B-A3B and Qwen3.8-27B in Chat, Agent and Cowork** (Metal; the Qwen3.6 and 27B checkpoints on bundled llama.cpp, with the limits below), through the same native desktop interface and unified GGUF picker.
 - Use a **private AI chat** with persistent KV cache, reasoning display, citations from optional Web Search and local history.
 - Use **Learn** to build an interactive learning path from a goal, PDFs and source links, with prerequisite ordering, exercises, checkpoints and locally saved progress.
 - Open a dedicated **Tutor** for any roadmap block, with that block's prerequisites, sources, exercises and conversation restored automatically.
@@ -624,10 +705,6 @@ the composer. Pause takes effect after the current turn; Clear stops the goal
 but keeps its journal and existing files. A crash never automatically replays
 an interrupted action.
 
-Qwen27B analyses that request Max require at least **96k context**. An
-incompatible start or resume is refused without spending a Goal turn: correct
-the context setting, then resume the same saved goal.
-
 A goal needs a completed, successful verification command and a completion
 receipt before it can finish. This checks execution evidence, **not whether an
 AI-selected test covers every requirement**. Missing input, exhausted limits
@@ -799,6 +876,9 @@ charts use Matplotlib; scripts and reviewed JSON are committed alongside the
 reports. Private documents and raw user data are not published.
 
 ### Qwen27B: 100 checked tasks
+
+Measured on September 9, 2026 with the **retired q36 engine**, not on the
+current llama.cpp engine; it has not been rerun there.
 
 **61 of 100 tasks passed.** The remaining 39 are still failures: 31 answers
 failed their checks, and eight long requests ended in an engine error or
@@ -1152,48 +1232,30 @@ If a previous version failed with “expert streaming is not validated”, rebui
 and reopen DStudio. The loading screen and model picker now apply Qwen's
 compatible streaming configuration without changing the saved DeepSeek choice.
 
-### Qwen3.6-35B-A3B (experimental Chat, Agent and Cowork)
+### Qwen3.6-35B-A3B (Chat, Agent, Cowork and Design on llama.cpp)
 
-The separate [vagrillo Qwen branch](https://github.com/vagrillo/ds4/tree/qwen35moe-support)
-is pinned at `73434c4bb9d8bb18425a2577edada69d25d44c47` in `ds4-qwen35`.
-The two new commits change documentation only; inference source and kernels
-are identical to the earlier `60fca11f` pin.
 Select **Qwen3.6-35B-A3B** under Settings → Models → Download, or run
-`./download-model.sh qwen36-q6`. Python 3 and curl are required.
+`./download-model.sh qwen36-q6`. Python 3 and curl are required for the download;
+CMake is required once to build the bundled llama.cpp engine.
 
 This downloads the exact **Unsloth Q6_K_XL** file (31.8 GB), checks its size and
 SHA-256, and shares `ds4/gguf` with the existing engines. Interrupted transfers
 can resume. It does not download Qwen3.8, a PLE, or a vision encoder.
 
-Chat, Agent and Cowork are text-only and use native full power; the other models'
-power preference is kept. Design, expert SSD streaming, DSpark and prompt lookup
-are not enabled. The native expert count is unchanged;
-experimental expert pruning is not enabled. Disk context checkpoints are disabled
-because this fork does not serialize Qwen's complete recurrent state. Chat history
-is still saved, and the running model can reuse its live context.
+Chat, Agent, Cowork and Design are text-only and run at full power on
+llama.cpp; the other models' power preference is kept. Expert SSD streaming,
+DSpark and prompt lookup are not enabled. Disk context checkpoints are not available: the
+tools frontend reaches the model over DStudio's model RPC and holds no engine
+session to save. Chat history is still saved, and the running server reuses its
+live prompt cache. Agent and Cowork use Qwen's published sampling for thinking
+on (temperature 0.6, top_p 0.95) and off (0.7, 0.8).
 
-Verified: fresh source download, native compilation, executable startup, model
-selection, launch parameters and resumable-download integrity with small test files.
-The initial real-weight development checks passed **11 of 12** questions;
-one code-evaluation answer was wrong. This is not full quality qualification
-or a published throughput benchmark.
-
-The [native Agent/Cowork adapter](patch/ds4-agent-jsonl/README.md) now has two
-passing real headless host workflows: correct files, tool readback, automatic
-Task Graph, continued operation after a rejected Design switch, generation
-interruption and a new session followed by another read. Fresh CLI installation
-also builds both structured runtimes. The initial host control run failed and
-is retained separately; the successful retry does not erase it.
-
-A new session still rebuilds the system context and can take minutes. That work
-now runs on the native worker: progress can be delivered while it runs, and a
-failed or canceled reset preserves the previous conversation. The UI waits for
-the native result before connecting a new conversation. This is a control and
-recovery fix, not a claim of faster generation or full desktop/quality coverage.
-The final real-model reset replay passes in both Agent and Cowork; initial
-test failures and their corrections are retained separately.
-See [test scope and limits](tests/README.md#qwen-real-host-workflows) and the
-[Qwen stopping checkpoint](docs/QWEN_CHECKPOINT.md).
+Real-model checks through the production host are summarized in
+[Qwen3.6 and Qwen3.8-27B on llama.cpp](#qwen36-and-qwen38-27b-on-llamacpp).
+Earlier results on the retired vagrillo/ds4 fork (11 of 12 development
+questions, two headless host workflows, reset replays) are kept in
+[the Qwen checkpoint](docs/QWEN_CHECKPOINT.md) as history; they do not qualify
+the llama.cpp engine.
 
 ### Real installation and inference checks
 
@@ -1201,7 +1263,8 @@ The important distinction is simple: **can a clean installation build the includ
 engine sources without the network, and can a real loaded model answer checked questions?**
 
 ```sh
-make test-setup-live        # Builds bundled main, Laguna, Qwen3.6 and q36 in an empty directory
+make test-setup-live        # Builds bundled main, Laguna and llama.cpp in an empty directory
+make test-llama-resident-live  # Qwen3.6 and 27B on llama.cpp through DStudio: Agent, Cowork, Chat, owner death
 make test-first-launch-e2e  # Fresh headless .app + real WebKit clicks, offline engine patch/build checks
 make test-inference-live    # Loads real DeepSeek/Laguna weights and checks answers
 make test-inference-live ENGINES=qwen
@@ -1262,11 +1325,11 @@ Behind the scenes DStudio **reverse-proxies the engine API** (`/v1`) to the loca
 
 ## How it works
 
-- **C launcher, not a script.** `dstudio.c` is both the local HTTP server and the engine supervisor: it starts/stops `ds4-server` for chat, `ds4-agent-jsonl` for coding, `ds4-cowork` for Office work and `ds4-design` for design, manages working directories, runs the setup doctor, proxies `/v1`, serves Web Search and exposes a small local API.
+- **C launcher, not a script.** `dstudio.c` is both the local HTTP server and the engine supervisor: it starts/stops `ds4-server` (or the bundled `llama-server` for the Qwen3.6 and 27B checkpoints) for chat, `ds4-agent-jsonl` for coding, `ds4-cowork` for Office work and `ds4-design` for design, manages working directories, runs the setup doctor, proxies `/v1`, serves Web Search and exposes a small local API.
 - **Native window.** `app.cc` forks the server and opens a WKWebView (macOS) / WebKitGTK (Linux) window via `webview.h`; the page is base64-embedded (`page_data.h`).
 - **Same-origin proxy.** The page calls DStudio for `/v1`; DStudio forwards streaming requests to the local engine, which is why LAN works with no engine exposure and no settings.
 - **Durable native Task Graph runtime.** Multi-step work can use real Agent/tool/check/approval executors, loop detection, exact-write undo receipts and a live graph with pause/resume. The explicit `test-task-graph-reliability-real` target compares 50 real tasks using the full GGUF with SSD streaming off and remains outside `check-fast`.
-- **Native vision only.** DeepSeek Vision-Exp and GLM 5.3 Chat/Agent/Cowork/Design use their ds4 native encoders directly. Experimental Qwen3.8-27B Chat/Agent/Cowork uses its own matching projector; broader PDF and vision qualification remains open. Capabilities depend on the selected model and encoder, not just the engine name. No secondary VLM, visual router or fallback is installed. Ideogram 4 FP8 creates new images at the selected Low/Medium/High/MAX preset and full HunyuanImage-3.0-Instruct NF4/50-step edits source pixels directly.
+- **Native vision only.** DeepSeek Vision-Exp and GLM 5.3 Chat/Agent/Cowork/Design use their ds4 native encoders directly. Qwen3.8-27B Chat/Agent/Cowork on llama.cpp uses its own matching projector; broader PDF and vision qualification remains open. Capabilities depend on the selected model and encoder, not just the engine name. No secondary VLM, visual router or fallback is installed. Ideogram 4 FP8 creates new images at the selected Low/Medium/High/MAX preset and full HunyuanImage-3.0-Instruct NF4/50-step edits source pixels directly.
 - **Text-first, native-vision PDF acceleration.** Poppler extraction, chunking and BM25 stay on the CPU. Qwen3-Embedding-0.6B ranks multilingual text only; it is not a router. DeepSeek Vision-Exp or GLM 5.3 can inspect a bounded selection of rendered pages through the currently loaded native encoder, while Laguna reports and skips image-only pages.
 
 ### The agent patch: building on ds4 without forking
@@ -1299,7 +1362,7 @@ Compatible local engines reuse conversation prefixes through their **KV cache**.
 Saving chat history and restoring an exact engine checkpoint are different capabilities:
 
 - **Chat** re-sends its history behind a **stable prefix**. Where supported, the server reuses that prefix and reports the blue *cached* token count under each reply. Disk persistence and reuse after an engine upgrade depend on the selected engine and compatible cache format; they are not guaranteed for every model.
-- **Agent, Cowork & Design** use independent named KV sessions where the engine supports them. Qwen3.6 and the experimental Qwen27B tool integration do not yet restore complete disk checkpoints, even though conversation history is saved. Design also keeps an exact-text, model-validated cache of its bootstrap prompt on supported engines: the first cold launch reports real prefill progress, while compatible later launches restore that prefix. Selected Design systems and Skills are loaded by their native tools on the first user turn rather than copied wholesale into every startup prompt.
+- **Agent, Cowork & Design** use independent named KV sessions where the engine supports them. Qwen3.6 and Qwen3.8-27B on llama.cpp cannot restore disk checkpoints, even though conversation history is saved. Design also keeps an exact-text, model-validated cache of its bootstrap prompt on supported engines: the first cold launch reports real prefill progress, while compatible later launches restore that prefix. Selected Design systems and Skills are loaded by their native tools on the first user turn rather than copied wholesale into every startup prompt.
 
 ## Security
 
@@ -1378,18 +1441,20 @@ quality-suite rerun. Exact acceptance criteria and retained failures are in
 
 ### Still required for the campaign
 
-- [ ] Implement and qualify independent Qwen Design adapters and the required
-  missing native-vision paths; preserve explicit unsupported-capability errors.
-- [ ] Complete native disk-session checkpoint restoration for Qwen3.6 and 27B.
+- [ ] Implement and qualify Design on the llama.cpp Qwen models (Design's remote
+  adapter speaks only DSML) and the required missing native-vision paths;
+  preserve explicit unsupported-capability errors.
+- [ ] Disk-session checkpoints for the llama.cpp Qwen models (llama-server slot
+  save/restore is not wired into DStudio sessions).
 - [ ] Complete Agent/Cowork dependency signatures, crash-safe runtime-pair
   publication and verified legacy-source recovery.
-- [ ] Bound q36 directory/parser work and complete full-model multi-session
-  acceptance.
-- [ ] Verify complete 27B/3.6 numerical behavior and original long requests on
-  the new inference overlays; perform invalidated quality reruns only under the
-  owner's supervision and qualify Next Q2 independently.
+- [ ] Qualify llama.cpp builds on Linux and Windows (prepared, not run).
+- [ ] Rerun the 27B/3.6 100-task corpus and the original long requests on the
+  llama.cpp engine (the published scores were measured on the retired engines);
+  perform invalidated quality reruns only under the owner's supervision and
+  qualify Next Q2 independently.
 - [ ] Complete Learn/Tutor and the retained Next reasoning-setting incident;
-  revalidate the 3.6 long-Agent timeout/partial-summary failure on current code.
+  revalidate the 3.6 long-Agent timeout/partial-summary failure on llama.cpp.
 - [ ] Complete selected-model Agent/Goals/Cowork long tasks, steering,
   pause/resume, durable recovery, exactly-once effects and reopened exports.
 - [ ] Independently qualify native PDF/vision inputs, including at least 30 PDFs

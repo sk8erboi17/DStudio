@@ -1,5 +1,9 @@
 # Qwen27B: what passed, and what still needs work
 
+> **Retired engine.** This run used the Ninnix/q36 engine, which DStudio
+> retired on October 3, 2026. Qwen3.8-27B now runs on the bundled llama.cpp
+> `b11371`, which has not run this corpus yet. These results describe q36 only.
+
 **61 of 100 tasks passed in this completed local run.** The other 39 remain
 failures: 31 answers did not meet their checks, and eight long requests did
 not produce a complete answer. This does not qualify the entire Qwen family.
@@ -14,9 +18,9 @@ format. None receives partial credit in the chart.
 
 The eight long-context failures comprise three native Metal HTTP 500 errors
 and five original 900-second deadlines. Supervised restarts only continued
-with the next case; failed cases were never retried or removed. The new
-[segmented-F16 candidate](../../../patch/q36-f16-attention/README.md) is being
-verified separately and **is not the engine measured in this chart**.
+with the next case; failed cases were never retried or removed. A later
+segmented-F16 q36 candidate was never measured on this corpus before q36 was
+retired, and **is not the engine measured in this chart**.
 
 ## What this run measures
 

@@ -106,9 +106,9 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 assert result["ok"] and result["bundled"] and result["contentOk"]
 PY
 python3 "$TMP_ROOT/support/scripts/download-qwen35.py" --help >/dev/null
-# Exercise the materialized 27B entry points without downloading or loading
+# Exercise the materialized llama.cpp installer without building or loading
 # weights. Packaging admission is distinct from model/inference qualification.
-python3 "$TMP_ROOT/support/scripts/install-q36.py" --help >/dev/null
+python3 "$TMP_ROOT/support/scripts/install-llama.py" --root "$TMP_ROOT" --revision unused --manifest >/dev/null
 python3 - "$TMP_ROOT/DStudio.app/Contents/MacOS/DStudio" "$TMP_ROOT" <<'PY'
 import json, os, re, subprocess, sys
 from pathlib import Path
@@ -120,13 +120,16 @@ pins = produced_json([app, '--engine-pins'])
 assert pins['schema'] == 'dstudio.engine-pins.v1'
 engines = {entry['id']: entry for entry in pins['engines']}
 assert len(engines) == len(pins['engines'])
-assert set(engines) == {'main', 'laguna', 'qwen35', 'q36'}
-assert engines['q36']['directory'] == 'q36'
-assert re.fullmatch(r'[0-9a-f]{40}', engines['q36']['commit'])
-assert engines['q36']['commit'] in engines['q36']['archiveURL']
+assert set(engines) == {'main', 'laguna', 'llama'}
+assert engines['llama']['directory'] == 'llama.cpp'
+assert re.fullmatch(r'[0-9a-f]{40}', engines['llama']['commit'])
+assert engines['llama']['commit'] in engines['llama']['archiveURL']
+installer = produced_json([sys.executable, os.path.join(root, 'support/scripts/install-llama.py'),
+                           '--root', root, '--revision', 'unused', '--manifest'])
+assert installer['commit'] == engines['llama']['commit'], 'installer and native pin agree'
 source_root = Path(root, 'support/src/engines')
 assert {p.name for p in source_root.iterdir() if p.is_dir()} == {
-    'ds4', 'ds4-laguna-s21', 'ds4-qwen35', 'q36'
+    'ds4', 'ds4-laguna-s21', 'llama.cpp'
 }, 'the materialized app must include only active engine snapshots'
 source_manifest = json.loads((source_root / 'manifest.json').read_text())
 assert set(source_manifest['engines']) == set(engines)
@@ -134,6 +137,31 @@ for engine, pin in engines.items():
     bundled = source_manifest['engines'][engine]
     assert bundled['commit'] == pin['commit']
     assert 'src/engines/' + bundled['directory'] == pin['sourceDirectory']
+# Harnesses: the pinned pi/opencode/pi-ds4 snapshots stay in the signed bundle
+# (not the per-launch support copy) and verify byte for byte from there; the
+# bridge is part of the support payload the installer copies from.
+harness_sources = Path(app).parents[1] / 'Resources' / 'HarnessSources'
+sys.path.insert(0, os.path.join(root, 'support/scripts'))
+import bundled_engine_sources as bundled_sources
+harness_manifest = json.loads((harness_sources / 'src/harness/manifest.json').read_text())
+assert set(harness_manifest['engines']) == {'pi', 'opencode', 'pi-ds4'}
+for harness_name, harness_entry in harness_manifest['engines'].items():
+    bundled_sources.transfer(harness_sources, harness_name, harness_entry['commit'], catalog=bundled_sources.HARNESSES)
+assert not Path(root, 'support/src/harness/pi').exists(), 'harness snapshots are not copied at every launch'
+# MLX: the pinned wheels stay in the bundle and verify against their manifest.
+import importlib.util as mlx_util
+mlx_spec = mlx_util.spec_from_file_location('install_mlx', os.path.join(root, 'support/scripts/install-mlx.py'))
+install_mlx = mlx_util.module_from_spec(mlx_spec); mlx_spec.loader.exec_module(install_mlx)
+mlx_packages = Path(app).parents[1] / 'Resources' / 'MlxPackages'
+mlx_manifest, _ = install_mlx.load_manifest(mlx_packages)
+install_mlx.verify_wheels(mlx_packages, mlx_manifest)
+assert not Path(root, 'support/src/engines/mlx').exists(), 'MLX wheels are not copied at every launch'
+for mlx_patch in install_mlx.PATCHES:
+    assert Path(root, 'support', mlx_patch).is_file(), mlx_patch
+mlx_pins = produced_json([sys.executable, os.path.join(root, 'support/scripts/download-mlx-qwen36.py'), '--manifest'])
+assert mlx_pins['files'] and len(mlx_pins['files']) == 20 and re.fullmatch(r'[0-9a-f]{40}', mlx_pins['revision'])
+for bridge_file in ('dstudio-harness.mjs', 'pi-workspace-guard.ts'):
+    assert Path(root, 'support/src/harness/bridge', bridge_file).is_file(), bridge_file
 manifest = produced_json([sys.executable, os.path.join(root, 'support/scripts/download-qwen27.py'), '--manifest'])
 assert re.fullmatch(r'[0-9a-f]{40}', manifest['revision'])
 assert set(manifest['files']) == {'model', 'vision'}

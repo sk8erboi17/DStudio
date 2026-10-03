@@ -28,9 +28,7 @@ function baseSource(base) {
     return fs.readFileSync(path.join(process.env.DSTUDIO_AGENT_BASE_SOURCES, `${base.name}.c`));
   if (['qwen38', 'qwen38-next'].includes(base.name) && !process.env.DSTUDIO_AGENT_QWEN38_DIR)
     return historicalQwenSource(base.revision, bases.sourceFile);
-  const engine = path.resolve(base.name === 'qwen35'
-    ? (process.env.DSTUDIO_AGENT_QWEN35_DIR || path.join(root, 'ds4-qwen35'))
-    : base.name === 'qwen38' || base.name === 'qwen38-next'
+  const engine = path.resolve(base.name === 'qwen38' || base.name === 'qwen38-next'
     ? (process.env.DSTUDIO_AGENT_QWEN38_DIR || path.join(root, 'ds4-qwen38'))
     : (process.env.DSTUDIO_AGENT_MAIN_DIR || path.join(root, 'ds4')));
   const git = spawnSync('git', ['-C', engine, 'show', `${base.revision}:${bases.sourceFile}`], { maxBuffer: 16 * 1024 * 1024 });
@@ -173,7 +171,7 @@ try {
       assert.equal(hash(parts.join(fragment + '\n')), base.legacyExpandedSHA256, 'Native output must match the pre-migration oracle');
       row.checks.push('frozen-legacy-byte-parity');
     } else {
-      assert(['main-qwen','main-v41','qwen38','qwen38-next','qwen35'].includes(base.name),
+      assert(['main-qwen','main-v41','qwen38','qwen38-next'].includes(base.name),
         'Only explicitly new upstream variants lack a legacy runtime oracle');
       assert(base.oracle, 'New variants require an explicit behavioral oracle');
       row.oracle = base.oracle;

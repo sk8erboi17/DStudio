@@ -104,6 +104,12 @@ endif
 APPNAME := DStudio
 APPDIR  := $(APPNAME).app
 APP_SUPPORT := $(APPDIR)/Contents/Resources/DStudio
+# Native harness sources are part of the materialized support payload. The
+# pinned pi/opencode/pi-ds4 snapshots stay in the signed bundle only
+# (Resources/HarnessSources): the support payload is copied at every launch,
+# and these sources are read once, by the harness installer.
+HARNESS_NATIVE := src/harness/design src/harness/cowork src/harness/bridge
+HARNESS_SOURCES := src/harness/pi src/harness/opencode src/harness/pi-ds4 src/harness/manifest.json
 MAC_ARCH := $(shell uname -m)
 DIST_DIR := dist
 MAC_ZIP := $(DIST_DIR)/$(APPNAME)-$(VERSION)-macOS-$(MAC_ARCH).zip
@@ -116,13 +122,18 @@ ifeq ($(UNAME),Darwin)
 	@cp $(ICNS) $(APPDIR)/Contents/Resources/ds4.icns
 	@cp $(PLIST) $(APPDIR)/Contents/Info.plist
 	@cp -R extension/design-systems extension/remote extension/craft extension/search extension/task-graph $(APP_SUPPORT)/extension/
-	@cp -R src/harness/design src/harness/cowork $(APP_SUPPORT)/src/harness/
-	@mkdir -p $(APP_SUPPORT)/src/harness/gsa
+	@cp -R $(HARNESS_NATIVE) $(APP_SUPPORT)/src/harness/
+	@mkdir -p $(APPDIR)/Contents/Resources/HarnessSources/src/harness
+	@cp -R $(HARNESS_SOURCES) $(APPDIR)/Contents/Resources/HarnessSources/src/harness/
 	@cp -R src/harness/gsa/templates $(APP_SUPPORT)/src/harness/gsa/
 	@cp src/harness/gsa/tools/catalog.json src/harness/gsa/tools/README.md $(APP_SUPPORT)/src/harness/gsa/tools/
 	@cp -R patch scripts $(APP_SUPPORT)/
 	@mkdir -p $(APP_SUPPORT)/src
-	@cp -R src/engines $(APP_SUPPORT)/src/
+	@# Engine sources go to the support payload; the MLX wheels (read once by
+	@# scripts/install-mlx.py) stay in the signed bundle, like the harness sources.
+	@rsync -a --exclude /engines/mlx src/engines $(APP_SUPPORT)/src/
+	@mkdir -p $(APPDIR)/Contents/Resources/MlxPackages/src/engines
+	@cp -R src/engines/mlx $(APPDIR)/Contents/Resources/MlxPackages/src/engines/
 	@cp LICENSE THIRD_PARTY_NOTICES.md $(APP_SUPPORT)/
 	@find $(APP_SUPPORT) -type f \( -name .DS_Store -o -name '*.pyc' -o -name '*.pyo' \) -delete
 	@find $(APP_SUPPORT) -type d -name __pycache__ -empty -delete
@@ -394,12 +405,8 @@ test-qwen-quality-chart:
 
 check-fast: test-qwen-quality-chart
 
-.PHONY: test-q36-retained-diagnostic-inputs
-test-q36-retained-diagnostic-inputs:
-	@node tests/integration/q36_retained_diagnostic_inputs_test.mjs $(Q36_SOURCE)
-
 ifeq ($(UNAME),Darwin)
-check-fast: test-common-quality-oracle test-q36-retained-diagnostic-inputs
+check-fast: test-common-quality-oracle
 endif
 
 .PHONY: test-engine-startup
@@ -459,34 +466,23 @@ test-runtime-patch-migration:
 AGENT_MAIN_TREE ?= ds4
 AGENT_LAGUNA_TREE ?= ds4-laguna-s21
 AGENT_QWEN38_TREE ?=
-AGENT_QWEN35_TREE ?=
 test-agent-native-build: $(TEST_BUILD)/agent-build-probe $(TEST_BUILD)/remote-turn-error-unit
-	@test -z "$(AGENT_QWEN35_TREE)" -o -n "$(AGENT_QWEN38_TREE)" || (echo 'AGENT_QWEN35_TREE also requires AGENT_QWEN38_TREE' && exit 1)
-	@node tests/integration/agent_native_build_test.mjs "$(AGENT_MAIN_TREE)" "$(AGENT_LAGUNA_TREE)" $(if $(AGENT_QWEN38_TREE),"$(AGENT_QWEN38_TREE)") $(if $(AGENT_QWEN35_TREE),"$(AGENT_QWEN35_TREE)")
+	@node tests/integration/agent_native_build_test.mjs "$(AGENT_MAIN_TREE)" "$(AGENT_LAGUNA_TREE)" $(if $(AGENT_QWEN38_TREE),"$(AGENT_QWEN38_TREE)")
 
 # Requires the already built Qwen candidate with the matching native Agent;
 # b4c3550 and 0bb323a have identical Agent source. No automatic download.
 QWEN38_AGENT_TREE ?= ds4
-QWEN35_AGENT_TREE ?= ds4-qwen35
 QWEN38_AGENT_FLAGS ?= --sanitize
-
-# Explicit diagnostic: currently exposes the reviewed q36 monitor's slow-log
-# critical section. Not a passing release gate or a language-model test.
-.PHONY: test-q36-monitor-control
-test-q36-monitor-control:
-	@node tests/integration/q36_monitor_control_test.mjs "$(Q36_SOURCE)" "$(Q36_MONITOR_OBJECTS)" $(Q36_MONITOR_FLAGS)
 
 # Executes the patched native compaction function with controlled session
 # failures/cancellation; no model loads or mutations of supplied checkouts.
 .PHONY: test-agent-compaction
 test-agent-compaction:
 	@node tests/integration/agent_compaction_test.mjs "$(AGENT_LAGUNA_TREE)" --family laguna
-	@node tests/integration/agent_compaction_test.mjs "$(QWEN35_AGENT_TREE)" --family qwen35
 
 # Reads the real GGUF vocabularies only; does not load weight tensors or run a
 # language model. Missing model files are failures, not skipped green checks.
 COMPACTION_LAGUNA_MODEL ?= ds4/gguf/laguna-s-2.1-Q4_K_M.gguf
-COMPACTION_QWEN35_MODEL ?= ds4/gguf/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf
 .PHONY: test-agent-continuation test-agent-continuation-oracle test-agent-continuation-live
 test-agent-continuation-oracle:
 	@node --test tests/unit/agent_continuation_oracle_test.mjs
@@ -501,7 +497,6 @@ test-agent-runtime-notice:
 
 test-agent-continuation: test-agent-continuation-oracle
 	@node tests/integration/agent_compaction_test.mjs "$(AGENT_LAGUNA_TREE)" --family laguna --tokenizer-model "$(COMPACTION_LAGUNA_MODEL)"
-	@node tests/integration/agent_compaction_test.mjs "$(QWEN35_AGENT_TREE)" --family qwen35 --tokenizer-model "$(COMPACTION_QWEN35_MODEL)"
 
 # Explicit single-engine live invocation. No weight download or app restart;
 # run each family sequentially with its own passing native build receipt.
@@ -511,20 +506,15 @@ test-agent-continuation-live: $(TEST_BUILD)/agent-build-probe test-agent-continu
 test-qwen38-agent:
 	@node tests/integration/qwen38_agent_test.mjs "$(QWEN38_AGENT_TREE)" $(QWEN38_AGENT_FLAGS)
 
-.PHONY: test-qwen35-agent
-test-qwen35-agent:
-	@node tests/integration/qwen35_agent_test.mjs "$(QWEN35_AGENT_TREE)" $(QWEN35_AGENT_FLAGS)
-
 .PHONY: test-qwen-session-reset
 test-qwen-session-reset:
-	@node tests/integration/agent_reset_test.mjs "$(QWEN35_AGENT_TREE)" --sanitize
 	@node tests/integration/agent_reset_test.mjs "$(QWEN38_AGENT_TREE)" --qwen38 --sanitize
 
 test-qwen38-tool-oracle:
 	@node tests/unit/qwen38_tool_oracle_test.mjs
 
 # Existing native objects only; no engine mutation, build or weights download.
-METAL_WORKSPACE_TREES ?= ds4 ds4-laguna-s21 ds4-qwen35
+METAL_WORKSPACE_TREES ?= ds4 ds4-laguna-s21
 test-metal-workspace: $(TEST_BUILD)/agent-build-probe
 	@node tests/integration/metal_workspace_test.mjs $(TEST_BUILD)/agent-build-probe $(METAL_WORKSPACE_TREES)
 
@@ -561,15 +551,88 @@ $(TEST_BUILD)/engine_setup_unit: tests/unit/engine_setup_unit.c $(SRC) $(SUBSRC)
 	@mkdir -p $(TEST_BUILD)
 	$(CC) $(CFLAGS) tests/unit/engine_setup_unit.c -o $@
 
-.PHONY: test-engine-setup-unit
-test-engine-setup-unit: $(TEST_BUILD)/engine_setup_unit $(TEST_BUILD)/qwen35_runtime_unit
-	@$(TEST_BUILD)/engine_setup_unit
-	@$(TEST_BUILD)/qwen35_runtime_unit
-	@node tests/unit/agent_session_capability_test.mjs
-
-$(TEST_BUILD)/qwen35_runtime_unit: tests/unit/qwen35_runtime_unit.c tests/fixtures/qwen35-runtime-probe.sh $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+# llama.cpp model ownership: routing, preflight and /props readiness (no model).
+$(TEST_BUILD)/resident_runtime_unit: tests/unit/resident_runtime_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
 	@mkdir -p $(TEST_BUILD)
-	$(CC) $(CFLAGS) tests/unit/qwen35_runtime_unit.c -o $@
+	$(CC) $(CFLAGS) tests/unit/resident_runtime_unit.c -o $@
+
+.PHONY: test-resident-unit
+test-resident-unit: $(TEST_BUILD)/resident_runtime_unit
+	@$(TEST_BUILD)/resident_runtime_unit
+
+# The production llama-server guard with real processes and a stand-in server.
+.PHONY: test-resident-guard
+test-resident-guard: $(TEST_SERVER)
+	@node tests/integration/resident_guard_test.mjs $(TEST_SERVER)
+
+check-fast: test-resident-unit test-resident-guard
+
+# scripts/install-llama.py recipes (static macOS, dynamic Linux/Windows),
+# receipts and leases; toolchains simulated, nothing compiled.
+.PHONY: test-llama-install-profile
+test-llama-install-profile:
+	@python3 tests/unit/llama_install_profile_test.py
+
+check-fast: test-llama-install-profile
+
+# Harness bridge (pi/opencode as the Agent runtime): production classes with
+# simulated harnesses, host RPC and models; then the harness patch lifecycle
+# and bundled-source identity. Real models: make test-harness-live.
+.PHONY: test-harness-bridge test-harness-patches
+test-harness-bridge:
+	@node tests/unit/harness_bridge_test.mjs
+test-harness-patches:
+	@python3 tests/integration/harness_patches_test.py
+
+check-fast: test-harness-bridge test-harness-patches
+
+# MLX runtime (bundled wheels in src/engines/mlx): installer helpers with
+# simulated interpreters (check-fast), and a real offline installation with
+# outbound network denied (explicit; macOS 26, Python 3.12-3.14, no model).
+.PHONY: test-mlx-install-unit test-mlx-install
+test-mlx-install-unit:
+	@python3 tests/unit/mlx_install_test.py
+test-mlx-install:
+	@python3 tests/integration/mlx_install_offline_test.py
+
+# MLX weight download through the host (Apple Silicon): real HTTP, children
+# and files with a simulated installer/downloader; no network or model.
+.PHONY: test-mlx-download-host
+test-mlx-download-host: $(TEST_SERVER)
+	@node tests/integration/mlx_download_host_test.mjs "$(TEST_SERVER)"
+
+.PHONY: test-mlx-model-ui
+test-mlx-model-ui:
+	@node tests/unit/mlx_model_ui_test.mjs
+
+check-fast: test-mlx-install-unit test-mlx-download-host test-mlx-model-ui
+
+# Real offline build of the dynamic (Linux/Windows) layout on macOS: every CPU
+# variant and Metal as loadable modules. Explicit; a few minutes of CPU. Add
+# LLAMA_DYNAMIC_INFER=gguf/MODEL.gguf to also load existing weights once.
+.PHONY: test-llama-dynamic-build
+test-llama-dynamic-build:
+	@python3 tests/integration/llama_dynamic_build_test.py $(if $(LLAMA_DYNAMIC_INFER),--infer $(LLAMA_DYNAMIC_INFER))
+
+# REAL inference: the bundled llama.cpp engine with the pinned Qwen weights,
+# one model at a time (DSTUDIO_LLAMA_MODELS=qwen36|qwen27). Builds llama.cpp
+# on first use; refuses to run while another engine holds port 28000.
+.PHONY: test-llama-resident-live
+test-llama-resident-live: $(TEST_SERVER)
+	@node tests/live/llama_resident_live_test.mjs
+
+# REAL inference through the harness bridge: pi and opencode as the Agent
+# runtime with Qwen3.6/27B (llama.cpp) and DeepSeek (bridge-owned ds4-server).
+# Needs scripts/install-harness.py first; DSTUDIO_HARNESSES / DSTUDIO_HARNESS_MODELS
+# select one combination. Sequential; refuses to run beside an engine on 28000.
+.PHONY: test-harness-live
+test-harness-live: $(TEST_SERVER)
+	@node tests/live/harness_live_test.mjs
+
+.PHONY: test-engine-setup-unit
+test-engine-setup-unit: $(TEST_BUILD)/engine_setup_unit
+	@$(TEST_BUILD)/engine_setup_unit
+	@node tests/unit/agent_session_capability_test.mjs
 
 check-fast: test-engine-setup-unit
 
@@ -615,10 +678,6 @@ test-qwen27-download-settings-live: $(TEST_SERVER)
 
 check-fast: test-qwen27-download test-qwen27-download-host
 
-.PHONY: test-q36-install
-test-q36-install:
-	@python3 tests/integration/q36_install_test.py
-
 .PHONY: test-engine-sources
 test-engine-sources:
 	@python3 tests/integration/bundled_engine_sources_test.py
@@ -631,233 +690,10 @@ test-engine-updates: $(TEST_SERVER)
 
 check-fast: test-engine-updates
 
-.PHONY: test-q36-cache-usage
-test-q36-cache-usage:
-	@node tests/integration/q36_cache_usage_patch_test.mjs "$(Q36_SOURCE)"
-
-check-fast: test-q36-install
-
-.PHONY: test-qwen35-catalog
-test-qwen35-catalog:
-	@node tests/integration/qwen35_catalog_patch_test.mjs "$(or $(QWEN35_DIR),ds4-qwen35)"
-
-# Real Metal MoE kernels vs an independent Q6_K oracle, patch lifecycle and
-# launch-preparation wiring. Needs the Qwen3.6 fork source; no weights.
-.PHONY: test-qwen35-q6k-moe
-test-qwen35-q6k-moe: $(TEST_SERVER)
-	@node tests/integration/qwen35_moe_q6_test.mjs "$(or $(QWEN35_DIR),ds4-qwen35)" "$(TEST_SERVER)"
-
-# Actual Metal sessions with synthetic weights, compared with original decode.
-.PHONY: test-qwen35-prefill
-test-qwen35-prefill:
-	@node tests/integration/qwen35_prefill_test.mjs "$(or $(QWEN35_DIR),ds4-qwen35)"
-
 .PHONY: test-qwen38-inspect
 # Archived patch inputs are shipped as bounded fixtures, not an installed fork.
 test-qwen38-inspect:
 	@node tests/integration/qwen38_inspect_patch_test.mjs $(if $(QWEN38_DIR),"$(QWEN38_DIR)")
-
-# Explicit real Metal operators; optional verified projector, never LLM weights.
-.PHONY: test-q36-metal-runtime
-test-q36-metal-runtime:
-	@node tests/integration/q36_metal_runtime_test.mjs "$(Q36_SOURCE)" $(if $(QWEN27_PROJECTOR),"$(QWEN27_PROJECTOR)") $(if $(filter 1,$(Q36_NEXT_REVIEW)),--next) $(if $(filter 1,$(Q36_CURRENT)),--current)
-
-.PHONY: test-q36-attention-work
-test-q36-attention-work:
-	@node tests/integration/q36_attention_work_test.mjs "$(Q36_SOURCE)"
-
-# Explicit candidate gate; does not promote the managed installer or load weights.
-.PHONY: test-q36-f16-attention
-test-q36-f16-attention:
-	@node tests/integration/q36_f16_attention_patch_test.mjs "$(Q36_SOURCE)"
-	@node tests/integration/q36_attention_work_test.mjs "$(Q36_SOURCE)" --segmented
-
-# Installed 1305843 online attention. No weights or model-quality evaluation.
-.PHONY: test-q36-f16-online
-test-q36-f16-online:
-	@node tests/integration/q36_f16_attention_patch_test.mjs "$(Q36_SOURCE)" --online
-	@node tests/integration/q36_attention_work_test.mjs "$(Q36_SOURCE)" --online
-
-.PHONY: test-q36-dense-quant test-q36-catalog
-test-q36-dense-quant:
-	@node tests/integration/q36_dense_quant_test.mjs "$(Q36_SOURCE)"
-
-test-q36-catalog:
-	@node tests/integration/q36_catalog_test.mjs "$(Q36_SOURCE)"
-
-# Execute the native renderer against the original templates in existing GGUFs.
-# Metadata only; Jinja2 is required, no inference or weight download.
-.PHONY: test-q36-chat-template
-test-q36-chat-template:
-	@python3 tests/integration/q36_chat_template_test.py "$(Q36_SOURCE)" "$(QWEN27_MODEL)" $(if $(QWEN36_MODEL),"$(QWEN36_MODEL)")
-
-.PHONY: test-q36-owner
-test-q36-owner:
-	@node tests/integration/q36_owner_test.mjs "$(Q36_SOURCE)" --server
-
-.PHONY: test-q36-owner-live
-test-q36-owner-live:
-	@node tests/live/q36_owner_live_test.mjs "$(Q36_SOURCE)" "$(QWEN27_MODEL)" "$(QWEN27_PROJECTOR)"
-
-$(TEST_BUILD)/q36_host_unit: tests/unit/q36_host_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
-	@mkdir -p $(TEST_BUILD)
-	$(CC) $(CFLAGS) tests/unit/q36_host_unit.c -o $@
-
-$(TEST_BUILD)/q36_host_engine: tests/support/q36_host_engine.c
-	@mkdir -p $(TEST_BUILD)
-	$(CC) $(CFLAGS) $< -o $@
-
-.PHONY: test-q36-host
-test-q36-host: $(TEST_SERVER) $(TEST_BUILD)/q36_host_unit $(TEST_BUILD)/q36_host_engine
-	@$(TEST_BUILD)/q36_host_unit
-	@node tests/integration/q36_host_test.mjs $(TEST_SERVER) $(TEST_BUILD)/q36_host_engine
-
-.PHONY: test-q36-agent-host
-test-q36-agent-host: $(TEST_SERVER)
-	@node tests/integration/q36_agent_host_test.mjs $(TEST_SERVER) "$(if $(Q36_AGENT_SOURCE),$(Q36_AGENT_SOURCE),ds4)"
-
-.PHONY: test-q36-attachments-browser
-test-q36-attachments-browser: $(TEST_SERVER)
-	@node tests/integration/q36_agent_host_test.mjs $(TEST_SERVER) "$(if $(Q36_AGENT_SOURCE),$(Q36_AGENT_SOURCE),ds4)" --browser
-
-.PHONY: test-q36-host-live
-test-q36-host-live: $(TEST_SERVER)
-	@node tests/live/q36_host_live_test.mjs $(TEST_SERVER) "$(Q36_SOURCE)" "$(QWEN27_MODEL)" "$(QWEN27_PROJECTOR)"
-
-.PHONY: test-q36-host-tools-live
-test-q36-host-tools-live: $(TEST_SERVER)
-	@node tests/live/q36_host_live_test.mjs $(TEST_SERVER) "$(Q36_SOURCE)" "$(QWEN27_MODEL)" "$(QWEN27_PROJECTOR)" --tools
-
-.PHONY: test-q36-upgrade-live
-test-q36-upgrade-live: $(TEST_SERVER)
-	@node tests/live/q36_upgrade_live_test.mjs $(TEST_SERVER) "$(Q36_LEGACY_SOURCE)" "$(QWEN27_MODEL)" "$(Q36_MAIN_SOURCE)"
-
-.PHONY: test-q36-host-tools-browser-live
-test-q36-host-tools-browser-live: $(TEST_SERVER)
-	@node tests/live/q36_host_live_test.mjs $(TEST_SERVER) "$(Q36_SOURCE)" "$(QWEN27_MODEL)" "$(QWEN27_PROJECTOR)" --tools --browser=webkit
-
-# Diagnostic replay only: the pinned server records exact requests and phases.
-$(TEST_BUILD)/q36-host-trace: tests/support/q36_host_trace.c $(SRC) $(SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
-	@mkdir -p $(TEST_BUILD)
-	$(CC) $(CFLAGS) $< -o $@
-
-.PHONY: test-q36-host-tools-trace
-test-q36-host-tools-trace: $(TEST_BUILD)/q36-host-trace
-	@node tests/live/q36_host_live_test.mjs $(TEST_BUILD)/q36-host-trace "$(Q36_SOURCE)" "$(QWEN27_MODEL)" "$(QWEN27_PROJECTOR)" --tools --trace-native
-
-# Explicit diagnostic only: same native prompt/logits before and after readback
-# instrumentation, eight greedy steps; never a replacement for tool acceptance.
-.PHONY: test-q36-sync-profile-live
-test-q36-sync-profile-live:
-	@node tests/live/q36_sync_profile_live_test.mjs "$(Q36_SOURCE)" "$(QWEN27_MODEL)" "$(Q36_NATIVE_TRACE)"
-
-# Same actual model/host gate plus a real headless WebKit Chat workflow.
-.PHONY: test-q36-host-browser-live
-test-q36-host-browser-live: $(TEST_SERVER)
-	@node tests/live/q36_host_live_test.mjs $(TEST_SERVER) "$(Q36_SOURCE)" "$(QWEN27_MODEL)" "$(QWEN27_PROJECTOR)" --browser=webkit
-
-# Explicit full-weight CPU/Metal replay, never part of the model-free gates.
-.PHONY: test-q36-request-parity-live
-test-q36-request-parity-live:
-	@node tests/live/q36_request_parity_test.mjs "$(Q36_SOURCE)" "$(QWEN27_MODEL)"
-
-.PHONY: test-q36-vision-session-live
-test-q36-vision-session-live:
-	@node tests/live/q36_vision_session_test.mjs "$(Q36_SOURCE)" "$(QWEN27_MODEL)" "$(QWEN27_PROJECTOR)"
-
-.PHONY: test-q36-text-prepare-live
-test-q36-text-prepare-live:
-	@node tests/live/q36_text_prepare_test.mjs "$(Q36_SOURCE)" "$(QWEN27_MODEL)" $(if $(Q36_DIRECT_BASELINE),--direct-baseline)
-
-.PHONY: test-q36-text-schedule-live
-test-q36-text-schedule-live:
-	@node tests/live/q36_text_prepare_test.mjs "$(Q36_SOURCE)" "$(QWEN27_MODEL)" --scheduled
-
-.PHONY: test-q36-session-batch-live
-test-q36-session-batch-live:
-	@node tests/live/q36_session_batch_test.mjs "$(Q36_SOURCE)" "$(QWEN27_MODEL)"
-
-.PHONY: test-q36-recurrent-batch
-test-q36-recurrent-batch:
-	@node tests/integration/q36_recurrent_batch_test.mjs "$(Q36_SOURCE)"
-
-.PHONY: test-q36-text-prepare
-test-q36-text-prepare:
-	@node tests/integration/q36_text_prepare_test.mjs "$(Q36_SOURCE)"
-
-.PHONY: test-q36-vision-prepare
-test-q36-vision-prepare:
-	@node tests/integration/q36_text_prepare_test.mjs "$(Q36_SOURCE)" vision
-
-.PHONY: test-q36-payload-prepare
-test-q36-payload-prepare:
-	@node tests/integration/q36_payload_prepare_test.mjs "$(Q36_SOURCE)" $(if $(Q36_DIRECT_BASELINE),--direct-baseline)
-
-.PHONY: test-q36-payload-schedule test-q36-cache-owner
-test-q36-payload-schedule:
-	@node tests/integration/q36_payload_schedule_test.mjs "$(Q36_SOURCE)"
-
-# Native ownership regression: independent decode during blocked disk I/O.
-test-q36-cache-owner:
-	@node tests/integration/q36_cache_owner_test.mjs "$(Q36_SOURCE)"
-
-.PHONY: test-q36-vision-answer-oracle
-test-q36-vision-answer-oracle:
-	@node tests/unit/q36_vision_answer_oracle_test.mjs
-
-check-fast: test-q36-vision-answer-oracle
-
-.PHONY: test-q36-cancel-admission
-test-q36-cancel-admission:
-	@node tests/integration/q36_cancel_admission_test.mjs "$(Q36_SOURCE)"
-
-.PHONY: test-q36-http-vision
-test-q36-http-vision:
-	@node tests/integration/q36_http_vision_test.mjs "$(Q36_SOURCE)"
-
-.PHONY: test-q36-http-control
-.PHONY: test-q36-request-lifetime-patch
-test-q36-request-lifetime-patch:
-	@node tests/integration/q36_request_lifetime_patch_test.mjs
-.PHONY: test-q36-http-text-prepare
-test-q36-http-text-prepare:
-	@node tests/integration/q36_http_text_prepare_test.mjs "$(Q36_SOURCE)" $(if $(Q36_DIRECT_BASELINE),--direct-baseline)
-
-.PHONY: test-q36-http-text-batched
-test-q36-http-text-batched:
-	@node tests/integration/q36_http_text_prepare_test.mjs "$(Q36_SOURCE)" --batched
-
-test-q36-http-control:
-	@node tests/integration/q36_http_control_test.mjs "$(Q36_SOURCE)"
-
-.PHONY: test-q36-tool-replay-identity
-test-q36-tool-replay-identity:
-	@node tests/integration/q36_tool_replay_identity_test.mjs "$(Q36_SOURCE)"
-
-.PHONY: test-q36-tool-map
-test-q36-tool-map:
-	@node tests/integration/q36_tool_map_test.mjs "$(Q36_SOURCE)" --v2
-
-.PHONY: test-q36-tool-schema
-test-q36-tool-schema:
-	@node tests/integration/q36_tool_schema_test.mjs "$(Q36_SOURCE)"
-
-.PHONY: test-q36-http-vision-live
-test-q36-http-vision-live:
-	@node tests/live/q36_http_vision_live_test.mjs "$(Q36_SOURCE)" "$(QWEN27_MODEL)" "$(QWEN27_PROJECTOR)" $(if $(filter 1,$(Q36_DISK_CACHE)),--disk-cache) $(if $(filter 1,$(Q36_NEXT_REVIEW)),--next) $(if $(Q36_NATIVE_RECEIPT),--native-receipt "$(Q36_NATIVE_RECEIPT)")
-
-# Read-only CLI admission and deliberately invalid receipts; no inference.
-.PHONY: test-q36-http-review
-test-q36-http-review:
-	@node tests/integration/q36_http_review_test.mjs "$(Q36_SOURCE)" "$(Q36_NATIVE_RECEIPT)" "$(QWEN27_MODEL)" "$(QWEN27_PROJECTOR)"
-
-.PHONY: test-q36-http-install
-test-q36-http-install:
-	@node tests/integration/q36_http_install_test.mjs "$(Q36_SOURCE)" "$(QWEN27_MODEL)" "$(QWEN27_PROJECTOR)"
-
-.PHONY: test-q36-batched-cache-live
-test-q36-batched-cache-live:
-	@node tests/live/q36_batched_cache_live_test.mjs "$(Q36_SOURCE)" "$(QWEN27_MODEL)"
 
 .PHONY: test-qwen38-prepare-patch test-qwen38-prepare-live
 test-qwen38-prepare-patch:
@@ -886,10 +722,6 @@ test-main-qwen-download:
 
 test-qwen38-snapshot-patch:
 	@node tests/integration/qwen38_snapshot_patch_test.mjs "$(QWEN38_AGENT_TREE)" --upstream-fixed
-
-.PHONY: test-q27-metal-delta
-test-q27-metal-delta:
-	@node tests/integration/q27_metal_delta_test.mjs "$(Q27_SOURCE)"
 
 .PHONY: test-server-metrics-patch test-native-patch-roundtrip
 test-server-metrics-patch:
@@ -1130,18 +962,6 @@ test-design-generation-process:
 
 test-design-runtime: test-design-generation-process
 
-.PHONY: test-q36-agent-tty
-Q36_AGENT_TTY_FLAGS ?=
-test-q36-agent-tty:
-	@Q36_SOURCE="$(Q36_SOURCE)" python3 tests/integration/q36_agent_tty_test.py $(Q36_AGENT_TTY_FLAGS)
-
-.PHONY: test-q36-search-extract
-test-q36-search-extract:
-	@node tests/browser/q36_search_extract_test.mjs "$(Q36_SOURCE)"
-
-.PHONY: test-q36-metal-diagnostics
-test-q36-metal-diagnostics:
-	@node tests/integration/q36_metal_diagnostics_test.mjs "$(Q36_SOURCE)"
 
 test-design-disclosure:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Lumen disclosure contract test requires node" && exit 1)
@@ -1244,7 +1064,7 @@ test-inference-live: $(TEST_SERVER)
 	@node tests/live/engine_acceptance.mjs --infer --engines "$(or $(ENGINES),main,laguna)"
 
 test-engine-acceptance: $(TEST_SERVER)
-	@node tests/live/engine_acceptance.mjs --setup --infer --engines "$(or $(ENGINES),main,laguna,qwen,qwen35)"
+	@node tests/live/engine_acceptance.mjs --setup --infer --engines "$(or $(ENGINES),main,laguna)"
 
 test-qwen-chat-live: $(TEST_SERVER)
 	@node tests/live/engine_acceptance.mjs --infer --engines qwen --via-app

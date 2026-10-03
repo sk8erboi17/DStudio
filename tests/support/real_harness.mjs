@@ -78,14 +78,9 @@ export function resolveDs4Dir() {
     path.join(os.homedir(), 'Documents', 'ds4'),
     path.resolve(repoRoot, '..', 'ds4'),
   ].filter(Boolean);
-  // An explicitly selected managed q36 tree has no ds4_server.c: DStudio routes
-  // it by directory name and revalidates its receipt in launch preparation.
-  const managedQ36 = dir => path.basename(dir) === 'q36' &&
-    fs.existsSync(path.join(dir, 'q36-server')) && fs.existsSync(path.join(dir, '.dstudio-source.json'));
   for (const c of candidates) {
     const dir = path.resolve(c);
-    if (!fs.existsSync(path.join(dir, 'ds4_server.c')) &&
-        !(c === process.env.DSTUDIO_REAL_DS4_DIR && managedQ36(dir))) continue;
+    if (!fs.existsSync(path.join(dir, 'ds4_server.c'))) continue;
     const ggufs = listGgufs(dir);
     if (ggufs.length) return { dir, ggufs };
   }

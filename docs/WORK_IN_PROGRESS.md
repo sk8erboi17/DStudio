@@ -11,9 +11,9 @@ complete quality rerun.
 | Area | Work still required |
 | --- | --- |
 | Qwen Design | Implement and qualify the independent adapter for 3.6, 27B and Next. Keep unsupported launches explicit until then. |
-| Disk sessions | Complete native checkpoint restoration for Qwen3.6 and 27B; saved chat history is not complete runtime resumption. |
+| Disk sessions | Qwen3.6 and 27B now run on llama.cpp: add bounded KV/session reuse across engine restarts; saved chat history is not complete runtime resumption. |
 | Agent/Cowork builds | Complete dependency signatures, coordinated crash-safe runtime-pair publication and verified legacy-source recovery. |
-| q36 control work | Bound directory/parser work and finish full-model multi-session validation. |
+| llama.cpp / MLX Qwen | Common-100, long context, Learn/Tutor and PDF on llama.cpp `99b9548` and on the MLX Qwen3.6 (implemented October 3: native Agent/Cowork/Design/Chat 6/6, pi/OpenCode 6/6; a quality comparison with the GGUF is not done); untested non-macOS backends. |
 | Design auditor | Qualify the remaining fourteen domain scenarios with independent positive/negative fixtures. |
 | Agent comparisons | Implement the actual Codex/Responses runner and parameter/protocol validation. |
 | Campaign coordination | Finish current-build/path/case inventory and the complete matrix coordinator/public report. |
@@ -28,7 +28,7 @@ complete quality rerun.
 | PDFs / vision | At least thirty PDFs and twenty images per vision checkpoint, independently graded answers, actual pixel paths and negative text-model/history/cache tests in all four modes. |
 | Desktop | Nine selections × Chat/Agent/Learn/Cowork: at least thirty-six complete native-model workflows, plus Design, switching, errors, cancellation and final-build regressions. |
 | Design projects | Generate and independently audit all eighteen frozen projects for the original nine systems in Chromium/WebKit, both themes, four widths, 200% text, offline exports and the opaque preview. Preserve and regenerate failed model outputs through the runtime. |
-| Install / upgrade | Extend verified bundled/offline installation and q36 upgrade evidence to full current engine/mode/failure/recovery coverage and the final bundle. |
+| Install / upgrade | Extend verified bundled/offline installation (main, Laguna, llama.cpp) to full current engine/mode/failure/recovery coverage and the final bundle. The retired q36 upgrade evidence does not carry over. |
 | Engine admission | Complete applicable source reviews and bind exact qualifying receipts. The nine-target matrix currently has 117 required gate slots and zero linked receipts; these are unfilled evidence requirements, not 117 failed tests. |
 | Search / Research | Held-out source-grounded answer evaluation beyond development questions, actual vision-model webpage checks and real validation of the retained writer incident after the software corrections. |
 | V4.1 / GLM | Dedicated final session: V4.1 Q2's format failure and complete Q2/Q4 mode/quality/SSD-Engram qualification; GLM's matching 100 continuations, vision and complete product qualification. |

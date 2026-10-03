@@ -50,7 +50,7 @@ let chrome;
 let chromeLog;
 try {
   const binaries = [];
-  const engines=(process.env.DSTUDIO_WEB_VISUAL_TREES || 'ds4,ds4-laguna-s21,ds4-qwen35').split(',');
+  const engines=(process.env.DSTUDIO_WEB_VISUAL_TREES || 'ds4,ds4-laguna-s21').split(',');
   assert(engines.length > 0 && engines.length <= 4, 'Supply one to four explicit source trees; the retired fork is optional historical coverage');
   for (const engine of engines) {
     const sourcePath = path.join(root, engine, 'ds4_web.c');

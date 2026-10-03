@@ -31,6 +31,8 @@ let checkoutError = '';
 let qwen35Setups = 0;
 const modelDownloads = [];
 let downloadStatus = {};
+const harnessInstalls = [];
+let harnessInstalling = '';
 
 function json(res, value, status = 200) {
   const body = JSON.stringify(value);
@@ -114,6 +116,18 @@ for (const [file, size] of [[qwenBase, 177280286720], ['Qwen3.8-Flash-Next-PLE-Q
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
+  if (url.pathname === '/api/harness/status') {
+    json(res, { ok: true, bundled: true, installing: harnessInstalling, error: '', active: '',
+      harnesses: { pi: { installed: true, version: '1.0.0', commit: 'a276dabe57911253350bffb93cb7d7aff6a73261' },
+        opencode: { installed: false, version: '', commit: '' } } });
+    return;
+  }
+  if (url.pathname === '/api/harness/install' && req.method === 'POST') {
+    let body = ''; req.on('data', (d) => { body += d; });
+    req.on('end', () => { harnessInstalls.push(JSON.parse(body)); harnessInstalling = JSON.parse(body).harness; json(res, { ok: true, started: true }, 202); });
+    return;
+  }
+  if (url.pathname === '/api/harness/install/cancel' && req.method === 'POST') { harnessInstalling = ''; json(res, { ok: true }); return; }
   if (url.pathname === '/api/start' && req.method === 'POST') {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -167,7 +181,6 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/engine/checkouts') {
     const checkouts = [
       { name: 'ds4', branch: 'main', dir: '/tmp/dstudio-settings' },
-      ...(qwen35Setups ? [{ name: 'ds4-qwen35', branch: 'qwen35moe-support', dir: '/tmp/dstudio-settings/ds4-qwen35' }] : []),
     ];
     json(res, { ok: true, checkouts: checkouts.map(c => ({ ...c, hasServer: true, active: activeEngine === c.dir })) });
     return;
@@ -644,8 +657,9 @@ try {
   assert.equal(startBodies.length, 6);
   await switchPage.locator('#loading-overlay').waitFor({ state: 'hidden', timeout: 6000 });
   startHandler = null;
-  // A new Qwen family gets its own setup/download path and does not inherit
-  // Qwen3.8's native SSD n-grams or DeepSeek's saved expert streaming preference.
+  // Qwen3.6 runs on the bundled llama.cpp engine: its download installs no
+  // side engine and selects the main installation that holds gguf/. It does
+  // not inherit Qwen3.8's SSD n-grams or DeepSeek's saved expert streaming.
   await switchPage.locator('#btn-settings').click();
   const downloader = switchPage.locator('.set-models .onboard__dl');
   await downloader.getByRole('combobox').selectOption('qwen36-q6');
@@ -657,14 +671,14 @@ try {
   await switchPage.getByPlaceholder('Filter by name, quantization or file').fill('');
   await downloader.getByRole('button', { name: 'Download', exact: true }).click();
   await switchPage.locator('#confirm-go').click();
-  await waitUntil(() => modelDownloads.length === 1, 'Qwen3.6 download should start after installing its engine');
-  assert.equal(qwen35Setups, 1);
+  await waitUntil(() => modelDownloads.length === 1, 'Qwen3.6 download should start');
+  assert.equal(qwen35Setups, 0, 'the retired Qwen3.6 engine is never installed');
   assert.deepEqual(modelDownloads[0], { target: 'qwen36-q6' });
-  assert.equal(activeEngine, '/tmp/dstudio-settings/ds4-qwen35');
+  assert.equal(activeEngine, '/tmp/dstudio-settings', 'the main installation is selected');
   assert.equal(startBodies.length, 6, 'downloading must not start inference');
   const qwen35File = 'Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf';
   ggufs.push({ file: qwen35File, path: `gguf/${qwen35File}`, size: 31843777504,
-    engineDir: activeEngine, branch: 'qwen35moe-support' });
+    engineDir: activeEngine, branch: 'main' });
   downloadStatus = { download: false, downloadVariant: 'qwen36-q6', downloadPct: 100 };
   await cardFor(qwen35File).waitFor({ timeout: 8000 });
   await cardFor(qwen35File).click();
@@ -675,7 +689,7 @@ try {
   await switchPage.locator('#btn-settings').click();
   await switchPage.locator('#set-nav [data-pane="performance"]').click();
   assert.equal(await switchPage.locator('#set-ssd-streaming').isDisabled(), true);
-  assert.match(await switchPage.locator('#set-ssd-streaming-note').innerText(), /Qwen3\.6.*all weights in RAM.*no PLE/);
+  assert.match(await switchPage.locator('#set-ssd-streaming-note').innerText(), /llama\.cpp engine.*no expert streaming/);
   assert.equal(await switchPage.locator('#set-power').isDisabled(), true);
   assert.equal(await switchPage.locator('#set-power').inputValue(), '100');
   assert.equal(await streamingNotice.isVisible(), true);
@@ -702,6 +716,23 @@ try {
   await page.locator('.set-model-family').first().waitFor({ state: 'visible' });
   assert.equal(await page.locator('.set-models .onboard__model.ready').filter({ hasText: qwenBase }).count(), 0);
   assert.equal(await page.locator('.set-models option[value="qwen38-q4k"]').count(), 1);
+
+  // Harnesses: the host's status is shown, Install names the harness, the
+  // Agent choice is persisted for the next launch (simulated host, no build).
+  await page.locator('#set-nav [data-pane="harness"]').click();
+  await page.locator('#set-harness-pi-status').filter({ hasText: 'Installed' }).waitFor({ timeout: 5000 });
+  assert.match(await page.locator('#set-harness-pi-version').innerText(), /pinned a276dab/);
+  assert.equal(await page.locator('#set-harness-opencode-status').innerText(), 'Not installed.');
+  assert.equal(await page.locator('#set-harness-pi-install').innerText(), 'Reinstall');
+  await page.locator('#set-harness-opencode-install').click();
+  await waitUntil(() => harnessInstalls.length === 1, 'one installation request');
+  assert.deepEqual(harnessInstalls, [{ harness: 'opencode' }]);
+  await page.locator('#set-harness-cancel').waitFor({ state: 'visible', timeout: 5000 });
+  assert.ok(await page.locator('#set-harness-pi-install').isDisabled(), 'one installation at a time');
+  await page.locator('#set-harness-cancel').click();
+  await page.locator('#set-harness-cancel').waitFor({ state: 'hidden', timeout: 5000 });
+  await page.locator('#set-agent-harness').selectOption('pi');
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).agentHarness === 'pi');
 
   await page.evaluate(() => {
     const settings = JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}');

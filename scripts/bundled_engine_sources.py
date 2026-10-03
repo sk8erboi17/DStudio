@@ -178,18 +178,6 @@ def verify_sources(assets, engine, revision, expected, catalog=ENGINES):
         raise RuntimeError('Bundled engine source identity changed; no candidate published')
 
 
-def legacy_inventory(assets, revision, archive_hash):
-    catalog, digest, _ = load_catalog(assets)
-    entry = catalog.get('legacyQ36', {}).get(revision)
-    if entry is None:
-        current = catalog.get('engines', {}).get('q36', {})
-        if current.get('commit') == revision:
-            entry = {**current, 'files': {**current['files'], **current.get('omitted', {})}}
-    if not isinstance(entry, dict) or entry.get('archiveSHA256') != archive_hash:
-        raise RuntimeError('Legacy source archive identity differs; existing installation preserved')
-    return {name: metadata['sha256'] for name, metadata in checked_files(entry).items()}, digest
-
-
 def publish(source, target, parent_fd):
     # Linux/macOS rename with exclusive destination semantics also protects an
     # empty directory created by a racing owner. Windows rename is exclusive.

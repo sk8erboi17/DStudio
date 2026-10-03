@@ -1,0 +1,40 @@
+--- a/mlx_lm/server.py
++++ b/mlx_lm/server.py
+@@ -3,6 +3,7 @@
+ import argparse
+ import gc
+ import json
++import os
+ import logging
+ import pickle
+ import platform
+@@ -379,6 +380,11 @@
+             self.load("default_model", None, "default_model")
+ 
+     def load(self, model_path, adapter_path=None, draft_model_path=None):
++        if os.environ.get("DSTUDIO_MLX_SINGLE_MODEL") == "1":
++            # DStudio: this server owns exactly the model it was started with.
++            # A request naming another model (an id, a path or a hub repo)
++            # never loads a second model and never downloads one.
++            model_path, adapter_path, draft_model_path = "default_model", None, "default_model"
+         adapter_path = self._adapter_map.get(model_path, adapter_path)
+         model_path = self._model_map.get(model_path, model_path)
+         draft_model_path = self._draft_model_map.get(draft_model_path, draft_model_path)
+@@ -1666,6 +1672,17 @@
+         """
+         Handle a GET request for the /v1/models endpoint.
+         """
++        if os.environ.get("DSTUDIO_MLX_SINGLE_MODEL") == "1":
++            # DStudio readiness: 503 until the started model is loaded, then
++            # exactly that model's resolved path (no hub cache listing).
++            provider = self.response_generator.model_provider
++            loaded = provider.model_key is not None
++            models = [{"id": str(Path(provider.cli_args.model).resolve()), "object": "model",
++                       "created": self.created}] if loaded else []
++            self._set_completion_headers(200 if loaded else 503)
++            self.end_headers()
++            self.wfile.write(json.dumps({"object": "list", "data": models}).encode())
++            return
+         self._set_completion_headers(200)
+         self.end_headers()
+ 

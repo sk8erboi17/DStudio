@@ -3,27 +3,30 @@
 This directory contains DStudio's explicit adaptations for managed runtimes
 and separately identified engine candidates.
 
-The [q27 Metal candidate](q27-metal-delta/README.md) fixes the native DeltaNet
-512-thread dispatch failure reproduced on M2 Max. Two independent column tiles
-retain recurrence math and precision; native operators, a scalar oracle and
-patch lifecycle are verified separately from still-unqualified model inference.
-q27 is not yet a managed DStudio installation.
+The Qwen3.6 and Qwen3.8-27B engines are the bundled, unmodified llama.cpp
+`b11371` (`99b9548`); DStudio applies no patch to it. The earlier q27, q36 and
+vagrillo/ds4 Qwen3.6 patch sets (`q27-metal-delta`, `q36-*`, `ds4-qwen35-*`)
+were retired with those engines on October 3, 2026. Git history and
+`docs/history/` retain them; no current installer or test applies them.
 
-The [q36 candidate](q36-metal-runtime/README.md) has an explicit native CLI
-installer and pinned model downloader. Its patch fixes Metal shape handling,
-mixed-format CPU FFN preparation, model identity and the native vision operators.
-Initial Qwen27B Chat/Agent/Cowork workflows are verified; broad quality,
-long-context execution and full application-mode qualification remain open.
-The separate [q36 terminal candidate](q36-agent-tty/README.md) addresses the
-latest upstream CLI's macOS terminal lifetime and, in a layered owner patch,
-responsive status/Stop during slow output with tested process lifetime. These
-are native lifecycle fixes, not inference improvements; the candidate
-has not yet been promoted into the managed installer.
-The [parallel F16 attention overlay](q36-f16-attention/README.md) on `1305843`
-uses FP32 online softmax with bounded key tiles, preserving F16 KV and context.
-It is included in the managed installer and passes operator/lifecycle checks
-with an explicit numerical error bound. Complete-model long-context quality
-remains untested on this overlay; historical deadline failures remain failures.
+The third-party harnesses have their own versioned patches, applied by
+`scripts/install-harness.py` after `git apply --check`:
+[`harness-pi-ds4`](harness-pi-ds4/README.md) (use a host-owned ds4-server
+instead of cloning, building and starting one) and
+[`harness-opencode`](harness-opencode/README.md) (the workspace, not the
+enclosing git repository, is the file boundary). `make test-harness-patches`
+exercises apply, repeat, reverse and drift.
+
+The bundled MLX runtime for Qwen3.6 on Apple Silicon (unmodified PyPI wheels in
+`src/engines/mlx/`) has two patches, applied in this order by
+`scripts/install-mlx.py` to the installed `mlx_lm/server.py`:
+[`mlx-lm-single-model`](mlx-lm-single-model/README.md) (the server serves only
+the model DStudio admitted and reports readiness only after it has loaded) and
+[`mlx-lm-reasoning-content`](mlx-lm-reasoning-content/README.md) (reasoning is
+sent as `reasoning_content`, the field every DStudio client reads). Each is
+inactive unless DStudio sets its environment variable.
+`make test-mlx-install-unit` exercises apply, repeat, reverse and drift on the
+wheel's own `server.py`.
 
 Agent/Cowork patch **92** and `ds4-server-pld/` share
 [prompt lookup](ds4-agent-jsonl/PLD.md), with ordinary
@@ -83,25 +86,6 @@ never estimates token speed from character counts. Complete-delta preflight
 rejects partial/drifted patches without mutation; lifecycle and compiled JSON/SSE
 tests cover current main, previous main and Laguna. See the timing/recovery limits
 in the linked notes; this is not an end-to-end latency measurement.
-
-[`ds4-qwen35-q6k-moe/moe-q6k-nibble.patch`](ds4-qwen35-q6k-moe/README.md)
-corrects the Q6_K nibble order in the Qwen3.6 fork's fused MoE Metal kernels.
-Before the fix, half of every Q6_K expert block was decoded from the wrong
-nibble; the installed UD-Q6_K_XL file uses Q6_K routed gate/up in 39 of 40
-layers. A kernel oracle reproduces the defect and verifies the fix; installer
-and launch preparation apply it, and a drifted shader fails closed.
-
-[`ds4-qwen35-prefill/prefill-73434c4.patch`](ds4-qwen35-prefill/README.md)
-adds bounded 64-token Metal prefill after the Q6_K correction. Tested synthetic
-hybrid sessions match original decode logits/state/KV byte for byte, including
-cancellation, allocation failure and resumption. Installer/preparation wiring
-rebuilds stale native inputs. Actual-model quality and long-context deadlines
-remain for the operator's rerun.
-
-[`ds4-qwen35-catalog/native-model-id.patch`](ds4-qwen35-catalog/README.md)
-corrects model discovery on the pinned Qwen3.6 native server: `/v1/models`
-publishes Qwen instead of DeepSeek aliases. Engine setup applies it before
-building; it does not change native inference, templates or request aliases.
 
 [`ds4-qwen38-inspect/metadata-only-ple.patch`](ds4-qwen38-inspect/README.md)
 is retained for the historical fork: it keeps `--inspect` from requesting a full

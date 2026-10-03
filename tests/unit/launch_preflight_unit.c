@@ -105,7 +105,7 @@ int main(void) {
     char temp[] = "/tmp/dstudio-launch-preflight.XXXXXX";
     assert(mkdtemp(temp));
     char engine[1024], gguf[1100];
-    snprintf(engine, sizeof engine, "%s/ds4-qwen35", temp);
+    snprintf(engine, sizeof engine, "%s/ds4", temp);
     snprintf(gguf, sizeof gguf, "%s/gguf", engine);
     assert(mkdir(engine, 0755) == 0 && mkdir(gguf, 0755) == 0);
     fixture_file(engine, MODEL_QWEN35, 1); fixture_file(engine, MODEL_QWEN, 1);
@@ -117,15 +117,17 @@ int main(void) {
     int failures = 0, total = 0;
     for (int m = 0; m < 2; m++) for (int i = 0; i < 3; i++) {
         char body[2300], label[128];
+        /* Main installation, full power: isolate the memory-mode and mode checks. */
         snprintf(body, sizeof body,
-            "{\"mode\":\"%s\",\"gguf\":\"%s\",\"workdir\":\"%s\",\"skill\":\"new-skill\",\"ctx\":65536,\"metalHotlistSeed\":true,\"ssdStreaming\":\"on\"}",
+            "{\"mode\":\"%s\",\"gguf\":\"%s\",\"workdir\":\"%s\",\"skill\":\"new-skill\",\"ctx\":65536,\"power\":100,\"ssdStreaming\":\"on\"}",
             modes[i], models[m], temp);
         snprintf(label, sizeof label, "Incompatible Qwen%s -> %s config rejected before stop/admission", m ? "3.8" : "3.6", modes[i]);
         total++;
-        const char *code = i == 2 ? "unsupported_model_mode"
-            : m ? "engine_model_mismatch" : "unsupported_memory_mode";
+        /* Qwen3.6 (llama.cpp) admits every mode, so SSD streaming is what is
+         * refused; Qwen3.8 has no Design adapter. */
+        const char *code = i == 2 && m == 1 ? "unsupported_model_mode" : "unsupported_memory_mode";
 #ifndef __APPLE__
-        if (i < 2) code = "unsupported_backend";
+        if (i < 2 && m == 1) code = "unsupported_backend";
 #endif
         failures += !reject_without_effects(body, label, models[m], code, "409 Conflict");
     }
@@ -135,11 +137,17 @@ int main(void) {
     const struct {
         const char *label, *checkout, *model, *options, *code, *missing;
     } cases[] = {
-        {"Qwen3.6 in main", "ds4", MODEL_QWEN35, "", "engine_model_mismatch", NULL},
-        {"Qwen3.6 Agent in main", "ds4", MODEL_QWEN35, ",\"mode\":\"agent\"", "engine_model_mismatch", NULL},
-        {"Qwen3.6 Cowork in main", "ds4", MODEL_QWEN35, ",\"mode\":\"cowork\"", "engine_model_mismatch", NULL},
-        {"Qwen3.6 Agent missing model", DS4_QWEN35_DIR_NAME, MODEL_QWEN35, ",\"mode\":\"agent\"", "model_unavailable", MODEL_QWEN35},
-        {"Qwen3.6 Cowork missing model", DS4_QWEN35_DIR_NAME, MODEL_QWEN35, ",\"mode\":\"cowork\"", "model_unavailable", MODEL_QWEN35},
+        /* llama.cpp serves the pinned Qwen checkpoints from the main installation. */
+        {"Qwen3.6 throttled power", "ds4", MODEL_QWEN35, "", "unsupported_power", NULL},
+        {"Qwen3.6 Design throttled power", "ds4", MODEL_QWEN35, ",\"mode\":\"design\"", "unsupported_power", NULL},
+        {"Qwen3.6 DSpark", "ds4", MODEL_QWEN35, ",\"power\":100,\"dspark\":true", "unsupported_speculation", NULL},
+        {"Qwen3.6 hotlist", "ds4", MODEL_QWEN35, ",\"power\":100,\"metalHotlistSeed\":true", "unsupported_hotlist", NULL},
+        {"Qwen3.6 Agent missing model", "ds4", MODEL_QWEN35, ",\"power\":100,\"mode\":\"agent\"", "model_unavailable", MODEL_QWEN35},
+        {"Qwen3.6 Cowork missing model", "ds4", MODEL_QWEN35, ",\"power\":100,\"mode\":\"cowork\"", "model_unavailable", MODEL_QWEN35},
+        {"Qwen27B without its projector", "ds4", MODEL_QWEN27, ",\"power\":100,\"mode\":\"agent\"", "model_component_missing", NULL},
+        /* Retired side checkouts are recognized and never used. */
+        {"Qwen3.6 in retired Qwen3.6 checkout", DS4_QWEN35_DIR_NAME, MODEL_QWEN35, ",\"power\":100", "engine_model_mismatch", NULL},
+        {"Qwen27B in retired q36 checkout", Q36_DIR_NAME, MODEL_QWEN27, ",\"power\":100", "engine_model_mismatch", NULL},
         {"Qwen3.8 in Qwen3.6 checkout", DS4_QWEN35_DIR_NAME, MODEL_QWEN, "", "engine_model_mismatch", NULL},
         {"Qwen3.6 in retired Qwen checkout", DS4_LEGACY_QWEN_DIR_NAME, MODEL_QWEN35, "", "engine_model_mismatch", NULL},
         {"Flash in retired Qwen checkout", DS4_LEGACY_QWEN_DIR_NAME, MODEL_FLASH, "", "engine_model_mismatch", NULL},
@@ -147,7 +155,7 @@ int main(void) {
         {"Legacy Qwen Chat format", "ds4", MODEL_LEGACY_QWEN, "", "unsupported_model_format", NULL},
         {"Legacy Qwen Agent format", "ds4", MODEL_LEGACY_QWEN, ",\"mode\":\"agent\"", "unsupported_model_format", NULL},
         {"Legacy Qwen Cowork format", "ds4", MODEL_LEGACY_QWEN, ",\"mode\":\"cowork\"", "unsupported_model_format", NULL},
-        {"Qwen3.6 forced SSD", DS4_QWEN35_DIR_NAME, MODEL_QWEN35, ",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
+        {"Qwen3.6 forced SSD", "ds4", MODEL_QWEN35, ",\"power\":100,\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
         /* The UI launches Qwen3.8 at full power; isolate the memory-mode check. */
         {"Qwen3.8 forced SSD", "ds4", MODEL_QWEN, ",\"power\":100,\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
         {"Qwen3.8 Agent forced SSD", "ds4", MODEL_QWEN, ",\"power\":100,\"mode\":\"agent\",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
@@ -161,7 +169,7 @@ int main(void) {
         {"Remote Cowork forced SSD", "ds4", NULL, ",\"mode\":\"cowork\",\"modelBackend\":\"remote\",\"remoteBaseUrl\":\"http://127.0.0.1:1\",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
         {"Remote Design forced SSD", "ds4", NULL, ",\"mode\":\"design\",\"modelBackend\":\"remote\",\"remoteBaseUrl\":\"http://127.0.0.1:1\",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
     };
-    const char *files[] = { MODEL_FLASH, MODEL_LAGUNA, MODEL_QWEN35, MODEL_QWEN, MODEL_LEGACY_QWEN, MODEL_DSPARK_UPSTREAM };
+    const char *files[] = { MODEL_FLASH, MODEL_LAGUNA, MODEL_QWEN35, MODEL_QWEN27, MODEL_QWEN, MODEL_LEGACY_QWEN, MODEL_DSPARK_UPSTREAM };
     for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
         snprintf(engine, sizeof engine, "%s/%s", temp, cases[i].checkout);
         snprintf(gguf, sizeof gguf, "%s/gguf", engine);
@@ -181,7 +189,7 @@ int main(void) {
         const int explicit_missing = cases[i].missing && cases[i].model &&
             !strcmp(cases[i].missing, cases[i].model);
 #ifndef __APPLE__
-        if (!explicit_missing && (model_file_is_qwen35(cases[i].model) ||
+        if (!explicit_missing && (model_file_is_resident(cases[i].model) ||
                                   model_file_is_qwen38(cases[i].model)))
             expected_code = "unsupported_backend";
 #endif

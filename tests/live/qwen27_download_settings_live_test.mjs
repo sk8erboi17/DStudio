@@ -1,5 +1,6 @@
-// Uses the production Settings HTTP download path and already installed pinned
-// q36/weights. No LLM is launched, no source checkout or model is overwritten.
+// Uses the production Settings HTTP download path and an already installed
+// llama.cpp engine and pinned weights. No LLM is launched, no source checkout
+// or model is overwritten.
 // Fresh network installation and inference are separate explicit gates.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,9 +14,9 @@ const run = artifactRunDir('qwen27-download-settings-live');
 const files = [['Qwen3.8-27B-UD-Q6_K_XL.gguf', 25299061664], ['Qwen3.8-27B-mmproj-F16.gguf', 927607488]];
 const identity = file => {const s = fs.statSync(file, {bigint: true}); return [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].map(String);};
 const sha = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-const inputs = [binary, 'src/dstudio.c', 'scripts/download-qwen27.py', 'scripts/install-q36.py',
-  'scripts/apply-q36-metal-runtime.sh', 'patch/q36-metal-runtime/runtime.patch', path.join(root, 'q36/q36-server'),
-  path.join(root, 'q36/.dstudio-source.json')].map(file => ({path: path.resolve(file), sha256: sha(file)}));
+const inputs = [binary, 'src/dstudio.c', 'scripts/download-qwen27.py', 'scripts/install-llama.py',
+  path.join(root, 'llama.cpp/bin/llama-server'), path.join(root, 'llama.cpp/.dstudio-llama.json')]
+  .map(file => ({path: path.resolve(file), sha256: sha(file)}));
 const beforeFiles = files.map(([name, bytes]) => {
   const file = path.join(root, 'ds4/gguf', name), info = identity(file);
   assert.equal(info[2], String(bytes), 'This gate only reuses full-size existing components');

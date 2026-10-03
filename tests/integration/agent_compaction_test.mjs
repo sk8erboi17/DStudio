@@ -15,7 +15,7 @@ assert(args[0], 'Supply an already-built Laguna or older Qwen MoE engine');
 const engine = fs.realpathSync(args[0]);
 const value = flag => { const i = args.indexOf(flag); return i < 0 ? null : args[i + 1]; };
 const family = value('--family');
-assert(['laguna', 'qwen35'].includes(family), 'Specify --family laguna|qwen35');
+assert(family === 'laguna', 'Specify --family laguna');
 const source = value('--source') ? fs.realpathSync(value('--source')) : null;
 const helper = value('--helper') ? fs.realpathSync(value('--helper')) : null;
 assert(!helper || source, 'A historical compaction helper requires an explicit matching source');

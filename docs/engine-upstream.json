@@ -6,8 +6,8 @@
   "limitations": [
     "This is the initial declared engine/backend/checkpoint matrix; the full test census and final source/build freeze remain separate acceptance requirements.",
     "Each row has one explicit operating system. Since September 29, 2026 the campaign admits macOS on Apple Silicon only: Linux/Windows CPU, CUDA, ROCm and Vulkan rows and the CUDA-only q27 track were removed as out of scope, not qualified. Scalar CPU reference tests on the Mac remain part of Metal numerical verification. Of the DeepSeek V4 Flash checkpoints only the Vision-Exp row remains; the four non-Vision rows were removed on the same date as out of scope.",
-    "Qwen27B adapters and Qwen vision remain required work, not working capabilities.",
-    "The Qwen27B Q6_K_XL and F16 projector are pinned installation candidates, not qualified formats; app integration and complete numerical/answer gates remain pending.",
+    "Qwen3.6-35B-A3B and Qwen3.8-27B run on the bundled llama.cpp (b11371) through the DStudio host; Chat, Agent and Cowork passed real inference on macOS Metal on October 3, 2026 (tests/live/llama_resident_live_test.mjs). Design on llama.cpp models is not implemented. Linux and Windows llama.cpp builds are not qualified.",
+    "The former Qwen side engines (vagrillo/ds4 qwen35moe-support, Ninnix/q36) were retired on October 3, 2026; their tracks, patch sets and targets were removed.",
     "The main track includes the complete f4d03f6..bd66c40 campaign delta and all 79 subsequent commits through 0aaea5a, including Qwen Next. Managed upgrades have scoped receipts; full mode, numerical and earlier cross-fork qualification remains open.",
     "A recorded tip only freezes the observed revision. The per-target source review must classify every commit; empty arrays are not equivalence claims.",
     "Every declared target is macOS; the release command checks all of them.",
@@ -31,18 +31,11 @@
       "recordedTip": "448d5695d1c86401a4e9447c440feb983b73e6de"
     },
     {
-      "id": "qwen35",
-      "repository": "https://github.com/vagrillo/ds4",
-      "ref": "refs/heads/qwen35moe-support",
-      "base": "60fca11f0c8b16ca50c757324dddd717ba043098",
-      "recordedTip": "73434c4bb9d8bb18425a2577edada69d25d44c47"
-    },
-    {
-      "id": "q36",
-      "repository": "https://github.com/Ninnix/q36",
-      "ref": "refs/heads/main",
-      "base": "d67687ed15ad9f52b755a9b5fdfc0214ea937555",
-      "recordedTip": "1305843c735380f912619548b121cba8601f2f85"
+      "id": "llama",
+      "repository": "https://github.com/ggml-org/llama.cpp",
+      "ref": "refs/heads/master",
+      "base": "99b95488cac0f00ce3f05af113a8c1e287753f87",
+      "recordedTip": "99b95488cac0f00ce3f05af113a8c1e287753f87"
     }
   ],
   "patchSets": {
@@ -375,166 +368,6 @@
         "path": "patch/ds4-agent-jsonl/pld_agent_compaction.h",
         "sha256": "509a6f82157b2386075c7cfb99d47315e77fe22d19ab811eaafb107e9e88df90"
       }
-    ],
-    "qwen35": [
-      {
-        "path": "patch/ds4-agent-jsonl/manifest",
-        "sha256": "e15cf31fb7d08bdd8968db9e1417b90ac13510451d095cb4e95e8579de2ab9dc"
-      },
-      {
-        "path": "patch/ds4-agent-jsonl/bases.json",
-        "sha256": "e1940e750454a3e953da9beeb404d14d34170c8a4f1e1913866c9801d76d67af"
-      },
-      {
-        "path": "patch/ds4-agent-jsonl/compaction_text.h",
-        "sha256": "f1595874318f58c59fea122bdc71d9176724947288b217d5a12ec928e86634ed"
-      },
-      {
-        "path": "patch/ds4-agent-jsonl/build.mk",
-        "sha256": "9bec378229ee15798748db1b0db1ce292f7bfc54cb3400623904842074bf43cd"
-      },
-      {
-        "path": "patch/ds4-agent-jsonl/pld.h",
-        "sha256": "600417240a989e7b778fc304733ac4378837b6360f1c569a35d68febbcd2e329"
-      },
-      {
-        "path": "patch/ds4-agent-jsonl/pld_agent.inc",
-        "sha256": "e6c4bc22e47f2808ec0442b42a691876c12e7031d91ce8c6f5db9cd29ff6f14e"
-      },
-      {
-        "path": "patch/ds4-agent-jsonl/pld_agent_rewind.h",
-        "sha256": "01dee48ead564adbefb4c28cbf06f7293b00d7b93b6f3697c53c07b72f395057"
-      },
-      {
-        "path": "patch/ds4-agent-jsonl/pld_benchmark_clock.h",
-        "sha256": "187df546f5a25b52d11efcac038af431337256d644c73b919dcd5d9401c6eaba"
-      },
-      {
-        "path": "patch/ds4-agent-jsonl/pld_core.c",
-        "sha256": "8788013b8c16a6224ec4c13d9837f52c4ea8e55ca8c649afabd1a93534533678"
-      },
-      {
-        "path": "patch/ds4-agent-jsonl/pld_engine.h",
-        "sha256": "6ff0753a02883c2a8518dc2c354ff7d9667b49f9cb12ca437eeb0199428dd618"
-      },
-      {
-        "path": "patch/ds4-agent-jsonl/pld_server_eval.inc",
-        "sha256": "e45836cd6bb4afabb62c67f800f02bb722899a66d1eb947440ed88b68a2a8ae5"
-      },
-      {
-        "path": "patch/ds4-agent-jsonl/pld_server_finish.inc",
-        "sha256": "d0728b6f3df990637121f4594c967998a5e7ae1206d56267bafbab4a7ad4dc64"
-      },
-      {
-        "path": "patch/ds4-agent-jsonl/remote-agent.cfrag",
-        "sha256": "a24864131a02198b48866b3cf7af3e824dbf7e9d890e3b37a8544e7fb32ae558"
-      },
-      {
-        "path": "patch/ds4-web-runtime/browser.patch",
-        "sha256": "8ba71a3f13663ebf944eef0d702a45a5824741e7476c50b45a38e1046171ef48"
-      },
-      {
-        "path": "patch/ds4-web-runtime/manifest",
-        "sha256": "8b3c571b5b85ba88188a2fb14d537f466d58f69517109c12b82ba6faf1b790c2"
-      },
-      {
-        "path": "patch/ds4-web-runtime/bases.json",
-        "sha256": "fd14b92162e37410f58ea748ec1658f79ea28921c8a2f3f8abf23e5e9629cc6e"
-      },
-      {
-        "path": "extension/remote/dstudio_remote_llm.c",
-        "sha256": "cfa634a84dc6bf222b35d9ecbd37b2836eec97033058711b813f675703e761d0"
-      },
-      {
-        "path": "extension/remote/dstudio_remote_llm.h",
-        "sha256": "4f6a03700de4cf761bf2b2d552d2544230ef774852919ba7acebe95aec4b7f7a"
-      },
-      {
-        "path": "src/harness/cowork/ds4_cowork.c",
-        "sha256": "58ea83280e4e98448c0606c50995940acb83e276cb288db4398748f7802c881f"
-      },
-      {
-        "path": "src/harness/cowork/ds4_cowork.h",
-        "sha256": "e8fe97f24e214f0e6b0f0873e70f1a541f6eb8d40fe364e034a30221d06d4dd2"
-      },
-      {
-        "path": "patch/ds4-agent-jsonl/qwen35.patch",
-        "sha256": "5199195367dd2db6d88d66fca21e8d8344c3e408608ee8b5571a98ddbf2da1ae",
-        "check": "apply"
-      },
-      {
-        "path": "patch/ds4-qwen35-catalog/native-model-id.patch",
-        "sha256": "2854793806e9207a658bf240d113838bf17b8d28a8e34961724d9cc3566f6ad0"
-      },
-      {
-        "path": "scripts/apply-ds4-qwen35-catalog.sh",
-        "sha256": "0b996cfafe1505a69ae8757891921349e2e0b5278aafaaf78501d2e75abec692"
-      },
-      {
-        "path": "patch/ds4-agent-jsonl/pld_agent_compaction.h",
-        "sha256": "509a6f82157b2386075c7cfb99d47315e77fe22d19ab811eaafb107e9e88df90"
-      },
-      {
-        "path": "patch/ds4-qwen35-q6k-moe/moe-q6k-nibble.patch",
-        "sha256": "b680ea5800200e69f740f47b9564d8cdc577872deba42e6f04c2a6798ee901b9",
-        "check": "apply"
-      },
-      {
-        "path": "scripts/apply-ds4-qwen35-q6k-moe.sh",
-        "sha256": "850768bd5585a4fac27095e76157f27502f592cc52df76ae23f090bb09d42fbb"
-      },
-      {
-        "path": "patch/ds4-qwen35-prefill/prefill-73434c4.patch",
-        "sha256": "7648eb4fdffbf28087a75b73a38c888cfbb562b00a614a9636509ef59aae5b42"
-      },
-      {
-        "path": "scripts/apply-ds4-qwen35-prefill.sh",
-        "sha256": "65d5b3a40e93e8c0aa83f0fc477e80a14639fc8e9bfb850a1247aa77a3e1f211"
-      }
-    ],
-    "q36": [
-      {
-        "path": "patch/q36-metal-runtime/runtime-1305843.patch",
-        "sha256": "2bfcf9538aa382b7a09b24785167d92d4cf903e972d63d8188d5019bb2e2afeb",
-        "check": "apply"
-      },
-      {
-        "path": "scripts/apply-q36-metal-runtime.sh",
-        "sha256": "e3355d2196c0d6c705de1758aa19e5f02d634a2f19289c7f8c11470f24f76153"
-      },
-      {
-        "path": "scripts/apply-q36-agent-tty.sh",
-        "sha256": "5a7372f214dd11b0e3189fea993eb81fdaffe831545c334367ea6dfe7fd3c916"
-      },
-      {
-        "path": "patch/q36-agent-tty/monitor.patch",
-        "sha256": "82b788cec48a8e49f53def1f69f2f9c5884bb7a25f4584e389a80cc54945df66"
-      },
-      {
-        "path": "patch/q36-agent-tty/monitor-owner.patch",
-        "sha256": "3b5efcc739f61e1e6be506dea9d6cdab2713a67227791e02dd1d4b5c93e4d948"
-      },
-      {
-        "path": "patch/q36-metal-runtime/cache-usage.patch",
-        "sha256": "8cb85f1831b9e9810fed7bb8ae62064e63d205f95667a2e9e9545d5918703832",
-        "check": "apply"
-      },
-      {
-        "path": "scripts/install-q36.py",
-        "sha256": "46024605d40b43bb700698a3a6920e20fe8fae31ab487e8bd34b9e963c85bd6e"
-      },
-      {
-        "path": "scripts/download-qwen27.py",
-        "sha256": "7c1173ba061bb46c3367f61f0e86769be2a16daf76e2df2778f9ca93b7e0f7c2"
-      },
-      {
-        "path": "patch/q36-f16-attention/online-1305843.patch",
-        "sha256": "381ce116e94cccf98f2480751e47823042da36ae6e792e5f2697984828bd0a4e"
-      },
-      {
-        "path": "scripts/apply-q36-f16-attention.sh",
-        "sha256": "228ae210815029bab3a5085adc3fc0ddc21f26f287065e7142fcbbd3ad988c82"
-      }
     ]
   },
   "targets": [
@@ -703,92 +536,6 @@
       }
     },
     {
-      "id": "qwen35/macos/metal/qwen36",
-      "sourceTrack": "qwen35",
-      "installerId": "qwen35",
-      "revision": "73434c4bb9d8bb18425a2577edada69d25d44c47",
-      "backend": "metal",
-      "checkpoint": "qwen36",
-      "tracks": [
-        "main",
-        "qwen35"
-      ],
-      "patchSet": "qwen35",
-      "requiredGates": [
-        "patch-lifecycle",
-        "native-build",
-        "numerics",
-        "quality-100",
-        "install-fresh",
-        "install-upgrade",
-        "chat",
-        "agent",
-        "learn",
-        "cowork",
-        "desktop",
-        "vision-pdf-50"
-      ],
-      "receipts": [],
-      "reviews": [
-        {
-          "track": "qwen35",
-          "commit": "62e72517c646930c2310a624578b1cfd11fd7cc1",
-          "decision": "not-applicable",
-          "reason": "Only dynamicmoeinference.md changes; all other 1,525 Git tree entries are identical. No linked runtime is imported or executed.",
-          "evidence": [
-            {
-              "path": "docs/upstream/qwen35-2026-09-08.json",
-              "sha256": "506add42b2e26e2a3a67c69fa48d362117938d907a82e0a1ac85ef875f1eb03b"
-            }
-          ]
-        },
-        {
-          "track": "qwen35",
-          "commit": "73434c4bb9d8bb18425a2577edada69d25d44c47",
-          "decision": "not-applicable",
-          "reason": "Only dynamicmoeinference.md changes; all other 1,525 Git tree entries are identical. No linked runtime is imported or executed.",
-          "evidence": [
-            {
-              "path": "docs/upstream/qwen35-2026-09-08.json",
-              "sha256": "506add42b2e26e2a3a67c69fa48d362117938d907a82e0a1ac85ef875f1eb03b"
-            }
-          ]
-        }
-      ],
-      "platform": "macos"
-    },
-    {
-      "id": "q36/macos/metal/qwen38-27b-gguf",
-      "sourceTrack": "q36",
-      "installerId": "q36",
-      "revision": "1305843c735380f912619548b121cba8601f2f85",
-      "backend": "metal",
-      "checkpoint": "qwen38-27b-gguf",
-      "tracks": [
-        "main",
-        "q36"
-      ],
-      "patchSet": "q36",
-      "requiredGates": [
-        "patch-lifecycle",
-        "native-build",
-        "numerics",
-        "quality-100",
-        "install-fresh",
-        "install-upgrade",
-        "chat",
-        "agent",
-        "learn",
-        "cowork",
-        "desktop",
-        "vision-pdf-50",
-        "weight-and-encoder-selection"
-      ],
-      "receipts": [],
-      "reviews": [],
-      "platform": "macos"
-    },
-    {
       "id": "main/macos/metal/flash41-q2",
       "sourceTrack": "main",
       "installerId": "main",
@@ -845,6 +592,57 @@
         "textual-isolation",
         "design-runtime",
         "engram-and-ssd-streaming"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "macos"
+    },
+    {
+      "id": "llama/macos/metal/qwen36",
+      "sourceTrack": "llama",
+      "installerId": "llama",
+      "revision": "99b95488cac0f00ce3f05af113a8c1e287753f87",
+      "backend": "metal",
+      "checkpoint": "qwen36",
+      "tracks": [
+        "main",
+        "llama"
+      ],
+      "patches": [],
+      "requiredGates": [
+        "native-build",
+        "install-fresh",
+        "chat",
+        "agent",
+        "cowork",
+        "owner-death",
+        "weight-selection"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "macos"
+    },
+    {
+      "id": "llama/macos/metal/qwen38-27b-gguf",
+      "sourceTrack": "llama",
+      "installerId": "llama",
+      "revision": "99b95488cac0f00ce3f05af113a8c1e287753f87",
+      "backend": "metal",
+      "checkpoint": "qwen38-27b-gguf",
+      "tracks": [
+        "main",
+        "llama"
+      ],
+      "patches": [],
+      "requiredGates": [
+        "native-build",
+        "install-fresh",
+        "chat",
+        "agent",
+        "cowork",
+        "owner-death",
+        "weight-selection",
+        "vision"
       ],
       "receipts": [],
       "reviews": [],
