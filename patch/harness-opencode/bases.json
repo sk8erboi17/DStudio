@@ -3,13 +3,19 @@
   "repository": "https://github.com/anomalyco/opencode",
   "revision": "907b3bc518fa48e90e8ec24dd327d13eee71c36c",
   "order": [
-    "directory-confinement.patch"
+    "directory-confinement.patch",
+    "workspace-root.patch"
   ],
   "patches": {
     "directory-confinement.patch": {
       "sha256": "a7da860252b26ea55dc60c0ad649303232b97c2df4c15ae6374b5eb9627ca1eb",
       "baseFile": "packages/opencode/src/project/instance-context.ts",
       "baseSHA256": "9ccfe8c7e39dc085b1e6abc1a4a70d5c4ae97fcbc5447118f17c91e5c4a099c5"
+    },
+    "workspace-root.patch": {
+      "sha256": "89554580ba9ff558ad2e6a0b7789e66d549613bddb08bb4ecd17333106f10e1e",
+      "baseFile": "packages/opencode/src/project/instance-store.ts",
+      "baseSHA256": "c58f544c50acbe6cfe78b198507e67cc4e76e488b4abddc00b66d7f4786ffa92"
     }
   }
 }

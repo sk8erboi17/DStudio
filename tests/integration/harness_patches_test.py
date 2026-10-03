@@ -134,6 +134,30 @@ class Receipts(unittest.TestCase):
             shutil.rmtree(tmp)
 
 
+class BridgeRefresh(unittest.TestCase):
+    def test_an_updated_bridge_is_copied_without_touching_built_harnesses(self):
+        tmp = Path(tempfile.mkdtemp(prefix='harness-bridge-'))
+        try:
+            bridge = tmp / 'harness' / 'bridge'
+            bridge.mkdir(parents=True)
+            (bridge / 'dstudio-harness.mjs').write_text('// older bridge\n')
+            built = tmp / 'harness' / 'pi' / 'built.txt'
+            built.parent.mkdir(parents=True)
+            built.write_text('built pi')
+            done = subprocess.run(['python3', str(ROOT / 'scripts/install-harness.py'), '--refresh-bridge', '--root', str(tmp)],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertFalse(json.loads(done.stdout.strip().splitlines()[-1])['bridge']['reused'])
+            for name in installer.BRIDGE:
+                self.assertEqual(sha(bridge / name), sha(ROOT / 'src/harness/bridge' / name))
+            self.assertEqual(built.read_text(), 'built pi', 'a built harness is untouched')
+            again = subprocess.run(['python3', str(ROOT / 'scripts/install-harness.py'), '--refresh-bridge', '--root', str(tmp)],
+                                   capture_output=True, text=True)
+            self.assertTrue(json.loads(again.stdout.strip().splitlines()[-1])['bridge']['reused'])
+        finally:
+            shutil.rmtree(tmp)
+
+
 if __name__ == '__main__':
     result = unittest.main(exit=False, verbosity=1).result
     failed = len(result.failures) + len(result.errors)

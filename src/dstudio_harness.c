@@ -77,6 +77,11 @@ static int harness_verify(const char *engine_dir, const char *name, char *err, s
     *strrchr(parent, '/') = '\0';
     if (!harness_sources_root(sources, sizeof sources)) { snprintf(err, cap, "DStudio's bundled harness sources are missing"); return 0; }
     snprintf(script, sizeof script, "%s/scripts/install-harness.py", g_web_dir);
+    /* The bridge is DStudio's own code: after an update it is copied again
+     * (offline, bounded) so a built pi/opencode stays usable without a rebuild.
+     * A failure here shows up in the status check below. */
+    char *refresh[] = {"python3", script, "--refresh-bridge", "--root", parent, NULL};
+    (void)setup_run_cmd_capture(NULL, refresh, output, sizeof output);
     char *args[] = {"python3", script, "--status", "--root", parent, "--assets", sources, NULL};
     int rc = setup_run_cmd_capture(NULL, args, output, sizeof output);
     char want[64];

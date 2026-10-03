@@ -40,7 +40,8 @@ STAGE_PREFIX = '.dstudio-harness-stage-'
 BUN_VERSION = '1.3.14'  # opencode's packageManager
 LOG_TAIL = 64 * 1024
 PATCHES = {'pi-ds4': ['patch/harness-pi-ds4/external-server.patch'],
-           'opencode': ['patch/harness-opencode/directory-confinement.patch']}
+           'opencode': ['patch/harness-opencode/directory-confinement.patch',
+                        'patch/harness-opencode/workspace-root.patch']}
 ENTRY = {'pi': 'packages/coding-agent/dist/bundle/cli.js', 'opencode': 'bin/opencode', 'pi-ds4': 'index.ts'}
 BRIDGE = ('dstudio-harness.mjs', 'pi-workspace-guard.ts')
 
@@ -295,6 +296,8 @@ def main():
     parser.add_argument('--assets', type=Path, default=SUPPORT, help='directory holding src/harness sources')
     parser.add_argument('--harness', choices=('pi', 'opencode', 'all'))
     parser.add_argument('--status', action='store_true')
+    parser.add_argument('--refresh-bridge', action='store_true',
+                        help="copy DStudio's own bridge only (offline, before a launch); built harnesses are untouched")
     args = parser.parse_args()
     root = args.root.resolve()
     if not root.is_dir():
@@ -303,6 +306,17 @@ def main():
     try:
         if args.status:
             print(json.dumps(status(root, args.assets.resolve())))
+            return 0
+        if args.refresh_bridge:
+            # The bridge ships with DStudio: an update replaces it without
+            # rebuilding pi or opencode (their receipts stay current).
+            (root / 'harness' / 'logs').mkdir(parents=True, exist_ok=True)
+            fd = lock(root)
+            try:
+                with open(root / 'harness' / 'logs' / 'bridge.log', 'wb') as log:
+                    print(json.dumps({'ok': True, 'bridge': install_bridge(root, log)}), flush=True)
+            finally:
+                os.close(fd)
             return 0
         if not args.harness:
             parser.error('--harness is required')
