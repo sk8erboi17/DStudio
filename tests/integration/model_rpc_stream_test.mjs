@@ -32,6 +32,19 @@ const cases = [
   { name: 'escaped-unicode-text', wire: 'data: {"choices":[{"index":0,"delta":{"content":"\\u4e16\\u754c \\ud83e\\udd8a"},"finish_reason":null}]}\n\n' + chunk({}, 'stop') + done,
     verify: events => assert.equal(events.filter(e => e.kind === 'content').map(e => e.text).join(''), '世界 🦊') },
   { name: 'q36-complete-tool', wire: valid, tools: [{ id: 'call-0', type: 'function', function: { name: 'write', arguments: writeArgs } }] },
+  // A call written in fragments is relayed as it arrives (preview only); the
+  // validated batch still comes once, after completion, and equals them.
+  { name: 'streamed-tool-preview', wire: calls(call(0, 'call-p', 'write', '{"path":"a.txt",')) +
+      calls({ index: 0, function: { arguments: '"content":"line one\\nline' } }) + calls({ index: 0, function: { arguments: ' two"}' } }) +
+      chunk({}, 'tool_calls') + done,
+    tools: [{ id: 'call-p', type: 'function', function: { name: 'write', arguments: '{"path":"a.txt","content":"line one\\nline two"}' } }],
+    verify: events => {
+      const deltas = events.filter(e => e.type === 'model_tool_delta');
+      assert.deepEqual(deltas.map(d => [d.index, d.name ?? null, d.call_id ?? null]), [[0, 'write', 'call-p'], [0, null, null], [0, null, null]]);
+      assert.equal(deltas.map(d => d.text).join(''), '{"path":"a.txt","content":"line one\\nline two"}');
+      const last = events.findLastIndex(e => e.type === 'model_tool_delta');
+      assert.ok(last < events.findIndex(e => e.type === 'model_tool_calls'), 'every preview precedes the executable batch');
+    } },
   { name: 'interleaved-tools', wire: calls(call(1, 'second', 're', '{"path":')) + calls(call(0, 'first', 'wr', '{"content":"')) +
       calls({ index: 0, function: { name: 'ite', arguments: 'a\\nb","path":"x"}' } }, { index: 1, function: { name: 'ad', arguments: '"x"}' } }) + chunk({}, 'tool_calls') + done,
     tools: [{ id: 'first', type: 'function', function: { name: 'write', arguments: '{"content":"a\\nb","path":"x"}' } },

@@ -13,6 +13,7 @@ import path from 'node:path';
 import { Writable } from 'node:stream';
 import {
   displayTool, Endpoint, HostInput, HostOutput, modelFamily, OpencodeHarness, parseArgs, PiHarness, RpcBackend, sanitizeLog,
+  SseToolTap, ToolPreview,
 } from '../../src/harness/bridge/dstudio-harness.mjs';
 
 const results = [];
@@ -344,6 +345,132 @@ await check('opencode: SSE parts become DStudio frames once, user echoes exclude
     assert.ok(text.includes('Finished.') && !text.includes('FinFinished'), 'delta and full update are not duplicated');
     assert.equal(err.text(), '+DWARFSTAR_WAITING\n', "another session's idle does not end this turn");
   } finally { oc.stop(); }
+});
+
+
+// ------------------------------------------------------------ live preview
+// Event kinds in order (bodies merged), the decoded body and the final path.
+function previewSummary(text) {
+  let kinds = '', body = '';
+  for (const f of frames(text)) {
+    if (f.type === 'tool_body_delta') { body += f.text; if (!kinds.endsWith('B,')) kinds += 'B,'; }
+    else if (f.type === 'tool_call_begin') kinds += `begin:${f.name},`;
+    else if (f.type === 'tool_call_param') kinds += `${f.param}@${f.path},`;
+  }
+  return { kinds, body };
+}
+function previewSplits(harness, name, args, want) {
+  for (let a = 0; a <= args.length; a++) for (let b = a; b <= args.length; b += Math.floor(args.length / 7) + 1) {
+    const out = sink();
+    const preview = new ToolPreview(new HostOutput(out, sink()), harness, () => 0);
+    preview.begin(0, name);
+    for (const part of [args.slice(0, a), args.slice(a, b), args.slice(b)]) preview.feed(0, part);
+    assert.deepEqual(previewSummary(out.text()), want, `split ${a}/${b}`);
+  }
+}
+
+await check('live preview: argument fragments become begin/param/body frames for any split', () => {
+  previewSplits('pi', 'write', '{"path":"site/index.html","content":"<h1>Ciao \\u00e8 \\ud83d\\ude00 à</h1>\\n\\"q\\" \\\\ end"}',
+    { kinds: 'begin:write,path@,content@site/index.html,B,', body: '<h1>Ciao è 😀 à</h1>\n"q" \\ end' });
+  previewSplits('pi', 'write', '{ "content" : "abc" , "path" : "x.md" }', { kinds: 'begin:write,content@,B,path@,content@x.md,', body: 'abc' });
+  // OpenCode's names: filePath is the path, oldString/newString are edit bodies.
+  previewSplits('opencode', 'edit', '{"filePath":"a.js","n":1,"meta":[{"k":"}\\"]"}],"oldString":"x","newString":"y"}',
+    { kinds: 'begin:edit,path@,n@a.js,meta@a.js,old@a.js,B,new@a.js,B,', body: 'xy' });
+  previewSplits('pi', 'read', '{"path":"README.md"}', { kinds: 'begin:read,path@,', body: '' });
+  previewSplits('opencode', 'bash', '{"command":"ls -la","description":"list"}', { kinds: 'begin:bash,command@,B,description@,', body: 'ls -la' });
+  // Arguments before the name wait; malformed JSON ends only that call's preview.
+  const out = sink(), preview = new ToolPreview(new HostOutput(out, sink()), 'pi', () => 0);
+  preview.feed(1, '{"path":"p","content":"he');
+  assert.equal(frames(out.text()).length, 0);
+  preview.begin(1, 'write'); preview.feed(1, 'llo"}');
+  preview.begin(2, 'write'); preview.feed(2, '{"path" x "content":"never"}');
+  preview.feed(16, '{"content":"out of range"}');
+  assert.deepEqual(previewSummary(out.text()), { kinds: 'begin:write,path@,content@p,B,begin:write,', body: 'hello' });
+});
+
+await check('live preview: a long body arrives in bounded batches, not one block', () => {
+  const out = sink(); let now = 0;
+  const preview = new ToolPreview(new HostOutput(out, sink()), 'pi', () => now);
+  preview.begin(0, 'write'); preview.feed(0, '{"path":"big.txt","content":"');
+  for (let i = 0; i < 400; i++) { now += 5; preview.feed(0, '0123456789'); }
+  preview.feed(0, '"}');
+  const bodies = frames(out.text()).filter((f) => f.type === 'tool_body_delta');
+  assert.equal(bodies.map((f) => f.text).join('').length, 4000);
+  assert.ok(bodies.length >= 4000 / 400, `${bodies.length} batches`);
+  assert.ok(bodies.every((f) => f.text.length <= 400));
+});
+
+await check('endpoint: a call being generated streams to the harness at once; the validated batch must match it', async () => {
+  const { backend, requests } = rpcFixture('qwen3.6-35b-a3b');
+  const ep = new Endpoint({ backend, kind: 'qwen', model: 'qwen3.6-35b-a3b', think: () => 'off', sampling: {}, token: 't' });
+  const previews = [];
+  ep.onToolDelta = (index, name, text) => previews.push([index, name, text]);
+  let requestsSeen = 0; ep.onRequest = () => requestsSeen++;
+  ep.ctx = 32768; await ep.listen();
+  try {
+    const chunksOf = (text) => text.split('\n\n').filter((l) => l.startsWith('data: {')).map((l) => JSON.parse(l.slice(6)));
+    const pending = post(ep.url() + '/chat/completions', { stream: true, messages: [] }, 't');
+    for (let i = 0; i < 100 && !requests.length; i++) await sleep(10);
+    const id = requests[0].id;
+    backend.frame({ type: 'model_delta', id, kind: 'content', text: 'Writing.' });
+    backend.frame({ type: 'model_tool_delta', id, index: 0, name: 'write', call_id: 'c9', text: '{"path":"a.md",' });
+    backend.frame({ type: 'model_tool_delta', id, index: 0, text: '"content":"hi"}' });
+    const args = '{"path":"a.md","content":"hi"}';
+    backend.frame({ type: 'model_tool_calls', id, text: JSON.stringify([{ id: 'c9', type: 'function', function: { name: 'write', arguments: args } }]) });
+    backend.frame({ type: 'model_done', id, text: 'tool_calls' });
+    const chunks = chunksOf((await pending).text);
+    const tools = chunks.filter((c) => c.choices?.[0]?.delta?.tool_calls).map((c) => c.choices[0].delta.tool_calls[0]);
+    assert.deepEqual(tools, [
+      { index: 0, id: 'c9', type: 'function', function: { name: 'write', arguments: '{"path":"a.md",' } },
+      { index: 0, function: { arguments: '"content":"hi"}' } },
+    ], 'fragments as they arrived, and no second copy of the complete call');
+    assert.equal(chunks.at(-1).choices[0].finish_reason, 'tool_calls');
+    assert.deepEqual(previews, [[0, 'write', '{"path":"a.md",'], [0, '', '"content":"hi"}']]);
+    assert.equal(requestsSeen, 1);
+    // A validated batch that differs from the streamed call is an error, not a silent swap.
+    const second = post(ep.url() + '/chat/completions', { stream: true, messages: [] }, 't');
+    for (let i = 0; i < 100 && requests.length < 2; i++) await sleep(10);
+    const id2 = requests[1].id;
+    backend.frame({ type: 'model_tool_delta', id: id2, index: 0, name: 'write', text: '{"path":"a.md"}' });
+    backend.frame({ type: 'model_tool_calls', id: id2, text: JSON.stringify([{ id: 'x', type: 'function', function: { name: 'write', arguments: '{"path":"b.md"}' } }]) });
+    backend.frame({ type: 'model_done', id: id2, text: 'tool_calls' });
+    const text = (await second).text;
+    assert.match(text, /differs from the validated call/);
+    assert.ok(!text.includes('[DONE]'), 'the harness is not told the call completed');
+    const first = chunksOf(text).find((c) => c.choices?.[0]?.delta?.tool_calls)?.choices[0].delta.tool_calls[0];
+    assert.match(first.id, /^call_0_[0-9a-f]{12}$/, 'a missing call id is synthesized for the harness');
+  } finally { ep.close(); }
+});
+
+await check('ds4-server SSE: tool fragments are tapped for the preview in any byte split', () => {
+  const sse = 'data: {"choices":[{"index":0,"delta":{"content":"x"}}]}\n\n'
+    + 'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"k","type":"function","function":{"name":"bash","arguments":"{\\"comm"}}]}}]}\n\n'
+    + 'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"and\\":\\"ls\\"}"}}]}}]}\n\ndata: [DONE]\n\n';
+  const bytes = Buffer.from(sse);
+  for (let cut = 0; cut <= bytes.length; cut += 7) {
+    const seen = [];
+    const tap = new SseToolTap((index, name, id, text) => seen.push([index, name, id, text]));
+    tap.push(bytes.subarray(0, cut)); tap.push(bytes.subarray(cut));
+    assert.deepEqual(seen, [[0, 'bash', 'k', '{"comm'], [0, '', '', 'and":"ls"}']]);
+  }
+});
+
+await check('pi: its ordered toolcall events drive the preview before the tool runs', () => {
+  const out = sink();
+  const pi = new PiHarness({ out: new HostOutput(out, sink()), root: tmp, state: tmp, cwd: tmp, endpoint: {}, model: 'm', family: 'qwen', think: () => 'off', ds4: false, guard: '' });
+  // pi's RPC wire shape (modes/json-event.ts): no partial message; the start
+  // event carries id and toolName.
+  pi.event({ type: 'message_start' });
+  pi.event({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'Saving.' } });
+  pi.event({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_start', contentIndex: 1, id: 't1', toolName: 'write' } });
+  for (const delta of ['{"path":"s', 'tory.md","content":"Once', ' upon"}'])
+    pi.event({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_delta', contentIndex: 1, delta } });
+  pi.event({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_end', contentIndex: 1, toolCall: { id: 't1', name: 'write' } } });
+  pi.event({ type: 'tool_execution_start', toolCallId: 't1', toolName: 'write', args: { path: 'story.md', content: 'Once upon' } });
+  const text = out.text();
+  assert.ok(text.startsWith('Saving.'), 'the text before the call stays before its preview');
+  assert.deepEqual(previewSummary(text), { kinds: 'begin:write,path@,content@story.md,B,', body: 'Once upon' });
+  assert.equal(frames(text).at(-1).type, 'tool_call', 'the executed call follows its preview');
 });
 
 fs.rmSync(tmp, { recursive: true, force: true });

@@ -1847,6 +1847,7 @@ typedef struct {
     json_dyn_buf arguments;
     int seen;
     int function_type;
+    int announced; /* model_tool_delta already carried the name */
 } model_rpc_call;
 
 typedef struct {
@@ -1932,6 +1933,20 @@ static int fd_write_all(int fd, const char *p, size_t n) {
     return 1;
 }
 
+/* Private worker IPC is length-framed. Only the host owner can unwrap it into
+ * the runtime pipe; the worker never inherits that descriptor. Frees out. */
+static int model_rpc_write_line(model_rpc_job *job, json_dyn_buf *out, int terminal) {
+    int rc = 1;
+    if (job->framed_output) {
+        char header[32];
+        int n = snprintf(header, sizeof header, "%c %zu\n", terminal ? 'F' : 'D', out->len);
+        rc = n > 0 && (size_t)n < sizeof header && fd_write_all(job->in_fd, header, (size_t)n);
+    }
+    rc = rc && fd_write_all(job->in_fd, out->ptr, out->len);
+    free(out->ptr); out->ptr = NULL;
+    return rc;
+}
+
 static int model_rpc_write_frame(model_rpc_job *job,
                                  const char *type,
                                  const char *kind,
@@ -1947,18 +1962,26 @@ static int model_rpc_write_frame(model_rpc_job *job,
     }
     ok = ok && json_dyn_puts(&out, "}\n");
     if (!ok) { free(out.ptr); return 0; }
-    /* Private worker IPC is length-framed. Only the host owner can unwrap it
-     * into the runtime pipe; the worker never inherits that descriptor. */
-    int rc = 1;
-    if (job->framed_output) {
-        char header[32];
-        int terminal = !strcmp(type, "model_done") || !strcmp(type, "model_error");
-        int n = snprintf(header, sizeof header, "%c %zu\n", terminal ? 'F' : 'D', out.len);
-        rc = n > 0 && (size_t)n < sizeof header && fd_write_all(job->in_fd, header, (size_t)n);
-    }
-    rc = rc && fd_write_all(job->in_fd, out.ptr, out.len);
-    free(out.ptr);
-    return rc;
+    int terminal = !strcmp(type, "model_done") || !strcmp(type, "model_error");
+    return model_rpc_write_line(job, &out, terminal);
+}
+
+/* Preview of a structured call while it is generated: the name once, then
+ * each argument fragment as it arrived. Consumers may show it; only the
+ * validated model_tool_calls batch is executable. */
+static int model_rpc_write_tool_delta(model_rpc_job *job, int index, const char *name,
+                                      const char *call_id, const char *fragment, size_t len) {
+    json_dyn_buf out = {0};
+    char *text = malloc(len + 1);
+    if (!text) return 0;
+    memcpy(text, fragment, len); text[len] = '\0';
+    int ok = json_dyn_printf(&out, "\x1e{\"type\":\"model_tool_delta\",\"id\":%d,\"index\":%d", job->id, index);
+    if (name) ok = ok && json_dyn_puts(&out, ",\"name\":") && json_dyn_put_escaped(&out, name);
+    if (name && call_id && call_id[0]) ok = ok && json_dyn_puts(&out, ",\"call_id\":") && json_dyn_put_escaped(&out, call_id);
+    ok = ok && json_dyn_puts(&out, ",\"text\":") && json_dyn_put_escaped(&out, text) && json_dyn_puts(&out, "}\n");
+    free(text);
+    if (!ok) { free(out.ptr); return 0; }
+    return model_rpc_write_line(job, &out, 0);
 }
 
 static void model_rpc_sse_bytes(model_rpc_job *job, const char *buf, size_t len, json_dyn_buf *line) {

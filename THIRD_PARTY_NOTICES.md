@@ -117,8 +117,9 @@ MIT-licensed `ivanfioravanti/ds4-metal` source below.
   [`src/engines/mlx/manifest.json`](src/engines/mlx/manifest.json). Each wheel keeps its own license
   file in its `.dist-info`. [`scripts/install-mlx.py`](scripts/install-mlx.py) installs them offline
   into a private virtual environment and applies
-  [`patch/mlx-lm-single-model`](patch/mlx-lm-single-model/README.md) and
-  [`patch/mlx-lm-reasoning-content`](patch/mlx-lm-reasoning-content/README.md) to the installed
+  [`patch/mlx-lm-single-model`](patch/mlx-lm-single-model/README.md),
+  [`patch/mlx-lm-reasoning-content`](patch/mlx-lm-reasoning-content/README.md) and
+  [`patch/mlx-lm-tool-streaming`](patch/mlx-lm-tool-streaming/README.md) to the installed
   MLX LM server.
 - The 32 runtime dependencies keep their own licenses: Apache-2.0 (hf-xet, huggingface_hub,
   safetensors, sentencepiece, tokenizers, transformers); Apache-2.0 or BSD-2-Clause (packaging);

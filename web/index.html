@@ -10506,10 +10506,10 @@
             <label for="set-agent-harness">Agent harness <small class="field-note">same model, engine and workspace; only the agent loop changes</small></label>
             <select id="set-agent-harness">
               <option value="native">DStudio Agent</option>
-              <option value="pi">pi</option>
+              <option value="pi">pi (pi-ds4 on ds4 models)</option>
               <option value="opencode">OpenCode</option>
             </select>
-            <p class="set-help">pi and OpenCode run with the model you select: Qwen on DStudio's llama.cpp, DeepSeek and the other ds4 models on a ds4-server the harness owns (pi through pi-ds4), or a remote endpoint. Their file tools are confined to the workspace. Cowork and Design keep DStudio's own runtimes. Applies the next time Agent starts.</p>
+            <p class="set-help">pi and OpenCode run with the model you select. When ds4 serves it (DeepSeek, GLM, Qwen Next, Laguna), the harness owns a ds4-server and pi runs as <strong>pi-ds4</strong>; with llama.cpp, MLX (Qwen3.6, Qwen3.8-27B) or a remote endpoint it runs as plain <strong>pi</strong>, through DStudio's model connection. Files being written stream into the transcript as they are generated. File tools are confined to the workspace. Cowork and Design keep DStudio's own runtimes. Applies the next time Agent starts.</p>
           </div>
           <div class="field">
             <span>pi <small class="field-note" id="set-harness-pi-version"></small></span>
@@ -36799,7 +36799,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const skill = picked === 'auto' ? '' : picked;
         runtimeSkillAtLaunch.agent = skill;
         const harness = ['pi', 'opencode'].includes(Store.getSettings().agentHarness) ? Store.getSettings().agentHarness : 'native';
-        const label = harness === 'pi' ? 'pi' : harness === 'opencode' ? 'OpenCode' : 'the agent';
+        // pi-ds4 drives a ds4-server; llama.cpp, MLX and remote models use plain pi.
+        const piVariant = remote.modelBackend === 'remote' || localLlamaQwenSelected() ? 'pi' : 'pi-ds4';
+        const label = harness === 'pi' ? piVariant : harness === 'opencode' ? 'OpenCode' : 'the agent';
         return runSwitch('agent', { mode: 'agent', model: 'standard', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, harness, ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, ...remote }, `Starting ${label}…`);
       }
 

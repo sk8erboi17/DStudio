@@ -17,6 +17,7 @@
 #include <netinet/in.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <time.h>
 
 /* Private loopback protocol, independently bounded from inference traffic.
  * The host serializes admission and closing: a finishing pull either receives
@@ -387,6 +388,244 @@ static int rpc_send_request(int id, const char *body, char *err, size_t err_len)
     return 0;
 }
 
+
+/* ---- Live preview of structured tool calls --------------------------------
+ * While the model writes a structured call, the host relays its argument
+ * fragments (model_tool_delta). They are scanned here as one JSON object and
+ * turned into the live stanza lines a DSML runtime emits while parsing:
+ *   tool_call_begin {name}, tool_call_param {param, path}, tool_body_delta {text}
+ * (body only for content/text, edit old/new and bash command, in 384-byte or
+ * 0.2-second batches). A preview never validates or executes anything: the
+ * complete calls still arrive only as model_tool_calls, after the host checked
+ * them. A malformed fragment only ends that call's preview.
+ * Bounds: 16 calls, 64-byte keys, 1 KiB path, 256 KiB of arguments held while a
+ * call's name is still unknown. */
+#define PREVIEW_CALLS 16
+#define PREVIEW_EARLY_MAX (256u * 1024u)
+#define PREVIEW_BATCH 384
+#define PREVIEW_SECONDS 0.2
+
+enum { PV_START, PV_KEY_EXPECT, PV_KEY, PV_COLON, PV_VALUE_EXPECT, PV_STRING, PV_OTHER, PV_AFTER, PV_DONE, PV_INVALID };
+
+typedef struct {
+    int used, began, state;
+    char name[128];
+    char key[65]; size_t key_len;
+    char param[65], body_param[65];
+    int body, is_path;
+    char path[1024]; size_t path_len; int path_closed;
+    int esc, u_digits; unsigned u_value, hi;
+    int depth, other_string, other_esc;
+    dstudio_remote_buf batch;
+    double last_flush;
+    dstudio_remote_buf early;
+} preview_call;
+
+typedef struct {
+    dstudio_remote_preview_cb emit;
+    void *ud;
+    preview_call calls[PREVIEW_CALLS];
+} preview_state;
+
+static double preview_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+}
+
+static void preview_line(preview_state *ps, const char *type, const char *k1, const char *v1,
+                         const char *k2, const char *v2) {
+    dstudio_remote_buf b = {0};
+    dstudio_remote_buf_puts(&b, "\x1e{\"type\":\"");
+    dstudio_remote_buf_puts(&b, type);
+    dstudio_remote_buf_puts(&b, "\"");
+    if (k1) { dstudio_remote_buf_puts(&b, ",\""); dstudio_remote_buf_puts(&b, k1); dstudio_remote_buf_puts(&b, "\":"); dstudio_remote_json_string(&b, v1 ? v1 : ""); }
+    if (k2) { dstudio_remote_buf_puts(&b, ",\""); dstudio_remote_buf_puts(&b, k2); dstudio_remote_buf_puts(&b, "\":"); dstudio_remote_json_string(&b, v2 ? v2 : ""); }
+    dstudio_remote_buf_puts(&b, "}\n");
+    if (b.ptr && ps->emit) ps->emit(ps->ud, b.ptr, b.len);
+    dstudio_remote_buf_free(&b);
+}
+
+static int preview_body_param(const char *tool, const char *param) {
+    if (!strcmp(param, "content") || !strcmp(param, "text")) return 1;
+    if (!strcmp(tool, "edit")) return !strcmp(param, "old") || !strcmp(param, "new");
+    if (!strcmp(tool, "bash")) return !strcmp(param, "command");
+    return 0;
+}
+
+/* Largest prefix that does not end inside a UTF-8 sequence. */
+static size_t preview_utf8_end(const char *s, size_t len) {
+    size_t j = len;
+    while (j > 0 && len - j < 3 && ((unsigned char)s[j - 1] & 0xC0) == 0x80) j--;
+    if (j == 0) return len;
+    unsigned char lead = (unsigned char)s[j - 1];
+    if (lead < 0xC0) return len;
+    size_t need = lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : 2;
+    return (j - 1) + need <= len ? len : j - 1;
+}
+
+static void preview_flush(preview_state *ps, preview_call *c, int force) {
+    if (!c->batch.len) return;
+    double now = preview_now();
+    if (!force && c->batch.len < PREVIEW_BATCH && now - c->last_flush < PREVIEW_SECONDS) return;
+    size_t end = force ? c->batch.len : preview_utf8_end(c->batch.ptr, c->batch.len);
+    if (!end) return;
+    char saved = c->batch.ptr[end];
+    c->batch.ptr[end] = '\0';
+    preview_line(ps, "tool_body_delta", "text", c->batch.ptr, NULL, NULL);
+    c->batch.ptr[end] = saved;
+    memmove(c->batch.ptr, c->batch.ptr + end, c->batch.len - end + 1);
+    c->batch.len -= end;
+    c->last_flush = now;
+}
+
+/* One decoded byte of the current string value. */
+static void preview_put(preview_state *ps, preview_call *c, char ch) {
+    if (!ch) return; /* \u0000 cannot travel in a C string; previews skip it */
+    if (c->state == PV_KEY) { if (c->key_len < sizeof c->key - 1) c->key[c->key_len++] = ch; return; }
+    if (c->is_path) { if (c->path_len < sizeof c->path - 1) c->path[c->path_len++] = ch; return; }
+    if (c->body) {
+        dstudio_remote_buf_append(&c->batch, &ch, 1);
+        if (c->batch.len >= PREVIEW_BATCH * 4) preview_flush(ps, c, 0);
+    }
+}
+
+static void preview_put_cp(preview_state *ps, preview_call *c, unsigned cp) {
+    dstudio_remote_buf tmp = {0};
+    remote_utf8_append(&tmp, cp);
+    for (size_t i = 0; i < tmp.len; i++) preview_put(ps, c, tmp.ptr[i]);
+    dstudio_remote_buf_free(&tmp);
+}
+
+static void preview_string_closed(preview_state *ps, preview_call *c) {
+    if (c->state == PV_KEY) {
+        c->key[c->key_len] = '\0';
+        c->state = PV_COLON;
+        return;
+    }
+    if (c->is_path) {
+        c->path[c->path_len] = '\0';
+        c->path_closed = 1;
+        /* A body that opened before its path learns the path now. */
+        if (c->body_param[0]) preview_line(ps, "tool_call_param", "param", c->body_param, "path", c->path);
+    }
+    if (c->body) preview_flush(ps, c, 1);
+    c->body = c->is_path = 0;
+    c->state = PV_AFTER;
+}
+
+/* A string character, in a key or a value; escapes and \u pairs decoded. */
+static void preview_string_char(preview_state *ps, preview_call *c, unsigned char ch) {
+    if (c->esc == 2) {
+        int v = ch >= '0' && ch <= '9' ? ch - '0' : ch >= 'a' && ch <= 'f' ? ch - 'a' + 10 : ch >= 'A' && ch <= 'F' ? ch - 'A' + 10 : -1;
+        if (v < 0) { c->state = PV_INVALID; return; }
+        c->u_value = c->u_value * 16 + (unsigned)v;
+        if (++c->u_digits < 4) return;
+        c->esc = 0;
+        unsigned cp = c->u_value;
+        if (cp >= 0xD800 && cp <= 0xDBFF) { if (c->hi) preview_put_cp(ps, c, 0xFFFD); c->hi = cp; return; }
+        if (cp >= 0xDC00 && cp <= 0xDFFF && c->hi) { cp = 0x10000 + ((c->hi - 0xD800) << 10) + (cp - 0xDC00); c->hi = 0; }
+        else if (c->hi) { preview_put_cp(ps, c, 0xFFFD); c->hi = 0; }
+        preview_put_cp(ps, c, cp);
+        return;
+    }
+    if (c->esc == 1) {
+        if (ch == 'u') { c->esc = 2; c->u_digits = 0; c->u_value = 0; return; }
+        c->esc = 0;
+        if (c->hi) { preview_put_cp(ps, c, 0xFFFD); c->hi = 0; }
+        char out = ch == 'n' ? '\n' : ch == 't' ? '\t' : ch == 'r' ? '\r' : ch == 'b' ? '\b' : ch == 'f' ? '\f' : (char)ch;
+        if (!strchr("\"\\/bfnrt", ch)) { c->state = PV_INVALID; return; }
+        preview_put(ps, c, out);
+        return;
+    }
+    if (ch == '\\') { c->esc = 1; return; } /* may start the low half of a pair */
+    if (c->hi) { preview_put_cp(ps, c, 0xFFFD); c->hi = 0; }
+    if (ch == '"') { preview_string_closed(ps, c); return; }
+    preview_put(ps, c, (char)ch);
+}
+
+static void preview_value_opened(preview_state *ps, preview_call *c, int string) {
+    snprintf(c->param, sizeof c->param, "%s", c->key);
+    preview_line(ps, "tool_call_param", "param", c->param, "path", c->path_closed ? c->path : "");
+    c->is_path = string && !strcmp(c->param, "path");
+    c->body = string && !c->is_path && preview_body_param(c->name, c->param);
+    if (c->body) snprintf(c->body_param, sizeof c->body_param, "%s", c->param);
+    c->last_flush = preview_now();
+    if (c->is_path) c->path_len = 0;
+}
+
+static void preview_scan(preview_state *ps, preview_call *c, const char *s, size_t n) {
+    for (size_t i = 0; i < n && c->state != PV_INVALID && c->state != PV_DONE; i++) {
+        unsigned char ch = (unsigned char)s[i];
+        int ws = ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r';
+        switch (c->state) {
+        case PV_START: if (ch == '{') c->state = PV_KEY_EXPECT; else if (!ws) c->state = PV_INVALID; break;
+        case PV_KEY_EXPECT:
+            if (ch == '"') { c->state = PV_KEY; c->key_len = 0; c->esc = 0; c->hi = 0; }
+            else if (ch == '}') c->state = PV_DONE;
+            else if (!ws) c->state = PV_INVALID;
+            break;
+        case PV_KEY: case PV_STRING: preview_string_char(ps, c, ch); break;
+        case PV_COLON: if (ch == ':') c->state = PV_VALUE_EXPECT; else if (!ws) c->state = PV_INVALID; break;
+        case PV_VALUE_EXPECT:
+            if (ws) break;
+            if (ch == '"') { c->state = PV_STRING; c->esc = 0; c->hi = 0; preview_value_opened(ps, c, 1); break; }
+            preview_value_opened(ps, c, 0);
+            c->state = PV_OTHER; c->depth = 0; c->other_string = c->other_esc = 0;
+            i--; /* rescan this byte as the value's first byte */
+            break;
+        case PV_OTHER:
+            if (c->other_string) {
+                if (c->other_esc) c->other_esc = 0;
+                else if (ch == '\\') c->other_esc = 1;
+                else if (ch == '"') c->other_string = 0;
+            } else if (ch == '"') c->other_string = 1;
+            else if (ch == '{' || ch == '[') c->depth++;
+            else if ((ch == '}' || ch == ']') && c->depth > 0) c->depth--;
+            else if (c->depth == 0 && ch == ',') c->state = PV_KEY_EXPECT;
+            else if (c->depth == 0 && ch == '}') c->state = PV_DONE;
+            break;
+        case PV_AFTER:
+            if (ch == ',') c->state = PV_KEY_EXPECT;
+            else if (ch == '}') c->state = PV_DONE;
+            else if (!ws) c->state = PV_INVALID;
+            break;
+        default: break;
+        }
+    }
+    if (c->state == PV_STRING && c->body) preview_flush(ps, c, 0);
+}
+
+/* One model_tool_delta: the call's name (when first known) and/or a fragment
+ * of its JSON arguments. */
+static void preview_feed(preview_state *ps, int index, const char *name, const char *fragment) {
+    if (!ps || !ps->emit || index < 0 || index >= PREVIEW_CALLS) return;
+    preview_call *c = &ps->calls[index];
+    c->used = 1;
+    if (name && name[0] && !c->began) {
+        snprintf(c->name, sizeof c->name, "%s", name);
+        c->began = 1;
+        preview_line(ps, "tool_call_begin", "name", c->name, NULL, NULL);
+        if (c->early.len) { preview_scan(ps, c, c->early.ptr, c->early.len); dstudio_remote_buf_free(&c->early); }
+    }
+    if (!fragment || !fragment[0]) return;
+    size_t n = strlen(fragment);
+    if (!c->began) {
+        if (c->early.len + n <= PREVIEW_EARLY_MAX) dstudio_remote_buf_append(&c->early, fragment, n);
+        else c->state = PV_INVALID;
+        return;
+    }
+    preview_scan(ps, c, fragment, n);
+}
+
+static void preview_free(preview_state *ps) {
+    if (!ps) return;
+    for (int i = 0; i < PREVIEW_CALLS; i++) {
+        dstudio_remote_buf_free(&ps->calls[i].batch);
+        dstudio_remote_buf_free(&ps->calls[i].early);
+    }
+}
+
 static int remote_chat_stream(const char *base_url,
                                const char *model,
                                const char *messages_json,
@@ -401,7 +640,9 @@ static int remote_chat_stream(const char *base_url,
                                char *err,
                                size_t err_len,
                                const char *tools_json,
-                               char **tool_calls_json) {
+                               char **tool_calls_json,
+                               dstudio_remote_preview_cb preview,
+                               void *preview_ud) {
     if (tool_calls_json) *tool_calls_json = NULL;
     if (cancelled && cancelled(ud)) return 2;
     if (!base_url || !base_url[0]) {
@@ -476,6 +717,7 @@ static int remote_chat_stream(const char *base_url,
     }
     dstudio_remote_buf line = {0};
     char *candidate_calls = NULL;
+    preview_state live = { .emit = tool_calls_json ? preview : NULL, .ud = preview_ud };
     int read_status, result = 1;
     while ((read_status = read_line_fd(STDIN_FILENO, &line, cancelled, ud)) > 0) {
         if (cancelled && cancelled(ud)) { result = 2; goto finished; }
@@ -507,6 +749,16 @@ static int remote_chat_stream(const char *base_url,
                 free(type);
                 remote_err(err, err_len, "invalid internal model delta");
                 goto failed;
+            }
+        } else if (type && !strcmp(type, "model_tool_delta")) {
+            /* Preview only; older runtimes ignore this frame entirely. */
+            int index = -1;
+            if (live.emit && !candidate_calls && json_int_value(p, "index", &index)) {
+                char *name = json_string_value(p, "name");
+                char *text = json_string_value(p, "text");
+                preview_feed(&live, index, name, text);
+                free(name);
+                free(text);
             }
         } else if (type && !strcmp(type, "model_tool_calls")) {
             if (!tool_calls_json || candidate_calls ||
@@ -548,6 +800,7 @@ failed:
     result = 1;
 finished:
     free(candidate_calls);
+    preview_free(&live);
     dstudio_remote_buf_free(&line);
     if (result == 2 && !discard_cancelled_input(STDIN_FILENO)) {
         remote_err(err, err_len, "cancelled model input did not drain within its bound");
@@ -568,7 +821,23 @@ int dstudio_remote_chat_stream(const char *base_url, const char *model,
                                dstudio_remote_cancel_cb cancelled,
                                char *err, size_t err_len) {
     return remote_chat_stream(base_url, model, messages_json, think_level, temperature,
-        top_p, min_p, max_tokens, cb, ud, cancelled, err, err_len, NULL, NULL);
+        top_p, min_p, max_tokens, cb, ud, cancelled, err, err_len, NULL, NULL, NULL, NULL);
+}
+
+int dstudio_remote_chat_stream_tools_preview(const char *base_url, const char *model,
+                                             const char *messages_json, const char *tools_json,
+                                             int think_level, float temperature, float top_p, float min_p,
+                                             int max_tokens, dstudio_remote_chunk_cb cb, void *ud,
+                                             dstudio_remote_cancel_cb cancelled,
+                                             dstudio_remote_preview_cb preview, void *preview_ud,
+                                             char **tool_calls_json, char *err, size_t err_len) {
+    if (!tool_calls_json || !tools_json || tools_json[0] != '[' || strlen(tools_json) > 1024u * 1024u) {
+        if (tool_calls_json) *tool_calls_json = NULL;
+        remote_err(err, err_len, "structured model request requires bounded tool schemas and a result owner");
+        return 1;
+    }
+    return remote_chat_stream(base_url, model, messages_json, think_level, temperature,
+        top_p, min_p, max_tokens, cb, ud, cancelled, err, err_len, tools_json, tool_calls_json, preview, preview_ud);
 }
 
 int dstudio_remote_chat_stream_tools(const char *base_url, const char *model,
@@ -577,11 +846,6 @@ int dstudio_remote_chat_stream_tools(const char *base_url, const char *model,
                                      int max_tokens, dstudio_remote_chunk_cb cb, void *ud,
                                      dstudio_remote_cancel_cb cancelled,
                                      char **tool_calls_json, char *err, size_t err_len) {
-    if (!tool_calls_json || !tools_json || tools_json[0] != '[' || strlen(tools_json) > 1024u * 1024u) {
-        if (tool_calls_json) *tool_calls_json = NULL;
-        remote_err(err, err_len, "structured model request requires bounded tool schemas and a result owner");
-        return 1;
-    }
-    return remote_chat_stream(base_url, model, messages_json, think_level, temperature,
-        top_p, min_p, max_tokens, cb, ud, cancelled, err, err_len, tools_json, tool_calls_json);
+    return dstudio_remote_chat_stream_tools_preview(base_url, model, messages_json, tools_json, think_level,
+        temperature, top_p, min_p, max_tokens, cb, ud, cancelled, NULL, NULL, tool_calls_json, err, err_len);
 }

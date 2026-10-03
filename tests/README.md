@@ -1313,6 +1313,59 @@ the llama.cpp Qwen3.6 or a numerical-parity claim for MXFP8.
 `scripts/download-mlx-qwen36.py --verify-only --directory <folder>` checked an
 existing local copy against all 20 pins (36,665,809,057 bytes) in 27 s.
 
+### Streaming and live tool previews
+
+`make test-streaming-live` (explicit, real weights) samples `/api/agent/poll`,
+the transcript the UI reads, every 100 ms during one turn per path (DStudio
+Agent, pi, OpenCode, Cowork, Design). `DSTUDIO_STREAM_SCENARIO=prose` measures
+plain text; `write` asks for a file and measures the live tool preview
+(`tool_body_delta` text) while the call is generated, then checks that the file
+exists in the workspace and that nothing was written outside it. A path passes
+when its output arrives in at least five increments and no increment carries
+more than half of it.
+
+October 3, 2026, M2 Max: prose streamed on all five paths with Qwen3.6
+(`run-JG9D0a`). The first `write` run (`run-FELWf8`) streamed **none** of the
+five on llama.cpp: tool-call arguments reached runtimes and harnesses only as a
+complete call. After the fix (the host relays `model_tool_delta`, the remote
+client and the bridge turn it into live frames), Agent, Cowork, Design and
+OpenCode streamed (`run-gOFF8d`), pi did not, because pi's RPC wire strips the
+partial message the bridge read (retained failure); with that corrected, pi and
+OpenCode streamed (`run-Vhzkb3`). DeepSeek (ds4): Agent, pi-ds4 and OpenCode
+streamed (`run-RPpkpT`, `run-sijpLh`; one OpenCode attempt was refused because
+the test sent its prompt while the harness was still loading, now awaited).
+MLX first previewed every file in one or two blocks (`run-eaO4iF`, retained):
+the MLX server itself held a tool call until it was complete.
+`patch/mlx-lm-tool-streaming` converts Qwen's tool format while it is generated;
+then all five paths streamed on MLX (`run-CqtFx5`).
+`make test-mlx-install-unit` also checks that conversion against the wheel's
+own parser on random calls and every split.
+Two OpenCode runs (`run-FELWf8`, `run-gOFF8d`) wrote their file into the
+enclosing repository through the shell after the write tool was refused; the
+stray files were removed and `patch/harness-opencode/workspace-root.patch` makes
+the workspace the root OpenCode reports.
+
+Model-free coverage of the same path, all in `check-fast` except the runtime
+target: `make test-remote-tool-preview-unit` (the C argument scanner on every
+two-cut split, escapes, surrogate pairs, path after content, nested values,
+malformed input, bounded batches), `make test-model-rpc-stream` (the host relays
+fragments in order, with the name and call id first, and they concatenate to
+the validated batch, which still comes once), `make test-harness-bridge` (the
+JS scanner, tool fragments streamed to the harness, a validated batch that
+differs is an error, ds4 SSE tap, pi's wire events) and
+`make test-remote-tool-preview REMOTE_TOOL_AGENT=...` (the built Agent and Cowork
+runtimes, main and Laguna, emit the exact previewed text before executing).
+
+### App-binary helper modes
+
+The desktop app binary re-executes itself for the server guard
+(`--resident-guard`), the model RPC worker and launch preparation. The guard
+mode was missing from the app's dispatch, so in the real app every llama.cpp or
+MLX start failed with "guard closed its owner channel" (tests use the server
+binary, which dispatched it). `make test-macos-bundle` now also runs the guard
+test against the bundled app binary (8/8), and the MLX resident run passed 6/6
+through the app binary (`run-qzjivw`).
+
 ### Harnesses: pi and OpenCode as the Agent runtime
 
 `make test-harness-bridge` (in `check-fast`) executes the bridge's production

@@ -38,7 +38,8 @@ STAGE_PREFIX = '.dstudio-mlx-stage-'
 PYTHON = 'venv/bin/python3'
 # Versioned adaptations applied to the installed mlx-lm, in order.
 PATCHES = ['patch/mlx-lm-single-model/single-model.patch',
-           'patch/mlx-lm-reasoning-content/reasoning-content.patch']
+           'patch/mlx-lm-reasoning-content/reasoning-content.patch',
+           'patch/mlx-lm-tool-streaming/tool-streaming.patch']
 # The base files the venv executes: the interpreter and, for a framework or
 # shared build, the libpython it loads (resolved paths, bytes and SHA-256).
 BASE_PROBE = ('import json, os, sys, sysconfig\n'

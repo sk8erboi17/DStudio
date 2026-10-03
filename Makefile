@@ -594,6 +594,7 @@ check-fast: test-harness-bridge test-harness-patches
 .PHONY: test-mlx-install-unit test-mlx-install
 test-mlx-install-unit:
 	@python3 tests/unit/mlx_install_test.py
+	@python3 tests/unit/mlx_tool_stream_test.py
 test-mlx-install:
 	@python3 tests/integration/mlx_install_offline_test.py
 
@@ -865,6 +866,29 @@ test-model-rpc-lifecycle: $(TEST_BUILD)/model-rpc-lifecycle-test
 	@node tests/integration/model_rpc_lifecycle_test.mjs $(TEST_BUILD)/model-rpc-lifecycle-test
 
 check-fast: test-model-rpc-stream test-model-rpc-interrupt test-model-rpc-lifecycle
+
+# Live preview of structured tool calls (llama.cpp/MLX/pi/OpenCode): the
+# transport's argument scanner on every split (check-fast), and the actual
+# native Agent/Cowork runtimes with simulated model frames (needs built
+# runtimes, like test-remote-structured-tools).
+.PHONY: test-remote-tool-preview-unit test-remote-tool-preview
+$(TEST_BUILD)/remote-tool-preview-unit: tests/unit/remote_tool_preview_unit.c extension/remote/dstudio_remote_llm.c extension/remote/dstudio_remote_llm.h extension/remote/dstudio_wire_string.h
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) -Iextension/remote tests/unit/remote_tool_preview_unit.c -o $@
+test-remote-tool-preview-unit: $(TEST_BUILD)/remote-tool-preview-unit
+	@$<
+test-remote-tool-preview:
+	@test -n "$(REMOTE_TOOL_AGENT)" || (echo 'Set REMOTE_TOOL_AGENT to one or more built native Agent binaries' && exit 1)
+	@node tests/integration/remote_tool_preview_runtime_test.mjs $(REMOTE_TOOL_AGENT)
+
+check-fast: test-remote-tool-preview-unit
+
+# REAL weights: does output stream into the transcript the UI reads? Prose and
+# a file write through Agent, pi, OpenCode, Cowork and Design (explicit, heavy).
+#   DSTUDIO_STREAM_MODEL=qwen36|qwen27|qwen36mlx|deepseek  DSTUDIO_STREAM_SCENARIO=prose|write
+.PHONY: test-streaming-live
+test-streaming-live: $(TEST_SERVER)
+	@node tests/live/streaming_live_test.mjs
 
 .PHONY: test-model-rpc-input
 .PHONY: test-slow-runtime

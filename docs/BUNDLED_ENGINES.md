@@ -109,8 +109,9 @@ wheel, picks the newest supported Python on the Mac, creates a private virtual
 environment with copied interpreter files, and installs with `pip --no-index
 --require-hashes`, so nothing is fetched and only the hashes for that Python's
 ABI are accepted. It then applies
-[`patch/mlx-lm-single-model`](../patch/mlx-lm-single-model/README.md) and
-[`patch/mlx-lm-reasoning-content`](../patch/mlx-lm-reasoning-content/README.md),
+[`patch/mlx-lm-single-model`](../patch/mlx-lm-single-model/README.md),
+[`patch/mlx-lm-reasoning-content`](../patch/mlx-lm-reasoning-content/README.md) and
+[`patch/mlx-lm-tool-streaming`](../patch/mlx-lm-tool-streaming/README.md),
 checks the installed versions and that Metal is available, and publishes `mlx/`
 with a receipt (manifest digest, copied interpreter SHA-256, patch SHA-256s and
 the base Python files the environment still executes). A changed wheel set,

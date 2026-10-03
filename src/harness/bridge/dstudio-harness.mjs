@@ -116,6 +116,144 @@ export function displayTool(harness, name, args = {}) {
   return [n || 'tool', args];
 }
 
+// ------------------------------------------------------------- live preview
+// While a model writes a tool call, its JSON arguments arrive in fragments.
+// They become the live stanza frames DStudio's own runtimes emit while parsing
+// (tool_call_begin {name}, tool_call_param {param, path}, tool_body_delta
+// {text}), so the transcript and Open IDE show a file as it is written. A
+// preview never executes anything: the harness's tool_call/tool_result frames
+// remain the record of what ran. Body: content/text, edit old/new, bash
+// command; 384-character or 200 ms batches; 16 calls; malformed JSON ends
+// only that call's preview.
+const PREVIEW_BATCH = 384;
+const PREVIEW_MS = 200;
+const PATH_KEYS = new Set(['path', 'filePath', 'file_path']);
+const PARAM_ALIASES = { oldText: 'old', oldString: 'old', old_string: 'old', newText: 'new', newString: 'new', new_string: 'new' };
+export function previewBodyParam(tool, param) {
+  if (param === 'content' || param === 'text') return true;
+  if (tool === 'edit') return param === 'old' || param === 'new';
+  if (tool === 'bash') return param === 'command';
+  return false;
+}
+export class ToolPreview {
+  constructor(out, harness, now = () => Date.now()) { this.out = out; this.harness = harness; this.now = now; this.calls = new Map(); }
+  reset() { for (const c of this.calls.values()) this.flush(c, true); this.calls.clear(); }
+  call(index) {
+    if (!Number.isInteger(index) || index < 0 || index >= 16) return null;
+    let c = this.calls.get(index);
+    if (!c) { c = { began: false, name: '', state: 'start', key: '', param: '', bodyParam: '', body: false, isPath: false,
+      path: '', pathClosed: false, esc: 0, hex: '', depth: 0, inStr: false, strEsc: false, batch: '', last: 0, early: '' }; this.calls.set(index, c); }
+    return c;
+  }
+  frame(obj) { this.out.endReasoning?.(); this.out.frame(obj); }
+  begin(index, rawName) {
+    const c = this.call(index);
+    if (!c || c.began || !rawName) return;
+    c.began = true; c.name = displayTool(this.harness, rawName)[0];
+    this.frame({ type: 'tool_call_begin', name: c.name });
+    if (c.early) { const early = c.early; c.early = ''; this.scan(c, early); }
+  }
+  feed(index, fragment) {
+    const c = this.call(index);
+    if (!c || !fragment) return;
+    if (!c.began) { if (c.early.length + fragment.length <= 262144) c.early += fragment; else c.state = 'invalid'; return; }
+    this.scan(c, fragment);
+  }
+  end(index) { const c = this.calls.get(index); if (c) this.flush(c, true); }
+  flush(c, force) {
+    if (!c.batch) return;
+    const t = this.now();
+    if (!force && c.batch.length < PREVIEW_BATCH && t - c.last < PREVIEW_MS) return;
+    this.frame({ type: 'tool_body_delta', text: c.batch }); c.batch = ''; c.last = t;
+  }
+  put(c, ch) {
+    if (c.state === 'key') { if (c.key.length < 64) c.key += ch; return; }
+    if (c.isPath) { if (c.path.length < 1024) c.path += ch; return; }
+    if (c.body) c.batch += ch;
+  }
+  opened(c, string) {
+    c.param = PATH_KEYS.has(c.key) ? 'path' : (PARAM_ALIASES[c.key] || c.key);
+    this.frame({ type: 'tool_call_param', param: c.param, path: c.pathClosed ? c.path : '' });
+    c.isPath = string && c.param === 'path';
+    c.body = string && !c.isPath && previewBodyParam(c.name, c.param);
+    if (c.body) c.bodyParam = c.param;
+    if (c.isPath) c.path = '';
+    c.last = this.now();
+  }
+  closed(c) {
+    if (c.state === 'key') { c.state = 'colon'; return; }
+    if (c.isPath) {
+      c.pathClosed = true;
+      if (c.bodyParam) this.frame({ type: 'tool_call_param', param: c.bodyParam, path: c.path });
+    }
+    if (c.body) this.flush(c, true);
+    c.body = c.isPath = false; c.state = 'after';
+  }
+  stringChar(c, ch) {
+    if (c.esc === 2) {
+      if (!/[0-9a-fA-F]/.test(ch)) { c.state = 'invalid'; return; }
+      c.hex += ch;
+      if (c.hex.length === 4) { c.esc = 0; this.put(c, String.fromCharCode(parseInt(c.hex, 16))); }
+      return;
+    }
+    if (c.esc === 1) {
+      c.esc = 0;
+      if (ch === 'u') { c.esc = 2; c.hex = ''; return; }
+      const map = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' };
+      if (!(ch in map)) { c.state = 'invalid'; return; }
+      this.put(c, map[ch]); return;
+    }
+    if (ch === '\\') { c.esc = 1; return; }
+    if (ch === '"') { this.closed(c); return; }
+    this.put(c, ch);
+  }
+  scan(c, text) {
+    for (let i = 0; i < text.length && c.state !== 'invalid' && c.state !== 'done'; i++) {
+      const ch = text[i], ws = ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r';
+      switch (c.state) {
+        case 'start': c.state = ch === '{' ? 'keyExpect' : ws ? 'start' : 'invalid'; break;
+        case 'keyExpect': if (ch === '"') { c.state = 'key'; c.key = ''; c.esc = 0; } else if (ch === '}') c.state = 'done'; else if (!ws) c.state = 'invalid'; break;
+        case 'key': case 'string': this.stringChar(c, ch); break;
+        case 'colon': if (ch === ':') c.state = 'valueExpect'; else if (!ws) c.state = 'invalid'; break;
+        case 'valueExpect':
+          if (ws) break;
+          if (ch === '"') { c.state = 'string'; c.esc = 0; this.opened(c, true); break; }
+          this.opened(c, false); c.state = 'other'; c.depth = 0; c.inStr = false; c.strEsc = false; i--; break;
+        case 'other':
+          if (c.inStr) { if (c.strEsc) c.strEsc = false; else if (ch === '\\') c.strEsc = true; else if (ch === '"') c.inStr = false; }
+          else if (ch === '"') c.inStr = true;
+          else if (ch === '{' || ch === '[') c.depth++;
+          else if ((ch === '}' || ch === ']') && c.depth > 0) c.depth--;
+          else if (c.depth === 0 && ch === ',') c.state = 'keyExpect';
+          else if (c.depth === 0 && ch === '}') c.state = 'done';
+          break;
+        case 'after': if (ch === ',') c.state = 'keyExpect'; else if (ch === '}') c.state = 'done'; else if (!ws) c.state = 'invalid'; break;
+        default: break;
+      }
+    }
+    if (c.state === 'string' && c.body) this.flush(c, false);
+  }
+}
+
+// OpenAI SSE bytes (ds4-server) -> tool-call argument fragments, for the
+// preview only; the bytes themselves are forwarded unchanged.
+export class SseToolTap {
+  constructor(onDelta) { this.onDelta = onDelta; this.pending = ''; this.decoder = new StringDecoder('utf8'); }
+  push(bytes) {
+    this.pending += typeof bytes === 'string' ? bytes : this.decoder.write(bytes);
+    if (this.pending.length > BODY_MAX) this.pending = '';
+    for (let at; (at = this.pending.indexOf('\n')) >= 0;) {
+      const line = this.pending.slice(0, at).trim(); this.pending = this.pending.slice(at + 1);
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (!data || data === '[DONE]') continue;
+      let chunk; try { chunk = JSON.parse(data); } catch { continue; }
+      for (const t of chunk?.choices?.[0]?.delta?.tool_calls || [])
+        this.onDelta(t.index, t.function?.name || '', t.id || '', t.function?.arguments || '');
+    }
+  }
+}
+
 // -------------------------------------------------------------------- stdin
 // Splits host input into \x1e frames (one line each) and prompt text. A turn
 // is the prompt bytes followed by 200 ms without further prompt bytes, as in
@@ -172,6 +310,7 @@ export class RpcBackend {
     if (!job || f.id !== job.id) return;
     const live = !job.abandoned;
     if (f.type === 'model_delta' && live) job.sink.delta(f.kind === 'reasoning' ? 'reasoning' : 'content', String(f.text ?? ''));
+    else if (f.type === 'model_tool_delta' && live) job.sink.toolDelta?.(f.index, String(f.name ?? ''), String(f.call_id ?? ''), String(f.text ?? ''));
     else if (f.type === 'model_tool_calls' && live) {
       let calls = []; try { calls = JSON.parse(f.text); } catch { /* invalid relay payload */ }
       job.sink.tools(Array.isArray(calls) ? calls : []);
@@ -249,6 +388,8 @@ export class Endpoint {
   constructor({ backend, kind, model, think, sampling, token }) {
     Object.assign(this, { backend, kind, model, think, sampling, token });
     this.server = null; this.port = 0;
+    this.onToolDelta = null; // (index, name, fragment): live preview for a harness that exposes none
+    this.onRequest = null;   // a new model request: tool indexes start again at 0
   }
   url() { return `http://127.0.0.1:${this.port}/v1`; }
   shape(body) {
@@ -285,10 +426,16 @@ export class Endpoint {
     });
   }
   complete(body, res) {
+    this.onRequest?.();
     const streaming = body.stream !== false;
     const shaped = this.shape(body);
     const id = 'chatcmpl-' + crypto.randomBytes(8).toString('hex');
+    const tap = this.onToolDelta && streaming ? new SseToolTap((index, name, _id, text) => {
+      if (name) this.onToolDelta(index, name, text); else if (text) this.onToolDelta(index, '', text);
+    }) : null;
     let started = false, finished = false, collected = { content: '', reasoning: '', calls: [] };
+    // Tool calls streamed as they are generated: index -> { id, name, args }.
+    const streamedTools = new Map();
     const start = () => {
       if (started || !streaming) return;
       started = true;
@@ -308,9 +455,37 @@ export class Endpoint {
         if (kind === 'reasoning') { collected.reasoning += text; send({ reasoning_content: text }); }
         else { collected.content += text; send({ content: text }); }
       },
+      // A fragment of a call being generated: forwarded at once, as an
+      // OpenAI server streams tool calls, so the harness (and the preview)
+      // see a file while it is written rather than at the end.
+      toolDelta: (index, name, callId, text) => {
+        if (!Number.isInteger(index) || index < 0 || index >= 16) return;
+        let call = streamedTools.get(index);
+        if (!call) {
+          if (!name) return; // the host announces the name with the first fragment
+          call = { id: callId || `call_${index}_${crypto.randomBytes(6).toString('hex')}`, name, args: '' };
+          streamedTools.set(index, call);
+          send({ tool_calls: [{ index, id: call.id, type: 'function', function: { name, arguments: text } }] });
+          this.onToolDelta?.(index, name, text);
+        } else if (text) {
+          send({ tool_calls: [{ index, function: { arguments: text } }] });
+          this.onToolDelta?.(index, '', text);
+        }
+        call.args += text;
+      },
       tools: (calls) => {
         collected.calls = calls;
-        send({ tool_calls: calls.map((c, index) => ({ index, id: c.id, type: 'function', function: { name: c.function?.name, arguments: c.function?.arguments ?? '' } })) });
+        if (!streamedTools.size) {
+          send({ tool_calls: calls.map((c, index) => ({ index, id: c.id, type: 'function', function: { name: c.function?.name, arguments: c.function?.arguments ?? '' } })) });
+          return;
+        }
+        // The validated batch must be exactly what was streamed; otherwise the
+        // harness would run something the host did not admit.
+        const same = calls.length === streamedTools.size && calls.every((c, index) => {
+          const s = streamedTools.get(index);
+          return s && s.name === c.function?.name && s.args === (c.function?.arguments ?? '');
+        });
+        if (!same) sink.error('The streamed tool call differs from the validated call; nothing was executed');
       },
       done: (reason) => {
         if (finished) return; end();
@@ -326,8 +501,9 @@ export class Endpoint {
         if (started) res.end('data: ' + JSON.stringify({ error: { message } }) + '\n\n');
         else { res.writeHead(502, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message } })); }
       },
-      // ds4-server already speaks OpenAI SSE: forwarded as bytes.
-      raw: (bytes) => { if (!finished) { start(); res.write(bytes); } },
+      // ds4-server already speaks OpenAI SSE: forwarded as bytes (and tapped
+      // for the live preview when the harness exposes none).
+      raw: (bytes) => { if (!finished) { start(); res.write(bytes); tap?.push(bytes); } },
       rawEnd: () => { if (!finished) { end(); res.end(); } },
     };
     if (!streaming && this.kind === 'ds4') {
@@ -348,6 +524,7 @@ export class PiHarness {
   constructor({ out, root, state, cwd, endpoint, model, family, think, ds4, guard }) {
     Object.assign(this, { out, root, state, cwd, endpoint, model, family, think, ds4, guard });
     this.child = null; this.running = false; this.nextId = 1; this.failed = false; this.tools = new Map(); this.settle = null;
+    this.preview = new ToolPreview(out, 'pi');
   }
   thinkingLevel() {
     const t = this.think();
@@ -415,11 +592,18 @@ export class PiHarness {
       return;
     }
     if (e.type === 'extension_ui_request' && e.id) { this.send({ type: 'extension_ui_response', id: e.id, cancelled: true }); return; }
+    if (e.type === 'message_start') { this.preview.reset(); return; }
     if (e.type === 'message_update') {
       const m = e.assistantMessageEvent || {};
       if (m.type === 'text_delta') this.out.text(m.delta);
       else if (m.type === 'thinking_delta') this.out.thinking(m.delta);
       else if (m.type === 'thinking_end') this.out.endReasoning();
+      // pi's events are ordered with its text: the preview follows them. On
+      // the RPC wire toolcall_start carries toolName (the partial message is
+      // stripped); toolcall_delta carries the raw argument fragment.
+      else if (m.type === 'toolcall_start') this.preview.begin(m.contentIndex, m.toolName || m.partial?.content?.[m.contentIndex]?.name);
+      else if (m.type === 'toolcall_delta') this.preview.feed(m.contentIndex, m.delta || '');
+      else if (m.type === 'toolcall_end') this.preview.end(m.contentIndex);
       return;
     }
     if (e.type === 'message_end' && e.message?.role === 'assistant' && e.message.stopReason === 'error' && !this.aborting) {
@@ -441,7 +625,7 @@ export class PiHarness {
     if (e.type === 'agent_settled' && this.running) this.finish();
   }
   async prompt(text) {
-    this.running = true; this.failed = false;
+    this.running = true; this.failed = false; this.preview.reset();
     try {
       await this.command({ type: 'set_thinking_level', level: this.thinkingLevel() }).catch(() => {});
       await this.command({ type: 'prompt', message: text });
@@ -467,6 +651,11 @@ export class OpencodeHarness {
     this.child = null; this.port = 0; this.password = crypto.randomBytes(18).toString('hex');
     this.session = ''; this.running = false; this.failed = false; this.parts = new Map(); this.roles = new Map(); this.shown = new Set();
     this.emitted = new Map(); this.waiting = new Map(); // text emitted per part; events of a message whose role is not known yet
+    // OpenCode keeps partial tool input to itself: the preview comes from the
+    // model stream at the endpoint, one request at a time.
+    this.preview = new ToolPreview(out, 'opencode');
+    endpoint.onToolDelta = (index, name, fragment) => { if (name) this.preview.begin(index, name); this.preview.feed(index, fragment); };
+    endpoint.onRequest = () => this.preview.reset();
   }
   config() {
     const output = Math.min(16384, Math.floor(this.endpoint.ctx / 2));
@@ -583,7 +772,7 @@ export class OpencodeHarness {
     if (e.type === 'session.idle' && this.running) this.finish();
   }
   async prompt(text) {
-    this.running = true; this.failed = false;
+    this.running = true; this.failed = false; this.preview.reset();
     try {
       await this.api('POST', `/session/${this.session}/prompt_async`, { model: { providerID: 'dstudio', modelID: this.model }, agent: 'build', parts: [{ type: 'text', text }] });
     } catch (error) { this.finish(error.message); }
@@ -643,7 +832,8 @@ async function main() {
   const token = crypto.randomBytes(24).toString('hex');
   let backend, model;
   if (family === 'ds4') {
-    out.notice(`Loading ${path.basename(o.model)} with ds4-server for ${harnessName}…`);
+    // ds4 models (DeepSeek, GLM, Qwen Next, Laguna): pi runs as pi-ds4.
+    out.notice(`Loading ${path.basename(o.model)} with ds4-server for ${harnessName === 'pi' ? 'pi-ds4' : harnessName}…`);
     backend = new Ds4Backend(o, engineDir, process.env.DSTUDIO_KV_DIR || '', (line) => process.stderr.write(sanitizeLog(line)));
   } else {
     if (!o.remoteModel) { out.notice('No model was given to the harness'); process.exit(2); }

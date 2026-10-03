@@ -77,7 +77,8 @@ downloadable release, [DStudio 1.1.0](https://github.com/sk8erboi17/DStudio/rele
   runs on ds4 main.
 - **Every mode on every engine.** Chat, Agent, Cowork and Design work on ds4,
   llama.cpp and MLX models alike. Design talks to the llama.cpp/MLX models with
-  structured tool calls.
+  structured tool calls, and files being written stream live in every mode and
+  harness.
 - **pi and OpenCode inside DStudio.** Settings → Harnesses lets Agent mode run
   [pi](https://github.com/earendil-works/pi) or
   [OpenCode](https://github.com/anomalyco/opencode) instead of DStudio's agent,
@@ -360,7 +361,9 @@ source snapshots of **pi**, **OpenCode** and **pi-ds4**.
 Choose **Settings → Harnesses → Agent harness**: *DStudio*, *pi* or *OpenCode*.
 The next Agent launch keeps the same model, engine, context and workspace; only
 the loop changes. The transcript, diff cards, Stop, Task Graph receipts and the
-saved conversation work as before.
+saved conversation work as before. pi comes in two forms, chosen from the
+model: **pi-ds4** when ds4 serves it (DeepSeek, GLM, Qwen Next, Laguna) and
+plain **pi** with llama.cpp, MLX or a remote endpoint.
 
 | Harness | DeepSeek and other ds4 models | Qwen3.6 / 27B (llama.cpp) | Qwen3.6 (MLX) | Remote endpoint |
 | --- | --- | --- | --- | --- |
@@ -386,6 +389,10 @@ saved conversation work as before.
   external directories denied and a patch that makes the workspace itself, not
   its enclosing git repository, the boundary. Shell commands are not sandboxed
   in any harness, including DStudio's own.
+- **Streaming.** Text, reasoning and tool calls stream as they are generated:
+  a file being written appears in the transcript and in Open IDE while the
+  model writes it, in every harness and on every engine. The executed call is
+  still the validated complete one.
 - **Offline and private.** pi runs with `--offline` and no telemetry; OpenCode
   runs with its model-catalog fetch, auto-update, sharing, LSP downloads and
   external skills disabled, in a private config directory.
@@ -1314,6 +1321,11 @@ every model or a release. Exact acceptance criteria and retained failures are in
 - [x] Add pi and OpenCode as Agent harnesses with pi-ds4 for DeepSeek, versioned
   patches, workspace confinement and a Settings pane; real 24/24 across four
   models. [Harness results](docs/HARNESSES.md).
+- [x] Stream files being written (live tool-call previews) in Agent, Cowork,
+  Design, pi and OpenCode on llama.cpp, MLX and ds4; real write-streaming checks
+  pass on every path. [Results](tests/README.md#streaming-and-live-tool-previews).
+- [x] Fix llama.cpp/MLX starts in the desktop app (the server guard was not
+  dispatched by the app binary); the bundle smoke now runs the guard test on it.
 - [x] Prepare Linux/Windows llama.cpp builds (dynamic backends, Job Object,
   parent-death signal); cross-compiled, and the dynamic layout built and run on
   macOS.

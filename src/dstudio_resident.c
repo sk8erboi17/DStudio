@@ -802,7 +802,7 @@ static int resident_start_owned(const resident_launch_spec *spec, unsigned long 
     extern char **environ;
     char *environment[520]; size_t entries = 0, bytes = 0;
     /* MLX: the patched single-model server, no network, no user site-packages. */
-    static char *mlx_env[] = {"DSTUDIO_MLX_SINGLE_MODEL=1", "DSTUDIO_MLX_REASONING_CONTENT=1", "HF_HUB_OFFLINE=1", "TRANSFORMERS_OFFLINE=1",
+    static char *mlx_env[] = {"DSTUDIO_MLX_SINGLE_MODEL=1", "DSTUDIO_MLX_REASONING_CONTENT=1", "DSTUDIO_MLX_TOOL_STREAM=1", "HF_HUB_OFFLINE=1", "TRANSFORMERS_OFFLINE=1",
                               "PYTHONNOUSERSITE=1", "PYTHONDONTWRITEBYTECODE=1", NULL};
     if (spec->kind == RESIDENT_MLX) for (char **e = mlx_env; *e; e++) environment[entries++] = *e;
     for (char **entry = environ; entry && *entry; entry++) {

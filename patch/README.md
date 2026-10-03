@@ -14,17 +14,20 @@ The third-party harnesses have their own versioned patches, applied by
 [`harness-pi-ds4`](harness-pi-ds4/README.md) (use a host-owned ds4-server
 instead of cloning, building and starting one) and
 [`harness-opencode`](harness-opencode/README.md) (the workspace, not the
-enclosing git repository, is the file boundary). `make test-harness-patches`
-exercises apply, repeat, reverse and drift.
+enclosing git repository, is the file boundary and the workspace root the
+model is told about). `make test-harness-patches` exercises apply, repeat,
+reverse and drift.
 
 The bundled MLX runtime for Qwen3.6 on Apple Silicon (unmodified PyPI wheels in
-`src/engines/mlx/`) has two patches, applied in this order by
+`src/engines/mlx/`) has three patches, applied in this order by
 `scripts/install-mlx.py` to the installed `mlx_lm/server.py`:
 [`mlx-lm-single-model`](mlx-lm-single-model/README.md) (the server serves only
-the model DStudio admitted and reports readiness only after it has loaded) and
+the model DStudio admitted and reports readiness only after it has loaded),
 [`mlx-lm-reasoning-content`](mlx-lm-reasoning-content/README.md) (reasoning is
-sent as `reasoning_content`, the field every DStudio client reads). Each is
-inactive unless DStudio sets its environment variable.
+sent as `reasoning_content`, the field every DStudio client reads) and
+[`mlx-lm-tool-streaming`](mlx-lm-tool-streaming/README.md) (Qwen tool calls
+stream while they are generated, exactly as the upstream parser would return
+them). Each is inactive unless DStudio sets its environment variable.
 `make test-mlx-install-unit` exercises apply, repeat, reverse and drift on the
 wheel's own `server.py`.
 

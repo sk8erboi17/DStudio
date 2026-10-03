@@ -239,8 +239,19 @@ remain unfinished work.
 pre-image fragments (SHA-256 `51d98f15…` and `6bbf0259…`, checked in the migration
 gate). The installer builds the current first-party fragments through its
 existing fingerprinted include path; do not apply this delta a second time.
-For the frozen v86 oracle only, reverse image → structured → interruption
-deltas; forward replay uses the opposite order and must reproduce exact bytes.
+For the frozen v86 oracle only, reverse tool preview → image → structured →
+interruption deltas; forward replay uses the opposite order and must reproduce
+exact bytes.
+
+`remote-tool-preview.patch` records the newest first-party fragment delta: in
+structured remote mode (llama.cpp, MLX) the Agent and Cowork runtimes pass a
+preview callback to `dstudio_remote_chat_stream_tools_preview`, so the argument
+fragments the host relays (`model_tool_delta`) become the same live
+`tool_call_begin` / `tool_call_param` / `tool_body_delta` lines the DSML parser
+emits, published in order with the text. Execution still waits for the
+validated `model_tool_calls` batch. `make test-remote-tool-preview` runs the
+built runtimes with simulated frames; the migration gate reverses and replays
+this delta.
 
 Image observations retain original PNG/JPEG bytes, not embeddings or mutable
 paths. They are bounded to 2 MiB per file, eight retained images and the existing

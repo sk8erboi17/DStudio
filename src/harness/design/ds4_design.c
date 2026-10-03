@@ -318,6 +318,16 @@ static void emit_event_line(design_buf *b) {
     memset(b, 0, sizeof(*b));
 }
 
+/* Structured calls (llama.cpp/MLX): the transport turns argument fragments
+ * into the same live stanza lines the DSML parser emits; written in order with
+ * the rest of the output. A preview, never a tool execution. */
+static void design_remote_preview(void *ud, const char *line, size_t len) {
+    (void)ud;
+    if (!g_jsonl || !line || !len) return;
+    if (g_out_last != '\n') out_text("\n", 1);
+    out_text(line, len);
+}
+
 static void emit_event(const char *type) {
     if (!g_jsonl) return;
     design_buf b = {0};
@@ -13545,13 +13555,14 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
             return 0;
         }
         int rc = structured
-            ? dstudio_remote_chat_stream_tools(
+            ? dstudio_remote_chat_stream_tools_preview(
                 a->cfg->remote_base_url,
                 a->cfg->remote_model && a->cfg->remote_model[0] ? a->cfg->remote_model : "ds4",
                 messages, tools_json,
                 design_remote_think_level(agent_think_mode(a)),
                 a->cfg->temperature, a->cfg->top_p, a->cfg->min_p, a->cfg->n_predict,
-                design_remote_cb, &ctx, design_remote_model_cancel, &calls_json, err, sizeof(err))
+                design_remote_cb, &ctx, design_remote_model_cancel,
+                design_remote_preview, NULL, &calls_json, err, sizeof(err))
             : dstudio_remote_chat_stream(
                 a->cfg->remote_base_url,
                 a->cfg->remote_model && a->cfg->remote_model[0] ? a->cfg->remote_model : "ds4",

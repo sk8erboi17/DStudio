@@ -37,16 +37,34 @@ bridge, protected by a per-process token. Behind it:
 
 - **Qwen3.6 / Qwen3.8-27B (llama.cpp)**, **Qwen3.6 (MLX)** and **remote
   endpoints**: the host's model RPC. The bridge never receives an API key, and Stop cancels the request.
-- **DeepSeek and the other ds4 models**: a `ds4-server` the bridge starts from
-  the selected engine and stops on exit. For pi this goes through **pi-ds4**,
-  patched to use that server instead of cloning, building and starting its own
-  ([patch notes](../patch/harness-pi-ds4/README.md)). For OpenCode the bridge
-  configures its OpenAI-compatible provider with DeepSeek's reasoning field.
+- **DeepSeek and the other ds4 models** (GLM, Qwen Next, and Laguna from its
+  own engine): a `ds4-server` the bridge starts from the selected engine and
+  stops on exit. pi then runs as **pi-ds4**, patched to use that server instead
+  of cloning, building and starting its own
+  ([patch notes](../patch/harness-pi-ds4/README.md)); with llama.cpp, MLX and
+  remote models it runs as plain pi. Settings and the launch label show which.
+  For OpenCode the bridge configures its OpenAI-compatible provider with
+  DeepSeek's reasoning field.
 
 The endpoint applies DStudio's model identity, sampling and thinking choice
 (`chat_template_kwargs.enable_thinking` for Qwen, `reasoning_effort` for ds4)
 and keeps a long silent prefill alive, so no client idle timeout ends valid
 model work.
+
+**Streaming.** Text and reasoning stream as they are generated, and so does a
+tool call: while the model writes a file (or an edit or a shell command), its
+arguments arrive in fragments and become the live `tool_call_begin` /
+`tool_call_param` / `tool_body_delta` frames DStudio's own runtimes emit, so
+the transcript and Open IDE show the file being written instead of all of it
+at the end. For llama.cpp, MLX and remote models the host relays each fragment
+(`model_tool_delta`; the MLX server needs
+[a patch](../patch/mlx-lm-tool-streaming/README.md) to produce them) and the
+endpoint streams it to the harness as an OpenAI server would; the validated complete call still arrives last and must equal
+what was streamed, or the request fails. pi's preview follows its own ordered
+`toolcall_*` events; OpenCode keeps partial tool input private, so its preview
+is taken from the model stream at the endpoint. A preview never executes
+anything. The same relay gives DStudio's Agent, Cowork and Design the live
+preview on llama.cpp and MLX models (it already existed for ds4's DSML).
 
 **Process ownership.** The bridge leads its own process group; Stop and
 escalation signal the whole group, so the harness and any `ds4-server` stop
@@ -58,9 +76,16 @@ After every live run the gate checks that no process of the run survives.
 blocks `read`/`write`/`edit`/`grep`/`find`/`ls` outside the workspace (real
 paths, so a symlink cannot escape). OpenCode runs with
 `external_directory: deny` and
-[a patch](../patch/harness-opencode/README.md) that makes the workspace itself,
-not its enclosing git repository, the boundary. Shell commands are not
-sandboxed in any harness, including DStudio's own.
+[two patches](../patch/harness-opencode/README.md) that make the workspace
+itself, not its enclosing git repository, the boundary and the workspace root
+the model is told about. Shell commands are not sandboxed in any harness,
+including DStudio's own: a real OpenCode run once wrote its file into the
+enclosing repository through the shell after the write tool was refused, which
+led to the second patch (the stray files were removed).
+
+**Updates.** The bridge is DStudio's own code. Each harness launch copies the
+current bridge into the installation first (offline), so updating DStudio
+does not require rebuilding pi or OpenCode; a changed patch set does.
 
 **Offline.** pi runs with `--offline`, no telemetry and no update checks.
 OpenCode runs with the model catalog fetch, auto-update, sharing, LSP
@@ -100,6 +125,12 @@ return the outside file.
 
 The MLX column ran later the same day (`run-AezcOn`, 6/6), after the native
 MLX run below.
+
+Streaming (`make test-streaming-live`, October 3): with a file written through
+a tool, the live preview streamed on every path that was run: Agent, Cowork,
+Design, pi and OpenCode on Qwen3.6 llama.cpp and MLX, and Agent, pi-ds4 and
+OpenCode on DeepSeek. The failed attempts that led to the fixes are listed in
+[tests/README.md](../tests/README.md#streaming-and-live-tool-previews).
 
 Retained failures: `run-Q00iea` ran a stale host binary (the native Agent
 answered; the confinement case caught it, and the target now rebuilds the
