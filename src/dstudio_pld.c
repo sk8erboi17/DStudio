@@ -29,7 +29,8 @@ static int run_build_server_pld_locked(void) {
     if (!supported) return -1;
 
     if (!run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") ||
-        !run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply")) return 0;
+        !run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") ||
+        !run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply")) return 0;
 
     const char *patch_dir = "patch/ds4-server-pld";
     ds4ui_patch_set patch;

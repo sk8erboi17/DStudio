@@ -5809,7 +5809,8 @@ static int run_build_jsonl_locked(const char *action) {
     /* Apply before checking core mtimes: Agent may be the first runtime built
      * after upgrading DStudio, without a preceding Chat launch. */
     if (!run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") ||
-        !run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply")) return 0;
+        !run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") ||
+        !run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply")) return 0;
     if (qwen38_native &&
         !run_ext_script("scripts/apply-ds4-qwen38-prepare.sh", "apply")) return 0;
     /* Main's shared snapshot allocator unwinds partial allocations upstream.
@@ -6532,6 +6533,7 @@ static int spawn_design_prepared(const engine_cfg *cfg, const char *workdir,
 #else
     if (!prepared && (!run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") ||
         !run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") ||
+        !run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply") ||
         !run_ext_script("src/harness/design/build-design.sh", "build"))) {
         snprintf(err, errsz, "build of ds4-design failed (see the serve terminal)");
         return 0;

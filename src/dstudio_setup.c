@@ -422,6 +422,7 @@ static int setup_apply_ds4_runtime_patches(void) {
            run_ext_script("scripts/apply-ds4-glm53-runtime.sh", "apply") &&
            run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") &&
            run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") &&
+           run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply") &&
            setup_qwen38_prepare_patch("apply");
 }
 
@@ -463,6 +464,19 @@ static int setup_binary_contains_ascii(const char *path, const char *needle) {
 static int setup_server_metrics_binary_ready(void) {
     char server[DSTUDIO_PATH_MAX + 32];
     int n = snprintf(server, sizeof server, "%s/ds4-server", g_ds4_dir);
+    {
+        /* The V4.1 vision-pairing patch changes only ds4.c and adds no string
+         * a binary scan could see, so a server built before it was applied is
+         * detected by age: ds4.c newer than the executable forces a rebuild. */
+        char core[DSTUDIO_PATH_MAX + 32];
+        struct stat core_st, server_st;
+        int cn = snprintf(core, sizeof core, "%s/ds4.c", g_ds4_dir);
+        if (cn > 0 && (size_t)cn < sizeof core &&
+            setup_binary_contains_ascii(core, "!ds4_str_eq(language, vision)") &&
+            stat(core, &core_st) == 0 && stat(server, &server_st) == 0 &&
+            server_st.st_mtime < core_st.st_mtime)
+            return 0;
+    }
 #ifdef __APPLE__
     char source[DSTUDIO_PATH_MAX + 32];
     int sn = snprintf(source, sizeof source, "%s/ds4.c", g_ds4_dir);
@@ -498,6 +512,10 @@ static int setup_ensure_server_metrics_runtime(char *err, size_t errsz) {
      * server already has metrics. Upgrade before inspecting build freshness. */
     if (!run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply")) {
         snprintf(err, errsz, "could not upgrade the managed Metal runtime patch");
+        return 0;
+    }
+    if (!run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply")) {
+        snprintf(err, errsz, "could not apply the managed V4.1 vision pairing patch");
         return 0;
     }
     if (setup_server_metrics_binary_ready()) return 1;

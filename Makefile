@@ -733,6 +733,10 @@ test-server-metrics-patch:
 test-native-patch-roundtrip:
 	@node tests/integration/native_patch_roundtrip_test.mjs "$(or $(NATIVE_PATCH_DIR),ds4)"
 
+.PHONY: test-v41-vision-pairing
+test-v41-vision-pairing:
+	@node tests/integration/v41_vision_pairing_patch_test.mjs
+
 .PHONY: test-search-evidence
 test-search-evidence:
 	@node tests/unit/search_evidence_test.mjs

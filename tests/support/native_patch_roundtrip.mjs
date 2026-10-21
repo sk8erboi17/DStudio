@@ -14,6 +14,7 @@ const patches = [
   'ds4-glm53-runtime/streaming-memory.patch',
   'ds4-glm53-m2max/native-decode.patch',
   'ds4-vision-streaming/vision-map.patch',
+  'ds4-v41-vision-pairing/vision-revision.patch',
   'ds4-qwen38-prepare/prepare-main.patch',
 ];
 const m2Variants = [
@@ -68,6 +69,7 @@ export function nativePatchRoundtrip({ support, source, scratch, environment = p
       file === 'ds4-server-metrics/usage-metrics.patch' ? 'server-metrics' :
       file === 'ds4-visible-downloads/visible-partials.patch' ? 'visible-downloads' :
       file === 'ds4-glm53-runtime/streaming-memory.patch' ? 'glm53-runtime' :
+      file === 'ds4-v41-vision-pairing/vision-revision.patch' ? 'v41-vision-pairing' :
       file === 'ds4-qwen38-prepare/prepare-main.patch' ? 'qwen38-prepare' : null;
     if (script) {
       stage.output = execFileSync('/bin/sh', [path.join(support, `scripts/apply-ds4-${script}.sh`), action],
@@ -90,9 +92,9 @@ export function nativePatchRoundtrip({ support, source, scratch, environment = p
     for (const file of files) assert.equal(sha(path.join(source, file)), before[file], 'original checkout changed');
     assert.equal(sha(note), noteHash, 'unrelated scratch data changed');
     return {
-      scope: 'Seven native adaptations, including unified Qwen prepare and production-selected M2 build hunks; no inference or complete Agent/web patch-stack claim',
+      scope: 'Eight native adaptations, including unified Qwen prepare and production-selected M2 build hunks; no inference or complete Agent/web patch-stack claim',
       patches: patchFiles.map(file => ({ file, sha256: sha(path.join(support, 'patch', file)) })),
-      scriptSha256: Object.fromEntries(['glm53-m2max', 'server-metrics', 'visible-downloads', 'glm53-runtime', 'qwen38-prepare'].map(name =>
+      scriptSha256: Object.fromEntries(['glm53-m2max', 'server-metrics', 'visible-downloads', 'glm53-runtime', 'v41-vision-pairing', 'qwen38-prepare'].map(name =>
         [name, sha(path.join(support, `scripts/apply-ds4-${name}.sh`))])),
       filesChecked: files.size, before, restored, stages,
     };
