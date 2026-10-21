@@ -85,14 +85,23 @@ sha_of() {
     printf '%s\n' "${sum%% *}"
 }
 
+# Set to 1 only after THIS run's `hf download` produced $OUT. It is the only case in which a failed
+# verification deletes anything: the file this script just downloaded, by its exact path. A file that
+# was already there (the stock app's weights folder is shared) is never removed or renamed.
+JUST_DOWNLOADED=0
+
 reject() {
-    # Never accept the file and never leave it where the model catalog or the
-    # engine would load it; keep it for the user to inspect or delete.
+    # Never accept the file. Remove the stamp (our own marker) and, if we just downloaded the bad
+    # file, delete exactly that file so no multi-hundred-GB copy lingers in the shared folder.
     rm -f "$STAMP"
-    aside="$OUT.rejected.$(date +%s)"
-    mv "$OUT" "$aside"
     echo "$1" >&2
-    echo "The file was not accepted and was moved to $aside" >&2
+    if [ "$JUST_DOWNLOADED" = 1 ]; then
+        rm -f -- "$OUT"
+        echo "The download failed verification and was deleted: $OUT. Run the download again." >&2
+    else
+        echo "This file was not downloaded by this run, so it was left untouched: $OUT" >&2
+        echo "Delete it yourself if it is incomplete or corrupt, then run the download again." >&2
+    fi
     exit 1
 }
 
@@ -140,11 +149,13 @@ echo "from https://huggingface.co/$REPO (revision $REVISION)"
 echo "using $HF_CMD download"
 echo "If the download stops, run the same command again to resume it."
 
+# The token goes to hf through the environment, never argv (visible to every local user via ps).
 if [ -n "$TOKEN" ]; then
-    "$HF_CMD" download "$REPO" "$FILE" --repo-type model --revision "$REVISION" --local-dir "$OUT_DIR" --max-workers 1 --token "$TOKEN"
-else
-    "$HF_CMD" download "$REPO" "$FILE" --repo-type model --revision "$REVISION" --local-dir "$OUT_DIR" --max-workers 1
+    HF_TOKEN=$TOKEN
+    export HF_TOKEN
 fi
+"$HF_CMD" download "$REPO" "$FILE" --repo-type model --revision "$REVISION" --local-dir "$OUT_DIR" --max-workers 1
+JUST_DOWNLOADED=1
 
 if [ ! -s "$OUT" ]; then
     echo "Hugging Face download finished but expected file is missing: $OUT" >&2

@@ -59,28 +59,44 @@ try {
     // Stamp is not trusted when the file changes underneath it (same size, new mtime).
     fs.writeFileSync(file, Buffer.alloc(payload(r.file).length, 120));
     const later = new Date(Date.now() + 5000); fs.utimesSync(file, later, later); // a real rewrite moves mtime past the stamp's second
-    let res = download(r, false); assert.match(res.stderr, /Checksum mismatch/);
-    assert(!fs.existsSync(file), 'corrupt file moved aside, not accepted'); assert(!fs.existsSync(stamp));
-    assert(fs.readdirSync(out).some(f => f.startsWith(r.file + '.rejected.')));
+    // A file that was already there and does not verify is refused but NEVER removed or renamed
+    // (the weights folder is shared with the stock app); the stale stamp (our own marker) goes.
+    let res = download(r, false); assert.match(res.stderr, /Checksum mismatch/); assert.match(res.stderr, /left untouched/);
+    assert(fs.existsSync(file), 'pre-existing file left in place'); assert(!fs.existsSync(stamp));
+    assert(!fs.readdirSync(out).some(f => f.includes('.rejected.')));
     for (const f of fs.readdirSync(out)) fs.unlinkSync(path.join(out, f)); // test-owned fixtures only
-    // Wrong size on disk.
+    // Wrong size on disk: same rule.
     fs.writeFileSync(file, 'short');
-    res = download(r, false); assert.match(res.stderr, /Incorrect file size/); assert(!fs.existsSync(file));
+    res = download(r, false); assert.match(res.stderr, /Incorrect file size/); assert(fs.existsSync(file));
+    assert.equal(fs.readFileSync(file, 'utf8'), 'short');
     for (const f of fs.readdirSync(out)) fs.unlinkSync(path.join(out, f));
     // Transport failure leaves nothing accepted.
     res = download(r, false, {DSTUDIO_TEST_HF_FAIL: '1'}); assert(!fs.existsSync(file));
-    // Download that produces bad bytes is rejected.
+    // A download that produces bad bytes is deleted (exact path only); neighbours in the folder survive.
+    const neighbours = ['DeepSeek-V4.1-Flash-Q2.gguf', 'DeepSeek-V4.1-Flash-Q2.gguf.part', r.file + '.rejected.1', 'other.verified'];
+    for (const n of neighbours) fs.writeFileSync(path.join(out, n), 'stock ' + n);
     res = download(r, false, {DSTUDIO_TEST_HF_BODY: 'x'.repeat(payload(r.file).length)});
-    assert.match(res.stderr, /Checksum mismatch/); assert(!fs.existsSync(file));
+    assert.match(res.stderr, /Checksum mismatch/); assert.match(res.stderr, /was deleted/);
+    assert(!fs.existsSync(file) && !fs.existsSync(stamp));
+    assert(!fs.readdirSync(out).some(f => f.startsWith(r.file + '.rejected.') && f !== r.file + '.rejected.1'));
+    for (const n of neighbours) assert.equal(fs.readFileSync(path.join(out, n), 'utf8'), 'stock ' + n, n + ' untouched');
+    // Same for a wrong-size download.
+    res = download(r, false, {DSTUDIO_TEST_HF_BODY: 'tiny'}); assert.match(res.stderr, /Incorrect file size/); assert(!fs.existsSync(file));
+    for (const n of neighbours) assert(fs.existsSync(path.join(out, n)));
     for (const f of fs.readdirSync(out)) fs.unlinkSync(path.join(out, f));
   }
-  // Token handling: explicit --token and HF_TOKEN reach hf; none leaks otherwise.
+  // Token handling: --token / HF_TOKEN / the cached token reach hf through its environment, never argv.
   const q2 = releases[0];
   download(q2, true, {}, {args: ['--token', 'tok-arg']});
-  assert.equal(calls().at(-1).a[calls().at(-1).a.indexOf('--token') + 1], 'tok-arg');
+  assert(!calls().at(-1).a.includes('--token') && !calls().at(-1).a.includes('tok-arg'));
+  assert.equal(calls().at(-1).tok, 'tok-arg');
   for (const f of fs.readdirSync(out)) fs.unlinkSync(path.join(out, f));
   download(q2, true, {HF_TOKEN: 'tok-env'});
-  assert.equal(calls().at(-1).a[calls().at(-1).a.indexOf('--token') + 1], 'tok-env');
+  assert(!calls().at(-1).a.includes('--token') && !calls().at(-1).a.includes('tok-env'));
+  assert.equal(calls().at(-1).tok, 'tok-env');
+  for (const f of fs.readdirSync(out)) fs.unlinkSync(path.join(out, f));
+  download(q2, true, {});
+  assert.equal(calls().at(-1).tok, ''); assert(!calls().at(-1).a.includes('--token'));
   for (const f of fs.readdirSync(out)) fs.unlinkSync(path.join(out, f));
   // Production oracle: without the test switch the fixture cannot pass.
   const res = download(q2, false, {}, {test: false});
@@ -95,6 +111,6 @@ try {
   const cli = fs.readFileSync(path.join(root, 'download-model.sh'), 'utf8');
   assert(cli.includes('ds41f-1017-*)') && cli.includes('scripts/download-ds41-1017.sh') && cli.includes('ds41f-1017-q2, ds41f-1017-vision'));
   assert(cli.indexOf('ds41f-1017-*)') < cli.indexOf('exec sh ./download_model.sh'));
-  report.passed = true; console.log('PASS: 1017 downloader pins repo/revision, verifies size+sha, rejects corrupt/short files, idempotent, tokens, CLI routing');
+  report.passed = true; console.log('PASS: 1017 downloader pins repo/revision, verifies size+sha, deletes only its own failed downloads, token via env, idempotent, tokens, CLI routing');
 } catch (e) { report.error = e.stack; console.error(e); process.exitCode = 1; }
 finally { save(); console.log(run); }
