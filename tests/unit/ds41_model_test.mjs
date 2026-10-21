@@ -55,6 +55,29 @@ check('only official weights are offered or selectable', () => {
   assert.equal(context.preferredDefaultGguf([modified, official]).file, official.file);
   assert.equal(context.preferredDefaultGguf([modified, modifiedDraft]), null);
 });
+check('1017 community pair has its own names, downloads and encoder, disjoint from stock V4.1', () => {
+  const model = item('DeepSeek-V4.1-Flash-1017-Q2.gguf'), encoder = item('DeepSeek-V4.1-Flash-1017-Vision.gguf');
+  const stock = item('DeepSeek-V4.1-Flash-Q2.gguf'), stockEncoder = item('DeepSeek-V4.1-Flash-Vision.gguf');
+  assert.deepEqual(plain(context.parseGgufName(model.file)), {model: 'DeepSeek V4.1 Flash 1017', kind: 'community', quant: 'Q2'});
+  assert.equal(context.modelIdForEngineStatus({modelFile: model.path, variant: 'flash'}), 'deepseek-v4.1-flash-1017');
+  assert(context.ggufIsUsableModel(model, [model]));
+  assert(context.ggufIsEngineComponent(encoder)); assert(!context.ggufIsUsableModel(encoder, [encoder]));
+  const m = plain(context.availableModelDownloads([])).find(x => x.id === 'ds41f-1017-q2');
+  assert.deepEqual(m.body, {target: 'ds41f-1017-q2', engine: 'main'}); assert.match(m.label, /community, nazeshinjite/);
+  const v = plain(context.availableNativeVisionDownloads([])).find(x => x.id === 'ds41f-1017-vision');
+  assert.deepEqual(v.body, {target: 'ds41f-1017-vision', engine: 'main'});
+  assert(!plain(context.availableModelDownloads([])).some(x => x.id === 'ds41f-1017-vision'));
+  // Installing one checkpoint never hides the other's downloads.
+  assert(!plain(context.availableModelDownloads([model])).some(x => x.id === 'ds41f-1017-q2'));
+  assert(plain(context.availableModelDownloads([model])).some(x => x.id === 'ds41f-q2'));
+  assert(plain(context.availableModelDownloads([stock])).some(x => x.id === 'ds41f-1017-q2'));
+  assert(!plain(context.availableNativeVisionDownloads([encoder])).some(x => x.id === 'ds41f-1017-vision'));
+  assert(plain(context.availableNativeVisionDownloads([encoder])).some(x => x.id === 'ds41f-vision'));
+  assert(plain(context.availableNativeVisionDownloads([stockEncoder])).some(x => x.id === 'ds41f-1017-vision'));
+  assert.equal(context.localNativeVisionInfo({...settings, modelGguf: model.path}).model, 'DeepSeek V4.1 Flash 1017');
+  assert(!context.ggufIsUsableModel(item('DeepSeek-V4.1-Flash-1017-Q4.gguf'), []));
+  assert(!context.ggufIsUsableModel(item('DeepSeek-V4.1-Flash-1017-Q2.gguf.part'), []));
+});
 check('old V4 encoder does not satisfy the V4.1 download', () => {
   const available = plain(context.availableNativeVisionDownloads([item('DeepSeek-V4-Flash-Vision-Encoder.gguf')]));
   assert(available.some(x => x.id === 'ds41f-vision'));

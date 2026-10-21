@@ -1,0 +1,154 @@
+#!/bin/sh
+# DStudio-owned downloader for the community DeepSeek V4.1 Flash 1017 Q2
+# checkpoint (nazeshinjite). The vendored ds4 download_model.sh only knows the
+# stock repository, so this script pins the repository revision and verifies
+# exact size + SHA-256 itself. Run from the ds4 checkout (cwd) or set
+# DS4_GGUF_DIR. Usage: download-ds41-1017.sh ds41f-1017-q2|ds41f-1017-vision [--token TOKEN]
+set -eu
+
+REPO="nazeshinjite/DeepSeek-V4.1-Flash-1017-ds4-GGUF"
+REVISION="796f58533a0e4b7a89cb006b22aeb44e783f0323"
+Q2_FILE="DeepSeek-V4.1-Flash-1017-Q2.gguf"
+Q2_BYTES=365713686528
+Q2_SHA="f57e6c3e5e68c513249e1c472a2600bf59792ca78cacb7ac0531a6056376856e"
+VISION_FILE="DeepSeek-V4.1-Flash-1017-Vision.gguf"
+VISION_BYTES=970555552
+VISION_SHA="861f1097e8686111fa23dc4a6bf139fd0c4cc114db2f1b4090a267f7683c0dbf"
+
+usage() {
+    echo "Usage: $0 ds41f-1017-q2|ds41f-1017-vision [--token TOKEN]" >&2
+}
+
+[ $# -ge 1 ] || { usage; exit 1; }
+TARGET=$1
+shift
+case "$TARGET" in
+    ds41f-1017-q2) FILE=$Q2_FILE; EXPECTED_BYTES=$Q2_BYTES; EXPECTED_SHA=$Q2_SHA ;;
+    ds41f-1017-vision) FILE=$VISION_FILE; EXPECTED_BYTES=$VISION_BYTES; EXPECTED_SHA=$VISION_SHA ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown target: $TARGET" >&2; usage; exit 1 ;;
+esac
+
+# Test-only oracle override. Production values above are never read from the
+# environment unless the explicit test switch is set.
+if [ "${DSTUDIO_DS41_1017_TEST_MODE:-0}" = 1 ]; then
+    EXPECTED_BYTES=${DSTUDIO_DS41_1017_TEST_BYTES:?}
+    EXPECTED_SHA=${DSTUDIO_DS41_1017_TEST_SHA:?}
+fi
+
+TOKEN=${HF_TOKEN:-}
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --token)
+            shift
+            [ $# -gt 0 ] || { echo "Missing value after --token" >&2; exit 1; }
+            TOKEN=$1 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+    shift
+done
+if [ -z "$TOKEN" ] && [ -s "$HOME/.cache/huggingface/token" ]; then
+    TOKEN=$(cat "$HOME/.cache/huggingface/token")
+fi
+
+ROOT=$(pwd)
+OUT_DIR=${DS4_GGUF_DIR:-"$ROOT/gguf"}
+case "$OUT_DIR" in
+    /*) ;;
+    *) OUT_DIR="$ROOT/$OUT_DIR" ;;
+esac
+OUT="$OUT_DIR/$FILE"
+STAMP="$OUT.verified"
+
+find_hf_command() {
+    if command -v hf >/dev/null 2>&1; then
+        printf '%s\n' hf
+        return 0
+    fi
+    for dir in "$HOME"/Library/Python/*/bin "$HOME"/.local/bin; do
+        if [ -x "$dir/hf" ]; then
+            printf '%s\n' "$dir/hf"
+            return 0
+        fi
+    done
+    return 1
+}
+
+file_size() { wc -c < "$1" | tr -d ' '; }
+file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
+sha_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sum=$(sha256sum < "$1")
+    else
+        sum=$(shasum -a 256 < "$1")
+    fi
+    printf '%s\n' "${sum%% *}"
+}
+
+reject() {
+    # Never accept the file and never leave it where the model catalog or the
+    # engine would load it; keep it for the user to inspect or delete.
+    rm -f "$STAMP"
+    aside="$OUT.rejected.$(date +%s)"
+    mv "$OUT" "$aside"
+    echo "$1" >&2
+    echo "The file was not accepted and was moved to $aside" >&2
+    exit 1
+}
+
+stamp_ok() {
+    [ -f "$STAMP" ] || return 1
+    read -r s_size s_mtime s_sha < "$STAMP" || return 1
+    [ "$s_size" = "$EXPECTED_BYTES" ] && [ "$s_sha" = "$EXPECTED_SHA" ] &&
+        [ "$s_size" = "$(file_size "$OUT")" ] && [ "$s_mtime" = "$(file_mtime "$OUT")" ]
+}
+
+verify() {
+    if [ "$(file_size "$OUT")" -ne "$EXPECTED_BYTES" ]; then
+        reject "Incorrect file size: $OUT (expected $EXPECTED_BYTES bytes)."
+    fi
+    if stamp_ok; then
+        return 0
+    fi
+    echo "Verifying SHA-256: $OUT"
+    actual=$(sha_of "$OUT")
+    if [ "$actual" != "$EXPECTED_SHA" ]; then
+        reject "Checksum mismatch: $OUT."
+    fi
+    printf '%s %s %s\n' "$EXPECTED_BYTES" "$(file_mtime "$OUT")" "$EXPECTED_SHA" > "$STAMP.tmp.$$"
+    mv "$STAMP.tmp.$$" "$STAMP"
+}
+
+mkdir -p "$OUT_DIR"
+
+if [ -s "$OUT" ]; then
+    verify
+    echo "Already downloaded: $OUT"
+    exit 0
+fi
+
+HF_CMD=$(find_hf_command || true)
+if [ -z "$HF_CMD" ]; then
+    echo "Large GGUF downloads require the official Hugging Face CLI." >&2
+    echo "Install it with:" >&2
+    echo "  python3 -m pip install -U huggingface_hub hf_xet" >&2
+    exit 1
+fi
+
+echo "Downloading $FILE"
+echo "from https://huggingface.co/$REPO (revision $REVISION)"
+echo "using $HF_CMD download"
+echo "If the download stops, run the same command again to resume it."
+
+if [ -n "$TOKEN" ]; then
+    "$HF_CMD" download "$REPO" "$FILE" --repo-type model --revision "$REVISION" --local-dir "$OUT_DIR" --max-workers 1 --token "$TOKEN"
+else
+    "$HF_CMD" download "$REPO" "$FILE" --repo-type model --revision "$REVISION" --local-dir "$OUT_DIR" --max-workers 1
+fi
+
+if [ ! -s "$OUT" ]; then
+    echo "Hugging Face download finished but expected file is missing: $OUT" >&2
+    exit 1
+fi
+verify
+echo "Verified: $OUT"

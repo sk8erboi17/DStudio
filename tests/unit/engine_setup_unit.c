@@ -49,6 +49,21 @@ int main(void) {
     assert(!model_file_is_supported("gguf/laguna-s-2.1-heretic-Q4_K_M.gguf"));
     assert(!strcmp(dspark_rel_for_model("gguf/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128.gguf"),
                    MODEL_DSPARK_UPSTREAM));
+    /* 1017 community checkpoint: sidecar is auxiliary on every platform, both
+     * files are V4.1 for launch rules, and never pairs with stock files. */
+    assert(model_file_is_auxiliary("DeepSeek-V4.1-Flash-1017-Vision.gguf"));
+    assert(!model_file_is_supported(MODEL_DS41_1017_VISION));
+    assert(model_file_is_deepseek41(MODEL_DS41_1017_Q2) && model_file_is_deepseek41(MODEL_DS41_1017_VISION));
+    assert(!model_file_is_supported("DeepSeek-V4.1-Flash-1017-Q4.gguf"));
+    assert(!model_file_is_supported("DeepSeek-V4.1-Flash-1017-Q2.gguf.part"));
+#ifdef __APPLE__
+    assert(model_file_is_supported(MODEL_DS41_1017_Q2));
+    assert(!strcmp(native_vision_encoder_rel_for_model(MODEL_DS41_1017_Q2), MODEL_DS41_1017_VISION));
+    assert(!strcmp(native_vision_encoder_rel_for_model("/x/gguf/DeepSeek-V4.1-Flash-1017-Q2.gguf"), MODEL_DS41_1017_VISION));
+    assert(!strcmp(native_vision_encoder_rel_for_model(MODEL_DS41_Q4), MODEL_DS41_VISION));
+#else
+    assert(!model_file_is_supported(MODEL_DS41_1017_Q2));
+#endif
 #ifdef __APPLE__
     assert(model_file_is_supported(MODEL_DS41_Q2));
     assert(model_file_is_supported(MODEL_DS41_Q4));

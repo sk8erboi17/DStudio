@@ -1049,6 +1049,12 @@ test-hunyuan-sdpa-mps:
 test-qwen27-model-ui:
 	@node tests/unit/qwen27_model_test.mjs
 
+.PHONY: test-ds41-1017-download
+test-ds41-1017-download:
+	@node tests/integration/ds41_1017_download_test.mjs
+
+check-fast: test-ds41-1017-download
+
 .PHONY: test-ds41-model-ui
 test-ds41-model-ui:
 	@node tests/unit/ds41_model_test.mjs

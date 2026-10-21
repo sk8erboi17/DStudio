@@ -38,6 +38,32 @@ static void ds41_progress_test(const char *root) {
     assert(ds41_download_bytes(g_ds4_dir, "ds41f-q4", &partial) == 124 && partial);
     assert(ds41_download_bytes(g_ds4_dir, "ds41f-vision", &partial) == 7 && partial);
     assert(ds41_download_bytes(g_ds4_dir, "unrecognized", &partial) == 0 && !partial);
+    /* 1017 targets bind to their own digests; stock partials never count. */
+    assert(ds41_download_bytes(g_ds4_dir, "ds41f-1017-q2", &partial) == 0 && !partial);
+    assert(ds41_download_bytes(g_ds4_dir, "ds41f-1017-vision", &partial) == 0 && !partial);
+    {
+        const char *n1017[] = {
+            "opaque.f57e6c3e5e68c513249e1c472a2600bf59792ca78cacb7ac0531a6056376856e.x.incomplete",
+            "opaque.861f1097e8686111fa23dc4a6bf139fd0c4cc114db2f1b4090a267f7683c0dbf.x.incomplete",
+        };
+        char p1017[2][2300];
+        for (int i = 0; i < 2; i++) {
+            snprintf(p1017[i], sizeof p1017[i], "%s/%s", download, n1017[i]);
+            int f = open(p1017[i], O_CREAT | O_EXCL | O_WRONLY, 0600); assert(f >= 0);
+            assert(ftruncate(f, i ? 41 : 29) == 0); assert(close(f) == 0);
+        }
+        assert(model_download_uses_hf_artifacts("ds41f-1017-q2") && model_download_uses_hf_artifacts("ds41f-1017-vision"));
+        assert(ds41_download_bytes(g_ds4_dir, "ds41f-1017-q2", &partial) == 29 && partial);
+        assert(ds41_download_bytes(g_ds4_dir, "ds41f-1017-vision", &partial) == 41 && partial);
+        assert(ds41_download_bytes(g_ds4_dir, "ds41f-q2", &partial) == 17);
+        assert(ds41_download_bytes(g_ds4_dir, "ds41f-vision", &partial) == 7);
+        char rel[256]; long long want = 0;
+        model_download_details("ds41f-1017-q2", rel, sizeof rel, &want);
+        assert(!strcmp(rel, MODEL_DS41_1017_Q2) && want == 365713686528LL);
+        model_download_details("ds41f-1017-vision", rel, sizeof rel, &want);
+        assert(!strcmp(rel, MODEL_DS41_1017_VISION) && want == 970555552LL);
+        assert(unlink(p1017[0]) == 0 && unlink(p1017[1]) == 0);
+    }
     snprintf(paths[7], sizeof paths[7], "%s/%s.assembling", g_ds4_dir, MODEL_DS41_Q4);
     int fd = open(paths[7], O_CREAT | O_EXCL | O_WRONLY, 0600); assert(fd >= 0);
     assert(ftruncate(fd, 114) == 0); assert(close(fd) == 0);
