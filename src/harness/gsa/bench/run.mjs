@@ -40,7 +40,7 @@ function usage() {
     "  --ssd-streaming <mode>  off, on, or auto (default: off)",
     "  --jsonl <on|off>        Use the structured ds4-agent-jsonl backend (default: on)",
     "  --think <ignored>        Accepted for compatibility; GSA always uses thinking=max",
-    "  --gguf <relpath>        Model file relative to ds4 dir (default: first uncensored/flash gguf)",
+    "  --gguf <relpath>        Model file relative to ds4 dir (default: first official Flash gguf)",
     "  --install-tools         Install/check managed GSA tools before running",
     "  --no-score              Do not run the scorer after cases complete",
     "  --fail-fast             Stop at the first failed case instead of continuing",
@@ -442,9 +442,9 @@ function invalidSelectionPaths(jsonText, workspace, caseDir) {
 function chooseGguf(ds4Dir, explicit) {
   if (explicit) return explicit;
   const ggufs = listGgufs(ds4Dir).map((g) => g.file);
-  return ggufs.find((g) => /abliterated|uncensored/i.test(g)) ||
-         ggufs.find((g) => /flash/i.test(g)) ||
-         ggufs[0] ||
+  const official = ggufs.filter((g) => !/abliterat|uncensor|jailbreak|heretic/i.test(g));
+  return official.find((g) => /flash/i.test(g)) ||
+         official[0] ||
          "";
 }
 
@@ -944,7 +944,7 @@ try {
 
   const launchBody = {
     mode: "agent",
-    model: "uncensored",
+    model: "standard",
     variant: "flash",
     gguf,
     ctx,

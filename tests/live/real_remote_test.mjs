@@ -34,7 +34,7 @@ async function assertRemoteWorkspaceWrite({ mode, workspace, file, content, prom
   mkdirp(workspace);
   const st = await startMode(client.baseUrl, {
     mode,
-    model: 'uncensored',
+    model: 'standard',
     variant: 'flash',
     ctx: 4096,
     power: 100,

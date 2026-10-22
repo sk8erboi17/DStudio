@@ -8,7 +8,7 @@ import {visionPNG} from '../support/vision_fixtures.mjs';
 const source = fs.readFileSync('web/index.html', 'utf8');
 const helpers = source.slice(source.indexOf('    const isGlm53Gguf ='), source.indexOf('    function relativeTime('));
 const functions = ['parseGgufName', 'parseGguf', 'modelIdForEngineStatus', 'ggufIsDsparkSupport',
-  'ggufIsGlmVisionEncoder', 'ggufIsDeepseekVisionEncoder', 'ggufIsEngineComponent', 'ggufIsUsableModel',
+  'ggufIsGlmVisionEncoder', 'ggufIsDeepseekVisionEncoder', 'ggufIsEngineComponent', 'ggufIsModifiedWeights', 'ggufIsUsableModel',
   'buildBody', 'launchBase', 'confirmTrueThinkingMax', 'restoreContextAfterThinkingMax',
   'setSettings', 'setSettingsNow', 'applySettingsPatch', 'availableModelDownloads', 'modelDownloadStateFromStatus'].map(name =>
     extractFunction(name === 'parseGguf' ? source.slice(source.indexOf('      function parseGguf(')) : source, name)).join('\n');

@@ -487,7 +487,7 @@ console.log(`Iterations: ${iterations}, phase timeout: ${Math.round(timeoutMs / 
 // 3. Launch the agent with the remote cloud backend.
 const launchBody = {
   mode: 'agent',
-  model: 'uncensored',
+  model: 'standard',
   variant: 'flash',
   ctx: 65536,
   power: 90,
@@ -527,7 +527,7 @@ try {
     try {
       await jsonFetch(baseUrl, '/api/start', {
         method: 'POST', headers: csrfHeaders,
-        body: JSON.stringify({ mode: 'server', model: 'uncensored', variant: 'flash' }),
+        body: JSON.stringify({ mode: 'server', model: 'standard', variant: 'flash' }),
         timeoutMs: 30_000,
       });
     } catch (e) { console.error(`restore failed: ${e?.message || e}`); }

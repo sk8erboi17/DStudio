@@ -10916,7 +10916,7 @@
       videoDuration: 5,
       videoAspect: '16:9',
       theme: 'light',       // 'dark' | 'light' | 'system' — applied to <html data-theme>
-      modelVariant: 'flash',// 'flash' = standard chat IQ2XXS; abliterated is an explicit GGUF choice
+      modelVariant: 'flash',// 'flash' = standard chat IQ2XXS
       ctxSize: 65536,       // engine context window (-c); 64k default, changeable in onboarding/settings
       enginePower: 90,      // ds4 --power launch parameter
       ssdStreaming: 'off',   // off | on | auto — DS4-only defaults to mapped residency without expert SSD streaming
@@ -13412,7 +13412,6 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         : /\bflash\b/i.test(file) ? 'DeepSeek V4 Flash' : 'DeepSeek V4';
       let kind = 'standard';
       if (/deepseek-v4-flash-vision-exp/i.test(file)) kind = 'multimodal';
-      else if (/abliterat|uncensor/i.test(file)) kind = 'abliterated';
       else if (/\bMTP\b/i.test(file)) kind = 'MTP draft';
       else if (/instruct/i.test(file)) kind = 'instruct';
       else if (/chat/i.test(file)) kind = 'chat';
@@ -13462,8 +13461,12 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       return ggufIsDsparkSupport(g) || ggufIsGlmVisionEncoder(g) || ggufIsDeepseekVisionEncoder(g)
         || (/qwen3\.8/i.test(name) && /-ple-|-mmproj-|-mtp\.gguf$/i.test(name));
     }
+    // Only the publishers' own weights; mirrors the host's model_file_is_supported.
+    function ggufIsModifiedWeights(g) {
+      return /abliterat|uncensor|jailbreak|heretic/i.test(String(g?.file || g?.path || ''));
+    }
     function ggufIsUsableModel(g, allGgufs) {
-      if (ggufIsEngineComponent(g)) return false;
+      if (ggufIsEngineComponent(g) || ggufIsModifiedWeights(g)) return false;
       const file = String(g?.file || g?.path || '').split(/[\\/]/).pop();
       if (isDeepseek41Gguf(file)) return /^DeepSeek-V4\.1-Flash-Q[24]\.gguf$/i.test(file);
       if (/qwen3\.8-27b/i.test(file))
@@ -13480,20 +13483,18 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     function ggufBranchLabel(g) {
       return String(g?.branch || g?.engineName || 'ds4');
     }
-    // Quantizations ds4's download scripts can fetch (download_model.sh targets +
-    // abliterated). Shared by the onboarding and Settings model pickers.
+    // Quantizations ds4's download scripts can fetch (download_model.sh targets).
+    // Shared by the onboarding and Settings model pickers.
     const DEFAULT_FLASH_GGUF = 'gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf';
     const MODEL_DOWNLOADS = [
       { id: 'ds41f-q2', label: 'DeepSeek V4.1 Flash · Q2 — 365.7 GB including SSD-backed Engram · Metal', body: { target: 'ds41f-q2', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-Q2\.gguf$/i },
       { id: 'ds41f-q4', label: 'DeepSeek V4.1 Flash · Q4 — 518.6 GB including SSD-backed Engram · Metal', body: { target: 'ds41f-q4', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-Q4\.gguf$/i },
       { id: 'ds41f-vision', role: 'vision-support', label: 'DeepSeek V4.1 Flash · matching native vision encoder — 0.97 GB · Metal', body: { target: 'ds41f-vision', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-Vision\.gguf$/i },
       { id: 'ds4f-q2', label: 'DeepSeek V4 Flash · chat — IQ2_XXS, ~81 GB (0731)', body: { target: 'ds4f-q2', engine: 'main' }, match: /^DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731\.gguf$/i },
-      { id: 'flash-abliterated', label: 'DeepSeek V4 Flash · abliterated (experimental) — IQ2_XXS, ~81 GB (0731)', body: { target: 'flash-abliterated', engine: 'main' }, match: /abliterat|uncensor|headroom/i },
       { id: 'ds4f-q2-q4', label: 'DeepSeek V4 Flash · mixed Q2/Q4 — ~98 GB (0731)', body: { target: 'ds4f-q2-q4', engine: 'main' }, match: /Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown.*imatrix-fixed-0731/i },
       { id: 'ds4f-q4', label: 'DeepSeek V4 Flash · chat — Q4, higher quality & larger (0731)', body: { target: 'ds4f-q4', engine: 'main' }, match: /^DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix-0731\.gguf$/i },
       { id: 'ds4f-mxfp4', label: 'DeepSeek V4 Flash · MXFP4 — ~156 GB (0731, Metal/CUDA)', body: { target: 'ds4f-mxfp4', engine: 'main' }, match: /^DeepSeek-V4-Flash-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-mxfp4-0731\.gguf$/i },
       { id: 'ds4f-dspark', role: 'dspark-support', label: 'DeepSeek V4 Flash · DSpark support (0731 chat) — ~6 GB', body: { target: 'ds4f-dspark', engine: 'main' }, match: /^DeepSeek-V4-Flash-DSpark-support-0731\.gguf$/i },
-      { id: 'flash-dspark', role: 'dspark-support', label: 'DeepSeek V4 Flash · DSpark support (0731 abliterated) — ~6 GB', body: { target: 'flash-dspark', engine: 'main' }, match: /DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128-DSpark-support/i },
       { id: 'ds4f-vision-q2', label: 'DeepSeek V4 Flash Vision-Exp · IQ2_XXS — ~86.7 GB / 81 GiB', body: { target: 'ds4f-vision-q2', engine: 'main' }, match: /^DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8\.gguf$/i },
       { id: 'ds4f-vision-q2-q4', label: 'DeepSeek V4 Flash Vision-Exp · mixed Q2/Q4 — ~97.6 GB / 91 GiB', body: { target: 'ds4f-vision-q2-q4', engine: 'main' }, match: /^DeepSeek-V4-Flash-Vision-Exp-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8\.gguf$/i },
       { id: 'ds4f-vision-mxfp4', label: 'DeepSeek V4 Flash Vision-Exp · MXFP4 — ~156 GB / 145 GiB', body: { target: 'ds4f-vision-mxfp4', engine: 'main' }, match: /^DeepSeek-V4-Flash-Vision-Exp-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out\.gguf$/i },
@@ -13528,9 +13529,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     function preferredDefaultGguf(ggufs) {
       return (ggufs || []).find((g) => String(g?.path || '') === DEFAULT_FLASH_GGUF)
         || (ggufs || []).find((g) => /DeepSeek-V4-Flash.*chat/i.test(String(g?.file || ''))
-          && !/abliterat|uncensor|DSpark|support/i.test(String(g?.file || '')))
-        || (ggufs || []).find((g) => !/DSpark|support|abliterat|uncensor/i.test(String(g?.file || '')))
-        || (ggufs || [])[0]
+          && !ggufIsModifiedWeights(g) && !/DSpark|support/i.test(String(g?.file || '')))
+        || (ggufs || []).find((g) => !ggufIsModifiedWeights(g) && !/DSpark|support/i.test(String(g?.file || '')))
+        || (ggufs || []).find((g) => !ggufIsModifiedWeights(g))
         || null;
     }
     function modelDownloadOptionLabel(choice) {
@@ -28932,8 +28933,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const installed = allGgufs.filter(ggufIsDsparkSupport);
         const rows = installed.map((g) => {
           const vision = /vision-exp/i.test(String(g.file || ''));
-          const abliterated = /abliterat|uncensor|headroom/i.test(String(g.file || ''));
-          const draftName = vision ? 'Vision-Exp' : abliterated ? 'Abliterated 0731' : 'Chat 0731';
+          const draftName = vision ? 'Vision-Exp' : 'Chat 0731';
           return el('div', { class: 'set-dspark-file' }, [
             el('span', { class: 'set-dspark-file__dot', 'aria-hidden': 'true' }),
             el('div', { class: 'set-dspark-file__body' }, [
@@ -28959,8 +28959,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             const sel = el('select', { 'aria-label': 'DSpark draft file to download' });
             choices.forEach((choice) => sel.append(el('option', {
               value: choice.id,
-              text: choice.id === 'flash-dspark' ? 'Abliterated 0731 draft · ~6 GB'
-                : choice.id === 'ds4f-vision-dspark' ? 'Vision-Exp draft · ~6 GB'
+              text: choice.id === 'ds4f-vision-dspark' ? 'Vision-Exp draft · ~6 GB'
                 : 'Chat 0731 draft · ~6 GB',
             })));
             const download = el('button', { class: 'btn btn--sm', type: 'button', text: 'Download draft' });
@@ -29686,7 +29685,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (!st || !st.ds4dirOk) return false;
         const models = st.models || {};
         const variants = st.variants || {};
-        return !!(models.standard || models.uncensored || variants.flash || variants.pro || st.modelFile);
+        return !!(models.standard || variants.flash || variants.pro || st.modelFile);
       }
 
       async function setupReadyEnoughToSkipOnboarding() {

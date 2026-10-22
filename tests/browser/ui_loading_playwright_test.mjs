@@ -56,7 +56,7 @@ const server = http.createServer(async (req, res) => {
       stage: started ? 'Ready' : 'Applying saved engine settings…',
       ds4dir: checkoutBody?.dir || '/engines/ds4',
       ds4dirOk: true,
-      models: { standard: false, uncensored: true },
+      models: { standard: false },
       variants: { flash: true, pro: false },
       variant: 'flash',
       modelFile: 'gguf/DeepSeek-V4-Flash-test.gguf',

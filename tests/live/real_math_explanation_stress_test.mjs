@@ -267,7 +267,7 @@ try {
       /DeepSeek-V4-Flash-IQ2XXS-w2Q2K.*chat-v2.*0731/i.test(entry.file));
     if (!gguf) throw new Error('The DeepSeek V4 Flash Q2 GGUF is required for this stress test.');
     await startMode(baseUrl, {
-      mode: 'server', model: 'uncensored', variant: 'flash', gguf: gguf.file,
+      mode: 'server', model: 'standard', variant: 'flash', gguf: gguf.file,
       port: ownedServer.enginePort, ctx: 4096, kvSpaceMb: 256, kvMinTokens: 128,
       power: 90, think: 'high', ssdStreaming,
     }, Number(process.env.DSTUDIO_REAL_TEST_TIMEOUT_MS || 1_800_000));

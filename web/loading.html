@@ -524,7 +524,7 @@
       }
       const models = st.models || {};
       const variants = st.variants || {};
-      if (!st.ds4dirOk || !(models.standard || models.uncensored || variants.flash || variants.pro || st.modelFile)) {
+      if (!st.ds4dirOk || !(models.standard || variants.flash || variants.pro || st.modelFile)) {
         showProgress(visualPct, 'Setup required', 'Opening DStudio');
         await sleep(250);
         location.replace('/');

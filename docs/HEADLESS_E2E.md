@@ -67,7 +67,7 @@ process through DStudio, waits for its real model endpoint, then requires:
 | Laguna S 2.1 Q4_K_M | 68.2 | Passed | Passed |
 | Qwen3.8-Flash-Next Q4K / MXFP4 | 73.4 + 32.0 PLE | Passed | Passed on corrected UI-wait rerun |
 | DeepSeek V4 Flash Chat IQ2XXS | 86.7 | Passed | Passed |
-| DeepSeek V4 Flash Abliterated Headroom128 | 86.7 | Passed | Passed |
+| DeepSeek V4 Flash Abliterated Headroom128 (no longer offered) | 86.7 | Passed | Passed |
 | DeepSeek V4 Flash Vision-Exp IQ2XXS | 86.7 | Passed | Passed, text Chat only |
 | GLM 5.3 Flash Q2 | 96.5 | Passed | Passed |
 | DeepSeek V4 Flash mixed Q4K / IQ2XXS / Q2KDown | 97.6 | Passed | Passed |

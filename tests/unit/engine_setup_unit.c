@@ -41,6 +41,14 @@ static void check_prompt_catalog(int mode, int structured) {
 int main(void) {
     assert(model_file_is_auxiliary("DeepSeek-V4.1-Flash-Vision.gguf"));
     assert(!model_file_is_supported(MODEL_DS41_VISION));
+    /* Only official weights: modified derivatives are refused even when present. */
+    assert(model_file_is_supported(MODEL_STD));
+    assert(!model_file_is_supported("gguf/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128.gguf"));
+    assert(!model_file_is_supported("gguf/cyberneurova-DeepSeek-V4-Flash-abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-aligned.gguf"));
+    assert(!model_file_is_supported("gguf/GLM-5.3-Flash-Uncensored-Q2.gguf"));
+    assert(!model_file_is_supported("gguf/laguna-s-2.1-heretic-Q4_K_M.gguf"));
+    assert(!strcmp(dspark_rel_for_model("gguf/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128.gguf"),
+                   MODEL_DSPARK_UPSTREAM));
 #ifdef __APPLE__
     assert(model_file_is_supported(MODEL_DS41_Q2));
     assert(model_file_is_supported(MODEL_DS41_Q4));

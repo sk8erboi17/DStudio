@@ -172,12 +172,10 @@ minute and a half on an M-series Mac; CMake required). MLX is installed the
 first time you start or download the MLX model (about 15 seconds; macOS 26 and
 Python 3.12–3.14 required). Both happen offline, in the background.
 
-The regular `chat-v2` Flash GGUF and the similarly sized community
-**abliterated** Flash GGUF are separate models. DStudio does not describe the
-latter as universally “uncensored”: its
-[model card](https://huggingface.co/apetersson/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128)
-calls it an experimental refusal-direction edit with refusal-removal validation
-still pending.
+DStudio offers only the publishers' official weights. Abliterated,
+“uncensored” or otherwise safety-modified derivatives cannot be downloaded from
+the app and are not selectable even if such a file is already in the model
+folder; DStudio leaves that file untouched.
 
 ## Supported models and limitations
 
@@ -187,7 +185,7 @@ There is no engine or branch selector.
 
 | Model | Engine | Modes | Size and important limits |
 | --- | --- | --- | --- |
-| DeepSeek V4 Flash | ds4 main | All four | ~87 GB. Standard checkpoints are text-only; the optional abliterated variant is experimental. |
+| DeepSeek V4 Flash | ds4 main | All four | ~87 GB. Standard checkpoints are text-only. |
 | DeepSeek V4 Flash Vision-Exp | ds4 main | All four, with images | Experimental; needs its matching vision encoder. |
 | DeepSeek V4 Pro | ds4 main | All four (integrated) | About 430 GB; not validated on the reference 96 GB Mac. |
 | DeepSeek V4.1 Flash | ds4 main | Experimental; qualification in progress | macOS Metal, full power. Q2 is 365.7 GB on SSD including disk-backed Engram tables; no DSpark or non-Metal qualification. |

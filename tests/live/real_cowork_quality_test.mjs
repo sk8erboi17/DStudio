@@ -464,8 +464,7 @@ function selectGguf(ggufs) {
     return exact;
   }
   const usable = ggufs.filter((item) => !/DSpark-support|MXFP4/i.test(item.file));
-  return usable.find((item) => /IQ2XXS.*imatrix/i.test(item.file)) ||
-    usable.find((item) => /Headroom/i.test(item.file)) || usable[0];
+  return usable.find((item) => /IQ2XXS.*imatrix/i.test(item.file)) || usable[0];
 }
 
 const server = await startDStudio({

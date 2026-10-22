@@ -275,16 +275,20 @@ int main(void) {
     assert(remote_start.model[0] == '\0');
 
     engine_cfg remote_cfg = ENGINE_DEFAULTS;
-    assert(ENGINE_DEFAULTS.uncensored == 0);
+    assert(ENGINE_DEFAULTS.port == 28000);
     assert(ENGINE_DEFAULTS.ctx == 65536);
     assert(ENGINE_DEFAULTS.ssd_streaming == SSD_STREAMING_OFF);
     assert(strcmp(MODEL_FLASH, MODEL_STD) == 0);
-    assert(strcmp(MODEL_FLASH, MODEL_UNC) != 0);
     assert(strcmp(variant_rel("flash"), MODEL_STD) == 0);
     engine_cfg parsed_default = ENGINE_DEFAULTS;
     int parsed_bad = 0;
     parse_cfg("{}", &parsed_default, &parsed_bad);
-    assert(!parsed_bad && parsed_default.uncensored == 0);
+    assert(!parsed_bad && parsed_default.port == 28000);
+    parse_cfg("{\"model\":\"standard\"}", &parsed_default, &parsed_bad);
+    assert(!parsed_bad);
+    /* Modified-weight selections are no longer offered: rejected, not remapped. */
+    parse_cfg("{\"model\":\"uncensored\"}", &parsed_default, &parsed_bad);
+    assert(parsed_bad);
 
     const unsigned long long gib = 1024ull * 1024ull * 1024ull;
     assert(flash_context_memory_bytes(65536) < gib);

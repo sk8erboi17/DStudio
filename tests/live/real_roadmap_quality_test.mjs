@@ -219,7 +219,7 @@ try {
       // Like the UI, local Qwen engines launch at full power: none implements throttling.
       ? { mode: 'server', variant: 'flash', gguf: gguf.file, port: server.enginePort,
           ctx: Number(process.env.DSTUDIO_REAL_ROADMAP_CTX || 65536), power: 100, think: 'off', ssdStreaming: 'off' }
-      : { mode: 'server', model: 'uncensored', variant: 'flash',
+      : { mode: 'server', model: 'standard', variant: 'flash',
           gguf: gguf.file, port: server.enginePort, ctx: 65536, power: 90, think: 'off', ssdStreaming: 'off' };
     writeArtifact(artifacts, 'launch.json', launch);
     await startMode(server.baseUrl, launch, Number(process.env.DSTUDIO_REAL_TEST_TIMEOUT_MS || 1_800_000));

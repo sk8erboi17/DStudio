@@ -392,9 +392,8 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #include "harness/design/design_system_catalog.h"
 
 #define MODEL_STD "gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"
-#define MODEL_UNC "gguf/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128.gguf"
 /* Model variants the UI can pick: flash = the official chat-tuned Flash IQ2XXS,
- * pro = the official V4-Pro IQ2XXS. Abliterated remains an explicit GGUF pick. */
+ * pro = the official V4-Pro IQ2XXS. */
 #define MODEL_FLASH MODEL_STD
 #define MODEL_DS41_Q2 "gguf/DeepSeek-V4.1-Flash-Q2.gguf"
 #define MODEL_DS41_Q2_BYTES 365713686528LL
@@ -421,21 +420,8 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define MODEL_DSVISION_DSPARK "gguf/DeepSeek-V4-Flash-Vision-Exp-DSpark-support.gguf"
 #define MODEL_DSVISION_DSPARK_EXPECTED_BYTES 5989114528LL
 #define MODEL_DSVISION_DSPARK_SHA256 "0807a67fd9ce5874bfc60d8d2461f50e11657e3dd94913d3473f85aa679bc877"
-#define MODEL_ABLITERATED_HF_REVISION "08f6c6225ab4d29a735ab7d48d46bd0a3a767a07"
-#define MODEL_ABLITERATED_EXPECTED_BYTES 86720111552LL
-#define MODEL_ABLITERATED_SHA256 "55a46e7e9a51f3d6708559b8b284c3e60f6b97f9bab1f2c9633948c8331e99ee"
-#define MODEL_ABLITERATED_URL \
-    "https://huggingface.co/apetersson/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128/resolve/" \
-    MODEL_ABLITERATED_HF_REVISION "/" \
-    "DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128.gguf?download=true"
 #define MODEL_DSPARK_UPSTREAM "gguf/DeepSeek-V4-Flash-DSpark-support-0731.gguf"
-#define MODEL_DSPARK_ABLITERATED "gguf/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128-DSpark-support.gguf"
 #define MODEL_DSPARK_EXPECTED_BYTES 5989114272LL
-#define MODEL_DSPARK_SHA256 "373428b876cb77795132a829486463173206693f92ef172ada4e346e46a40e2f"
-#define MODEL_DSPARK_URL \
-    "https://huggingface.co/apetersson/DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128/resolve/" \
-    MODEL_ABLITERATED_HF_REVISION "/" \
-    "DeepSeek-V4-Flash-0731-Abliterated-DS4-Headroom128-DSpark-support.gguf?download=true"
 #define MODEL_PRO_EXPECTED_BYTES 430000000000LL  /* ~430 GB (pro-q2-imatrix), for the % */
 
 enum { ENGINE_NONE = 0, ENGINE_SERVER, ENGINE_AGENT, ENGINE_COWORK, ENGINE_DESIGN };
@@ -446,7 +432,6 @@ enum { SSD_STREAMING_OFF = 0, SSD_STREAMING_ON = 1, SSD_STREAMING_AUTO = 2 };
 #define MODE_IS_PIPED(m) ((m) == ENGINE_AGENT || (m) == ENGINE_COWORK || (m) == ENGINE_DESIGN)
 
 typedef struct {
-    int uncensored;   /* 0 standard, 1 uncensored */
     int port;         /* server: HTTP port. default 28000 */
     int ctx;          /* default 262144 */
     int power;        /* 1..100, default 100 */
@@ -494,7 +479,7 @@ static char g_launch_executable[DSTUDIO_PATH_MAX];
 static volatile sig_atomic_t g_launch_worker_cancel = 0;
 
 static const engine_cfg ENGINE_DEFAULTS = {
-    0, 28000, 65536, 90, 24576, 128, 1, 0, SSD_STREAMING_OFF, "max"
+    28000, 65536, 90, 24576, 128, 1, 0, SSD_STREAMING_OFF, "max"
 };
 
 /* ---- global engine state ---- */
@@ -1009,18 +994,17 @@ static int json_get_bool(const char *body, const char *key) {
     return strncmp(p, "true", 4) == 0;
 }
 
-/* "model":"standard"|"uncensored" → 0/1; def if absent; -1 invalid. */
-static int json_get_model(const char *body, int def) {
+/* Legacy "model" field: absent or "standard" is valid. Modified-weight
+ * variants such as "uncensored" are no longer offered and are rejected. */
+static int json_model_valid(const char *body) {
     const char *p = strstr(body, "\"model\"");
-    if (!p) return def;
+    if (!p) return 1;
     p += 7;
     while (*p == ' ' || *p == '\t') p++;
-    if (*p != ':') return -1;
+    if (*p != ':') return 0;
     p++;
     while (*p == ' ' || *p == '\t') p++;
-    if (!strncmp(p, "\"uncensored\"", 12)) return 1;
-    if (!strncmp(p, "\"standard\"", 10)) return 0;
-    return -1;
+    return !strncmp(p, "\"standard\"", 10);
 }
 
 /* Appends src to out as a JSON-escaped string. Returns bytes written. */
@@ -2259,7 +2243,7 @@ fail:
 /* ==================== model / kv / port ==================== */
 
 /* Active model variant the UI picked ("flash" | "pro"). Flash is the standard
- * chat-tuned GGUF. Abliterated is available only as an explicit GGUF choice. */
+ * chat-tuned GGUF. */
 static char g_variant[16] = "flash";
 static pid_t g_dl_pid = -1;          /* background model download, if any */
 static char  g_dl_variant[48] = "";  /* download_model.sh target */
@@ -2351,9 +2335,7 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
                                    long long *expected_bytes) {
     const char *file = "";
     long long bytes = 0;
-    if (!strcmp(target, "flash-abliterated")) {
-        file = MODEL_UNC; bytes = MODEL_ABLITERATED_EXPECTED_BYTES;
-    } else if (!strcmp(target, "ds41f-q2")) {
+    if (!strcmp(target, "ds41f-q2")) {
         file = MODEL_DS41_Q2; bytes = MODEL_DS41_Q2_BYTES;
     } else if (!strcmp(target, "ds41f-q4")) {
         file = MODEL_DS41_Q4; bytes = MODEL_DS41_Q4_BYTES;
@@ -2373,8 +2355,6 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
         bytes = 156000000000LL;
     } else if (!strcmp(target, "ds4f-dspark")) {
         file = MODEL_DSPARK_UPSTREAM; bytes = MODEL_DSPARK_EXPECTED_BYTES;
-    } else if (!strcmp(target, "flash-dspark")) {
-        file = MODEL_DSPARK_ABLITERATED; bytes = MODEL_DSPARK_EXPECTED_BYTES;
     } else if (!strcmp(target, "pro-q2-imatrix")) {
         file = MODEL_PRO; bytes = MODEL_PRO_EXPECTED_BYTES;
     } else if (!strcmp(target, "glm53-q2")) {
@@ -2587,9 +2567,8 @@ static int paused_model_download(char *target, size_t targetsz,
     /* Every main downloader target uses a stable, visible .part beside its
      * final GGUF. Find it after an app restart so Resume/Delete still work. */
     static const char *stable_targets[] = {
-        "flash-abliterated",
         "ds4f-q2", "ds4f-q2-q4", "ds4f-q4", "ds4f-mxfp4",
-        "ds4f-dspark", "flash-dspark",
+        "ds4f-dspark",
         "pro-q2-imatrix", "glm53-q2", "glm53-vision",
         "ds4f-vision-q2", "ds4f-vision-q2-q4", "ds4f-vision-mxfp4",
         "ds4f-vision-encoder", "ds4f-vision-dspark",
@@ -2780,28 +2759,6 @@ static int child_curl_resumable(const char *part, const char *final,
     return rename(part, final) == 0 ? 0 : 1;
 }
 
-static int child_download_abliterated_resumable(const char *checkout) {
-    char gguf[DSTUDIO_PATH_MAX + 16];
-    snprintf(gguf, sizeof gguf, "%s/gguf", checkout);
-    if (mkdir(gguf, 0755) != 0 && errno != EEXIST) return 1;
-    char part[DSTUDIO_PATH_MAX + 1100], final[DSTUDIO_PATH_MAX + 1100];
-    snprintf(final, sizeof final, "%s/%s", checkout, MODEL_UNC);
-    snprintf(part, sizeof part, "%s.part", final);
-    return child_curl_resumable(part, final, MODEL_ABLITERATED_URL,
-                                MODEL_ABLITERATED_EXPECTED_BYTES, MODEL_ABLITERATED_SHA256);
-}
-
-static int child_download_dspark_resumable(const char *checkout) {
-    char gguf[DSTUDIO_PATH_MAX + 16];
-    snprintf(gguf, sizeof gguf, "%s/gguf", checkout);
-    if (mkdir(gguf, 0755) != 0 && errno != EEXIST) return 1;
-    char part[DSTUDIO_PATH_MAX + 1100], final[DSTUDIO_PATH_MAX + 1100];
-    snprintf(final, sizeof final, "%s/%s", checkout, MODEL_DSPARK_ABLITERATED);
-    snprintf(part, sizeof part, "%s.part", final);
-    return child_curl_resumable(part, final, MODEL_DSPARK_URL,
-                                MODEL_DSPARK_EXPECTED_BYTES, MODEL_DSPARK_SHA256);
-}
-
 static int child_download_laguna_resumable(const char *checkout) {
     char part[DSTUDIO_PATH_MAX + 1100], final[DSTUDIO_PATH_MAX + 1100];
     if (!prepare_laguna_resumable_partial(checkout, part, sizeof part,
@@ -2826,14 +2783,6 @@ static int child_curl_resumable(const char *part, const char *final,
                                 const char *expected_sha256) {
     (void)part; (void)final; (void)url;
     (void)expected_bytes; (void)expected_sha256;
-    return 1;
-}
-static int child_download_abliterated_resumable(const char *checkout) {
-    (void)checkout;
-    return 1;
-}
-static int child_download_dspark_resumable(const char *checkout) {
-    (void)checkout;
     return 1;
 }
 static int child_download_laguna_resumable(const char *checkout) {
@@ -2930,11 +2879,19 @@ static int ascii_equal_ci(const char *a, const char *b) {
 static int model_file_is_mlx(const char *rel) {
     return rel && !strncmp(rel, "mlx/", 4) && ascii_equal_ci(rel + 4, &MODEL_QWEN36_MLX[4]);
 }
+/* Only the publishers' own weights are offered. Abliterated or otherwise
+ * safety-removed derivatives are refused even when a file is already on disk;
+ * the file itself is left untouched. */
+static int model_file_is_modified_weights(const char *name) {
+    size_t len = strlen(name);
+    return mem_contains_ci(name, len, "abliterat") || mem_contains_ci(name, len, "uncensor") ||
+           mem_contains_ci(name, len, "jailbreak") || mem_contains_ci(name, len, "heretic");
+}
 static int model_file_is_supported(const char *name) {
     if (!name) return 0;
     if (!strncmp(name, "mlx/", 4)) return model_file_is_mlx(name);
     size_t len = strlen(name);
-    if (model_file_is_auxiliary(name)) return 0;
+    if (model_file_is_auxiliary(name) || model_file_is_modified_weights(name)) return 0;
     if (model_file_is_deepseek41(name)) {
 #ifndef __APPLE__
         return 0; /* Upstream V4.1 currently implements Metal only. */
@@ -3160,8 +3117,7 @@ static const char *dspark_rel_for_model(const char *model_rel) {
     const char *base = strrchr(model_rel, '/');
     const char *name = base ? base + 1 : model_rel;
     if (mem_contains_ci(name, strlen(name), "deepseek-v4-flash-vision-exp")) return MODEL_DSVISION_DSPARK;
-    return strstr(model_rel, "Abliterated")
-        ? MODEL_DSPARK_ABLITERATED : MODEL_DSPARK_UPSTREAM;
+    return MODEL_DSPARK_UPSTREAM;
 }
 static const char *current_dspark_rel(void) { return dspark_rel_for_model(current_model_rel()); }
 
@@ -3578,9 +3534,9 @@ static int cfg_ssd_streaming(const engine_cfg *cfg, int remote_model,
     return 1;
 }
 
-static int model_present(int uncensored) {
+static int model_present(void) {
     char full[2048];
-    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, uncensored ? MODEL_UNC : MODEL_STD);
+    snprintf(full, sizeof full, "%s/%s", g_ds4_dir, MODEL_STD);
     return access(full, R_OK) == 0;
 }
 
@@ -3766,7 +3722,7 @@ static int chrome_available(void) {
 
 /* The KV disk cache is prefix state computed from a SPECIFIC model's weights —
  * it is only valid for that exact GGUF. Keying it by anything coarser (e.g. a
- * standard/uncensored flag) means switching models (Flash <-> Pro, or any other
+ * model family flag) means switching models (Flash <-> Pro, or any other
  * GGUF) would reuse another model's cached KV tensors and corrupt generation.
  * So each model gets its OWN cache directory under ds4-kv/<model-key>, derived
  * from the GGUF file name. Switching back and forth keeps each model's cache. */
@@ -5176,8 +5132,7 @@ static int spawn_server_prepared(const engine_cfg *cfg, char *err, size_t errsz,
     set_nonblock(g_out_fd); set_nonblock(g_err_fd);
     g_child = pid; g_mode = ENGINE_SERVER; g_external_server = 0; g_cfg = *cfg;
     reset_progress("Starting the server…");
-    printf("engine: server pid %d (port %d, %s)\n", (int)pid, cfg->port,
-           cfg->uncensored ? "uncensored" : "standard");
+    printf("engine: server pid %d (port %d)\n", (int)pid, cfg->port);
     return 1;
 #endif
 }
@@ -6511,8 +6466,7 @@ static int spawn_agent_prepared(const engine_cfg *cfg, const char *workdir,
      * completed and the child emits its first WAITING marker. */
     g_agent_working = 1;
     g_agent_session_working = 0;
-    printf("engine: %s pid %d (chdir %s, %s, %s)\n", runtime_label, (int)pid, wd,
-           cfg->uncensored ? "uncensored" : "standard",
+    printf("engine: %s pid %d (chdir %s, %s)\n", runtime_label, (int)pid, wd,
            harness ? g_harness : owned_model ? "jsonl/owned-local-model" : remote_model ? "jsonl/remote-model" : "jsonl");
     return 1;
 }
@@ -6743,8 +6697,7 @@ static int spawn_design_prepared(const engine_cfg *cfg, const char *workdir,
      * at which prompts/session commands are safe to accept. */
     g_agent_working = 1;
     g_agent_session_working = 0;
-    printf("engine: design pid %d (workspace %s, %s%s)\n", (int)pid, wd,
-           cfg->uncensored ? "uncensored" : "standard",
+    printf("engine: design pid %d (workspace %s%s)\n", (int)pid, wd,
            remote_model ? ", remote-model" : "");
     return 1;
 }
@@ -6823,7 +6776,7 @@ static void api_model_download(int fd, const char *body) {
     static const char *TARGETS[] = {
         "ds41f-q2", "ds41f-q4", "ds41f-vision",
         "ds4f-q2", "ds4f-q2-q4", "ds4f-q4", "ds4f-mxfp4",
-        "ds4f-dspark", "flash-dspark",
+        "ds4f-dspark",
         "ds4f-vision-q2", "ds4f-vision-q2-q4", "ds4f-vision-mxfp4",
         "ds4f-vision-encoder", "ds4f-vision-dspark",
         "pro-q2-imatrix", "pro-q4-layers00-30", "pro-q4-layers31-output", "pro-q4-split",
@@ -6833,13 +6786,12 @@ static void api_model_download(int fd, const char *body) {
     int valid = 0;
     for (size_t i = 0; i < sizeof TARGETS / sizeof TARGETS[0]; i++)
         if (!strcmp(target, TARGETS[i])) valid = 1;
-    int abliterated = !strcmp(target, "flash-abliterated");
-    if (!valid && !abliterated) {
+    if (!valid) {
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"unknown model/target\"}");
         return;
     }
     unsigned long long task_id = task_begin("model-download", "Download model",
-                                            abliterated ? "flash" : target, ENGINE_NONE,
+                                            target, ENGINE_NONE,
                                             g_ds4_dir, 0, 0);
     if (g_dl_pid > 0) {
         task_mark_failed(task_id, "a download is already running", g_dl_variant);
@@ -6984,7 +6936,6 @@ static void api_model_download(int fd, const char *body) {
                    "--directory-identity", store_identity, "--progress-fd", "3", (char *)NULL);
             _exit(127);
         }
-        if (abliterated) _exit(child_download_abliterated_resumable(ds4_abs));
         if (!strcmp(target, "qwen36-q6")) {
             char helper[DSTUDIO_PATH_MAX + 64];
             snprintf(helper, sizeof helper, "%s/scripts/download-%s.py", g_web_dir,
@@ -6992,7 +6943,6 @@ static void api_model_download(int fd, const char *body) {
             execlp("python3", "python3", helper, "--directory", "gguf", (char *)NULL);
             _exit(127);
         }
-        if (!strcmp(target, "flash-dspark")) _exit(child_download_dspark_resumable(ds4_abs));
         if (!strcmp(target, "laguna-q4")) _exit(child_download_laguna_resumable(ds4_abs));
         else            execl("/bin/sh", "sh", "download_model.sh", target, (char *)NULL);
         _exit(127);
@@ -7008,12 +6958,11 @@ static void api_model_download(int fd, const char *body) {
     dstudio_task *t = task_find(task_id);
     if (t) t->pid = (int)pid;
     task_mark_working(task_id, "model download started");
-    cstr_copy(g_dl_variant, sizeof g_dl_variant, abliterated ? "flash" : target);
-    model_download_details(abliterated ? "flash-abliterated" : target,
-                           g_dl_rel, sizeof g_dl_rel, &g_dl_expected_bytes);
-    printf("model: downloading %s (pid %d) — log %s\n", abliterated ? "abliterated" : target, (int)pid, log_path);
+    cstr_copy(g_dl_variant, sizeof g_dl_variant, target);
+    model_download_details(target, g_dl_rel, sizeof g_dl_rel, &g_dl_expected_bytes);
+    printf("model: downloading %s (pid %d) — log %s\n", target, (int)pid, log_path);
     char out[128];
-    snprintf(out, sizeof out, "{\"ok\":true,\"taskId\":%llu,\"target\":\"%s\"}", task_id, abliterated ? "flash" : target);
+    snprintf(out, sizeof out, "{\"ok\":true,\"taskId\":%llu,\"target\":\"%s\"}", task_id, target);
     send_json(fd, "200 OK", out);
 #endif
 }
@@ -7161,8 +7110,7 @@ static void api_model_partials_delete(int fd, const char *body) {
                   "{\"ok\":false,\"error\":\"some partial files could not be deleted\"}");
         return;
     }
-    if (!strcmp(g_dl_variant, target) ||
-        (!strcmp(target, "flash-abliterated") && !strcmp(g_dl_variant, "flash"))) {
+    if (!strcmp(g_dl_variant, target)) {
         g_dl_variant[0] = '\0';
         g_dl_rel[0] = '\0';
         g_dl_expected_bytes = 0;
@@ -7263,10 +7211,10 @@ static void api_status(int fd) {
     char cfg[640];
     if (engine_running)
         snprintf(cfg, sizeof cfg,
-                 "{\"model\":\"%s\",\"port\":%d,\"ctx\":%d,\"power\":%d,\"think\":\"%s\",\"designThinkTokens\":%d,"
+                 "{\"port\":%d,\"ctx\":%d,\"power\":%d,\"think\":\"%s\",\"designThinkTokens\":%d,"
                  "\"ssdStreaming\":\"%s\",\"ssdStreamingEffective\":%s,\"ssdStreamingReason\":\"%s\","
                  "\"metalHotlistSeed\":%s,\"dspark\":%s}",
-                 effective->uncensored ? "uncensored" : "standard", effective->port, effective->ctx, effective->power,
+                 effective->port, effective->ctx, effective->power,
                  effective->think == 0 ? "off" : effective->think == 2 ? "max" : "high",
                  effective->design_think_tokens,
                  effective->ssd_streaming == SSD_STREAMING_ON ? "on" : effective->ssd_streaming == SSD_STREAMING_OFF ? "off" : "auto",
@@ -7321,7 +7269,7 @@ static void api_status(int fd) {
         "\"agentWorking\":%s,\"agentSessionWorking\":%s,\"agentDiskCheckpointsSupported\":%s,\"workdir\":\"%s\",\"config\":%s,"
         "\"ds4dir\":\"%s\",\"ds4dirOk\":%s,\"webdir\":\"%s\",\"webdirOk\":%s,"
         "\"lan\":%s,\"lanAddr\":\"%s\",\"httpPort\":%d,"
-        "\"models\":{\"standard\":%s,\"uncensored\":%s},"
+        "\"models\":{\"standard\":%s},"
         "\"variants\":{\"flash\":%s,\"pro\":%s},\"variant\":\"%s\","
         "\"download\":%s,\"downloadVariant\":\"%s\",\"downloadPct\":%lld,"
         "\"downloadBytes\":%lld,\"downloadExpectedBytes\":%lld,\"downloadPhase\":\"%s\","
@@ -7337,7 +7285,7 @@ static void api_status(int fd) {
         g_agent_session_working ? "true" : "false", agent_disk_checkpoints_supported() ? "true" : "false", wd_esc, cfg,
         d4_esc, ds4_dir_valid() ? "true" : "false", web_esc, web_dir_valid() ? "true" : "false",
         lan_on ? "true" : "false", lan_addr, g_http_port,
-        model_present(0) ? "true" : "false", model_present(1) ? "true" : "false",
+        model_present() ? "true" : "false",
         file_present(MODEL_FLASH) ? "true" : "false", file_present(MODEL_PRO) ? "true" : "false",
         g_variant, g_dl_variant[0] ? "true" : "false", g_dl_variant, dl_pct,
         dl_bytes, g_dl_expected_bytes, model_download_phase(),
@@ -7725,7 +7673,6 @@ static char *gguf_catalog_build_known(void) {
     static const char *known[] = {
         MODEL_STD,
         MODEL_DS41_Q2, MODEL_DS41_Q4, MODEL_DS41_VISION,
-        MODEL_UNC,
         "gguf/DeepSeek-V4-Flash-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-fixed-0731.gguf",
         "gguf/DeepSeek-V4-Flash-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-mxfp4-0731.gguf",
         MODEL_PRO,
@@ -7737,7 +7684,6 @@ static char *gguf_catalog_build_known(void) {
         MODEL_DSVISION_MXFP4,
         MODEL_DSVISION_ENCODER,
         MODEL_DSPARK_UPSTREAM,
-        MODEL_DSPARK_ABLITERATED,
         MODEL_DSVISION_DSPARK,
         MODEL_LAGUNA,
         MODEL_QWEN, MODEL_QWEN_Q2, MODEL_LEGACY_QWEN,
@@ -8287,9 +8233,7 @@ oom:
 
 static void parse_cfg(const char *body, engine_cfg *cfg, int *bad) {
     long v;
-    int m = json_get_model(body, ENGINE_DEFAULTS.uncensored);
-    if (m < 0) { *bad = 1; m = ENGINE_DEFAULTS.uncensored; }
-    cfg->uncensored = m;
+    if (!json_model_valid(body)) *bad = 1;
     int r;
     r = json_get_int(body, "port", 1024, 65535, &v);     if (r < 0) *bad = 1; else if (r) cfg->port = (int)v;
     r = json_get_int(body, "ctx", 1024, 1048576, &v);    if (r < 0) *bad = 1; else if (r) cfg->ctx = (int)v;
@@ -8498,14 +8442,7 @@ static void api_start(int fd, const char *body) {
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"code\":\"model_unavailable\",\"error\":\"The selected model file is missing or its path is invalid. Select an installed model.\"}");
         return;
     }
-    if (explicit_gguf) {
-        snprintf(model_override, sizeof model_override, "%s", gguf);
-        cfg.uncensored = strstr(gguf, "Abliterated") || strstr(gguf, "uncensored");
-    } else if (cfg.uncensored && strcmp(variant, "pro")) {
-        /* Preserve the legacy API's explicit model:"uncensored" choice while
-         * keeping the ordinary flash variant standard by default. */
-        snprintf(model_override, sizeof model_override, "%s", MODEL_UNC);
-    }
+    if (explicit_gguf) snprintf(model_override, sizeof model_override, "%s", gguf);
 
     const int requested_ctx = cfg.ctx;
     const int requested_dspark = json_get_bool(body, "dspark");
@@ -12261,7 +12198,7 @@ int main(int argc, char **argv)
         char err[256];
         /* Gate on the model the server ACTUALLY loads — the selected variant
          * (variant_rel(g_variant), e.g. flash), the same check spawn_server makes
-         * — NOT the standard/uncensored filename. Otherwise a setup with only the
+         * — NOT the standard filename. Otherwise a setup with only the
          * flash GGUF present never auto-starts ("no model") even though it could. */
         if (!model_rel_present(current_model_rel())) printf("engine: no model in %s - start it from the page\n", g_ds4_dir);
         else if (!spawn_server(&boot, err, sizeof err)) printf("engine: %s\n", err);
