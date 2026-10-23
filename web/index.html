@@ -13401,6 +13401,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         return { model: 'Qwen3.6-35B-A3B', kind: 'text', quant: 'Q6_K_XL' };
       if (/qwen3\.8-flash-next-q4kimatrix/i.test(file))
         return { model: 'Qwen3.8-Flash-Next', kind: 'text', quant: 'Q4K / MXFP4' };
+      // antirez's 1017 IQ2_XXS/Q2_K mix; the generic quant pattern cannot see an underscored name.
+      if (/^DeepSeek-V4\.1-Flash-1017-IQ2_XXS-Q2_K-imatrix\.gguf$/i.test(file))
+        return { model: 'DeepSeek V4.1 Flash 1017', kind: 'standard', quant: 'Q2' };
       const model = /qwen3\.6-35b-a3b/i.test(file) ? 'Qwen3.6-35B-A3B'
         : /qwen3\.8-27b/i.test(file) ? 'Qwen3.8-27B'
         : /qwen3\.8-flash-next/i.test(file) ? 'Qwen3.8-Flash-Next'
@@ -13413,7 +13416,6 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         : /\bflash\b/i.test(file) ? 'DeepSeek V4 Flash' : 'DeepSeek V4';
       let kind = 'standard';
       if (/deepseek-v4-flash-vision-exp/i.test(file)) kind = 'multimodal';
-      else if (/deepseek-v4\.1-flash-1017-/i.test(file)) kind = 'community';
       else if (/\bMTP\b/i.test(file)) kind = 'MTP draft';
       else if (/instruct/i.test(file)) kind = 'instruct';
       else if (/chat/i.test(file)) kind = 'chat';
@@ -13471,7 +13473,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     function ggufIsUsableModel(g, allGgufs) {
       if (ggufIsEngineComponent(g) || ggufIsModifiedWeights(g)) return false;
       const file = String(g?.file || g?.path || '').split(/[\\/]/).pop();
-      if (isDeepseek41Gguf(file)) return /^DeepSeek-V4\.1-Flash-(?:Q[24]|1017-Q2)\.gguf$/i.test(file);
+      if (isDeepseek41Gguf(file)) return /^DeepSeek-V4\.1-Flash-(?:Q[24]|1017-IQ2_XXS-Q2_K-imatrix)\.gguf$/i.test(file);
       if (/qwen3\.8-27b/i.test(file))
         return !!g?.engineDir && /^Qwen3\.8-27B-UD-Q6_K_XL\.gguf$/i.test(file) && (allGgufs || []).some(part =>
           /^Qwen3\.8-27B-mmproj-F16\.gguf$/i.test(String(part?.file || part?.path || '').split(/[\\/]/).pop()) &&
@@ -13490,11 +13492,10 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     // Shared by the onboarding and Settings model pickers.
     const DEFAULT_FLASH_GGUF = 'gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf';
     const MODEL_DOWNLOADS = [
-      { id: 'ds41f-q2', label: 'DeepSeek V4.1 Flash · Q2 — 365.7 GB including SSD-backed Engram · Metal', body: { target: 'ds41f-q2', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-Q2\.gguf$/i },
+      { id: 'ds41f-q2', label: 'DeepSeek V4.1 Flash 1017 · Q2 — 365.7 GB including SSD-backed Engram · Metal', body: { target: 'ds41f-q2', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-1017-IQ2_XXS-Q2_K-imatrix\.gguf$/i },
       { id: 'ds41f-q4', label: 'DeepSeek V4.1 Flash · Q4 — 518.6 GB including SSD-backed Engram · Metal', body: { target: 'ds41f-q4', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-Q4\.gguf$/i },
-      { id: 'ds41f-vision', role: 'vision-support', label: 'DeepSeek V4.1 Flash · matching native vision encoder — 0.97 GB · Metal', body: { target: 'ds41f-vision', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-Vision\.gguf$/i },
-      { id: 'ds41f-1017-q2', label: 'DeepSeek V4.1 Flash 1017 Q2 (community, nazeshinjite) — 365.7 GB including SSD-backed Engram · Metal', body: { target: 'ds41f-1017-q2', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-1017-Q2\.gguf$/i },
-      { id: 'ds41f-1017-vision', role: 'vision-support', label: 'DeepSeek V4.1 Flash 1017 (community, nazeshinjite) · matching native vision encoder — 0.97 GB · Metal', body: { target: 'ds41f-1017-vision', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-1017-Vision\.gguf$/i },
+      { id: 'ds41f-vision', role: 'vision-support', label: 'DeepSeek V4.1 Flash (original checkpoint, Q4) · matching native vision encoder — 0.97 GB · Metal', body: { target: 'ds41f-vision', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-Vision\.gguf$/i },
+      { id: 'ds41f-1017-vision', role: 'vision-support', label: 'DeepSeek V4.1 Flash 1017 · matching native vision encoder (community, nazeshinjite) — 0.97 GB · Metal', body: { target: 'ds41f-1017-vision', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-1017-Vision\.gguf$/i },
       { id: 'ds4f-q2', label: 'DeepSeek V4 Flash · chat — IQ2_XXS, ~81 GB (0731)', body: { target: 'ds4f-q2', engine: 'main' }, match: /^DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731\.gguf$/i },
       { id: 'ds4f-q2-q4', label: 'DeepSeek V4 Flash · mixed Q2/Q4 — ~98 GB (0731)', body: { target: 'ds4f-q2-q4', engine: 'main' }, match: /Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown.*imatrix-fixed-0731/i },
       { id: 'ds4f-q4', label: 'DeepSeek V4 Flash · chat — Q4, higher quality & larger (0731)', body: { target: 'ds4f-q4', engine: 'main' }, match: /^DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix-0731\.gguf$/i },

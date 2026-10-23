@@ -13,7 +13,8 @@
     "Every declared target is macOS; the release command checks all of them.",
     "V4.1 adds Metal-only Q2/Q4 candidates. Its weights, native disk Engram and expert streaming require distinct real-load and correctness evidence; new rows do not imply qualification.",
     "q36's installer now targets 1305843 (upstream September 24): the reviewed 8362010 runtime rebased with three resolved conflicts, plus the unchanged monitor/monitor-owner/cache-usage patches; existing 8362010 and d67687e installs upgrade in place. Earlier 8362010 real-model receipts do not qualify the new binary. The Qwen3.6 fork additionally carries a Q6_K MoE shader correction.",
-    "Since upstream's September 14 merge (9139e2a), Qwen3.8 Flash Next is part of antirez/ds4 main; the active 0aaea5a pin is upstream's September 20 revision. The retired fork and its separate Q4 PLE format are not active installer targets. New Q2/Q4 single-file BF16 n-gram releases need fresh real-model qualification; older fork receipts are historical, not relabeled."
+    "Since upstream's September 14 merge (9139e2a), Qwen3.8 Flash Next is part of antirez/ds4 main; the active 0aaea5a pin is upstream's September 20 revision. The retired fork and its separate Q4 PLE format are not active installer targets. New Q2/Q4 single-file BF16 n-gram releases need fresh real-model qualification; older fork receipts are historical, not relabeled.",
+    "Since October 22, 2026 the flash41-q2 target is the 1017 checkpoint: antirez's official DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf, the file upstream ds4 5379c1c's ds41f-q2 names. DStudio's pin stays 0aaea5a, so scripts/download-ds41-1017.sh downloads it at a pinned revision with its published SHA-256 (5379c1c kept the original Q2's digest), together with the community 1017 vision sidecar (ds41f-1017-vision; antirez publishes none) whose source revision 1bae0e10 matches. patch/ds4-v41-vision-pairing (antirez/ds4 PR #1225, unmerged) pairs a V4.1 sidecar with the language GGUF by general.source.revision; it is a no-op once upstream drops the hard-coded df42c109 revision. Original-checkpoint receipts do not qualify the 1017 weights."
   ],
   "tracks": [
     {
@@ -228,6 +229,18 @@
       {
         "path": "patch/ds4-server-pld/main-latest.patch",
         "sha256": "361e0f624ea59edd2ec0582127d8e0cb6ebdeae5146093333fd99dff58e83868"
+      },
+      {
+        "path": "patch/ds4-v41-vision-pairing/vision-revision.patch",
+        "sha256": "89e56f412b4912d4366b3cf25ecc9b063e23f47a0a55b3e54f3169f4e8c945d4"
+      },
+      {
+        "path": "scripts/apply-ds4-v41-vision-pairing.sh",
+        "sha256": "e87791ee0a7854eb03e1843c4dce7865ce65a4f6186d12cb66ab5b76ad92c63d"
+      },
+      {
+        "path": "scripts/download-ds41-1017.sh",
+        "sha256": "03bff582f9fd1e8187b4b89f1a47882c91a4d7f86efd8c6d14c12cbec4e968e2"
       }
     ],
     "laguna": [
@@ -367,6 +380,14 @@
       {
         "path": "patch/ds4-agent-jsonl/pld_agent_compaction.h",
         "sha256": "509a6f82157b2386075c7cfb99d47315e77fe22d19ab811eaafb107e9e88df90"
+      },
+      {
+        "path": "patch/ds4-v41-vision-pairing/vision-revision.patch",
+        "sha256": "89e56f412b4912d4366b3cf25ecc9b063e23f47a0a55b3e54f3169f4e8c945d4"
+      },
+      {
+        "path": "scripts/apply-ds4-v41-vision-pairing.sh",
+        "sha256": "e87791ee0a7854eb03e1843c4dce7865ce65a4f6186d12cb66ab5b76ad92c63d"
       }
     ]
   },
@@ -564,7 +585,14 @@
       ],
       "receipts": [],
       "reviews": [],
-      "platform": "macos"
+      "platform": "macos",
+      "weights": {
+        "repository": "antirez/deepseek-v4.1-flash-gguf",
+        "revision": "9dcee51692e6540f697141fc98b097e3c96492a3",
+        "file": "DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf",
+        "bytes": 365713686528,
+        "sha256": "5296e85ff64b42ecb62c8d0c0c54e1caa07e3df8e93112f2365ebbaed62ce93a"
+      }
     },
     {
       "id": "main/macos/metal/flash41-q4",

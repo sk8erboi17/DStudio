@@ -14,6 +14,12 @@ same `general.source.revision`. Vision-Exp keeps its fixed revision check.
 Stock V4.1 files still pair with their own sidecar; mixed checkpoints are still
 refused.
 
+DStudio uses it for the 1017 checkpoint: antirez's official
+`DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf` (target `ds41f-q2`) and the
+community `DeepSeek-V4.1-Flash-1017-Vision.gguf` (target `ds41f-1017-vision`)
+both carry source revision `1bae0e1088993b9b82de08f59de5be5a34e42170`. Upstream
+ds4 `5379c1c` downloads that Q2 but still binds vision to `df42c109`.
+
 `scripts/apply-ds4-v41-vision-pairing.sh` accepts `check`, `apply`, `build`
 (apply alias) or `restore`, with `DS4_DIR` set. Already applied (reverse check)
 exits 0; applicable applies; drift or a partial patch fails with no file

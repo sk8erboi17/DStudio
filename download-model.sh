@@ -5,8 +5,8 @@ case "${1:---help}" in
   --help|-h|help)
     echo 'Usage: ./download-model.sh TARGET [upstream downloader options]'
     echo '  ds4f-q2, ds4f-vision-q2, glm53-q2, glm53-vision -> ds4/main'
-    echo '  ds41f-q2, ds41f-q4, ds41f-vision             -> DeepSeek V4.1 Flash (Metal; Q2 365.7 GB including disk-backed Engram)'
-    echo '  ds41f-1017-q2, ds41f-1017-vision           -> DeepSeek V4.1 Flash 1017 (community; Q2 365.7 GB + 0.97 GB vision; pinned, SHA-256 verified)'
+    echo '  ds41f-q2, ds41f-1017-vision                -> DeepSeek V4.1 Flash 1017 (Metal; antirez Q2 365.7 GB including disk-backed Engram + community 0.97 GB vision)'
+    echo '  ds41f-q4, ds41f-vision                     -> DeepSeek V4.1 Flash original checkpoint (Metal; Q4 518.6 GB + 0.97 GB vision)'
     echo '  laguna-q4                                  -> Laguna S 2.1'
     echo '  qwen38-q2, qwen38-q4k                      -> Qwen3.8-Flash-Next on ds4/main'
     echo '  qwen36-q6                                  -> Qwen3.6-35B-A3B on bundled llama.cpp (31.8 GB)'
@@ -46,7 +46,7 @@ if [ "$1" = qwen27-q6 ]; then
   exec python3 "$project_root/scripts/download-qwen27.py" --directory "$project_root/ds4/gguf" "$@"
 fi
 case "$1" in
-  ds41f-1017-*) DS4_GGUF_DIR=${DS4_GGUF_DIR:-"$project_root/ds4/gguf"}; export DS4_GGUF_DIR
+  ds41f-q2|ds41f-1017-vision) DS4_GGUF_DIR=${DS4_GGUF_DIR:-"$project_root/ds4/gguf"}; export DS4_GGUF_DIR
     exec sh "$project_root/scripts/download-ds41-1017.sh" "$@" ;;
 esac
 exec sh ./download_model.sh "$@"

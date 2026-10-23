@@ -321,7 +321,8 @@ From the project root:
 ./download-model.sh --help
 ./download-model.sh ds4f-q2        # DeepSeek V4 Flash
 ./download-model.sh ds4f-vision-q2 # DeepSeek V4 Flash Vision-Exp + encoder
-./download-model.sh ds41f-q2       # DeepSeek V4.1 Flash Q2 (needs hf with Xet)
+./download-model.sh ds41f-q2       # DeepSeek V4.1 Flash 1017 Q2 (needs hf with Xet)
+./download-model.sh ds41f-1017-vision # its 1017 vision encoder
 ./download-model.sh glm53-q2       # GLM 5.3 Flash (glm53-vision for its encoder)
 ./download-model.sh laguna-q4      # Laguna S 2.1
 ./download-model.sh qwen38-q2      # Qwen3.8-Flash-Next Q2 (qwen38-q4k for Q4)

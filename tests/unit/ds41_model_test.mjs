@@ -23,15 +23,22 @@ function check(name, fn) {
   try {fn(); row.status = 'PASS';} catch (error) {row.status = 'FAIL'; row.error = String(error.stack); process.exitCode = 1;}
   writeArtifact(run, 'results.json', report); console.log(`${row.status}: ${name}`);
 }
-for (const quant of ['Q2', 'Q4']) check(`${quant} has the V4.1 name, API identity and main-engine download`, () => {
+for (const quant of ['Q2', 'Q4']) check(`original ${quant} keeps the V4.1 name and API identity and stays selectable`, () => {
   const model = item(`DeepSeek-V4.1-Flash-${quant}.gguf`);
   assert.deepEqual(plain(context.parseGgufName(model.file)), {model: 'DeepSeek V4.1 Flash', kind: 'standard', quant});
   assert.equal(context.modelIdForEngineStatus({modelFile: model.path, variant: 'flash'}), 'deepseek-v4.1-flash');
   assert(context.ggufIsUsableModel(model, [model]));
-  const id = `ds41f-${quant.toLowerCase()}`;
-  const before = plain(context.availableModelDownloads([])).find(x => x.id === id);
-  assert.deepEqual(before.body, {target: id, engine: 'main'});
-  assert(!plain(context.availableModelDownloads([model])).some(x => x.id === id));
+});
+check('Q4 download is the original checkpoint; ds41f-q2 is the 1017 file, as in upstream ds4 5379c1c', () => {
+  const q4 = item('DeepSeek-V4.1-Flash-Q4.gguf'), oldQ2 = item('DeepSeek-V4.1-Flash-Q2.gguf');
+  const official1017 = item('DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf');
+  assert.deepEqual(plain(context.availableModelDownloads([])).find(x => x.id === 'ds41f-q4').body, {target: 'ds41f-q4', engine: 'main'});
+  assert(!plain(context.availableModelDownloads([q4])).some(x => x.id === 'ds41f-q4'));
+  const q2 = plain(context.availableModelDownloads([])).find(x => x.id === 'ds41f-q2');
+  assert.deepEqual(q2.body, {target: 'ds41f-q2', engine: 'main'}); assert.match(q2.label, /1017/);
+  // Only the 1017 file satisfies ds41f-q2; an original Q2 on disk does not hide it.
+  assert(plain(context.availableModelDownloads([oldQ2])).some(x => x.id === 'ds41f-q2'));
+  assert(!plain(context.availableModelDownloads([official1017])).some(x => x.id === 'ds41f-q2'));
 });
 check('V4.1 encoder is an auxiliary download, never a language model', () => {
   const encoder = item('DeepSeek-V4.1-Flash-Vision.gguf');
@@ -55,28 +62,25 @@ check('only official weights are offered or selectable', () => {
   assert.equal(context.preferredDefaultGguf([modified, official]).file, official.file);
   assert.equal(context.preferredDefaultGguf([modified, modifiedDraft]), null);
 });
-check('1017 community pair has its own names, downloads and encoder, disjoint from stock V4.1', () => {
-  const model = item('DeepSeek-V4.1-Flash-1017-Q2.gguf'), encoder = item('DeepSeek-V4.1-Flash-1017-Vision.gguf');
-  const stock = item('DeepSeek-V4.1-Flash-Q2.gguf'), stockEncoder = item('DeepSeek-V4.1-Flash-Vision.gguf');
-  assert.deepEqual(plain(context.parseGgufName(model.file)), {model: 'DeepSeek V4.1 Flash 1017', kind: 'community', quant: 'Q2'});
+check('1017 pair: official antirez Q2 + community sidecar, its own names and encoder, disjoint from original V4.1', () => {
+  const model = item('DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf'), encoder = item('DeepSeek-V4.1-Flash-1017-Vision.gguf');
+  const stockEncoder = item('DeepSeek-V4.1-Flash-Vision.gguf');
+  assert.deepEqual(plain(context.parseGgufName(model.file)), {model: 'DeepSeek V4.1 Flash 1017', kind: 'standard', quant: 'Q2'});
   assert.equal(context.modelIdForEngineStatus({modelFile: model.path, variant: 'flash'}), 'deepseek-v4.1-flash-1017');
   assert(context.ggufIsUsableModel(model, [model]));
   assert(context.ggufIsEngineComponent(encoder)); assert(!context.ggufIsUsableModel(encoder, [encoder]));
-  const m = plain(context.availableModelDownloads([])).find(x => x.id === 'ds41f-1017-q2');
-  assert.deepEqual(m.body, {target: 'ds41f-1017-q2', engine: 'main'}); assert.match(m.label, /community, nazeshinjite/);
   const v = plain(context.availableNativeVisionDownloads([])).find(x => x.id === 'ds41f-1017-vision');
-  assert.deepEqual(v.body, {target: 'ds41f-1017-vision', engine: 'main'});
-  assert(!plain(context.availableModelDownloads([])).some(x => x.id === 'ds41f-1017-vision'));
-  // Installing one checkpoint never hides the other's downloads.
-  assert(!plain(context.availableModelDownloads([model])).some(x => x.id === 'ds41f-1017-q2'));
-  assert(plain(context.availableModelDownloads([model])).some(x => x.id === 'ds41f-q2'));
-  assert(plain(context.availableModelDownloads([stock])).some(x => x.id === 'ds41f-1017-q2'));
+  assert.deepEqual(v.body, {target: 'ds41f-1017-vision', engine: 'main'}); assert.match(v.label, /community, nazeshinjite/);
+  assert(!plain(context.availableModelDownloads([])).some(x => x.id === 'ds41f-1017-vision' || x.id === 'ds41f-1017-q2'));
+  // Each encoder only satisfies its own download.
   assert(!plain(context.availableNativeVisionDownloads([encoder])).some(x => x.id === 'ds41f-1017-vision'));
   assert(plain(context.availableNativeVisionDownloads([encoder])).some(x => x.id === 'ds41f-vision'));
   assert(plain(context.availableNativeVisionDownloads([stockEncoder])).some(x => x.id === 'ds41f-1017-vision'));
   assert.equal(context.localNativeVisionInfo({...settings, modelGguf: model.path}).model, 'DeepSeek V4.1 Flash 1017');
-  assert(!context.ggufIsUsableModel(item('DeepSeek-V4.1-Flash-1017-Q4.gguf'), []));
-  assert(!context.ggufIsUsableModel(item('DeepSeek-V4.1-Flash-1017-Q2.gguf.part'), []));
+  // The earlier community 1017 Q2 and any other 1017 name are not offered or selectable.
+  for (const file of ['DeepSeek-V4.1-Flash-1017-Q2.gguf', 'DeepSeek-V4.1-Flash-1017-Q4.gguf',
+                      'DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf.part'])
+    assert(!context.ggufIsUsableModel(item(file), []), file);
 });
 check('old V4 encoder does not satisfy the V4.1 download', () => {
   const available = plain(context.availableNativeVisionDownloads([item('DeepSeek-V4-Flash-Vision-Encoder.gguf')]));

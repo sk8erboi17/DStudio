@@ -19,12 +19,12 @@ static void ds41_progress_test(const char *root) {
     snprintf(download, sizeof download, "%s/download", hf); assert(mkdir(download, 0700) == 0);
     const char *names[] = {
         "unrelated.incomplete",
-        "opaque.1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42.incomplete",
-        "opaque.1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42.retry.incomplete",
+        "opaque.5296e85ff64b42ecb62c8d0c0c54e1caa07e3df8e93112f2365ebbaed62ce93a.incomplete",
+        "opaque.5296e85ff64b42ecb62c8d0c0c54e1caa07e3df8e93112f2365ebbaed62ce93a.retry.incomplete",
         "opaque.6442b1f9224079662c02003c0ef9ef6be6e2aff509510f681dab9e6cc41df246.x.incomplete",
         "opaque.7c3e10646c918eeaffbc39305a75ec96117450262c61454ff194cef00d7617f0.x.incomplete",
         "opaque.cc283f032b3e8b8d78aeb5fccaa14e97b859b0c53aae3cd6bffa690ddf0e9e15.x.incomplete",
-        "linked.1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42.incomplete",
+        "linked.5296e85ff64b42ecb62c8d0c0c54e1caa07e3df8e93112f2365ebbaed62ce93a.incomplete",
     };
     const int sizes[] = {999, 17, 11, 101, 23, 7};
     for (int i = 0; i < 7; i++) {
@@ -38,12 +38,13 @@ static void ds41_progress_test(const char *root) {
     assert(ds41_download_bytes(g_ds4_dir, "ds41f-q4", &partial) == 124 && partial);
     assert(ds41_download_bytes(g_ds4_dir, "ds41f-vision", &partial) == 7 && partial);
     assert(ds41_download_bytes(g_ds4_dir, "unrecognized", &partial) == 0 && !partial);
-    /* 1017 targets bind to their own digests; stock partials never count. */
-    assert(ds41_download_bytes(g_ds4_dir, "ds41f-1017-q2", &partial) == 0 && !partial);
+    /* ds41f-q2 is the 1017 file (the partials above carry its published digest);
+     * the community sidecar binds to its own digest. */
     assert(ds41_download_bytes(g_ds4_dir, "ds41f-1017-vision", &partial) == 0 && !partial);
     {
         const char *n1017[] = {
-            "opaque.f57e6c3e5e68c513249e1c472a2600bf59792ca78cacb7ac0531a6056376856e.x.incomplete",
+            /* An original-checkpoint Q2 partial no longer counts toward ds41f-q2. */
+            "opaque.1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42.x.incomplete",
             "opaque.861f1097e8686111fa23dc4a6bf139fd0c4cc114db2f1b4090a267f7683c0dbf.x.incomplete",
         };
         char p1017[2][2300];
@@ -52,13 +53,13 @@ static void ds41_progress_test(const char *root) {
             int f = open(p1017[i], O_CREAT | O_EXCL | O_WRONLY, 0600); assert(f >= 0);
             assert(ftruncate(f, i ? 41 : 29) == 0); assert(close(f) == 0);
         }
-        assert(model_download_uses_hf_artifacts("ds41f-1017-q2") && model_download_uses_hf_artifacts("ds41f-1017-vision"));
-        assert(ds41_download_bytes(g_ds4_dir, "ds41f-1017-q2", &partial) == 29 && partial);
+        assert(model_download_uses_hf_artifacts("ds41f-1017-vision"));
+        assert(!model_download_uses_hf_artifacts("ds41f-1017-q2"));
+        assert(ds41_download_bytes(g_ds4_dir, "ds41f-q2", &partial) == 17 && partial);
         assert(ds41_download_bytes(g_ds4_dir, "ds41f-1017-vision", &partial) == 41 && partial);
-        assert(ds41_download_bytes(g_ds4_dir, "ds41f-q2", &partial) == 17);
         assert(ds41_download_bytes(g_ds4_dir, "ds41f-vision", &partial) == 7);
         char rel[256]; long long want = 0;
-        model_download_details("ds41f-1017-q2", rel, sizeof rel, &want);
+        model_download_details("ds41f-q2", rel, sizeof rel, &want);
         assert(!strcmp(rel, MODEL_DS41_1017_Q2) && want == 365713686528LL);
         model_download_details("ds41f-1017-vision", rel, sizeof rel, &want);
         assert(!strcmp(rel, MODEL_DS41_1017_VISION) && want == 970555552LL);

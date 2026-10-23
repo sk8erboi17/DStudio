@@ -401,10 +401,12 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define MODEL_DS41_Q4_BYTES 518596067328LL
 #define MODEL_DS41_VISION "gguf/DeepSeek-V4.1-Flash-Vision.gguf"
 #define MODEL_DS41_VISION_BYTES 970555552LL
-/* Community 1017 checkpoint (nazeshinjite); its own text/vision pair, never
- * paired with the stock V4.1 files. Identity is pinned in
- * scripts/download-ds41-1017.sh. */
-#define MODEL_DS41_1017_Q2 "gguf/DeepSeek-V4.1-Flash-1017-Q2.gguf"
+/* The 1017 checkpoint: antirez's official Q2 (what upstream ds4 5379c1c's
+ * ds41f-q2 now downloads) and the community 1017 vision sidecar (antirez has
+ * none). Both carry source revision 1bae0e10 and pair only with each other;
+ * the original V4.1 files (MODEL_DS41_Q2/Q4) keep MODEL_DS41_VISION. Repository,
+ * revision, size and SHA-256 are pinned in scripts/download-ds41-1017.sh. */
+#define MODEL_DS41_1017_Q2 "gguf/DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf"
 #define MODEL_DS41_1017_Q2_BYTES 365713686528LL
 #define MODEL_DS41_1017_VISION "gguf/DeepSeek-V4.1-Flash-1017-Vision.gguf"
 #define MODEL_DS41_1017_VISION_BYTES 970555552LL
@@ -2343,13 +2345,11 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
     const char *file = "";
     long long bytes = 0;
     if (!strcmp(target, "ds41f-q2")) {
-        file = MODEL_DS41_Q2; bytes = MODEL_DS41_Q2_BYTES;
+        file = MODEL_DS41_1017_Q2; bytes = MODEL_DS41_1017_Q2_BYTES;
     } else if (!strcmp(target, "ds41f-q4")) {
         file = MODEL_DS41_Q4; bytes = MODEL_DS41_Q4_BYTES;
     } else if (!strcmp(target, "ds41f-vision")) {
         file = MODEL_DS41_VISION; bytes = MODEL_DS41_VISION_BYTES;
-    } else if (!strcmp(target, "ds41f-1017-q2")) {
-        file = MODEL_DS41_1017_Q2; bytes = MODEL_DS41_1017_Q2_BYTES;
     } else if (!strcmp(target, "ds41f-1017-vision")) {
         file = MODEL_DS41_1017_VISION; bytes = MODEL_DS41_1017_VISION_BYTES;
     } else if (!strcmp(target, "ds4f-q2")) {
@@ -2401,8 +2401,7 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
 
 static int model_download_is_ds41(const char *target) {
     return target && (!strcmp(target, "ds41f-q2") || !strcmp(target, "ds41f-q4") ||
-                      !strcmp(target, "ds41f-vision") ||
-                      !strcmp(target, "ds41f-1017-q2") || !strcmp(target, "ds41f-1017-vision"));
+                      !strcmp(target, "ds41f-vision") || !strcmp(target, "ds41f-1017-vision"));
 }
 static int model_download_uses_hf_artifacts(const char *target) {
     return model_download_is_ds41(target) || (target &&
@@ -2419,20 +2418,19 @@ static long long ds41_download_bytes(const char *checkout, const char *target,
         const char *file, *sha;
         long long limit;
     } artifacts[] = {
-        {MODEL_DS41_Q2, "1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42", MODEL_DS41_Q2_BYTES},
+        {MODEL_DS41_1017_Q2, "5296e85ff64b42ecb62c8d0c0c54e1caa07e3df8e93112f2365ebbaed62ce93a", MODEL_DS41_1017_Q2_BYTES},
         {MODEL_DS41_Q4 ".part1", "6442b1f9224079662c02003c0ef9ef6be6e2aff509510f681dab9e6cc41df246", 480000000000LL},
         {MODEL_DS41_Q4 ".part2", "7c3e10646c918eeaffbc39305a75ec96117450262c61454ff194cef00d7617f0", 38596067328LL},
         {MODEL_DS41_VISION, "cc283f032b3e8b8d78aeb5fccaa14e97b859b0c53aae3cd6bffa690ddf0e9e15", MODEL_DS41_VISION_BYTES},
         {MODEL_QWEN_Q2, "b1b93fa69aca5f187b0fb813aca8f3ec1beb5cf8cf0bd38cf041b93e0b6ccac9", MODEL_QWEN_Q2_BYTES},
         {MODEL_QWEN, "680944460a8cbe93ba8b6d7b6107213ffb7e22320bd913000e563ca0a0f25a8a", MODEL_QWEN_BYTES},
-        {MODEL_DS41_1017_Q2, "f57e6c3e5e68c513249e1c472a2600bf59792ca78cacb7ac0531a6056376856e", MODEL_DS41_1017_Q2_BYTES},
         {MODEL_DS41_1017_VISION, "861f1097e8686111fa23dc4a6bf139fd0c4cc114db2f1b4090a267f7683c0dbf", MODEL_DS41_1017_VISION_BYTES},
     };
     if (has_partial) *has_partial = 0;
     if (!model_download_uses_hf_artifacts(target)) return 0;
     int first = !strcmp(target, "ds41f-q2") ? 0 : !strcmp(target, "ds41f-q4") ? 1 :
                 !strcmp(target, "ds41f-vision") ? 3 : !strcmp(target, "qwen38-q2") ? 4 :
-                !strcmp(target, "ds41f-1017-q2") ? 6 : !strcmp(target, "ds41f-1017-vision") ? 7 : 5;
+                !strcmp(target, "ds41f-1017-vision") ? 6 : 5;
     int end = first == 1 ? 3 : first + 1;
     long long present[sizeof artifacts / sizeof artifacts[0]] = {0}, final_bytes = 0;
     char final_rel[1024], file[DSTUDIO_PATH_MAX + 1100];
@@ -2561,7 +2559,7 @@ static int paused_model_download(char *target, size_t targetsz,
     }
 
     static const char *ds41_targets[] = {"ds41f-q2", "ds41f-q4", "ds41f-vision", "qwen38-q2", "qwen38-q4k",
-                                         "ds41f-1017-q2", "ds41f-1017-vision"};
+                                         "ds41f-1017-vision"};
     for (size_t i = 0; i < sizeof ds41_targets / sizeof ds41_targets[0]; i++) {
         const char *store = !strcmp(g_dl_variant, ds41_targets[i]) && g_dl_directory[0]
             ? g_dl_directory : g_ds4_dir;
@@ -6800,7 +6798,7 @@ static void api_model_download(int fd, const char *body) {
 
     /* Whitelist of download_model.sh targets (the different quantizations). */
     static const char *TARGETS[] = {
-        "ds41f-q2", "ds41f-q4", "ds41f-vision", "ds41f-1017-q2", "ds41f-1017-vision",
+        "ds41f-q2", "ds41f-q4", "ds41f-vision", "ds41f-1017-vision",
         "ds4f-q2", "ds4f-q2-q4", "ds4f-q4", "ds4f-mxfp4",
         "ds4f-dspark",
         "ds4f-vision-q2", "ds4f-vision-q2-q4", "ds4f-vision-mxfp4",
@@ -6970,9 +6968,10 @@ static void api_model_download(int fd, const char *body) {
             _exit(127);
         }
         if (!strcmp(target, "laguna-q4")) _exit(child_download_laguna_resumable(ds4_abs));
-        if (!strncmp(target, "ds41f-1017-", 11)) {
-            /* DStudio-owned pinned downloader: the vendored download_model.sh
-             * only knows the stock repo. */
+        if (!strcmp(target, "ds41f-q2") || !strcmp(target, "ds41f-1017-vision")) {
+            /* DStudio-owned pinned downloader. The vendored download_model.sh
+             * (0aaea5a) still names the original Q2, and upstream 5379c1c, which
+             * renamed it to the 1017 file, kept the old SHA-256. */
             char helper[DSTUDIO_PATH_MAX + 64];
             snprintf(helper, sizeof helper, "%s/scripts/download-ds41-1017.sh", g_web_dir);
             execl("/bin/sh", "sh", helper, target, (char *)NULL);

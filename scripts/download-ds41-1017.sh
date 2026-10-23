@@ -1,33 +1,45 @@
 #!/bin/sh
-# DStudio-owned downloader for the community DeepSeek V4.1 Flash 1017 Q2
-# checkpoint (nazeshinjite). The vendored ds4 download_model.sh only knows the
-# stock repository, so this script pins the repository revision and verifies
-# exact size + SHA-256 itself. Run from the ds4 checkout (cwd) or set
-# DS4_GGUF_DIR. Usage: download-ds41-1017.sh ds41f-1017-q2|ds41f-1017-vision [--token TOKEN]
+# DStudio-owned downloader for the DeepSeek V4.1 Flash 1017 checkpoint:
+#   ds41f-q2           antirez's official 1017 Q2, the file upstream ds4 5379c1c's
+#                      ds41f-q2 downloads (the vendored 0aaea5a download_model.sh
+#                      still names the original Q2, and 5379c1c kept that file's
+#                      SHA-256, so the digest here is the published 1017 one).
+#   ds41f-1017-vision  the community 1017 vision sidecar (antirez publishes none);
+#                      source revision 1bae0e10, the same as the 1017 Q2.
+# Each repository is pinned to a revision and every file is checked for exact
+# size + SHA-256. Run from the ds4 checkout (cwd) or set DS4_GGUF_DIR.
+# Usage: download-ds41-1017.sh ds41f-q2|ds41f-1017-vision [--token TOKEN]
+#        download-ds41-1017.sh TARGET --print-pin   (repo revision file bytes sha256; no download)
 set -eu
 
-REPO="nazeshinjite/DeepSeek-V4.1-Flash-1017-ds4-GGUF"
-REVISION="796f58533a0e4b7a89cb006b22aeb44e783f0323"
-Q2_FILE="DeepSeek-V4.1-Flash-1017-Q2.gguf"
-Q2_BYTES=365713686528
-Q2_SHA="f57e6c3e5e68c513249e1c472a2600bf59792ca78cacb7ac0531a6056376856e"
-VISION_FILE="DeepSeek-V4.1-Flash-1017-Vision.gguf"
-VISION_BYTES=970555552
-VISION_SHA="861f1097e8686111fa23dc4a6bf139fd0c4cc114db2f1b4090a267f7683c0dbf"
-
 usage() {
-    echo "Usage: $0 ds41f-1017-q2|ds41f-1017-vision [--token TOKEN]" >&2
+    echo "Usage: $0 ds41f-q2|ds41f-1017-vision [--token TOKEN | --print-pin]" >&2
 }
 
 [ $# -ge 1 ] || { usage; exit 1; }
 TARGET=$1
 shift
 case "$TARGET" in
-    ds41f-1017-q2) FILE=$Q2_FILE; EXPECTED_BYTES=$Q2_BYTES; EXPECTED_SHA=$Q2_SHA ;;
-    ds41f-1017-vision) FILE=$VISION_FILE; EXPECTED_BYTES=$VISION_BYTES; EXPECTED_SHA=$VISION_SHA ;;
+    ds41f-q2)
+        REPO="antirez/deepseek-v4.1-flash-gguf"
+        REVISION="9dcee51692e6540f697141fc98b097e3c96492a3"
+        FILE="DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf"
+        EXPECTED_BYTES=365713686528
+        EXPECTED_SHA="5296e85ff64b42ecb62c8d0c0c54e1caa07e3df8e93112f2365ebbaed62ce93a" ;;
+    ds41f-1017-vision)
+        REPO="nazeshinjite/DeepSeek-V4.1-Flash-1017-ds4-GGUF"
+        REVISION="796f58533a0e4b7a89cb006b22aeb44e783f0323"
+        FILE="DeepSeek-V4.1-Flash-1017-Vision.gguf"
+        EXPECTED_BYTES=970555552
+        EXPECTED_SHA="861f1097e8686111fa23dc4a6bf139fd0c4cc114db2f1b4090a267f7683c0dbf" ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown target: $TARGET" >&2; usage; exit 1 ;;
 esac
+
+if [ "${1:-}" = --print-pin ]; then
+    printf '%s %s %s %s %s\n' "$REPO" "$REVISION" "$FILE" "$EXPECTED_BYTES" "$EXPECTED_SHA"
+    exit 0
+fi
 
 # Test-only oracle override. Production values above are never read from the
 # environment unless the explicit test switch is set.
